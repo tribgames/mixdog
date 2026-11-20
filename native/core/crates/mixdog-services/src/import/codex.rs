@@ -5,9 +5,7 @@
 
 use serde_json::Value;
 
-use super::turns::{
-    IMAGE_OMITTED_TEXT, Part, RawTurn, Role, Stamp, WARNING_IMAGE_OMITTED, is_whole_element, string_or_null, utf16_len,
-};
+use super::turns::{IMAGE_OMITTED_TEXT, Part, RawTurn, Role, Stamp, WARNING_IMAGE_OMITTED, is_whole_element, string_or_null, utf16_len};
 
 /// User-role envelopes Codex injects itself.
 const ENVELOPE_TAGS: [&str; 8] = [
@@ -249,11 +247,7 @@ fn scan_value(text: &[u8], i: usize) -> Option<usize> {
             None
         }
         _ => {
-            let end = text[i..]
-                .iter()
-                .position(|b| matches!(b, b',' | b'}' | b']') || b.is_ascii_whitespace())
-                .map(|p| i + p)
-                .unwrap_or(text.len());
+            let end = text[i..].iter().position(|b| matches!(b, b',' | b'}' | b']') || b.is_ascii_whitespace()).map(|p| i + p).unwrap_or(text.len());
             (end < text.len()).then_some(end)
         }
     }
@@ -289,7 +283,8 @@ fn record_fields(text: &str) -> (Fields, Fields) {
             while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
                 j += 1;
             }
-            if key == "payload" && bytes.get(j) == Some(&b'{')
+            if key == "payload"
+                && bytes.get(j) == Some(&b'{')
                 && let Some(p) = payload.take()
             {
                 return walk(text, bytes, j, p, None);
@@ -336,9 +331,7 @@ pub fn codex_meta_from_truncated_line(line: &str) -> Option<TruncatedMeta> {
 /// Rollout id (UUID) a rollout file name ends with.
 pub fn rollout_id_of(name: &str) -> Option<String> {
     static RE: std::sync::OnceLock<mixdog_js::JsRegex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| {
-        mixdog_js::JsRegex::new_static(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$", "i")
-    });
+    let re = RE.get_or_init(|| mixdog_js::JsRegex::new_static(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$", "i"));
     is_rollout_name(name).then(|| re.captures(name).and_then(|c| c.get(1).map(str::to_lowercase))).flatten()
 }
 
@@ -399,7 +392,8 @@ mod tests {
 
     #[test]
     fn truncated_first_line_still_names_id_and_cwd() {
-        let line = r#"{"timestamp":"t","type":"session_meta","payload":{"id":"i-1","cwd":"/p","source":{"subagent":"review"},"instructions":"long text that gets cu"#;
+        let line =
+            r#"{"timestamp":"t","type":"session_meta","payload":{"id":"i-1","cwd":"/p","source":{"subagent":"review"},"instructions":"long text that gets cu"#;
         let meta = codex_meta_from_truncated_line(line).unwrap();
         assert_eq!(meta.foreign_session_id.as_deref(), Some("i-1"));
         assert_eq!(meta.cwd.as_deref(), Some("/p"));

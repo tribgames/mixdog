@@ -53,13 +53,7 @@ struct Host {
 
 impl Host {
     fn new(provider: Option<String>, session: Option<Doc>) -> Self {
-        Self {
-            provider,
-            session: Mutex::new(session),
-            invalidated: Mutex::new(0),
-            last_thread: Mutex::new(None),
-            refreshes: Mutex::new(Vec::new()),
-        }
+        Self { provider, session: Mutex::new(session), invalidated: Mutex::new(0), last_thread: Mutex::new(None), refreshes: Mutex::new(Vec::new()) }
     }
 }
 
@@ -87,12 +81,7 @@ impl CompactionHost for Host {
 }
 
 fn request(method: &str, params: Value) -> CoreRequest {
-    CoreRequest {
-        method: Method(Box::leak(method.to_owned().into_boxed_str())),
-        params,
-        op: None,
-        ctx: CallContext::internal("settings-test"),
-    }
+    CoreRequest { method: Method(Box::leak(method.to_owned().into_boxed_str())), params, op: None, ctx: CallContext::internal("settings-test") }
 }
 
 async fn set(service: &CompactionSettingsService, method: &str, input: Value) {
@@ -162,7 +151,10 @@ async fn setting_the_auto_clear_window_saves_it_globally_or_per_provider_and_ref
 
     let reply = service.call(request("config/setAutoClear", serde_json::json!({ "input": { "duration": "10m" } }))).await.unwrap();
     let Reply::Value(view) = reply else { panic!("a value") };
-    assert_eq!((view["enabled"].clone(), view["idleMs"].clone(), view["label"].clone()), (Value::Bool(true), serde_json::json!(600_000), serde_json::json!("10m")));
+    assert_eq!(
+        (view["enabled"].clone(), view["idleMs"].clone(), view["label"].clone()),
+        (Value::Bool(true), serde_json::json!(600_000), serde_json::json!("10m"))
+    );
     assert_eq!(store.agent()["autoClear"]["idleMs"], serde_json::json!(600_000));
     set(&service, "config/setAutoClear", serde_json::json!({ "provider": "mistral", "duration": "3600s" })).await;
     assert_eq!(store.agent()["autoClear"]["providerIdleMs"], serde_json::json!({ "mistral": 3_600_000 }));
@@ -187,5 +179,3 @@ fn a_finished_agents_session_is_kept_for_its_providers_window() {
     assert_eq!(agent_terminal_reap_ms(Some(&own_default), "unknown"), 120_000.0);
     assert_eq!(agent_terminal_reap_ms(Some(&serde_json::json!("x")), "groq"), 7_200_000.0, "a config that is not an object is ignored");
 }
-
-

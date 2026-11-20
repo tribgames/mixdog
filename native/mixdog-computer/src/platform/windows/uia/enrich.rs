@@ -3,11 +3,11 @@
 //! MixBoundedUia.MsaaSnapshot).
 
 use super::super::bounded::Mta;
-use super::super::msaa::{self, role_text, state_text, MsaaNode, MAXIMUM};
+use super::super::msaa::{self, MAXIMUM, MsaaNode, role_text, state_text};
 use super::super::msaa_element::MsaaElement;
 use super::snapshot::CHROMIUM_PREFIX;
-use super::{any_of, property_condition, root_from, Uia};
-use crate::a11y::{truncation_warning, Node, NodeExtra, CANDIDATE_LIMIT};
+use super::{Uia, any_of, property_condition, root_from};
+use crate::a11y::{CANDIDATE_LIMIT, Node, NodeExtra, truncation_warning};
 use crate::platform::{Wid, WindowInfo};
 use crate::port::windows::WinPort;
 use std::rc::Rc;
@@ -40,22 +40,14 @@ const SKIPPED_FOR_CHROMIUM: &str = "MSAA enrichment skipped: Chromium capture wi
 /// The most nodes one read of the tree is asked for: a bounded capture needs
 /// eight per element it may show, within 200..=5000.
 fn maximum(bounded: bool, offset_plus_max: usize) -> usize {
-    if bounded {
-        offset_plus_max.saturating_mul(8).clamp(200, MAXIMUM)
-    } else {
-        MAXIMUM
-    }
+    if bounded { offset_plus_max.saturating_mul(8).clamp(200, MAXIMUM) } else { MAXIMUM }
 }
 
 /// Whether a bounded capture leaves the MSAA tree unread, and the warning
 /// that says so: Chromium draws its own controls, so its large tree is never
 /// searched for native ones, and a capture UI Automation filled is searched
 /// only when `unproxied` finds native controls it left out.
-fn skip_warning(
-    chromium: bool,
-    uia_found: usize,
-    unproxied: impl FnOnce() -> Result<bool, String>,
-) -> Result<Option<&'static str>, String> {
+fn skip_warning(chromium: bool, uia_found: usize, unproxied: impl FnOnce() -> Result<bool, String>) -> Result<Option<&'static str>, String> {
     let skip = chromium || (uia_found > 0 && !unproxied()?);
     Ok(skip.then_some(if uia_found > 0 { SKIPPED_FOR_UIA } else { SKIPPED_FOR_CHROMIUM }))
 }
@@ -114,8 +106,7 @@ impl Uia {
             .collect::<Result<Vec<_>, _>>()
             .map_err(to_error)?;
         let classes = any_of(&self.automation, classes).map_err(to_error)?;
-        let pane = property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(UIA_PaneControlTypeId.0))
-            .map_err(to_error)?;
+        let pane = property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(UIA_PaneControlTypeId.0)).map_err(to_error)?;
         // SAFETY: plain factory call.
         let condition = unsafe { self.automation.CreateAndCondition(&pane, &classes) }.map_err(to_error)?;
         let probe = Mta::new((self.automation.clone(), condition));
@@ -140,9 +131,7 @@ impl Uia {
     ) -> Result<(Vec<Node>, usize, Option<String>), String> {
         if bounded {
             let chromium = window.class_name.starts_with(CHROMIUM_PREFIX);
-            if let Some(warning) =
-                skip_warning(chromium, uia_found, || self.has_unproxied_controls(window.handle))?
-            {
+            if let Some(warning) = skip_warning(chromium, uia_found, || self.has_unproxied_controls(window.handle))? {
                 return Ok((Vec::new(), 0, Some(warning.into())));
             }
         }
@@ -153,8 +142,8 @@ impl Uia {
             return Ok((Vec::new(), 0, Some(truncation_warning())));
         }
         let read = self.bounded("the MSAA enrichment", move || {
-            let (nodes, complete) = msaa::snapshot(handle, &id, wanted.min(room), OBJID_CLIENT.0)
-                .map_err(|error| format!("MSAA snapshot failed for {id}: {error}"))?;
+            let (nodes, complete) =
+                msaa::snapshot(handle, &id, wanted.min(room), OBJID_CLIENT.0).map_err(|error| format!("MSAA snapshot failed for {id}: {error}"))?;
             Ok((complete, Mta::new(nodes)))
         })?;
         let (complete, nodes) = read;
@@ -187,14 +176,8 @@ mod tests {
         assert_eq!(skip_warning(false, 3, || Ok(false)), Ok(Some(SKIPPED_FOR_UIA)));
         assert_eq!(skip_warning(false, 3, || Ok(true)), Ok(None));
         assert_eq!(skip_warning(false, 3, || Err("timed out".into())), Err("timed out".into()));
-        assert_eq!(
-            SKIPPED_FOR_UIA,
-            "MSAA enrichment skipped: UIA supplied the bounded capture"
-        );
-        assert_eq!(
-            SKIPPED_FOR_CHROMIUM,
-            "MSAA enrichment skipped: Chromium capture will use pixels or OCR"
-        );
+        assert_eq!(SKIPPED_FOR_UIA, "MSAA enrichment skipped: UIA supplied the bounded capture");
+        assert_eq!(SKIPPED_FOR_CHROMIUM, "MSAA enrichment skipped: Chromium capture will use pixels or OCR");
     }
 
     #[test]

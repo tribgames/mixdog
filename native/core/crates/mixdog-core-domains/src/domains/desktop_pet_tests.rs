@@ -195,10 +195,7 @@ fn clamp_pet_position_keeps_the_whole_window_inside_the_work_area() {
 #[test]
 fn the_default_spot_is_the_bottom_right_inside_the_margin() {
     let window = size(100).window;
-    assert_eq!(
-        default_pet_position(PRIMARY.work_area, window),
-        PetPos { x: 1920.0 - window.width - MARGIN, y: 1040.0 - window.height - MARGIN }
-    );
+    assert_eq!(default_pet_position(PRIMARY.work_area, window), PetPos { x: 1920.0 - window.width - MARGIN, y: 1040.0 - window.height - MARGIN });
 }
 
 #[test]
@@ -434,13 +431,15 @@ fn the_placement_method_answers_each_rule_as_the_function_does() {
     assert_eq!(anchor, serde_json::to_value(&expected).unwrap());
     assert_eq!(ask(json!({ "op": "herePosition", "anchor": anchor, "content": rect(CONTENT) })), point(pet_here_position(&expected, CONTENT)));
     let displays = json!([{ "id": 1, "workArea": rect(PRIMARY.work_area) }, { "id": 2, "workArea": rect(SECOND.work_area) }]);
-    assert_eq!(ask(json!({ "op": "displayFor", "point": { "x": 2100.0, "y": 100.0 }, "size": { "width": 512.0, "height": 336.0 }, "displays": displays })), json!(2));
+    assert_eq!(
+        ask(json!({ "op": "displayFor", "point": { "x": 2100.0, "y": 100.0 }, "size": { "width": 512.0, "height": 336.0 }, "displays": displays })),
+        json!(2)
+    );
     assert_eq!(ask(json!({ "op": "displayFor", "point": { "x": 0.0, "y": 0.0 }, "size": { "width": 512.0, "height": 336.0 }, "displays": [] })), Value::Null);
     let prefs = serde_json::to_value(default_prefs()).unwrap();
     let on = ask(json!({ "op": "positionOn", "display": { "id": 1, "workArea": rect(PRIMARY.work_area) }, "prefs": prefs, "scale": 100 }));
     assert_eq!(on, point(pet_position_on(&PRIMARY, &default_prefs(), &size(100))));
 }
-
 
 impl Rig {
     fn new(profile: bool) -> Self {

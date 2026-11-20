@@ -11,16 +11,14 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use mixdog_rt::time::{sleep, timeout, Instant};
+use mixdog_rt::time::{Instant, sleep, timeout};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::binary::missing_client_message;
-use crate::command::{
-    classify_failure, is_local_forward_bind_failure, stderr_tail_default, tunnel_args, FailureClass, SshError, SshTarget, TunnelBackoff,
-};
+use crate::command::{FailureClass, SshError, SshTarget, TunnelBackoff, classify_failure, is_local_forward_bind_failure, stderr_tail_default, tunnel_args};
 use crate::context::{AttemptContext, SshEnv};
 use crate::spawn::spawn_ssh;
 
@@ -320,7 +318,8 @@ impl Supervisor {
                     let tail = stderr_tail_default(&stderr);
                     if classify_failure(&stderr) == FailureClass::Terminal {
                         let reason = if tail.is_empty() { status } else { tail.clone() };
-                        let error = SshError::new(format!("ssh tunnel to {} failed:\n{reason}", self.target.display), FailureClass::Terminal).with_stderr(tail, code);
+                        let error =
+                            SshError::new(format!("ssh tunnel to {} failed:\n{reason}", self.target.display), FailureClass::Terminal).with_stderr(tail, code);
                         self.log(&format!("ssh tunnel stopped: {error}"));
                         self.set(TunnelState::Stopped { failure: Some(error) });
                         return;

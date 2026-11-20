@@ -78,8 +78,7 @@ fn project_new(host: &mut dyn SlashHost, target: &TextPrompt, command_text: &str
     let token = begin(host, SETTINGS, target);
     match service_call(host, "inspectProjectPath", vec![json!(command_text)]) {
         Ok(result) => {
-            let path =
-                result.get("path").filter(|path| truthy(path)).map_or_else(|| command_text.to_owned(), value_text);
+            let path = result.get("path").filter(|path| truthy(path)).map_or_else(|| command_text.to_owned(), value_text);
             if result.get("directory") == Some(&Value::Bool(true)) {
                 finish(host, SETTINGS, token, |host| register_project(host, &path));
             } else if result.get("exists") == Some(&Value::Bool(true)) {
@@ -176,11 +175,7 @@ fn auto_clear_provider(host: &mut dyn SlashHost, target: &TextPrompt, command_te
     }
     let duration = js_trim(command_text).to_owned();
     // Empty is the documented reset to the built-in provider default.
-    let patch = if duration.is_empty() {
-        json!({"provider": provider, "resetProvider": true})
-    } else {
-        json!({"provider": provider, "duration": duration})
-    };
+    let patch = if duration.is_empty() { json!({"provider": provider, "resetProvider": true}) } else { json!({"provider": provider, "duration": duration}) };
     let (saved_provider, saved_duration) = (provider.clone(), duration.clone());
     settings_save(
         host,
@@ -207,11 +202,7 @@ fn auto_clear_provider(host: &mut dyn SlashHost, target: &TextPrompt, command_te
 
 fn profile_title(host: &mut dyn SlashHost, target: &TextPrompt, command_text: &str) -> bool {
     // Empty is the documented "clear the title" action.
-    let text = if command_text.is_empty() {
-        "Title cleared".to_owned()
-    } else {
-        format!("Title set to \"{}\"", js_trim(command_text))
-    };
+    let text = if command_text.is_empty() { "Title cleared".to_owned() } else { format!("Title set to \"{}\"", js_trim(command_text)) };
     settings_save(
         host,
         target,
@@ -356,12 +347,7 @@ fn core_delete_confirm(host: &mut dyn SlashHost, target: &TextPrompt, command_te
         open_panel(host, Opener::MemoryCore, json!({}));
         return true;
     }
-    core_memory_write(
-        host,
-        Value::Object(core_entry_args(target, "delete")),
-        "core memory deleted",
-        "core delete failed",
-    )
+    core_memory_write(host, Value::Object(core_entry_args(target, "delete")), "core memory deleted", "core delete failed")
 }
 
 type SettingsHandler = fn(&mut dyn SlashHost, &TextPrompt, &str) -> bool;

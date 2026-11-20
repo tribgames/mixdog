@@ -17,23 +17,13 @@ pub enum RefreshFailure {
     Unknown,
 }
 
-const DEAD_GRANT_CODES: [&str; 7] = [
-    "invalid_grant",
-    "invalid_token",
-    "unauthorized_client",
-    "invalid_client",
-    "refresh_token_expired",
-    "refresh_token_reused",
-    "refresh_token_invalidated",
-];
+const DEAD_GRANT_CODES: [&str; 7] =
+    ["invalid_grant", "invalid_token", "unauthorized_client", "invalid_client", "refresh_token_expired", "refresh_token_reused", "refresh_token_invalidated"];
 
 fn error_code(body: &Value) -> Option<&str> {
     let error = body.get("error")?;
     // RFC 6749 uses a string; some providers nest `{code}` or add `error_code`.
-    error
-        .as_str()
-        .or_else(|| error.get("code").and_then(Value::as_str))
-        .or_else(|| body.get("error_code").and_then(Value::as_str))
+    error.as_str().or_else(|| error.get("code").and_then(Value::as_str)).or_else(|| body.get("error_code").and_then(Value::as_str))
 }
 
 /// `status` is `None` when no response arrived (a transport fault).
@@ -56,9 +46,8 @@ static TRANSIENT_TEXT: LazyLock<JsRegex> = LazyLock::new(|| {
         "i",
     )
 });
-static DEAD_GRANT_TEXT: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"invalid_grant|invalid_token|unauthorized_client|refresh[ _-]?token[^.\n]{0,40}\b(?:expired|revoked)\b", "i")
-});
+static DEAD_GRANT_TEXT: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"invalid_grant|invalid_token|unauthorized_client|refresh[ _-]?token[^.\n]{0,40}\b(?:expired|revoked)\b", "i"));
 
 /// `isDefinitiveOAuthFailure` (`lib/oauth-token-utils.mjs`): Anthropic's reading of a refresh answer. A
 /// 403, 429 or server error never is; the body text decides next (a transient word says no, a dead-grant word
@@ -107,17 +96,11 @@ mod tests {
         use RefreshFailure::*;
         let dead = br#"{"error":"invalid_grant","error_description":"temporarily unavailable"}"#;
         assert_eq!(classify_refresh_failure(Some(400), dead), Definitive);
-        assert_eq!(
-            classify_refresh_failure(Some(401), br#"{"error":{"code":"refresh_token_reused"}}"#),
-            Definitive
-        );
+        assert_eq!(classify_refresh_failure(Some(401), br#"{"error":{"code":"refresh_token_reused"}}"#), Definitive);
         assert_eq!(classify_refresh_failure(Some(503), dead), Transient);
         assert_eq!(classify_refresh_failure(Some(429), b""), Transient);
         assert_eq!(classify_refresh_failure(None, b""), Transient);
         assert_eq!(classify_refresh_failure(Some(401), b"not json"), Unknown);
-        assert_eq!(
-            classify_refresh_failure(Some(400), br#"{"error":"invalid_request"}"#),
-            Unknown
-        );
+        assert_eq!(classify_refresh_failure(Some(400), br#"{"error":"invalid_request"}"#), Unknown);
     }
 }

@@ -8,18 +8,25 @@ pub mod calls;
 pub mod catalog_rows;
 pub mod config;
 pub mod exchange;
+pub mod exchange_run;
+#[cfg(any(test, feature = "test-support"))]
+pub mod exchange_script;
 pub mod home;
 pub mod live;
 pub mod maintainer;
+pub mod member_turn;
 pub mod memory;
+pub mod memory_control;
 pub mod pool;
 pub mod preview;
 pub mod ready;
 pub mod rebuild;
 pub mod records;
+pub mod room_ask;
+pub mod room_hosts;
+pub mod room_relay;
 pub mod row_message;
 pub mod rows;
-pub mod memory_control;
 pub mod runner;
 pub mod service;
 pub mod sessions;
@@ -27,19 +34,12 @@ pub mod store;
 pub mod supervisor;
 #[cfg(test)]
 mod supervisor_feature_tests;
-pub mod turn_post;
-pub mod turn_host;
 pub mod turn_answer;
-pub mod exchange_run;
-pub mod member_turn;
+pub mod turn_host;
+pub mod turn_post;
 pub mod turn_prompt;
 pub mod usage;
-pub mod room_hosts;
-pub mod room_relay;
 pub mod user_send;
-#[cfg(any(test, feature = "test-support"))]
-pub mod exchange_script;
-pub mod room_ask;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {

@@ -20,8 +20,7 @@ const LIMIT: usize = 256;
 
 /// `TERMINAL_STATUS` of `agent-status-refresh.mjs`.
 fn terminal(status: &str) -> bool {
-    JsRegex::new_static(r"^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$", "")
-        .is_match(status)
+    JsRegex::new_static(r"^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$", "").is_match(status)
 }
 
 /// `FAILURE_STATUS` of `execution-delivery.mjs`.
@@ -98,8 +97,7 @@ impl CardGate {
         if execution.is_empty() {
             return;
         }
-        let keys: Vec<String> =
-            self.executions.iter().filter(|(k, e)| *e == execution && self.displayed.contains(k)).map(|(k, _)| k.clone()).collect();
+        let keys: Vec<String> = self.executions.iter().filter(|(k, e)| *e == execution && self.displayed.contains(k)).map(|(k, _)| k.clone()).collect();
         for key in keys {
             self.displayed.terminal.insert(key);
         }

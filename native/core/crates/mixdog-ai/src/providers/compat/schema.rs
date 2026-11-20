@@ -44,10 +44,7 @@ pub struct Problem {
 }
 
 fn problem(pointer: impl Into<String>, reason: impl Into<String>) -> Problem {
-    Problem {
-        pointer: pointer.into(),
-        reason: reason.into(),
-    }
+    Problem { pointer: pointer.into(), reason: reason.into() }
 }
 
 /// A tool left out of a request, with the report the agent loop records.
@@ -60,26 +57,9 @@ pub struct ToolExclusion {
     pub message: String,
 }
 
-const MAP_KEYS: [&str; 5] = [
-    "properties",
-    "patternProperties",
-    "$defs",
-    "definitions",
-    "dependentSchemas",
-];
-const NODE_KEYS: [&str; 11] = [
-    "items",
-    "additionalProperties",
-    "unevaluatedItems",
-    "unevaluatedProperties",
-    "contains",
-    "propertyNames",
-    "not",
-    "if",
-    "then",
-    "else",
-    "contentSchema",
-];
+const MAP_KEYS: [&str; 5] = ["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"];
+const NODE_KEYS: [&str; 11] =
+    ["items", "additionalProperties", "unevaluatedItems", "unevaluatedProperties", "contains", "propertyNames", "not", "if", "then", "else", "contentSchema"];
 const LIST_KEYS: [&str; 4] = ["prefixItems", "allOf", "anyOf", "oneOf"];
 const ROOT_FORBIDDEN_KEYS: [&str; 4] = ["anyOf", "oneOf", "allOf", "not"];
 
@@ -121,9 +101,7 @@ struct Lowering {
 }
 
 fn is_resource_id(node: &JsonObject) -> bool {
-    node.get("$id")
-        .and_then(JsonValue::as_str)
-        .is_some_and(|id| !id.starts_with('#'))
+    node.get("$id").and_then(JsonValue::as_str).is_some_and(|id| !id.starts_with('#'))
 }
 
 /// `#/definitions` → `#/$defs` for the first occurrence that names the table
@@ -144,20 +122,13 @@ fn rewrite_ref(reference: &str) -> String {
 fn translate_map(map: &JsonObject, ptr: &str, ctx: Lowering) -> Result<JsonValue, Problem> {
     let mut out = JsonObject::new();
     for (name, child) in map {
-        out.insert(
-            name.clone(),
-            translate(child, &format!("{ptr}/{}", escape_pointer(name)), false, ctx)?,
-        );
+        out.insert(name.clone(), translate(child, &format!("{ptr}/{}", escape_pointer(name)), false, ctx)?);
     }
     Ok(JsonValue::Object(out))
 }
 
 fn translate_list(list: &[JsonValue], ptr: &str, ctx: Lowering) -> Result<JsonValue, Problem> {
-    list.iter()
-        .enumerate()
-        .map(|(i, child)| translate(child, &format!("{ptr}/{i}"), false, ctx))
-        .collect::<Result<Vec<_>, _>>()
-        .map(JsonValue::Array)
+    list.iter().enumerate().map(|(i, child)| translate(child, &format!("{ptr}/{i}"), false, ctx)).collect::<Result<Vec<_>, _>>().map(JsonValue::Array)
 }
 
 /// The standard draft-07 → 2020-12 keyword mapping, applied recursively.
@@ -207,18 +178,11 @@ fn translate(node: &JsonValue, ptr: &str, is_root: bool, ctx: Lowering) -> Resul
             }
             ("dependencies", JsonValue::Object(deps)) => {
                 if node.contains_key("dependentRequired") || node.contains_key("dependentSchemas") {
-                    return Err(problem(
-                        at,
-                        "\"dependencies\" conflicts with dependentRequired/dependentSchemas",
-                    ));
+                    return Err(problem(at, "\"dependencies\" conflicts with dependentRequired/dependentSchemas"));
                 }
                 for (name, dep) in deps {
                     let target = if dep.is_array() { "dependentRequired" } else { "dependentSchemas" };
-                    let lowered = if dep.is_array() {
-                        dep.clone()
-                    } else {
-                        translate(dep, &format!("{at}/{}", escape_pointer(name)), false, ctx)?
-                    };
+                    let lowered = if dep.is_array() { dep.clone() } else { translate(dep, &format!("{at}/{}", escape_pointer(name)), false, ctx)? };
                     out.entry(target.to_owned())
                         .or_insert_with(|| JsonValue::Object(JsonObject::new()))
                         .as_object_mut()
@@ -284,11 +248,7 @@ fn refs_into_definitions(node: &JsonValue) -> bool {
     match node {
         JsonValue::Array(list) => list.iter().any(refs_into_definitions),
         JsonValue::Object(map) => map.iter().any(|(key, value)| {
-            (key == "$ref"
-                && value.as_str().is_some_and(|r| {
-                    r.strip_prefix("#/definitions")
-                        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-                }))
+            (key == "$ref" && value.as_str().is_some_and(|r| r.strip_prefix("#/definitions").is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))))
                 || refs_into_definitions(value)
         }),
         _ => false,
@@ -298,9 +258,7 @@ fn refs_into_definitions(node: &JsonValue) -> bool {
 /// Only a schema that declares draft-07/04 gets draft-07 `$ref` semantics
 /// (keywords beside `$ref` ignored); otherwise siblings are real constraints.
 fn declares_legacy_draft(schema: Option<&JsonValue>) -> bool {
-    schema
-        .and_then(JsonValue::as_str)
-        .is_some_and(|s| ["draft-04", "draft-05", "draft-06", "draft-07"].iter().any(|d| s.contains(d)))
+    schema.and_then(JsonValue::as_str).is_some_and(|s| ["draft-04", "draft-05", "draft-06", "draft-07"].iter().any(|d| s.contains(d)))
 }
 
 /// The lowered copy of a tool input schema for `rule`, or `None` when it
@@ -312,16 +270,8 @@ pub fn repaired_tool_input_schema(input: &JsonValue, rule: Rule) -> Option<JsonV
     let mut rest = map.clone();
     let declared = rest.shift_remove("$schema");
     let rest = JsonValue::Object(rest);
-    let lowered = translate(
-        &rest,
-        "",
-        true,
-        Lowering {
-            drop_ref_siblings: declares_legacy_draft(declared.as_ref()),
-            rename_defs: refs_into_definitions(&rest),
-        },
-    )
-    .ok()?;
+    let lowered =
+        translate(&rest, "", true, Lowering { drop_ref_siblings: declares_legacy_draft(declared.as_ref()), rename_defs: refs_into_definitions(&rest) }).ok()?;
     Some(if rule == Rule::Gemini { lowered } else { repair_root(lowered) })
 }
 
@@ -330,9 +280,7 @@ fn assert_valid_2020_12(schema: &JsonValue) -> Result<(), Problem> {
     if let Some(error) = ajv_meta::first_error(schema) {
         return Err(problem(error.pointer, format!("not a valid JSON Schema 2020-12 schema: {}", error.message)));
     }
-    jsonschema::draft202012::new(schema)
-        .map(|_| ())
-        .map_err(|error| ajv_meta::compile_problem(schema, &error.to_string()))
+    jsonschema::draft202012::new(schema).map(|_| ()).map_err(|error| ajv_meta::compile_problem(schema, &error.to_string()))
 }
 
 fn assert_object_root(schema: &JsonValue, rule: Rule) -> Result<(), Problem> {
@@ -349,10 +297,7 @@ fn assert_object_root(schema: &JsonValue, rule: Rule) -> Result<(), Problem> {
     }
     for key in ROOT_FORBIDDEN_KEYS {
         if schema.get(key).is_some() {
-            return Err(problem(
-                format!("/{key}"),
-                format!("Anthropic input_schema does not allow a root \"{key}\""),
-            ));
+            return Err(problem(format!("/{key}"), format!("Anthropic input_schema does not allow a root \"{key}\"")));
         }
     }
     Ok(())
@@ -366,9 +311,7 @@ pub(crate) fn wire_problem(schema: &JsonValue, rule: Rule) -> Option<Problem> {
     let mut rest = map.clone();
     rest.shift_remove("$schema");
     let rest = JsonValue::Object(rest);
-    assert_valid_2020_12(&rest)
-        .and_then(|()| assert_object_root(&rest, rule))
-        .err()
+    assert_valid_2020_12(&rest).and_then(|()| assert_object_root(&rest, rule)).err()
 }
 
 /// The schema to send for a tool on a `rule` wire: the input itself when it is
@@ -400,13 +343,7 @@ fn is_draft_07(schema: &JsonObject) -> Result<bool, Problem> {
     match name.as_str() {
         "json-schema.org/draft/2020-12/schema" => Ok(false),
         "json-schema.org/draft-07/schema" => Ok(true),
-        _ => Err(problem(
-            "/$schema",
-            format!(
-                "unsupported JSON Schema dialect {} (supported: 2020-12, draft-07)",
-                mixdog_js::json_stringify(declared)
-            ),
-        )),
+        _ => Err(problem("/$schema", format!("unsupported JSON Schema dialect {} (supported: 2020-12, draft-07)", mixdog_js::json_stringify(declared)))),
     }
 }
 
@@ -420,11 +357,7 @@ fn bridge_schema(input: &JsonValue) -> Result<JsonValue, Problem> {
     let mut rest = map.clone();
     rest.shift_remove("$schema");
     let rest = JsonValue::Object(rest);
-    let schema = if draft_07 {
-        translate(&rest, "", true, Lowering { drop_ref_siblings: true, rename_defs: true })?
-    } else {
-        rest
-    };
+    let schema = if draft_07 { translate(&rest, "", true, Lowering { drop_ref_siblings: true, rename_defs: true })? } else { rest };
     assert_valid_2020_12(&schema)?;
     assert_object_root(&schema, Rule::Anthropic)?;
     Ok(schema)
@@ -482,9 +415,7 @@ fn schema_hash(value: &JsonValue) -> u64 {
 fn same_schema(a: &JsonValue, b: &JsonValue) -> bool {
     match (a, b) {
         (JsonValue::Array(x), JsonValue::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same_schema(x, y)),
-        (JsonValue::Object(x), JsonValue::Object(y)) => {
-            x.len() == y.len() && x.iter().zip(y).all(|((kx, vx), (ky, vy))| kx == ky && same_schema(vx, vy))
-        }
+        (JsonValue::Object(x), JsonValue::Object(y)) => x.len() == y.len() && x.iter().zip(y).all(|((kx, vx), (ky, vy))| kx == ky && same_schema(vx, vy)),
         (JsonValue::Array(_) | JsonValue::Object(_), _) | (_, JsonValue::Array(_) | JsonValue::Object(_)) => false,
         _ => a == b,
     }
@@ -498,10 +429,7 @@ fn memoized<T: Eq + std::hash::Hash>(
     make: impl FnOnce() -> Result<JsonValue, Problem>,
 ) -> Result<JsonValue, Problem> {
     let key = (tag, schema_hash(schema));
-    let found = memo
-        .read()
-        .ok()
-        .and_then(|m| m.get(&key).and_then(|row| row.iter().find(|(kept, _)| same_schema(kept, schema)).map(|(_, v)| v.clone())));
+    let found = memo.read().ok().and_then(|m| m.get(&key).and_then(|row| row.iter().find(|(kept, _)| same_schema(kept, schema)).map(|(_, v)| v.clone())));
     if let Some(found) = found {
         return found;
     }
@@ -521,13 +449,7 @@ pub(crate) fn exclusion(name: &str, index: usize, problem: Problem, source: &str
     let Problem { pointer, reason } = problem;
     let at = if pointer.is_empty() { "/".to_owned() } else { pointer };
     let message = format!("{source} \"{name}\" (tools[{index}]) excluded: invalid input schema at \"{at}\": {reason}");
-    ToolExclusion {
-        name: name.to_owned(),
-        index,
-        pointer: at,
-        reason,
-        message,
-    }
+    ToolExclusion { name: name.to_owned(), index, pointer: at, reason, message }
 }
 
 /// `warned` (`claude-bridge-schema.mjs:382`): the exclusion messages already logged in this process.
@@ -543,13 +465,9 @@ pub(crate) fn reset_warned() {
 /// the log, as Node's default `console.warn`.
 pub(crate) fn report_exclusion(options: &RequestOptions, found: ToolExclusion) {
     match &options.on_tool_excluded {
-        Some(sink) => sink.report(ToolExclusionReport {
-            name: found.name,
-            index: found.index,
-            pointer: found.pointer,
-            reason: found.reason,
-            message: found.message,
-        }),
+        Some(sink) => {
+            sink.report(ToolExclusionReport { name: found.name, index: found.index, pointer: found.pointer, reason: found.reason, message: found.message })
+        }
         None => {
             // Node's `console.warn` fires once per distinct message (`warned`).
             if WARNED.lock().unwrap_or_else(PoisonError::into_inner).insert(found.message.clone()) {
@@ -577,13 +495,7 @@ impl SchemaMemo {
     /// `excluded`) and each repairable one carrying its lowered schema. A tool
     /// without a schema (`Null`) is sent as written. `source` prefixes the
     /// report (which route and kind of tool).
-    pub fn accepted_wire_tools(
-        &self,
-        tools: &[ToolDefinition],
-        rule: Rule,
-        source: &str,
-        excluded: &mut dyn FnMut(ToolExclusion),
-    ) -> Vec<ToolDefinition> {
+    pub fn accepted_wire_tools(&self, tools: &[ToolDefinition], rule: Rule, source: &str, excluded: &mut dyn FnMut(ToolExclusion)) -> Vec<ToolDefinition> {
         self.accepted_wire_tools_except(tools, rule, source, excluded, &|_| false)
     }
 
@@ -605,10 +517,7 @@ impl SchemaMemo {
                 continue;
             }
             match self.verdict(&tool.input_schema, rule) {
-                Ok(schema) => out.push(ToolDefinition {
-                    input_schema: schema,
-                    ..tool.clone()
-                }),
+                Ok(schema) => out.push(ToolDefinition { input_schema: schema, ..tool.clone() }),
                 Err(problem) => excluded(exclusion(&tool.name, index, problem, source)),
             }
         }
@@ -621,13 +530,7 @@ mod tests {
     use super::*;
 
     fn tool(name: &str, schema: JsonValue) -> ToolDefinition {
-        ToolDefinition {
-            name: name.into(),
-            description: String::new(),
-            input_schema: schema,
-            defer_loading: false,
-            freeform: None,
-        }
+        ToolDefinition { name: name.into(), description: String::new(), input_schema: schema, defer_loading: false, freeform: None }
     }
 
     /// The memo's key is the schema itself in its key order, not its text: the same schema with its keys reordered is a
@@ -683,10 +586,7 @@ mod tests {
         assert!(lowered.get("definitions").is_none());
         assert_eq!(lowered["$defs"]["n"], json!({"type": "number", "exclusiveMinimum": 0}));
         assert_eq!(lowered["properties"]["n"], json!({"$ref": "#/$defs/n"}));
-        assert_eq!(
-            lowered["properties"]["pair"],
-            json!({"type": "array", "prefixItems": [{"type":"string"},{"type":"number"}], "items": false})
-        );
+        assert_eq!(lowered["properties"]["pair"], json!({"type": "array", "prefixItems": [{"type":"string"},{"type":"number"}], "items": false}));
         assert_eq!(lowered["dependentRequired"], json!({"pair": ["n"]}));
     }
 

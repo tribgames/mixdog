@@ -2,6 +2,6 @@
 
 pub mod console;
 pub mod console_format;
+pub mod ingest;
 pub mod network;
 pub mod network_report;
-pub mod ingest;

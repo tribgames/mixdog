@@ -50,9 +50,8 @@ pub fn classify_prompt_escape(input: EscapeInput<'_>) -> EscapeDecision {
     if input.has_queued_messages {
         return decide(EscapeAction::RestoreQueue, 0);
     }
-    let repeated = input.last_clear_press_at > 0
-        && input.now >= input.last_clear_press_at
-        && input.now - input.last_clear_press_at <= PROMPT_ESCAPE_CLEAR_WINDOW_MS;
+    let repeated =
+        input.last_clear_press_at > 0 && input.now >= input.last_clear_press_at && input.now - input.last_clear_press_at <= PROMPT_ESCAPE_CLEAR_WINDOW_MS;
     let armed = if input.now > 0 { input.now } else { 1 };
     // With an empty draft a double press opens the message selector so a previous prompt can be pulled back into the box
     // (there is nothing to clear).

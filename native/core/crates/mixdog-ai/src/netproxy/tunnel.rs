@@ -78,7 +78,11 @@ pub enum TunnelError {
     Connect(io::Error),
     /// The proxy answered, and did not agree to the tunnel. `code` is the code
     /// undici's fetch path reports; the raw-socket path reports `EPROXY`.
-    Refused { message: String, status: Option<u16>, code: String },
+    Refused {
+        message: String,
+        status: Option<u16>,
+        code: String,
+    },
     /// The proxy dropped the connection or broke the protocol mid-handshake
     /// (undici's `ProxyConnectionError`).
     Dropped(io::Error),
@@ -156,8 +160,8 @@ pub fn tls_config() -> Result<Arc<rustls::ClientConfig>, io::Error> {
 /// target inside a tunnel).
 pub async fn tls_connect<S: AsyncRead + AsyncWrite + Unpin>(stream: S, host: &str) -> Result<TlsStream<S>, TlsFailure> {
     let config = tls_config().map_err(|error| TlsFailure { error })?;
-    let name = rustls::pki_types::ServerName::try_from(host.to_owned())
-        .map_err(|error| TlsFailure { error: io::Error::new(io::ErrorKind::InvalidInput, error) })?;
+    let name =
+        rustls::pki_types::ServerName::try_from(host.to_owned()).map_err(|error| TlsFailure { error: io::Error::new(io::ErrorKind::InvalidInput, error) })?;
     tokio_rustls::TlsConnector::from(config).connect(name, stream).await.map_err(|error| TlsFailure { error })
 }
 
@@ -173,7 +177,6 @@ fn credentials(url: &Url) -> Option<(String, String)> {
     let password = decode_uri_component(url.password().unwrap_or("")).unwrap_or_default();
     Some((user, password))
 }
-
 
 /// A TCP connection to `host:port`, the first address the name resolves to
 /// that answers. `host` has no brackets.
@@ -201,11 +204,7 @@ fn proxy_endpoint(proxy: &Url) -> (String, u16) {
 
 /// The proxy's own connection: TLS inside when the proxy is `https:`.
 async fn reach_proxy(proxy: &Url, proxy_host: &str, stream: TcpStream) -> Result<Conn, TunnelError> {
-    if proxy.scheme() == "https" {
-        Ok(Conn::Tls(Box::new(tls_connect(stream, proxy_host).await.map_err(TunnelError::Tls)?)))
-    } else {
-        Ok(Conn::Tcp(stream))
-    }
+    if proxy.scheme() == "https" { Ok(Conn::Tls(Box::new(tls_connect(stream, proxy_host).await.map_err(TunnelError::Tls)?))) } else { Ok(Conn::Tcp(stream)) }
 }
 
 /// A connection to the proxy itself, for a request it is to forward.
@@ -213,9 +212,7 @@ pub async fn connect_proxy(proxy_url: &str, keepalive: &TcpKeepalive) -> Result<
     let proxy = Url::parse(proxy_url).map_err(|_| TunnelError::Dns)?;
     let (proxy_host, proxy_port) = proxy_endpoint(&proxy);
     let stream = dial(&proxy_host, proxy_port, keepalive).await?;
-    mixdog_rt::time::timeout(TUNNEL_TIMEOUT, reach_proxy(&proxy, &proxy_host, stream))
-        .await
-        .map_err(|_| TunnelError::TimedOut)?
+    mixdog_rt::time::timeout(TUNNEL_TIMEOUT, reach_proxy(&proxy, &proxy_host, stream)).await.map_err(|_| TunnelError::TimedOut)?
 }
 
 /// The `Proxy-Authorization` value for the credentials in a proxy URL.
@@ -226,12 +223,7 @@ pub fn proxy_authorization(proxy_url: &str) -> Option<String> {
 
 /// A socket tunneled through `proxy_url` to `host:port` (the proxy resolves
 /// `host`). `host` has no brackets. An `https:` proxy is reached over TLS.
-pub async fn open_proxy_tunnel(
-    proxy_url: &str,
-    host: &str,
-    port: u16,
-    keepalive: &TcpKeepalive,
-) -> Result<Conn, TunnelError> {
+pub async fn open_proxy_tunnel(proxy_url: &str, host: &str, port: u16, keepalive: &TcpKeepalive) -> Result<Conn, TunnelError> {
     let proxy = Url::parse(proxy_url).map_err(|_| TunnelError::Dns)?;
     let (proxy_host, proxy_port) = proxy_endpoint(&proxy);
     let stream = dial(&proxy_host, proxy_port, keepalive).await?;
@@ -246,13 +238,7 @@ pub async fn open_proxy_tunnel(
     };
     mixdog_rt::time::timeout(TUNNEL_TIMEOUT, handshake).await.map_err(|_| TunnelError::TimedOut)?
 }
-async fn connect_request(
-    stream: &mut Conn,
-    proxy: &Url,
-    proxy_url: &str,
-    host: &str,
-    port: u16,
-) -> Result<(), TunnelError> {
+async fn connect_request(stream: &mut Conn, proxy: &Url, proxy_url: &str, host: &str, port: u16) -> Result<(), TunnelError> {
     let target = authority(host, port);
     let mut request = format!("CONNECT {target} HTTP/1.1\r\nhost: {target}\r\n");
     if let Some((user, password)) = credentials(proxy) {

@@ -133,7 +133,10 @@ impl Installations {
             // can see a finished installation as running or a new one as the old.
             if let Some(entry) = this.entries.lock().unwrap().get_mut(&key) {
                 let (result, update) = if entry.cancel.is_cancelled() {
-                    (Err("aborted".to_owned()), Map::from_iter([("state".into(), json!("paused")), ("stage".into(), json!("paused")), ("error".into(), Value::Null)]))
+                    (
+                        Err("aborted".to_owned()),
+                        Map::from_iter([("state".into(), json!("paused")), ("stage".into(), json!("paused")), ("error".into(), Value::Null)]),
+                    )
                 } else {
                     let update = match &result {
                         Ok(_) => Map::from_iter([("state".into(), json!("complete")), ("stage".into(), json!("complete")), ("percent".into(), json!(100))]),

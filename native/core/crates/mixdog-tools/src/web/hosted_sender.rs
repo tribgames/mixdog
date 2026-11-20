@@ -14,6 +14,7 @@ use mixdog_ai::admission::process_lane_settings;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::SendError;
 use mixdog_ai::broker::SendRequest;
+use mixdog_ai::providers::hosted::web_search_from_node;
 use mixdog_ai::registry::accounted::AccountOf;
 use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_ai::registry::accounting::Completed;
@@ -29,7 +30,6 @@ use mixdog_ai::service::routes::capacity_fallback;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
-use mixdog_ai::providers::hosted::web_search_from_node;
 use mixdog_core_api::domain::provider::HostedTool;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -87,9 +87,7 @@ impl SenderDeps {
     }
 
     pub fn system_clock() -> Arc<dyn Fn() -> i64 + Send + Sync> {
-        Arc::new(|| {
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as i64)
-        })
+        Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as i64))
     }
 }
 
@@ -133,10 +131,7 @@ fn request_of(call: &HostedSearchCall, session_id: &str) -> ModelRequest {
     let candidate = &call.candidate;
     ModelRequest {
         model: candidate.model.clone(),
-        messages: vec![
-            Message::new(Role::System, Content::Text(call.system.clone())),
-            Message::new(Role::User, Content::Text(call.user.clone())),
-        ],
+        messages: vec![Message::new(Role::System, Content::Text(call.system.clone())), Message::new(Role::User, Content::Text(call.user.clone()))],
         tools: Vec::new(),
         options: RequestOptions {
             session_id: Some(session_id.to_owned()),
@@ -152,8 +147,7 @@ fn request_of(call: &HostedSearchCall, session_id: &str) -> ModelRequest {
 
 /// The usage object of a result, in the provider-result shape Node returns.
 pub fn usage_object(usage: &Usage, input_inclusive: bool) -> Value {
-    let prompt =
-        if input_inclusive { usage.input_tokens } else { usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens };
+    let prompt = if input_inclusive { usage.input_tokens } else { usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens };
     let mut out = Map::new();
     out.insert("inputTokens".into(), json!(usage.input_tokens));
     out.insert("outputTokens".into(), json!(usage.output_tokens));
@@ -236,11 +230,8 @@ impl HostedSearchSender for ProviderSearchSender {
             .with_sources(Arc::clone(&self.deps.now), Arc::new(random_uuid))
             .with_account(Arc::clone(&self.deps.account));
         let mut sink = RecordingSink::collecting().with_accounting(accounting);
-        let request = SendRequest {
-            request: Arc::new(request_of(&call, &session_id)),
-            lane: (self.deps.lane)(provider),
-            admission: AdmissionRequest::default(),
-        };
+        let request =
+            SendRequest { request: Arc::new(request_of(&call, &session_id)), lane: (self.deps.lane)(provider), admission: AdmissionRequest::default() };
         let sent = self.deps.broker.send(adapter.as_ref(), request, &mut sink, cancel).await;
         let ended_at = (self.deps.now)();
         let last_usage = sink.last_usage().cloned();
@@ -283,9 +274,7 @@ impl HostedSearchSender for ProviderSearchSender {
             Ok(_) => {
                 if let Some(reported) = &usage {
                     let model = candidate.model.as_str();
-                    self.deps.sinks.report(owner.as_deref(), || {
-                        usage_delta(&session_id, model, model, reported, !excludes_cache, (self.deps.now)())
-                    });
+                    self.deps.sinks.report(owner.as_deref(), || usage_delta(&session_id, model, model, reported, !excludes_cache, (self.deps.now)()));
                 }
                 Ok(HostedSearchReply {
                     content,

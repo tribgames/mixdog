@@ -46,9 +46,12 @@ trait Host: Send + Sync {
     async fn run(&self, program: &str, args: &[&str]) -> Option<String>;
     // Fake hosts keep their synchronous in-memory contract; SystemHost overrides
     // these two operations with awaited InteractiveIo jobs.
-    async fn installed(&self, env: &Env) -> bool { files_installed(self, env) }
-    async fn install(&self, env: &Env, bundled: Option<&Path>) -> Result<(), String> { install_files(self, env, bundled) }
-
+    async fn installed(&self, env: &Env) -> bool {
+        files_installed(self, env)
+    }
+    async fn install(&self, env: &Env, bundled: Option<&Path>) -> Result<(), String> {
+        install_files(self, env, bundled)
+    }
 }
 
 #[derive(Clone)]
@@ -278,9 +281,16 @@ pub fn last_state() -> Option<GnomeExtensionState> {
 /// applies; a failure is in the returned state's `error` and logged, never thrown. Off GNOME (or off Linux) nothing is touched and the
 /// default state comes back. `bundled` is [`bundled_dir`]: without one, turning it on reports the missing files and turning it off still
 /// takes our uuid out of the enabled list.
-pub async fn apply_gnome_extension(manager: Arc<dyn ProcessManager>, io: mixdog_rt::InteractiveIo, enabled: bool, env: &Env, bundled: Option<&Path>, cancel: &CancellationToken) -> GnomeExtensionState {
-    let turn = QUEUE.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1))).clone()
-        .acquire_owned().await.expect("the private extension-apply gate is never closed");
+pub async fn apply_gnome_extension(
+    manager: Arc<dyn ProcessManager>,
+    io: mixdog_rt::InteractiveIo,
+    enabled: bool,
+    env: &Env,
+    bundled: Option<&Path>,
+    cancel: &CancellationToken,
+) -> GnomeExtensionState {
+    let turn =
+        QUEUE.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1))).clone().acquire_owned().await.expect("the private extension-apply gate is never closed");
     let host = SystemHost { manager, io, env: env.clone(), _turn: Arc::new(turn) };
     let Some(state) = sync(&host, enabled, env, bundled, cancel).await else { return GnomeExtensionState::default() };
     if let Some(error) = &state.error {
@@ -412,7 +422,11 @@ mod tests {
     #[tokio::test]
     async fn a_user_copy_with_a_different_version_is_replaced_and_the_same_version_is_kept() {
         let fake = Fake::new(
-            &[(&format!("{BUNDLED}/metadata.json"), meta(2)), (&format!("{USER_DIR}/metadata.json"), meta(1)), (&format!("{USER_DIR}/extension.js"), "//".into())],
+            &[
+                (&format!("{BUNDLED}/metadata.json"), meta(2)),
+                (&format!("{USER_DIR}/metadata.json"), meta(1)),
+                (&format!("{USER_DIR}/extension.js"), "//".into()),
+            ],
             &format!("['{GNOME_EXTENSION_UUID}']"),
         );
         run(&fake, true).await;
@@ -487,7 +501,6 @@ mod tests {
         let value = serde_json::to_value(GnomeExtensionState { installed: true, enabled: true, needs_relogin: true, error: None }).unwrap();
         assert_eq!(value, serde_json::json!({ "installed": true, "enabled": true, "needsRelogin": true }));
     }
-
 
     #[tokio::test]
     async fn the_packaged_extension_is_found_from_the_core_folder_of_the_resources() {

@@ -64,10 +64,7 @@ pub(super) fn refusal(class: &str, kind: Kind, foreground: bool) -> Option<Strin
         Kind::Click => "clicks",
         Kind::Move => "pointer moves",
     };
-    Some(format!(
-        "background_unsupported|a {} window drops posted {what} ({}); use explicit foreground delivery; no input sent",
-        family.toolkit, family.why
-    ))
+    Some(format!("background_unsupported|a {} window drops posted {what} ({}); use explicit foreground delivery; no input sent", family.toolkit, family.why))
 }
 
 #[cfg(test)]

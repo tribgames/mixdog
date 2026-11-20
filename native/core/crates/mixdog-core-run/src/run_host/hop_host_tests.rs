@@ -181,15 +181,8 @@ impl BotRoutes for NoBots {
 struct Offline;
 #[async_trait]
 impl HttpSend for Offline {
-    async fn send(
-        &self,
-        _: WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
-        Err(ProviderError::new(
-            ErrorKind::Transient,
-            DeliveryState::NotSent,
-        ))
+    async fn send(&self, _: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
     }
 }
 
@@ -290,7 +283,3 @@ async fn a_failed_step_escapes_the_hop_as_node_throws_it() {
         assert_eq!(*session.log.lock().unwrap(), log, "{fail}");
     }
 }
-
-
-
-

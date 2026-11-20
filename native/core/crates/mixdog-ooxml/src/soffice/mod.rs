@@ -187,7 +187,10 @@ pub fn workbook_formula_errors(zip: &Package) -> FormulaErrors {
             let formula = FORMULA_TEXT.captures(cell.body).and_then(|caught| caught.get(1).map(str::to_owned)).unwrap_or_default();
             // LibreOffice writes every formula it parsed back in upper case; one it could not parse keeps a lower-case function
             // name beside its #NAME?.
-            if !formula.is_empty() && LOWER_FUNCTION.is_match(&QUOTED_TEXT.replace_all_with(&formula, |_| "\"\"".to_owned())) && found.unparsed.len() < MAX_ERROR_LOCATIONS {
+            if !formula.is_empty()
+                && LOWER_FUNCTION.is_match(&QUOTED_TEXT.replace_all_with(&formula, |_| "\"\"".to_owned()))
+                && found.unparsed.len() < MAX_ERROR_LOCATIONS
+            {
                 found.unparsed.push(format!("{}!{}", sheet.name, cell.reference));
             }
             if !ERROR_TYPE.is_match(cell.attributes) {
@@ -350,7 +353,8 @@ impl Soffice {
             return String::new();
         }
         for (hive, view) in REGISTRY_QUERIES {
-            let output = command_output("reg.exe", &["query", &format!("{hive}\\SOFTWARE\\LibreOffice\\UNO\\InstallPath"), "/ve", view], REGISTRY_TIMEOUT).await;
+            let output =
+                command_output("reg.exe", &["query", &format!("{hive}\\SOFTWARE\\LibreOffice\\UNO\\InstallPath"), "/ve", view], REGISTRY_TIMEOUT).await;
             for candidate in registry_soffice_programs(&output) {
                 if command_exists(&candidate, PROBE_TIMEOUT).await {
                     return candidate;
@@ -410,8 +414,16 @@ impl Soffice {
     }
 
     /// Round-trips the workbook through LibreOffice in a scratch folder and returns the recalculated bytes, or the reason none came back.
-    fn convert_workbook<P: WriteProof>(&self, proof: &P, program: &str, path: &Path, source: &[u8], cancel: Option<&AtomicBool>) -> Result<Result<Vec<u8>, String>, String> {
-        let root = make_temp_dir(proof, &self.host.temp_dir, "mixdog-office-recalculate-").map_err(|error| os_message(&error, "mkdtemp", &self.host.temp_dir))?;
+    fn convert_workbook<P: WriteProof>(
+        &self,
+        proof: &P,
+        program: &str,
+        path: &Path,
+        source: &[u8],
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Result<Vec<u8>, String>, String> {
+        let root =
+            make_temp_dir(proof, &self.host.temp_dir, "mixdog-office-recalculate-").map_err(|error| os_message(&error, "mkdtemp", &self.host.temp_dir))?;
         let outcome = self.convert_workbook_in(proof, program, path, source, cancel, &root);
         remove_quietly(proof, &root);
         outcome
@@ -488,7 +500,8 @@ impl Soffice {
         if path.extension().map(|extension| extension.to_string_lossy().to_lowercase()).as_deref() != Some("xlsx") {
             return Ok(unavailable(
                 false,
-                "Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks.".to_owned(),
+                "Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks."
+                    .to_owned(),
             ));
         }
         if zip.names().iter().any(|name| EXTERNAL_LINK.is_match(name)) {
@@ -538,7 +551,8 @@ impl Soffice {
         let Some(program) = self.program() else {
             return Ok(json!({ "available": false, "opened": false, "backend": "libreoffice" }));
         };
-        let output_dir = make_temp_dir(proof, &self.host.temp_dir, "mixdog-office-libreoffice-").map_err(|error| os_message(&error, "mkdtemp", &self.host.temp_dir))?;
+        let output_dir =
+            make_temp_dir(proof, &self.host.temp_dir, "mixdog-office-libreoffice-").map_err(|error| os_message(&error, "mkdtemp", &self.host.temp_dir))?;
         let outcome = (|| {
             let job = Conversion {
                 to: "pdf",
@@ -682,8 +696,14 @@ mod tests {
 
     fn workbook_with(sheet: &str) -> Package {
         package(&[
-            ("xl/workbook.xml", "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Data\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"),
-            ("xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>"),
+            (
+                "xl/workbook.xml",
+                "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Data\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>",
+            ),
+            (
+                "xl/_rels/workbook.xml.rels",
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>",
+            ),
             ("xl/worksheets/sheet1.xml", sheet),
         ])
     }
@@ -738,7 +758,10 @@ mod tests {
     fn the_copy_handed_to_libreoffice_carries_formulas_without_their_cached_values() {
         let zip = workbook_with("<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><f>1+1</f><v>2</v></c><c r=\"B1\"><v>5</v></c></row></sheetData></worksheet>");
         let stripped = Package::load(&without_formula_cache(zip.generate().expect("package")).expect("stripped")).expect("loads");
-        assert_eq!(stripped.text("xl/worksheets/sheet1.xml"), "<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><f>1+1</f></c><c r=\"B1\"><v>5</v></c></row></sheetData></worksheet>");
+        assert_eq!(
+            stripped.text("xl/worksheets/sheet1.xml"),
+            "<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><f>1+1</f></c><c r=\"B1\"><v>5</v></c></row></sheetData></worksheet>"
+        );
         let plain = workbook_with("<worksheet><sheetData/></worksheet>").generate().expect("package");
         assert_eq!(without_formula_cache(plain.clone()).expect("unchanged"), plain);
     }
@@ -750,7 +773,10 @@ mod tests {
         let produced = workbook_with("<worksheet><sheetData><row r=\"1\"><c r=\"A1\" s=\"9\"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>");
         let bytes = with_computed_values(&mut original, &produced).expect("carried");
         let written = Package::load(&bytes).expect("loads");
-        assert_eq!(written.text("xl/worksheets/sheet1.xml"), "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" s=\"3\"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>");
+        assert_eq!(
+            written.text("xl/worksheets/sheet1.xml"),
+            "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" s=\"3\"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>"
+        );
         assert!(written.text("xl/workbook.xml").ends_with("<calcPr/></workbook>"));
     }
 
@@ -778,6 +804,5 @@ mod tests {
         assert_eq!(*lock(&served), [1, 2, 3]);
     }
 }
-
 
 impl std::error::Error for ConvertError {}

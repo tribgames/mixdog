@@ -8,8 +8,8 @@
 //! in the paste buffers and the hints stay with the loop.
 
 use std::collections::BTreeMap;
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use mixdog_term::os::{Platform, SystemRunner};
 use mixdog_term::paste::{

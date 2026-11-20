@@ -306,8 +306,7 @@ pub(crate) fn faces_of(document: &mut PdfDocument, font: Font, bold: Font) -> (F
 /// `pageNumbering(properties, pageCount)`.
 fn page_numbering(properties: &Value, page_count: usize) -> bool {
     let setting = properties.get("pageNumbers");
-    setting == Some(&Value::Bool(true))
-        || (setting != Some(&Value::Bool(false)) && text_nn_or(setting, "auto") == "auto" && page_count > 1)
+    setting == Some(&Value::Bool(true)) || (setting != Some(&Value::Bool(false)) && text_nn_or(setting, "auto") == "auto" && page_count > 1)
 }
 
 /// `String(value ?? fallback)`.
@@ -462,7 +461,6 @@ mod tests {
         assert_eq!(document.keywords().as_deref(), Some("a b"));
     }
 
-
     fn scratch(name: &str) -> PathBuf {
         let directory = std::env::temp_dir().join(format!("mixdog-office-writer-{}-{name}", std::process::id()));
         mixdog_testkit::create_dir_all(&directory);
@@ -584,12 +582,11 @@ mod tests {
         let text = pages_text(&path);
         assert_eq!(text.len(), 1);
         assert!(text[0].contains("Sales") && text[0].contains("1,200k") && text[0].contains("East"));
-        let refused = create_chart_pdf(&Unlaned, &FontEnv::default(), &path.to_string_lossy(), &json!({ "categories": ["a"], "values": [] }), 420.0, None).unwrap_err();
+        let refused =
+            create_chart_pdf(&Unlaned, &FontEnv::default(), &path.to_string_lossy(), &json!({ "categories": ["a"], "values": [] }), 420.0, None).unwrap_err();
         assert_eq!(refused.message(), "PDF block 1 (chart) values must be a non-empty array of numbers, zero or more.");
         mixdog_testkit::remove_dir_all(&directory);
     }
 }
-
-
 
 impl std::error::Error for WriterError {}

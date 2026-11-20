@@ -7,9 +7,7 @@ use super::*;
 /// Every cache in the store is keyed by operand and evicted by this same
 /// overlap test, so the predicate has exactly one definition.
 pub(super) fn overlaps_any_root(operand: &Path, roots: &[PathBuf]) -> bool {
-    roots
-        .iter()
-        .any(|root| FileListStore::paths_overlap(operand, root))
+    roots.iter().any(|root| FileListStore::paths_overlap(operand, root))
 }
 
 /// The inventory walker never descends into symlinked directories, so the
@@ -17,13 +15,8 @@ pub(super) fn overlaps_any_root(operand: &Path, roots: &[PathBuf]) -> bool {
 /// target's inode under the link spelling (one watch descriptor per inode; the
 /// last registered path wins), so events for a real directory can arrive as
 /// `<root>/<link>/file` and miss the cache keys, which hold the walked path.
-pub(super) fn new_watcher(
-    handler: impl notify::EventHandler,
-) -> notify::Result<RecommendedWatcher> {
-    RecommendedWatcher::new(
-        handler,
-        notify::Config::default().with_follow_symlinks(false),
-    )
+pub(super) fn new_watcher(handler: impl notify::EventHandler) -> notify::Result<RecommendedWatcher> {
+    RecommendedWatcher::new(handler, notify::Config::default().with_follow_symlinks(false))
 }
 
 const REPAIR_DEBOUNCE: Duration = Duration::from_millis(300);
@@ -36,21 +29,11 @@ impl FileListStore {
         if roots.is_empty() {
             return roots;
         }
-        let repair_paths = if paths.iter().any(|path| is_ignore_rule_path(path)) {
-            roots.clone()
-        } else {
-            paths.to_vec()
-        };
+        let repair_paths = if paths.iter().any(|path| is_ignore_rule_path(path)) { roots.clone() } else { paths.to_vec() };
         let cached = lock_recover(&self.ready)
             .iter()
             .filter(|(key, _)| overlaps_any_root(&key.operand, &roots))
-            .map(|(key, entry)| {
-                (
-                    key.clone(),
-                    Arc::clone(&entry.files),
-                    Arc::clone(&entry.directory_failures),
-                )
-            })
+            .map(|(key, entry)| (key.clone(), Arc::clone(&entry.files), Arc::clone(&entry.directory_failures)))
             .collect::<Vec<_>>();
         {
             let mut pending = lock_recover(&self.pending_repairs);
@@ -60,15 +43,13 @@ impl FileListStore {
                 }
             }
             for (key, base, directory_failures) in cached {
-                let entry = pending
-                    .entry(key)
-                    .or_insert_with(|| PendingInventoryRepair {
-                        base,
-                        directory_failures,
-                        paths: HashSet::new(),
-                        processing: false,
-                        token: Arc::new(()),
-                    });
+                let entry = pending.entry(key).or_insert_with(|| PendingInventoryRepair {
+                    base,
+                    directory_failures,
+                    paths: HashSet::new(),
+                    processing: false,
+                    token: Arc::new(()),
+                });
                 entry.paths.extend(repair_paths.iter().cloned());
             }
             // A search already waiting on this key must see the new paths.
@@ -80,11 +61,7 @@ impl FileListStore {
     }
 
     pub(super) fn start_inventory_repair_worker(self: &Arc<Self>) {
-        if self
-            .repair_worker_running
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
+        if self.repair_worker_running.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return;
         }
         let store = Arc::clone(self);
@@ -102,11 +79,8 @@ impl FileListStore {
                         if now >= deadline {
                             break;
                         }
-                        pending = store
-                            .repair_changed
-                            .wait_timeout(pending, deadline.saturating_duration_since(now))
-                            .unwrap_or_else(|error| error.into_inner())
-                            .0;
+                        pending =
+                            store.repair_changed.wait_timeout(pending, deadline.saturating_duration_since(now)).unwrap_or_else(|error| error.into_inner()).0;
                     }
                 }
                 let demanded = std::mem::take(&mut *lock_recover(&store.repair_demanded));
@@ -119,9 +93,7 @@ impl FileListStore {
                 let (jobs, waiting) = {
                     let mut pending = lock_recover(&store.pending_repairs);
                     let before = pending.len();
-                    pending.retain(|_, entry| {
-                        entry.processing || entry.paths.len() <= REPAIR_BATCH_LIMIT
-                    });
+                    pending.retain(|_, entry| entry.processing || entry.paths.len() <= REPAIR_BATCH_LIMIT);
                     if pending.len() != before {
                         store.repair_changed.notify_all();
                     }
@@ -136,12 +108,7 @@ impl FileListStore {
                         })
                         .map(|(key, entry)| {
                             entry.processing = true;
-                            (
-                                key.clone(),
-                                Arc::clone(&entry.base),
-                                entry.paths.drain().collect::<Vec<_>>(),
-                                Arc::clone(&entry.token),
-                            )
+                            (key.clone(), Arc::clone(&entry.base), entry.paths.drain().collect::<Vec<_>>(), Arc::clone(&entry.token))
                         })
                         .collect::<Vec<_>>();
                     (jobs, waiting)
@@ -156,9 +123,7 @@ impl FileListStore {
                 }
             }
             store.repair_worker_running.store(false, Ordering::Release);
-            let restart = lock_recover(&store.pending_repairs)
-                .values()
-                .any(|entry| !entry.processing && !entry.paths.is_empty());
+            let restart = lock_recover(&store.pending_repairs).values().any(|entry| !entry.processing && !entry.paths.is_empty());
             if restart {
                 store.start_inventory_repair_worker();
             }
@@ -166,11 +131,7 @@ impl FileListStore {
     }
 
     pub(super) fn schedule_noise_prewarm(self: &Arc<Self>) {
-        let keys = lock_recover(&self.ready)
-            .keys()
-            .filter(|key| key.no_ignore)
-            .cloned()
-            .collect::<Vec<_>>();
+        let keys = lock_recover(&self.ready).keys().filter(|key| key.no_ignore).cloned().collect::<Vec<_>>();
         if keys.is_empty() {
             return;
         }
@@ -189,8 +150,7 @@ impl FileListStore {
                     directories: key.directories,
                     ..ParsedArgs::default()
                 };
-                let _ =
-                    complete_operand_files(&store, &key.operand, &parsed, &cancelled, None, true);
+                let _ = complete_operand_files(&store, &key.operand, &parsed, &cancelled, None, true);
             }
         });
     }
@@ -199,12 +159,7 @@ impl FileListStore {
         self.invalidate_roots_with_paths(roots, None);
     }
 
-    pub(super) fn finish_inventory_repair(
-        &self,
-        key: &WalkKey,
-        token: &Arc<()>,
-        repaired: Result<Arc<Vec<PathBuf>>, String>,
-    ) {
+    pub(super) fn finish_inventory_repair(&self, key: &WalkKey, token: &Arc<()>, repaired: Result<Arc<Vec<PathBuf>>, String>) {
         let mut pending = lock_recover(&self.pending_repairs);
         let Some(entry) = pending.get_mut(key) else {
             return;
@@ -219,12 +174,7 @@ impl FileListStore {
                 entry.base = files;
                 entry.processing = false;
                 if entry.paths.is_empty() {
-                    self.remember_inventory(
-                        key.clone(),
-                        Arc::clone(&entry.base),
-                        self.generation(&key.operand),
-                        Arc::clone(&entry.directory_failures),
-                    );
+                    self.remember_inventory(key.clone(), Arc::clone(&entry.base), self.generation(&key.operand), Arc::clone(&entry.directory_failures));
                     pending.remove(key);
                 }
                 // Done, or more paths arrived mid-repair and a waiting search
@@ -243,8 +193,7 @@ impl FileListStore {
             return;
         }
         if paths.is_none() {
-            lock_recover(&self.pending_repairs)
-                .retain(|key, _| !overlaps_any_root(&key.operand, roots));
+            lock_recover(&self.pending_repairs).retain(|key, _| !overlaps_any_root(&key.operand, roots));
             self.repair_changed.notify_all();
         }
         {
@@ -315,11 +264,7 @@ impl FileListStore {
     /// operands. Refresh the covering root so hot ancestors stay resident.
     fn refresh_covering_root(&self, root: &Path) -> bool {
         let mut roots = lock_recover(&self.watched_roots);
-        let Some(covering) = roots
-            .keys()
-            .find(|existing| root.starts_with(existing.as_path()))
-            .cloned()
-        else {
+        let Some(covering) = roots.keys().find(|existing| root.starts_with(existing.as_path())).cloned() else {
             return false;
         };
         roots.insert(covering, Instant::now());
@@ -370,10 +315,7 @@ impl FileListStore {
                 return self.watcher_healthy.load(Ordering::Acquire);
             }
             if roots.len() >= WATCH_ROOT_MAX {
-                let oldest = roots
-                    .iter()
-                    .min_by_key(|(_, touched)| **touched)
-                    .map(|(path, _)| path.clone());
+                let oldest = roots.iter().min_by_key(|(_, touched)| **touched).map(|(path, _)| path.clone());
                 if let Some(oldest) = oldest.as_ref() {
                     roots.remove(oldest);
                     write_recover(trusted_watch_roots()).remove(oldest);
@@ -393,9 +335,7 @@ impl FileListStore {
                 "paths": [wire_path(oldest)],
             }));
         }
-        let watched = watcher
-            .as_mut()
-            .is_some_and(|watcher| watcher.watch(&root, RecursiveMode::Recursive).is_ok());
+        let watched = watcher.as_mut().is_some_and(|watcher| watcher.watch(&root, RecursiveMode::Recursive).is_ok());
         if watched {
             let mut trusted = write_recover(trusted_watch_roots());
             trusted.insert(root.clone());
@@ -455,10 +395,7 @@ fn apply_watch_event(store: &Arc<FileListStore>, event: notify::Result<notify::E
 /// Exact changed paths for ordinary events; the affected roots when the
 /// boundary is unknown (no paths) or an ignore-rule file changed. Nothing is
 /// sent when no watched root was affected.
-fn select_notification_paths<'a>(
-    paths: &'a [PathBuf],
-    affected_roots: &'a [PathBuf],
-) -> &'a [PathBuf] {
+fn select_notification_paths<'a>(paths: &'a [PathBuf], affected_roots: &'a [PathBuf]) -> &'a [PathBuf] {
     if affected_roots.is_empty() {
         return &[];
     }
@@ -523,15 +460,7 @@ pub(super) fn is_ignore_rule_path(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    [".gitignore", ".ignore", "exclude"]
-        .iter()
-        .any(|candidate| {
-            if cfg!(windows) {
-                name.eq_ignore_ascii_case(candidate)
-            } else {
-                name == *candidate
-            }
-        })
+    [".gitignore", ".ignore", "exclude"].iter().any(|candidate| if cfg!(windows) { name.eq_ignore_ascii_case(candidate) } else { name == *candidate })
 }
 
 pub(super) fn inventory_event_change(event: notify::Event) -> Option<(Vec<PathBuf>, bool)> {
@@ -543,12 +472,8 @@ pub(super) fn inventory_event_change(event: notify::Event) -> Option<(Vec<PathBu
 
 pub(super) fn inventory_changed_by_event(kind: &EventKind, paths: &[PathBuf]) -> Option<bool> {
     match kind {
-        EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_) => {
-            Some(true)
-        }
-        EventKind::Modify(ModifyKind::Data(_)) => {
-            Some(paths.iter().any(|path| is_ignore_rule_path(path)))
-        }
+        EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_) => Some(true),
+        EventKind::Modify(ModifyKind::Data(_)) => Some(paths.iter().any(|path| is_ignore_rule_path(path))),
         // Windows reports attributes and security changes as Modify(Any).
         // Only an explicitly data-only notification can retain membership.
         EventKind::Modify(_) => Some(true),

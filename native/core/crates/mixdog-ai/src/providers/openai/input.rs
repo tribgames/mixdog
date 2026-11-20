@@ -134,28 +134,14 @@ fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
     match part {
         ContentPart::Text(text, _) => (!text.is_empty()).then(|| text_part(assistant, text.as_str())),
         // The media type is the one the image's bytes have (`prepare_images`, before the request is built).
-        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
-            Some(json!({"type": "input_image", "image_url": data_url(mime_type, data)}))
-        }
-        ContentPart::Image(ImageSource::Url(url)) => {
-            Some(json!({"type": "input_image", "image_url": url}))
-        }
-        ContentPart::Image(ImageSource::FileId(id)) => {
-            Some(json!({"type": "input_image", "file_id": id}))
-        }
-        ContentPart::File {
-            source,
-            mime_type,
-            filename,
-            ..
-        } => Some(match source {
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => Some(json!({"type": "input_image", "image_url": data_url(mime_type, data)})),
+        ContentPart::Image(ImageSource::Url(url)) => Some(json!({"type": "input_image", "image_url": url})),
+        ContentPart::Image(ImageSource::FileId(id)) => Some(json!({"type": "input_image", "file_id": id})),
+        ContentPart::File { source, mime_type, filename, .. } => Some(match source {
             BinarySource::Base64(data) => file_part(assistant, filename.as_deref(), mime_type, data),
             // The product path reads a stored file before the body is built; one still a
             // reference here could not be (`unavailableAttachmentText`).
-            BinarySource::AttachmentRef(_) => text_part(
-                assistant,
-                format!("[attachment unavailable: {}]", unavailable_label(filename.as_deref(), mime_type)),
-            ),
+            BinarySource::AttachmentRef(_) => text_part(assistant, format!("[attachment unavailable: {}]", unavailable_label(filename.as_deref(), mime_type))),
         }),
         ContentPart::Document { source, title } => Some(match source {
             DocumentSource::Base64 { media_type, data } => file_part(assistant, title.as_deref(), media_type, data),
@@ -169,10 +155,7 @@ pub(super) fn normalize_content(content: &Content, assistant: bool) -> Vec<Value
     match content {
         Content::Text(text) if text.is_empty() => Vec::new(),
         Content::Text(text) => vec![text_part(assistant, text.as_str())],
-        Content::Parts(parts) => parts
-            .iter()
-            .filter_map(|part| normalize_part(part, assistant))
-            .collect(),
+        Content::Parts(parts) => parts.iter().filter_map(|part| normalize_part(part, assistant)).collect(),
     }
 }
 
@@ -180,17 +163,8 @@ pub(super) fn normalize_content(content: &Content, assistant: bool) -> Vec<Value
 /// `input_*` items the Responses wire accepts inside `output`.
 fn tool_output(content: &Content) -> Value {
     let items = normalize_content(content, false);
-    let has_media = items.iter().any(|item| {
-        matches!(
-            item.get("type").and_then(Value::as_str),
-            Some("input_image" | "input_file")
-        )
-    });
-    if has_media {
-        Value::Array(items)
-    } else {
-        Value::String(content_text(content))
-    }
+    let has_media = items.iter().any(|item| matches!(item.get("type").and_then(Value::as_str), Some("input_image" | "input_file")));
+    if has_media { Value::Array(items) } else { Value::String(content_text(content)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,10 +191,7 @@ fn wire_message(parity: bool, role: &str, content: Vec<Value>, phase: Option<Pha
         item.insert("phase".into(), json!(phase_str(phase)));
     }
     if parity {
-        item.insert(
-            "internal_chat_message_metadata_passthrough".into(),
-            json!({}),
-        );
+        item.insert("internal_chat_message_metadata_passthrough".into(), json!({}));
     }
     Value::Object(item)
 }
@@ -230,11 +201,7 @@ fn item_type(item: &Value) -> &str {
 }
 
 fn function_call_item(call: &ToolCall, call_id: &str) -> Value {
-    let name = if call.name == "tool_search" {
-        "load_tool"
-    } else {
-        call.name.as_str()
-    };
+    let name = if call.name == "tool_search" { "load_tool" } else { call.name.as_str() };
     json!({
         "type": "function_call",
         "call_id": call_id,
@@ -263,11 +230,7 @@ fn custom_tool_input(name: &str, arguments: &Value) -> String {
 }
 
 fn tool_search_call_item(call_id: &str, arguments: &Value) -> Value {
-    let arguments = if arguments.is_object() {
-        arguments.clone()
-    } else {
-        json!({})
-    };
+    let arguments = if arguments.is_object() { arguments.clone() } else { json!({}) };
     json!({
         "type": "tool_search_call",
         "call_id": call_id,
@@ -306,11 +269,7 @@ fn without_native_tool_search(item: Value) -> Option<Value> {
 /// the OpenAI family, or `None`.
 fn native_search_output(message: &Message, call_id: &str) -> Option<Value> {
     let native = message.native_tool_search.as_ref()?;
-    let source = native
-        .get("provider")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let source = native.get("provider").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
     if !source.is_empty() && source != "openai" && source != "openai-oauth" {
         return None;
     }
@@ -364,8 +323,7 @@ impl Lowering<'_> {
             return;
         }
         let media = std::mem::take(&mut self.pending_media);
-        self.out
-            .push(wire_message(self.opts.codex_parity, "user", media, None));
+        self.out.push(wire_message(self.opts.codex_parity, "user", media, None));
     }
 
     fn push_tool_result(&mut self, message: &Message, call_id: &str) {
@@ -379,16 +337,9 @@ impl Lowering<'_> {
             return;
         }
         if let Some(arguments) = self.search_calls.get(call_id) {
-            let item = native_search_output(message, call_id)
-                .unwrap_or_else(|| empty_search_output(call_id));
-            let no_tools = item
-                .get("tools")
-                .and_then(Value::as_array)
-                .is_none_or(Vec::is_empty);
-            let named = arguments
-                .get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|name| !name.is_empty());
+            let item = native_search_output(message, call_id).unwrap_or_else(|| empty_search_output(call_id));
+            let no_tools = item.get("tools").and_then(Value::as_array).is_none_or(Vec::is_empty);
+            let named = arguments.get("name").and_then(Value::as_str).is_some_and(|name| !name.is_empty());
             self.out.push(item);
             // The search output has no text field; keep skill status and
             // failed loader results visible as a user message.
@@ -406,22 +357,12 @@ impl Lowering<'_> {
                 .as_ref()
                 .and_then(|n| n.get("openaiTools"))
                 .and_then(Value::as_array)
-                .map(|tools| {
-                    tools
-                        .iter()
-                        .filter_map(|t| t.get("name").and_then(Value::as_str))
-                        .map(str::to_owned)
-                        .collect()
-                })
+                .map(|tools| tools.iter().filter_map(|t| t.get("name").and_then(Value::as_str)).map(str::to_owned).collect())
                 .unwrap_or_default()
         } else {
             Vec::new()
         };
-        let load_output = if loaded.is_empty() {
-            None
-        } else {
-            native_search_output(message, call_id)
-        };
+        let load_output = if loaded.is_empty() { None } else { native_search_output(message, call_id) };
         let output = if !loaded.is_empty() && load_output.is_none() {
             Value::String(format!(
                 "{}\nThis ordinary function result cannot register native tools. Use tool_search with names:{} to load their definitions.",
@@ -438,8 +379,7 @@ impl Lowering<'_> {
         }));
         if let Some(mut load_output) = load_output {
             let load_call_id = format!("{call_id}_load");
-            self.pending_loads
-                .push(tool_search_call_item(&load_call_id, &json!({"names": loaded})));
+            self.pending_loads.push(tool_search_call_item(&load_call_id, &json!({"names": loaded})));
             if let Some(map) = load_output.as_object_mut() {
                 map.insert("call_id".into(), json!(load_call_id));
             }
@@ -453,8 +393,7 @@ impl Lowering<'_> {
             let native_type = call.native_type.as_deref();
             if self.opts.native_tool_search && native_type == Some("tool_search_call") {
                 let item = tool_search_call_item(&call_id, &call.arguments);
-                self.search_calls
-                    .insert(call_id, item.get("arguments").cloned().unwrap_or_default());
+                self.search_calls.insert(call_id, item.get("arguments").cloned().unwrap_or_default());
                 self.out.push(item);
             } else if self.opts.custom_tools && native_type == Some("custom_tool_call") {
                 self.out.push(json!({
@@ -475,17 +414,12 @@ impl Lowering<'_> {
     /// A migrated or provider-owned ordered replay: the response's own items,
     /// in order. Returns whether it took over the message.
     fn push_ordered_replay(&mut self, items: &[Value]) -> bool {
-        let kept: Vec<&Value> = items
-            .iter()
-            .filter(|item| self.opts.replay_reasoning || item_type(item) != "reasoning")
-            .collect();
+        let kept: Vec<&Value> = items.iter().filter(|item| self.opts.replay_reasoning || item_type(item) != "reasoning").collect();
         if kept.is_empty() {
             return false;
         }
         for item in kept {
-            let item = if self.opts.native_tool_search
-                || self.opts.tool_search_replay == ToolSearchReplay::Verbatim
-            {
+            let item = if self.opts.native_tool_search || self.opts.tool_search_replay == ToolSearchReplay::Verbatim {
                 Some(item.clone())
             } else {
                 without_native_tool_search(item.clone())
@@ -499,10 +433,7 @@ impl Lowering<'_> {
             if item_type(&item) == "tool_search_call"
                 && let Some(call_id) = item.get("call_id").and_then(Value::as_str)
             {
-                self.search_calls.insert(
-                    call_id.to_owned(),
-                    item.get("arguments").cloned().unwrap_or_default(),
-                );
+                self.search_calls.insert(call_id.to_owned(), item.get("arguments").cloned().unwrap_or_default());
             }
             self.out.push(item);
         }
@@ -527,15 +458,10 @@ fn replay_items(message: &Message, owner: &ProviderId) -> Vec<Value> {
 fn ensure_call_outputs(items: Vec<Value>) -> Vec<Value> {
     let is_server_search = |item: &Value| {
         matches!(item_type(item), "tool_search_call" | "tool_search_output")
-            && (item.get("execution").and_then(Value::as_str) == Some("server")
-                || item.get("call_id").is_some_and(Value::is_null))
+            && (item.get("execution").and_then(Value::as_str) == Some("server") || item.get("call_id").is_some_and(Value::is_null))
     };
     let call_id = |item: &Value| -> Option<String> {
-        if !matches!(
-            item_type(item),
-            "function_call" | "custom_tool_call" | "tool_search_call"
-        ) || is_server_search(item)
-        {
+        if !matches!(item_type(item), "function_call" | "custom_tool_call" | "tool_search_call") || is_server_search(item) {
             return None;
         }
         item.get("call_id")
@@ -546,12 +472,7 @@ fn ensure_call_outputs(items: Vec<Value>) -> Vec<Value> {
     };
     let mut answered: HashSet<String> = items
         .iter()
-        .filter(|item| {
-            matches!(
-                item_type(item),
-                "function_call_output" | "custom_tool_call_output" | "tool_search_output"
-            ) && !is_server_search(item)
-        })
+        .filter(|item| matches!(item_type(item), "function_call_output" | "custom_tool_call_output" | "tool_search_output") && !is_server_search(item))
         .filter_map(|item| {
             item.get("call_id")
                 .and_then(Value::as_str)
@@ -614,14 +535,8 @@ fn configuration_update(effort: &str) -> Value {
 pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtras) -> Vec<Value> {
     let ids = wire_id_map(messages);
     let wire = |id: &str| ids.get(id).cloned().unwrap_or_else(|| id.to_owned());
-    let mut lowering = Lowering {
-        opts,
-        out: Vec::new(),
-        pending_media: Vec::new(),
-        pending_loads: Vec::new(),
-        search_calls: HashMap::new(),
-        custom_calls: HashSet::new(),
-    };
+    let mut lowering =
+        Lowering { opts, out: Vec::new(), pending_media: Vec::new(), pending_loads: Vec::new(), search_calls: HashMap::new(), custom_calls: HashSet::new() };
     // An update on a tool result applies after its whole batch; one on any
     // other message goes before it, and a message's own wins over a pending
     // batch update.
@@ -632,12 +547,7 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
             Role::System => {
                 if opts.system_in_input {
                     lowering.flush_media();
-                    lowering.out.push(wire_message(
-                        opts.codex_parity,
-                        "system",
-                        normalize_content(&message.content, false),
-                        None,
-                    ));
+                    lowering.out.push(wire_message(opts.codex_parity, "system", normalize_content(&message.content, false), None));
                 }
                 continue;
             }
@@ -656,11 +566,7 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
             lowering.out.push(configuration_update(effort));
         }
         let assistant = message.role == Role::Assistant;
-        let replays = if assistant {
-            replay_items(message, &opts.replay_owner)
-        } else {
-            Vec::new()
-        };
+        let replays = if assistant { replay_items(message, &opts.replay_owner) } else { Vec::new() };
         // The one decision point (Node `orderedReplay?.length`): an owned
         // replay with anything left to send replaces the message and the
         // carried history alike; history reasoning is only for a message
@@ -678,25 +584,13 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
                 Content::Parts(parts) => !parts.is_empty(),
             };
             if has_content {
-                lowering.out.push(wire_message(
-                    opts.codex_parity,
-                    "assistant",
-                    content,
-                    message.phase.filter(|_| opts.phase),
-                ));
+                lowering.out.push(wire_message(opts.codex_parity, "assistant", content, message.phase.filter(|_| opts.phase)));
             }
             lowering.push_assistant_calls(&message.tool_calls, &wire);
             continue;
         }
         let role = if assistant { "assistant" } else { "user" };
-        lowering
-            .out
-            .push(wire_message(
-                opts.codex_parity,
-                role,
-                content,
-                message.phase.filter(|_| opts.phase),
-            ));
+        lowering.out.push(wire_message(opts.codex_parity, role, content, message.phase.filter(|_| opts.phase)));
     }
     lowering.flush_media();
     if let Some(carried) = extras.reasoning_by_index.get(&messages.len()) {

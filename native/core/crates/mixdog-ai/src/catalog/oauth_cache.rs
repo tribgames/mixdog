@@ -499,7 +499,11 @@ impl OauthModelCache {
     /// its answer instead of starting another (`refreshCodexCatalog`). `sampled` is the key the caller read the roster
     /// under; a caller with none fetches alone.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    pub async fn refresh(&self, listing: Arc<dyn mixdog_core_api::domain::provider::ModelListing>, sampled: Option<&str>) -> Result<Arc<Refreshed>, mixdog_core_api::domain::provider::ProviderError> {
+    pub async fn refresh(
+        &self,
+        listing: Arc<dyn mixdog_core_api::domain::provider::ModelListing>,
+        sampled: Option<&str>,
+    ) -> Result<Arc<Refreshed>, mixdog_core_api::domain::provider::ProviderError> {
         let Some(sampled) = sampled else { return self.fetch(listing).await };
         let slot: Slot = (self.roster, sampled.to_owned());
         let flight = {
@@ -525,7 +529,10 @@ impl OauthModelCache {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn fetch(&self, listing: Arc<dyn mixdog_core_api::domain::provider::ModelListing>) -> Result<Arc<Refreshed>, mixdog_core_api::domain::provider::ProviderError> {
+    async fn fetch(
+        &self,
+        listing: Arc<dyn mixdog_core_api::domain::provider::ModelListing>,
+    ) -> Result<Arc<Refreshed>, mixdog_core_api::domain::provider::ProviderError> {
         let (ticket, started) = (self.accounts.ticket(), (self.now_ms)());
         let listed = listing.list_roster().await?;
         let published = self.publish(&listed, ticket, started).await;
@@ -663,7 +670,8 @@ fn family_of(id: &str) -> String {
 
 /// The keys of Node's cache row that no typed field of the record holds: the catalog lookup's output carries them
 /// (`ModelRecord::enriched`), present for a model the catalog knows and absent for one it does not.
-const ENRICHED_KEYS: [&str; 7] = ["pricingTiers", "pricingModel", "pricingProvider", "pricingSource", "supportsFunctionCalling", "reasoningContentField", "mode"];
+const ENRICHED_KEYS: [&str; 7] =
+    ["pricingTiers", "pricingModel", "pricingProvider", "pricingSource", "supportsFunctionCalling", "reasoningContentField", "mode"];
 
 /// A number as JavaScript writes it: an integral value has no fraction.
 fn number(value: f64) -> Value {

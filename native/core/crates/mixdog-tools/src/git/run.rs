@@ -71,8 +71,7 @@ pub(super) struct Runner<'a> {
 }
 
 fn lock_contention(stderr: &str) -> bool {
-    Regex::new(r"Unable to create '[^'\n]*\.lock': File exists|could not lock config file [^\n]*: File exists")
-        .is_ok_and(|re| re.is_match(stderr))
+    Regex::new(r"Unable to create '[^'\n]*\.lock': File exists|could not lock config file [^\n]*: File exists").is_ok_and(|re| re.is_match(stderr))
 }
 
 /// Waiting is reported once it exceeds a second, so a slow answer is never mistaken for slow
@@ -189,8 +188,7 @@ fn has_diff_header(text: &str) -> bool {
 
 fn present_stdout(plan: &Plan, stdout: &str) -> String {
     if plan.operation == "merge-tree" {
-        return Regex::new(r"(?m)^Auto-merging .*(?:\r?\n|$)")
-            .map_or_else(|_| stdout.to_owned(), |re| re.replace_all(stdout, "").into_owned());
+        return Regex::new(r"(?m)^Auto-merging .*(?:\r?\n|$)").map_or_else(|_| stdout.to_owned(), |re| re.replace_all(stdout, "").into_owned());
     }
     if PATCH_OPERATIONS.contains(&plan.operation.as_str()) && has_diff_header(stdout) {
         return Regex::new(r"(?m)^index [0-9a-f,]+\.\.[0-9a-f]+(?: [0-7]+)?\r?(?:\n|$)")
@@ -210,10 +208,7 @@ fn exit_signal(plan: &Plan, run: &GitRun) -> Option<&'static str> {
         "merge-tree" => (!run.out().trim().is_empty()).then_some("conflicts"),
         "diff" => {
             let end = plan.args.iter().position(|a| a == "--").unwrap_or(plan.args.len());
-            plan.args[..end]
-                .iter()
-                .any(|a| DIFF_EXIT_SIGNAL_FLAGS.contains(&a.as_str()))
-                .then_some("no-match")
+            plan.args[..end].iter().any(|a| DIFF_EXIT_SIGNAL_FLAGS.contains(&a.as_str())).then_some("no-match")
         }
         _ => None,
     }
@@ -226,11 +221,7 @@ fn failure_reason(plan: &Plan, run: &GitRun) -> String {
         Some(RunError::Aborted) => "git command aborted".to_owned(),
         Some(RunError::TimedOut) => "git command timed out".to_owned(),
         Some(RunError::Overflow) => "git output exceeded 128 MiB".to_owned(),
-        None => format!(
-            "git {} exited {}",
-            plan.operation,
-            run.code.map_or("null".to_owned(), |c| c.to_string())
-        ),
+        None => format!("git {} exited {}", plan.operation, run.code.map_or("null".to_owned(), |c| c.to_string())),
     }
 }
 
@@ -289,7 +280,11 @@ mod tests {
         async fn spawn(&self, _request: p::SpawnRequest) -> Result<p::SpawnedProcess, p::ProcessError> {
             Err(p::ProcessError::PermissionDenied)
         }
-        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<p::ProcessEvent>>, p::ProcessError> {
+        fn subscribe(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _from_seq: Option<u64>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<p::ProcessEvent>>, p::ProcessError> {
             Err(p::ProcessError::UnknownHandle)
         }
         async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), p::ProcessError> {
@@ -316,7 +311,6 @@ mod tests {
         assert_eq!(append_text("a", ""), "a");
     }
 
-
     /// `runGit`'s `result.error.code || result.error.message`: the git tool names a refused start by its code alone,
     /// `git process failed (EPERM)`.
     #[tokio::test]
@@ -329,7 +323,6 @@ mod tests {
         assert!(matches!(&run.error, Some(RunError::Spawn(text)) if text == code), "the start is named {code}");
     }
 }
-
 
 impl Runner<'_> {
     /// Blocking filesystem work as a maintenance-lane job; `None` when the call was cancelled
@@ -367,15 +360,7 @@ impl Runner<'_> {
         spec.max_output = MAX_CAPTURE_BYTES;
         // `runGit`: `startGit(env, ...)`, the git PATH resolves to with its launcher's environment.
         match mixdog_scm::git::start_git(self.exec, self.lane, spec, self.cancel).await {
-            Ok(out) => GitRun {
-                code: out.code,
-                stdout: out.stdout,
-                stderr: out.stderr,
-                error: None,
-                retries: 0,
-                retry_ms: 0,
-                not_utf8: false,
-            },
+            Ok(out) => GitRun { code: out.code, stdout: out.stdout, stderr: out.stderr, error: None, retries: 0, retry_ms: 0, not_utf8: false },
             Err(ScmFailure::Unavailable { .. }) => GitRun::failed(RunError::NotFound),
             Err(ScmFailure::Cancelled) => GitRun::failed(RunError::Aborted),
             Err(ScmFailure::TimedOut { .. }) => GitRun::failed(RunError::TimedOut),

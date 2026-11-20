@@ -425,9 +425,6 @@ pub enum QuarantineCode {
 impl QuarantineCode {
     /// Expected quarantines do not fail the release gate.
     pub const fn expected(self) -> bool {
-        matches!(
-            self,
-            QuarantineCode::CarriedSetAside | QuarantineCode::LedgerImportIncomplete
-        )
+        matches!(self, QuarantineCode::CarriedSetAside | QuarantineCode::LedgerImportIncomplete)
     }
 }

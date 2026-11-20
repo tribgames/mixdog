@@ -8,7 +8,6 @@ use mixdog_core_api::mock::MockStatePublisher;
 use super::*;
 use crate::config::ConfigLanes;
 
-
 pub(in crate::config) async fn open(dir: &Path) -> Config {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -29,8 +28,6 @@ pub(in crate::config) async fn put(path: std::path::PathBuf, text: String) {
     })
     .await;
 }
-
-
 
 /// Two claims of the same name are given different folders (`mkdirSync` throwing `EEXIST` moves on to the next
 /// name): a name already taken, and two claims racing for one name.
@@ -58,5 +55,3 @@ async fn claims_that_collide_get_different_folders() {
     names.sort();
     assert_eq!(names, ["defaults-separation-y", "defaults-separation-y-1"]);
 }
-
-

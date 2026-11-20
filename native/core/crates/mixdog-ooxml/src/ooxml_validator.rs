@@ -19,7 +19,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -184,10 +184,7 @@ impl Environment {
     pub fn from_process() -> Self {
         let variable = |name: &str| std::env::var(name).ok();
         Environment {
-            cli_override: variable("MIXDOG_OOXML_VALIDATOR_CLI")
-                .map(|text| js_trim(&text).to_owned())
-                .filter(|text| !text.is_empty())
-                .map(PathBuf::from),
+            cli_override: variable("MIXDOG_OOXML_VALIDATOR_CLI").map(|text| js_trim(&text).to_owned()).filter(|text| !text.is_empty()).map(PathBuf::from),
             disabled: variable("MIXDOG_OOXML_VALIDATOR_DISABLED").as_deref() == Some("1"),
             shared_cache: variable("MIXDOG_TEST_OOXML_CACHE_DIR").filter(|text| !text.is_empty()).map(PathBuf::from),
             platform: node_platform(),
@@ -361,15 +358,9 @@ fn patterns() -> &'static Patterns {
         office_drawing_namespace: JsRegex::new_static(r"schemas\.microsoft\.com\/office\/drawing\/20\d{2}\/", "i"),
         presentation_path: JsRegex::new_static(r"^\/ppt\/presentation\.xml$", "i"),
         presentation_xpath: JsRegex::new_static(r"^\/p:presentation\[1\]$", "i"),
-        master_list_order: JsRegex::new_static(
-            r"unexpected child element .*:(?:notesMasterIdLst|handoutMasterIdLst)'",
-            "i",
-        ),
+        master_list_order: JsRegex::new_static(r"unexpected child element .*:(?:notesMasterIdLst|handoutMasterIdLst)'", "i"),
         unexpected_content_id: JsRegex::new_static(r"^Sch_UnexpectedElementContent", "i"),
-        chart_element_order: JsRegex::new_static(
-            r"unexpected child element '[^']*drawingml\/2006\/chart:[A-Za-z]+'",
-            "i",
-        ),
+        chart_element_order: JsRegex::new_static(r"unexpected child element '[^']*drawingml\/2006\/chart:[A-Za-z]+'", "i"),
     })
 }
 
@@ -389,8 +380,7 @@ fn is_office_extension_compatibility_error(error: &Value) -> bool {
     if !patterns.chart_path.is_match(&field(error, "path")) {
         return false;
     }
-    patterns.chart_ext_xpath.is_match(&field(error, "xPath"))
-        || patterns.office_drawing_namespace.is_match(&field(error, "description"))
+    patterns.chart_ext_xpath.is_match(&field(error, "xPath")) || patterns.office_drawing_namespace.is_match(&field(error, "description"))
 }
 
 /// Script generators write `<p:notesMasterIdLst>` after `<p:sldIdLst>`, which the schema rejects but every PowerPoint build
@@ -412,9 +402,7 @@ fn is_chart_child_order_error(error: &Value) -> bool {
 }
 
 fn is_compatibility_error(error: &Value) -> bool {
-    is_office_extension_compatibility_error(error)
-        || is_presentation_child_order_error(error)
-        || is_chart_child_order_error(error)
+    is_office_extension_compatibility_error(error) || is_presentation_child_order_error(error) || is_chart_child_order_error(error)
 }
 
 /// `classifyOoxmlValidationErrors`.
@@ -431,8 +419,7 @@ pub fn classify_ooxml_validation_errors(errors: &[Value]) -> Classified {
 
 /// What the validator printed, as the result of a run that exited with 0 (`valid` is `isValid ?? valid ?? ok`).
 pub fn parse_validator_output(stdout: &str, runtime: ValidatorRuntime, office_version: &str) -> ValidationResult {
-    let invalid =
-        |message: &str| ValidationResult::failed(runtime.clone(), Some(format!("Invalid OOXML schema validator output: {message}")));
+    let invalid = |message: &str| ValidationResult::failed(runtime.clone(), Some(format!("Invalid OOXML schema validator output: {message}")));
     let trimmed = js_trim(stdout);
     let text = if trimmed.is_empty() { "{}" } else { trimmed };
     let Ok(result) = mixdog_js::json_parse(text) else {
@@ -599,13 +586,7 @@ fn io_error(error: io::Error) -> ValidatorError {
     ValidatorError(error.to_string())
 }
 
-fn install_validator<P: WriteProof>(
-    lane: &P,
-    root: &Path,
-    entry: &PlatformPackage,
-    registry: &str,
-    cancel: Option<&AtomicBool>,
-) -> Result<ValidatorRuntime> {
+fn install_validator<P: WriteProof>(lane: &P, root: &Path, entry: &PlatformPackage, registry: &str, cancel: Option<&AtomicBool>) -> Result<ValidatorRuntime> {
     let binary_path = root.join(&entry.binary);
     let temporary = root.join(format!("{}.mixdog-tmp-{}", entry.binary, unique_suffix()));
     let outcome = (|| -> Result<ValidatorRuntime> {
@@ -622,10 +603,7 @@ fn install_validator<P: WriteProof>(
         // `rm(binary, { force: true })`: a stale or truncated file makes room, a missing one is nothing.
         drop(mixdog_fsio::remove_file(lane, &binary_path));
         mixdog_fsio::rename(lane, &temporary, &binary_path).map_err(io_error)?;
-        Ok(ValidatorRuntime {
-            bytes: Some(binary.len() as u64),
-            ..ValidatorRuntime::ready(binary_path.clone(), false, VERSION)
-        })
+        Ok(ValidatorRuntime { bytes: Some(binary.len() as u64), ..ValidatorRuntime::ready(binary_path.clone(), false, VERSION) })
     })();
     drop(mixdog_fsio::remove_file(lane, &temporary));
     outcome
@@ -649,16 +627,10 @@ pub fn ensure_in<P: WriteProof>(lane: &P, env: &Environment, request: &Request<'
         return Ok(ValidatorRuntime::ready(path.clone(), true, "override"));
     }
     if env.disabled {
-        return Ok(ValidatorRuntime {
-            disabled: Some(true),
-            ..ValidatorRuntime::unavailable("OOXML schema validation is disabled.")
-        });
+        return Ok(ValidatorRuntime { disabled: Some(true), ..ValidatorRuntime::unavailable("OOXML schema validation is disabled.") });
     }
     let Some((_, entry)) = env.packages.iter().find(|(key, _)| *key == env.platform) else {
-        return Ok(ValidatorRuntime::unavailable(format!(
-            "OOXML schema validation is unavailable on {}.",
-            env.platform
-        )));
+        return Ok(ValidatorRuntime::unavailable(format!("OOXML schema validation is unavailable on {}.", env.platform)));
     };
     // Test runners share immutable tools, never session files or user data. Normal app calls keep their data-directory cache.
     let root = cache_root(env.shared_cache.as_deref().unwrap_or(request.data_dir), &env.platform);
@@ -716,20 +688,9 @@ async fn capture<R: AsyncRead + Unpin>(mut stream: R) -> Vec<u8> {
 }
 
 /// The validator run on `document`; `Err` is the reason it did not finish (it did not start, was aborted or timed out).
-async fn run_validator(
-    program: &Path,
-    document: &Path,
-    office_version: &str,
-    cancel: Option<&AtomicBool>,
-) -> std::result::Result<Exit, String> {
+async fn run_validator(program: &Path, document: &Path, office_version: &str, cancel: Option<&AtomicBool>) -> std::result::Result<Exit, String> {
     let mut command = tokio::process::Command::new(program);
-    command
-        .arg(document)
-        .arg(office_version)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    command.arg(document).arg(office_version).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(windows)]
     // CREATE_NO_WINDOW (`windowsHide`).
     command.creation_flags(0x0800_0000);
@@ -760,11 +721,7 @@ async fn run_validator(
     };
     let stdout = collect(out).await;
     let stderr = collect(err).await;
-    Ok(Exit {
-        code: status.code(),
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
-    })
+    Ok(Exit { code: status.code(), stdout: String::from_utf8_lossy(&stdout).into_owned(), stderr: String::from_utf8_lossy(&stderr).into_owned() })
 }
 
 /// `validateOoxmlSchema` against the process environment.
@@ -773,12 +730,7 @@ pub fn validate_ooxml_schema<P: WriteProof>(lane: &P, path: &Path, request: &Req
 }
 
 /// `validateOoxmlSchema` against `env`: the validator found or installed, run on `path`, its output classified.
-pub fn validate_in<P: WriteProof>(
-    lane: &P,
-    env: &Environment,
-    path: &Path,
-    request: &Request<'_>,
-) -> Result<ValidationResult> {
+pub fn validate_in<P: WriteProof>(lane: &P, env: &Environment, path: &Path, request: &Request<'_>) -> Result<ValidationResult> {
     let runtime = ensure_in(lane, env, request)?;
     let Some(program) = runtime.path.clone().filter(|_| runtime.available) else {
         return Ok(ValidationResult::failed(runtime, None));

@@ -100,10 +100,11 @@ async fn a_committed_compaction_prunes_the_sidecars_nothing_the_session_holds_re
 
     let state = |path: &String| (path.rsplit(['/', '\\']).next().unwrap_or_default().to_owned(), exists(path));
     let got: Vec<(String, bool)> = [&kept, &reached, &queued, &young, &reused, &foreign, &dropped, &stray].into_iter().map(state).collect();
-    let want: Vec<(String, bool)> = [(&kept, true), (&reached, true), (&queued, true), (&young, true), (&reused, true), (&foreign, true), (&dropped, false), (&stray, false)]
-        .into_iter()
-        .map(|(path, kept)| (state(path).0, kept))
-        .collect();
+    let want: Vec<(String, bool)> =
+        [(&kept, true), (&reached, true), (&queued, true), (&young, true), (&reused, true), (&foreign, true), (&dropped, false), (&stray, false)]
+            .into_iter()
+            .map(|(path, kept)| (state(path).0, kept))
+            .collect();
     assert_eq!(got, want);
 }
 
@@ -152,10 +153,15 @@ async fn a_github_raw_output_the_stored_transcript_no_longer_names_goes_at_the_o
     assert!(!exists(&shown), "the raw output the stored compaction no longer names is removed");
 }
 
-
 #[async_trait]
 impl ManualCompaction for Pruning {
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, CoreError> {
+    async fn compact(
+        &self,
+        thread: &ThreadId,
+        trigger: &str,
+        require_reduction: bool,
+        cancel: &mixdog_agent::cancel::Cancel,
+    ) -> Result<Option<Value>, CoreError> {
         self.rig.compact(thread, trigger, require_reduction, cancel).await
     }
     async fn compact_for_heir(&self, source: &ThreadId, rows: &[Value], budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {

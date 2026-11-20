@@ -33,7 +33,10 @@ use super::store::CredentialFile;
 
 /// What a process is to the lock protocol: the owner its records name, and its line per lock path, where its callers
 /// wait their turn before contending for the file (`lockQueue`).
-#[allow(clippy::disallowed_types, reason = "the line is the queue: a caller holds its turn across the whole contended attempt, first come first served, as Node's lockQueue")]
+#[allow(
+    clippy::disallowed_types,
+    reason = "the line is the queue: a caller holds its turn across the whole contended attempt, first come first served, as Node's lockQueue"
+)]
 pub struct LockProcess {
     owner: LockOwner,
     lines: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,

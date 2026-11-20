@@ -28,16 +28,10 @@ fn with_inserted_tail(deleted: &str, inserted: &str) -> Result<String, String> {
 /// `id` through `id + runCount`.
 pub fn tracked_paragraph_rewrite(paragraph_xml: &str, text: &str, id: u64, author: &str) -> Result<String, String> {
     let run_count = compiled(r"<w:r(?:\s[^>]*)?>", "g").find_iter(paragraph_xml).count() as u64;
-    let properties = compiled(r"<w:r(?:\s[^>]*)?>\s*(<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>)", "")
-        .captures(paragraph_xml)
-        .and_then(|found| found.get(1))
-        .unwrap_or("");
+    let properties =
+        compiled(r"<w:r(?:\s[^>]*)?>\s*(<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>)", "").captures(paragraph_xml).and_then(|found| found.get(1)).unwrap_or("");
     let deleted = mark_runs_deleted(paragraph_xml, id, author);
-    let inserted = format!(
-        "<w:ins {}><w:r>{properties}{}</w:r></w:ins>",
-        revision_attributes(id + run_count, author),
-        word_text_content(text, true)
-    );
+    let inserted = format!("<w:ins {}><w:r>{properties}{}</w:r></w:ins>", revision_attributes(id + run_count, author), word_text_content(text, true));
     with_inserted_tail(&deleted, &inserted)
 }
 
@@ -185,11 +179,7 @@ fn shared_word_edges(find: &str, replacement: &str) -> SharedEdges {
     while trail < before.len() - lead && trail < after.len() - lead && before[before.len() - 1 - trail] == after[after.len() - 1 - trail] {
         trail += 1;
     }
-    SharedEdges {
-        lead: before[..lead].concat().len(),
-        trail: before[before.len() - trail..].concat().len(),
-        insert: after[lead..after.len() - trail].concat(),
-    }
+    SharedEdges { lead: before[..lead].concat().len(), trail: before[before.len() - trail..].concat().len(), insert: after[lead..after.len() - trail].concat() }
 }
 
 /// What [`tracked_paragraph_replace`] made of one paragraph.

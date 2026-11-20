@@ -126,13 +126,8 @@ impl WebPush {
     /// `{ type: 'webpush-subscriptions', subscriptions }`: the set one PC may deliver to, minus the clients `client_known`
     /// (the device store's `hasClient`) no longer knows.
     pub fn subscriptions_frame(&self, device_id: &str, client_known: impl Fn(&str, &str) -> bool) -> Value {
-        let rows: Vec<Value> = self
-            .registry()
-            .list_for(device_id)
-            .into_iter()
-            .filter(|row| client_known(device_id, &row.client_id))
-            .map(|row| row.to_value())
-            .collect();
+        let rows: Vec<Value> =
+            self.registry().list_for(device_id).into_iter().filter(|row| client_known(device_id, &row.client_id)).map(|row| row.to_value()).collect();
         json!({ "type": "webpush-subscriptions", "subscriptions": rows })
     }
 
@@ -145,13 +140,7 @@ impl WebPush {
     /// Handles a `webpush-send` of the desktop leg `device_id` and returns the `webpush-result` frame to answer it with.
     /// `client_known` is the device store's `hasClient`; `publish` tells a PC its new set (called for every PC that held a
     /// subscription the push service retired).
-    pub async fn send_from_desktop(
-        &self,
-        device_id: &str,
-        message: &Value,
-        client_known: impl Fn(&str, &str) -> bool,
-        publish: impl Fn(&str),
-    ) -> Value {
+    pub async fn send_from_desktop(&self, device_id: &str, message: &Value, client_known: impl Fn(&str, &str) -> bool, publish: impl Fn(&str)) -> Value {
         let text = |name: &str| message.get(name).and_then(Value::as_str).unwrap_or_default();
         let (endpoint, client_id) = (text("endpoint"), text("clientId"));
         let reply = |fields: Vec<(&str, Value)>| {

@@ -128,14 +128,7 @@ pub fn resolve(setting: Option<&str>, caps: Capabilities) -> Policy {
         Mode::WsFull => (Transport::Ws, DELTA_OFF),
         Mode::Auto | Mode::WsDelta => (Transport::Ws, if caps.delta { DELTA_REFS } else { DELTA_OFF }),
     };
-    Policy {
-        mode,
-        requested_mode,
-        transport,
-        allow_http_fallback: requested_mode == Mode::Auto && caps.http,
-        delta,
-        capabilities: caps,
-    }
+    Policy { mode, requested_mode, transport, allow_http_fallback: requested_mode == Mode::Auto && caps.http, delta, capabilities: caps }
 }
 
 /// `resolveOpenAiTransportPolicy`: the full-capability resolution.

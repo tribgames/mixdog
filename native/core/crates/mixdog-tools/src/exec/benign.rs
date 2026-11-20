@@ -117,11 +117,7 @@ pub fn tokenize(segment: &str) -> Option<Vec<String>> {
         let ch = chars[i];
         if ch == '\\' && quote != Some('\'') {
             let next = chars.get(i + 1).copied();
-            let escapes = if quote == Some('"') {
-                next == Some('"')
-            } else {
-                next.is_some_and(|n| ESCAPABLE.is_match(&n.to_string()))
-            };
+            let escapes = if quote == Some('"') { next == Some('"') } else { next.is_some_and(|n| ESCAPABLE.is_match(&n.to_string())) };
             if !escapes {
                 current.push(ch);
             } else if let Some(n) = next {
@@ -195,8 +191,7 @@ pub fn strip_probe_wrappers(tokens: Vec<String>) -> Vec<String> {
     out
 }
 
-static AMBIGUOUS: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r"\$\(|\$\{|<\(|>\(|`|\\\s*(?:\||&|;|\n)"));
+static AMBIGUOUS: LazyLock<JsRegex> = LazyLock::new(|| cs(r"\$\(|\$\{|<\(|>\(|`|\\\s*(?:\||&|;|\n)"));
 static OR_CHAIN: LazyLock<JsRegex> = LazyLock::new(|| cs(r"\|\|"));
 
 /// A comment ends at the newline; later lines are still live commands.
@@ -235,8 +230,7 @@ fn strip_shell_comment(text: &str) -> String {
 
 const SEARCH_HEADS: [&str; 6] = ["select-string", "sls", "grep", "egrep", "fgrep", "findstr"];
 const GIT_DIFF_EXIT_SIGNAL_FLAGS: [&str; 3] = ["--exit-code", "--quiet", "--check"];
-const GIT_GLOBAL_VALUE_OPTS: [&str; 7] =
-    ["-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"];
+const GIT_GLOBAL_VALUE_OPTS: [&str; 7] = ["-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"];
 
 fn normalize_head(token: &str) -> String {
     let lower = token.to_lowercase();

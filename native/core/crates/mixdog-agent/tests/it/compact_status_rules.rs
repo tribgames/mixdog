@@ -22,12 +22,12 @@ use mixdog_agent::compact::pressure::HeaderPatch;
 use mixdog_agent::compact::pressure::ImageDescriptor;
 use mixdog_agent::compact::pressure::ImageIdentities;
 use mixdog_agent::compact::pressure::Route;
+use mixdog_agent::compact::pressure::Settled;
 use mixdog_agent::compact::pressure::StatusInput;
 use mixdog_agent::compact::pressure::TerminalUsage;
 use mixdog_agent::compact::pressure::TranscriptSigner;
-use mixdog_agent::compact::pressure::Settled;
-use mixdog_agent::compact::pressure::compaction_plan;
 use mixdog_agent::compact::pressure::check_change;
+use mixdog_agent::compact::pressure::compaction_plan;
 use mixdog_agent::compact::pressure::context_status;
 use mixdog_agent::compact::pressure::forced_target_budget;
 use mixdog_agent::compact::pressure::iteration_metrics;
@@ -40,10 +40,10 @@ use mixdog_agent::env::CompactPass;
 use mixdog_agent::env::CompactTrigger;
 use mixdog_agent::env::PassStage;
 use mixdog_agent::message::AgentMessage;
+use mixdog_ai::registry::keys::Environment;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
-use mixdog_ai::registry::keys::Environment;
 use serde_json::Value;
 use serde_json::json;
 
@@ -75,11 +75,26 @@ fn header(value: Value) -> Header {
     value.as_object().expect("an object").clone()
 }
 
-fn status<'a>(session: &'a Header, messages: &'a [AgentMessage], active: bool, tools: &'a [ToolDefinition], meter: &'a MessageMeter<'a>, signer: &'a TranscriptSigner<'a>) -> StatusInput<'a> {
+fn status<'a>(
+    session: &'a Header,
+    messages: &'a [AgentMessage],
+    active: bool,
+    tools: &'a [ToolDefinition],
+    meter: &'a MessageMeter<'a>,
+    signer: &'a TranscriptSigner<'a>,
+) -> StatusInput<'a> {
     status_in(&NoVars, session, messages, active, tools, meter, signer)
 }
 
-fn status_in<'a>(env: &'a dyn Environment, session: &'a Header, messages: &'a [AgentMessage], active: bool, tools: &'a [ToolDefinition], meter: &'a MessageMeter<'a>, signer: &'a TranscriptSigner<'a>) -> StatusInput<'a> {
+fn status_in<'a>(
+    env: &'a dyn Environment,
+    session: &'a Header,
+    messages: &'a [AgentMessage],
+    active: bool,
+    tools: &'a [ToolDefinition],
+    meter: &'a MessageMeter<'a>,
+    signer: &'a TranscriptSigner<'a>,
+) -> StatusInput<'a> {
     StatusInput {
         session,
         route: Route { provider: "openai", model: "m", context_window: Value::Null },
@@ -112,7 +127,13 @@ fn big_conversation() -> Vec<AgentMessage> {
 }
 
 fn tool() -> ToolDefinition {
-    ToolDefinition { name: "read".into(), description: "Read a file from the workspace".into(), input_schema: json!({ "type": "object", "properties": { "path": { "type": "string" } } }), defer_loading: false, freeform: None }
+    ToolDefinition {
+        name: "read".into(),
+        description: "Read a file from the workspace".into(),
+        input_schema: json!({ "type": "object", "properties": { "path": { "type": "string" } } }),
+        defer_loading: false,
+        freeform: None,
+    }
 }
 
 // ---- the gauge --------------------------------------------------------------------------------------------
@@ -265,7 +286,10 @@ fn when_there_is_nothing_to_plan_an_automatic_pass_is_skipped_and_a_manual_one_s
 
     let session = session_with_buffer();
     let short = [AgentMessage::user("hi"), AgentMessage::assistant("hello", Vec::new())];
-    assert!(compaction_plan(&status(&session, &short, true, &[], &meter, &signer), true, false).unwrap().is_none(), "two messages are never worth an automatic pass");
+    assert!(
+        compaction_plan(&status(&session, &short, true, &[], &meter, &signer), true, false).unwrap().is_none(),
+        "two messages are never worth an automatic pass"
+    );
     assert!(compaction_plan(&status(&session, &short, true, &[], &meter, &signer), false, true).unwrap().is_some(), "but a manual one runs");
 
     let off = header(json!({ "id": "s1", "provider": "openai", "model": "m", "contextWindow": 100_000, "compaction": { "auto": false } }));
@@ -293,7 +317,11 @@ fn a_calls_usage_adds_to_the_totals_and_sets_the_context_the_same_whether_or_not
         assert_eq!(after["totalCachedReadTokens"], 405_809);
         assert_eq!(after["totalCacheWriteTokens"], 1_943);
     }
-    assert_eq!((excluding["lastUncachedInputTokens"].as_u64(), including["lastUncachedInputTokens"].as_u64()), (Some(1_945), Some(2)), "uncached input is what neither cache served");
+    assert_eq!(
+        (excluding["lastUncachedInputTokens"].as_u64(), including["lastUncachedInputTokens"].as_u64()),
+        (Some(1_945), Some(2)),
+        "uncached input is what neither cache served"
+    );
     // A second call adds to the totals and replaces the last reading.
     let second = applied(&excluding, Some(iteration_metrics(&excluding, &delta(5, 400_000, 0, 100, 1), true, 2_000.0)));
     assert_eq!(second["totalOutputTokens"], 1_345);
@@ -315,29 +343,59 @@ fn a_call_without_a_prompt_count_clears_the_reading_until_the_next_measured_call
 fn provider_usage_reaches_pressure_status_as_prompt_and_output_evidence() {
     books!(meter, signer);
     for (provider, excludes_cache, reported, prompt, occupancy, output) in [
-        ("anthropic", true, Usage {
-            input_tokens: 60, cache_read_tokens: 30, cache_write_tokens: 10,
-            raw: Some(json!({ "input_tokens": 60, "cache_read_input_tokens": 30, "cache_creation_input_tokens": 10, "output_tokens": 0 })),
-            ..Usage::default()
-        }, json!(100), json!(100), json!(0)),
-        ("anthropic", true, Usage {
-            raw: Some(json!({ "input_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "output_tokens": 0 })),
-            ..Usage::default()
-        }, json!(0), json!(0), json!(0)),
-        ("cursor-api", false, Usage {
-            raw: Some(json!({
-                "input_tokens_known": false, "cache_tokens_known": false,
-                "context_tokens": 0, "completion_tokens": 0,
-            })),
-            ..Usage::default()
-        }, Value::Null, json!(0), json!(0)),
-        ("cursor-api", false, Usage {
-            raw: Some(json!({
-                "input_tokens_known": false, "cache_tokens_known": false,
-                "context_tokens": null, "completion_tokens": 0,
-            })),
-            ..Usage::default()
-        }, Value::Null, Value::Null, json!(0)),
+        (
+            "anthropic",
+            true,
+            Usage {
+                input_tokens: 60,
+                cache_read_tokens: 30,
+                cache_write_tokens: 10,
+                raw: Some(json!({ "input_tokens": 60, "cache_read_input_tokens": 30, "cache_creation_input_tokens": 10, "output_tokens": 0 })),
+                ..Usage::default()
+            },
+            json!(100),
+            json!(100),
+            json!(0),
+        ),
+        (
+            "anthropic",
+            true,
+            Usage {
+                raw: Some(json!({ "input_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "output_tokens": 0 })),
+                ..Usage::default()
+            },
+            json!(0),
+            json!(0),
+            json!(0),
+        ),
+        (
+            "cursor-api",
+            false,
+            Usage {
+                raw: Some(json!({
+                    "input_tokens_known": false, "cache_tokens_known": false,
+                    "context_tokens": 0, "completion_tokens": 0,
+                })),
+                ..Usage::default()
+            },
+            Value::Null,
+            json!(0),
+            json!(0),
+        ),
+        (
+            "cursor-api",
+            false,
+            Usage {
+                raw: Some(json!({
+                    "input_tokens_known": false, "cache_tokens_known": false,
+                    "context_tokens": null, "completion_tokens": 0,
+                })),
+                ..Usage::default()
+            },
+            Value::Null,
+            Value::Null,
+            json!(0),
+        ),
         ("cursor-api", false, Usage::default(), Value::Null, Value::Null, Value::Null),
     ] {
         let base = header(json!({ "id": "s1", "provider": provider, "contextWindow": 200_000 }));
@@ -371,7 +429,8 @@ fn the_metrics_epoch_moves_when_the_iteration_counter_goes_back() {
 fn a_finished_ask_adds_its_usage_once_a_call_by_call_ask_has_already_counted_itself() {
     let base = header(json!({ "id": "s1", "totalInputTokens": 100, "totalOutputTokens": 10 }));
     let usage = json!({ "inputTokens": 30, "outputTokens": 5, "cachedTokens": 0, "cacheWriteTokens": 0 });
-    let ask = |incremental| TerminalUsage { usage: Some(&usage), last_turn: &usage, tool_calls_total: 2.0, incremental, input_excludes_cache: false, now: 500.0 };
+    let ask =
+        |incremental| TerminalUsage { usage: Some(&usage), last_turn: &usage, tool_calls_total: 2.0, incremental, input_excludes_cache: false, now: 500.0 };
     let whole = applied(&base, Some(terminal_usage(&base, &ask(false))));
     assert_eq!((whole["totalInputTokens"].as_u64(), whole["totalOutputTokens"].as_u64(), whole["totalToolCalls"].as_u64()), (Some(130), Some(15), Some(2)));
     assert_eq!(whole["lastContextTokens"], 30);
@@ -427,7 +486,11 @@ fn a_pass_records_its_stages_and_an_adopted_one_restarts_the_metrics_and_voids_t
     assert_eq!(session["usageMetricsEpoch"], 1, "the loop's iteration counter restarts with the new transcript");
     assert_eq!(session["lastContextTokensStaleAfterCompact"], true, "the old transcript's reading no longer describes the context");
     assert_eq!(session["contextUsageSnapshot"]["usedTokens"], 1_234);
-    assert_eq!((&session["promptFoldPending"], &session["compactionFoldPending"]), (&json!(true), &json!(true)), "the next turn start rebuilds the system text");
+    assert_eq!(
+        (&session["promptFoldPending"], &session["compactionFoldPending"]),
+        (&json!(true), &json!(true)),
+        "the next turn start rebuilds the system text"
+    );
 
     // Until the next send, the gauge shows what the pass measured.
     let shown = context_status(&status(&session, &after, true, &[], &meter, &signer));
@@ -462,7 +525,14 @@ fn budget_with(vars: &MapVars, provider: &str) -> Option<f64> {
 fn the_budget_a_summary_is_asked_to_fit_is_the_target_in_the_providers_calibrated_tokens() {
     // Target 25,000 (a quarter of the boundary) divided by the calibration, rounded down.
     let none = MapVars(Vec::new());
-    for (provider, want) in [("openai", 25_000.0), ("anthropic", 17_857.0), ("anthropic-oauth", 17_857.0), ("gemini", 21_739.0), ("google-vertex", 21_739.0), ("Anthropic", 17_857.0)] {
+    for (provider, want) in [
+        ("openai", 25_000.0),
+        ("anthropic", 17_857.0),
+        ("anthropic-oauth", 17_857.0),
+        ("gemini", 21_739.0),
+        ("google-vertex", 21_739.0),
+        ("Anthropic", 17_857.0),
+    ] {
         assert_eq!(budget_with(&none, provider), Some(want), "{provider}");
     }
 }

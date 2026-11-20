@@ -41,14 +41,8 @@ pub(super) fn source_dir(kind: ItemKind) -> Option<&'static str> {
 
 fn target_path(item: &ManifestItem) -> Step<&str> {
     match &item.target {
-        Some(Target::File {
-            root: Root::Data,
-            path,
-        }) => Ok(path),
-        _ => Err(ApplyError::quarantine(
-            QuarantineCode::SchemaViolation,
-            "a preserve item has no data-dir file target",
-        )),
+        Some(Target::File { root: Root::Data, path }) => Ok(path),
+        _ => Err(ApplyError::quarantine(QuarantineCode::SchemaViolation, "a preserve item has no data-dir file target")),
     }
 }
 
@@ -61,10 +55,7 @@ fn relative_to_target(item: &ManifestItem, file: &SourceFile) -> String {
 }
 
 fn resolve(base: &Path, relative: &str) -> PathBuf {
-    relative
-        .split('/')
-        .filter(|part| !part.is_empty())
-        .fold(base.to_path_buf(), |path, part| path.join(part))
+    relative.split('/').filter(|part| !part.is_empty()).fold(base.to_path_buf(), |path, part| path.join(part))
 }
 
 fn target_file(data: &Path, item: &ManifestItem, file: &SourceFile) -> Step<PathBuf> {
@@ -89,11 +80,7 @@ fn strict_parse(item: &ManifestItem, file: &SourceFile, path: &Path) -> Step<()>
     if item.kind == ItemKind::UserEditorSettings {
         return Ok(());
     }
-    let name = if source_dir(item.kind).is_some() {
-        file.path.as_str()
-    } else {
-        target_path(item)?
-    };
+    let name = if source_dir(item.kind).is_some() { file.path.as_str() } else { target_path(item)? };
     if !name.ends_with(".json") {
         return Ok(());
     }
@@ -127,10 +114,7 @@ pub(super) fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<Staged> {
         strict_parse(item, file, &to)?;
         files.push((relative_to_target(item, file), hash));
     }
-    Ok(Staged {
-        output_sha256: output_hash(item, &files),
-        replaced_surrogates: 0,
-    })
+    Ok(Staged { output_sha256: output_hash(item, &files), replaced_surrogates: 0 })
 }
 
 /// Moves each staged file into the data dir; a target already holding the same bytes is
@@ -143,11 +127,7 @@ pub(super) fn publish(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
             if durable::hash_file(&to)?.1 == file.sha256 {
                 continue;
             }
-            return Err(Blocked::TargetConflict {
-                key: item.key.as_str().to_owned(),
-                path: to,
-            }
-            .into());
+            return Err(Blocked::TargetConflict { key: item.key.as_str().to_owned(), path: to }.into());
         }
         let from = staged_file(&stage_dir, item, file)?;
         if let Some(parent) = to.parent() {

@@ -32,10 +32,7 @@ pub(super) fn format_error(message: impl Into<String>) -> PdfError {
 pub(super) fn buffer_length(factors: &[usize]) -> Result<usize> {
     let mut total: usize = 1;
     for factor in factors {
-        total = total
-            .checked_mul(*factor)
-            .filter(|t| *t <= MAX_LENGTH)
-            .ok_or_else(|| format_error("Invalid typed array length"))?;
+        total = total.checked_mul(*factor).filter(|t| *t <= MAX_LENGTH).ok_or_else(|| format_error("Invalid typed array length"))?;
     }
     Ok(total)
 }
@@ -194,18 +191,9 @@ fn number(obj: &Obj) -> Option<f64> {
 
 /// `dict.getArray(key1, key2)` of numbers (a non-number element is `NaN`), `None` when it is not an array.
 fn number_array(xref: &Xref, dict: &Dict, key1: &str, key2: &str) -> Result<Option<Vec<f64>>> {
-    let value = if dict.has(key1) {
-        xref.get_array(dict, key1)?
-    } else {
-        xref.get_array(dict, key2)?
-    };
+    let value = if dict.has(key1) { xref.get_array(dict, key1)? } else { xref.get_array(dict, key2)? };
     Ok(match value {
-        Obj::Array(items) => Some(
-            items
-                .iter()
-                .map(|o| number(o).unwrap_or(f64::NAN))
-                .collect(),
-        ),
+        Obj::Array(items) => Some(items.iter().map(|o| number(o).unwrap_or(f64::NAN)).collect()),
         _ => None,
     })
 }
@@ -214,9 +202,7 @@ fn number_array(xref: &Xref, dict: &Dict, key1: &str, key2: &str) -> Result<Opti
 fn raw_either<'a>(dict: &'a Dict, key1: &str, key2: &str) -> Option<&'a Obj> {
     match dict.get_raw(key1) {
         Some(obj) if truthy(obj) || matches!(obj, Obj::Ref(_)) => Some(obj),
-        _ => dict
-            .get_raw(key2)
-            .filter(|obj| truthy(obj) || matches!(obj, Obj::Ref(_))),
+        _ => dict.get_raw(key2).filter(|obj| truthy(obj) || matches!(obj, Obj::Ref(_))),
     }
 }
 
@@ -239,9 +225,7 @@ fn skip_useless_bytes(data: &[u8]) -> &[u8] {
 /// `JpxImage.parseImageProperties`: `(width, height, components)` from the SIZ marker, found by scanning the bytes.
 fn parse_jpx_properties(bytes: &[u8]) -> Result<(f64, f64, usize)> {
     let at = |i: usize| -> i32 { bytes.get(i).map_or(-1, |b| i32::from(*b)) };
-    let int32 = |i: usize| -> u32 {
-        ((at(i) << 24) + (at(i + 1) << 16) + (at(i + 2) << 8) + at(i + 3)) as u32
-    };
+    let int32 = |i: usize| -> u32 { ((at(i) << 24) + (at(i + 1) << 16) + (at(i + 2) << 8) + at(i + 3)) as u32 };
     let mut pos = 0usize;
     let mut new_byte = at(pos);
     pos += 1;
@@ -260,9 +244,7 @@ fn parse_jpx_properties(bytes: &[u8]) -> Result<(f64, f64, usize)> {
             return Ok((xsiz - xosiz, ysiz - yosiz, csiz));
         }
     }
-    Err(PdfError::Unknown(
-        "No size marker found in JPX stream".to_owned(),
-    ))
+    Err(PdfError::Unknown("No size marker found in JPX stream".to_owned()))
 }
 
 #[cfg(test)]
@@ -316,7 +298,6 @@ mod tests {
     }
 }
 
-
 impl PdfImage {
     /// The `PDFImage` constructor. `res` is the resources of the content stream (read only for an inline image).
     #[allow(clippy::too_many_arguments)]
@@ -359,12 +340,8 @@ impl PdfImage {
                 codec_height = Some(h);
                 codec_comps = Some(comps);
                 codec_bpc = Some(8);
-                jpx_options = Some(JpxOptions {
-                    num_components: 0,
-                    is_indexed: false,
-                    smask_in_data: number(&xref.get(dict, "SMaskInData")?)
-                        .is_some_and(|n| n >= 1.0),
-                });
+                jpx_options =
+                    Some(JpxOptions { num_components: 0, is_indexed: false, smask_in_data: number(&xref.get(dict, "SMaskInData")?).is_some_and(|n| n >= 1.0) });
             }
             Some("JBIG2Decode") => {
                 codec_bpc = Some(1);
@@ -380,9 +357,7 @@ impl PdfImage {
             && is_valid(ch)
             && (Some(cw) != width || Some(ch) != height)
         {
-            tracing::warn!(
-                "PDFImage - using the Width/Height of the image data, rather than the image dictionary."
-            );
+            tracing::warn!("PDFImage - using the Width/Height of the image data, rather than the image dictionary.");
             width = Some(cw);
             height = Some(ch);
         } else {
@@ -396,9 +371,7 @@ impl PdfImage {
                         height.map_or("undefined".to_owned(), |h| h.to_string())
                     )));
                 };
-                tracing::warn!(
-                    "PDFImage - using the Width/Height of the parent image, for SMask/Mask data."
-                );
+                tracing::warn!("PDFImage - using the Width/Height of the parent image, for SMask/Mask data.");
                 if !valid_width {
                     width = Some(fw);
                 }
@@ -409,11 +382,7 @@ impl PdfImage {
         }
         let (width_f, height_f) = (width.unwrap_or(f64::NAN), height.unwrap_or(f64::NAN));
         let to_size = |n: f64| -> Result<usize> {
-            if n.is_finite() && n >= 0.0 && n < MAX_LENGTH as f64 {
-                Ok(n as usize)
-            } else {
-                Err(format_error("Invalid typed array length"))
-            }
+            if n.is_finite() && n >= 0.0 && n < MAX_LENGTH as f64 { Ok(n as usize) } else { Err(format_error("Invalid typed array length")) }
         };
         let (width, height) = (to_size(width_f)?, to_size(height_f)?);
         let interpolate = match xref.get2(dict, "I", "Interpolate")? {
@@ -423,25 +392,17 @@ impl PdfImage {
         };
         let image_mask = truthy(&xref.get2(dict, "IM", "ImageMask")?);
         let matte: Option<Vec<f64>> = match xref.get(dict, "Matte")? {
-            Obj::Array(items) => Some(
-                items
-                    .iter()
-                    .map(|o| number(o).unwrap_or(f64::NAN))
-                    .collect(),
-            ),
+            Obj::Array(items) => Some(items.iter().map(|o| number(o).unwrap_or(f64::NAN)).collect()),
             _ => None,
         };
         let mut bpc = codec_bpc.unwrap_or(0);
         if bpc == 0 {
-            let declared = number(&xref.get2(dict, "BPC", "BitsPerComponent")?)
-                .filter(|n| *n != 0.0 && !n.is_nan());
+            let declared = number(&xref.get2(dict, "BPC", "BitsPerComponent")?).filter(|n| *n != 0.0 && !n.is_nan());
             match declared {
                 Some(n) => bpc = n as u32,
                 None if image_mask => bpc = 1,
                 None => {
-                    return Err(format_error(format!(
-                        "Bits per component missing in image: {image_mask}"
-                    )));
+                    return Err(format_error(format!("Bits per component missing in image: {image_mask}")));
                 }
             }
         }
@@ -503,13 +464,10 @@ impl PdfImage {
         let mut decode_addends = Vec::new();
         if let Some(decode) = &decode {
             let default_for_space = match &colour_space {
-                Some(space) => {
-                    Some(space.is_default_decode(Some(decode.as_slice()), f64::from(bpc))?)
-                }
+                Some(space) => Some(space.is_default_decode(Some(decode.as_slice()), f64::from(bpc))?),
                 None => None,
             };
-            let mask_not_default =
-                is_mask && !ColorSpace::gray().is_default_decode(Some(decode.as_slice()), 1.0)?;
+            let mask_not_default = is_mask && !ColorSpace::gray().is_default_decode(Some(decode.as_slice()), 1.0)?;
             if default_for_space == Some(false) || mask_not_default {
                 needs_decode = true;
                 let max = max_value(bpc);
@@ -550,16 +508,12 @@ impl PdfImage {
         };
         let dims = Some((width_f, height_f));
         if let Some(smask) = smask {
-            result.smask = Some(Box::new(PdfImage::new(
-                xref, res, smask, is_inline, None, None, false, dims,
-            )?));
+            result.smask = Some(Box::new(PdfImage::new(xref, res, smask, is_inline, None, None, false, dims)?));
         } else if let Some(mask) = mask {
             match mask {
                 MaskInput::Stream(stream) => {
                     if truthy(&xref.get2(&stream.dict, "IM", "ImageMask")?) {
-                        result.mask = MaskKind::Image(Box::new(PdfImage::new(
-                            xref, res, &stream, is_inline, None, None, true, dims,
-                        )?));
+                        result.mask = MaskKind::Image(Box::new(PdfImage::new(xref, res, &stream, is_inline, None, None, true, dims)?));
                     } else {
                         tracing::warn!("Ignoring /Mask in image without /ImageMask.");
                     }
@@ -571,12 +525,7 @@ impl PdfImage {
     }
 
     /// `PDFImage.buildImage`: the image with the `SMask` or `Mask` of its dictionary.
-    pub(super) fn build(
-        xref: &Xref,
-        res: Option<&Dict>,
-        image: &Arc<PdfStream>,
-        is_inline: bool,
-    ) -> Result<PdfImage> {
+    pub(super) fn build(xref: &Xref, res: Option<&Dict>, image: &Arc<PdfStream>, is_inline: bool) -> Result<PdfImage> {
         let dict = &image.dict;
         let mut smask_stream: Option<Arc<PdfStream>> = None;
         let mut mask: Option<MaskInput> = None;
@@ -597,16 +546,7 @@ impl PdfImage {
                 _ => tracing::warn!("Unsupported /Mask format."),
             }
         }
-        PdfImage::new(
-            xref,
-            res,
-            image,
-            is_inline,
-            smask_stream.as_ref(),
-            mask,
-            false,
-            None,
-        )
+        PdfImage::new(xref, res, image, is_inline, smask_stream.as_ref(), mask, false, None)
     }
 
     /// `drawWidth`.
@@ -668,17 +608,8 @@ impl PdfImage {
                 } else {
                     1
                 };
-                buffer_length(&[
-                    draw_width,
-                    draw_height,
-                    jpeg.num_components().max(output_channels),
-                ])?;
-                Ok(truncate(jpeg.get_data(
-                    draw_width,
-                    draw_height,
-                    options.force_rgba,
-                    options.force_rgb,
-                )?))
+                buffer_length(&[draw_width, draw_height, jpeg.num_components().max(output_channels)])?;
+                Ok(truncate(jpeg.get_data(draw_width, draw_height, options.force_rgba, options.force_rgb)?))
             }
             Codec::Ccitt => {
                 let params = self.params.as_deref();
@@ -704,13 +635,7 @@ impl PdfImage {
                 };
                 let width = number(&xref.get2(dict, "W", "Width")?).unwrap_or(f64::NAN);
                 let height = number(&xref.get2(dict, "H", "Height")?).unwrap_or(f64::NAN);
-                codec::ccitt::decode(
-                    &self.bytes,
-                    codec::to_int32(width),
-                    codec::to_int32(height),
-                    &ccitt,
-                )
-                .map_err(codec_error)
+                codec::ccitt::decode(&self.bytes, codec::to_int32(width), codec::to_int32(height), &ccitt).map_err(codec_error)
             }
             Codec::Jbig2 => {
                 let globals = match &self.params {
@@ -725,20 +650,10 @@ impl PdfImage {
                 };
                 let width = number(&xref.get(dict, "Width")?).unwrap_or(f64::NAN);
                 let height = number(&xref.get(dict, "Height")?).unwrap_or(f64::NAN);
-                jbig2::decode(
-                    jbig2::strip_file_header(&self.bytes),
-                    codec::to_int32(width),
-                    codec::to_int32(height),
-                    globals.as_deref(),
-                )
-                .map_err(codec_error)
+                jbig2::decode(jbig2::strip_file_header(&self.bytes), codec::to_int32(width), codec::to_int32(height), globals.as_deref()).map_err(codec_error)
             }
             Codec::Jpx => {
-                let options = self.jpx.unwrap_or(JpxOptions {
-                    num_components: 4,
-                    is_indexed: false,
-                    smask_in_data: false,
-                });
+                let options = self.jpx.unwrap_or(JpxOptions { num_components: 4, is_indexed: false, smask_in_data: false });
                 jpx_pixels(&self.bytes, options)
             }
         }
@@ -821,10 +736,7 @@ impl PdfImage {
             for j in 0..self.num_comps {
                 let addend = self.decode_addends.get(j).copied().unwrap_or(f64::NAN);
                 let coefficient = self.decode_coefficients.get(j).copied().unwrap_or(f64::NAN);
-                comps.set(
-                    index,
-                    clamp(addend + comps.get(index) * coefficient, 0.0, max),
-                );
+                comps.set(index, clamp(addend + comps.get(index) * coefficient, 0.0, max));
                 index += 1;
             }
         }
@@ -840,15 +752,8 @@ impl PdfImage {
         let draw_width = self.draw_width();
         let draw_height = self.draw_height();
         let (width, height, bpc) = (self.width, self.height, self.bpc);
-        let row_bytes =
-            ((width as u128 * self.num_comps as u128 * u128::from(bpc) + 7) >> 3) as usize;
-        let mut result = ImageData {
-            width: draw_width,
-            height: draw_height,
-            interpolate: self.interpolate,
-            kind: ImageKind::Grayscale1bpp,
-            data: Vec::new(),
-        };
+        let row_bytes = ((width as u128 * self.num_comps as u128 * u128::from(bpc) + 7) >> 3) as usize;
+        let mut result = ImageData { width: draw_width, height: draw_height, interpolate: self.interpolate, kind: ImageKind::Grayscale1bpp, data: Vec::new() };
         let space_name = space.name();
         let no_mask = !self.has_mask();
         if no_mask && space_name == "DeviceRGBA" {
@@ -874,11 +779,7 @@ impl PdfImage {
                 && draw_width == width
                 && draw_height == height
             {
-                let mut data = self.image_bytes(
-                    xref,
-                    buffer_length(&[height, row_bytes])?,
-                    BytesOptions::default(),
-                )?;
+                let mut data = self.image_bytes(xref, buffer_length(&[height, row_bytes])?, BytesOptions::default())?;
                 result.kind = kind;
                 if self.needs_decode {
                     for byte in &mut data {
@@ -888,10 +789,7 @@ impl PdfImage {
                 result.data = data;
                 return Ok(result);
             }
-            if self.codec == Codec::Dct
-                && !self.needs_decode
-                && matches!(space_name, "DeviceGray" | "DeviceRGB" | "DeviceCMYK")
-            {
+            if self.codec == Codec::Dct && !self.needs_decode && matches!(space_name, "DeviceGray" | "DeviceRGB" | "DeviceCMYK") {
                 let mut length = buffer_length(&[height, row_bytes])?;
                 if space_name == "DeviceGray" {
                     length *= 3;
@@ -900,27 +798,13 @@ impl PdfImage {
                 result.data = self.image_bytes(
                     xref,
                     length,
-                    BytesOptions {
-                        draw_width: Some(draw_width),
-                        draw_height: Some(draw_height),
-                        force_rgba: false,
-                        force_rgb: true,
-                    },
+                    BytesOptions { draw_width: Some(draw_width), draw_height: Some(draw_height), force_rgba: false, force_rgb: true },
                 )?;
                 return Ok(result);
             }
         }
-        let image_bytes = self.image_bytes(
-            xref,
-            buffer_length(&[height, row_bytes])?,
-            BytesOptions::default(),
-        )?;
-        let actual_height = if row_bytes == 0 {
-            0
-        } else {
-            (image_bytes.len() as f64 / row_bytes as f64 * draw_height as f64 / height as f64)
-                as usize
-        };
+        let image_bytes = self.image_bytes(xref, buffer_length(&[height, row_bytes])?, BytesOptions::default())?;
+        let actual_height = if row_bytes == 0 { 0 } else { (image_bytes.len() as f64 / row_bytes as f64 * draw_height as f64 / height as f64) as usize };
         let mut comps = self.components(image_bytes)?;
         result.kind = ImageKind::Rgba32;
         let alpha01;
@@ -935,52 +819,15 @@ impl PdfImage {
             data = vec![0u8; buffer_length(&[draw_width, draw_height, 4])?];
             alpha01 = 1;
             maybe_undo_preblend = true;
-            self.fill_opacity(
-                xref,
-                &mut data,
-                draw_width,
-                draw_height,
-                actual_height,
-                &comps,
-            )?;
+            self.fill_opacity(xref, &mut data, draw_width, draw_height, actual_height, &comps)?;
         }
         if self.needs_decode {
             self.decode_buffer(&mut comps);
         }
         match &comps {
-            Comps::U8(c) => space.fill_rgb(
-                &mut data,
-                width,
-                height,
-                draw_width,
-                draw_height,
-                actual_height,
-                bpc,
-                c,
-                alpha01,
-            )?,
-            Comps::U16(c) => space.fill_rgb(
-                &mut data,
-                width,
-                height,
-                draw_width,
-                draw_height,
-                actual_height,
-                bpc,
-                c,
-                alpha01,
-            )?,
-            Comps::U32(c) => space.fill_rgb(
-                &mut data,
-                width,
-                height,
-                draw_width,
-                draw_height,
-                actual_height,
-                bpc,
-                c,
-                alpha01,
-            )?,
+            Comps::U8(c) => space.fill_rgb(&mut data, width, height, draw_width, draw_height, actual_height, bpc, c, alpha01)?,
+            Comps::U16(c) => space.fill_rgb(&mut data, width, height, draw_width, draw_height, actual_height, bpc, c, alpha01)?,
+            Comps::U32(c) => space.fill_rgb(&mut data, width, height, draw_width, draw_height, actual_height, bpc, c, alpha01)?,
         }
         if maybe_undo_preblend {
             self.undo_preblend(&mut data, draw_width, actual_height)?;
@@ -995,11 +842,7 @@ impl PdfImage {
     /// no bytes.
     pub(super) fn mask_bytes(&self, xref: &Xref, length: usize) -> Result<Vec<u8>> {
         let options = if self.codec == Codec::Dct {
-            BytesOptions {
-                draw_width: Some(0),
-                draw_height: Some(0),
-                ..BytesOptions::default()
-            }
+            BytesOptions { draw_width: Some(0), draw_height: Some(0), ..BytesOptions::default() }
         } else {
             BytesOptions::default()
         };
@@ -1022,13 +865,8 @@ fn codec_error(error: codec::CodecError) -> PdfError {
 /// images larger than 2048 samples (`reducePower`); the image is delivered at full size.
 fn jpx_pixels(bytes: &[u8], options: JpxOptions) -> Result<Vec<u8>> {
     let image = jpx::parse(bytes).map_err(|e| PdfError::Unknown(e.message().to_owned()))?;
-    let decoded = jpx::output::decode(
-        &image,
-        jpx::output::Options {
-            ignore_palette: options.is_indexed,
-        },
-    )
-    .map_err(|e| PdfError::Unknown(e.message().to_owned()))?;
+    let decoded =
+        jpx::output::decode(&image, jpx::output::Options { ignore_palette: options.is_indexed }).map_err(|e| PdfError::Unknown(e.message().to_owned()))?;
     if options.num_components > 0 && !options.smask_in_data {
         return Ok(decoded.to_pixels(options.num_components).data);
     }

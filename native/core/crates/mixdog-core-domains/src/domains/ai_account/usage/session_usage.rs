@@ -15,8 +15,8 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
-use mixdog_core_base::support::wrong_method;
 use mixdog_core_base::support::failed;
+use mixdog_core_base::support::wrong_method;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
 use mixdog_core_ports::ports::route::has_session;
 use mixdog_core_ports::ports::route::header_names_session;
@@ -45,7 +45,8 @@ pub fn other_session_ids(options: Option<&Value>, session_id: &str) -> Vec<Strin
     let mut ids: Vec<String> = Vec::new();
     for id in options.and_then(|o| o.get("sessionIds")).and_then(Value::as_array).into_iter().flatten() {
         if let Some(id) = id.as_str().filter(|id| !id.is_empty() && *id != session_id)
-            && !ids.iter().any(|seen| seen == id) {
+            && !ids.iter().any(|seen| seen == id)
+        {
             ids.push(id.to_owned());
         }
         if ids.len() >= MAX_SESSION_USAGE_IDS {
@@ -133,7 +134,8 @@ impl DomainService for SessionUsageService {
         if let Ok(header) = self.threads.header(&thread).await {
             // The conversation is read only to find a session on a header that names no model: the read loads every stored row
             // of the thread (and waits on its actor), and a seated route, which is every running thread, needs none of it.
-            let rows = if header_names_session(&header) { Vec::new() } else { self.messages.messages(&thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))? };
+            let rows =
+                if header_names_session(&header) { Vec::new() } else { self.messages.messages(&thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))? };
             if !has_session(&header, &rows) {
                 return Ok(Reply::Value(Value::Null));
             }
@@ -149,4 +151,3 @@ impl DomainService for SessionUsageService {
         Admit::Accepted
     }
 }
-

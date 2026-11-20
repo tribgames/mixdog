@@ -13,24 +13,22 @@ use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value, json};
 
 use crate::image_layout::resolve_image_layout;
-use crate::opc::{
-    add_package_relationship, ensure_default_content_type, image_pixel_size, part_relationship_path, posix, remove_package_relationship,
-};
+use crate::opc::{add_package_relationship, ensure_default_content_type, image_pixel_size, part_relationship_path, posix, remove_package_relationship};
 use crate::package::os_message;
 use crate::pptx_core::{
-    Frame, append_slide_shape, next_shape_id, presentation_slide_size, selected_shape_spans, set_table_values, shape_frame,
-    shape_paragraphs, text_insets, update_shape_geometry, write_shape_tree,
+    Frame, append_slide_shape, next_shape_id, presentation_slide_size, selected_shape_spans, set_table_values, shape_frame, shape_paragraphs, text_insets,
+    update_shape_geometry, write_shape_tree,
 };
 use crate::pptx_package::{SlideRef, add_slide_image, slide_path};
 use crate::slide_shapes::{
-    EMU_PER_POINT, SLIDE_SHAPE_TAGS, first_group, num, picture_xml, remove_first, replace_first_text, replace_first_with, resolve_geometry,
-    restyle_shape_text, restyled_paragraphs, shape_xml, solid_fill_xml, supported_shape_types, table_xml, text_anchor, text_body_xml,
-    text_if_truthy, text_of, text_or_empty, to_emu,
+    EMU_PER_POINT, SLIDE_SHAPE_TAGS, first_group, num, picture_xml, remove_first, replace_first_text, replace_first_with, resolve_geometry, restyle_shape_text,
+    restyled_paragraphs, shape_xml, solid_fill_xml, supported_shape_types, table_xml, text_anchor, text_body_xml, text_if_truthy, text_of, text_or_empty,
+    to_emu,
 };
 use crate::text_metrics::{Paragraph, Run, ShrinkOptions, TextMeasurer, contrast_ratio};
 use crate::xml::{
-    Container, DRAWING_MAIN_NS, Element, OFFICE_RELATIONSHIP_BASE, compiled, container_body, container_inner, rebuild_text_nodes,
-    text_nodes, top_level_elements, xml_encode,
+    Container, DRAWING_MAIN_NS, Element, OFFICE_RELATIONSHIP_BASE, compiled, container_body, container_inner, rebuild_text_nodes, text_nodes,
+    top_level_elements, xml_encode,
 };
 use crate::zipio::Package;
 
@@ -199,13 +197,7 @@ pub fn set_hyperlink(zip: &mut Package, slides: &[SlideRef], op: &Value) -> Resu
     let relationship_id = if address.is_empty() {
         String::new()
     } else {
-        add_package_relationship(
-            zip,
-            &part_relationship_path(&slide.path),
-            &format!("{OFFICE_RELATIONSHIP_BASE}/hyperlink"),
-            &address,
-            "External",
-        )
+        add_package_relationship(zip, &part_relationship_path(&slide.path), &format!("{OFFICE_RELATIONSHIP_BASE}/hyperlink"), &address, "External")
     };
     let link = format!(
         "<a:hlinkClick xmlns:a=\"{DRAWING_MAIN_NS}\"{}{}/>",
@@ -220,12 +212,7 @@ pub fn set_hyperlink(zip: &mut Package, slides: &[SlideRef], op: &Value) -> Resu
     write_shape(zip, &slide, &shape, &updated);
     Ok(reply(
         op,
-        vec![
-            ("changed", Value::Bool(true)),
-            ("slide", number_of(op, "slide")),
-            ("shape", number_of(op, "shape")),
-            ("address", Value::String(address)),
-        ],
+        vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("shape", number_of(op, "shape")), ("address", Value::String(address))],
     ))
 }
 
@@ -293,9 +280,12 @@ fn distribute_placements(placements: &mut [Frame], bounds: &Bounds, op: &Value) 
     }
     let horizontal = direction == "horizontal";
     let mut order: Vec<usize> = (0..placements.len()).collect();
-    js_sort_by(&mut order, |left, right| {
-        if horizontal { placements[*left].left - placements[*right].left } else { placements[*left].top - placements[*right].top }
-    });
+    js_sort_by(
+        &mut order,
+        |left, right| {
+            if horizontal { placements[*left].left - placements[*right].left } else { placements[*left].top - placements[*right].top }
+        },
+    );
     let taken = order.iter().fold(0.0, |sum, at| sum + if horizontal { placements[*at].width } else { placements[*at].height });
     let total = if horizontal { bounds.right - bounds.left - taken } else { bounds.bottom - bounds.top - taken };
     let gap = total / math::max(1.0, order.len() as f64 - 1.0);
@@ -345,10 +335,7 @@ pub fn align_shapes_or_distribute_shapes(zip: &mut Package, slides: &[SlideRef],
     }
     let inner = rewrite_shape_tree(&slide.tree, &shapes, |shape| updates.get(&shape.start).cloned());
     write_slide_tree(zip, &slide, &inner);
-    Ok(reply(
-        op,
-        vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("shapes", Value::from(numbers.len()))],
-    ))
+    Ok(reply(op, vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("shapes", Value::from(numbers.len()))]))
 }
 
 // ---- text -----------------------------------------------------------------------------------------------------------
@@ -569,21 +556,13 @@ fn crop_edge(value: f64) -> f64 {
 /// `.replace(/<a:srcRect\b[^>]*\/>/, '').replace(<a:blip ...>, blip + rect)`: the picture's crop replaced by `rect`.
 fn with_crop_rect(picture: &str, rect: &str) -> String {
     let stripped = remove_first(&compiled(r"<a:srcRect\b[^>]*/>", ""), picture);
-    replace_first_with(&compiled(r"(<a:blip\b[^>]*?(?:/>|>[\s\S]*?</a:blip>))", ""), &stripped, |found| {
-        format!("{}{rect}", found.get(1).unwrap_or(""))
-    })
+    replace_first_with(&compiled(r"(<a:blip\b[^>]*?(?:/>|>[\s\S]*?</a:blip>))", ""), &stripped, |found| format!("{}{rect}", found.get(1).unwrap_or("")))
 }
 
 /// `replacedPicture(zip, path, shape, op)`: the picture frame keeps its place and size; only the image inside changes. The new
 /// picture is centred and cropped to the frame the way `add_image` with `fit: 'cover'` places one, and a crop the old picture
 /// carried is replaced, never kept over the new one.
-fn replaced_picture<P: ReadProof>(
-    proof: &P,
-    zip: &mut Package,
-    path: &str,
-    shape: &Element,
-    op: &Value,
-) -> Result<(String, Map<String, Value>), String> {
+fn replaced_picture<P: ReadProof>(proof: &P, zip: &mut Package, path: &str, shape: &Element, op: &Value) -> Result<(String, Map<String, Value>), String> {
     let describe = || format!("PPTX shape {} on slide {}", text_of(op.get("shape")), text_of(op.get("slide")));
     if shape.name != "p:pic" {
         return Err(format!("{} is not a picture", describe()));
@@ -719,9 +698,8 @@ pub fn set_table_cell_style(zip: &mut Package, slides: &[SlideRef], op: &Value) 
     let anchor = text_anchor(properties.get("verticalAlignment"));
     // The cell's own text frame may name an anchor too (this writer's add_table sets one); it follows the cell's.
     if !anchor.is_empty() {
-        styled = replace_first_with(&compiled(r#"(<a:bodyPr\b[^>]*?\banchor=")[^"]*""#, ""), &styled, |found| {
-            format!("{}{anchor}\"", found.get(1).unwrap_or(""))
-        });
+        styled =
+            replace_first_with(&compiled(r#"(<a:bodyPr\b[^>]*?\banchor=")[^"]*""#, ""), &styled, |found| format!("{}{anchor}\"", found.get(1).unwrap_or("")));
     }
     if !fill.is_empty() || !anchor.is_empty() {
         if !compiled(r"<a:tcPr\b", "").is_match(&styled) {
@@ -753,7 +731,8 @@ pub fn set_table_data_or_replace_image<P: ReadProof>(proof: &P, zip: &mut Packag
     let updated;
     let detail: Map<String, Value>;
     if op.get("op").and_then(Value::as_str) == Some("set_table_data") {
-        let values: Vec<Value> = op.get("values").and_then(Value::as_array).map(|rows| rows.iter().filter(|row| row.is_array()).cloned().collect()).unwrap_or_default();
+        let values: Vec<Value> =
+            op.get("values").and_then(Value::as_array).map(|rows| rows.iter().filter(|row| row.is_array()).cloned().collect()).unwrap_or_default();
         if values.is_empty() {
             return Err("set_table_data requires values as an array of rows".to_owned());
         }
@@ -860,10 +839,12 @@ fn media_picture_xml(id: f64, name: &str, kind: &str, op: &Value, link_id: &str,
         Some(alt) => format!(" descr=\"{}\"", xml_encode(&value_to_string(alt))),
         None => String::new(),
     };
-    let point = |key: &str, fallback: f64| to_emu(match op.get(key).filter(|value| !value.is_null()) {
-        Some(value) => to_number(value),
-        None => fallback,
-    });
+    let point = |key: &str, fallback: f64| {
+        to_emu(match op.get(key).filter(|value| !value.is_null()) {
+            Some(value) => to_number(value),
+            None => fallback,
+        })
+    };
     format!(
         "<p:pic><p:nvPicPr><p:cNvPr id=\"{}\" name=\"{}\"{description}><a:hlinkClick xmlns:a=\"{DRAWING_MAIN_NS}\" r:id=\"\" action=\"ppaction://media\"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr><a:{kind}File xmlns:a=\"{DRAWING_MAIN_NS}\" r:link=\"{link_id}\"/><p:extLst><p:ext uri=\"{{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}}\"><p14:media xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\" r:embed=\"{media_id}\"/></p:ext></p:extLst></p:nvPr></p:nvPicPr><p:blipFill><a:blip r:embed=\"{poster_id}\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>",
         num(id),
@@ -896,10 +877,7 @@ pub fn add_media<P: ReadProof>(proof: &P, zip: &mut Package, slides: &[SlideRef]
     let shape = media_picture_xml(next_shape_id(&current), &posix::basename(&media_part), &kind, op, &link_id, &media_id, &poster.relationship_id);
     let appended = append_slide_shape(&zip.text(&path), &shape)?;
     zip.set(&path, appended);
-    Ok(reply(
-        op,
-        vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("media", Value::String(media_part)), ("kind", Value::String(kind))],
-    ))
+    Ok(reply(op, vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("media", Value::String(media_part)), ("kind", Value::String(kind))]))
 }
 
 // ---- fitting text ---------------------------------------------------------------------------------------------------
@@ -1089,10 +1067,7 @@ pub fn group_shapes_or_ungroup_shape(zip: &mut Package, slides: &[SlideRef], op:
     let anchors: Vec<usize> = selected.iter().map(|shape| shape.start).collect();
     let inner = rewrite_shape_tree(&slide.tree, &shapes, |shape| anchors.contains(&shape.start).then(String::new));
     write_slide_tree(zip, &slide, &format!("{inner}{}", group_shape_xml(id, &frames_extent(&frames), &selected)));
-    Ok(reply(
-        op,
-        vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("shapes", Value::from(numbers.len())), ("shapeId", json_number(id))],
-    ))
+    Ok(reply(op, vec![("changed", Value::Bool(true)), ("slide", number_of(op, "slide")), ("shapes", Value::from(numbers.len())), ("shapeId", json_number(id))]))
 }
 
 // ---- animation ------------------------------------------------------------------------------------------------------
@@ -1233,10 +1208,8 @@ pub fn add_animation(zip: &mut Package, slides: &[SlideRef], op: &Value) -> Resu
     let request = animation_request(op)?;
     let timing_pattern = compiled(r"<p:timing>[\s\S]*?</p:timing>", "");
     let existing = timing_pattern.find(&slide.current).map(|found| slide.current[found].to_owned()).unwrap_or_default();
-    let highest = compiled(r#"<p:cTn\b[^>]*\bid="(\d+)""#, "g")
-        .captures_iter(&existing)
-        .map(|found| string_to_number(found.get(1).unwrap_or("")))
-        .fold(2.0, math::max);
+    let highest =
+        compiled(r#"<p:cTn\b[^>]*\bid="(\d+)""#, "g").captures_iter(&existing).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(2.0, math::max);
     let mut ids = NodeIds(highest + 1.0);
     let (node, group) = animation_nodes(shape_id, &request, &mut ids);
     let timing = timing_with_animation(&existing, &node, &group, request.trigger, &mut ids)?;
@@ -1301,8 +1274,7 @@ mod tests {
     /// The shapes named A, B and C, in the order the slide holds them.
     fn order(zip: &Package) -> Vec<char> {
         let xml = zip.text(SLIDE);
-        let mut found: Vec<(usize, char)> =
-            ['A', 'B', 'C'].iter().filter_map(|name| xml.find(&format!("name=\"{name}\"")).map(|at| (at, *name))).collect();
+        let mut found: Vec<(usize, char)> = ['A', 'B', 'C'].iter().filter_map(|name| xml.find(&format!("name=\"{name}\"")).map(|at| (at, *name))).collect();
         found.sort_unstable();
         found.into_iter().map(|(_, name)| name).collect()
     }
@@ -1339,8 +1311,7 @@ mod tests {
     #[test]
     fn shapes_are_grouped_at_the_front_and_ungrouped_in_place() {
         let (mut zip, slides) = three();
-        let answer =
-            group_shapes_or_ungroup_shape(&mut zip, &slides, &json!({ "op": "group_shapes", "slide": 1, "shapes": [2, 1, 2] })).expect("grouped");
+        let answer = group_shapes_or_ungroup_shape(&mut zip, &slides, &json!({ "op": "group_shapes", "slide": 1, "shapes": [2, 1, 2] })).expect("grouped");
         assert_eq!(answer, json!({ "op": "group_shapes", "changed": true, "slide": 1, "shapes": 2, "shapeId": 5 }));
         let xml = zip.text(SLIDE);
         assert!(xml.contains("<p:cNvPr id=\"5\" name=\"Group 5\"/>"));
@@ -1362,8 +1333,7 @@ mod tests {
     #[test]
     fn align_puts_every_selected_shape_on_the_same_edge() {
         let (mut zip, slides) = three();
-        align_shapes_or_distribute_shapes(&mut zip, &slides, &json!({ "op": "align_shapes", "slide": 1, "shapes": [1, 2], "align": "left" }))
-            .expect("aligned");
+        align_shapes_or_distribute_shapes(&mut zip, &slides, &json!({ "op": "align_shapes", "slide": 1, "shapes": [1, 2], "align": "left" })).expect("aligned");
         assert_eq!(zip.text(SLIDE).matches("<a:off x=\"127000\"").count(), 2);
         assert_eq!(
             align_shapes_or_distribute_shapes(&mut zip, &slides, &json!({ "op": "align_shapes", "slide": 1, "shapes": [1, 2], "align": "diagonal" })),
@@ -1395,10 +1365,7 @@ mod tests {
         assert!(zip.text(SLIDE).contains("r:id=\"rId1\"/></p:cNvPr>"));
         let rels = zip.text("ppt/slides/_rels/slide1.xml.rels");
         assert!(rels.contains("TargetMode=\"External\"") && rels.contains("b=1&amp;c=2"));
-        assert_eq!(
-            set_hyperlink(&mut zip, &slides, &json!({ "slide": 1, "shape": 1 })),
-            Err("set_hyperlink requires address or subAddress".to_owned())
-        );
+        assert_eq!(set_hyperlink(&mut zip, &slides, &json!({ "slide": 1, "shape": 1 })), Err("set_hyperlink requires address or subAddress".to_owned()));
     }
 
     #[test]
@@ -1441,10 +1408,7 @@ mod tests {
     #[test]
     fn crop_image_needs_a_picture() {
         let (mut zip, slides) = three();
-        assert_eq!(
-            crop_image(&mut zip, &slides, &json!({ "slide": 1, "shape": 1, "left": 5 })),
-            Err("PPTX shape 1 on slide 1 is not a picture".to_owned())
-        );
+        assert_eq!(crop_image(&mut zip, &slides, &json!({ "slide": 1, "shape": 1, "left": 5 })), Err("PPTX shape 1 on slide 1 is not a picture".to_owned()));
     }
 
     #[test]

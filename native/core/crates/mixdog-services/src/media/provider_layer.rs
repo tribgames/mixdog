@@ -19,9 +19,9 @@ use mixdog_ai::client_versions::{ClientVersions, Clock, Dialect, Live};
 use mixdog_ai::oauth::scrub::scrub_oauth_secrets;
 use mixdog_ai::oauth::{CredentialFile, CredentialIo};
 use mixdog_ai::providers::connect::rewrite::Credential as _;
-use mixdog_ai::providers::openai::adapter::Credential;
 use mixdog_ai::providers::google::auth::RequestAuth;
-use mixdog_ai::providers::google::auth::antigravity::{AntigravityAuth, FileTokenStore, ENDPOINT as ANTIGRAVITY_ENDPOINT};
+use mixdog_ai::providers::google::auth::antigravity::{AntigravityAuth, ENDPOINT as ANTIGRAVITY_ENDPOINT, FileTokenStore};
+use mixdog_ai::providers::openai::adapter::Credential;
 
 /// `CONTENT_ENDPOINTS[0]`: the gateway the image adapter posts to.
 pub const ANTIGRAVITY_GATEWAY: &str = ANTIGRAVITY_ENDPOINT;
@@ -36,12 +36,12 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::accounts::AccountProbe;
-use super::catalog_fetch::{Auth, FetchError};
-use super::download::AdapterError;
-use super::antigravity_image::{AntigravityAuth as MediaLogin, AntigravitySession};
-use super::codex_image::{CodexAuth, CodexSession, chatgpt_limit_reset_at};
-use super::probe::{AgentKeys, AgentSettings, ProviderAuth};
 use super::adapter_http::JsonPost;
+use super::antigravity_image::{AntigravityAuth as MediaLogin, AntigravitySession};
+use super::catalog_fetch::{Auth, FetchError};
+use super::codex_image::{CodexAuth, CodexSession, chatgpt_limit_reset_at};
+use super::download::AdapterError;
+use super::probe::{AgentKeys, AgentSettings, ProviderAuth};
 
 type OriginatorEnvironment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
@@ -111,7 +111,19 @@ impl ProviderLayer {
         now: Clock,
         codex: CodexClient,
     ) -> Self {
-        Self { http, post, io, default_file, versions, registry, now, codex, probe: LateProbe::default(), grok: Mutex::default(), antigravity: Mutex::default() }
+        Self {
+            http,
+            post,
+            io,
+            default_file,
+            versions,
+            registry,
+            now,
+            codex,
+            probe: LateProbe::default(),
+            grok: Mutex::default(),
+            antigravity: Mutex::default(),
+        }
     }
 
     /// The media lanes' credential probe, which is built over this layer (ProbeParts.provider_auth):
@@ -148,9 +160,9 @@ impl ProviderLayer {
         let file = self.file("antigravity-oauth", account)?;
         let mut held = self.antigravity.lock().unwrap_or_else(PoisonError::into_inner);
         let (now, path) = (Arc::clone(&self.now), file.path().to_path_buf());
-        Ok(Arc::clone(held.entry(path).or_insert_with(|| {
-            Arc::new(AntigravityAuth::new(Arc::clone(&self.http), Arc::new(FileTokenStore(file)), Box::new(move || now())))
-        })))
+        Ok(Arc::clone(
+            held.entry(path).or_insert_with(|| Arc::new(AntigravityAuth::new(Arc::clone(&self.http), Arc::new(FileTokenStore(file)), Box::new(move || now())))),
+        ))
     }
 
     /// `resolveXaiAuth('grok-oauth')`: the bearer rotates on every refresh, so the account id
@@ -167,7 +179,13 @@ impl ProviderLayer {
     async fn antigravity(&self, account: Option<&Path>) -> Result<Auth, FetchError> {
         self.versions.warm(Dialect::Antigravity).await;
         let authorization = self.antigravity_auth(account)?.authorize().await.map_err(from_provider)?;
-        let token = authorization.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).and_then(|(_, value)| value.strip_prefix("Bearer ")).unwrap_or_default().to_owned();
+        let token = authorization
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+            .and_then(|(_, value)| value.strip_prefix("Bearer "))
+            .unwrap_or_default()
+            .to_owned();
         Ok(Auth { token, base_url: String::new(), project_id: Some(authorization.identity), account_id: None })
     }
 
@@ -201,7 +219,8 @@ pub fn codex_row(record: &ModelRecord) -> Value {
             row.insert("supportsImageGeneration".to_owned(), json!(flag));
         }
         if let Some(tools) = raw.get("supported_tools").and_then(Value::as_array) {
-            let names: Vec<&str> = tools.iter().filter_map(|tool| tool.as_str().or_else(|| tool.get("type").and_then(Value::as_str))).filter(|name| !name.is_empty()).collect();
+            let names: Vec<&str> =
+                tools.iter().filter_map(|tool| tool.as_str().or_else(|| tool.get("type").and_then(Value::as_str))).filter(|name| !name.is_empty()).collect();
             row.insert("supportedTools".to_owned(), json!(names));
         }
     }
@@ -215,16 +234,19 @@ pub async fn antigravity_rows(post: &dyn JsonPost, client_version: &str, auth: &
     let mut headers = vec![("Authorization".to_owned(), format!("Bearer {}", auth.token)), ("Content-Type".to_owned(), "application/json".to_owned())];
     headers.extend(antigravity_headers(client_version));
     let body = if project.is_empty() { json!({}) } else { json!({ "project": project }) };
-    let reply = post
-        .post(&url, &headers, &body, FETCH_MODELS_TIMEOUT, &CancellationToken::new())
-        .await
-        .map_err(|failure| FetchError { message: failure.message, code: None, status: None, timed_out: failure.timed_out })?;
+    let reply = post.post(&url, &headers, &body, FETCH_MODELS_TIMEOUT, &CancellationToken::new()).await.map_err(|failure| FetchError {
+        message: failure.message,
+        code: None,
+        status: None,
+        timed_out: failure.timed_out,
+    })?;
     if !(200..300).contains(&reply.status) {
         let text = mixdog_js::slice_utf16(&scrub_oauth_secrets(&reply.body, &[]), ERROR_TEXT_LIMIT);
         return Err(plain(format!("[antigravity-oauth] fetchAvailableModels failed: {} {text}", reply.status)));
     }
     // `res.json()` rejects with V8's own message (`v8_json_parse_error`: wp-svc-misc-21).
-    let parsed: Value = mixdog_js::json_parse(&reply.body).map_err(|error| plain(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
+    let parsed: Value =
+        mixdog_js::json_parse(&reply.body).map_err(|error| plain(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
     let Some(models) = parsed.get("models").and_then(Value::as_object) else {
         return Err(plain("[antigravity-oauth] fetchAvailableModels returned no models"));
     };

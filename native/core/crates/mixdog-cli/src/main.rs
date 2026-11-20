@@ -181,11 +181,7 @@ fn main() -> ExitCode {
         }
         Command::Ctl(args) => ctl(args),
         Command::Migrate(args) => {
-            let args = MigrateArgs {
-                data_dir: args.data_dir,
-                home: args.home,
-                desktop_profile: args.desktop_profile,
-            };
+            let args = MigrateArgs { data_dir: args.data_dir, home: args.home, desktop_profile: args.desktop_profile };
             migrate(&args)
         }
         Command::ServerEnsure { argument } => {
@@ -256,10 +252,9 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
     let runtime = executors.handle(TaskClass::Work);
     let cutover = runtime.block_on(async {
         let ownership = ownership.clone();
-        tokens.durability_io
-            .submit(&CancellationToken::new(), move |lane| {
-                mixdog_app_server_daemon::startup::require_migration_barrier(lane, ownership)
-            })
+        tokens
+            .durability_io
+            .submit(&CancellationToken::new(), move |lane| mixdog_app_server_daemon::startup::require_migration_barrier(lane, ownership))
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?
@@ -410,10 +405,7 @@ fn ctl(args: CtlArgs) -> ExitCode {
             }
         };
     }
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(err) => {
             eprintln!("mixdogd: starting the async runtime: {err}");
@@ -433,10 +425,7 @@ fn ctl(args: CtlArgs) -> ExitCode {
                     status.clients,
                     status.running.len(),
                     if status.hold { ", hold" } else { "" },
-                    status
-                        .drain
-                        .as_ref()
-                        .map_or(String::new(), |d| format!(", draining {}", d.drain_id)),
+                    status.drain.as_ref().map_or(String::new(), |d| format!(", draining {}", d.drain_id)),
                 );
             }
             ExitCode::SUCCESS
@@ -449,17 +438,13 @@ fn ctl(args: CtlArgs) -> ExitCode {
     }
 }
 
-async fn ctl_request(
-    action: CtlAction,
-) -> Result<mixdog_app_server_client::ctl::CoreStatus, mixdog_app_server_client::ctl::CtlError> {
+async fn ctl_request(action: CtlAction) -> Result<mixdog_app_server_client::ctl::CoreStatus, mixdog_app_server_client::ctl::CtlError> {
     use mixdog_app_server_client::ctl::CtlClient;
     use mixdog_app_server_client::ctl::StopMode;
 
     // A process table that cannot answer proves nothing: the call goes to the listener.
-    let client = CtlClient::local(|core| {
-        mixdog_app_server_daemon::discovery::names_running_core(core.pid, &core.core.process_start_time).unwrap_or(true)
-    })
-    .await?;
+    let client =
+        CtlClient::local(|core| mixdog_app_server_daemon::discovery::names_running_core(core.pid, &core.core.process_start_time).unwrap_or(true)).await?;
     match action {
         CtlAction::Status => client.status().await,
         CtlAction::Hold { off } => client.hold(!off).await,
@@ -471,13 +456,12 @@ async fn ctl_request(
             } else {
                 StopMode::WhenIdle
             };
-            let reason = serde_json::from_value(serde_json::Value::String(stop.reason.clone()))
-                .map_err(|_| {
-                    mixdog_app_server_client::ctl::CtlError::BadReply(format!(
-                        "unknown stop reason `{}` (update, quit, restart, fastDeploy, sshReplace, userStop)",
-                        stop.reason
-                    ))
-                })?;
+            let reason = serde_json::from_value(serde_json::Value::String(stop.reason.clone())).map_err(|_| {
+                mixdog_app_server_client::ctl::CtlError::BadReply(format!(
+                    "unknown stop reason `{}` (update, quit, restart, fastDeploy, sshReplace, userStop)",
+                    stop.reason
+                ))
+            })?;
             client.stop(mode, reason, stop.confirm_token.as_deref()).await
         }
         CtlAction::CancelDrain { drain_id } => client.cancel_drain(&drain_id).await,
@@ -521,10 +505,7 @@ fn leave_console() {}
 fn serve(desktop_confirmation_pipe: bool) -> ExitCode {
     adopt_desktop_app_identity();
     leave_console();
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_writer(std::io::stderr)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).with_writer(std::io::stderr).init();
     #[cfg(feature = "crash-gates")]
     boot_fault::wait_for_launcher();
     // Node installs its recorder at module load: a start that fails on its way up (no JS runtime, no executors) is recorded too.
@@ -559,21 +540,7 @@ mod tests {
     #[test]
     fn stop_needs_a_mode() {
         assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--reason", "quit"]).is_err());
-        assert!(
-            Cli::try_parse_from(["mixdogd", "ctl", "stop", "--when-idle", "--reason", "quit"])
-                .is_ok()
-        );
-        assert!(
-            Cli::try_parse_from([
-                "mixdogd",
-                "ctl",
-                "stop",
-                "--when-idle",
-                "--abort",
-                "--reason",
-                "quit"
-            ])
-            .is_err()
-        );
+        assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--when-idle", "--reason", "quit"]).is_ok());
+        assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--when-idle", "--abort", "--reason", "quit"]).is_err());
     }
 }

@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use regex::Regex;
 use mixdog_rt::time::{Instant, timeout};
+use regex::Regex;
 
 use super::Leg;
 use super::wire::{Failure, Wire, connect};

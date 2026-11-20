@@ -248,7 +248,12 @@ impl Session {
             }
             if !reply.starts_with('2') {
                 if require_tls {
-                    return Err(MailError::failed(MailCode::Connection, &format!("EHLO failed but HELO does not support required STARTTLS. response={reply}"), &reply, "EHLO"));
+                    return Err(MailError::failed(
+                        MailCode::Connection,
+                        &format!("EHLO failed but HELO does not support required STARTTLS. response={reply}"),
+                        &reply,
+                        "EHLO",
+                    ));
                 }
                 self.command(&format!("HELO {name}")).await?;
                 let reply = self.reply(None).await?;
@@ -286,7 +291,9 @@ impl Session {
                 self.secure = true;
                 Ok(())
             }
-            Ok(Err(error)) if error.kind() == io::ErrorKind::UnexpectedEof => Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Tls, "Connection closed unexpectedly") }),
+            Ok(Err(error)) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Tls, "Connection closed unexpectedly") })
+            }
             Ok(Err(error)) => Err(MailError { command: Some("CONN"), ..MailError::new(MailCode::Socket, error.to_string()) }),
             Err(_) => Err(MailError::timed_out("TLS handshake timed out")),
         }
@@ -329,7 +336,11 @@ impl Session {
                 self.command(&encode(&format!("{user} {digest}"))).await?;
                 let reply = self.reply(None).await?;
                 let accepted = reply.strip_prefix("235").is_some_and(|rest| rest.starts_with(char::is_whitespace));
-                if accepted { Ok(()) } else { Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"235\"", &reply, "AUTH CRAM-MD5")) }
+                if accepted {
+                    Ok(())
+                } else {
+                    Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"235\"", &reply, "AUTH CRAM-MD5"))
+                }
             }
             _ => {
                 // The authorization identity is left out: it causes problems with some servers.
@@ -485,7 +496,8 @@ fn parse_capabilities(reply: &str) -> Capabilities {
         if line.len() > 4 && line.is_char_boundary(4) && line[..4].eq_ignore_ascii_case("AUTH") {
             let rest = &line[4..];
             if let Some(separator) = rest.chars().next().filter(|c| c.is_whitespace() || *c == '=') {
-                offered.extend(rest[separator.len_utf8()..].split(|c: char| c.is_whitespace() || c == '=').filter(|m| !m.is_empty()).map(str::to_ascii_uppercase));
+                offered
+                    .extend(rest[separator.len_utf8()..].split(|c: char| c.is_whitespace() || c == '=').filter(|m| !m.is_empty()).map(str::to_ascii_uppercase));
             }
         }
     }
@@ -573,14 +585,12 @@ mod tests {
         assert_eq!(error.message, "Invalid login: 535 5.7.8 bad credentials");
     }
 
-
     #[test]
     fn the_hello_name_is_a_fully_qualified_name_or_the_loopback_literal() {
         let name = hello_name();
         assert!(name == "[127.0.0.1]" || name.contains('.') || name.starts_with('['), "{name}");
     }
 }
-
 
 /// The server and the credentials; the timeout is applied to the four timeouts of `createTransport`.
 #[derive(Clone)]
@@ -605,7 +615,14 @@ impl MailConfig {
 }
 impl fmt::Debug for MailConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MailConfig").field("host", &self.host).field("port", &self.port).field("user", &self.user).field("pass", &"<redacted>").field("timeout", &self.timeout).field("secure", &self.secure).finish()
+        f.debug_struct("MailConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("user", &self.user)
+            .field("pass", &"<redacted>")
+            .field("timeout", &self.timeout)
+            .field("secure", &self.secure)
+            .finish()
     }
 }
 impl std::error::Error for MailError {}
@@ -638,7 +655,18 @@ async fn run(config: &MailConfig, message: &Message, tls: Arc<rustls::ClientConf
     } else {
         Box::new(tcp)
     };
-    let mut session = Session { io: Some(io), buffer: Vec::new(), lines: Vec::new(), idle: config.timeout, secure, upgrading: false, connector, name, deadline, timeout: config.timeout };
+    let mut session = Session {
+        io: Some(io),
+        buffer: Vec::new(),
+        lines: Vec::new(),
+        idle: config.timeout,
+        secure,
+        upgrading: false,
+        connector,
+        name,
+        deadline,
+        timeout: config.timeout,
+    };
 
     let greeting = session.reply(Some((session.setup_deadline(), "Greeting never received"))).await?;
     if !greeting.starts_with("220") {
@@ -722,7 +750,11 @@ async fn connect_tcp(config: &MailConfig, deadline: Instant) -> Result<TcpStream
 impl Envelope {
     fn mail(&mut self, reply: &str) {
         if !reply.starts_with('2') {
-            let message = if self.utf8 && reply.starts_with("550 ") && self.from_non_ascii { "Internationalized mailbox name not allowed" } else { "Mail command failed" };
+            let message = if self.utf8 && reply.starts_with("550 ") && self.from_non_ascii {
+                "Internationalized mailbox name not allowed"
+            } else {
+                "Mail command failed"
+            };
             self.mail_error = Some(MailError::failed(MailCode::Envelope, message, reply, "MAIL FROM"));
         }
     }
@@ -731,7 +763,11 @@ impl Envelope {
         if reply.starts_with('2') {
             self.accepted += 1;
         } else {
-            let message = if self.utf8 && reply.starts_with("553 ") && to.chars().any(|c| c as u32 >= 0x80) { "Internationalized mailbox name not allowed" } else { "Recipient command failed" };
+            let message = if self.utf8 && reply.starts_with("553 ") && to.chars().any(|c| c as u32 >= 0x80) {
+                "Internationalized mailbox name not allowed"
+            } else {
+                "Recipient command failed"
+            };
             self.rejected.push(MailError::failed(MailCode::Envelope, message, reply, "RCPT TO"));
         }
     }

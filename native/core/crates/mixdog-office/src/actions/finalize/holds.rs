@@ -61,7 +61,9 @@ pub fn review_hold(context: &HoldContext<'_>, args: &Value, stage: &ReviewStage)
             "formula_errors",
             vec![(
                 "nextAction",
-                json!("Recalculation found formula errors; recalculation.errorSummary lists the cells by error type. Trace each to its inputs, fix the formula, then finalize again."),
+                json!(
+                    "Recalculation found formula errors; recalculation.errorSummary lists the cells by error type. Trace each to its inputs, fix the formula, then finalize again."
+                ),
             )],
         ));
     }
@@ -73,7 +75,9 @@ pub fn review_hold(context: &HoldContext<'_>, args: &Value, stage: &ReviewStage)
                 ("visualCritique", stage.visual_critique.clone().unwrap_or(Value::Null)),
                 (
                     "nextAction",
-                    json!("Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token."),
+                    json!(
+                        "Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token."
+                    ),
                 ),
             ],
         ));
@@ -86,7 +90,8 @@ pub fn review_hold(context: &HoldContext<'_>, args: &Value, stage: &ReviewStage)
             let joined: Vec<String> = blockers.iter().map(mixdog_js::value_to_string).collect();
             format!("Review not accepted \u{2014} {}. ", joined.join(" \u{b7} "))
         });
-        let checks: Vec<String> = visual.get("checks").and_then(Value::as_array).map(|checks| checks.iter().map(mixdog_js::value_to_string).collect()).unwrap_or_default();
+        let checks: Vec<String> =
+            visual.get("checks").and_then(Value::as_array).map(|checks| checks.iter().map(mixdog_js::value_to_string).collect()).unwrap_or_default();
         return Some(with_review(
             "visual_review_required",
             vec![

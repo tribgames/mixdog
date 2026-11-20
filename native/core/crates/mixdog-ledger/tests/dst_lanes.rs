@@ -1,11 +1,7 @@
 //! The same DST day through the lanes: a lane job runs on its own thread, so the zone is pinned
 //! for the whole process (`set_process_zone`) before any lane starts, not with a thread-scoped
 //! override. This test binary holds this one test, so nothing else sees the pinned zone.
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use mixdog_js::time::Tz;
 use mixdog_js::time::set_process_zone;
@@ -33,8 +29,7 @@ async fn lane_jobs_read_the_pinned_zone() {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
     let end = START + 23 * HOUR;
     for (id, ts, day) in [
         ("before", START - 1, "2026-03-07"),

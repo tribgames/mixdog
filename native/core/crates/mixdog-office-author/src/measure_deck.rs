@@ -35,11 +35,11 @@ use crate::html_browser::RunError;
 use crate::html_browser::run_in_browser;
 use crate::icons::icons;
 use crate::page::Page;
+use crate::page::Rect;
 use crate::page::ScreenshotOptions;
 use crate::page::Viewport;
 use crate::page::WaitUntil;
 use crate::page::page_function;
-use crate::page::Rect;
 
 /// The deck canvas in CSS px and the page it lands on in inches; a PDF's designed pages pass their sheet instead.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,10 +138,7 @@ pub fn paint_of_photograph(shot: &[u8], canvas: Canvas) -> Result<Option<Paint>,
         return Ok(None);
     }
     if alpha.is_none_or(|alpha| alpha.min == 255) {
-        return Ok(Some(Paint {
-            png: STANDARD.encode(shot),
-            draw: json!({ "x": 0, "y": 0, "w": canvas.width, "h": canvas.height }),
-        }));
+        return Ok(Some(Paint { png: STANDARD.encode(shot), draw: json!({ "x": 0, "y": 0, "w": canvas.width, "h": canvas.height }) }));
     }
     let trimmed = mixdog_raster::ops::trim(&image, 0.0).map_err(|error| error.to_string())?;
     let png = trimmed.image.to_png().map_err(|error| error.to_string())?;
@@ -176,13 +173,7 @@ pub fn place_captures(items: Vec<Value>, drawn: &BTreeMap<String, Paint>) -> Vec
 
 /// Each marked element photographed alone at twice the canvas density on a transparent page, trimmed to what it
 /// painted: id to its paint.
-async fn capture_rich_paint(
-    page: &Page,
-    lanes: &AuthorLanes,
-    slide_box: Rect,
-    ids: &[String],
-    canvas: Canvas,
-) -> Result<BTreeMap<String, Paint>, String> {
+async fn capture_rich_paint(page: &Page, lanes: &AuthorLanes, slide_box: Rect, ids: &[String], canvas: Canvas) -> Result<BTreeMap<String, Paint>, String> {
     let mut out = BTreeMap::new();
     if ids.is_empty() {
         return Ok(out);
@@ -319,7 +310,6 @@ mod tests {
         assert!(!PAGE_SCRIPT.contains("export "));
     }
 
-
     #[test]
     fn a_path_becomes_a_file_url() {
         let url = file_url(&std::env::temp_dir().join("deck source.html")).unwrap();
@@ -327,7 +317,6 @@ mod tests {
         assert!(url.ends_with("/deck%20source.html"), "{url}");
     }
 }
-
 
 /// The `file:` URL of `path` (`pathToFileURL`).
 pub fn file_url(path: &Path) -> Result<String, String> {
@@ -390,7 +379,8 @@ pub async fn measure_html_deck(
             }
             let findings = geometry::read_geometry(&page, index).await?;
             geometry.extend(geometry::slide_findings(index + 1, findings));
-            let ids: Vec<String> = measured["captures"].as_array().map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            let ids: Vec<String> =
+                measured["captures"].as_array().map(|ids| ids.iter().filter_map(|id| id.as_str().map(str::to_string)).collect()).unwrap_or_default();
             let drawn = capture_rich_paint(&page, lanes, slide_box, &ids, canvas).await?;
             let items = place_captures(measured["items"].as_array().cloned().unwrap_or_default(), &drawn);
             let mut slide = Map::new();

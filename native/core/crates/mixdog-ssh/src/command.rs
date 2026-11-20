@@ -127,10 +127,7 @@ pub fn parse_ssh_target(raw: &str) -> Result<SshTarget, SshTargetError> {
         return Err(SshTargetError(format!("MIXDOG_SSH_TARGET has an empty host: {}", quoted(value))));
     }
     if host.starts_with('-') || user.starts_with('-') {
-        return Err(SshTargetError(format!(
-            "MIXDOG_SSH_TARGET must not start a user or host with \"-\": {}",
-            quoted(value)
-        )));
+        return Err(SshTargetError(format!("MIXDOG_SSH_TARGET must not start a user or host with \"-\": {}", quoted(value))));
     }
     let destination = if user.is_empty() { host.to_owned() } else { format!("{user}@{host}") };
     Ok(SshTarget { destination, port, display: value.to_owned() })
@@ -231,10 +228,7 @@ pub fn classify_failure(stderr: &str) -> FailureClass {
 }
 
 static LOCAL_BIND_FAILURE: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)cannot listen to port|Could not request local forwarding|bind \[?127\.0\.0\.1\]?.*(?:Address already in use|Permission denied)",
-    )
-    .ok()
+    Regex::new(r"(?i)cannot listen to port|Could not request local forwarding|bind \[?127\.0\.0\.1\]?.*(?:Address already in use|Permission denied)").ok()
 });
 
 /// The local end of a forward could not be bound: pick another local port.

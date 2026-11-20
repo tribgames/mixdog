@@ -6,29 +6,10 @@ use serde_json::Value;
 
 use super::notifications;
 
-pub(crate) const DEFAULT_ACTIVITY_RAIL_PINS: &[&str] = &[
-    "sessions",
-    "agents",
-    "schedules",
-    "workflows",
-    "projects",
-    "extensions",
-    "skills",
-];
+pub(crate) const DEFAULT_ACTIVITY_RAIL_PINS: &[&str] = &["sessions", "agents", "schedules", "workflows", "projects", "extensions", "skills"];
 
-const ACTIVITY_RAIL_PIN_IDS: &[&str] = &[
-    "sessions",
-    "agents",
-    "schedules",
-    "workflows",
-    "projects",
-    "extensions",
-    "skills",
-    "source-control",
-    "search",
-    "webhooks",
-    "studio",
-];
+const ACTIVITY_RAIL_PIN_IDS: &[&str] =
+    &["sessions", "agents", "schedules", "workflows", "projects", "extensions", "skills", "source-control", "search", "webhooks", "studio"];
 
 pub const NOTIFICATION_VOLUME_DEFAULT: i64 = 100;
 pub const NOTIFICATION_VOLUME_MAX: i64 = 400;
@@ -72,11 +53,7 @@ pub(crate) struct Key {
 }
 
 fn key(path: &'static str, kind: Kind, default: Option<Value>) -> Key {
-    Key {
-        path,
-        kind,
-        default,
-    }
+    Key { path, kind, default }
 }
 
 /// A path ending in `**` covers the whole subtree below it; `*` is one segment.
@@ -99,26 +76,10 @@ pub(crate) fn registry() -> Vec<Key> {
         flag("desktop.saveChatLogins", true),
         key("desktop.computerInstalled", Kind::Bool, None),
         key("desktop.browserInstalled", Kind::Bool, None),
-        key(
-            "desktop.notificationVolume",
-            Kind::IntRange(0, NOTIFICATION_VOLUME_MAX),
-            int(NOTIFICATION_VOLUME_DEFAULT),
-        ),
-        key(
-            "desktop.botHandoffLimit",
-            Kind::IntRange(BOT_HANDOFF_LIMIT_MIN, BOT_HANDOFF_LIMIT_MAX),
-            int(BOT_HANDOFF_LIMIT_DEFAULT),
-        ),
-        key(
-            "desktop.sessionAutoArchiveDays",
-            Kind::IntChoice(SESSION_AUTO_ARCHIVE_DAY_CHOICES),
-            int(SESSION_AUTO_ARCHIVE_DAYS_DEFAULT),
-        ),
-        key(
-            "desktop.sessionAutoDeleteDays",
-            Kind::IntChoice(SESSION_AUTO_DELETE_DAY_CHOICES),
-            int(SESSION_AUTO_DELETE_DAYS_DEFAULT),
-        ),
+        key("desktop.notificationVolume", Kind::IntRange(0, NOTIFICATION_VOLUME_MAX), int(NOTIFICATION_VOLUME_DEFAULT)),
+        key("desktop.botHandoffLimit", Kind::IntRange(BOT_HANDOFF_LIMIT_MIN, BOT_HANDOFF_LIMIT_MAX), int(BOT_HANDOFF_LIMIT_DEFAULT)),
+        key("desktop.sessionAutoArchiveDays", Kind::IntChoice(SESSION_AUTO_ARCHIVE_DAY_CHOICES), int(SESSION_AUTO_ARCHIVE_DAYS_DEFAULT)),
+        key("desktop.sessionAutoDeleteDays", Kind::IntChoice(SESSION_AUTO_DELETE_DAY_CHOICES), int(SESSION_AUTO_DELETE_DAYS_DEFAULT)),
         // The application UI always uses native scale: the only accepted factor is the default.
         key("desktop.zoom", Kind::IntChoice(&[1]), int(1)),
         key("desktop.activityRailPins", Kind::Pins, None),
@@ -170,11 +131,9 @@ pub(crate) fn expected(kind: Kind) -> String {
         Kind::Pins => "Activity rail pins must be an array of supported destinations.".into(),
         Kind::MarkdownView => "any value".into(),
         Kind::BrowserPermissions => "site permission policy object".into(),
-        Kind::CookieAutoImport => {
-            "{enabled: boolean, profileId: a Chrome profile directory name of at most 120 \
+        Kind::CookieAutoImport => "{enabled: boolean, profileId: a Chrome profile directory name of at most 120 \
              characters without path separators, required when enabled}"
-                .into()
-        }
+            .into(),
         Kind::NotificationsDoc => "{migratedAt, devices, overrides}".into(),
         Kind::NotificationsMigratedAt => "non-negative safe integer".into(),
         Kind::NotificationDevices => "object of device notification preferences".into(),
@@ -192,11 +151,9 @@ pub(crate) fn accepts(kind: Kind, value: &Value) -> bool {
         Kind::String => value.is_string(),
         Kind::BrowserPermissions => value.is_object(),
         Kind::CookieAutoImport => cookie_auto_import(value).is_some(),
-        Kind::NotificationsDoc
-        | Kind::NotificationsMigratedAt
-        | Kind::NotificationDevices
-        | Kind::NotificationDevice
-        | Kind::NotificationOverrides => stored_notifications(kind, value).is_some(),
+        Kind::NotificationsDoc | Kind::NotificationsMigratedAt | Kind::NotificationDevices | Kind::NotificationDevice | Kind::NotificationOverrides => {
+            stored_notifications(kind, value).is_some()
+        }
         Kind::Pins => normalize_pins(value).is_some(),
         Kind::MarkdownView | Kind::Any => true,
     }
@@ -260,14 +217,9 @@ pub(crate) fn stored_notifications(kind: Kind, value: &Value) -> Option<Value> {
 /// length check first, then the separator / missing-profile check.
 pub(crate) fn cookie_auto_import_error(value: &Value) -> &'static str {
     let shaped = value.as_object().is_some_and(|object| {
-        object.get("enabled").is_some_and(Value::is_boolean)
-            && object.get("profileId").and_then(Value::as_str).is_some_and(|p| p.encode_utf16().count() <= 120)
+        object.get("enabled").is_some_and(Value::is_boolean) && object.get("profileId").and_then(Value::as_str).is_some_and(|p| p.encode_utf16().count() <= 120)
     });
-    if shaped {
-        "Automatic cookie import needs a Chrome profile."
-    } else {
-        "Automatic cookie import setting is invalid."
-    }
+    if shaped { "Automatic cookie import needs a Chrome profile." } else { "Automatic cookie import setting is invalid." }
 }
 
 /// The setting as stored, or `None` when it is not valid.
@@ -276,9 +228,7 @@ pub(crate) fn cookie_auto_import(value: &Value) -> Option<Value> {
     let enabled = object.get("enabled")?.as_bool()?;
     let profile = object.get("profileId")?.as_str()?;
     // A profile id is one directory name; the importer re-checks it against Chrome's list.
-    let valid = profile.encode_utf16().count() <= 120
-        && !profile.contains(['/', '\\'])
-        && (!enabled || !profile.is_empty());
+    let valid = profile.encode_utf16().count() <= 120 && !profile.contains(['/', '\\']) && (!enabled || !profile.is_empty());
     valid.then(|| serde_json::json!({ "enabled": enabled, "profileId": profile }))
 }
 

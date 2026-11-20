@@ -184,4 +184,3 @@ pub fn snapshot(payload: &Value, stored_email: &str, stored_account: &str, fetch
     out.insert("rawKeys".into(), keys.into_iter().map(Value::String).collect());
     Some(Value::Object(out))
 }
-

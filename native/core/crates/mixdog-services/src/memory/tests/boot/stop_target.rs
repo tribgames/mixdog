@@ -26,8 +26,7 @@ async fn a_stalled_or_failing_pid_read_still_records_a_dispatch_outcome() {
     let stalled = dispatch_fast_stop(&runtime, &processes, lane, dir.path(), None, StopDispatch::ExternalStartUnresolved).await;
     assert!(matches!(&stalled, StopDispatch::Failed(text) if text.contains("did not end")), "{stalled:?}");
     assert_eq!(tokio::time::Instant::now() - begun, std::time::Duration::from_secs(3), "bounded");
-    *PID_READ.lock().expect("read") =
-        Some(Box::pin(async { Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "the pid file is locked")) }));
+    *PID_READ.lock().expect("read") = Some(Box::pin(async { Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "the pid file is locked")) }));
     let failing = dispatch_fast_stop(&runtime, &processes, lane, dir.path(), None, StopDispatch::ExternalStartUnresolved).await;
     assert!(matches!(&failing, StopDispatch::Failed(text) if text.contains("reading postmaster.pid failed")), "{failing:?}");
     let missing = dispatch_fast_stop(&runtime, &processes, lane, dir.path(), None, StopDispatch::ExternalStartUnresolved).await;
@@ -124,7 +123,8 @@ async fn an_opening_fenced_after_the_os_launch_is_dispatched_or_reported_unresol
     let deadline = tokio::time::Instant::now() + LONG;
     while tokio::time::Instant::now() < deadline {
         if let Ok(Some(pid)) = crate::memory::pg::cluster::recorded_pid(lane, &pgdata).await {
-            let cluster = crate::memory::pg::cluster::PgCluster::over(PgRuntime::new(pg_runtime()), dir.path(), 0, lane, crate::tidy::process::Processes::for_tests());
+            let cluster =
+                crate::memory::pg::cluster::PgCluster::over(PgRuntime::new(pg_runtime()), dir.path(), 0, lane, crate::tidy::process::Processes::for_tests());
             let _ = cluster.stop(std::time::Duration::from_secs(15)).await;
             assert!(crate::memory::pg::cluster::await_exit(pid, tokio::time::Instant::now() + LONG).await);
             break;
@@ -164,7 +164,15 @@ fn suspend(pid: u32, suspended: bool) {
         // SAFETY: plain Win32 calls on handles opened here; the entry is sized as the API requires.
         unsafe {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            let mut entry = ThreadEntry32 { size: std::mem::size_of::<ThreadEntry32>() as u32, usage: 0, thread_id: 0, owner_process_id: 0, base_priority: 0, delta_priority: 0, flags: 0 };
+            let mut entry = ThreadEntry32 {
+                size: std::mem::size_of::<ThreadEntry32>() as u32,
+                usage: 0,
+                thread_id: 0,
+                owner_process_id: 0,
+                base_priority: 0,
+                delta_priority: 0,
+                flags: 0,
+            };
             let mut main = None;
             let mut more = Thread32First(snapshot, &mut entry) != 0;
             while more {
@@ -257,7 +265,8 @@ async fn a_flushed_stop_covers_the_asynchronous_commits_made_before_it() {
         db.execute("INSERT INTO meta(key, value) VALUES ($1, '1'::jsonb) ON CONFLICT(key) DO NOTHING", &[&format!("async-commit-{n}")]).await.expect("commit");
     }
     let last: String = db.query("SELECT pg_current_wal_insert_lsn()::text", &[]).await.expect("lsn")[0].get(0);
-    let observer = crate::memory::pg::db::Db::open_in(postmaster_port(dir.path()), crate::memory::pg::db::DATABASE, crate::memory::pg::db::Schema::Memory).expect("observer");
+    let observer = crate::memory::pg::db::Db::open_in(postmaster_port(dir.path()), crate::memory::pg::db::DATABASE, crate::memory::pg::db::Schema::Memory)
+        .expect("observer");
     let observing = observer.client().await.expect("the observer's connection");
     let (mut entered, release) = fences::arm("dispatching");
     let stopping = tokio::spawn({

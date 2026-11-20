@@ -2,9 +2,9 @@
 //! session-id grammars it reads: an agent's home thread (`agent-home.mjs`), a group room and
 //! its member sessions (`agent-room.mjs`), and the agent owner (`agent-owner.mjs`).
 
+use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
-use mixdog_js::js_trim;
 
 use crate::summary::truthy;
 

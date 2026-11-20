@@ -319,7 +319,10 @@ async fn connecting_is_not_the_providers_silence() {
     let identity = SendIdentity::default();
     let (call, classified) = call(&identity, PhaseWindows { head: Some(secs(30)), ..PhaseWindows::default() });
     let err = ModelDriver::new(Arc::new(Dialling)).send(&call, wire(), MODEL_STREAM).await.err().expect("never connected");
-    assert_eq!((err.code.as_deref(), err.delivery, classified.load(Ordering::SeqCst)), (Some("UND_ERR_CONNECT_TIMEOUT"), mixdog_core_api::domain::provider::DeliveryState::NotSent, 0));
+    assert_eq!(
+        (err.code.as_deref(), err.delivery, classified.load(Ordering::SeqCst)),
+        (Some("UND_ERR_CONNECT_TIMEOUT"), mixdog_core_api::domain::provider::DeliveryState::NotSent, 0)
+    );
     let published: Vec<Boundary> = identity.take_boundaries().into_iter().map(|(_, b)| b).collect();
     assert_eq!(published, [Boundary::AttemptStarted, Boundary::AttemptFailed], "no connection was reported");
 }

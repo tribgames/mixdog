@@ -195,7 +195,14 @@ pub(super) fn canonical_agent_storage(value: &Doc, catalog: &[Value], now_ms: i6
         .into_iter()
         .flatten()
         .filter(|preset| is_retired_local_route(preset))
-        .map(|preset| ["id", "name"].iter().find_map(|key| preset.get(*key).filter(|v| truthy(Some(*v)))).map(mixdog_js::value_to_string).map(|text| js_trim(&text).to_owned()).unwrap_or_default())
+        .map(|preset| {
+            ["id", "name"]
+                .iter()
+                .find_map(|key| preset.get(*key).filter(|v| truthy(Some(*v))))
+                .map(mixdog_js::value_to_string)
+                .map(|text| js_trim(&text).to_owned())
+                .unwrap_or_default()
+        })
         .filter(|id| !id.is_empty())
         .collect();
     let mut providers = object_of(next.get("providers"));
@@ -206,7 +213,9 @@ pub(super) fn canonical_agent_storage(value: &Doc, catalog: &[Value], now_ms: i6
     let presets: Vec<Value> = next
         .get("presets")
         .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(|preset| normalize_preset(&migrate(preset, catalog, now_ms))).filter(|preset| !is_retired_local_route(preset)).collect())
+        .map(|list| {
+            list.iter().filter_map(|preset| normalize_preset(&migrate(preset, catalog, now_ms))).filter(|preset| !is_retired_local_route(preset)).collect()
+        })
         .unwrap_or_default();
     next.insert("presets".into(), Value::Array(presets));
     let default = next.get("default").filter(|v| truthy(Some(*v))).map(mixdog_js::value_to_string).map(|text| js_trim(&text).to_owned()).unwrap_or_default();
@@ -280,11 +289,12 @@ pub(super) fn storage_needs_migration(value: &Doc, catalog: &[Value], now_ms: i6
     let agents = object_of(value.get("agents"));
     let maintenance = object_of(value.get("maintenance"));
     let superseded = |route: &Value| migrated_route(route, catalog, now_ms).is_some();
-    let retired_local = value.get("providers").and_then(Value::as_object).is_some_and(|providers| RETIRED_LOCAL_PROVIDER_IDS.iter().any(|id| providers.contains_key(*id)))
-        || presets.iter().any(is_retired_local_route)
-        || agents.values().any(is_retired_local_route)
-        || maintenance.values().any(is_retired_local_route)
-        || object_of(value.get("modelSettings")).keys().any(|key| is_retired_local_model_key(key));
+    let retired_local =
+        value.get("providers").and_then(Value::as_object).is_some_and(|providers| RETIRED_LOCAL_PROVIDER_IDS.iter().any(|id| providers.contains_key(*id)))
+            || presets.iter().any(is_retired_local_route)
+            || agents.values().any(is_retired_local_route)
+            || maintenance.values().any(is_retired_local_route)
+            || object_of(value.get("modelSettings")).keys().any(|key| is_retired_local_model_key(key));
     let superseded_routes = presets.iter().any(superseded)
         || agents.values().any(superseded)
         || maintenance.values().any(superseded)
@@ -299,7 +309,9 @@ pub(super) fn storage_needs_migration(value: &Doc, catalog: &[Value], now_ms: i6
         return true;
     }
     let canonical = canonical_agent_storage(value, catalog, now_ms);
-    ["autoClear", "compaction", "shell", "profile", "skills", "extensionScopes", "modules", "guide"].iter().any(|key| !same_json(value.get(*key), canonical.get(*key)))
+    ["autoClear", "compaction", "shell", "profile", "skills", "extensionScopes", "modules", "guide"]
+        .iter()
+        .any(|key| !same_json(value.get(*key), canonical.get(*key)))
 }
 
 /// `storedAgentForm(agent)` of a file at the current version: the section defaults and the shipped route
@@ -336,9 +348,7 @@ mod saved_catalog_tests {
     fn the_saved_catalog_is_the_signed_in_accounts_own_file() {
         let dir = tempfile::tempdir().unwrap();
         let key = |account: &str| mixdog_ai::catalog::account_fingerprint(&[account]);
-        let roster = |account: &str, version: i64, model: &str| {
-            json!({ "version": version, "fetchedAt": 1, "account": key(account), "provenance": "fetched", "models": [{ "id": model }] })
-        };
+        let roster = |account: &str, version: i64, model: &str| json!({ "version": version, "fetchedAt": 1, "account": key(account), "provenance": "fetched", "models": [{ "id": model }] });
         let keyed = |account: &str| mixdog_ai::catalog::Roster::Codex.keyed_file(&key(account));
         write(dir.path(), CODEX_CREDENTIALS_FILE, &json!({ "account_id": "acct-a" }));
         write(dir.path(), "openai-oauth-models.json", &json!({ "version": 7, "fetchedAt": 1, "models": [{ "id": "shared-model" }] }));

@@ -129,7 +129,15 @@ impl RoomExchangeHost for Host {
         self.relays_failed.lock().unwrap().push(error.to_owned());
     }
     async fn labels(&self) -> Result<HashMap<String, MemberLabel>, String> {
-        Ok(["ann", "bob"].iter().map(|id| ((*id).to_owned(), MemberLabel { id: (*id).into(), name: id.to_uppercase(), route: Value::Null, description: format!("{id} desc"), disabled: false })).collect())
+        Ok(["ann", "bob"]
+            .iter()
+            .map(|id| {
+                (
+                    (*id).to_owned(),
+                    MemberLabel { id: (*id).into(), name: id.to_uppercase(), route: Value::Null, description: format!("{id} desc"), disabled: false },
+                )
+            })
+            .collect())
     }
     async fn decide_turn(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
         self.steps.lock().unwrap().push((step.members.iter().map(|member| member.name.clone()).collect(), step.rows.len()));
@@ -168,7 +176,10 @@ async fn the_called_member_speaks_the_supervisor_finishes_and_the_call_ends_done
     run_exchange(&dynamic, &request, &run).await.unwrap();
 
     let posted = host.posted.lock().unwrap().clone();
-    assert_eq!(posted.iter().map(|row| (row["kind"].clone(), row["speaker"].clone(), row["text"].clone())).collect::<Vec<_>>(), [(json!("speech"), json!("ann"), json!("hello"))]);
+    assert_eq!(
+        posted.iter().map(|row| (row["kind"].clone(), row["speaker"].clone(), row["text"].clone())).collect::<Vec<_>>(),
+        [(json!("speech"), json!("ann"), json!("hello"))]
+    );
     assert_eq!(status.await.unwrap(), "done");
     assert_eq!(call.detail(), Some(Settled { status: "done".into(), error: None, content: Some("hello".into()) }));
     let running = host.running.lock().unwrap().clone();

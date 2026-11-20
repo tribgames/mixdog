@@ -214,7 +214,9 @@ mod tests {
     fn a_download_state_is_reported_once_for_the_session_not_once_per_page() {
         let mut reports = DownloadReports::default();
         let (mut first_cursor, mut second_cursor) = (0, 0);
-        let mut running = download(json!({"id": "d1", "file": "Images.txt", "path": "C:/tmp/Images.txt", "state": "in_progress", "received": 10, "total": 2048, "startedAt": 60_000}));
+        let mut running = download(
+            json!({"id": "d1", "file": "Images.txt", "path": "C:/tmp/Images.txt", "state": "in_progress", "received": 10, "total": 2048, "startedAt": 60_000}),
+        );
         let said = take_downloads(std::slice::from_ref(&running), &mut first_cursor, &mut reports, 1);
         assert_eq!(said.iter().map(report_line).collect::<Vec<_>>(), ["- [d1] Images.txt — in_progress, 2 KB → C:/tmp/Images.txt"]);
         assert!(take_downloads(std::slice::from_ref(&running), &mut second_cursor, &mut reports, 1).is_empty(), "the other page already heard this state");
@@ -319,9 +321,12 @@ mod tests {
         let files = disk(&[3], b"a,b", true);
         let (file, note) = attach_download(&files, &files, &download(json!({"file": "a.CSV", "mimeType": ""}))).await.expect("attached");
         assert_eq!((file.name.as_str(), file.mime_type.as_str(), &file.bytes[..]), ("a.CSV", "text/csv", &b"a,b"[..]));
-        assert_eq!(note, "
+        assert_eq!(
+            note,
+            "
 
-Attached download d1 as a.CSV.");
+Attached download d1 as a.CSV."
+        );
     }
 
     #[tokio::test]
@@ -330,7 +335,13 @@ Attached download d1 as a.CSV.");
         assert_eq!(attach_download(&not_file, &not_file, &download(json!({}))).await.expect_err("not a file"), "download d1 is not a readable file");
         let big = disk(&[DOWNLOAD_ATTACH_MAX_BYTES + 1], b"", true);
         let refused = attach_download(&big, &big, &download(json!({}))).await.expect_err("too large");
-        assert_eq!(refused, format!("download d1 is {} bytes; inline attachment limit is {DOWNLOAD_ATTACH_MAX_BYTES} bytes. Use read with path C:/tmp/a.csv", DOWNLOAD_ATTACH_MAX_BYTES + 1));
+        assert_eq!(
+            refused,
+            format!(
+                "download d1 is {} bytes; inline attachment limit is {DOWNLOAD_ATTACH_MAX_BYTES} bytes. Use read with path C:/tmp/a.csv",
+                DOWNLOAD_ATTACH_MAX_BYTES + 1
+            )
+        );
         let exactly = disk(&[DOWNLOAD_ATTACH_MAX_BYTES], b"", true);
         assert_ne!(attach_download(&exactly, &exactly, &download(json!({}))).await.expect_err("short read"), refused, "the cap itself is allowed");
         let grew = disk(&[3, 4], b"abcd", true);

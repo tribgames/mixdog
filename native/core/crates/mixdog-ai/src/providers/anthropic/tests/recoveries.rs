@@ -95,7 +95,9 @@ async fn the_replay_and_tool_schema_refusals_are_typed_for_the_loop() {
             "anthropic" => api_adapter(http),
             _ => oauth_adapter(http, store.clone()),
         };
-        let replay = refusal("messages.1.content.0: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.");
+        let replay = refusal(
+            "messages.1.content.0: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.",
+        );
         let err = adapter(ScriptedHttp::new([Scripted::body(400, &replay)])).attempt(Arc::new(request())).await.err().expect("refused");
         assert_eq!((err.kind, err.status), (ErrorKind::ReplayRejected, Some(400)), "{route}");
 

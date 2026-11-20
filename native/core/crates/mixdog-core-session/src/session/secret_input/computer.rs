@@ -36,10 +36,10 @@ use super::saved_login::FillContext;
 use super::saved_login::SavedLoginRegistry;
 use super::saved_login::SavedLoginTurn;
 use super::saved_login::fill_saved_login;
-use crate::session::turn_snapshots::TurnSnapshots;
 use super::saved_login::pixels_allowed;
 use super::saved_login_host::HelperWindowPids;
 use super::saved_login_host::HostSavedLogins;
+use crate::session::turn_snapshots::TurnSnapshots;
 
 /// The computer helper of a thread's session; `None` when no desktop control is attached to it.
 pub trait ComputerSecretHosts: Send + Sync {
@@ -66,10 +66,7 @@ impl ComputerCommands for HostComputerCommands {
     /// (`armFocus`) after taking the value. A command a pending human-only approval refuses fails
     /// with the lock's text, which the fill answers `blocked`.
     async fn execute(&self, thread: &ThreadId, command: Value) -> Result<Value, String> {
-        let host = self
-            .hosts
-            .secret_host(thread)
-            .ok_or_else(|| "computer_backend_unavailable: no desktop control is attached to this session".to_owned())?;
+        let host = self.hosts.secret_host(thread).ok_or_else(|| "computer_backend_unavailable: no desktop control is attached to this session".to_owned())?;
         let Value::Object(command) = command else {
             return Err("computer command must be an object".to_owned());
         };
@@ -336,11 +333,11 @@ mod tests {
     use std::time::Duration;
 
     use mixdog_core_api::CallContext;
-    use mixdog_core_api::CoreError;
     use mixdog_core_api::ClaimedHostChannel;
-    use mixdog_core_api::HostClaim;
-    use mixdog_core_api::HostChannel;
+    use mixdog_core_api::CoreError;
     use mixdog_core_api::HostCapability;
+    use mixdog_core_api::HostChannel;
+    use mixdog_core_api::HostClaim;
     use mixdog_core_api::HostError;
     use mixdog_core_api::ids::Method;
     use serde_json::Map;
@@ -458,6 +455,4 @@ mod tests {
         commands.execute(&thread, json!({ "action": "find" })).await.unwrap();
         assert_eq!(helper.sent.lock().unwrap().len(), 1);
     }
-
-
 }

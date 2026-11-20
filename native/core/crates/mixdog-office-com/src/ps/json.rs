@@ -103,11 +103,7 @@ fn write_value(out: &mut String, value: &Value, level: usize, max: usize) {
         Value::Decimal(n) => out.push_str(&n.to_text()),
         Value::String(text) => write_string(out, text),
         Value::DateTime(date) => {
-            let utc = if date.kind == DateKind::Utc {
-                date.ticks
-            } else {
-                datetime::local_ticks_to_utc_ticks(date.ticks).unwrap_or(date.ticks)
-            };
+            let utc = if date.kind == DateKind::Utc { date.ticks } else { datetime::local_ticks_to_utc_ticks(date.ticks).unwrap_or(date.ticks) };
             out.push_str(&format!("\"\\/Date({})\\/\"", (utc - UNIX_EPOCH_TICKS) / 10_000));
         }
         Value::Array(items) => {

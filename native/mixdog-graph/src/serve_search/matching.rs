@@ -19,24 +19,14 @@ pub(super) fn build_matcher(parsed: &ParsedArgs) -> Result<CompiledMatcher, Stri
             .utf(true)
             .ucp(true)
             .jit_if_available(true);
-        return builder
-            .build_many(&parsed.patterns)
-            .map(CompiledMatcher::Pcre)
-            .map_err(|error| format!("regex parse error: {error}"));
+        return builder.build_many(&parsed.patterns).map(CompiledMatcher::Pcre).map_err(|error| format!("regex parse error: {error}"));
     }
     let mut builder = grep::regex::RegexMatcherBuilder::new();
-    builder
-        .case_insensitive(parsed.case_insensitive)
-        .fixed_strings(parsed.fixed_strings)
-        .multi_line(true)
-        .dot_matches_new_line(parsed.multiline_dotall);
+    builder.case_insensitive(parsed.case_insensitive).fixed_strings(parsed.fixed_strings).multi_line(true).dot_matches_new_line(parsed.multiline_dotall);
     if !parsed.multiline {
         builder.line_terminator(Some(b'\n'));
     }
-    builder
-        .build_many(&parsed.patterns)
-        .map(CompiledMatcher::Rust)
-        .map_err(|error| format!("regex parse error: {error}"))
+    builder.build_many(&parsed.patterns).map(CompiledMatcher::Rust).map_err(|error| format!("regex parse error: {error}"))
 }
 
 /// Everything a scan needs from the request that does not change between
@@ -80,11 +70,7 @@ impl<S: Sink> Sink for CancelSink<'_, S> {
         Ok(keep_going && self.match_limit.is_none_or(|limit| self.matches < limit))
     }
 
-    fn context(
-        &mut self,
-        searcher: &Searcher,
-        context: &SinkContext<'_>,
-    ) -> Result<bool, Self::Error> {
+    fn context(&mut self, searcher: &Searcher, context: &SinkContext<'_>) -> Result<bool, Self::Error> {
         if self.cancelled.load(Ordering::Relaxed) {
             return Ok(false);
         }
@@ -95,11 +81,7 @@ impl<S: Sink> Sink for CancelSink<'_, S> {
         self.inner.context_break(searcher)
     }
 
-    fn binary_data(
-        &mut self,
-        searcher: &Searcher,
-        binary_byte_offset: u64,
-    ) -> Result<bool, Self::Error> {
+    fn binary_data(&mut self, searcher: &Searcher, binary_byte_offset: u64) -> Result<bool, Self::Error> {
         self.inner.binary_data(searcher, binary_byte_offset)
     }
 
@@ -124,19 +106,8 @@ pub(super) struct CancellableReader<'a, R> {
 }
 
 impl<'a, R> CancellableReader<'a, R> {
-    pub(super) fn new(
-        inner: R,
-        cancelled: &'a AtomicBool,
-        deadline_at: Option<Instant>,
-        signature: Option<&'a mut TrigramSignature>,
-    ) -> Self {
-        Self {
-            inner,
-            cancelled,
-            deadline_at,
-            chunk_bytes: search_reader_chunk_bytes(),
-            signature,
-        }
+    pub(super) fn new(inner: R, cancelled: &'a AtomicBool, deadline_at: Option<Instant>, signature: Option<&'a mut TrigramSignature>) -> Self {
+        Self { inner, cancelled, deadline_at, chunk_bytes: search_reader_chunk_bytes(), signature }
     }
 }
 
@@ -169,19 +140,12 @@ pub(super) fn searcher(parsed: &ParsedArgs) -> Searcher {
         .before_context(parsed.before)
         .after_context(parsed.after)
         .heap_limit(Some(search_heap_bytes()))
-        .binary_detection(if parsed.text {
-            BinaryDetection::none()
-        } else {
-            BinaryDetection::quit(b'\x00')
-        });
+        .binary_detection(if parsed.text { BinaryDetection::none() } else { BinaryDetection::quit(b'\x00') });
     builder.build()
 }
 
 pub(super) fn output_lines(bytes: Vec<u8>) -> Option<Vec<String>> {
-    let lines: Vec<String> = String::from_utf8_lossy(&bytes)
-        .lines()
-        .map(str::to_string)
-        .collect();
+    let lines: Vec<String> = String::from_utf8_lossy(&bytes).lines().map(str::to_string).collect();
     (!lines.is_empty()).then_some(lines)
 }
 
@@ -202,12 +166,7 @@ where
     S: Sink,
     R: Read,
 {
-    let mut sink = CancelSink {
-        inner,
-        cancelled,
-        match_limit,
-        matches: 0,
-    };
+    let mut sink = CancelSink { inner, cancelled, match_limit, matches: 0 };
     searcher.search_reader(matcher, reader, &mut sink)
 }
 
@@ -233,11 +192,8 @@ fn scan_with_printer(
         }
     };
     let mut signature = build_signature.then(TrigramSignature::new);
-    let identity = signature
-        .as_ref()
-        .and_then(|_| crate::serve_search_usn::file_identity(&file));
-    let mut reader =
-        CancellableReader::new(file, ctx.cancelled, ctx.deadline_at, signature.as_mut());
+    let identity = signature.as_ref().and_then(|_| crate::serve_search_usn::file_identity(&file));
+    let mut reader = CancellableReader::new(file, ctx.cancelled, ctx.deadline_at, signature.as_mut());
     let (result, bytes) = search(&mut reader);
     drop(reader);
     if ctx.cancelled.load(Ordering::Relaxed) {
@@ -280,49 +236,22 @@ pub(super) fn scan_standard<M: Matcher>(
     scan_with_printer(path, build_signature, ctx, |reader| {
         let result = if prefix.is_empty() {
             let inner = printer.sink(matcher);
-            search_with_sink(
-                &mut searcher,
-                matcher,
-                reader,
-                inner,
-                cancelled,
-                match_limit,
-            )
+            search_with_sink(&mut searcher, matcher, reader, inner, cancelled, match_limit)
         } else {
             let printer_path = PathBuf::from(prefix);
             let inner = printer.sink_with_path(matcher, &printer_path);
-            search_with_sink(
-                &mut searcher,
-                matcher,
-                reader,
-                inner,
-                cancelled,
-                match_limit,
-            )
+            search_with_sink(&mut searcher, matcher, reader, inner, cancelled, match_limit)
         };
         (result, printer.into_inner().into_inner())
     })
 }
 
-pub(super) fn scan_summary<M: Matcher>(
-    path: &Path,
-    prefix: &str,
-    matcher: &M,
-    build_signature: bool,
-    ctx: &ScanCtx<'_>,
-) -> Option<Vec<String>> {
+pub(super) fn scan_summary<M: Matcher>(path: &Path, prefix: &str, matcher: &M, build_signature: bool, ctx: &ScanCtx<'_>) -> Option<Vec<String>> {
     let p = ctx.parsed;
     let cancelled = ctx.cancelled;
-    let kind = if p.files_with_matches {
-        SummaryKind::PathWithMatch
-    } else {
-        SummaryKind::Count
-    };
+    let kind = if p.files_with_matches { SummaryKind::PathWithMatch } else { SummaryKind::Count };
     let mut printer_builder = SummaryBuilder::new();
-    printer_builder
-        .kind(kind)
-        .path(!prefix.is_empty())
-        .exclude_zero(true);
+    printer_builder.kind(kind).path(!prefix.is_empty()).exclude_zero(true);
     let mut printer = printer_builder.build_no_color(Vec::new());
     let mut searcher = searcher(p);
     // The summary printer never takes a match limit: it reports one line per
@@ -340,20 +269,9 @@ pub(super) fn scan_summary<M: Matcher>(
     })
 }
 
-pub(super) fn scan_file(
-    path: &Path,
-    prefix: &str,
-    match_limit: Option<usize>,
-    trust: &TrustSnapshot,
-    ctx: &ScanCtx<'_>,
-) -> Option<Vec<String>> {
+pub(super) fn scan_file(path: &Path, prefix: &str, match_limit: Option<usize>, trust: &TrustSnapshot, ctx: &ScanCtx<'_>) -> Option<Vec<String>> {
     let parsed = ctx.parsed;
-    let signature_state = cached_signature_state(
-        path,
-        parsed.literal_trigrams.as_deref().unwrap_or(&[]),
-        parsed.case_insensitive,
-        trust,
-    );
+    let signature_state = cached_signature_state(path, parsed.literal_trigrams.as_deref().unwrap_or(&[]), parsed.case_insensitive, trust);
     if signature_state == CachedSignatureState::Excludes {
         return None;
     }
@@ -383,28 +301,17 @@ fn scan_window_file(
     trust: &TrustSnapshot,
     ctx: &ScanCtx<'_>,
 ) -> Option<Vec<String>> {
-    if ctx.cancelled.load(Ordering::Relaxed)
-        || deadline_expired(ctx.deadline_at)
-        || !scope.filter.allows(file)
-    {
+    if ctx.cancelled.load(Ordering::Relaxed) || deadline_expired(ctx.deadline_at) || !scope.filter.allows(file) {
         return None;
     }
-    let prefix = if use_prefix {
-        display_path(scope.operand, scope.operand_path, file)
-    } else {
-        String::new()
-    };
+    let prefix = if use_prefix { display_path(scope.operand, scope.operand_path, file) } else { String::new() };
     ctx.files_scanned.fetch_add(1, Ordering::Relaxed);
     scan_file(file, &prefix, match_limit, trust, ctx)
 }
 
 /// Append per-file blocks in the order given, with rg's `--` separator
 /// between context blocks, up to the window's hard stop. True once it filled.
-pub(super) fn append_blocks(
-    blocks: impl IntoIterator<Item = Vec<String>>,
-    parsed: &ParsedArgs,
-    out: &mut ScanOutput<'_>,
-) -> bool {
+pub(super) fn append_blocks(blocks: impl IntoIterator<Item = Vec<String>>, parsed: &ParsedArgs, out: &mut ScanOutput<'_>) -> bool {
     let separators = (parsed.before > 0 || parsed.after > 0) && !parsed.files_with_matches;
     for block in blocks {
         if out.all_lines.len() >= out.collect_until {
@@ -443,11 +350,7 @@ pub(super) fn append_scanned_matches_ordered(
             return true;
         }
         let bounded = collect_until != usize::MAX;
-        let take = if bounded {
-            chunk_len.min(rest.len())
-        } else {
-            rest.len()
-        };
+        let take = if bounded { chunk_len.min(rest.len()) } else { rest.len() };
         let (chunk, tail) = rest.split_at(take);
         rest = tail;
         let match_limit = bounded.then_some(remaining);

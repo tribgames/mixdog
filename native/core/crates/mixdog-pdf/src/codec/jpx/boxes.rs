@@ -94,11 +94,7 @@ impl Jp2Info {
     /// The channels the file declares as opacity (`SMaskInData` 1) or premultiplied opacity (`SMaskInData` 2):
     /// `(channel, premultiplied)`.
     pub fn alpha_channels(&self) -> Vec<(u16, bool)> {
-        self.channel_defs
-            .iter()
-            .filter(|d| d.kind == 1 || d.kind == 2)
-            .map(|d| (d.channel, d.kind == 2))
-            .collect()
+        self.channel_defs.iter().filter(|d| d.kind == 1 || d.kind == 2).map(|d| (d.channel, d.kind == 2)).collect()
     }
 }
 
@@ -178,11 +174,7 @@ fn parse_header_box(kind: u32, c: &[u8], info: &mut Jp2Info) -> Result<(), JpxEr
             let method = *c.first().ok_or_else(short)?;
             let precedence = *c.get(1).ok_or_else(short)? as i8;
             let approximation = *c.get(2).ok_or_else(short)?;
-            let (enumerated, profile) = if method == 1 {
-                (Some(be32(c, 3).ok_or_else(short)?), Vec::new())
-            } else {
-                (None, c[3..].to_vec())
-            };
+            let (enumerated, profile) = if method == 1 { (Some(be32(c, 3).ok_or_else(short)?), Vec::new()) } else { (None, c[3..].to_vec()) };
             info.colours.push(ColourSpec { method, precedence, approximation, enumerated, profile });
         }
         k if k == fourcc(b"pclr") => {
@@ -205,14 +197,8 @@ fn parse_header_box(kind: u32, c: &[u8], info: &mut Jp2Info) -> Result<(), JpxEr
             info.palette = Some(Palette { entries, column_depths: depths, values });
         }
         k if k == fourcc(b"cmap") => {
-            info.component_map = c
-                .chunks_exact(4)
-                .map(|m| ComponentMap {
-                    component: u16::from_be_bytes([m[0], m[1]]),
-                    mapping_type: m[2],
-                    palette_column: m[3],
-                })
-                .collect();
+            info.component_map =
+                c.chunks_exact(4).map(|m| ComponentMap { component: u16::from_be_bytes([m[0], m[1]]), mapping_type: m[2], palette_column: m[3] }).collect();
         }
         k if k == fourcc(b"cdef") => {
             let n = be16(c, 0).ok_or_else(short)? as usize;

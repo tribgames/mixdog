@@ -43,16 +43,32 @@ fn for_in_and_for_of_heads_restrict_initialisers_and_targets() {
 #[test]
 fn await_is_an_identifier_outside_async_code_and_an_operator_inside_it() {
     accepts(&[
-        "await(1)", "await + 1", "let await = 1", "function await() {}", "var o = { await: 1 }", "o.await",
-        "async function f() { await 1 }", "async () => await 1", "var o = { async m() { await 1 } }",
-        "async function f() { function g() { await(1) } }", "async function f() { for await (const x of y) {} }",
+        "await(1)",
+        "await + 1",
+        "let await = 1",
+        "function await() {}",
+        "var o = { await: 1 }",
+        "o.await",
+        "async function f() { await 1 }",
+        "async () => await 1",
+        "var o = { async m() { await 1 } }",
+        "async function f() { function g() { await(1) } }",
+        "async function f() { for await (const x of y) {} }",
         "async function f() { (await 1) ** 2 }",
     ]);
     rejects(&[
-        "await x", "await foo()", "function f() { await 1 }", "async function f() { let await }",
-        "async function f() { function g() { await 1 } }", "async function f() { () => await 1 }",
-        "async function f(a = await 1) {}", "class A { static { await 1 } }", "class A { x = await 1 }",
-        "for await (const x of y) {}", "async function f() { for await (x in y) {} }", "async function f() { await 1 ** 2 }",
+        "await x",
+        "await foo()",
+        "function f() { await 1 }",
+        "async function f() { let await }",
+        "async function f() { function g() { await 1 } }",
+        "async function f() { () => await 1 }",
+        "async function f(a = await 1) {}",
+        "class A { static { await 1 } }",
+        "class A { x = await 1 }",
+        "for await (const x of y) {}",
+        "async function f() { for await (x in y) {} }",
+        "async function f() { await 1 ** 2 }",
     ]);
 }
 
@@ -64,7 +80,16 @@ fn yield_is_an_identifier_outside_generators_and_an_operator_inside_them() {
 
 #[test]
 fn module_only_syntax_is_rejected_but_dynamic_import_is_allowed() {
-    rejects(&["import \"x\"", "import * as a from \"x\"", "import { a } from \"x\"", "export default 1", "export { a }", "export * from \"x\"", "import.meta", "import()"]);
+    rejects(&[
+        "import \"x\"",
+        "import * as a from \"x\"",
+        "import { a } from \"x\"",
+        "export default 1",
+        "export { a }",
+        "export * from \"x\"",
+        "import.meta",
+        "import()",
+    ]);
     accepts(&["import(\"x\")", "import(\"x\").then(f)", "var o = { import: 1, export: 2 }", "o.import", "class A { import() {} static export() {} }"]);
 }
 
@@ -73,13 +98,22 @@ fn new_target_needs_a_function_and_super_needs_a_method() {
     accepts(&["function f() { return new.target }", "function f() { return () => new.target }", "class A { static { new.target } }"]);
     rejects(&["new.target", "() => new.target", "new.target.x", "new new.target"]);
     accepts(&[
-        "var o = { m() { return super.m() } }", "class A { m() { return super.m } }", "class A extends B { constructor() { super() } }",
-        "class A extends B { static { super.x } }", "class A { get x() { return super.x } }",
+        "var o = { m() { return super.m() } }",
+        "class A { m() { return super.m } }",
+        "class A extends B { constructor() { super() } }",
+        "class A extends B { static { super.x } }",
+        "class A { get x() { return super.x } }",
     ]);
     rejects(&[
-        "super.x", "super()", "function f() { super.x }", "var o = { m: function () { return super.m() } }",
-        "class A { constructor() { super() } }", "class A extends B { m() { super() } }", "class A extends B { x = super() }",
-        "class A extends B { constructor() { super?.x } }", "class A extends B { constructor() { new super() } }",
+        "super.x",
+        "super()",
+        "function f() { super.x }",
+        "var o = { m: function () { return super.m() } }",
+        "class A { constructor() { super() } }",
+        "class A extends B { m() { super() } }",
+        "class A extends B { x = super() }",
+        "class A extends B { constructor() { super?.x } }",
+        "class A extends B { constructor() { new super() } }",
     ]);
 }
 
@@ -103,67 +137,155 @@ fn optional_chains_cannot_feed_templates_or_new() {
 
 #[test]
 fn class_member_names_constructor_and_prototype_rules() {
-    accepts(&["class A { constructor() {} }", "class A { static constructor() {} }", "class A { prototype() {} }", "class A { [\"constructor\"]() {} [\"constructor\"]() {} }"]);
+    accepts(&[
+        "class A { constructor() {} }",
+        "class A { static constructor() {} }",
+        "class A { prototype() {} }",
+        "class A { [\"constructor\"]() {} [\"constructor\"]() {} }",
+    ]);
     rejects(&[
-        "class A { constructor() {} constructor() {} }", "class A { get constructor() {} }", "class A { *constructor() {} }",
-        "class A { async constructor() {} }", "class A { constructor = 1 }", "class A { static prototype() {} }", "class A { static prototype = 1 }",
+        "class A { constructor() {} constructor() {} }",
+        "class A { get constructor() {} }",
+        "class A { *constructor() {} }",
+        "class A { async constructor() {} }",
+        "class A { constructor = 1 }",
+        "class A { static prototype() {} }",
+        "class A { static prototype = 1 }",
     ]);
 }
 
 #[test]
 fn class_field_initialisers_and_static_blocks_cannot_use_arguments_or_return() {
     accepts(&["class A { x = function () { return arguments } }", "class A { m() { return arguments } }", "class A { static { while (1) break } }"]);
-    rejects(&["class A { x = arguments }", "class A { x = () => arguments }", "class A { static { arguments } }", "class A { static { return } }", "class A { static { break } }"]);
+    rejects(&[
+        "class A { x = arguments }",
+        "class A { x = () => arguments }",
+        "class A { static { arguments } }",
+        "class A { static { return } }",
+        "class A { static { break } }",
+    ]);
 }
 
 #[test]
 fn accessor_parameter_counts_are_fixed() {
     accepts(&["class A { get a() {} set a(b) {} }", "class A { set a(b = 1) {} }", "({ get a() { return 1 }, set a(v) {} })"]);
-    rejects(&["class A { get a(b) {} }", "class A { set a() {} }", "class A { set a(...b) {} }", "({ get a(b) { return 1 } })", "({ set a() {} })", "({ set a(...b) {} })"]);
+    rejects(&[
+        "class A { get a(b) {} }",
+        "class A { set a() {} }",
+        "class A { set a(...b) {} }",
+        "({ get a(b) { return 1 } })",
+        "({ set a() {} })",
+        "({ set a(...b) {} })",
+    ]);
 }
 
 #[test]
 fn private_names_must_be_declared_once_in_an_enclosing_class() {
     accepts(&[
-        "class A { #a = 1; m() { return this.#a } }", "class A { get #a() {} set #a(v) {} }", "class A { #a = 1; m() { return #a in this } }",
-        "class A { #a; m() { class B { m() { return this.#a } } } }", "class A { #a = this.#b; #b = 1 }", "class A { static #s = 1; static f() { return A.#s } }",
+        "class A { #a = 1; m() { return this.#a } }",
+        "class A { get #a() {} set #a(v) {} }",
+        "class A { #a = 1; m() { return #a in this } }",
+        "class A { #a; m() { class B { m() { return this.#a } } } }",
+        "class A { #a = this.#b; #b = 1 }",
+        "class A { static #s = 1; static f() { return A.#s } }",
     ]);
     rejects(&[
-        "class A { m() { return this.#a } }", "class A { #a; #a }", "class A { #a; m() { #a } }", "class A { get #a() {} get #a() {} }",
-        "class A { #a; get #a() {} }", "class A { #a = 1; m() { delete this.#a } }", "class A { #a = 1; m() { delete this?.#a } }",
-        "class A { #constructor }", "class A { m() { class B { #a } return this.#a } }", "this.#a", "#a in b",
+        "class A { m() { return this.#a } }",
+        "class A { #a; #a }",
+        "class A { #a; m() { #a } }",
+        "class A { get #a() {} get #a() {} }",
+        "class A { #a; get #a() {} }",
+        "class A { #a = 1; m() { delete this.#a } }",
+        "class A { #a = 1; m() { delete this?.#a } }",
+        "class A { #constructor }",
+        "class A { m() { class B { #a } return this.#a } }",
+        "this.#a",
+        "#a in b",
     ]);
 }
 
 #[test]
 fn lexical_declarations_conflict_with_other_declarations_in_the_same_scope() {
     rejects(&[
-        "let a; let a", "const a = 1; const a = 2", "class A {} class A {}", "let a; var a", "var a; let a", "let a; function a() {}",
-        "{ let a; let a }", "{ var a } let a", "let a; { var a }", "{ function a() {} let a }", "{ function a() {} var a }",
-        "function f(a) { let a }", "(a, a) => 1", "function f(a, a = 1) {}", "var o = { m(a, a) {} }", "let let = 1", "let a, a", "const [a, a] = []",
-        "try {} catch (e) { let e }", "try {} catch ([e]) { var e }", "for (let i;;) { var i; break }", "for (const x of y) { var x }",
+        "let a; let a",
+        "const a = 1; const a = 2",
+        "class A {} class A {}",
+        "let a; var a",
+        "var a; let a",
+        "let a; function a() {}",
+        "{ let a; let a }",
+        "{ var a } let a",
+        "let a; { var a }",
+        "{ function a() {} let a }",
+        "{ function a() {} var a }",
+        "function f(a) { let a }",
+        "(a, a) => 1",
+        "function f(a, a = 1) {}",
+        "var o = { m(a, a) {} }",
+        "let let = 1",
+        "let a, a",
+        "const [a, a] = []",
+        "try {} catch (e) { let e }",
+        "try {} catch ([e]) { var e }",
+        "for (let i;;) { var i; break }",
+        "for (const x of y) { var x }",
         "switch (a) { case 1: let b; break; case 2: let b }",
     ]);
     accepts(&[
-        "var a; var a", "var a; function a() {}", "function a() {} function a() {}", "let a; { let a }", "{ let a } { let a }",
-        "{ function a() {} function a() {} }", "function f(a) { var a }", "function f(a, a) {}", "try {} catch (e) { var e }",
-        "for (let i;;) { let i; break }", "var [a, a] = []", "var let = 1",
+        "var a; var a",
+        "var a; function a() {}",
+        "function a() {} function a() {}",
+        "let a; { let a }",
+        "{ let a } { let a }",
+        "{ function a() {} function a() {} }",
+        "function f(a) { var a }",
+        "function f(a, a) {}",
+        "try {} catch (e) { var e }",
+        "for (let i;;) { let i; break }",
+        "var [a, a] = []",
+        "var let = 1",
     ]);
 }
 
 #[test]
 fn labels_and_jumps_must_target_an_enclosing_statement() {
-    accepts(&["while (1) { break }", "switch (a) { case 1: break }", "while (1) { switch (a) { case 1: continue } }", "a: { break a }", "a: b: while (1) { continue a }", "a: 1; a: 2"]);
+    accepts(&[
+        "while (1) { break }",
+        "switch (a) { case 1: break }",
+        "while (1) { switch (a) { case 1: continue } }",
+        "a: { break a }",
+        "a: b: while (1) { continue a }",
+        "a: 1; a: 2",
+    ]);
     rejects(&[
-        "break", "continue", "return", "switch (a) { case 1: continue }", "a: { continue a }", "a: a: 1", "a: { a: 1 }", "break a",
-        "a: while (1) { break b }", "a: while (1) { function f() { break a } }", "while (1) { () => { continue } }", "break\na", "continue\na",
+        "break",
+        "continue",
+        "return",
+        "switch (a) { case 1: continue }",
+        "a: { continue a }",
+        "a: a: 1",
+        "a: { a: 1 }",
+        "break a",
+        "a: while (1) { break b }",
+        "a: while (1) { function f() { break a } }",
+        "while (1) { () => { continue } }",
+        "break\na",
+        "continue\na",
     ]);
 }
 
 #[test]
 fn statement_position_forbids_declarations() {
     accepts(&["if (a) function f() {}", "a: function f() {}"]);
-    rejects(&["if (a) let b", "if (a) const b = 1", "if (a) class B {}", "while (a) function f() {}", "for (;;) let x", "if (a) function* g() {}", "if (a) async function g() {}"]);
+    rejects(&[
+        "if (a) let b",
+        "if (a) const b = 1",
+        "if (a) class B {}",
+        "while (a) function f() {}",
+        "for (;;) let x",
+        "if (a) function* g() {}",
+        "if (a) async function g() {}",
+    ]);
 }
 
 #[test]
@@ -228,11 +350,29 @@ fn string_escapes_must_be_well_formed() {
 
 #[test]
 fn strict_mode_directive_prologue_changes_what_is_allowed() {
-    accepts(&["with (a) {}", "delete a", "var public", "eval = 1", "\"use\\x20strict\"; with (a) {}", "(\"use strict\"); with (a) {}", "\"use strict\".length; with (a) {}"]);
+    accepts(&[
+        "with (a) {}",
+        "delete a",
+        "var public",
+        "eval = 1",
+        "\"use\\x20strict\"; with (a) {}",
+        "(\"use strict\"); with (a) {}",
+        "\"use strict\".length; with (a) {}",
+    ]);
     rejects(&[
-        "\"use strict\"; with (a) {}", "'use strict'; with (a) {}", "\"a\"; \"use strict\"; with (a) {}", "function f() { \"use strict\"; with (a) {} }",
-        "function f() { \"use strict\"; 010 }", "function f(a = 1) { \"use strict\" }", "function eval() { \"use strict\" }", "function f(a, a) { \"use strict\" }",
-        "'use strict'; delete x", "'use strict'; delete (a)", "'use strict'; eval = 1", "'use strict'; var public", "'use strict'; let static",
+        "\"use strict\"; with (a) {}",
+        "'use strict'; with (a) {}",
+        "\"a\"; \"use strict\"; with (a) {}",
+        "function f() { \"use strict\"; with (a) {} }",
+        "function f() { \"use strict\"; 010 }",
+        "function f(a = 1) { \"use strict\" }",
+        "function eval() { \"use strict\" }",
+        "function f(a, a) { \"use strict\" }",
+        "'use strict'; delete x",
+        "'use strict'; delete (a)",
+        "'use strict'; eval = 1",
+        "'use strict'; var public",
+        "'use strict'; let static",
     ]);
 }
 
@@ -245,27 +385,80 @@ fn class_bodies_are_always_strict() {
 #[test]
 fn duplicate_proto_keys_are_an_error_only_in_object_literal_expressions() {
     rejects(&["({ __proto__: 1, __proto__: 2 })", "({ __proto__: 1, \"__proto__\": 2 })", "({ __proto__: 1, a: 2, __proto__: 3 })"]);
-    accepts(&["({ __proto__: 1, [\"__proto__\"]: 2 })", "({ __proto__: 1, __proto__() {} })", "({ __proto__, __proto__ })", "({ __proto__: a, __proto__: b } = {})", "({ a: 1, a: 2 })"]);
+    accepts(&[
+        "({ __proto__: 1, [\"__proto__\"]: 2 })",
+        "({ __proto__: 1, __proto__() {} })",
+        "({ __proto__, __proto__ })",
+        "({ __proto__: a, __proto__: b } = {})",
+        "({ a: 1, a: 2 })",
+    ]);
 }
 
 #[test]
 fn object_literal_shorthand_and_computed_forms() {
-    accepts(&["({ a, b })", "({ async a() {}, *b() {}, async *c() {} })", "({ get: 1, set: 2, async: 3, static: 4 })", "({ 1: 1, \"a\": 2, [3]: 3 })", "({ yield })", "({ await })"]);
+    accepts(&[
+        "({ a, b })",
+        "({ async a() {}, *b() {}, async *c() {} })",
+        "({ get: 1, set: 2, async: 3, static: 4 })",
+        "({ 1: 1, \"a\": 2, [3]: 3 })",
+        "({ yield })",
+        "({ await })",
+    ]);
     rejects(&["({ #a: 1 })", "({ this })", "({ a = 1 })"]);
 }
 
 #[test]
 fn regular_expression_literals_are_validated_at_compile_time() {
-    accepts(&["/a/gimsuyd", "/[/]/", "/{/", "/(?<a>.)\\k<a>/", "/\\k<a>/", "/(?<=a)b/", "/\\p{L}/u", "/\\u{41}/u", "/[\\d-a]/", "/\\1(a)/", "/[a&&b]/v", "a / b / c", "1 / 2 / 3"]);
+    accepts(&[
+        "/a/gimsuyd",
+        "/[/]/",
+        "/{/",
+        "/(?<a>.)\\k<a>/",
+        "/\\k<a>/",
+        "/(?<=a)b/",
+        "/\\p{L}/u",
+        "/\\u{41}/u",
+        "/[\\d-a]/",
+        "/\\1(a)/",
+        "/[a&&b]/v",
+        "a / b / c",
+        "1 / 2 / 3",
+    ]);
     rejects(&[
-        "/a/gg", "/a/uv", "/a/z", "/(/", "/)/", "/[/", "/[a-/", "/a{2,1}/", "/(?<a>.)(?<a>.)/", "/\\k<a>/u", "/(?i:a)/", "/\\p{Foo}/u",
-        "/\\u{110000}/u", "/[\\d-a]/u", "/a**/", "/+/", "/?/", "/\\-/u",
+        "/a/gg",
+        "/a/uv",
+        "/a/z",
+        "/(/",
+        "/)/",
+        "/[/",
+        "/[a-/",
+        "/a{2,1}/",
+        "/(?<a>.)(?<a>.)/",
+        "/\\k<a>/u",
+        "/(?i:a)/",
+        "/\\p{Foo}/u",
+        "/\\u{110000}/u",
+        "/[\\d-a]/u",
+        "/a**/",
+        "/+/",
+        "/?/",
+        "/\\-/u",
     ]);
 }
 
 #[test]
 fn automatic_semicolon_insertion_and_restricted_productions() {
-    accepts(&["a\n++\nb", "do {} while (0) a", "throw 1\n", "function f() { return\n1 }", "while (1) { continue\na }", "a = b\n(c)", "let\nx", "async\nfunction f() {}", "var async; async\n(1)"]);
+    accepts(&[
+        "a\n++\nb",
+        "do {} while (0) a",
+        "throw 1\n",
+        "function f() { return\n1 }",
+        "while (1) { continue\na }",
+        "a = b\n(c)",
+        "let\nx",
+        "async\nfunction f() {}",
+        "var async; async\n(1)",
+    ]);
     rejects(&["return\n1", "throw\n1", "throw\na", "1 --> c", "async a\n=> 1"]);
 }
 
@@ -277,7 +470,20 @@ fn html_like_comments_and_hashbang_are_script_only_syntax() {
 
 #[test]
 fn typescript_jsx_and_decorator_syntax_are_not_javascript() {
-    rejects(&["var a: number", "type A = B", "interface A {}", "enum A {}", "a as b", "a!", "a satisfies b", "<a/>", "<a></a>", "<></>", "@dec class A {}", "class A { @dec m() {} }"]);
+    rejects(&[
+        "var a: number",
+        "type A = B",
+        "interface A {}",
+        "enum A {}",
+        "a as b",
+        "a!",
+        "a satisfies b",
+        "<a/>",
+        "<a></a>",
+        "<></>",
+        "@dec class A {}",
+        "class A { @dec m() {} }",
+    ]);
 }
 
 #[test]

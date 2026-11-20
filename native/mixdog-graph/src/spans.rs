@@ -26,11 +26,7 @@ pub struct ContainmentSweep<'a> {
 
 impl<'a> ContainmentSweep<'a> {
     pub fn new(spans: &'a [SymbolSpan<'a>]) -> Self {
-        Self {
-            spans,
-            open: Vec::new(),
-            next: 0,
-        }
+        Self { spans, open: Vec::new(), next: 0 }
     }
 
     /// Innermost span containing `at`, or `None` at top level.
@@ -61,11 +57,7 @@ impl<'a> ContainmentSweep<'a> {
     }
 
     fn close(&mut self, at: usize) {
-        while self
-            .open
-            .last()
-            .is_some_and(|&index| self.spans[index].1 <= at)
-        {
+        while self.open.last().is_some_and(|&index| self.spans[index].1 <= at) {
             self.open.pop();
         }
     }

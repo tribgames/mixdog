@@ -18,13 +18,13 @@ use mixdog_agent::env::Clock;
 use mixdog_core_session::session::thread_switches::merge_deferred_delta_with_servers;
 use mixdog_js::{js_trim, js_words};
 use mixdog_mcp::permissions::parse_mcp_tool_name;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::deferred_manifest::{apply_initial_manifest, listed_deferred_tool_names};
 use super::tool_exposure::native_provider_family;
 use super::tool_surface::{
-    clean, clean_list, filter_disallowed_tools, fixed_surface_session, map_mut, names_value, parse_tool_selection, permitted_by_session_policy, rendered_manifest, roster_permits,
-    sorted_catalog_by_measured_usage, tool_name, tools_of, unique, ToolSurface,
+    ToolSurface, clean, clean_list, filter_disallowed_tools, fixed_surface_session, map_mut, names_value, parse_tool_selection, permitted_by_session_policy,
+    rendered_manifest, roster_permits, sorted_catalog_by_measured_usage, tool_name, tools_of, unique,
 };
 
 /// `isMcpToolName` of `tool-catalog.mjs`.
@@ -175,7 +175,11 @@ impl ToolSurface<'_> {
         map.insert("deferredLateToolCatalog".into(), Value::Array(remaining));
         let scope = session.get("mcpScopeId").and_then(Value::as_str).map(str::to_owned);
         session["mcpServerInstructions"] = self.host.mcp_server_instructions(scope.as_deref());
-        if session.get("messages").and_then(Value::as_array).is_some_and(|messages| messages.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system"))) {
+        if session
+            .get("messages")
+            .and_then(Value::as_array)
+            .is_some_and(|messages| messages.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system")))
+        {
             let pool = self.pool_tool_names(session);
             apply_initial_manifest(session, &pool, true, self.clock);
             let pool = self.pool_tool_names(session);
@@ -200,7 +204,10 @@ impl ToolSurface<'_> {
     /// `reconcileDeferredMcpToolCatalog(session, liveMcpTools)` (the part after its unchanged-input
     /// cache): the late pool, the connected names and the pending deferred-tools delta follow the live
     /// registry. The names announced or removed, or `None` when nothing was.
-    #[allow(clippy::cmp_owned, reason = "MCP relinking compares the serialized tool surface including nested JSON key order; structural Value equality would change refresh behavior")]
+    #[allow(
+        clippy::cmp_owned,
+        reason = "MCP relinking compares the serialized tool surface including nested JSON key order; structural Value equality would change refresh behavior"
+    )]
     pub fn reconcile_mcp_catalog(&self, session: &mut Value, live_mcp: &[Value]) -> Option<Vec<String>> {
         if !session.get("tools").is_some_and(Value::is_array) {
             return None;
@@ -212,7 +219,8 @@ impl ToolSurface<'_> {
         let clock: &dyn Clock = self.clock;
         let now = clock.now_ms();
         let live = filter_disallowed_tools(live_mcp, &clean_list(session, "disallowedTools"));
-        let snapshot: Option<Vec<String>> = session.get("deferredMcpToolNames").and_then(Value::as_array).map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+        let snapshot: Option<Vec<String>> =
+            session.get("deferredMcpToolNames").and_then(Value::as_array).map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect());
         let had_snapshot = snapshot.is_some();
         let previous = unique(snapshot.unwrap_or_else(|| {
             list(session, "deferredToolCatalog").iter().chain(list(session, "deferredLateToolCatalog")).map(tool_name).filter(|name| is_mcp(name)).collect()

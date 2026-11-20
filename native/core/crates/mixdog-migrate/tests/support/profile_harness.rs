@@ -1,15 +1,8 @@
 //! The harness of the upgrade-chain tests: a small 1.4.5 data directory written by hand (`v145_dir_at`), the migrator over
 //! it with the store's own catalog projector, and the digest of what a start leaves.
 
-#![allow(
-    dead_code,
-    reason = "each test binary that includes this harness uses part of it"
-)]
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixtures build and inspect data dirs with blocking std::fs"
-)]
+#![allow(dead_code, reason = "each test binary that includes this harness uses part of it")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build and inspect data dirs with blocking std::fs")]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -121,7 +114,8 @@ pub fn write_v145_ledger(data: &Path) {
     conn.execute("INSERT INTO daily VALUES ('2026-11-04', 0, 'p', 'm', 'k', 's', 0, 2, 20, 10, 2, 4, 1.0, 200, 0)", []).expect("day");
     conn.execute("INSERT INTO daily VALUES ('2026-11-05', 0, 'p', 'm', 'k', 's', 0, 1, 10, 5, 1, 2, 0.5, 100, 0)", []).expect("day");
     for (id, ts, day, session) in [(1u8, 1_793_750_000_000_i64, 20_261_104, 1), (2, 1_793_800_000_000, 20_261_104, 2), (3, 1_793_880_000_000, 20_261_105, 1)] {
-        conn.execute("INSERT INTO usage_events VALUES (?1, ?2, ?3, 1, ?4, 10, 5, 1, 2, 0.5, 100)", rusqlite::params![vec![id; 16], ts, day, session]).expect("event");
+        conn.execute("INSERT INTO usage_events VALUES (?1, ?2, ?3, 1, ?4, 10, 5, 1, 2, 0.5, 100)", rusqlite::params![vec![id; 16], ts, day, session])
+            .expect("event");
     }
 }
 

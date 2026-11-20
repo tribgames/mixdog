@@ -73,11 +73,7 @@ impl BEntry {
     /// `readEntryLineWindow`: where the entry starts and where it ends (`None` = the end of the file).
     pub fn line_window(&self) -> (u64, Option<u64>) {
         let offset = self.offset.filter(|o| o.is_finite()).map_or(0, |o| o.trunc().max(0.0) as u64);
-        let limit = if self.full == Some(true) || self.limit == Some(0.0) {
-            None
-        } else {
-            Some(self.limit.map_or(2000, |l| l.trunc().max(1.0) as u64))
-        };
+        let limit = if self.full == Some(true) || self.limit == Some(0.0) { None } else { Some(self.limit.map_or(2000, |l| l.trunc().max(1.0) as u64)) };
         (offset, limit.map(|l| offset.saturating_add(l)))
     }
 
@@ -100,7 +96,12 @@ impl BEntry {
 /// the first member's slot; the other members are dropped.
 pub(super) fn merge_overlapping(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String) -> Vec<BEntry> {
     let explicit = |e: &BEntry| {
-        e.tail.is_none() && !super::common::has_glob_magic(&e.path) && e.is_full_mode() && e.full != Some(true) && e.offset.is_some_and(f64::is_finite) && e.limit.is_some_and(|l| l.is_finite() && l > 0.0)
+        e.tail.is_none()
+            && !super::common::has_glob_magic(&e.path)
+            && e.is_full_mode()
+            && e.full != Some(true)
+            && e.offset.is_some_and(f64::is_finite)
+            && e.limit.is_some_and(|l| l.is_finite() && l > 0.0)
     };
     type PathWindows = (String, Vec<(usize, u64, u64)>);
     let mut by_path: Vec<PathWindows> = Vec::new();
@@ -466,10 +467,7 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
         }
         Some(_) if capped && kept_last.is_some() && emitted_last < requested_last => {
             let of = total.map(|t| format!(" of {t}")).unwrap_or_default();
-            format!(
-                "[lines {emitted_start}-{emitted_last}{of}; {}",
-                remaining_note(emitted_last, requested_last, base)
-            )
+            format!("[lines {emitted_start}-{emitted_last}{of}; {}", remaining_note(emitted_last, requested_last, base))
         }
         _ => marker(emitted_start, emitted_last, total, more.then_some(emitted_last + base)),
     };
@@ -655,11 +653,7 @@ fn header(results: &[Resolved]) -> String {
         })
         .collect();
     let summary = if summaries.is_empty() { String::new() } else { format!(" {}", summaries.join("; ")) };
-    if failed > 0 {
-        format!("read {} ({failed} failed){summary}", results.len())
-    } else {
-        format!("read {}{summary}", results.len())
-    }
+    if failed > 0 { format!("read {} ({failed} failed){summary}", results.len()) } else { format!("read {}{summary}", results.len()) }
 }
 
 /// `reject_partial:true`: a batch with an entry that delivered nothing is refused whole.
@@ -684,26 +678,28 @@ pub(super) fn is_rejected(results: &[Resolved]) -> bool {
 }
 
 pub(super) fn is_incomplete(results: &[Resolved]) -> bool {
-    is_rejected(results) || results.iter().any(|r| match &r.body {
-        CBody::Str(text) => text_incomplete(text),
-        CBody::Nested { incomplete, .. } | CBody::Rich { incomplete, .. } => *incomplete,
-    })
+    is_rejected(results)
+        || results.iter().any(|r| match &r.body {
+            CBody::Str(text) => text_incomplete(text),
+            CBody::Nested { incomplete, .. } | CBody::Rich { incomplete, .. } => *incomplete,
+        })
 }
 
 fn output_cap_line(line: &str) -> bool {
-    line.ends_with(']') && (line.starts_with("[output capped at ")
-        || (line.starts_with("[lines ") && line.contains("; output capped at ")))
+    line.ends_with(']') && (line.starts_with("[output capped at ") || (line.starts_with("[lines ") && line.contains("; output capped at ")))
 }
 
 /// Numbered source rows cannot be mistaken for these renderer notices. A
 /// continuation after an explicitly requested, fully delivered window is not partial.
 pub(super) fn text_incomplete(text: &str) -> bool {
     (text.starts_with("... [tail of ") && text.lines().last().is_some_and(|line| line.starts_with("[tail incomplete: ") && line.ends_with(']')))
-    || text.lines().any(|line| output_cap_line(line)
-        || ((line.starts_with("[lines ") || line.starts_with("[window lines ") || line.starts_with("(lines "))
-            && (line.contains(" NOT returned (output budget)")
-                || line.contains(" were NOT returned — the coalesced read ")
-                || line.contains(" were NOT returned — the shared read's output budget "))))
+        || text.lines().any(|line| {
+            output_cap_line(line)
+                || ((line.starts_with("[lines ") || line.starts_with("[window lines ") || line.starts_with("(lines "))
+                    && (line.contains(" NOT returned (output budget)")
+                        || line.contains(" were NOT returned — the coalesced read ")
+                        || line.contains(" were NOT returned — the shared read's output budget ")))
+        })
 }
 
 /// `renderBatchResults` when no entry is structured: one string, numbered rows still in it.
@@ -737,7 +733,9 @@ pub(super) fn render_rich(results: &[Resolved]) -> Vec<ToolPart> {
         let entry_header = format!("{}{tag} [{}]{}", r.path, status(&r.body), truncated_suffix(&text));
         let prior = match &r.body {
             CBody::Rich { .. } => seen_rich.iter().find(|(_, p, path, l)| *p == r.producer && *path == r.path && *l == label).map(|(idx, _, _, _)| *idx),
-            CBody::Str(s) | CBody::Nested { text: s, .. } => seen_text.iter().find(|(_, path, l, b)| *path == r.path && *l == label && b == s).map(|(idx, _, _, _)| *idx),
+            CBody::Str(s) | CBody::Nested { text: s, .. } => {
+                seen_text.iter().find(|(_, path, l, b)| *path == r.path && *l == label && b == s).map(|(idx, _, _, _)| *idx)
+            }
         };
         if let Some(idx) = prior {
             parts.push(ToolPart::Text(format!("{entry_header} [= entry #{}, identical result omitted]", idx + 1)));
@@ -797,10 +795,7 @@ mod tests {
             "1→a\n2→b\n3→c\n[lines 1-3; lines 4-5 NOT returned (output budget) — re-read this file with offset:4 limit:2]"
         );
         let alone = "1→a\n2→b\n\n[output capped at 1KB; offset:2 for more]";
-        assert_eq!(
-            cap_remaining(alone, 0, 5, 1).as_deref(),
-            Some("[window lines 3-5 NOT returned (output budget) — re-read this file with offset:3 limit:3]")
-        );
+        assert_eq!(cap_remaining(alone, 0, 5, 1).as_deref(), Some("[window lines 3-5 NOT returned (output budget) — re-read this file with offset:3 limit:3]"));
         assert_eq!(cap_remaining("1→a\n2→b", 0, 5, 1), None, "a body the budget did not cut owes nothing");
     }
 

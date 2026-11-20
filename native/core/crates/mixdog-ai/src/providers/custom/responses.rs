@@ -33,8 +33,7 @@ pub(crate) fn reset_rejected() {
 
 /// `model` is already normalized by the effort-configuration gate.
 pub(crate) fn history_rejected(provider: &str, model: &str) -> bool {
-    REJECTED.lock().unwrap_or_else(PoisonError::into_inner)
-        .contains(&(ProviderId::from(provider), model.to_owned()))
+    REJECTED.lock().unwrap_or_else(PoisonError::into_inner).contains(&(ProviderId::from(provider), model.to_owned()))
 }
 
 pub(crate) struct ResponsesAdapter {
@@ -50,30 +49,25 @@ impl ResponsesAdapter {
 }
 
 fn rejected_update(error: &ProviderError, wire_efforts: &[String]) -> bool {
-    if error.status != Some(400) || error.unsafe_to_retry
-        || error.exposure.text_emitted || error.exposure.tool_dispatched || error.exposure.tool_input_cut
-    {
+    if error.status != Some(400) || error.unsafe_to_retry || error.exposure.text_emitted || error.exposure.tool_dispatched || error.exposure.tool_input_cut {
         return false;
     }
     let text = error.message.to_ascii_lowercase();
     if ["clear_at", "clear-at", "turn-scoped"].into_iter().any(|field| text.contains(field)) {
         return false;
     }
-    static FIELD: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(?:output_config|reasoning)\.effort\b").expect("static regex")
-    });
-    static QUOTED: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r#"'([^']*)'|"([^"]*)"|`([^`]*)`"#).expect("static regex")
-    });
-    let explicit_update = ["configuration_update", "mid-conversation", "reasoning_effort_update"]
-        .into_iter().any(|field| text.contains(field));
-    if (FIELD.is_match(&text) || explicit_update) && QUOTED.captures_iter(&text).any(|matched| {
-        (1..=3).filter_map(|index| matched.get(index)).any(|value| {
-            let value = value.as_str();
-            wire_efforts.iter().any(|effort| effort.eq_ignore_ascii_case(value))
-                || (!explicit_update && (super::reasoning::EFFORT_LEVELS.contains(&value) || value == "ultra"))
+    static FIELD: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?:output_config|reasoning)\.effort\b").expect("static regex"));
+    static QUOTED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"'([^']*)'|"([^"]*)"|`([^`]*)`"#).expect("static regex"));
+    let explicit_update = ["configuration_update", "mid-conversation", "reasoning_effort_update"].into_iter().any(|field| text.contains(field));
+    if (FIELD.is_match(&text) || explicit_update)
+        && QUOTED.captures_iter(&text).any(|matched| {
+            (1..=3).filter_map(|index| matched.get(index)).any(|value| {
+                let value = value.as_str();
+                wire_efforts.iter().any(|effort| effort.eq_ignore_ascii_case(value))
+                    || (!explicit_update && (super::reasoning::EFFORT_LEVELS.contains(&value) || value == "ultra"))
+            })
         })
-    }) {
+    {
         return false;
     }
     explicit_update || text.contains("output_config")
@@ -136,9 +130,7 @@ impl ProviderAdapter for ResponsesAdapter {
         let wire_efforts = std::iter::once(&projection.initial_effort).chain(projection.updates.values()).cloned().collect();
         let mut projected = plain.clone();
         projected.options.effort_projection = Some(projection);
-        let fallback = WithoutHistory {
-            inner: self.inner.clone(), request: Arc::new(plain), rejected: self.rejected.clone(), route, wire_efforts,
-        };
+        let fallback = WithoutHistory { inner: self.inner.clone(), request: Arc::new(plain), rejected: self.rejected.clone(), route, wire_efforts };
         match self.inner.attempt(Arc::new(projected)).await {
             Err(error) if rejected_update(&error, &fallback.wire_efforts) => fallback.resend().await,
             Err(error) => Err(error),
@@ -174,9 +166,16 @@ impl ModelStream for BeforeOutput {
                     }
                 }
             }
-            Some(Ok(event)) if matches!(event.progress_kind(), Some("text" | "reasoning" | "tool"))
-                || matches!(event, StreamEvent::ToolCallStart { .. } | StreamEvent::ToolCallArgsDelta { .. }
-                    | StreamEvent::ToolCallDone(_) | StreamEvent::FinalContent(_) | StreamEvent::Completed { .. }) =>
+            Some(Ok(event))
+                if matches!(event.progress_kind(), Some("text" | "reasoning" | "tool"))
+                    || matches!(
+                        event,
+                        StreamEvent::ToolCallStart { .. }
+                            | StreamEvent::ToolCallArgsDelta { .. }
+                            | StreamEvent::ToolCallDone(_)
+                            | StreamEvent::FinalContent(_)
+                            | StreamEvent::Completed { .. }
+                    ) =>
             {
                 self.fallback = None;
             }
@@ -202,12 +201,12 @@ mod rejection_tests {
 
     #[tokio::test]
     async fn seed_only_history_falls_back_once_and_remembers_the_refusal() {
-        use mixdog_core_api::domain::provider::{Content, EffortProjection, Message, RequestOptions, Role};
-        use serde_json::{Value, json};
+        use super::super::{CustomRequestConfig, CustomRewriter, Protocol, responses_codec};
         use crate::providers::compat::profile::CredentialKind;
         use crate::providers::connect::rewrite::{RewriteCodec, StaticCredential};
         use crate::providers::listing_row::testing::Replay;
-        use super::super::{CustomRequestConfig, CustomRewriter, Protocol, responses_codec};
+        use mixdog_core_api::domain::provider::{Content, EffortProjection, Message, RequestOptions, Role};
+        use serde_json::{Value, json};
 
         struct Rows;
         impl crate::catalog::CachedModelInfo for Rows {
@@ -226,14 +225,17 @@ mod rejection_tests {
         let provider = "custom-seed-only-history-regression";
         let url = "http://127.0.0.1/v1";
         let reasoning = ReasoningSource { rows: Arc::new(Rows), configured: None, base_url: url.into() };
-        let codec = RewriteCodec::new(responses_codec(provider, url), CustomRewriter {
-            config: CustomRequestConfig::default(), wire: Protocol::OpenaiResponses, reasoning: reasoning.clone(),
-        });
+        let codec = RewriteCodec::new(
+            responses_codec(provider, url),
+            CustomRewriter { config: CustomRequestConfig::default(), wire: Protocol::OpenaiResponses, reasoning: reasoning.clone() },
+        );
         let policy = crate::providers::compat::CompatProfile::plain(provider, url, CredentialKind::Keyless).retry_policy();
         let inner = HttpAdapter::new(ProviderId::from(provider), Arc::new(codec), http.clone(), Arc::new(StaticCredential(None)), policy);
         let adapter = ResponsesAdapter::new(inner, reasoning, Arc::default());
         let request = Arc::new(ModelRequest {
-            model: "gateway/gpt-6".into(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: Vec::new(),
+            model: "gateway/gpt-6".into(),
+            messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+            tools: Vec::new(),
             options: RequestOptions {
                 effort: Some("high".into()),
                 effort_projection: Some(EffortProjection { initial_effort: "low".into(), updates: Default::default() }),

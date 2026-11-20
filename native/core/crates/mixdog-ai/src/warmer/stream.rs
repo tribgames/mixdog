@@ -152,11 +152,7 @@ async fn read_frames(
         buffer.push_str(&decoder.push(&chunk));
         while let Some(cut) = buffer.find("\n\n") {
             let frame: String = buffer.drain(..cut + 2).collect();
-            let data = frame[..cut]
-                .split('\n')
-                .filter_map(|line| line.strip_prefix("data:").map(mixdog_js::js_trim_start))
-                .collect::<Vec<_>>()
-                .join("\n");
+            let data = frame[..cut].split('\n').filter_map(|line| line.strip_prefix("data:").map(mixdog_js::js_trim_start)).collect::<Vec<_>>().join("\n");
             if data.is_empty() {
                 continue;
             }
@@ -164,8 +160,7 @@ async fn read_frames(
             if event.is_null() {
                 return Err(("Cannot read properties of null (reading 'type')".to_owned(), None));
             }
-            let errored = event.get("type").and_then(Value::as_str) == Some("error")
-                || event.get("error").is_some_and(js_truthy);
+            let errored = event.get("type").and_then(Value::as_str) == Some("error") || event.get("error").is_some_and(js_truthy);
             if errored {
                 return Err(sse_error(&event));
             }
@@ -187,13 +182,4 @@ fn fault_text(fault: &TransportFault) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-
-}
-
-
+mod tests {}

@@ -19,8 +19,7 @@ const SERVER_ERROR_CODES: [&str; 6] = ["server_error", "api_error", "internal", 
 /// `resource_exhausted`, or a Responses auth code), else none.
 fn safe_code(error: &ProviderError) -> Option<&str> {
     let code = error.code.as_deref()?;
-    let known = crate::retry::classify::kind_from_code(code).is_some()
-        || matches!(code, "resource_exhausted" | "auth_context_expired" | "auth_expired");
+    let known = crate::retry::classify::kind_from_code(code).is_some() || matches!(code, "resource_exhausted" | "auth_context_expired" | "auth_expired");
     known.then_some(code)
 }
 

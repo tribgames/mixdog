@@ -113,7 +113,10 @@ pub fn required_session_id(value: &str) -> Result<String, String> {
 /// `normalizeDriveViewport` (`shared/remote-browser.ts:55-70`).
 fn drive_viewport(input: &Value) -> Result<Value, String> {
     let dimension = |name: &str| {
-        input.get(name).and_then(Value::as_f64).filter(|n| n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0 && (MIN_DRIVE_DIMENSION..=MAX_DRIVE_DIMENSION).contains(n))
+        input
+            .get(name)
+            .and_then(Value::as_f64)
+            .filter(|n| n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0 && (MIN_DRIVE_DIMENSION..=MAX_DRIVE_DIMENSION).contains(n))
     };
     let (Some(width), Some(height)) = (dimension("width"), dimension("height")) else {
         return Err("remote browser viewport size is invalid.".to_owned());
@@ -639,7 +642,8 @@ impl BrowserStreams {
         let Some(session) = frame.get("sessionId").and_then(Value::as_str).map(str::to_owned) else { return };
         let mut effects = Vec::new();
         let mut state = self.lock();
-        let Some(clients) = state.subscriptions(&session).map(|subscriptions| subscriptions.iter().map(|(client, _)| client.clone()).collect::<Vec<_>>()) else {
+        let Some(clients) = state.subscriptions(&session).map(|subscriptions| subscriptions.iter().map(|(client, _)| client.clone()).collect::<Vec<_>>())
+        else {
             return;
         };
         // A metadata-only frame inherits the newest image for anyone who has not received it yet.

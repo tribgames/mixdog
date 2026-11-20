@@ -243,7 +243,9 @@ fn describe_targets(command: &ApprovalCommand) -> String {
             .steps
             .iter()
             .enumerate()
-            .map(|(index, step)| format!("{}. {}{}: {}", index + 1, redact_browser_text(&step.action), if step.submit { " (submit)" } else { "" }, step.describe))
+            .map(|(index, step)| {
+                format!("{}. {}{}: {}", index + 1, redact_browser_text(&step.action), if step.submit { " (submit)" } else { "" }, step.describe)
+            })
             .collect::<Vec<_>>()
             .join("\n");
     } else if command.step.action == "fill" && !command.fields.is_empty() {
@@ -276,7 +278,12 @@ pub fn classify(plan: &AskPlan, command: &ApprovalCommand, facts: TargetFacts) -
     let files = facts
         .files
         .iter()
-        .map(|file| BrowserApprovalFile { name: base_name(&file.path), path: file.path.clone(), size: i64::try_from(file.size).unwrap_or(i64::MAX), outside: false })
+        .map(|file| BrowserApprovalFile {
+            name: base_name(&file.path),
+            path: file.path.clone(),
+            size: i64::try_from(file.size).unwrap_or(i64::MAX),
+            outside: false,
+        })
         .collect();
     let prompt = BrowserApprovalPrompt {
         thread_id: command.thread_id.clone(),
@@ -293,7 +300,13 @@ pub fn classify(plan: &AskPlan, command: &ApprovalCommand, facts: TargetFacts) -
         session_life: command.session_life.clone(),
         payment,
     };
-    let binding = Binding { url: facts.url, document_id: facts.document_id, command_hash: command_hash(&facts.command_json), files: facts.files, receiver_key: facts.receiver_key };
+    let binding = Binding {
+        url: facts.url,
+        document_id: facts.document_id,
+        command_hash: command_hash(&facts.command_json),
+        files: facts.files,
+        receiver_key: facts.receiver_key,
+    };
     BrowserApprovalAsk { kind, prompt, binding }
 }
 
@@ -310,7 +323,10 @@ mod tests {
     }
 
     fn click(name: &str) -> ApprovalCommand {
-        ApprovalCommand { step: StepFacts { action: "click".into(), target_name: name.into(), describe: format!("name={name}"), ..Default::default() }, ..Default::default() }
+        ApprovalCommand {
+            step: StepFacts { action: "click".into(), target_name: name.into(), describe: format!("name={name}"), ..Default::default() },
+            ..Default::default()
+        }
     }
 
     fn kinds_of(command: &ApprovalCommand) -> Option<Vec<Remember>> {
@@ -403,7 +419,8 @@ mod tests {
 
     #[test]
     fn the_card_describes_every_step_and_field_and_the_explicit_submit() {
-        let mut sequence = ApprovalCommand { step: StepFacts { action: "sequence".into(), describe: "ignored".into(), ..Default::default() }, ..Default::default() };
+        let mut sequence =
+            ApprovalCommand { step: StepFacts { action: "sequence".into(), describe: "ignored".into(), ..Default::default() }, ..Default::default() };
         sequence.steps = vec![click("Send").step, StepFacts { action: "fill".into(), submit: true, describe: "ref e3".into(), ..Default::default() }];
         assert_eq!(describe_targets(&sequence), "1. click: name=Send\n2. fill (submit): ref e3");
         let fill = ApprovalCommand {
@@ -423,7 +440,8 @@ mod tests {
         command.unattended_agent = "  ann ".into();
         let step = plan(&policy(), &command).unwrap().unwrap();
         assert!(step.probes_payment() && !step.is_upload());
-        let facts = TargetFacts { url: "https://a.test/x".into(), document_id: "p:1".into(), command_json: "{\"a\":1}".into(), payment: true, ..Default::default() };
+        let facts =
+            TargetFacts { url: "https://a.test/x".into(), document_id: "p:1".into(), command_json: "{\"a\":1}".into(), payment: true, ..Default::default() };
         let ask = classify(&step, &command, facts);
         assert_eq!(ask.kind, BrowserApprovalKind::Payment);
         assert!(ask.prompt.payment && ask.prompt.unattended);
@@ -449,7 +467,11 @@ mod tests {
         let step = plan(&policy(), &command).unwrap().unwrap();
         assert!(step.is_upload() && !step.probes_payment());
         let file = BoundFile { path: "C:\\tmp\\a b.txt".into(), size: 7, mtime: None, realpath: "C:\\tmp\\a b.txt".into() };
-        let ask = classify(&step, &command, TargetFacts { files: vec![file], receiver_url: "https://up.test:8443/form?x=1".into(), receiver_key: "k".into(), ..Default::default() });
+        let ask = classify(
+            &step,
+            &command,
+            TargetFacts { files: vec![file], receiver_url: "https://up.test:8443/form?x=1".into(), receiver_key: "k".into(), ..Default::default() },
+        );
         assert_eq!(ask.kind, BrowserApprovalKind::Upload);
         assert_eq!(ask.prompt.paths, vec!["C:\\tmp\\a b.txt".to_string()]);
         assert_eq!((ask.prompt.files[0].name.as_str(), ask.prompt.files[0].size), ("a b.txt", 7));
@@ -457,7 +479,6 @@ mod tests {
         let unconfirmed = classify(&step, &command, TargetFacts::default());
         assert_eq!(unconfirmed.prompt.receiver_origin, "");
     }
-
 
     #[test]
     fn an_origin_is_the_tuple_origin_or_empty() {
@@ -467,9 +488,6 @@ mod tests {
             assert_eq!(origin_of_url(opaque), "", "{opaque}");
         }
     }
-
-
 }
-
 
 impl std::error::Error for ApprovalError {}

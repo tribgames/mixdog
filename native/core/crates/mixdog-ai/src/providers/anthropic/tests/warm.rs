@@ -12,9 +12,9 @@ use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter, WireReque
 use tokio_util::sync::CancellationToken;
 
 use super::*;
-use crate::accounts::rotation::{AccountRotation, UsageProbe};
-use crate::accounts::{AccountStore};
+use crate::accounts::AccountStore;
 use crate::accounts::QuotaWindowInput;
+use crate::accounts::rotation::{AccountRotation, UsageProbe};
 use crate::admission::{Admission, LaneKey, LaneSettings};
 use crate::oauth::pace::SystemPace;
 use crate::warmer::gate::{AccountGate, GateTarget, ProviderSwitch, QuotaResumes, UsageSnapshots, WarmGate};
@@ -24,15 +24,17 @@ use crate::warmer::send::{Deadlines, WarmContext};
 
 enum Reply {
     Sse(Vec<Vec<u8>>),
-    Status { status: u16, headers: Vec<(String, String)>, body: String },
+    Status {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: String,
+    },
     Throw(String),
     /// A POST that never answers.
     Hang,
     /// A 200 whose body stalls after its chunks.
     SseThenHang(Vec<Vec<u8>>),
 }
-
-
 
 #[derive(Default)]
 struct WarmHttp {
@@ -42,11 +44,7 @@ struct WarmHttp {
 
 #[async_trait]
 impl HttpSend for WarmHttp {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().unwrap().push(request);
         let reply = self.script.lock().unwrap().pop_front().expect("scripted reply");
         Ok(match reply {
@@ -57,8 +55,12 @@ impl HttpSend for WarmHttp {
             }
             Reply::Hang => std::future::pending().await,
             Reply::Sse(chunks) => HttpResponse { status: 200, headers: Vec::new(), body: Box::new(ChunkBody { chunks: chunks.into(), then_hang: false }) },
-            Reply::SseThenHang(chunks) => HttpResponse { status: 200, headers: Vec::new(), body: Box::new(ChunkBody { chunks: chunks.into(), then_hang: true }) },
-            Reply::Status { status, headers, body } => HttpResponse { status, headers, body: Box::new(ChunkBody { chunks: VecDeque::from([body.into_bytes()]), then_hang: false }) },
+            Reply::SseThenHang(chunks) => {
+                HttpResponse { status: 200, headers: Vec::new(), body: Box::new(ChunkBody { chunks: chunks.into(), then_hang: true }) }
+            }
+            Reply::Status { status, headers, body } => {
+                HttpResponse { status, headers, body: Box::new(ChunkBody { chunks: VecDeque::from([body.into_bytes()]), then_hang: false }) }
+            }
         })
     }
 }
@@ -136,13 +138,9 @@ fn gate() -> (AccountGate, tempfile::TempDir) {
     (gate, dir)
 }
 
-
-
 fn target(provider: &str, account: &str) -> GateTarget {
     GateTarget { provider: provider.to_owned(), account_id: account.to_owned(), model: "claude-opus-4-7".into(), session_id: String::new() }
 }
-
-
 
 fn warm_request() -> ModelRequest {
     let mut request = request(base_messages(), RequestOptions::default());
@@ -184,7 +182,12 @@ async fn a_warm_posts_the_request_attempt_builds_once_and_plain() {
     let (gate, _dir) = gate();
     let request = warm_request();
     let usage = adapter
-        .send_cache_warm(&request, &WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} }, &CancellationToken::new(), &mut |_| {})
+        .send_cache_warm(
+            &request,
+            &WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} },
+            &CancellationToken::new(),
+            &mut |_| {},
+        )
         .await
         .unwrap();
     assert_eq!(usage.cached, 9.0);
@@ -233,26 +236,22 @@ async fn a_post_that_never_answers_ends_at_the_first_byte_deadline() {
     struct Hang;
     #[async_trait]
     impl HttpSend for Hang {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, _: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
             std::future::pending().await
         }
     }
     let http = Arc::new(Hang);
     let store = MemoryStore::signed_in();
-    let adapter = AnthropicAdapter::oauth(
-        config("https://api.anthropic.com"),
-        http.clone(),
-        Arc::new(OAuthSession::new(store.file.clone(), http)),
-        false,
-        cpu_bulk(),
-    );
+    let adapter =
+        AnthropicAdapter::oauth(config("https://api.anthropic.com"), http.clone(), Arc::new(OAuthSession::new(store.file.clone(), http)), false, cpu_bulk());
     let (gate, _dir) = gate();
     let failure = adapter
-        .send_cache_warm(&warm_request(), &WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} }, &CancellationToken::new(), &mut |_| {})
+        .send_cache_warm(
+            &warm_request(),
+            &WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} },
+            &CancellationToken::new(),
+            &mut |_| {},
+        )
         .await
         .unwrap_err();
     assert_eq!(failure.message, "cache warm first byte timed out after 60000ms");
@@ -306,8 +305,6 @@ impl crate::registry::accounting::UsagePricing for NoPrice {
     }
 }
 
-
-
 // ---- the account gate and the warm's own outcomes ----------------------------------------------
 
 fn frame(event: Value) -> Vec<u8> {
@@ -315,7 +312,9 @@ fn frame(event: Value) -> Vec<u8> {
 }
 
 fn start_with_usage() -> Vec<u8> {
-    frame(serde_json::json!({ "type": "message_start", "message": { "usage": { "input_tokens": 1, "cache_read_input_tokens": 9, "cache_creation_input_tokens": 5 } } }))
+    frame(
+        serde_json::json!({ "type": "message_start", "message": { "usage": { "input_tokens": 1, "cache_read_input_tokens": 9, "cache_creation_input_tokens": 5 } } }),
+    )
 }
 
 fn first_block() -> Vec<u8> {
@@ -422,7 +421,10 @@ async fn a_warm_ends_at_the_first_content_block_once_the_usage_is_known_and_neve
     let (gate, _dir) = gate();
     let mut reports = Vec::new();
     let ctx = WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
-    let usage = adapter.send_cache_warm(&warm_request(), &ctx, &CancellationToken::new(), &mut |u: &crate::warmer::stream::WarmUsage| reports.push(u.cached)).await.unwrap();
+    let usage = adapter
+        .send_cache_warm(&warm_request(), &ctx, &CancellationToken::new(), &mut |u: &crate::warmer::stream::WarmUsage| reports.push(u.cached))
+        .await
+        .unwrap();
     assert_eq!((usage.input, usage.cached, usage.cache_write), (1.0, 9.0, 5.0));
     assert_eq!(usage.prompt_tokens, Some(15.0), "the whole prompt: input plus the cache read and written");
     assert_eq!(reports, [9.0], "the usage was reported as it arrived");
@@ -441,7 +443,10 @@ async fn a_content_block_before_any_usage_does_not_end_the_warm_and_later_report
     let (gate, _dir) = gate();
     let mut reports = Vec::new();
     let ctx = WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
-    let usage = adapter.send_cache_warm(&warm_request(), &ctx, &CancellationToken::new(), &mut |u: &crate::warmer::stream::WarmUsage| reports.push((u.cached, u.output))).await.unwrap();
+    let usage = adapter
+        .send_cache_warm(&warm_request(), &ctx, &CancellationToken::new(), &mut |u: &crate::warmer::stream::WarmUsage| reports.push((u.cached, u.output)))
+        .await
+        .unwrap();
     assert_eq!((usage.cached, usage.output), (9.0, 7.0));
     assert_eq!(reports, [(9.0, 0.0), (9.0, 7.0)]);
 }
@@ -469,7 +474,10 @@ async fn a_refused_warm_reaches_the_gate_with_the_providers_status_and_the_trans
 #[tokio::test]
 async fn an_sse_error_before_any_usage_fails_with_no_usage_and_its_wire_status() {
     let http = Arc::new(WarmHttp::default());
-    http.script.lock().unwrap().push_back(Reply::Sse(vec![frame(serde_json::json!({ "type": "error", "error": { "type": "overloaded_error", "message": "busy" } }))]));
+    http.script
+        .lock()
+        .unwrap()
+        .push_back(Reply::Sse(vec![frame(serde_json::json!({ "type": "error", "error": { "type": "overloaded_error", "message": "busy" } }))]));
     let (adapter, _store) = adapter_of("anthropic-oauth", &http);
     let refusals = Refusals::default();
     let ctx = WarmContext { gate: &refusals, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
@@ -588,7 +596,8 @@ async fn the_halved_limit_gives_one_slot_back_per_limit_of_successes_until_the_c
     let limit = |gate: &AccountGate| gate.admission.snapshot()[0].limit;
     assert_eq!(limit(&gate), Some(4), "the limit of 8 is halved");
     tokio::time::advance(std::time::Duration::from_secs(1)).await;
-    let lane = gate.admission.lane(&LaneKey::new(ProviderId::from("anthropic"), "a1"), (gate.lane_settings)(&LaneKey::new(ProviderId::from("anthropic"), "a1")));
+    let lane =
+        gate.admission.lane(&LaneKey::new(ProviderId::from("anthropic"), "a1"), (gate.lane_settings)(&LaneKey::new(ProviderId::from("anthropic"), "a1")));
     let cancel = CancellationToken::new();
     let mut succeeded = 0;
     // At limit L, L successes add a slot: 4 -> 5 -> 6 -> 7, then 7 more restore the configured 8.

@@ -60,10 +60,7 @@ pub fn reports_activity(profile: &SpawnProfile) -> bool {
 /// The bash at `path` is 4.4 or later (`PS0`, which the integration's command marker needs). `bash -c` would source `$BASH_ENV`,
 /// which the interactive shell a tab runs does not, so the probe runs without it: nothing but the version reaches its output.
 fn bash_has_markers(path: &str) -> bool {
-    let probe = std::process::Command::new(path)
-        .args(["-c", "echo \"${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}\""])
-        .env_remove("BASH_ENV")
-        .output();
+    let probe = std::process::Command::new(path).args(["-c", "echo \"${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}\""]).env_remove("BASH_ENV").output();
     let Some(out) = probe.ok().filter(|out| out.status.success()) else {
         return false;
     };
@@ -75,15 +72,9 @@ fn bash_has_markers(path: &str) -> bool {
 /// `script` for the platform's plain shell (`cmd` on Windows, `sh` elsewhere).
 pub fn shell(script_windows: &str, script_unix: &str) -> CommandSpec {
     if cfg!(windows) {
-        CommandSpec::Shell {
-            script: script_windows.to_owned(),
-            shell: Some("cmd".to_owned()),
-        }
+        CommandSpec::Shell { script: script_windows.to_owned(), shell: Some("cmd".to_owned()) }
     } else {
-        CommandSpec::Shell {
-            script: script_unix.to_owned(),
-            shell: None,
-        }
+        CommandSpec::Shell { script: script_unix.to_owned(), shell: None }
     }
 }
 
@@ -92,10 +83,7 @@ pub fn request(handle: &ProcessHandle, command: CommandSpec) -> SpawnRequest {
         handle: handle.clone(),
         command,
         cwd: temp_dir(),
-        env: EnvSpec {
-            inherit: true,
-            ..EnvSpec::default()
-        },
+        env: EnvSpec { inherit: true, ..EnvSpec::default() },
         pty: None,
         stdin_piped: false,
         output: OutputMode::Merged,
@@ -105,11 +93,7 @@ pub fn request(handle: &ProcessHandle, command: CommandSpec) -> SpawnRequest {
 }
 
 pub fn pty_request(handle: &ProcessHandle, command: CommandSpec, size: PtySize) -> SpawnRequest {
-    SpawnRequest {
-        pty: Some(size),
-        stdin_piped: true,
-        ..request(handle, command)
-    }
+    SpawnRequest { pty: Some(size), stdin_piped: true, ..request(handle, command) }
 }
 
 /// All output of `handle` up to its exit, and the exit.
@@ -162,12 +146,7 @@ pub fn thread_count() -> usize {
     }
     #[cfg(target_os = "linux")]
     {
-        std::fs::read_to_string("/proc/self/status")
-            .unwrap()
-            .lines()
-            .find_map(|l| l.strip_prefix("Threads:"))
-            .and_then(|n| n.trim().parse().ok())
-            .unwrap()
+        std::fs::read_to_string("/proc/self/status").unwrap().lines().find_map(|l| l.strip_prefix("Threads:")).and_then(|n| n.trim().parse().ok()).unwrap()
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {
@@ -199,6 +178,5 @@ pub fn pid_alive(pid: u32) -> bool {
 
 pub fn fixture(relative: &str) -> serde_json::Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
-    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())))
-        .expect("fixture is JSON")
+    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).expect("fixture is JSON")
 }

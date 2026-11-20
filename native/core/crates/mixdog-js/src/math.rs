@@ -21,20 +21,12 @@ pub fn abs(x: f64) -> f64 {
 
 /// `Math.floor`: IEEE-754 integral rounding, including negative zero.
 pub fn floor(x: f64) -> f64 {
-    if x.to_bits() & 0x7ff0_0000_0000_0000 == 0x7ff0_0000_0000_0000 {
-        x
-    } else {
-        x.floor()
-    }
+    if x.to_bits() & 0x7ff0_0000_0000_0000 == 0x7ff0_0000_0000_0000 { x } else { x.floor() }
 }
 
 /// `Math.ceil`: IEEE-754 integral rounding, including negative zero.
 pub fn ceil(x: f64) -> f64 {
-    if x.to_bits() & 0x7ff0_0000_0000_0000 == 0x7ff0_0000_0000_0000 {
-        x
-    } else {
-        x.ceil()
-    }
+    if x.to_bits() & 0x7ff0_0000_0000_0000 == 0x7ff0_0000_0000_0000 { x } else { x.ceil() }
 }
 
 /// `Math.sqrt`: correctly rounded hardware square root, not a transcendental libm approximation.
@@ -157,11 +149,7 @@ pub fn exp(x: f64) -> f64 {
         return 1.0 + x;
     }
     let t = x * x;
-    let twopk = if k >= -1021 {
-        words(0x3ff0_0000 + (k << 20), 0)
-    } else {
-        words(0x3ff0_0000 + ((k + 1000) << 20), 0)
-    };
+    let twopk = if k >= -1021 { words(0x3ff0_0000 + (k << 20), 0) } else { words(0x3ff0_0000 + ((k + 1000) << 20), 0) };
     let c = x - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
     if k == 0 {
         return 1.0 - ((x * c) / (c - 2.0) - x);
@@ -238,11 +226,7 @@ pub fn ln(x: f64) -> f64 {
     let r = t2 + t1;
     if i > 0 {
         let hfsq = 0.5 * f * f;
-        if k == 0 {
-            f - (hfsq - s * (hfsq + r))
-        } else {
-            dk * LN2_HI - ((hfsq - (s * (hfsq + r) + dk * LN2_LO)) - f)
-        }
+        if k == 0 { f - (hfsq - s * (hfsq + r)) } else { dk * LN2_HI - ((hfsq - (s * (hfsq + r) + dk * LN2_LO)) - f) }
     } else if k == 0 {
         f - s * (f - r)
     } else {
@@ -322,11 +306,7 @@ pub fn ln_1p(x: f64) -> f64 {
     let s = f / (2.0 + f);
     let z = s * s;
     let r = z * (LG1 + z * (LG2 + z * (LG3 + z * (LG4 + z * (LG5 + z * (LG6 + z * LG7))))));
-    if k == 0 {
-        f - (hfsq - s * (hfsq + r))
-    } else {
-        kf * LN2_HI - ((hfsq - (s * (hfsq + r) + (kf * LN2_LO + c))) - f)
-    }
+    if k == 0 { f - (hfsq - s * (hfsq + r)) } else { kf * LN2_HI - ((hfsq - (s * (hfsq + r) + (kf * LN2_LO + c))) - f) }
 }
 
 /// `Math.expm1`.
@@ -402,11 +382,7 @@ pub fn exp_m1(x: f64) -> f64 {
         return 0.5 * (x - e) - 0.5;
     }
     if k == 1 {
-        return if x < -0.25 {
-            -2.0 * (e - (x + 0.5))
-        } else {
-            1.0 + 2.0 * (x - e)
-        };
+        return if x < -0.25 { -2.0 * (e - (x + 0.5)) } else { 1.0 + 2.0 * (x - e) };
     }
     if k <= -2 || k > 56 {
         let mut y = 1.0 - (e - x);
@@ -463,11 +439,7 @@ pub fn pow(x: f64, y: f64) -> f64 {
     if iy as u32 | ly == 0 {
         return 1.0;
     }
-    if ix > 0x7ff0_0000
-        || (ix == 0x7ff0_0000 && lx != 0)
-        || iy > 0x7ff0_0000
-        || (iy == 0x7ff0_0000 && ly != 0)
-    {
+    if ix > 0x7ff0_0000 || (ix == 0x7ff0_0000 && lx != 0) || iy > 0x7ff0_0000 || (iy == 0x7ff0_0000 && ly != 0) {
         return x + y;
     }
 
@@ -548,18 +520,10 @@ pub fn pow(x: f64, y: f64) -> f64 {
             }
         }
         if ix < 0x3fef_ffff {
-            return if hy < 0 {
-                s * HUGE * HUGE
-            } else {
-                s * TINY * TINY
-            };
+            return if hy < 0 { s * HUGE * HUGE } else { s * TINY * TINY };
         }
         if ix > 0x3ff0_0000 {
-            return if hy > 0 {
-                s * HUGE * HUGE
-            } else {
-                s * TINY * TINY
-            };
+            return if hy > 0 { s * HUGE * HUGE } else { s * TINY * TINY };
         }
         let t = ax - 1.0;
         let w = (t * t) * (0.5 - t * (0.333_333_333_333_333_333_333_3 - t * 0.25));
@@ -594,10 +558,7 @@ pub fn pow(x: f64, y: f64) -> f64 {
         let v = 1.0 / (ax + BP[k]);
         let ss = u * v;
         let s_h = with_low_zero(ss);
-        let t_h = words(
-            ((ix >> 1) | 0x2000_0000) + 0x0008_0000 + ((k as i32) << 18),
-            0,
-        );
+        let t_h = words(((ix >> 1) | 0x2000_0000) + 0x0008_0000 + ((k as i32) << 18), 0);
         let t_l = ax - (t_h - BP[k]);
         let s_l = v * ((u - s_h * t_h) - s_h * t_l);
         let mut s2 = ss * ss;
@@ -700,11 +661,7 @@ fn scalbn(x: f64, n: i32) -> f64 {
         return with_high(x, (hx & !0x7ff0_0000) | (k << 20));
     }
     if k <= -54 {
-        return if n > 50000 {
-            HUGE * HUGE.copysign(x)
-        } else {
-            TINY * TINY.copysign(x)
-        };
+        return if n > 50000 { HUGE * HUGE.copysign(x) } else { TINY * TINY.copysign(x) };
     }
     k += 54;
     with_high(x, (hx & !0x7ff0_0000) | (k << 20)) * TWOM54
@@ -776,11 +733,7 @@ pub fn round(x: f64) -> f64 {
     }
     let floor = x.floor();
     let rounded = if x - floor >= 0.5 { floor + 1.0 } else { floor };
-    if rounded == 0.0 && x.is_sign_negative() {
-        -0.0
-    } else {
-        rounded
-    }
+    if rounded == 0.0 && x.is_sign_negative() { -0.0 } else { rounded }
 }
 
 /// `Number.prototype.toFixed(digits)` as text: the integer n for which n / 10^digits is nearest
@@ -850,10 +803,7 @@ mod tests {
         for mantissa in [1_u64, 0x1234_5678, 0x8000_0000_0000, 0x000f_ffff_ffff_ffff] {
             let bits = mantissa << 12;
             assert_eq!(random_from_bits(bits), random_from_bits(bits | 0xfff));
-            assert_eq!(
-                random_from_bits(bits) * 4_503_599_627_370_496.0,
-                mantissa as f64
-            );
+            assert_eq!(random_from_bits(bits) * 4_503_599_627_370_496.0, mantissa as f64);
         }
     }
 
@@ -880,7 +830,6 @@ mod tests {
         assert!(max(-0.0, 0.0).is_sign_positive() && min(0.0, -0.0).is_sign_negative());
         assert_eq!((max(1.0, 2.0), min(1.0, 2.0)), (2.0, 1.0));
     }
-
 
     #[test]
     fn exponential_and_logarithm_special_values_follow_the_specification() {
@@ -949,4 +898,3 @@ mod tests {
         assert_eq!(to_fixed(1e21, 2), "1e+21");
     }
 }
-

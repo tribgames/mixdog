@@ -123,20 +123,8 @@ pub const REACT_REMOVED: &str = "mixdog: --react was removed; run `mixdog` for t
 
 /// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd`, `--usage-log` and `--provider-config` (B-8).
 const VALUE_OPTIONS: [&str; 7] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log", "--provider-config"];
-const FLAG_OPTIONS: [&str; 12] = [
-    "--no-worktree",
-    "--readonly",
-    "--help",
-    "-h",
-    "--plain",
-    "--react",
-    "--remote",
-    "--onboarding",
-    "--fast",
-    "--web-search",
-    "--memory",
-    "--json",
-];
+const FLAG_OPTIONS: [&str; 12] =
+    ["--no-worktree", "--readonly", "--help", "-h", "--plain", "--react", "--remote", "--onboarding", "--fast", "--web-search", "--memory", "--json"];
 /// The interactive CLI's flags an exec refuses, in Node's order (`EXEC_UNSUPPORTED_FLAGS`).
 const UNSUPPORTED_FLAGS: [&str; 5] = ["--readonly", "--remote", "--onboarding", "--memory", "--no-worktree"];
 const WORKTREE_OPTION: &str = "--worktree";
@@ -238,7 +226,6 @@ impl Sink for StdSink {
         let _ = std::io::stderr().lock().write_all(text.as_bytes());
     }
 }
-
 
 impl ExecArgs {
     /// What the command line asks for (`classifyCliInvocation`, `execFromPositional`), else the refusal (printed as

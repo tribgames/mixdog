@@ -255,17 +255,28 @@ struct SheetReader {
 }
 
 /// The cells a chart reference reads, in order; `None` for one that names no sheet here or no bounded block of cells.
-fn referenced_cells(zip: &Package, sheets: &[Sheet], readers: &mut Vec<SheetReader>, formula: &str, numbers: bool) -> Result<Option<Vec<Option<CellValue>>>, String> {
+fn referenced_cells(
+    zip: &Package,
+    sheets: &[Sheet],
+    readers: &mut Vec<SheetReader>,
+    formula: &str,
+    numbers: bool,
+) -> Result<Option<Vec<Option<CellValue>>>, String> {
     let mut cells = Vec::new();
     for entry in sheet_qualified_areas(&xml_decode(formula)) {
-        let sheet = if entry.sheet.is_empty() { None } else { sheets.iter().find(|candidate| js_to_lowercase(&candidate.name) == js_to_lowercase(&entry.sheet)) };
+        let sheet =
+            if entry.sheet.is_empty() { None } else { sheets.iter().find(|candidate| js_to_lowercase(&candidate.name) == js_to_lowercase(&entry.sheet)) };
         let bounds = if BOUNDED_CELLS.is_match(&entry.area) { Some(parse_area_range(&entry.area)?) } else { None };
         let (Some(sheet), Some(bounds)) = (sheet, bounds) else { return Ok(None) };
         let at = match readers.iter().position(|reader| reader.path == sheet.path) {
             Some(at) => at,
             None => {
                 let sheet_xml = zip.text(&sheet.path);
-                readers.push(SheetReader { path: sheet.path.clone(), numbers: SheetCellValues::new(zip, &sheet_xml), labels: SheetCellLabels::new(zip, &sheet_xml) });
+                readers.push(SheetReader {
+                    path: sheet.path.clone(),
+                    numbers: SheetCellValues::new(zip, &sheet_xml),
+                    labels: SheetCellLabels::new(zip, &sheet_xml),
+                });
                 readers.len() - 1
             }
         };
@@ -424,8 +435,7 @@ pub fn add_worksheet_chart<P: ReadProof>(
         read_chart_data(zip, &source_xml, source_sheet, op, &block)?;
     let lit = chart_highlight_index(op.get("highlight"), &categories);
     if lit >= 0.0 && series.len() == 1 {
-        let accent =
-            series[0].get("color").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(DEFAULT_SERIES_COLORS[0]));
+        let accent = series[0].get("color").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(DEFAULT_SERIES_COLORS[0]));
         let muted = op.get("mutedColor").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(HIGHLIGHT_MUTED));
         let colors: Vec<Value> = (0..categories.len()).map(|point| if point as f64 == lit { accent.clone() } else { muted.clone() }).collect();
         if let Value::Object(entry) = &mut series[0] {

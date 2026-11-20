@@ -47,7 +47,6 @@ mod tests {
     }
 }
 
-
 impl Paths {
     /// `package_root` is the install's JS package root (`JsRuntime::package_root`), whose `src`
     /// is Node's `packagedRoot()`; `env` reads a variable, an empty one counting as unset as in

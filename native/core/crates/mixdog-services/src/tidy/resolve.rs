@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use crate::lane::on_lane;
 
 use super::catalog::{EngineEntry, engine_entry, engines_for_languages};
-use super::install::{manifest_asset, managed_engine_binary, read_engines_manifest};
+use super::install::{managed_engine_binary, manifest_asset, read_engines_manifest};
 use super::languages::project_relative;
 use super::process::{PathIndex, Processes, RunOptions, map_limit, which};
 
@@ -51,7 +51,9 @@ pub struct TidyConfig {
 /// Reads `.mixdog/tidy.json` on the lane; a file that cannot be honoured comes back with `error`.
 async fn read_tidy_config(lane: DurabilityIo, cwd: &Path) -> TidyConfig {
     let owned = cwd.to_owned();
-    on_lane(lane, move || read_tidy_config_blocking(&owned)).await.unwrap_or_else(|e| TidyConfig { error: format!("cannot read {TIDY_CONFIG_RELATIVE_PATH}: {e}"), ..Default::default() })
+    on_lane(lane, move || read_tidy_config_blocking(&owned))
+        .await
+        .unwrap_or_else(|e| TidyConfig { error: format!("cannot read {TIDY_CONFIG_RELATIVE_PATH}: {e}"), ..Default::default() })
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
@@ -93,7 +95,9 @@ fn parse_tidy_config(text: &str, root: &Path) -> Result<TidyConfig, String> {
         None | Some(Value::Null) => {}
         Some(Value::Object(policy)) => match policy.get("downloads") {
             None | Some(Value::Null) => {}
-            Some(Value::String(s)) if DOWNLOAD_POLICIES.contains(&mixdog_js::js_trim(s).to_lowercase().as_str()) => config.downloads = mixdog_js::js_trim(s).to_lowercase(),
+            Some(Value::String(s)) if DOWNLOAD_POLICIES.contains(&mixdog_js::js_trim(s).to_lowercase().as_str()) => {
+                config.downloads = mixdog_js::js_trim(s).to_lowercase()
+            }
             Some(other) => return Err(format!("policy.downloads is {other}, not one of {}", DOWNLOAD_POLICIES.join(", "))),
         },
         Some(_) => return Err("policy must be an object".into()),
@@ -114,7 +118,11 @@ fn configured_engine(id: &str, entry: &Value, root: &Path) -> Result<ConfiguredE
     };
     let args = match e.get("args") {
         None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(a)) => a.iter().map(|v| v.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>().ok_or_else(|| format!("engines.{id}.args must be an array of strings"))?,
+        Some(Value::Array(a)) => a
+            .iter()
+            .map(|v| v.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("engines.{id}.args must be an array of strings"))?,
         Some(_) => return Err(format!("engines.{id}.args must be an array of strings")),
     };
     let cwd = match e.get("cwd") {
@@ -128,7 +136,8 @@ fn configured_engine(id: &str, entry: &Value, root: &Path) -> Result<ConfiguredE
             if !real.is_dir() {
                 return Err(format!("engines.{id}.cwd {d} is not a directory"));
             }
-            let rel = project_relative(&real_root, &real).ok_or_else(|| format!("engines.{id}.cwd {d} is not inside the project: it resolves to {}", real.display()))?;
+            let rel = project_relative(&real_root, &real)
+                .ok_or_else(|| format!("engines.{id}.cwd {d} is not inside the project: it resolves to {}", real.display()))?;
             Some(if rel.is_empty() { root.to_owned() } else { root.join(rel) })
         }
         Some(_) => return Err(format!("engines.{id}.cwd must be a non-empty string")),
@@ -241,7 +250,12 @@ fn project_config_file_blocking(cwd: &Path, entry: &EngineEntry) -> Option<Strin
 }
 
 /// The engine's binary on PATH; the lookups list directories, so they run as one lane job.
-async fn path_binary(lane: DurabilityIo, entry: &'static EngineEntry, env: Option<&HashMap<String, String>>, index: &Arc<PathIndex>) -> Result<Option<PathBuf>, String> {
+async fn path_binary(
+    lane: DurabilityIo,
+    entry: &'static EngineEntry,
+    env: Option<&HashMap<String, String>>,
+    index: &Arc<PathIndex>,
+) -> Result<Option<PathBuf>, String> {
     let (env, index, id) = (env.cloned(), index.clone(), entry.id.clone());
     on_lane(lane, move || {
         let entry = engine_entry(&id)?;
@@ -282,7 +296,8 @@ impl Resolved {
     }
 
     pub fn to_json(&self) -> Value {
-        let mut v = json!({"id": self.id, "kind": self.kind, "languages": self.languages, "installHint": self.install_hint, "source": self.source, "path": self.path});
+        let mut v =
+            json!({"id": self.id, "kind": self.kind, "languages": self.languages, "installHint": self.install_hint, "source": self.source, "path": self.path});
         let put = |v: &mut Value, k: &str, x: Value| v[k] = x;
         if !self.command.is_empty() {
             put(&mut v, "command", json!(self.command));
@@ -328,12 +343,33 @@ fn installable(entry: &EngineEntry, manifest: &Value) -> bool {
 
 /// An engine as the project config sets it: its own `command`, or the engine found the normal way
 /// with the entry's `args` after any catalog prefix and its `cwd`.
-async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, managed: (&Value, &Path), index: &Arc<PathIndex>) -> Resolved {
+async fn resolve_one(
+    processes: &Processes,
+    cwd: &Path,
+    entry: &'static EngineEntry,
+    config: &TidyConfig,
+    env: Option<&HashMap<String, String>>,
+    managed: (&Value, &Path),
+    index: &Arc<PathIndex>,
+) -> Resolved {
     let configured = config.engines.get(&entry.id);
     let dir = configured.and_then(|c| c.cwd.as_ref()).map(|d| d.to_string_lossy().into_owned());
     if let Some(command) = configured.and_then(|c| c.command.as_ref()) {
-        let base = Resolved { id: entry.id.clone(), kind: entry.kind.clone(), languages: entry.languages.clone(), install_hint: entry.install_hint.clone(), ..Default::default() };
-        return Resolved { source: "project-config".into(), path: command.clone(), command: command.clone(), args: configured.map(|c| c.args.clone()).unwrap_or_default(), cwd: dir, ..base };
+        let base = Resolved {
+            id: entry.id.clone(),
+            kind: entry.kind.clone(),
+            languages: entry.languages.clone(),
+            install_hint: entry.install_hint.clone(),
+            ..Default::default()
+        };
+        return Resolved {
+            source: "project-config".into(),
+            path: command.clone(),
+            command: command.clone(),
+            args: configured.map(|c| c.args.clone()).unwrap_or_default(),
+            cwd: dir,
+            ..base
+        };
     }
     let mut found = locate(processes, cwd, entry, env, managed, index).await;
     if let Some(c) = configured {
@@ -344,10 +380,23 @@ async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEn
 }
 
 /// The engine found project-local, on PATH or managed, in that order.
-async fn locate(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, env: Option<&HashMap<String, String>>, managed: (&Value, &Path), index: &Arc<PathIndex>) -> Resolved {
+async fn locate(
+    processes: &Processes,
+    cwd: &Path,
+    entry: &'static EngineEntry,
+    env: Option<&HashMap<String, String>>,
+    managed: (&Value, &Path),
+    index: &Arc<PathIndex>,
+) -> Resolved {
     let (manifest, plugin_data) = managed;
     let lane = processes.durability();
-    let base = Resolved { id: entry.id.clone(), kind: entry.kind.clone(), languages: entry.languages.clone(), install_hint: entry.install_hint.clone(), ..Default::default() };
+    let base = Resolved {
+        id: entry.id.clone(),
+        kind: entry.kind.clone(),
+        languages: entry.languages.clone(),
+        install_hint: entry.install_hint.clone(),
+        ..Default::default()
+    };
     match project_local_binary(processes.durability(), cwd, entry).await {
         Ok(Some(local)) => {
             let (command, args) = command_for(entry, &local);
@@ -369,13 +418,21 @@ async fn locate(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, 
             Err(why) => return unavailable(base, why),
         };
         let host_path = host.to_string_lossy().into_owned();
-        if entry.managed && !plugin_data.as_os_str().is_empty()
+        if entry.managed
+            && !plugin_data.as_os_str().is_empty()
             && let Some((module, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await
         {
             let module = module.to_string_lossy().into_owned();
             return Resolved { source: "managed".into(), path: module.clone(), command: host_path, version, module_path: Some(module), ..base };
         }
-        return Resolved { source: "missing".into(), path: host_path.clone(), command: host_path, missing: true, installable: installable(entry, manifest), ..base };
+        return Resolved {
+            source: "missing".into(),
+            path: host_path.clone(),
+            command: host_path,
+            missing: true,
+            installable: installable(entry, manifest),
+            ..base
+        };
     }
     match path_binary(lane, entry, env, index).await {
         Ok(Some(found)) => {
@@ -385,7 +442,8 @@ async fn locate(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, 
         Ok(None) => {}
         Err(why) => return unavailable(base, why),
     }
-    if entry.managed && !plugin_data.as_os_str().is_empty()
+    if entry.managed
+        && !plugin_data.as_os_str().is_empty()
         && let Some((path, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await
     {
         let p = path.to_string_lossy().into_owned();
@@ -548,11 +606,23 @@ mod tests {
         write(root, "file.txt", "");
         assert!(error(r#"{"engines":{"ruff":{"command":"ruff","cwd":"file.txt"}}}"#).contains("not a directory"));
         assert!(error(r#"{"policy":{"downloads":"sometimes"}}"#).contains("policy.downloads"));
-        let config = parse_tidy_config(r#"{"engines":{"ruff":{"command":"tools/ruff","args":["--x"],"cwd":"web"}},"policy":{"downloads":"Never"}}"#, root).unwrap();
-        assert_eq!(config.engines["ruff"], ConfiguredEngine { command: Some(root.join("tools/ruff").to_string_lossy().into_owned()), args: vec!["--x".into()], cwd: Some(root.join("web")) });
+        let config =
+            parse_tidy_config(r#"{"engines":{"ruff":{"command":"tools/ruff","args":["--x"],"cwd":"web"}},"policy":{"downloads":"Never"}}"#, root).unwrap();
+        assert_eq!(
+            config.engines["ruff"],
+            ConfiguredEngine { command: Some(root.join("tools/ruff").to_string_lossy().into_owned()), args: vec!["--x".into()], cwd: Some(root.join("web")) }
+        );
         assert_eq!(config.downloads, "never");
-        assert_eq!(parse_tidy_config(r#"{"engines":{"ruff":{"command":"ruff"}}}"#, root).unwrap().engines["ruff"].command.as_deref(), Some("ruff"), "a bare name is looked up on PATH");
-        assert_eq!(parse_tidy_config(r#"{"engines":{"ruff":{"args":["--x"]}}}"#, root).unwrap().engines["ruff"].command, None, "an entry may leave the binary to resolution");
+        assert_eq!(
+            parse_tidy_config(r#"{"engines":{"ruff":{"command":"ruff"}}}"#, root).unwrap().engines["ruff"].command.as_deref(),
+            Some("ruff"),
+            "a bare name is looked up on PATH"
+        );
+        assert_eq!(
+            parse_tidy_config(r#"{"engines":{"ruff":{"args":["--x"]}}}"#, root).unwrap().engines["ruff"].command,
+            None,
+            "an entry may leave the binary to resolution"
+        );
         write(root, ".mixdog/tidy.json", "{oops");
         let read = read_tidy_config_blocking(root);
         assert!(read.present && read.error.starts_with(".mixdog/tidy.json: not valid JSON"), "{}", read.error);
@@ -575,14 +645,20 @@ mod tests {
         write(project.path(), ".mixdog/tidy.json", &config.to_string());
         let probe = |dir: &Path| {
             let dir = dir.to_owned();
-            async move { resolve_engines(&Processes::for_tests(), &dir, ResolveOptions { engine_ids: vec!["ruff".into()], probe_versions: true, manifest: Some(json!({"engines": {}})), ..Default::default() }).await }
+            async move {
+                resolve_engines(
+                    &Processes::for_tests(),
+                    &dir,
+                    ResolveOptions { engine_ids: vec!["ruff".into()], probe_versions: true, manifest: Some(json!({"engines": {}})), ..Default::default() },
+                )
+                .await
+            }
         };
         assert_eq!(probe(project.path()).await.engines[0].version, "1.10.0");
         std::fs::remove_file(project.path().join("toolchain-marker")).unwrap();
         write(project.path(), "broken-marker", "");
         assert_eq!(probe(project.path()).await.engines[0].version, "", "a failed probe has no version");
     }
-
 
     #[tokio::test]
     async fn resolution_order_is_config_then_project_local_then_path_then_missing() {
@@ -592,9 +668,13 @@ mod tests {
         write(path_dir.path(), &bin("ruff"), "x");
         write(project.path(), &format!("node_modules/.bin/{}", bin("prettier")), "x");
         write(project.path(), ".mixdog/tidy.json", r#"{"engines":{"ruff":{"command":"/custom/ruff","args":["--x"]}}}"#);
-        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff", "prettier", "shfmt", "stylua", "eslint", "nope"], path_dir.path())).await;
+        let r =
+            resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff", "prettier", "shfmt", "stylua", "eslint", "nope"], path_dir.path())).await;
         let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap();
-        assert_eq!((by("ruff").source.as_str(), by("ruff").command.as_str(), by("ruff").args.clone()), ("project-config", "/custom/ruff", vec!["--x".to_owned()]));
+        assert_eq!(
+            (by("ruff").source.as_str(), by("ruff").command.as_str(), by("ruff").args.clone()),
+            ("project-config", "/custom/ruff", vec!["--x".to_owned()])
+        );
         assert_eq!(by("prettier").source, "project-local");
         assert_eq!(by("shfmt").source, "path");
         assert!(by("stylua").missing && by("stylua").source == "missing");
@@ -649,7 +729,10 @@ mod tests {
             options.env.as_mut().unwrap().insert("MIXDOG_TIDY_DOWNLOADS".to_owned(), downloads.to_owned());
             options
         };
-        assert_eq!(taplo(&resolve_engines(&Processes::for_tests(), project.path(), downloadable(nowhere.path(), "auto")).await).as_deref(), Some("project uses dprint"));
+        assert_eq!(
+            taplo(&resolve_engines(&Processes::for_tests(), project.path(), downloadable(nowhere.path(), "auto")).await).as_deref(),
+            Some("project uses dprint")
+        );
         assert_eq!(taplo(&resolve_engines(&Processes::for_tests(), project.path(), downloadable(nowhere.path(), "never")).await), None);
         // An installed taplo keeps TOML until that dprint is really there: a download still to be
         // approved formats nothing.
@@ -679,9 +762,16 @@ mod tests {
         let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["biome", "eslint", "dprint", "taplo"], path_dir.path())).await;
         let by = |id: &str| r.engines.iter().find(|e| e.id == id).unwrap().clone();
         let biome = by("biome");
-        assert_eq!((biome.skipped.clone(), biome.languages.clone(), biome.suppressed_by.clone()), (None, vec!["json".to_owned(), "css".to_owned(), "yaml".to_owned()], vec!["eslint".to_owned()]));
+        assert_eq!(
+            (biome.skipped.clone(), biome.languages.clone(), biome.suppressed_by.clone()),
+            (None, vec!["json".to_owned(), "css".to_owned(), "yaml".to_owned()], vec!["eslint".to_owned()])
+        );
         assert_eq!(by("dprint").skipped.as_deref(), Some("no project config for this engine"));
-        assert_eq!((by("taplo").skipped, by("taplo").suppressed_by), (None, Vec::<String>::new()), "a project-local dprint with no configuration leaves TOML to taplo");
+        assert_eq!(
+            (by("taplo").skipped, by("taplo").suppressed_by),
+            (None, Vec::<String>::new()),
+            "a project-local dprint with no configuration leaves TOML to taplo"
+        );
     }
 
     /// An entry without `command` keeps the engine resolution finds, with its args after the
@@ -697,7 +787,10 @@ mod tests {
         let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dotnet-format", "shfmt"], path_dir.path())).await;
         assert!(r.config.error.is_empty(), "{}", r.config.error);
         let (dotnet, shfmt) = (&r.engines[0], &r.engines[1]);
-        assert_eq!((dotnet.source.as_str(), dotnet.args.clone(), dotnet.cwd.clone()), ("path", vec!["format".to_owned(), "--verbosity".to_owned(), "q".to_owned()], Some(project.path().join("web").to_string_lossy().into_owned())));
+        assert_eq!(
+            (dotnet.source.as_str(), dotnet.args.clone(), dotnet.cwd.clone()),
+            ("path", vec!["format".to_owned(), "--verbosity".to_owned(), "q".to_owned()], Some(project.path().join("web").to_string_lossy().into_owned()))
+        );
         assert_eq!((shfmt.source.as_str(), shfmt.args.clone()), ("path", vec!["-i".to_owned(), "2".to_owned()]));
         assert!(shfmt.command.ends_with(&bin("shfmt")));
     }
@@ -733,7 +826,12 @@ mod tests {
         assert!(read_tidy_config_blocking(root).error.is_empty() && !read_tidy_config_blocking(root).present);
         let gone = root.join("gone");
         #[cfg(windows)]
-        let linked = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(root.join(".mixdog/tidy.json")).arg(&gone).output().is_ok_and(|o| o.status.success());
+        let linked = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(root.join(".mixdog/tidy.json"))
+            .arg(&gone)
+            .output()
+            .is_ok_and(|o| o.status.success());
         #[cfg(unix)]
         let linked = std::os::unix::fs::symlink(&gone, root.join(".mixdog/tidy.json")).is_ok();
         if !linked {
@@ -750,12 +848,12 @@ mod tests {
         assert!(resolve_engines(&Processes::for_tests(), project.path(), opts(&[], path_dir.path())).await.engines.is_empty());
         let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dotnet-format"], path_dir.path())).await;
         assert_eq!(r.engines[0].args, ["format"]);
-        let by_language = resolve_engines(&Processes::for_tests(), project.path(), ResolveOptions { languages: vec!["python".into()], ..opts(&[], path_dir.path()) }).await;
+        let by_language =
+            resolve_engines(&Processes::for_tests(), project.path(), ResolveOptions { languages: vec!["python".into()], ..opts(&[], path_dir.path()) }).await;
         assert_eq!(by_language.engines.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["ruff"]);
         assert_eq!(by_language.to_json()["engines"][0]["source"], "missing");
     }
 }
-
 
 /// The directory an engine runs in: its configured `cwd`, else the project. Toolchain proxies
 /// (rustup) pick the version by directory, so a probe anywhere else can name another binary.
@@ -837,12 +935,16 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     let chosen: Vec<(String, Vec<String>, bool)> = resolved
         .iter()
         .filter(|r| r.runnable() || downloadable(r))
-        .filter(|r| matches!(r.source.as_str(), "project-local" | "project-config") || (r.config_file.is_some() && engine_entry(&r.id).is_some_and(|e| e.requires_config)))
+        .filter(|r| {
+            matches!(r.source.as_str(), "project-local" | "project-config")
+                || (r.config_file.is_some() && engine_entry(&r.id).is_some_and(|e| e.requires_config))
+        })
         .map(|r| (r.id.clone(), r.languages.clone(), r.runnable()))
         .collect();
     for engine in &mut resolved {
         let Some(entry) = engine_entry(&engine.id) else { continue };
-        let suppressors: Vec<&(String, Vec<String>, bool)> = chosen.iter().filter(|(id, _, runs)| entry.suppressed_by.contains(id) && (*runs || engine.missing)).collect();
+        let suppressors: Vec<&(String, Vec<String>, bool)> =
+            chosen.iter().filter(|(id, _, runs)| entry.suppressed_by.contains(id) && (*runs || engine.missing)).collect();
         // A missing engine is suppressed too: installing it would only have it skipped.
         if suppressors.is_empty() || engine.unavailable.is_some() {
             continue;
@@ -873,8 +975,15 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     }
     Resolution { engines: resolved, policy, config, unknown_engines: unknown }
 }
-async fn refine_managed_modules(processes: &Processes, cwd: &Path, engines: &mut [Resolved], probe: Option<&HostModuleProbe>, cancel: Option<&CancellationToken>) {
-    let candidates: Vec<(usize, Resolved)> = engines.iter().cloned().enumerate().filter(|(_, e)| engine_entry(&e.id).is_some_and(|c| c.managed_module) && !e.command.is_empty()).collect();
+async fn refine_managed_modules(
+    processes: &Processes,
+    cwd: &Path,
+    engines: &mut [Resolved],
+    probe: Option<&HostModuleProbe>,
+    cancel: Option<&CancellationToken>,
+) {
+    let candidates: Vec<(usize, Resolved)> =
+        engines.iter().cloned().enumerate().filter(|(_, e)| engine_entry(&e.id).is_some_and(|c| c.managed_module) && !e.command.is_empty()).collect();
     if candidates.is_empty() {
         return;
     }

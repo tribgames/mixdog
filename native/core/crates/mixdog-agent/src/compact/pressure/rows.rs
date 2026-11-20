@@ -64,9 +64,7 @@ fn is_attachment_reference(part: &Value) -> bool {
 /// `fileInfo(block) !== null`: a document with base64 bytes, or a file with data or a reference.
 fn is_file_part(block: &Value) -> bool {
     match str_of(block, "type") {
-        Some("document") => {
-            block.get("source").is_some_and(|s| str_of(s, "type") == Some("base64") && non_empty(s.get("data")).is_some())
-        }
+        Some("document") => block.get("source").is_some_and(|s| str_of(s, "type") == Some("base64") && non_empty(s.get("data")).is_some()),
         Some("file") => is_attachment_reference(block) || non_empty(block.get("data")).is_some(),
         _ => false,
     }
@@ -116,13 +114,10 @@ pub fn image_descriptor(block: &Value) -> Option<ImageDescriptor> {
     let width = dims("width", &inner_of("width"));
     let height = dims("height", &inner_of("height"));
     let detail_of = |values: &[Option<&Value>]| {
-        values
-            .iter()
-            .flatten()
-            .find(|v| !v.is_null())
-            .map_or_else(|| "auto".to_owned(), |v| mixdog_js::value_to_string(v).to_lowercase())
+        values.iter().flatten().find(|v| !v.is_null()).map_or_else(|| "auto".to_owned(), |v| mixdog_js::value_to_string(v).to_lowercase())
     };
-    let detail = detail_of(&[field("detail"), image_url.and_then(|v| v.get("detail")), source.and_then(|v| v.get("detail")), inline.and_then(|v| v.get("detail"))]);
+    let detail =
+        detail_of(&[field("detail"), image_url.and_then(|v| v.get("detail")), source.and_then(|v| v.get("detail")), inline.and_then(|v| v.get("detail"))]);
     let described = |identity: String| Some(ImageDescriptor { identity, width, height, detail: detail.clone() });
     if kind == Some("image") {
         if is_attachment_reference(block) {
@@ -148,7 +143,12 @@ pub fn image_descriptor(block: &Value) -> Option<ImageDescriptor> {
         }
     }
     if let Some(data) = non_empty(inline.and_then(|i| i.get("data"))) {
-        let mime = first_text(&[inline.and_then(|i| i.get("mimeType")), inline.and_then(|i| i.get("mime_type")), inline.and_then(|i| i.get("mediaType")), inline.and_then(|i| i.get("media_type"))]);
+        let mime = first_text(&[
+            inline.and_then(|i| i.get("mimeType")),
+            inline.and_then(|i| i.get("mime_type")),
+            inline.and_then(|i| i.get("mediaType")),
+            inline.and_then(|i| i.get("media_type")),
+        ]);
         return described(image_identity("inline", data, &clean_image_mime(&mime)));
     }
     let file_id = match (kind, field("file_id"), source) {
@@ -158,7 +158,12 @@ pub fn image_descriptor(block: &Value) -> Option<ImageDescriptor> {
     };
     let file_data = field("fileData").or_else(|| field("file_data"));
     let uri = non_empty(file_data.and_then(|f| f.get("fileUri"))).or_else(|| non_empty(file_data.and_then(|f| f.get("file_uri")))).map(|uri| {
-        let mime = first_text(&[file_data.and_then(|f| f.get("mimeType")), file_data.and_then(|f| f.get("mime_type")), file_data.and_then(|f| f.get("mediaType")), file_data.and_then(|f| f.get("media_type"))]);
+        let mime = first_text(&[
+            file_data.and_then(|f| f.get("mimeType")),
+            file_data.and_then(|f| f.get("mime_type")),
+            file_data.and_then(|f| f.get("mediaType")),
+            file_data.and_then(|f| f.get("media_type")),
+        ]);
         (uri.to_owned(), clean_image_mime(&mime))
     });
     let uri = uri.or_else(|| {
@@ -251,14 +256,8 @@ enum FileKind {
 
 /// `inlineFileKind(mimeType, base64Data, filename)`.
 fn inline_file_kind(mime_type: &str, data: &str, filename: &str) -> FileKind {
-    const TEXTUAL: [&str; 6] = [
-        "application/json",
-        "application/xml",
-        "application/yaml",
-        "application/toml",
-        "application/x-ndjson",
-        "application/x-www-form-urlencoded",
-    ];
+    const TEXTUAL: [&str; 6] =
+        ["application/json", "application/xml", "application/yaml", "application/toml", "application/x-ndjson", "application/x-www-form-urlencoded"];
     const OFFICE: [&str; 4] = [
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -273,9 +272,7 @@ fn inline_file_kind(mime_type: &str, data: &str, filename: &str) -> FileKind {
         return FileKind::Pdf;
     }
     let name = mixdog_js::js_trim(filename).to_lowercase();
-    if OFFICE.contains(&mime.as_str())
-        || (GENERIC.contains(&mime.as_str()) && [".docx", ".pptx", ".xlsx", ".xlsm"].iter().any(|e| name.ends_with(e)))
-    {
+    if OFFICE.contains(&mime.as_str()) || (GENERIC.contains(&mime.as_str()) && [".docx", ".pptx", ".xlsx", ".xlsm"].iter().any(|e| name.ends_with(e))) {
         return FileKind::Office;
     }
     if mime.starts_with("text/")
@@ -426,9 +423,7 @@ fn estimate_text<R: AttachmentBytes + ?Sized>(m: &Value, blobs: &R) -> Result<St
     }
     let assistant = str_of(m, "role") == Some("assistant");
     let mut text = content_text(m.get("content"), blobs)?;
-    if assistant
-        && let Some(calls) = non_empty_list(m.get("toolCalls"))
-    {
+    if assistant && let Some(calls) = non_empty_list(m.get("toolCalls")) {
         text.push('\n');
         text.push_str(&mixdog_js::json_stringify(calls));
     }
@@ -449,9 +444,7 @@ fn estimate_text<R: AttachmentBytes + ?Sized>(m: &Value, blobs: &R) -> Result<St
     }
     if replay.is_none() {
         let thought = m.get("providerMetadata").and_then(|p| p.get("gemini")).and_then(|g| g.get("thoughtParts"));
-        if assistant
-            && let Some(parts) = non_empty_list(thought)
-        {
+        if assistant && let Some(parts) = non_empty_list(thought) {
             text.push('\n');
             text.push_str(&native_blocks_text(parts));
         }

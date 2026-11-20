@@ -31,8 +31,8 @@ use serde_json::{Value, json};
 use super::compactors::CompactionWorld;
 use super::message_row::message_of;
 use super::next_request_source::NextRequestSource;
-use super::thinking_binding::rebind_to_changed_prefix;
 use super::run_seams::ConfigRunSeams;
+use super::thinking_binding::rebind_to_changed_prefix;
 
 /// The windows a model starts a session with (`resolveSessionContextMeta`).
 pub trait RouteWindows: Send + Sync {
@@ -89,7 +89,12 @@ impl HostInheritanceFit {
 
     /// The composition's: the catalog's windows, the process's configuration seams, and the
     /// threads of the directory `next` is bound to.
-    pub fn process(catalog: Arc<mixdog_ai::catalog::CatalogService>, config: Arc<ConfigRunSeams>, next: Arc<NextRequestSource>, world: Arc<dyn CompactionWorld>) -> Self {
+    pub fn process(
+        catalog: Arc<mixdog_ai::catalog::CatalogService>,
+        config: Arc<ConfigRunSeams>,
+        next: Arc<NextRequestSource>,
+        world: Arc<dyn CompactionWorld>,
+    ) -> Self {
         Self::new(catalog, config, Arc::new(DirectoryThreads { next, world }))
     }
 

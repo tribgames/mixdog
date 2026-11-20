@@ -18,11 +18,7 @@ pub fn scrub_fence_marker(value: &str) -> String {
 /// The headers a run's prompt shows (and a stored event keeps): `x-*` and `content-type`,
 /// in the order they were sent.
 pub fn prompt_headers(headers: &Headers) -> IndexMap<String, String> {
-    headers
-        .iter()
-        .filter(|(k, _)| k.starts_with("x-") || k.as_str() == "content-type")
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect()
+    headers.iter().filter(|(k, _)| k.starts_with("x-") || k.as_str() == "content-type").map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
 pub fn build_fenced_payload(body: &Value, headers: &IndexMap<String, String>) -> String {
@@ -41,10 +37,7 @@ pub struct WebhookRunPrompt {
 }
 
 pub fn webhook_run_prompt(instructions: &str, body: &Value, headers: &IndexMap<String, String>) -> WebhookRunPrompt {
-    WebhookRunPrompt {
-        prompt: format!("{instructions}\n\n{}", build_fenced_payload(body, headers)),
-        skill_selection: instructions.to_string(),
-    }
+    WebhookRunPrompt { prompt: format!("{instructions}\n\n{}", build_fenced_payload(body, headers)), skill_selection: instructions.to_string() }
 }
 
 /// A short label of the event for the routine marker in the bot's chat (display only, never
@@ -97,6 +90,4 @@ mod tests {
         assert_eq!(webhook_event_summary(|n| none.get(n), &json!({})), "");
         assert_eq!(webhook_event_summary(|n| none.get(n), &json!({"type": "x".repeat(300)})).chars().count(), 120);
     }
-
-
 }

@@ -28,7 +28,12 @@ use super::SessionDirectory;
 use super::testing::Rig;
 
 fn on(connection: u64, origin: Origin, method: &'static str, params: Value, op: &str) -> CoreRequest {
-    CoreRequest { method: Method(method), params, op: Some(OpId::from(op)), ctx: CallContext::connection(ConnectionId(connection), origin, CancellationToken::new()) }
+    CoreRequest {
+        method: Method(method),
+        params,
+        op: Some(OpId::from(op)),
+        ctx: CallContext::connection(ConnectionId(connection), origin, CancellationToken::new()),
+    }
 }
 
 /// A control `thread/start` of `connection`: its subscribing reply, not attached yet.
@@ -61,10 +66,7 @@ async fn every_phone_is_answered_with_one_control_thread_until_it_is_gone() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
     // Two phones arriving together, then a reload of one of them (a new connection): one thread.
-    let (first, second) = tokio::join!(
-        start_control(&directory, 1, Origin::Relay, "op-a"),
-        start_control(&directory, 2, Origin::Relay, "op-b"),
-    );
+    let (first, second) = tokio::join!(start_control(&directory, 1, Origin::Relay, "op-a"), start_control(&directory, 2, Origin::Relay, "op-b"),);
     assert_eq!(first, second);
     assert_eq!(start_control(&directory, 3, Origin::Relay, "op-c").await, first);
     // The desktop window's control thread is its own.

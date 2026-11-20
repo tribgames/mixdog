@@ -20,9 +20,9 @@ use mixdog_js::{js_trim, value_to_string};
 use mixdog_rt::KeyedChains;
 use serde_json::{Map, Value, json};
 
+use crate::goal::js::Goal;
 use crate::goal::js::truthy;
 use crate::goal::quota::{GoalQuotaResume, suspended_goal_id};
-use crate::goal::js::Goal;
 use mixdog_core_base::quota_resume::QuotaError;
 
 fn text(value: Option<&Value>) -> String {
@@ -236,8 +236,7 @@ impl QuotaSettlement {
         if context.retained_retry || failed_turn_retry_prompt(items, turn_key).is_some() {
             return true;
         }
-        !turn_key.starts_with("turn:")
-            && (!self.quota.suspended(session_id, turn_key).is_empty() || context.goal_reactivatable)
+        !turn_key.starts_with("turn:") && (!self.quota.suspended(session_id, turn_key).is_empty() || context.goal_reactivatable)
     }
 
     /// `beginQuotaSettlement`, at turn close with the failed turndone: remembers the turn with

@@ -237,7 +237,6 @@ mod tests {
         assert!(build_files([VirtualFileInput { data_base64: Some("!!".into()), text: None, ..ok() }]).is_err());
     }
 
-
     fn lanes() -> Lanes {
         let tokens = mixdog_rt::testing::tokens();
         Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk }

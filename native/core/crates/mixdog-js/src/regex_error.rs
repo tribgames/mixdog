@@ -172,15 +172,12 @@ fn property_regex_accepts(source: &str) -> bool {
 }
 
 fn is_identifier_start(c: u32) -> bool {
-    static START: LazyLock<regress::Regex> =
-        LazyLock::new(|| regress::Regex::with_flags(r"^[\p{ID_Start}$_]$", "u").expect("static pattern"));
+    static START: LazyLock<regress::Regex> = LazyLock::new(|| regress::Regex::with_flags(r"^[\p{ID_Start}$_]$", "u").expect("static pattern"));
     char::from_u32(c).is_some_and(|c| START.find(c.encode_utf8(&mut [0; 4])).is_some())
 }
 
 fn is_identifier_part(c: u32) -> bool {
-    static PART: LazyLock<regress::Regex> = LazyLock::new(|| {
-        regress::Regex::with_flags(r"^[\p{ID_Continue}$_\u200c\u200d]$", "u").expect("static pattern")
-    });
+    static PART: LazyLock<regress::Regex> = LazyLock::new(|| regress::Regex::with_flags(r"^[\p{ID_Continue}$_\u200c\u200d]$", "u").expect("static pattern"));
     char::from_u32(c).is_some_and(|c| PART.find(c.encode_utf8(&mut [0; 4])).is_some())
 }
 
@@ -784,19 +781,11 @@ impl Parser {
             Some('x') => {
                 self.advance_by(2);
                 // An invalid `\x` is the letter `x` unless the pattern is Unicode.
-                if self.hex_escape(2).is_some() || !self.is_unicode() {
-                    Ok(false)
-                } else {
-                    Err(INVALID_ESCAPE)
-                }
+                if self.hex_escape(2).is_some() || !self.is_unicode() { Ok(false) } else { Err(INVALID_ESCAPE) }
             }
             Some('u') => {
                 self.advance_by(2);
-                if self.unicode_escape().is_some() || !self.is_unicode() {
-                    Ok(false)
-                } else {
-                    Err(INVALID_UNICODE_ESCAPE)
-                }
+                if self.unicode_escape().is_some() || !self.is_unicode() { Ok(false) } else { Err(INVALID_UNICODE_ESCAPE) }
             }
             Some(_) => {
                 self.advance();
@@ -971,11 +960,7 @@ impl Parser {
                 self.advance();
                 // A `-` after something that is not a single character cannot make a range.
                 let Some(from) = last.character else {
-                    return Err(if self.current() == END {
-                        UNTERMINATED_CHARACTER_CLASS
-                    } else {
-                        INVALID_CHARACTER_CLASS
-                    });
+                    return Err(if self.current() == END { UNTERMINATED_CHARACTER_CLASS } else { INVALID_CHARACTER_CLASS });
                 };
                 // A class escape or `\q{…}` cannot end a range; V8 refuses it on sight. A nested
                 // class is parsed first (its own errors win).
@@ -1205,8 +1190,7 @@ impl Parser {
                 Ok(c)
             }
             _ => {
-                let class_ok = in_class == InClass::Yes
-                    && (c == 0x2D || (self.unicode_sets && is_class_set_reserved_punctuator(c)));
+                let class_ok = in_class == InClass::Yes && (c == 0x2D || (self.unicode_sets && is_class_set_reserved_punctuator(c)));
                 if self.is_unicode() && !is_syntax_character_or_slash(c) && !class_ok {
                     return Err(INVALID_ESCAPE);
                 }
@@ -1223,10 +1207,7 @@ mod tests {
     #[test]
     fn deeply_nested_classes_report_a_stack_overflow_instead_of_crashing() {
         let deep = format!("{}{}", "[".repeat(50_000), "]".repeat(50_000));
-        assert_eq!(
-            js_regex_error(&deep, "v").map(|m| m.rsplit(": ").next().unwrap_or("").to_owned()).as_deref(),
-            Some("Maximum call stack size exceeded")
-        );
+        assert_eq!(js_regex_error(&deep, "v").map(|m| m.rsplit(": ").next().unwrap_or("").to_owned()).as_deref(), Some("Maximum call stack size exceeded"));
         assert_eq!(js_regex_error(&format!("{}{}", "[".repeat(100), "]".repeat(100)), "v"), None);
     }
 

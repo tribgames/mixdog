@@ -25,7 +25,6 @@ impl MediaMeter for TextOnly {
     }
 }
 
-
 #[tokio::test]
 async fn fresh_context_matches_node_for_runtime_shaped_and_marked_requests() {
     use mixdog_agent::message_row::{message_of, row_of};
@@ -57,23 +56,23 @@ async fn fresh_context_matches_node_for_runtime_shaped_and_marked_requests() {
         tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
         attachments: &NoAttachments,
     };
-    let result = fresh_context_compact_messages(
-        &ctx,
-        &messages,
-        100_000,
-        &FreshOptions { force: true, context_window: 500_000, ..Default::default() },
-    ).await.unwrap();
+    let result =
+        fresh_context_compact_messages(&ctx, &messages, 100_000, &FreshOptions { force: true, context_window: 500_000, ..Default::default() }).await.unwrap();
     let got: Vec<_> = result.messages.iter().map(row_of).collect();
     // Node's freshContextCompactMessages on these exact rows drops all three envelope-only
     // conversation turns; its unmarked mixed-content legacy request remains verbatim.
-    assert_eq!(got, vec![
-        json!({ "role": "user", "content": "first request", "meta": { "keep": true } }),
-        json!({ "role": "user", "content": [{ "type": "text", "text": "second request" }], "meta": { "keep": true } }),
-        rows[2].clone(), rows[6].clone(), rows[7].clone(),
-    ]);
+    assert_eq!(
+        got,
+        vec![
+            json!({ "role": "user", "content": "first request", "meta": { "keep": true } }),
+            json!({ "role": "user", "content": [{ "type": "text", "text": "second request" }], "meta": { "keep": true } }),
+            rows[2].clone(),
+            rows[6].clone(),
+            rows[7].clone(),
+        ]
+    );
     assert!(meter.messages(&result.messages) < meter.messages(&messages));
 }
-
 
 /// Every file an execution dump writes (the dump and a large message's blob).
 struct Written(std::sync::Mutex<Vec<String>>);
@@ -85,7 +84,12 @@ impl mixdog_agent::offload::ArtifactStore for Written {
     }
     async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
         let n = self.0.lock().unwrap().len();
-        Some(mixdog_agent::offload::Artifact { display_path: format!("/art/{n}.txt"), path: format!("/art/{n}.txt"), lines: content.lines().count(), sha256: "ab".repeat(32) })
+        Some(mixdog_agent::offload::Artifact {
+            display_path: format!("/art/{n}.txt"),
+            path: format!("/art/{n}.txt"),
+            lines: content.lines().count(),
+            sha256: "ab".repeat(32),
+        })
     }
 }
 
@@ -93,9 +97,7 @@ impl mixdog_agent::offload::ArtifactStore for Written {
 struct MarkedCode;
 impl mixdog_agent::compact::dropped::Redactor for MarkedCode {
     fn redact(&self, rows: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
-        rows.into_iter()
-            .map(|row| serde_json::from_str(&serde_json::to_string(&row).unwrap().replace("482913", "[redacted]")).unwrap())
-            .collect()
+        rows.into_iter().map(|row| serde_json::from_str(&serde_json::to_string(&row).unwrap().replace("482913", "[redacted]")).unwrap()).collect()
     }
 }
 
@@ -128,9 +130,6 @@ async fn execution_dump_holds_sensitive_values_redacted() {
     }
     assert!(out.messages.iter().any(|m| m.text().contains("482913") || m.tool_calls().iter().any(|c| c.arguments.to_string().contains("482913"))));
 }
-
-
-
 
 /// Regression (#343): a newest group no shrink level fits still compacts, as one reference to its
 /// archived lines, written only after the archive; the reference leads back to the original calls and results.
@@ -195,10 +194,7 @@ async fn compact_active_turn_with(rows: &[serde_json::Value], options: FreshOpti
         tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
         attachments: &NoAttachments,
     };
-    fresh_context_compact_messages(&ctx, &messages, 100_000, &FreshOptions { force: true, active_turn: true, ..options })
-        .await
-        .unwrap()
-        .messages
+    fresh_context_compact_messages(&ctx, &messages, 100_000, &FreshOptions { force: true, active_turn: true, ..options }).await.unwrap().messages
 }
 
 /// An Anthropic tool step as the response records it: its thinking only in the provider replay.
@@ -233,7 +229,11 @@ async fn a_goal_prefix_on_the_latest_request_rebinds_the_thinking_after_it() {
         anthropic_step("a", true),
         serde_json::json!({ "role": "tool", "toolCallId": "a", "content": "first" }),
     ];
-    let options = FreshOptions { context_window: 500_000, latest_user_prefix: "<system-reminder>\n<goal_state>ship it</goal_state>\n</system-reminder>".into(), ..Default::default() };
+    let options = FreshOptions {
+        context_window: 500_000,
+        latest_user_prefix: "<system-reminder>\n<goal_state>ship it</goal_state>\n</system-reminder>".into(),
+        ..Default::default()
+    };
     let body = wire_of(&compact_active_turn_with(&rows, options).await);
     assert!(body.to_string().contains("goal_state"), "{body}");
     assert!(!body.to_string().contains("signature"), "{body}");
@@ -296,10 +296,7 @@ async fn a_wide_latest_group_compacts_in_a_window_too_small_for_two_notices() {
     let written = Written(std::sync::Mutex::new(Vec::new()));
     let ctx = TailContext { meter: &meter, rows: &Rows, archive: &written, redactor: &compact_support::NoRedaction, preview: false };
     let calls: Vec<_> = (0..40).map(|i| serde_json::json!({ "id": format!("c{i}"), "name": "read", "arguments": { "path": format!("file-{i}") } })).collect();
-    let mut rows = vec![
-        serde_json::json!({ "role": "user", "content": "go" }),
-        serde_json::json!({ "role": "assistant", "content": "", "toolCalls": calls }),
-    ];
+    let mut rows = vec![serde_json::json!({ "role": "user", "content": "go" }), serde_json::json!({ "role": "assistant", "content": "", "toolCalls": calls })];
     rows.extend((0..40).map(|i| serde_json::json!({ "role": "tool", "toolCallId": format!("c{i}"), "content": format!("result-{i}") })));
     let messages: Vec<_> = rows.iter().map(node_message).collect();
     let out = build_execution_tail(&ctx, &messages, &TailOptions { context_window: 4_096, preserve_conversation: false })
@@ -318,7 +315,10 @@ async fn a_wide_latest_group_compacts_in_a_window_too_small_for_two_notices() {
     let dump = &files[path.trim_start_matches("/art/").trim_end_matches(".txt").parse::<usize>().unwrap() - 1];
     let group: Vec<&str> = dump.lines().collect::<Vec<_>>()[first - 1..last].to_vec();
     for i in 0..40 {
-        assert!(group.iter().any(|l| l.contains(&format!("\"file-{i}\""))) && group.iter().any(|l| l.contains(&format!("\"result-{i}\""))), "call {i} resolves");
+        assert!(
+            group.iter().any(|l| l.contains(&format!("\"file-{i}\""))) && group.iter().any(|l| l.contains(&format!("\"result-{i}\""))),
+            "call {i} resolves"
+        );
     }
 }
 

@@ -48,9 +48,6 @@ fn adapter(answer: Vec<u8>) -> (Arc<Replay>, CursorAdapter) {
     (http, adapter)
 }
 
-
-
-
 #[tokio::test(start_paused = true)]
 async fn an_answer_without_parameterized_models_falls_to_the_static_list() {
     // `getCursorModels`: no row from either call after the retries answers `FALLBACK_MODELS`, not an error.
@@ -211,9 +208,11 @@ async fn a_streamed_throttle_rotates_the_next_conversation_and_a_released_scope_
     let (_http, adapter) = adapter(Vec::new());
     let derived = adapter.conversation_of("s1");
     assert_eq!(adapter.conversation_of("s1"), derived);
-    let mut stream = super::CursorStream::new(Box::new(NoBody), Arc::new(Silent), super::decoder::CursorDecoder::new(Default::default(), Vec::new(), None), "t".into());
+    let mut stream =
+        super::CursorStream::new(Box::new(NoBody), Arc::new(Silent), super::decoder::CursorDecoder::new(Default::default(), Vec::new(), None), "t".into());
     stream.throttle = Some((adapter.rotated.clone(), "s1".into()));
-    let mut throttle = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::RateLimited, mixdog_core_api::domain::provider::DeliveryState::Accepted);
+    let mut throttle =
+        ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::RateLimited, mixdog_core_api::domain::provider::DeliveryState::Accepted);
     throttle.status = Some(429);
     stream.fail(throttle);
     let retry = adapter.conversation_of("s1");
@@ -288,7 +287,6 @@ async fn a_catalog_that_never_answers_lists_the_static_models() {
     assert!(cached.cached_models("t").await.unwrap().iter().any(|m| m.id == "composer-2.5"));
     assert!(cached.catalog.load_full().is_none(), "a send's catalog read keeps no fallback either");
 }
-
 
 /// The model list that outlives its timer reads as the real Node call did (`sites.cursorModelsCall`): `callCursorUnary`'s
 /// own timer, labelled `Cursor request`.

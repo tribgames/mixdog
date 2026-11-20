@@ -88,17 +88,10 @@ pub fn worktree_preparation_note(report: &PreparationReport<'_>) -> String {
     let root = if !report.root.is_empty() {
         report.root.to_owned()
     } else {
-        report
-            .prepared
-            .and_then(|p| p.get("root"))
-            .and_then(Value::as_str)
-            .filter(|root| !root.is_empty())
-            .unwrap_or("an unknown path")
-            .to_owned()
+        report.prepared.and_then(|p| p.get("root")).and_then(Value::as_str).filter(|root| !root.is_empty()).unwrap_or("an unknown path").to_owned()
     };
-    let mut lines = vec![format!(
-        "This worktree was made from the main checkout at {root}; ignored files there (build output, caches) are not here unless listed below."
-    )];
+    let mut lines =
+        vec![format!("This worktree was made from the main checkout at {root}; ignored files there (build output, caches) are not here unless listed below.")];
     list(&mut lines, "Copied from the main checkout", strings(report.prepared, "copied"));
     list(&mut lines, "Linked from the main checkout", strings(report.prepared, "linked"));
     lines.extend(report.dependency_notes.iter().cloned());

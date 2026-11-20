@@ -28,8 +28,7 @@ pub fn action_input_contract(schema: &Value) -> String {
         return String::new();
     };
     let shaped = branches.iter().all(|branch| {
-        at(branch, &["properties", "action", "enum"]).is_some_and(Value::is_array)
-            && at(branch, &["properties", "input", "properties"]).is_some_and(truthy)
+        at(branch, &["properties", "action", "enum"]).is_some_and(Value::is_array) && at(branch, &["properties", "input", "properties"]).is_some_and(truthy)
     });
     if !shaped {
         return String::new();
@@ -121,12 +120,8 @@ pub fn flatten_action_input_union(schema: &Value) -> Value {
         }
     }
     let contract = action_input_contract(&json!({ "oneOf": branches }));
-    let described: Vec<String> = description
-        .filter(truthy)
-        .map(|d| mixdog_js::value_to_string(&d))
-        .into_iter()
-        .chain((!contract.is_empty()).then_some(contract))
-        .collect();
+    let described: Vec<String> =
+        description.filter(truthy).map(|d| mixdog_js::value_to_string(&d)).into_iter().chain((!contract.is_empty()).then_some(contract)).collect();
     base.insert("description".into(), Value::String(described.join(" ")));
     let mut flat = schema.clone();
     flat["properties"]["input"] = Value::Object(base);
@@ -153,10 +148,5 @@ pub fn action_input_union_for(schema: &Value) -> Value {
     if !present("action") || !present("input") {
         return schema.clone();
     }
-    NESTED_BY_FLAT
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(&mixdog_js::json_stringify(schema))
-        .cloned()
-        .unwrap_or_else(|| schema.clone())
+    NESTED_BY_FLAT.read().unwrap_or_else(PoisonError::into_inner).get(&mixdog_js::json_stringify(schema)).cloned().unwrap_or_else(|| schema.clone())
 }

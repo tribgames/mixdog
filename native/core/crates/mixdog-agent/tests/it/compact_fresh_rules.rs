@@ -114,7 +114,10 @@ fn call(id: &str, name: &str, arguments: Value) -> ToolCall {
 }
 
 fn group(id: &str, result: &str) -> [AgentMessage; 2] {
-    [AgentMessage::assistant(String::new(), vec![call(id, "read", json!({ "path": format!("{id}.txt") }))]), AgentMessage::tool_text(id, result, ToolKind::Normal)]
+    [
+        AgentMessage::assistant(String::new(), vec![call(id, "read", json!({ "path": format!("{id}.txt") }))]),
+        AgentMessage::tool_text(id, result, ToolKind::Normal),
+    ]
 }
 
 fn options(handoff: &str) -> FreshOptions {
@@ -288,7 +291,11 @@ async fn a_handoff_too_large_for_the_budget_fails_instead_of_dropping_older_cont
     let huge = format!("{}\n{}", valid_summary("big"), "- detail ".repeat(20_000));
     let Err(error) = fresh_context_compact_messages(&ctx, &conversation(), 20_000, &options(&huge)).await else { panic!("accepted") };
     assert!(matches!(error, FreshError::Failed(_)));
-    assert!(error.message().contains("complete handoff exceeds the compact budget") && error.message().contains("refusing to drop older context"), "{}", error.message());
+    assert!(
+        error.message().contains("complete handoff exceeds the compact budget") && error.message().contains("refusing to drop older context"),
+        "{}",
+        error.message()
+    );
 }
 
 #[tokio::test]
@@ -327,7 +334,8 @@ impl AttachmentSeam for Stored {
 #[tokio::test]
 async fn earlier_requests_travel_their_attachments_by_reference_and_the_latest_keeps_them_while_it_fits() {
     fresh!(_meter, ctx, &Stored { referencable: true });
-    let messages = vec![AgentMessage::user("first ATTACHMENT inline"), AgentMessage::assistant("seen", Vec::new()), AgentMessage::user("second ATTACHMENT inline")];
+    let messages =
+        vec![AgentMessage::user("first ATTACHMENT inline"), AgentMessage::assistant("seen", Vec::new()), AgentMessage::user("second ATTACHMENT inline")];
     let kept = options("");
     let result = fresh_context_compact_messages(&ctx, &messages, 50_000, &kept).await.unwrap();
     assert_eq!(texts(&result.messages), ["[attachment by reference]", "seen", "second ATTACHMENT inline"], "only the earlier request is projected");
@@ -344,7 +352,9 @@ async fn the_latest_requests_attachments_go_by_reference_when_they_are_what_does
     }
     {
         fresh!(_meter, ctx, &Stored { referencable: false });
-        let Err(FreshError::LatestTurnExceeds(text)) = fresh_context_compact_messages(&ctx, &messages, 5_000, &options("")).await else { panic!("not refused") };
+        let Err(FreshError::LatestTurnExceeds(text)) = fresh_context_compact_messages(&ctx, &messages, 5_000, &options("")).await else {
+            panic!("not refused")
+        };
         assert!(text.contains("Its attachments alone are about 7,000 tokens."), "{text}");
     }
 }
@@ -393,7 +403,16 @@ impl SummarySender for Cancelled {
 }
 
 fn input<'a>(sender: &'a dyn SummarySender, input_budget_tokens: u64) -> HandoffInput<'a> {
-    HandoffInput { sender, model: "opus", provider_name: Some("anthropic"), budget_tokens: 100_000, reserve_tokens: 0, input_budget_tokens, max_output_tokens: Some(4_096), fast: false }
+    HandoffInput {
+        sender,
+        model: "opus",
+        provider_name: Some("anthropic"),
+        budget_tokens: 100_000,
+        reserve_tokens: 0,
+        input_budget_tokens,
+        max_output_tokens: Some(4_096),
+        fast: false,
+    }
 }
 
 fn dialogue() -> Vec<AgentMessage> {
@@ -431,7 +450,13 @@ async fn an_answer_missing_sections_is_repaired_into_the_required_structure() {
 async fn a_history_larger_than_one_call_is_summarised_in_batches_each_updating_the_running_summary() {
     fresh!(meter, ctx, &NoAttachments);
     let messages: Vec<AgentMessage> = (0..6)
-        .map(|n| if n % 2 == 0 { AgentMessage::user(format!("MARKER-{n} {}", "word ".repeat(240))) } else { AgentMessage::assistant(format!("MARKER-{n} {}", "word ".repeat(240)), Vec::new()) })
+        .map(|n| {
+            if n % 2 == 0 {
+                AgentMessage::user(format!("MARKER-{n} {}", "word ".repeat(240)))
+            } else {
+                AgentMessage::assistant(format!("MARKER-{n} {}", "word ".repeat(240)), Vec::new())
+            }
+        })
         .collect();
     // Room for the prompt of the first two messages and not of three.
     let mut system_message = AgentMessage::user(COMPACTION_SYSTEM_PROMPT);
@@ -506,7 +531,10 @@ struct OwnRoute(Arc<Scripted>);
 
 #[async_trait]
 impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
-    async fn resolve(&self, step: mixdog_agent::compact::summary_run::RouteStep) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, SummaryFailure> {
+    async fn resolve(
+        &self,
+        step: mixdog_agent::compact::summary_run::RouteStep,
+    ) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, SummaryFailure> {
         Ok(Some(mixdog_agent::compact::summary_run::SummaryRoute {
             step,
             provider_name: "p".into(),
@@ -520,7 +548,10 @@ impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
     }
 }
 
-async fn plan_with_fork(fork: WarmFork, isolated: Arc<Scripted>) -> Result<(mixdog_agent::compact::summary_run::RouteStep, mixdog_agent::compact::summary_run::Generated), CompactError> {
+async fn plan_with_fork(
+    fork: WarmFork,
+    isolated: Arc<Scripted>,
+) -> Result<(mixdog_agent::compact::summary_run::RouteStep, mixdog_agent::compact::summary_run::Generated), CompactError> {
     fresh!(_meter, ctx, &NoAttachments);
     let messages = dialogue();
     let resolver = OwnRoute(isolated);
@@ -560,7 +591,12 @@ async fn a_warm_fork_that_ended_naturally_with_no_text_still_falls_back_to_the_i
 #[tokio::test]
 async fn an_isolated_summary_cut_by_the_output_limit_keeps_its_text_repaired_and_its_stop_without_a_retry() {
     fresh!(_meter, ctx, &NoAttachments);
-    let sender = Scripted { responses: vec!["The parser was fixed in src/lib.rs.".to_owned()], sent: Mutex::new(Vec::new()), stop: Some(StopReason::MaxTokens), tool_call: false };
+    let sender = Scripted {
+        responses: vec!["The parser was fixed in src/lib.rs.".to_owned()],
+        sent: Mutex::new(Vec::new()),
+        stop: Some(StopReason::MaxTokens),
+        tool_call: false,
+    };
     let got = generate_fresh_handoff_summary(&ctx, &dialogue(), &input(&sender, 0)).await.expect("the extracted text is accepted");
     assert!(got.repaired);
     assert!(summary_is_schema_valid(&got.summary), "{}", got.summary);
@@ -581,7 +617,8 @@ async fn an_isolated_summary_cut_by_the_output_limit_with_no_text_fails_as_empty
 #[tokio::test]
 async fn a_warm_fork_cut_by_the_output_limit_keeps_its_text_repaired_and_its_stop_without_an_isolated_retry() {
     let isolated = Arc::new(Scripted::answering(vec![valid_summary("isolated")]));
-    let (_, got) = plan_with_fork(WarmFork { text: "The parser was fixed in src/lib.rs.".into(), stop: StopReason::MaxTokens }, isolated.clone()).await.expect("accepted");
+    let (_, got) =
+        plan_with_fork(WarmFork { text: "The parser was fixed in src/lib.rs.".into(), stop: StopReason::MaxTokens }, isolated.clone()).await.expect("accepted");
     assert_eq!((got.mode, got.shared_prefix_fallback), ("shared-prefix", None));
     assert!(got.repaired);
     assert!(summary_is_schema_valid(&got.summary), "{}", got.summary);
@@ -651,7 +688,15 @@ fn compactor(summary: Option<Writes>) -> FreshCompactor {
 }
 
 fn request(messages: &[AgentMessage], require_reduction: bool) -> CompactRequest<'_> {
-    CompactRequest { messages, budget_tokens: 50_000, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" }
+    CompactRequest {
+        messages,
+        budget_tokens: 50_000,
+        trigger: CompactTrigger::Auto,
+        require_reduction,
+        reference_latest_attachments: false,
+        active_turn: false,
+        latest_user_prefix: "",
+    }
 }
 
 #[tokio::test]
@@ -799,7 +844,14 @@ async fn compaction_restores_missing_skill_schemas_once_across_retained_loads() 
 }
 
 fn with_ids(messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
-    messages.into_iter().enumerate().map(|(n, mut m)| { m.message_id = Some(format!("m{n}")); m }).collect()
+    messages
+        .into_iter()
+        .enumerate()
+        .map(|(n, mut m)| {
+            m.message_id = Some(format!("m{n}"));
+            m
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -858,7 +910,8 @@ fn a_providers_reading_describes_only_the_prefix_it_was_taken_for_and_the_route_
     let books = Books { signer: &signer, native: &[], agent_mode: false, env: &compact_support::NoVars };
     let sent = [AgentMessage::user("the request")];
     let mut session = header(json!({ "provider": "openai", "model": "m", "contextWindow": 500_000, "compactBoundaryTokens": 500_000 }));
-    let call = json!({ "source": "provider_send", "deltaInput": 300_000, "deltaOutput": 1_000, "deltaCachedRead": 0, "deltaCacheWrite": 0, "deltaPrompt": 300_000 });
+    let call =
+        json!({ "source": "provider_send", "deltaInput": 300_000, "deltaOutput": 1_000, "deltaCachedRead": 0, "deltaCacheWrite": 0, "deltaPrompt": 300_000 });
     usage_change(&session, &call, &sent, &[], Some(&books), false, 1.0, 2.0).unwrap().apply(&mut session);
     let grown = [sent[0].clone(), AgentMessage::assistant("answer", Vec::new()), AgentMessage::user("next")];
     let reading = send_pressure(&session, &grown, &[], &books);
@@ -965,7 +1018,9 @@ fn a_committed_compaction_records_what_changed_and_what_it_cost_and_an_unchanged
     let owner = replay_owner();
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let signer = TranscriptSigner { meter: &meter, images: &NoImages, rows: &Rows };
-    let session = header(json!({ "id": "s1", "provider": "openai", "model": "m", "contextWindow": 100_000, "compaction": { "mainBufferTokens": 30_000, "compactCount": 2 } }));
+    let session = header(
+        json!({ "id": "s1", "provider": "openai", "model": "m", "contextWindow": 100_000, "compaction": { "mainBufferTokens": 30_000, "compactCount": 2 } }),
+    );
     let before = conversation();
     let null = Value::Null;
     let status = StatusInput {
@@ -986,7 +1041,12 @@ fn a_committed_compaction_records_what_changed_and_what_it_cost_and_an_unchanged
     let plan = compaction_plan(&status, false, true).unwrap().unwrap();
     let after = vec![before[0].clone(), AgentMessage::user("summary"), before[7].clone()];
     let appended = [AgentMessage::assistant("late reply", Vec::new())];
-    let facts = SummaryFacts { fresh_context: true, handoff_source: Some("rules".into()), usage: Some(json!({ "inputTokens": 10, "outputTokens": 5 })), ..SummaryFacts::default() };
+    let facts = SummaryFacts {
+        fresh_context: true,
+        handoff_source: Some("rules".into()),
+        usage: Some(json!({ "inputTokens": 10, "outputTokens": 5 })),
+        ..SummaryFacts::default()
+    };
     let before_rows = rows_of(&before);
     let commit = |compacted_rows: &[Value], compacted: &[AgentMessage], appended: &[AgentMessage]| {
         commit_compaction(&CommitInput {
@@ -1009,7 +1069,11 @@ fn a_committed_compaction_records_what_changed_and_what_it_cost_and_an_unchanged
     let changed = commit(&rows_of(&after), &after, &appended);
     assert!(changed.changed);
     assert_eq!(changed.result["changed"], true);
-    assert_eq!((changed.result["beforeMessages"].as_u64(), changed.result["afterMessages"].as_u64()), (Some(8), Some(4)), "late messages are kept after the compacted ones and counted");
+    assert_eq!(
+        (changed.result["beforeMessages"].as_u64(), changed.result["afterMessages"].as_u64()),
+        (Some(8), Some(4)),
+        "late messages are kept after the compacted ones and counted"
+    );
     assert_eq!(changed.result["droppedMessages"], 5);
     assert_eq!(changed.result["droppedIdentities"]["messageIds"], json!(["m1"]));
     assert_eq!(changed.result["handoffSource"], "rules");
@@ -1057,7 +1121,10 @@ fn a_failed_compaction_keeps_the_transcript_and_records_why_under_the_stage_of_i
     let manual = failed_compaction(&status, &plan, false, 500.0, "summary route unavailable", Some("fresh failed"));
     assert_eq!((manual.result["changed"].as_bool(), manual.result["error"].as_str()), (Some(false), Some("summary route unavailable")));
     assert_eq!(manual.result["afterMessages"], 8, "the transcript is as it was");
-    assert_eq!((manual.compaction["lastStage"].as_str(), manual.compaction["lastError"].as_str(), manual.compaction["lastFreshContextError"].as_str()), (Some("manual_failed"), Some("summary route unavailable"), Some("fresh failed")));
+    assert_eq!(
+        (manual.compaction["lastStage"].as_str(), manual.compaction["lastError"].as_str(), manual.compaction["lastFreshContextError"].as_str()),
+        (Some("manual_failed"), Some("summary route unavailable"), Some("fresh failed"))
+    );
     let automatic = failed_compaction(&status, &plan, true, 500.0, "x", None);
     assert_eq!(automatic.compaction["lastStage"], "post_turn_failed");
     assert_eq!(automatic.compaction["lastFreshContextError"], Value::Null);
@@ -1068,7 +1135,15 @@ fn the_summarys_usage_joins_the_sessions_totals_by_the_providers_convention() {
     let session = header(json!({ "totalInputTokens": 100, "totalOutputTokens": 10, "totalCachedReadTokens": 5, "tokensCumulative": 110 }));
     let usage = json!({ "inputTokens": 40, "outputTokens": 6, "cachedTokens": 20, "cacheWriteTokens": 4 });
     let includes = usage_totals(&session, &usage, false);
-    assert_eq!((includes["totalInputTokens"].as_u64(), includes["totalOutputTokens"].as_u64(), includes["totalCachedReadTokens"].as_u64(), includes["totalCacheWriteTokens"].as_u64()), (Some(140), Some(16), Some(25), Some(4)));
+    assert_eq!(
+        (
+            includes["totalInputTokens"].as_u64(),
+            includes["totalOutputTokens"].as_u64(),
+            includes["totalCachedReadTokens"].as_u64(),
+            includes["totalCacheWriteTokens"].as_u64()
+        ),
+        (Some(140), Some(16), Some(25), Some(4))
+    );
     assert_eq!(includes["totalUncachedInputTokens"], 16, "40 - 20 read - 4 written");
     assert_eq!(includes["tokensCumulative"], 156);
     let excludes = usage_totals(&session, &usage, true);

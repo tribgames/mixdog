@@ -19,8 +19,8 @@ use mixdog_core_session::session::thread_switches::mode_notice_text;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
-pub use self::listing::AgentEntry;
 pub use self::clock::prompt_content_text;
+pub use self::listing::AgentEntry;
 pub use self::listing::agent_list_entries;
 pub use self::retained::is_retained;
 pub use self::retained::resubmit;
@@ -70,7 +70,8 @@ pub fn carried_mode(header: &Header) -> Option<String> {
 /// `todoStartReminder(session)` of a genuine prompt: a delegated agent's brief with no open list asks for one.
 fn todo_start(header: &Header, hidden_agent: bool) -> Option<String> {
     let delegated = header.get("owner").and_then(Value::as_str) == Some("agent");
-    let has_todo_tool = header.get("tools").and_then(Value::as_array).is_some_and(|tools| tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(TODO_TOOL)));
+    let has_todo_tool =
+        header.get("tools").and_then(Value::as_array).is_some_and(|tools| tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(TODO_TOOL)));
     let open = mixdog_core_ports::ports::todo_list::list_of(header).open_items().len();
     mixdog_core_run::run_host::guards::todo_start_reminder(delegated, hidden_agent, has_todo_tool, open)
 }
@@ -82,7 +83,6 @@ impl Reminders {
         notice::carry_reminders(message, &self.block, self.agent_listing.as_ref(), self.revisions.settings)
     }
 }
-
 
 /// The turn's reminder block, in Node's order.
 pub fn build(facts: &Facts<'_>) -> Result<Reminders, String> {
@@ -108,7 +108,8 @@ pub fn build(facts: &Facts<'_>) -> Result<Reminders, String> {
         match mode.overlay {
             Some(content) => push(content),
             None => {
-                let instructions = facts.mode_instructions.ok_or_else(|| format!("the {} orchestration mode notice has no instructions to carry", mode.mode))?;
+                let instructions =
+                    facts.mode_instructions.ok_or_else(|| format!("the {} orchestration mode notice has no instructions to carry", mode.mode))?;
                 push(mode_notice_text(&mode.mode, true, &[], instructions));
             }
         }

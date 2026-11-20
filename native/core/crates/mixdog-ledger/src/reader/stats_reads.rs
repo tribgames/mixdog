@@ -48,7 +48,8 @@ impl StatsReads {
     pub(super) fn claim(&self, question: String, key: ReadKey) -> Claim<'_> {
         let mut state = self.0.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(kept) = state.recent.get(&question)
-            && kept.key == key && kept.completed.elapsed() < REUSE
+            && kept.key == key
+            && kept.completed.elapsed() < REUSE
         {
             return Claim::Ready(kept.data.clone());
         }
@@ -87,9 +88,7 @@ impl Drop for Flight<'_> {
                 if state.recent.len() >= KEPT && !state.recent.contains_key(&self.question) {
                     state.recent.clear();
                 }
-                state.recent.insert(std::mem::take(&mut self.question), Kept {
-                    key: self.key.clone(), completed: Instant::now(), data: data.clone(),
-                });
+                state.recent.insert(std::mem::take(&mut self.question), Kept { key: self.key.clone(), completed: Instant::now(), data: data.clone() });
             }
             waiters
         };

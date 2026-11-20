@@ -13,8 +13,8 @@
 
 use std::sync::LazyLock;
 
-pub use mixdog_js::js_trim;
 use mixdog_js::JsRegex;
+pub use mixdog_js::js_trim;
 use mixdog_js::js_trim_end;
 use mixdog_js::json_stringify;
 use mixdog_js::slice_utf16;
@@ -31,26 +31,16 @@ pub const PASTED_LINE_READ_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 const TOOL_RESULT_PART_MAX_DEPTH: usize = 12;
 const TOOL_RESULT_JSON_FALLBACK_MAX: usize = 480;
 
-static IMAGE_METADATA_LINE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\[Image(?::| source:) [^\]\r\n]+\]\s*$", ""));
-static FEEDBACK_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"<visualize_feedback>\n([\s\S]*?)\n?<\/visualize_feedback>", "g")
-});
+static IMAGE_METADATA_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[Image(?::| source:) [^\]\r\n]+\]\s*$", ""));
+static FEEDBACK_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<visualize_feedback>\n([\s\S]*?)\n?<\/visualize_feedback>", "g"));
 static CHOICE_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
     let quoted = r#"("(?:[^"\\]|\\.)*")"#;
-    JsRegex::new_static(
-        &format!(r"· group: (?:{quoted}|\(none\)) → choice: {quoted}(?: \({quoted}\))?$"),
-        "",
-    )
+    JsRegex::new_static(&format!(r"· group: (?:{quoted}|\(none\)) → choice: {quoted}(?: \({quoted}\))?$"), "")
 });
-static TWEAK_CHANGE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^ {4}(.+?) \([^)]*\): (.*) \(was (.*)\)$", ""));
-static PIN_HEAD: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^pin (\d+) · (.*)$", ""));
-static PASTED_LINES: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"· (\d+) lines?$", ""));
-static ATTACHMENT_REF: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^[a-f0-9]{64}$", ""));
+static TWEAK_CHANGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^ {4}(.+?) \([^)]*\): (.*) \(was (.*)\)$", ""));
+static PIN_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^pin (\d+) · (.*)$", ""));
+static PASTED_LINES: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"· (\d+) lines?$", ""));
+static ATTACHMENT_REF: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[a-f0-9]{64}$", ""));
 static WHITESPACE_RUN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\s+", "g"));
 
 /// Why a referenced blob could not be read.
@@ -65,8 +55,7 @@ pub enum ReadFailure {
 /// Reads a referenced blob's UTF-8 text (`readAttachmentTextWithin`): `Ok(None)` when the blob
 /// holds more than `max_bytes`.
 pub trait AttachmentText {
-    fn read_within(&mut self, attachment_ref: &str, max_bytes: usize)
-    -> Result<Option<String>, ReadFailure>;
+    fn read_within(&mut self, attachment_ref: &str, max_bytes: usize) -> Result<Option<String>, ReadFailure>;
 }
 
 /// No blob is readable: chips without a stored count show as `[Pasted text #n]` and offloaded
@@ -83,11 +72,7 @@ impl AttachmentText for NoAttachments {
 /// The display text of a stored user `content` (string or parts), trimmed: the user row's
 /// `text`. `reader` and `budget` (bytes, `PASTED_LINE_READ_BUDGET_BYTES` per projection) bound
 /// the blob reads.
-pub fn user_display_text(
-    content: &Value,
-    reader: &mut dyn AttachmentText,
-    budget: &mut usize,
-) -> String {
+pub fn user_display_text(content: &Value, reader: &mut dyn AttachmentText, budget: &mut usize) -> String {
     let text = match content {
         Value::Array(parts) => restored_user_parts(parts, reader, budget).join("\n"),
         Value::String(text) => text.clone(),
@@ -124,10 +109,7 @@ fn truthy(value: &Value) -> bool {
 
 /// `a || b || c` over string fields.
 fn first_nonempty<'a>(part: &'a Value, keys: &[&str], fallback: &'a str) -> &'a str {
-    keys.iter()
-        .map(|key| str_field(part, key))
-        .find(|value| !value.is_empty())
-        .unwrap_or(fallback)
+    keys.iter().map(|key| str_field(part, key)).find(|value| !value.is_empty()).unwrap_or(fallback)
 }
 
 enum Entry {
@@ -135,11 +117,7 @@ enum Entry {
     Offloaded(String),
 }
 
-fn restored_user_parts(
-    content: &[Value],
-    reader: &mut dyn AttachmentText,
-    budget: &mut usize,
-) -> Vec<String> {
+fn restored_user_parts(content: &[Value], reader: &mut dyn AttachmentText, budget: &mut usize) -> Vec<String> {
     let mut texts: Vec<Entry> = Vec::new();
     let mut pending_metadata = String::new();
     let mut stored_texts = 0usize;
@@ -148,11 +126,7 @@ fn restored_user_parts(
         if is_media_reference_part(part) {
             continue;
         }
-        let token = if is_attachment_reference(part) {
-            stored_text_token(part, stored_texts + 1, reader, budget)
-        } else {
-            String::new()
-        };
+        let token = if is_attachment_reference(part) { stored_text_token(part, stored_texts + 1, reader, budget) } else { String::new() };
         if !token.is_empty() {
             stored_texts += 1;
             texts.push(Entry::Text(token));
@@ -168,20 +142,13 @@ fn restored_user_parts(
             pending_metadata.clear();
             continue;
         }
-        let text = if is_attachment_reference(part) {
-            referenced_feedback_text(part, reader)
-        } else {
-            tool_result_part_text(part, 0)
-        };
+        let text = if is_attachment_reference(part) { referenced_feedback_text(part, reader) } else { tool_result_part_text(part, 0) };
         if !text.is_empty() {
             if !IMAGE_METADATA_LINE.is_match(&text) {
                 companion_text = true;
             }
             texts.push(Entry::Text(text.clone()));
-        } else if is_attachment_reference(part)
-            && kind == "text"
-            && !part.get("textKind").is_some_and(truthy)
-        {
+        } else if is_attachment_reference(part) && kind == "text" && !part.get("textKind").is_some_and(truthy) {
             texts.push(Entry::Offloaded(str_field(part, "attachmentRef").to_owned()));
         }
         pending_metadata = if IMAGE_METADATA_LINE.is_match(&text) {
@@ -206,11 +173,7 @@ fn restored_user_parts(
 }
 
 /// `offloadedPromptText`.
-fn offloaded_prompt_text(
-    reference: &str,
-    reader: &mut dyn AttachmentText,
-    budget: &mut usize,
-) -> String {
+fn offloaded_prompt_text(reference: &str, reader: &mut dyn AttachmentText, budget: &mut usize) -> String {
     let allowance = PASTED_TEXT_MAX_BYTES.min(*budget);
     if allowance == 0 {
         return String::new();
@@ -229,11 +192,7 @@ fn offloaded_prompt_text(
 }
 
 /// `storedPasteLines`: the visible line count, or `None` past the budget.
-fn stored_paste_lines(
-    part: &Value,
-    reader: &mut dyn AttachmentText,
-    budget: &mut usize,
-) -> Option<usize> {
+fn stored_paste_lines(part: &Value, reader: &mut dyn AttachmentText, budget: &mut usize) -> Option<usize> {
     if let Some(named) = PASTED_LINES.captures(str_field(part, "filename")) {
         return named.get(1).and_then(|n| n.parse().ok());
     }
@@ -257,12 +216,7 @@ fn stored_paste_lines(
 }
 
 /// `storedTextToken`.
-fn stored_text_token(
-    part: &Value,
-    number: usize,
-    reader: &mut dyn AttachmentText,
-    budget: &mut usize,
-) -> String {
+fn stored_text_token(part: &Value, number: usize, reader: &mut dyn AttachmentText, budget: &mut usize) -> String {
     if str_field(part, "type") != "text" {
         return String::new();
     }
@@ -271,10 +225,7 @@ fn stored_text_token(
             Some(lines) => format!("[Pasted text #{number} +{lines} lines]"),
             None => format!("[Pasted text #{number}]"),
         },
-        "file" => format!(
-            "[File #{number}: {}]",
-            first_nonempty(part, &["filename"], "attachment.txt")
-        ),
+        "file" => format!("[File #{number}: {}]", first_nonempty(part, &["filename"], "attachment.txt")),
         _ => String::new(),
     }
 }
@@ -300,10 +251,7 @@ fn with_visualize_feedback_display(text: &str) -> String {
 
 /// `String(JSON.parse(value))`, `''` for an absent or unparsable value.
 fn unquote(value: Option<&str>) -> String {
-    value
-        .and_then(|v| serde_json::from_str::<Value>(v).ok())
-        .map(|v| value_to_string(&v))
-        .unwrap_or_default()
+    value.and_then(|v| serde_json::from_str::<Value>(v).ok()).map(|v| value_to_string(&v)).unwrap_or_default()
 }
 
 /// `feedbackDisplay`: the live bubble's lines for one feedback block body.
@@ -343,11 +291,7 @@ fn feedback_display(body: &str) -> String {
             }
         }
         if let Some(head) = PIN_HEAD.captures(line) {
-            pins.push(Pin {
-                n: head.get(1).unwrap_or_default().to_owned(),
-                label: head.get(2).unwrap_or_default().to_owned(),
-                note: String::new(),
-            });
+            pins.push(Pin { n: head.get(1).unwrap_or_default().to_owned(), label: head.get(2).unwrap_or_default().to_owned(), note: String::new() });
             pin = Some(pins.len() - 1);
             note = false;
             in_choices = false;
@@ -375,17 +319,11 @@ fn feedback_display(body: &str) -> String {
         }
         note = false;
         if in_choices && let Some(choice) = CHOICE_LINE.captures(line) {
-            choices.push((
-                unquote(choice.get(1)),
-                unquote(choice.get(2)),
-                unquote(choice.get(3)),
-            ));
+            choices.push((unquote(choice.get(1)), unquote(choice.get(2)), unquote(choice.get(3))));
         }
     }
-    let mut lines: Vec<String> = pins
-        .iter()
-        .map(|p| format!("📌 {} · {} — {}", p.n, p.label, WHITESPACE_RUN.replace_all_with(&p.note, |_| " ".to_owned())))
-        .collect();
+    let mut lines: Vec<String> =
+        pins.iter().map(|p| format!("📌 {} · {} — {}", p.n, p.label, WHITESPACE_RUN.replace_all_with(&p.note, |_| " ".to_owned()))).collect();
     if !choices.is_empty() {
         let picks: Vec<String> = choices
             .iter()
@@ -397,11 +335,7 @@ fn feedback_display(body: &str) -> String {
             .collect();
         lines.push(format!("☑ {}", picks.join(", ")));
     }
-    let changed: Vec<String> = tweak_sets
-        .iter()
-        .filter(|set| !set.is_empty())
-        .map(|set| set.join(", "))
-        .collect();
+    let changed: Vec<String> = tweak_sets.iter().filter(|set| !set.is_empty()).map(|set| set.join(", ")).collect();
     if !changed.is_empty() {
         lines.push(format!("🎚 {}", changed.join("; ")));
     }
@@ -456,12 +390,7 @@ pub fn tool_result_text(content: &Value) -> String {
 }
 
 fn join_part_texts(parts: &[Value], depth: usize) -> String {
-    parts
-        .iter()
-        .map(|part| tool_result_part_text(part, depth))
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    parts.iter().map(|part| tool_result_part_text(part, depth)).filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
 fn tool_result_part_text(part: &Value, depth: usize) -> String {
@@ -593,10 +522,7 @@ mod tests {
             { "type": "image", "mediaType": "image/jpeg" },
             { "type": "text", "attachmentReference": true, "text": "model-only reference" },
         ]);
-        assert_eq!(
-            show(content, Vec::new()),
-            "look at this  \n[Pasted text #1 +3 lines]\n[File #2: notes.md]\n[Image: shot.png]\n[Image: image/jpeg]"
-        );
+        assert_eq!(show(content, Vec::new()), "look at this  \n[Pasted text #1 +3 lines]\n[File #2: notes.md]\n[Image: shot.png]\n[Image: image/jpeg]");
         // A paste without a stored count is read; a missing blob shows the bare chip.
         let counted = json!([{ "type": "text", "attachmentRef": A, "textKind": "paste" }]);
         assert_eq!(show(counted.clone(), vec![(A, "one\ntwo\r\n\n")]), "[Pasted text #1 +2 lines]");
@@ -611,9 +537,6 @@ mod tests {
     #[test]
     fn feedback_blocks_show_the_live_lines() {
         let text = "before\n<visualize_feedback>\npin 1 · Header\n  note: make it\n    bigger\nchoices:\n  · group: \"Theme\" → choice: \"dark\" (\"Dark mode\")\ntweaks (tab):\n    gap (px): 8 (was 4)\n</visualize_feedback>";
-        assert_eq!(
-            show(json!(text), Vec::new()),
-            "before\n📌 1 · Header — make it bigger\n☑ Theme: Dark mode\n🎚 gap: 8 (was 4)"
-        );
+        assert_eq!(show(json!(text), Vec::new()), "before\n📌 1 · Header — make it bigger\n☑ Theme: Dark mode\n🎚 gap: 8 (was 4)");
     }
 }

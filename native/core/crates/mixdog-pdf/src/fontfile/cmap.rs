@@ -120,13 +120,8 @@ impl CMap {
     /// `addCodespaceRange(n, low, high)`. A width outside 1 to 4 is a `TypeError` in pdf.js (`codespaceRanges[n - 1]`
     /// is `undefined`), here a failure the CMap parser catches as pdf.js does.
     pub fn add_codespace_range(&mut self, n: usize, low: u32, high: u32) -> Result<()> {
-        let Some(ranges) = n
-            .checked_sub(1)
-            .and_then(|i| self.codespace_ranges.get_mut(i))
-        else {
-            return Err(PdfError::Unknown(
-                "Cannot read properties of undefined (reading 'push')".to_owned(),
-            ));
+        let Some(ranges) = n.checked_sub(1).and_then(|i| self.codespace_ranges.get_mut(i)) else {
+            return Err(PdfError::Unknown("Cannot read properties of undefined (reading 'push')".to_owned()));
         };
         ranges.extend([low, high]);
         self.num_codespace_ranges += 1;
@@ -139,9 +134,7 @@ impl CMap {
             return Ok(());
         }
         if self.mapped_entries + count > MAX_MAP_RANGE {
-            return Err(PdfError::Unknown(format!(
-                "{name} - ignoring data above MAX_MAP_RANGE."
-            )));
+            return Err(PdfError::Unknown(format!("{name} - ignoring data above MAX_MAP_RANGE.")));
         }
         self.mapped_entries += count;
         Ok(())
@@ -171,12 +164,7 @@ impl CMap {
     }
 
     /// `mapBfRangeToArray(low, high, array)`.
-    pub fn map_bf_range_to_array(
-        &mut self,
-        low: u32,
-        high: u32,
-        array: Vec<CMapValue>,
-    ) -> Result<()> {
+    pub fn map_bf_range_to_array(&mut self, low: u32, high: u32, array: Vec<CMapValue>) -> Result<()> {
         let span = i64::from(high) - i64::from(low) + 1;
         let len = i64::try_from(array.len()).unwrap_or(i64::MAX);
         self.consume_budget(span.min(len), "mapBfRangeToArray")?;
@@ -231,11 +219,7 @@ impl CMap {
                 _ => -1,
             };
         }
-        self.map
-            .entries
-            .iter()
-            .find(|(_, entry)| entry == value)
-            .map_or(-1, |(code, _)| i64::from(*code))
+        self.map.entries.iter().find(|(_, entry)| entry == value).map_or(-1, |(code, _)| i64::from(*code))
     }
 
     /// `getMap()`: a copy of the entries in insertion order.
@@ -275,11 +259,7 @@ impl CMap {
 
     /// `size`.
     pub fn size(&self) -> usize {
-        if self.identity {
-            0x10000
-        } else {
-            self.map.entries.len()
-        }
+        if self.identity { 0x10000 } else { self.map.entries.len() }
     }
 
     /// `isIdentityCMap`: named `Identity-H` or `Identity-V` and mapping every code up to 0xffff to itself.
@@ -299,10 +279,7 @@ impl CMap {
 
 /// `String.prototype.charCodeAt(index)`: `None` is `NaN`.
 fn char_code_at(text: &[u16], index: isize) -> Option<u32> {
-    usize::try_from(index)
-        .ok()
-        .and_then(|i| text.get(i))
-        .map(|unit| u32::from(*unit))
+    usize::try_from(index).ok().and_then(|i| text.get(i)).map(|unit| u32::from(*unit))
 }
 
 /// `text.substring(0, end)`: `end` is clamped into the string.
@@ -344,21 +321,13 @@ impl CMapFactory {
     /// `CMapFactory.create({encoding, fetchBuiltInCMap, useCMap})` with the embedded predefined CMaps as the fetch.
     /// `encoding` is `None` when the font has no `/Encoding` (`Error("Encoding required.")`). A stream that parses
     /// as the identity CMap gives the built-in identity CMap of its name.
-    pub fn create(
-        encoding: Option<CMapEncoding<'_>>,
-        use_cmap: Option<&str>,
-        guard: &Arc<Guard>,
-    ) -> Result<CMap> {
+    pub fn create(encoding: Option<CMapEncoding<'_>>, use_cmap: Option<&str>, guard: &Arc<Guard>) -> Result<CMap> {
         match encoding {
             Some(CMapEncoding::Name(name)) => create_built_in_cmap(name),
             Some(CMapEncoding::Stream(bytes)) => {
                 let lexer = Lexer::new(ByteStream::from_vec(bytes.to_vec()), Arc::clone(guard));
                 let parsed = parse_cmap(CMap::new(false), lexer, use_cmap)?;
-                if parsed.is_identity_cmap() {
-                    create_built_in_cmap(&parsed.name)
-                } else {
-                    Ok(parsed)
-                }
+                if parsed.is_identity_cmap() { create_built_in_cmap(&parsed.name) } else { Ok(parsed) }
             }
             None => Err(PdfError::Unknown("Encoding required.".to_owned())),
         }
@@ -539,12 +508,7 @@ fn parse_cmap_name(cmap: &mut CMap, lexer: &mut Lexer) -> Result<()> {
 }
 
 /// One token of the CMap and what it starts; `false` at the end (`endcmap` or the end of the data).
-fn parse_cmap_step(
-    cmap: &mut CMap,
-    lexer: &mut Lexer,
-    previous: &mut Option<Obj>,
-    embedded_use_cmap: &mut Option<String>,
-) -> Result<bool> {
+fn parse_cmap_step(cmap: &mut CMap, lexer: &mut Lexer, previous: &mut Option<Obj>, embedded_use_cmap: &mut Option<String>) -> Result<bool> {
     let obj = lexer.get_obj()?;
     if obj.is_eof() {
         return Ok(false);
@@ -589,11 +553,7 @@ fn parse_cmap(mut cmap: CMap, mut lexer: Lexer, use_cmap: Option<&str>) -> Resul
         }
     }
     // An empty name is falsy in pdf.js: it neither replaces the embedded one nor extends.
-    let use_cmap = use_cmap
-        .filter(|name| !name.is_empty())
-        .map(str::to_owned)
-        .or(embedded_use_cmap)
-        .filter(|name| !name.is_empty());
+    let use_cmap = use_cmap.filter(|name| !name.is_empty()).map(str::to_owned).or(embedded_use_cmap).filter(|name| !name.is_empty());
     if let Some(name) = use_cmap {
         extend_cmap(&mut cmap, &name)?;
     }

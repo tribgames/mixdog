@@ -19,11 +19,11 @@ use async_trait::async_trait;
 use mixdog_core_base::rooms::ids::SESSION_ID_PATTERN;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_js::JsRegex;
-use mixdog_js::time::date_parse;
 use mixdog_js::js_trim;
 use mixdog_js::json_number;
 use mixdog_js::number_to_string;
 use mixdog_js::string_to_number;
+use mixdog_js::time::date_parse;
 use mixdog_js::to_number_of;
 use mixdog_js::value_to_string;
 use serde_json::Map;
@@ -44,9 +44,8 @@ const TODO_STATUSES: [&str; 4] = ["pending", "in_progress", "completed", "abando
 const IN_FLIGHT_STAGES: [&str; 5] = ["connecting", "requesting", "streaming", "tool_running", "cancelling"];
 const SESSION_CANCEL_FIELDS: [&str; 7] = ["cancelStatus", "status", "state", "lastStatus", "stage", "outcome", "terminationReason"];
 
-static WORKING: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$", "i")
-});
+static WORKING: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$", "i"));
 static QUEUED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:queued|pending|starting|resource_wait)$", "i"));
 static CANCELLED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:cancelled|canceled|killed)$", "i"));
 static CANCEL_UNCONFIRMED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:cancel[-_\s]?(?:unconfirmed|pending))$", "i"));
@@ -338,10 +337,8 @@ struct Cancel {
 fn cancel_state(source: Option<&Row>) -> Option<Cancel> {
     let source = source?;
     let statuses: Vec<String> = SESSION_CANCEL_FIELDS.iter().map(|key| clean_value(source.get(*key))).filter(|status| !status.is_empty()).collect();
-    let status = statuses
-        .iter()
-        .find(|status| status_is(&CANCEL_UNCONFIRMED, status))
-        .or_else(|| statuses.iter().find(|status| status_is(&CANCELLED, status)))?;
+    let status =
+        statuses.iter().find(|status| status_is(&CANCEL_UNCONFIRMED, status)).or_else(|| statuses.iter().find(|status| status_is(&CANCELLED, status)))?;
     Some(Cancel { status: status.clone(), at: cancel_stamp(Some(source)) })
 }
 
@@ -360,11 +357,7 @@ fn effective_cancel(row: &Row, session: Option<&Row>) -> Option<Cancel> {
 }
 
 fn cancel_stage(cancel: &Cancel, declared_stage: &str) -> String {
-    if status_is(&CANCEL_PREFIX, declared_stage) || status_is(&CANCELLED, declared_stage) {
-        declared_stage.to_owned()
-    } else {
-        cancel.status.clone()
-    }
+    if status_is(&CANCEL_PREFIX, declared_stage) || status_is(&CANCELLED, declared_stage) { declared_stage.to_owned() } else { cancel.status.clone() }
 }
 
 fn pane_visible(finished_at: f64, now: f64) -> bool {
@@ -375,12 +368,22 @@ fn pane_visible(finished_at: f64, now: f64) -> bool {
 
 fn owner_session_id(row: &Row, session: Option<&Row>) -> Value {
     let session_get = |key: &str| session.and_then(|session| session.get(key));
-    text_or_null(clean_value(first_truthy(&[row.get("ownerSessionId"), session_get("ownerSessionId"), row.get("parentSessionId"), session_get("parentSessionId")])))
+    text_or_null(clean_value(first_truthy(&[
+        row.get("ownerSessionId"),
+        session_get("ownerSessionId"),
+        row.get("parentSessionId"),
+        session_get("parentSessionId"),
+    ])))
 }
 
 fn parent_session_id(row: &Row, session: Option<&Row>) -> Value {
     let session_get = |key: &str| session.and_then(|session| session.get(key));
-    text_or_null(clean_value(first_truthy(&[row.get("parentSessionId"), session_get("parentSessionId"), row.get("ownerSessionId"), session_get("ownerSessionId")])))
+    text_or_null(clean_value(first_truthy(&[
+        row.get("parentSessionId"),
+        session_get("parentSessionId"),
+        row.get("ownerSessionId"),
+        session_get("ownerSessionId"),
+    ])))
 }
 
 fn lower(value: Option<&Value>) -> String {
@@ -392,11 +395,7 @@ fn lower(value: Option<&Value>) -> String {
 fn tombstone_key(row: &Row) -> String {
     let parent = clean_nullish(first_truthy(&[row.get("parentSessionId"), row.get("ownerSessionId")]));
     let tag = clean_nullish(row.get("tag"));
-    if parent.is_empty() {
-        format!("{}\0{tag}", number_to_string(positive_int(row.get("clientHostPid"))))
-    } else {
-        format!("session:{parent}\0{tag}")
-    }
+    if parent.is_empty() { format!("{}\0{tag}", number_to_string(positive_int(row.get("clientHostPid")))) } else { format!("session:{parent}\0{tag}") }
 }
 
 fn find_tombstone<'a>(work: &Row, tombstones: &'a HashMap<String, Row>) -> Option<&'a Row> {
@@ -463,10 +462,10 @@ impl Assembly<'_> {
         let session_get = |key: &str| session.and_then(|session| session.get(key));
         let todo = todo_progress(session_get("todo"));
         let declared_status = Some(clean_value(row.get("status"))).filter(|s| !s.is_empty()).unwrap_or_else(|| "running".into());
-        let declared_stage = Some(clean_value(first_truthy(&[row.get("stage"), row.get("status")]))).filter(|s| !s.is_empty()).unwrap_or_else(|| "running".into());
+        let declared_stage =
+            Some(clean_value(first_truthy(&[row.get("stage"), row.get("status")]))).filter(|s| !s.is_empty()).unwrap_or_else(|| "running".into());
         let life = lifecycle(row);
-        let declared_working = status_is(&WORKING, if life.is_empty() { "running" } else { &life })
-            || status_is(&QUEUED, &life);
+        let declared_working = status_is(&WORKING, if life.is_empty() { "running" } else { &life }) || status_is(&QUEUED, &life);
         let cancel = effective_cancel(row, session);
         let working = cancel.is_none() && self.running.contains(&session_id);
         let request_route = working.then(|| self.live.request_route(&session_id)).flatten();
@@ -626,8 +625,7 @@ impl Assembly<'_> {
     /// A child row is a projection of its Lead: once the Lead's row is gone it is dropped, unless
     /// it is still working or its owner is not a Lead conversation.
     fn prune_orphans(&self, by_session: &mut Row, live_leads: &HashSet<String>) {
-        let snapshot: Vec<(String, Row)> =
-            by_session.iter().filter_map(|(id, row)| row.as_object().map(|row| (id.clone(), row.clone()))).collect();
+        let snapshot: Vec<(String, Row)> = by_session.iter().filter_map(|(id, row)| row.as_object().map(|row| (id.clone(), row.clone()))).collect();
         for (session_id, row) in snapshot {
             if lower(row.get("agent")) == "lead" {
                 continue;
@@ -701,7 +699,14 @@ impl AgentPool {
         Ok(self.lay_live(rows))
     }
 
-    fn assemble(&self, child_rows: &[Value], agent_index: Option<&Value>, lead_index: Option<&Value>, running: &HashSet<String>, headers: &Headers) -> Result<Vec<Value>, PoolError> {
+    fn assemble(
+        &self,
+        child_rows: &[Value],
+        agent_index: Option<&Value>,
+        lead_index: Option<&Value>,
+        running: &HashSet<String>,
+        headers: &Headers,
+    ) -> Result<Vec<Value>, PoolError> {
         let now = self.live.now();
         let mut by_id: HashMap<String, &Value> = HashMap::new();
         for row in child_rows {
@@ -711,11 +716,8 @@ impl AgentPool {
             by_id.insert(clean_value(get(row, "sessionId")), row);
         }
         let tombstones = agent_index.and_then(|index| get(index, "tombstones")).map(tombstone_rows).unwrap_or_default();
-        let tombstones: HashMap<String, Row> = tombstones
-            .into_iter()
-            .filter(|row| stamp_ms(row.get("reapedAt")) >= now - TAG_TOMBSTONE_TTL_MS)
-            .map(|row| (tombstone_key(&row), row))
-            .collect();
+        let tombstones: HashMap<String, Row> =
+            tombstones.into_iter().filter(|row| stamp_ms(row.get("reapedAt")) >= now - TAG_TOMBSTONE_TTL_MS).map(|row| (tombstone_key(&row), row)).collect();
         let header_of = |id: &str| headers.get(id).and_then(Option::as_ref);
         let is_reaped = |session_id: &str| {
             let header = header_of(session_id);
@@ -848,7 +850,9 @@ impl AgentPool {
                 direct
             }
         };
-        if ask_started > row_start && let Some(started) = iso(ask_started) {
+        if ask_started > row_start
+            && let Some(started) = iso(ask_started)
+        {
             row.insert("turnStartedAt".into(), Value::String(started));
         }
         if to_number_of(liveness.get("taskWaits")) > 0.0 {

@@ -10,12 +10,12 @@ use std::sync::Mutex;
 
 use arc_swap::ArcSwap;
 use arc_swap::ArcSwapOption;
+use mixdog_agent::cancel::Cancel;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::QueuedId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::thread::Decision;
-use mixdog_agent::cancel::Cancel;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
@@ -40,7 +40,9 @@ pub(crate) enum Ctl {
         reply: tokio::sync::oneshot::Sender<mixdog_protocol::ApprovalResolution>,
     },
     /// The run's token is already cancelled; the actor resolves the run's own requests.
-    Abort { turn: TurnId },
+    Abort {
+        turn: TurnId,
+    },
     /// A Stop with no published run: the actor stops whatever the session's busy span holds (a start, a settlement, a
     /// compaction) through its owner and says what it found.
     StopBusy(tokio::sync::oneshot::Sender<BusyStop>),
@@ -71,11 +73,16 @@ pub(crate) enum Ctl {
     },
     /// `turn/steer`: the queued prompt is prioritized (front of the queue, priority `now`, a drain kicked), and the
     /// entries pushed into the active run's steer queue are taken.
-    Prioritize { queued: QueuedId },
+    Prioritize {
+        queued: QueuedId,
+    },
     /// A decision on a server request. `arbitrated`, when given, is answered once the actor took it (`true`: it resolved the
     /// request) or found the request resolved or resolving (`false`), or with why it is not a valid decision.
     Decide(Decision, Option<tokio::sync::oneshot::Sender<Result<bool, CoreError>>>),
-    RunEnded { turn: TurnId, outcome: RunOutcome },
+    RunEnded {
+        turn: TurnId,
+        outcome: RunOutcome,
+    },
     /// The user's "Retry storage" (SM §8 `PendingRollback`).
     RetryStorage,
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
@@ -86,7 +93,9 @@ pub(crate) enum Ctl {
     Resumed,
     /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
     /// folder moved: the code-graph warm follows.
-    CwdApplied { changed: bool },
+    CwdApplied {
+        changed: bool,
+    },
     /// The last subscriber left: the thread goes back on the idle clock.
     Unsubscribed,
     /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn
@@ -624,19 +633,14 @@ impl LiveHeader for ControlCell {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// `isQueuedEntryEditable` (`queue-helpers.mjs`): a prompt the user typed, as opposed to a task notification, a
 /// pending resume, a Goal entry or a meta entry.
 pub(super) fn is_editable_entry(entry: &Value) -> bool {
     let mode = entry.get("mode").and_then(Value::as_str).unwrap_or("prompt");
-    mode != super::completions::MODE
-        && mode != "pending-resume"
-        && !super::goal_lane::is_goal_entry(entry)
-        && entry.get("isMeta") != Some(&Value::Bool(true))
+    mode != super::completions::MODE && mode != "pending-resume" && !super::goal_lane::is_goal_entry(entry) && entry.get("isMeta") != Some(&Value::Bool(true))
 }
 
 /// The entries `prioritizeQueued` selects: `isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry)`.
@@ -646,20 +650,13 @@ pub(super) fn is_prioritizable_entry(entry: &Value) -> bool {
 
 impl ControlCell {
     fn not_active(&self, turn: Option<&TurnId>) -> CoreError {
-        CoreError::TurnNotActive {
-            thread_id: self.thread.clone(),
-            turn_id: turn.cloned(),
-        }
+        CoreError::TurnNotActive { thread_id: self.thread.clone(), turn_id: turn.cloned() }
     }
 
     fn send(&self, ctl: Ctl) -> Result<(), CoreError> {
         self.ctl_tx.try_send(ctl).map_err(|error| match error {
-            mpsc::error::TrySendError::Full(_) => CoreError::QueueFull {
-                queue: "control".into(),
-            },
-            mpsc::error::TrySendError::Closed(_) => CoreError::ThreadClosing {
-                thread_id: self.thread.clone(),
-            },
+            mpsc::error::TrySendError::Full(_) => CoreError::QueueFull { queue: "control".into() },
+            mpsc::error::TrySendError::Closed(_) => CoreError::ThreadClosing { thread_id: self.thread.clone() },
         })
     }
 
@@ -712,19 +709,14 @@ impl ControlCell {
             .find(|entry| super::actor::queued_is(&entry.qid, &entry.entry, queued.as_str()) && is_prioritizable_entry(&entry.entry))
             .map(|entry| QueuedId::from(entry.qid.as_str()));
         let Some(queued) = found else {
-            return Err(CoreError::QueuedEntryNotFound {
-                thread_id: self.thread.clone(),
-                queued_id: queued,
-            });
+            return Err(CoreError::QueuedEntryNotFound { thread_id: self.thread.clone(), queued_id: queued });
         };
         let run = self.run.load_full();
         if let Some(run) = run.filter(|run| expected.is_none_or(|expected| &run.turn == expected)) {
             let mut steers = lock(&run.steers);
             if !steers.contains(&queued) {
                 if steers.len() >= self.steer_cap {
-                    return Err(CoreError::QueueFull {
-                        queue: "steer".into(),
-                    });
+                    return Err(CoreError::QueueFull { queue: "steer".into() });
                 }
                 steers.push_back(queued.clone());
             }
@@ -736,8 +728,7 @@ impl ControlCell {
     /// A server-request response. A request that is not decidable (unknown, resolved or
     /// resolving) is a no-op: its `serverRequest/resolved` reaches every connection anyway.
     pub fn decide(&self, decision: Decision) -> Result<(), CoreError> {
-        let decidable = mixdog_core_base::approvals::parse_id(&decision.request)
-            .is_some_and(|aid| self.approvals.load().contains(&aid.0));
+        let decidable = mixdog_core_base::approvals::parse_id(&decision.request).is_some_and(|aid| self.approvals.load().contains(&aid.0));
         if !decidable {
             return Ok(());
         }
@@ -748,16 +739,13 @@ impl ControlCell {
     /// `result.approved === true` for the one that resolved the request, `session-host-lifecycle.ts:1086-1102`): `true` once the
     /// actor resolved the request with it, `false` when the request is not decidable or another decision took it first.
     pub async fn decide_arbitrated(&self, decision: Decision) -> Result<bool, CoreError> {
-        let decidable = mixdog_core_base::approvals::parse_id(&decision.request)
-            .is_some_and(|aid| self.approvals.load().contains(&aid.0));
+        let decidable = mixdog_core_base::approvals::parse_id(&decision.request).is_some_and(|aid| self.approvals.load().contains(&aid.0));
         if !decidable {
             return Ok(false);
         }
         let (arbitrated, outcome) = tokio::sync::oneshot::channel();
         self.send(Ctl::Decide(decision, Some(arbitrated)))?;
-        outcome.await.map_err(|_| CoreError::ThreadClosing {
-            thread_id: self.thread.clone(),
-        })?
+        outcome.await.map_err(|_| CoreError::ThreadClosing { thread_id: self.thread.clone() })?
     }
 
     pub fn publish_run(&self, run: Option<Arc<ActiveRun>>) {
@@ -765,8 +753,6 @@ impl ControlCell {
         self.live_changed();
     }
 }
-
-
 
 /// A fence a test arms on the actor's own step: told the step's name.
 #[cfg(any(test, feature = "test-support"))]

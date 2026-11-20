@@ -18,10 +18,10 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
-pub use mixdog_agent::cancel::{ABORTED, Cancel, JOB_CANCELLED};
 use mixdog_agent::agent_tool::flow::seams::{Admission, Lease};
-use mixdog_agent::env::Yielder;
+pub use mixdog_agent::cancel::{ABORTED, Cancel, JOB_CANCELLED};
 use mixdog_agent::env::Clock;
+use mixdog_agent::env::Yielder;
 use tokio::sync::oneshot;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -183,10 +183,7 @@ impl Controller {
         state.active[idx(pool)] += 1;
         state.next_id += 1;
         let id = state.next_id;
-        state.leases.insert(
-            id,
-            LeaseState { pool, owner: owner.to_owned(), priority, counted: true, depth: 0, restore: None, parent, cancel },
-        );
+        state.leases.insert(id, LeaseState { pool, owner: owner.to_owned(), priority, counted: true, depth: 0, restore: None, parent, cancel });
         Self::record(state, pool_name(pool, false), queued_ms);
         id
     }
@@ -232,14 +229,7 @@ impl Controller {
         if let Some(l) = state.leases.get_mut(&id) {
             l.restore = Some(wid);
         }
-        state.queue.push(Waiter {
-            id: wid,
-            pool,
-            owner,
-            priority,
-            queued_at: self.clock.now_ms(),
-            entry: Entry::Restore { lease: id, txs: vec![tx] },
-        });
+        state.queue.push(Waiter { id: wid, pool, owner, priority, queued_at: self.clock.now_ms(), entry: Entry::Restore { lease: id, txs: vec![tx] } });
         #[cfg(any(test, feature = "test-support"))]
         self.queued.notify_waiters();
         Some((rx, wid, own))
@@ -439,9 +429,7 @@ impl Slot {
             let restoring = c.resume(&mut state, self.id, succeeded);
             (restoring, pool_full, c.drain(&mut state))
         };
-        if pool_full
-            && let Some(hint) = on_restore_wait
-        {
+        if pool_full && let Some(hint) = on_restore_wait {
             hint();
         }
         c.deliver(deliveries);
@@ -452,7 +440,12 @@ impl Slot {
 
 #[async_trait]
 impl Yielder for Slot {
-    async fn run_yielded_reporting(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&Cancel>, waiting: &(dyn Fn() + Send + Sync)) -> Result<(), String> {
+    async fn run_yielded_reporting(
+        &self,
+        task: futures::future::BoxFuture<'_, bool>,
+        cancel: Option<&Cancel>,
+        waiting: &(dyn Fn() + Send + Sync),
+    ) -> Result<(), String> {
         Slot::run_yielded(self, async { if task.await { Ok(()) } else { Err(()) } }, cancel, Some(waiting)).await.map(drop)
     }
     async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&Cancel>) -> Result<(), String> {
@@ -488,13 +481,15 @@ pub struct WaitStats {
 
 impl ResourceAdmission {
     pub fn new(limits: Limits, clock: Arc<dyn Clock>) -> Self {
-        Self { controller: Arc::new(Controller {
+        Self {
+            controller: Arc::new(Controller {
                 limits,
                 clock,
                 state: Mutex::new(State::default()),
                 #[cfg(any(test, feature = "test-support"))]
                 queued: tokio::sync::Notify::new(),
-            }) }
+            }),
+        }
     }
 
     /// `acquire(kind, { signal, ownerKey, priority })`. The owner key is trimmed and cut to 240
@@ -506,14 +501,7 @@ impl ResourceAdmission {
     /// `acquire` made while `parent` (an agent lease) is held, the scoped dependency of Node's
     /// ambient lease: the parent gives its slot up until this lease is released, so nested work
     /// cannot starve its own caller. A shell never suspends its agent.
-    pub async fn acquire_under(
-        &self,
-        parent: Option<&Held>,
-        pool: Pool,
-        owner_key: Option<&str>,
-        priority: Priority,
-        cancel: &Cancel,
-    ) -> Result<Held, String> {
+    pub async fn acquire_under(&self, parent: Option<&Held>, pool: Pool, owner_key: Option<&str>, priority: Priority, cancel: &Cancel) -> Result<Held, String> {
         let owner: String = owner_key.map(|k| mixdog_js::js_trim(k).chars().take(240).collect()).unwrap_or_default();
         if cancel.is_aborted() {
             return Err(cancel.reason());
@@ -589,9 +577,7 @@ impl ResourceAdmission {
 #[async_trait]
 impl Admission for ResourceAdmission {
     async fn acquire(&self, _label: &str, owner_key: Option<&str>, cancel: &Cancel) -> Result<Box<dyn Lease>, String> {
-        self.acquire_in(Pool::Agent, owner_key, Priority::UserVisible, cancel)
-            .await
-            .map(|held| Box::new(held) as Box<dyn Lease>)
+        self.acquire_in(Pool::Agent, owner_key, Priority::UserVisible, cancel).await.map(|held| Box::new(held) as Box<dyn Lease>)
     }
 }
 
@@ -616,7 +602,14 @@ mod tests {
         mixdog_core_session::eventually_on_until!(&[&a.controller.queued], || (a.queued() == n).then_some(()), task).await;
     }
 
-    fn spawn_acquire(a: &Arc<ResourceAdmission>, pool: Pool, owner: &'static str, priority: Priority, order: &Arc<Mutex<Vec<String>>>, tag: &'static str) -> tokio::task::JoinHandle<()> {
+    fn spawn_acquire(
+        a: &Arc<ResourceAdmission>,
+        pool: Pool,
+        owner: &'static str,
+        priority: Priority,
+        order: &Arc<Mutex<Vec<String>>>,
+        tag: &'static str,
+    ) -> tokio::task::JoinHandle<()> {
         let (a, order) = (a.clone(), order.clone());
         tokio::spawn(async move {
             let held = a.acquire_in(pool, Some(owner), priority, &Cancel::new()).await.unwrap();
@@ -667,7 +660,6 @@ mod tests {
         assert_eq!(a.active(Pool::Agent), 0);
         assert_eq!(a.wait_stats("agent").admitted, 1);
     }
-
 
     /// A yielded agent lets another run; its slot comes back in the queue, behind an owner that was already waiting.
     #[tokio::test(start_paused = true)]
@@ -731,7 +723,18 @@ mod tests {
         finished("the yielded run to be given its slot back and end", run).await;
         Arc::try_unwrap(held_a).ok().unwrap().release().await;
         push(&ev, format!("active-end:{}", a.active(Pool::Agent)));
-        let want = ["A-acquired", "A-request-start", "B-granted", "active-while-B:1", "A-request-done", "A-waiting-for-slot:true", "C-granted", "C-held", "A-restored:ok", "active-end:0"];
+        let want = [
+            "A-acquired",
+            "A-request-start",
+            "B-granted",
+            "active-while-B:1",
+            "A-request-done",
+            "A-waiting-for-slot:true",
+            "C-granted",
+            "C-held",
+            "A-restored:ok",
+            "active-end:0",
+        ];
         assert_eq!(*ev.lock().unwrap(), want);
         assert_eq!(a.wait_stats("agentRestore").admitted, 1);
     }

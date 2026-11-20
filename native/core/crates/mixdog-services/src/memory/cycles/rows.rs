@@ -81,10 +81,8 @@ pub fn resolve_cycle1_plan(config: &Value, options: &PlanOptions, default_preset
     let base_timeout = number_of(&[c("timeout"), nested("timeout")], 180_000.0);
     let requested = |v: Option<f64>| v.map(Value::from);
     let (conc_a, conc_b) = (requested(options.concurrency), requested(options.max_concurrent));
-    let concurrency = js_min(
-        MAX_PACKETS as f64,
-        js_max(1.0, number_of(&[c("cycle1_concurrency"), c("concurrency"), conc_a.as_ref(), conc_b.as_ref()], MAX_PACKETS as f64)),
-    );
+    let concurrency =
+        js_min(MAX_PACKETS as f64, js_max(1.0, number_of(&[c("cycle1_concurrency"), c("concurrency"), conc_a.as_ref(), conc_b.as_ref()], MAX_PACKETS as f64)));
     let ms = |keys: [Option<&Value>; 2], fallback: f64| {
         let n = number_of(&keys, fallback);
         js_max(0.0, if truthy(n) { n } else { 0.0 })

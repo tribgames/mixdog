@@ -10,8 +10,8 @@ use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Value;
 
 use super::listing::GrokListing;
-use crate::catalog::ListingLookup;
 use super::listing::SeedEffortRule;
+use crate::catalog::ListingLookup;
 use crate::providers::connect::rewrite::StaticCredential;
 use crate::providers::listing_row::testing::Replay;
 
@@ -48,7 +48,6 @@ fn listing(script: Value) -> (Arc<Replay>, GrokListing) {
     (http, listing)
 }
 
-
 /// After the catalog's enrichment (`_sanitizeGrokModels`): no output limit
 /// survives, and the effort levels are the ladder the row now carries, in
 /// canonical order, else the fallback; a model that takes none lists none.
@@ -77,7 +76,7 @@ mod timers {
     use super::*;
     use crate::transport::Exchange;
     use crate::transport::http::HttpResponse;
-        use crate::transport::http::HttpSend;
+    use crate::transport::http::HttpSend;
     use crate::transport::site_probe::TimingOut;
     use crate::transport::site_probe::assert_window;
     use crate::transport::site_probe::rejected_texts;
@@ -120,7 +119,8 @@ mod timers {
     #[tokio::test(start_paused = true)]
     async fn the_proxy_catalogs_timer_is_swallowed_as_nodes_does() {
         let proxy = TimingOut::new();
-        let http = Arc::new(ProxyHangs { api: Arc::new(Replay::new(|request: &WireRequest| answer(&serde_json::json!({}), side_of(request)))), proxy: proxy.clone() });
+        let http =
+            Arc::new(ProxyHangs { api: Arc::new(Replay::new(|request: &WireRequest| answer(&serde_json::json!({}), side_of(request)))), proxy: proxy.clone() });
         let listed = over(http).list_models().await.expect("the proxy's failure is swallowed");
         assert!(listed.is_empty());
         let text = proxy.seen().first().unwrap().text.clone();
@@ -128,5 +128,3 @@ mod timers {
         assert_window("grokProxyList", &proxy);
     }
 }
-
-

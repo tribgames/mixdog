@@ -20,45 +20,15 @@ const DAY_MS: f64 = 86_400_000.0;
 
 /// A function that answers for an error argument instead of inheriting it: `IF` and its family choose a branch, and
 /// the `IS` tests report on the error itself.
-const ERROR_TOLERANT: [&str; 11] = [
-    "IF",
-    "IFS",
-    "IFERROR",
-    "IFNA",
-    "ISERROR",
-    "ISERR",
-    "ISNA",
-    "ERROR.TYPE",
-    "CHOOSE",
-    "SWITCH",
-    "NA",
-];
+const ERROR_TOLERANT: [&str; 11] = ["IF", "IFS", "IFERROR", "IFNA", "ISERROR", "ISERR", "ISNA", "ERROR.TYPE", "CHOOSE", "SWITCH", "NA"];
 
 /// Excel matches `"가*"` against the cells of a range; the library compares the criterion as written and quietly counts
 /// nothing. A count of nothing looks like an answer, so these are refused instead.
-const CRITERIA_FUNCTIONS: [&str; 8] = [
-    "COUNTIF",
-    "COUNTIFS",
-    "SUMIF",
-    "SUMIFS",
-    "AVERAGEIF",
-    "AVERAGEIFS",
-    "MAXIFS",
-    "MINIFS",
-];
+const CRITERIA_FUNCTIONS: [&str; 8] = ["COUNTIF", "COUNTIFS", "SUMIF", "SUMIFS", "AVERAGEIF", "AVERAGEIFS", "MAXIFS", "MINIFS"];
 
 /// These answer about where a reference sits. This engine hands a function the value of a cell rather than the cell
 /// itself, so their answer would describe something else entirely.
-const NEEDS_REFERENCE: [&str; 8] = [
-    "ROW",
-    "COLUMN",
-    "OFFSET",
-    "INDIRECT",
-    "ADDRESS",
-    "CELL",
-    "AREAS",
-    "FORMULATEXT",
-];
+const NEEDS_REFERENCE: [&str; 8] = ["ROW", "COLUMN", "OFFSET", "INDIRECT", "ADDRESS", "CELL", "AREAS", "FORMULATEXT"];
 
 /// The used extent of a sheet, in rows and columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,55 +108,28 @@ fn row_number(text: &str) -> u64 {
 /// `A:A` names a column of a million rows, of which the sheet uses a few. Excel answers from its used range, so this
 /// engine asks the workbook for that extent and refuses when nothing can tell it: a million empty cells is not an
 /// answer worth writing into a model.
-fn range_corners(
-    sheet: &str,
-    from: &str,
-    to: &str,
-    context: &mut dyn Context,
-) -> Result<Corners, Failure> {
+fn range_corners(sheet: &str, from: &str, to: &str, context: &mut dyn Context) -> Result<Corners, Failure> {
     if is_column_only(from) && is_column_only(to) {
         let Some(extent) = context.extent(sheet) else {
-            return Err(refuse(
-                "a whole-column reference without a known used range",
-            ));
+            return Err(refuse("a whole-column reference without a known used range"));
         };
         let (a, b) = (column_number(from), column_number(to));
-        return Ok(Corners {
-            first_column: math::min(a, b),
-            last_column: math::max(a, b),
-            first_row: 1,
-            last_row: extent.rows.max(1),
-        });
+        return Ok(Corners { first_column: math::min(a, b), last_column: math::max(a, b), first_row: 1, last_row: extent.rows.max(1) });
     }
     if is_row_only(from) && is_row_only(to) {
         let Some(extent) = context.extent(sheet) else {
             return Err(refuse("a whole-row reference without a known used range"));
         };
         let (a, b) = (row_number(from), row_number(to));
-        return Ok(Corners {
-            first_column: 1.0,
-            last_column: extent.columns.max(1) as f64,
-            first_row: a.min(b),
-            last_row: a.max(b),
-        });
+        return Ok(Corners { first_column: 1.0, last_column: extent.columns.max(1) as f64, first_row: a.min(b), last_row: a.max(b) });
     }
     let start = parse_cell_ref(from).map_err(Failure::Thrown)?;
     let end = parse_cell_ref(to).map_err(Failure::Thrown)?;
     let (a, b) = (column_number(&start.col), column_number(&end.col));
-    Ok(Corners {
-        first_column: math::min(a, b),
-        last_column: math::max(a, b),
-        first_row: start.row.min(end.row),
-        last_row: start.row.max(end.row),
-    })
+    Ok(Corners { first_column: math::min(a, b), last_column: math::max(a, b), first_row: start.row.min(end.row), last_row: start.row.max(end.row) })
 }
 
-fn range_values(
-    sheet: &str,
-    from: &str,
-    to: &str,
-    context: &mut dyn Context,
-) -> Result<Value, Failure> {
+fn range_values(sheet: &str, from: &str, to: &str, context: &mut dyn Context) -> Result<Value, Failure> {
     let corners = range_corners(sheet, from, to, context)?;
     let columns = corners.last_column - corners.first_column + 1.0;
     let rows = (corners.last_row as f64) - (corners.first_row as f64) + 1.0;
@@ -198,11 +141,7 @@ fn range_values(
         let mut line = Vec::with_capacity(columns as usize);
         let mut column = corners.first_column;
         while column <= corners.last_column {
-            line.push(
-                context
-                    .value(sheet, &format!("{}{row}", column_label(column)))?
-                    .canonical(),
-            );
+            line.push(context.value(sheet, &format!("{}{row}", column_label(column)))?.canonical());
             column += 1.0;
         }
         lines.push(Value::Array(line));
@@ -212,11 +151,7 @@ fn range_values(
 
 /// Excel would take the implicit intersection here; this engine does not guess which cell the author meant.
 fn single(value: Value) -> Result<Value, Failure> {
-    if matches!(value, Value::Array(_)) {
-        Err(refuse("a range used where one value is expected"))
-    } else {
-        Ok(value)
-    }
+    if matches!(value, Value::Array(_)) { Err(refuse("a range used where one value is expected")) } else { Ok(value) }
 }
 
 /// `toNumber(value)`: blank is 0, text is its number; an error is itself and text that is no number is `#VALUE!`.
@@ -230,11 +165,7 @@ fn to_number(value: &Value) -> Result<f64, ErrorValue> {
         Value::Error(error) => Err(*error),
         other => {
             let numeric = utf16_number(&to_js_utf16(other));
-            if numeric.is_finite() {
-                Ok(numeric)
-            } else {
-                Err(ErrorValue::Value)
-            }
+            if numeric.is_finite() { Ok(numeric) } else { Err(ErrorValue::Value) }
         }
     }
 }
@@ -242,9 +173,7 @@ fn to_number(value: &Value) -> Result<f64, ErrorValue> {
 fn to_text(value: &Value) -> Vec<u16> {
     match value {
         Value::Undefined | Value::Null => Vec::new(),
-        Value::Bool(flag) => (if *flag { "TRUE" } else { "FALSE" })
-            .encode_utf16()
-            .collect(),
+        Value::Bool(flag) => (if *flag { "TRUE" } else { "FALSE" }).encode_utf16().collect(),
         other => to_js_utf16(other),
     }
 }
@@ -294,15 +223,14 @@ fn compare(operator: BinaryOperator, left: Value, right: Value) -> Result<Value,
     let b = single(right)?;
     let mut order = None;
     if (matches!(a, Value::Number(_)) || matches!(b, Value::Number(_)))
-        && let (Ok(x), Ok(y)) = (to_number(&a), to_number(&b)) {
-            order = Some(number_ordering(x, y));
-        }
-    let order = order.unwrap_or_else(|| {
-        match case_utf16(&to_text(&a), true).cmp(&case_utf16(&to_text(&b), true)) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        }
+        && let (Ok(x), Ok(y)) = (to_number(&a), to_number(&b))
+    {
+        order = Some(number_ordering(x, y));
+    }
+    let order = order.unwrap_or_else(|| match case_utf16(&to_text(&a), true).cmp(&case_utf16(&to_text(&b), true)) {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
     });
     Ok(Value::Bool(match operator {
         BinaryOperator::Equal => order == 0,
@@ -398,27 +326,21 @@ fn has_date_format_units(units: &[u16]) -> bool {
     let mut at = 0;
     while at < units.len() {
         if units[at] == 34
-            && let Some(end) = units[at + 1..].iter().position(|u| *u == 34) {
-                at += end + 2;
-                continue;
-            }
+            && let Some(end) = units[at + 1..].iter().position(|u| *u == 34)
+        {
+            at += end + 2;
+            continue;
+        }
         unquoted.push(units[at]);
         at += 1;
     }
     let mut at = 0;
     while at < unquoted.len() {
-        if unquoted[at] == 92
-            && unquoted
-                .get(at + 1)
-                .is_some_and(|u| !matches!(*u, 10 | 13 | 0x2028 | 0x2029))
-        {
+        if unquoted[at] == 92 && unquoted.get(at + 1).is_some_and(|u| !matches!(*u, 10 | 13 | 0x2028 | 0x2029)) {
             at += 2;
             continue;
         }
-        if matches!(
-            unquoted[at],
-            89 | 121 | 77 | 109 | 68 | 100 | 72 | 104 | 83 | 115
-        ) {
+        if matches!(unquoted[at], 89 | 121 | 77 | 109 | 68 | 100 | 72 | 104 | 83 | 115) {
             return true;
         }
         at += 1;
@@ -427,10 +349,7 @@ fn has_date_format_units(units: &[u16]) -> bool {
 }
 
 fn has_wildcard_units(units: &[u16]) -> bool {
-    units.iter().enumerate().any(|(i, u)| {
-        (*u == u16::from(b'*') || *u == u16::from(b'?'))
-            && (i == 0 || units[i - 1] != u16::from(b'~'))
-    })
+    units.iter().enumerate().any(|(i, u)| (*u == u16::from(b'*') || *u == u16::from(b'?')) && (i == 0 || units[i - 1] != u16::from(b'~')))
 }
 
 /// What a string-typed argument is in the Node engine, where an error is its text.
@@ -454,11 +373,7 @@ impl Evaluator<'_> {
             Percent(usize),
             Unary(Vec<bool>),
             Chain(std::vec::IntoIter<(BinaryOperator, usize)>),
-            Right(
-                Value,
-                BinaryOperator,
-                std::vec::IntoIter<(BinaryOperator, usize)>,
-            ),
+            Right(Value, BinaryOperator, std::vec::IntoIter<(BinaryOperator, usize)>),
             Call(String, std::vec::IntoIter<usize>, Vec<Value>),
             Argument(String, std::vec::IntoIter<usize>, Vec<Value>),
             LeaveName((String, String)),
@@ -472,23 +387,11 @@ impl Evaluator<'_> {
                     Node::Literal(literal) => value = literal,
                     Node::Reference(text) => {
                         let SplitReference { sheet, from, to } = split_reference(&text);
-                        let target = if sheet.is_empty() {
-                            self.context.sheet().to_owned()
-                        } else {
-                            sheet
-                        };
-                        value = if to.is_empty() {
-                            self.context.value(&target, &from)?.canonical()
-                        } else {
-                            range_values(&target, &from, &to, self.context)?
-                        };
+                        let target = if sheet.is_empty() { self.context.sheet().to_owned() } else { sheet };
+                        value = if to.is_empty() { self.context.value(&target, &from)?.canonical() } else { range_values(&target, &from, &to, self.context)? };
                     }
                     Node::Name(name) => {
-                        let target = self
-                            .context
-                            .defined_name(&name)
-                            .filter(|s| !s.is_empty())
-                            .ok_or_else(|| refuse(format!("defined name {name}")))?;
+                        let target = self.context.defined_name(&name).filter(|s| !s.is_empty()).ok_or_else(|| refuse(format!("defined name {name}")))?;
                         let key = (name, target.clone());
                         // A repeated active definition cannot terminate. Node eventually
                         // throws this RangeError; report its message without exhausting Rust's stack.
@@ -545,11 +448,12 @@ impl Evaluator<'_> {
                 }
                 Work::Chain(mut rest) => {
                     if !value.is_formula_error()
-                        && let Some((operator, operand)) = rest.next() {
-                            work.push(Work::Right(value, operator, rest));
-                            work.push(Work::Evaluate(operand));
-                            value = Value::Undefined;
-                        }
+                        && let Some((operator, operand)) = rest.next()
+                    {
+                        work.push(Work::Right(value, operator, rest));
+                        work.push(Work::Evaluate(operand));
+                        value = Value::Undefined;
+                    }
                 }
                 Work::Right(left, operator, rest) => {
                     if !value.is_formula_error() {
@@ -577,50 +481,33 @@ impl Evaluator<'_> {
 
     fn call_implementation(&self, name: &str) -> Result<crate::registry::Function, Failure> {
         if name == "ISBLANK" {
-            return Err(refuse(
-                "ISBLANK, which cannot tell an empty cell from empty text here",
-            ));
+            return Err(refuse("ISBLANK, which cannot tell an empty cell from empty text here"));
         }
         if NEEDS_REFERENCE.contains(&name) {
-            return Err(refuse(format!(
-                "{name}, which answers about a cell this engine reads as a value"
-            )));
+            return Err(refuse(format!("{name}, which answers about a cell this engine reads as a value")));
         }
-        self.registry
-            .resolve(name)
-            .ok_or_else(|| refuse(format!("{name} is not implemented")))
+        self.registry.resolve(name).ok_or_else(|| refuse(format!("{name} is not implemented")))
     }
 
     fn finish_call(&self, name: &str, args: Vec<Value>) -> Result<Value, Failure> {
         let implementation = self.call_implementation(name)?;
         if name == "TEXT" {
-            let format = args
-                .get(1)
-                .map_or_else(|| "undefined".encode_utf16().collect(), to_js_utf16);
+            let format = args.get(1).map_or_else(|| "undefined".encode_utf16().collect(), to_js_utf16);
             if has_date_format_units(&format) {
-                return Err(refuse(
-                    "TEXT with a date format, which this engine cannot render",
-                ));
+                return Err(refuse("TEXT with a date format, which this engine cannot render"));
             }
         }
         if CRITERIA_FUNCTIONS.contains(&name)
-            && args.iter().any(|value| {
-                if value.is_text() {
-                    has_wildcard_units(&to_js_utf16(value))
-                } else {
-                    string_argument(value).is_some_and(has_wildcard)
-                }
-            })
+            && args.iter().any(|value| if value.is_text() { has_wildcard_units(&to_js_utf16(value)) } else { string_argument(value).is_some_and(has_wildcard) })
         {
-            return Err(refuse(format!(
-                "{name} with a wildcard criterion, which this engine does not match"
-            )));
+            return Err(refuse(format!("{name} with a wildcard criterion, which this engine does not match")));
         }
         if !ERROR_TOLERANT.contains(&name)
             && !crate::functions::orders_its_own_errors(name)
-            && let Some(failed) = args.iter().find(|value| value.is_formula_error()) {
-                return Ok(failed.clone());
-            }
+            && let Some(failed) = args.iter().find(|value| value.is_formula_error())
+        {
+            return Ok(failed.clone());
+        }
         normalize(implementation(&args)?, TEXT_PARSED_DATE.contains(&name))
     }
 }
@@ -633,20 +520,13 @@ pub fn evaluate_formula(formula: &str, context: &mut dyn Context) -> Result<Valu
 }
 
 /// [`evaluate_formula`] with the functions of `registry`.
-pub fn evaluate_formula_with(
-    registry: &Registry,
-    formula: &str,
-    context: &mut dyn Context,
-) -> Result<Value, Failure> {
+pub fn evaluate_formula_with(registry: &Registry, formula: &str, context: &mut dyn Context) -> Result<Value, Failure> {
     let text = formula.strip_prefix('=').unwrap_or(formula);
     if js_trim(text).is_empty() {
         return Err(refuse("the formula is empty"));
     }
     // `/\[[^\]]*\]/`: a bracket that is closed later.
-    if text
-        .find('[')
-        .is_some_and(|open| text[open..].contains(']'))
-    {
+    if text.find('[').is_some_and(|open| text[open..].contains(']')) {
         return Err(refuse("a workbook or table reference"));
     }
     let tree = parse(text)?;
@@ -674,26 +554,13 @@ mod tests {
     impl Cells {
         fn new() -> Self {
             let mut cells = HashMap::new();
-            for (reference, value) in [
-                ("A1", Value::Number(2.0)),
-                ("A2", Value::Number(3.0)),
-                ("B1", Value::text("north")),
-                ("C1", Value::Bool(true)),
-                ("D1", Value::text("#N/A")),
-            ] {
+            for (reference, value) in
+                [("A1", Value::Number(2.0)), ("A2", Value::Number(3.0)), ("B1", Value::text("north")), ("C1", Value::Bool(true)), ("D1", Value::text("#N/A"))]
+            {
                 cells.insert(("Sheet1".to_owned(), reference.to_owned()), value);
             }
-            cells.insert(
-                ("Raw Data".to_owned(), "B2".to_owned()),
-                Value::Number(21.0),
-            );
-            Self {
-                sheet: "Sheet1",
-                cells,
-                names: HashMap::new(),
-                extent: None,
-                asked: Vec::new(),
-            }
+            cells.insert(("Raw Data".to_owned(), "B2".to_owned()), Value::Number(21.0));
+            Self { sheet: "Sheet1", cells, names: HashMap::new(), extent: None, asked: Vec::new() }
         }
     }
 
@@ -704,11 +571,7 @@ mod tests {
 
         fn value(&mut self, sheet: &str, reference: &str) -> Result<Value, Failure> {
             self.asked.push(format!("{sheet}!{reference}"));
-            Ok(self
-                .cells
-                .get(&(sheet.to_owned(), reference.to_owned()))
-                .cloned()
-                .unwrap_or_else(|| Value::text("")))
+            Ok(self.cells.get(&(sheet.to_owned(), reference.to_owned())).cloned().unwrap_or_else(|| Value::text("")))
         }
 
         fn extent(&mut self, _sheet: &str) -> Option<Extent> {
@@ -721,26 +584,12 @@ mod tests {
     }
 
     fn sum(args: &[Value]) -> Result<Value, Failure> {
-        Ok(Value::Number(
-            flatten(args)
-                .iter()
-                .filter_map(|value| {
-                    if let Value::Number(n) = value {
-                        Some(*n)
-                    } else {
-                        None
-                    }
-                })
-                .sum(),
-        ))
+        Ok(Value::Number(flatten(args).iter().filter_map(|value| if let Value::Number(n) = value { Some(*n) } else { None }).sum()))
     }
 
     fn if_function(args: &[Value]) -> Result<Value, Failure> {
         let truthy = args.first().is_some_and(crate::coerce::is_truthy);
-        Ok(args
-            .get(if truthy { 1 } else { 2 })
-            .cloned()
-            .unwrap_or(Value::Bool(truthy)))
+        Ok(args.get(if truthy { 1 } else { 2 }).cloned().unwrap_or(Value::Bool(truthy)))
     }
 
     fn if_error(args: &[Value]) -> Result<Value, Failure> {
@@ -768,9 +617,7 @@ mod tests {
     }
 
     fn date_answer(_: &[Value]) -> Result<Value, Failure> {
-        Ok(Value::Date(mixdog_js::time::local_to_utc_ms(
-            2024, 1, 31, 0, 0, 0, 0,
-        )))
+        Ok(Value::Date(mixdog_js::time::local_to_utc_ms(2024, 1, 31, 0, 0, 0, 0)))
     }
 
     fn thrower(_: &[Value]) -> Result<Value, Failure> {
@@ -849,9 +696,7 @@ mod tests {
         assert_eq!(text_of("=\"a\"&\"b\""), "ab");
         assert_eq!(text_of("=1&2"), "12");
         assert_eq!(text_of("=0.1+0.2&\"\""), "0.30000000000000004");
-        assert!(
-            truth("=A1>1") && truth("=B1=\"NORTH\"") && truth("=\"a\"<\"B\"") && truth("=2<\"a\"")
-        );
+        assert!(truth("=A1>1") && truth("=B1=\"NORTH\"") && truth("=\"a\"<\"B\"") && truth("=2<\"a\""));
         assert_eq!(error("=A1/0"), ErrorValue::Div0);
         assert_eq!(error("=A1/0+1"), ErrorValue::Div0);
         assert_eq!(error("=\"x\"+1"), ErrorValue::Value);
@@ -864,10 +709,7 @@ mod tests {
 
     #[test]
     fn a_range_where_one_value_is_expected_is_refused() {
-        assert_eq!(
-            refusal("=A1:A2+1"),
-            "a range used where one value is expected"
-        );
+        assert_eq!(refusal("=A1:A2+1"), "a range used where one value is expected");
         assert_eq!(refusal("=A1:A2"), "a function that answers with an array");
         assert_eq!(refusal("=ARRAY()"), "a function that answers with an array");
     }
@@ -900,43 +742,22 @@ mod tests {
 
     #[test]
     fn refusals_carry_the_node_texts() {
-        assert_eq!(
-            refusal("=NOTAFUNCTION(1)"),
-            "NOTAFUNCTION is not implemented"
-        );
+        assert_eq!(refusal("=NOTAFUNCTION(1)"), "NOTAFUNCTION is not implemented");
         assert_eq!(refusal("=TaxRate*2"), "defined name TaxRate");
-        assert_eq!(
-            refusal("=[Book1]Sheet1!A1"),
-            "a workbook or table reference"
-        );
+        assert_eq!(refusal("=[Book1]Sheet1!A1"), "a workbook or table reference");
         assert_eq!(refusal("=SUM(A1:A2"), "the call is never closed");
         assert_eq!(refusal("="), "the formula is empty");
         assert_eq!(refusal("=  "), "the formula is empty");
-        assert_eq!(
-            refusal("=SUM(A:A)"),
-            "a whole-column reference without a known used range"
-        );
-        assert_eq!(
-            refusal("=SUM(1:2)"),
-            "a whole-row reference without a known used range"
-        );
+        assert_eq!(refusal("=SUM(A:A)"), "a whole-column reference without a known used range");
+        assert_eq!(refusal("=SUM(1:2)"), "a whole-row reference without a known used range");
         let wildcard = "COUNTIF with a wildcard criterion, which this engine does not match";
         assert_eq!(refusal("=COUNTIF(A1:A2,\"n*\")"), wildcard);
         assert_eq!(refusal("=COUNTIF(A1:A2,\"nor?h\")"), wildcard);
         assert_eq!(refusal("=COUNTIF(A1:A2,#NAME?)"), wildcard);
         assert_eq!(number("=COUNTIF(A1:A2,\"n~*\")"), 5.0);
-        assert_eq!(
-            refusal("=ROW(A1)"),
-            "ROW, which answers about a cell this engine reads as a value"
-        );
-        assert_eq!(
-            refusal("=FORMULATEXT(A1)"),
-            "FORMULATEXT, which answers about a cell this engine reads as a value"
-        );
-        assert_eq!(
-            refusal("=ISBLANK(A9)"),
-            "ISBLANK, which cannot tell an empty cell from empty text here"
-        );
+        assert_eq!(refusal("=ROW(A1)"), "ROW, which answers about a cell this engine reads as a value");
+        assert_eq!(refusal("=FORMULATEXT(A1)"), "FORMULATEXT, which answers about a cell this engine reads as a value");
+        assert_eq!(refusal("=ISBLANK(A9)"), "ISBLANK, which cannot tell an empty cell from empty text here");
         let date_format = "TEXT with a date format, which this engine cannot render";
         assert_eq!(refusal("=TEXT(A1,\"yyyy-mm-dd\")"), date_format);
         // A format of digits and of quoted or escaped letters is no date format; a missing one reads as `undefined`.
@@ -949,10 +770,7 @@ mod tests {
     #[test]
     fn whole_columns_and_rows_are_bounded_by_the_used_extent() {
         let mut cells = Cells::new();
-        cells.extent = Some(Extent {
-            rows: 2,
-            columns: 3,
-        });
+        cells.extent = Some(Extent { rows: 2, columns: 3 });
         assert_eq!(run_in(&mut cells, "=SUM(A:A)"), Ok(Value::Number(5.0)));
         assert_eq!(cells.asked, ["Sheet1!A1", "Sheet1!A2"]);
         cells.asked.clear();
@@ -973,40 +791,24 @@ mod tests {
     fn a_range_is_read_in_row_order_and_bounded() {
         let mut cells = Cells::new();
         run_in(&mut cells, "=SUM(B2:A1)").expect("sum");
-        assert_eq!(
-            cells.asked,
-            ["Sheet1!A1", "Sheet1!B1", "Sheet1!A2", "Sheet1!B2"]
-        );
-        assert_eq!(
-            refusal("=SUM(A1:ZZZ9999999)"),
-            "the range is larger than this engine evaluates"
-        );
-        assert_eq!(
-            run("=SUM(A0:B1)"),
-            Err(Failure::thrown("Invalid cell reference: A0"))
-        );
+        assert_eq!(cells.asked, ["Sheet1!A1", "Sheet1!B1", "Sheet1!A2", "Sheet1!B2"]);
+        assert_eq!(refusal("=SUM(A1:ZZZ9999999)"), "the range is larger than this engine evaluates");
+        assert_eq!(run("=SUM(A0:B1)"), Err(Failure::thrown("Invalid cell reference: A0")));
         assert_eq!(text_of("=A0"), "");
     }
 
     #[test]
     fn defined_names_read_as_what_they_stand_for() {
         let mut cells = Cells::new();
-        cells
-            .names
-            .insert("TaxRate".to_owned(), "'Raw Data'!$B$2".to_owned());
+        cells.names.insert("TaxRate".to_owned(), "'Raw Data'!$B$2".to_owned());
         cells.names.insert("Uplift".to_owned(), "=1.5".to_owned());
         cells.names.insert("Empty".to_owned(), String::new());
         cells.names.insert("Loop".to_owned(), "Loop+1".to_owned());
         assert_eq!(run_in(&mut cells, "=TaxRate*21"), Ok(Value::Number(441.0)));
         assert_eq!(run_in(&mut cells, "=Uplift*4"), Ok(Value::Number(6.0)));
-        assert!(
-            matches!(run_in(&mut cells, "=Empty+1"), Err(Failure::Unsupported(refusal)) if refusal.reason == "defined name Empty")
-        );
+        assert!(matches!(run_in(&mut cells, "=Empty+1"), Err(Failure::Unsupported(refusal)) if refusal.reason == "defined name Empty"));
         // Match Node's thrown circular-name result without overflowing the Rust stack.
-        assert_eq!(
-            run_in(&mut cells, "=Loop"),
-            Err(Failure::thrown("Maximum call stack size exceeded"))
-        );
+        assert_eq!(run_in(&mut cells, "=Loop"), Err(Failure::thrown("Maximum call stack size exceeded")));
     }
 
     #[test]
@@ -1023,35 +825,18 @@ mod tests {
         let mut cells = Cells::new();
         for depth in [255, 256, 257, 600, 20_000] {
             let groups = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
-            assert_eq!(
-                evaluate_formula_with(&registry, &groups, &mut cells),
-                Ok(Value::Number(1.0))
-            );
+            assert_eq!(evaluate_formula_with(&registry, &groups, &mut cells), Ok(Value::Number(1.0)));
             let calls = format!("{}1{}", "SUM(".repeat(depth), ")".repeat(depth));
-            assert_eq!(
-                evaluate_formula_with(&registry, &calls, &mut cells),
-                Ok(Value::Number(1.0))
-            );
+            assert_eq!(evaluate_formula_with(&registry, &calls, &mut cells), Ok(Value::Number(1.0)));
         }
         for index in 0..2_000 {
-            cells
-                .names
-                .insert(format!("NAME_{index}"), format!("NAME_{}", index + 1));
+            cells.names.insert(format!("NAME_{index}"), format!("NAME_{}", index + 1));
         }
         cells.names.insert("NAME_2000".into(), "7".into());
-        assert_eq!(
-            evaluate_formula_with(&registry, "NAME_0", &mut cells),
-            Ok(Value::Number(7.0))
-        );
+        assert_eq!(evaluate_formula_with(&registry, "NAME_0", &mut cells), Ok(Value::Number(7.0)));
         cells.names.insert("LOOP".into(), "LOOP".into());
-        assert_eq!(
-            evaluate_formula_with(&registry, "LOOP", &mut cells),
-            Err(Failure::thrown("Maximum call stack size exceeded"))
-        );
+        assert_eq!(evaluate_formula_with(&registry, "LOOP", &mut cells), Err(Failure::thrown("Maximum call stack size exceeded")));
         // Repeated sibling use is not a cycle; only active definitions count.
-        assert_eq!(
-            evaluate_formula_with(&registry, "NAME_0+NAME_0", &mut cells),
-            Ok(Value::Number(14.0))
-        );
+        assert_eq!(evaluate_formula_with(&registry, "NAME_0+NAME_0", &mut cells), Ok(Value::Number(14.0)));
     }
 }

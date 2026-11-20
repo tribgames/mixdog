@@ -90,4 +90,3 @@ impl SnapshotCleanups {
         Arc::new(move |session_id| this.cancel(session_id))
     }
 }
-

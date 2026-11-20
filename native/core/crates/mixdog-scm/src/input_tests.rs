@@ -83,7 +83,8 @@ fn request(call: &str, args: &[Value]) -> Option<(&'static str, Value)> {
         }
         Some((method, Value::Object(params)))
     };
-    let named = |names: &[&str]| -> serde_json::Map<String, Value> { names.iter().zip(args).map(|(name, value)| ((*name).to_owned(), value.clone())).collect() };
+    let named =
+        |names: &[&str]| -> serde_json::Map<String, Value> { names.iter().zip(args).map(|(name, value)| ((*name).to_owned(), value.clone())).collect() };
     let with = |method: &'static str, params: serde_json::Map<String, Value>| Some((method, Value::Object(params)));
     // `cwd` and an `input` object of the arguments after it (gitCommitPaths, gitDeleteBranch, gitRenameBranch).
     let wrapped = |method: &'static str, names: &[&str]| {
@@ -228,7 +229,6 @@ fn a_revision_is_rebuilt_from_its_checked_hash() {
     assert_eq!(crate::input::revision(" HEAD ").expect("HEAD"), "HEAD");
     assert_eq!(crate::input::revision("ABCDEF12").expect("a hash"), "ABCDEF12");
 }
-
 
 const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json");
 fn golden() -> Value {
@@ -413,9 +413,14 @@ fn a_coerced_argument_reaches_github_as_node_sent_it() {
         let args = op["args"].as_array().expect("args");
         let gh: Vec<&Value> = case["processes"].as_array().map(|all| all.iter().filter(|entry| entry["tool"] == "gh").collect()).unwrap_or_default();
         let sent = |lead: &[&str]| -> &Value {
-            gh.iter().copied().find(|entry| lead.iter().enumerate().all(|(index, word)| entry["argv"][index] == *word)).unwrap_or_else(|| panic!("{name}: Node ran no gh {lead:?}"))
+            gh.iter()
+                .copied()
+                .find(|entry| lead.iter().enumerate().all(|(index, word)| entry["argv"][index] == *word))
+                .unwrap_or_else(|| panic!("{name}: Node ran no gh {lead:?}"))
         };
-        let argv = |entry: &Value| -> Vec<String> { entry["argv"].as_array().expect("argv").iter().map(|arg| arg.as_str().expect("an argument").to_owned()).collect() };
+        let argv = |entry: &Value| -> Vec<String> {
+            entry["argv"].as_array().expect("argv").iter().map(|arg| arg.as_str().expect("an argument").to_owned()).collect()
+        };
         match op["name"].as_str().expect("operation") {
             "githubRequest" => {
                 let request = crate::gh::contract::validate(&args[1]).unwrap_or_else(|error| panic!("{name}: {error:?}"));

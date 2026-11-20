@@ -94,9 +94,7 @@ impl BlobParamRefs {
 
     async fn read(&self, found: &Found, cancel: &CancellationToken) -> Result<Vec<u8>, CoreError> {
         let (store, digest) = (self.store.clone(), found.digest.clone());
-        on_lane(self.interactive, cancel, move |lane| store.read(lane, &digest))
-            .await?
-            .map_err(|error| store_error(error, &found.digest))
+        on_lane(self.interactive, cancel, move |lane| store.read(lane, &digest)).await?.map_err(|error| store_error(error, &found.digest))
     }
 }
 
@@ -192,7 +190,6 @@ mod tests {
         assert!(expansion_bound("projectFs/writeText") >= 2 * MAX_TEXT_FILE_LENGTH);
         assert_eq!(expansion_bound("voice/transcribeAudio"), 32_000_000);
     }
-
 
     /// A store holding `blobs`, uploaded through `blob/put` as a client does; returns their digests in order.
     async fn fixture(blobs: &[&[u8]]) -> (Fixture, Vec<String>) {
@@ -308,7 +305,6 @@ mod tests {
         assert!(both["content"].is_object(), "nothing was expanded");
     }
 }
-
 
 #[async_trait]
 impl ParamRefs for BlobParamRefs {

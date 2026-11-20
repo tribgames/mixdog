@@ -152,13 +152,7 @@ pub async fn image_attachment(
 
 /// What `resizeImage` answers; `stage` runs only when the resized copy differs from the file as
 /// picked, and a staging failure just leaves the reference out.
-pub async fn resize_image<F, Fut>(
-    resizer: &dyn ProfiledImageResizer,
-    thread: &ThreadId,
-    input: &Value,
-    provider: &str,
-    stage: F,
-) -> Result<Value, String>
+pub async fn resize_image<F, Fut>(resizer: &dyn ProfiledImageResizer, thread: &ThreadId, input: &Value, provider: &str, stage: F) -> Result<Value, String>
 where
     F: FnOnce(Vec<u8>) -> Fut,
     Fut: std::future::Future<Output = Result<String, String>>,

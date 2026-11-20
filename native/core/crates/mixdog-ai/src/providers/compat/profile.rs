@@ -138,7 +138,10 @@ pub enum LegacyWire {
     },
     /// `prefer` when advertised or when `fallback` is not advertised, else
     /// `fallback` (Command Code: Chat unless Messages is the only wire).
-    Advertised { prefer: Wire, fallback: Wire },
+    Advertised {
+        prefer: Wire,
+        fallback: Wire,
+    },
 }
 
 /// What the adapter tells the router about a model besides the caller's
@@ -170,21 +173,14 @@ pub struct WireOffer {
 }
 
 impl WireOffer {
-    pub const CHAT_ONLY: Self = Self {
-        offered: &[Wire::Chat],
-        preference: &[],
-        families: &[],
-        legacy: LegacyWire::Fixed(Wire::Chat),
-        inputs: WireInputs::OverrideOnly,
-    };
+    pub const CHAT_ONLY: Self =
+        Self { offered: &[Wire::Chat], preference: &[], families: &[], legacy: LegacyWire::Fixed(Wire::Chat), inputs: WireInputs::OverrideOnly };
 }
 
 const DEEPSEEK_FAMILIES: &[WireFamily] = &[WireFamily { agent_only: true, ..WireFamily::new("^deepseek-", Wire::Messages) }];
 
-const OPENROUTER_FAMILIES: &[WireFamily] = &[
-    WireFamily::new("^~?anthropic/", Wire::Messages),
-    WireFamily::new("^(?:openai/(?:gpt-|o\\d)|~openai/)", Wire::Responses),
-];
+const OPENROUTER_FAMILIES: &[WireFamily] =
+    &[WireFamily::new("^~?anthropic/", Wire::Messages), WireFamily::new("^(?:openai/(?:gpt-|o\\d)|~openai/)", Wire::Responses)];
 
 const COMMAND_CODE_FAMILIES: &[WireFamily] = &[
     WireFamily::new("(?:^|/)(?:gpt-|muse-|grok-)", Wire::Responses),
@@ -193,11 +189,8 @@ const COMMAND_CODE_FAMILIES: &[WireFamily] = &[
     WireFamily { cold: true, ..WireFamily::new("(?:^|/)claude-", Wire::Messages) },
 ];
 
-const GO_FAMILIES: &[WireFamily] = &[
-    WireFamily::new(GO_RESPONSES, Wire::Responses),
-    WireFamily::new(GO_MESSAGES, Wire::Messages),
-    WireFamily::new(GO_GEMINI, Wire::Gemini),
-];
+const GO_FAMILIES: &[WireFamily] =
+    &[WireFamily::new(GO_RESPONSES, Wire::Responses), WireFamily::new(GO_MESSAGES, Wire::Messages), WireFamily::new(GO_GEMINI, Wire::Gemini)];
 
 const GO_RESPONSES: &str = "^(?:muse-spark-|gpt-|grok-)";
 const GO_MESSAGES: &str = "^(?:minimax-|qwen|claude-)";
@@ -410,26 +403,14 @@ const XAI_NO_EFFORT: &[SeedModel] = &[
 ];
 
 const fn no_effort(id: &'static str) -> SeedModel {
-    SeedModel {
-        id,
-        mode: None,
-        supports_reasoning: Some(false),
-        reasoning_levels: &[],
-        output_tokens: None,
-    }
+    SeedModel { id, mode: None, supports_reasoning: Some(false), reasoning_levels: &[], output_tokens: None }
 }
 
 const MUSE_FIVE_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
 const MUSE_SIX_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
 
 const fn muse_seed(id: &'static str, reasoning_levels: &'static [&'static str]) -> SeedModel {
-    SeedModel {
-        id,
-        mode: None,
-        supports_reasoning: Some(true),
-        reasoning_levels,
-        output_tokens: Some(131_072),
-    }
+    SeedModel { id, mode: None, supports_reasoning: Some(true), reasoning_levels, output_tokens: Some(131_072) }
 }
 
 /// The seeded Muse Spark revisions; only the 1.3 revisions accept `max`.
@@ -443,20 +424,8 @@ const MUSE_SEEDS: &[SeedModel] = &[
 
 /// Speech models share MiMo's listing but cannot serve a text turn.
 const MIMO_AUDIO: &[SeedModel] = &[
-    SeedModel {
-        id: "mimo-v2.5-tts",
-        mode: Some("audio"),
-        supports_reasoning: None,
-        reasoning_levels: &[],
-        output_tokens: None,
-    },
-    SeedModel {
-        id: "mimo-v2-asr",
-        mode: Some("audio"),
-        supports_reasoning: None,
-        reasoning_levels: &[],
-        output_tokens: None,
-    },
+    SeedModel { id: "mimo-v2.5-tts", mode: Some("audio"), supports_reasoning: None, reasoning_levels: &[], output_tokens: None },
+    SeedModel { id: "mimo-v2-asr", mode: Some("audio"), supports_reasoning: None, reasoning_levels: &[], output_tokens: None },
 ];
 
 impl CompatProfile {
@@ -471,10 +440,7 @@ impl CompatProfile {
 
     /// A copy of this profile for another endpoint (a configured base URL).
     pub fn with_base_url(&self, base_url: &'static str) -> Self {
-        Self {
-            base_url,
-            ..self.clone()
-        }
+        Self { base_url, ..self.clone() }
     }
 
     pub fn xai() -> Self {
@@ -484,10 +450,7 @@ impl CompatProfile {
             default_model: "grok-4.5",
             default_wire: Wire::Responses,
             responses: ResponsesShape::Xai,
-            wires: WireOffer {
-                offered: &[Wire::Responses, Wire::Chat],
-                ..WireOffer::CHAT_ONLY
-            },
+            wires: WireOffer { offered: &[Wire::Responses, Wire::Chat], ..WireOffer::CHAT_ONLY },
             headers: &[],
             chat: ChatDialect {
                 replay_reasoning: true,
@@ -500,9 +463,7 @@ impl CompatProfile {
                 in_band_invalid_request_retryable: true,
                 ..ChatDialect::PLAIN
             },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: false,
-            },
+            credential: CredentialKind::StaticKey { reauth_on_401: false },
             seed_models: XAI_NO_EFFORT,
             listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::xai,
@@ -516,11 +477,7 @@ impl CompatProfile {
             default_model: "deepseek-v4-pro",
             default_wire: Wire::Chat,
             responses: ResponsesShape::Gateway,
-            wires: WireOffer {
-                offered: &[Wire::Chat, Wire::Messages],
-                families: DEEPSEEK_FAMILIES,
-                ..WireOffer::CHAT_ONLY
-            },
+            wires: WireOffer { offered: &[Wire::Chat, Wire::Messages], families: DEEPSEEK_FAMILIES, ..WireOffer::CHAT_ONLY },
             headers: &[],
             chat: ChatDialect {
                 replay_reasoning: true,
@@ -529,9 +486,7 @@ impl CompatProfile {
                 tool_choice: ToolChoiceSupport::ForcedWithoutThinking,
                 ..ChatDialect::PLAIN
             },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: false,
-            },
+            credential: CredentialKind::StaticKey { reauth_on_401: false },
             seed_models: &[],
             listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::deepseek,
@@ -545,15 +500,8 @@ impl CompatProfile {
             default_model: "openrouter/auto",
             default_wire: Wire::Chat,
             responses: ResponsesShape::Gateway,
-            wires: WireOffer {
-                offered: &[Wire::Chat, Wire::Messages, Wire::Responses],
-                families: OPENROUTER_FAMILIES,
-                ..WireOffer::CHAT_ONLY
-            },
-            headers: &[
-                ("HTTP-Referer", "https://github.com/tribgames/mixdog"),
-                ("X-OpenRouter-Title", "mixdog"),
-            ],
+            wires: WireOffer { offered: &[Wire::Chat, Wire::Messages, Wire::Responses], families: OPENROUTER_FAMILIES, ..WireOffer::CHAT_ONLY },
+            headers: &[("HTTP-Referer", "https://github.com/tribgames/mixdog"), ("X-OpenRouter-Title", "mixdog")],
             chat: ChatDialect {
                 reasoning_shape: Some(ReasoningShape::Reasoning),
                 effort: EffortDialect::OpenRouter,
@@ -562,9 +510,7 @@ impl CompatProfile {
                 cost: CostField::UsdDecimal,
                 ..ChatDialect::PLAIN
             },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: false,
-            },
+            credential: CredentialKind::StaticKey { reauth_on_401: false },
             seed_models: &[],
             listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::unprofiled,
@@ -588,25 +534,17 @@ impl CompatProfile {
                 capture_reasoning: true,
                 effort: EffortDialect::Mimo,
                 tool_choice: ToolChoiceSupport::AutoOnly,
-                output_limit: OutputLimit::MaxCompletionTokens {
-                    default: 128_000,
-                    cap: 131_072,
-                },
+                output_limit: OutputLimit::MaxCompletionTokens { default: 128_000, cap: 131_072 },
                 temperature: Some(1.0),
                 session_affinity_headers: true,
-                friendly_codes: &[
-                    ("421", "Request blocked by content moderation"),
-                    ("441", "Request blocked by risk control"),
-                ],
+                friendly_codes: &[("421", "Request blocked by content moderation"), ("441", "Request blocked by risk control")],
                 // `MIMO_FIRST_BYTE_TIMEOUT_MS = min(300 s, PROVIDER_MAX_BEFORE_WARN_MS)`, one first-byte retry
                 // (`COMPAT_RETRY_PROFILES['mimo-oauth'].firstByteRetries`); the ceiling is the environment's
                 // ([`crate::providers::first_byte::FirstByteSettings::compat`]).
                 first_byte: Some(FirstBytePolicy { timeout_ms: 300_000, max_ms: 300_000, retries: Some(1) }),
                 ..ChatDialect::PLAIN
             },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: true,
-            },
+            credential: CredentialKind::StaticKey { reauth_on_401: true },
             seed_models: MIMO_AUDIO,
             listing: ListingRules {
                 // Speech and transcription ids cannot serve a text chat turn.
@@ -642,9 +580,7 @@ impl CompatProfile {
                 parallel_tool_calls: true,
                 ..ChatDialect::PLAIN
             },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: true,
-            },
+            credential: CredentialKind::StaticKey { reauth_on_401: true },
             seed_models: &[],
             listing: ListingRules { servable_only: true, publishes_roster: true, caches_model_info: false, ..ListingRules::COMPAT },
             retry: retry::command_code,
@@ -659,18 +595,10 @@ impl CompatProfile {
             default_wire: Wire::Responses,
             responses: ResponsesShape::Muse,
             // The endpoint is reached over Responses only.
-            wires: WireOffer {
-                offered: &[Wire::Responses],
-                ..WireOffer::CHAT_ONLY
-            },
+            wires: WireOffer { offered: &[Wire::Responses], ..WireOffer::CHAT_ONLY },
             headers: &[("x-api-version", "1.0.0")],
-            chat: ChatDialect {
-                reauth: ReauthText::ModelKeyRejected,
-                ..ChatDialect::PLAIN
-            },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: true,
-            },
+            chat: ChatDialect { reauth: ReauthText::ModelKeyRejected, ..ChatDialect::PLAIN },
+            credential: CredentialKind::StaticKey { reauth_on_401: true },
             seed_models: MUSE_SEEDS,
             listing: ListingRules {
                 // Image and voice generation share the catalog but are not chat models.
@@ -708,17 +636,12 @@ impl CompatProfile {
                 session_header: Some("x-opencode-session"),
                 ..ChatDialect::PLAIN
             },
-            credential: CredentialKind::StaticKey {
-                reauth_on_401: false,
-            },
+            credential: CredentialKind::StaticKey { reauth_on_401: false },
             seed_models: &[],
             // The gateway's own `/models` is not served on this base: the
             // organization's console config is the catalog.
             listing: ListingRules {
-                shape: ListingShape::ConsoleConfig {
-                    url: "https://opencode.ai/console/api/v2/config",
-                    provider_key: "opencode-go",
-                },
+                shape: ListingShape::ConsoleConfig { url: "https://opencode.ai/console/api/v2/config", provider_key: "opencode-go" },
                 ..ListingRules::COMPAT
             },
             retry: retry::unprofiled,

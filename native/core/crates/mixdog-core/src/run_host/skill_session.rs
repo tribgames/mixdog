@@ -159,7 +159,9 @@ impl HeaderSkillArm {
             .map(str::to_owned)
             .collect();
         for key in ["tools", "deferredToolCatalog", "deferredLateToolCatalog"] {
-            asked.extend(header.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str)).map(str::to_owned));
+            asked.extend(
+                header.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str)).map(str::to_owned),
+            );
         }
         let agent = connector_policy_agent(header);
         let connector_disabled = asked.iter().filter(|name| self.permissions.disabled(&agent, name)).cloned().collect();
@@ -234,7 +236,15 @@ impl Parts {
             && let Some(map) = session.as_object_mut()
         {
             let mut kept: Vec<String> = Vec::new();
-            for name in map.get("skillLoadedTools").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).chain(loaded.iter().cloned()) {
+            for name in map
+                .get("skillLoadedTools")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .chain(loaded.iter().cloned())
+            {
                 insert(&mut kept, name);
             }
             map.insert("skillLoadedTools".to_owned(), names_value(&kept));
@@ -252,7 +262,8 @@ impl Parts {
 /// load, `catalog` the one the dependencies were named in, `native` whether the provider's own
 /// tool search is on.
 fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], unavailable: &[String], native: Option<&[String]>) -> ArmNotice {
-    let eager: HashSet<&str> = session.get("tools").and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
+    let eager: HashSet<&str> =
+        session.get("tools").and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
     // Bridge exposure never promotes a schema: deferred dependencies stay reachable through call_tool
     // while the eager surface keeps its bytes.
     let bridge = is_tool_bridge_enabled(session);
@@ -261,13 +272,19 @@ fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], un
     let join = |names: &[&String]| names.iter().map(|name| name.as_str()).collect::<Vec<_>>().join(", ");
     let mut lines: Vec<String> = Vec::new();
     if !direct.is_empty() && !bridge {
-        lines.push(format!("Required tools loaded: {}. Their full definitions are available on your next request; use them directly without load_tool.", join(&direct)));
+        lines.push(format!(
+            "Required tools loaded: {}. Their full definitions are available on your next request; use them directly without load_tool.",
+            join(&direct)
+        ));
     }
     if !direct.is_empty() && bridge {
         lines.push(format!("Required tools available directly: {}.", join(&direct)));
     }
     if !bridged.is_empty() {
-        lines.push(format!("Required tools available through call_tool: {}. Read a definition with load_tool, then run it with call_tool {{name, arguments}}.", join(&bridged)));
+        lines.push(format!(
+            "Required tools available through call_tool: {}. Read a definition with load_tool, then run it with call_tool {{name, arguments}}.",
+            join(&bridged)
+        ));
     }
     if !unavailable.is_empty() {
         lines.push(format!("Required tools unavailable: {}", unavailable.join("; ")));
@@ -275,15 +292,17 @@ fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], un
     }
     let provider = clean(session.get("provider"));
     // `toolSearchNativePayload` without its summary: the result's own stands in.
-    let payload = native.and_then(|names| {
-        let promoted: Vec<String> = names.iter().filter(|name| !eager.contains(name.as_str())).cloned().collect();
-        tool_search_native_payload(catalog.iter().map(|(_, tool)| tool), &promoted, &provider)
-    }).map(|mut payload| {
-        if let Some(map) = payload.as_object_mut() {
-            map.shift_remove("summary");
-        }
-        payload
-    });
+    let payload = native
+        .and_then(|names| {
+            let promoted: Vec<String> = names.iter().filter(|name| !eager.contains(name.as_str())).cloned().collect();
+            tool_search_native_payload(catalog.iter().map(|(_, tool)| tool), &promoted, &provider)
+        })
+        .map(|mut payload| {
+            if let Some(map) = payload.as_object_mut() {
+                map.shift_remove("summary");
+            }
+            payload
+        });
     ArmNotice { lines, native: payload }
 }
 
@@ -398,7 +417,10 @@ impl TranscriptTexts for ThreadTranscript {
     /// A transcript that cannot be read is the port's error; the Skill tool fails with it.
     async fn user_texts(&self, thread: &ThreadId) -> Result<Vec<String>, PortError> {
         let rows = self.messages.messages(thread).await?;
-        Ok(rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("user")).map(|row| row.get("content").map_or_else(String::new, message_text)).collect())
+        Ok(rows
+            .iter()
+            .filter(|row| row.get("role").and_then(Value::as_str) == Some("user"))
+            .map(|row| row.get("content").map_or_else(String::new, message_text))
+            .collect())
     }
 }
-

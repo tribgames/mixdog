@@ -115,14 +115,14 @@ mod tests {
         assert_eq!(kept_error(&[PathBuf::from("a"), PathBuf::from("b")]), Err("kept: a, b".to_owned()));
     }
 
-
     /// `forgetTrustedCodeGraphRoot`: the registry entry of the removed root goes, a sibling's stays, and a root nothing registered
     /// is not a failure.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_trusted_root_cleanup_unregisters_only_the_removed_root() {
         let tokens = mixdog_rt::testing::tokens();
         let tmp = tempfile::tempdir().expect("tmp");
-        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &tmp.path().join("core.sqlite")).expect("state");
+        let (state, _) =
+            mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &tmp.path().join("core.sqlite")).expect("state");
         let lanes = mixdog_workspace::lanes::Lanes {
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,

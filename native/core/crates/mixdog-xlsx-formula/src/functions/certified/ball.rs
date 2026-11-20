@@ -97,7 +97,6 @@ impl B {
         B { mid: self.mid.neg(), rad: self.rad }
     }
 
-
     pub fn mul(&self, o: &B) -> B {
         if !self.is_finite() || !o.is_finite() {
             return B::whole();
@@ -113,8 +112,6 @@ impl B {
     pub fn mul_2exp(&self, k: i64) -> B {
         B { mid: self.mid.mul_2exp(k), rad: self.rad.mul_2exp(k) }
     }
-
-
 
     pub fn mul_int(&self, v: i64) -> B {
         self.mul(&B::int(v))
@@ -265,11 +262,7 @@ impl B {
         let p = prec();
         let (q, err) = self.mid.div_u64(v.unsigned_abs(), p);
         let q = if v < 0 { q.neg() } else { q };
-        let rad = if self.rad.is_zero() {
-            Mag::ZERO
-        } else {
-            self.rad.mul(Mag::from_f64_up(1.0 / v.unsigned_abs() as f64 * (1.0 + 1e-12)))
-        };
+        let rad = if self.rad.is_zero() { Mag::ZERO } else { self.rad.mul(Mag::from_f64_up(1.0 / v.unsigned_abs() as f64 * (1.0 + 1e-12))) };
         B::rounded(q, rad.add(err))
     }
 
@@ -277,7 +270,6 @@ impl B {
     pub fn to_f64(&self) -> f64 {
         self.mid.to_f64()
     }
-
 
     pub fn cmp_zero(&self) -> Option<Ordering> {
         if self.is_exact_zero() {
@@ -622,4 +614,3 @@ pub fn logaddexp(a: &B, b: &B) -> B {
     }
     hi.add(&log1p(&exp(&d)))
 }
-

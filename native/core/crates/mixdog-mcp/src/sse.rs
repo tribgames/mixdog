@@ -45,10 +45,8 @@ fn request_error(error: reqwest::Error) -> TransportError {
 pub(crate) fn header_map(headers: &BTreeMap<String, String>) -> Result<HeaderMap, TransportError> {
     let mut map = HeaderMap::new();
     for (name, value) in headers {
-        let name = HeaderName::from_bytes(name.as_bytes())
-            .map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
-        let mut value = HeaderValue::from_str(value)
-            .map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
+        let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
+        let mut value = HeaderValue::from_str(value).map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
         value.set_sensitive(true);
         map.insert(name, value);
     }
@@ -106,13 +104,7 @@ impl EventParser {
     }
 }
 
-async fn pump(
-    response: reqwest::Response,
-    origin: Url,
-    tx: IncomingTx,
-    endpoint: oneshot::Sender<Result<Url, TransportError>>,
-    shutdown: CancellationToken,
-) {
+async fn pump(response: reqwest::Response, origin: Url, tx: IncomingTx, endpoint: oneshot::Sender<Result<Url, TransportError>>, shutdown: CancellationToken) {
     let mut endpoint = Some(endpoint);
     let mut stream = response.bytes_stream();
     let mut parser = EventParser::default();
@@ -154,16 +146,11 @@ async fn pump(
 }
 
 impl SseTransport {
-    pub async fn connect(
-        url: Url,
-        headers: &BTreeMap<String, String>,
-        auth: Option<Arc<dyn Authorizer>>,
-    ) -> Result<(Self, IncomingRx), TransportError> {
+    pub async fn connect(url: Url, headers: &BTreeMap<String, String>, auth: Option<Arc<dyn Authorizer>>) -> Result<(Self, IncomingRx), TransportError> {
         let headers = header_map(headers)?;
         let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(request_error)?;
         let get = |token: Option<String>| {
-            let mut request =
-                client.get(url.clone()).headers(headers.clone()).header(reqwest::header::ACCEPT, "text/event-stream");
+            let mut request = client.get(url.clone()).headers(headers.clone()).header(reqwest::header::ACCEPT, "text/event-stream");
             if let Some(token) = token {
                 request = request.bearer_auth(token);
             }
@@ -174,22 +161,13 @@ impl SseTransport {
             None => None,
         };
         let mut sent = attempted.clone();
-        let mut response = STARTUP
-            .bound_head(get(attempted.clone()).send())
-            .await
-            .map_err(expired)?
-            .map_err(request_error)?;
+        let mut response = STARTUP.bound_head(get(attempted.clone()).send()).await.map_err(expired)?.map_err(request_error)?;
         if let Some(auth) = &auth
             && crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref())
         {
-            auth.renew(attempted.clone(), crate::transport::challenge_of(&response))
-                .await?;
+            auth.renew(attempted.clone(), crate::transport::challenge_of(&response)).await?;
             let fresh = auth.token().await?;
-            response = STARTUP
-                .bound_head(get(fresh.clone()).send())
-                .await
-                .map_err(expired)?
-                .map_err(request_error)?;
+            response = STARTUP.bound_head(get(fresh.clone()).send()).await.map_err(expired)?.map_err(request_error)?;
             let challenge = crate::transport::challenge_of(&response);
             if crate::transport::refused(response.status().as_u16(), challenge.as_deref()) {
                 auth.refused_after_renewal(attempted.as_deref(), challenge.as_deref());
@@ -208,27 +186,9 @@ impl SseTransport {
         let (incoming, rx) = mpsc::unbounded_channel();
         let (endpoint_tx, endpoint_rx) = oneshot::channel();
         let shutdown = CancellationToken::new();
-        mixdog_rt::spawn(
-            "mcp.sse.pump",
-            mixdog_rt::TaskClass::Work,
-            pump(response, url, incoming.clone(), endpoint_tx, shutdown.clone()),
-        );
-        let endpoint = STARTUP
-            .bound_head(endpoint_rx)
-            .await
-            .map_err(expired)?
-            .map_err(|_| TransportError::Closed)??;
-        Ok((
-            Self {
-                client,
-                endpoint,
-                headers,
-                auth,
-                shutdown,
-                incoming,
-            },
-            rx,
-        ))
+        mixdog_rt::spawn("mcp.sse.pump", mixdog_rt::TaskClass::Work, pump(response, url, incoming.clone(), endpoint_tx, shutdown.clone()));
+        let endpoint = STARTUP.bound_head(endpoint_rx).await.map_err(expired)?.map_err(|_| TransportError::Closed)??;
+        Ok((Self { client, endpoint, headers, auth, shutdown, incoming }, rx))
     }
 }
 
@@ -241,19 +201,13 @@ impl Drop for SseTransport {
 #[async_trait]
 impl Transport for SseTransport {
     async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError> {
-        liveness
-            .bound_head(self.post_message(message))
-            .await
-            .map_err(expired)?
+        liveness.bound_head(self.post_message(message)).await.map_err(expired)?
     }
 
     async fn close(&self) {
         if !self.shutdown.is_cancelled() {
             self.shutdown.cancel();
-            let _ = self.incoming.send(Incoming::Closed(CloseCause {
-                reason: "closed by client".to_owned(),
-                stderr_tail: String::new(),
-            }));
+            let _ = self.incoming.send(Incoming::Closed(CloseCause { reason: "closed by client".to_owned(), stderr_tail: String::new() }));
         }
     }
 }

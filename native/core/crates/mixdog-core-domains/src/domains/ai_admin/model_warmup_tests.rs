@@ -13,9 +13,9 @@ use super::model_list_rig::{Rig, custom_discovery, custom_manual, rig, seeds};
 use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates, WarmupMarks};
 use crate::domains::ai_account::SetupSource;
 use crate::domains::ai_account::auth_refresh::{AuthRefreshFlow, ProviderEffects};
+use crate::domains::ai_account::collaborators::AuthRefresh;
 use crate::domains::ai_account::dashboards::Dashboards;
 use mixdog_ai::admission::Admission;
-use crate::domains::ai_account::collaborators::AuthRefresh;
 
 #[derive(Default)]
 struct Gates {
@@ -68,7 +68,6 @@ impl SetupSource for NoSetup {
         Ok(Value::Null)
     }
 }
-
 
 async fn scenario(name: &str) -> Rig {
     assert_eq!(name, "custom-discovery");
@@ -372,7 +371,8 @@ async fn an_account_change_warm_lists_the_providers_of_the_config_as_it_is_now()
     start["stub"] = new["stub"].clone();
     let rig = rig(&start, &seeds(), false).await;
     let stop = mixdog_rt::CancellationToken::new();
-    let mut sync = super::provider_sync::spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
+    let mut sync =
+        super::provider_sync::spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
     let stored: Value = serde_json::from_str(&new["agent"].to_string().replace("__BASE_URL__", "http://127.0.0.1:9")).unwrap();
     let stored = stored.as_object().cloned().unwrap();
     rig.config

@@ -14,23 +14,20 @@ use mixdog_term::KeyFlags;
 use mixdog_termtext::display_width;
 use mixdog_termtext::lone::stored;
 
+use super::chords::apply_edit_chord;
 use super::draft::Draft;
 use super::editing::{
-    Caret, caret_position, clear_selection, len16, line_end, line_start, move_cursor, next_word_offset,
-    previous_word_offset, replace_selection, selection_range, slice16, splice16, vertical_offset,
+    Caret, caret_position, clear_selection, len16, line_end, line_start, move_cursor, next_word_offset, previous_word_offset, replace_selection,
+    selection_range, slice16, splice16, vertical_offset,
 };
 use super::escape::{EscapeAction, EscapeInput, classify_prompt_escape};
 use super::helpers::{
-    HintTone, insert_text, is_any_modified_enter_sequence, is_modified_enter_sequence, left_arrow_offset,
-    normalize_pasted_text, right_arrow_offset, single_trailing_line_break_prefix,
+    HintTone, insert_text, is_any_modified_enter_sequence, is_modified_enter_sequence, left_arrow_offset, normalize_pasted_text, right_arrow_offset,
+    single_trailing_line_break_prefix,
 };
-use super::chords::apply_edit_chord;
 use super::mouse_selection::MouseCoalesce;
 use super::restore::palette_owns_prompt_vertical_arrow;
-use super::signals::{
-    decode_arrow_signals, is_csi_private_reply, is_discarded_control_input, is_mouse_report_sequence,
-    printable_from_input,
-};
+use super::signals::{decode_arrow_signals, is_csi_private_reply, is_discarded_control_input, is_mouse_report_sequence, printable_from_input};
 use super::undo::UndoStack;
 
 /// Milliseconds on the wall clock; the editor's timestamps (undo coalescing, the escape double press, mouse-drag pacing).
@@ -556,12 +553,7 @@ impl PromptEditor {
     /// what Ink's cursor-anchor function did during layout (`prompt-input/cursor-anchor.mjs`). `enabled` is whether the
     /// prompt is a real, active edit target; the box is not published while it is not asked.
     pub fn cursor_anchor(&mut self, layout: &BoxLayout, enabled: bool) -> Option<Caret> {
-        self.box_rect = Some(BoxRect {
-            top: layout.top,
-            left: layout.left,
-            height: layout.height.max(1),
-            content_width: self.content_width,
-        });
+        self.box_rect = Some(BoxRect { top: layout.top, left: layout.left, height: layout.height.max(1), content_width: self.content_width });
         if !enabled {
             return None;
         }
@@ -601,8 +593,7 @@ impl PromptEditor {
 
         // The app owns Shift+Arrow while a transcript or status grid selection is live.
         if cb.grid_selection_active() {
-            let shift_arrow = key.shift
-                && (key.left_arrow || key.right_arrow || key.up_arrow || key.down_arrow || key.home || key.end);
+            let shift_arrow = key.shift && (key.left_arrow || key.right_arrow || key.up_arrow || key.down_arrow || key.home || key.end);
             if shift_arrow || signals.raw_shift_arrow_for_grid {
                 return;
             }
@@ -633,8 +624,7 @@ impl PromptEditor {
         }
 
         // Bracketed paste arrives on its own channel; this is the defensive path for a multi-character chunk with a newline.
-        let paste_fallback =
-            has_line_break && trailing_enter_prefix.is_none() && !raw_enter && (len16(raw) > 1 || !key.return_key);
+        let paste_fallback = has_line_break && trailing_enter_prefix.is_none() && !raw_enter && (len16(raw) > 1 || !key.return_key);
         if paste_fallback {
             self.handle_external_paste(raw, PasteSource::PasteFallback, cb);
             return;
@@ -666,17 +656,13 @@ impl PromptEditor {
         }
 
         // Ctrl+Shift+Left/Right extend the selection by whole words, before the plain shift-arrow branches.
-        if signals.ctrl_shift_held
-            && (signals.raw_ctrl_shift_left || (key.ctrl && key.shift && key.left_arrow))
-        {
+        if signals.ctrl_shift_held && (signals.raw_ctrl_shift_left || (key.ctrl && key.shift && key.left_arrow)) {
             if !props.command_palette_active {
                 self.update(|d| move_cursor(d, previous_word_offset(&d.value, d.cursor), true), cb);
             }
             return;
         }
-        if signals.ctrl_shift_held
-            && (signals.raw_ctrl_shift_right || (key.ctrl && key.shift && key.right_arrow))
-        {
+        if signals.ctrl_shift_held && (signals.raw_ctrl_shift_right || (key.ctrl && key.shift && key.right_arrow)) {
             if !props.command_palette_active {
                 self.update(|d| move_cursor(d, next_word_offset(&d.value, d.cursor), true), cb);
             }
@@ -779,11 +765,7 @@ impl PromptEditor {
         if key.ctrl && input_key == "a" {
             self.update(
                 |d| {
-                    if d.value.is_empty() {
-                        clear_selection(d)
-                    } else {
-                        Draft { value: d.value.clone(), cursor: d.len16(), selection_anchor: Some(0) }
-                    }
+                    if d.value.is_empty() { clear_selection(d) } else { Draft { value: d.value.clone(), cursor: d.len16(), selection_anchor: Some(0) } }
                 },
                 cb,
             );
@@ -837,14 +819,7 @@ impl PromptEditor {
             return;
         }
         if self.backslash_before_caret() {
-            self.update(
-                |d| Draft {
-                    value: splice16(&d.value, d.cursor - 1, d.cursor, "\n"),
-                    cursor: d.cursor,
-                    selection_anchor: None,
-                },
-                cb,
-            );
+            self.update(|d| Draft { value: splice16(&d.value, d.cursor - 1, d.cursor, "\n"), cursor: d.cursor, selection_anchor: None }, cb);
             return;
         }
         let current = self.draft.clone();

@@ -48,9 +48,9 @@ use super::registry::Claim;
 use super::registry::Create;
 use super::registry::DELETE_GRACE_MS;
 use super::registry::Registry;
-use mixdog_core_api::domain::provider::ProviderState;
 use crate::transport::HttpSend;
 use crate::transport::TransportKind;
+use mixdog_core_api::domain::provider::ProviderState;
 
 /// Clock and task seam; production wires it to the runtime's task tokens.
 pub trait CacheRuntime: Send + Sync {
@@ -108,15 +108,7 @@ impl ExplicitCache {
         tuning: Tuning,
     ) -> Self {
         let api_key = api_key.into();
-        Self {
-            fingerprint: policy::credential_fingerprint(&api_key),
-            api_key,
-            origin: origin.into(),
-            http,
-            runtime,
-            registry,
-            tuning,
-        }
+        Self { fingerprint: policy::credential_fingerprint(&api_key), api_key, origin: origin.into(), http, runtime, registry, tuning }
     }
 
     /// The same cache, serving the key a request is sent with: Node reads the key per send (`_getApiKey()`), and
@@ -146,9 +138,7 @@ impl ExplicitCache {
 
     /// Unary recovery may reuse a live attachment, but never creates or renews one.
     pub(in crate::providers::google) fn can_reattach(&self, state: &GeminiCacheState, ask: &Ask<'_>) -> bool {
-        !self.tuning.disabled && policy::decide(
-            Some(state), ask.model, &self.fingerprint, &ask.request, ask.iteration, self.now_ms(), &self.tuning,
-        ).can_attach
+        !self.tuning.disabled && policy::decide(Some(state), ask.model, &self.fingerprint, &ask.request, ask.iteration, self.now_ms(), &self.tuning).can_attach
     }
 
     fn wire(&self, method: &str, url: String, body: Vec<u8>) -> WireRequest {
@@ -169,8 +159,7 @@ impl ExplicitCache {
         }
         let state = ask.state.and_then(|s| s.gemini.as_ref());
         let now = self.runtime.now_ms();
-        let decision =
-            policy::decide(state, ask.model, &self.fingerprint, &ask.request, ask.iteration, now, &self.tuning);
+        let decision = policy::decide(state, ask.model, &self.fingerprint, &ask.request, ask.iteration, now, &self.tuning);
         let attached = || Answer { cache_name: state.filter(|_| decision.can_attach).map(|s| s.cache_name.clone()), state: None };
         if decision.can_reuse {
             return attached();
@@ -192,10 +181,7 @@ impl ExplicitCache {
         let adopted = |entry: &CacheEntry| Answer {
             cache_name: Some(entry.cache_name.clone()),
             // The session's other provider keys ride along unchanged.
-            state: Some(ProviderState {
-                gemini: Some(entry.attach(ask.iteration)),
-                rest: ask.state.map(|s| s.rest.clone()).unwrap_or_default(),
-            }),
+            state: Some(ProviderState { gemini: Some(entry.attach(ask.iteration)), rest: ask.state.map(|s| s.rest.clone()).unwrap_or_default() }),
         };
         match self.registry.claim(&key, now) {
             Claim::Live(entry) => adopted(&entry),
@@ -325,7 +311,6 @@ impl Drop for FlightGuard {
     }
 }
 
-
 impl CreateJob {
     /// `_createGeminiCache`: never fails; a failure resolves `None` so every
     /// waiter proceeds uncached and the next turn tries again.
@@ -407,17 +392,8 @@ impl CreateJob {
         let body = response.read_all().await?.body;
         let unreadable = || ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
         let data: Value = serde_json::from_slice(&body).map_err(|_| unreadable())?;
-        let name = data
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|n| !n.is_empty())
-            .ok_or_else(unreadable)?
-            .to_owned();
-        let token_size = data
-            .pointer("/usageMetadata/totalTokenCount")
-            .and_then(Value::as_f64)
-            .filter(|n| n.is_finite() && *n > 0.0)
-            .unwrap_or(0.0) as u64;
+        let name = data.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).ok_or_else(unreadable)?.to_owned();
+        let token_size = data.pointer("/usageMetadata/totalTokenCount").and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).unwrap_or(0.0) as u64;
         Ok((name, token_size))
     }
 

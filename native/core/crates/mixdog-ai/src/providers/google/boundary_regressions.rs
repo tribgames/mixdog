@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_core_api::domain::provider::{
-    Content, DeliveryState, ErrorKind, Exposure, Message, ModelRequest, ModelStream, ProviderAdapter, ProviderError,
-    RequestOptions, Role, StreamEvent, TransportFault, WireCodec, WireRequest,
+    Content, DeliveryState, ErrorKind, Exposure, Message, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, Role, StreamEvent,
+    TransportFault, WireCodec, WireRequest,
 };
 use serde_json::{Value, json};
 
@@ -34,10 +34,7 @@ fn express_rejects_explicit_non_global_location_before_any_send() {
     for location in [None, Some(" GLOBAL ")] {
         let adapter = super::vertex_express_at("fixture", location, http.clone(), traits());
         let wire = adapter.codec().encode(&request()).unwrap();
-        assert_eq!(
-            wire.url,
-            "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse"
-        );
+        assert_eq!(wire.url, "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse");
     }
     let adapter = super::vertex_express_at("fixture", Some("us-central1"), http, traits());
     let err = adapter.codec().encode(&request()).unwrap_err();
@@ -51,9 +48,7 @@ fn safety_settings_follow_supported_generate_bodies_without_changing_defaults() 
     let vertex = GoogleCodec::vertex(VertexPlace::express(), traits());
     let gateway = GoogleCodec::gemini("https://gateway.invalid", traits()).with_error_label("OpenCode Go Gemini streamGenerateContent");
     let antigravity = GoogleCodec::antigravity("https://gateway.invalid", "project", "1.0.0", traits());
-    let body = |codec: &GoogleCodec, request: &ModelRequest| -> Value {
-        serde_json::from_slice(&codec.encode(request).unwrap().body).unwrap()
-    };
+    let body = |codec: &GoogleCodec, request: &ModelRequest| -> Value { serde_json::from_slice(&codec.encode(request).unwrap().body).unwrap() };
     let mut request = request();
     let settings = json!([{ "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_LOW_AND_ABOVE" }]);
     for params in [None, Some(json!({"safetySettings": null})), Some(json!({"safetySettings": []}))] {
@@ -149,10 +144,8 @@ async fn eligible_vertex_gemini_unary_recovery_keeps_the_selected_location_and_a
     request.options.send_group = Some("send".into());
     request.options.model_parameters = Some(json!({"serviceTier": "priority"}));
     // Priority is served in `us`, rather than a single region. Let it fall back from `us` to global.
-    let adapter = super::vertex(
-        VertexPlace::project("project", None, Some("us")), Arc::new(Bound), "account".into(),
-        http.clone(), traits(), Arc::new(|_| None),
-    );
+    let adapter =
+        super::vertex(VertexPlace::project("project", None, Some("us")), Arc::new(Bound), "account".into(), http.clone(), traits(), Arc::new(|_| None));
     let request = Arc::new(request);
     let err = failure(adapter.attempt(request.clone()).await.unwrap().as_mut()).await;
     assert!(adapter.recovers_spent(&request.model, &err));
@@ -189,11 +182,10 @@ async fn eligible_vertex_gemini_unary_recovery_keeps_the_selected_location_and_a
 #[tokio::test]
 async fn vertex_terminal_failures_carry_reported_usage_without_completing_the_turn() {
     let http = Arc::new(Script::default());
-    let usage = Bytes::from_static(b"data: {\"usageMetadata\":{\"promptTokenCount\":20,\"cachedContentTokenCount\":5,\"candidatesTokenCount\":8,\"thoughtsTokenCount\":3}}\n\n");
-    for end in [
-        Ok(Bytes::from_static(b"data: {\"candidates\":[{\"finishReason\":\"SAFETY\"}]}\n\n")),
-        Err(TransportFault::TruncatedStream),
-    ] {
+    let usage = Bytes::from_static(
+        b"data: {\"usageMetadata\":{\"promptTokenCount\":20,\"cachedContentTokenCount\":5,\"candidatesTokenCount\":8,\"thoughtsTokenCount\":3}}\n\n",
+    );
+    for end in [Ok(Bytes::from_static(b"data: {\"candidates\":[{\"finishReason\":\"SAFETY\"}]}\n\n")), Err(TransportFault::TruncatedStream)] {
         http.answer(200, [Ok(usage.clone()), end]);
     }
     let adapter = super::vertex_express_at("fixture", None, http, traits());
@@ -234,12 +226,25 @@ fn sparse_usage_folds_by_token_family_and_new_zero_wins_across_aliases() {
         ] {
             assert!(decoder.feed(frame(chunk).as_bytes()).unwrap().iter().all(|event| !matches!(event, StreamEvent::Usage(_))));
         }
-        let interim = decoder.feed(frame(json!({"usageMetadata": {"cached_content_token_count": 0, "thoughts_token_count": 0},
-            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "done"}]}}]})).as_bytes()).unwrap();
+        let interim = decoder
+            .feed(
+                frame(json!({"usageMetadata": {"cached_content_token_count": 0, "thoughts_token_count": 0},
+            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "done"}]}}]}))
+                .as_bytes(),
+            )
+            .unwrap();
         assert!(interim.iter().all(|event| !matches!(event, StreamEvent::Usage(_))));
         let done = decoder.finish().unwrap();
-        let usages = done.iter().filter_map(|event| match event { StreamEvent::Usage(usage) => Some(usage), _ => None }).collect::<Vec<_>>();
-        let [usage] = usages.as_slice() else { panic!("one terminal usage event"); };
+        let usages = done
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::Usage(usage) => Some(usage),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let [usage] = usages.as_slice() else {
+            panic!("one terminal usage event");
+        };
         assert_eq!((usage.input_tokens, usage.cache_read_tokens, usage.output_tokens, usage.reasoning_tokens), (expected_input, 0, 8, Some(0)));
     }
 }
@@ -268,11 +273,14 @@ async fn dropping_a_vertex_stream_accounts_sparse_observed_usage_once_without_a_
 
     for cancel in [true, false] {
         let http = Arc::new(Script::default());
-        http.answer(200, [
-            Ok(usage_frame(json!({"promptTokenCount": 20, "cachedContentTokenCount": 5, "thoughtsTokenCount": 3}))),
-            Ok(usage_frame(json!({"candidatesTokenCount": 8}))),
-            Ok(Bytes::from_static(b"data: {\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"done\"}]}}]}\n\n")),
-        ]);
+        http.answer(
+            200,
+            [
+                Ok(usage_frame(json!({"promptTokenCount": 20, "cachedContentTokenCount": 5, "thoughtsTokenCount": 3}))),
+                Ok(usage_frame(json!({"candidatesTokenCount": 8}))),
+                Ok(Bytes::from_static(b"data: {\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"done\"}]}}]}\n\n")),
+            ],
+        );
         let (tx, mut rows) = tokio::sync::mpsc::unbounded_channel();
         let sink: Arc<dyn UsageSink> = Arc::new(RowSink(tx));
         let deps = AccountingDeps::new(Arc::new(TokenPricing), Arc::new(move || Some(sink.clone())));
@@ -291,13 +299,15 @@ async fn dropping_a_vertex_stream_accounts_sparse_observed_usage_once_without_a_
             }
         }
         drop(stream);
-        adapter.settle_send("group", if cancel { mixdog_core_api::domain::provider::SendEnd::Cancelled } else {
-            mixdog_core_api::domain::provider::SendEnd::Surfaced
-        }).await;
+        adapter
+            .settle_send(
+                "group",
+                if cancel { mixdog_core_api::domain::provider::SendEnd::Cancelled } else { mixdog_core_api::domain::provider::SendEnd::Surfaced },
+            )
+            .await;
         drop(adapter);
         let row = rows.recv().await.expect("one attempt row");
-        assert_eq!((row.status.as_str(), row.input, row.cache_read, row.output),
-            (if cancel { "cancelled" } else { "completed" }, 15.0, 5.0, 11.0));
+        assert_eq!((row.status.as_str(), row.input, row.cache_read, row.output), (if cancel { "cancelled" } else { "completed" }, 15.0, 5.0, 11.0));
         assert!(rows.recv().await.is_none(), "no second row for the same attempt");
     }
 }
@@ -336,9 +346,20 @@ async fn direct_unary_reuses_the_attached_tail_only_under_the_same_key() {
     let key = Arc::new(RotatingKey(Mutex::new("fixture-original")));
     let http = Arc::new(Script::default());
     http.answer(200, [Ok(Bytes::from_static(b"data: {\"candidates\":[{}]}\n\n"))]);
-    http.answer(200, [Ok(Bytes::from_static(b"{\"usageMetadata\":{\"promptTokenCount\":12},\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"done\"}]}}]}"))]);
-    let adapter = super::gemini_with(key.clone(), http.clone(), traits(), Arc::new(super::cache::runtime::RtCacheRuntime),
-        super::cache::registry::Registry::shared(), Tuning::default());
+    http.answer(
+        200,
+        [Ok(Bytes::from_static(
+            b"{\"usageMetadata\":{\"promptTokenCount\":12},\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"done\"}]}}]}",
+        ))],
+    );
+    let adapter = super::gemini_with(
+        key.clone(),
+        http.clone(),
+        traits(),
+        Arc::new(super::cache::runtime::RtCacheRuntime),
+        super::cache::registry::Registry::shared(),
+        Tuning::default(),
+    );
     let mut request = request();
     request.options.send_group = Some("cached".into());
     request.options.shared_cache_prefix_count = Some(1);
@@ -373,7 +394,9 @@ async fn direct_unary_reuses_the_attached_tail_only_under_the_same_key() {
     assert_eq!((usage.input_tokens, usage.cache_read_tokens), (12, 0));
     assert!(usage.raw.unwrap().get("cachedContentTokenCount").is_none());
     *key.0.lock().unwrap() = "fixture-rotated";
-    let Err(err) = adapter.recover_spent(request).await else { panic!("a rotated key must not be sent"); };
+    let Err(err) = adapter.recover_spent(request).await else {
+        panic!("a rotated key must not be sent");
+    };
     assert!(err.kind == ErrorKind::Auth && err.recovery_terminal);
     let sent = http.sent.lock().unwrap();
     assert_eq!(sent.len(), 2);
@@ -394,7 +417,9 @@ async fn unary_prompt_block_and_auth_refusal_are_authoritative() {
         let http = Arc::new(Script::default());
         http.answer(status, [Ok(Bytes::from_static(body))]);
         let adapter = super::gemini("fixture", http, traits());
-        let Err(err) = adapter.recover_spent(Arc::new(request())).await else { panic!("expected a unary refusal"); };
+        let Err(err) = adapter.recover_spent(Arc::new(request())).await else {
+            panic!("expected a unary refusal");
+        };
         assert_eq!(err.kind, expected);
         assert!(err.recovery_terminal, "the caller must keep the unary verdict");
         if expected == ErrorKind::Policy {

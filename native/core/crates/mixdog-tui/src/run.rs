@@ -241,7 +241,25 @@ impl Driver {
         let frames = PacedFrames::new(FrameWriter::new(stdout(), level), move |_ack| {
             ack_store.tick();
         });
-        Self { app, clock, start: Instant::now(), env: *env, restorer, store, runtime, tx, decoder: Decoder::new(), frames, size, dirty: true, disposing: false, frame_due: None, turns: 0, cleanup, was_busy: false }
+        Self {
+            app,
+            clock,
+            start: Instant::now(),
+            env: *env,
+            restorer,
+            store,
+            runtime,
+            tx,
+            decoder: Decoder::new(),
+            frames,
+            size,
+            dirty: true,
+            disposing: false,
+            frame_due: None,
+            turns: 0,
+            cleanup,
+            was_busy: false,
+        }
     }
 
     fn now_ms(&self) -> u64 {
@@ -494,15 +512,12 @@ mod tests {
     }
 }
 
-
 /// Runs the terminal UI until it exits and returns the process exit code.
 pub fn run_tui(options: TuiOptions) -> ExitCode {
     let start = Instant::now();
     let profile = BootProfile::from_vars(|name| std::env::var(name).ok(), start);
-    profile.log(
-        "run:start",
-        &[("provider", options.provider.clone()), ("model", options.model.clone()), ("remote", options.remote.then(|| "true".to_owned()))],
-    );
+    profile
+        .log("run:start", &[("provider", options.provider.clone()), ("model", options.model.clone()), ("remote", options.remote.then(|| "true".to_owned()))]);
     if !stdin().is_terminal() {
         eprint!("{NO_TTY_MESSAGE}");
         return ExitCode::from(1);
@@ -557,11 +572,8 @@ fn run_session(
 ) -> i32 {
     let started = Instant::now();
     let (columns, rows) = terminal_size().unwrap_or((80, 24));
-    let cwd = options
-        .cwd
-        .clone()
-        .filter(|cwd| !cwd.is_empty())
-        .unwrap_or_else(|| std::env::current_dir().map(|dir| dir.display().to_string()).unwrap_or_default());
+    let cwd =
+        options.cwd.clone().filter(|cwd| !cwd.is_empty()).unwrap_or_else(|| std::env::current_dir().map(|dir| dir.display().to_string()).unwrap_or_default());
     let version = env!("CARGO_PKG_VERSION");
     // The splash keeps the seconds between the alternate screen and the first frame from being a blank void; the first frame
     // overprints it in place.

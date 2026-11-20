@@ -14,9 +14,8 @@ use crate::color::{ColorSpace, to_u8_clamped};
 use crate::error::{PdfError, Result};
 
 const ZIGZAG: [u8; 64] = [
-    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
-    13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59,
-    52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29,
+    22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
 const COS1: i64 = 4017;
 const SIN1: i64 = 799;
@@ -107,12 +106,7 @@ fn build_huffman(code_lengths: &[u8; 16], values: &[u8]) -> Step<Huffman> {
                 Some(cell) => cell,
                 None => return empty(),
             };
-            put(
-                &mut nodes,
-                p.node,
-                p.index,
-                Child::Value(values.get(k).copied().unwrap_or(0)),
-            );
+            put(&mut nodes, p.node, p.index, Child::Value(values.get(k).copied().unwrap_or(0)));
             while p.index > 0 {
                 p = match code.pop() {
                     Some(cell) => cell,
@@ -120,10 +114,7 @@ fn build_huffman(code_lengths: &[u8; 16], values: &[u8]) -> Step<Huffman> {
                 };
             }
             p.index += 1;
-            code.push(Cell {
-                node: p.node,
-                index: p.index,
-            });
+            code.push(Cell { node: p.node, index: p.index });
             while code.len() <= i {
                 nodes.push(Vec::new());
                 let q = nodes.len() - 1;
@@ -181,18 +172,12 @@ fn prepare_components(frame: &mut Frame, max_h: u32, max_v: u32) -> Step<()> {
     let mcus_per_line = (samples / 8.0 / f64::from(max_h)).ceil();
     let mcus_per_column = (lines / 8.0 / f64::from(max_v)).ceil();
     for component in &mut frame.components {
-        let blocks_per_line =
-            ((samples / 8.0).ceil() * f64::from(component.h) / f64::from(max_h)).ceil();
-        let blocks_per_column =
-            ((lines / 8.0).ceil() * f64::from(component.v) / f64::from(max_v)).ceil();
+        let blocks_per_line = ((samples / 8.0).ceil() * f64::from(component.h) / f64::from(max_h)).ceil();
+        let blocks_per_column = ((lines / 8.0).ceil() * f64::from(component.v) / f64::from(max_v)).ceil();
         let for_mcu_line = mcus_per_line * f64::from(component.h);
         let for_mcu_column = mcus_per_column * f64::from(component.v);
         let size = 64.0 * for_mcu_column * (for_mcu_line + 1.0);
-        if !size.is_finite()
-            || size > MAX_BLOCK_SAMPLES
-            || !blocks_per_line.is_finite()
-            || !blocks_per_column.is_finite()
-        {
+        if !size.is_finite() || size > MAX_BLOCK_SAMPLES || !blocks_per_line.is_finite() || !blocks_per_column.is_finite() {
             return fail("Invalid typed array length");
         }
         component.block_data = vec![0i16; size as usize];
@@ -221,27 +206,15 @@ fn is_marker(m: u32) -> bool {
 }
 
 /// `findNextFileMarker`.
-fn find_next_file_marker(
-    data: &[u8],
-    current_pos: usize,
-    start_pos: isize,
-) -> Step<Option<FileMarker>> {
+fn find_next_file_marker(data: &[u8], current_pos: usize, start_pos: isize) -> Step<Option<FileMarker>> {
     let max_pos = data.len() as isize - 1;
-    let mut new_pos = if start_pos < current_pos as isize {
-        start_pos
-    } else {
-        current_pos as isize
-    };
+    let mut new_pos = if start_pos < current_pos as isize { start_pos } else { current_pos as isize };
     if current_pos as isize >= max_pos {
         return Ok(None);
     }
     let current_marker = u16_at(data, current_pos)?;
     if is_marker(current_marker) {
-        return Ok(Some(FileMarker {
-            invalid: None,
-            marker: current_marker,
-            offset: current_pos,
-        }));
+        return Ok(Some(FileMarker { invalid: None, marker: current_marker, offset: current_pos }));
     }
     if new_pos < 0 {
         return fail("Offset is outside the bounds of the DataView");
@@ -254,11 +227,7 @@ fn find_next_file_marker(
         }
         new_marker = u16_at(data, new_pos as usize)?;
     }
-    Ok(Some(FileMarker {
-        invalid: Some(current_marker),
-        marker: new_marker,
-        offset: new_pos as usize,
-    }))
+    Ok(Some(FileMarker { invalid: Some(current_marker), marker: new_marker, offset: new_pos as usize }))
 }
 
 /// `readDataBlock`: the application data as `(start, end)` of the data; the new offset is `end`.
@@ -323,18 +292,14 @@ impl Scan<'_> {
                     }
                 } else if next == 0xd9 {
                     if self.parse_dnl {
-                        let maybe =
-                            self.block_row as f64 * if self.precision == 8 { 8.0 } else { 0.0 };
+                        let maybe = self.block_row as f64 * if self.precision == 8 { 8.0 } else { 0.0 };
                         if maybe > 0.0 && (f64::from(self.scan_lines) / maybe).round() >= 5.0 {
                             return Err(Stop::Dnl(maybe as u32));
                         }
                     }
                     return Err(Stop::Eoi);
                 }
-                return Err(Stop::Failed(format!(
-                    "unexpected marker {:x}",
-                    self.bits_data << 8 | next
-                )));
+                return Err(Stop::Failed(format!("unexpected marker {:x}", self.bits_data << 8 | next)));
             }
         }
         self.bits_count = 7;
@@ -370,20 +335,12 @@ impl Scan<'_> {
         }
         let n = self.receive(length)?;
         let threshold = i64::from(1i32.wrapping_shl(length.wrapping_sub(1)));
-        Ok(if n >= threshold {
-            n
-        } else {
-            n + i64::from((-1i32).wrapping_shl(length)) + 1
-        })
+        Ok(if n >= threshold { n } else { n + i64::from((-1i32).wrapping_shl(length)) + 1 })
     }
 
     fn decode_baseline(&mut self, c: &mut Component, off: Option<usize>) -> Step<()> {
         let t = self.decode_huffman(&c.huffman_dc)?;
-        let diff = if t == 0 {
-            0
-        } else {
-            self.receive_and_extend(t)?
-        };
+        let diff = if t == 0 { 0 } else { self.receive_and_extend(t)? };
         c.pred += diff;
         store(&mut c.block_data, off, c.pred);
         let mut k = 1usize;
@@ -410,11 +367,7 @@ impl Scan<'_> {
 
     fn decode_dc_first(&mut self, c: &mut Component, off: Option<usize>) -> Step<()> {
         let t = self.decode_huffman(&c.huffman_dc)?;
-        let diff = if t == 0 {
-            0
-        } else {
-            shl(self.receive_and_extend(t)?, self.successive)
-        };
+        let diff = if t == 0 { 0 } else { shl(self.receive_and_extend(t)?, self.successive) };
         c.pred += diff;
         store(&mut c.block_data, off, c.pred);
         Ok(())
@@ -423,11 +376,7 @@ impl Scan<'_> {
     fn decode_dc_successive(&mut self, c: &mut Component, off: Option<usize>) -> Step<()> {
         let bit = i64::from(self.read_bit()? as i32);
         let current = load(&c.block_data, off);
-        store(
-            &mut c.block_data,
-            off,
-            i64::from((current as i32) | (shl(bit, self.successive) as i32)),
-        );
+        store(&mut c.block_data, off, i64::from((current as i32) | (shl(bit, self.successive) as i32)));
         Ok(())
     }
 
@@ -479,8 +428,7 @@ impl Scan<'_> {
                     r = i64::from(rs >> 4);
                     if s == 0 {
                         if r < 15 {
-                            self.eobrun =
-                                self.receive(r as u32)? + i64::from(1i32.wrapping_shl(r as u32));
+                            self.eobrun = self.receive(r as u32)? + i64::from(1i32.wrapping_shl(r as u32));
                             self.ac_state = 4;
                         } else {
                             r = 16;
@@ -511,11 +459,7 @@ impl Scan<'_> {
                         let add = sign * successive_bit(self)?;
                         store(&mut c.block_data, offset_z, current + add);
                     } else {
-                        store(
-                            &mut c.block_data,
-                            offset_z,
-                            shl(self.ac_next_value, self.successive),
-                        );
+                        store(&mut c.block_data, offset_z, shl(self.ac_next_value, self.successive));
                         self.ac_state = 0;
                     }
                 }
@@ -539,8 +483,7 @@ impl Scan<'_> {
 }
 
 fn load(block_data: &[i16], at: Option<usize>) -> i64 {
-    at.and_then(|i| block_data.get(i))
-        .map_or(0, |v| i64::from(*v))
+    at.and_then(|i| block_data.get(i)).map_or(0, |v| i64::from(*v))
 }
 
 /// A typed-array store: 16 bits wrap, a write past the end is dropped.
@@ -590,11 +533,7 @@ fn decode_scan(
     };
     let mode = if frame.progressive {
         if spectral.0 == 0 {
-            if successive_prev == 0 {
-                Mode::DcFirst
-            } else {
-                Mode::DcSuccessive
-            }
+            if successive_prev == 0 { Mode::DcFirst } else { Mode::DcSuccessive }
         } else if successive_prev == 0 {
             Mode::AcFirst
         } else {
@@ -613,9 +552,7 @@ fn decode_scan(
     let mut mcu = 0usize;
     while mcu <= mcu_expected {
         let to_read = match reset_interval {
-            Some(interval) if interval > 0 => {
-                (mcu_expected - mcu.min(mcu_expected)).min(interval as usize)
-            }
+            Some(interval) if interval > 0 => (mcu_expected - mcu.min(mcu_expected)).min(interval as usize),
             _ => mcu_expected,
         };
         if to_read > 0 {
@@ -628,11 +565,7 @@ fn decode_scan(
                 for _ in 0..to_read {
                     let bpl = c.blocks_per_line;
                     scan.block_row = if bpl == 0 { 0 } else { mcu / bpl };
-                    let off = if bpl == 0 {
-                        None
-                    } else {
-                        Some(block_offset(c, scan.block_row, mcu % bpl))
-                    };
+                    let off = if bpl == 0 { None } else { Some(block_offset(c, scan.block_row, mcu % bpl)) };
                     scan.run(mode, c, off)?;
                     mcu += 1;
                 }
@@ -643,14 +576,9 @@ fn decode_scan(
                         let (h, v) = (c.h as usize, c.v as usize);
                         for j in 0..v {
                             for k in 0..h {
-                                let (mcu_row, mcu_col) = if mcus_per_line == 0 {
-                                    (0, None)
-                                } else {
-                                    (mcu / mcus_per_line, Some(mcu % mcus_per_line))
-                                };
+                                let (mcu_row, mcu_col) = if mcus_per_line == 0 { (0, None) } else { (mcu / mcus_per_line, Some(mcu % mcus_per_line)) };
                                 scan.block_row = mcu_row * v + j;
-                                let off =
-                                    mcu_col.map(|col| block_offset(c, scan.block_row, col * h + k));
+                                let off = mcu_col.map(|col| block_offset(c, scan.block_row, col * h + k));
                                 scan.run(mode, c, off)?;
                             }
                         }
@@ -664,11 +592,7 @@ fn decode_scan(
             break;
         };
         if let Some(invalid) = marker.invalid {
-            let partial = if to_read > 0 {
-                "unexpected"
-            } else {
-                "excessive"
-            };
+            let partial = if to_read > 0 { "unexpected" } else { "excessive" };
             tracing::warn!("decodeScan - {partial} MCU data, current marker is: {invalid:x}");
             scan.offset = marker.offset;
         }
@@ -708,8 +632,7 @@ fn quantize_and_inverse(component: &mut Component, at: usize, p: &mut [i16; 64])
     for row in (0..64).step_by(8) {
         let b = |i: usize| i64::from(block[at + row + i]);
         let mut p0 = b(0);
-        let (mut p1, mut p2, mut p3, mut p4, mut p5, mut p6, mut p7) =
-            (b(1), b(2), b(3), b(4), b(5), b(6), b(7));
+        let (mut p1, mut p2, mut p3, mut p4, mut p5, mut p6, mut p7) = (b(1), b(2), b(3), b(4), b(5), b(6), b(7));
         p0 *= q(row);
         if (p1 | p2 | p3 | p4 | p5 | p6 | p7) == 0 {
             let t = sh(SQRT2 * p0 + 512, 10);
@@ -806,16 +729,7 @@ fn quantize_and_inverse(component: &mut Component, at: usize, p: &mut [i16; 64])
         t = sh(v5 * SIN1 + v6 * COS1 + 2048, 12);
         v5 = sh(v5 * COS1 - v6 * SIN1 + 2048, 12);
         v6 = t;
-        let out = [
-            v0 + v7,
-            v1 + v6,
-            v2 + v5,
-            v3 + v4,
-            v3 - v4,
-            v2 - v5,
-            v1 - v6,
-            v0 - v7,
-        ];
+        let out = [v0 + v7, v1 + v6, v2 + v5, v3 + v4, v3 - v4, v2 - v5, v1 - v6, v0 - v7];
         for (i, value) in out.iter().enumerate() {
             let x = *value;
             let y = if x < 16 {
@@ -871,25 +785,17 @@ impl JpegImage {
                 Ok(image) => return Ok(image),
                 Err(Stop::Failed(message)) => return Err(jpeg_error(&message)),
                 Err(Stop::Eoi) => {
-                    return Err(jpeg_error(
-                        "Found EOI marker (0xFFD9) while parsing scan data",
-                    ));
+                    return Err(jpeg_error("Found EOI marker (0xFFD9) while parsing scan data"));
                 }
                 Err(Stop::Dnl(lines)) => {
-                    tracing::warn!(
-                        "Found DNL marker (0xFFDC) while parsing scan data -- attempting to re-parse the JPEG image."
-                    );
+                    tracing::warn!("Found DNL marker (0xFFDC) while parsing scan data -- attempting to re-parse the JPEG image.");
                     dnl = Some(lines);
                 }
             }
         }
     }
 
-    fn parse_once(
-        data: &[u8],
-        dnl_scan_lines: Option<u32>,
-        color_transform: i64,
-    ) -> Step<JpegImage> {
+    fn parse_once(data: &[u8], dnl_scan_lines: Option<u32>, color_transform: i64) -> Step<JpegImage> {
         let max_offset = data.len() as isize - 1;
         let mut adobe_transform: Option<u32> = None;
         let mut frame: Option<Frame> = None;
@@ -1012,16 +918,11 @@ impl JpegImage {
                             sum += usize::from(*slot);
                             offset += 1;
                         }
-                        let values: Vec<u8> =
-                            (0..sum).map(|j| byte(data, offset + j) as u8).collect();
+                        let values: Vec<u8> = (0..sum).map(|j| byte(data, offset + j) as u8).collect();
                         offset += sum;
                         i += 17 + sum;
                         let table = Arc::new(build_huffman(&lengths, &values)?);
-                        let list = if spec >> 4 == 0 {
-                            &mut huffman_dc
-                        } else {
-                            &mut huffman_ac
-                        };
+                        let list = if spec >> 4 == 0 { &mut huffman_dc } else { &mut huffman_ac };
                         list[(spec & 15) as usize] = Some(table);
                     }
                 }
@@ -1071,9 +972,7 @@ impl JpegImage {
                     ) {
                         Ok(processed) => offset += processed,
                         Err(Stop::Eoi) => {
-                            tracing::warn!(
-                                "Found EOI marker (0xFFD9) while parsing scan data -- ignoring the rest of the image data."
-                            );
+                            tracing::warn!("Found EOI marker (0xFFD9) while parsing scan data -- ignoring the rest of the image data.");
                             break 'markers;
                         }
                         Err(other) => return Err(other),
@@ -1087,25 +986,14 @@ impl JpegImage {
                 }
                 _ => {
                     let next = find_next_file_marker(data, offset - 2, offset as isize - 3)?;
-                    if let Some(FileMarker {
-                        invalid: Some(invalid),
-                        offset: at,
-                        ..
-                    }) = &next
-                    {
-                        tracing::warn!(
-                            "JpegImage.parse - unexpected data, current marker is: {invalid:x}"
-                        );
+                    if let Some(FileMarker { invalid: Some(invalid), offset: at, .. }) = &next {
+                        tracing::warn!("JpegImage.parse - unexpected data, current marker is: {invalid:x}");
                         offset = *at;
                     } else if next.is_none() || offset as isize >= max_offset {
-                        tracing::warn!(
-                            "JpegImage.parse - reached the end of the image data without finding an EOI marker (0xFFD9)."
-                        );
+                        tracing::warn!("JpegImage.parse - reached the end of the image data without finding an EOI marker (0xFFD9).");
                         break 'markers;
                     } else {
-                        return Err(Stop::Failed(format!(
-                            "JpegImage.parse - unknown marker: {file_marker:x}"
-                        )));
+                        return Err(Stop::Failed(format!("JpegImage.parse - unknown marker: {file_marker:x}")));
                     }
                 }
             }
@@ -1119,10 +1007,7 @@ impl JpegImage {
         let Some(mut f) = frame else {
             return fail("JpegImage.parse - no frame data found.");
         };
-        let (max_h, max_v) = f
-            .components
-            .iter()
-            .fold((0u32, 0u32), |(h, v), c| (h.max(c.h), v.max(c.v)));
+        let (max_h, max_v) = f.components.iter().fold((0u32, 0u32), |(h, v), c| (h.max(c.h), v.max(c.v)));
         let mut components = Vec::with_capacity(f.components.len());
         for component in &mut f.components {
             if let Some(Some(table)) = quantization_tables.get(component.quantization_id as usize) {
@@ -1137,13 +1022,7 @@ impl JpegImage {
                 blocks_per_line: component.blocks_per_line,
             });
         }
-        Ok(JpegImage {
-            width: f.samples_per_line,
-            height: f.scan_lines,
-            adobe_transform,
-            components,
-            color_transform,
-        })
+        Ok(JpegImage { width: f.samples_per_line, height: f.scan_lines, adobe_transform, components, color_transform })
     }
 
     /// The number of components of the frame.
@@ -1172,10 +1051,7 @@ impl JpegImage {
                 let j = js_int(y as f64 * component_scale_y);
                 let index = (blocks_per_scanline * (j & !7)) | ((j & 7) << 3);
                 for x in 0..width {
-                    let sample = usize::try_from(index + i64::from(x_offsets[x]))
-                        .ok()
-                        .and_then(|k| component.output.get(k))
-                        .map_or(0, |v| *v);
+                    let sample = usize::try_from(index + i64::from(x_offsets[x])).ok().and_then(|k| component.output.get(k)).map_or(0, |v| *v);
                     data[at] = sample.clamp(0, 255) as u8;
                     at += count;
                 }
@@ -1203,13 +1079,7 @@ impl JpegImage {
     }
 
     /// `getData({ width, height, forceRGBA, forceRGB })`.
-    pub fn get_data(
-        &self,
-        width: usize,
-        height: usize,
-        force_rgba: bool,
-        force_rgb: bool,
-    ) -> Result<Vec<u8>> {
+    pub fn get_data(&self, width: usize, height: usize, force_rgba: bool, force_rgb: bool) -> Result<Vec<u8>> {
         if self.components.len() > 4 {
             return Err(jpeg_error("Unsupported color mode"));
         }
@@ -1229,11 +1099,7 @@ impl JpegImage {
         if count == 3 && self.color_conversion_needed() {
             let ycc = |p: &[u8]| {
                 let (y, cb, cr) = (f64::from(p[0]), f64::from(p[1]), f64::from(p[2]));
-                [
-                    to_u8_clamped(y - 179.456 + 1.402 * cr),
-                    to_u8_clamped(y + 135.459 - 0.344 * cb - 0.714 * cr),
-                    to_u8_clamped(y - 226.816 + 1.772 * cb),
-                ]
+                [to_u8_clamped(y - 179.456 + 1.402 * cr), to_u8_clamped(y + 135.459 - 0.344 * cb - 0.714 * cr), to_u8_clamped(y - 226.816 + 1.772 * cb)]
             };
             if force_rgba {
                 let mut out = Vec::with_capacity(data.len() / 3 * 4);
@@ -1273,11 +1139,7 @@ impl JpegImage {
 
 /// `ToInt32` of a non-negative sample position (`0 | x`).
 fn js_int(x: f64) -> i64 {
-    if x.is_finite() {
-        i64::from(x.trunc() as i64 as i32)
-    } else {
-        0
-    }
+    if x.is_finite() { i64::from(x.trunc() as i64 as i32) } else { 0 }
 }
 
 /// `_convertCmykToRgb` and `_convertCmykToRgba` (`alpha01` 0 or 1): the alpha of the latter is opaque.
@@ -1303,13 +1165,7 @@ mod tests {
         while padded.len() % 8 != 0 {
             padded.push('1');
         }
-        padded
-            .as_bytes()
-            .chunks(8)
-            .map(|chunk| {
-                u8::from_str_radix(std::str::from_utf8(chunk).expect("ascii"), 2).expect("bits")
-            })
-            .collect()
+        padded.as_bytes().chunks(8).map(|chunk| u8::from_str_radix(std::str::from_utf8(chunk).expect("ascii"), 2).expect("bits")).collect()
     }
 
     /// An 8x8 gray JPEG with one block: quantisation table of ones, the DC codes `0` (category 0) and `10`
@@ -1318,9 +1174,7 @@ mod tests {
         let mut jpeg = vec![0xff, 0xd8];
         jpeg.extend([0xff, 0xdb, 0x00, 0x43, 0x00]);
         jpeg.extend([1u8; 64]);
-        jpeg.extend([
-            0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00,
-        ]);
+        jpeg.extend([0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00]);
         jpeg.extend([0xff, 0xc4, 0x00, 0x15, 0x00]);
         jpeg.extend([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         jpeg.extend([0, 7]);
@@ -1377,9 +1231,6 @@ mod tests {
         lengths[0] = 1;
         lengths[1] = 1;
         let tree = build_huffman(&lengths, &[7, 9]).ok().expect("builds");
-        assert!(matches!(
-            tree.nodes[0].first().copied().flatten(),
-            Some(Child::Value(7))
-        ));
+        assert!(matches!(tree.nodes[0].first().copied().flatten(), Some(Child::Value(7))));
     }
 }

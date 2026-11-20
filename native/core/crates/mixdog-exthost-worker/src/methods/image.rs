@@ -59,9 +59,10 @@ fn probe(ctx: CallCtx) -> HandlerResult {
 /// `Number.isInteger` of a parameter. A whole number beyond `i64` saturates; the encoder's range check then answers it
 /// `invalid`, as sharp rejects it in Node.
 fn integer(params: &Value, name: &str) -> Result<i64, CodedError> {
-    let whole = params.get(name).and_then(Value::as_number).and_then(|number| {
-        number.as_i64().or_else(|| number.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
-    });
+    let whole = params
+        .get(name)
+        .and_then(Value::as_number)
+        .and_then(|number| number.as_i64().or_else(|| number.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)));
     whole.ok_or_else(|| invalid_params(format!("{name} must be an integer")))
 }
 
@@ -84,9 +85,7 @@ fn jpeg(ctx: CallCtx) -> HandlerResult {
         return Ok(Outcome::value(json!({"error": "invalid"})));
     }
     match mixdog_imaging::encode_tool_image_jpeg(&bytes, width, height, allow_enlargement, quality) {
-        Ok(encoded) => Ok(Outcome::value(
-            json!({"ok": {"data": STANDARD.encode(&encoded.data), "width": encoded.width, "height": encoded.height}}),
-        )),
+        Ok(encoded) => Ok(Outcome::value(json!({"ok": {"data": STANDARD.encode(&encoded.data), "width": encoded.width, "height": encoded.height}}))),
         Err(error) => failure(&error),
     }
 }
@@ -150,7 +149,6 @@ fn still(ctx: CallCtx) -> HandlerResult {
     };
     let bytes = node_base64(base64_param(&ctx.params)?);
     not_cancelled(&ctx)?;
-    let answer = mixdog_imaging::still::encode_still(&bytes, spec)
-        .map(|still| json!({"extension": still.extension, "data": STANDARD.encode(&still.data)}));
+    let answer = mixdog_imaging::still::encode_still(&bytes, spec).map(|still| json!({"extension": still.extension, "data": STANDARD.encode(&still.data)}));
     Ok(Outcome::value(json!({"ok": answer})))
 }

@@ -57,12 +57,7 @@ const CONFLICT: &str = "INSTRUCTION_FILE_CONFLICT";
 /// The agent editor's text limit.
 const FILE_MAX_BYTES: usize = 256 * 1024;
 const MODES: [&str; 4] = ["none", "focused", "balanced", "swarm"];
-const STYLES: [(&str, &str); 4] = [
-    ("detailed", "Detailed"),
-    ("simple", "Simple"),
-    ("minimal", "Minimal"),
-    ("extreme-minimal", "Extreme Minimal"),
-];
+const STYLES: [(&str, &str); 4] = [("detailed", "Detailed"), ("simple", "Simple"), ("minimal", "Minimal"), ("extreme-minimal", "Extreme Minimal")];
 
 /// Where the texts live.
 #[derive(Clone, Debug)]
@@ -127,9 +122,7 @@ fn mode_label(mode: &str) -> &'static str {
 
 fn frontmatter() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"^---[ \t]*\r?\n(?s:.*?)\r?\n---[ \t]*(?:\r?\n|$)").expect("static pattern")
-    })
+    RE.get_or_init(|| Regex::new(r"^---[ \t]*\r?\n(?s:.*?)\r?\n---[ \t]*(?:\r?\n|$)").expect("static pattern"))
 }
 
 fn meta_block() -> &'static Regex {
@@ -151,11 +144,7 @@ fn style_id_of(markdown: &str, file_id: &str) -> Option<String> {
             let Some((key, value)) = line.split_once(':') else {
                 continue;
             };
-            if key.is_empty()
-                || !key
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-            {
+            if key.is_empty() || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
                 continue;
             }
             let value = js_trim(value);
@@ -165,23 +154,11 @@ fn style_id_of(markdown: &str, file_id: &str) -> Option<String> {
         }
     }
     let file_id = style_slug(file_id);
-    let partial = meta
-        .get("partial")
-        .and_then(Value::as_str)
-        .is_some_and(|raw| {
-            matches!(
-                js_trim(raw).to_lowercase().as_str(),
-                "true" | "1" | "yes" | "on"
-            )
-        });
+    let partial = meta.get("partial").and_then(Value::as_str).is_some_and(|raw| matches!(js_trim(raw).to_lowercase().as_str(), "true" | "1" | "yes" | "on"));
     if file_id == "common" || partial {
         return None;
     }
-    let named = meta
-        .get("name")
-        .and_then(Value::as_str)
-        .map(style_slug)
-        .unwrap_or_default();
+    let named = meta.get("name").and_then(Value::as_str).map(style_slug).unwrap_or_default();
     let id = if named.is_empty() { file_id } else { named };
     (!id.is_empty()).then_some(id)
 }
@@ -189,10 +166,7 @@ fn style_id_of(markdown: &str, file_id: &str) -> Option<String> {
 /// `normalizeText`: LF line ends, no trailing blanks on a line or at the end.
 fn normalize_text(text: &str) -> String {
     let lf = text.replace("\r\n", "\n");
-    let lines: Vec<&str> = lf
-        .split('\n')
-        .map(|line| line.trim_end_matches(is_js_space))
-        .collect();
+    let lines: Vec<&str> = lf.split('\n').map(|line| line.trim_end_matches(is_js_space)).collect();
     lines.join("\n").trim_end_matches(is_js_space).to_owned()
 }
 
@@ -222,12 +196,7 @@ enum Found {
 fn read_instruction_file(path: &Path) -> Found {
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-            ) =>
-        {
+        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
             return Found::Absent;
         }
         Err(_) => return Found::Problem("unreadable"),
@@ -239,11 +208,7 @@ fn read_instruction_file(path: &Path) -> Found {
         return Found::Problem("unreadable");
     };
     match decode_file(&bytes) {
-        Ok(text) => Found::Text(
-            text.replace("\r\n", "\n")
-                .trim_end_matches(is_js_space)
-                .to_owned(),
-        ),
+        Ok(text) => Found::Text(text.replace("\r\n", "\n").trim_end_matches(is_js_space).to_owned()),
         Err(problem) => Found::Problem(problem),
     }
 }
@@ -297,24 +262,9 @@ impl Item {
             (Found::Problem(problem), false) => Some(problem),
             (Found::Text(_), false) => Some(if accepted { "empty" } else { "invalid" }),
         };
-        let body = if usable {
-            user_body.clone()
-        } else {
-            default_body.clone()
-        };
-        let digest = Sha256::digest(
-            format!(
-                "{}\0{}\0{body}",
-                if usable { "user" } else { "default" },
-                problem.unwrap_or("")
-            )
-            .as_bytes(),
-        );
-        let revision: String = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()[..24]
-            .to_owned();
+        let body = if usable { user_body.clone() } else { default_body.clone() };
+        let digest = Sha256::digest(format!("{}\0{}\0{body}", if usable { "user" } else { "default" }, problem.unwrap_or("")).as_bytes());
+        let revision: String = digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..24].to_owned();
         let mut state = Map::new();
         state.insert("group".into(), json!(self.group_name()));
         state.insert("id".into(), json!(self.id));
@@ -322,10 +272,7 @@ impl Item {
         state.insert("body".into(), json!(body));
         state.insert("defaultBody".into(), json!(default_body));
         state.insert("userOverride".into(), json!(!matches!(user, Found::Absent)));
-        state.insert(
-            "modified".into(),
-            json!(usable && normalize_text(&user_body) != normalize_text(&default_body)),
-        );
+        state.insert("modified".into(), json!(usable && normalize_text(&user_body) != normalize_text(&default_body)));
         if let Some(problem) = problem {
             state.insert("problem".into(), json!(problem));
         }
@@ -380,14 +327,7 @@ impl InstructionsService {
         ops: OpScopes,
         tokens: &LaneTokens,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            paths,
-            mode,
-            changed,
-            ops,
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-        })
+        Arc::new(Self { paths, mode, changed, ops, interactive: tokens.interactive_io, durability: tokens.durability_io })
     }
 
     /// `itemFor`.
@@ -395,46 +335,30 @@ impl InstructionsService {
         match group {
             "delegation" => {
                 if !MODES.contains(&id) {
-                    return Err(bad_argument(format!(
-                        "orchestration mode must be one of {}",
-                        MODES.join(", ")
-                    )));
+                    return Err(bad_argument(format!("orchestration mode must be one of {}", MODES.join(", "))));
                 }
                 Ok(Item {
                     group: Group::Delegation,
                     id: id.to_owned(),
                     label: mode_label(id),
                     shipped: self.paths.shipped_orchestration.join(format!("{id}.md")),
-                    user: self
-                        .paths
-                        .data_dir
-                        .join("orchestration")
-                        .join(format!("{id}.md")),
+                    user: self.paths.data_dir.join("orchestration").join(format!("{id}.md")),
                 })
             }
             "outputStyle" => {
                 let Some((_, label)) = STYLES.iter().find(|(style, _)| *style == id) else {
                     let ids: Vec<&str> = STYLES.iter().map(|(style, _)| *style).collect();
-                    return Err(bad_argument(format!(
-                        "output style must be one of {}",
-                        ids.join(", ")
-                    )));
+                    return Err(bad_argument(format!("output style must be one of {}", ids.join(", "))));
                 };
                 Ok(Item {
                     group: Group::OutputStyle,
                     id: id.to_owned(),
                     label,
                     shipped: self.paths.shipped_output_styles.join(format!("{id}.md")),
-                    user: self
-                        .paths
-                        .data_dir
-                        .join("output-styles")
-                        .join(format!("{id}.md")),
+                    user: self.paths.data_dir.join("output-styles").join(format!("{id}.md")),
                 })
             }
-            _ => Err(bad_argument(
-                "instruction group must be one of delegation, outputStyle".into(),
-            )),
+            _ => Err(bad_argument("instruction group must be one of delegation, outputStyle".into())),
         }
     }
 
@@ -447,11 +371,7 @@ impl InstructionsService {
         if value_to_string(expected) == before["revision"].as_str().unwrap_or_default() {
             return Ok(());
         }
-        Err(coded(
-            DOMAIN,
-            CONFLICT,
-            format!("{CONFLICT}: \"{id}\" changed since it was loaded"),
-        ))
+        Err(coded(DOMAIN, CONFLICT, format!("{CONFLICT}: \"{id}\" changed since it was loaded")))
     }
 
     async fn state(&self, req: &CoreRequest, item: Item) -> Result<Value, CoreError> {
@@ -466,10 +386,7 @@ impl InstructionsService {
         for (style, _) in STYLES {
             items.push(self.item("outputStyle", style)?);
         }
-        on_lane(self.interactive, &req.ctx.cancel, move |_| {
-            Value::Array(items.iter().map(Item::state).collect())
-        })
-        .await
+        on_lane(self.interactive, &req.ctx.cancel, move |_| Value::Array(items.iter().map(Item::state).collect())).await
     }
 
     async fn get(&self, req: &CoreRequest) -> Result<Value, CoreError> {
@@ -511,14 +428,10 @@ impl InstructionsService {
                     // the reader's check, or the saved file would be ignored.
                     let bytes = item.file(&body, &shipped_text).into_bytes();
                     if bytes.len() > FILE_MAX_BYTES {
-                        return Err(bad_argument(
-                            "instruction text is larger than 256 KB".into(),
-                        ));
+                        return Err(bad_argument("instruction text is larger than 256 KB".into()));
                     }
                     if let Err(problem) = decode_file(&bytes) {
-                        return Err(bad_argument(format!(
-                            "instruction text cannot be saved ({problem})"
-                        )));
+                        return Err(bad_argument(format!("instruction text cannot be saved ({problem})")));
                     }
                     write_atomic(lane, &item.user, &bytes, true).map_err(|e| io_failure(DOMAIN, &e))
                 })
@@ -556,10 +469,7 @@ impl InstructionsService {
             move || -> Result<(), CoreError> {
                 locked(&item.user, || {
                     if !item.user.exists() {
-                        return Err(bad_argument(format!(
-                            "\"{}\" has no user override to reset",
-                            item.id
-                        )));
+                        return Err(bad_argument(format!("\"{}\" has no user override to reset", item.id)));
                     }
                     Self::assert_current(expected.as_ref(), &item.state(), &item.id)?;
                     remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e))?;
@@ -606,12 +516,7 @@ impl InstructionsService {
         .await
     }
 
-    async fn ops_run<E, EF, R, RF>(
-        &self,
-        req: &CoreRequest,
-        execute: E,
-        reproduce: R,
-    ) -> Result<Value, CoreError>
+    async fn ops_run<E, EF, R, RF>(&self, req: &CoreRequest, execute: E, reproduce: R) -> Result<Value, CoreError>
     where
         E: FnOnce() -> EF,
         EF: std::future::Future<Output = Result<Value, CoreError>>,
@@ -620,9 +525,7 @@ impl InstructionsService {
     {
         match self.ops.run(req, None, execute, reproduce).await? {
             Reply::Value(value) => Ok(value),
-            Reply::Subscribe(_) => Err(CoreError::Internal {
-                incident_id: "instructions-subscribe".into(),
-            }),
+            Reply::Subscribe(_) => Err(CoreError::Internal { incident_id: "instructions-subscribe".into() }),
         }
     }
 }

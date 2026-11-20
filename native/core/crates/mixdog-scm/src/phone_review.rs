@@ -119,11 +119,7 @@ fn or_default<T>(result: Result<T, ScmFailure>, default: T) -> Result<T, ScmFail
 }
 
 async fn hash_empty_tree(git: &Git, cancel: &CancellationToken, root: &Path) -> Result<String, ScmFailure> {
-    Ok(git
-        .text(cancel, root, &["--no-optional-locks", "hash-object", "-t", "tree", "/dev/null"], &RunOptions::read())
-        .await?
-        .trim()
-        .to_owned())
+    Ok(git.text(cancel, root, &["--no-optional-locks", "hash-object", "-t", "tree", "/dev/null"], &RunOptions::read()).await?.trim().to_owned())
 }
 
 async fn cached_empty_tree(git: &Git, cancel: &CancellationToken, root: &Path) -> Result<String, ScmFailure> {
@@ -138,10 +134,7 @@ async fn cached_empty_tree(git: &Git, cancel: &CancellationToken, root: &Path) -
 
 /// `hasHead`: false reads as an unborn HEAD; only a deadline is an error.
 async fn has_head(git: &Git, cancel: &CancellationToken, root: &Path) -> Result<bool, ScmFailure> {
-    or_default(
-        git.text(cancel, root, &["rev-parse", "--verify", "HEAD"], &RunOptions::read()).await.map(|_| true),
-        false,
-    )
+    or_default(git.text(cancel, root, &["rev-parse", "--verify", "HEAD"], &RunOptions::read()).await.map(|_| true), false)
 }
 
 /// `resolveReviewBase`: the default branch name, kept for the metadata TTL.
@@ -189,9 +182,7 @@ async fn resolve_merge_base(git: &Git, cancel: &CancellationToken, cwd: &Path) -
         return Ok((base, "HEAD".to_owned()));
     }
     let merged = or_default(
-        git.text(cancel, cwd, &["--no-optional-locks", "merge-base", &base, "HEAD"], &RunOptions::read())
-            .await
-            .map(|text| text.trim().to_owned()),
+        git.text(cancel, cwd, &["--no-optional-locks", "merge-base", &base, "HEAD"], &RunOptions::read()).await.map(|text| text.trim().to_owned()),
         String::new(),
     )?;
     let reference = if merged.is_empty() { "HEAD".to_owned() } else { merged };
@@ -281,9 +272,7 @@ async fn committed_paths(git: &Git, cancel: &CancellationToken, root: &Path, ref
     if let Some(paths) = kept {
         return Ok(paths);
     }
-    let raw = git
-        .text(cancel, root, &["--no-optional-locks", "diff", "--name-only", "-z", "--no-renames", reference, head], &RunOptions::read())
-        .await?;
+    let raw = git.text(cancel, root, &["--no-optional-locks", "diff", "--name-only", "-z", "--no-renames", reference, head], &RunOptions::read()).await?;
     let paths: Vec<String> = raw.split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect();
     bounded_set(&mut caches().committed, key, paths.clone());
     Ok(paths)
@@ -304,16 +293,15 @@ async fn diff_stale_rows(
 ) -> Result<(IndexMap<String, Record>, bool), ScmFailure> {
     let arg_chars: usize = stale.iter().map(|path| utf16_len(path) + 3).sum();
     let whole = arg_chars > REVIEW_BATCH_ARGS_CHARS;
-    let mut args = vec!["-c", "core.quotePath=false", "--no-optional-locks", "--literal-pathspecs", "diff", reference, "--raw", "--numstat", "--no-renames", "-z"];
+    let mut args =
+        vec!["-c", "core.quotePath=false", "--no-optional-locks", "--literal-pathspecs", "diff", reference, "--raw", "--numstat", "--no-renames", "-z"];
     if !whole {
         args.push("--");
         args.extend(stale.iter().map(String::as_str));
     }
     let raw = git.text(cancel, root, &args, &RunOptions::read()).await?;
-    let records = parse_raw_numstat(&raw)
-        .into_iter()
-        .map(|(path, (kind, adds, dels))| (path, (crate::service::kind_letter(kind).to_owned(), adds, dels)))
-        .collect();
+    let records =
+        parse_raw_numstat(&raw).into_iter().map(|(path, (kind, adds, dels))| (path, (crate::service::kind_letter(kind).to_owned(), adds, dels))).collect();
     Ok((records, whole))
 }
 
@@ -337,9 +325,7 @@ pub async fn git_review(git: &Git, lane: MaintenanceIo, cancel: &CancellationTok
     };
     let merge = {
         let (git, cancel, root, source) = (git.clone(), cancel.clone(), root_path.to_path_buf(), source.to_owned());
-        async move {
-            if source == "uncommitted" { Ok(None) } else { resolve_merge_base(&git, &cancel, &root).await.map(Some) }
-        }
+        async move { if source == "uncommitted" { Ok(None) } else { resolve_merge_base(&git, &cancel, &root).await.map(Some) } }
     };
     let (status, merge_base) = crate::promise_all::all2(scan, merge).await?;
     let unborn = status.head.is_empty() || status.head == "(initial)";
@@ -538,11 +524,8 @@ fn assemble_batch(plan: BatchPlan, tracked_read: Option<TrackedRead>, mut untrac
             let mut chunks: HashMap<&String, String> = HashMap::new();
             let mut unmatched = false;
             // output.split(/^(?=diff --git )/m): a chunk starts at each line that begins `diff --git `.
-            let mut starts: Vec<usize> = output
-                .match_indices("diff --git ")
-                .filter(|(at, _)| *at == 0 || output.as_bytes()[at - 1] == b'\n')
-                .map(|(at, _)| at)
-                .collect();
+            let mut starts: Vec<usize> =
+                output.match_indices("diff --git ").filter(|(at, _)| *at == 0 || output.as_bytes()[at - 1] == b'\n').map(|(at, _)| at).collect();
             if starts.first() != Some(&0) {
                 starts.insert(0, 0);
             }
@@ -606,7 +589,6 @@ pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path,
 mod batch_tests {
     use super::*;
 
-
     fn patch_for(path: &str) -> String {
         format!("diff --git a/{path} b/{path}\n+{path}\n")
     }
@@ -659,5 +641,3 @@ mod batch_tests {
         assert_eq!(answer, json!({ "patches": [{ "path": "small.rs", "patch": patch_for("small.rs") }], "omitted": ["big.rs"] }));
     }
 }
-
-

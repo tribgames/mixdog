@@ -93,10 +93,7 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
         return Err(DownloadError::Size(format!("{label}: response exceeds the {} byte limit", spec.max_bytes)));
     }
     if spec.expected_bytes != 0 && advertised != 0 && advertised != spec.expected_bytes {
-        return Err(DownloadError::Size(format!(
-            "{label}: expected {} bytes, server advertised {advertised}",
-            spec.expected_bytes
-        )));
+        return Err(DownloadError::Size(format!("{label}: expected {} bytes, server advertised {advertised}", spec.expected_bytes)));
     }
     let total = if advertised != 0 { advertised } else { spec.expected_bytes };
     if let Some(parent) = spec.dest.parent() {
@@ -138,11 +135,7 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
 }
 
 /// One attempt at `spec.url`; a failed attempt leaves no file.
-pub async fn download_once(
-    spec: &Spec<'_>,
-    progress: Option<&ProgressSink>,
-    cancel: &CancellationToken,
-) -> Result<u64, DownloadError> {
+pub async fn download_once(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<u64, DownloadError> {
     let outcome = attempt(spec, progress, cancel).await;
     if outcome.is_err() {
         let _ = fsio::remove_file(spec.lane, spec.dest).await;
@@ -151,11 +144,7 @@ pub async fn download_once(
 }
 
 /// Downloads `spec.url` to `spec.dest`; a failed download leaves no file.
-pub async fn download_to_file(
-    spec: &Spec<'_>,
-    progress: Option<&ProgressSink>,
-    cancel: &CancellationToken,
-) -> Result<u64, DownloadError> {
+pub async fn download_to_file(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<u64, DownloadError> {
     let mut last = DownloadError::Cancelled;
     for _ in 0..=RETRIES {
         match download_once(spec, progress, cancel).await {

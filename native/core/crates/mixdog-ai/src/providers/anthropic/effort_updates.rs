@@ -59,8 +59,7 @@ fn strip_date(id: &str) -> &str {
         }
         // `-YYYY-MM-DD`
         let mut parts = id.rsplitn(4, '-');
-        if let (Some(day), Some(month), Some(year), Some(stem)) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
+        if let (Some(day), Some(month), Some(year), Some(stem)) = (parts.next(), parts.next(), parts.next(), parts.next())
             && day.len() == 2
             && month.len() == 2
             && year.len() == 4
@@ -99,22 +98,14 @@ pub(crate) struct Gate {
 }
 
 pub(crate) fn enabled(provider: &str, model: &str, gate: &Gate) -> bool {
-    gate.enabled
-        && !gate.manual_budget
-        && gate.beta_headers
-        && gate.official_url
-        && version_supported(provider, model)
+    gate.enabled && !gate.manual_budget && gate.beta_headers && gate.official_url && version_supported(provider, model)
 }
 
 /// Lowers `messages` with the update messages placed. With a projection the
 /// history keeps one representation: every text content is a block list, on
 /// updating and non-updating turns alike (cache markers otherwise turn a
 /// string into a block list only on some turns).
-pub(crate) fn lower_with_updates(
-    messages: &[Message],
-    updates: &BTreeMap<usize, String>,
-    cx: &LowerContext<'_>,
-) -> Vec<WireMessage> {
+pub(crate) fn lower_with_updates(messages: &[Message], updates: &BTreeMap<usize, String>, cx: &LowerContext<'_>) -> Vec<WireMessage> {
     let mut result = Vec::new();
     let mut start = 0;
     let mut after_batch: Option<&str> = None;

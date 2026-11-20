@@ -17,9 +17,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::catalog::engine_entry;
 use super::extract::extract_archive;
+use super::process::Processes;
 #[cfg(windows)]
 use super::process::RunOptions;
-use super::process::Processes;
 use crate::lane::{io_on_lane, on_lane};
 use crate::local_provider::assets::{Fetcher, sha256_file};
 use crate::local_provider::catalog::file_has_data;
@@ -53,7 +53,7 @@ pub fn platform_key_candidates_for(os: &str, arch: &str) -> Vec<String> {
         other => other,
     };
     let native = format!("{os}-{arch}");
-    if os =="win32" && arch == "arm64" { vec![native, "win32-x64".into()] } else { vec![native] }
+    if os == "win32" && arch == "arm64" { vec![native, "win32-x64".into()] } else { vec![native] }
 }
 
 pub fn read_engines_manifest() -> Value {
@@ -230,7 +230,9 @@ pub async fn plan_install(processes: &Processes, ids: &[String], manifest: &Valu
             continue;
         }
         let Some(found) = manifest_asset(manifest, id) else {
-            plan.errors.push(json!({"id": id, "error": format!("no {} asset in the engines manifest", platform_key_candidates()[0]), "installHint": catalog.install_hint}));
+            plan.errors.push(
+                json!({"id": id, "error": format!("no {} asset in the engines manifest", platform_key_candidates()[0]), "installHint": catalog.install_hint}),
+            );
             continue;
         };
         if let Some((path, version)) = managed_engine_binary(processes, id, manifest, plugin_data).await {
@@ -370,7 +372,15 @@ fn stage_archive(target: &Target, archive_file: &Path, stage: &Path) -> Result<u
     Ok(bytes)
 }
 
-async fn download_asset(lane: DurabilityIo, target: &Target, archive_file: &Path, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: &Option<OnProgress>, stall: Duration) -> Result<(), String> {
+async fn download_asset(
+    lane: DurabilityIo,
+    target: &Target,
+    archive_file: &Path,
+    fetcher: &dyn Fetcher,
+    cancel: &CancellationToken,
+    on_progress: &Option<OnProgress>,
+    stall: Duration,
+) -> Result<(), String> {
     let mut response = fetcher.get(&target.url, 0).await.map_err(|e| format!("{LABEL} {}: {e}", target.id))?;
     if !(200..300).contains(&response.status) {
         return Err(format!("{LABEL} {}: HTTP {} for {}", target.id, response.status, target.url));
@@ -405,7 +415,15 @@ async fn download_asset(lane: DurabilityIo, target: &Target, archive_file: &Path
 }
 
 /// Downloads, verifies and extracts one engine into its versioned managed dir.
-pub async fn install_engine(processes: &Processes, target: &Target, plugin_data: &Path, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Result<Value, String> {
+pub async fn install_engine(
+    processes: &Processes,
+    target: &Target,
+    plugin_data: &Path,
+    fetcher: &dyn Fetcher,
+    cancel: &CancellationToken,
+    on_progress: Option<OnProgress>,
+    stall: Option<Duration>,
+) -> Result<Value, String> {
     let engine_root = managed_tools_dir(plugin_data).join(&target.id);
     let final_dir = managed_engine_dir(plugin_data, &target.id, &target.version);
     let bin_full = final_dir.join(&target.bin_path);
@@ -454,8 +472,22 @@ pub async fn install_engine(processes: &Processes, target: &Target, plugin_data:
 
 /// Plans and executes installs for `ids`. Never fails for a single engine: each failure lands
 /// in `errors` so the report can show the rest.
-#[allow(clippy::too_many_arguments, reason = "Preserve the established public installer boundary with independent policy, approval, cancellation and progress controls rather than redesign its API for this lint")]
-pub async fn install_engines(processes: &Processes, ids: &[String], manifest: Option<&Value>, plugin_data: &Path, policy: &str, approve_downloads: bool, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Value {
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve the established public installer boundary with independent policy, approval, cancellation and progress controls rather than redesign its API for this lint"
+)]
+pub async fn install_engines(
+    processes: &Processes,
+    ids: &[String],
+    manifest: Option<&Value>,
+    plugin_data: &Path,
+    policy: &str,
+    approve_downloads: bool,
+    fetcher: &dyn Fetcher,
+    cancel: &CancellationToken,
+    on_progress: Option<OnProgress>,
+    stall: Option<Duration>,
+) -> Value {
     let loaded = manifest.cloned().unwrap_or_else(read_engines_manifest);
     let plan = plan_install(processes, ids, &loaded, plugin_data, policy, approve_downloads).await;
     let mut installed = plan.present.clone();
@@ -494,7 +526,12 @@ mod tests {
     impl Fetcher for Fake {
         async fn get(&self, _: &str, _: i64) -> Result<Fetched, String> {
             self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(Fetched { status: 200, content_length: Some(self.0.len() as i64), https: true, body: Box::new(Chunks(self.0.chunks(3).map(<[u8]>::to_vec).collect())) })
+            Ok(Fetched {
+                status: 200,
+                content_length: Some(self.0.len() as i64),
+                https: true,
+                body: Box::new(Chunks(self.0.chunks(3).map(<[u8]>::to_vec).collect())),
+            })
         }
     }
 
@@ -539,7 +576,10 @@ mod tests {
         let m = manifest(content);
         let fake = Fake(content.to_vec(), Default::default());
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let cb: OnProgress = { let seen = seen.clone(); Arc::new(move |id, got, total| seen.lock().unwrap().push((id.to_owned(), got, total))) };
+        let cb: OnProgress = {
+            let seen = seen.clone();
+            Arc::new(move |id, got, total| seen.lock().unwrap().push((id.to_owned(), got, total)))
+        };
         let p = Processes::for_tests();
         let out = install_engines(&p, &["shfmt".into()], Some(&m), dir.path(), "auto", false, &fake, &CancellationToken::new(), Some(cb), None).await;
         assert_eq!(out["installed"][0]["status"], "installed");

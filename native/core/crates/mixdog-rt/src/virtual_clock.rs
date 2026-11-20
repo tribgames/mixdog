@@ -454,7 +454,9 @@ pub fn system_now() -> SystemTime {
 /// Whether every reader of the wall clock holds `ms` since the Unix epoch: the wire ([`MAX_MS`]), this platform's `SystemTime`
 /// ([`system_now`]) and chrono's `DateTime<Utc>` (`utc_now!`).
 fn wall_holds(ms: u64) -> bool {
-    ms <= MAX_MS && UNIX_EPOCH.checked_add(Duration::from_millis(ms)).is_some() && i64::try_from(ms).ok().and_then(chrono::DateTime::from_timestamp_millis).is_some()
+    ms <= MAX_MS
+        && UNIX_EPOCH.checked_add(Duration::from_millis(ms)).is_some()
+        && i64::try_from(ms).ok().and_then(chrono::DateTime::from_timestamp_millis).is_some()
 }
 
 /// The largest wall clock, in milliseconds since the Unix epoch, every reader holds: chrono's last instant (year 262142), or
@@ -690,7 +692,8 @@ fn wire_ms(field: &str, line: &str) -> Option<u64> {
 
 fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
     let address = std::env::var(ENV).unwrap_or_else(|_| fail(format!("{ENV} is not valid Unicode")));
-    let token = std::env::var(TOKEN_ENV).unwrap_or_else(|_| fail(format!("{ENV} is set without {TOKEN_ENV}: only the process that started this core may drive its clock")));
+    let token = std::env::var(TOKEN_ENV)
+        .unwrap_or_else(|_| fail(format!("{ENV} is set without {TOKEN_ENV}: only the process that started this core may drive its clock")));
     // SAFETY: the executors start once, at boot, on the thread that boots the process, before mixdog-rt starts any thread; the
     // binaries with this feature (mixdogd and its tests) read no environment on another thread meanwhile. Removed so a process this
     // core starts never inherits the replay's address or token.
@@ -705,7 +708,8 @@ fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
     if !address.ip().is_loopback() {
         fail(format!("{ENV}={address} is not a loopback address: a replay's clock is driven from this machine only"));
     }
-    let mut stream = TcpStream::connect_timeout(&address, HANDSHAKE).unwrap_or_else(|error| fail(format!("connecting to the replay's clock at {address}: {error}")));
+    let mut stream =
+        TcpStream::connect_timeout(&address, HANDSHAKE).unwrap_or_else(|error| fail(format!("connecting to the replay's clock at {address}: {error}")));
     let _ = stream.set_nodelay(true);
     answer(&mut stream, &format!("hello {}", std::process::id()));
     stream.set_read_timeout(Some(HANDSHAKE)).unwrap_or_else(|error| fail(format!("the control connection: {error}")));
@@ -717,10 +721,9 @@ fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
                 fail(format!("the replay's `start` carries a token that is not this core's {TOKEN_ENV}: its clock is refused"));
             }
             match (wire_ms(wall, &line), wire_ms(settle, &line)) {
-                (Some(wall), Some(_)) if !wall_holds(wall) => fail(format!(
-                    "the replay sent {line:?}: wall-ms {wall} is past {} ms, the largest wall clock this core's readers hold",
-                    max_wall_ms()
-                )),
+                (Some(wall), Some(_)) if !wall_holds(wall) => {
+                    fail(format!("the replay sent {line:?}: wall-ms {wall} is past {} ms, the largest wall clock this core's readers hold", max_wall_ms()))
+                }
                 (Some(wall), Some(settle)) if settle > 0 => (wall, Duration::from_millis(settle)),
                 _ => fail(format!("the replay sent a malformed `start` {line:?}: expected `start <token> <wall-ms> <settle-ms>`")),
             }
@@ -779,7 +782,10 @@ fn build(name: &'static str, rt: &'static str) -> io::Result<(Runtime, Arc<Atomi
 fn drive(runtime: Runtime, name: &str, on_start: impl FnOnce() + Send + 'static) -> io::Result<()> {
     // A paused clock jumps to the next timer whenever its runtime is idle, unless a blocking task lives (tokio counts it against
     // auto-advance, `tokio::time::pause`): this one lives as long as the process.
-    #[allow(clippy::disallowed_methods, reason = "a replay's clock, test builds only: a live blocking task is tokio's one hold on a paused clock's auto-advance")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a replay's clock, test builds only: a live blocking task is tokio's one hold on a paused clock's auto-advance"
+    )]
     drop(runtime.spawn_blocking(|| {
         loop {
             std::thread::park();
@@ -810,7 +816,10 @@ fn move_to(clock: &Clock, to: u64, during: &str) {
     lock(&clock.timers).now = to;
     clock.now.store(to, SeqCst);
     for runtime in &clock.runtimes {
-        let at = runtime.origin.checked_add(Duration::from_millis(to)).unwrap_or_else(|| fail(format!("{during}: V {to} ms is past what {}'s clock holds", runtime.name)));
+        let at = runtime
+            .origin
+            .checked_add(Duration::from_millis(to))
+            .unwrap_or_else(|| fail(format!("{during}: V {to} ms is past what {}'s clock holds", runtime.name)));
         drop(runtime.handle.spawn(async move {
             let now = tokio::time::Instant::now();
             if at > now {
@@ -825,7 +834,9 @@ fn move_to(clock: &Clock, to: u64, during: &str) {
 fn advance(clock: &Clock, ms: u64) -> (u64, usize) {
     let during = format!("advance {ms}");
     let now = clock.now.load(SeqCst);
-    let Some((target, wall)) = now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| wall_holds(*wall)) else {
+    let Some((target, wall)) =
+        now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| wall_holds(*wall))
+    else {
         fail(format!("{during}: wall-ms {} + V {now} + {ms} is past {} ms, the largest wall clock this core's readers hold", clock.wall_origin, max_wall_ms()))
     };
     let _turn = lock(&clock.turn);
@@ -908,7 +919,9 @@ fn drive_checks(clock: &'static Clock) {
 
 /// `within` from now on this machine's clock; a span it cannot hold ends the process.
 fn real_deadline(within: Duration, during: &str) -> std::time::Instant {
-    std::time::Instant::now().checked_add(within).unwrap_or_else(|| fail(format!("{during}: {} ms from now is past what this machine's clock holds", within.as_millis())))
+    std::time::Instant::now()
+        .checked_add(within)
+        .unwrap_or_else(|| fail(format!("{during}: {} ms from now is past what this machine's clock holds", within.as_millis())))
 }
 
 /// What keeps the core from its settle point, if anything: the queues first, then the busy flags and the lanes (the invariant's

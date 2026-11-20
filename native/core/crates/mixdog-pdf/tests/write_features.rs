@@ -5,26 +5,19 @@ use std::io::Read;
 use std::sync::Arc;
 
 use mixdog_pdf::write::info::PRODUCER;
-use mixdog_pdf::write::{LoadOptions, PdfDocument, SaveOptions, WriteError, DocumentProperties, decode_text_string, encode_text_string, flate_stream, pdf_date};
+use mixdog_pdf::write::{
+    DocumentProperties, LoadOptions, PdfDocument, SaveOptions, WriteError, decode_text_string, encode_text_string, flate_stream, pdf_date,
+};
 use mixdog_pdf::{Dict, FilterResult, Guard, Obj, PdfError, Ref, StreamFilters};
 
 struct Filters;
 
 impl StreamFilters for Filters {
-    fn decode(
-        &self,
-        name: &str,
-        data: &[u8],
-        _params: Option<&Dict>,
-        _length: Option<usize>,
-        _max_output: usize,
-    ) -> FilterResult {
+    fn decode(&self, name: &str, data: &[u8], _params: Option<&Dict>, _length: Option<usize>, _max_output: usize) -> FilterResult {
         match name {
             "FlateDecode" | "Fl" => {
                 let mut out = Vec::new();
-                flate2::read::ZlibDecoder::new(data)
-                    .read_to_end(&mut out)
-                    .map_err(|e| PdfError::Format(e.to_string()))?;
+                flate2::read::ZlibDecoder::new(data).read_to_end(&mut out).map_err(|e| PdfError::Format(e.to_string()))?;
                 Ok(Some(out))
             }
             _ => Ok(None),
@@ -33,17 +26,12 @@ impl StreamFilters for Filters {
 }
 
 fn options(ignore_encryption: bool) -> LoadOptions {
-    LoadOptions {
-        ignore_encryption,
-        filters: Arc::new(Filters),
-        guard: Guard::unbounded(),
-    }
+    LoadOptions { ignore_encryption, filters: Arc::new(Filters), guard: Guard::unbounded() }
 }
 
 fn load(bytes: &[u8], ignore_encryption: bool) -> Result<PdfDocument, WriteError> {
     PdfDocument::load(bytes.to_vec(), &options(ignore_encryption))
 }
-
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
@@ -62,12 +50,7 @@ fn classic_form_points_every_entry_at_its_object() {
     assert!(bytes.starts_with(b"%PDF-1.7\n"));
     assert!(bytes.ends_with(b"%%EOF\n"));
     let tail = String::from_utf8_lossy(&bytes[bytes.len() - 40..]).into_owned();
-    let start: usize = tail
-        .split("startxref\n")
-        .nth(1)
-        .and_then(|rest| rest.lines().next())
-        .and_then(|line| line.parse().ok())
-        .expect("startxref");
+    let start: usize = tail.split("startxref\n").nth(1).and_then(|rest| rest.lines().next()).and_then(|line| line.parse().ok()).expect("startxref");
     assert!(bytes[start..].starts_with(b"xref\n0 5\n0000000000 65535 f \n"));
     let table = String::from_utf8_lossy(&bytes[start..]).into_owned();
     let entries: Vec<&str> = table.lines().skip(2).take(5).collect();
@@ -179,10 +162,7 @@ fn flate_streams_round_trip_and_get_their_length() {
         let decoded = reread.decode_stream(r, &Filters, &Guard::unbounded()).unwrap();
         assert_eq!(decoded, content);
     }
-    assert!(matches!(
-        document.decode_stream(Ref::new(1, 0), &Filters, &Guard::unbounded()),
-        Err(WriteError::Invalid(_))
-    ));
+    assert!(matches!(document.decode_stream(Ref::new(1, 0), &Filters, &Guard::unbounded()), Err(WriteError::Invalid(_))));
 }
 
 #[test]
@@ -211,10 +191,7 @@ fn a_new_document_has_no_page_and_the_metadata_of_a_new_document() {
 #[test]
 fn keywords_are_one_string_joined_with_spaces() {
     let mut document = PdfDocument::create_at(0);
-    document.apply_document_properties(&DocumentProperties {
-        keywords: Some(vec!["a".to_owned(), "b c".to_owned()]),
-        ..DocumentProperties::default()
-    });
+    document.apply_document_properties(&DocumentProperties { keywords: Some(vec!["a".to_owned(), "b c".to_owned()]), ..DocumentProperties::default() });
     assert_eq!(document.keywords().as_deref(), Some("a b c"));
     assert_eq!(document.title(), None);
 }
@@ -241,10 +218,7 @@ fn a_page_without_a_media_box_or_with_a_bad_one_is_an_error() {
     let page = document.add_page(10.0, 10.0).unwrap();
     document.store_mut().modify_dict(page, |dict| dict.delete("MediaBox")).unwrap();
     assert!(matches!(document.media_box(page), Err(WriteError::Invalid(_))));
-    document
-        .store_mut()
-        .modify_dict(page, |dict| dict.set("MediaBox", Obj::Array(Arc::new(vec![Obj::Num(1.0)]))))
-        .unwrap();
+    document.store_mut().modify_dict(page, |dict| dict.set("MediaBox", Obj::Array(Arc::new(vec![Obj::Num(1.0)])))).unwrap();
     let message = document.media_box(page).unwrap_err().to_string();
     assert!(message.contains("length 1"), "{message}");
     assert_eq!(document.rotation(page).unwrap(), 0.0);
@@ -287,4 +261,3 @@ fn an_entry_that_leads_to_another_object_rebuilds_the_table_and_reads_every_obje
     assert_eq!(reread.pages(), vec![page]);
     assert_eq!(reread.media_box(page).unwrap().width, 612.0);
 }
-

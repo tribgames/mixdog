@@ -28,7 +28,8 @@ pub(crate) fn render_aggregate_card(card: &Card) -> Vec<Line> {
     let columns = card.columns;
     // A pending header omits counts so intermediate batches do not bounce between "Reading 1 item" and "Reading 4 items";
     // the final counts appear after completion.
-    let order: Option<Vec<String>> = card.prop("args").and_then(|args| args.get("categoryOrder")).and_then(Value::as_array).map(|items| items.iter().map(value_to_string).collect());
+    let order: Option<Vec<String>> =
+        card.prop("args").and_then(|args| args.get("categoryOrder")).and_then(Value::as_array).map(|items| items.iter().map(value_to_string).collect());
     let order_refs: Option<Vec<&str>> = order.as_ref().map(|items| items.iter().map(String::as_str).collect());
     let empty = Value::Object(Map::new());
     let display_categories = normalize_count_map(card.prop("categories").filter(|v| super::truthy(Some(*v))).unwrap_or(&empty));
@@ -39,7 +40,12 @@ pub(crate) fn render_aggregate_card(card: &Card) -> Vec<Line> {
     let display_done = if has_done_counts { done_categories } else { display_categories.clone() };
     let header_text = safe_inline_text(&format_aggregate_header(
         if card.header_pending { &display_categories } else { &display_done },
-        &AggregateHeaderOptions { pending: card.header_pending, order: order_refs.as_deref(), failed: card.failed_count > 0.0 && card.failed_count >= card.group_count, ..AggregateHeaderOptions::default() },
+        &AggregateHeaderOptions {
+            pending: card.header_pending,
+            order: order_refs.as_deref(),
+            failed: card.failed_count > 0.0 && card.failed_count >= card.group_count,
+            ..AggregateHeaderOptions::default()
+        },
     ));
     // The card keeps one detail row whatever happens, so it never grows when the summary lands: the summary can be
     // several lines, which are made one logical line here and fitted to the width by the body.
@@ -51,7 +57,13 @@ pub(crate) fn render_aggregate_card(card: &Card) -> Vec<Line> {
         "running"
     } else {
         match result_terminal_status(card.rt.as_deref().unwrap_or_default()) {
-            "" => if card.is_error || card.failed_count > 0.0 { "failed" } else { "completed" },
+            "" => {
+                if card.is_error || card.failed_count > 0.0 {
+                    "failed"
+                } else {
+                    "completed"
+                }
+            }
             reported => reported,
         }
     };

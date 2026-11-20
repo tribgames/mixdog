@@ -32,13 +32,7 @@ const EARLIER_CLAUDE: [&str; 10] = [
 /// Of those, the ones the global endpoint serves.
 const GLOBAL_EARLIER_CLAUDE: [&str; 2] = ["claude-3-7-sonnet", "claude-3-5-sonnet-v2"];
 /// 4.5 and 4.6: served on global, not on the multi-region endpoints.
-const CLAUDE_4_5_TO_4_6: [&str; 5] = [
-    "claude-opus-4-5",
-    "claude-sonnet-4-5",
-    "claude-haiku-4-5",
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-];
+const CLAUDE_4_5_TO_4_6: [&str; 5] = ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-6", "claude-sonnet-4-6"];
 
 /// Claude models that gain nothing from the interleaved-thinking beta (`NO_INTERLEAVED_BETA_CLAUDE`,
 /// vertex-ai-models.mjs:53-72).
@@ -74,21 +68,11 @@ pub fn claude_needs_interleaved_beta(id: &str) -> bool {
 /// `vertexPricingModel` of a Claude model (vertex-ai-models.mjs:347-356): the requested publisher model, with the
 /// regional SKU suffix off the global endpoint for every model from 4.5 on (`claudeRegionalPremium`).
 pub fn claude_pricing_model(id: &str, location: &str) -> String {
-    if location != "global" && !EARLIER_CLAUDE.contains(&claude_base(id)) {
-        format!("{id}{REGIONAL_PRICING_SUFFIX}")
-    } else {
-        id.to_owned()
-    }
+    if location != "global" && !EARLIER_CLAUDE.contains(&claude_base(id)) { format!("{id}{REGIONAL_PRICING_SUFFIX}") } else { id.to_owned() }
 }
 
 /// The environment's region when no location is configured, in precedence order.
-const LOCATION_ENV: [&str; 5] = [
-    "GOOGLE_VERTEX_LOCATION",
-    "GOOGLE_CLOUD_LOCATION",
-    "CLOUD_ML_REGION",
-    "VERTEX_LOCATION",
-    "VERTEXAI_LOCATION",
-];
+const LOCATION_ENV: [&str; 5] = ["GOOGLE_VERTEX_LOCATION", "GOOGLE_CLOUD_LOCATION", "CLOUD_ML_REGION", "VERTEX_LOCATION", "VERTEXAI_LOCATION"];
 
 /// Flex PayGo: global endpoint only.
 pub(super) const FLEX_MODELS: [&str; 12] = [
@@ -266,21 +250,14 @@ fn claude_region_env(id: &str) -> Vec<String> {
         None => letters_of(rest),
     };
     let Some(family) = family else { return Vec::new() };
-    vec![
-        format!("VERTEX_REGION_CLAUDE_{major}_{minor}_{family}"),
-        format!("VERTEX_REGION_CLAUDE_{family}_{major}_{minor}"),
-    ]
+    vec![format!("VERTEX_REGION_CLAUDE_{major}_{minor}_{family}"), format!("VERTEX_REGION_CLAUDE_{family}_{major}_{minor}")]
 }
 
 /// The region the environment names, for use only when no location is
 /// configured: a Claude model's own `VERTEX_REGION_CLAUDE_*` first.
 pub fn env_location(get: impl Fn(&str) -> Option<String>, claude_id: &str) -> Option<String> {
     let claude = if claude_id.is_empty() { Vec::new() } else { claude_region_env(claude_id) };
-    claude
-        .iter()
-        .map(String::as_str)
-        .chain(LOCATION_ENV)
-        .find_map(|name| get(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()))
+    claude.iter().map(String::as_str).chain(LOCATION_ENV).find_map(|name| get(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()))
 }
 
 /// Why Vertex does not serve a model / location / tier combination, or `None`.
@@ -305,12 +282,7 @@ pub fn serving_problem(route: &Route<'_>, location: &str, tier: Tier) -> Option<
     if let Some(served) = served
         && !served.contains(&location)
     {
-        return Some(format!(
-            "[vertex-ai] {}/{} is served only in: {} (location is {location})",
-            route.publisher,
-            route.id,
-            served.join(", ")
-        ));
+        return Some(format!("[vertex-ai] {}/{} is served only in: {} (location is {location})", route.publisher, route.id, served.join(", ")));
     }
     let claude_id = if route.wire == Wire::Claude { claude_base(route.id) } else { "" };
     let earlier = EARLIER_CLAUDE.contains(&claude_id);
@@ -398,9 +370,7 @@ impl VertexPlace {
         }
         let express = matches!(self.account, VertexAccount::Express);
         if express && pinned && requested != "global" {
-            return Err(invalid(
-                "[vertex-ai] a Vertex AI express mode API key serves only the global location; set the location to global",
-            ));
+            return Err(invalid("[vertex-ai] a Vertex AI express mode API key serves only the global location; set the location to global"));
         }
         let mut location = if express { "global".to_owned() } else { requested };
         let serves = |at: &str| serving_problem(route, at, tier).is_none();
@@ -418,9 +388,7 @@ impl VertexPlace {
     /// the request is already global, and only if `global` serves it.
     pub fn falls_back_to_global(&self, route: &Route<'_>, tier: Tier) -> bool {
         let pinned = self.configured.as_deref().is_some_and(|c| !c.trim().is_empty());
-        !pinned
-            && self.choose(route, tier).is_ok_and(|at| at != "global")
-            && serving_problem(route, "global", tier).is_none()
+        !pinned && self.choose(route, tier).is_ok_and(|at| at != "global") && serving_problem(route, "global", tier).is_none()
     }
 
     /// `https://{host}/v1[/projects/{project}/locations/{location}]`.
@@ -457,10 +425,7 @@ mod tests {
             serving_problem(&gemini("gemini-3.6-flash"), "us-central1", Tier::Flex).unwrap(),
             "[vertex-ai] Flex PayGo is only available with the global location"
         );
-        assert_eq!(
-            serving_problem(&gemini("gemini-2.5-pro"), "global", Tier::Flex).unwrap(),
-            "[vertex-ai] Flex PayGo is not available for gemini-2.5-pro"
-        );
+        assert_eq!(serving_problem(&gemini("gemini-2.5-pro"), "global", Tier::Flex).unwrap(), "[vertex-ai] Flex PayGo is not available for gemini-2.5-pro");
         assert_eq!(
             serving_problem(&claude("claude-opus-4-6"), "global", Tier::Priority).unwrap(),
             "[vertex-ai] Priority PayGo is not available for claude-opus-4-6"
@@ -505,10 +470,7 @@ mod tests {
         assert_eq!(claude_version("claude-3-7-sonnet"), Some((3, 7)));
         assert_eq!(claude_version("claude-opus-4-20250514"), Some((4, 0)));
         assert_eq!(claude_version("gemini-3"), None);
-        assert_eq!(
-            claude_region_env("claude-sonnet-4-5"),
-            ["VERTEX_REGION_CLAUDE_4_5_SONNET", "VERTEX_REGION_CLAUDE_SONNET_4_5"]
-        );
+        assert_eq!(claude_region_env("claude-sonnet-4-5"), ["VERTEX_REGION_CLAUDE_4_5_SONNET", "VERTEX_REGION_CLAUDE_SONNET_4_5"]);
         assert_eq!(claude_region_env("claude-3-5-haiku")[0], "VERTEX_REGION_CLAUDE_3_5_HAIKU");
         let env = |name: &str| match name {
             "VERTEX_REGION_CLAUDE_4_5_SONNET" => Some(" us-east5 ".to_owned()),

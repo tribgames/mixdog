@@ -41,9 +41,12 @@ impl ComputerBlobs for Blobs {
 fn stop_counter() -> (Arc<dyn Fn() + Send + Sync>, Arc<AtomicU32>) {
     let count = Arc::new(AtomicU32::new(0));
     let seen = count.clone();
-    (Arc::new(move || {
-        seen.fetch_add(1, Ordering::SeqCst);
-    }), count)
+    (
+        Arc::new(move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+        }),
+        count,
+    )
 }
 
 fn shown(screen_id: &str, on_stop: Arc<dyn Fn() + Send + Sync>) -> IndicatorState {
@@ -89,14 +92,19 @@ fn every_install_state_of_pc_access_keeps_its_name_for_the_phone() {
 
 #[test]
 fn a_password_request_is_answered_busy_or_by_the_installers_outcome_name() {
-    let busy = answered(CredentialAnswer { outcome: CredentialOutcome::Busy, state: HelperState::NotInstalled, detail: Some("another request is running".into()) });
+    let busy =
+        answered(CredentialAnswer { outcome: CredentialOutcome::Busy, state: HelperState::NotInstalled, detail: Some("another request is running".into()) });
     assert_eq!((busy.outcome.as_str(), busy.state, busy.detail.as_deref()), ("busy", InstallState::NotInstalled, Some("another request is running")));
     let ran = answered(CredentialAnswer { outcome: CredentialOutcome::Ran(KeyOutcome::Enrolled), state: HelperState::Installed, detail: None });
     assert_eq!((ran.outcome.as_str(), ran.state, ran.detail), ("enrolled", InstallState::Installed, None));
 }
 
 fn pixels(desktop: Arc<Desktop>, stored: &[(&str, &[u8])]) -> HostPixels {
-    HostPixels { desktop, blobs: Arc::new(Blobs(stored.iter().map(|(digest, bytes)| ((*digest).to_owned(), bytes.to_vec())).collect())), origin: Instant::now() }
+    HostPixels {
+        desktop,
+        blobs: Arc::new(Blobs(stored.iter().map(|(digest, bytes)| ((*digest).to_owned(), bytes.to_vec())).collect())),
+        origin: Instant::now(),
+    }
 }
 
 fn reply(digest: &str, byte_length: u64, mime: &str, width: u32, height: u32) -> Value {
@@ -161,7 +169,6 @@ fn the_desktops_screen_reports_wait_for_the_composition() {
     cell.indicator_stopped("2");
     assert_eq!(*lock(&told.0), vec!["changed".to_owned(), "stopped 2".to_owned()]);
 }
-
 
 impl Desktop {
     fn answering(reply: Value) -> Arc<Self> {

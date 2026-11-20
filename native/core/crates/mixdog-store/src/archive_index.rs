@@ -82,11 +82,7 @@ impl<'a> Compactions<'a> {
                  AND (superseded_rev IS NULL OR superseded_rev >= ?2) ORDER BY ordinal",
             )?;
             let rows = stmt.query_map(params![level.session, asof, bound], |r| {
-                Ok(Compaction {
-                    session_level: j,
-                    ordinal: r.get::<_, i64>(0)? as u64,
-                    mode: DropMode::from_db(r.get(1)?).unwrap_or(DropMode::All),
-                })
+                Ok(Compaction { session_level: j, ordinal: r.get::<_, i64>(0)? as u64, mode: DropMode::from_db(r.get(1)?).unwrap_or(DropMode::All) })
             })?;
             self.levels[j] = Some(rows.collect::<Result<_, _>>()?);
         }
@@ -117,10 +113,8 @@ impl<'a> Compactions<'a> {
         // keep: a kept row stays live.
         for comp in all {
             let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
-            let kept: bool = self.c.prepare_cached(KEPT_ENTRY_SQL)?.query_row(
-                params![self.lineage[comp.session_level].session, clamp(comp.ordinal), iid],
-                |r| r.get(0),
-            )?;
+            let kept: bool =
+                self.c.prepare_cached(KEPT_ENTRY_SQL)?.query_row(params![self.lineage[comp.session_level].session, clamp(comp.ordinal), iid], |r| r.get(0))?;
             everything |= !kept;
         }
         if everything {
@@ -136,9 +130,7 @@ impl<'a> Compactions<'a> {
             for j in sessions {
                 let session = &self.lineage[j].session;
                 if parts.text.is_some() {
-                    let mut stmt = self.c.prepare_cached(
-                        "SELECT ordinal FROM compaction_dropped WHERE session = ?1 AND kind = 0 AND id = ?2",
-                    )?;
+                    let mut stmt = self.c.prepare_cached("SELECT ordinal FROM compaction_dropped WHERE session = ?1 AND kind = 0 AND id = ?2")?;
                     for o in stmt.query_map(params![session, iid], |r| r.get::<_, i64>(0))? {
                         hits.entry((j, o? as u64)).or_default().messages.insert(iid.to_owned());
                     }
@@ -166,8 +158,7 @@ impl<'a> Compactions<'a> {
             }
         }
         let archived = (parts.text.is_none() || text) && calls.iter().all(|d| *d);
-        let dropped_calls =
-            facets.calls.iter().zip(&calls).filter(|(_, d)| **d).map(|(id, _)| id.clone()).collect();
+        let dropped_calls = facets.calls.iter().zip(&calls).filter(|(_, d)| **d).map(|(id, _)| id.clone()).collect();
         Ok(Verdict { archived, text, calls: dropped_calls })
     }
 }

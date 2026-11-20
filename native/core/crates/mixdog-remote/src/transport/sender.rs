@@ -4,13 +4,13 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use super::TransportError;
 use super::consts::{
-    BUFFER_LOW_BYTES, BULK_OUTSTANDING_BYTES, MAX_OUTSTANDING_BYTES, MAX_RECORD_BYTES, MEDIA_RECORD_MAX_BYTES,
-    MEDIA_STREAM_CREDIT_BYTES, RECORD_EXPIRY_MS, record_charge,
+    BUFFER_LOW_BYTES, BULK_OUTSTANDING_BYTES, MAX_OUTSTANDING_BYTES, MAX_RECORD_BYTES, MEDIA_RECORD_MAX_BYTES, MEDIA_STREAM_CREDIT_BYTES, RECORD_EXPIRY_MS,
+    record_charge,
 };
 use super::control::{Ack, Authenticated, Repair};
 use super::frame::box_sequence;
-use super::TransportError;
 
 /// A carrier instance: `relay`, or `direct:<connectionId>`.
 pub type CarrierId = String;
@@ -150,18 +150,7 @@ impl Sender {
         }
         self.retained.insert(
             sequence,
-            Retained {
-                sequence,
-                box_bytes,
-                stream,
-                carrier: None,
-                pending: true,
-                resend: false,
-                held: false,
-                repaired_by: 0,
-                handed_end: 0,
-                charge,
-            },
+            Retained { sequence, box_bytes, stream, carrier: None, pending: true, resend: false, held: false, repaired_by: 0, handed_end: 0, charge },
         );
         self.bytes += charge;
         self.expected += 1;

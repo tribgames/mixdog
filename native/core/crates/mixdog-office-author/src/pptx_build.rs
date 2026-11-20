@@ -12,10 +12,10 @@
 use std::collections::BTreeMap;
 
 use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use base64::engine::DecodePaddingMode;
 use base64::engine::GeneralPurpose;
 use base64::engine::GeneralPurposeConfig;
+use base64::engine::general_purpose::STANDARD;
 use mixdog_js::math::round as js_round;
 use mixdog_js::to_number_of;
 use mixdog_office_base::values::truthy;
@@ -31,8 +31,8 @@ use mixdog_raster::svg;
 use mixdog_raster::svg::SvgFonts;
 use serde_json::Value;
 
-use crate::measure_deck::Canvas;
 use crate::link_target::safe_link;
+use crate::measure_deck::Canvas;
 use crate::pptx_writer::AxisStyle;
 use crate::pptx_writer::Background;
 use crate::pptx_writer::Border;
@@ -409,7 +409,9 @@ pub fn text_placement(item: &Value, canvas_width: f64) -> Result<TextPlacement, 
     let chip = framed && content_height <= line_height * lines.len() as f64 * 1.25;
     // Text the browser laid out on its frame's middle (a disc, a stamp, a centred label) keeps PowerPoint's middle
     // anchor, whatever its padding. Unframed text is always placed by its baseline.
-    let centred = framed && ((text_top + text_bottom) / 2.0 - (content_top + content_height / 2.0)).abs() < 4.0_f64.max(content_height * 0.05) && content_height > text_bottom - text_top + 2.0;
+    let centred = framed
+        && ((text_top + text_bottom) / 2.0 - (content_top + content_height / 2.0)).abs() < 4.0_f64.max(content_height * 0.05)
+        && content_height > text_bottom - text_top + 2.0;
     let middle = chip || centred;
     // Line spacing: the pitch matches when the multiple is the browser's line height over PowerPoint's single pitch.
     // The first baseline does not follow the browser's half-leading: PowerPoint sets it first_baseline(spacing) em
@@ -583,7 +585,12 @@ fn add_table(slide: &mut Slide, u: &Units, item: &Value) -> Result<(), String> {
                             color: Some(hex(&cell["color"])),
                             align: Some(text(cell, "align").to_owned()),
                             valign: Some("middle".to_owned()),
-                            margin: Some(Margin::Each(vec![u.inch(number(pad, "t")), u.inch(number(pad, "r")), u.inch(number(pad, "b")), u.inch(number(pad, "l"))])),
+                            margin: Some(Margin::Each(vec![
+                                u.inch(number(pad, "t")),
+                                u.inch(number(pad, "r")),
+                                u.inch(number(pad, "b")),
+                                u.inch(number(pad, "l")),
+                            ])),
                             border: Some(Borders::Each(vec![
                                 Some(edge(border.get("t"))),
                                 Some(edge(border.get("r"))),
@@ -617,7 +624,13 @@ fn add_table(slide: &mut Slide, u: &Units, item: &Value) -> Result<(), String> {
         rows,
         TableOptions {
             text: TextOptions {
-                frame: ShapeOptions { x: u.dim(number(b, "x")), y: u.dim(number(b, "y")), w: u.dim(number(b, "w")), h: Some(Dim::Number(total)), ..ShapeOptions::default() },
+                frame: ShapeOptions {
+                    x: u.dim(number(b, "x")),
+                    y: u.dim(number(b, "y")),
+                    w: u.dim(number(b, "w")),
+                    h: Some(Dim::Number(total)),
+                    ..ShapeOptions::default()
+                },
                 ..TextOptions::default()
             },
             col_w: Some(ColWidths::Each(widest.iter().map(|cell| u.inch(number(&cell["box"], "w"))).collect())),
@@ -689,10 +702,17 @@ fn add_chart(pres: &mut Presentation, index: usize, u: &Units, item: &Value) -> 
     let data: Vec<ChartData> = match spec.get("series").and_then(Value::as_array) {
         Some(series) => series
             .iter()
-            .map(|series| Ok(ChartData { name: label_text(&series["name"]), labels: vec![labels.clone()], values: chart_values(series.get("values")).inspect_err(|_| pres.count_failed_chart())? }))
+            .map(|series| {
+                Ok(ChartData {
+                    name: label_text(&series["name"]),
+                    labels: vec![labels.clone()],
+                    values: chart_values(series.get("values")).inspect_err(|_| pres.count_failed_chart())?,
+                })
+            })
             .collect::<Result<_, String>>()?,
         None => {
-            let name = ["name", "unit"].iter().find_map(|key| spec.get(key).filter(|value| truthy(value)).map(label_text)).unwrap_or_else(|| "Value".to_owned());
+            let name =
+                ["name", "unit"].iter().find_map(|key| spec.get(key).filter(|value| truthy(value)).map(label_text)).unwrap_or_else(|| "Value".to_owned());
             vec![ChartData { name, labels: vec![labels.clone()], values: chart_values(spec.get("values")).inspect_err(|_| pres.count_failed_chart())? }]
         }
     };
@@ -935,7 +955,10 @@ fn lenient_base64(encoded: &str) -> Vec<u8> {
     if clean.len() % 4 == 1 {
         clean.pop();
     }
-    let engine = GeneralPurpose::new(&base64::alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true));
+    let engine = GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true),
+    );
     engine.decode(&clean).unwrap_or_default()
 }
 
@@ -1028,7 +1051,13 @@ fn add_image(slide: &mut Slide, u: &Units, item: &Value, fonts: &SvgFonts, pictu
     let source = Image::decode(&image_bytes(text(item, "src"), pictures)?).map_err(raster)?.auto_orient();
     let fit = text(item, "fit");
     let mut image = if fit == "contain" || fit == "fill" {
-        let options = ResizeOptions { width: Some(out_w), height: Some(out_h), fit: Fit::parse(fit).unwrap_or(Fit::Cover), background: [0, 0, 0, 0], ..ResizeOptions::default() };
+        let options = ResizeOptions {
+            width: Some(out_w),
+            height: Some(out_h),
+            fit: Fit::parse(fit).unwrap_or(Fit::Cover),
+            background: [0, 0, 0, 0],
+            ..ResizeOptions::default()
+        };
         ops::resize(&source, &options).map_err(raster)?
     } else {
         // Cover crops where object-position puts the picture, not at its centre.
@@ -1043,7 +1072,9 @@ fn add_image(slide: &mut Slide, u: &Units, item: &Value, fonts: &SvgFonts, pictu
     let radius = number(item, "radius");
     if radius > 0.5 {
         let r = js_round(radius * IMAGE_SCALE);
-        let mask = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{out_w}\" height=\"{out_h}\"><rect width=\"{out_w}\" height=\"{out_h}\" rx=\"{r}\" ry=\"{r}\"/></svg>");
+        let mask = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{out_w}\" height=\"{out_h}\"><rect width=\"{out_w}\" height=\"{out_h}\" rx=\"{r}\" ry=\"{r}\"/></svg>"
+        );
         let mask = svg::rasterize(fonts, mask.as_bytes(), 72.0).map_err(raster)?;
         image = composite(&image, &[Overlay { image: mask, blend: Blend::DestIn, placement: Placement::Centre }]);
     }
@@ -1215,7 +1246,8 @@ mod tests {
         band["lineHeight"] = json!(43.5);
         band["fontSize"] = json!(30);
         band["inkW"] = json!(1100);
-        band["lines"] = json!([{ "top": 866, "bottom": 910, "width": 1100, "runs": [{ "text": "제약 고객의 이탈 시간이 가장 짧다.", "style": style(30.0, json!({})) }] }]);
+        band["lines"] =
+            json!([{ "top": 866, "bottom": 910, "width": 1100, "runs": [{ "text": "제약 고객의 이탈 시간이 가장 짧다.", "style": style(30.0, json!({})) }] }]);
         assert!(!text_placement(&band, 1920.0).expect("placed").center_align);
         band["box"]["w"] = json!(1180);
         assert!(text_placement(&band, 1920.0).expect("placed").center_align);
@@ -1232,7 +1264,8 @@ mod tests {
     fn links_in_a_paragraph_and_in_a_table_cell_resolve_to_their_own_targets_and_a_rejected_scheme_stays_plain() {
         let run = |label: &str, href: &str| json!({ "text": label, "style": style(28.0, json!({ "href": href })) });
         let mut linked = paragraph();
-        linked["lines"][1]["runs"] = json!([run("Alpha", "https://a.test/?x=1&y=2"), run("Beta", "mailto:b@b.test"), run("Evil", "javascript:alert(1)"), run("Plain", "")]);
+        linked["lines"][1]["runs"] =
+            json!([run("Alpha", "https://a.test/?x=1&y=2"), run("Beta", "mailto:b@b.test"), run("Evil", "javascript:alert(1)"), run("Plain", "")]);
         let mut cell_item = cell("ignored", 720.0);
         cell_item["runs"] = json!([
             { "text": "CellOne", "href": "https://c.test/one" },
@@ -1280,16 +1313,24 @@ mod tests {
             "stroke": { "hex": INK, "a": 1, "w": 2 },
             "shadow": { "color": { "hex": INK, "a": 1 }, "x": 12, "y": 12, "blur": 0 },
         });
-        let table = json!({ "kind": "table", "box": { "x": 96, "y": 720, "w": 400, "h": 180 }, "rows": [[cell("a", 720.0)], [cell("b", 780.0)], [cell("c", 840.0)]] });
-        let package = build_slides(vec![json!({ "bg": { "hex": "F4F5F7", "a": 1 }, "notes": "speaker note", "items": [rect, disc(), paragraph(), table] })]).expect("built");
+        let table =
+            json!({ "kind": "table", "box": { "x": 96, "y": 720, "w": 400, "h": 180 }, "rows": [[cell("a", 720.0)], [cell("b", 780.0)], [cell("c", 840.0)]] });
+        let package = build_slides(vec![json!({ "bg": { "hex": "F4F5F7", "a": 1 }, "notes": "speaker note", "items": [rect, disc(), paragraph(), table] })])
+            .expect("built");
         let xml = package.text("ppt/slides/slide1.xml");
         assert!(xml.contains("prst=\"ellipse\""));
         assert!(xml.contains("anchor=\"ctr\""));
         assert!(xml.contains("<a:br/>"), "the browser line break is written as a soft break");
         assert!(xml.contains("<a:highlight><a:srgbClr val=\"FFD9CC\""));
-        let blur = JsRegex::new_static(r#"<a:outerShdw[^>]*blurRad="(\d+)""#, "").captures(&xml).and_then(|found| found.get(1).map(str::to_owned)).expect("an outer shadow");
+        let blur = JsRegex::new_static(r#"<a:outerShdw[^>]*blurRad="(\d+)""#, "")
+            .captures(&xml)
+            .and_then(|found| found.get(1).map(str::to_owned))
+            .expect("an outer shadow");
         assert!(blur.parse::<u64>().expect("a number") < 12700, "hard shadow keeps a near-zero blur ({blur})");
-        let frame = JsRegex::new_static(r#"<p:graphicFrame>[\s\S]*?<a:ext cx="\d+" cy="(\d+)""#, "").captures(&xml).and_then(|found| found.get(1).map(str::to_owned)).expect("a table frame");
+        let frame = JsRegex::new_static(r#"<p:graphicFrame>[\s\S]*?<a:ext cx="\d+" cy="(\d+)""#, "")
+            .captures(&xml)
+            .and_then(|found| found.get(1).map(str::to_owned))
+            .expect("a table frame");
         // Three 60 px rows = 180 px = 1.25 in = 1143000 EMU.
         assert!((frame.parse::<f64>().expect("a number") - 1_143_000.0).abs() < 2000.0, "table frame height {frame}");
         assert!(package.text("ppt/notesSlides/notesSlide1.xml").contains("speaker note"));
@@ -1340,7 +1381,8 @@ mod tests {
     #[test]
     fn a_chart_takes_the_measured_element_font_before_the_noto_sans_kr_fallback() {
         let face_of = |extra: Value| {
-            let mut chart = json!({ "kind": "chart", "box": { "x": 96, "y": 500, "w": 1728, "h": 420 }, "spec": { "type": "col", "labels": ["a"], "values": [1] } });
+            let mut chart =
+                json!({ "kind": "chart", "box": { "x": 96, "y": 500, "w": 1728, "h": 420 }, "spec": { "type": "col", "labels": ["a"], "values": [1] } });
             for (key, value) in extra.as_object().cloned().unwrap_or_default() {
                 chart[key] = value;
             }
@@ -1355,7 +1397,10 @@ mod tests {
     #[test]
     fn a_picture_that_is_not_local_is_refused_with_the_sentence_node_threw() {
         let item = json!({ "kind": "image", "box": { "x": 0, "y": 0, "w": 10, "h": 10 }, "src": "https://example.com/a.png" });
-        assert_eq!(build(vec![item]).err().as_deref(), Some("<img src=\"https://example.com/a.png\"> is not local; use a file beside the deck or a data: URI."));
+        assert_eq!(
+            build(vec![item]).err().as_deref(),
+            Some("<img src=\"https://example.com/a.png\"> is not local; use a file beside the deck or a data: URI.")
+        );
     }
 
     fn png_of(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {

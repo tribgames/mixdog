@@ -64,9 +64,7 @@ fn canvas_area(size: Size) -> f64 {
 /// brace, the caption under a node.
 fn is_registered_text(shape: &Value, anchors: &[Frame]) -> bool {
     let own = frame_of(shape);
-    anchors
-        .iter()
-        .any(|anchor| spans_overlap(own.top, own.bottom, anchor.top, anchor.bottom) || spans_overlap(own.left, own.right, anchor.left, anchor.right))
+    anchors.iter().any(|anchor| spans_overlap(own.top, own.bottom, anchor.top, anchor.bottom) || spans_overlap(own.left, own.right, anchor.left, anchor.right))
 }
 
 /// A diagram shape is a connector, a preset geometry that is not a plain text rectangle, or a rectangle with a surface
@@ -91,10 +89,8 @@ fn is_diagram_shape(shape: &Value) -> bool {
 /// `pptxDiagramCoverage(slide, size)`: `(count, fieldShare)`: the drawn shapes, and the union box of those shapes and the
 /// text registered to them (the slide's title, its largest type, excluded) as a share of the canvas.
 fn diagram_coverage(slide: &Value, size: Size) -> (usize, f64) {
-    let all: Vec<&Value> = shapes_of(slide)
-        .into_iter()
-        .filter(|shape| has_box(shape) && !is_truthy(field(shape, "placeholder")) && !is_motif_shape(shape))
-        .collect();
+    let all: Vec<&Value> =
+        shapes_of(slide).into_iter().filter(|shape| has_box(shape) && !is_truthy(field(shape, "placeholder")) && !is_motif_shape(shape)).collect();
     let drawn: Vec<bool> = all.iter().map(|shape| is_diagram_shape(shape)).collect();
     if !drawn.contains(&true) {
         return (0, 0.0);
@@ -170,12 +166,7 @@ pub fn is_pptx_specimen_slide(text_shapes: &[&Value]) -> bool {
         let key = math::round(num0(field(shape, "left")) / 12.0);
         let font = field(shape, "font");
         let size = num0(field_of(font, "size"));
-        let step = format!(
-            "{}|{}|{}",
-            number_to_string(size),
-            u8::from(is_true(field_of(font, "bold"))),
-            text(field_of(font, "name"))
-        );
+        let step = format!("{}|{}|{}", number_to_string(size), u8::from(is_true(field_of(font, "bold"))), text(field_of(font, "name")));
         let at = match columns.iter().position(|column| column.0 == key) {
             Some(at) => at,
             None => {
@@ -265,7 +256,11 @@ mod tests {
 
     #[test]
     fn a_specimen_sets_three_steps_down_one_column() {
-        let steps = [text_shape("Aa", 48.0, 40.0, 40.0, 300.0, 60.0), text_shape("Aa", 24.0, 40.0, 120.0, 300.0, 40.0), text_shape("Aa", 14.0, 40.0, 180.0, 300.0, 30.0)];
+        let steps = [
+            text_shape("Aa", 48.0, 40.0, 40.0, 300.0, 60.0),
+            text_shape("Aa", 24.0, 40.0, 120.0, 300.0, 40.0),
+            text_shape("Aa", 14.0, 40.0, 180.0, 300.0, 30.0),
+        ];
         let refs: Vec<&Value> = steps.iter().collect();
         assert!(is_pptx_specimen_slide(&refs));
         assert!(!is_pptx_specimen_slide(&refs[..2]));

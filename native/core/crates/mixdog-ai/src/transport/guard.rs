@@ -129,7 +129,9 @@ impl BodyStream for RedactedBody {
 fn framed_binary(headers: &[(String, String)]) -> bool {
     headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-type")).any(|(_, value)| {
         let kind = value.trim().to_ascii_lowercase();
-        ["application/connect", "application/grpc", "application/proto", "application/x-protobuf", "application/octet-stream"].iter().any(|binary| kind.starts_with(binary))
+        ["application/connect", "application/grpc", "application/proto", "application/x-protobuf", "application/octet-stream"]
+            .iter()
+            .any(|binary| kind.starts_with(binary))
     })
 }
 
@@ -192,7 +194,9 @@ impl WsSocket for RedactedSocket {
     async fn recv(&mut self) -> Option<Result<Message, TransportFault>> {
         let message = self.inner.recv().await?;
         Some(message.map(|message| match message {
-            Message::Text(text) => self.matcher.redacted(text.as_bytes()).map_or(Message::Text(text), |clean| Message::text(String::from_utf8_lossy(&clean).into_owned())),
+            Message::Text(text) => {
+                self.matcher.redacted(text.as_bytes()).map_or(Message::Text(text), |clean| Message::text(String::from_utf8_lossy(&clean).into_owned()))
+            }
             other => other,
         }))
     }
@@ -298,7 +302,11 @@ mod tests {
             }
             Ok(HttpResponse {
                 status: self.status,
-                headers: vec![("location".into(), self.location.into()), ("x-request-id".into(), "req_1".into()), ("content-type".into(), self.content_type.into())],
+                headers: vec![
+                    ("location".into(), self.location.into()),
+                    ("x-request-id".into(), "req_1".into()),
+                    ("content-type".into(), self.content_type.into()),
+                ],
                 body: Box::new(Chunks(self.chunks.iter().copied().collect())),
             })
         }
@@ -353,7 +361,13 @@ mod tests {
     /// A transport error names the URL it was sent to, query string included.
     #[tokio::test]
     async fn a_transport_error_does_not_name_the_key_in_its_url() {
-        let link = Guarded(Echo { chunks: Vec::new(), location: "", fail_with: Some("error sending request for url (https://example.test/v1?key=guard-url-key-5a60)"), content_type: "", status: 0 });
+        let link = Guarded(Echo {
+            chunks: Vec::new(),
+            location: "",
+            fail_with: Some("error sending request for url (https://example.test/v1?key=guard-url-key-5a60)"),
+            content_type: "",
+            status: 0,
+        });
         let error = link.send(request("https://example.test/v1?key=guard-url-key-5a60", &[]), TOKEN_EXCHANGE).await.err().expect("failed");
         assert_eq!(error.message, "error sending request for url (https://example.test/v1?key=[REDACTED])");
     }
@@ -404,11 +418,7 @@ mod tests {
     /// An upgrade the server refuses with the bearer the upgrade carried in its body and its headers.
     #[tokio::test]
     async fn a_refused_upgrade_does_not_echo_its_bearer() {
-        let request = Request::builder()
-            .uri("wss://example.test/v1/realtime")
-            .header("authorization", "Bearer guard-ws-token-77b1")
-            .body(())
-            .unwrap();
+        let request = Request::builder().uri("wss://example.test/v1/realtime").header("authorization", "Bearer guard-ws-token-77b1").body(()).unwrap();
         let Err(ConnectError::Rejected(response)) = Guarded(Rejecting).dial(request).await else { panic!("the upgrade is refused") };
         assert_eq!(response.headers()["x-echo"], "token [REDACTED]");
         assert_eq!(response.body().as_deref(), Some(b"the credential [REDACTED] was refused".as_slice()));
@@ -417,7 +427,13 @@ mod tests {
     /// A bearer shorter than eight bytes is redacted from an echoed header (item 2).
     #[tokio::test]
     async fn a_short_bearer_is_redacted_from_an_echoed_header() {
-        let link = Guarded(Echo { chunks: vec![b"bad Bearer abc1234"], location: "https://example.test/?token=abc1234", fail_with: None, content_type: "text/plain", status: 401 });
+        let link = Guarded(Echo {
+            chunks: vec![b"bad Bearer abc1234"],
+            location: "https://example.test/?token=abc1234",
+            fail_with: None,
+            content_type: "text/plain",
+            status: 401,
+        });
         let response = link.send(request("https://example.test/v1", &[("authorization", "Bearer abc1234")]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(response.headers[0].1, "https://example.test/?token=[REDACTED]");
         assert_eq!(body_of(response).await, "bad Bearer [REDACTED]");
@@ -427,17 +443,25 @@ mod tests {
     /// another (item 3): a later refusal that repeats the tool result arrives whole.
     #[tokio::test]
     async fn an_ordinary_body_field_named_code_is_never_redacted() {
-        let link = Guarded(Echo { chunks: vec![br#"{"error":"print(1) failed"}"#], location: "", fail_with: None, content_type: "application/json", status: 400 });
-        let with_code = WireRequest { body: br#"{"input":[{"type":"function_call_output","output":{"code":"print(1)"}}]}"#.to_vec(), ..request("https://example.test/v1", &[]) };
+        let link =
+            Guarded(Echo { chunks: vec![br#"{"error":"print(1) failed"}"#], location: "", fail_with: None, content_type: "application/json", status: 400 });
+        let with_code = WireRequest {
+            body: br#"{"input":[{"type":"function_call_output","output":{"code":"print(1)"}}]}"#.to_vec(),
+            ..request("https://example.test/v1", &[])
+        };
         assert_eq!(body_of(link.send(with_code, TOKEN_EXCHANGE).await.expect("answered")).await, r#"{"error":"print(1) failed"}"#);
-        assert_eq!(body_of(link.send(request("https://example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered")).await, r#"{"error":"print(1) failed"}"#);
+        assert_eq!(
+            body_of(link.send(request("https://example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered")).await,
+            r#"{"error":"print(1) failed"}"#
+        );
     }
 
     /// A resend after a refresh carries the new credential; the refusal of the resend repeats the old one (review 1123v item 1).
     #[tokio::test]
     async fn an_error_repeating_the_old_credential_of_a_refreshed_token_is_redacted() {
         let first = Guarded(Echo { chunks: vec![b"expired"], location: "", fail_with: None, content_type: "text/plain", status: 401 });
-        let refused = first.send(request("https://example.test/v1", &[("authorization", "Bearer refreshed-oldcredential123")]), TOKEN_EXCHANGE).await.expect("answered");
+        let refused =
+            first.send(request("https://example.test/v1", &[("authorization", "Bearer refreshed-oldcredential123")]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(body_of(refused).await, "expired");
         let resend = Guarded(Echo {
             chunks: vec![b"{\"error\":\"previous value refreshed-oldcredential123, current refreshed-newcredential456\"}"],
@@ -446,7 +470,8 @@ mod tests {
             content_type: "application/json",
             status: 400,
         });
-        let answered = resend.send(request("https://example.test/v1", &[("authorization", "Bearer refreshed-newcredential456")]), TOKEN_EXCHANGE).await.expect("answered");
+        let answered =
+            resend.send(request("https://example.test/v1", &[("authorization", "Bearer refreshed-newcredential456")]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(body_of(answered).await, "{\"error\":\"previous value [REDACTED], current [REDACTED]\"}");
     }
 
@@ -466,7 +491,13 @@ mod tests {
         let response = later.send(request("https://example.test/v2", &[]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(response.headers[0].1, "https://example.test/?k=[REDACTED]");
         assert_eq!(body_of(response).await, "the key [REDACTED] was refused");
-        let failing = Guarded(Echo { chunks: Vec::new(), location: "", fail_with: Some("error sending request for url (https://example.test/v3?key=earlier/request-key-9d3b)"), content_type: "", status: 0 });
+        let failing = Guarded(Echo {
+            chunks: Vec::new(),
+            location: "",
+            fail_with: Some("error sending request for url (https://example.test/v3?key=earlier/request-key-9d3b)"),
+            content_type: "",
+            status: 0,
+        });
         let error = failing.send(request("https://example.test/v3", &[]), TOKEN_EXCHANGE).await.err().expect("failed");
         assert_eq!(error.message, "error sending request for url (https://example.test/v3?key=[REDACTED])");
     }
@@ -476,14 +507,31 @@ mod tests {
     /// request carried, is redacted.
     #[tokio::test]
     async fn only_a_token_grant_arrives_whole_and_what_is_kept_of_it_is_a_credential() {
-        let grant: &'static [u8] = br#"{"access_token":"granted-access-token-4e7f21","refresh_token":"granted-refresh-token-8a90c3","id_token":"granted-id-token-55b2d0"}"#;
+        let grant: &'static [u8] =
+            br#"{"access_token":"granted-access-token-4e7f21","refresh_token":"granted-refresh-token-8a90c3","id_token":"granted-id-token-55b2d0"}"#;
         let link = Guarded(Echo { chunks: vec![grant], location: "", fail_with: None, content_type: "application/json", status: 200 });
-        let refresh = WireRequest { body: b"grant_type=refresh_token&refresh_token=granted-refresh-token-8a90c3".to_vec(), ..request("https://example.test/token", &[]) };
+        let refresh =
+            WireRequest { body: b"grant_type=refresh_token&refresh_token=granted-refresh-token-8a90c3".to_vec(), ..request("https://example.test/token", &[]) };
         assert_eq!(body_of(link.send(refresh, TOKEN_EXCHANGE).await.expect("answered")).await.as_bytes(), grant);
         carried::keep("an account of the grant test", &["granted-access-token-4e7f21", "granted-id-token-55b2d0"]);
         // Cursor's exchange has no `grant_type`: the exchange is declared one.
-        let exchange = Guarded(Echo { chunks: vec![br#"{"accessToken":"cursor-granted-access-6c1e","refreshToken":"cursor-granted-refresh-2f70"}"#], location: "", fail_with: None, content_type: "application/json", status: 200 });
-        let body = body_of(exchange.send(request("https://example.test/auth/exchange", &[("authorization", "Bearer cursor-granted-refresh-2f70")]), crate::transport::deadlines::CURSOR_EXCHANGE).await.expect("answered")).await;
+        let exchange = Guarded(Echo {
+            chunks: vec![br#"{"accessToken":"cursor-granted-access-6c1e","refreshToken":"cursor-granted-refresh-2f70"}"#],
+            location: "",
+            fail_with: None,
+            content_type: "application/json",
+            status: 200,
+        });
+        let body = body_of(
+            exchange
+                .send(
+                    request("https://example.test/auth/exchange", &[("authorization", "Bearer cursor-granted-refresh-2f70")]),
+                    crate::transport::deadlines::CURSOR_EXCHANGE,
+                )
+                .await
+                .expect("answered"),
+        )
+        .await;
         assert!(body.contains("cursor-granted-refresh-2f70") && body.contains("cursor-granted-access-6c1e"), "{body}");
         // Later, an answer of no token request that repeats a kept token, or the one an earlier request carried.
         let document = Guarded(Echo {
@@ -524,7 +572,10 @@ mod tests {
             content_type: "text/event-stream",
             status: 200,
         });
-        let mut response = a.send(request("https://a.example.test/v1", &[("authorization", "Bearer streaming-token-before-refresh-1d4e")]), TOKEN_EXCHANGE).await.expect("answered");
+        let mut response = a
+            .send(request("https://a.example.test/v1", &[("authorization", "Bearer streaming-token-before-refresh-1d4e")]), TOKEN_EXCHANGE)
+            .await
+            .expect("answered");
         assert_eq!(response.body.next().await.expect("a first chunk").expect("no fault").as_ref(), b"data: first\n\n");
         // The account refreshes; then more values retire than the registry keeps.
         carried::keep("file streaming-account.json", &["streaming-token-after-refresh-7a0c"]);
@@ -540,7 +591,11 @@ mod tests {
         for i in 0..=carried::RETIRED_CAP {
             carried::keep("file another-account.json", &[&format!("a later retired token-{i:05}")]);
         }
-        assert_eq!(carried::remembered().redact_str("streaming-token-before-refresh-1d4e"), "streaming-token-before-refresh-1d4e", "retired with the stream's end, then forgotten over the cap");
+        assert_eq!(
+            carried::remembered().redact_str("streaming-token-before-refresh-1d4e"),
+            "streaming-token-before-refresh-1d4e",
+            "retired with the stream's end, then forgotten over the cap"
+        );
     }
 
     /// Request A streams; request B attaches its credential; A's response then echoes B's credential (review 1124e: a
@@ -554,11 +609,13 @@ mod tests {
             content_type: "text/event-stream",
             status: 200,
         });
-        let mut response = a.send(request("https://a.example.test/v1", &[("authorization", "Bearer stream-a-own-key-9e02")]), TOKEN_EXCHANGE).await.expect("answered");
+        let mut response =
+            a.send(request("https://a.example.test/v1", &[("authorization", "Bearer stream-a-own-key-9e02")]), TOKEN_EXCHANGE).await.expect("answered");
         let first = response.body.next().await.expect("a first chunk").expect("no fault");
         assert_eq!(first.as_ref(), b"data: first event\n\n");
         let b = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
-        body_of(b.send(request("https://b.example.test/v1", &[("authorization", "Bearer midstream-key-of-b-41d7")]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        body_of(b.send(request("https://b.example.test/v1", &[("authorization", "Bearer midstream-key-of-b-41d7")]), TOKEN_EXCHANGE).await.expect("answered"))
+            .await;
         let mut rest = Vec::new();
         while let Some(chunk) = response.body.next().await {
             rest.extend_from_slice(&chunk.expect("no fault"));
@@ -584,7 +641,8 @@ mod tests {
             "bodyBase64": base64::engine::general_purpose::STANDARD.encode(gzip.finish().unwrap()),
         }));
         loopback.begin(script);
-        let link = crate::transport::link::ReqwestLink::pinned(&mixdog_core_api::domain::keepalive::KeepaliveSchedule::SPEC, loopback.addr, loopback.tls.clone());
+        let link =
+            crate::transport::link::ReqwestLink::pinned(&mixdog_core_api::domain::keepalive::KeepaliveSchedule::SPEC, loopback.addr, loopback.tls.clone());
         let sent = request("https://example.test/v1", &[("authorization", "Bearer gzip-guard-key/5e71")]);
         let response = link.send(sent, TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(body_of(response).await, r#"{"error":"the credential [REDACTED] was refused"}"#);
@@ -692,7 +750,6 @@ mod tests {
         assert!(link.contains("\nstruct Bare<"));
     }
 
-
     /// Two accounts, one origin and one header (review 1124m/n P1): account A's key is configured (read through the key
     /// variable every send reads it from) and sent once; account B rotates its token 32,769 times, each read out of its
     /// credential file and sent in the same origin's `authorization`. A is still configured: a later answer quoting it is
@@ -716,13 +773,23 @@ mod tests {
         let key_a = ProviderKey::primary(keys, "xai", KeyConfig::default()).key().await.expect("configured");
         let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
         let bearer = |token: &str| format!("Bearer {token}");
-        body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&key_a))]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&key_a))]), TOKEN_EXCHANGE).await.expect("answered"))
+            .await;
         for i in 0..32_769 {
             let token = format!("rotated-token-of-account-b-{i:05}");
             carried::keep("file account-b.json", &[&token]);
-            body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&token))]), TOKEN_EXCHANGE).await.expect("answered")).await;
+            body_of(
+                quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&token))]), TOKEN_EXCHANGE).await.expect("answered"),
+            )
+            .await;
         }
-        let echo = Guarded(Echo { chunks: vec![b"the key configured-key-of-account-a-5f3c is over its quota"], location: "", fail_with: None, content_type: "text/plain", status: 429 });
+        let echo = Guarded(Echo {
+            chunks: vec![b"the key configured-key-of-account-a-5f3c is over its quota"],
+            location: "",
+            fail_with: None,
+            content_type: "text/plain",
+            status: 429,
+        });
         let response = echo.send(request("https://api.x.ai/v1/chat/completions", &[]), TOKEN_EXCHANGE).await.expect("answered");
         assert_eq!(body_of(response).await, "the key [REDACTED] is over its quota");
     }

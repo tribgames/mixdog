@@ -24,11 +24,7 @@ pub(crate) struct ReplyTx<T>(Arc<Mutex<Slot<T>>>);
 pub(crate) struct ReplyRx<T>(Arc<Mutex<Slot<T>>>);
 
 pub(crate) fn reply<T>() -> (ReplyTx<T>, ReplyRx<T>) {
-    let slot = Arc::new(Mutex::new(Slot {
-        value: None,
-        waker: None,
-        sender_gone: false,
-    }));
+    let slot = Arc::new(Mutex::new(Slot { value: None, waker: None, sender_gone: false }));
     (ReplyTx(slot.clone()), ReplyRx(slot))
 }
 

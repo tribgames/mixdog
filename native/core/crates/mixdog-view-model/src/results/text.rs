@@ -4,8 +4,8 @@
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
-use mixdog_js::json_stringify;
 use mixdog_js::js_trim;
+use mixdog_js::json_stringify;
 use mixdog_js::slice_utf16;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
@@ -264,10 +264,7 @@ mod tests {
         assert_eq!(tool_result_text(&json!({ "text": "t" })), "t");
         assert_eq!(tool_result_text(&json!({ "a": 1 })), "{\"a\":1}");
         assert_eq!(tool_result_text(&json!(7)), "7");
-        assert_eq!(
-            tool_result_text(&json!([{ "source": { "type": "base64", "data": "AAAA", "media_type": "image/jpeg" } }])),
-            "[image: image/jpeg]"
-        );
+        assert_eq!(tool_result_text(&json!([{ "source": { "type": "base64", "data": "AAAA", "media_type": "image/jpeg" } }])), "[image: image/jpeg]");
     }
 
     #[test]

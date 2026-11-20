@@ -72,7 +72,14 @@ fn env(enabled: bool) -> Env {
         upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
     })
     .unwrap();
-    let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    let row = mixdog_store::state::ProjectRow {
+        path: root.to_string_lossy().into_owned(),
+        alias: None,
+        hidden: false,
+        hidden_rank: None,
+        last_used_at: None,
+        name: None,
+    };
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(state.write(move |tx| tx.put_project(&row)))).unwrap();
     if enabled {
         service.enable_desktop_files(base.join("data/desktop/selected-file-grants.json"), base.join("data/desktop/page-server.json"));
@@ -120,7 +127,8 @@ async fn get(url: &str) -> (u16, String) {
 async fn describe_and_redeem_round_trip_and_a_local_token_reads_the_file() {
     let env = env(true);
     let (folder, rel, token) = granted_file(&env, "note.txt", "granted text").await;
-    let redeemed = local(&env, "projectFs/grant/redeem", json!({ "accessToken": token, "projectPath": folder.to_string_lossy(), "relPath": rel })).await.unwrap();
+    let redeemed =
+        local(&env, "projectFs/grant/redeem", json!({ "accessToken": token, "projectPath": folder.to_string_lossy(), "relPath": rel })).await.unwrap();
     assert_eq!((redeemed["rel"].clone(), redeemed["root"].as_str().map(PathBuf::from)), (json!("note.txt"), Some(folder.clone())));
     // A path the grant does not name is refused with its code.
     let other = local(&env, "projectFs/grant/redeem", json!({ "accessToken": token, "projectPath": folder.to_string_lossy(), "relPath": "other.txt" })).await;
@@ -129,7 +137,10 @@ async fn describe_and_redeem_round_trip_and_a_local_token_reads_the_file() {
     assert_eq!(read["content"], "granted text");
     // A file inside the registered project is described with that project and needs no token.
     let inside = local(&env, "projectFs/grant/describe", json!({ "paths": [env.root.join("page.html").to_string_lossy()] })).await.unwrap();
-    assert_eq!((inside[0]["projectPath"].as_str().map(PathBuf::from), inside[0]["relPath"].clone(), inside[0]["accessToken"].clone()), (Some(env.root.clone()), json!("page.html"), Value::Null));
+    assert_eq!(
+        (inside[0]["projectPath"].as_str().map(PathBuf::from), inside[0]["relPath"].clone(), inside[0]["accessToken"].clone()),
+        (Some(env.root.clone()), json!("page.html"), Value::Null)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

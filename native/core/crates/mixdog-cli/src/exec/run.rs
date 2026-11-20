@@ -262,11 +262,7 @@ async fn execute(
     let session = host.launcher.launch(&boundary, tap).await?;
     set(&handles.session, session.clone());
     let started = session.call("thread/start", thread_start_params(opts, route)).await?;
-    let thread_id = started
-        .pointer("/thread/id")
-        .and_then(Value::as_str)
-        .ok_or("thread/start answered without a thread id")?
-        .to_owned();
+    let thread_id = started.pointer("/thread/id").and_then(Value::as_str).ok_or("thread/start answered without a thread id")?.to_owned();
     // A JSON run's session carries the id its stream reserved (`reserveSessionId`), the usage document's included.
     state.session_id = state.lifecycle.as_ref().map_or_else(|| thread_id.clone(), |lifecycle| lifecycle.thread_id().to_owned());
     state.session_model = route.model.clone();
@@ -346,14 +342,7 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
         fast: opts.fast,
     };
     let lifecycle = opts.json.then(|| {
-        Lifecycle::new(
-            sink.clone(),
-            host.now.clone(),
-            format!("exec_{}", uuid::Uuid::new_v4().simple()),
-            &route,
-            &opts.cwd.to_string_lossy(),
-            opts.web_search,
-        )
+        Lifecycle::new(sink.clone(), host.now.clone(), format!("exec_{}", uuid::Uuid::new_v4().simple()), &route, &opts.cwd.to_string_lossy(), opts.web_search)
     });
     let mut state = RunState {
         stats: SessionStats::default(),

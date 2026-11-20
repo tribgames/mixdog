@@ -10,10 +10,7 @@ pub(super) struct MtimeHit {
 
 impl Ord for MtimeHit {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .mtime_ms
-            .cmp(&self.mtime_ms)
-            .then_with(|| self.path.cmp(&other.path))
+        other.mtime_ms.cmp(&self.mtime_ms).then_with(|| self.path.cmp(&other.path))
     }
 }
 
@@ -41,11 +38,7 @@ impl PartialOrd for UnstattedHit {
     }
 }
 
-pub(super) fn retain_bounded<T: Ord>(
-    heap: &mut std::collections::BinaryHeap<T>,
-    candidate: T,
-    cap: usize,
-) {
+pub(super) fn retain_bounded<T: Ord>(heap: &mut std::collections::BinaryHeap<T>, candidate: T, cap: usize) {
     if heap.len() < cap {
         heap.push(candidate);
     } else if heap.peek().is_some_and(|worst| candidate < *worst) {
@@ -136,18 +129,13 @@ pub(super) fn handle_mtime_inventory(
         // Path::join replaces the base when the operand is absolute.
         let operand_path = cwd.join(operand);
         let filter = PathFilter::new(&operand_path, parsed)?;
-        let scope = OperandScope {
-            operand,
-            operand_path: &operand_path,
-            filter: &filter,
-        };
+        let scope = OperandScope { operand, operand_path: &operand_path, filter: &filter };
         let watched = store.watch_root(&operand_path);
         let trust = TrustSnapshot::capture();
         cache_safe &= watched;
         let walk_key = walk_key(&operand_path, parsed);
         if let Some(files) = store.take_ready(&walk_key) {
-            let (candidates, expired) =
-                collect_mtime_candidates(&files, 0, &scope, &trust, cancelled, deadline_at)?;
+            let (candidates, expired) = collect_mtime_candidates(&files, 0, &scope, &trust, cancelled, deadline_at)?;
             total_seen = total_seen.saturating_add(candidates.len());
             for candidate in candidates {
                 retain_mtime_candidate(&mut statted, &mut unstatted, candidate, cap);
@@ -159,19 +147,12 @@ pub(super) fn handle_mtime_inventory(
             continue;
         }
 
-        let (live, _waiter) =
-            store.join_live_walk(walk_key, &operand_path, parsed, req.keep_warm, 0, watched);
+        let (live, _waiter) = store.join_live_walk(walk_key, &operand_path, parsed, req.keep_warm, 0, watched);
         let mut cursor = 0usize;
         let mut operand_complete = false;
         loop {
             let batch_start = cursor;
-            let take = |files: &[PathBuf]| -> Vec<PathBuf> {
-                files
-                    .iter()
-                    .filter(|file| filter.allows(file))
-                    .cloned()
-                    .collect()
-            };
+            let take = |files: &[PathBuf]| -> Vec<PathBuf> { files.iter().filter(|file| filter.allows(file)).cloned().collect() };
             let batch = match next_stream_batch(&live, &mut cursor, cancelled, deadline_at, take)? {
                 StreamBatch::Items(batch) => batch,
                 StreamBatch::Complete => {
@@ -184,14 +165,7 @@ pub(super) fn handle_mtime_inventory(
                     break;
                 }
             };
-            let (candidates, expired) = collect_mtime_candidates(
-                &batch,
-                batch_start,
-                &scope,
-                &trust,
-                cancelled,
-                deadline_at,
-            )?;
+            let (candidates, expired) = collect_mtime_candidates(&batch, batch_start, &scope, &trust, cancelled, deadline_at)?;
             timed_out |= expired;
             total_seen = total_seen.saturating_add(candidates.len());
             for candidate in candidates {

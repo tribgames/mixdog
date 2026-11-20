@@ -165,10 +165,7 @@ mod tests {
         </sheetData></worksheet>";
 
     fn formulas(records: &[CellRecord]) -> BTreeMap<String, String> {
-        records
-            .iter()
-            .filter_map(|record| record.formula.as_ref().map(|info| (record.reference.clone(), info.formula.clone())))
-            .collect()
+        records.iter().filter_map(|record| record.formula.as_ref().map(|info| (record.reference.clone(), info.formula.clone()))).collect()
     }
 
     fn expected(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {

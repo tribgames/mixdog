@@ -74,7 +74,8 @@ fn a_tool_call_and_its_result_are_sent_as_an_assistant_call_then_a_tool_message(
     call.tool_calls = vec![ToolCall { id: "call_fx1".into(), name: "lookup".into(), arguments: json!({"key": "answer"}), native_type: None }];
     let mut result = text(Role::Tool, "42");
     result.tool_call_id = Some("call_fx1".into());
-    let request = ModelRequest { model: "m".into(), messages: vec![text(Role::User, "go"), call, result], tools: vec![lookup()], options: RequestOptions::default() };
+    let request =
+        ModelRequest { model: "m".into(), messages: vec![text(Role::User, "go"), call, result], tools: vec![lookup()], options: RequestOptions::default() };
     let messages = body(&groq(), &request)["messages"].clone();
     assert_eq!(messages[1]["role"], "assistant");
     assert_eq!(messages[1]["tool_calls"][0]["id"], "call_fx1");
@@ -101,11 +102,14 @@ fn the_local_runtime_receives_every_instruction_as_one_leading_system_message() 
         {"role": "assistant", "content": "ok"},
     ]});
     merge_instructions(&mut sent).expect("text only");
-    assert_eq!(sent["messages"], json!([
-        {"role": "system", "content": "one\n\ntwo\n\nthree"},
-        {"role": "user", "content": "hi"},
-        {"role": "assistant", "content": "ok"},
-    ]));
+    assert_eq!(
+        sent["messages"],
+        json!([
+            {"role": "system", "content": "one\n\ntwo\n\nthree"},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "ok"},
+        ])
+    );
 }
 
 #[test]

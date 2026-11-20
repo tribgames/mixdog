@@ -212,7 +212,9 @@ pub struct LocalInferenceEnd {
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum LocalInference {
     #[serde(rename_all = "camelCase")]
-    Running { queue_wait_ms: f64 },
+    Running {
+        queue_wait_ms: f64,
+    },
     Complete(LocalInferenceEnd),
     Failed(LocalInferenceEnd),
 }

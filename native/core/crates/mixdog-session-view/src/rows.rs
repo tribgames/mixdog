@@ -352,9 +352,11 @@ fn imported_assistant_rows(item: &Value, meta: Opt) -> Option<Vec<Row>> {
             continue;
         }
         let Some(tools) = run.get("tools").and_then(Value::as_array).filter(|tools| !tools.is_empty()) else { continue };
-        let Some(tools): Option<Vec<(&str, u64)>> = tools.iter().map(|tool| {
-            Some((tool.get("name")?.as_str()?, tool.get("count")?.as_u64().filter(|count| *count > 0)?))
-        }).collect() else { continue };
+        let Some(tools): Option<Vec<(&str, u64)>> =
+            tools.iter().map(|tool| Some((tool.get("name")?.as_str()?, tool.get("count")?.as_u64().filter(|count| *count > 0)?))).collect()
+        else {
+            continue;
+        };
         let marker = &content[start..end];
         if marker != imported_tool_line(&tools, true) && marker != imported_tool_line(&tools, false) {
             continue;
@@ -534,13 +536,8 @@ fn put_tool_meta(row: &mut Map<String, Value>, meta: Opt) {
     if code.is_empty() {
         return;
     }
-    let missing: Vec<&str> = fld(meta, "missing")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|name| !name.is_empty())
-        .collect();
+    let missing: Vec<&str> =
+        fld(meta, "missing").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|name| !name.is_empty()).collect();
     let mut normalized = json!({ "code": code, "missing": missing });
     let owner = text(fld(meta, "ownerSessionId"));
     if (1..=128).contains(&owner.len()) && owner.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-')) {
@@ -817,7 +814,8 @@ fn aggregate_row_steps(members: &[Member<'_>], live: bool, yield_point: &mut imp
             fields.insert("exitCode".to_owned(), outcome.exit_code.map_or(Value::Null, json_number));
             fields.insert("resultText".to_owned(), json!(result_text));
             fields.insert("rawResultText".to_owned(), json!(raw_result_text));
-            let summary = if !outcome.is_call_error && !js_trim(&result_text).is_empty() { summarize_tool_result(name, args, &result_text, false) } else { None };
+            let summary =
+                if !outcome.is_call_error && !js_trim(&result_text).is_empty() { summarize_tool_result(name, args, &result_text, false) } else { None };
             fields.insert("summary".to_owned(), summary.map_or(Value::Null, Value::from));
         }
         calls.push(call_record(member, live, Some(fields)));
@@ -1097,10 +1095,7 @@ fn routine_notice(ext: Opt, attachments: Opt) -> Map<String, Value> {
         };
         let summary = fld(routine, "summary");
         let tail = if truthy(summary) { format!(" — {}", text(summary)) } else { String::new() };
-        out.insert(
-            "text".to_owned(),
-            json!(format!("🛠 {} {what} · {}{tail}", if session { "Session" } else { "Agent task" }, text(fld(routine, "name")))),
-        );
+        out.insert("text".to_owned(), json!(format!("🛠 {} {what} · {}{tail}", if session { "Session" } else { "Agent task" }, text(fld(routine, "name")))));
         out.insert("tone".to_owned(), json!(if status == "failed" { "warn" } else { "info" }));
         let mut payload = Map::new();
         payload.insert("kind".to_owned(), json!("task"));
@@ -1305,7 +1300,8 @@ fn user_row(item: &Value, meta: Opt) -> Map<String, Value> {
     } else {
         row.insert("id".to_owned(), json!(submission));
     }
-    let body: String = parts.iter().filter(|part| matches!(text(fld(Some(*part), "type")), "text" | "pastedText")).map(|part| text(fld(Some(part), "text"))).collect();
+    let body: String =
+        parts.iter().filter(|part| matches!(text(fld(Some(*part), "type")), "text" | "pastedText")).map(|part| text(fld(Some(part), "text"))).collect();
     row.insert("text".to_owned(), json!(body));
     put_text(&mut row, "messageId", fld(meta, "messageId"));
     put_at(&mut row, meta);
@@ -1465,10 +1461,12 @@ mod tests {
             "meta": { "at": 42, "messageId": "msg_imported", "provider": "p" }
         });
         let prose = |id: &str, text: &str| json!({ "kind": "assistant", "id": id, "text": text, "at": 42, "messageId": "msg_imported", "provider": "p" });
-        let tool = |id: &str, name: &str, count: u64| json!({
-            "kind": "tool", "id": id, "name": name, "count": count, "completedCount": count, "imported": true, "expanded": false,
-            "at": 42, "startedAt": 42, "completedAt": 42
-        });
+        let tool = |id: &str, name: &str, count: u64| {
+            json!({
+                "kind": "tool", "id": id, "name": name, "count": count, "completedCount": count, "imported": true, "expanded": false,
+                "at": 42, "startedAt": 42, "completedAt": 42
+            })
+        };
         let mut expected = vec![
             prose("imported", "😀 First."),
             tool("imported:import:1", "read", 2),
@@ -1489,10 +1487,12 @@ mod tests {
 
     #[test]
     fn completed_tools_keep_validated_metadata_on_each_grouped_preview() {
-        let call = |id: &str, tool_meta: Value| json!({
-            "type": "toolCall", "id": id, "name": "visualize", "input": {}, "meta": { "status": "completed" },
-            "run": { "result": "opened", "toolMeta": tool_meta }
-        });
+        let call = |id: &str, tool_meta: Value| {
+            json!({
+                "type": "toolCall", "id": id, "name": "visualize", "input": {}, "meta": { "status": "completed" },
+                "run": { "result": "opened", "toolMeta": tool_meta }
+            })
+        };
         let good = call("one", json!({ "code": "visualize_owner", "missing": ["display", "", 5], "ownerSessionId": "room:owner-1", "extra": "ignored" }));
         let bad = call("two", json!({ "code": "visualize_owner", "ownerSessionId": "../other/session" }));
         let expected = json!({ "code": "visualize_owner", "missing": ["display"], "ownerSessionId": "room:owner-1" });
@@ -1511,7 +1511,9 @@ mod tests {
                 "source": "routine-trigger", "routineTrigger": { "kind": "webhook", "name": " Checks ", "event": " opened " },
                 "reactions": [{ "agentId": "bot", "emoji": "👍", "at": 4 }, { "agentId": "bot", "emoji": "👋" }, { "agentId": "bad/bot", "emoji": "👍" }]
             }
-        })).unwrap().value;
+        }))
+        .unwrap()
+        .value;
         assert_eq!(row["routineTrigger"], json!({ "kind": "webhook", "name": "Checks", "event": "opened" }));
         assert_eq!(row["reactions"], json!([{ "agentId": "bot", "emoji": "👍", "at": 4 }]));
     }
@@ -1527,13 +1529,18 @@ mod tests {
             "type": "userMessage", "id": "notice", "content": [],
             "details": { "source": "schedule-result", "attachments": [attachment, attachment] },
             "meta": { "messageId": "msg_notice", "posted": true, "at": 7, "ext": { "routine": routine, "messageId": "old", "posted": false } }
-        })).unwrap().value;
+        }))
+        .unwrap()
+        .value;
         let mut download = attachment;
         download["attachmentRef"] = json!(id);
-        assert_eq!(row, json!({
-            "kind": "notice", "id": "notice", "text": "🛠 Agent task completed · Build", "tone": "info",
-            "messageId": "msg_notice", "posted": true, "at": 7, "routine": routine, "attachments": [download]
-        }));
+        assert_eq!(
+            row,
+            json!({
+                "kind": "notice", "id": "notice", "text": "🛠 Agent task completed · Build", "tone": "info",
+                "messageId": "msg_notice", "posted": true, "at": 7, "routine": routine, "attachments": [download]
+            })
+        );
     }
 
     fn merged(items: &[Value]) -> Vec<Value> {
@@ -1567,7 +1574,15 @@ mod tests {
         rows.iter()
             .map(|r| {
                 let v = &r.value;
-                (v["id"].as_str().unwrap().into(), v["name"].as_str().unwrap().into(), v["args"]["task_id"].as_str().unwrap().into(), v["args"]["status"].as_str().unwrap().into(), v["isError"] == true, v["count"].as_i64().unwrap(), v["result"].as_str().unwrap().len())
+                (
+                    v["id"].as_str().unwrap().into(),
+                    v["name"].as_str().unwrap().into(),
+                    v["args"]["task_id"].as_str().unwrap().into(),
+                    v["args"]["status"].as_str().unwrap().into(),
+                    v["isError"] == true,
+                    v["count"].as_i64().unwrap(),
+                    v["result"].as_str().unwrap().len(),
+                )
             })
             .collect()
     }
@@ -1695,7 +1710,10 @@ mod tests {
         let held = |request: Value| json!({ "type": "userMessage", "id": "h", "content": [], "meta": { "source": "held-request", "ext": { "heldRequest": request } } });
         assert!(row_of(&held(json!({ "status": "pending", "tool": "bash" }))).is_none());
         let shown = row_of(&held(json!({ "id": "r1", "status": "pending", "tool": "bash", "target": "x" }))).unwrap().value;
-        assert_eq!((shown["kind"].clone(), shown["text"].clone(), shown["tone"].clone()), (json!("notice"), json!("⏸ Approval needed · bash → x"), json!("warn")));
+        assert_eq!(
+            (shown["kind"].clone(), shown["text"].clone(), shown["tone"].clone()),
+            (json!("notice"), json!("⏸ Approval needed · bash → x"), json!("warn"))
+        );
         let schedule = json!({ "type": "userMessage", "id": "s", "content": [], "meta": { "source": "schedule-result", "ext": { "messageId": "routine_9", "routine": { "name": "nightly", "status": "failed", "summary": "boom" } } } });
         let row = row_of(&schedule).unwrap().value;
         assert_eq!(row["text"], "⏱ Schedule · nightly — Failed: boom");
@@ -1705,7 +1723,8 @@ mod tests {
 
     #[test]
     fn a_room_row_is_the_users_bubble_or_a_notice_line() {
-        let speech = json!({ "type": "roomRow", "id": "r1", "text": "hi", "room": { "kind": "speech", "to": "a", "at": 9 }, "meta": { "at": 3, "messageId": "m1" } });
+        let speech =
+            json!({ "type": "roomRow", "id": "r1", "text": "hi", "room": { "kind": "speech", "to": "a", "at": 9 }, "meta": { "at": 3, "messageId": "m1" } });
         let row = row_of(&speech).unwrap().value;
         assert_eq!((row["kind"].clone(), row["id"].clone(), row["text"].clone()), (json!("notice"), json!("r1"), json!("hi")));
         assert_eq!(row["room"]["to"], json!(["a"]));
@@ -1737,10 +1756,12 @@ mod tests {
     /// that, finished or not; an ordinary card, or a run with no usable count, stays one.
     #[test]
     fn a_card_whose_run_covers_several_responses_is_counted_by_them() {
-        let card = |run: Value, status: &str| json!({
-            "type": "toolCall", "id": "r", "name": "agent", "input": { "type": "result", "status": "completed", "task_id": "t1", "surface": "agent" },
-            "run": run, "meta": { "status": status, "at": 5 }
-        });
+        let card = |run: Value, status: &str| {
+            json!({
+                "type": "toolCall", "id": "r", "name": "agent", "input": { "type": "result", "status": "completed", "task_id": "t1", "surface": "agent" },
+                "run": run, "meta": { "status": status, "at": 5 }
+            })
+        };
         let counted = |item: Value| {
             let row = row_of(&item).unwrap().value;
             (row["count"].clone(), row["completedCount"].clone())

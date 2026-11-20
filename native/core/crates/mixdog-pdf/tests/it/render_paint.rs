@@ -100,11 +100,7 @@ fn device_colour_spaces_fill_with_their_colours() {
 
 #[test]
 fn an_indexed_colour_space_maps_its_index_through_the_palette() {
-    let page = render(
-        "/CS0 cs 1 sc 0 0 20 20 re f",
-        "/ColorSpace << /CS0 [/Indexed /DeviceRGB 1 <FF0000 0000FF>] >>",
-        &[],
-    );
+    let page = render("/CS0 cs 1 sc 0 0 20 20 re f", "/ColorSpace << /CS0 [/Indexed /DeviceRGB 1 <FF0000 0000FF>] >>", &[]);
     assert_eq!(page.at(5, 5), [0, 0, 255, 255]);
 }
 
@@ -118,10 +114,7 @@ fn constant_alpha_blends_a_fill_with_what_is_beneath() {
 
 #[test]
 fn a_form_xobject_is_drawn_through_its_matrix_and_its_own_resources() {
-    let form = crate::render_support::stream(
-        "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Matrix [1 0 0 1 5 5]",
-        b"0 1 0 rg 0 0 100 100 re f",
-    );
+    let form = crate::render_support::stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Matrix [1 0 0 1 5 5]", b"0 1 0 rg 0 0 100 100 re f");
     let page = render("/Fm Do", "/XObject << /Fm 5 0 R >>", &[form]);
     // The box is clipped to 10 x 10 and moved by (5, 5): x 5..15, rows 5..15.
     assert_eq!(page.at(10, 10), [0, 255, 0, 255]);
@@ -133,11 +126,8 @@ fn a_form_xobject_is_drawn_through_its_matrix_and_its_own_resources() {
 #[test]
 fn an_axial_shading_runs_from_the_first_colour_to_the_second() {
     let function = b"<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >>".to_vec();
-    let page = render(
-        "/Sh sh",
-        "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 20 0] /Function 5 0 R /Extend [true true] >> >>",
-        &[function],
-    );
+    let page =
+        render("/Sh sh", "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 20 0] /Function 5 0 R /Extend [true true] >> >>", &[function]);
     let (left, middle, right) = (page.at(0, 10), page.at(10, 10), page.at(19, 10));
     assert!(left[0] > 230 && left[2] < 25, "{left:?}");
     assert!(right[2] > 230 && right[0] < 25, "{right:?}");

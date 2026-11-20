@@ -34,6 +34,4 @@ mod tests {
         let v = json!({"b": 1.0, "a": [true, null, "x\"y"]});
         assert_eq!(stable_stringify(&v), r#"{"a":[true,null,"x\"y"],"b":1}"#);
     }
-
-
 }

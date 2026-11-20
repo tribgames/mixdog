@@ -72,7 +72,13 @@ pub struct SessionHomeDeps {
 }
 
 impl SessionHomeDeps {
-    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, directory: Arc<SessionDirectory>, stored: Arc<dyn StoredSessions>, rooms: Arc<dyn RoomMembers>) -> Self {
+    pub fn new(
+        catalog: Arc<dyn AgentCatalog>,
+        sessions: Arc<dyn SessionOps>,
+        directory: Arc<SessionDirectory>,
+        stored: Arc<dyn StoredSessions>,
+        rooms: Arc<dyn RoomMembers>,
+    ) -> Self {
         Self { catalog, sessions, directory, stored, rooms }
     }
 
@@ -99,7 +105,8 @@ impl SessionHomeDeps {
             Reply::Value(page) => Ok(page["data"].as_array().is_some_and(|turns| turns.iter().any(|turn| turn["status"] == "inProgress"))),
             Reply::Subscribe(_) => Ok(false),
         }
-    }}
+    }
+}
 
 #[async_trait]
 impl HomeDeps for SessionHomeDeps {

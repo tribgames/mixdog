@@ -52,11 +52,7 @@ pub(crate) fn js_parse_float(text: &str) -> f64 {
         i += 1;
     }
     if t[i..].starts_with("Infinity") {
-        return if negative {
-            f64::NEG_INFINITY
-        } else {
-            f64::INFINITY
-        };
+        return if negative { f64::NEG_INFINITY } else { f64::INFINITY };
     }
     let digits_from = i;
     while i < b.len() && b[i].is_ascii_digit() {
@@ -124,19 +120,11 @@ fn is_js_space(c: char) -> bool {
 }
 
 fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.max(b)
-    }
+    if a.is_nan() || b.is_nan() { f64::NAN } else { a.max(b) }
 }
 
 fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.min(b)
-    }
+    if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) }
 }
 
 fn nth(values: &[f64], i: usize) -> f64 {
@@ -190,21 +178,11 @@ const fn two(second: u16) -> u16 {
 }
 
 const fn number(key: u16, name: &'static str, default: DefaultValue) -> Layout {
-    Layout {
-        key,
-        name,
-        kind: Kind::Number,
-        default,
-    }
+    Layout { key, name, kind: Kind::Number, default }
 }
 
 const fn list(key: u16, name: &'static str, default: DefaultValue) -> Layout {
-    Layout {
-        key,
-        name,
-        kind: Kind::List,
-        default,
-    }
+    Layout { key, name, kind: Kind::List, default }
 }
 
 const NONE: DefaultValue = DefaultValue::Null;
@@ -229,11 +207,7 @@ static TOP_DICT_LAYOUT: [Layout; 34] = [
     number(two(4), "UnderlineThickness", num(50.0)),
     number(two(5), "PaintType", num(0.0)),
     number(two(6), "CharstringType", num(2.0)),
-    list(
-        two(7),
-        "FontMatrix",
-        DefaultValue::List(&[0.001, 0.0, 0.0, 0.001, 0.0, 0.0]),
-    ),
+    list(two(7), "FontMatrix", DefaultValue::List(&[0.001, 0.0, 0.0, 0.001, 0.0, 0.0])),
     number(13, "UniqueID", NONE),
     list(5, "FontBBox", DefaultValue::List(&[0.0, 0.0, 0.0, 0.0])),
     number(two(8), "StrokeWidth", num(0.0)),
@@ -297,12 +271,7 @@ pub struct CffDict {
 
 impl CffDict {
     fn new(layout: &'static [Layout]) -> Self {
-        CffDict {
-            layout,
-            values: BTreeMap::new(),
-            private_dict: None,
-            subrs_index: None,
-        }
+        CffDict { layout, values: BTreeMap::new(), private_dict: None, subrs_index: None }
     }
 
     fn entry(&self, name: &str) -> Option<&'static Layout> {
@@ -337,8 +306,7 @@ impl CffDict {
 
     /// `hasName`.
     pub fn has_name(&self, name: &str) -> bool {
-        self.entry(name)
-            .is_some_and(|l| self.values.contains_key(&l.key))
+        self.entry(name).is_some_and(|l| self.values.contains_key(&l.key))
     }
 
     /// `getByName`: the stored value, else the layout's default (`None` for `null`).
@@ -402,9 +370,7 @@ impl CffStrings {
         }
         let at = index - NUM_STANDARD_CFF_STRINGS as i64;
         if at <= self.strings.len() as i64 {
-            usize::try_from(at)
-                .ok()
-                .and_then(|at| self.strings.get(at).cloned())
+            usize::try_from(at).ok().and_then(|at| self.strings.get(at).cloned())
         } else {
             Some(CFF_STANDARD_STRINGS[0].to_owned())
         }
@@ -538,9 +504,7 @@ impl Cff {
         if id < 0 || id >= self.char_strings.count() as i64 {
             return false;
         }
-        self.char_strings
-            .object_length(id as usize)
-            .is_some_and(|len| len > 0)
+        self.char_strings.object_length(id as usize).is_some_and(|len| len > 0)
     }
 
     /// `duplicateFirstGlyph`: glyph 0 is added once more at the end (the font loader's `.notdef` fix).
@@ -569,8 +533,7 @@ impl Cff {
             if glyph_id < 0 {
                 continue;
             }
-            if let Some(CharsetEntry::Name(Some(name))) =
-                self.charset.charset.get(glyph_id as usize)
+            if let Some(CharsetEntry::Name(Some(name))) = self.charset.charset.get(glyph_id as usize)
                 && !name.is_empty()
             {
                 map.insert(code, name.clone());
@@ -581,14 +544,8 @@ impl Cff {
 
     /// The composite branch of `CFFFont.getGlyphMapping`: character code to glyph id. `char_code_of` is
     /// `cMap.charCodeOf`, `cid_to_gid_map` the font's `CIDToGIDMap` (CID to glyph id).
-    pub fn composite_glyph_mapping(
-        &self,
-        char_code_of: impl Fn(u32) -> i64,
-        cid_to_gid_map: Option<&BTreeMap<i64, i64>>,
-    ) -> BTreeMap<i64, usize> {
-        let inverse: Option<BTreeMap<i64, i64>> = cid_to_gid_map
-            .filter(|m| !m.is_empty())
-            .map(|m| m.iter().map(|(&cid, &gid)| (gid, cid)).collect());
+    pub fn composite_glyph_mapping(&self, char_code_of: impl Fn(u32) -> i64, cid_to_gid_map: Option<&BTreeMap<i64, i64>>) -> BTreeMap<i64, usize> {
+        let inverse: Option<BTreeMap<i64, i64>> = cid_to_gid_map.filter(|m| !m.is_empty()).map(|m| m.iter().map(|(&cid, &gid)| (gid, cid)).collect());
         let mut map = BTreeMap::new();
         if self.is_cid_font {
             for (glyph_id, entry) in self.charset.charset.iter().enumerate() {
@@ -633,52 +590,27 @@ struct Command {
 }
 
 const fn command(id: &'static str, min: i64) -> Command {
-    Command {
-        id,
-        min,
-        stack_clearing: false,
-        reset_stack: false,
-        stem: false,
-        stack_delta: None,
-        stack_fn: None,
-    }
+    Command { id, min, stack_clearing: false, reset_stack: false, stem: false, stack_delta: None, stack_fn: None }
 }
 
 const fn clearing(id: &'static str, min: i64) -> Command {
-    Command {
-        stack_clearing: true,
-        ..command(id, min)
-    }
+    Command { stack_clearing: true, ..command(id, min) }
 }
 
 const fn stem(id: &'static str, min: i64) -> Command {
-    Command {
-        stack_clearing: true,
-        stem: true,
-        ..command(id, min)
-    }
+    Command { stack_clearing: true, stem: true, ..command(id, min) }
 }
 
 const fn reset(id: &'static str, min: i64) -> Command {
-    Command {
-        reset_stack: true,
-        ..command(id, min)
-    }
+    Command { reset_stack: true, ..command(id, min) }
 }
 
 const fn delta(id: &'static str, min: i64, stack_delta: i64) -> Command {
-    Command {
-        stack_delta: Some(stack_delta),
-        ..command(id, min)
-    }
+    Command { stack_delta: Some(stack_delta), ..command(id, min) }
 }
 
 const fn compute(id: &'static str, min: i64, stack_delta: i64, f: StackFn) -> Command {
-    Command {
-        stack_delta: Some(stack_delta),
-        stack_fn: Some(f),
-        ..command(id, min)
-    }
+    Command { stack_delta: Some(stack_delta), stack_fn: Some(f), ..command(id, min) }
 }
 
 /// `CharstringValidationData`, by operator.
@@ -772,11 +704,7 @@ struct Stack {
 
 impl Stack {
     fn get(&self, index: i64) -> f64 {
-        if index >= 0 {
-            self.values.get(index as usize).copied().unwrap_or(f64::NAN)
-        } else {
-            self.negative.get(&index).copied().unwrap_or(f64::NAN)
-        }
+        if index >= 0 { self.values.get(index as usize).copied().unwrap_or(f64::NAN) } else { self.negative.get(&index).copied().unwrap_or(f64::NAN) }
     }
 
     fn set(&mut self, index: i64, value: f64) {
@@ -836,15 +764,10 @@ struct CffParser {
 /// encoding. `properties` is read (`bbox`) and set (`font_matrix`, `ascent`, `descent`, `built_in_encoding`) as
 /// pdf.js does.
 pub fn read_cff_font(bytes: &[u8], properties: &mut CffProperties) -> Result<Cff> {
-    let mut cff = CffParser {
-        bytes: bytes.to_vec(),
-    }
-    .parse(properties)?;
+    let mut cff = CffParser { bytes: bytes.to_vec() }.parse(properties)?;
     if cff.char_strings.count() == 0 {
         // `duplicateFirstGlyph` adds `charStrings.get(0)`, which is `undefined` here: pdf.js throws.
-        return Err(type_error(
-            "cannot read properties of undefined (reading 'length')",
-        ));
+        return Err(type_error("cannot read properties of undefined (reading 'length')"));
     }
     cff.duplicate_first_glyph();
     if let Some(map) = cff.create_built_in_encoding() {
@@ -875,10 +798,7 @@ pub fn read_standard_font(name: &str, properties: &mut CffProperties) -> Option<
 impl CffParser {
     /// `bytes[pos]`, `None` for `undefined`.
     fn get(&self, pos: i64) -> Option<u8> {
-        usize::try_from(pos)
-            .ok()
-            .and_then(|p| self.bytes.get(p))
-            .copied()
+        usize::try_from(pos).ok().and_then(|p| self.bytes.get(p)).copied()
     }
 
     /// `bytes[pos]` where an absent byte combines as 0.
@@ -912,9 +832,7 @@ impl CffParser {
             Some(IndexObject::Span(start, end)) => self.parse_dict(start, end)?,
             // `parseDict(undefined)` throws a TypeError.
             _ => {
-                return Err(type_error(
-                    "cannot read properties of undefined (reading 'buffer')",
-                ));
+                return Err(type_error("cannot read properties of undefined (reading 'buffer')"));
             }
         };
         let mut top_dict = create_dict(&TOP_DICT_LAYOUT, top_dict_parsed);
@@ -949,36 +867,17 @@ impl CffParser {
                 fd_array.push(font_dict);
             }
             encoding = None;
-            charset = self.parse_charsets(
-                top_dict.number("charset").unwrap_or(0.0) as i64,
-                char_string_count as i64,
-                &strings,
-                true,
-            )?;
-            fd_select = Some(self.parse_fd_select(
-                top_dict.number("FDSelect").unwrap_or(0.0) as i64,
-                char_string_count,
-            )?);
+            charset = self.parse_charsets(top_dict.number("charset").unwrap_or(0.0) as i64, char_string_count as i64, &strings, true)?;
+            fd_select = Some(self.parse_fd_select(top_dict.number("FDSelect").unwrap_or(0.0) as i64, char_string_count)?);
         } else {
-            charset = self.parse_charsets(
-                top_dict.number("charset").unwrap_or(0.0) as i64,
-                char_string_count as i64,
-                &strings,
-                false,
-            )?;
-            encoding = Some(self.parse_encoding(
-                top_dict.number("Encoding").unwrap_or(0.0) as i64,
-                &strings,
-                &charset.charset,
-            )?);
+            charset = self.parse_charsets(top_dict.number("charset").unwrap_or(0.0) as i64, char_string_count as i64, &strings, false)?;
+            encoding = Some(self.parse_encoding(top_dict.number("Encoding").unwrap_or(0.0) as i64, &strings, &charset.charset)?);
             fd_select = None;
         }
         let local_subr_index = match &top_dict.private_dict {
             Some(private) => private.subrs_index.clone(),
             None => {
-                return Err(type_error(
-                    "cannot read properties of null (reading 'subrsIndex')",
-                ));
+                return Err(type_error("cannot read properties of null (reading 'subrsIndex')"));
             }
         };
         let (char_strings, seacs, widths) = self.parse_char_strings(
@@ -1018,17 +917,9 @@ impl CffParser {
             Some(b) if b.iter().any(|&c| c != 0.0) => Some(recover_signed_16_bit_bbox(b, false)),
             _ => None,
         };
-        let has_unsigned_lower_left = font_bbox.as_ref().is_some_and(|b| {
-            b.iter()
-                .take(2)
-                .any(|&c| looks_like_unsigned_16_bit_negative(c))
-        });
-        let has_unsigned_coords = font_bbox
-            .as_ref()
-            .is_some_and(|b| b.iter().any(|&c| looks_like_unsigned_16_bit_negative(c)));
-        if font_bbox
-            .as_ref()
-            .is_some_and(|b| b.iter().all(|&c| c == 0.0))
+        let has_unsigned_lower_left = font_bbox.as_ref().is_some_and(|b| b.iter().take(2).any(|&c| looks_like_unsigned_16_bit_negative(c)));
+        let has_unsigned_coords = font_bbox.as_ref().is_some_and(|b| b.iter().any(|&c| looks_like_unsigned_16_bit_negative(c)));
+        if font_bbox.as_ref().is_some_and(|b| b.iter().all(|&c| c == 0.0))
             && let Some(descriptor) = &descriptor_bbox
         {
             font_bbox = Some(descriptor.clone());
@@ -1038,18 +929,12 @@ impl CffParser {
             let recovered = recover_signed_16_bit_bbox(&current, false);
             let descriptor_corroborates = match (&descriptor_bbox, &properties.bbox) {
                 (Some(descriptor), Some(raw)) => {
-                    raw.iter().any(|&c| c < 0.0)
-                        && !raw.iter().any(|&c| looks_like_unsigned_16_bit_negative(c))
-                        && is_array_equal(&recovered, descriptor)
+                    raw.iter().any(|&c| c < 0.0) && !raw.iter().any(|&c| looks_like_unsigned_16_bit_negative(c)) && is_array_equal(&recovered, descriptor)
                 }
                 _ => false,
             };
             if descriptor_corroborates || has_unsigned_lower_left {
-                let next = if descriptor_corroborates {
-                    recovered
-                } else {
-                    recover_signed_16_bit_bbox(&current, true)
-                };
+                let next = if descriptor_corroborates { recovered } else { recover_signed_16_bit_bbox(&current, true) };
                 top_dict.set_by_name("FontBBox", DictValue::List(next.clone()));
                 font_bbox = Some(next);
             }
@@ -1077,27 +962,14 @@ impl CffParser {
             self.bytes.drain(..offset);
         }
         let byte = |i: usize| self.bytes.get(i).copied().unwrap_or(0);
-        Ok(CffHeader {
-            major: byte(0),
-            minor: byte(1),
-            hdr_size: byte(2),
-            off_size: byte(3),
-        })
+        Ok(CffHeader { major: byte(0), minor: byte(1), hdr_size: byte(2), off_size: byte(3) })
     }
 
     /// `parseDict` of the bytes `start..end`: the `(operator, operands)` entries.
     fn parse_dict(&self, start: usize, end: usize) -> Result<Vec<(u16, Vec<f64>)>> {
-        const FLOAT_NIBBLES: [&str; 15] = [
-            "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "E", "E-", "null", "-",
-        ];
+        const FLOAT_NIBBLES: [&str; 15] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "E", "E-", "null", "-"];
         let length = end.saturating_sub(start);
-        let d = |pos: usize| -> Option<u8> {
-            if pos < length {
-                self.bytes.get(start + pos).copied()
-            } else {
-                None
-            }
-        };
+        let d = |pos: usize| -> Option<u8> { if pos < length { self.bytes.get(start + pos).copied() } else { None } };
         let mut entries = Vec::new();
         let mut operands: Vec<f64> = Vec::new();
         let mut pos = 0usize;
@@ -1145,16 +1017,12 @@ impl CffParser {
                 247..=250 => {
                     let next = d(pos);
                     pos += 1;
-                    next.map_or(f64::NAN, |n| {
-                        f64::from((b - 247) * 256 + u32::from(n) + 108)
-                    })
+                    next.map_or(f64::NAN, |n| f64::from((b - 247) * 256 + u32::from(n) + 108))
                 }
                 251..=254 => {
                     let next = d(pos);
                     pos += 1;
-                    next.map_or(f64::NAN, |n| {
-                        -f64::from((b - 251) * 256) - f64::from(n) - 108.0
-                    })
+                    next.map_or(f64::NAN, |n| -f64::from((b - 251) * 256) - f64::from(n) - 108.0)
                 }
                 _ => {
                     tracing::warn!("CFFParser.parseDict: \"{b}\" is a reserved command.");
@@ -1178,14 +1046,10 @@ impl CffParser {
             let offset_size = match offset_size {
                 Some(size @ 1..=4) => i64::from(size),
                 Some(size) => {
-                    return Err(PdfError::Format(format!(
-                        "Invalid CFF INDEX offset size: {size}"
-                    )));
+                    return Err(PdfError::Format(format!("Invalid CFF INDEX offset size: {size}")));
                 }
                 None => {
-                    return Err(PdfError::Format(
-                        "Invalid CFF INDEX offset size: undefined".to_owned(),
-                    ));
+                    return Err(PdfError::Format("Invalid CFF INDEX offset size: undefined".to_owned()));
                 }
             };
             let start_pos = pos + (count + 1) * offset_size - 1;
@@ -1197,17 +1061,12 @@ impl CffParser {
                     offset = (offset << 8) | self.at(pos) as i32;
                     pos += 1;
                 }
-                prev_offset = (start_pos + i64::from(offset))
-                    .max(prev_offset)
-                    .min(bytes_length);
+                prev_offset = (start_pos + i64::from(offset)).max(prev_offset).min(bytes_length);
                 offsets.push(prev_offset);
             }
             end = offsets[count as usize];
         }
-        let objects = offsets
-            .windows(2)
-            .map(|w| IndexObject::Span(w[0].max(0) as usize, w[1].max(0) as usize))
-            .collect();
+        let objects = offsets.windows(2).map(|w| IndexObject::Span(w[0].max(0) as usize, w[1].max(0) as usize)).collect();
         Ok((CffIndex { objects }, end))
     }
 
@@ -1221,9 +1080,7 @@ impl CffParser {
     }
 
     fn parse_string_index(&self, index: &CffIndex) -> CffStrings {
-        CffStrings {
-            strings: self.parse_name_index(index),
-        }
+        CffStrings { strings: self.parse_name_index(index) }
     }
 
     /// `parseCharString`: `Ok(false)` is pdf.js's `false` (the charstring is not usable), an `Err` an exception.
@@ -1249,11 +1106,7 @@ impl CffParser {
             j += 1;
             let mut validation: Option<&'static Command> = None;
             if value == 12 {
-                let q = if j < data_len {
-                    Some(self.bytes[base + j])
-                } else {
-                    None
-                };
+                let q = if j < data_len { Some(self.bytes[base + j]) } else { None };
                 j += 1;
                 match q {
                     Some(0) => {
@@ -1282,11 +1135,7 @@ impl CffParser {
                 state.stack.set(stack_size, f64::from(value) - 139.0);
                 stack_size += 1;
             } else if (247..=254).contains(&value) {
-                let next = if j < data_len {
-                    Some(f64::from(self.bytes[base + j]))
-                } else {
-                    None
-                };
+                let next = if j < data_len { Some(f64::from(self.bytes[base + j])) } else { None };
                 let number = match next {
                     Some(n) if value < 251 => f64::from((value - 247) << 8) + n + 108.0,
                     Some(n) => -f64::from((value - 251) << 8) - n - 108.0,
@@ -1312,11 +1161,7 @@ impl CffParser {
                 stack_size %= 2;
                 validation = COMMANDS[value as usize].as_ref();
             } else if value == 10 || value == 29 {
-                let subrs = if value == 10 {
-                    local_subr_index
-                } else {
-                    Some(global_subr_index)
-                };
+                let subrs = if value == 10 { local_subr_index } else { Some(global_subr_index) };
                 let id = COMMANDS[value as usize].as_ref().map_or("", |c| c.id);
                 let Some(subrs) = subrs else {
                     tracing::warn!("Missing subrsIndex for {id}");
@@ -1338,13 +1183,8 @@ impl CffParser {
                 }
                 state.stack_size = stack_size;
                 state.call_depth += 1;
-                let callee = if subr_number.fract() == 0.0 {
-                    subrs.get(subr_number as usize)
-                } else {
-                    None
-                };
-                let valid =
-                    self.parse_char_string(state, callee, local_subr_index, global_subr_index)?;
+                let callee = if subr_number.fract() == 0.0 { subrs.get(subr_number as usize) } else { None };
+                let valid = self.parse_char_string(state, callee, local_subr_index, global_subr_index)?;
                 if !valid {
                     return Ok(false);
                 }
@@ -1378,12 +1218,7 @@ impl CffParser {
                 }
             }
             if stack_size < command.min {
-                tracing::warn!(
-                    "Not enough parameters for {}; actual: {}, expected: {}",
-                    command.id,
-                    stack_size,
-                    command.min
-                );
+                tracing::warn!("Not enough parameters for {}; actual: {}, expected: {}", command.id, stack_size, command.min);
                 if stack_size == 0 {
                     self.bytes[base + j - 1] = 14;
                     return Ok(true);
@@ -1429,8 +1264,7 @@ impl CffParser {
     /// `data.copyWithin(j - 1, j, -1)` on the charstring `base..base + data_len`.
     fn copy_within(&mut self, base: usize, data_len: usize, j: usize) {
         if j < data_len {
-            self.bytes
-                .copy_within(base + j..base + data_len - 1, base + j - 1);
+            self.bytes.copy_within(base + j..base + data_len - 1, base + j - 1);
         }
     }
 
@@ -1454,9 +1288,7 @@ impl CffParser {
             match fd_select {
                 Some(select) if !fd_array.is_empty() => {
                     let Some(fd_index) = select.fd_index(i) else {
-                        return Err(type_error(
-                            "cannot read properties of undefined (reading 'privateDict')",
-                        ));
+                        return Err(type_error("cannot read properties of undefined (reading 'privateDict')"));
                     };
                     if fd_index == -1 {
                         tracing::warn!("Glyph index is not in fd select.");
@@ -1467,11 +1299,8 @@ impl CffParser {
                         valid = false;
                     }
                     if valid {
-                        let Some(private) = fd_array[fd_index as usize].private_dict.as_deref()
-                        else {
-                            return Err(type_error(
-                                "cannot read properties of null (reading 'subrsIndex')",
-                            ));
+                        let Some(private) = fd_array[fd_index as usize].private_dict.as_deref() else {
+                            return Err(type_error("cannot read properties of null (reading 'subrsIndex')"));
                         };
                         private_to_use = Some(private);
                         local_to_use = private.subrs_index.as_ref();
@@ -1480,17 +1309,10 @@ impl CffParser {
                 _ => local_to_use = local_subr_index,
             }
             if valid {
-                valid = self.parse_char_string(
-                    &mut state,
-                    charstring,
-                    local_to_use,
-                    global_subr_index,
-                )?;
+                valid = self.parse_char_string(&mut state, charstring, local_to_use, global_subr_index)?;
             }
             let Some(private) = private_to_use else {
-                return Err(type_error(
-                    "cannot read properties of null (reading 'getByName')",
-                ));
+                return Err(type_error("cannot read properties of null (reading 'getByName')"));
             };
             match state.width {
                 Some(width) => {
@@ -1519,8 +1341,7 @@ impl CffParser {
             Self::empty_private_dictionary(parent);
             return Ok(());
         }
-        let Some(&[size, offset]) = parent.list("Private").as_deref().filter(|a| a.len() == 2)
-        else {
+        let Some(&[size, offset]) = parent.list("Private").as_deref().filter(|a| a.len() == 2) else {
             parent.remove_by_name("Private");
             return Ok(());
         };
@@ -1530,9 +1351,7 @@ impl CffParser {
             return Ok(());
         }
         if offset + size > length {
-            return Err(PdfError::Format(
-                "CFF Private DICT extends past end of font".to_owned(),
-            ));
+            return Err(PdfError::Format("CFF Private DICT extends past end of font".to_owned()));
         }
         let start = offset.max(0.0) as usize;
         let end = (offset + size).max(0.0) as usize;
@@ -1548,10 +1367,7 @@ impl CffParser {
             private.set_by_name("BlueFuzz", DictValue::Number(DEFAULT_BLUE_FUZZ));
         }
         if expansion_factor == 0.0 {
-            private.set_by_name(
-                "ExpansionFactor",
-                DictValue::Number(DEFAULT_EXPANSION_FACTOR),
-            );
+            private.set_by_name("ExpansionFactor", DictValue::Number(DEFAULT_EXPANSION_FACTOR));
         }
         if blue_scale > 0.0 {
             let mut max_zone_height = 0.0f64;
@@ -1568,11 +1384,7 @@ impl CffParser {
             if max_zone_height > 0.0 {
                 const PRECISION: f64 = 1e5;
                 let lower_bound = 0.5 / max_zone_height;
-                let min_blue_scale = if lower_bound <= DEFAULT_BLUE_SCALE {
-                    (lower_bound * PRECISION).ceil() / PRECISION
-                } else {
-                    f64::NEG_INFINITY
-                };
+                let min_blue_scale = if lower_bound <= DEFAULT_BLUE_SCALE { (lower_bound * PRECISION).ceil() / PRECISION } else { f64::NEG_INFINITY };
                 let max_blue_scale = (PRECISION / max_zone_height).floor() / PRECISION;
                 let clamped = blue_scale.max(min_blue_scale).min(max_blue_scale);
                 if clamped != blue_scale {
@@ -1596,20 +1408,11 @@ impl CffParser {
         Ok(())
     }
 
-    fn parse_charsets(
-        &self,
-        pos: i64,
-        length: i64,
-        strings: &CffStrings,
-        cid: bool,
-    ) -> Result<CffCharset> {
+    fn parse_charsets(&self, pos: i64, length: i64, strings: &CffStrings, cid: bool) -> Result<CffCharset> {
         let predefined = |format: u8, names: &[&str]| CffCharset {
             predefined: true,
             format,
-            charset: names
-                .iter()
-                .map(|n| CharsetEntry::Name(Some((*n).to_owned())))
-                .collect(),
+            charset: names.iter().map(|n| CharsetEntry::Name(Some((*n).to_owned()))).collect(),
         };
         match pos {
             0 => return Ok(predefined(0, &ISO_ADOBE_CHARSET)),
@@ -1620,17 +1423,9 @@ impl CffParser {
         let mut pos = pos;
         let format = self.get(pos);
         pos += 1;
-        let mut charset = vec![if cid {
-            CharsetEntry::Cid(0)
-        } else {
-            CharsetEntry::Name(Some(".notdef".to_owned()))
-        }];
+        let mut charset = vec![if cid { CharsetEntry::Cid(0) } else { CharsetEntry::Name(Some(".notdef".to_owned())) }];
         let entry = |id: i64| {
-            if cid {
-                CharsetEntry::Cid(id as u32)
-            } else {
-                CharsetEntry::Name(strings.get(id))
-            }
+            if cid { CharsetEntry::Cid(id as u32) } else { CharsetEntry::Name(strings.get(id)) }
         };
         let length = length - 1;
         match format {
@@ -1647,9 +1442,7 @@ impl CffParser {
                     pos += 2;
                     let count = if format == 1 {
                         let Some(count) = self.get(pos) else {
-                            return Err(PdfError::Format(
-                                "CFF charset ends inside its ranges".to_owned(),
-                            ));
+                            return Err(PdfError::Format("CFF charset ends inside its ranges".to_owned()));
                         };
                         pos += 1;
                         i64::from(count)
@@ -1665,26 +1458,13 @@ impl CffParser {
             }
             _ => return Err(PdfError::Format("Unknown charset format".to_owned())),
         }
-        Ok(CffCharset {
-            predefined: false,
-            format: format.unwrap_or(0),
-            charset,
-        })
+        Ok(CffCharset { predefined: false, format: format.unwrap_or(0), charset })
     }
 
-    fn parse_encoding(
-        &mut self,
-        pos: i64,
-        strings: &CffStrings,
-        charset: &[CharsetEntry],
-    ) -> Result<CffEncoding> {
+    fn parse_encoding(&mut self, pos: i64, strings: &CffStrings, charset: &[CharsetEntry]) -> Result<CffEncoding> {
         let mut encoding: BTreeMap<u32, i64> = BTreeMap::new();
         if pos == 0 || pos == 1 {
-            let base_encoding: &[&str; 256] = if pos == 1 {
-                &EXPERT_ENCODING
-            } else {
-                &STANDARD_ENCODING
-            };
+            let base_encoding: &[&str; 256] = if pos == 1 { &EXPERT_ENCODING } else { &STANDARD_ENCODING };
             for (i, entry) in charset.iter().enumerate() {
                 let CharsetEntry::Name(Some(name)) = entry else {
                     continue;
@@ -1693,11 +1473,7 @@ impl CffParser {
                     encoding.insert(index as u32, i as i64);
                 }
             }
-            return Ok(CffEncoding {
-                predefined: true,
-                format: pos as u8,
-                encoding,
-            });
+            return Ok(CffEncoding { predefined: true, format: pos as u8, encoding });
         }
         let data_start = pos;
         let mut pos = pos;
@@ -1754,19 +1530,12 @@ impl CffParser {
                 pos += 2;
                 if let Some(code) = code {
                     let name = strings.get(i64::from(sid));
-                    let index = charset
-                        .iter()
-                        .position(|e| matches!(e, CharsetEntry::Name(n) if *n == name))
-                        .map_or(-1, |p| p as i64);
+                    let index = charset.iter().position(|e| matches!(e, CharsetEntry::Name(n) if *n == name)).map_or(-1, |p| p as i64);
                     encoding.insert(u32::from(code), index);
                 }
             }
         }
-        Ok(CffEncoding {
-            predefined: false,
-            format: format & 0x7f,
-            encoding,
-        })
+        Ok(CffEncoding { predefined: false, format: format & 0x7f, encoding })
     }
 
     fn parse_fd_select(&self, pos: i64, length: usize) -> Result<CffFdSelect> {
@@ -1788,18 +1557,14 @@ impl CffParser {
                     let mut first = i64::from(self.u16_at(pos));
                     pos += 2;
                     if i == 0 && first != 0 {
-                        tracing::warn!(
-                            "parseFDSelect: The first range must have a first GID of 0 -- trying to recover."
-                        );
+                        tracing::warn!("parseFDSelect: The first range must have a first GID of 0 -- trying to recover.");
                         first = 0;
                     }
                     let fd_index = self.get(pos);
                     pos += 1;
                     let next = i64::from(self.u16_at(pos));
                     if next - first > length as i64 - fd_select.len() as i64 {
-                        return Err(PdfError::Format(
-                            "parseFDSelect: Invalid font data.".to_owned(),
-                        ));
+                        return Err(PdfError::Format("parseFDSelect: Invalid font data.".to_owned()));
                     }
                     for _ in first..next {
                         fd_select.push(fd_index);
@@ -1814,14 +1579,9 @@ impl CffParser {
             }
         }
         if fd_select.len() != length {
-            return Err(PdfError::Format(
-                "parseFDSelect: Invalid font data.".to_owned(),
-            ));
+            return Err(PdfError::Format("parseFDSelect: Invalid font data.".to_owned()));
         }
-        Ok(CffFdSelect {
-            format: format.unwrap_or(0),
-            fd_select,
-        })
+        Ok(CffFdSelect { format: format.unwrap_or(0), fd_select })
     }
 }
 
@@ -1843,13 +1603,7 @@ fn recover_signed_16_bit_bbox(bbox: &[f64], only_lower_left: bool) -> Vec<f64> {
     let mapped: Vec<f64> = bbox
         .iter()
         .enumerate()
-        .map(|(i, &coord)| {
-            if (!only_lower_left || i < 2) && looks_like_unsigned_16_bit_negative(coord) {
-                coord - 65536.0
-            } else {
-                coord
-            }
-        })
+        .map(|(i, &coord)| if (!only_lower_left || i < 2) && looks_like_unsigned_16_bit_negative(coord) { coord - 65536.0 } else { coord })
         .collect();
     // A missing coordinate is `undefined` in pdf.js and never compares greater.
     let mut r = mapped.clone();

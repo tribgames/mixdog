@@ -18,26 +18,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use super::data::{
     self, CharCategory,
-    encodings::{
-        STANDARD_ENCODING, SYMBOL_GLYPH_ID_ENCODING, SYMBOL_SET_ENCODING, WIN_ANSI_ENCODING,
-        ZAPF_DINGBATS_ENCODING,
-    },
+    encodings::{STANDARD_ENCODING, SYMBOL_GLYPH_ID_ENCODING, SYMBOL_SET_ENCODING, WIN_ANSI_ENCODING, ZAPF_DINGBATS_ENCODING},
     font_flags,
     glyphlist::{DINGBATS_GLYPHS_UNICODE, GLYPHS_UNICODE},
     standard_fonts::{
-        GLYPH_MAP_FOR_MAC_ORDERED_FONTS, GLYPH_MAP_FOR_STANDARD_FONTS, NON_STD_FONT_MAP,
-        SERIF_FONTS, STD_FONT_MAP, SUPPLEMENTAL_GLYPH_MAP_FOR_ARIAL_BLACK,
+        GLYPH_MAP_FOR_MAC_ORDERED_FONTS, GLYPH_MAP_FOR_STANDARD_FONTS, NON_STD_FONT_MAP, SERIF_FONTS, STD_FONT_MAP, SUPPLEMENTAL_GLYPH_MAP_FOR_ARIAL_BLACK,
         SUPPLEMENTAL_GLYPH_MAP_FOR_CALIBRI, SUPPLEMENTAL_GLYPH_MAP_FOR_TREBUCHET_MS, SYMBOLS_FONTS,
     },
     unicode::VERTICAL_PRESENTATION_FORM,
 };
-use super::to_unicode::{
-    ToUnicode, ToUnicodeMap, UniValue, extract_data_structures, from_char_code,
-};
-use super::widths::{
-    build_char_code_to_width, extract_widths, get_base_font_metrics, get_standard_font_name,
-    is_integer, is_serif_font, normalize_font_name,
-};
+use super::to_unicode::{ToUnicode, ToUnicodeMap, UniValue, extract_data_structures, from_char_code};
+use super::widths::{build_char_code_to_width, extract_widths, get_base_font_metrics, get_standard_font_name, is_integer, is_serif_font, normalize_font_name};
 use crate::error::{PdfError, Result};
 use crate::fontfile::cff::{CffProperties, js_to_int32, read_cff_font, standard_font_data};
 use crate::fontfile::cmap::{CMap, CMapEncoding, CMapFactory, CMapValue};
@@ -106,9 +97,7 @@ impl Differences {
 
     /// `Map.get(code)`.
     pub fn get(&self, code: i64) -> Option<&str> {
-        self.by_code
-            .get(&code)
-            .map(|&at| self.entries[at].1.as_str())
+        self.by_code.get(&code).map(|&at| self.entries[at].1.as_str())
     }
 
     pub fn has(&self, code: i64) -> bool {
@@ -122,9 +111,7 @@ impl Differences {
 
     /// The entries in the order they were added.
     pub fn iter(&self) -> impl Iterator<Item = (f64, &str)> {
-        self.entries
-            .iter()
-            .map(|(code, name)| (*code, name.as_str()))
+        self.entries.iter().map(|(code, name)| (*code, name.as_str()))
     }
 }
 
@@ -275,10 +262,7 @@ fn mix_k(block: f64) -> i32 {
 
 impl MurmurHash {
     fn new() -> Self {
-        MurmurHash {
-            h1: MURMUR_SEED,
-            h2: MURMUR_SEED,
-        }
+        MurmurHash { h1: MURMUR_SEED, h2: MURMUR_SEED }
     }
 
     /// `update(string)`: a character above 0xff contributes its two bytes.
@@ -338,27 +322,13 @@ impl MurmurHash {
         let mut h1 = self.h1;
         let mut h2 = self.h2;
         h1 = f64::from(to_i32(h1) ^ (to_u32(h2) >> 1) as i32);
-        h1 = f64::from(mul_parts(
-            h1,
-            f64::from(0xed55_8ccd_u32),
-            f64::from(0x8ccd_u32),
-        ));
+        h1 = f64::from(mul_parts(h1, f64::from(0xed55_8ccd_u32), f64::from(0x8ccd_u32)));
         let mixed = (to_i32(h2) << 16) | (to_u32(h1) >> 16) as i32;
-        h2 = f64::from(
-            (to_i32(h2 * f64::from(0xff51_afd7_u32)) & MASK_HIGH)
-                | high_shr16(mixed, f64::from(0xafd7_ed55_u32)),
-        );
+        h2 = f64::from((to_i32(h2 * f64::from(0xff51_afd7_u32)) & MASK_HIGH) | high_shr16(mixed, f64::from(0xafd7_ed55_u32)));
         h1 = f64::from(to_i32(h1) ^ (to_u32(h2) >> 1) as i32);
-        h1 = f64::from(mul_parts(
-            h1,
-            f64::from(0x1a85_ec53_u32),
-            f64::from(0xec53_u32),
-        ));
+        h1 = f64::from(mul_parts(h1, f64::from(0x1a85_ec53_u32), f64::from(0xec53_u32)));
         let mixed = (to_i32(h2) << 16) | (to_u32(h1) >> 16) as i32;
-        h2 = f64::from(
-            (to_i32(h2 * f64::from(0xc4ce_b9fe_u32)) & MASK_HIGH)
-                | high_shr16(mixed, f64::from(0xb9fe_1a85_u32)),
-        );
+        h2 = f64::from((to_i32(h2 * f64::from(0xc4ce_b9fe_u32)) & MASK_HIGH) | high_shr16(mixed, f64::from(0xb9fe_1a85_u32)));
         h1 = f64::from(to_i32(h1) ^ (to_u32(h2) >> 1) as i32);
         format!("{:08x}{:08x}", to_u32(h1), to_u32(h2))
     }
@@ -390,19 +360,12 @@ impl Glyph {
 fn glyph_name_of(differences: &Differences, encoding: Encoding, code: i64) -> Option<&str> {
     match differences.get(code) {
         Some(name) if !name.is_empty() => Some(name),
-        _ => usize::try_from(code)
-            .ok()
-            .and_then(|code| encoding.get(code))
-            .copied(),
+        _ => usize::try_from(code).ok().and_then(|code| encoding.get(code)).copied(),
     }
 }
 
 /// `buildToFontChar(encoding, glyphsUnicodeMap, differences)`.
-fn build_to_font_char(
-    encoding: &[&str],
-    glyphs: &[(&str, u32)],
-    differences: &Differences,
-) -> ToUnicodeMap {
+fn build_to_font_char(encoding: &[&str], glyphs: &[(&str, u32)], differences: &Differences) -> ToUnicodeMap {
     let mut map = ToUnicodeMap::new();
     for (code, glyph_name) in encoding.iter().enumerate() {
         if let Some(unicode) = data::get_unicode_for_glyph(glyph_name, glyphs) {
@@ -434,10 +397,7 @@ fn convert_cid_string(char_code: u32, cid: &[u16], should_throw: bool) -> Result
         [one] => Ok(Some(i64::from(*one))),
         [high, low] => Ok(Some(i64::from(*high) << 8 | i64::from(*low))),
         _ => {
-            let message = format!(
-                "Unsupported CID string (charCode {char_code}): \"{}\".",
-                String::from_utf16_lossy(cid)
-            );
+            let message = format!("Unsupported CID string (charCode {char_code}): \"{}\".", String::from_utf16_lossy(cid));
             if should_throw {
                 return Err(PdfError::format(message));
             }
@@ -511,18 +471,10 @@ fn get_font_file_type(file: &[u8], properties: &Properties) -> (String, Option<S
     let ty = properties.ty.as_str();
     let composite = properties.composite;
     if header == [0, 1, 0, 0] || header == b"true" || header == b"ttcf" {
-        let file_type = if composite {
-            "CIDFontType2"
-        } else {
-            "TrueType"
-        };
+        let file_type = if composite { "CIDFontType2" } else { "TrueType" };
         (file_type.to_owned(), None)
     } else if header == b"OTTO" {
-        let file_type = if composite {
-            "CIDFontType2"
-        } else {
-            "OpenType"
-        };
+        let file_type = if composite { "CIDFontType2" } else { "OpenType" };
         (file_type.to_owned(), None)
     } else if header.starts_with(&[0x25, 0x21]) || header.starts_with(&[0x80, 0x01]) {
         let file_type = if composite {
@@ -571,10 +523,7 @@ fn matrix_of(values: &[f64]) -> [f64; 6] {
 }
 
 fn same_as_encoding(map: &BTreeMap<u32, String>, table: Encoding) -> bool {
-    map.len() == table.len()
-        && map
-            .iter()
-            .all(|(code, name)| table.get(*code as usize).is_some_and(|glyph| glyph == name))
+    map.len() == table.len() && map.iter().all(|(code, name)| table.get(*code as usize).is_some_and(|glyph| glyph == name))
 }
 
 impl Font {
@@ -585,9 +534,8 @@ impl Font {
         if !is_serif_font && !properties.is_simulated_flags {
             for name_part in name.split('+') {
                 let normalized = normalize_font_name(name_part);
-                let font_name = data::lookup(&STD_FONT_MAP, &normalized)
-                    .or_else(|| data::lookup(&NON_STD_FONT_MAP, &normalized))
-                    .map_or(normalized.clone(), str::to_owned);
+                let font_name =
+                    data::lookup(&STD_FONT_MAP, &normalized).or_else(|| data::lookup(&NON_STD_FONT_MAP, &normalized)).map_or(normalized.clone(), str::to_owned);
                 let family = font_name.split('-').next().unwrap_or("");
                 if data::contains_name(&SERIF_FONTS, family) {
                     is_serif_font = true;
@@ -605,9 +553,7 @@ impl Font {
         } else {
             "sans-serif".to_owned()
         };
-        let to_unicode = properties.to_unicode.take().ok_or_else(|| {
-            PdfError::Unknown("Cannot read properties of undefined (reading 'size')".to_owned())
-        })?;
+        let to_unicode = properties.to_unicode.take().ok_or_else(|| PdfError::Unknown("Cannot read properties of undefined (reading 'size')".to_owned()))?;
         let ascent = properties.ascent / PDF_GLYPH_SPACE_UNITS;
         let descent = properties.descent / PDF_GLYPH_SPACE_UNITS;
         let mut font = Font {
@@ -700,13 +646,7 @@ impl Font {
 
     /// The `switch (type)` of the `Font` constructor: reads the program and applies what it says to the ToUnicode
     /// map and the widths. An error means pdf.js's verdict is that the font program is not usable.
-    fn read_font_program(
-        &mut self,
-        file: &[u8],
-        file_type: &str,
-        file_subtype: Option<&str>,
-        properties: &mut Properties,
-    ) -> Result<()> {
+    fn read_font_program(&mut self, file: &[u8], file_type: &str, file_subtype: Option<&str>, properties: &mut Properties) -> Result<()> {
         match file_type {
             "MMType1" | "Type1" | "CIDFontType0" => {
                 if file_subtype == Some("Type1C") || file_subtype == Some("CIDFontType0C") {
@@ -737,11 +677,7 @@ impl Font {
 
     /// `adjustType1ToUnicode(properties, builtInEncoding)`: the text of the codes the font program's own encoding
     /// names, when the file says nothing about them.
-    fn adjust_type1_to_unicode(
-        &mut self,
-        properties: &Properties,
-        built_in_encoding: &BTreeMap<u32, String>,
-    ) {
+    fn adjust_type1_to_unicode(&mut self, properties: &Properties, built_in_encoding: &BTreeMap<u32, String>) {
         if properties.is_internal_font
             || properties.has_included_to_unicode_map
             || same_as_encoding(built_in_encoding, properties.default_encoding)
@@ -751,10 +687,7 @@ impl Font {
         }
         let mut to_unicode = ToUnicodeMap::new();
         for (code, glyph_name) in built_in_encoding {
-            if properties.has_encoding
-                && (properties.base_encoding_name.is_some()
-                    || properties.differences.has(i64::from(*code)))
-            {
+            if properties.has_encoding && (properties.base_encoding_name.is_some() || properties.differences.has(i64::from(*code))) {
                 continue;
             }
             if let Some(unicode) = data::get_unicode_for_glyph(glyph_name, &GLYPHS_UNICODE) {
@@ -766,11 +699,7 @@ impl Font {
 
     /// `adjustTrueTypeToUnicode(properties, isSymbolicFont, nameRecords)`: a symbolic TrueType font without an encoding
     /// whose names are all Windows names is read as WinAnsi.
-    fn adjust_true_type_to_unicode(
-        &mut self,
-        properties: &Properties,
-        name_records: &[NameRecord],
-    ) {
+    fn adjust_true_type_to_unicode(&mut self, properties: &Properties, name_records: &[NameRecord]) {
         if properties.is_internal_font
             || properties.has_included_to_unicode_map
             || properties.has_encoding
@@ -788,10 +717,7 @@ impl Font {
                 continue;
             }
             if let Some(unicode) = data::glyph_unicode(glyph_name) {
-                to_unicode.set(
-                    code as u32,
-                    UniValue::Str(from_char_code(i64::from(unicode))),
-                );
+                to_unicode.set(code as u32, UniValue::Str(from_char_code(i64::from(unicode))));
             }
         }
         self.to_unicode.amend(&to_unicode);
@@ -821,9 +747,7 @@ impl Font {
         let is_true_type = ttf.is_true_type();
         let mut num_glyphs_from_cff = None;
         if !is_true_type {
-            let cff_data = ttf
-                .table_data("CFF ")
-                .ok_or_else(|| PdfError::format("Required \"CFF \" table is not found"))?;
+            let cff_data = ttf.table_data("CFF ").ok_or_else(|| PdfError::format("Required \"CFF \" table is not found"))?;
             let mut cff_properties = cff_properties_of(properties);
             let parsed = match read_cff_font(cff_data, &mut cff_properties) {
                 Ok(cff) => {
@@ -838,14 +762,8 @@ impl Font {
                 }
             };
             let is_cid_font = parsed.as_ref().is_some_and(|cff| cff.is_cid_font);
-            let opentype_cff = ttf.header_version() == "OTTO"
-                && (!properties.composite
-                    || (properties.font_file_n == Some("FontFile3") && is_cid_font));
-            if opentype_cff
-                || ["head", "hhea", "maxp", "post"]
-                    .iter()
-                    .any(|tag| ttf.table(tag).is_none())
-            {
+            let opentype_cff = ttf.header_version() == "OTTO" && (!properties.composite || (properties.font_file_n == Some("FontFile3") && is_cid_font));
+            if opentype_cff || ["head", "hhea", "maxp", "post"].iter().any(|tag| ttf.table(tag).is_none()) {
                 read_cff_program(cff_data, properties)?;
                 self.convert(properties);
                 return Ok(());
@@ -902,13 +820,9 @@ impl Font {
         let standard = data::lookup(&STD_FONT_MAP, &normalized);
         let is_standard_font = standard.is_some();
         let non_standard = data::lookup(&NON_STD_FONT_MAP, &normalized);
-        let is_mapped_to_standard =
-            non_standard.is_some_and(|mapped| data::lookup(&STD_FONT_MAP, mapped).is_some());
+        let is_mapped_to_standard = non_standard.is_some_and(|mapped| data::lookup(&STD_FONT_MAP, mapped).is_some());
         let font_name = standard.or(non_standard).map_or(normalized, str::to_owned);
-        if let Some((_, [ascent, descent, cap_height])) = FONT_BASIC_METRICS
-            .iter()
-            .find(|(basic_name, _)| *basic_name == font_name)
-        {
+        if let Some((_, [ascent, descent, cap_height])) = FONT_BASIC_METRICS.iter().find(|(basic_name, _)| *basic_name == font_name) {
             if self.ascent.is_nan() {
                 self.ascent = ascent / PDF_GLYPH_SPACE_UNITS;
             }
@@ -923,10 +837,7 @@ impl Font {
         let lower_name = self.name.to_lowercase();
         let identity_encoding = self.cid_encoding.starts_with("Identity-");
         let mut amend = true;
-        if (is_standard_font || is_mapped_to_standard)
-            && self.ty == "CIDFontType2"
-            && identity_encoding
-        {
+        if (is_standard_font || is_mapped_to_standard) && self.ty == "CIDFontType2" && identity_encoding {
             let mut map = ToUnicodeMap::new();
             if lower_name.contains("trebuchet") {
                 apply_standard_font_glyph_map(&mut map, &GLYPH_MAP_FOR_MAC_ORDERED_FONTS);
@@ -934,31 +845,20 @@ impl Font {
             } else {
                 apply_standard_font_glyph_map(&mut map, &GLYPH_MAP_FOR_STANDARD_FONTS);
                 if lower_name.contains("arialblack") || lower_name.contains("arial-black") {
-                    apply_standard_font_glyph_map(
-                        &mut map,
-                        &SUPPLEMENTAL_GLYPH_MAP_FOR_ARIAL_BLACK,
-                    );
+                    apply_standard_font_glyph_map(&mut map, &SUPPLEMENTAL_GLYPH_MAP_FOR_ARIAL_BLACK);
                 } else if lower_name.contains("calibri") {
                     apply_standard_font_glyph_map(&mut map, &SUPPLEMENTAL_GLYPH_MAP_FOR_CALIBRI);
                 }
             }
             if let Some(cid_to_gid_map) = &properties.cid_to_gid_map {
                 for (char_code, cid) in code_values(&map) {
-                    if let Some(glyph_id) = u32::try_from(cid)
-                        .ok()
-                        .and_then(|cid| cid_to_gid_map.get(&cid))
-                    {
+                    if let Some(glyph_id) = u32::try_from(cid).ok().and_then(|cid| cid_to_gid_map.get(&cid)) {
                         map.set(char_code, UniValue::Code(i64::from(*glyph_id)));
                     }
                 }
-                if cid_to_gid_map.len() as i64 != self.to_unicode.size()
-                    && properties.has_included_to_unicode_map
-                    && self.to_unicode.is_identity()
-                {
+                if cid_to_gid_map.len() as i64 != self.to_unicode.size() && properties.has_included_to_unicode_map && self.to_unicode.is_identity() {
                     for (char_code, cid) in code_values(&map) {
-                        let known = u32::try_from(cid)
-                            .ok()
-                            .is_some_and(|cid| cid_to_gid_map.contains_key(&cid));
+                        let known = u32::try_from(cid).ok().is_some_and(|cid| cid_to_gid_map.contains_key(&cid));
                         if !known && self.to_unicode.has(char_code) {
                             map.delete(char_code);
                         }
@@ -976,21 +876,12 @@ impl Font {
             amend = false;
         } else if lower_font_name.contains("symbol") {
             let is_cid_keyed = self.composite && identity_encoding;
-            let encoding: &[&str] = if is_cid_keyed {
-                &SYMBOL_GLYPH_ID_ENCODING
-            } else {
-                &SYMBOL_SET_ENCODING
-            };
+            let encoding: &[&str] = if is_cid_keyed { &SYMBOL_GLYPH_ID_ENCODING } else { &SYMBOL_SET_ENCODING };
             self.to_font_char = build_to_font_char(encoding, &GLYPHS_UNICODE, &self.differences);
         } else if lower_font_name.contains("dingbats") {
-            self.to_font_char = build_to_font_char(
-                &ZAPF_DINGBATS_ENCODING,
-                &DINGBATS_GLYPHS_UNICODE,
-                &self.differences,
-            );
+            self.to_font_char = build_to_font_char(&ZAPF_DINGBATS_ENCODING, &DINGBATS_GLYPHS_UNICODE, &self.differences);
         } else if is_standard_font || is_mapped_to_standard {
-            let mut map =
-                build_to_font_char(self.default_encoding, &GLYPHS_UNICODE, &self.differences);
+            let mut map = build_to_font_char(self.default_encoding, &GLYPHS_UNICODE, &self.differences);
             if self.ty == "CIDFontType2" && !identity_encoding && !self.to_unicode.is_identity() {
                 self.to_unicode.for_each(|char_code, unicode| {
                     map.set(char_code, UniValue::Code(unicode.map_or(0, i64::from)));
@@ -1005,19 +896,14 @@ impl Font {
             self.to_unicode.for_each(|char_code, unicode| {
                 let mut unicode = unicode.map_or(0, i64::from);
                 if !composite
-                    && let Some(glyph_name) =
-                        glyph_name_of(differences, encoding, i64::from(char_code))
-                    && let Some(glyph_unicode) =
-                        data::get_unicode_for_glyph(glyph_name, &GLYPHS_UNICODE)
+                    && let Some(glyph_name) = glyph_name_of(differences, encoding, i64::from(char_code))
+                    && let Some(glyph_unicode) = data::get_unicode_for_glyph(glyph_name, &GLYPHS_UNICODE)
                 {
                     unicode = i64::from(glyph_unicode);
                 }
                 map.set(char_code, UniValue::Code(unicode));
             })?;
-            if self.composite
-                && self.to_unicode.is_identity()
-                && (self.name.to_lowercase().contains("tahoma")
-                    || self.name.to_lowercase().contains("verdana"))
+            if self.composite && self.to_unicode.is_identity() && (self.name.to_lowercase().contains("tahoma") || self.name.to_lowercase().contains("verdana"))
             {
                 apply_standard_font_glyph_map(&mut map, &GLYPH_MAP_FOR_STANDARD_FONTS);
             }
@@ -1046,9 +932,7 @@ impl Font {
                 {
                     char_code = match cmap.lookup(code) {
                         Some(CMapValue::Cid(cid)) => Some(cid),
-                        Some(CMapValue::Str(text)) => {
-                            convert_cid_string(code, &text, false).unwrap_or(None)
-                        }
+                        Some(CMapValue::Str(text)) => convert_cid_string(code, &text, false).unwrap_or(None),
                         _ => Some(0),
                     };
                 }
@@ -1079,9 +963,7 @@ impl Font {
         {
             return match cmap.lookup(charcode) {
                 Some(CMapValue::Cid(cid)) => Some(cid),
-                Some(CMapValue::Str(text)) => {
-                    convert_cid_string(charcode, &text, false).unwrap_or(None)
-                }
+                Some(CMapValue::Str(text)) => convert_cid_string(charcode, &text, false).unwrap_or(None),
                 _ => None,
             };
         }
@@ -1119,23 +1001,12 @@ impl Font {
         {
             width_code = match cmap.lookup(charcode) {
                 Some(CMapValue::Cid(cid)) => Some(cid),
-                Some(CMapValue::Str(text)) => {
-                    convert_cid_string(charcode, &text, false).unwrap_or(None)
-                }
+                Some(CMapValue::Str(text)) => convert_cid_string(charcode, &text, false).unwrap_or(None),
                 _ => None,
             };
         }
-        let mut width = width_code
-            .and_then(|code| self.widths.get(&code))
-            .copied()
-            .unwrap_or(self.default_width);
-        let mut vmetric = if self.vertical {
-            width_code
-                .and_then(|code| self.vmetrics.get(&code))
-                .copied()
-        } else {
-            None
-        };
+        let mut width = width_code.and_then(|code| self.widths.get(&code)).copied().unwrap_or(self.default_width);
+        let mut vmetric = if self.vertical { width_code.and_then(|code| self.vmetrics.get(&code)).copied() } else { None };
         if vmetric.is_none()
             && let Some([w1y, _, vy]) = self.default_vmetrics
         {
@@ -1151,11 +1022,7 @@ impl Font {
                 Some(UniValue::Code(code)) if *code != 0 => *code,
                 _ => i64::from(charcode),
             };
-            let glyph_name = glyph_name_of(
-                &self.differences,
-                self.default_encoding,
-                i64::from(charcode),
-            );
+            let glyph_name = glyph_name_of(&self.differences, self.default_encoding, i64::from(charcode));
             if matches!(glyph_name, Some(".notdef" | "")) && self.ty == "Type1" {
                 font_char_code = 0x20;
                 if glyph_name == Some("") {
@@ -1167,23 +1034,15 @@ impl Font {
                     }
                 }
             }
-            let font_char_code =
-                data::map_special_unicode_values(u32::try_from(font_char_code).unwrap_or(u32::MAX));
+            let font_char_code = data::map_special_unicode_values(u32::try_from(font_char_code).unwrap_or(u32::MAX));
             if self.vertical
                 && font_char_code < 0x1_0000
-                && let Some(vertical) =
-                    data::lookup_code(&VERTICAL_PRESENTATION_FORM, font_char_code)
+                && let Some(vertical) = data::lookup_code(&VERTICAL_PRESENTATION_FORM, font_char_code)
             {
                 unicode = from_char_code(i64::from(vertical));
             }
         }
-        let glyph = Arc::new(Glyph {
-            original_char_code: charcode,
-            unicode,
-            width,
-            vmetric,
-            is_space,
-        });
+        let glyph = Arc::new(Glyph { original_char_code: charcode, unicode, width, vmetric, is_space });
         lock(&self.glyph_cache).insert(charcode, Arc::clone(&glyph));
         glyph
     }
@@ -1213,9 +1072,7 @@ impl Font {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The entries of a map of numbers as `(code, value)`.
@@ -1267,13 +1124,8 @@ fn read_type1_program(file: &[u8], properties: &mut Properties) -> Result<()> {
         ..Type1Properties::default()
     };
     Type1Font::parse(file, &mut type1_properties)?;
-    if properties.is_internal_font
-        && !properties.composite
-        && type1_properties.built_in_encoding.is_none()
-    {
-        return Err(PdfError::Unknown(
-            "Cannot read properties of undefined (reading 'length')".to_owned(),
-        ));
+    if properties.is_internal_font && !properties.composite && type1_properties.built_in_encoding.is_none() {
+        return Err(PdfError::Unknown("Cannot read properties of undefined (reading 'length')".to_owned()));
     }
     if let Some(matrix) = &type1_properties.font_matrix {
         properties.font_matrix = Some(matrix_of(matrix));
@@ -1307,10 +1159,7 @@ pub struct TranslatedFont {
 
 impl TranslatedFont {
     fn error(loaded_name: &str, message: String) -> Self {
-        TranslatedFont {
-            loaded_name: loaded_name.to_owned(),
-            font: FontKind::Error(ErrorFont { error: message }),
-        }
+        TranslatedFont { loaded_name: loaded_name.to_owned(), font: FontKind::Error(ErrorFont { error: message }) }
     }
 
     /// The font, `None` for an `ErrorFont`.
@@ -1323,8 +1172,7 @@ impl TranslatedFont {
 
     /// `font.charsToGlyphs(chars)`: an `ErrorFont` has none.
     pub fn chars_to_glyphs(&self, chars: &[u8]) -> Vec<Arc<Glyph>> {
-        self.font()
-            .map_or_else(Vec::new, |font| font.chars_to_glyphs(chars))
+        self.font().map_or_else(Vec::new, |font| font.chars_to_glyphs(chars))
     }
 
     /// `font.isType3Font`.
@@ -1351,12 +1199,7 @@ pub enum CharProcFirstOp {
 pub trait Type3CharProcs {
     /// `char_proc` is the description (a stream) as the font's `/CharProcs` has it, `resources` the font's resources
     /// (or the page's), `font_ref` the reference of the Type 3 font the glyph belongs to.
-    fn first_operation(
-        &self,
-        char_proc: &Obj,
-        resources: &Dict,
-        font_ref: Option<Ref>,
-    ) -> CharProcFirstOp;
+    fn first_operation(&self, char_proc: &Obj, resources: &Dict, font_ref: Option<Ref>) -> CharProcFirstOp;
 }
 
 /// A scanner that reads no description: a Type 3 font then keeps the bounding box its dictionary gives.
@@ -1393,20 +1236,11 @@ fn normalize_rect(rect: [f64; 4]) -> [f64; 4] {
 /// `loadType3Data`: the font must have `/CharProcs`; the descriptions that give a bounding box of their own (a `d1`
 /// box that is at least ten times the size of the font's, or the paths of a `d0` description when the font has none)
 /// give the font one (`isCharBBox`).
-fn load_type3_data(
-    xref: &Xref,
-    font: &mut Font,
-    dict: &Dict,
-    resources: &Dict,
-    font_ref: Option<Ref>,
-    scanner: &dyn Type3CharProcs,
-) -> Result<()> {
+fn load_type3_data(xref: &Xref, font: &mut Font, dict: &Dict, resources: &Dict, font_ref: Option<Ref>, scanner: &dyn Type3CharProcs) -> Result<()> {
     let char_procs = match xref.get(dict, "CharProcs")? {
         Obj::Dict(char_procs) => char_procs,
         _ => {
-            return Err(PdfError::Unknown(
-                "Type3 font load error: charProcs.getKeys is not a function".to_owned(),
-            ));
+            return Err(PdfError::Unknown("Type3 font load error: charProcs.getKeys is not a function".to_owned()));
         }
     };
     let font_resources = match xref.get(dict, "Resources")? {
@@ -1417,12 +1251,7 @@ fn load_type3_data(
     let [x0, y0, x1, y1] = font.bbox.unwrap_or([0.0; 4]);
     let font_bbox_size = (x1 - x0).hypot(y1 - y0);
     let mut char_bbox: Option<[f64; 4]> = None;
-    let init = [
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    ];
+    let init = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
     let keys: Vec<String> = char_procs.keys().map(str::to_owned).collect();
     for key in keys {
         let char_proc = match xref.get(&char_procs, &key) {
@@ -1576,18 +1405,11 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
         composite = true;
     }
     let first_char = integer_or(&xref.get(&dict, "FirstChar")?, 0);
-    let last_char = integer_or(
-        &xref.get(&dict, "LastChar")?,
-        if composite { 0xffff } else { 0xff },
-    );
+    let last_char = integer_or(&xref.get(&dict, "LastChar")?, if composite { 0xffff } else { 0xff });
     let descriptor = xref.get(&dict, "FontDescriptor")?;
     let to_unicode = {
         let own = xref.get(&dict, "ToUnicode")?;
-        if truthy(&own) {
-            own
-        } else {
-            xref.get(&base_dict, "ToUnicode")?
-        }
+        if truthy(&own) { own } else { xref.get(&base_dict, "ToUnicode")? }
     };
     let mut hash = String::new();
     if truthy(&descriptor) {
@@ -1626,11 +1448,7 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
         }
         let widths = {
             let own = xref.get(&dict, "Widths")?;
-            if truthy(&own) {
-                own
-            } else {
-                xref.get(&base_dict, "Widths")?
-            }
+            if truthy(&own) { own } else { xref.get(&base_dict, "Widths")? }
         };
         if let Obj::Array(entries) = widths {
             let parts: Vec<String> = entries.iter().filter_map(number_or_ref_string).collect();
@@ -1640,11 +1458,7 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
             murmur.update_str("compositeFont");
             let composite_widths = {
                 let own = xref.get(&dict, "W")?;
-                if truthy(&own) {
-                    own
-                } else {
-                    xref.get(&base_dict, "W")?
-                }
+                if truthy(&own) { own } else { xref.get(&base_dict, "W")? }
             };
             if let Obj::Array(entries) = composite_widths {
                 let mut parts = Vec::new();
@@ -1652,17 +1466,13 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
                     if let Some(text) = number_or_ref_string(entry) {
                         parts.push(text);
                     } else if let Obj::Array(elements) = entry {
-                        let sub: Vec<String> =
-                            elements.iter().filter_map(number_or_ref_string).collect();
+                        let sub: Vec<String> = elements.iter().filter_map(number_or_ref_string).collect();
                         parts.push(format!("[{}]", sub.join(",")));
                     }
                 }
                 murmur.update_str(&parts.join(","));
             }
-            match dict
-                .get_raw("CIDToGIDMap")
-                .or_else(|| base_dict.get_raw("CIDToGIDMap"))
-            {
+            match dict.get_raw("CIDToGIDMap").or_else(|| base_dict.get_raw("CIDToGIDMap")) {
                 Some(Obj::Name(name)) => murmur.update_str(name),
                 Some(Obj::Ref(reference)) => murmur.update_str(&reference.to_string()),
                 _ => {}
@@ -1680,17 +1490,7 @@ fn pre_evaluate_font(xref: &Xref, dict: &Arc<Dict>) -> Result<PreEvaluated> {
         }
         hash = murmur.hexdigest();
     }
-    Ok(PreEvaluated {
-        descriptor,
-        dict,
-        base_dict,
-        composite,
-        ty,
-        first_char,
-        last_char,
-        to_unicode,
-        hash,
-    })
+    Ok(PreEvaluated { descriptor, dict, base_dict, composite, ty, first_char, last_char, to_unicode, hash })
 }
 
 /// `entry.toString()` of a number or a reference, `None` for anything else.
@@ -1704,12 +1504,7 @@ fn number_or_ref_string(entry: &Obj) -> Option<String> {
 
 /// The font descriptor path of `translateFont`: a font file, if any, the descriptor's numbers and flags, the CMap of a
 /// CID font, the data structures and the widths.
-fn translate_with_descriptor(
-    xref: &Xref,
-    pre: &PreEvaluated,
-    descriptor: &Dict,
-    loaded_name: &str,
-) -> Result<Font> {
+fn translate_with_descriptor(xref: &Xref, pre: &PreEvaluated, descriptor: &Dict, loaded_name: &str) -> Result<Font> {
     let dict = &pre.dict;
     let is_type3_font = pre.ty == "Type3";
     let mut font_name = name_of(&xref.get(descriptor, "FontName")?);
@@ -1725,8 +1520,7 @@ fn translate_with_descriptor(
             base_font.as_deref().unwrap_or("undefined")
         );
         if let (Some(from_descriptor), Some(from_font)) = (&font_name, &base_font)
-            && (from_font.starts_with(from_descriptor.as_str())
-                || (!is_known_font_name(from_descriptor) && is_known_font_name(from_font)))
+            && (from_font.starts_with(from_descriptor.as_str()) || (!is_known_font_name(from_descriptor) && is_known_font_name(from_font)))
         {
             font_name = None;
         }
@@ -1784,14 +1578,9 @@ fn translate_with_descriptor(
         is_internal_font = standard.is_some();
         font_file = standard.map(<[u8]>::to_vec);
     }
-    let font_matrix =
-        lookup_matrix(&xref.get_array(dict, "FontMatrix")?).unwrap_or(FONT_IDENTITY_MATRIX);
+    let font_matrix = lookup_matrix(&xref.get_array(dict, "FontMatrix")?).unwrap_or(FONT_IDENTITY_MATRIX);
     let descriptor_bbox = xref.get_array(descriptor, "FontBBox")?;
-    let bbox_source = if truthy(&descriptor_bbox) {
-        descriptor_bbox
-    } else {
-        xref.get_array(dict, "FontBBox")?
-    };
+    let bbox_source = if truthy(&descriptor_bbox) { descriptor_bbox } else { xref.get_array(dict, "FontBBox")? };
     let bbox = lookup_normal_rect(&bbox_source).or(is_type3_font.then_some([0.0; 4]));
     let flags = match xref.get(descriptor, "Flags")? {
         Obj::Num(flags) if is_integer(flags) => js_to_int32(flags),
@@ -1827,9 +1616,7 @@ fn translate_with_descriptor(
             properties.cid_encoding = Some(name.to_string());
         }
         let cmap = match &cid_encoding {
-            Obj::Name(name) => {
-                CMapFactory::create(Some(CMapEncoding::Name(name)), None, xref.guard())?
-            }
+            Obj::Name(name) => CMapFactory::create(Some(CMapEncoding::Name(name)), None, xref.guard())?,
             Obj::Stream(stream) => {
                 let bytes = stream.decode(xref.filters().as_ref(), xref.guard())?;
                 CMapFactory::create(Some(CMapEncoding::Stream(&bytes)), None, xref.guard())?
@@ -1846,11 +1633,7 @@ fn translate_with_descriptor(
 
 /// The path of `translateFont` for a simple font without a descriptor: a Standard 14 font (or what its name says it
 /// is), measured by the Standard 14 metrics.
-fn translate_without_descriptor(
-    xref: &Xref,
-    pre: &PreEvaluated,
-    loaded_name: &str,
-) -> Result<Font> {
+fn translate_without_descriptor(xref: &Xref, pre: &PreEvaluated, loaded_name: &str) -> Result<Font> {
     let dict = &pre.dict;
     let Obj::Name(base_font) = xref.get(dict, "BaseFont")? else {
         return Err(PdfError::format("Base font is not specified"));
@@ -1858,19 +1641,9 @@ fn translate_without_descriptor(
     let base_font_name = normalize_font_name(&base_font);
     let metrics = get_base_font_metrics(&base_font_name);
     let without_style = base_font_name.split('-').next().unwrap_or("");
-    let flags = (if is_serif_font(without_style) {
-        font_flags::SERIF
-    } else {
-        0
-    }) | (if metrics.monospace {
-        font_flags::FIXED_PITCH
-    } else {
-        0
-    }) | (if data::contains_name(&SYMBOLS_FONTS, without_style) {
-        font_flags::SYMBOLIC
-    } else {
-        font_flags::NONSYMBOLIC
-    });
+    let flags = (if is_serif_font(without_style) { font_flags::SERIF } else { 0 })
+        | (if metrics.monospace { font_flags::FIXED_PITCH } else { 0 })
+        | (if data::contains_name(&SYMBOLS_FONTS, without_style) { font_flags::SYMBOLIC } else { font_flags::NONSYMBOLIC });
     let mut properties = Properties {
         ty: pre.ty.clone(),
         name: base_font_name.clone(),
@@ -1909,12 +1682,8 @@ fn translate_font(xref: &Xref, pre: &PreEvaluated, loaded_name: &str) -> Result<
     let is_type3_font = pre.ty == "Type3";
     match &pre.descriptor {
         Obj::Dict(descriptor) => translate_with_descriptor(xref, pre, descriptor, loaded_name),
-        other if truthy(other) => Err(PdfError::Unknown(
-            "descriptor.get is not a function".to_owned(),
-        )),
-        _ if is_type3_font || pre.composite => {
-            translate_with_descriptor(xref, pre, &Dict::new(), loaded_name)
-        }
+        other if truthy(other) => Err(PdfError::Unknown("descriptor.get is not a function".to_owned())),
+        _ if is_type3_font || pre.composite => translate_with_descriptor(xref, pre, &Dict::new(), loaded_name),
         _ => translate_without_descriptor(xref, pre, loaded_name),
     }
 }
@@ -2003,9 +1772,9 @@ impl FontLoader {
             return;
         }
         let has_program = match &pre.descriptor {
-            Obj::Dict(descriptor) => ["FontFile", "FontFile2", "FontFile3"]
-                .iter()
-                .any(|key| xref.get(descriptor, key).map(|file| truthy(&file)).unwrap_or(false)),
+            Obj::Dict(descriptor) => {
+                ["FontFile", "FontFile2", "FontFile3"].iter().any(|key| xref.get(descriptor, key).map(|file| truthy(&file)).unwrap_or(false))
+            }
             _ => false,
         };
         if has_program {
@@ -2056,22 +1825,13 @@ impl FontLoader {
         resources: &Dict,
         context: &LoadContext<'_>,
     ) -> Result<Arc<TranslatedFont>> {
-        let error_font = || {
-            Arc::new(TranslatedFont::error(
-                ERROR_FONT_NAME,
-                format!("Font \"{}\" is not available.", font_name.unwrap_or("null")),
-            ))
-        };
+        let error_font = || Arc::new(TranslatedFont::error(ERROR_FONT_NAME, format!("Font \"{}\" is not available.", font_name.unwrap_or("null"))));
         let font_ref_raw: Option<Obj> = match font {
             Some(font) if truthy(font) => matches!(font, Obj::Ref(_)).then(|| font.clone()),
             _ => match xref.get(resources, "Font")? {
-                Obj::Dict(font_resources) => font_name
-                    .and_then(|name| font_resources.get_raw(name))
-                    .cloned(),
+                Obj::Dict(font_resources) => font_name.and_then(|name| font_resources.get_raw(name)).cloned(),
                 other if truthy(&other) => {
-                    return Err(PdfError::Unknown(
-                        "fontRes.getRaw is not a function".to_owned(),
-                    ));
+                    return Err(PdfError::Unknown("fontRes.getRaw is not a function".to_owned()));
                 }
                 _ => None,
             },
@@ -2101,10 +1861,7 @@ impl FontLoader {
                     tracing::warn!("Font \"{}\" is not available.", font_name.unwrap_or("null"));
                     return Ok(error_font());
                 }
-                tracing::warn!(
-                    "Font \"{}\" is not available -- attempting to fallback to a default font.",
-                    font_name.unwrap_or("null")
-                );
+                tracing::warn!("Font \"{}\" is not available -- attempting to fallback to a default font.", font_name.unwrap_or("null"));
                 self.keyed_fallback_dict()
             }
         };
@@ -2126,55 +1883,29 @@ impl FontLoader {
         }
         let loaded_name = format!("g_{}_{font_id}", self.doc_id);
         self.take_substitute_id(xref, &pre);
-        let translated =
-            match translate_font(xref, &pre, &loaded_name).and_then(|mut translated| {
-                if translated.is_type3_font {
-                    load_type3_data(
-                        xref,
-                        &mut translated,
-                        &font_dict,
-                        resources,
-                        font_ref,
-                        context.type3,
-                    )
-                    .map_err(|error| {
-                        if error.is_fatal() {
-                            error
-                        } else {
-                            PdfError::Unknown(format!("Type3 font load error: {}", error.message()))
-                        }
-                    })?;
-                }
-                Ok(translated)
-            }) {
-                Ok(font) => TranslatedFont {
-                    loaded_name: loaded_name.clone(),
-                    font: FontKind::Font(Box::new(font)),
-                },
-                Err(error) if error.is_fatal() => return Err(error),
-                Err(error) => {
-                    tracing::warn!("loadFont - translateFont failed: \"{error}\".");
-                    TranslatedFont {
-                        loaded_name: loaded_name.clone(),
-                        font: FontKind::Error(ErrorFont {
-                            error: error.message().to_owned(),
-                        }),
-                    }
-                }
-            };
+        let translated = match translate_font(xref, &pre, &loaded_name).and_then(|mut translated| {
+            if translated.is_type3_font {
+                load_type3_data(xref, &mut translated, &font_dict, resources, font_ref, context.type3)
+                    .map_err(|error| if error.is_fatal() { error } else { PdfError::Unknown(format!("Type3 font load error: {}", error.message())) })?;
+            }
+            Ok(translated)
+        }) {
+            Ok(font) => TranslatedFont { loaded_name: loaded_name.clone(), font: FontKind::Font(Box::new(font)) },
+            Err(error) if error.is_fatal() => return Err(error),
+            Err(error) => {
+                tracing::warn!("loadFont - translateFont failed: \"{error}\".");
+                TranslatedFont { loaded_name: loaded_name.clone(), font: FontKind::Error(ErrorFont { error: error.message().to_owned() }) }
+            }
+        };
         let translated = Arc::new(translated);
         let mut state = lock(&self.state);
         match font_ref {
             Some(reference) => {
-                state
-                    .cache
-                    .insert(CacheKey::Ref(reference), Arc::clone(&translated));
+                state.cache.insert(CacheKey::Ref(reference), Arc::clone(&translated));
             }
             None => {
                 state.keep_alive.push(Arc::clone(&font_dict));
-                state
-                    .cache
-                    .insert(CacheKey::Dict(dict_key), Arc::clone(&translated));
+                state.cache.insert(CacheKey::Dict(dict_key), Arc::clone(&translated));
             }
         }
         Ok(translated)
@@ -2188,35 +1919,22 @@ impl FontLoader {
 
     /// The font id of the font (`fontAliases[hash].fontID`, or a new one) and, for a font whose descriptor and hash were
     /// seen under another reference, that reference's font.
-    fn font_id_of(
-        &self,
-        pre: &PreEvaluated,
-        font_ref: Option<Ref>,
-    ) -> (String, Option<Arc<TranslatedFont>>) {
+    fn font_id_of(&self, pre: &PreEvaluated, font_ref: Option<Ref>) -> (String, Option<Arc<TranslatedFont>>) {
         let Obj::Dict(descriptor) = &pre.descriptor else {
             return (self.create_font_id(), None);
         };
         if pre.hash.is_empty() {
             return (self.create_font_id(), None);
         }
-        let descriptor_key = descriptor
-            .obj_id
-            .clone()
-            .unwrap_or_else(|| format!("direct:{}", Arc::as_ptr(descriptor) as usize));
+        let descriptor_key = descriptor.obj_id.clone().unwrap_or_else(|| format!("direct:{}", Arc::as_ptr(descriptor) as usize));
         let mut state = lock(&self.state);
-        let existing = state
-            .aliases
-            .get(&descriptor_key)
-            .and_then(|aliases| aliases.get(&pre.hash))
-            .cloned();
+        let existing = state.aliases.get(&descriptor_key).and_then(|aliases| aliases.get(&pre.hash)).cloned();
         let font_id = match existing {
             Some(alias) => {
                 if let (Some(reference), Some(alias_ref)) = (font_ref, alias.alias_ref)
                     && let Some(cached) = state.cache.get(&CacheKey::Ref(alias_ref)).cloned()
                 {
-                    state
-                        .cache
-                        .insert(CacheKey::Ref(reference), Arc::clone(&cached));
+                    state.cache.insert(CacheKey::Ref(reference), Arc::clone(&cached));
                     return (alias.font_id, Some(cached));
                 }
                 alias.font_id
@@ -2227,10 +1945,7 @@ impl FontLoader {
             }
         };
         let aliases = state.aliases.entry(descriptor_key).or_default();
-        let alias = aliases.entry(pre.hash.clone()).or_insert_with(|| Alias {
-            font_id: font_id.clone(),
-            alias_ref: None,
-        });
+        let alias = aliases.entry(pre.hash.clone()).or_insert_with(|| Alias { font_id: font_id.clone(), alias_ref: None });
         if font_ref.is_some() {
             alias.alias_ref = font_ref;
         }
@@ -2256,27 +1971,10 @@ mod tests {
         Document::open(pdf.into_bytes(), &OpenOptions::default()).expect("a document")
     }
 
-    fn load_with(
-        loader: &FontLoader,
-        document: &Document,
-        object: i64,
-        scanner: &dyn Type3CharProcs,
-    ) -> Arc<TranslatedFont> {
+    fn load_with(loader: &FontLoader, document: &Document, object: i64, scanner: &dyn Type3CharProcs) -> Arc<TranslatedFont> {
         let refs = HashSet::new();
-        let context = LoadContext {
-            type3_font_refs: &refs,
-            parsing_type3_font: false,
-            type3: scanner,
-        };
-        loader
-            .load_font(
-                document.xref(),
-                Some("F1"),
-                Some(&Obj::Ref(Ref::new(object, 0))),
-                &Dict::new(),
-                &context,
-            )
-            .expect("a font")
+        let context = LoadContext { type3_font_refs: &refs, parsing_type3_font: false, type3: scanner };
+        loader.load_font(document.xref(), Some("F1"), Some(&Obj::Ref(Ref::new(object, 0))), &Dict::new(), &context).expect("a font")
     }
 
     fn load(loader: &FontLoader, document: &Document, object: i64) -> Arc<TranslatedFont> {
@@ -2304,16 +2002,7 @@ mod tests {
         assert_eq!(hash(&["compositeFont"]), "d136c6ba5809c39f");
         assert_eq!(hash(&[&"a".repeat(37), "b"]), "9632e0e4dd63ce2c");
         assert_eq!(hash(&["\u{100}\u{ff}\0x"]), "8c125b71cd11f4fe");
-        assert_eq!(
-            hash(&[
-                "12R",
-                "0-255",
-                "Identity-H",
-                "compositeFont",
-                "[0,1,2],[500]"
-            ]),
-            "93cea2b9726066fa"
-        );
+        assert_eq!(hash(&["12R", "0-255", "Identity-H", "compositeFont", "[0,1,2],[500]"]), "93cea2b9726066fa");
         let mut bytes = MurmurHash::new();
         bytes.update(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
         assert_eq!(bytes.hexdigest(), "b66452464d1edacc");
@@ -2321,43 +2010,22 @@ mod tests {
 
     #[test]
     fn an_invalid_pdfjs_font_names_its_family() {
-        assert_eq!(
-            invalid_pdfjs_font_name("InvalidPDFjsFont_Arial_12"),
-            Some("Arial")
-        );
-        assert_eq!(
-            invalid_pdfjs_font_name("InvalidPDFjsFont_A_B_3"),
-            Some("A_B")
-        );
+        assert_eq!(invalid_pdfjs_font_name("InvalidPDFjsFont_Arial_12"), Some("Arial"));
+        assert_eq!(invalid_pdfjs_font_name("InvalidPDFjsFont_A_B_3"), Some("A_B"));
         assert_eq!(invalid_pdfjs_font_name("InvalidPDFjsFont_Arial_"), None);
         assert_eq!(invalid_pdfjs_font_name("Arial"), None);
     }
 
     #[test]
     fn the_type_of_a_font_file_is_read_from_its_first_bytes() {
-        let mut properties = Properties {
-            ty: "TrueType".to_owned(),
-            ..Properties::default()
-        };
-        assert_eq!(
-            get_font_file_type(&[0, 1, 0, 0, 9], &properties).0,
-            "TrueType"
-        );
+        let mut properties = Properties { ty: "TrueType".to_owned(), ..Properties::default() };
+        assert_eq!(get_font_file_type(&[0, 1, 0, 0, 9], &properties).0, "TrueType");
         assert_eq!(get_font_file_type(b"OTTO..", &properties).0, "OpenType");
-        assert_eq!(
-            get_font_file_type(b"%!PS-AdobeFont", &properties).0,
-            "Type1"
-        );
+        assert_eq!(get_font_file_type(b"%!PS-AdobeFont", &properties).0, "Type1");
         assert_eq!(get_font_file_type(&[0x80, 1, 2, 3], &properties).0, "Type1");
-        assert_eq!(
-            get_font_file_type(&[1, 0, 4, 2], &properties),
-            ("Type1".to_owned(), Some("Type1C".to_owned()))
-        );
+        assert_eq!(get_font_file_type(&[1, 0, 4, 2], &properties), ("Type1".to_owned(), Some("Type1C".to_owned())));
         properties.composite = true;
-        assert_eq!(
-            get_font_file_type(&[1, 0, 4, 2], &properties),
-            ("CIDFontType0".to_owned(), Some("CIDFontType0C".to_owned()))
-        );
+        assert_eq!(get_font_file_type(&[1, 0, 4, 2], &properties), ("CIDFontType0".to_owned(), Some("CIDFontType0C".to_owned())));
         assert_eq!(get_font_file_type(b"ttcf", &properties).0, "CIDFontType2");
         // Bytes that are none of them leave the font's own type.
         assert_eq!(get_font_file_type(b"junk", &properties).0, "TrueType");
@@ -2365,9 +2033,7 @@ mod tests {
 
     #[test]
     fn a_standard_font_without_a_descriptor_is_measured_by_the_standard_metrics() {
-        let document = document_with(&[
-            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-        ]);
+        let document = document_with(&["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"]);
         let loader = FontLoader::new("d0", true);
         let translated = load(&loader, &document, 4);
         assert_eq!(translated.loaded_name, "g_d0_f1");
@@ -2389,10 +2055,8 @@ mod tests {
 
     #[test]
     fn a_courier_font_is_monospace_and_a_serif_one_is_serif() {
-        let document = document_with(&[
-            "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>",
-            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>",
-        ]);
+        let document =
+            document_with(&["<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>"]);
         let loader = FontLoader::new("d0", true);
         let courier = load(&loader, &document, 4);
         assert_eq!(courier.font().expect("a font").fallback_name, "monospace");
@@ -2440,11 +2104,7 @@ mod tests {
     fn fonts_of_one_descriptor_and_one_hash_are_one_font() {
         let font = "<< /Type /Font /Subtype /TrueType /BaseFont /Foo /FirstChar 0 /LastChar 255 \
                     /Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>";
-        let document = document_with(&[
-            font,
-            font,
-            "<< /Type /FontDescriptor /FontName /Foo /Flags 32 >>",
-        ]);
+        let document = document_with(&[font, font, "<< /Type /FontDescriptor /FontName /Foo /Flags 32 >>"]);
         let loader = FontLoader::new("d3", true);
         let first = load(&loader, &document, 4);
         let second = load(&loader, &document, 5);
@@ -2467,21 +2127,13 @@ mod tests {
         let document = document_with(&[]);
         let loader = FontLoader::new("d0", true);
         let refs = HashSet::new();
-        let context = LoadContext {
-            type3_font_refs: &refs,
-            parsing_type3_font: false,
-            type3: &NoType3Scan,
-        };
-        let translated = loader
-            .load_font(document.xref(), Some("F9"), None, &Dict::new(), &context)
-            .expect("a font");
+        let context = LoadContext { type3_font_refs: &refs, parsing_type3_font: false, type3: &NoType3Scan };
+        let translated = loader.load_font(document.xref(), Some("F9"), None, &Dict::new(), &context).expect("a font");
         assert_eq!(translated.loaded_name, "g_d0_f1");
         assert_eq!(text(&translated.chars_to_glyphs(b"\xe9")[0]), "\u{e9}");
         // A font that is not there when pdf.js may not fall back is an error font.
         let strict = FontLoader::new("d0", false);
-        let error = strict
-            .load_font(document.xref(), Some("F9"), None, &Dict::new(), &context)
-            .expect("an answer");
+        let error = strict.load_font(document.xref(), Some("F9"), None, &Dict::new(), &context).expect("an answer");
         assert_eq!(error.loaded_name, ERROR_FONT_NAME);
     }
 
@@ -2502,10 +2154,7 @@ mod tests {
         let font = translated.font().expect("a font");
         assert!(font.composite && !font.vertical);
         let glyphs = translated.chars_to_glyphs(&[0, 2, 0, 11, 0, 99]);
-        assert_eq!(
-            glyphs.iter().map(|glyph| glyph.width).collect::<Vec<_>>(),
-            vec![400.0, 700.0, 500.0]
-        );
+        assert_eq!(glyphs.iter().map(|glyph| glyph.width).collect::<Vec<_>>(), vec![400.0, 700.0, 500.0]);
         assert_eq!(glyphs[2].original_char_code, 99);
         assert_eq!(text(&glyphs[2]), "c");
     }
@@ -2542,14 +2191,9 @@ mod tests {
 
     #[test]
     fn a_type3_font_takes_its_glyph_boxes_when_they_are_much_bigger() {
-        let document = document_with(&[
-            TYPE3_FONT,
-            "<< /Length 20 >>\nstream\n50 0 0 0 1000 1000 d1\nendstream",
-        ]);
+        let document = document_with(&[TYPE3_FONT, "<< /Length 20 >>\nstream\n50 0 0 0 1000 1000 d1\nendstream"]);
         let loader = FontLoader::new("d0", true);
-        let big = Scan(CharProcFirstOp::WidthAndBounds([
-            50.0, 0.0, 0.0, 0.0, 1000.0, 1000.0,
-        ]));
+        let big = Scan(CharProcFirstOp::WidthAndBounds([50.0, 0.0, 0.0, 0.0, 1000.0, 1000.0]));
         let translated = load_with(&loader, &document, 4, &big);
         let font = translated.font().expect("a font");
         assert!(font.is_type3_font && font.is_char_bbox);
@@ -2559,9 +2203,7 @@ mod tests {
         assert_eq!((text(glyph), glyph.width), ("a".to_owned(), 50.0));
         // A box of the font's own size changes nothing.
         let loader = FontLoader::new("d0", true);
-        let small = Scan(CharProcFirstOp::WidthAndBounds([
-            50.0, 0.0, 0.0, 0.0, 90.0, 90.0,
-        ]));
+        let small = Scan(CharProcFirstOp::WidthAndBounds([50.0, 0.0, 0.0, 0.0, 90.0, 90.0]));
         let translated = load_with(&loader, &document, 4, &small);
         let font = translated.font().expect("a font");
         assert!(!font.is_char_bbox);
@@ -2570,9 +2212,7 @@ mod tests {
 
     #[test]
     fn a_type3_font_without_char_procs_is_an_error_font() {
-        let document = document_with(&[
-            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1 1] /FontMatrix [1 0 0 1 0 0] >>",
-        ]);
+        let document = document_with(&["<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1 1] /FontMatrix [1 0 0 1 0 0] >>"]);
         let loader = FontLoader::new("d0", true);
         let translated = load(&loader, &document, 4);
         let FontKind::Error(error) = &translated.font else {
@@ -2588,20 +2228,8 @@ mod tests {
         let loader = FontLoader::new("d0", true);
         let mut refs = HashSet::new();
         refs.insert(Ref::new(4, 0));
-        let context = LoadContext {
-            type3_font_refs: &refs,
-            parsing_type3_font: true,
-            type3: &NoType3Scan,
-        };
-        let translated = loader
-            .load_font(
-                document.xref(),
-                Some("F1"),
-                Some(&Obj::Ref(Ref::new(4, 0))),
-                &Dict::new(),
-                &context,
-            )
-            .expect("an answer");
+        let context = LoadContext { type3_font_refs: &refs, parsing_type3_font: true, type3: &NoType3Scan };
+        let translated = loader.load_font(document.xref(), Some("F1"), Some(&Obj::Ref(Ref::new(4, 0))), &Dict::new(), &context).expect("an answer");
         assert_eq!(translated.loaded_name, ERROR_FONT_NAME);
     }
 

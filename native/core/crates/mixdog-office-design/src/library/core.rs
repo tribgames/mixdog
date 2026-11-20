@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mixdog_fsio::ReadProof;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{js_to_lowercase, js_trim, json_parse, json_stringify, to_number_of, value_to_string};
 use mixdog_office_base::data_dir::resolve_path;
 use mixdog_office_base::values::{plain_object, sha256, stable_value, truthy};
-use mixdog_fsio::WriteProof;
 use mixdog_statefile::Opts;
 use serde_json::{Map, Value};
 
@@ -92,11 +92,7 @@ pub fn safe_id_text(value: &str, label: &str) -> Result<String, String> {
     let valid = normalized.chars().count() <= 64
         && chars.next().is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'));
-    if valid {
-        Ok(normalized)
-    } else {
-        Err(format!("Office design {label} must use 1-64 lowercase letters, digits, dots, underscores, or hyphens"))
-    }
+    if valid { Ok(normalized) } else { Err(format!("Office design {label} must use 1-64 lowercase letters, digits, dots, underscores, or hyphens")) }
 }
 
 /// `safeId(value, label)`.
@@ -378,10 +374,7 @@ mod tests {
         assert_eq!(compare_office_design_versions("1.0.0-beta", "1.0.0").unwrap(), -1);
         assert_eq!(compare_office_design_versions("1.0.0-b", "1.0.0-a").unwrap(), 1);
         assert_eq!(compare_office_design_versions("1.0.0", "1.0.0").unwrap(), 0);
-        assert_eq!(
-            compare_office_design_versions("1.0", "1.0.0").unwrap_err(),
-            "Office design pack versions must be semantic versions: 1.0, 1.0.0"
-        );
+        assert_eq!(compare_office_design_versions("1.0", "1.0.0").unwrap_err(), "Office design pack versions must be semantic versions: 1.0, 1.0.0");
     }
 
     #[test]
@@ -390,7 +383,6 @@ mod tests {
         assert_eq!(win32_path(&["C:/a/b", "..", "c"]), "C:\\a\\c");
     }
 
-
     #[test]
     fn the_packaged_templates_are_read_from_assets_templates_beside_the_executable() {
         let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
@@ -398,19 +390,13 @@ mod tests {
     }
 }
 
-
 fn env_text(names: &[&str]) -> String {
     names.iter().filter_map(|name| std::env::var(name).ok()).find(|value| !value.is_empty()).unwrap_or_default()
 }
 impl Environment {
     /// The environment of this process. The packaged templates are read from `assets/templates` beside the executable.
     pub fn process() -> Self {
-        let bundled = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(Path::to_path_buf))
-            .unwrap_or_default()
-            .join("assets")
-            .join("templates");
+        let bundled = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)).unwrap_or_default().join("assets").join("templates");
         Self {
             library_config: env_text(&["MIXDOG_OFFICE_DESIGN_LIBRARY_CONFIG"]),
             pack_url: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_URL"]),
@@ -424,9 +410,7 @@ impl Environment {
             home: std::env::home_dir().map(|home| home.to_string_lossy().into_owned()).unwrap_or_default(),
             cwd: std::env::current_dir().unwrap_or_default(),
             bundled_templates: bundled,
-            now_ms: Arc::new(|| {
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_millis() as f64)
-            }),
+            now_ms: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_millis() as f64)),
         }
     }
 

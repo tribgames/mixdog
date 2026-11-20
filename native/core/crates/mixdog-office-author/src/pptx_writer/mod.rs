@@ -26,7 +26,9 @@ mod theme;
 
 use mixdog_js::{math, number_to_string};
 
-pub use charts::{AxisCrossing, AxisStyle, Chart, ChartArea, ChartBorder, ChartData, ChartKind, ChartLayout, ChartOptions, ChartShadow, GridLine, PlotArea, TitlePos};
+pub use charts::{
+    AxisCrossing, AxisStyle, Chart, ChartArea, ChartBorder, ChartData, ChartKind, ChartLayout, ChartOptions, ChartShadow, GridLine, PlotArea, TitlePos,
+};
 pub use media::ImageFile;
 pub use presentation::Presentation;
 pub use shapes::{Fill, Hyperlink, ImageOptions, ImageSizing, Line, Shadow, ShapeOptions, SizingKind};

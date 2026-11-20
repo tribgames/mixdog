@@ -22,9 +22,6 @@ impl EnvLookup for MapEnv {
     }
 }
 
-
-
-
 struct Config(Mutex<Value>);
 
 #[async_trait]
@@ -61,9 +58,6 @@ async fn serve(status: &'static str) -> String {
     format!("http://{address}")
 }
 
-
-
-
 #[test]
 fn a_change_of_the_setting_announces_one_new_epoch() {
     let policy = NetworkProxy::new(Arc::new(MapEnv(HashMap::new())), SystemProxy::default());
@@ -78,13 +72,10 @@ fn a_change_of_the_setting_announces_one_new_epoch() {
     assert_eq!(policy.epoch(), 2);
 }
 
-
 #[test]
 fn certificate_verdicts_have_node_codes() {
     use rustls::CertificateError as C;
-    let failure = |error: C| tunnel::TlsFailure {
-        error: std::io::Error::new(std::io::ErrorKind::InvalidData, rustls::Error::InvalidCertificate(error)),
-    };
+    let failure = |error: C| tunnel::TlsFailure { error: std::io::Error::new(std::io::ErrorKind::InvalidData, rustls::Error::InvalidCertificate(error)) };
     assert_eq!(tunnel::tls_code(&failure(C::Expired)), "CERT_HAS_EXPIRED");
     assert_eq!(tunnel::tls_code(&failure(C::NotValidYet)), "CERT_NOT_YET_VALID");
     assert_eq!(tunnel::tls_code(&failure(C::Revoked)), "CERT_REVOKED");
@@ -228,5 +219,3 @@ async fn a_tunnel_that_goes_silent_times_out_at_ten_seconds() {
     assert_eq!((got["ok"].as_bool(), got["code"].as_str()), (Some(false), Some("ETIMEDOUT")), "{got}");
     assert!(got["ms"].as_u64().unwrap() >= 10_000, "{got}");
 }
-
-

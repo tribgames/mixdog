@@ -19,23 +19,15 @@ use crate::run::Run;
 const MAX_REASON_CHARS: usize = 240;
 
 fn is_thinking_block(block: &JsonValue) -> bool {
-    matches!(
-        block.get("type").and_then(JsonValue::as_str),
-        Some("thinking" | "redacted_thinking")
-    )
+    matches!(block.get("type").and_then(JsonValue::as_str), Some("thinking" | "redacted_thinking"))
 }
 
 fn is_empty_text_block(block: &JsonValue) -> bool {
-    block.get("type").and_then(JsonValue::as_str) == Some("text")
-        && block.get("text").and_then(JsonValue::as_str).is_none_or(str::is_empty)
+    block.get("type").and_then(JsonValue::as_str) == Some("text") && block.get("text").and_then(JsonValue::as_str).is_none_or(str::is_empty)
 }
 
 fn kept_blocks(list: &[JsonValue]) -> Option<Vec<JsonValue>> {
-    let kept: Vec<JsonValue> = list
-        .iter()
-        .filter(|b| !is_thinking_block(b) && !is_empty_text_block(b))
-        .cloned()
-        .collect();
+    let kept: Vec<JsonValue> = list.iter().filter(|b| !is_thinking_block(b) && !is_empty_text_block(b)).cloned().collect();
     (kept.len() != list.len()).then_some(kept)
 }
 
@@ -78,22 +70,11 @@ pub(crate) fn without_thinking_replay(message: &AgentMessage) -> Option<AgentMes
             next.push_replay(envelope);
         }
     }
-    if let Some(kept) = message
-        .message
-        .assistant_blocks
-        .as_ref()
-        .and_then(JsonValue::as_array)
-        .and_then(|b| kept_blocks(b))
-    {
+    if let Some(kept) = message.message.assistant_blocks.as_ref().and_then(JsonValue::as_array).and_then(|b| kept_blocks(b)) {
         changed = true;
         next.assistant_blocks = (!kept.is_empty()).then_some(JsonValue::Array(kept));
     }
-    if next
-        .thinking_blocks
-        .as_ref()
-        .and_then(JsonValue::as_array)
-        .is_some_and(|b| !b.is_empty())
-    {
+    if next.thinking_blocks.as_ref().and_then(JsonValue::as_array).is_some_and(|b| !b.is_empty()) {
         changed = true;
         next.thinking_blocks = None;
     }
@@ -142,14 +123,9 @@ fn open_round(messages: &[AgentMessage]) -> Option<(usize, usize)> {
 /// original's open round is not kept unchanged (omitted or rewritten by an
 /// earlier edit). `true` when a turn changed.
 pub(crate) fn rebind_thinking(original: &[AgentMessage], messages: &mut Vec<AgentMessage>) -> bool {
-    let from = messages
-        .iter()
-        .zip(original)
-        .position(|(kept, was)| visible(kept) != visible(was))
-        .unwrap_or(messages.len().min(original.len()));
+    let from = messages.iter().zip(original).position(|(kept, was)| visible(kept) != visible(was)).unwrap_or(messages.len().min(original.len()));
     // Up to `from` the result is the original message for message; a signed step from there on is gone or changed.
-    let round_lost = open_round(original)
-        .is_some_and(|(start, latest)| (start.max(from)..=latest).any(|i| has_signed_thinking(&original[i])));
+    let round_lost = open_round(original).is_some_and(|(start, latest)| (start.max(from)..=latest).any(|i| has_signed_thinking(&original[i])));
     drop_stale_thinking(messages, from, round_lost, false)
 }
 
@@ -160,10 +136,7 @@ pub(crate) fn rebind_thinking(original: &[AgentMessage], messages: &mut Vec<Agen
 /// it concerns, so the thinking a round would continue from is not trusted).
 /// `true` when a turn changed.
 pub(crate) fn repair_rejected_thinking(messages: &mut Vec<AgentMessage>) -> bool {
-    let from = messages
-        .iter()
-        .rposition(|m| matches!(m.source, Some(Source::CompactExecutionRecovery | Source::CompactSummary)))
-        .unwrap_or(0);
+    let from = messages.iter().rposition(|m| matches!(m.source, Some(Source::CompactExecutionRecovery | Source::CompactSummary))).unwrap_or(0);
     drop_stale_thinking(messages, from, true, true)
 }
 
@@ -234,21 +207,14 @@ mod tests {
             {"type": "text", "text": "kept"},
         ]));
         let repaired = without_thinking_replay(&assistant).unwrap();
-        assert_eq!(
-            repaired.message.assistant_blocks,
-            Some(json!([{"type": "text", "text": "kept"}]))
-        );
+        assert_eq!(repaired.message.assistant_blocks, Some(json!([{"type": "text", "text": "kept"}])));
         let clean = AgentMessage::assistant("t", Vec::new());
         assert!(without_thinking_replay(&clean).is_none());
     }
 
     fn signed_call(id: &str) -> AgentMessage {
-        let call = mixdog_core_api::domain::provider::ToolCall {
-            id: id.to_owned(),
-            name: "read".to_owned(),
-            arguments: json!({ "path": "a" }),
-            native_type: None,
-        };
+        let call =
+            mixdog_core_api::domain::provider::ToolCall { id: id.to_owned(), name: "read".to_owned(), arguments: json!({ "path": "a" }), native_type: None };
         let mut assistant = AgentMessage::assistant("", vec![call]);
         assistant.message.thinking_blocks = Some(json!([{"type": "thinking", "thinking": "t", "signature": "sig"}]));
         assistant
@@ -311,11 +277,7 @@ mod tests {
     /// The repair always ends an open round, even when the rejected turn carried no signed block.
     #[test]
     fn a_repair_ends_the_open_round_even_without_signed_thinking() {
-        let mut messages = vec![
-            AgentMessage::user("go"),
-            AgentMessage::assistant("", signed_call("c1").message.tool_calls.clone()),
-            result("c1"),
-        ];
+        let mut messages = vec![AgentMessage::user("go"), AgentMessage::assistant("", signed_call("c1").message.tool_calls.clone()), result("c1")];
         assert!(repair_rejected_thinking(&mut messages));
         let body = wire(&messages);
         assert_eq!(roles(&body), ["user", "assistant", "user", "assistant", "user"], "{body}");

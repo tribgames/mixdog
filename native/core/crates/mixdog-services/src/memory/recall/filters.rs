@@ -1,8 +1,8 @@
 //! The SQL predicates every recall query shares: project scope, status,
 //! category and time window, built over positional bind parameters.
 
-use mixdog_js::{js_trim};
 use crate::memory::recall::row::P;
+use mixdog_js::js_trim;
 
 pub const VALID_CATEGORIES: [&str; 8] = ["rule", "constraint", "decision", "fact", "goal", "preference", "task", "issue"];
 
@@ -12,11 +12,7 @@ pub fn is_valid_category(value: &str) -> bool {
 
 /// The known categories in `values`, trimmed and lower-cased.
 pub fn valid_categories(values: &[String]) -> Vec<String> {
-    values
-        .iter()
-        .map(|c| js_trim(c).to_lowercase())
-        .filter(|c| is_valid_category(c))
-        .collect()
+    values.iter().map(|c| js_trim(c).to_lowercase()).filter(|c| is_valid_category(c)).collect()
 }
 
 /// `common` → NULL only; a slug → NULL or that slug; `all`/none → no filter.
@@ -24,9 +20,7 @@ pub fn valid_categories(values: &[String]) -> Vec<String> {
 pub fn project_scope_predicate(scope: Option<&str>, next: usize, column: &str) -> (String, Vec<P>) {
     match scope {
         Some("common") => (format!("{column} IS NULL"), Vec::new()),
-        Some(slug) if !slug.is_empty() && slug != "all" => {
-            (format!("({column} IS NULL OR {column} = ${next})"), vec![P::T(slug.to_owned())])
-        }
+        Some(slug) if !slug.is_empty() && slug != "all" => (format!("({column} IS NULL OR {column} = ${next})"), vec![P::T(slug.to_owned())]),
         _ => (String::new(), Vec::new()),
     }
 }
@@ -72,9 +66,7 @@ fn category_clause(offset: usize, categories: &[String], alias: &str) -> (String
 /// The clause begins with `AND`.
 pub fn scope_filter(offset: usize, options: &ScopeOptions<'_>, alias: &str) -> (String, Vec<P>) {
     let p = format!("{}.", if alias.is_empty() { "entries" } else { alias });
-    let mut clauses = vec![format!(
-        "NOT ({p}is_root = 0 AND {p}chunk_root IS NOT DISTINCT FROM {p}id AND {p}status IS NOT DISTINCT FROM 'archived')"
-    )];
+    let mut clauses = vec![format!("NOT ({p}is_root = 0 AND {p}chunk_root IS NOT DISTINCT FROM {p}id AND {p}status IS NOT DISTINCT FROM 'archived')")];
     let mut params = Vec::new();
     let mut next = offset;
     if let Some(from) = options.ts_from {
@@ -87,8 +79,7 @@ pub fn scope_filter(offset: usize, options: &ScopeOptions<'_>, alias: &str) -> (
         params.push(P::I(to));
         next += 1;
     }
-    let statuses: Vec<String> =
-        options.exclude_statuses.iter().filter(|s| !js_trim(s).is_empty()).map(|s| js_trim(s).to_lowercase()).collect();
+    let statuses: Vec<String> = options.exclude_statuses.iter().filter(|s| !js_trim(s).is_empty()).map(|s| js_trim(s).to_lowercase()).collect();
     if !statuses.is_empty() {
         let ph = statuses
             .iter()

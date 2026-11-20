@@ -43,15 +43,13 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use ast_grep_config::{
-    from_yaml_string, CombinedScan, GlobalRules, RuleCollection, RuleConfig, Severity,
-};
+use ast_grep_config::{CombinedScan, GlobalRules, RuleCollection, RuleConfig, Severity, from_yaml_string};
 use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_core::{AstGrep, NodeMatch};
 use rayon::prelude::*;
 use serde::Serialize;
 
-use crate::scan_lang::{scan_lang_for_path, ScanLang, LANG_INFOS};
+use crate::scan_lang::{LANG_INFOS, ScanLang, scan_lang_for_path};
 
 /// Same cap as the extraction walk: files above it are skipped silently.
 use crate::MAX_FILE_BYTES;
@@ -197,21 +195,15 @@ fn error_chain(err: &dyn std::error::Error) -> String {
 /// dropped by the collection, exactly like `sg scan`.
 pub fn parse_rules(yaml: &str) -> Result<Rules, String> {
     let globals = GlobalRules::default();
-    let configs = from_yaml_string::<ScanLang>(yaml, &globals)
-        .map_err(|err| format!("rule parse failed: {}", error_chain(&err)))?;
+    let configs = from_yaml_string::<ScanLang>(yaml, &globals).map_err(|err| format!("rule parse failed: {}", error_chain(&err)))?;
     let mut langs = HashSet::new();
     for config in &configs {
         if !matches!(config.severity, Severity::Off) {
             langs.insert(config.language);
         }
     }
-    let collection = RuleCollection::try_new(configs)
-        .map_err(|err| format!("rule file/ignores glob is invalid: {err}"))?;
-    Ok(Rules {
-        collection,
-        langs,
-        globals,
-    })
+    let collection = RuleCollection::try_new(configs).map_err(|err| format!("rule file/ignores glob is invalid: {err}"))?;
+    Ok(Rules { collection, langs, globals })
 }
 
 fn severity_str(severity: &Severity) -> &'static str {
@@ -254,14 +246,8 @@ fn record_for(
         severity: severity_str(&rule.severity),
         message: rule.get_message(node_match),
         range: RangeJson {
-            start: PositionJson {
-                line: start.line(),
-                column: start.column(node),
-            },
-            end: PositionJson {
-                line: end.line(),
-                column: end.column(node),
-            },
+            start: PositionJson { line: start.line(), column: start.column(node) },
+            end: PositionJson { line: end.line(), column: end.column(node) },
             byte_offset: [range.start, range.end],
         },
         fix,
@@ -272,19 +258,12 @@ fn record_for(
 
 /// Scan one in-memory source. Returns matches in source order; `Err` carries a
 /// parse failure for this file only (the scan itself keeps going).
-pub fn scan_source(
-    rel: &str,
-    lang: ScanLang,
-    source: &str,
-    rules: &Rules,
-    include_fix: bool,
-) -> Result<Vec<MatchRecord>, String> {
+pub fn scan_source(rel: &str, lang: ScanLang, source: &str, rules: &Rules, include_fix: bool) -> Result<Vec<MatchRecord>, String> {
     let applicable = rules.collection.get_rule_from_lang(Path::new(rel), lang);
     if applicable.is_empty() {
         return Ok(Vec::new());
     }
-    let root = AstGrep::<StrDoc<ScanLang>>::try_new(source, lang)
-        .map_err(|err| format!("parse failed: {err}"))?;
+    let root = AstGrep::<StrDoc<ScanLang>>::try_new(source, lang).map_err(|err| format!("parse failed: {err}"))?;
     let combined = CombinedScan::new(applicable);
     // `separate_fix` only routes fixable rules into `diffs`; the match set is
     // the same either way, and both lists are merged below.
@@ -316,16 +295,11 @@ pub fn collect_scan_files(root: &Path) -> Result<Vec<ScanFile>, String> {
     let results: Vec<Result<Option<ScanFile>, String>> = candidates
         .par_iter()
         .map(|(path, lang)| {
-            let meta = fs::metadata(path)
-                .map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
+            let meta = fs::metadata(path).map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
             if meta.len() > MAX_FILE_BYTES {
                 return Ok(None);
             }
-            Ok(Some(ScanFile {
-                path: path.clone(),
-                rel: rel_path(root, path)?,
-                lang: *lang,
-            }))
+            Ok(Some(ScanFile { path: path.clone(), rel: rel_path(root, path)?, lang: *lang }))
         })
         .collect();
     let mut files = Vec::with_capacity(results.len());
@@ -339,11 +313,7 @@ pub fn collect_scan_files(root: &Path) -> Result<Vec<ScanFile>, String> {
 }
 
 fn rel_path(root: &Path, path: &Path) -> Result<String, String> {
-    Ok(path
-        .strip_prefix(root)
-        .map_err(|err| format!("path is outside scan root ({}): {err}", path.display()))?
-        .to_string_lossy()
-        .replace('\\', "/"))
+    Ok(path.strip_prefix(root).map_err(|err| format!("path is outside scan root ({}): {err}", path.display()))?.to_string_lossy().replace('\\', "/"))
 }
 
 /// Lexically resolve `.` / `..` in a repo-relative selection. `None` means the
@@ -400,21 +370,12 @@ pub(crate) fn selected_scan_files(root: &Path, files: &[String]) -> Result<Vec<S
     for raw in files {
         let candidate = Path::new(raw);
         let (path, rel) = if candidate.is_absolute() {
-            let normalized = normalize_absolute_selection(candidate).ok_or_else(|| {
-                format!(
-                    "path is outside scan root ({}): escapes the filesystem root",
-                    raw
-                )
-            })?;
+            let normalized =
+                normalize_absolute_selection(candidate).ok_or_else(|| format!("path is outside scan root ({}): escapes the filesystem root", raw))?;
             let rel = rel_path(root, &normalized)?;
             (normalized, rel)
         } else {
-            let parts = normalize_relative_selection(candidate).ok_or_else(|| {
-                format!(
-                    "path is outside scan root ({}): not a file under the root",
-                    raw
-                )
-            })?;
+            let parts = normalize_relative_selection(candidate).ok_or_else(|| format!("path is outside scan root ({}): not a file under the root", raw))?;
             let mut path = root.to_path_buf();
             for part in &parts {
                 path.push(part);
@@ -426,10 +387,7 @@ pub(crate) fn selected_scan_files(root: &Path, files: &[String]) -> Result<Vec<S
         };
         // Missing/unreadable metadata is NOT fatal here: the file stays in the
         // list so the read failure lands in `summary.errors` (exit 0).
-        if fs::metadata(&path)
-            .map(|meta| meta.len() > MAX_FILE_BYTES)
-            .unwrap_or(false)
-        {
+        if fs::metadata(&path).map(|meta| meta.len() > MAX_FILE_BYTES).unwrap_or(false) {
             continue;
         }
         selected.push(ScanFile { path, rel, lang });
@@ -451,39 +409,16 @@ struct FileOutcome {
 fn scan_file(file: &ScanFile, rules: &Rules, include_fix: bool) -> FileOutcome {
     // Skip before any I/O when no rule targets this language at all, or when
     // every rule for it is excluded by its own `files`/`ignores` globs.
-    if !rules.langs.contains(&file.lang)
-        || rules
-            .collection
-            .get_rule_from_lang(Path::new(&file.rel), file.lang)
-            .is_empty()
-    {
-        return FileOutcome {
-            scanned: false,
-            records: Vec::new(),
-            error: None,
-        };
+    if !rules.langs.contains(&file.lang) || rules.collection.get_rule_from_lang(Path::new(&file.rel), file.lang).is_empty() {
+        return FileOutcome { scanned: false, records: Vec::new(), error: None };
     }
     let source = match fs::read_to_string(&file.path) {
         Ok(text) => text,
-        Err(err) => {
-            return FileOutcome {
-                scanned: false,
-                records: Vec::new(),
-                error: Some(format!("{}: read failed: {err}", file.rel)),
-            }
-        }
+        Err(err) => return FileOutcome { scanned: false, records: Vec::new(), error: Some(format!("{}: read failed: {err}", file.rel)) },
     };
     match scan_source(&file.rel, file.lang, &source, rules, include_fix) {
-        Ok(records) => FileOutcome {
-            scanned: true,
-            records,
-            error: None,
-        },
-        Err(err) => FileOutcome {
-            scanned: false,
-            records: Vec::new(),
-            error: Some(format!("{}: {err}", file.rel)),
-        },
+        Ok(records) => FileOutcome { scanned: true, records, error: None },
+        Err(err) => FileOutcome { scanned: false, records: Vec::new(), error: Some(format!("{}: {err}", file.rel)) },
     }
 }
 
@@ -491,12 +426,9 @@ fn emit(records: &[MatchRecord], summary: SummaryLine) -> Result<(), String> {
     let stdout = std::io::stdout();
     let mut handle = std::io::BufWriter::new(stdout.lock());
     crate::write_jsonl(records, "match", &mut handle)?;
-    let line = serde_json::to_string(&summary)
-        .map_err(|err| format!("serialize failed for summary: {err}"))?;
+    let line = serde_json::to_string(&summary).map_err(|err| format!("serialize failed for summary: {err}"))?;
     writeln!(handle, "{line}").map_err(|err| format!("stdout write failed for summary: {err}"))?;
-    handle
-        .flush()
-        .map_err(|err| format!("stdout flush failed: {err}"))
+    handle.flush().map_err(|err| format!("stdout flush failed: {err}"))
 }
 
 struct ScanArgs {
@@ -548,9 +480,7 @@ fn parse_args(args: &[String]) -> Result<ScanArgs, String> {
 pub(crate) fn read_rule_text(spec: &str) -> Result<String, String> {
     let text = if spec == "-" {
         let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(|err| format!("rule stdin read failed: {err}"))?;
+        std::io::stdin().read_to_string(&mut buf).map_err(|err| format!("rule stdin read failed: {err}"))?;
         buf
     } else {
         fs::read_to_string(spec).map_err(|err| format!("rule file read failed ({spec}): {err}"))?
@@ -579,14 +509,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), ScanError> {
     } else {
         selected_scan_files(root, &args.files).map_err(ScanError::Internal)?
     };
-    let outcomes: Vec<FileOutcome> = if rules.is_empty() {
-        Vec::new()
-    } else {
-        files
-            .par_iter()
-            .map(|file| scan_file(file, &rules, args.fix))
-            .collect()
-    };
+    let outcomes: Vec<FileOutcome> = if rules.is_empty() { Vec::new() } else { files.par_iter().map(|file| scan_file(file, &rules, args.fix)).collect() };
     let mut records = Vec::new();
     let mut errors = Vec::new();
     let mut scanned = 0usize;
@@ -601,14 +524,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), ScanError> {
     }
     // Rule-driven, so the count is identical with and without `--fix`.
     let fixable = records.iter().filter(|record| record.rule_fixable).count();
-    let summary = SummaryLine {
-        summary: SummaryBody {
-            files: scanned,
-            matches: records.len(),
-            fixable,
-            errors,
-        },
-    };
+    let summary = SummaryLine { summary: SummaryBody { files: scanned, matches: records.len(), fixable, errors } };
     emit(&records, summary).map_err(ScanError::Internal)
 }
 
@@ -625,12 +541,8 @@ pub fn run_langs() -> Result<(), String> {
             rule_errors: crate::outline::language_rule_errors(info.id),
         })
         .collect();
-    let line = serde_json::to_string(&LangsLine {
-        languages,
-        calls_format: crate::calls::CALLS_FORMAT,
-        rule_errors: crate::outline::rule_errors().to_vec(),
-    })
-    .map_err(|err| format!("serialize failed for languages: {err}"))?;
+    let line = serde_json::to_string(&LangsLine { languages, calls_format: crate::calls::CALLS_FORMAT, rule_errors: crate::outline::rule_errors().to_vec() })
+        .map_err(|err| format!("serialize failed for languages: {err}"))?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(handle, "{line}").map_err(|err| format!("stdout write failed: {err}"))
@@ -649,9 +561,7 @@ mod tests {
     }
 
     fn rule_yaml(id: &str, language: &str, rule: &str) -> String {
-        format!(
-            "id: {id}\nlanguage: {language}\nseverity: warning\nmessage: hit\nrule:\n  {rule}\n"
-        )
+        format!("id: {id}\nlanguage: {language}\nseverity: warning\nmessage: hit\nrule:\n  {rule}\n")
     }
 
     // One match, and its byte offsets must slice exactly the matched text out
@@ -675,125 +585,42 @@ mod tests {
         std::env::temp_dir().join(format!(
             "mixdog-scan-{label}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos()
         ))
     }
 
     fn expected_lang_id(rel: &str) -> &'static str {
-        scan_lang_for_path(Path::new(rel))
-            .expect("fixture has a scan language")
-            .id()
+        scan_lang_for_path(Path::new(rel)).expect("fixture has a scan language").id()
     }
 
     #[test]
     fn pattern_rules_match_across_languages() {
         // pattern rules, one per language family
-        assert_single_match(
-            "a.ts",
-            "const a: number = foo(1);\n",
-            "typescript",
-            "pattern: foo($A)",
-            "foo(1)",
-        );
-        assert_single_match(
-            "a.js",
-            "console.log('hi');\n",
-            "javascript",
-            "pattern: console.log($A)",
-            "console.log('hi')",
-        );
-        assert_single_match(
-            "a.py",
-            "value = 1\nprint(value)\n",
-            "python",
-            "pattern: print($A)",
-            "print(value)",
-        );
-        assert_single_match(
-            "a.rs",
-            "fn main() {\n    let x = foo(1);\n}\n",
-            "rust",
-            "pattern: foo($A)",
-            "foo(1)",
-        );
-        assert_single_match(
-            "a.go",
-            "package main\n\nfunc main() {\n\tfoo(1)\n}\n",
-            "go",
-            "pattern: foo($A)",
-            "foo(1)",
-        );
+        assert_single_match("a.ts", "const a: number = foo(1);\n", "typescript", "pattern: foo($A)", "foo(1)");
+        assert_single_match("a.js", "console.log('hi');\n", "javascript", "pattern: console.log($A)", "console.log('hi')");
+        assert_single_match("a.py", "value = 1\nprint(value)\n", "python", "pattern: print($A)", "print(value)");
+        assert_single_match("a.rs", "fn main() {\n    let x = foo(1);\n}\n", "rust", "pattern: foo($A)", "foo(1)");
+        assert_single_match("a.go", "package main\n\nfunc main() {\n\tfoo(1)\n}\n", "go", "pattern: foo($A)", "foo(1)");
         // C parses a bare `foo($A)` as a declaration, so the call pattern
         // needs statement context — the match is then the statement.
-        assert_single_match(
-            "a.c",
-            "int main(void) {\n  foo(1);\n  return 0;\n}\n",
-            "c",
-            "pattern: foo($A);",
-            "foo(1);",
-        );
-        assert_single_match(
-            "a.cpp",
-            "int main() {\n  bar(2);\n  return 0;\n}\n",
-            "cpp",
-            "pattern: bar($A)",
-            "bar(2)",
-        );
+        assert_single_match("a.c", "int main(void) {\n  foo(1);\n  return 0;\n}\n", "c", "pattern: foo($A);", "foo(1);");
+        assert_single_match("a.cpp", "int main() {\n  bar(2);\n  return 0;\n}\n", "cpp", "pattern: bar($A)", "bar(2)");
         // Objective-C shares C's declaration ambiguity, hence the `;`.
-        assert_single_match(
-            "a.m",
-            "@implementation Thing\n- (void)run {\n  NSLog(@\"x\");\n}\n@end\n",
-            "objc",
-            "pattern: NSLog($A);",
-            "NSLog(@\"x\");",
-        );
-        assert_single_match(
-            "a.zig",
-            "pub fn main() void {\n    foo(1);\n}\n",
-            "zig",
-            "pattern: foo($A)",
-            "foo(1)",
-        );
+        assert_single_match("a.m", "@implementation Thing\n- (void)run {\n  NSLog(@\"x\");\n}\n@end\n", "objc", "pattern: NSLog($A);", "NSLog(@\"x\");");
+        assert_single_match("a.zig", "pub fn main() void {\n    foo(1);\n}\n", "zig", "pattern: foo($A)", "foo(1)");
         assert_single_match("a.r", "x <- foo(1)\n", "r", "pattern: foo($A)", "foo(1)");
     }
 
     #[test]
     fn kind_rules_match_non_programming_languages() {
-        assert_single_match(
-            "a.css",
-            "a {\n  color: red;\n}\n",
-            "css",
-            "kind: declaration",
-            "color: red;",
-        );
-        assert_single_match(
-            "a.yaml",
-            "name: mixdog\n",
-            "yaml",
-            "kind: block_mapping_pair",
-            "name: mixdog",
-        );
-        assert_single_match(
-            "a.md",
-            "# Title\n\ntext\n",
-            "markdown",
-            "kind: atx_heading",
-            "# Title\n",
-        );
+        assert_single_match("a.css", "a {\n  color: red;\n}\n", "css", "kind: declaration", "color: red;");
+        assert_single_match("a.yaml", "name: mixdog\n", "yaml", "kind: block_mapping_pair", "name: mixdog");
+        assert_single_match("a.md", "# Title\n\ntext\n", "markdown", "kind: atx_heading", "# Title\n");
     }
 
     #[test]
     fn kind_rule_matches_typescript_node() {
-        assert_single_match(
-            "a.ts",
-            "class A {}\n",
-            "typescript",
-            "kind: class_declaration",
-            "class A {}",
-        );
+        assert_single_match("a.ts", "class A {}\n", "typescript", "kind: class_declaration", "class A {}");
     }
 
     #[test]
@@ -808,12 +635,7 @@ mod tests {
 
         let with = scan_fixture("a.ts", source, yaml, true);
         assert_eq!(with.len(), 1);
-        let fix = with[0]
-            .fix
-            .as_ref()
-            .expect("fix key present with --fix")
-            .as_ref()
-            .expect("rule has a fix");
+        let fix = with[0].fix.as_ref().expect("fix key present with --fix").as_ref().expect("rule has a fix");
         let [start, end] = fix.byte_offset;
         assert_eq!(&source[start..end], "foo(1)");
         assert_eq!(fix.text, "bar(1)");
@@ -822,12 +644,7 @@ mod tests {
 
     #[test]
     fn fix_is_null_when_rule_has_no_fix() {
-        let records = scan_fixture(
-            "a.py",
-            "print(1)\n",
-            &rule_yaml("no-print", "python", "pattern: print($A)"),
-            true,
-        );
+        let records = scan_fixture("a.py", "print(1)\n", &rule_yaml("no-print", "python", "pattern: print($A)"), true);
         assert_eq!(records.len(), 1);
         let value = serde_json::to_value(&records[0]).expect("serializes");
         assert_eq!(value["fix"], json!(null));
@@ -897,12 +714,7 @@ mod tests {
     fn positions_are_zero_based_rows_and_char_columns() {
         // second line, and a multi-byte prefix so column is chars, not bytes
         let source = "// ★★\nlet x = foo(1);\n";
-        let records = scan_fixture(
-            "a.ts",
-            source,
-            &rule_yaml("pos", "typescript", "pattern: foo($A)"),
-            false,
-        );
+        let records = scan_fixture("a.ts", source, &rule_yaml("pos", "typescript", "pattern: foo($A)"), false);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].range.start.line, 1);
         assert_eq!(records[0].range.start.column, 8);
@@ -962,19 +774,9 @@ mod tests {
 
     #[test]
     fn rule_text_with_a_utf8_bom_still_parses() {
-        let yaml = format!(
-            "\u{feff}{}",
-            rule_yaml("bom", "typescript", "pattern: foo($A)")
-        );
+        let yaml = format!("\u{feff}{}", rule_yaml("bom", "typescript", "pattern: foo($A)"));
         let rules = parse_rules(&strip_bom(yaml)).expect("BOM-prefixed rules parse");
-        let records = scan_source(
-            "a.ts",
-            scan_lang_for_path(Path::new("a.ts")).expect("lang"),
-            "foo(1);\n",
-            &rules,
-            false,
-        )
-        .expect("scan");
+        let records = scan_source("a.ts", scan_lang_for_path(Path::new("a.ts")).expect("lang"), "foo(1);\n", &rules, false).expect("scan");
         assert_eq!(records.len(), 1);
     }
 
@@ -991,12 +793,7 @@ mod tests {
     fn broken_source_reports_no_match_not_a_crash() {
         // Tree-sitter always produces a tree (with ERROR nodes); the scan must
         // simply not match, never panic.
-        let records = scan_fixture(
-            "a.ts",
-            "const = = = ;;;\n",
-            &rule_yaml("broken", "typescript", "pattern: foo($A)"),
-            false,
-        );
+        let records = scan_fixture("a.ts", "const = = = ;;;\n", &rule_yaml("broken", "typescript", "pattern: foo($A)"), false);
         assert!(records.is_empty());
     }
 
@@ -1015,8 +812,7 @@ mod tests {
         assert_eq!(files[0].lang.id(), "typescript");
         assert_eq!(files[1].lang.id(), "python");
 
-        let selected =
-            selected_scan_files(&dir, &["sub/b.py".into(), "notes.txt".into()]).expect("selection");
+        let selected = selected_scan_files(&dir, &["sub/b.py".into(), "notes.txt".into()]).expect("selection");
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rel, "sub/b.py");
 
@@ -1038,31 +834,18 @@ mod tests {
             "../outside.ts".to_string(),
             "src/../../outside.ts".to_string(),
             base.join("outside.ts").to_string_lossy().into_owned(),
-            root.join("..")
-                .join("outside.ts")
-                .to_string_lossy()
-                .into_owned(),
+            root.join("..").join("outside.ts").to_string_lossy().into_owned(),
         ] {
             let selection = selected_scan_files(&root, std::slice::from_ref(&escape));
             assert!(selection.is_err(), "{escape} must be rejected");
         }
 
         // Oversize files are dropped exactly like the walk drops them.
-        assert!(selected_scan_files(&root, &["huge.ts".into()])
-            .expect("selection")
-            .is_empty());
+        assert!(selected_scan_files(&root, &["huge.ts".into()]).expect("selection").is_empty());
 
         // Sorted by path and scanned once even when listed twice.
-        let selected = selected_scan_files(
-            &root,
-            &[
-                "src/b.ts".into(),
-                "./src/a.ts".into(),
-                "src/a.ts".into(),
-                "src/nested/../a.ts".into(),
-            ],
-        )
-        .expect("selection");
+        let selected =
+            selected_scan_files(&root, &["src/b.ts".into(), "./src/a.ts".into(), "src/a.ts".into(), "src/nested/../a.ts".into()]).expect("selection");
         let rels: Vec<&str> = selected.iter().map(|f| f.rel.as_str()).collect();
         assert_eq!(rels, vec!["src/a.ts", "src/b.ts"]);
 
@@ -1079,10 +862,7 @@ mod tests {
         // python file: no rule targets it, so it is never read or counted
         fs::write(dir.join("b.py"), "print(1)\n").expect("write py");
         let files = collect_scan_files(&dir).expect("walk");
-        let outcomes: Vec<FileOutcome> = files
-            .iter()
-            .map(|file| scan_file(file, &rules, true))
-            .collect();
+        let outcomes: Vec<FileOutcome> = files.iter().map(|file| scan_file(file, &rules, true)).collect();
         let scanned = outcomes.iter().filter(|o| o.scanned).count();
         let records: Vec<&MatchRecord> = outcomes.iter().flat_map(|o| o.records.iter()).collect();
         assert_eq!(scanned, 1);

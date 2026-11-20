@@ -14,8 +14,8 @@
 use std::any::Any;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -33,8 +33,8 @@ use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
 use mixdog_core_api::ServerRequestSink;
 use mixdog_core_api::host::LEASE_LAPSED;
-use mixdog_core_api::host::NOT_CLAIMED;
 use mixdog_core_api::host::NO_CLAIMANT;
+use mixdog_core_api::host::NOT_CLAIMED;
 use mixdog_core_api::host::TIMED_OUT;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
@@ -264,10 +264,7 @@ impl Outgoing {
     }
 
     fn all_connections(&self) -> Vec<Arc<Connection>> {
-        self.connections
-            .shards()
-            .flat_map(|shard| shard.values().cloned().collect::<Vec<_>>())
-            .collect()
+        self.connections.shards().flat_map(|shard| shard.values().cloned().collect::<Vec<_>>()).collect()
     }
 
     /// Sends `id` to `conn` if it is eligible and has not received it yet.
@@ -283,9 +280,7 @@ impl Outgoing {
         {
             return;
         }
-        if pending.delivered.contains(&conn.id)
-            || !conn.is_eligible(&pending.thread_feed, &pending.surface_feed)
-        {
+        if pending.delivered.contains(&conn.id) || !conn.is_eligible(&pending.thread_feed, &pending.surface_feed) {
             return;
         }
         if conn.sink.send_control(pending.req.frame.clone()).is_ok() {
@@ -300,16 +295,8 @@ impl Outgoing {
         if self.pending_count.load(Ordering::Acquire) == 0 {
             return;
         }
-        let mut open: Vec<(u64, ServerRequestId)> = self
-            .pending
-            .shards()
-            .flat_map(|shard| {
-                shard
-                    .iter()
-                    .map(|(id, pending)| (pending.order, id.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let mut open: Vec<(u64, ServerRequestId)> =
+            self.pending.shards().flat_map(|shard| shard.iter().map(|(id, pending)| (pending.order, id.clone())).collect::<Vec<_>>()).collect();
         open.sort_unstable();
         for (_, id) in open {
             self.deliver(&id, conn);
@@ -318,46 +305,33 @@ impl Outgoing {
 
     /// The owning thread and the method of `id`, if `from` is a connection the request was delivered to
     /// (P §8.4 step 1: only eligible connections decide).
-    pub(crate) fn owner_for_response(
-        &self,
-        id: &ServerRequestId,
-        from: ConnectionId,
-    ) -> Option<(ThreadId, Method)> {
-        self.pending
-            .shard(id)
-            .get(id)
-            .filter(|pending| pending.delivered.contains(&from))
-            .map(|pending| (pending.req.thread.clone(), pending.req.method))
+    pub(crate) fn owner_for_response(&self, id: &ServerRequestId, from: ConnectionId) -> Option<(ThreadId, Method)> {
+        self.pending.shard(id).get(id).filter(|pending| pending.delivered.contains(&from)).map(|pending| (pending.req.thread.clone(), pending.req.method))
     }
 
     /// Records `conn` as the newest host claimant for what it declared at `initialize`. A
     /// connection holds one claim, and a `hostId` is held by one connection (a reconnecting
     /// desktop replaces its stale claim). `methods` is the `serves` list of `host/claim`: when given, the claimant is
     /// chosen only for the methods in it.
-    pub(crate) fn claim(&self, host: HostId, conn: &Arc<Connection>, methods: Option<HashSet<String>>, resources: Option<mixdog_app_protocol::v2::connections::HostClaimResources>) {
+    pub(crate) fn claim(
+        &self,
+        host: HostId,
+        conn: &Arc<Connection>,
+        methods: Option<HashSet<String>>,
+        resources: Option<mixdog_app_protocol::v2::connections::HostClaimResources>,
+    ) {
         // The claim is queued work: its connection may have closed (and been unregistered) before
         // it runs, and a claim recorded after that would never be forgotten.
         let mut hosts = lock(&self.hosts);
         if self.connection(conn.id).is_none() {
             return;
         }
-        let serves = conn
-            .session()
-            .and_then(|session| session.host.as_ref())
-            .map(serves)
-            .unwrap_or_default();
+        let serves = conn.session().and_then(|session| session.host.as_ref()).map(serves).unwrap_or_default();
         // The new claim attaches before the one it replaces is dropped, so the process is never left
         // between two claims of the same host with nothing attached.
         let attached = self.claim_hook.get().and_then(|hook| hook.claimed(&serves, resources.as_ref()));
         hosts.retain(|claim| claim.host != host && claim.conn.id != conn.id);
-        hosts.push(Claim {
-            host,
-            generation: self.next_claim.fetch_add(1, Ordering::Relaxed),
-            conn: Arc::clone(conn),
-            serves,
-            methods,
-            _attached: attached,
-        });
+        hosts.push(Claim { host, generation: self.next_claim.fetch_add(1, Ordering::Relaxed), conn: Arc::clone(conn), serves, methods, _attached: attached });
     }
 
     /// Whether `id` is a connection that holds a host claim now (a claim ends with its connection).
@@ -368,28 +342,18 @@ impl Outgoing {
     /// Whether `id` is the connection the visualize role is served by now (the latest claim that declared it, as `claimant`
     /// picks it).
     pub(crate) fn is_visualize_claimant(&self, id: ConnectionId) -> bool {
-        lock(&self.hosts)
-            .iter()
-            .rev()
-            .find(|claim| claim.takes(HostCapability::Visualize, None))
-            .is_some_and(|claim| claim.conn.id == id)
+        lock(&self.hosts).iter().rev().find(|claim| claim.takes(HostCapability::Visualize, None)).is_some_and(|claim| claim.conn.id == id)
     }
 
     fn next_host_id(&self) -> RequestId {
-        RequestId::String(format!(
-            "host-{}",
-            self.next_host_request.fetch_add(1, Ordering::Relaxed)
-        ))
+        RequestId::String(format!("host-{}", self.next_host_request.fetch_add(1, Ordering::Relaxed)))
     }
 
     /// The connection serving `capability`: the latest claim that declared it and, for a `method`, listed it or gave no list.
     /// `unsupportedMethod` when a claim serves the capability but none takes the method.
     fn claimant(&self, capability: HostCapability, method: Option<Method>) -> Result<Arc<Connection>, CoreError> {
         if capability == HostCapability::ModelProxy {
-            return lock(&self.model_proxies)
-                .last()
-                .cloned()
-                .ok_or_else(|| desktop_host_unavailable("noClaimant"));
+            return lock(&self.model_proxies).last().cloned().ok_or_else(|| desktop_host_unavailable("noClaimant"));
         }
         let hosts = lock(&self.hosts);
         match select(&hosts, capability, method) {
@@ -426,18 +390,10 @@ impl Outgoing {
         let id = self.next_host_id();
         // A claimant already closed at the register or the send was never handed the request: that is `noClaimant`. Only a loss after
         // the frame went out is `claimantClosed` / `timedOut`, which say the command may have run (`lost_after_dispatch`).
-        let reply = claimant
-            .register_host_request(id.clone(), method)
-            .ok_or_else(|| HostError::from(desktop_host_unavailable(NO_CLAIMANT)))?;
-        let _forget = ForgetOnDrop {
-            conn: Arc::clone(&claimant),
-            id: id.clone(),
-        };
+        let reply = claimant.register_host_request(id.clone(), method).ok_or_else(|| HostError::from(desktop_host_unavailable(NO_CLAIMANT)))?;
+        let _forget = ForgetOnDrop { conn: Arc::clone(&claimant), id: id.clone() };
         let request_id = id.clone();
-        claimant
-            .sink
-            .send_control(request_frame(id, method.as_str(), params))
-            .map_err(|_| HostError::from(desktop_host_unavailable(NO_CLAIMANT)))?;
+        claimant.sink.send_control(request_frame(id, method.as_str(), params)).map_err(|_| HostError::from(desktop_host_unavailable(NO_CLAIMANT)))?;
         let scope = match cancel {
             Some(cancel) => Scope::new().cancel(cancel),
             None => Scope::new(),
@@ -465,11 +421,7 @@ impl Outgoing {
         let hosts = lock(&self.hosts);
         match select(&hosts, capability, Some(method)) {
             Some(claim) => {
-                let identity = mixdog_core_api::HostClaim {
-                    host: claim.host.clone(),
-                    connection: claim.conn.id,
-                    generation: claim.generation,
-                };
+                let identity = mixdog_core_api::HostClaim { host: claim.host.clone(), connection: claim.conn.id, generation: claim.generation };
                 Ok((identity, Arc::clone(&claim.conn)))
             }
             None => Err(no_claim(&hosts, capability)),
@@ -499,10 +451,7 @@ fn method_not_found(reply: Result<Value, HostError>) -> Result<Value, HostError>
     }
 }
 fn desktop_host_unavailable(detail: &str) -> CoreError {
-    CoreError::CapabilityUnavailable {
-        capability: "desktopHost".into(),
-        detail: detail.into(),
-    }
+    CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() }
 }
 
 impl ServerRequestSink for Outgoing {
@@ -543,9 +492,7 @@ impl ServerRequestSink for Outgoing {
                 Some(answer) => answer.error(error),
                 None => error,
             };
-            let _ = conn
-                .sink
-                .send_control(error_notification_frame(&error_data(&error)));
+            let _ = conn.sink.send_control(error_notification_frame(&error_data(&error)));
         }
     }
 }
@@ -622,33 +569,17 @@ impl HostChannel for Outgoing {
         select(&lock(&self.hosts), capability, Some(method)).map(|claim| claim.generation)
     }
 
-    async fn request(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<Value, HostError> {
+    async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
         let claimant = self.claimant(capability, Some(method))?;
         self.ask(claimant, capability, method, params, None).await
     }
 
-    async fn request_scoped(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-        cancel: &CancellationToken,
-    ) -> Result<Value, HostError> {
+    async fn request_scoped(&self, capability: HostCapability, method: Method, params: Value, cancel: &CancellationToken) -> Result<Value, HostError> {
         let claimant = self.claimant(capability, Some(method))?;
         self.ask(claimant, capability, method, params, Some(cancel)).await
     }
 
-    fn notify(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<(), CoreError> {
+    fn notify(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
         self.claimant(capability, Some(method))?
             .sink
             .send_control(notification_frame(method.as_str(), params))
@@ -681,8 +612,7 @@ impl HostChannel for Outgoing {
         let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
             return false;
         };
-        self.connection(from)
-            .is_some_and(|conn| conn.host_stream_event(&id, event))
+        self.connection(from).is_some_and(|conn| conn.host_stream_event(&id, event))
     }
 
     fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
@@ -706,19 +636,11 @@ impl Outgoing {
     ) -> Result<Value, HostError> {
         let claimant = self.claimant(capability, Some(method))?;
         let id = self.next_host_id();
-        let mut stream = claimant
-            .register_host_stream(id.clone(), method)
-            .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
-        let _forget = ForgetOnDrop {
-            conn: Arc::clone(&claimant),
-            id: id.clone(),
-        };
+        let mut stream = claimant.register_host_stream(id.clone(), method).ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+        let _forget = ForgetOnDrop { conn: Arc::clone(&claimant), id: id.clone() };
         let request_id = id.clone();
         let back_id = serde_json::to_value(&id).unwrap_or(Value::Null);
-        claimant
-            .sink
-            .send_control(request_frame(id, method.as_str(), params))
-            .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+        claimant.sink.send_control(request_frame(id, method.as_str(), params)).map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
         // Given up without its answer, the claimant is told to stop in its capability's word, as `ask` does ([`AbandonOnDrop`]:
         // `model/proxy/cancel` for `model/proxy/execute`, the one streamed request); an answer and a closed connection need no word.
         let mut cancel = AbandonOnDrop { conn: Arc::clone(&claimant), id: request_id, capability, answered: false };

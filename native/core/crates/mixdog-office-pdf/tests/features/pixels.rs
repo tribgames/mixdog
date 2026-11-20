@@ -49,7 +49,13 @@ fn raster_of(name: &str, content: &str) -> Image {
     let note: Arc<dyn WriteNote> = Arc::new(Noted(Mutex::new(Vec::new())));
     let runtime = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
     let rendered = runtime
-        .block_on(render_pdf_pages(mixdog_rt::testing::tokens(), Arc::new(Registry::new()), note, &path, RenderPagesOptions { max_width: 200.0, ..RenderPagesOptions::default() }))
+        .block_on(render_pdf_pages(
+            mixdog_rt::testing::tokens(),
+            Arc::new(Registry::new()),
+            note,
+            &path,
+            RenderPagesOptions { max_width: 200.0, ..RenderPagesOptions::default() },
+        ))
         .expect("rendered");
     assert_eq!(rendered.to_json()["images"][0]["width"], 200);
     Image::decode(&std::fs::read(directory.join("page-page-1.png")).expect("the png beside the pdf")).expect("a png")

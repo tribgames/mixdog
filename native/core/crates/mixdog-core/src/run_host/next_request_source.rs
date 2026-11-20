@@ -61,7 +61,7 @@ impl NextRequestSource {
     pub async fn last_sent(&self, thread: &ThreadId) -> Option<LastSent> {
         let (header, material) = self.rebuilt(thread).await?;
         // The kept request is the sent one without its tail reminder.
-    let (request, sent_at) = last_sent_of(mixdog_agent::without_tail_reminder(&material.request), &header)?;
+        let (request, sent_at) = last_sent_of(mixdog_agent::without_tail_reminder(&material.request), &header)?;
         let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
         let owner = text("ownerSessionId");
         let parent = text("parentSessionId");
@@ -176,6 +176,4 @@ impl NextMainRequest for NextRequestSource {
 }
 
 #[cfg(test)]
-mod tests {
-}
-
+mod tests {}

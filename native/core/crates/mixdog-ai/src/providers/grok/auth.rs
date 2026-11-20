@@ -13,8 +13,8 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::keepalive::TransportKind;
+use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -138,9 +138,7 @@ impl StoredTokens {
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// xAI OAuth endpoints must be https on x.ai or a subdomain: a hostile
@@ -181,11 +179,15 @@ fn jwt_payload(token: &str) -> Option<serde_json::Map<String, Value>> {
         return None;
     }
     // `Buffer.from(part, 'base64')` reads either alphabet and ignores padding.
-    let part: String = parts[1].chars().filter(|c| *c != '=').map(|c| match c {
-        '+' => '-',
-        '/' => '_',
-        other => other,
-    }).collect();
+    let part: String = parts[1]
+        .chars()
+        .filter(|c| *c != '=')
+        .map(|c| match c {
+            '+' => '-',
+            '/' => '_',
+            other => other,
+        })
+        .collect();
     let bytes = URL_SAFE_NO_PAD.decode(part).ok()?;
     match serde_json::from_str(&String::from_utf8_lossy(&bytes)).ok()? {
         Value::Object(payload) => Some(payload),
@@ -360,9 +362,9 @@ const EXPIRED_TOKEN_CODES: [&str; 6] = ["token_expired", "expired_token", "acces
 fn has_expired_token_signature(body: &[u8]) -> bool {
     let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let error = &parsed["error"];
-    ["code", "type"].iter().any(|field| {
-        error.get(field).and_then(Value::as_str).is_some_and(|text| EXPIRED_TOKEN_CODES.contains(&text.trim().to_lowercase().as_str()))
-    })
+    ["code", "type"]
+        .iter()
+        .any(|field| error.get(field).and_then(Value::as_str).is_some_and(|text| EXPIRED_TOKEN_CODES.contains(&text.trim().to_lowercase().as_str())))
 }
 
 pub const CALLBACK_PORT: u16 = 56121;
@@ -378,26 +380,13 @@ pub struct GrokLogin {
 }
 
 impl GrokLogin {
-    pub fn new(
-        http: Arc<dyn HttpSend>,
-        file: CredentialFile,
-        authorization_endpoint: &str,
-        token_endpoint: &str,
-    ) -> Result<Self, ProviderError> {
-        Ok(Self {
-            http,
-            file,
-            authorization_endpoint: trusted_xai_endpoint(authorization_endpoint)?,
-            token_endpoint: trusted_xai_endpoint(token_endpoint)?,
-        })
+    pub fn new(http: Arc<dyn HttpSend>, file: CredentialFile, authorization_endpoint: &str, token_endpoint: &str) -> Result<Self, ProviderError> {
+        Ok(Self { http, file, authorization_endpoint: trusted_xai_endpoint(authorization_endpoint)?, token_endpoint: trusted_xai_endpoint(token_endpoint)? })
     }
 }
 
 fn failed(code: &str, message: String) -> LoginFailure {
-    LoginFailure::Failed {
-        code: code.to_owned(),
-        message,
-    }
+    LoginFailure::Failed { code: code.to_owned(), message }
 }
 
 #[cfg(test)]
@@ -423,31 +412,20 @@ mod tests {
 
     #[test]
     fn refresh_form_carries_the_principal_when_known() {
-        let t = StoredTokens {
-            refresh_token: "r&1".into(),
-            principal_type: "user".into(),
-            ..StoredTokens::default()
-        };
-        assert_eq!(
-            refresh_form(&t),
-            format!("grant_type=refresh_token&client_id={CLIENT_ID}&refresh_token=r%261&principal_type=user")
-        );
+        let t = StoredTokens { refresh_token: "r&1".into(), principal_type: "user".into(), ..StoredTokens::default() };
+        assert_eq!(refresh_form(&t), format!("grant_type=refresh_token&client_id={CLIENT_ID}&refresh_token=r%261&principal_type=user"));
     }
 
     /// `expiring = expires_at < now + TOKEN_REFRESH_SKEW_MS` (`grok-oauth.mjs:392`): an expiry exactly at the margin is
     /// not due, one a millisecond inside it is.
     #[test]
     fn expiry_is_due_inside_the_skew() {
-        let t = StoredTokens {
-            expires_at: 1_000_000,
-            ..StoredTokens::default()
-        };
+        let t = StoredTokens { expires_at: 1_000_000, ..StoredTokens::default() };
         assert!(!t.needs_refresh(1_000_000 - REFRESH_SKEW_MS));
         assert!(t.needs_refresh(1_000_000 - REFRESH_SKEW_MS + 1));
         assert!(!t.needs_refresh(0));
         assert!(!StoredTokens::default().needs_refresh(u64::MAX / 2));
     }
-
 
     /// Each Grok request that outlives its timer reads as the real Node function of the same site did
     /// (`sites.grokDiscovery`, `grokRefresh`, `grokCodeExchange`): the refresh and the discovery under their labelled
@@ -481,10 +459,7 @@ mod tests {
         let transport = TimingOut::new();
         let dir = tempfile::tempdir().unwrap();
         let rt = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(
-            dir.path().join("grok-oauth.json"),
-            CredentialIo { read: rt.interactive_io, write: rt.durability_io },
-        );
+        let file = CredentialFile::new(dir.path().join("grok-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
         let login = GrokLogin::new(transport.clone(), file, "https://auth.x.ai/authorize", "https://auth.x.ai/oauth2/token").unwrap();
         let failure = login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
         assert_transport("grokCodeExchange", &transport);
@@ -515,7 +490,6 @@ mod tests {
         assert!(tokens_from_grant(&missing, "https://auth.x.ai/oauth2/token", 0).is_err());
     }
 }
-
 
 /// A failed refresh (`_postRefresh`, `grok-oauth-tokens.mjs:339`): `[grok-oauth] token refresh <status>: <the body,
 /// secrets redacted, its first 200 characters>`; the body's OAuth `error`, lower-cased, is its code (none when it names
@@ -589,13 +563,7 @@ pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens
         error.message = "[grok-oauth] token refresh returned no access token".to_owned();
         return Err(error);
     };
-    let text = |key: &str, fallback: &str| {
-        json.get(key)
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(fallback)
-            .to_owned()
-    };
+    let text = |key: &str, fallback: &str| json.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(fallback).to_owned();
     let now = pace.now_ms();
     let id_token = json.get("id_token").and_then(Value::as_str).unwrap_or_default();
     Ok(StoredTokens {
@@ -749,7 +717,6 @@ impl GrokCredential {
         self
     }
 
-
     /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:328-335`, `:425-428`): before a turn, the proxy origin is warmed,
     /// once per keep-alive window for the process.
     fn preconnect(&self) {
@@ -758,10 +725,7 @@ impl GrokCredential {
 
     /// The identity header value for the signed-in user, once a turn loaded it.
     pub fn user_id(&self) -> Option<String> {
-        self.current
-            .load_full()
-            .map(|t| t.user_id.clone())
-            .filter(|id| !id.is_empty())
+        self.current.load_full().map(|t| t.user_id.clone()).filter(|id| !id.is_empty())
     }
 
     /// The tokens in use: the file's generation when it holds one (another process may have rotated it since this one
@@ -971,10 +935,7 @@ impl PkceProvider for GrokLogin {
         };
         let tokens = tokens_from_grant(&json, self.token_endpoint.as_str(), now_ms())?;
         self.file.keep(&[&tokens.access_token, &tokens.refresh_token]);
-        self.file
-            .replace(saved_document(&tokens))
-            .await
-            .map_err(|_| failed("storage", "the tokens could not be stored".to_owned()))?;
+        self.file.replace(saved_document(&tokens)).await.map_err(|_| failed("storage", "the tokens could not be stored".to_owned()))?;
         Ok((!tokens.email.is_empty()).then_some(tokens.email))
     }
 }

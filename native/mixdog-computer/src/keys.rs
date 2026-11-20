@@ -117,10 +117,7 @@ pub fn named_key(name: &str) -> Result<Key, String> {
         "PRTSC" | "PRINTSCREEN" => Key::Named(Named::PrintScreen),
         "PAUSE" => Key::Named(Named::Pause),
         other => {
-            let number = other
-                .strip_prefix('F')
-                .and_then(|digits| digits.parse::<u8>().ok())
-                .filter(|number| (1..=24).contains(number));
+            let number = other.strip_prefix('F').and_then(|digits| digits.parse::<u8>().ok()).filter(|number| (1..=24).contains(number));
             match number {
                 Some(number) => Key::Named(Named::F(number)),
                 None => return Err(format!("invalid_keys: unsupported key token {{{other}}}")),
@@ -165,10 +162,7 @@ pub fn glyph_key(glyph: char) -> Option<(char, bool)> {
     if PLAIN.contains(glyph) {
         return Some((glyph, false));
     }
-    SHIFTED
-        .iter()
-        .find(|(shifted, _)| *shifted == glyph)
-        .map(|(_, base)| (*base, true))
+    SHIFTED.iter().find(|(shifted, _)| *shifted == glyph).map(|(_, base)| (*base, true))
 }
 
 struct Parser {
@@ -183,11 +177,7 @@ impl Parser {
         if value.encode_utf16().count() > 512 {
             return invalid();
         }
-        Ok(Parser {
-            source,
-            at: 0,
-            cost: 0,
-        })
+        Ok(Parser { source, at: 0, cost: 0 })
     }
 
     fn parse(&mut self, depth: u32, group: bool) -> Result<Vec<Node>, String> {
@@ -203,15 +193,9 @@ impl Parser {
                 self.at += 1;
                 return Ok(nodes);
             }
-            let mut node = Node {
-                repeat: 1,
-                ..Node::default()
-            };
+            let mut node = Node { repeat: 1, ..Node::default() };
             // '#' as the final character is the literal glyph, not the system key.
-            while self.at < self.source.len()
-                && "^%+#".contains(self.source[self.at])
-                && !(self.source[self.at] == '#' && self.at + 1 >= self.source.len())
-            {
+            while self.at < self.source.len() && "^%+#".contains(self.source[self.at]) && !(self.source[self.at] == '#' && self.at + 1 >= self.source.len()) {
                 let modifier = match self.source[self.at] {
                     '^' => Mod::Ctrl,
                     '%' => Mod::Alt,
@@ -232,10 +216,7 @@ impl Parser {
             if token == '(' {
                 node.children = Some(self.parse(depth + 1, true)?);
             } else if token == '{' {
-                if self.at + 1 < self.source.len()
-                    && (self.source[self.at] == '{' || self.source[self.at] == '}')
-                    && self.source[self.at + 1] == '}'
-                {
+                if self.at + 1 < self.source.len() && (self.source[self.at] == '{' || self.source[self.at] == '}') && self.source[self.at + 1] == '}' {
                     node.text = Some(self.source[self.at].to_string());
                     self.at += 2;
                 } else {
@@ -255,9 +236,7 @@ impl Parser {
                     }
                     let mut chars = text.chars();
                     match (chars.next(), chars.next()) {
-                        (Some(glyph), None) if "+^%~()[]".contains(glyph) => {
-                            node.text = Some(glyph.to_string())
-                        }
+                        (Some(glyph), None) if "+^%~()[]".contains(glyph) => node.text = Some(glyph.to_string()),
                         _ => node.key = Some(named_key(&text.to_uppercase())?),
                     }
                 }
@@ -284,22 +263,12 @@ impl Parser {
 /// ResolveTextKey (TaggedKeys.cs:155-170): a character becomes a key through
 /// the keyboard layout, which may demand modifiers the caller never wrote. A
 /// glyph the layout does not map falls back to the US table.
-fn resolve_text_key(
-    node: &mut Node,
-    modifiers: &HashSet<Mod>,
-    layout: Layout,
-) -> Result<(), String> {
-    let glyph = node
-        .text
-        .as_ref()
-        .and_then(|text| text.chars().next())
-        .ok_or_else(|| "invalid_keys: empty key".to_string())?;
+fn resolve_text_key(node: &mut Node, modifiers: &HashSet<Mod>, layout: Layout) -> Result<(), String> {
+    let glyph = node.text.as_ref().and_then(|text| text.chars().next()).ok_or_else(|| "invalid_keys: empty key".to_string())?;
     let (key, mut implied) = match layout(glyph) {
         Some((vk, implied)) => (Key::Vk(vk), implied),
         None => {
-            let (base, shifted) = glyph_key(glyph).ok_or_else(|| {
-                "invalid_keys: character has no modified-key mapping".to_string()
-            })?;
+            let (base, shifted) = glyph_key(glyph).ok_or_else(|| "invalid_keys: character has no modified-key mapping".to_string())?;
             let implied = if shifted { vec![Mod::Shift] } else { Vec::new() };
             (Key::Char(base), implied)
         }
@@ -333,11 +302,7 @@ fn blocked(key: Key, modifiers: &HashSet<Mod>) -> Option<&'static str> {
             return Some("unsafe_key: Command+Q is blocked");
         }
     } else if key == Key::Vk(0x4C) || key == Key::Char('l') {
-        return Some(if cfg!(windows) {
-            "unsafe_key: Win+L is blocked"
-        } else {
-            "unsafe_key: Super+L is blocked"
-        });
+        return Some(if cfg!(windows) { "unsafe_key: Win+L is blocked" } else { "unsafe_key: Super+L is blocked" });
     }
     None
 }
@@ -372,9 +337,7 @@ fn release(keys: impl Iterator<Item = Key>, sink: &mut dyn KeySink) -> Result<()
         }
     }
     match failure {
-        Some(error) => Err(format!(
-            "input_cleanup_unconfirmed: key release failed: {error}"
-        )),
+        Some(error) => Err(format!("input_cleanup_unconfirmed: key release failed: {error}")),
         None => Ok(()),
     }
 }
@@ -406,10 +369,7 @@ fn execute(nodes: &[Node], sink: &mut dyn KeySink, held: &mut HashSet<Mod>) -> R
                 })
             };
         }
-        let released = release(
-            pressed.iter().rev().map(|modifier| Key::Mod(*modifier)),
-            sink,
-        );
+        let released = release(pressed.iter().rev().map(|modifier| Key::Mod(*modifier)), sink);
         for modifier in &pressed {
             held.remove(modifier);
         }
@@ -442,9 +402,7 @@ pub fn held_key(value: &str, layout: Layout) -> Result<(Vec<Mod>, Key), String> 
         }
         resolve_text_key(&mut node, &HashSet::new(), layout)?;
     }
-    let key = node
-        .key
-        .ok_or_else(|| "invalid_keys: a held key must name exactly one key".to_string())?;
+    let key = node.key.ok_or_else(|| "invalid_keys: a held key must name exactly one key".to_string())?;
     Ok((node.modifiers, key))
 }
 
@@ -545,13 +503,7 @@ mod tests {
     }
 
     fn on_german(value: &str) -> (Result<(), String>, Vec<String>) {
-        sent(
-            value,
-            Log {
-                layout: Some(german),
-                ..Log::default()
-            },
-        )
+        sent(value, Log { layout: Some(german), ..Log::default() })
     }
 
     fn run(value: &str) -> Result<Vec<String>, String> {
@@ -580,52 +532,19 @@ mod tests {
 
     #[test]
     fn a_letters_case_names_the_key_not_a_shift() {
-        assert_eq!(
-            run("^S").unwrap(),
-            vec!["down Mod(Ctrl)", "tap Char('s')", "up Mod(Ctrl)"]
-        );
-        assert_eq!(
-            run("^+s").unwrap(),
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Shift)",
-                "tap Char('s')",
-                "up Mod(Shift)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(run("^S").unwrap(), vec!["down Mod(Ctrl)", "tap Char('s')", "up Mod(Ctrl)"]);
+        assert_eq!(run("^+s").unwrap(), vec!["down Mod(Ctrl)", "down Mod(Shift)", "tap Char('s')", "up Mod(Shift)", "up Mod(Ctrl)",]);
     }
 
     #[test]
     fn a_glyph_that_needs_shift_brings_it() {
-        assert_eq!(
-            run("^?").unwrap(),
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Shift)",
-                "tap Char('/')",
-                "up Mod(Shift)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(run("^?").unwrap(), vec!["down Mod(Ctrl)", "down Mod(Shift)", "tap Char('/')", "up Mod(Shift)", "up Mod(Ctrl)",]);
     }
 
     #[test]
     fn hash_holds_the_system_key_and_alone_is_the_glyph() {
-        assert_eq!(
-            run("#r").unwrap(),
-            vec!["down Mod(Super)", "tap Char('r')", "up Mod(Super)"]
-        );
-        assert_eq!(
-            run("^#{RIGHT}").unwrap(),
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Super)",
-                "tap Named(Right)",
-                "up Mod(Super)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(run("#r").unwrap(), vec!["down Mod(Super)", "tap Char('r')", "up Mod(Super)"]);
+        assert_eq!(run("^#{RIGHT}").unwrap(), vec!["down Mod(Ctrl)", "down Mod(Super)", "tap Named(Right)", "up Mod(Super)", "up Mod(Ctrl)",]);
         assert_eq!(run("#").unwrap(), vec!["text #"]);
         assert_eq!(run("a#").unwrap(), vec!["text a", "text #"]);
         assert_eq!(run("{LWIN}").unwrap(), vec!["tap Mod(Super)"]);
@@ -639,15 +558,7 @@ mod tests {
 
     #[test]
     fn groups_share_modifiers() {
-        assert_eq!(
-            run("+(ab)").unwrap(),
-            vec![
-                "down Mod(Shift)",
-                "tap Char('a')",
-                "tap Char('b')",
-                "up Mod(Shift)",
-            ]
-        );
+        assert_eq!(run("+(ab)").unwrap(), vec!["down Mod(Shift)", "tap Char('a')", "tap Char('b')", "up Mod(Shift)",]);
     }
 
     #[test]
@@ -664,27 +575,17 @@ mod tests {
             assert!(events.is_empty(), "{value}");
         }
         let (outcome, events) = us("a{NOPE}");
-        assert_eq!(
-            outcome.unwrap_err(),
-            "invalid_keys: unsupported key token {NOPE}"
-        );
+        assert_eq!(outcome.unwrap_err(), "invalid_keys: unsupported key token {NOPE}");
         assert!(events.is_empty());
         let (outcome, events) = us("a^é");
-        assert_eq!(
-            outcome.unwrap_err(),
-            "invalid_keys: character has no modified-key mapping"
-        );
+        assert_eq!(outcome.unwrap_err(), "invalid_keys: character has no modified-key mapping");
         assert!(events.is_empty());
     }
 
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn the_lock_chord_is_refused_on_the_resolved_key() {
-        let reason = if cfg!(windows) {
-            "unsafe_key: Win+L is blocked"
-        } else {
-            "unsafe_key: Super+L is blocked"
-        };
+        let reason = if cfg!(windows) { "unsafe_key: Win+L is blocked" } else { "unsafe_key: Super+L is blocked" };
         let run: [(&str, fn(&str) -> (Result<(), String>, Vec<String>)); 4] = [
             ("#l", us),
             ("+#L", us),
@@ -701,104 +602,36 @@ mod tests {
 
     #[test]
     fn a_failing_tap_and_release_still_release_every_modifier() {
-        let mut log = Log {
-            fail_tap: true,
-            fail_up: Some(Key::Mod(Mod::Alt)),
-            ..Log::default()
-        };
+        let mut log = Log { fail_tap: true, fail_up: Some(Key::Mod(Mod::Alt)), ..Log::default() };
         let error = send("^%a", &mut log).unwrap_err();
         assert_eq!(error, "input_cleanup_unconfirmed: key release failed: release");
-        assert_eq!(
-            log.events,
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Alt)",
-                "tap Char('a')",
-                "up Mod(Alt)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(log.events, vec!["down Mod(Ctrl)", "down Mod(Alt)", "tap Char('a')", "up Mod(Alt)", "up Mod(Ctrl)",]);
     }
 
     #[test]
     fn the_layout_names_the_key_and_its_modifiers() {
         // German: '/' is Shift+7, '@' is AltGr+Q (Ctrl+Alt).
-        assert_eq!(
-            on_german("^/").1,
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Shift)",
-                "tap Vk(55)",
-                "up Mod(Shift)",
-                "up Mod(Ctrl)",
-            ]
-        );
-        assert_eq!(
-            on_german("^@").1,
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Alt)",
-                "tap Vk(81)",
-                "up Mod(Alt)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(on_german("^/").1, vec!["down Mod(Ctrl)", "down Mod(Shift)", "tap Vk(55)", "up Mod(Shift)", "up Mod(Ctrl)",]);
+        assert_eq!(on_german("^@").1, vec!["down Mod(Ctrl)", "down Mod(Alt)", "tap Vk(81)", "up Mod(Alt)", "up Mod(Ctrl)",]);
         // A modifier the caller wrote, here or on the group, is not pressed twice.
-        assert_eq!(
-            on_german("+(^/)").1,
-            vec![
-                "down Mod(Shift)",
-                "down Mod(Ctrl)",
-                "tap Vk(55)",
-                "up Mod(Ctrl)",
-                "up Mod(Shift)",
-            ]
-        );
+        assert_eq!(on_german("+(^/)").1, vec!["down Mod(Shift)", "down Mod(Ctrl)", "tap Vk(55)", "up Mod(Ctrl)", "up Mod(Shift)",]);
         // The layout's Shift for a capital letter is dropped like the US table's.
-        assert_eq!(
-            on_german("^S").1,
-            vec!["down Mod(Ctrl)", "tap Vk(83)", "up Mod(Ctrl)"]
-        );
+        assert_eq!(on_german("^S").1, vec!["down Mod(Ctrl)", "tap Vk(83)", "up Mod(Ctrl)"]);
         // A glyph the layout does not map falls back to the US table.
-        assert_eq!(
-            on_german("^!").1,
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Shift)",
-                "tap Char('1')",
-                "up Mod(Shift)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(on_german("^!").1, vec!["down Mod(Ctrl)", "down Mod(Shift)", "tap Char('1')", "up Mod(Shift)", "up Mod(Ctrl)",]);
     }
 
     #[test]
     fn held_key_names_one_key() {
-        assert_eq!(
-            held_key("+a", &|_| None).unwrap(),
-            (vec![Mod::Shift], Key::Char('a'))
-        );
-        assert_eq!(
-            held_key("@", &german).unwrap(),
-            (vec![Mod::Ctrl, Mod::Alt], Key::Vk(0x51))
-        );
-        assert_eq!(
-            held_key("ab", &|_| None).unwrap_err(),
-            "invalid_keys: a held key must name exactly one key"
-        );
-        assert_eq!(
-            held_key("{TAB 2}", &|_| None).unwrap_err(),
-            "invalid_keys: a held key cannot be a group or a repeat"
-        );
+        assert_eq!(held_key("+a", &|_| None).unwrap(), (vec![Mod::Shift], Key::Char('a')));
+        assert_eq!(held_key("@", &german).unwrap(), (vec![Mod::Ctrl, Mod::Alt], Key::Vk(0x51)));
+        assert_eq!(held_key("ab", &|_| None).unwrap_err(), "invalid_keys: a held key must name exactly one key");
+        assert_eq!(held_key("{TAB 2}", &|_| None).unwrap_err(), "invalid_keys: a held key cannot be a group or a repeat");
     }
 
     fn hold(value: &str, down: bool, log: &mut Log) -> Result<(), String> {
         let (modifiers, key) = held_key(value, &|glyph| log.resolve_glyph(glyph))?;
-        if down {
-            press(&modifiers, key, log)
-        } else {
-            lift(&modifiers, key, log)
-        }
+        if down { press(&modifiers, key, log) } else { lift(&modifiers, key, log) }
     }
 
     #[test]
@@ -811,24 +644,11 @@ mod tests {
 
     #[test]
     fn a_held_chord_releases_in_reverse_and_reports_a_failed_release() {
-        let mut log = Log {
-            fail_up: Some(Key::Char('a')),
-            ..Log::default()
-        };
+        let mut log = Log { fail_up: Some(Key::Char('a')), ..Log::default() };
         hold("^+a", true, &mut log).unwrap();
         let error = hold("^+a", false, &mut log).unwrap_err();
         assert_eq!(error, "input_cleanup_unconfirmed: key release failed: release");
-        assert_eq!(
-            log.events,
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Shift)",
-                "down Char('a')",
-                "up Char('a')",
-                "up Mod(Shift)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(log.events, vec!["down Mod(Ctrl)", "down Mod(Shift)", "down Char('a')", "up Char('a')", "up Mod(Shift)", "up Mod(Ctrl)",]);
     }
 
     /// A sink whose key down fails for one key.
@@ -854,22 +674,10 @@ mod tests {
         let mut sink = FailDown(Log::default(), Key::Char('a'));
         let error = press(&[Mod::Ctrl, Mod::Alt], Key::Char('a'), &mut sink).unwrap_err();
         assert_eq!(error, "press");
-        assert_eq!(
-            sink.0.events,
-            vec![
-                "down Mod(Ctrl)",
-                "down Mod(Alt)",
-                "down Char('a')",
-                "up Mod(Alt)",
-                "up Mod(Ctrl)",
-            ]
-        );
+        assert_eq!(sink.0.events, vec!["down Mod(Ctrl)", "down Mod(Alt)", "down Char('a')", "up Mod(Alt)", "up Mod(Ctrl)",]);
         let mut sink = FailDown(Log::default(), Key::Mod(Mod::Alt));
         press(&[Mod::Ctrl, Mod::Alt], Key::Char('a'), &mut sink).unwrap_err();
-        assert_eq!(
-            sink.0.events,
-            vec!["down Mod(Ctrl)", "down Mod(Alt)", "up Mod(Alt)", "up Mod(Ctrl)"]
-        );
+        assert_eq!(sink.0.events, vec!["down Mod(Ctrl)", "down Mod(Alt)", "up Mod(Alt)", "up Mod(Ctrl)"]);
     }
 
     #[test]

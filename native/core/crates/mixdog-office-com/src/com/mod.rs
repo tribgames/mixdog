@@ -223,5 +223,4 @@ pub trait ComObject {
     }
 }
 
-
 impl std::error::Error for Error {}

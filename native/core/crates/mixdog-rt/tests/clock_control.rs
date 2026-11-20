@@ -4,7 +4,11 @@
 //! its stderr in order and which the clock's `wait` sees. Every wait has one deadline and names what it waits for; a core ends
 //! when its control connection closes, so no path leaves a process behind.
 #![cfg(feature = "virtual-clock")]
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: the replay side starts the core as a child process and talks to it over std sockets")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "test setup: the replay side starts the core as a child process and talks to it over std sockets"
+)]
 
 use std::io::BufRead;
 use std::io::BufReader;
@@ -170,9 +174,9 @@ fn lane(tokens: LaneTokens, kind: Job) {
         if kind == Job::Cancelled {
             cancel.cancel();
         }
-        let job = tokens.interactive_io.submit(&cancel, move |_| {
-            (kind == Job::Spawning).then(|| mixdog_rt::spawn("from-lane", TaskClass::Control, async { event("from-lane") }))
-        });
+        let job = tokens
+            .interactive_io
+            .submit(&cancel, move |_| (kind == Job::Spawning).then(|| mixdog_rt::spawn("from-lane", TaskClass::Control, async { event("from-lane") })));
         match job.expect("the lane takes the job").await {
             Ok(spawned) => {
                 if let Some(spawned) = spawned {
@@ -718,7 +722,10 @@ fn wait_matches_whole_lines_in_log_order_from_the_cursor() {
     assert_eq!(control.wait(Duration::ZERO, "event alpha"), None, "behind the cursor");
     assert_eq!(control.wait(Duration::ZERO, "event done twice"), Some(done + 1));
     // A missed wait names the awaited line and the lines kept instead.
-    assert_eq!(control.ask("wait 0 event alpha"), format!(r#"missed "event alpha": from the cursor {}, 2 line(s): "event done twice", "event done""#, done + 1));
+    assert_eq!(
+        control.ask("wait 0 event alpha"),
+        format!(r#"missed "event alpha": from the cursor {}, 2 line(s): "event done twice", "event done""#, done + 1)
+    );
     control.cursor(done + 3);
     assert_eq!(control.ask("wait 0 event alpha"), format!(r#"missed "event alpha": no line logged from the cursor {}"#, done + 3));
 }
@@ -763,7 +770,9 @@ fn a_controller_that_closes_during_a_wait_ends_the_core() {
 fn ended_by_a_closed_connection(core: Core, unanswered: &str) {
     let (code, stderr) = core.ended();
     assert_eq!(code, Some(virtual_clock::EXIT_CODE), "the core's stderr: {stderr}");
-    let (_, cause) = stderr.split_once("mixdog virtual clock: the replay closed the control connection (").unwrap_or_else(|| panic!("the core's stderr names the closed connection: {stderr}"));
+    let (_, cause) = stderr
+        .split_once("mixdog virtual clock: the replay closed the control connection (")
+        .unwrap_or_else(|| panic!("the core's stderr names the closed connection: {stderr}"));
     assert!(cause.contains(&format!(") {unanswered}: ")), "the core's stderr names {unanswered:?}: {stderr}");
 }
 
@@ -789,8 +798,18 @@ fn numbers_past_the_wire_bound_end_the_core() {
     let cases: [(&str, String, Option<&str>, String); 6] = [
         ("wall-ms u64::MAX", format!("start {TOKEN} {} 30000", u64::MAX), None, format!("{} is past {max} ms", u64::MAX)),
         ("settle-ms past u64", format!("start {TOKEN} {WALL} 18446744073709551616"), None, format!("18446744073709551616 is past {max} ms")),
-        ("wall-ms 2^53 - 1", format!("start {TOKEN} {max} 30000"), None, format!("wall-ms {max} is past {wall_max} ms, the largest wall clock this core's readers hold")),
-        ("advance past the readers' bound", format!("start {TOKEN} {wall_max} 30000"), Some("advance 1"), format!("advance 1: wall-ms {wall_max} + V 0 + 1 is past {wall_max} ms")),
+        (
+            "wall-ms 2^53 - 1",
+            format!("start {TOKEN} {max} 30000"),
+            None,
+            format!("wall-ms {max} is past {wall_max} ms, the largest wall clock this core's readers hold"),
+        ),
+        (
+            "advance past the readers' bound",
+            format!("start {TOKEN} {wall_max} 30000"),
+            Some("advance 1"),
+            format!("advance 1: wall-ms {wall_max} + V 0 + 1 is past {wall_max} ms"),
+        ),
         ("advance u64::MAX", format!("start {TOKEN} {WALL} 30000"), Some("advance 18446744073709551615"), format!("{} is past {max} ms", u64::MAX)),
         ("wait deadline", format!("start {TOKEN} {WALL} 30000"), Some("wait 9007199254740992 event never"), format!("9007199254740992 is past {max} ms")),
     ];

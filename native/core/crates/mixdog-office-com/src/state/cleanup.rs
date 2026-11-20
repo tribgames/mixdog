@@ -98,9 +98,7 @@ pub(crate) fn close_state(state: &mut SessionState, env: &Env<'_>) -> Cleanup {
     }
     let owns_application = state.ownership == Ownership::Owned && state.owns_application;
     let mut empty = false;
-    if owns_application
-        && let Some(app) = &state.app
-    {
+    if owns_application && let Some(app) = &state.app {
         match office_document_count(app, &state.format) {
             Ok(count) => empty = count == 0,
             Err(error) => errors.push(format!("Application document count unavailable: {}", error.message())),

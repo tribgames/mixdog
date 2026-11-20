@@ -92,7 +92,15 @@ pub(super) async fn build(
         Arc::new(mixdog_core_domains::domains::desktop_residual_b::network_snapshot),
         Arc::new(move || mixdog_core_domains::domains::host::PowerSink::power(&*on_network_change, mixdog_app_protocol::v2::host::PowerEvent::Resume)),
     ));
-    let host = HostService::new(publisher, power.clone(), Arc::new(crate::compose_connections::PowerSinks(vec![power, seams.connections_power.clone()])), seams.notification_clicks.clone(), seams.browser_surfaces.clone(), seams.screen_events.clone(), seams.visualize_panes.clone());
+    let host = HostService::new(
+        publisher,
+        power.clone(),
+        Arc::new(crate::compose_connections::PowerSinks(vec![power, seams.connections_power.clone()])),
+        seams.notification_clicks.clone(),
+        seams.browser_surfaces.clone(),
+        seams.screen_events.clone(),
+        seams.visualize_panes.clone(),
+    );
     services.push(host.clone());
 
     services.push(InstructionsService::new(
@@ -122,10 +130,7 @@ pub(super) async fn build(
     .await
     .map_err(|error| ComposeDomainsError::Build(format!("probing the install: {error:?}")))?;
     let installer = StagedInstaller::new(
-        StagedConfig {
-            data_dir: inputs.paths.data_dir.clone(),
-            package_root: inputs.paths.package_root.clone(),
-        },
+        StagedConfig { data_dir: inputs.paths.data_dir.clone(), package_root: inputs.paths.package_root.clone() },
         tokens.maintenance_io,
         seams.system_proxy.clone(),
         Arc::new(mixdog_scm::exec::Exec::new(inputs.processes.manager())),

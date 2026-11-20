@@ -12,12 +12,7 @@ pub const ISSUE_CAP: usize = 500;
 pub fn office_issue(severity: &str, code: &str, path: &str, message: &str) -> Value {
     Value::object(
         ObjectKind::Ordered,
-        vec![
-            ("severity", Value::string(severity)),
-            ("code", Value::string(code)),
-            ("path", Value::string(path)),
-            ("message", Value::string(message)),
-        ],
+        vec![("severity", Value::string(severity)), ("code", Value::string(code)), ("path", Value::string(path)), ("message", Value::string(message))],
     )
 }
 

@@ -11,26 +11,12 @@ use std::collections::BTreeSet;
 use mixdog_pdf::Guard;
 use mixdog_pdf::fontfile::cmap::bcmap::{BUILT_IN_CMAPS, built_in_cmap_data};
 use mixdog_pdf::fontfile::cmap::{CMap, CMapEncoding, CMapFactory, CMapValue};
-use mixdog_pdf::fontfile::truetype::{
-    CmapMapping, MAC_STANDARD_GLYPH_ORDERING, TrueTypeFont,
-};
-
-
-
-
-
-
-
+use mixdog_pdf::fontfile::truetype::{CmapMapping, MAC_STANDARD_GLYPH_ORDERING, TrueTypeFont};
 
 // ---- the CMap API ------------------------------------------------------------------------------------------------
 
 fn create_stream(text: &str) -> CMap {
-    CMapFactory::create(
-        Some(CMapEncoding::Stream(text.as_bytes())),
-        None,
-        &Guard::unbounded(),
-    )
-    .expect("the CMap parses")
+    CMapFactory::create(Some(CMapEncoding::Stream(text.as_bytes())), None, &Guard::unbounded()).expect("the CMap parses")
 }
 
 #[test]
@@ -61,12 +47,7 @@ fn a_missing_or_unknown_encoding_is_an_error() {
 #[test]
 fn use_cmap_extends_without_overriding() {
     let guard = Guard::unbounded();
-    let cmap = CMapFactory::create(
-        Some(CMapEncoding::Stream(b"1 begincidchar <0020> 7 endcidchar")),
-        Some("UniJIS-UCS2-H"),
-        &guard,
-    )
-    .unwrap();
+    let cmap = CMapFactory::create(Some(CMapEncoding::Stream(b"1 begincidchar <0020> 7 endcidchar")), Some("UniJIS-UCS2-H"), &guard).unwrap();
     assert_eq!(cmap.lookup(0x20), Some(CMapValue::Cid(7)));
     assert!(cmap.lookup(0x21).is_some());
     assert_eq!(cmap.use_cmap.as_ref().map(|parent| parent.built_in), Some(true));
@@ -95,10 +76,7 @@ fn mapping_a_code_again_keeps_its_place() {
     cmap.map_one(2, CMapValue::Cid(1));
     cmap.map_one(1, CMapValue::Cid(2));
     cmap.map_one(2, CMapValue::Cid(3));
-    assert_eq!(
-        cmap.get_map(),
-        vec![(2, CMapValue::Cid(3)), (1, CMapValue::Cid(2))]
-    );
+    assert_eq!(cmap.get_map(), vec![(2, CMapValue::Cid(3)), (1, CMapValue::Cid(2))]);
     assert_eq!(cmap.char_code_of(&CMapValue::Cid(2)), 1);
     assert_eq!(cmap.char_code_of(&CMapValue::Cid(1)), -1);
 }
@@ -111,12 +89,7 @@ fn bfrange_counts_up_the_last_unit_of_the_start_string() {
     assert_eq!(cmap.lookup(1), Some(CMapValue::Str(vec![0, 0xff])));
     assert_eq!(cmap.lookup(2), Some(CMapValue::Str(vec![1, 0])));
     let mut cmap = CMap::new(false);
-    cmap.map_bf_range_to_array(
-        5,
-        9,
-        vec![CMapValue::Cid(1), CMapValue::Str(vec![0x41]), CMapValue::Other],
-    )
-    .unwrap();
+    cmap.map_bf_range_to_array(5, 9, vec![CMapValue::Cid(1), CMapValue::Str(vec![0x41]), CMapValue::Other]).unwrap();
     assert_eq!(cmap.size(), 3);
     assert_eq!(cmap.lookup(6), Some(CMapValue::Str(vec![0x41])));
     assert_eq!(cmap.char_code_of(&CMapValue::Other), -1);
@@ -124,9 +97,7 @@ fn bfrange_counts_up_the_last_unit_of_the_start_string() {
 
 #[test]
 fn read_char_code_follows_the_codespace_ranges() {
-    let cmap = create_stream(
-        "2 begincodespacerange <00> <7f> <8140> <fefe> endcodespacerange",
-    );
+    let cmap = create_stream("2 begincodespacerange <00> <7f> <8140> <fefe> endcodespacerange");
     assert_eq!(cmap.read_char_code(b"A", 0), (0x41, 1));
     assert_eq!(cmap.read_char_code(&[0x81, 0x40], 0), (0x8140, 2));
     // No range holds the code: the code is 0 and one byte is consumed.
@@ -141,11 +112,9 @@ fn read_char_code_follows_the_codespace_ranges() {
 #[test]
 fn the_packed_files_carry_their_wmode_and_codespace() {
     let guard = Guard::unbounded();
-    let vertical =
-        CMapFactory::create(Some(CMapEncoding::Name("UniJIS-UCS2-V")), None, &guard).unwrap();
+    let vertical = CMapFactory::create(Some(CMapEncoding::Name("UniJIS-UCS2-V")), None, &guard).unwrap();
     assert!(vertical.vertical && vertical.built_in);
-    let horizontal =
-        CMapFactory::create(Some(CMapEncoding::Name("UniJIS-UCS2-H")), None, &guard).unwrap();
+    let horizontal = CMapFactory::create(Some(CMapEncoding::Name("UniJIS-UCS2-H")), None, &guard).unwrap();
     assert!(!horizontal.vertical);
     // The vertical file extends the horizontal one.
     assert!(vertical.use_cmap.is_some());
@@ -220,7 +189,7 @@ fn glyf_table() -> Vec<u8> {
     let simple: [u8; 20] = [
         0, 1, 0, 0, 0, 0, 0, 10, 0, 10, // header: one contour, the box
         0, 0, // end point of the contour
-        0, 0, // no instructions
+        0, 0,    // no instructions
         0x01, // flag: on curve, two bytes each for x and y
         0, 0, 0, 0, // the coordinates
         0, // padding
@@ -460,13 +429,7 @@ fn pairs(mappings: &[CmapMapping]) -> Vec<(i64, i64)> {
 fn the_table_directory_keeps_valid_tables_with_data() {
     let font = build_font(
         b"\0\x01\0\0",
-        &[
-            ("head", head_table(1000, 0, 0, 0)),
-            ("xxxx", vec![1, 2, 3, 4]),
-            ("hhea", Vec::new()),
-            ("maxp", maxp_table(5)),
-            ("head", head_table(2048, 0, 0, 0)),
-        ],
+        &[("head", head_table(1000, 0, 0, 0)), ("xxxx", vec![1, 2, 3, 4]), ("hhea", Vec::new()), ("maxp", maxp_table(5)), ("head", head_table(2048, 0, 0, 0))],
         0,
     );
     let font = parse(&font);
@@ -495,31 +458,11 @@ fn an_empty_or_garbage_file_has_no_tables() {
 #[test]
 fn cmap_formats_0_4_6_12_and_2_read_their_mappings() {
     let cases: Vec<(Vec<u8>, Vec<(i64, i64)>, bool)> = vec![
-        (
-            format0(&[(0x41, 1), (0x42, 2), (0x20, 3)]),
-            vec![(0x20, 3), (0x41, 1), (0x42, 2)],
-            true,
-        ),
-        (
-            format4_delta(),
-            vec![(0x41, 1), (0x42, 2), (0x43, 3)],
-            false,
-        ),
-        (
-            format4_range_offset(),
-            vec![(0x30, 7), (0x31, 8), (0x32, 9)],
-            false,
-        ),
-        (
-            format6(0x20, &[5, 6, 7]),
-            vec![(0x20, 5), (0x21, 6), (0x22, 7)],
-            false,
-        ),
-        (
-            format12(&[(0x1f600, 0x1f602, 10), (0x41, 0x41, 4)]),
-            vec![(0x41, 4), (0x1f600, 10), (0x1f601, 11), (0x1f602, 12)],
-            false,
-        ),
+        (format0(&[(0x41, 1), (0x42, 2), (0x20, 3)]), vec![(0x20, 3), (0x41, 1), (0x42, 2)], true),
+        (format4_delta(), vec![(0x41, 1), (0x42, 2), (0x43, 3)], false),
+        (format4_range_offset(), vec![(0x30, 7), (0x31, 8), (0x32, 9)], false),
+        (format6(0x20, &[5, 6, 7]), vec![(0x20, 5), (0x21, 6), (0x22, 7)], false),
+        (format12(&[(0x1f600, 0x1f602, 10), (0x41, 0x41, 4)]), vec![(0x41, 4), (0x1f600, 10), (0x1f601, 11), (0x1f602, 12)], false),
     ];
     for (subtable, expected, short) in cases {
         let font = parse(&font_with_cmap(cmap_table(&[(3, 1, subtable)])));
@@ -553,11 +496,7 @@ fn a_cmap_format_pdfjs_cannot_read_gives_no_mappings() {
 
 #[test]
 fn the_first_mapping_of_a_repeated_code_is_kept_and_the_result_is_sorted() {
-    let font = parse(&font_with_cmap(cmap_table(&[(
-        3,
-        1,
-        format12(&[(0x50, 0x51, 5), (0x40, 0x41, 1), (0x41, 0x41, 99)]),
-    )])));
+    let font = parse(&font_with_cmap(cmap_table(&[(3, 1, format12(&[(0x50, 0x51, 5), (0x40, 0x41, 1), (0x41, 0x41, 99)]))])));
     let cmap = font.read_cmap_table(false, false).unwrap();
     assert_eq!(pairs(&cmap.mappings), [(0x40, 1), (0x41, 2), (0x50, 5), (0x51, 6)]);
 }
@@ -616,13 +555,7 @@ fn a_cmap_cut_short_reads_what_is_there() {
 
 #[test]
 fn post_glyph_names() {
-    let with_post = |post: Vec<u8>| {
-        parse(&build_font(
-            b"\0\x01\0\0",
-            &[("head", head_table(1000, 0, 0, 0)), ("post", post)],
-            0,
-        ))
-    };
+    let with_post = |post: Vec<u8>| parse(&build_font(b"\0\x01\0\0", &[("head", head_table(1000, 0, 0, 0)), ("post", post)], 0));
     let font = with_post(post_table(0x0001_0000, &[], &[]));
     let post = font.read_post_script_table(5).unwrap();
     assert!(post.valid);
@@ -634,15 +567,7 @@ fn post_glyph_names() {
     let font = with_post(post_table(0x0002_0000, &[0, 36, 258, 260], &["foo", "bar", "baz"]));
     let post = font.read_post_script_table(4).unwrap();
     assert!(post.valid);
-    assert_eq!(
-        post.glyph_names.unwrap(),
-        [
-            Some(".notdef".to_owned()),
-            Some("A".to_owned()),
-            Some("foo".to_owned()),
-            Some("baz".to_owned())
-        ]
-    );
+    assert_eq!(post.glyph_names.unwrap(), [Some(".notdef".to_owned()), Some("A".to_owned()), Some("foo".to_owned()), Some("baz".to_owned())]);
     // A glyph count that is not maxp's makes the table invalid, with no names.
     let post = font.read_post_script_table(5).unwrap();
     assert!(!post.valid && post.glyph_names.is_none() && !post.unsupported_version);
@@ -686,9 +611,7 @@ fn the_name_table_gives_ascii_and_utf16_names_for_mac_and_windows_records() {
 
 #[test]
 fn os2_tables_are_validated_as_pdfjs_validates_them() {
-    let validate = |os2: Vec<u8>| {
-        parse(&build_font(b"\0\x01\0\0", &[("OS/2", os2)], 0)).validate_os2_table()
-    };
+    let validate = |os2: Vec<u8>| parse(&build_font(b"\0\x01\0\0", &[("OS/2", os2)], 0)).validate_os2_table();
     assert!(validate(os2_table(0, 0, 0x20, 0x7e, 800, 78)));
     assert!(validate(os2_table(1, 0, 0x20, 0x7e, 800, 86)));
     assert!(validate(os2_table(5, 0x0300, 0x20, 0x7e, 800, 100)));
@@ -712,11 +635,7 @@ fn metrics_come_from_head_and_hhea() {
     assert!((metrics.descent_ratio() + 0.2).abs() < 1e-12);
     assert!(metrics.line_gap_ratio().abs() < 1e-12);
     // A head table that is too short has no unitsPerEm: the ratios are NaN.
-    let short = parse(&build_font(
-        b"\0\x01\0\0",
-        &[("head", vec![0; 10]), ("hhea", hhea_table(800, -200, 0))],
-        0,
-    ));
+    let short = parse(&build_font(b"\0\x01\0\0", &[("head", vec![0; 10]), ("hhea", hhea_table(800, -200, 0))], 0));
     let metrics = short.metrics_override().unwrap();
     assert_eq!(metrics.units_per_em, None);
     assert!(metrics.ascent_ratio().is_nan());
@@ -729,10 +648,7 @@ fn glyphs_without_data_are_missing() {
     assert_eq!(info.num_glyphs, 5);
     assert!(!info.is_glyph_locations_long);
     // Glyph 1 has no bytes; glyph 3 is a composite that contains itself and loses its only component.
-    assert_eq!(
-        info.missing_glyphs.as_deref(),
-        Some(&[false, true, false, true, false][..])
-    );
+    assert_eq!(info.missing_glyphs.as_deref(), Some(&[false, true, false, true, false][..]));
     assert!(info.has_glyph(0) && !info.has_glyph(1) && !info.has_glyph(3) && info.has_glyph(4));
     // A glyph id outside the font is "not missing" (`!undefined`), as in pdf.js.
     assert!(info.has_glyph(99) && info.has_glyph(-1));
@@ -754,10 +670,7 @@ fn long_glyph_locations_give_the_same_answer() {
     );
     let info = parse(&font).glyph_info(None).unwrap();
     assert!(info.is_glyph_locations_long);
-    assert_eq!(
-        info.missing_glyphs.as_deref(),
-        Some(&[false, true, false, true, false][..])
-    );
+    assert_eq!(info.missing_glyphs.as_deref(), Some(&[false, true, false, true, false][..]));
 }
 
 #[test]
@@ -782,14 +695,7 @@ fn a_short_loca_table_is_read_with_zeros_after_its_end() {
 
 /// A font with the given `maxp`, `head` and `loca`, and `skip` left out.
 fn font_of(skip: &str, maxp: Vec<u8>, head: Vec<u8>, loca: Vec<u8>) -> TrueTypeFont {
-    let all = [
-        ("head", head),
-        ("hhea", hhea_table(0, 0, 0)),
-        ("hmtx", vec![0; 4]),
-        ("maxp", maxp),
-        ("loca", loca),
-        ("glyf", glyf_table()),
-    ];
+    let all = [("head", head), ("hhea", hhea_table(0, 0, 0)), ("hmtx", vec![0; 4]), ("maxp", maxp), ("loca", loca), ("glyf", glyf_table())];
     let kept: Vec<(&str, Vec<u8>)> = all.into_iter().filter(|(tag, _)| *tag != skip).collect();
     parse(&build_font(b"\0\x01\0\0", &kept, 0))
 }
@@ -859,11 +765,7 @@ fn collection(names: &[&str]) -> Vec<u8> {
     let mut at = header_len;
     for name in names {
         let table = name_table(&[(1, 0, 0, 4, name.as_bytes())]);
-        let font = build_font(
-            b"\0\x01\0\0",
-            &[("name", table), ("head", head_table(1000, 0, 0, 0))],
-            at,
-        );
+        let font = build_font(b"\0\x01\0\0", &[("name", table), ("head", head_table(1000, 0, 0, 0))], at);
         offsets.push(at as u32);
         at += font.len() + 16 + 4 * 4;
         let mut padded = font;
@@ -914,8 +816,4 @@ fn every_predefined_cmap_ships_its_data_under_its_own_unique_name() {
 
 // ---- the fonts of the corpus PDFs --------------------------------------------------------------------------------
 
-
-
-
 // ---- the recorded CMaps ------------------------------------------------------------------------------------------
-

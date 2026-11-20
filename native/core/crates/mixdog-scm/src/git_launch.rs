@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-
 /// The wrapper's compile-time MSYSTEM, lower-cased, names its binary directory.
 const MSYSTEM_DIRECTORIES: [&str; 3] = ["mingw64", "clangarm64", "mingw32"];
 
@@ -206,10 +205,7 @@ fn is_system_directory(path: &str, system_root: &str) -> bool {
 
 /// `SystemRoot || windir || 'C:\Windows'` of this process.
 fn process_system_root() -> String {
-    ["SystemRoot", "windir"]
-        .iter()
-        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
-        .unwrap_or_else(|| "C:\\Windows".to_owned())
+    ["SystemRoot", "windir"].iter().find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty())).unwrap_or_else(|| "C:\\Windows".to_owned())
 }
 
 /// `gitLaunchEnvironment(layout, base)`: `base` as the launcher would hand it to the real git
@@ -316,7 +312,12 @@ mod launch_tests {
     }
 
     fn layout(msys_config: &[&str]) -> Layout {
-        Layout { command: "C:\\Git\\mingw64\\bin\\git.exe".into(), root: "C:\\Git".into(), msystem: "MINGW64".into(), msys_config: msys_config.iter().map(|s| (*s).to_owned()).collect() }
+        Layout {
+            command: "C:\\Git\\mingw64\\bin\\git.exe".into(),
+            root: "C:\\Git".into(),
+            msystem: "MINGW64".into(),
+            msys_config: msys_config.iter().map(|s| (*s).to_owned()).collect(),
+        }
     }
 
     /// Only Windows has a launcher to bypass: elsewhere, whatever PATH holds, plain `git` is started.

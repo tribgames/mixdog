@@ -29,17 +29,10 @@ impl SpeedTier {
     }
 
     pub(crate) fn from_row(row: &Value) -> Self {
-        row.get("speedTier")
-            .and_then(Value::as_str)
-            .and_then(Self::from_name)
-            .unwrap_or_else(|| {
-                // Older aggregates can attest to Fast, but not distinguish it from Ultra Fast.
-                if is_true(row.get("fast")) {
-                    Self::Fast
-                } else {
-                    Self::Standard
-                }
-            })
+        row.get("speedTier").and_then(Value::as_str).and_then(Self::from_name).unwrap_or_else(|| {
+            // Older aggregates can attest to Fast, but not distinguish it from Ultra Fast.
+            if is_true(row.get("fast")) { Self::Fast } else { Self::Standard }
+        })
     }
 
     pub(crate) fn put_fields(self, row: &mut serde_json::Map<String, Value>) {
@@ -88,30 +81,17 @@ impl rusqlite::types::FromSql for SpeedTier {
 
 /// A finite positive number, else 0.
 pub fn num(value: f64) -> f64 {
-    if value.is_finite() && value > 0.0 {
-        value
-    } else {
-        0.0
-    }
+    if value.is_finite() && value > 0.0 { value } else { 0.0 }
 }
 
 /// `value || 0` for a JSON number.
 pub fn json_or_zero(value: Option<&Value>) -> f64 {
-    value
-        .and_then(Value::as_f64)
-        .filter(|n| !n.is_nan())
-        .unwrap_or(0.0)
+    value.and_then(Value::as_f64).filter(|n| !n.is_nan()).unwrap_or(0.0)
 }
 
 pub use mixdog_js::json_number as js_number;
 
-const BACKGROUND_SOURCES: [&str; 5] = [
-    "memory-cycle",
-    "schedule",
-    "webhook",
-    "native-web-search",
-    "cache-warm",
-];
+const BACKGROUND_SOURCES: [&str; 5] = ["memory-cycle", "schedule", "webhook", "native-web-search", "cache-warm"];
 
 /// A turn belongs to the user's conversation unless it came from a background runner. An
 /// unknown source counts as conversation on purpose.
@@ -178,10 +158,7 @@ pub struct Ordered<V> {
 
 impl<V> Default for Ordered<V> {
     fn default() -> Self {
-        Self {
-            index: std::collections::HashMap::new(),
-            items: Vec::new(),
-        }
+        Self { index: std::collections::HashMap::new(), items: Vec::new() }
     }
 }
 
@@ -264,9 +241,7 @@ pub fn amount(value: Option<&Value>) -> f64 {
 
 /// A string value trimmed like `String.prototype.trim`; anything else is empty.
 pub fn trimmed(value: Option<&Value>) -> String {
-    value
-        .and_then(Value::as_str)
-        .map_or_else(String::new, |s| mixdog_js::js_trim(s).to_string())
+    value.and_then(Value::as_str).map_or_else(String::new, |s| mixdog_js::js_trim(s).to_string())
 }
 
 /// `value === true`.
@@ -292,16 +267,10 @@ pub fn round_to(value: f64, digits: i32) -> f64 {
 
 /// Orders model rows by each model's combined fields (descending, in order), keeping a
 /// model's speed tiers together in Standard, Fast, Ultra Fast order.
-pub(crate) fn sort_model_tiers(
-    rows: &mut [Value],
-    model_of: impl Fn(&Value) -> String,
-    fields: &[&str],
-) {
+pub(crate) fn sort_model_tiers(rows: &mut [Value], model_of: impl Fn(&Value) -> String, fields: &[&str]) {
     let mut sums: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     for row in rows.iter() {
-        let sum = sums
-            .entry(model_of(row))
-            .or_insert_with(|| vec![0.0; fields.len()]);
+        let sum = sums.entry(model_of(row)).or_insert_with(|| vec![0.0; fields.len()]);
         for (index, field) in fields.iter().enumerate() {
             sum[index] += row.get(*field).and_then(Value::as_f64).unwrap_or(f64::NAN);
         }
@@ -309,11 +278,8 @@ pub(crate) fn sort_model_tiers(
     rows.sort_by(|a, b| {
         let (x, y) = (&sums[&model_of(a)], &sums[&model_of(b)]);
         if let Some(lead) = (0..fields.len()).find(|i| y[*i] != x[*i]) {
-            return (y[lead] - x[lead])
-                .partial_cmp(&0.0)
-                .unwrap_or(Ordering::Equal);
+            return (y[lead] - x[lead]).partial_cmp(&0.0).unwrap_or(Ordering::Equal);
         }
-        mixdog_js::locale_compare(&model_of(a), &model_of(b))
-            .then_with(|| SpeedTier::from_row(a).cmp(&SpeedTier::from_row(b)))
+        mixdog_js::locale_compare(&model_of(a), &model_of(b)).then_with(|| SpeedTier::from_row(a).cmp(&SpeedTier::from_row(b)))
     });
 }

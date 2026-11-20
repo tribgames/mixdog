@@ -74,11 +74,7 @@ fn missing_row_message(table: &Com, table_number: &Value, row: i32, operation: &
     let rows = super::count_of_collection(&table.member("Rows")?)?;
     let mut message = format!("DOCX table {} is {}, so it has no row {row}", text_of(table_number), table_summary(table)?);
     if operation == "insert_table_row" {
-        message.push_str(&format!(
-            ": insert_table_row row is the position the new row takes, 1 to {} ({} adds it at the end)",
-            rows + 1,
-            rows + 1
-        ));
+        message.push_str(&format!(": insert_table_row row is the position the new row takes, 1 to {} ({} adds it at the end)", rows + 1, rows + 1));
     }
     Ok(message.replace("table  is", "table is"))
 }
@@ -184,9 +180,10 @@ fn set_column_alignments(table: &Com, alignments: &Value) -> Result<()> {
         let listed: Vec<Value> = codes.iter().map(|code| Value::Int(*code)).collect();
         let name = collate::groups_by_count_descending(&listed).first().map(|group| group.name.clone()).unwrap_or_default();
         shared = Some(convert::to_int(&Value::String(name)).map_err(Error::host)?);
-        let whole = table.member("Range").and_then(|range| range.member("ParagraphFormat")).and_then(|format| {
-            format.set_member("Alignment", Com::I4(shared.unwrap_or(0)))
-        });
+        let whole = table
+            .member("Range")
+            .and_then(|range| range.member("ParagraphFormat"))
+            .and_then(|format| format.set_member("Alignment", Com::I4(shared.unwrap_or(0))));
         if whole.is_err() {
             shared = None;
         }
@@ -292,7 +289,8 @@ fn line_pitch(size: f32) -> Com {
 /// The column widths of an unsized table: the portable writer's rule (naturalTableColumnWidths) on Word's own measure.
 fn share_column_widths(table: &Com, columns: i32) -> Result<()> {
     let setup = super::item(&table.member("Range")?.member("Sections")?, 1)?.member("PageSetup")?;
-    let usable: f32 = super::single(&setup.member("PageWidth")?)? - super::single(&setup.member("LeftMargin")?)? - super::single(&setup.member("RightMargin")?)?;
+    let usable: f32 =
+        super::single(&setup.member("PageWidth")?)? - super::single(&setup.member("LeftMargin")?)? - super::single(&setup.member("RightMargin")?)?;
     table.member("Columns")?.call_member("AutoFit", &[])?;
     let mut natural: Vec<f64> = Vec::new();
     for column in 1..=columns {
@@ -402,8 +400,13 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     // The header rows are set apart by weight unless the caller says otherwise.
     if rows > 1 && !eq_false(&prop(&props, "headerBold")) && !eq_false(&repeat_header) {
         for row in 1..=header_rows {
-            let _ = super::item(&table.member("Rows")?, row).and_then(|found| found.member("Cells")).and_then(|cells| cells.set_member("VerticalAlignment", Com::I4(3)));
-            let _ = super::item(&table.member("Rows")?, row).and_then(|found| found.member("Range")).and_then(|range| range.member("Font")).and_then(|font| font.set_member("Bold", Com::I4(-1)));
+            let _ = super::item(&table.member("Rows")?, row)
+                .and_then(|found| found.member("Cells"))
+                .and_then(|cells| cells.set_member("VerticalAlignment", Com::I4(3)));
+            let _ = super::item(&table.member("Rows")?, row)
+                .and_then(|found| found.member("Range"))
+                .and_then(|range| range.member("Font"))
+                .and_then(|font| font.set_member("Bold", Com::I4(-1)));
         }
     }
     // A style the document does not hold draws the default rules too, as the portable writer does.
@@ -434,9 +437,7 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
         for column in 2..=columns.min(alignments.len() as i32) {
             if alignments[(column - 2) as usize] == "right" && matches!(alignments[(column - 1) as usize].as_str(), "left" | "justify") {
                 for row in 1..=rows {
-                    let _ = table
-                        .call_member("Cell", &[Com::I4(row), Com::I4(column)])
-                        .and_then(|cell| cell.set_member("LeftPadding", Com::R4(13.4)));
+                    let _ = table.call_member("Cell", &[Com::I4(row), Com::I4(column)]).and_then(|cell| cell.set_member("LeftPadding", Com::R4(13.4)));
                 }
             }
         }
@@ -559,11 +560,7 @@ pub(super) fn set_table_style(document: &Obj, op: &Value) -> Result<Value> {
     if truthy(&prop(&props, "shading")) {
         table.member("Shading")?.set_member("BackgroundPatternColor", color_of(&prop(&props, "shading"))?)?;
     }
-    let mut pairs = vec![
-        ("op", Value::string("set_table_style")),
-        ("changed", Value::Bool(true)),
-        ("table", Value::Int(cast_int(&prop(op, "table"))?)),
-    ];
+    let mut pairs = vec![("op", Value::string("set_table_style")), ("changed", Value::Bool(true)), ("table", Value::Int(cast_int(&prop(op, "table"))?))];
     if let Some(missing) = style_not_found {
         pairs.push(("styleNotFound", Value::String(missing)));
     }
@@ -668,11 +665,7 @@ pub(super) fn insert_table_row(document: &Obj, op: &Value) -> Result<Value> {
     } else {
         table.member("Rows")?.call_member("Add", &[])?;
     }
-    Ok(ordered(vec![
-        ("op", Value::string("insert_table_row")),
-        ("changed", Value::Bool(true)),
-        ("rows", answered(&table.member("Rows")?.member("Count")?)?),
-    ]))
+    Ok(ordered(vec![("op", Value::string("insert_table_row")), ("changed", Value::Bool(true)), ("rows", answered(&table.member("Rows")?.member("Count")?)?)]))
 }
 
 /// `delete_table_row`.
@@ -683,11 +676,7 @@ pub(super) fn delete_table_row(document: &Obj, op: &Value) -> Result<Value> {
         return Err(Error::host(missing_row_message(&table, &prop(op, "table"), cast_int(&prop(op, "row"))?, "delete_table_row")?));
     }
     super::item(&table.member("Rows")?, cast_int(&prop(op, "row"))?)?.call_member("Delete", &[])?;
-    Ok(ordered(vec![
-        ("op", Value::string("delete_table_row")),
-        ("changed", Value::Bool(true)),
-        ("rows", answered(&table.member("Rows")?.member("Count")?)?),
-    ]))
+    Ok(ordered(vec![("op", Value::string("delete_table_row")), ("changed", Value::Bool(true)), ("rows", answered(&table.member("Rows")?.member("Count")?)?)]))
 }
 
 /// `insert_table_column`: column is the position the new column takes, before the column there now, or at the end for one
@@ -732,11 +721,7 @@ pub(super) fn delete_table_column(document: &Obj, op: &Value) -> Result<Value> {
 pub(super) fn fit_table(document: &Obj, op: &Value) -> Result<Value> {
     let table = super::item(&document.get("Tables")?, cast_int(&prop(op, "table"))?)?;
     table.call_member("AutoFitBehavior", &[Com::I4(2)])?;
-    Ok(ordered(vec![
-        ("op", Value::string("fit_table")),
-        ("changed", Value::Bool(true)),
-        ("table", Value::Int(cast_int(&prop(op, "table"))?)),
-    ]))
+    Ok(ordered(vec![("op", Value::string("fit_table")), ("changed", Value::Bool(true)), ("table", Value::Int(cast_int(&prop(op, "table"))?))]))
 }
 
 #[cfg(test)]

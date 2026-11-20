@@ -37,10 +37,7 @@ fn fnv(units: &[u16]) -> u32 {
 }
 
 fn hex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
-        .collect()
+    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
 }
 
 fn state_json(state: Option<ActivityState>) -> Value {
@@ -113,12 +110,7 @@ fn output_pipeline_matches_terminal_manager() {
     for scenario in recorded["scenarios"].as_array().unwrap() {
         let name = scenario["name"].as_str().unwrap();
         let options = &scenario["options"];
-        let mut pipe = Pipeline::new(
-            options["integrated"] != json!(false),
-            options["inferStart"] == json!(true),
-            start,
-            limit,
-        );
+        let mut pipe = Pipeline::new(options["integrated"] != json!(false), options["inferStart"] == json!(true), start, limit);
         if scenario.get("burst").is_some() {
             let bytes = burst();
             assert_eq!(bytes.len() as u64, scenario["burst"]["bytes"].as_u64().unwrap());
@@ -211,12 +203,8 @@ fn shell_integration_plans_match_the_node_twin() {
     // The startup files of bash and zsh are written byte for byte as the Node twin writes them.
     let shell = &recorded["shellFiles"];
     let files_root = scratch_dir("plans-files");
-    let bash = plan_shell_integration(
-        &SpawnProfile { path: "/bin/bash".into(), args: vec!["-i".into()], env: vec![] },
-        Some(files_root.as_path()),
-        &|_| None,
-        false,
-    );
+    let bash =
+        plan_shell_integration(&SpawnProfile { path: "/bin/bash".into(), args: vec!["-i".into()], env: vec![] }, Some(files_root.as_path()), &|_| None, false);
     assert_eq!(bash.integration, Some(Integration::Bash));
     let shape: Vec<&str> = bash.args.iter().enumerate().map(|(i, a)| if i == 1 { "<script>" } else { a.as_str() }).collect();
     let want: Vec<&str> = shell["bashArgsShape"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
@@ -345,11 +333,7 @@ async fn terminal_commands_behave_like_the_node_twin() {
                 .map(|(id, s)| {
                     (
                         id.clone(),
-                        Replay {
-                            text: s["text"].as_str().unwrap().to_owned(),
-                            cursor: s["cursor"].as_u64().unwrap(),
-                            reset: s["reset"].as_bool().unwrap(),
-                        },
+                        Replay { text: s["text"].as_str().unwrap().to_owned(), cursor: s["cursor"].as_u64().unwrap(), reset: s["reset"].as_bool().unwrap() },
                     )
                 })
                 .collect(),
@@ -538,10 +522,7 @@ async fn reporting_profile(tabs: &TerminalTabs) -> SpawnProfile {
     for profile in tabs.profiles().await {
         listed.push(tabs.resolve_profile(&profile.id).await.expect("a listed profile resolves"));
     }
-    listed
-        .into_iter()
-        .find(reports_activity)
-        .expect("this machine has a shell with terminal integration (PowerShell, bash, zsh or cmd)")
+    listed.into_iter().find(reports_activity).expect("this machine has a shell with terminal integration (PowerShell, bash, zsh or cmd)")
 }
 
 async fn rig_with(name: &str, set: impl FnOnce(&mut TerminalConfig)) -> Rig {
@@ -560,24 +541,12 @@ async fn rig_with(name: &str, set: impl FnOnce(&mut TerminalConfig)) -> Rig {
     set(&mut config);
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     let profile = tabs.resolve_profile("").await.expect("this machine has a shell");
-    Rig {
-        tabs,
-        manager,
-        events,
-        clock_reads,
-        profile,
-        dir: scratch_dir(name),
-    }
+    Rig { tabs, manager, events, clock_reads, profile, dir: scratch_dir(name) }
 }
 
 impl Rig {
     fn request(&self) -> EnsureRequest {
-        EnsureRequest {
-            cwd: Some(self.dir.display().to_string()),
-            profile: Some(self.profile.clone()),
-            cols: Some(100),
-            rows: Some(30),
-        }
+        EnsureRequest { cwd: Some(self.dir.display().to_string()), profile: Some(self.profile.clone()), cols: Some(100), rows: Some(30) }
     }
 
     fn pty(&self, id: &str) -> Option<PtySize> {
@@ -625,9 +594,7 @@ impl Rig {
                 let repainted = prompt.strip_suffix(SHOW).is_some_and(|body| {
                     body.rfind("\u{1b}[").is_some_and(|at| {
                         body[at + 2..].strip_suffix('H').is_some_and(|rc| {
-                            rc.split_once(';').is_some_and(|(r, c)| {
-                                !r.is_empty() && !c.is_empty() && r.bytes().chain(c.bytes()).all(|b| b.is_ascii_digit())
-                            })
+                            rc.split_once(';').is_some_and(|(r, c)| !r.is_empty() && !c.is_empty() && r.bytes().chain(c.bytes()).all(|b| b.is_ascii_digit()))
                         })
                     })
                 });
@@ -747,11 +714,7 @@ async fn size_owner_follows_claims_not_focus() {
     let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(after, owners, "a disposal announces no owner change");
     // The shell's end follows when node-pty would have raised it (after the disposal), so the forgetting need not be the last event.
-    assert_eq!(
-        rig.events.all().iter().filter(|ev| **ev == Ev::Forgotten(id.to_owned())).count(),
-        1,
-        "and tells its consumer the claims are forgotten, once"
-    );
+    assert_eq!(rig.events.all().iter().filter(|ev| **ev == Ev::Forgotten(id.to_owned())).count(), 1, "and tells its consumer the claims are forgotten, once");
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
 }
 
@@ -780,7 +743,12 @@ async fn a_claim_made_while_a_disposal_is_announced_is_not_undone_by_it() {
     disposing.join().unwrap();
     claim_done.recv_timeout(EVENT_DEADLINE).expect("the claim was never applied after the announcement was let go");
     claiming.join().unwrap();
-    let ours: Vec<Ev> = rig.events.all().into_iter().filter(|e| matches!(e, Ev::Forgotten(id) if id == "term_gate") || matches!(e, Ev::Owner(c) if c.id == "term_gate")).collect();
+    let ours: Vec<Ev> = rig
+        .events
+        .all()
+        .into_iter()
+        .filter(|e| matches!(e, Ev::Forgotten(id) if id == "term_gate") || matches!(e, Ev::Owner(c) if c.id == "term_gate"))
+        .collect();
     let owner = |owner: &str, cols, rows| Ev::Owner(SizeOwnerChange { id: "term_gate".into(), cols, rows, owner: owner.into() });
     assert_eq!(ours, vec![owner("A", 50, 20), Ev::Forgotten("term_gate".into()), owner("B", 60, 25)], "the claim follows the forgetting");
     rig.tabs.dispose_all();
@@ -879,11 +847,11 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
     // The ticker's callback only hands the lapse to a task it spawns, so `advance` returning does not say the lapse has run: the
     // release event the task announces does. The wait is on that event; with the clock paused, a task that never announces leaves the
     // runtime idle, the clock then jumps to the wait's deadline, and the test fails naming the event instead of hanging.
-    rig.events.announced(
-        "the 30 s lease lapsed and announced the release",
-        |log| log.iter().any(|e| matches!(e, Ev::Owner(c) if c.id == id && c.owner.is_empty() && c.cols == 0)),
-    )
-    .await;
+    rig.events
+        .announced("the 30 s lease lapsed and announced the release", |log| {
+            log.iter().any(|e| matches!(e, Ev::Owner(c) if c.id == id && c.owner.is_empty() && c.cols == 0))
+        })
+        .await;
     assert_eq!(held(&rig.tabs), None, "B's lease ended 30 s after its renewal");
     let owners: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);
@@ -1064,10 +1032,7 @@ async fn activity_follows_the_shell_markers_and_focus() {
 async fn tabs_reuse_ids_share_one_spawn_and_report_exit() {
     let rig = rig("lifecycle").await;
     // Concurrent ensures for one id share one spawn.
-    let (a, b) = tokio::join!(
-        rig.tabs.ensure(Some("term_shared"), rig.request()),
-        rig.tabs.ensure(Some("term_shared"), rig.request())
-    );
+    let (a, b) = tokio::join!(rig.tabs.ensure(Some("term_shared"), rig.request()), rig.tabs.ensure(Some("term_shared"), rig.request()));
     assert_eq!(a.unwrap().id, "term_shared");
     assert_eq!(b.unwrap().id, "term_shared");
     let running = |rig: &Rig| ProcessManager::list(&rig.manager).iter().filter(|p| p.exit.is_none()).count();
@@ -1369,8 +1334,24 @@ fn the_replay_window_holds_200000_units_at_its_boundary() {
         ("exactly full", vec![vec![("a", 199_999)], vec![("b", 1)]], 200_000, [97, 97, 97, 97], [97, 97, 97, 98], 200_000, false),
         ("one unit over", vec![vec![("a", 200_000)], vec![("b", 1)]], 200_000, [97, 97, 97, 97], [97, 97, 97, 98], 200_001, true),
         ("cut inside a non-BMP character, one chunk", vec![vec![(EMOJI, 1), ("a", 199_999)]], 200_000, [0xDE00, 97, 97, 97], [97, 97, 97, 97], 200_001, true),
-        ("cut inside a non-BMP character, its own chunk", vec![vec![(EMOJI, 1)], vec![("a", 199_999)]], 200_000, [0xDE00, 97, 97, 97], [97, 97, 97, 97], 200_001, true),
-        ("non-BMP character wholly inside", vec![vec![("a", 1)], vec![(EMOJI, 1), ("b", 199_997)], vec![("c", 1)]], 200_000, [0xD83D, 0xDE00, 98, 98], [98, 98, 98, 99], 200_001, true),
+        (
+            "cut inside a non-BMP character, its own chunk",
+            vec![vec![(EMOJI, 1)], vec![("a", 199_999)]],
+            200_000,
+            [0xDE00, 97, 97, 97],
+            [97, 97, 97, 97],
+            200_001,
+            true,
+        ),
+        (
+            "non-BMP character wholly inside",
+            vec![vec![("a", 1)], vec![(EMOJI, 1), ("b", 199_997)], vec![("c", 1)]],
+            200_000,
+            [0xD83D, 0xDE00, 98, 98],
+            [98, 98, 98, 99],
+            200_001,
+            true,
+        ),
         ("two-byte characters count as one unit", vec![vec![("\u{e9}", 200_001)]], 200_000, [233; 4], [233; 4], 200_001, true),
     ];
     for (name, chunks, length, head, tail, cursor, trimmed) in cases {

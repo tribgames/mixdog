@@ -24,7 +24,14 @@ pub async fn save_session<H: ComHost>(host: &H, handle: &SessionHandle) -> Resul
         if session.state.transaction().is_some() {
             return Err("Commit or roll back the active Office transaction before saving".to_owned());
         }
-        (session.id.clone(), session.format.clone(), session.mode.as_str(), session.target.clone(), session.is_microsoft_office(), session.active_signal.clone())
+        (
+            session.id.clone(),
+            session.format.clone(),
+            session.mode.as_str(),
+            session.target.clone(),
+            session.is_microsoft_office(),
+            session.active_signal.clone(),
+        )
     };
     if microsoft_office {
         let request = json!({ "action": "save", "session": id, "format": format, "mode": mode, "path": target });
@@ -37,7 +44,14 @@ pub async fn save_session<H: ComHost>(host: &H, handle: &SessionHandle) -> Resul
 }
 
 /// `closeSession(session, { save, signal })`: the session saved when asked, its Office document closed, and the session released.
-pub async fn close_session<H: Host>(host: &H, registry: &Registry, env: &Environment, handle: &SessionHandle, save: bool, signal: Option<&CancellationToken>) -> Result<Value, String> {
+pub async fn close_session<H: Host>(
+    host: &H,
+    registry: &Registry,
+    env: &Environment,
+    handle: &SessionHandle,
+    save: bool,
+    signal: Option<&CancellationToken>,
+) -> Result<Value, String> {
     let (id, microsoft_office) = {
         let session = lock(handle);
         if session.state.transaction().is_some() {
@@ -57,7 +71,8 @@ pub async fn close_session<H: Host>(host: &H, registry: &Registry, env: &Environ
         }
         cleanup = closed.get("cleanup").filter(|cleanup| truthy(cleanup)).cloned();
         if !ok {
-            unconfirmed = closed.get("error").filter(|error| truthy(error)).map_or_else(|| "Microsoft Office application was already gone.".to_owned(), value_to_string);
+            unconfirmed =
+                closed.get("error").filter(|error| truthy(error)).map_or_else(|| "Microsoft Office application was already gone.".to_owned(), value_to_string);
         }
     } else if save {
         save_session(host, handle).await?;

@@ -8,14 +8,14 @@ use async_trait::async_trait;
 use mixdog_remote::bridge::{Bridge, DialError, Dialer, Frame, PhoneSink, ToPhone, UpEvent, Upstream};
 use mixdog_remote::identity::{DeviceFiles, Roster, is_owner_only, load_or_create_e2ee_identity, rotate_e2ee_identity};
 use mixdog_remote::leg::caps::RelayCaps;
-use mixdog_remote::leg::frame::{decode_binary_frame, encode_binary_frame, Payload};
+use mixdog_remote::leg::frame::{Payload, decode_binary_frame, encode_binary_frame};
 use mixdog_remote::leg::inbound::{Inbound, classify};
 use mixdog_remote::leg::redial::Redial;
 use mixdog_remote::media::crypto::*;
 use mixdog_remote::media::range::{Range, parse_range, window};
 use mixdog_remote::push::web::{WebPushTarget, encrypt_web_push_payload};
-use mixdog_rt::LaneToken;
 use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -30,10 +30,7 @@ fn leg_configs_keep_the_desktop_behavior_and_give_the_hook_leg_its_own() {
         ("/desktop", Duration::from_secs(10), Some(Duration::from_secs(30)), Framing::Desktop)
     );
     let hook = LegConfig::hook("wss://relay.example".into(), id.clone(), 1024);
-    assert_eq!(
-        (hook.path.as_str(), hook.heartbeat, hook.stable_reset, hook.framing),
-        ("/hookleg", Duration::from_secs(25), None, Framing::Raw)
-    );
+    assert_eq!((hook.path.as_str(), hook.heartbeat, hook.stable_reset, hook.framing), ("/hookleg", Duration::from_secs(25), None, Framing::Raw));
     // Same credential, other path; query and fragment are dropped.
     let (a, auth_a) = leg_socket_request("wss://relay.example/x?y#z", "/desktop", &id).unwrap();
     let (b, auth_b) = leg_socket_request("wss://relay.example/x?y#z", "/hookleg", &id).unwrap();
@@ -107,10 +104,7 @@ fn web_push_payload_is_bounded_and_decryptable_shape() {
     use base64::Engine;
     use p256::elliptic_curve::sec1::ToEncodedPoint;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let keys = mixdog_remote::e2ee::WebPushKeys {
-        p256dh: b64.encode(ua.public_key().to_encoded_point(false).as_bytes()),
-        auth: b64.encode(auth),
-    };
+    let keys = mixdog_remote::e2ee::WebPushKeys { p256dh: b64.encode(ua.public_key().to_encoded_point(false).as_bytes()), auth: b64.encode(auth) };
     let local = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
     let body = encrypt_web_push_payload(&keys, b"hello", [1u8; 16], &local).unwrap();
     assert_eq!(&body[16..20], &4096u32.to_be_bytes());
@@ -489,12 +483,7 @@ async fn startup_of(rx: Startup) -> Result<(), mixdog_remote::access::runtime::R
 struct Recorded(Mutex<Vec<(mixdog_protocol::SectionName, Option<String>, serde_json::Value)>>);
 
 impl mixdog_core_api::state::StatePublisher for Recorded {
-    fn publish(
-        &self,
-        section: mixdog_protocol::SectionName,
-        key: Option<String>,
-        change: mixdog_core_api::state::SectionChange,
-    ) {
+    fn publish(&self, section: mixdog_protocol::SectionName, key: Option<String>, change: mixdog_core_api::state::SectionChange) {
         let mixdog_core_api::state::SectionChange::Set(bytes) = change else { panic!("inline expected") };
         self.0.lock().unwrap().push((section, key, serde_json::from_slice(&bytes).unwrap()));
     }
@@ -680,7 +669,6 @@ impl PhoneSink for SlowFor {
         let _ = self.1.send(message);
     }
 }
-
 
 fn on_lane<R: Send + 'static>(job: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
     let out = Arc::new(Mutex::new(None));
@@ -875,7 +863,6 @@ async fn a_stalled_phone_does_not_delay_another() {
     assert_eq!(got, ToPhone::Frame { peer_id: "fast".into(), generation: 0, frame: Frame::Text("y".into()) });
 }
 
-
 /// A runtime that never starts (the tests give `pair_code_after` the startup it waits for), over a recording pair-code effects.
 fn pair_runtime(dir: &std::path::Path) -> (mixdog_remote::access::runtime::RemoteRuntime, Arc<Mutex<Seen>>) {
     use mixdog_remote::access::runtime::{LegLink, RemoteRuntime, RuntimeConfig};
@@ -964,9 +951,7 @@ async fn a_release_during_startup_is_not_undone_by_the_startup_finishing() {
     let mut ensure = Box::pin(rt.pair_code_after("ensure", Some(owner.clone()), startup_of(rx)));
     assert!(futures::poll!(ensure.as_mut()).is_pending());
     // A release waits for no startup: this one would fail it if it ran.
-    rt.pair_code_after("release", Some(owner.clone()), async { Err(mixdog_remote::access::runtime::RemoteError::Failed("startup ran".into())) })
-        .await
-        .unwrap();
+    rt.pair_code_after("release", Some(owner.clone()), async { Err(mixdog_remote::access::runtime::RemoteError::Failed("startup ran".into())) }).await.unwrap();
     assert_eq!(frames(&seen), ["pair-code-request", "pair-code-clear"]);
     tx.send(Ok(())).unwrap();
     ensure.await.unwrap();

@@ -259,7 +259,8 @@ pub fn printable_area(rule: &Value) -> Result<PrintableArea, String> {
     let lowered = js_to_lowercase(size);
     let tokens: Vec<&str> = lowered.split(is_js_space).filter(|token| !token.is_empty()).collect();
     if tokens.is_empty() || tokens[0] == "auto" {
-        return Err("The document declares no @page size; open the stylesheet with `@page { size: A4; margin: 18mm }` (or letter, A5 landscape, 148mm 210mm).".to_string());
+        return Err("The document declares no @page size; open the stylesheet with `@page { size: A4; margin: 18mm }` (or letter, A5 landscape, 148mm 210mm)."
+            .to_string());
     }
     let mut landscape = false;
     let mut lengths = Vec::new();
@@ -343,7 +344,8 @@ pub async fn draw_data_charts(page: &Page) -> Result<Charts, String> {
 }
 
 /// Designed pages print one `section.slide` per sheet whatever the screen CSS does; speaker notes stay off the page.
-const FRAME_PRINT_CSS: &str = "section.slide { break-after: page; break-inside: avoid; }\nsection.slide:last-of-type { break-after: auto; }\naside.notes { display: none !important; }";
+const FRAME_PRINT_CSS: &str =
+    "section.slide { break-after: page; break-inside: avoid; }\nsection.slide:last-of-type { break-after: auto; }\naside.notes { display: none !important; }";
 
 /// The HTML as laid out, kept beside the PDF so relative `<img>` paths resolve and a re-author starts from it.
 pub fn pdf_html_source_path(target: &Path) -> PathBuf {
@@ -367,7 +369,10 @@ async fn heading_titles(page: &Page) -> Result<Vec<Heading>, String> {
         .map(|headings| {
             headings
                 .iter()
-                .map(|heading| Heading { raw: heading["raw"].as_str().unwrap_or_default().to_string(), shown: heading["shown"].as_str().unwrap_or_default().to_string() })
+                .map(|heading| Heading {
+                    raw: heading["raw"].as_str().unwrap_or_default().to_string(),
+                    shown: heading["shown"].as_str().unwrap_or_default().to_string(),
+                })
                 .collect()
         })
         .unwrap_or_default())
@@ -470,9 +475,8 @@ async fn lay_out_and_print(browser: Arc<HtmlBrowser>, source_path: &Path, frame:
     page.evaluate_expression("document.fonts.ready.then(() => true)").await?;
     // Charts are drawn at the size print lays them out, before the layout is read for what print would cut.
     let charts = draw_data_charts(&page).await?;
-    let measured = page
-        .evaluate(&page_function(PRINT_SCRIPT, "measurePrintLayout"), &[json!({ "width": area.width, "height": area.height }), json!(frame)])
-        .await?;
+    let measured =
+        page.evaluate(&page_function(PRINT_SCRIPT, "measurePrintLayout"), &[json!({ "width": area.width, "height": area.height }), json!(frame)]).await?;
     let findings = measured["findings"].as_array().cloned().unwrap_or_default();
     let (errors, rest): (Vec<Value>, Vec<Value>) = findings.into_iter().partition(|finding| finding["severity"] == "error");
     if !errors.is_empty() {
@@ -511,7 +515,13 @@ fn load_options() -> LoadOptions {
 /// Answers `{ ok: true, output, bytes, pageCount, area, charts?, warnings, elapsedMs }`, or `{ ok: false, error }` when
 /// the browser failed, or `{ ok: false, error, layout }` when the layout check refused the document; a cancellation
 /// is the only error.
-pub async fn print_html_pdf(endpoint: &dyn BrowserEndpoint, tokens: LaneTokens, html: &str, output: &Path, options: PrintOptions<'_>) -> Result<Value, RunError> {
+pub async fn print_html_pdf(
+    endpoint: &dyn BrowserEndpoint,
+    tokens: LaneTokens,
+    html: &str,
+    output: &Path,
+    options: PrintOptions<'_>,
+) -> Result<Value, RunError> {
     let PrintOptions { source_path, properties, frame, timeout, cancel } = options;
     let started_at = Instant::now();
     let lanes = AuthorLanes::new(tokens);
@@ -600,7 +610,8 @@ mod tests {
 
     #[test]
     fn a_missing_size_and_a_bad_length_are_refused_with_the_sentences_node_threw() {
-        let missing = "The document declares no @page size; open the stylesheet with `@page { size: A4; margin: 18mm }` (or letter, A5 landscape, 148mm 210mm).";
+        let missing =
+            "The document declares no @page size; open the stylesheet with `@page { size: A4; margin: 18mm }` (or letter, A5 landscape, 148mm 210mm).";
         assert_eq!(printable_area(&rule("", &[])).unwrap_err(), missing);
         assert_eq!(printable_area(&rule("auto", &[])).unwrap_err(), missing);
         assert_eq!(printable_area(&rule("12 5mm", &[])).unwrap_err(), "@page size \"12\" is not a length; write it in mm, cm, in, pt, or px.");

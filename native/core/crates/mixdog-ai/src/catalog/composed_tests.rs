@@ -14,7 +14,8 @@ use serde_json::Value;
 
 use super::modelsdev_source::{LITELLM_URL, MODELS_DEV_URL, read_file};
 /// Two one-row tables in the published shapes: LiteLLM keyed by model, models.dev by provider.
-const LITELLM: &str = r#"{"openai/gpt-x":{"max_input_tokens":128000,"max_output_tokens":4096,"mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.00001}}"#;
+const LITELLM: &str =
+    r#"{"openai/gpt-x":{"max_input_tokens":128000,"max_output_tokens":4096,"mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.00001}}"#;
 const MODELS_DEV: &str = r#"{"openai":{"models":{"gpt-m":{"name":"GPT M","limit":{"context":200000,"output":8000},"cost":{"input":1.5,"output":6.0}}}}}"#;
 use super::{CatalogService, CatalogSnapshot, LITELLM_CACHE_FILE, MODELS_DEV_CACHE_FILE};
 use crate::oauth::CredentialIo;
@@ -61,9 +62,11 @@ fn now_ms() -> u64 {
 }
 
 async fn put(path: PathBuf, text: String) {
-    io().write_job(move |lane| mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other))
-        .await
-        .unwrap();
+    io().write_job(move |lane| {
+        mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
+    })
+    .await
+    .unwrap();
 }
 
 async fn get(path: PathBuf) -> Vec<u8> {
@@ -129,7 +132,10 @@ async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision(
     // A roster is read from the file of the identity the listings noted, and only one fetched for it.
     let roster = |service: &CatalogService, dir: &std::path::Path| {
         service.roster_accounts.note(super::oauth_cache::Roster::Codex, Some("acct-1"));
-        put(dir.join(super::oauth_cache::Roster::Codex.keyed_file("acct-1")), r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"zz-unpriced"}]}"#.to_owned())
+        put(
+            dir.join(super::oauth_cache::Roster::Codex.keyed_file("acct-1")),
+            r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"zz-unpriced"}]}"#.to_owned(),
+        )
     };
     roster(&empty, empty_dir.path()).await;
     assert_eq!(empty.audit_cached_pricing(), None, "the revision was already audited");

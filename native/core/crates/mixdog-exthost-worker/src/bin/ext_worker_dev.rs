@@ -9,10 +9,7 @@
 //! - and the document methods the real worker serves (`register_document_methods`).
 //! - `--clock-ms N` (an argument): `office.sweepJournals` ages the journals by the clock N (milliseconds since the epoch)
 //!   instead of the wall clock, so a test replays a recorded sweep at its recorded time.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "a test worker: its sleep method waits on the real clock, which no replay drives"
-)]
+#![allow(clippy::disallowed_methods, reason = "a test worker: its sleep method waits on the real clock, which no replay drives")]
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -36,11 +33,7 @@ fn registry() -> Registry {
             Ok(Outcome::value(serde_json::Value::Null))
         });
     }
-    registry.register("echo", |ctx| async move {
-        Ok(Outcome::value(
-            json!({"params": ctx.params, "paths": ctx.paths, "thread": ctx.thread}),
-        ))
-    });
+    registry.register("echo", |ctx| async move { Ok(Outcome::value(json!({"params": ctx.params, "paths": ctx.paths, "thread": ctx.thread}))) });
     registry.register("chunks", |ctx| async move {
         let bytes = ctx.params["bytes"].as_u64().unwrap_or(0) as usize;
         let fill = ctx.params["fill"].as_u64().unwrap_or(7) as u8;
@@ -66,11 +59,7 @@ fn registry() -> Registry {
     });
     registry.register("pin", |ctx| async move {
         let pid = json!(std::process::id());
-        Ok(if ctx.params["pin"].as_bool() == Some(true) {
-            Outcome::pinned(pid)
-        } else {
-            Outcome::value(pid)
-        })
+        Ok(if ctx.params["pin"].as_bool() == Some(true) { Outcome::pinned(pid) } else { Outcome::value(pid) })
     });
     registry
 }
@@ -83,10 +72,7 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(error) => {
             eprintln!("ext-host: cannot start the runtime: {error}");

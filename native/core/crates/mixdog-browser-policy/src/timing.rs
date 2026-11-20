@@ -186,12 +186,7 @@ pub struct Collector {
 impl Collector {
     /// A collector for a command that waited `queue_ms` in the queue and starts at `now_ms`.
     pub fn start(queue_ms: f64, now_ms: f64) -> Self {
-        Self {
-            timing: CommandTiming { queue_ms, ..CommandTiming::default() },
-            active: [Slot::default(); 6],
-            closed: false,
-            started: now_ms,
-        }
+        Self { timing: CommandTiming { queue_ms, ..CommandTiming::default() }, active: [Slot::default(); 6], closed: false, started: now_ms }
     }
 
     /// A phase begins. A phase inside the same phase is counted once: only the outermost one holds the clock; a snapshot or a
@@ -352,10 +347,9 @@ mod tests {
     #[test]
     fn host_times_are_added_without_touching_the_command_duration() {
         let mut t = CommandTiming { queue_ms: 1.0, command_ms: 50.0, input_ms: 2.0, ..CommandTiming::default() };
-        let host: HostPhaseTimes = serde_json::from_str(
-            r#"{"inputMs":3,"waitMs":-4,"snapshotMs":1.5,"snapshots":2,"mouseEvents":{"mousePressed":{"count":1,"totalMs":2}}}"#,
-        )
-        .unwrap_or_default();
+        let host: HostPhaseTimes =
+            serde_json::from_str(r#"{"inputMs":3,"waitMs":-4,"snapshotMs":1.5,"snapshots":2,"mouseEvents":{"mousePressed":{"count":1,"totalMs":2}}}"#)
+                .unwrap_or_default();
         merge_host(&mut t, &host);
         merge_host(&mut t, &host);
         assert_eq!((t.queue_ms, t.command_ms, t.input_ms, t.wait_ms, t.snapshot_ms, t.snapshots), (1.0, 50.0, 8.0, 0.0, 3.0, 4));

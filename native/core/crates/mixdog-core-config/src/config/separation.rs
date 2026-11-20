@@ -25,8 +25,8 @@ use super::agent_routes::separate_roster;
 use super::patch::js_deep_equal;
 use super::patch::strip_agent_section_defaults;
 use super::patch::without_defaults;
-use crate::tool_modules::adopt;
 use crate::tool_modules::Origin;
+use crate::tool_modules::adopt;
 use crate::workflow::ids::legacy_workflow_mode;
 use crate::workflow::ids::truthy;
 use crate::workflow::presets::default_maintenance;
@@ -261,7 +261,11 @@ fn canonical_modules(value: Option<&Value>) -> Option<Value> {
 fn canonical_shell(value: Option<&Value>) -> Option<Value> {
     let raw = config_object(value);
     let mut next = raw.clone();
-    let command = ["command", "path", "executable", "shell"].iter().find_map(|key| raw.get(*key).filter(|v| !v.is_null())).map(|v| js_trim(&mixdog_js::value_to_string(v)).to_owned()).unwrap_or_default();
+    let command = ["command", "path", "executable", "shell"]
+        .iter()
+        .find_map(|key| raw.get(*key).filter(|v| !v.is_null()))
+        .map(|v| js_trim(&mixdog_js::value_to_string(v)).to_owned())
+        .unwrap_or_default();
     for key in ["path", "executable", "shell"] {
         next.shift_remove(key);
     }
@@ -353,8 +357,10 @@ pub(super) fn strip_stored_route_defaults(agent: &Doc) -> Doc {
     }
     if next.contains_key("maintenance") {
         let defaults = default_maintenance();
-        let delta: Doc =
-            config_object(next.get("maintenance")).into_iter().filter(|(slot, route)| !defaults.get(slot).is_some_and(|default| js_deep_equal(route, default))).collect();
+        let delta: Doc = config_object(next.get("maintenance"))
+            .into_iter()
+            .filter(|(slot, route)| !defaults.get(slot).is_some_and(|default| js_deep_equal(route, default)))
+            .collect();
         if delta.is_empty() {
             next.shift_remove("maintenance");
         } else {

@@ -16,10 +16,10 @@ use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::awaiting;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 fn newest(rig: &Rig, thread: &str, method: &str) -> Option<Value> {
     rig.feeds.frames(thread).into_iter().rev().find(|(_, name, _)| name == method).map(|(_, _, params)| params["value"].clone())
@@ -70,18 +70,24 @@ async fn a_quota_hop_publishes_the_destination_settings_in_one_route() {
         writer.patch_header(thread, set.as_object().unwrap().clone(), Vec::new()).await.unwrap();
     };
     patch(json!({ "provider": "anthropic-oauth", "model": "claude-sonnet-5-5", "effort": "medium", "fast": false })).await;
-    handle.set_section(Section::Route(ThreadRoute {
-        session_model: Some("claude-sonnet-5-5".into()), effort: Some("medium".into()), fast: Some(false),
-        ..Default::default()
-    })).await.unwrap();
+    handle
+        .set_section(Section::Route(ThreadRoute {
+            session_model: Some("claude-sonnet-5-5".into()),
+            effort: Some("medium".into()),
+            fast: Some(false),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
     patch(json!({
         "provider": "openai-oauth", "model": "gpt-6.2-sol", "effort": "high", "fast": true,
         "modelParameters": { "serviceTier": "ultrafast" }, "selectedContextWindow": 640_000,
         "routeFallbackIndex": 1,
         "routeFallbackFailures": [{ "provider": "anthropic-oauth", "model": "claude-sonnet-5-5", "kind": "quota_exhausted" }]
-    })).await;
-    let route = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated")
-        .filter(|r| r["model"] == "gpt-6.2-sol")).await;
+    }))
+    .await;
+    let route =
+        eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated").filter(|r| r["model"] == "gpt-6.2-sol")).await;
     let check = |r: &Value| {
         assert_eq!(r["sessionProvider"], "openai-oauth");
         assert_eq!(r["sessionModel"], "gpt-6.2-sol");
@@ -113,16 +119,20 @@ async fn a_quota_hop_leaves_the_effort_choice_of_a_held_pick() {
     };
     patch(json!({ "provider": "anthropic-oauth", "model": "claude-fable-5-2", "effort": "medium" })).await;
     patch(json!({ "pendingRoute": { "provider": "anthropic-oauth", "model": "claude-opus-5-5", "effort": "low" } })).await;
-    handle.set_section(Section::Route(ThreadRoute {
-        effort: Some("xhigh".into()),
-        effort_options: Some(vec![json!({ "value": "xhigh" })]),
-        ..Default::default()
-    })).await.unwrap();
+    handle
+        .set_section(Section::Route(ThreadRoute {
+            effort: Some("xhigh".into()),
+            effort_options: Some(vec![json!({ "value": "xhigh" })]),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
     patch(json!({
         "provider": "openai-oauth", "model": "gpt-6.2-astra", "effort": "high",
         "routeFallbackIndex": 1,
         "routeFallbackFailures": [{ "provider": "anthropic-oauth", "model": "claude-fable-5-2", "kind": "quota_exhausted" }]
-    })).await;
+    }))
+    .await;
     let read = handle.request(super::tests::request("thread/read", json!({ "threadId": handle.id }), "read")).await.unwrap();
     let mixdog_core_api::Reply::Value(read) = read else { panic!("thread/read must answer a value") };
     let route = &read["state"]["route"];
@@ -187,10 +197,12 @@ async fn a_speed_parameters_or_context_change_on_the_seated_route_is_published()
     patch(json!({ "pendingRoute": { "provider": "p", "model": "next", "fast": true, "contextPercent": 30 } })).await;
     assert_eq!(framed("thread/context/updated").map(|context| context["contextPercent"].clone()), Some(json!(30.0)));
     let state = read().await;
-    assert_eq!((state["route"]["model"].clone(), state["route"]["fast"].clone(), state["route"]["modelParameters"].clone()), (json!("next"), json!(true), json!({})));
+    assert_eq!(
+        (state["route"]["model"].clone(), state["route"]["fast"].clone(), state["route"]["modelParameters"].clone()),
+        (json!("next"), json!(true), json!({}))
+    );
     directory.shutdown().await;
 }
-
 
 /// An installed session holds the configured route values in its state, and publishes no route frame to say so; the next route
 /// frame carries them.
@@ -222,7 +234,14 @@ async fn an_unchanged_turn_effort_publishes_no_route_frame() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    let routes = || rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, name, _)| name == "thread/route/updated").map(|(_, _, p)| p["value"]["turnEffort"].clone()).collect::<Vec<_>>();
+    let routes = || {
+        rig.feeds
+            .frames(handle.id.as_str())
+            .into_iter()
+            .filter(|(_, name, _)| name == "thread/route/updated")
+            .map(|(_, _, p)| p["value"]["turnEffort"].clone())
+            .collect::<Vec<_>>()
+    };
     for effort in [None, Some("high"), Some("high"), None] {
         handle.set_section(Section::TurnEffort(effort.map(Into::into))).await.expect("effort");
     }
@@ -243,7 +262,13 @@ async fn a_route_written_into_the_header_moves_the_route_state() {
     let route = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated")).await;
     assert_eq!(
         (&route["provider"], &route["model"], &route["sessionProvider"], &route["sessionModel"], &route["autoClear"]),
-        (&json!(super::tests::ROUTE_PROVIDER), &json!(super::tests::ROUTE_MODEL), &json!(super::tests::ROUTE_PROVIDER), &json!(super::tests::ROUTE_MODEL), &auto_clear)
+        (
+            &json!(super::tests::ROUTE_PROVIDER),
+            &json!(super::tests::ROUTE_MODEL),
+            &json!(super::tests::ROUTE_PROVIDER),
+            &json!(super::tests::ROUTE_MODEL),
+            &auto_clear
+        )
     );
 }
 
@@ -277,7 +302,9 @@ async fn context_after_turn(interrupted: bool) -> ThreadContext {
     let handle = start_thread(&directory).await;
     let started = turn(&handle, "measure", "op-1").await;
     // The window is published while the turn runs; the display fields are not.
-    let published = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/context/updated").filter(|context| context["contextWindow"] == json!(9_000))).await;
+    let published = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/context/updated")
+        .filter(|context| context["contextWindow"] == json!(9_000)))
+    .await;
     if interrupted {
         assert_eq!(published["displayContextWindow"], json!(0), "a running turn has not published its display fields");
         handle.interrupt(&TurnId::from(started["turnId"].as_str().expect("turn id")), None).expect("interrupt");
@@ -304,7 +331,16 @@ async fn a_stopped_turn_and_a_completed_one_both_publish_the_context_display_fie
 
 /// The fields a route move writes as the phone's snapshot shows them (`desktopSessionState`): the route and the window figures
 /// `setRoute` publishes (routes-write.mjs:133-142, context-state.mjs:100-142).
-const MOVED: [&str; 8] = ["provider", "model", "contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "displayContextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
+const MOVED: [&str; 8] = [
+    "provider",
+    "model",
+    "contextWindow",
+    "rawContextWindow",
+    "effectiveContextWindowPercent",
+    "displayContextWindow",
+    "compactBoundaryTokens",
+    "autoCompactTokenLimit",
+];
 /// The route fields of [`MOVED`]: what the move's header patch writes (the route Node resolved, `updateSessionRoute`).
 const ROUTE_FIELDS: [&str; 5] = ["provider", "model", "contextWindow", "rawContextWindow", "effectiveContextWindowPercent"];
 
@@ -380,23 +416,25 @@ async fn held(handle: &super::SessionHandle, status: &GatedStatus, count: usize)
     eventually_on!(&[&handle.cell.stepped, &status.arrived], || (status.held() == count).then_some(())).await;
 }
 
-
-
 /// A gauge whose answer to the load's status pass is the stored reading of a session (`measurement`), as a restarted core reads it off the header.
 struct StoredReading(Value);
 
-
-
 /// `thread/header/patch` of a move to the route `state` shows (`updateSessionRoute`).
-fn move_to<'a>(handle: &'a super::SessionHandle, state: &Value) -> impl std::future::Future<Output = Result<mixdog_core_api::Reply, mixdog_core_api::error::CoreError>> + 'a {
+fn move_to<'a>(
+    handle: &'a super::SessionHandle,
+    state: &Value,
+) -> impl std::future::Future<Output = Result<mixdog_core_api::Reply, mixdog_core_api::error::CoreError>> + 'a {
     let set: serde_json::Map<String, Value> = ROUTE_FIELDS.iter().map(|field| ((*field).to_owned(), state[*field].clone())).collect();
     let params = json!({ "threadId": handle.id, "set": set, "unset": [] });
-    mixdog_core_api::ThreadHandle::request(handle, mixdog_core_api::CoreRequest {
-        method: mixdog_core_api::ids::Method("thread/header/patch"),
-        params,
-        op: None,
-        ctx: mixdog_core_api::call::CallContext::internal("test"),
-    })
+    mixdog_core_api::ThreadHandle::request(
+        handle,
+        mixdog_core_api::CoreRequest {
+            method: mixdog_core_api::ids::Method("thread/header/patch"),
+            params,
+            op: None,
+            ctx: mixdog_core_api::call::CallContext::internal("test"),
+        },
+    )
 }
 #[async_trait::async_trait]
 impl super::thread_context::ContextStatusHost for GatedStatus {
@@ -406,7 +444,11 @@ impl super::thread_context::ContextStatusHost for GatedStatus {
         Ok(Value::Null)
     }
 
-    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, _: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+    async fn context_status_for(
+        &self,
+        _: mixdog_core_api::ids::ThreadId,
+        _: serde_json::Map<String, Value>,
+    ) -> Result<Value, mixdog_core_api::error::CoreError> {
         let held = self.held.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         self.most_held.fetch_max(held, std::sync::atomic::Ordering::SeqCst);
         self.arrived.notify_waiters();
@@ -436,7 +478,11 @@ impl super::thread_context::ContextStatusHost for StoredReading {
         Ok(self.0.clone())
     }
 
-    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, _: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+    async fn context_status_for(
+        &self,
+        _: mixdog_core_api::ids::ThreadId,
+        _: serde_json::Map<String, Value>,
+    ) -> Result<Value, mixdog_core_api::error::CoreError> {
         Ok(self.0.clone())
     }
 }
@@ -460,7 +506,6 @@ async fn a_loaded_thread_shows_the_stored_context_reading_before_any_model_respo
     assert_eq!((&stats["currentContextSource"], &stats["currentContextUpdatedAt"]), (&json!("last_api_request"), &json!(7_000)));
 }
 
-
 /// The [`MOVED`] fields of a thread on `model` of the 128000-token custom route, compacting at `trigger`.
 fn route_state(model: &str, trigger: u64) -> Value {
     json!({
@@ -474,7 +519,9 @@ fn route_state(model: &str, trigger: u64) -> Value {
 /// model's trigger shows.
 fn recorded_moves() -> Vec<RecordedMove> {
     const WIDE_TRIGGER: u64 = 100_000;
-    let read = |trigger: u64| Some(json!({ "contextWindow": 128_000, "compaction": { "boundaryTokens": 128_000, "triggerTokens": trigger, "autoCompactTokenLimit": null } }));
+    let read = |trigger: u64| {
+        Some(json!({ "contextWindow": 128_000, "compaction": { "boundaryTokens": 128_000, "triggerTokens": trigger, "autoCompactTokenLimit": null } }))
+    };
     let (model, wide) = ("fixture-model", "fixture-wide");
     vec![
         RecordedMove { model: wide.to_owned(), read: read(WIDE_TRIGGER), before: route_state(model, 128_000), after: route_state(wide, WIDE_TRIGGER) },
@@ -606,7 +653,8 @@ async fn a_route_write_moves_with_its_figures() {
     let status = GatedStatus::new();
     let (directory, handle) = gated_thread(&rig, &status, &recorded.before).await;
     let set: serde_json::Map<String, Value> = ROUTE_FIELDS.iter().map(|field| ((*field).to_owned(), recorded.after[*field].clone())).collect();
-    let update: super::actor::AwaitingHeaderUpdate = Box::new(move |_| Box::pin(async move { mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() } }));
+    let update: super::actor::AwaitingHeaderUpdate =
+        Box::new(move |_| Box::pin(async move { mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() } }));
     let write = tokio::spawn({
         let (directory, id) = (directory.clone(), handle.id.clone());
         async move { directory.update_header_awaiting(&id, update).await }

@@ -12,11 +12,9 @@ use mixdog_js::js_trim;
 use serde_json::Value;
 
 /// Control tools whose calls never show as cards.
-const HIDDEN_CONTROL_TOOLS: [&str; 9] =
-    ["goal", "create_goal", "get_goal", "set_goal_tasks", "update_goal", "todo", "load_tool", "tool_search", "react"];
+const HIDDEN_CONTROL_TOOLS: [&str; 9] = ["goal", "create_goal", "get_goal", "set_goal_tasks", "update_goal", "todo", "load_tool", "tool_search", "react"];
 
-static SKILL_TOOL: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(?:skill|skill_view|use_skill|skill_execute)$", ""));
+static SKILL_TOOL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:skill|skill_view|use_skill|skill_execute)$", ""));
 static BUILTIN_SKILL_RESULT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Loaded built-in skill:", "i"));
 
 /// `clean(name).toLowerCase().replace(/^functions\./, '')`.

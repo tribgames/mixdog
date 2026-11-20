@@ -23,7 +23,9 @@ use crate::{Line, Run, themed};
 /// The item fields the card model reads, with the counts this card normalised.
 fn model_input(card: &Card) -> Value {
     let mut input = Map::new();
-    for key in ["name", "args", "result", "rawResult", "isError", "errorCount", "callErrorCount", "exitErrorCount", "startedAt", "completedAt", "headerFinalized"] {
+    for key in
+        ["name", "args", "result", "rawResult", "isError", "errorCount", "callErrorCount", "exitErrorCount", "startedAt", "completedAt", "headerFinalized"]
+    {
         if let Some(value) = card.props.get(key) {
             input.insert(key.to_owned(), value.clone());
         }

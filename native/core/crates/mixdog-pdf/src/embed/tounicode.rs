@@ -48,25 +48,12 @@ mod tests {
     #[test]
     fn lines_are_ids_and_utf16_hex() {
         let text = create_cmap(&[
-            GlyphUnicode {
-                glyph_id: 1,
-                code_points: vec![0x48],
-            },
-            GlyphUnicode {
-                glyph_id: 2,
-                code_points: vec![0x1F600],
-            },
-            GlyphUnicode {
-                glyph_id: 11,
-                code_points: vec![0x66, 0x69],
-            },
+            GlyphUnicode { glyph_id: 1, code_points: vec![0x48] },
+            GlyphUnicode { glyph_id: 2, code_points: vec![0x1F600] },
+            GlyphUnicode { glyph_id: 11, code_points: vec![0x66, 0x69] },
         ]);
-        assert!(text.contains(
-            "3 beginbfchar\n<0001> <0048>\n<0002> <D83DDE00>\n<000B> <00660069>\nendbfchar"
-        ));
-        assert!(
-            text.starts_with("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
-        );
+        assert!(text.contains("3 beginbfchar\n<0001> <0048>\n<0002> <D83DDE00>\n<000B> <00660069>\nendbfchar"));
+        assert!(text.starts_with("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"));
         assert!(text.ends_with("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend"));
     }
 

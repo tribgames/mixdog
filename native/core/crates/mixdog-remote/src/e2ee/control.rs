@@ -19,8 +19,7 @@ impl ControlLane {
     }
 
     pub fn direct(epoch: u64, connection_id: &str) -> Result<Self, E2eeError> {
-        let valid = (1..=64).contains(&connection_id.len())
-            && connection_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        let valid = (1..=64).contains(&connection_id.len()) && connection_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
         if epoch < 1 || !valid {
             return Err(E2eeError::Invalid("Expected a control lane."));
         }
@@ -105,9 +104,7 @@ impl ControlLanes {
         let ControlLane::Direct { epoch, connection_id } = lane else {
             return Err(E2eeError::Invalid("Only a direct control lane is registered."));
         };
-        if self.current.as_ref().is_some_and(|s| s.is(*epoch, connection_id))
-            || self.pending.as_ref().is_some_and(|s| s.is(*epoch, connection_id))
-        {
+        if self.current.as_ref().is_some_and(|s| s.is(*epoch, connection_id)) || self.pending.as_ref().is_some_and(|s| s.is(*epoch, connection_id)) {
             return Ok(());
         }
         if *epoch <= self.epoch_floor {

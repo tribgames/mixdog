@@ -88,8 +88,9 @@ fn finish_kind(reason: &str) -> FinishKind {
         "" | "UNSPECIFIED" => FinishKind::Unfinished,
         "STOP" => FinishKind::Complete,
         "MAX_TOKENS" => FinishKind::OutputLimit,
-        "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" | "IMAGE_SAFETY" | "IMAGE_PROHIBITED_CONTENT"
-        | "ESCALATION" | "PUP_LIMITED_DISABLED" => FinishKind::Policy,
+        "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" | "IMAGE_SAFETY" | "IMAGE_PROHIBITED_CONTENT" | "ESCALATION" | "PUP_LIMITED_DISABLED" => {
+            FinishKind::Policy
+        }
         "LANGUAGE" => FinishKind::Language,
         "RECITATION" | "IMAGE_RECITATION" => FinishKind::Recitation,
         "MALFORMED_FUNCTION_CALL" | "UNEXPECTED_TOOL_CALL" | "MALFORMED_RESPONSE" => FinishKind::InvalidToolCall,
@@ -179,10 +180,7 @@ pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
             let (input, cached) = gemini_input_and_cache(um);
             (input.saturating_sub(cached), cached)
         }
-        UsageStyle::ToolUseAdded => (
-            prompt.saturating_add(count(um, TOOL_PROMPT).unwrap_or(0)),
-            reported_cache,
-        ),
+        UsageStyle::ToolUseAdded => (prompt.saturating_add(count(um, TOOL_PROMPT).unwrap_or(0)), reported_cache),
     };
     Usage {
         input_tokens: input,
@@ -213,9 +211,9 @@ fn says_retired(text: &str) -> bool {
     let lower = text.to_lowercase();
     let word = |c: char| c.is_alphanumeric() || c == '_';
     ["no longer available", "no longer supported"].iter().any(|phrase| {
-        lower.match_indices(phrase).any(|(at, _)| {
-            !lower[..at].chars().next_back().is_some_and(word) && !lower[at + phrase.len()..].chars().next().is_some_and(word)
-        })
+        lower
+            .match_indices(phrase)
+            .any(|(at, _)| !lower[..at].chars().next_back().is_some_and(word) && !lower[at + phrase.len()..].chars().next().is_some_and(word))
     })
 }
 
@@ -389,7 +387,6 @@ impl GeminiDecoder {
         self
     }
 
-
     /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
     /// signed parts only to the same model.
     pub fn for_model(mut self, model: &str) -> Self {
@@ -551,12 +548,8 @@ impl GeminiDecoder {
             self.hop_whole_calls += 1;
             let name = call["name"].as_str().unwrap_or_default().to_owned();
             let args = call.get("args").cloned().unwrap_or_else(|| json!({}));
-            let id = call
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|i| !i.is_empty())
-                .map(str::to_owned)
-                .unwrap_or_else(|| synthesized_call_id(index, &name, &args));
+            let id =
+                call.get("id").and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_owned).unwrap_or_else(|| synthesized_call_id(index, &name, &args));
             self.open_item(ItemKind::Tool, out);
             out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
             out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: args.to_string() });
@@ -590,10 +583,7 @@ impl GeminiDecoder {
         for source in grounding.into_iter().chain(citations).flatten() {
             let web = source.get("web").filter(|w| w.is_object()).unwrap_or(source);
             let pick = |keys: &[&str]| {
-                keys.iter()
-                    .find_map(|k| web.get(*k).or_else(|| source.get(*k)).and_then(Value::as_str))
-                    .map(|s| s.trim().to_owned())
-                    .filter(|s| !s.is_empty())
+                keys.iter().find_map(|k| web.get(*k).or_else(|| source.get(*k)).and_then(Value::as_str)).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
             };
             let Some(url) = pick(&["uri", "url"]) else {
                 continue;
@@ -805,11 +795,7 @@ impl GeminiDecoder {
 
 impl GeminiDecoder {
     pub(super) fn take_usage_update(&mut self) -> Option<(Usage, Option<String>)> {
-        if std::mem::take(&mut self.usage_updated) {
-            self.usage_now()
-        } else {
-            None
-        }
+        if std::mem::take(&mut self.usage_updated) { self.usage_now() } else { None }
     }
 
     /// The turn's usage: the sum of every finished hop and the one in flight (`sumGeminiHopUsage`).
@@ -922,7 +908,9 @@ impl GeminiDecoder {
 
     /// A failure that did not come from the decoder still carries the usage every finished hop reported.
     pub(super) fn carry_usage(&self, err: &mut ProviderError) {
-        if err.partial_usage.is_none() && let Some((usage, model)) = self.usage_now() {
+        if err.partial_usage.is_none()
+            && let Some((usage, model)) = self.usage_now()
+        {
             err.partial_usage = Some(Box::new(usage));
             err.partial_model = model.as_deref().map(Into::into);
         }
@@ -1045,14 +1033,20 @@ mod tests {
         let chunk = |text: &str| format!("data: {{\"response\":{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"{text}\"}}]}}}}]}}}}\n\n");
         for notice in [("Model X is no lon", "ger available."), ("This model is NO LONGER ", "Supported, pick another")] {
             let err = run(&mut antigravity_decoder(), &(chunk(notice.0) + &chunk(notice.1))).unwrap_err();
-            assert_eq!((err.code.as_deref(), err.status, err.recovery_terminal, err.unsafe_to_retry), (Some("MODEL_RETIRED"), Some(404), true, true), "{notice:?}");
+            assert_eq!(
+                (err.code.as_deref(), err.status, err.recovery_terminal, err.unsafe_to_retry),
+                (Some("MODEL_RETIRED"), Some(404), true, true),
+                "{notice:?}"
+            );
             assert_eq!(err.transport, None, "a verdict about the model, not a cut stream");
         }
         let cut = run(&mut antigravity_decoder(), &chunk("The answer so far")).unwrap_err();
         assert_eq!((cut.transport.clone(), cut.status), (Some(TransportFault::TruncatedStream), None));
         let unrelated = run(&mut antigravity_decoder(), &chunk("a longer-available option")).unwrap_err();
         assert_eq!(unrelated.transport, Some(TransportFault::TruncatedStream));
-        let answered = format!("data: {{\"response\":{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"The old API is no longer supported.\"}}]}},\"finishReason\":\"STOP\"}}]}}}}\n\n");
+        let answered = format!(
+            "data: {{\"response\":{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"The old API is no longer supported.\"}}]}},\"finishReason\":\"STOP\"}}]}}}}\n\n"
+        );
         assert!(run(&mut antigravity_decoder(), &answered).is_ok(), "a finished answer that mentions it is an answer");
         let gemini = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"it is no longer available\"}]}}]}\n\n";
         assert_eq!(run(&mut decoder(false), gemini).unwrap_err().transport, Some(TransportFault::TruncatedStream));
@@ -1076,22 +1070,14 @@ mod tests {
             "data: [DONE]\n"
         );
         let events = run(&mut decoder(false), wire).unwrap();
-        let text: String = events
-            .iter()
-            .filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None })
-            .collect();
+        let text: String = events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
         assert_eq!(text, "Hi there");
         assert!(events.contains(&StreamEvent::ReasoningDelta("plan".into())));
         assert!(events.contains(&StreamEvent::ProviderKeepalive));
         let usage = events.iter().find_map(|e| if let StreamEvent::Usage(u) = e { Some(u.clone()) } else { None });
         let usage = usage.unwrap();
-        assert_eq!(
-            (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.reasoning_tokens),
-            (20, 11, 5, Some(3))
-        );
-        let Some(StreamEvent::ReasoningReplay(replay)) =
-            events.iter().find(|e| matches!(e, StreamEvent::ReasoningReplay(_)))
-        else {
+        assert_eq!((usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.reasoning_tokens), (20, 11, 5, Some(3)));
+        let Some(StreamEvent::ReasoningReplay(replay)) = events.iter().find(|e| matches!(e, StreamEvent::ReasoningReplay(_))) else {
             panic!("no replay");
         };
         assert_eq!(replay.items["parts"].as_array().unwrap().len(), 3);
@@ -1104,8 +1090,7 @@ mod tests {
             {\"functionCall\":{\"name\":\"lookup\",\"args\":{\"key\":\"answer\"}}},\
             {\"functionCall\":{\"name\":\"lookup\",\"args\":{},\"id\":\"srv-1\"}}]}}]}\n\n";
         let events = run(&mut decoder(false), wire).unwrap();
-        let calls: Vec<&ToolCall> =
-            events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).collect();
+        let calls: Vec<&ToolCall> = events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).collect();
         assert_eq!(calls[0].id, "gemini_366b187da650ce24");
         assert_eq!(calls[1].id, "srv-1");
         assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }));
@@ -1145,7 +1130,9 @@ mod tests {
     #[test]
     fn a_failed_candidate_releases_none_of_its_whole_calls() {
         for reason in ["MAX_TOKENS", "OTHER"] {
-            let body = format!("data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"x\"}},{{\"functionCall\":{{\"name\":\"f\",\"args\":{{}}}}}}]}},\"finishReason\":\"{reason}\"}}]}}\n\n");
+            let body = format!(
+                "data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"x\"}},{{\"functionCall\":{{\"name\":\"f\",\"args\":{{}}}}}}]}},\"finishReason\":\"{reason}\"}}]}}\n\n"
+            );
             let mut decoder = decoder(false).with_known_tools(["f".to_owned()].into());
             let events = decoder.feed(body.as_bytes()).unwrap();
             assert!(!events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(_))), "{reason}");
@@ -1206,7 +1193,8 @@ mod tests {
     /// finish reason is a delivered tool-use turn, whatever the first hop carried.
     #[test]
     fn a_later_hop_with_whole_calls_of_its_own_needs_no_finish_reason() {
-        let first = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"looking \"}]},\"finishReason\":\"CONTINUATION\",\"continuationToken\":\"t\"}]}\n\n";
+        let first =
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"looking \"}]},\"finishReason\":\"CONTINUATION\",\"continuationToken\":\"t\"}]}\n\n";
         let second = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"f\",\"args\":{\"a\":1}}}]}}]}\n\n";
         let mut decoder = decoder(false);
         decoder.feed(first.as_bytes()).unwrap();
@@ -1220,8 +1208,11 @@ mod tests {
     /// Hops are billed in sum while the first hop's prompt and cache counts stay as the context figures.
     #[test]
     fn the_summed_usage_keeps_the_first_hops_context_figures() {
-        let hop = |prompt: u64, cached: u64, finish: &str| format!(
-            "data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"x\"}}]}},\"finishReason\":\"{finish}\",\"continuationToken\":\"t\"}}],\"usageMetadata\":{{\"promptTokenCount\":{prompt},\"cachedContentTokenCount\":{cached},\"candidatesTokenCount\":2}}}}\n\n");
+        let hop = |prompt: u64, cached: u64, finish: &str| {
+            format!(
+                "data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"x\"}}]}},\"finishReason\":\"{finish}\",\"continuationToken\":\"t\"}}],\"usageMetadata\":{{\"promptTokenCount\":{prompt},\"cachedContentTokenCount\":{cached},\"candidatesTokenCount\":2}}}}\n\n"
+            )
+        };
         let mut decoder = decoder(false);
         decoder.feed(hop(100, 40, "CONTINUATION").as_bytes()).unwrap();
         assert!(decoder.end_hop().unwrap().1.is_some());

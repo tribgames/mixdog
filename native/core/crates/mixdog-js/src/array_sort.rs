@@ -560,7 +560,15 @@ mod tests {
     #[test]
     fn a_sign_alone_decides_so_infinities_and_fractions_order_like_any_other_answer() {
         let mut items = vec![3, 1, 2];
-        js_sort_by(&mut items, |a, b| if a < b { f64::NEG_INFINITY } else if a > b { 0.25 } else { 0.0 });
+        js_sort_by(&mut items, |a, b| {
+            if a < b {
+                f64::NEG_INFINITY
+            } else if a > b {
+                0.25
+            } else {
+                0.0
+            }
+        });
         assert_eq!(items, [1, 2, 3]);
     }
 }

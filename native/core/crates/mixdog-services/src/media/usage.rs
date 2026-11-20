@@ -36,8 +36,7 @@ fn output_count(output: Option<&Value>, thoughts: Option<&Value>) -> Option<f64>
     }
     // Keep legacy positive counts, but never turn a coerced zero or a thoughts-only zero
     // into evidence of zero output. Malformed thought counts don't establish a zero sum.
-    let explicit_zero = output.and_then(Value::as_f64) == Some(0.0)
-        && thoughts.is_none_or(|value| value.is_null() || value.as_f64() == Some(0.0));
+    let explicit_zero = output.and_then(Value::as_f64) == Some(0.0) && thoughts.is_none_or(|value| value.is_null() || value.as_f64() == Some(0.0));
     explicit_zero.then_some(0.0)
 }
 
@@ -73,11 +72,15 @@ pub fn gemini_usage(meta: &Value) -> Option<Value> {
         return None;
     }
     let details = pick(meta, &["candidatesTokensDetails", "candidates_tokens_details"]);
-    let image_tokens: f64 = entries(details).iter().filter(|entry| modality(entry).to_uppercase() == "IMAGE").map(|entry| count(pick(entry, &["tokenCount", "token_count"]))).sum();
+    let image_tokens: f64 =
+        entries(details).iter().filter(|entry| modality(entry).to_uppercase() == "IMAGE").map(|entry| count(pick(entry, &["tokenCount", "token_count"]))).sum();
     token_usage(&[
         ("inputTokens", positive(count(pick(meta, &["promptTokenCount", "prompt_token_count"])))),
         ("cachedTokens", positive(count(pick(meta, &["cachedContentTokenCount", "cached_content_token_count"])))),
-        ("outputTokens", output_count(pick(meta, &["candidatesTokenCount", "candidates_token_count"]), pick(meta, &["thoughtsTokenCount", "thoughts_token_count"]))),
+        (
+            "outputTokens",
+            output_count(pick(meta, &["candidatesTokenCount", "candidates_token_count"]), pick(meta, &["thoughtsTokenCount", "thoughts_token_count"])),
+        ),
         ("outputImageTokens", positive(image_tokens)),
     ])
     .map(Value::Object)
@@ -88,7 +91,11 @@ pub fn interactions_usage(usage: &Value) -> Option<Value> {
     if !truthy(Some(usage)) || !is_object(usage) {
         return None;
     }
-    let video_tokens: f64 = entries(usage.get("output_tokens_by_modality")).iter().filter(|entry| modality(entry).to_lowercase() == "video").map(|entry| count(entry.get("tokens"))).sum();
+    let video_tokens: f64 = entries(usage.get("output_tokens_by_modality"))
+        .iter()
+        .filter(|entry| modality(entry).to_lowercase() == "video")
+        .map(|entry| count(entry.get("tokens")))
+        .sum();
     token_usage(&[
         ("inputTokens", positive(count(usage.get("total_input_tokens")))),
         ("cachedTokens", positive(count(usage.get("total_cached_tokens")))),
@@ -153,7 +160,8 @@ pub fn has_reported_usage(usage: &Value) -> bool {
     if !truthy(Some(usage)) {
         return false;
     }
-    usage.get("costUsd").is_some_and(Value::is_number) || ["inputTokens", "outputTokens", "cachedTokens", "seconds"].iter().any(|key| to_number_of(usage.get(*key)) > 0.0)
+    usage.get("costUsd").is_some_and(Value::is_number)
+        || ["inputTokens", "outputTokens", "cachedTokens", "seconds"].iter().any(|key| to_number_of(usage.get(*key)) > 0.0)
 }
 
 /// `withReportedUsage(error, usage)`: the usage worth attaching to a failure, so the ledger still

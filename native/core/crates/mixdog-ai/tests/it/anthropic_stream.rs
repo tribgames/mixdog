@@ -103,10 +103,7 @@ fn replay_of(events: &[StreamEvent]) -> Value {
 }
 
 fn calls_of(events: &[StreamEvent]) -> Vec<(String, String, Value)> {
-    events
-        .iter()
-        .filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some((c.id.clone(), c.name.clone(), c.arguments.clone())) } else { None })
-        .collect()
+    events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some((c.id.clone(), c.name.clone(), c.arguments.clone())) } else { None }).collect()
 }
 
 fn text_turn(pieces: &[&str], reason: &str) -> Vec<Value> {
@@ -169,7 +166,14 @@ fn usage_keeps_the_cache_out_of_the_input_and_a_later_report_replaces_only_what_
 
 #[test]
 fn a_gateways_reported_cost_rides_the_usage_and_a_negative_one_is_not_a_cost() {
-    let cost = |value: Value| usage_of(&decode(&[start(), json!({ "type": "message_delta", "delta": {}, "usage": { "output_tokens": 1, "cost": value } }), json!({ "type": "message_stop" })])).cost;
+    let cost = |value: Value| {
+        usage_of(&decode(&[
+            start(),
+            json!({ "type": "message_delta", "delta": {}, "usage": { "output_tokens": 1, "cost": value } }),
+            json!({ "type": "message_stop" }),
+        ]))
+        .cost
+    };
     assert!(cost(json!(0.25)).is_some());
     assert!(cost(json!("0.25")).is_some());
     assert!(cost(json!(-1)).is_none());
@@ -332,7 +336,10 @@ fn thinking_streams_as_reasoning_and_replays_with_its_signature_ahead_of_the_tex
             { "type": "text", "text": "done" },
         ])
     );
-    let summary = got.iter().find_map(|e| if let StreamEvent::ContentSummary { has_thinking, block_types } = e { Some((*has_thinking, block_types.clone())) } else { None }).unwrap();
+    let summary = got
+        .iter()
+        .find_map(|e| if let StreamEvent::ContentSummary { has_thinking, block_types } = e { Some((*has_thinking, block_types.clone())) } else { None })
+        .unwrap();
     assert!(summary.0);
     assert!(summary.1.iter().any(|t| t == "thinking_delta"));
 }
@@ -395,7 +402,10 @@ fn a_hosted_search_call_and_its_result_are_reported_whole_and_replayed_in_order_
 fn a_fallback_block_hands_the_turn_to_the_fallback_model_and_is_recorded() {
     let mut events = vec![
         start(),
-        open(0, json!({ "type": "fallback", "from": "claude-opus-5", "to": { "model": " claude-sonnet-5 " }, "trigger": { "type": "refusal", "category": "cyber" } })),
+        open(
+            0,
+            json!({ "type": "fallback", "from": "claude-opus-5", "to": { "model": " claude-sonnet-5 " }, "trigger": { "type": "refusal", "category": "cyber" } }),
+        ),
         stop_block(0),
         open(1, json!({ "type": "text", "text": "" })),
         delta(1, json!({ "type": "text_delta", "text": "answered by the fallback" })),

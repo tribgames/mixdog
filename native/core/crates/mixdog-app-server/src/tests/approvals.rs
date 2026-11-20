@@ -38,22 +38,13 @@ fn thread(rig: &Rig, id: &str) -> Arc<MockThread> {
     let thread = rig.core.mock.directory().insert(ThreadId::from(id));
     let feed: Arc<dyn FeedSource> = thread.feed().clone();
     thread.set_handler(Arc::new(move |_| {
-        Ok(Reply::Subscribe(Subscribe {
-            result: json!({}),
-            feed: feed.clone(),
-            window: Window::LastItems(10),
-            resume_from: None,
-        }))
+        Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: feed.clone(), window: Window::LastItems(10), resume_from: None }))
     }));
     thread
 }
 
 async fn watch(client: &Client, id: i64, thread: &str) {
-    client.request(
-        id,
-        "thread/resume",
-        json!({ "threadId": thread, "window": { "lastItems": 10 } }),
-    );
+    client.request(id, "thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } }));
     client.response(id).await;
 }
 
@@ -74,18 +65,11 @@ fn pending(id: &str, thread: &str, surface: &str, order: u64) -> PendingServerRe
 }
 
 fn control(frames: Vec<super::Wire>) -> Vec<Value> {
-    frames
-        .into_iter()
-        .filter(|wire| wire.lane.is_none())
-        .map(|wire| wire.body)
-        .collect()
+    frames.into_iter().filter(|wire| wire.lane.is_none()).map(|wire| wire.body).collect()
 }
 
 fn ids(frames: &[Value]) -> Vec<&str> {
-    frames
-        .iter()
-        .filter_map(|frame| frame["id"].as_str())
-        .collect()
+    frames.iter().filter_map(|frame| frame["id"].as_str()).collect()
 }
 
 #[tokio::test(start_paused = true)]
@@ -120,11 +104,7 @@ async fn a_connection_that_becomes_eligible_later_gets_pending_requests_after_it
     rig.outgoing.publish(pending("ap2", "t1", "t1", 2));
 
     let late = rig.ready(1, json!({}));
-    late.request(
-        1,
-        "thread/resume",
-        json!({ "threadId": "t1", "window": { "lastItems": 10 } }),
-    );
+    late.request(1, "thread/resume", json!({ "threadId": "t1", "window": { "lastItems": 10 } }));
     let frames = late.frames(3).await;
     let control = control(frames);
     assert_eq!(control.len(), 3);
@@ -202,21 +182,14 @@ async fn a_decision_goes_to_the_owning_thread_and_only_from_a_connection_that_ha
 
 /// A thread whose control plane is a mock session actor, loaded in the core.
 fn actor(rig: &Rig, id: &str) -> Arc<ActorThread> {
-    let handle = Arc::new(ActorThread {
-        thread: thread(rig, id),
-        actor: ApprovalActor::new(id, rig.outgoing.clone()),
-    });
+    let handle = Arc::new(ActorThread { thread: thread(rig, id), actor: ApprovalActor::new(id, rig.outgoing.clone()) });
     rig.core.load(id, handle.clone());
     handle
 }
 
 /// The `serverRequest/resolved` params among the control frames, in arrival order.
 fn resolved(frames: Vec<Wire>) -> Vec<Value> {
-    control(frames)
-        .into_iter()
-        .filter(|frame| frame["method"] == json!("serverRequest/resolved"))
-        .map(|frame| frame["params"].clone())
-        .collect()
+    control(frames).into_iter().filter(|frame| frame["method"] == json!("serverRequest/resolved")).map(|frame| frame["params"].clone()).collect()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -254,20 +227,9 @@ async fn simultaneous_answers_one_wins_and_every_connection_hears_the_winners_de
         });
 
         // One decision was persisted, and it is the winner's own answer under its own device.
-        let records: Vec<_> = owner
-            .actor
-            .resolutions()
-            .into_iter()
-            .filter(|(request, _)| request.0 == id)
-            .collect();
+        let records: Vec<_> = owner.actor.resolutions().into_iter().filter(|(request, _)| request.0 == id).collect();
         assert_eq!(records.len(), 1, "exactly one decision wins {id}");
-        let ApprovalResolution::Decided {
-            decision,
-            device,
-            connection_kind,
-            ..
-        } = &records[0].1
-        else {
+        let ApprovalResolution::Decided { decision, device, connection_kind, .. } = &records[0].1 else {
             panic!("not decided: {records:?}");
         };
         let winner: usize = device.strip_prefix("dev-").unwrap().parse().unwrap();
@@ -283,10 +245,7 @@ async fn simultaneous_answers_one_wins_and_every_connection_hears_the_winners_de
             let resolution = &heard[0]["resolution"];
             assert_eq!(resolution["kind"], json!("decided"));
             assert_eq!(resolution["device"], json!(device));
-            assert_eq!(
-                resolution["connectionKind"],
-                serde_json::to_value(connection_kind).unwrap()
-            );
+            assert_eq!(resolution["connectionKind"], serde_json::to_value(connection_kind).unwrap());
         }
     }
     assert_eq!(owner.actor.pending(), 0);
@@ -300,9 +259,7 @@ async fn an_invalid_decision_leaves_the_request_pending_and_only_its_sender_hear
     watch(&phone, 1, "t1").await;
     let desktop = rig.ready_as(2, "desk-b", "desktop");
     watch(&desktop, 1, "t1").await;
-    owner
-        .actor
-        .ask("ap1", "t1", &[ApprovalRemember::Session], None);
+    owner.actor.ask("ap1", "t1", &[ApprovalRemember::Session], None);
     phone.drain();
     desktop.drain();
 
@@ -421,22 +378,9 @@ async fn a_core_restart_while_waiting_interrupts_every_open_request() {
     child.actor.interrupt();
     for client in [&viewer, &inbox] {
         let heard = resolved(client.drain());
-        let kinds: Vec<_> = heard
-            .iter()
-            .map(|params| {
-                (
-                    params["requestId"].as_str().unwrap().to_owned(),
-                    params["resolution"]["kind"].as_str().unwrap().to_owned(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            kinds,
-            [
-                ("ap1".to_owned(), "interrupted".to_owned()),
-                ("ap2".to_owned(), "interrupted".to_owned())
-            ]
-        );
+        let kinds: Vec<_> =
+            heard.iter().map(|params| (params["requestId"].as_str().unwrap().to_owned(), params["resolution"]["kind"].as_str().unwrap().to_owned())).collect();
+        assert_eq!(kinds, [("ap1".to_owned(), "interrupted".to_owned()), ("ap2".to_owned(), "interrupted".to_owned())]);
     }
     assert_eq!(parent.actor.pending() + child.actor.pending(), 0);
 
@@ -470,8 +414,7 @@ async fn concurrent_publishes_never_overtake_an_initialize_response() {
     let clients: Vec<Client> = std::thread::scope(|scope| {
         let publisher = scope.spawn(|| {
             for n in 0..REQUESTS {
-                rig.outgoing
-                    .publish(pending(&format!("ap{n}"), "t1", "t1", n as u64));
+                rig.outgoing.publish(pending(&format!("ap{n}"), "t1", "t1", n as u64));
             }
         });
         let clients = (1..=CONNECTIONS)
@@ -500,10 +443,7 @@ async fn a_rejected_response_is_an_error_notification_to_the_sender_only() {
     let other = rig.ready(2, json!({}));
     rig.outgoing.response_rejected(
         ConnectionId(1),
-        CoreError::InvalidServerRequestResponse {
-            request_id: ServerRequestId("ap1".to_owned()),
-            detail: "unknown decision".into(),
-        },
+        CoreError::InvalidServerRequestResponse { request_id: ServerRequestId("ap1".to_owned()), detail: "unknown decision".into() },
     );
     let frames = control(sender.drain());
     assert_eq!(frames.len(), 1);
@@ -524,11 +464,7 @@ async fn pending_requests_survive_a_disconnect() {
         rig.outgoing.publish(pending("ap1", "t1", "t1", 1));
     }
     let back = rig.ready(2, json!({}));
-    back.request(
-        1,
-        "thread/resume",
-        json!({ "threadId": "t1", "window": { "lastItems": 10 } }),
-    );
+    back.request(1, "thread/resume", json!({ "threadId": "t1", "window": { "lastItems": 10 } }));
     let control = control(back.frames(2).await);
     assert_eq!(ids(&control[1..]), ["ap1"]);
     back.send(json!({ "id": "ap1", "result": { "approved": false } }));

@@ -61,7 +61,9 @@ pub enum ProcessOwner {
     /// The computer helper: its job lets the helper's cursor watchdog break away and outlive it (Windows). `scope` is the automation
     /// scope it is started under, `None` for a helper no scope owns (a crash sweep, the remote screen's input process): the manager
     /// creates a scoped helper only while that scope holds, and registers it with the scope before a revocation can proceed.
-    ComputerHelper { scope: Option<LaunchScope> },
+    ComputerHelper {
+        scope: Option<LaunchScope>,
+    },
 }
 
 /// Serializes the creation of a process with the revocation of the scope it is created under (see
@@ -156,11 +158,7 @@ pub struct ProcessExit {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ProcessEvent {
     /// `seq` increases by one per event of a handle, starting at 0.
-    Output {
-        seq: u64,
-        stream: OutputStream,
-        bytes: Vec<u8>,
-    },
+    Output { seq: u64, stream: OutputStream, bytes: Vec<u8> },
     /// Last event.
     Exited { seq: u64, exit: ProcessExit },
 }
@@ -236,23 +234,15 @@ pub trait ProcessManager: Send + Sync {
     /// step: the subscription exists before the child can write a byte, so however late the
     /// caller is scheduled none of the output is lost (a subscriber holds the replay ring's
     /// reader back instead). The default subscribes after the spawn, for managers without a ring.
-    async fn spawn_subscribed(
-        &self,
-        request: SpawnRequest,
-    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+    async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
         let handle = request.handle.clone();
         let spawned = self.spawn(request).await?;
         Ok((spawned, self.subscribe(&handle, Some(0))?))
     }
     /// Events from `from_seq` (replayed from the ring) or from the next one.
-    fn subscribe(
-        &self,
-        handle: &ProcessHandle,
-        from_seq: Option<u64>,
-    ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError>;
+    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError>;
     /// Non-blocking write; also serves `process/input` notifications.
-    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>)
-    -> Result<(), ProcessError>;
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError>;
     /// Writes the whole of `bytes`, of any size, waiting for room as the process reads (Node's `stdinWrite`, which hands
     /// the helper the whole string): never a part of it. Resolves once every byte is in the process's input; an error
     /// when that could not happen (a failed write, a process gone first), after which the caller must not close the input

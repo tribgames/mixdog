@@ -62,8 +62,7 @@ pub struct Git {
 }
 
 pub const CODE_AUTH_REQUIRED: &str = "GIT_AUTH_REQUIRED";
-pub const AUTH_REQUIRED_TEXT: &str =
-    "Git authentication is required. Sign in with your Git credential helper and retry.";
+pub const AUTH_REQUIRED_TEXT: &str = "Git authentication is required. Sign in with your Git credential helper and retry.";
 
 /// NUL-terminated records of `text`.
 pub fn nul_records(text: &str) -> impl Iterator<Item = &str> {
@@ -78,13 +77,9 @@ mod tests {
     #[tokio::test]
     async fn missing_program_is_unavailable_by_spawn_kind() {
         let dir = tempfile::tempdir().unwrap();
-        let error = Exec::new(TestProcesses::shared())
-            .run(ExecSpec::new("mixdog-no-such-program", dir.path()), &CancellationToken::new())
-            .await
-            .unwrap_err();
+        let error = Exec::new(TestProcesses::shared()).run(ExecSpec::new("mixdog-no-such-program", dir.path()), &CancellationToken::new()).await.unwrap_err();
         assert!(matches!(error, ScmFailure::Unavailable { .. }));
     }
-
 
     fn git() -> Git {
         Git::new(Arc::new(Exec::new(TestProcesses::shared())), mixdog_rt::testing::tokens().maintenance_io)
@@ -94,25 +89,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let git = git();
         let cancel = CancellationToken::new();
-        let outcome = git
-            .outcome(
-                &cancel,
-                dir.path(),
-                &["config", "--get", "mixdog.unset"],
-                &RunOptions::default(),
-            )
-            .await
-            .unwrap();
+        let outcome = git.outcome(&cancel, dir.path(), &["config", "--get", "mixdog.unset"], &RunOptions::default()).await.unwrap();
         // `config --get` answers 1 for "not set": a meaning, not a failure.
         assert_eq!(outcome.code, Some(1));
-        let failed = git
-            .run(&cancel, dir.path(), &["rev-parse", "--verify", "nope"])
-            .await
-            .unwrap_err();
+        let failed = git.run(&cancel, dir.path(), &["rev-parse", "--verify", "nope"]).await.unwrap_err();
         assert!(matches!(failed, ScmFailure::Command { .. }));
     }
 }
-
 
 #[derive(Clone, Default)]
 pub struct RunOptions {
@@ -134,10 +117,7 @@ pub struct RunOptions {
 }
 impl RunOptions {
     pub fn read() -> Self {
-        Self {
-            read_limit: true,
-            ..Self::default()
-        }
+        Self { read_limit: true, ..Self::default() }
     }
 }
 /// Runs `spec` as git: with the program PATH's `git` resolves to and the environment its launcher
@@ -209,25 +189,14 @@ impl Git {
 
     /// The raw outcome: the exit code is kept and a non-zero exit is not an error. A child
     /// that never ran is.
-    pub async fn outcome(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-        options: &RunOptions,
-    ) -> Result<ExecOutput, ScmFailure> {
+    pub async fn outcome(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str], options: &RunOptions) -> Result<ExecOutput, ScmFailure> {
         let mut spec = ExecSpec::new("git", cwd);
         spec.args = args.iter().map(|arg| (*arg).to_owned()).collect();
         if !options.bare_env {
-            spec.env_set = vec![
-                ("GIT_TERMINAL_PROMPT".into(), "0".into()),
-                ("GIT_EDITOR".into(), "true".into()),
-                ("GIT_SEQUENCE_EDITOR".into(), "true".into()),
-            ];
+            spec.env_set =
+                vec![("GIT_TERMINAL_PROMPT".into(), "0".into()), ("GIT_EDITOR".into(), "true".into()), ("GIT_SEQUENCE_EDITOR".into(), "true".into())];
             match &options.index_file {
-                Some(index) => spec
-                    .env_set
-                    .push(("GIT_INDEX_FILE".into(), index.to_string_lossy().into_owned())),
+                Some(index) => spec.env_set.push(("GIT_INDEX_FILE".into(), index.to_string_lossy().into_owned())),
                 None => spec.env_remove.push("GIT_INDEX_FILE".into()),
             }
             if options.protect_hook {
@@ -244,13 +213,7 @@ impl Git {
     }
 
     /// stdout of a command that must exit 0; a failure carries the scrubbed stderr.
-    pub async fn text(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-        options: &RunOptions,
-    ) -> Result<String, ScmFailure> {
+    pub async fn text(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str], options: &RunOptions) -> Result<String, ScmFailure> {
         let output = self.outcome(cancel, cwd, args, options).await?;
         if output.success() {
             return Ok(output.stdout_text());
@@ -258,21 +221,11 @@ impl Git {
         Err(ScmFailure::git(failure_text(&output, args)))
     }
 
-    pub async fn run(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-    ) -> Result<String, ScmFailure> {
+    pub async fn run(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str]) -> Result<String, ScmFailure> {
         self.text(cancel, cwd, args, &RunOptions::default()).await
     }
 
-    pub async fn read(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-    ) -> Result<String, ScmFailure> {
+    pub async fn read(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str]) -> Result<String, ScmFailure> {
         self.text(cancel, cwd, args, &RunOptions::read()).await
     }
 
@@ -281,16 +234,8 @@ impl Git {
         self.text(cancel, cwd, args, &RunOptions::default()).await.map_err(readable_remote_error)
     }
     /// `true` when the command exits 0.
-    pub async fn succeeds(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-    ) -> Result<bool, ScmFailure> {
-        Ok(self
-            .outcome(cancel, cwd, args, &RunOptions::default())
-            .await?
-            .success())
+    pub async fn succeeds(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str]) -> Result<bool, ScmFailure> {
+        Ok(self.outcome(cancel, cwd, args, &RunOptions::default()).await?.success())
     }
 }
 /// Node's `readableRemoteError`: a failure whose text says authentication failed reads as one sentence, anything else keeps its text.
@@ -312,11 +257,7 @@ fn failure_text(output: &ExecOutput, args: &[&str]) -> String {
     let stderr = output.stderr_text();
     // runGit (git-runner.ts:149) tells the failure by the whole stderr, not a tail.
     let text = stderr.trim();
-    if text.is_empty() {
-        format!("Command failed: git {}", args.join(" "))
-    } else {
-        text.to_owned()
-    }
+    if text.is_empty() { format!("Command failed: git {}", args.join(" ")) } else { text.to_owned() }
 }
 /// Names of the inherited variables that hold provider or cloud credentials.
 fn provider_secret_names() -> Vec<String> {
@@ -352,23 +293,12 @@ fn provider_secret_names() -> Vec<String> {
         "_PRIVATE_KEY",
         "_PAT",
     ];
-    const PUBLIC_PREFIXES: &[&str] = &[
-        "NEXT_PUBLIC_",
-        "NUXT_PUBLIC_",
-        "VITE_",
-        "REACT_APP_",
-        "VUE_APP_",
-        "EXPO_PUBLIC_",
-        "GATSBY_",
-        "STORYBOOK_",
-        "PUBLIC_",
-    ];
+    const PUBLIC_PREFIXES: &[&str] = &["NEXT_PUBLIC_", "NUXT_PUBLIC_", "VITE_", "REACT_APP_", "VUE_APP_", "EXPO_PUBLIC_", "GATSBY_", "STORYBOOK_", "PUBLIC_"];
     std::env::vars_os()
         .filter_map(|(name, _)| name.into_string().ok())
         .filter(|name| {
             EXACT.contains(&name.as_str())
-                || (SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
-                    && !PUBLIC_PREFIXES.iter().any(|prefix| name.starts_with(prefix)))
+                || (SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) && !PUBLIC_PREFIXES.iter().any(|prefix| name.starts_with(prefix)))
         })
         .collect()
 }

@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! A paired phone's reads of a visualize pane's files (Node `remote-visualize.ts`: `servedFile`, `visualizePaneFile`,
 //! `visualizePaneRange`). Main hands the core each tab's panes with their resolved files (`mixdog_exthost::VisualizePanes`); a
 //! phone only ever names a tab, a pane and a path relative to a pane's root. Containment is re-resolved on every call (a folder
@@ -252,10 +256,8 @@ mod tests {
         std::fs::write(root.join("site/.git/x.css"), "p{}").unwrap();
         std::fs::write(root.join("notes.txt"), "secret").unwrap();
         std::fs::write(root.join("pic.png"), [1, 2, 3]).unwrap();
-        let scope = PaneScope {
-            root: root.clone(),
-            panes: vec![pane("html", &root.join("site/index.html"), &root), pane("image", &root.join("pic.png"), &root)],
-        };
+        let scope =
+            PaneScope { root: root.clone(), panes: vec![pane("html", &root.join("site/index.html"), &root), pane("image", &root.join("pic.png"), &root)] };
         let page = file(&scope, 0).unwrap();
         assert_eq!((page["kind"].clone(), page["rel"].clone(), page["size"].clone()), (json!("html"), json!("site/index.html"), json!(9)));
         let expected = hex(&Sha256::digest(b"<p>hi</p>"));

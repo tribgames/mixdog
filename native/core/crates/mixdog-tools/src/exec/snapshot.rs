@@ -4,10 +4,7 @@
 //! mise / direnv setup the user gets in a terminal, without a login-shell start per call. bash
 //! and zsh on POSIX hosts only. The login shell runs through the process manager; every file
 //! operation is a lane job.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)"
-)]
+#![allow(clippy::disallowed_methods, reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)")]
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -63,11 +60,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 fn rc_state(path: &Path) -> (bool, u128, u64) {
     match std::fs::metadata(path) {
         Ok(meta) => {
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_millis());
+            let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis());
             (true, mtime, meta.len())
         }
         Err(_) => (false, 0, 0),
@@ -82,12 +75,8 @@ fn sweep_stale(dir: &Path) {
         if !name.starts_with("snapshot-") || !name.ends_with(".sh") {
             continue;
         }
-        let old = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| now.duration_since(t).ok())
-            .is_some_and(|age| age.as_millis() > SNAPSHOT_STALE_MS);
+        let old =
+            entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| now.duration_since(t).ok()).is_some_and(|age| age.as_millis() > SNAPSHOT_STALE_MS);
         if old {
             let _ = std::fs::remove_file(entry.path());
         }
@@ -98,10 +87,7 @@ fn sweep_stale(dir: &Path) {
 /// user's rc file, which can exfiltrate whatever it inherits), prompts blank so an interactive
 /// sourcing prints no PS1 noise.
 fn snapshot_env(shell_path: &str) -> EnvSpec {
-    let remove = std::env::vars_os()
-        .filter_map(|(k, _)| k.into_string().ok())
-        .filter(|name| is_scrubbed(name))
-        .collect();
+    let remove = std::env::vars_os().filter_map(|(k, _)| k.into_string().ok()).filter(|name| is_scrubbed(name)).collect();
     let set = [
         ("SHELL", shell_path),
         ("GIT_EDITOR", "true"),
@@ -174,9 +160,7 @@ impl Snapshots {
         } else {
             "sh"
         };
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
         let suffix = {
             use sha2::Digest;
             let digest = sha2::Sha256::digest(format!("{stamp}:{}", std::process::id()));
@@ -212,10 +196,7 @@ impl Snapshots {
         let handle = ProcessHandle(format!("snapshot-{}", request.call));
         let spawn = SpawnRequest {
             handle: handle.clone(),
-            command: CommandSpec::Argv {
-                program: request.shell_path.to_owned(),
-                args: vec!["-c".into(), "-l".into(), script],
-            },
+            command: CommandSpec::Argv { program: request.shell_path.to_owned(), args: vec!["-c".into(), "-l".into(), script] },
             cwd: request.cwd.clone(),
             env: snapshot_env(request.shell_path),
             pty: None,
@@ -225,7 +206,9 @@ impl Snapshots {
             time_limit: Some(SNAPSHOT_TIMEOUT),
         };
         let mut finished_ok = false;
-        if request.processes.spawn(spawn).await.is_ok() && let Ok(mut source) = request.processes.subscribe(&handle, Some(0)) {
+        if request.processes.spawn(spawn).await.is_ok()
+            && let Ok(mut source) = request.processes.subscribe(&handle, Some(0))
+        {
             while let Some(event) = source.next().await {
                 if let ProcessEvent::Exited { exit, .. } = event {
                     finished_ok = exit.killed.is_none() && exit.status == ExitStatus::Code(0);
@@ -237,8 +220,7 @@ impl Snapshots {
         request
             .lane
             .submit(request.cancel, move |_| {
-                let keep = finished_ok
-                    && std::fs::read_to_string(&target).is_ok_and(|content| snapshot_has_payload(&content));
+                let keep = finished_ok && std::fs::read_to_string(&target).is_ok_and(|content| snapshot_has_payload(&content));
                 if keep {
                     Some(target)
                 } else {

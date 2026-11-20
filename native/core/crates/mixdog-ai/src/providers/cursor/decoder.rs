@@ -46,12 +46,12 @@ use super::schema::exec_throw;
 use super::schema::interaction_response;
 use super::schema::kv_client_message;
 use crate::providers::connect::ConnectFailure;
+use crate::providers::connect::frame::FrameReader;
+use crate::providers::connect::provider_error;
 use crate::providers::leak;
 use crate::providers::leak::Dedupe;
 use crate::providers::leak::LeakGuard;
 use crate::providers::leak::Recovered;
-use crate::providers::connect::frame::FrameReader;
-use crate::providers::connect::provider_error;
 use crate::retry::advice;
 
 /// `REQUEST_TOO_LARGE_RE` (cursor-wire-transport.mjs:80): only explicit wording about the tool catalog or the request
@@ -161,11 +161,7 @@ impl ThinkFilter {
 
     fn flush(&mut self) -> (String, String) {
         let value = std::mem::take(&mut self.buffer);
-        if self.reasoning {
-            (String::new(), value)
-        } else {
-            (value, String::new())
-        }
+        if self.reasoning { (String::new(), value) } else { (value, String::new()) }
     }
 }
 
@@ -302,8 +298,7 @@ mod tests {
     /// A pinned suffix id's catalog model rides the terminal event, not the usage.
     #[test]
     fn the_pricing_model_rides_the_completed_event() {
-        let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None)
-            .with_pricing_model(Some("zen-3".to_owned()));
+        let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None).with_pricing_model(Some("zen-3".to_owned()));
         let events = decoder.finalize();
         assert!(matches!(
             events.last(),
@@ -338,7 +333,6 @@ mod tests {
         assert_eq!(f.process("<THINKING >z</Thinking>"), (String::new(), "z".into()));
     }
 }
-
 
 impl CursorDecoder {
     /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
@@ -408,10 +402,7 @@ impl CursorDecoder {
         if !content.is_empty() {
             if !self.text_started {
                 self.text_started = true;
-                events.push(StreamEvent::ItemStart {
-                    kind: ItemKind::Text,
-                    phase: None,
-                });
+                events.push(StreamEvent::ItemStart { kind: ItemKind::Text, phase: None });
             }
             self.exposure.text_emitted = true;
             events.push(StreamEvent::TextDelta(content));
@@ -421,10 +412,7 @@ impl CursorDecoder {
     fn reasoning(&mut self, text: String, events: &mut Vec<StreamEvent>) {
         if !self.reasoning_started {
             self.reasoning_started = true;
-            events.push(StreamEvent::ItemStart {
-                kind: ItemKind::Reasoning,
-                phase: None,
-            });
+            events.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
         }
         events.push(StreamEvent::ReasoningDelta(text));
     }
@@ -455,8 +443,7 @@ impl CursorDecoder {
     }
 
     fn reply_exec(&mut self, exec: &ExecServer, result: ExecResult, echo: ExecEcho) {
-        self.outbound
-            .push(exec_client_message(exec.id, &exec.exec_id, &result, &echo));
+        self.outbound.push(exec_client_message(exec.id, &exec.exec_id, &result, &echo));
     }
 
     fn unavailable(&mut self, exec: &ExecServer, kind: UnavailableKind, reason: &str, echo: ExecEcho) {
@@ -468,11 +455,7 @@ impl CursorDecoder {
     }
 
     fn announce(&mut self, exec: &ExecServer, mut pending: Pending) {
-        let key = if exec.exec_id.is_empty() {
-            exec.id.to_string()
-        } else {
-            exec.exec_id.clone()
-        };
+        let key = if exec.exec_id.is_empty() { exec.id.to_string() } else { exec.exec_id.clone() };
         if !self.executions.insert(key.clone()) {
             return;
         }
@@ -486,38 +469,24 @@ impl CursorDecoder {
 
     fn mcp_exec(&mut self, exec: &ExecServer) {
         let Some(args) = &exec.mcp else { return };
-        let requested = if args.tool_name.is_empty() {
-            args.name.clone()
-        } else {
-            args.tool_name.clone()
-        };
+        let requested = if args.tool_name.is_empty() { args.name.clone() } else { args.tool_name.clone() };
         let direct = self.tool_named(&[requested.as_str()]).map(|t| t.name.clone());
-        let mut tool = direct.clone().or_else(|| {
-            (!requested.is_empty())
-                .then(|| self.tool_named(&["call_tool"]).map(|t| t.name.clone()))
-                .flatten()
-        });
+        let mut tool = direct.clone().or_else(|| (!requested.is_empty()).then(|| self.tool_named(&["call_tool"]).map(|t| t.name.clone())).flatten());
         let Some(first) = tool.clone() else {
             let shown = if requested.is_empty() { "unknown" } else { &requested };
-            self.reply_exec(
-                exec,
-                ExecResult::McpError(format!("Tool not available: {shown}")),
-                ExecEcho::default(),
-            );
+            self.reply_exec(exec, ExecResult::McpError(format!("Tool not available: {shown}")), ExecEcho::default());
             return;
         };
         let mut decoded = serde_json::Map::new();
         for (key, bytes) in &args.args {
-            let value = decode_json_value(bytes)
-                .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(bytes).into_owned()));
+            let value = decode_json_value(bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(bytes).into_owned()));
             decoded.insert(key.clone(), value);
         }
         let mut arguments = Value::Object(decoded.clone());
         if requested == "call_tool"
             && direct.is_some()
             && decoded.len() == 2
-            && let (Some(Value::String(name)), Some(Value::Object(inner))) =
-                (decoded.get("name"), decoded.get("arguments"))
+            && let (Some(Value::String(name)), Some(Value::Object(inner))) = (decoded.get("name"), decoded.get("arguments"))
             && !name.is_empty()
             && name.chars().count() <= BRIDGE_NAME_MAX_CHARS
             && !BRIDGE_META_TOOLS.contains(&name.to_ascii_lowercase().as_str())
@@ -527,34 +496,14 @@ impl CursorDecoder {
             arguments = Value::Object(inner.clone());
         }
         let name = tool.unwrap_or(first);
-        let arguments = if direct.is_some() {
-            arguments
-        } else {
-            json!({ "name": requested, "arguments": arguments })
-        };
-        let id = if args.tool_call_id.is_empty() {
-            random_uuid()
-        } else {
-            args.tool_call_id.clone()
-        };
-        self.announce(
-            exec,
-            Pending {
-                exec_key: String::new(),
-                tool_call_id: id,
-                tool_name: name,
-                arguments,
-            },
-        );
+        let arguments = if direct.is_some() { arguments } else { json!({ "name": requested, "arguments": arguments }) };
+        let id = if args.tool_call_id.is_empty() { random_uuid() } else { args.tool_call_id.clone() };
+        self.announce(exec, Pending { exec_key: String::new(), tool_call_id: id, tool_name: name, arguments });
     }
 
     fn schema_arg(tool: &McpToolDefinition, candidates: &[&str], fallback: &str) -> String {
         let props = tool.input_schema.get("properties").and_then(Value::as_object);
-        candidates
-            .iter()
-            .find(|c| props.is_some_and(|p| p.contains_key(**c)))
-            .unwrap_or(&fallback)
-            .to_string()
+        candidates.iter().find(|c| props.is_some_and(|p| p.contains_key(**c))).unwrap_or(&fallback).to_string()
     }
 
     /// A native exec a Mixdog tool serves: `Some(true)` redirected,
@@ -585,10 +534,7 @@ impl CursorDecoder {
                         UnavailableKind::PathError { field: 3, error_field: 5 },
                         "Native Write fileBytes must be valid UTF-8; no file was written".to_owned(),
                     ),
-                    &ExecEcho {
-                        path: a.path.clone(),
-                        ..ExecEcho::default()
-                    },
+                    &ExecEcho { path: a.path.clone(), ..ExecEcho::default() },
                 ));
                 return Some(false);
             };
@@ -636,25 +582,14 @@ impl CursorDecoder {
             return None;
         };
         let tool_call_id = if id.is_empty() { random_uuid() } else { id };
-        self.announce(
-            exec,
-            Pending {
-                exec_key: String::new(),
-                tool_call_id,
-                tool_name: tool,
-                arguments: args,
-            },
-        );
+        self.announce(exec, Pending { exec_key: String::new(), tool_call_id, tool_name: tool, arguments: args });
         Some(true)
     }
 
     /// Answers an exec no tool serves with its unavailable result.
     fn reject_exec(&mut self, exec: &ExecServer) {
         use UnavailableKind as K;
-        let path = |p: &str| ExecEcho {
-            path: p.to_owned(),
-            ..ExecEcho::default()
-        };
+        let path = |p: &str| ExecEcho { path: p.to_owned(), ..ExecEcho::default() };
         if let Some(a) = &exec.read {
             self.unavailable(exec, K::Path { field: 7 }, UNAVAILABLE, path(&a.path));
         } else if let Some(a) = &exec.write {
@@ -672,30 +607,21 @@ impl CursorDecoder {
                 exec,
                 K::Shell { field: 2 },
                 UNAVAILABLE,
-                ExecEcho {
-                    command: a.command.clone(),
-                    working_directory: a.working_directory.clone(),
-                    ..ExecEcho::default()
-                },
+                ExecEcho { command: a.command.clone(), working_directory: a.working_directory.clone(), ..ExecEcho::default() },
             );
         } else if let Some(a) = &exec.background_shell {
             self.unavailable(
                 exec,
                 K::Shell { field: 16 },
                 BACKGROUND_SHELL_REASON,
-                ExecEcho {
-                    command: a.command.clone(),
-                    working_directory: a.working_directory.clone(),
-                    ..ExecEcho::default()
-                },
+                ExecEcho { command: a.command.clone(), working_directory: a.working_directory.clone(), ..ExecEcho::default() },
             );
         } else if exec.write_shell_stdin {
             self.unavailable(exec, K::Error { field: 23, error_field: 2 }, UNAVAILABLE, ExecEcho::default());
         } else if exec.diagnostics {
             self.unavailable(exec, K::Empty { field: 9 }, "", ExecEcho::default());
         } else {
-            self.outbound
-                .push(exec_throw(exec.id, "Unsupported Cursor native exec. Use a Mixdog tool instead."));
+            self.outbound.push(exec_throw(exec.id, "Unsupported Cursor native exec. Use a Mixdog tool instead."));
         }
     }
 
@@ -782,17 +708,8 @@ impl CursorDecoder {
             }
         };
         let object = parsed.get("error")?.as_object()?;
-        let code = object
-            .get("code")
-            .and_then(Value::as_str)
-            .filter(|c| !c.is_empty())
-            .unwrap_or("error")
-            .to_ascii_lowercase();
-        let detail = object
-            .get("message")
-            .and_then(Value::as_str)
-            .filter(|m| !m.is_empty())
-            .unwrap_or("request failed");
+        let code = object.get("code").and_then(Value::as_str).filter(|c| !c.is_empty()).unwrap_or("error").to_ascii_lowercase();
+        let detail = object.get("message").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("request failed");
         let advice_text = |v: &Value| match v {
             Value::String(s) => Some(s.clone()),
             Value::Number(n) => Some(n.to_string()),
@@ -805,9 +722,7 @@ impl CursorDecoder {
             .or_else(|| parsed.get("metadata").and_then(|m| m.get("retry-after")))
             .or_else(|| parsed.get("metadata").and_then(|m| m.get("retryAfter")))
             .and_then(advice_text)
-            .and_then(|text| {
-                advice::from_headers(&[("retry-after".to_owned(), text)], std::time::SystemTime::now())
-            });
+            .and_then(|text| advice::from_headers(&[("retry-after".to_owned(), text)], std::time::SystemTime::now()));
         // `parseEndStream`'s `tooLarge`: a `resource_exhausted` whose text names the tool catalog or the request payload as
         // too large is a 413 `request_too_large`, terminal before any output; rate or quota wording keeps it a throttle.
         let too_large = code == "resource_exhausted" && !THROTTLE_CUE.is_match(detail) && REQUEST_TOO_LARGE.is_match(detail);
@@ -848,21 +763,10 @@ impl CursorDecoder {
             }
         }
         for call in pending {
-            events.push(StreamEvent::ItemStart {
-                kind: ItemKind::Tool,
-                phase: None,
-            });
-            events.push(StreamEvent::ToolCallStart {
-                id: call.tool_call_id.clone(),
-                name: call.tool_name.clone(),
-            });
+            events.push(StreamEvent::ItemStart { kind: ItemKind::Tool, phase: None });
+            events.push(StreamEvent::ToolCallStart { id: call.tool_call_id.clone(), name: call.tool_name.clone() });
             self.exposure.tool_dispatched = true;
-            let done = ToolCall {
-                id: call.tool_call_id,
-                name: call.tool_name,
-                arguments: call.arguments,
-                native_type: None,
-            };
+            let done = ToolCall { id: call.tool_call_id, name: call.tool_name, arguments: call.arguments, native_type: None };
             announced.push(done.clone());
             if self.dedupe.should_dispatch(&done.name, &done.arguments, &done.id) {
                 events.push(StreamEvent::ToolCallDone(done));

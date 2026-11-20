@@ -3,11 +3,11 @@
 //! MSAA call cannot be cancelled, and the thread that would wait it out also
 //! hosts the input observer's hooks, which a restart would drop.
 
-use std::sync::mpsc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 
 /// The one budget every provider read of a snapshot shares, counted from the
 /// moment the snapshot began (MixUiaDeadline).
@@ -93,21 +93,12 @@ static BOUNDED: Bounded = Bounded { abandoned: Mutex::new(None) };
 
 /// Runs `work` within the deadline; `stage` names it in a timeout. No deadline
 /// runs it inline, as reads without one always did.
-pub fn run<T: Send + 'static>(
-    deadline: Option<&Deadline>,
-    stage: &str,
-    work: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
+pub fn run<T: Send + 'static>(deadline: Option<&Deadline>, stage: &str, work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     BOUNDED.run(deadline, stage, work)
 }
 
 impl Bounded {
-    fn run<T: Send + 'static>(
-        &self,
-        deadline: Option<&Deadline>,
-        stage: &str,
-        work: impl FnOnce() -> Result<T, String> + Send + 'static,
-    ) -> Result<T, String> {
+    fn run<T: Send + 'static>(&self, deadline: Option<&Deadline>, stage: &str, work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
         let Some(deadline) = deadline else {
             return work();
         };
@@ -178,12 +169,16 @@ mod tests {
         });
         assert_eq!(
             timed_out,
-            Err("computer_command_timeout: accessibility read exceeded 50ms during the element search; the read was abandoned and the input host kept running".into())
+            Err("computer_command_timeout: accessibility read exceeded 50ms during the element search; the read was abandoned and the input host kept running"
+                .into())
         );
         let refused = state.run(Some(&deadline(5000)), "the visible text read", || Ok(2));
         assert_eq!(
             refused,
-            Err("computer_command_timeout: an earlier abandoned accessibility read is still running; this read was not started and the input host kept running".into())
+            Err(
+                "computer_command_timeout: an earlier abandoned accessibility read is still running; this read was not started and the input host kept running"
+                    .into()
+            )
         );
         // The provider answers; the abandoned thread ends and reads go on.
         drop(release);

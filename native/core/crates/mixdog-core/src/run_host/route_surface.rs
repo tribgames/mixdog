@@ -20,17 +20,17 @@ use serde_json::{Map, Value};
 use mixdog_core_ports::ports::route::Route;
 
 use super::deferred_manifest::apply_initial_manifest;
-use mixdog_core_run::run_host::session_context_meta::ContextMeta;
 use super::route_change::{RouteFacts, SurfaceLookup};
-use super::session_tools::header_scope;
 use super::session_cache_opts::session_provider_cache_opts;
+use super::session_tools::header_scope;
 use super::surface_host::thread_mode;
-use mixdog_core_run::run_host::session_context_meta::session_context_meta;
 use super::tool_exposure::{
-    bridge_surface_outdated, session_tool_exposure, tool_exposure_mode_for_provider, LoadToolDef, TOOL_EXPOSURE_BRIDGE, TOOL_EXPOSURE_NATIVE,
+    LoadToolDef, TOOL_EXPOSURE_BRIDGE, TOOL_EXPOSURE_NATIVE, bridge_surface_outdated, session_tool_exposure, tool_exposure_mode_for_provider,
 };
 use super::tool_migration::mark_tool_surface_migrated;
-use super::tool_surface::{clean, filter_model_edit_tool_names, filter_model_edit_tools, ApplyOptions, SurfaceHost, ToolSurface};
+use super::tool_surface::{ApplyOptions, SurfaceHost, ToolSurface, clean, filter_model_edit_tool_names, filter_model_edit_tools};
+use mixdog_core_run::run_host::session_context_meta::ContextMeta;
+use mixdog_core_run::run_host::session_context_meta::session_context_meta;
 
 /// `AGENT_BRIDGE_FIELDS`: what a bridge surface adds, gone when an agent leaves it.
 const AGENT_BRIDGE_FIELDS: [&str; 14] = [
@@ -61,10 +61,10 @@ pub(super) fn is_agent_owner(session: &Value) -> bool {
 }
 
 pub(super) fn load_tool_def(host: &dyn SurfaceHost) -> LoadToolDef {
-    host.bridge_tools().iter().find(|t| t.get("name").and_then(Value::as_str) == Some("load_tool")).map_or_else(
-        || LoadToolDef { description: String::new(), input_schema: Value::Null },
-        LoadToolDef::from_def,
-    )
+    host.bridge_tools()
+        .iter()
+        .find(|t| t.get("name").and_then(Value::as_str) == Some("load_tool"))
+        .map_or_else(|| LoadToolDef { description: String::new(), input_schema: Value::Null }, LoadToolDef::from_def)
 }
 
 /// `applyAgentToolExposure(session, { existing: true })`: whether the exposure changed.
@@ -80,7 +80,8 @@ fn apply_agent_tool_exposure(surface: &ToolSurface, session: &mut Value, hidden_
     if !bridge && before.is_none() {
         return false;
     }
-    let options = |session: &Value| ApplyOptions { provider: Some(clean(session.get("provider"))), model: Some(clean(session.get("model"))), disallowed: Vec::new() };
+    let options =
+        |session: &Value| ApplyOptions { provider: Some(clean(session.get("provider"))), model: Some(clean(session.get("model"))), disallowed: Vec::new() };
     if !bridge && before.as_deref() == Some(TOOL_EXPOSURE_NATIVE) {
         let mode = session.get("deferredSurfaceMode").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("full").to_owned();
         let opts = options(session);
@@ -129,7 +130,14 @@ pub fn is_first_route(previous: &Route) -> bool {
 /// `createSession` resolves it with the route already on the session. Preparing the tools again would store the whole
 /// resolved list over the deferred surface (a Lead is no agent, so `applyAgentToolExposure` does not select again),
 /// and nothing rebuilds it before the first request.
-pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, previous: &Route, prepared: Option<PreparedTools>, hidden_agent: bool) -> HeaderChange {
+pub fn route_surface_change(
+    surface: &ToolSurface,
+    clock: &dyn Clock,
+    header: &Header,
+    previous: &Route,
+    prepared: Option<PreparedTools>,
+    hidden_agent: bool,
+) -> HeaderChange {
     if is_first_route(previous) {
         return HeaderChange { set: Map::new(), unset: Vec::new() };
     }
@@ -158,7 +166,8 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
     let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
     session["messages"] = Value::Array(blocks.node_messages());
     let provider = clean(session.get("provider"));
-    let migrating = super::tool_exposure::tool_exposure_migration_needed(&session, Some(&provider), &load_tool_def(surface.host)) || !surface.retired_names(&session).is_empty();
+    let migrating = super::tool_exposure::tool_exposure_migration_needed(&session, Some(&provider), &load_tool_def(surface.host))
+        || !surface.retired_names(&session).is_empty();
     surface.rebuild_for_provider(&mut session, &provider);
     let messages = session.as_object_mut().expect("session object").shift_remove("messages").expect("system messages");
     let mut after = session.as_object().expect("session object").clone();
@@ -186,7 +195,14 @@ pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: 
     resumed_surface_change_with_skills_gate(surface, clock, header, prepared, hidden_agent, mixdog_mcp::skill_catalog::skills_disabled_by_env())
 }
 
-fn resumed_surface_change_with_skills_gate(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: PreparedTools, hidden_agent: bool, skills_off: bool) -> HeaderChange {
+fn resumed_surface_change_with_skills_gate(
+    surface: &ToolSurface,
+    clock: &dyn Clock,
+    header: &Header,
+    prepared: PreparedTools,
+    hidden_agent: bool,
+    skills_off: bool,
+) -> HeaderChange {
     let old: Vec<String> = header.get("tools").and_then(Value::as_array).map(|tools| tools.iter().map(|t| clean(t.get("name"))).collect()).unwrap_or_default();
     let mut session = Value::Object(header.clone());
     // The manager's freshly resolved list omits retired tools. On a same-route resume keep the
@@ -227,7 +243,14 @@ fn resumed_surface_change_with_skills_gate(surface: &ToolSurface, clock: &dyn Cl
 
 fn remove_disabled_skill_loader(session: &mut Value) {
     *session = super::tool_surface::surviving_entries(session, &|tool| clean(tool.get("name")).eq_ignore_ascii_case("Skill"));
-    for key in ["deferredDefaultTools", "deferredSelectedTools", "deferredDiscoveredTools", "deferredCallableTools", "deferredAnnouncedTools", "nativeDeferredDiscovery"] {
+    for key in [
+        "deferredDefaultTools",
+        "deferredSelectedTools",
+        "deferredDiscoveredTools",
+        "deferredCallableTools",
+        "deferredAnnouncedTools",
+        "nativeDeferredDiscovery",
+    ] {
         if let Some(Value::Array(names)) = session.get_mut(key) {
             names.retain(|name| !clean(Some(name)).eq_ignore_ascii_case("Skill"));
         }
@@ -424,7 +447,7 @@ impl mixdog_core_session::session::ResumedTools for AiRouteFacts {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -452,9 +475,15 @@ mod tests {
     fn same_route_resume_hides_disabled_skill_without_removing_other_retired_definitions() {
         struct CurrentHost;
         impl SurfaceHost for CurrentHost {
-            fn defined(&self, name: &str) -> bool { name == "read" }
-            fn bridge_tools(&self) -> Vec<Value> { Vec::new() }
-            fn mcp_server_instructions(&self, _: Option<&str>) -> Value { json!({}) }
+            fn defined(&self, name: &str) -> bool {
+                name == "read"
+            }
+            fn bridge_tools(&self) -> Vec<Value> {
+                Vec::new()
+            }
+            fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
+                json!({})
+            }
         }
         let surface = ToolSurface { host: &CurrentHost, clock: &Fixed };
         let saved = json!({
@@ -488,10 +517,7 @@ mod tests {
         session["model"] = json!("gpt-5");
         let header = session.as_object().unwrap().clone();
         let previous = Route::from_iter([("provider".into(), json!("anthropic-oauth")), ("model".into(), json!("claude"))]);
-        let change = route_surface_change(
-            &surface, &Fixed, &header, &previous,
-            Some(PreparedTools { tools: json!(catalog), tool_spec: json!("full") }), false,
-        );
+        let change = route_surface_change(&surface, &Fixed, &header, &previous, Some(PreparedTools { tools: json!(catalog), tool_spec: json!("full") }), false);
         let mut after = header;
         for key in change.unset {
             after.shift_remove(&key);
@@ -503,6 +529,4 @@ mod tests {
         assert_eq!(after["deferredDiscoveredTools"], json!(["computer"]));
         assert_eq!(surface.pool_tool_names(&after), vec!["mcp__gmail__search_emails".to_owned()]);
     }
-
-
 }

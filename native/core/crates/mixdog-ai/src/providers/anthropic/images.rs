@@ -67,10 +67,8 @@ fn local_400(code: &str, message: String) -> ProviderError {
 /// `failing`: the image where Node names it (`failingImageData`: a decoder's rejection and an image still too large; not
 /// an empty or over-long one).
 fn preparation_failed(path: &str, detail: &str, failing: Option<FailingImage>) -> ProviderError {
-    let mut error = local_400(
-        PREPARATION_FAILED,
-        format!("Anthropic image preparation failed at {path}: {detail}. The original image and conversation were not changed."),
-    );
+    let mut error =
+        local_400(PREPARATION_FAILED, format!("Anthropic image preparation failed at {path}: {detail}. The original image and conversation were not changed."));
     error.failing_image = failing.map(Box::new);
     error
 }
@@ -464,7 +462,9 @@ mod tests {
         let note = superseding_metadata_text((1, 1), (200, 200));
         assert_eq!(
             got,
-            json!([user(json!([{ "type": "tool_result", "tool_use_id": "t", "content": [{ "type": "text", "text": note }, image("QkJC")], "is_error": false }]))])
+            json!([user(
+                json!([{ "type": "tool_result", "tool_use_id": "t", "content": [{ "type": "text", "text": note }, image("QkJC")], "is_error": false }])
+            )])
         );
         assert!(note.starts_with("[Image: 1x1, displayed at 200x200. Multiply coordinates by 0.01 to map"));
         let plain = wire(&json!([user(json!([image("QUFB")]))]));

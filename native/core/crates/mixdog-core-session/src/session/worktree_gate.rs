@@ -137,9 +137,7 @@ fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
 impl State {
     /// A reader of `checkout` at `path`, or `None` while a management hold refuses it.
     fn admit_reader(&mut self, id: u64, session: &str, path: &str, checkout: &Checkout) -> bool {
-        let held = self.managers.values().any(|other| {
-            if checkout.external { is_within(&checkout.top_level, other) } else { overlaps(other, path) }
-        });
+        let held = self.managers.values().any(|other| if checkout.external { is_within(&checkout.top_level, other) } else { overlaps(other, path) });
         if held {
             return false;
         }
@@ -149,8 +147,7 @@ impl State {
 
     /// Whether `session` must wait before a turn in `path` may start.
     fn blocked(&self, session: &str, path: &str) -> bool {
-        self.transitions.contains_key(session)
-            || self.folder_holds.values().any(|hold| hold.session != session && is_within(&hold.folder, path))
+        self.transitions.contains_key(session) || self.folder_holds.values().any(|hold| hold.session != session && is_within(&hold.folder, path))
     }
 }
 
@@ -195,12 +192,8 @@ impl AdmissionGate {
     pub fn hold_checkout_folder(self: &Arc<Self>, session: &str, folder: &str, hold: bool) -> Result<FolderGuard, ScmFailure> {
         let id = key(session);
         let mut state = self.state();
-        let mut users: Vec<String> = state
-            .turns
-            .values()
-            .filter(|turn| turn.session != id && is_within(folder, &(turn.cwd)()))
-            .map(|turn| turn.session.clone())
-            .collect();
+        let mut users: Vec<String> =
+            state.turns.values().filter(|turn| turn.session != id && is_within(folder, &(turn.cwd)())).map(|turn| turn.session.clone()).collect();
         users.sort();
         users.dedup();
         if !users.is_empty() {
@@ -219,11 +212,7 @@ impl AdmissionGate {
 
     /// Writers refuse while a reader that is not `actor`'s overlaps an affected folder, then
     /// exclude later readers until the guard drops. External checkouts are only checked.
-    pub fn hold_activity(
-        self: &Arc<Self>,
-        folders: &[(String, Checkout)],
-        actor: Option<&str>,
-    ) -> Result<ActivityGuard, ScmFailure> {
+    pub fn hold_activity(self: &Arc<Self>, folders: &[(String, Checkout)], actor: Option<&str>) -> Result<ActivityGuard, ScmFailure> {
         let mut state = self.state();
         let conflicts: Vec<String> = state
             .readers
@@ -249,13 +238,7 @@ impl AdmissionGate {
     /// Admit one turn of `session` whose live cwd is `cwd()`: waits while the session itself
     /// transitions or another session holds the checkout the cwd lies in, then registers the
     /// turn until the guard drops. An abort while waiting registers nothing.
-    pub async fn admit_turn(
-        self: &Arc<Self>,
-        session: &str,
-        cwd: Cwd,
-        checkouts: &dyn Checkouts,
-        cancel: &CancellationToken,
-    ) -> Result<TurnGuard, ScmFailure> {
+    pub async fn admit_turn(self: &Arc<Self>, session: &str, cwd: Cwd, checkouts: &dyn Checkouts, cancel: &CancellationToken) -> Result<TurnGuard, ScmFailure> {
         let id = key(session);
         loop {
             if cancel.is_cancelled() {
@@ -302,12 +285,7 @@ impl AdmissionGate {
     pub fn retain_admitted_turn_workspace(&self, session: &str, cwd: &str, checkout: Option<&Checkout>) -> Result<(), ScmFailure> {
         let id = key(session);
         let mut state = self.state();
-        let moving: Vec<u64> = state
-            .turns
-            .iter()
-            .filter(|(_, turn)| turn.session == id && norm(&(turn.cwd)()) != norm(cwd))
-            .map(|(token, _)| *token)
-            .collect();
+        let moving: Vec<u64> = state.turns.iter().filter(|(_, turn)| turn.session == id && norm(&(turn.cwd)()) != norm(cwd)).map(|(token, _)| *token).collect();
         for token in moving {
             let Some(checkout) = checkout else { continue };
             let reader = self.id();
@@ -521,7 +499,6 @@ mod tests {
         gate.set_workspace_cwd_lock("a", None);
         assert_eq!(gate.workspace_cwd_lock(&["a"]), None);
     }
-
 
     #[tokio::test]
     async fn a_turn_waits_for_its_sessions_transition_and_runs_after_it() {

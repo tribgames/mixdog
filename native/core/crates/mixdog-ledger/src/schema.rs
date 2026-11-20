@@ -39,8 +39,7 @@ pub enum LedgerState {
 }
 
 fn objects(conn: &Connection) -> Result<Objects> {
-    let mut stmt =
-        conn.prepare("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL")?;
+    let mut stmt = conn.prepare("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL")?;
     let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }

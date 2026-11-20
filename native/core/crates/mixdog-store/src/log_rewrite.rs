@@ -369,8 +369,7 @@ fn plan_with(
 fn build_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, hook: Hook<'_>) -> Result<(), RewriteError> {
     let root = stage_dir(data, session);
     let intent_path = root.join(INTENT_FILE);
-    let intent: Intent =
-        serde_json::from_slice(&std::fs::read(&intent_path).map_err(err(IoOp::Read, &intent_path))?).map_err(log_error)?;
+    let intent: Intent = serde_json::from_slice(&std::fs::read(&intent_path).map_err(err(IoOp::Read, &intent_path))?).map_err(log_error)?;
     let replacements: HashMap<u64, String> = intent.frames.into_iter().collect();
     let (building, new) = (root.join(BUILDING_DIR), root.join(NEW_DIR));
     remove_dir(&building)?;

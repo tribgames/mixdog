@@ -275,12 +275,6 @@ fn a_symbolic_link_in_a_tree_is_refused() {
     assert!(error.to_string().starts_with("Renderer tree contains a symbolic link: "), "{error}");
 }
 
-
-
-
-
-
-
 #[test]
 fn the_manifest_line_and_the_manifest_file_have_the_shapes_the_deploy_scripts_read() {
     let dirs = fixture();

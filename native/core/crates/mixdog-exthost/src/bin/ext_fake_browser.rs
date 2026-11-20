@@ -5,10 +5,7 @@
 //! - `silent`: lives and never prints an endpoint; records its pid in the pid file, then idles until killed.
 //! - `stderr-closed`: records its pid, closes its stderr without printing an endpoint, then idles until killed.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "a test fake: it writes its pid file and blocks its own thread"
-)]
+#![allow(clippy::disallowed_methods, reason = "a test fake: it writes its pid file and blocks its own thread")]
 
 use std::io::Write;
 
@@ -42,10 +39,7 @@ fn say(text: &str) {
 
 fn endpoint() {
     say("some startup noise\n");
-    say(&format!(
-        "DevTools listening on ws://127.0.0.1:9222/devtools/browser/fake-{}\n",
-        std::process::id()
-    ));
+    say(&format!("DevTools listening on ws://127.0.0.1:9222/devtools/browser/fake-{}\n", std::process::id()));
     // Alive until the pool closes its stdin.
     let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
 }

@@ -16,20 +16,12 @@ pub(super) fn search_pool(threads: usize) -> ThreadPool {
 }
 
 pub(super) fn bulk_search_pool(threads: usize) -> ThreadPool {
-    named_pool(
-        threads,
-        "mixdog-search-bulk",
-        "mixdog bulk search worker pool",
-    )
+    named_pool(threads, "mixdog-search-bulk", "mixdog bulk search worker pool")
 }
 
 /// A worker pool whose threads are named `<prefix>-<index>`.
 fn named_pool(threads: usize, prefix: &'static str, what: &str) -> ThreadPool {
-    ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .thread_name(move |index| format!("{prefix}-{index}"))
-        .build()
-        .expect(what)
+    ThreadPoolBuilder::new().num_threads(threads).thread_name(move |index| format!("{prefix}-{index}")).build().expect(what)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,17 +85,12 @@ impl SchedulerState {
     /// Queued searches across the three classes: the depth admission,
     /// cancellation and telemetry all measure.
     pub(super) fn queue_depth(&self) -> usize {
-        self.interactive
-            .len()
-            .saturating_add(self.fuzzy.len())
-            .saturating_add(self.bulk.len())
+        self.interactive.len().saturating_add(self.fuzzy.len()).saturating_add(self.bulk.len())
     }
 
     /// Searches currently running across the three classes.
     pub(super) fn inflight(&self) -> usize {
-        self.interactive_inflight
-            .saturating_add(self.fuzzy_inflight)
-            .saturating_add(self.bulk_inflight)
+        self.interactive_inflight.saturating_add(self.fuzzy_inflight).saturating_add(self.bulk_inflight)
     }
 }
 
@@ -120,10 +107,7 @@ pub(super) struct SchedulerTelemetry {
     pub(super) handler_ewma_ms: u64,
 }
 
-pub(super) fn scheduler_telemetry(
-    inner: &SchedulerInner,
-    state: &SchedulerState,
-) -> SchedulerTelemetry {
+pub(super) fn scheduler_telemetry(inner: &SchedulerInner, state: &SchedulerState) -> SchedulerTelemetry {
     SchedulerTelemetry {
         queue_depth: state.queue_depth(),
         inflight: state.inflight(),
@@ -181,10 +165,7 @@ impl SchedulerInner {
 /// A poisoned map is recovered like every other cache in the runtime: skipping
 /// it instead would leak this entry and, worse, make every later lookup fail,
 /// which silently disables cancellation for the rest of the process.
-pub(super) fn forget_cancellation(
-    cancellations: &Mutex<HashMap<RequestKey, Arc<AtomicBool>>>,
-    key: RequestKey,
-) {
+pub(super) fn forget_cancellation(cancellations: &Mutex<HashMap<RequestKey, Arc<AtomicBool>>>, key: RequestKey) {
     lock_recover(cancellations).remove(&key);
 }
 
@@ -194,10 +175,7 @@ pub(super) struct SearchScheduler {
 }
 
 impl SearchScheduler {
-    pub(super) fn new(
-        file_lists: Arc<FileListStore>,
-        cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>>,
-    ) -> Self {
+    pub(super) fn new(file_lists: Arc<FileListStore>, cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>>) -> Self {
         let total_limit = server_parallelism();
         let interactive_reserve = interactive_reserve(total_limit);
         let interactive_limit = total_limit.saturating_add(interactive_reserve);
@@ -225,10 +203,7 @@ impl SearchScheduler {
             .name("mixdog-search-dispatch".to_string())
             .spawn(move || dispatch_searches(dispatch_inner))
             .expect("mixdog search dispatcher");
-        Self {
-            inner,
-            dispatcher: Some(dispatcher),
-        }
+        Self { inner, dispatcher: Some(dispatcher) }
     }
 
     pub(super) fn enqueue(&self, search: ScheduledSearch) -> Result<(), ScheduledSearch> {
@@ -238,11 +213,7 @@ impl SearchScheduler {
         }
         let class = search_class(&search.req);
         let queue_depth = state.queue_depth();
-        let admission_capacity = queue_admission_capacity(
-            class,
-            self.inner.queue_capacity,
-            self.inner.priority_queue_reserve,
-        );
+        let admission_capacity = queue_admission_capacity(class, self.inner.queue_capacity, self.inner.priority_queue_reserve);
         if queue_depth >= admission_capacity {
             state.saturation_count = state.saturation_count.saturating_add(1);
             return Err(search);
@@ -289,44 +260,24 @@ impl SearchScheduler {
     }
 }
 
-pub(super) fn interactive_dispatch_ceiling(
-    total_limit: usize,
-    reserve: usize,
-    has_pending_interactive: bool,
-) -> usize {
+pub(super) fn interactive_dispatch_ceiling(total_limit: usize, reserve: usize, has_pending_interactive: bool) -> usize {
     total_limit.saturating_add(if has_pending_interactive { reserve } else { 0 })
 }
 
 pub(super) fn adaptive_bulk_limit(configured: usize, state: &SchedulerState) -> usize {
     let adaptive = configured.min(state.bulk_window.max(1));
-    if state.interactive_inflight > 0 || !state.interactive.is_empty() {
-        adaptive.min(1)
-    } else {
-        adaptive
-    }
+    if state.interactive_inflight > 0 || !state.interactive.is_empty() { adaptive.min(1) } else { adaptive }
 }
 
 pub(super) fn update_ewma(current: u64, sample: u64) -> u64 {
-    if current == 0 {
-        sample
-    } else {
-        current
-            .saturating_mul(7)
-            .saturating_add(sample)
-            .saturating_div(8)
-    }
+    if current == 0 { sample } else { current.saturating_mul(7).saturating_add(sample).saturating_div(8) }
 }
 
 pub(super) fn duration_micros(duration: Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
 }
 
-pub(super) fn observe_scheduler_latency(
-    state: &mut SchedulerState,
-    queue_elapsed: Duration,
-    handler_elapsed: Duration,
-    configured_bulk_limit: usize,
-) {
+pub(super) fn observe_scheduler_latency(state: &mut SchedulerState, queue_elapsed: Duration, handler_elapsed: Duration, configured_bulk_limit: usize) {
     let queue_us = duration_micros(queue_elapsed);
     let handler_us = duration_micros(handler_elapsed);
     state.queue_ewma_us = update_ewma(state.queue_ewma_us, queue_us);
@@ -337,17 +288,10 @@ pub(super) fn observe_scheduler_latency(
         state.healthy_completions = 0;
         return;
     }
-    if queue_elapsed <= target / 4
-        && handler_elapsed <= target
-        && state.interactive.is_empty()
-        && state.bulk_window < configured_bulk_limit
-    {
+    if queue_elapsed <= target / 4 && handler_elapsed <= target && state.interactive.is_empty() && state.bulk_window < configured_bulk_limit {
         state.healthy_completions = state.healthy_completions.saturating_add(1);
         if state.healthy_completions >= aimd_increase_every() {
-            state.bulk_window = state
-                .bulk_window
-                .saturating_add(1)
-                .min(configured_bulk_limit);
+            state.bulk_window = state.bulk_window.saturating_add(1).min(configured_bulk_limit);
             state.healthy_completions = 0;
         }
     } else {
@@ -384,11 +328,7 @@ pub(super) fn dispatch_searches(inner: Arc<SchedulerInner>) {
                 let mut ready = Vec::new();
                 let s = &mut *state;
                 let mut total_inflight = s.inflight();
-                let interactive_ceiling = interactive_dispatch_ceiling(
-                    inner.total_limit,
-                    inner.interactive_reserve,
-                    !s.interactive.is_empty(),
-                );
+                let interactive_ceiling = interactive_dispatch_ceiling(inner.total_limit, inner.interactive_reserve, !s.interactive.is_empty());
                 admit_class(
                     SearchClass::Interactive,
                     (&mut s.interactive, &mut s.interactive_inflight),
@@ -396,21 +336,9 @@ pub(super) fn dispatch_searches(inner: Arc<SchedulerInner>) {
                     &mut total_inflight,
                     &mut ready,
                 );
-                admit_class(
-                    SearchClass::Fuzzy,
-                    (&mut s.fuzzy, &mut s.fuzzy_inflight),
-                    (inner.fuzzy_limit, inner.total_limit),
-                    &mut total_inflight,
-                    &mut ready,
-                );
+                admit_class(SearchClass::Fuzzy, (&mut s.fuzzy, &mut s.fuzzy_inflight), (inner.fuzzy_limit, inner.total_limit), &mut total_inflight, &mut ready);
                 let current_bulk_limit = adaptive_bulk_limit(inner.bulk_limit, s);
-                admit_class(
-                    SearchClass::Bulk,
-                    (&mut s.bulk, &mut s.bulk_inflight),
-                    (current_bulk_limit, inner.total_limit),
-                    &mut total_inflight,
-                    &mut ready,
-                );
+                admit_class(SearchClass::Bulk, (&mut s.bulk, &mut s.bulk_inflight), (current_bulk_limit, inner.total_limit), &mut total_inflight, &mut ready);
                 if !ready.is_empty() {
                     break ready;
                 }
@@ -433,11 +361,7 @@ pub(super) fn dispatch_searches(inner: Arc<SchedulerInner>) {
     }
 }
 
-pub(super) fn response_for_handler_result(
-    id: u64,
-    result: Result<serde_json::Value, String>,
-    request_cancelled: bool,
-) -> Option<serde_json::Value> {
+pub(super) fn response_for_handler_result(id: u64, result: Result<serde_json::Value, String>, request_cancelled: bool) -> Option<serde_json::Value> {
     if request_cancelled {
         return None;
     }
@@ -451,18 +375,8 @@ pub(super) fn response_for_handler_result(
     }
 }
 
-pub(super) fn execute_scheduled_search(
-    inner: Arc<SchedulerInner>,
-    class: SearchClass,
-    search: ScheduledSearch,
-) {
-    let ScheduledSearch {
-        req,
-        cancelled,
-        queued_at,
-        client_id,
-        sink,
-    } = search;
+pub(super) fn execute_scheduled_search(inner: Arc<SchedulerInner>, class: SearchClass, search: ScheduledSearch) {
+    let ScheduledSearch { req, cancelled, queued_at, client_id, sink } = search;
     let id = req.id;
     let queue_elapsed = queued_at.elapsed();
     let queue_ms = queue_elapsed.as_millis();
@@ -470,12 +384,8 @@ pub(super) fn execute_scheduled_search(
     let mut response = if cancelled.load(Ordering::Relaxed) {
         None
     } else {
-        let deadline_at = req
-            .deadline_ms
-            .map(|deadline_ms| queued_at + Duration::from_millis(deadline_ms));
-        let handled = contain_search_panic("native search handler", || {
-            handle(&req, &cancelled, &inner.file_lists, deadline_at)
-        });
+        let deadline_at = req.deadline_ms.map(|deadline_ms| queued_at + Duration::from_millis(deadline_ms));
+        let handled = contain_search_panic("native search handler", || handle(&req, &cancelled, &inner.file_lists, deadline_at));
         response_for_handler_result(req.id, handled, cancelled.load(Ordering::Relaxed))
     };
     let handler_elapsed = handler_started.elapsed();

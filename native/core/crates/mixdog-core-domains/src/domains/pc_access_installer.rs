@@ -187,10 +187,8 @@ mod windows {
 
         #[test]
         fn the_phones_password_rides_the_options_and_the_delegated_path_carries_none() {
-            let options = KeyOptions {
-                revoke: vec!["old".to_string()],
-                credential: Some(PcCredential { user: Some("me".to_string()), password: "pw".to_string() }),
-            };
+            let options =
+                KeyOptions { revoke: vec!["old".to_string()], credential: Some(PcCredential { user: Some("me".to_string()), password: "pw".to_string() }) };
             let mapped = change_options(&options);
             assert_eq!(mapped.revoke, vec!["old".to_string()]);
             assert_eq!(mapped.credential, Some(Credential { user: Some("me".to_string()), password: "pw".to_string() }));
@@ -201,7 +199,12 @@ mod windows {
 
         #[test]
         fn a_result_carries_its_detail_and_exit_code() {
-            let change = key_change(KeyChangeResult { outcome: KeyChangeOutcome::Failed, state: InstallState::NotInstalled, detail: Some("why".to_string()), exit_code: Some(5) });
+            let change = key_change(KeyChangeResult {
+                outcome: KeyChangeOutcome::Failed,
+                state: InstallState::NotInstalled,
+                detail: Some("why".to_string()),
+                exit_code: Some(5),
+            });
             assert_eq!(change, KeyChange { outcome: KeyOutcome::Failed, detail: Some("why".to_string()), exit_code: Some(5) });
         }
     }
@@ -222,8 +225,6 @@ mod tests {
         assert_eq!(installer.revoke_delegated("key").await.outcome, KeyOutcome::Unavailable);
     }
 }
-
-
 
 /// The installer over the bridge executable at `exe` (`native-tools/mixdog-secure-desktop.exe` of the package,
 /// else the crate's `target/release` in development). Made inside the runtime; one per core, so its single

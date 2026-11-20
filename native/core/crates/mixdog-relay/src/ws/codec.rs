@@ -143,12 +143,7 @@ impl Receiver {
                     let buf = self.consume(8);
                     let high = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
                     if u64::from(high) > (1u64 << 21) - 1 {
-                        return Err(self.fail(
-                            "Unsupported WebSocket frame: payload length > 2^53 - 1",
-                            false,
-                            1009,
-                            "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH",
-                        ));
+                        return Err(self.fail("Unsupported WebSocket frame: payload length > 2^53 - 1", false, 1009, "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH"));
                     }
                     let low = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
                     self.payload_length = (u64::from(high) << 32) + u64::from(low);
@@ -173,11 +168,7 @@ impl Receiver {
 
     fn fail(&mut self, message: &str, prefix: bool, status_code: u16, code: &'static str) -> ReceiverError {
         self.done = true;
-        ReceiverError {
-            message: if prefix { format!("Invalid WebSocket frame: {message}") } else { message.to_string() },
-            code,
-            status_code,
-        }
+        ReceiverError { message: if prefix { format!("Invalid WebSocket frame: {message}") } else { message.to_string() }, code, status_code }
     }
 
     fn consume(&mut self, n: usize) -> Vec<u8> {
@@ -351,8 +342,7 @@ fn unmask(data: &mut [u8], mask: [u8; 4]) {
     let wide = u64::from_ne_bytes([mask[0], mask[1], mask[2], mask[3], mask[0], mask[1], mask[2], mask[3]]);
     let mut blocks = data.chunks_exact_mut(8);
     for block in &mut blocks {
-        let value =
-            u64::from_ne_bytes([block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7]]) ^ wide;
+        let value = u64::from_ne_bytes([block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7]]) ^ wide;
         block.copy_from_slice(&value.to_ne_bytes());
     }
     for (index, byte) in blocks.into_remainder().iter_mut().enumerate() {

@@ -4,29 +4,39 @@
 
 use super::super::bounded::Mta;
 use super::super::native;
-use super::element::{expand_label, toggle_label, UiaElement};
-use super::{any_of, control_type_id, property_condition, role_of, root_from, text, Uia};
-use crate::a11y::{integrity_refusal, Node, NodeExtra};
+use super::element::{UiaElement, expand_label, toggle_label};
+use super::{Uia, any_of, control_type_id, property_condition, role_of, root_from, text};
+use crate::a11y::{Node, NodeExtra, integrity_refusal};
 use crate::platform::{Wid, WindowInfo};
 use std::rc::Rc;
-use windows::core::BSTR;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::System::Variant::{VARIANT, VT_EMPTY, VT_UNKNOWN};
 use windows::Win32::UI::Accessibility::*;
+use windows::core::BSTR;
 
 pub(super) const CHROMIUM_PREFIX: &str = "Chrome_WidgetWin";
 
 const NONINTERACTIVE: [&str; 15] = [
-    "Text", "Custom", "Group", "Pane", "Image", "DataGrid", "DataItem", "Header", "HeaderItem",
-    "Table", "ProgressBar", "StatusBar", "ToolBar", "TitleBar", "Separator",
+    "Text",
+    "Custom",
+    "Group",
+    "Pane",
+    "Image",
+    "DataGrid",
+    "DataItem",
+    "Header",
+    "HeaderItem",
+    "Table",
+    "ProgressBar",
+    "StatusBar",
+    "ToolBar",
+    "TitleBar",
+    "Separator",
 ];
 
 pub(super) fn cached_flag(element: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> bool {
     // SAFETY: a read of a property the cache request carries.
-    unsafe { element.GetCachedPropertyValue(id) }
-        .ok()
-        .and_then(|value| bool::try_from(&value).ok())
-        .unwrap_or(false)
+    unsafe { element.GetCachedPropertyValue(id) }.ok().and_then(|value| bool::try_from(&value).ok()).unwrap_or(false)
 }
 
 /// A pattern property the provider actually serves. Some providers serve a
@@ -99,15 +109,9 @@ impl Uia {
             };
             let rect: RECT = rect;
             let role = role_of(control_type.0);
-            let text_surface = cached_flag(&element, UIA_IsKeyboardFocusablePropertyId)
-                && cached_flag(&element, UIA_IsTextPatternAvailablePropertyId);
+            let text_surface = cached_flag(&element, UIA_IsKeyboardFocusablePropertyId) && cached_flag(&element, UIA_IsTextPatternAvailablePropertyId);
             let mut node = Node {
-                element: Rc::new(UiaElement {
-                    automation: self.automation.clone(),
-                    element: element.clone(),
-                    window,
-                    port: self.port.clone(),
-                }),
+                element: Rc::new(UiaElement { automation: self.automation.clone(), element: element.clone(), window, port: self.port.clone() }),
                 role: role.to_string(),
                 name: text(element.CachedName()),
                 automation_id: text(element.CachedAutomationId()),
@@ -127,19 +131,12 @@ impl Uia {
                 y: rect.top as f64,
                 width: (rect.right - rect.left) as f64,
                 height: (rect.bottom - rect.top) as f64,
-                extra: NodeExtra {
-                    access_key: text(element.CachedAccessKey()),
-                    help: text(element.CachedHelpText()),
-                    text_surface,
-                    ..NodeExtra::default()
-                },
+                extra: NodeExtra { access_key: text(element.CachedAccessKey()), help: text(element.CachedHelpText()), text_surface, ..NodeExtra::default() },
             };
             if let Some(value) = cached_supported(&element, UIA_ValueValuePropertyId) {
                 node.value = variant_text(&value);
             }
-            if cached_supported(&element, UIA_ValueValuePropertyId).is_some()
-                || cached_flag(&element, UIA_IsValuePatternAvailablePropertyId)
-            {
+            if cached_supported(&element, UIA_ValueValuePropertyId).is_some() || cached_flag(&element, UIA_IsValuePatternAvailablePropertyId) {
                 node.can_set_value = text(element.CachedClassName()) != "XLSpreadsheetCell";
             }
             if let Some(value) = cached_supported(&element, UIA_ToggleToggleStatePropertyId) {
@@ -173,12 +170,7 @@ impl Uia {
 
     /// Every element of the window in document order, up to `limit`
     /// (Snapshot-Window's cached FindAll).
-    pub(super) fn cached_snapshot(
-        &self,
-        window: &WindowInfo,
-        include_noninteractive: bool,
-        limit: usize,
-    ) -> Result<Vec<Node>, String> {
+    pub(super) fn cached_snapshot(&self, window: &WindowInfo, include_noninteractive: bool, limit: usize) -> Result<Vec<Node>, String> {
         // snapshot_window has refused already; the other callers of this
         // read have not.
         if let Some(refusal) = integrity_refusal(&native::integrity(window.handle)) {
@@ -191,10 +183,7 @@ impl Uia {
         let to_error = |error: windows::core::Error| error.message();
         let mut conditions = Vec::new();
         for role in roles {
-            conditions.push(
-                property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role)))
-                    .map_err(to_error)?,
-            );
+            conditions.push(property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role))).map_err(to_error)?);
         }
         // A focusable text surface is where a terminal or editor takes input,
         // even when its control type reads as static text.
@@ -213,9 +202,7 @@ impl Uia {
             .bounded("the element search", move || {
                 let root = root_from(&automation.get(), handle)?;
                 // SAFETY: a plain cached search under the window's root.
-                unsafe { root.FindAllBuildCache(TreeScope_Descendants, &condition.get(), &cache.get()) }
-                    .map(Mta::new)
-                    .map_err(|error| error.message())
+                unsafe { root.FindAllBuildCache(TreeScope_Descendants, &condition.get(), &cache.get()) }.map(Mta::new).map_err(|error| error.message())
             })?
             .get();
         let count = unsafe { found.Length() }.map_err(to_error)?.max(0) as usize;
@@ -281,9 +268,5 @@ fn cut_visible(lines: &[String]) -> Option<String> {
     }
     let joined = lines.join("\n");
     let count = joined.chars().count();
-    Some(if count > 299 {
-        format!("\u{2026}{}", joined.chars().skip(count - 298).collect::<String>())
-    } else {
-        joined
-    })
+    Some(if count > 299 { format!("\u{2026}{}", joined.chars().skip(count - 298).collect::<String>()) } else { joined })
 }

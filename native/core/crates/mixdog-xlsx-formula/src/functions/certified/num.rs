@@ -347,7 +347,15 @@ impl Fl {
 
     pub fn cmp(&self, o: &Fl) -> Ordering {
         // signs and leading exponents first: no exact difference of far-apart magnitudes
-        let sgn = |x: &Fl| if x.is_zero() { 0 } else if x.neg { -1 } else { 1 };
+        let sgn = |x: &Fl| {
+            if x.is_zero() {
+                0
+            } else if x.neg {
+                -1
+            } else {
+                1
+            }
+        };
         let (a, b) = (sgn(self), sgn(o));
         if a != b {
             return a.cmp(&b);
@@ -368,7 +376,6 @@ impl Fl {
             Ordering::Greater
         }
     }
-
 
     pub fn sqrt_floor(&self, p: u64) -> Fl {
         // sqrt(m 2^e): scale so the exponent is even and the mantissa has 2p bits, then the integer root
@@ -581,7 +588,13 @@ impl Mag {
 
     /// The exponent of the leading bit, `i64::MIN` for zero.
     pub fn top(self) -> i64 {
-        if self.is_zero() { i64::MIN } else if self.is_inf() { INF_E } else { self.e + 63 - i64::from(self.m.leading_zeros()) }
+        if self.is_zero() {
+            i64::MIN
+        } else if self.is_inf() {
+            INF_E
+        } else {
+            self.e + 63 - i64::from(self.m.leading_zeros())
+        }
     }
 
     /// An upper bound of a nonnegative double.
@@ -592,7 +605,6 @@ impl Mag {
         let f = Fl::from_f64(x.abs());
         Mag::of(&f)
     }
-
 
     pub fn le(self, o: Mag) -> bool {
         if o.is_inf() {

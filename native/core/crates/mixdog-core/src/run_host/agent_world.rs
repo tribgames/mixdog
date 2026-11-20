@@ -436,6 +436,4 @@ mod tests {
         assert_eq!(work.runs.load(Ordering::SeqCst), 2);
         assert!(preparation.is_prepared("c"));
     }
-
-
 }

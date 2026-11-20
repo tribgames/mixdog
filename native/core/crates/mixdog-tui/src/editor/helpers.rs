@@ -8,8 +8,7 @@ use mixdog_tui_style::Key;
 
 use super::draft::Draft;
 use super::editing::{
-    delete_selected_text, len16, next_offset, next_word_offset, previous_offset, previous_word_offset, replace_selection,
-    selection_range, splice16,
+    delete_selected_text, len16, next_offset, next_word_offset, previous_offset, previous_word_offset, replace_selection, selection_range, splice16,
 };
 
 /// How a hint under the prompt is toned.

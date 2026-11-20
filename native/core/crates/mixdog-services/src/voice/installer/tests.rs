@@ -107,11 +107,11 @@ async fn world(model_sha: Option<&str>) -> World {
     World { base, log, manifest }
 }
 
-
 const ALL: Missing = Missing { whisper: true, model: true, ffmpeg: true };
 
 fn names(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    let mut names: Vec<String> =
+        std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
     names.sort();
     names
 }
@@ -213,5 +213,3 @@ async fn a_lock_is_listed_while_held_and_unlinked_when_its_install_is_dropped() 
     installer.release(lock).await;
     assert!(!path.exists() && !held().contains(&path));
 }
-
-

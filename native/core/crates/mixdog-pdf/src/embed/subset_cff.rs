@@ -28,10 +28,7 @@ impl Index {
     fn read(data: &[u8], at: usize) -> Result<Self, EmbedError> {
         let count = usize::from(be_u16(data, at).ok_or_else(damaged)?);
         if count == 0 {
-            return Ok(Self {
-                objects: Vec::new(),
-                end: at + 2,
-            });
+            return Ok(Self { objects: Vec::new(), end: at + 2 });
         }
         let size = usize::from(*data.get(at + 2).ok_or_else(damaged)?);
         if !(1..=4).contains(&size) {
@@ -40,9 +37,7 @@ impl Index {
         let offset = |index: usize| -> Result<usize, EmbedError> {
             let start = at + 3 + index * size;
             let bytes = data.get(start..start + size).ok_or_else(damaged)?;
-            Ok(bytes
-                .iter()
-                .fold(0usize, |value, byte| value * 256 + usize::from(*byte)))
+            Ok(bytes.iter().fold(0usize, |value, byte| value * 256 + usize::from(*byte)))
         };
         let base = at + 3 + (count + 1) * size - 1;
         let mut objects = Vec::with_capacity(count);
@@ -53,16 +48,11 @@ impl Index {
             }
             objects.push((start, end));
         }
-        Ok(Self {
-            objects,
-            end: base + offset(count)?,
-        })
+        Ok(Self { objects, end: base + offset(count)? })
     }
 
     fn get<'a>(&self, data: &'a [u8], index: usize) -> Option<&'a [u8]> {
-        self.objects
-            .get(index)
-            .map(|(start, end)| &data[*start..*end])
+        self.objects.get(index).map(|(start, end)| &data[*start..*end])
     }
 
     fn len(&self) -> usize {
@@ -106,23 +96,13 @@ fn read_dict(data: &[u8]) -> Result<Vec<Entry>, EmbedError> {
     while at < data.len() {
         let b0 = data[at];
         let operand = |length: usize, value: f64, at: usize| -> Result<Operand, EmbedError> {
-            Ok(Operand {
-                raw: data.get(at..at + length).ok_or_else(damaged)?.to_vec(),
-                value,
-            })
+            Ok(Operand { raw: data.get(at..at + length).ok_or_else(damaged)?.to_vec(), value })
         };
         match b0 {
             0..=21 => {
-                let op = if b0 == 12 {
-                    1200 + u16::from(*data.get(at + 1).ok_or_else(damaged)?)
-                } else {
-                    u16::from(b0)
-                };
+                let op = if b0 == 12 { 1200 + u16::from(*data.get(at + 1).ok_or_else(damaged)?) } else { u16::from(b0) };
                 at += if b0 == 12 { 2 } else { 1 };
-                entries.push(Entry {
-                    op,
-                    operands: std::mem::take(&mut operands),
-                });
+                entries.push(Entry { op, operands: std::mem::take(&mut operands) });
             }
             28 => {
                 let value = f64::from(be_u16(data, at + 1).ok_or_else(damaged)? as i16);
@@ -150,10 +130,7 @@ fn read_dict(data: &[u8]) -> Result<Vec<Entry>, EmbedError> {
                     }
                     nibbles.push(low);
                 }
-                operands.push(Operand {
-                    raw: data[at..end].to_vec(),
-                    value: real_value(&nibbles),
-                });
+                operands.push(Operand { raw: data[at..end].to_vec(), value: real_value(&nibbles) });
                 at = end;
             }
             32..=246 => {
@@ -162,20 +139,12 @@ fn read_dict(data: &[u8]) -> Result<Vec<Entry>, EmbedError> {
             }
             247..=250 => {
                 let b1 = f64::from(*data.get(at + 1).ok_or_else(damaged)?);
-                operands.push(operand(
-                    2,
-                    (f64::from(b0) - 247.0) * 256.0 + b1 + 108.0,
-                    at,
-                )?);
+                operands.push(operand(2, (f64::from(b0) - 247.0) * 256.0 + b1 + 108.0, at)?);
                 at += 2;
             }
             251..=254 => {
                 let b1 = f64::from(*data.get(at + 1).ok_or_else(damaged)?);
-                operands.push(operand(
-                    2,
-                    -(f64::from(b0) - 251.0) * 256.0 - b1 - 108.0,
-                    at,
-                )?);
+                operands.push(operand(2, -(f64::from(b0) - 251.0) * 256.0 - b1 - 108.0, at)?);
                 at += 2;
             }
             _ => return Err(damaged()),
@@ -276,33 +245,21 @@ impl Scanner<'_> {
             at += 1;
             match b0 {
                 28 => {
-                    let value = code
-                        .get(at..at + 2)
-                        .map_or(0, |bytes| i16::from_be_bytes([bytes[0], bytes[1]]));
+                    let value = code.get(at..at + 2).map_or(0, |bytes| i16::from_be_bytes([bytes[0], bytes[1]]));
                     self.stack.push(f64::from(value));
                     at += 2;
                 }
                 32..=246 => self.stack.push(f64::from(b0) - 139.0),
                 247..=250 => {
-                    self.stack.push(
-                        (f64::from(b0) - 247.0) * 256.0
-                            + f64::from(code.get(at).copied().unwrap_or(0))
-                            + 108.0,
-                    );
+                    self.stack.push((f64::from(b0) - 247.0) * 256.0 + f64::from(code.get(at).copied().unwrap_or(0)) + 108.0);
                     at += 1;
                 }
                 251..=254 => {
-                    self.stack.push(
-                        -(f64::from(b0) - 251.0) * 256.0
-                            - f64::from(code.get(at).copied().unwrap_or(0))
-                            - 108.0,
-                    );
+                    self.stack.push(-(f64::from(b0) - 251.0) * 256.0 - f64::from(code.get(at).copied().unwrap_or(0)) - 108.0);
                     at += 1;
                 }
                 255 => {
-                    let value = code.get(at..at + 4).map_or(0, |bytes| {
-                        i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-                    });
+                    let value = code.get(at..at + 4).map_or(0, |bytes| i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
                     self.stack.push(f64::from(value) / 65536.0);
                     at += 4;
                 }
@@ -320,11 +277,7 @@ impl Scanner<'_> {
                         continue;
                     };
                     let global = b0 == 29;
-                    let count = if global {
-                        self.globals.len()
-                    } else {
-                        self.locals.map_or(0, Index::len)
-                    };
+                    let count = if global { self.globals.len() } else { self.locals.map_or(0, Index::len) };
                     let number = operand as i64 + bias(count);
                     if number < 0 || number as usize >= count || depth >= MAX_SUBR_DEPTH {
                         continue;
@@ -401,9 +354,7 @@ impl Scanner<'_> {
                 }
             }
             22 => {
-                if let (Some(v2), Some(v1), Some(s2), Some(s1)) =
-                    (stack.pop(), stack.pop(), stack.pop(), stack.pop())
-                {
+                if let (Some(v2), Some(v1), Some(s2), Some(s1)) = (stack.pop(), stack.pop(), stack.pop(), stack.pop()) {
                     stack.push(if v1 <= v2 { s1 } else { s2 });
                 }
             }
@@ -422,11 +373,7 @@ impl Scanner<'_> {
             29 => {
                 if let Some(index) = stack.pop() {
                     let length = stack.len();
-                    let from = if index < 0.0 {
-                        length.checked_sub(1)
-                    } else {
-                        length.checked_sub(1 + index as usize)
-                    };
+                    let from = if index < 0.0 { length.checked_sub(1) } else { length.checked_sub(1 + index as usize) };
                     if let Some(from) = from {
                         stack.push(stack[from]);
                     }
@@ -474,11 +421,7 @@ fn five_byte(value: i64) -> Vec<u8> {
 }
 
 fn operator(op: u16) -> Vec<u8> {
-    if op >= 1200 {
-        vec![12, (op - 1200) as u8]
-    } else {
-        vec![op as u8]
-    }
+    if op >= 1200 { vec![12, (op - 1200) as u8] } else { vec![op as u8] }
 }
 
 fn write_entry(out: &mut Vec<u8>, entry: &Entry) {
@@ -511,9 +454,7 @@ fn write_index(objects: &[Vec<u8>]) -> Vec<u8> {
     };
     out.push(size as u8);
     let mut offset = 1usize;
-    let put = |out: &mut Vec<u8>, value: usize| {
-        out.extend_from_slice(&(value as u32).to_be_bytes()[4 - size..])
-    };
+    let put = |out: &mut Vec<u8>, value: usize| out.extend_from_slice(&(value as u32).to_be_bytes()[4 - size..]);
     put(&mut out, offset);
     for object in objects {
         offset += object.len();
@@ -554,44 +495,22 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
     let strings = Index::read(cff, tops.end)?;
     let globals = Index::read(cff, strings.end)?;
     let top = read_dict(tops.get(cff, 0).ok_or_else(damaged)?)?;
-    let char_strings = Index::read(
-        cff,
-        find(&top, 17)
-            .and_then(|entry| entry.operands.first())
-            .ok_or_else(damaged)?
-            .value as usize,
-    )?;
+    let char_strings = Index::read(cff, find(&top, 17).and_then(|entry| entry.operands.first()).ok_or_else(damaged)?.value as usize)?;
     let cid = find(&top, 1230).is_some();
 
     // the font dictionaries (a CID-keyed font) or the single Private dictionary, and which glyph uses which
     let mut dicts: Vec<Vec<Entry>> = Vec::new();
     let mut selected: Vec<u8> = Vec::new();
     if cid {
-        let array = Index::read(
-            cff,
-            find(&top, 1236)
-                .and_then(|entry| entry.operands.first())
-                .ok_or_else(damaged)?
-                .value as usize,
-        )?;
+        let array = Index::read(cff, find(&top, 1236).and_then(|entry| entry.operands.first()).ok_or_else(damaged)?.value as usize)?;
         for index in 0..array.len() {
             dicts.push(read_dict(array.get(cff, index).ok_or_else(damaged)?)?);
         }
-        selected = read_fd_select(
-            cff,
-            find(&top, 1237)
-                .and_then(|entry| entry.operands.first())
-                .ok_or_else(damaged)?
-                .value as usize,
-            char_strings.len(),
-        )?;
+        selected = read_fd_select(cff, find(&top, 1237).and_then(|entry| entry.operands.first()).ok_or_else(damaged)?.value as usize, char_strings.len())?;
     } else {
         dicts.push(top.clone());
     }
-    let privates: Vec<Option<Private>> = dicts
-        .iter()
-        .map(|dict| read_private(cff, dict))
-        .collect::<Result<_, _>>()?;
+    let privates: Vec<Option<Private>> = dicts.iter().map(|dict| read_private(cff, dict)).collect::<Result<_, _>>()?;
 
     // the subroutines the glyphs call
     let mut used_globals = BTreeSet::new();
@@ -601,11 +520,7 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
     let mut charstrings: Vec<Vec<u8>> = Vec::with_capacity(glyphs.len());
     for gid in glyphs {
         let code = char_strings.get(cff, usize::from(*gid)).unwrap_or(&[14]);
-        let fd = if cid {
-            usize::from(selected.get(usize::from(*gid)).copied().unwrap_or(0))
-        } else {
-            0
-        };
+        let fd = if cid { usize::from(selected.get(usize::from(*gid)).copied().unwrap_or(0)) } else { 0 };
         let fd = fd.min(dicts.len().saturating_sub(1));
         if !used_fds.contains(&fd) {
             used_fds.push(fd);
@@ -614,9 +529,7 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
         let mut scanner = Scanner {
             data: cff,
             globals: &globals,
-            locals: privates[fd]
-                .as_ref()
-                .and_then(|private| private.subrs.as_ref()),
+            locals: privates[fd].as_ref().and_then(|private| private.subrs.as_ref()),
             used_globals: &mut used_globals,
             used_locals: &mut used_locals[fd],
             stack: Vec::new(),
@@ -627,15 +540,7 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
         charstrings.push(code.to_vec());
     }
     let stubbed = |index: &Index, used: &BTreeSet<usize>| -> Vec<Vec<u8>> {
-        (0..index.len())
-            .map(|number| {
-                if used.contains(&number) {
-                    index.get(cff, number).unwrap_or(&[11]).to_vec()
-                } else {
-                    vec![11]
-                }
-            })
-            .collect()
+        (0..index.len()).map(|number| if used.contains(&number) { index.get(cff, number).unwrap_or(&[11]).to_vec() } else { vec![11] }).collect()
     };
     let global_subrs = stubbed(&globals, &used_globals);
 
@@ -654,13 +559,7 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
                 top_entries.push(entry.clone());
             } else if let Some(text) = strings.get(cff, usize::from(sid - STANDARD_STRINGS)) {
                 let sid = new_strings.add(text);
-                top_entries.push(Entry {
-                    op: entry.op,
-                    operands: vec![Operand {
-                        raw: int_operand(i64::from(sid)),
-                        value: f64::from(sid),
-                    }],
-                });
+                top_entries.push(Entry { op: entry.op, operands: vec![Operand { raw: int_operand(i64::from(sid)), value: f64::from(sid) }] });
             }
             continue;
         }
@@ -686,11 +585,7 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
     };
     let (fd_select, fd_list): (Vec<u8>, Vec<usize>) = if cid {
         let mut bytes = vec![0u8];
-        bytes.extend(
-            fd_of_glyph
-                .iter()
-                .map(|fd| used_fds.iter().position(|used| used == fd).unwrap_or(0) as u8),
-        );
+        bytes.extend(fd_of_glyph.iter().map(|fd| used_fds.iter().position(|used| used == fd).unwrap_or(0) as u8));
         (bytes, used_fds.clone())
     } else {
         let mut bytes = vec![3, 0, 1, 0, 0, 0];
@@ -705,11 +600,7 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
             private_blobs.push(None);
             continue;
         };
-        let local = private
-            .subrs
-            .as_ref()
-            .filter(|index| index.len() > 0)
-            .map(|index| write_index(&stubbed(index, &used_locals[*fd])));
+        let local = private.subrs.as_ref().filter(|index| index.len() > 0).map(|index| write_index(&stubbed(index, &used_locals[*fd])));
         let mut body = Vec::new();
         for entry in private.entries.iter().filter(|entry| entry.op != 19) {
             write_entry(&mut body, entry);
@@ -722,21 +613,9 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
     }
 
     // sizes first, then the offsets they give
-    let top_with = |charset_at: usize,
-                    char_strings_at: usize,
-                    fd_array_at: usize,
-                    fd_select_at: usize|
-     -> Vec<u8> {
+    let top_with = |charset_at: usize, char_strings_at: usize, fd_array_at: usize, fd_select_at: usize| -> Vec<u8> {
         let mut dict = Vec::new();
-        write_with(
-            &mut dict,
-            &[
-                int_operand(i64::from(adobe)),
-                int_operand(i64::from(identity)),
-                int_operand(0),
-            ],
-            1230,
-        );
+        write_with(&mut dict, &[int_operand(i64::from(adobe)), int_operand(i64::from(identity)), int_operand(0)], 1230);
         for entry in &top_entries {
             write_entry(&mut dict, entry);
         }
@@ -748,38 +627,22 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
         dict
     };
     let top_index_size = write_index(&[top_with(0, 0, 0, 0)]).len();
-    let charset_at =
-        4 + name_index.len() + top_index_size + string_index.len() + global_index.len();
+    let charset_at = 4 + name_index.len() + top_index_size + string_index.len() + global_index.len();
     let fd_select_at = charset_at + charset.len();
     let char_strings_at = fd_select_at + fd_select.len();
     let fd_array_at = char_strings_at + char_strings_index.len();
     let fd_dict = |private: Option<(usize, usize)>, entries: &[Entry]| -> Vec<u8> {
         let mut dict = Vec::new();
-        for entry in entries
-            .iter()
-            .filter(|entry| entry.op != 1238 && entry.op != 18)
-        {
+        for entry in entries.iter().filter(|entry| entry.op != 1238 && entry.op != 18) {
             write_entry(&mut dict, entry);
         }
         if let Some((size, offset)) = private {
-            write_with(
-                &mut dict,
-                &[five_byte(size as i64), five_byte(offset as i64)],
-                18,
-            );
+            write_with(&mut dict, &[five_byte(size as i64), five_byte(offset as i64)], 18);
         }
         dict
     };
-    let placeholder: Vec<Vec<u8>> = fd_list
-        .iter()
-        .zip(&private_blobs)
-        .map(|(fd, blob)| {
-            fd_dict(
-                blob.as_ref().map(|_| (0, 0)),
-                if cid { dicts[*fd].as_slice() } else { &[] },
-            )
-        })
-        .collect();
+    let placeholder: Vec<Vec<u8>> =
+        fd_list.iter().zip(&private_blobs).map(|(fd, blob)| fd_dict(blob.as_ref().map(|_| (0, 0)), if cid { dicts[*fd].as_slice() } else { &[] })).collect();
     let fd_array_size = write_index(&placeholder).len();
     let mut private_at = fd_array_at + fd_array_size;
     let mut fd_dicts: Vec<Vec<u8>> = Vec::new();
@@ -792,20 +655,12 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
             private_bytes.extend_from_slice(local);
             (body.len(), at)
         });
-        fd_dicts.push(fd_dict(
-            place,
-            if cid { dicts[*fd].as_slice() } else { &[] },
-        ));
+        fd_dicts.push(fd_dict(place, if cid { dicts[*fd].as_slice() } else { &[] }));
     }
 
     let mut out = vec![1, 0, 4, 4];
     out.extend_from_slice(&name_index);
-    out.extend_from_slice(&write_index(&[top_with(
-        charset_at,
-        char_strings_at,
-        fd_array_at,
-        fd_select_at,
-    )]));
+    out.extend_from_slice(&write_index(&[top_with(charset_at, char_strings_at, fd_array_at, fd_select_at)]));
     out.extend_from_slice(&string_index);
     out.extend_from_slice(&global_index);
     out.extend_from_slice(&charset);
@@ -835,25 +690,11 @@ mod tests {
     #[test]
     fn dict_numbers_keep_their_bytes_and_values() {
         let mut dict = Vec::new();
-        write_with(
-            &mut dict,
-            &[
-                int_operand(-5),
-                int_operand(500),
-                int_operand(-500),
-                int_operand(20000),
-                five_byte(70000),
-            ],
-            1236,
-        );
+        write_with(&mut dict, &[int_operand(-5), int_operand(500), int_operand(-500), int_operand(20000), five_byte(70000)], 1236);
         let entries = read_dict(&dict).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].op, 1236);
-        let values: Vec<f64> = entries[0]
-            .operands
-            .iter()
-            .map(|operand| operand.value)
-            .collect();
+        let values: Vec<f64> = entries[0].operands.iter().map(|operand| operand.value).collect();
         assert_eq!(values, vec![-5.0, 500.0, -500.0, 20000.0, 70000.0]);
         assert_eq!(entries[0].operands[0].raw.len(), 1);
         assert_eq!(entries[0].operands[4].raw.len(), 5);

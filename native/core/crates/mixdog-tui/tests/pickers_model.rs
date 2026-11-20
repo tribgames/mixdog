@@ -15,10 +15,10 @@ use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::pickers::common::{PanelItem, PickerFn, PickerHost, PickerPanel, ProviderSetupRequest, RouteState};
 use mixdog_tui::pickers::model::catalog::{CatalogKind, CatalogRefresh, ModelCatalogCaches};
+use mixdog_tui::pickers::model::open_model_picker;
 use mixdog_tui::pickers::model::options::{self, ProviderNames};
 use mixdog_tui::pickers::model::picker::{ModelPickerOptions, SelectRoute};
 use mixdog_tui::pickers::model::workflow::{WorkflowOptions, open_workflow_picker};
-use mixdog_tui::pickers::model::open_model_picker;
 use mixdog_tui::slash::host::Tone;
 use mixdog_tui::surface::epoch::PanelValue;
 use mixdog_tui::surface::owner::PanelSurface;
@@ -197,7 +197,6 @@ impl Fake {
         self.surface.picker().cloned()
     }
 
-
     /// The row a scenario names: an index, or a value, model id or provider.
     fn row(&self, reference: &Value) -> Option<PanelItem> {
         let panel = self.panel()?;
@@ -205,11 +204,7 @@ impl Fake {
             Some(index) => panel.items.get(index as usize).cloned(),
             None => {
                 let wanted = reference.as_str().unwrap_or_default();
-                panel
-                    .items
-                    .iter()
-                    .find(|row| row.item.value == wanted || row.tag_text("_modelId") == wanted || row.tag_text("_provider") == wanted)
-                    .cloned()
+                panel.items.iter().find(|row| row.item.value == wanted || row.tag_text("_modelId") == wanted || row.tag_text("_provider") == wanted).cloned()
             }
         }
     }
@@ -224,16 +219,11 @@ impl Fake {
         }
     }
 
-
-
-
     fn cancel(&mut self) {
         if let Some(handler) = self.panel().and_then(|panel| panel.handler) {
             handler.on_cancel(self);
         }
     }
-
-
 
     /// The footer texts of one model row (`footerText(id)`).
     fn footer_texts(&self, model_id: &str) -> Vec<String> {
@@ -247,29 +237,16 @@ impl Fake {
             })
             .collect()
     }
-
 }
 
 // ---------------------------------------------------------------------------------------------------------------- options
-
 
 fn log_fn(events: &Events, entry: Value) -> PickerFn {
     let events = Rc::clone(events);
     Rc::new(move |_| events.borrow_mut().push(entry.clone()))
 }
 
-
-
-
-
-
-
 // ---------------------------------------------------------------------------------------------------------------- model options twin
-
-
-
-
-
 
 // ---------------------------------------------------------------------------------------------------------------- ported unit tests
 
@@ -308,10 +285,24 @@ fn version_consumers_retain_display_fallback_descending_order_and_context_defaul
 #[test]
 fn all_openrouter_rolling_aliases_remain_selectable_beyond_the_eight_model_family_limit() {
     let ids = [
-        "~google/gemini-flash-latest", "~google/gemini-pro-latest", "~anthropic/claude-opus-latest", "~anthropic/claude-sonnet-latest",
-        "~anthropic/claude-haiku-latest", "~anthropic/claude-fable-latest", "~deepseek/deepseek-pro-latest", "~deepseek/deepseek-flash-latest",
-        "~deepseek/deepseek-v4-flash-latest", "~openai/gpt-astra-latest", "~openai/gpt-sol-latest", "~openai/gpt-terra-latest",
-        "~openai/gpt-luna-latest", "~openai/gpt-mini-latest", "~z-ai/glm-flash-latest", "~z-ai/glm-latest", "~moonshotai/kimi-latest", "~x-ai/grok-latest",
+        "~google/gemini-flash-latest",
+        "~google/gemini-pro-latest",
+        "~anthropic/claude-opus-latest",
+        "~anthropic/claude-sonnet-latest",
+        "~anthropic/claude-haiku-latest",
+        "~anthropic/claude-fable-latest",
+        "~deepseek/deepseek-pro-latest",
+        "~deepseek/deepseek-flash-latest",
+        "~deepseek/deepseek-v4-flash-latest",
+        "~openai/gpt-astra-latest",
+        "~openai/gpt-sol-latest",
+        "~openai/gpt-terra-latest",
+        "~openai/gpt-luna-latest",
+        "~openai/gpt-mini-latest",
+        "~z-ai/glm-flash-latest",
+        "~z-ai/glm-latest",
+        "~moonshotai/kimi-latest",
+        "~x-ai/grok-latest",
     ];
     let models: Vec<Value> = ids.iter().enumerate().map(|(at, id)| json!({"id": id, "provider": "openrouter", "created": 1000 + at})).collect();
     let normalized = options::normalize_model_options(&models);
@@ -624,7 +615,12 @@ fn esc_on_the_model_list_returns_to_the_provider_list_or_to_the_caller_when_nest
     let returned = log_fn(&nested.events, json!(["returned"]));
     open_provider(
         &mut nested,
-        ModelPickerOptions { return_to: Some(returned), return_on_nested_cancel: true, return_label: Some("Agents".to_owned()), ..ModelPickerOptions::default() },
+        ModelPickerOptions {
+            return_to: Some(returned),
+            return_on_nested_cancel: true,
+            return_label: Some("Agents".to_owned()),
+            ..ModelPickerOptions::default()
+        },
     );
     assert!(nested.panel().and_then(|panel| panel.help).expect("help").ends_with("Esc Agents"));
     // The open cleared the text prompts (`setProviderPrompt(null)`, `setSettingsPrompt(null)`); the Esc only returns.
@@ -667,7 +663,9 @@ fn r_cycles_open_router_routing_through_its_four_values_and_enter_saves_provider
 
 #[test]
 fn workflow_help_returns_to_back_standalone_and_settings_when_a_caller_is_provided() {
-    for (with_return, help) in [(false, "\u{2191}/\u{2193} Select \u{b7} Enter Choose \u{b7} Esc Back"), (true, "\u{2191}/\u{2193} Select \u{b7} Enter Choose \u{b7} Esc Settings")] {
+    for (with_return, help) in
+        [(false, "\u{2191}/\u{2193} Select \u{b7} Enter Choose \u{b7} Esc Back"), (true, "\u{2191}/\u{2193} Select \u{b7} Enter Choose \u{b7} Esc Settings")]
+    {
         let mut fake = Fake::new(&json!({"store": {"listWorkflows": [{"id": "solo", "name": "Solo"}]}}));
         let return_to: Option<PickerFn> = with_return.then(|| log_fn(&fake.events, json!(["returned"])));
         open_workflow_picker(&mut fake, WorkflowOptions { return_to, handoff_panel: None });
@@ -719,4 +717,3 @@ fn the_warm_up_fills_empty_caches_and_a_provider_clear_makes_a_stale_listing_dro
     assert!(!fake.caches.clear("webSearch"));
     assert!(fake.caches.entry(CatalogKind::WebSearch).models.is_none());
 }
-

@@ -23,12 +23,14 @@ use mixdog_core_api::domain::provider::WireRequest;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use mixdog_rt::DurabilityIo;
 use mixdog_js::JsRegex;
+use mixdog_rt::DurabilityIo;
 use tokio_util::sync::CancellationToken;
 
 use super::pipeline::{AudioTools, ServerContract, VoiceError, WhisperEngine};
-use super::whisper_owner::{PidMeta, clear_pid_file, listener_owned, pid_file, port_from_env, raise_priority, read_pid_file, reclaim_stale, select_port, write_pid_file};
+use super::whisper_owner::{
+    PidMeta, clear_pid_file, listener_owned, pid_file, port_from_env, raise_priority, read_pid_file, reclaim_stale, select_port, write_pid_file,
+};
 use crate::lane::io_on_lane;
 use crate::local_provider::server_process::{Launcher, LogSink, RunningProcess, SystemLauncher};
 use crate::tidy::process::{Processes, RunOptions};
@@ -143,22 +145,15 @@ impl WhisperServer {
         let name = wav.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let boundary = format!("----mixdog{}", uuid::Uuid::new_v4().simple());
         let body = multipart_body(&boundary, &name, &data, language);
-        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false)
-            .map_err(|e| VoiceError(e.to_string()))?;
+        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).map_err(|e| VoiceError(e.to_string()))?;
         let request = WireRequest {
             transport: TransportKind::Http1,
             method: "POST".to_owned(),
             url: format!("http://{host}:{port}/inference"),
-            headers: vec![(
-                "content-type".to_owned(),
-                format!("multipart/form-data; boundary={boundary}"),
-            )],
+            headers: vec![("content-type".to_owned(), format!("multipart/form-data; boundary={boundary}"))],
             body,
         };
-        let mut response = link
-            .send(request, VOICE_INFERENCE)
-            .await
-            .map_err(|e| VoiceError(e.into_message()))?;
+        let mut response = link.send(request, VOICE_INFERENCE).await.map_err(|e| VoiceError(e.into_message()))?;
         // Not `read_all`: its dispatcher ceiling is a timer, and this exchange has none.
         let mut text = Vec::new();
         while let Some(chunk) = response.body.next().await {
@@ -179,7 +174,9 @@ pub(crate) fn multipart_body(boundary: &str, filename: &str, wav: &[u8], languag
     // `file` carries the wav as `audio/wav` under its file name; the others are plain text.
     let mut field = |name: &str, value: &str, file: Option<&[u8]>| match file {
         Some(bytes) => {
-            body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{value}\"\r\nContent-Type: audio/wav\r\n\r\n").bytes());
+            body.extend(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{value}\"\r\nContent-Type: audio/wav\r\n\r\n").bytes(),
+            );
             body.extend_from_slice(bytes);
             body.extend(b"\r\n");
         }
@@ -200,8 +197,7 @@ pub(crate) fn parse_inference(status: u16, body: &str) -> Result<String, VoiceEr
         let head = mixdog_js::slice_utf16(body, 500);
         return Err(VoiceError(format!("whisper-server /inference HTTP {status}: {head}")));
     }
-    let json: serde_json::Value =
-        serde_json::from_str(body).map_err(|e| VoiceError(format!("whisper-server /inference returned invalid JSON: {e}")))?;
+    let json: serde_json::Value = serde_json::from_str(body).map_err(|e| VoiceError(format!("whisper-server /inference returned invalid JSON: {e}")))?;
     match json.get("text").and_then(|t| t.as_str()) {
         Some(text) => Ok(text.to_owned()),
         None => {
@@ -240,15 +236,7 @@ pub struct ProcessAudioTools(pub Processes);
 
 #[async_trait]
 impl AudioTools for ProcessAudioTools {
-    async fn convert_to_wav(
-        &self,
-        ffmpeg: &Path,
-        audio: &Path,
-        wav: &Path,
-        sample_rate: u32,
-        channels: u32,
-        threads: usize,
-    ) -> Result<(), VoiceError> {
+    async fn convert_to_wav(&self, ffmpeg: &Path, audio: &Path, wav: &Path, sample_rate: u32, channels: u32, threads: usize) -> Result<(), VoiceError> {
         let args: Vec<String> = [
             "-i",
             &audio.to_string_lossy(),
@@ -276,7 +264,9 @@ impl AudioTools for ProcessAudioTools {
     }
 
     async fn probe_duration_sec(&self, audio: &Path) -> Option<f64> {
-        let args: Vec<String> = ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", &audio.to_string_lossy()].map(str::to_owned).to_vec();
+        let args: Vec<String> = ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", &audio.to_string_lossy()]
+            .map(str::to_owned)
+            .to_vec();
         let mut options = RunOptions::new(audio.parent().unwrap_or(Path::new(".")));
         options.timeout = Duration::ZERO;
         let output = self.0.run("ffprobe", &args, options).await;
@@ -319,13 +309,17 @@ mod tests {
         assert_eq!(utf16_tail("ab", 9), "ab");
     }
 
-
     /// Start, stop, teardown, handle requests and idle releases fired at once all get an answer in
     /// order, none deadlocks, and the record ends empty and usable.
     #[tokio::test]
     async fn racing_start_stop_idle_release_and_requests_all_resolve() {
         let dir = tempfile::tempdir().unwrap();
-        let contract = ServerContract { server_cmd: dir.path().join("no-such-whisper-server"), model_path: dir.path().join("m.bin"), thread_count: 1, host: "127.0.0.1".into() };
+        let contract = ServerContract {
+            server_cmd: dir.path().join("no-such-whisper-server"),
+            model_path: dir.path().join("m.bin"),
+            thread_count: 1,
+            host: "127.0.0.1".into(),
+        };
         let server = WhisperServer::new(0, Some(Duration::from_millis(1)), &Processes::for_tests());
         let outcome = mixdog_rt::time::timeout(Duration::from_secs(60), async {
             for _ in 0..20 {
@@ -347,7 +341,6 @@ mod tests {
         assert!(outcome.is_ok(), "the actor stopped answering");
     }
 
-
     /// A server whose children are the twin tests' scripted whisper-server (it binds the port,
     /// answers the listener query) and the contract that starts it.
     fn scripted_server(idle: Option<Duration>) -> (tempfile::TempDir, Arc<Scripted>, WhisperServer, ServerContract) {
@@ -356,7 +349,12 @@ mod tests {
         let processes = Processes::new(manager.clone(), mixdog_rt::testing::tokens().durability_io);
         let server = WhisperServer::new(0, idle, &processes);
         let ext = if cfg!(windows) { ".exe" } else { "" };
-        let contract = ServerContract { server_cmd: dir.path().join(format!("whisper-server{ext}")), model_path: dir.path().join("m.bin"), thread_count: 1, host: "127.0.0.1".into() };
+        let contract = ServerContract {
+            server_cmd: dir.path().join(format!("whisper-server{ext}")),
+            model_path: dir.path().join("m.bin"),
+            thread_count: 1,
+            host: "127.0.0.1".into(),
+        };
         (dir, manager, server, contract)
     }
     /// A release queued right behind a handle request, armed before it, must not take the child
@@ -441,7 +439,6 @@ mod tests {
         assert!(manager.servers.lock().unwrap().is_empty(), "the child outlived its abandoned request");
     }
 }
-
 
 struct Running {
     process: Arc<dyn RunningProcess>,
@@ -584,14 +581,7 @@ impl WhisperServer {
     /// `idle_timeout: None` never releases an idle child.
     pub fn new(preferred_port: u16, idle_timeout: Option<Duration>, processes: &Processes) -> Self {
         let core = Core { preferred_port, idle_timeout, launcher: Arc::new(SystemLauncher::new(processes)), processes: processes.clone() };
-        Self {
-            shared: Arc::new(Shared {
-                usage: Arc::default(),
-                commands: OnceLock::new(),
-                core: StdMutex::new(Some(core)),
-            }),
-            processes: processes.clone(),
-        }
+        Self { shared: Arc::new(Shared { usage: Arc::default(), commands: OnceLock::new(), core: StdMutex::new(Some(core)) }), processes: processes.clone() }
     }
 
     pub async fn stop(&self) {
@@ -648,7 +638,15 @@ impl Core {
         });
         if let Some(pid) = pid {
             raise_priority(pid);
-            let meta = PidMeta { pid, server_cmd: &contract.server_cmd, model_path: &contract.model_path, thread_count: contract.thread_count, host: &contract.host, port, started_at_ms: crate::media::store::now_ms() };
+            let meta = PidMeta {
+                pid,
+                server_cmd: &contract.server_cmd,
+                model_path: &contract.model_path,
+                thread_count: contract.thread_count,
+                host: &contract.host,
+                port,
+                started_at_ms: crate::media::store::now_ms(),
+            };
             write_pid_file(lane, pid_path, &meta).await;
         }
         // The ownership queries end with the readiness budget.
@@ -678,7 +676,11 @@ impl Core {
                 return Err(VoiceError(format!("whisper-server bound port {printed} but contract requires {port}")));
             }
             let bound = matches!(mixdog_rt::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
-            if bound && pid.is_some_and(|pid| pid > 0) && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await && !running.exited() {
+            if bound
+                && pid.is_some_and(|pid| pid > 0)
+                && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await
+                && !running.exited()
+            {
                 return Ok(running);
             }
             mixdog_rt::time::sleep(READY_POLL).await;

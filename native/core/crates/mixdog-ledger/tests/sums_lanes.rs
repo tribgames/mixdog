@@ -2,11 +2,7 @@
 //! This binary installs its own executors, with a gate that holds maintenance jobs, so the read
 //! of a large session can be paused while the writer works. (One test: the backend is process
 //! wide.)
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -91,25 +87,17 @@ async fn queued_writes_commit_while_a_large_session_is_summed() {
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
         prepare(&mut conn).unwrap();
         // 'empty' is session 1 and holds nothing yet; 'big' is session 2, 'tail' session 3.
-        conn.execute("INSERT INTO usage_sessions(value) VALUES ('empty')", [])
-            .unwrap();
-        let rows: Vec<UsageRecord> = (0..600)
-            .map(|n| record(n, "big"))
-            .chain((1_000..1_005).map(|n| record(n, "tail")))
-            .collect();
+        conn.execute("INSERT INTO usage_sessions(value) VALUES ('empty')", []).unwrap();
+        let rows: Vec<UsageRecord> = (0..600).map(|n| record(n, "big")).chain((1_000..1_005).map(|n| record(n, "tail"))).collect();
         for chunk in rows.chunks(500) {
             append_batch(&mut conn, chunk).unwrap();
         }
-        conn.execute_batch(
-            "DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0",
-        )
-        .unwrap();
+        conn.execute_batch("DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0").unwrap();
     }
 
     // The writer snapshots the ledger and sends the first batch (the 600-record session) to a
     // maintenance job, which the gate holds.
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
     // Meanwhile it commits what is queued: to the session being summed, to an earlier session
     // that was empty, and to one the batch does not reach.
     writer.record_queued(record(10_000, "big")).await.unwrap();
@@ -117,13 +105,8 @@ async fn queued_writes_commit_while_a_large_session_is_summed() {
     writer.record_queued(record(10_002, "tail")).await.unwrap();
     writer.settle_writes().await.unwrap();
     let check = Connection::open(&path).unwrap();
-    assert!(
-        !sums_complete(&check).unwrap(),
-        "the batch is still being summed"
-    );
-    let events: i64 = check
-        .query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))
-        .unwrap();
+    assert!(!sums_complete(&check).unwrap(), "the batch is still being summed");
+    let events: i64 = check.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0)).unwrap();
     assert_eq!(events, 608);
 
     gate.open();

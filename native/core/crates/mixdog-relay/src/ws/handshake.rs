@@ -17,10 +17,7 @@ pub struct HandshakeRequest {
 
 impl HandshakeRequest {
     pub fn new(method: &str, headers: &[(&str, &str)]) -> Self {
-        Self {
-            method: method.to_string(),
-            headers: headers.iter().map(|(name, value)| ((*name).to_string(), (*value).to_string())).collect(),
-        }
+        Self { method: method.to_string(), headers: headers.iter().map(|(name, value)| ((*name).to_string(), (*value).to_string())).collect() }
     }
 
     /// `req.headers[name]` for a lower-case `name`.
@@ -75,11 +72,7 @@ pub fn validate(request: &HandshakeRequest) -> Result<Accepted, Refusal> {
     };
     let version = request.header("sec-websocket-version").map_or(f64::NAN, |text| mixdog_js::string_to_number(&text));
     if version != 13.0 && version != 8.0 {
-        return Err(Refusal {
-            status: 400,
-            message: "Missing or invalid Sec-WebSocket-Version header",
-            headers: vec![("Sec-WebSocket-Version", "13, 8")],
-        });
+        return Err(Refusal { status: 400, message: "Missing or invalid Sec-WebSocket-Version header", headers: vec![("Sec-WebSocket-Version", "13, 8")] });
     }
     let protocol = match request.header("sec-websocket-protocol") {
         Some(header) => match first_subprotocol(&header) {
@@ -94,9 +87,7 @@ pub fn validate(request: &HandshakeRequest) -> Result<Accepted, Refusal> {
 /// `/^[+/0-9A-Za-z]{22}==$/`
 fn is_key(key: &str) -> bool {
     let bytes = key.as_bytes();
-    bytes.len() == 24
-        && bytes.ends_with(b"==")
-        && bytes[..22].iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'+' || *byte == b'/')
+    bytes.len() == 24 && bytes.ends_with(b"==") && bytes[..22].iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'+' || *byte == b'/')
 }
 
 fn is_token_char(byte: u8) -> bool {

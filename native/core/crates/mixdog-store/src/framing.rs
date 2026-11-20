@@ -41,9 +41,7 @@ fn is_hex(byte: u8) -> bool {
 }
 
 fn hex_value(digits: &[u8]) -> u64 {
-    digits
-        .iter()
-        .fold(0, |v, &b| v * 16 + u64::from((b as char).to_digit(16).unwrap_or(0)))
+    digits.iter().fold(0, |v, &b| v * 16 + u64::from((b as char).to_digit(16).unwrap_or(0)))
 }
 
 /// FORMAT.md §3.2 rule 3 over the present header bytes `h` (1..=44). `Ok(Some(len))` for a
@@ -67,10 +65,7 @@ pub fn check_header(h: &[u8], expected: u64) -> Result<Option<usize>, CorruptCau
         return Err(CorruptCause::Ordinal);
     }
     // 3. separators 16, 25, 34.
-    if SEPARATORS[..3]
-        .iter()
-        .any(|&at| h.get(at).is_some_and(|&b| b != SEPARATOR))
-    {
+    if SEPARATORS[..3].iter().any(|&at| h.get(at).is_some_and(|&b| b != SEPARATOR)) {
         return Err(CorruptCause::Header);
     }
     // 4. len: hex digits whose smallest completion is in range.
@@ -140,11 +135,7 @@ pub fn scan(buf: &[u8], base: u64, start: usize, expected: u64) -> Scan {
     let mut expected = expected;
     loop {
         let at = base + p as u64;
-        let corrupt = |cause, ordinal| ScanEnd::Corrupt {
-            offset: at,
-            ordinal,
-            cause,
-        };
+        let corrupt = |cause, ordinal| ScanEnd::Corrupt { offset: at, ordinal, cause };
         if p == buf.len() {
             return Scan { frames, end: ScanEnd::Clean };
         }
@@ -427,9 +418,7 @@ fn covering_group(buf: &[u8], written: usize, at: usize, buf_is_file_start: bool
             && marker.bytes <= GROUP_IN_PLACE_MAX
         {
             let extent = end as u64 + marker.bytes;
-            if extent > at as u64
-                && (extent > written as u64 || group_members(buf, end, extent as usize, &marker, ordinal).is_ok())
-            {
+            if extent > at as u64 && (extent > written as u64 || group_members(buf, end, extent as usize, &marker, ordinal).is_ok()) {
                 return Some(start);
             }
         }
@@ -486,10 +475,7 @@ mod tests {
     }
 
     fn unhex(text: &str) -> Vec<u8> {
-        (0..text.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex"))
-            .collect()
+        (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex")).collect()
     }
 
     #[test]
@@ -588,12 +574,14 @@ mod tests {
                 let got = fed.and_then(|()| check.finish());
                 assert_eq!(got.is_ok(), ok, "pieces of {piece}");
                 if ok {
-                    assert_eq!(got.unwrap().iter().map(|m| (m.ordinal, m.start)).collect::<Vec<_>>(), [(5, 0), (6, members.len() / 3), (7, 2 * members.len() / 3)]);
+                    assert_eq!(
+                        got.unwrap().iter().map(|m| (m.ordinal, m.start)).collect::<Vec<_>>(),
+                        [(5, 0), (6, members.len() / 3), (7, 2 * members.len() / 3)]
+                    );
                 }
             }
         }
     }
-
 
     fn doc() -> Doc {
         serde_json::from_str(mixdog_testkit::fixture!("src/schema/vectors/frames.json")).expect("frames.json")
@@ -611,12 +599,7 @@ mod tests {
         for case in doc().classification {
             let bytes = unhex(&case.hex);
             let got = scan(&bytes, 0, 0, case.start_ordinal);
-            assert_eq!(
-                (got.frames.len(), got.end),
-                (case.expect.committed, case.expect.end),
-                "{}",
-                case.name
-            );
+            assert_eq!((got.frames.len(), got.end), (case.expect.committed, case.expect.end), "{}", case.name);
             // The same verdict from a non-zero base offset and frame start.
             let mut shifted = vec![b'x'; 7];
             shifted.extend_from_slice(&bytes);
@@ -624,11 +607,7 @@ mod tests {
             let shift = |end: ScanEnd| match end {
                 ScanEnd::Clean => ScanEnd::Clean,
                 ScanEnd::Torn { offset } => ScanEnd::Torn { offset: offset + 107 },
-                ScanEnd::Corrupt { offset, ordinal, cause } => ScanEnd::Corrupt {
-                    offset: offset + 107,
-                    ordinal,
-                    cause,
-                },
+                ScanEnd::Corrupt { offset, ordinal, cause } => ScanEnd::Corrupt { offset: offset + 107, ordinal, cause },
             };
             assert_eq!(moved.end, shift(got.end), "{}", case.name);
         }

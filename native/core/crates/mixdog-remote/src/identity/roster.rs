@@ -61,9 +61,7 @@ pub fn is_controller_key(value: &str) -> bool {
     use base64::Engine;
     value.len() == 87
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        && base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(value)
-            .is_ok_and(|bytes| bytes.len() == 65 && bytes[0] == 4)
+        && base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(value).is_ok_and(|bytes| bytes.len() == 65 && bytes[0] == 4)
 }
 
 fn clip(value: &str, max: usize) -> String {
@@ -161,14 +159,7 @@ impl Roster {
     }
 
     pub fn list(&self) -> Vec<ClientInfo> {
-        self.state
-            .clients
-            .iter()
-            .map(|client| ClientInfo {
-                pending_removal: self.state.pending_revokes.contains(&client.id),
-                ..client.clone()
-            })
-            .collect()
+        self.state.clients.iter().map(|client| ClientInfo { pending_removal: self.state.pending_revokes.contains(&client.id), ..client.clone() }).collect()
     }
 
     pub fn pending(&self) -> Vec<String> {
@@ -204,12 +195,7 @@ impl Roster {
     }
 
     /// The relay confirmed the revocation sent for `revocation`; a newer one stays queued.
-    pub fn applied<L: WriteLane>(
-        &mut self,
-        lane: &InLane<L>,
-        client_id: &str,
-        revocation: u64,
-    ) -> Result<(), SecretError> {
+    pub fn applied<L: WriteLane>(&mut self, lane: &InLane<L>, client_id: &str, revocation: u64) -> Result<(), SecretError> {
         if self.revocations.get(client_id) != Some(&revocation) {
             return self.persist(lane);
         }
@@ -279,12 +265,7 @@ impl Roster {
     }
 
     /// The desktop app holds `keys` (and the `unknown` it read) durably now.
-    pub fn settle_owed_access<L: WriteLane>(
-        &mut self,
-        lane: &InLane<L>,
-        keys: &[String],
-        unknown: u64,
-    ) -> Result<(), SecretError> {
+    pub fn settle_owed_access<L: WriteLane>(&mut self, lane: &InLane<L>, keys: &[String], unknown: u64) -> Result<(), SecretError> {
         let left: Vec<String> = self.state.owed_access_keys.iter().filter(|key| !keys.contains(key)).cloned().collect();
         let resolved = unknown > 0 && self.state.owed_access_unknown == unknown;
         if left.len() == self.state.owed_access_keys.len() && !resolved {
@@ -311,12 +292,7 @@ impl Roster {
 
     /// Keeps the key a paired device delivered. A different earlier key is replaced and owed a
     /// revoke in the same write; a failed write keeps both as they were.
-    pub fn set_controller_key<L: WriteLane>(
-        &mut self,
-        lane: &InLane<L>,
-        client_id: &str,
-        public_key: &str,
-    ) -> Result<(), SecretError> {
+    pub fn set_controller_key<L: WriteLane>(&mut self, lane: &InLane<L>, client_id: &str, public_key: &str) -> Result<(), SecretError> {
         let previous = self.state.controller_keys.get(client_id).cloned();
         if previous.as_deref() == Some(public_key) {
             return Ok(());

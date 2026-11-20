@@ -212,7 +212,9 @@ impl PageLedgers {
         // The first frame that names a script is the line a reader opens.
         let frame = first_script_frame(params.get("stackTrace"));
         let source = frame
-            .and_then(|frame| frame.get("url").and_then(Value::as_str).map(|url| format_console_source(&redact_url(url), js_finite_number(frame.get("lineNumber")))))
+            .and_then(|frame| {
+                frame.get("url").and_then(Value::as_str).map(|url| format_console_source(&redact_url(url), js_finite_number(frame.get("lineNumber"))))
+            })
             .unwrap_or_default();
         self.console.record(&kind, &format!("{kind}: {}{source}", format_console_arguments(arguments)));
     }
@@ -404,7 +406,11 @@ mod tests {
     fn network_events_feed_the_ledger_with_the_events_own_time() {
         let mut ingest = Ingest::new();
         let batch = json!([
-            event("Network.requestWillBeSent", json!({"requestId": "1", "type": "Fetch", "request": {"method": "GET", "url": "https://a.test/api", "headers": {}}}), 1_000),
+            event(
+                "Network.requestWillBeSent",
+                json!({"requestId": "1", "type": "Fetch", "request": {"method": "GET", "url": "https://a.test/api", "headers": {}}}),
+                1_000
+            ),
             event("Network.responseReceived", json!({"requestId": "1", "response": {"status": 200}}), 1_020),
             event("Network.loadingFinished", json!({"requestId": "1", "encodedDataLength": 10}), 1_050),
             event("Network.requestServedFromCache", json!({"requestId": "1"}), 1_060),
@@ -417,7 +423,8 @@ mod tests {
     #[test]
     fn a_failed_request_joins_the_failures_unless_it_was_cancelled() {
         let mut ingest = Ingest::new();
-        let send = |id: &str, url: &str| event("Network.requestWillBeSent", json!({"requestId": id, "type": "Fetch", "request": {"method": "GET", "url": url}}), 1);
+        let send =
+            |id: &str, url: &str| event("Network.requestWillBeSent", json!({"requestId": id, "type": "Fetch", "request": {"method": "GET", "url": url}}), 1);
         let batch = json!([
             send("1", "https://a.test/broken?token=abcdef1234567890abcdef"),
             event("Network.loadingFailed", json!({"requestId": "1", "errorText": "net::ERR_CONNECTION_RESET"}), 2),
@@ -441,7 +448,11 @@ mod tests {
             event("Mixdog.requestRefused", json!({"url": "https://t.test/px", "reason": "private address"}), 1),
             event("Network.requestWillBeSent", json!({"requestId": "1", "type": "Image", "request": {"method": "GET", "url": "https://t.test/px"}}), 2),
             event("Network.loadingFailed", json!({"requestId": "1", "errorText": "net::ERR_BLOCKED_BY_CLIENT"}), 3),
-            event("Log.entryAdded", json!({"entry": {"level": "error", "text": "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT", "url": "https://t.test/px", "lineNumber": 0}}), 4),
+            event(
+                "Log.entryAdded",
+                json!({"entry": {"level": "error", "text": "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT", "url": "https://t.test/px", "lineNumber": 0}}),
+                4
+            ),
         ]);
         ingest.apply_events(events("p", 1, batch)).unwrap();
         let ledgers = ingest.ledgers_mut("p").unwrap();
@@ -455,11 +466,23 @@ mod tests {
     fn console_calls_exceptions_and_the_browsers_own_notes_are_recorded() {
         let mut ingest = Ingest::new();
         let batch = json!([
-            event("Runtime.consoleAPICalled", json!({"type": "warning", "args": [{"type": "string", "value": "careful"}, {"type": "number", "value": 3}],
-                "stackTrace": {"callFrames": [{"url": "", "lineNumber": 1}, {"url": "https://a.test/app.js", "lineNumber": 11}]}}), 1),
+            event(
+                "Runtime.consoleAPICalled",
+                json!({"type": "warning", "args": [{"type": "string", "value": "careful"}, {"type": "number", "value": 3}],
+                "stackTrace": {"callFrames": [{"url": "", "lineNumber": 1}, {"url": "https://a.test/app.js", "lineNumber": 11}]}}),
+                1
+            ),
             event("Runtime.consoleAPICalled", json!({"type": "log", "args": [{"type": "string", "value": "hello"}]}), 2),
-            event("Runtime.exceptionThrown", json!({"exceptionDetails": {"text": "Uncaught", "exception": {"description": "Error: boom\n    at x"}, "url": "https://a.test/app.js", "lineNumber": 4}}), 3),
-            event("Runtime.exceptionThrown", json!({"exceptionDetails": {"text": "Uncaught", "stackTrace": {"callFrames": [{"url": "https://a.test/b.js", "lineNumber": 2}]}}}), 4),
+            event(
+                "Runtime.exceptionThrown",
+                json!({"exceptionDetails": {"text": "Uncaught", "exception": {"description": "Error: boom\n    at x"}, "url": "https://a.test/app.js", "lineNumber": 4}}),
+                3
+            ),
+            event(
+                "Runtime.exceptionThrown",
+                json!({"exceptionDetails": {"text": "Uncaught", "stackTrace": {"callFrames": [{"url": "https://a.test/b.js", "lineNumber": 2}]}}}),
+                4
+            ),
             event("Runtime.exceptionThrown", json!({"exceptionDetails": {}}), 5),
             event("Mixdog.internalConsole", json!({"level": "error", "text": "CDP Runtime.evaluate timed out"}), 6),
             event("Log.entryAdded", json!({"entry": {"level": "info", "text": "from the network stack", "url": "chrome://resources/x.js"}}), 7),
@@ -492,7 +515,10 @@ mod tests {
         ]);
         ingest.apply_events(events("p", 1, batch)).unwrap();
         let socket = ingest.ledgers("p").unwrap().network.get("r1").unwrap();
-        assert_eq!(socket.web_socket_frames.iter().map(|frame| (frame.direction, frame.data.as_str(), frame.at)).collect::<Vec<_>>(), [(FrameDirection::Sent, "ping", 20), (FrameDirection::Received, "pong", 30)]);
+        assert_eq!(
+            socket.web_socket_frames.iter().map(|frame| (frame.direction, frame.data.as_str(), frame.at)).collect::<Vec<_>>(),
+            [(FrameDirection::Sent, "ping", 20), (FrameDirection::Received, "pong", 30)]
+        );
         assert_eq!((socket.failure.as_deref(), socket.finished_at), (Some("bad frame"), Some(40)));
     }
 
@@ -554,6 +580,5 @@ mod tests {
         assert!(!is_browser_component_address(""));
     }
 }
-
 
 impl std::error::Error for SeqGap {}

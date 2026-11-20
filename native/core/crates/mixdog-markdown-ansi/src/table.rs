@@ -125,9 +125,7 @@ mod tests {
         let token = table(&["Name", "Qty"], &[&["apple", "3"]]);
         let rendered = build_table_layout(&token, 40);
         assert!(!rendered.use_vertical_format);
-        let rule = |left: &str, cross: &str, right: &str| {
-            format!("{left}{}{cross}{}{right}", "\u{2500}".repeat(7), "\u{2500}".repeat(5))
-        };
+        let rule = |left: &str, cross: &str, right: &str| format!("{left}{}{cross}{}{right}", "\u{2500}".repeat(7), "\u{2500}".repeat(5));
         assert_eq!(
             plain(&rendered.lines),
             [

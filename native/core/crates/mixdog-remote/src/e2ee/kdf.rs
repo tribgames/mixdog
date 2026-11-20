@@ -21,12 +21,7 @@ pub(crate) fn parse_public_key(raw: &str) -> Result<PublicKey, E2eeError> {
 }
 
 /// ECDH shared secret → HKDF-SHA-256 → 32-byte AES-GCM key.
-pub(crate) fn derive_key(
-    private: &SecretKey,
-    peer_public: &str,
-    salt: &[u8],
-    info: &[u8],
-) -> Result<[u8; 32], E2eeError> {
+pub(crate) fn derive_key(private: &SecretKey, peer_public: &str, salt: &[u8], info: &[u8]) -> Result<[u8; 32], E2eeError> {
     let peer = parse_public_key(peer_public)?;
     let shared = p256::ecdh::diffie_hellman(private.to_nonzero_scalar(), peer.as_affine());
     let hkdf = hkdf::Hkdf::<Sha256>::new(Some(salt), shared.raw_secret_bytes());
@@ -47,10 +42,7 @@ pub(crate) struct SessionMaterial<'a> {
 
 impl SessionMaterial<'_> {
     pub fn key(&self, purpose: &str) -> Result<[u8; 32], E2eeError> {
-        let info = format!(
-            "{CONTEXT}\0{purpose}\0{}\0{}\0{}",
-            self.challenge, self.server_public, self.client_public
-        );
+        let info = format!("{CONTEXT}\0{purpose}\0{}\0{}\0{}", self.challenge, self.server_public, self.client_public);
         derive_key(self.private, self.peer_public, &unb64(self.pairing_secret)?, info.as_bytes())
     }
 
@@ -67,13 +59,7 @@ fn proof_payload(challenge: &str, server_public: &str, client_public: &str, tran
     }
 }
 
-pub(crate) fn hello_proof(
-    secret: &str,
-    challenge: &str,
-    server_public: &str,
-    client_public: &str,
-    transcript: Option<&str>,
-) -> Result<String, E2eeError> {
+pub(crate) fn hello_proof(secret: &str, challenge: &str, server_public: &str, client_public: &str, transcript: Option<&str>) -> Result<String, E2eeError> {
     let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&unb64(secret)?).map_err(|_| E2eeError::Auth)?;
     mac.update(&proof_payload(challenge, server_public, client_public, transcript));
     Ok(b64(&mac.finalize().into_bytes()))
@@ -89,8 +75,7 @@ pub(crate) fn verify_hello_proof(
 ) -> Result<(), E2eeError> {
     let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&unb64(secret)?).map_err(|_| E2eeError::Auth)?;
     mac.update(&proof_payload(challenge, server_public, client_public, transcript));
-    mac.verify_slice(&unb64(proof).map_err(|_| E2eeError::Auth)?)
-        .map_err(|_| E2eeError::Auth)
+    mac.verify_slice(&unb64(proof).map_err(|_| E2eeError::Auth)?).map_err(|_| E2eeError::Auth)
 }
 
 /// Stable JSON: object keys sorted, as the TS side's `canonicalJson`.

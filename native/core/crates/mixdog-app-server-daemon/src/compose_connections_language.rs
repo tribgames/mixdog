@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use mixdog_connections::notifier::{AttachmentKind, NotifyTexts};
-use mixdog_core_base::state::SectionFeedState;
 use mixdog_core_api::state::SectionChange;
+use mixdog_core_base::state::SectionFeedState;
 use mixdog_protocol::SectionName;
 
 type Catalogs = BTreeMap<String, BTreeMap<String, String>>;

@@ -35,10 +35,7 @@ static CHECKS_FAILED: LazyLock<JsRegex> = LazyLock::new(|| re(r"^agent progress 
 
 /// `watchdogAbortKind(message)`: `(window, form, limit)`.
 fn abort_kind(message: &str) -> (Value, &'static str, Option<f64>) {
-    let limit = LIMIT
-        .captures(message)
-        .and_then(|c| c.get(1).and_then(|d| d.parse::<f64>().ok()))
-        .filter(|n| *n != 0.0);
+    let limit = LIMIT.captures(message).and_then(|c| c.get(1).and_then(|d| d.parse::<f64>().ok())).filter(|n| *n != 0.0);
     let window = |w: &str| Value::String(w.into());
     if FIRST_TRANSPORT.is_match(message) {
         (window("first_response"), "first_transport", limit)
@@ -116,16 +113,9 @@ pub fn watchdog_abort_records(a: &Args, now_ms: i64) -> Option<WatchdogAbort> {
         Some(Value::Number(n)) => n.as_f64().unwrap_or(now_ms as f64),
         _ => now_ms as f64,
     };
-    let elapsed = if truthy(&clock_at) {
-        json_number((now - to_number(&clock_at)).max(0.0))
-    } else {
-        Value::Null
-    };
+    let elapsed = if truthy(&clock_at) { json_number((now - to_number(&clock_at)).max(0.0)) } else { Value::Null };
     let snap = |key: &str| snapshot.and_then(|s| s.get(key));
-    let message = error
-        .get("message")
-        .and_then(Value::as_str)
-        .map_or_else(|| value_to_string(error), str::to_string);
+    let message = error.get("message").and_then(Value::as_str).map_or_else(|| value_to_string(error), str::to_string);
 
     let mut trace_args = Map::new();
     for key in ["sessionId", "iteration", "agent"] {

@@ -128,7 +128,8 @@ fn query_pdf_layout<P: WriteProof, H>(cx: &InspectContext<'_, P, H>, facts: &Fac
     let pages = layout_json.get("pages").and_then(Value::as_array).cloned().unwrap_or_default();
     if searching {
         // A search answers with the boxes alone: the caller wants where a phrase sits, not every run on the page.
-        let found = find_pdf_text(&layout, &needle, &SearchOptions { limit: count_arg(args, "limit", 200.0), whole_word: false, regex: false }).map_err(|error| error.message)?;
+        let found = find_pdf_text(&layout, &needle, &SearchOptions { limit: count_arg(args, "limit", 200.0), whole_word: false, regex: false })
+            .map_err(|error| error.message)?;
         answer.insert("pageCount".to_owned(), layout_json["pageCount"].clone());
         spread(&mut answer, &found.to_json());
         let sizes = pages.iter().map(|page| json!({ "page": page["page"], "width": page["width"], "height": page["height"] })).collect();
@@ -285,9 +286,6 @@ mod tests {
             ],
         });
         let kept = layout_page_for_caller(page);
-        assert_eq!(
-            mixdog_js::json_stringify(&kept),
-            r#"{"page":1,"items":[{"text":"a","x":1},{"text":"b","vertical":true,"direction":"ttb"}]}"#
-        );
+        assert_eq!(mixdog_js::json_stringify(&kept), r#"{"page":1,"items":[{"text":"a","x":1},{"text":"b","vertical":true,"direction":"ttb"}]}"#);
     }
 }

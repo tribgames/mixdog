@@ -39,9 +39,7 @@ const DEFAULT_PAGE_WIDTH: f64 = 1200.0;
 const MAX_PASSWORD_LENGTH: usize = 255;
 
 /// The extensions a document converts from (`PREVIEW_FORMATS` of `document-preview.mjs`).
-const PREVIEW_FORMATS: [&str; 14] = [
-    "docx", "doc", "docm", "dotx", "rtf", "odt", "xlsx", "xls", "xlsm", "ods", "pptx", "ppt", "pptm", "odp",
-];
+const PREVIEW_FORMATS: [&str; 14] = ["docx", "doc", "docm", "dotx", "rtf", "odt", "xlsx", "xls", "xlsm", "ods", "pptx", "ppt", "pptm", "odp"];
 
 /// The PDF a document previews as: the file, and the revision of the document it was made from.
 #[derive(Clone, Debug, PartialEq)]
@@ -319,10 +317,7 @@ fn requested_pages(value: Option<&Value>) -> Result<Vec<u64>, CodedError> {
         return Err(CodedError::new("invalid_params", "A document preview needs at least one page."));
     }
     if pages.len() > MAX_PAGES_PER_CALL {
-        return Err(CodedError::new(
-            "invalid_params",
-            format!("A document preview accepts at most {MAX_PAGES_PER_CALL} pages per request."),
-        ));
+        return Err(CodedError::new("invalid_params", format!("A document preview accepts at most {MAX_PAGES_PER_CALL} pages per request.")));
     }
     pages.sort_unstable();
     Ok(pages)
@@ -342,10 +337,7 @@ fn requested_password(value: Option<&Value>) -> Result<String, CodedError> {
     match value {
         None | Some(Value::Null) => Ok(String::new()),
         Some(Value::String(text)) if text.encode_utf16().count() <= MAX_PASSWORD_LENGTH => Ok(text.clone()),
-        Some(_) => Err(CodedError::new(
-            "invalid_params",
-            format!("A document password must be text of at most {MAX_PASSWORD_LENGTH} characters."),
-        )),
+        Some(_) => Err(CodedError::new("invalid_params", format!("A document password must be text of at most {MAX_PASSWORD_LENGTH} characters."))),
     }
 }
 
@@ -375,9 +367,7 @@ fn stat(path: &Path) -> Result<(f64, u64, bool), CodedError> {
 
 /// `realpathSync`: every link resolved, without the `\\?\` prefix.
 fn real_path(path: &Path) -> Result<PathBuf, CodedError> {
-    mixdog_fsio::canonicalize(&Unlaned, path)
-        .map(|real| dunce::simplified(&real).to_path_buf())
-        .map_err(|error| os_error(&error, "realpath", path))
+    mixdog_fsio::canonicalize(&Unlaned, path).map(|real| dunce::simplified(&real).to_path_buf()).map_err(|error| os_error(&error, "realpath", path))
 }
 
 fn exists(path: &Path) -> bool {
@@ -503,10 +493,7 @@ mod tests {
         let long = "x".repeat(256);
         for bad in [json!(long), json!(5), json!(true), json!(["a"])] {
             let error = requested_password(Some(&bad)).unwrap_err();
-            assert_eq!(
-                (error.code.as_str(), error.message.as_str()),
-                ("invalid_params", "A document password must be text of at most 255 characters.")
-            );
+            assert_eq!((error.code.as_str(), error.message.as_str()), ("invalid_params", "A document password must be text of at most 255 characters."));
         }
         assert_eq!(requested_password(None).unwrap(), "");
         assert_eq!(requested_password(Some(&Value::Null)).unwrap(), "");
@@ -688,10 +675,7 @@ mod tests {
             refused(call(&registry, "document.preview", params("../escape.pdf"), &[base], "t").await),
             ("path_outside_project".to_owned(), "Path is outside the project.".to_owned())
         );
-        assert_eq!(
-            refused(call(&registry, "document.preview", params("folder.pdf"), &[base], "t").await),
-            ("not_a_file".to_owned(), "Not a file.".to_owned())
-        );
+        assert_eq!(refused(call(&registry, "document.preview", params("folder.pdf"), &[base], "t").await), ("not_a_file".to_owned(), "Not a file.".to_owned()));
         assert_eq!(
             refused(call(&registry, "document.preview", params("a.pdf"), &[outside.path()], "t").await),
             ("path_not_approved".to_owned(), format!("path is not approved for this call: {root_text}"))
@@ -713,9 +697,7 @@ mod tests {
         std::fs::write(base.join("a.docx"), b"x").unwrap();
         std::fs::write(base.join("a.pdf"), b"%PDF").unwrap();
         let root_text = base.to_string_lossy().into_owned();
-        let preview = call(&registry, "document.preview", json!({"root": root_text, "rel": "a.docx", "cacheRoot": "cache"}), &[base], "t")
-            .await
-            .unwrap();
+        let preview = call(&registry, "document.preview", json!({"root": root_text, "rel": "a.docx", "cacheRoot": "cache"}), &[base], "t").await.unwrap();
         assert_eq!(preview.value["format"], "docx");
         assert_eq!(preview.value["cached"], false);
         let pages = call(
@@ -776,9 +758,7 @@ mod tests {
         let base = root.path();
         std::fs::write(base.join("a.pdf"), b"%PDF").unwrap();
         *engine.touch_during_first_render.lock().unwrap() = Some(base.join("a.pdf"));
-        let answer = call(&registry, "document.previewPages", json!({"root": base.to_string_lossy(), "rel": "a.pdf"}), &[base], "t")
-            .await
-            .unwrap();
+        let answer = call(&registry, "document.previewPages", json!({"root": base.to_string_lossy(), "rel": "a.pdf"}), &[base], "t").await.unwrap();
         assert_eq!(engine.renders.lock().unwrap().len(), 2);
         assert_eq!(answer.value["size"], "a longer revision".len());
     }
@@ -801,10 +781,7 @@ mod tests {
         assert_eq!(refused(long).0, "invalid_params");
         let wrong_type = call(&registry, "document.previewPages", params(json!({"password": 7})), &[base], "v3").await;
         assert_eq!(refused(wrong_type).0, "invalid_params");
-        assert!(
-            !call(&registry, "document.previewPages", params(json!({})), &[base], "v2").await.unwrap().pin,
-            "a refused password does not pin"
-        );
+        assert!(!call(&registry, "document.previewPages", params(json!({})), &[base], "v2").await.unwrap().pin, "a refused password does not pin");
     }
 
     #[tokio::test]
@@ -821,9 +798,6 @@ mod tests {
         assert_eq!(refused(convert).0, "OFFICE_PREVIEW_UNAVAILABLE");
         let render = call(&registry, "document.previewPages", json!({"root": root_text, "rel": "a.pdf"}), &[base], "t").await;
         assert_eq!(refused(render).0, "OFFICE_PREVIEW_UNAVAILABLE");
-        assert_eq!(
-            registry.methods(),
-            vec!["document.installLibreOffice", "document.libreOfficeStatus", "document.preview", "document.previewPages"]
-        );
+        assert_eq!(registry.methods(), vec!["document.installLibreOffice", "document.libreOfficeStatus", "document.preview", "document.previewPages"]);
     }
 }

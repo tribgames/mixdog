@@ -134,13 +134,7 @@ fn parse_pack(text: &str, source: &'static str, dir_name: &str) -> Option<Pack> 
     let declared = clean(meta.get("id"));
     let id = workflow_id(if declared.is_empty() { dir_name } else { &declared })?;
     let name = clean(meta.get("name"));
-    Some(Pack {
-        name: if name.is_empty() { id.clone() } else { name },
-        description: clean(meta.get("description")),
-        id,
-        body,
-        source,
-    })
+    Some(Pack { name: if name.is_empty() { id.clone() } else { name }, description: clean(meta.get("description")), id, body, source })
 }
 
 /// `workflowSummary(pack, { hasAgents })` of `runtime-core/workflow/context.mjs`: the row a session
@@ -150,7 +144,16 @@ pub fn workflow_summary(pack: Option<&Pack>, has_agents: bool) -> Map<String, Va
     let name = js_trim(pack.map_or("", |pack| pack.name.as_str()));
     let mut summary = Map::new();
     summary.insert("id".into(), json!(id));
-    summary.insert("name".into(), json!(if !name.is_empty() { name } else if id == DEFAULT_WORKFLOW_ID { "Default" } else { id }));
+    summary.insert(
+        "name".into(),
+        json!(if !name.is_empty() {
+            name
+        } else if id == DEFAULT_WORKFLOW_ID {
+            "Default"
+        } else {
+            id
+        }),
+    );
     summary.insert("description".into(), json!(js_trim(pack.map_or("", |pack| pack.description.as_str()))));
     summary.insert("source".into(), json!(js_trim(pack.map_or("", |pack| pack.source))));
     // Effective session capability, not an editable workflow property.
@@ -163,12 +166,10 @@ pub fn load_pack(paths: &WorkflowPaths, id: &str) -> Option<Pack> {
     let wanted = wanted_workflow_id(id);
     let user = paths.data.join("workflows").join(&wanted).join(ENTRY);
     let shipped = paths.root.join("workflows").join(&wanted).join(ENTRY);
-    parse_pack(&read_text_safe(&user), "user", &wanted)
-        .or_else(|| parse_pack(&read_text_safe(&shipped), "built-in", &wanted))
-        .or_else(|| {
-            let default = paths.root.join("workflows").join(DEFAULT_WORKFLOW_ID).join(ENTRY);
-            parse_pack(&read_text_safe(&default), "built-in", DEFAULT_WORKFLOW_ID)
-        })
+    parse_pack(&read_text_safe(&user), "user", &wanted).or_else(|| parse_pack(&read_text_safe(&shipped), "built-in", &wanted)).or_else(|| {
+        let default = paths.root.join("workflows").join(DEFAULT_WORKFLOW_ID).join(ENTRY);
+        parse_pack(&read_text_safe(&default), "built-in", DEFAULT_WORKFLOW_ID)
+    })
 }
 
 /// A pack of the catalog listing.
@@ -184,7 +185,9 @@ pub(crate) fn list_packs(paths: &WorkflowPaths) -> Vec<Listed> {
     let mut found: Vec<Listed> = Vec::new();
     for (root, source) in [(paths.root.join("workflows"), "built-in"), (paths.data.join("workflows"), "user")] {
         let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(&root)
-            .map(|entries| entries.filter_map(Result::ok).filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| entry.file_name()).collect())
+            .map(|entries| {
+                entries.filter_map(Result::ok).filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| entry.file_name()).collect()
+            })
             .unwrap_or_default();
         names.sort();
         for name in names {
@@ -221,9 +224,7 @@ pub(crate) fn get_pack(paths: &WorkflowPaths, requested: &str) -> Result<Value, 
     let Some(id) = workflow_id(requested) else {
         return Err(failed(DOMAIN, format!("unknown workflow \"{requested}\"")));
     };
-    let pack = load_pack(paths, &id)
-        .filter(|pack| pack.id == id)
-        .ok_or_else(|| failed(DOMAIN, format!("workflow \"{requested}\" not found")))?;
+    let pack = load_pack(paths, &id).filter(|pack| pack.id == id).ok_or_else(|| failed(DOMAIN, format!("workflow \"{requested}\" not found")))?;
     let file = paths.user_dir(&id).join(ENTRY);
     let user_override = file.exists();
     let mut view = json!({
@@ -322,9 +323,7 @@ pub(crate) fn created_id(paths: &WorkflowPaths, payload: &Value) -> Option<Strin
     let base = workflow_id_from_name(&name);
     let mut candidates = vec![base.clone()];
     candidates.extend((2..).take(64).map(|n| format!("{base}-{n}")));
-    candidates.into_iter().find(|id| {
-        load_pack(paths, id).is_some_and(|pack| pack.id == *id && pack.source == "user" && pack.name == name)
-    })
+    candidates.into_iter().find(|id| load_pack(paths, id).is_some_and(|pack| pack.id == *id && pack.source == "user" && pack.name == name))
 }
 
 /// The file half of `deleteWorkflow`: removes the user copy; answers whether a shipped pack of
@@ -395,13 +394,23 @@ fn fields_key(fields: &[(String, String)]) -> String {
 
 /// `hashDefinition(definition, { surfaceOnly: true })`.
 fn surface_hash(definition: &Definition) -> String {
-    let surface = json!([one_line(Some(&Value::String(definition.name.clone()))), one_line(Some(&Value::String(definition.description.clone()))), normalize_text(&definition.body), ""]);
+    let surface = json!([
+        one_line(Some(&Value::String(definition.name.clone()))),
+        one_line(Some(&Value::String(definition.description.clone()))),
+        normalize_text(&definition.body),
+        ""
+    ]);
     digest(&mixdog_js::json_stringify(&surface))[..32].to_owned()
 }
 
 /// `hashDefinition(definition)`: every loader-visible field counts.
 fn definition_hash(definition: &Definition) -> String {
-    let full = json!([one_line(Some(&Value::String(definition.name.clone()))), one_line(Some(&Value::String(definition.description.clone()))), normalize_text(&definition.body), fields_key(&definition.fields)]);
+    let full = json!([
+        one_line(Some(&Value::String(definition.name.clone()))),
+        one_line(Some(&Value::String(definition.description.clone()))),
+        normalize_text(&definition.body),
+        fields_key(&definition.fields)
+    ]);
     digest(&mixdog_js::json_stringify(&full))[..32].to_owned()
 }
 
@@ -464,12 +473,7 @@ pub(crate) fn is_stray(name: &str) -> bool {
 /// `absorbSaveEqualToShipped`: a save equal to the shipped pack keeps no user copy, so the pack
 /// keeps following the shipped version; an existing copy moves into a backup. `false` means
 /// the caller writes the copy.
-fn absorb_equal_to_shipped(
-    paths: &WorkflowPaths,
-    id: &str,
-    definition: &Definition,
-    now: &dyn Fn() -> String,
-) -> Result<bool, CoreError> {
+fn absorb_equal_to_shipped(paths: &WorkflowPaths, id: &str, definition: &Definition, now: &dyn Fn() -> String) -> Result<bool, CoreError> {
     let kind = ShippedKind { dir: "workflows", entry: ENTRY, files: &[ENTRY] };
     absorb_kind_equal_to_shipped(&paths.root, &paths.data, &kind, id, definition, now)
 }

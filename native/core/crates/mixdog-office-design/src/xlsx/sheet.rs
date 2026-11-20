@@ -3,8 +3,8 @@
 
 use std::sync::LazyLock;
 
-use mixdog_js::{JsRegex, js_to_lowercase, js_trim, json_number, math, number_to_string, string_to_number, to_number_of, value_to_string};
 use mixdog_js::math::to_fixed;
+use mixdog_js::{JsRegex, js_to_lowercase, js_trim, json_number, math, number_to_string, string_to_number, to_number_of, value_to_string};
 use mixdog_office_base::values::{plain_object, truthy};
 use serde_json::Value;
 
@@ -147,13 +147,8 @@ fn header_unit(header: Option<&str>) -> String {
 /// column in another named unit or two orders of magnitude away.
 fn comparable_series_columns(rows: &[Value], data_columns: usize, chart_rows: usize, headers: &[String]) -> Option<(usize, usize)> {
     let magnitude = |column: usize| -> f64 {
-        let values: Vec<f64> = rows
-            .iter()
-            .take(chart_rows)
-            .map(|row| array_number(row, column - 1))
-            .filter(|entry| entry.is_finite() && *entry != 0.0)
-            .map(f64::abs)
-            .collect();
+        let values: Vec<f64> =
+            rows.iter().take(chart_rows).map(|row| array_number(row, column - 1)).filter(|entry| entry.is_finite() && *entry != 0.0).map(f64::abs).collect();
         values.into_iter().fold(None, |best: Option<f64>, value| Some(best.map_or(value, |best| math::max(best, value)))).unwrap_or(0.0)
     };
     let mut first = 2;
@@ -272,11 +267,7 @@ fn metric_display_text(metric: &Value, value: Option<&Value>) -> String {
         pattern.push_str(&open);
     }
     // `/\.(0+)/`: the first point that is followed by a zero.
-    let places = pattern
-        .match_indices('.')
-        .map(|(at, _)| pattern[at + 1..].chars().take_while(|c| *c == '0').count())
-        .find(|zeros| *zeros > 0)
-        .unwrap_or(0);
+    let places = pattern.match_indices('.').map(|(at, _)| pattern[at + 1..].chars().take_while(|c| *c == '0').count()).find(|zeros| *zeros > 0).unwrap_or(0);
     let percent = pattern.contains('%');
     let shown = en_us_figure(if percent { figure * 100.0 } else { figure }, places);
     format!("{shown}{}{units}", if percent { "%" } else { "" })
@@ -498,7 +489,11 @@ impl<'a> Layout<'a> {
 
     fn fitted_column_chars(&self, index: usize) -> f64 {
         let header = self.headers.get(index).map_or(0.0, |text| display_width(text) + 2.0);
-        self.rows.iter().map(|row| row.as_array().and_then(|cells| cells.get(index))).map(|cell| display_width(&text_or_empty(cell)) + 2.0).fold(math::max(8.0, header), math::max)
+        self.rows
+            .iter()
+            .map(|row| row.as_array().and_then(|cells| cells.get(index)))
+            .map(|cell| display_width(&text_or_empty(cell)) + 2.0)
+            .fold(math::max(8.0, header), math::max)
     }
 
     /// The printed width of a table column once the metric cards above it have their floors, in Excel characters.
@@ -594,9 +589,8 @@ impl<'a> Layout<'a> {
         let size = self.metric_value_size();
         let floors = self.metric_column_floors();
         metric_card_spans(self.metrics.len(), columns).iter().all(|card| {
-            let width = (card.start_column..=card.end_column).fold(0.0, |total, column| {
-                total + if column <= self.data_columns { self.table_column_chars(column - 1, &floors) } else { 8.43 }
-            });
+            let width = (card.start_column..=card.end_column)
+                .fold(0.0, |total, column| total + if column <= self.data_columns { self.table_column_chars(column - 1, &floors) } else { 8.43 });
             width >= self.metric_needed_chars(&self.metrics[card.index], size)
         })
     }
@@ -673,7 +667,10 @@ impl<'a> Layout<'a> {
         let (value_row, label_row, detail_row) = (strip_row, strip_row + 1, strip_row + 2);
         let value_cell = format!("{start}{value_row}");
         if truthy_of(prop(metric, "formula")) {
-            output.push(operation("set_formula", vec![("sheet", sheet.clone()), ("cell", text_value(&value_cell)), ("formula", text_value(&text(prop(metric, "formula"))))]));
+            output.push(operation(
+                "set_formula",
+                vec![("sheet", sheet.clone()), ("cell", text_value(&value_cell)), ("formula", text_value(&text(prop(metric, "formula"))))],
+            ));
         } else {
             let value = prop(metric, "value").filter(|value| !value.is_null()).cloned().unwrap_or_else(|| text_value(""));
             output.push(operation("set_cell", vec![("sheet", sheet.clone()), ("cell", text_value(&value_cell)), ("value", value)]));
@@ -686,9 +683,15 @@ impl<'a> Layout<'a> {
             }
         };
         merge(output, value_row);
-        output.push(operation("set_cell", vec![("sheet", sheet.clone()), ("cell", text_value(&format!("{start}{label_row}"))), ("value", text_value(&text(prop(metric, "label"))))]));
+        output.push(operation(
+            "set_cell",
+            vec![("sheet", sheet.clone()), ("cell", text_value(&format!("{start}{label_row}"))), ("value", text_value(&text(prop(metric, "label"))))],
+        ));
         merge(output, label_row);
-        output.push(operation("set_cell", vec![("sheet", sheet.clone()), ("cell", text_value(&format!("{start}{detail_row}"))), ("value", text_value(&text(prop(metric, "detail"))))]));
+        output.push(operation(
+            "set_cell",
+            vec![("sheet", sheet.clone()), ("cell", text_value(&format!("{start}{detail_row}"))), ("value", text_value(&text(prop(metric, "detail"))))],
+        ));
         merge(output, detail_row);
         let tokens = &self.tokens;
         let value_fill = if self.trend_dashboard { tokens.color("canvas") } else { tokens.color("surface") };
@@ -886,7 +889,12 @@ impl<'a> Layout<'a> {
         if values.iter().all(|entry| entry.fract() == 0.0) {
             return "#,##0".to_owned();
         }
-        let places = values.iter().map(|entry| number_to_string(*entry).split('.').nth(1).map_or(0, |fraction| fraction.encode_utf16().count())).max().unwrap_or(0).min(3);
+        let places = values
+            .iter()
+            .map(|entry| number_to_string(*entry).split('.').nth(1).map_or(0, |fraction| fraction.encode_utf16().count()))
+            .max()
+            .unwrap_or(0)
+            .min(3);
         if places > 0 { format!("#,##0.{}", "0".repeat(places)) } else { "#,##0".to_owned() }
     }
 
@@ -1048,21 +1056,30 @@ impl<'a> Layout<'a> {
         };
         let mut fields: Vec<(&str, Value)> = vec![
             ("sheet", text_value(&self.sheet)),
-            ("range", match prop(chart, "range") {
-                Some(value) if truthy(value) => value.clone(),
-                _ => text_value(&default_range),
-            }),
+            (
+                "range",
+                match prop(chart, "range") {
+                    Some(value) if truthy(value) => value.clone(),
+                    _ => text_value(&default_range),
+                },
+            ),
             ("chartType", chart_type),
-            ("title", match prop(chart, "title") {
-                Some(value) if truthy(value) => value.clone(),
-                _ => text_value(""),
-            }),
+            (
+                "title",
+                match prop(chart, "title") {
+                    Some(value) if truthy(value) => value.clone(),
+                    _ => text_value(""),
+                },
+            ),
         ];
         fields.extend(frame.fields);
-        fields.push(("seriesColors", match prop(chart, "seriesColors") {
-            Some(value) if truthy(value) => value.clone(),
-            _ => default_colors,
-        }));
+        fields.push((
+            "seriesColors",
+            match prop(chart, "seriesColors") {
+                Some(value) if truthy(value) => value.clone(),
+                _ => default_colors,
+            },
+        ));
         fields.push(("showValues", show_values));
         let labelled = truthy(&data_label_position);
         let inside_end = data_label_position == text_value("inside_end");
@@ -1078,10 +1095,13 @@ impl<'a> Layout<'a> {
                 fields.push(("dataLabelColor", label_color));
             }
         }
-        fields.push(("zeroBaseline", match prop(chart, "zeroBaseline").filter(|value| !value.is_null()) {
-            Some(value) => value.clone(),
-            None => Value::Bool(bars),
-        }));
+        fields.push((
+            "zeroBaseline",
+            match prop(chart, "zeroBaseline").filter(|value| !value.is_null()) {
+                Some(value) => value.clone(),
+                None => Value::Bool(bars),
+            },
+        ));
         if let Some(legend) = prop(chart, "showLegend").filter(|value| !value.is_null()) {
             fields.push(("showLegend", legend.clone()));
         }
@@ -1147,10 +1167,16 @@ impl<'a> Layout<'a> {
             fields.push(("minWidth", num(self.fill_width)));
         }
         output.push(operation("autofit_range", fields));
-        output.push(operation("autofit_range", vec![("sheet", text_value(&self.sheet)), ("range", text_value(&format!("1:{last_row}"))), ("rows", Value::Bool(true))]));
+        output.push(operation(
+            "autofit_range",
+            vec![("sheet", text_value(&self.sheet)), ("range", text_value(&format!("1:{last_row}"))), ("rows", Value::Bool(true))],
+        ));
         for (column, min_width) in self.metric_column_floors().0 {
             let letter = col(column);
-            output.push(operation("autofit_range", vec![("sheet", text_value(&self.sheet)), ("range", text_value(&format!("{letter}:{letter}"))), ("minWidth", num(min_width))]));
+            output.push(operation(
+                "autofit_range",
+                vec![("sheet", text_value(&self.sheet)), ("range", text_value(&format!("{letter}:{letter}"))), ("minWidth", num(min_width))],
+            ));
         }
     }
 

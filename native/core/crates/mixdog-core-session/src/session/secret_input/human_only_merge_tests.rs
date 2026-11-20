@@ -117,7 +117,10 @@ async fn a_hold_ends_when_its_connection_closes() {
     let connection = CancellationToken::new();
 
     value(&service, on(1, &connection, BEGIN, json!({ "label": "" }))).await.unwrap();
-    assert_eq!(gated.run(act(), CancellationToken::new()).await.unwrap_err(), ComputerError::Failed { code: "human_only_approval_pending".into(), message: BLOCKED.into() });
+    assert_eq!(
+        gated.run(act(), CancellationToken::new()).await.unwrap_err(),
+        ComputerError::Failed { code: "human_only_approval_pending".into(), message: BLOCKED.into() }
+    );
     connection.cancel();
     gated.run(act(), CancellationToken::new()).await.unwrap();
     assert_eq!(helper.sent(), 1, "only the call made after the close reached the helper");

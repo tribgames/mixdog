@@ -2,14 +2,14 @@
 //! (`<cache>/<model id>/<path>`): what counts as installed, and the install
 //! that fetches what is missing or damaged from the Hugging Face Hub.
 
-use mixdog_js::{js_trim};
+use mixdog_js::js_trim;
 use std::path::{Path, PathBuf};
 
 use tokio_util::sync::CancellationToken;
 
+use crate::lane::on_lane;
 use crate::memory::embed::config;
 use crate::memory::embed::engine::EmbedConfig;
-use crate::lane::on_lane;
 use crate::model_install::{DownloadError, InstallError, ProgressSink, Spec, download_once, fsio};
 use mixdog_rt::CpuBulk;
 
@@ -121,9 +121,7 @@ impl Hub<'_> {
         match download_once(&spec, progress, cancel).await {
             Ok(_) => fsio::rename(lane, &partial, target).await.map_err(InstallError::io),
             Err(DownloadError::Http { status: 404, .. }) if optional => Ok(()),
-            Err(DownloadError::Http { status, .. }) => {
-                Err(InstallError::Hub(format!("embedding model download failed: {model_id}/{file} HTTP {status}")))
-            }
+            Err(DownloadError::Http { status, .. }) => Err(InstallError::Hub(format!("embedding model download failed: {model_id}/{file} HTTP {status}"))),
             Err(DownloadError::Cancelled) => Err(InstallError::Cancelled),
             Err(error) => Err(error.into()),
         }
@@ -159,12 +157,7 @@ pub async fn ensure_model_graph(hub: &Hub<'_>, cache_dir: &Path, model_id: &str,
 
 /// Fetches what is missing or damaged, in the embedding worker's order
 /// (`embedding-worker.mjs`): the tokenizer files, then the graph.
-pub async fn install(
-    config: &EmbedConfig,
-    hub: &str,
-    progress: Option<&ProgressSink>,
-    cancel: &CancellationToken,
-) -> Result<(), InstallError> {
+pub async fn install(config: &EmbedConfig, hub: &str, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<(), InstallError> {
     let model_id = js_trim(&config.model_id);
     let hub = Hub { lane: config.lane, url: hub, progress, cancel };
     for file in ["tokenizer.json", "tokenizer_config.json"] {

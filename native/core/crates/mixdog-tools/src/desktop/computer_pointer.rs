@@ -86,7 +86,14 @@ pub(super) fn is_ready(session: &str) -> bool {
 /// Asks the desktop to have `session`'s arrow drawn at `(x, y)` of `window_id` before a pointer action. Never a refusal of the
 /// action: a desktop that cannot (none serving Computer, the method unknown to it, any error) is `Unavailable`, one that does
 /// not answer within [`PREPARE_CAP`] is `Timeout`, and a cancelled action is `Unavailable` with nothing left asking.
-pub async fn prepare_cursor(desktop: Option<&Arc<dyn HostChannel>>, session: &str, window_id: Option<&str>, x: f64, y: f64, cancel: &CancellationToken) -> CursorPrepare {
+pub async fn prepare_cursor(
+    desktop: Option<&Arc<dyn HostChannel>>,
+    session: &str,
+    window_id: Option<&str>,
+    x: f64,
+    y: f64,
+    cancel: &CancellationToken,
+) -> CursorPrepare {
     let Some(desktop) = desktop.filter(|desktop| desktop.serves(HostCapability::Computer)) else {
         return CursorPrepare::Unavailable;
     };

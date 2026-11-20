@@ -89,10 +89,7 @@ impl SandboxManager {
     }
 
     pub fn transform(&self, command: CommandSpec, policy: &SandboxPolicy) -> ExecRequest {
-        ExecRequest {
-            sandbox: self.select_initial(policy),
-            command,
-        }
+        ExecRequest { sandbox: self.select_initial(policy), command }
     }
 }
 
@@ -123,14 +120,8 @@ mod tests {
     fn absolute_paths_stand_on_their_own_and_stop_at_the_root() {
         let policy = SandboxPolicy::Unrestricted;
         let cwd = Path::new(r"C:\work");
-        assert_eq!(
-            policy.resolve_in_workspace(cwd, Path::new(r"D:\x\..\y")),
-            PathBuf::from(r"D:\y")
-        );
-        assert_eq!(
-            policy.resolve_in_workspace(cwd, Path::new(r"C:\..\..\y")),
-            PathBuf::from(r"C:\y")
-        );
+        assert_eq!(policy.resolve_in_workspace(cwd, Path::new(r"D:\x\..\y")), PathBuf::from(r"D:\y"));
+        assert_eq!(policy.resolve_in_workspace(cwd, Path::new(r"C:\..\..\y")), PathBuf::from(r"C:\y"));
     }
 
     #[cfg(unix)]
@@ -138,25 +129,14 @@ mod tests {
     fn absolute_paths_stand_on_their_own_and_stop_at_the_root() {
         let policy = SandboxPolicy::Unrestricted;
         let cwd = Path::new("/work");
-        assert_eq!(
-            policy.resolve_in_workspace(cwd, Path::new("/x/../y")),
-            PathBuf::from("/y")
-        );
-        assert_eq!(
-            policy.resolve_in_workspace(cwd, Path::new("/../../y")),
-            PathBuf::from("/y")
-        );
+        assert_eq!(policy.resolve_in_workspace(cwd, Path::new("/x/../y")), PathBuf::from("/y"));
+        assert_eq!(policy.resolve_in_workspace(cwd, Path::new("/../../y")), PathBuf::from("/y"));
     }
 
     #[test]
     fn unrestricted_policy_leaves_the_command_unconfined() {
         let manager = SandboxManager;
-        let spec = CommandSpec {
-            program: "tool".into(),
-            args: vec!["--flag".into()],
-            cwd: PathBuf::from("work"),
-            env: BTreeMap::new(),
-        };
+        let spec = CommandSpec { program: "tool".into(), args: vec!["--flag".into()], cwd: PathBuf::from("work"), env: BTreeMap::new() };
         let request = manager.transform(spec.clone(), &SandboxPolicy::Unrestricted);
         assert_eq!(request.sandbox, SandboxType::None);
         assert_eq!(request.command, spec);

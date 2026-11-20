@@ -9,8 +9,8 @@ use serde_json::{Map, Value};
 
 use super::appearance::greedy_line_count;
 use super::{
-    Field, FieldKind, FormError, FormResult, PdfForm, FLAG_EDIT, FLAG_MULTILINE, border_style_width, choice_options, radio_options,
-    widget_rectangle, widgets_of,
+    FLAG_EDIT, FLAG_MULTILINE, Field, FieldKind, FormError, FormResult, PdfForm, border_style_width, choice_options, radio_options, widget_rectangle,
+    widgets_of,
 };
 
 /// The words that leave a check box unchecked.
@@ -65,18 +65,11 @@ pub fn fill_form_values(form: &mut PdfForm, doc: &mut PdfDocument, values: &Valu
         }
     }
     let wanted = entries(values);
-    let missing: Vec<String> = wanted
-        .iter()
-        .filter(|(name, _)| !by_name.iter().any(|(existing, _)| existing == *name))
-        .map(|(name, _)| (*name).clone())
-        .collect();
+    let missing: Vec<String> =
+        wanted.iter().filter(|(name, _)| !by_name.iter().any(|(existing, _)| existing == *name)).map(|(name, _)| (*name).clone()).collect();
     if !missing.is_empty() {
         let known: Vec<String> = by_name.iter().map(|(name, _)| name.clone()).collect();
-        return Err(FormError::new(format!(
-            "PDF form has no field named {}; fields: {}",
-            missing.join(", "),
-            list_or_none(&known)
-        )));
+        return Err(FormError::new(format!("PDF form has no field named {}; fields: {}", missing.join(", "), list_or_none(&known))));
     }
     let mut filled = Vec::new();
     for (name, value) in wanted {
@@ -102,22 +95,14 @@ pub fn fill_form_values(form: &mut PdfForm, doc: &mut PdfDocument, values: &Valu
                 let unknown: Vec<String> = chosen.iter().filter(|entry| !options.contains(entry)).cloned().collect();
                 let editable = super::has_flag(doc.store(), field.reference, FLAG_EDIT);
                 if !unknown.is_empty() && !(field.kind == FieldKind::Dropdown && editable) {
-                    return Err(FormError::new(format!(
-                        "Field {name} has no option {}; options: {}",
-                        unknown.join(", "),
-                        list_or_none(&options)
-                    )));
+                    return Err(FormError::new(format!("Field {name} has no option {}; options: {}", unknown.join(", "), list_or_none(&options))));
                 }
                 if field.kind == FieldKind::Radio {
-                    let first = chosen.first().ok_or_else(|| {
-                        FormError::new("`option` must be of type `string`, but was actually of type `undefined`")
-                    })?;
+                    let first = chosen.first().ok_or_else(|| FormError::new("`option` must be of type `string`, but was actually of type `undefined`"))?;
                     form.select_radio(doc, &field, first)?;
                 } else {
                     if chosen.is_empty() && field.kind == FieldKind::Dropdown {
-                        return Err(FormError::new(
-                            "`options` must be of type `string` or `Array`, but was actually of type `undefined`",
-                        ));
+                        return Err(FormError::new("`options` must be of type `string` or `Array`, but was actually of type `undefined`"));
                     }
                     form.select_choice(doc, &field, &chosen)?;
                 }

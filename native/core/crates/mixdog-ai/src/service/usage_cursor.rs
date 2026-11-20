@@ -14,9 +14,9 @@ use std::sync::Arc;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_js::to_number_of;
 use serde_json::Map;
 use serde_json::Value;
-use mixdog_js::to_number_of;
 
 use super::oauth_usage::UsageError;
 use super::oauth_usage::credential_stamp;
@@ -24,8 +24,8 @@ use super::oauth_usage::stamp_reading;
 use super::usage_normalize::jn;
 use super::usage_normalize::round;
 use crate::client_versions::Live;
-use crate::providers::cursor::AccessToken;
 use crate::providers::cursor::API_URL;
+use crate::providers::cursor::AccessToken;
 use crate::providers::cursor::http_status_error;
 use crate::providers::cursor::rpc_headers;
 use crate::providers::cursor::unwrap_unary_body;
@@ -92,13 +92,8 @@ const CURRENT_PERIOD_USAGE: &[(u128, &str, Ty)] = &[
     (12, "namedModelSelectedDisplayMessage", Ty::Str),
     (13, "autoBucketModels", Ty::RepStr),
 ];
-const PLAN_INFO: &[(u128, &str, Ty)] = &[
-    (1, "planName", Ty::Str),
-    (2, "includedAmountCents", Ty::Int),
-    (3, "price", Ty::Str),
-    (4, "billingCycleEnd", Ty::Int),
-    (5, "planOwner", Ty::Int),
-];
+const PLAN_INFO: &[(u128, &str, Ty)] =
+    &[(1, "planName", Ty::Str), (2, "includedAmountCents", Ty::Int), (3, "price", Ty::Str), (4, "billingCycleEnd", Ty::Int), (5, "planOwner", Ty::Int)];
 const PLAN_INFO_RESPONSE: &[(u128, &str, Ty)] = &[(1, "planInfo", Ty::Msg(PLAN_INFO))];
 
 /// `ProtoReader` over a window of the answer; the whole answer stays addressable, as Node's views share a buffer.
@@ -180,7 +175,20 @@ fn decode_message(all: &[u8], start: usize, end: usize, schema: &'static [(u128,
                 wire.at += 8;
                 // A value that is not a finite number stays one for `Number(..)` as its JavaScript text.
                 let double = f64::from_le_bytes(bytes);
-                if double.is_finite() { jn(double) } else { Value::String(if double.is_nan() { "NaN" } else if double > 0.0 { "Infinity" } else { "-Infinity" }.into()) }
+                if double.is_finite() {
+                    jn(double)
+                } else {
+                    Value::String(
+                        if double.is_nan() {
+                            "NaN"
+                        } else if double > 0.0 {
+                            "Infinity"
+                        } else {
+                            "-Infinity"
+                        }
+                        .into(),
+                    )
+                }
             }
             Ty::Bool => Value::Bool(wire.varint()? != 0),
             Ty::Int => jn((wire.varint()? as u64) as i64 as f64),
@@ -254,7 +262,11 @@ impl SpendPool {
 /// limit anywhere, whatever the first reporting pool or the bare total shows, for display only.
 fn spend_pool(spend: &Map<String, Value>) -> Option<SpendPool> {
     let reported = |key: &str| spend.get(key).filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite());
-    let pools = [("overallLimit", "overallUsed", "overallRemaining"), ("individualLimit", "individualUsed", "individualRemaining"), ("pooledLimit", "pooledUsed", "pooledRemaining")];
+    let pools = [
+        ("overallLimit", "overallUsed", "overallRemaining"),
+        ("individualLimit", "individualUsed", "individualRemaining"),
+        ("pooledLimit", "pooledUsed", "pooledRemaining"),
+    ];
     let row = |(limit, used, remaining): (&str, &str, &str)| (reported(limit), reported(used), reported(remaining));
     let (limit, used, remaining) = pools
         .into_iter()
@@ -466,7 +478,12 @@ mod quota_scope_tests {
 
     #[test]
     fn a_sent_token_stamps_as_the_stored_sign_in_does_and_another_does_not() {
-        let stored = |token: &str| crate::providers::cursor::auth::StoredTokens { access_token: token.into(), refresh_token: None, expires_at: 0, reauth_required: false };
+        let stored = |token: &str| crate::providers::cursor::auth::StoredTokens {
+            access_token: token.into(),
+            refresh_token: None,
+            expires_at: 0,
+            reauth_required: false,
+        };
         let doc = |token: &str| serde_json::to_value(stored(token)).unwrap();
         let from_file = credential_stamp(PROVIDER_ID, doc("tok").as_object().unwrap());
         assert!(from_file.is_some());
@@ -483,4 +500,3 @@ mod quota_scope_tests {
         assert!(windows[0].get("binding").is_some(), "an unmatched figure proves no exhaustion");
     }
 }
-

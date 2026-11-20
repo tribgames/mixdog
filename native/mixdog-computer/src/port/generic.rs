@@ -11,7 +11,7 @@
 // The Windows build runs this core's tests only; macOS and Linux use it.
 #![cfg_attr(windows, allow(dead_code))]
 
-use super::{Admitted, Boundary, Cleanup, Holder, Ledger, Outcome, Owned, Receipt, Scope, Settled, Ticket, NOT_OWNED, REVOKED};
+use super::{Admitted, Boundary, Cleanup, Holder, Ledger, NOT_OWNED, Outcome, Owned, REVOKED, Receipt, Scope, Settled, Ticket};
 use std::sync::{Arc, OnceLock};
 
 /// A key or button one device or destination holds.

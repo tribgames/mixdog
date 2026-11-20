@@ -48,20 +48,12 @@ fn main() -> ExitCode {
     if endpoint.is_empty() || token.is_empty() {
         return ExitCode::from(2);
     }
-    let prompt = std::env::args_os()
-        .skip(1)
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let prompt = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ");
     let Some(secret) = ask(&endpoint, &token, &prompt, identity()) else {
         return ExitCode::from(1);
     };
     let mut out = std::io::stdout().lock();
-    if out.write_all(secret.as_bytes()).and_then(|()| out.write_all(b"\n")).and_then(|()| out.flush()).is_ok() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
+    if out.write_all(secret.as_bytes()).and_then(|()| out.write_all(b"\n")).and_then(|()| out.flush()).is_ok() { ExitCode::SUCCESS } else { ExitCode::from(1) }
 }
 
 /// Which ssh invocation this helper was spawned for (the number the session put in its environment) and which process ran it
@@ -402,10 +394,7 @@ mod tests {
 
     #[test]
     fn reply_needs_ok_true_and_a_string_secret() {
-        assert_eq!(
-            parse_reply(r#"{"ok":true,"secret":"päss😀 \"x\""}"#).as_deref(),
-            Some("päss😀 \"x\"")
-        );
+        assert_eq!(parse_reply(r#"{"ok":true,"secret":"päss😀 \"x\""}"#).as_deref(), Some("päss😀 \"x\""));
         assert_eq!(parse_reply(r#"{"extra":[1,{"a":null}],"secret":"s","ok":true}"#).as_deref(), Some("s"));
         for bad in [
             r#"{"ok":false,"secret":"s"}"#,

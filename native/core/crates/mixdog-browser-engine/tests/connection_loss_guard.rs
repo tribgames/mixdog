@@ -166,8 +166,18 @@ fn commands() -> Vec<Command> {
         Command { action: "navigate", input: json!({"url": "https://b.test/app"}), script: || vec![resolved("p1"), moved("p1")], says: "Arrived" },
         Command { action: "navigate", input: json!({"reload": true}), script: || vec![resolved("p1"), moved("p1")], says: "Arrived" },
         Command { action: "back", input: json!({}), script: || vec![resolved("p1"), moved("p1")], says: "Arrived" },
-        Command { action: "navigate", input: json!({"url": "https://b.test/app", "background": true, "tab": "live"}), script: || vec![resolved_blank("p1"), moved("p1")], says: "Arrived" },
-        Command { action: "cookies", input: json!({"operation": "set", "name": "a", "value": "1"}), script: || vec![resolved("p1"), cookie_set()], says: "Set cookie \"a\"" },
+        Command {
+            action: "navigate",
+            input: json!({"url": "https://b.test/app", "background": true, "tab": "live"}),
+            script: || vec![resolved_blank("p1"), moved("p1")],
+            says: "Arrived",
+        },
+        Command {
+            action: "cookies",
+            input: json!({"operation": "set", "name": "a", "value": "1"}),
+            script: || vec![resolved("p1"), cookie_set()],
+            says: "Set cookie \"a\"",
+        },
     ]
 }
 

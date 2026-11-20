@@ -128,9 +128,7 @@ pub fn flag(modifier: Mod) -> u64 {
 }
 
 pub fn flags_of(modifiers: &[Mod]) -> u64 {
-    modifiers
-        .iter()
-        .fold(0, |mask, modifier| mask | flag(*modifier))
+    modifiers.iter().fold(0, |mask, modifier| mask | flag(*modifier))
 }
 
 /// Where an event goes: the system input stream, or one process.
@@ -153,21 +151,11 @@ pub struct Dest {
 
 impl Dest {
     pub fn system(flags: u64) -> Dest {
-        Dest {
-            route: Route::System,
-            window: 0,
-            origin: CGPoint::default(),
-            flags,
-        }
+        Dest { route: Route::System, window: 0, origin: CGPoint::default(), flags }
     }
 
     pub fn process(pid: i32, window: u32, origin: CGPoint, flags: u64) -> Dest {
-        Dest {
-            route: Route::Process(pid),
-            window,
-            origin,
-            flags,
-        }
+        Dest { route: Route::Process(pid), window, origin, flags }
     }
 }
 
@@ -184,19 +172,9 @@ unsafe fn route_to_window(event: CGEventRef, dest: Dest, x: f64, y: f64) {
     }
     let window = dest.window as i64;
     CGEventSetIntegerValueField(event, kCGMouseEventWindowUnderMousePointer, window);
-    CGEventSetIntegerValueField(
-        event,
-        kCGMouseEventWindowUnderMousePointerThatCanHandleThisEvent,
-        window,
-    );
+    CGEventSetIntegerValueField(event, kCGMouseEventWindowUnderMousePointerThatCanHandleThisEvent, window);
     CGEventSetIntegerValueField(event, kCGEventWindowNumber, window);
-    super::skylight::set_window_location(
-        event,
-        CGPoint {
-            x: x - dest.origin.x,
-            y: y - dest.origin.y,
-        },
-    );
+    super::skylight::set_window_location(event, CGPoint { x: x - dest.origin.x, y: y - dest.origin.y });
 }
 
 pub(crate) use crate::port::macos::MacHold;
@@ -299,10 +277,7 @@ pub struct Poster {
 impl Poster {
     /// The executor's port stamps every event with this process's marker.
     pub fn new() -> Poster {
-        Poster {
-            flags: Cell::new(0),
-            held: RefCell::new(Vec::new()),
-        }
+        Poster { flags: Cell::new(0), held: RefCell::new(Vec::new()) }
     }
 
     /// A press of `spec` through the port; its receipt kept for the release.
@@ -331,15 +306,7 @@ impl Poster {
     /// last accepted point, with the press's own destination); an accepted drag moves the point a held button is let go at.
     /// All through the executor's port (`crate::port::macos`). The button of a press or release is read from `kind`, and its
     /// number is the button's own (`button` is used only for motion); any other kind than a motion or drag is refused.
-    pub fn mouse(
-        &self,
-        kind: u32,
-        x: f64,
-        y: f64,
-        button: u32,
-        clicks: u32,
-        dest: Dest,
-    ) -> Result<(), String> {
+    pub fn mouse(&self, kind: u32, x: f64, y: f64, button: u32, clicks: u32, dest: Dest) -> Result<(), String> {
         let pid = route_pid(dest.route);
         match kind {
             kCGEventLeftMouseDown | kCGEventRightMouseDown | kCGEventOtherMouseDown => {
@@ -407,28 +374,12 @@ impl Poster {
         Ok(())
     }
 
-    pub fn wheel(
-        &self,
-        x: f64,
-        y: f64,
-        clicks: i32,
-        horizontal: bool,
-        dest: Dest,
-    ) -> Result<(), String> {
+    pub fn wheel(&self, x: f64, y: f64, clicks: i32, horizontal: bool, dest: Dest) -> Result<(), String> {
         // Three lines per wheel notch; positive clicks move content down/right.
         let lines = -clicks * 3;
         let (vertical, sideways) = if horizontal { (0, lines) } else { (lines, 0) };
         // SAFETY: creates a +1 scroll event that `post` releases.
-        let event = unsafe {
-            CGEventCreateScrollWheelEvent2(
-                std::ptr::null_mut(),
-                kCGScrollEventUnitLine,
-                2,
-                vertical,
-                sideways,
-                0,
-            )
-        };
+        let event = unsafe { CGEventCreateScrollWheelEvent2(std::ptr::null_mut(), kCGScrollEventUnitLine, 2, vertical, sideways, 0) };
         if !event.is_null() {
             // SAFETY: event is live.
             unsafe {
@@ -445,21 +396,9 @@ impl Poster {
 
 pub fn button_events(button: Button) -> (u32, u32, u32) {
     match button {
-        Button::Left => (
-            kCGEventLeftMouseDown,
-            kCGEventLeftMouseUp,
-            kCGMouseButtonLeft,
-        ),
-        Button::Right => (
-            kCGEventRightMouseDown,
-            kCGEventRightMouseUp,
-            kCGMouseButtonRight,
-        ),
-        Button::Middle => (
-            kCGEventOtherMouseDown,
-            kCGEventOtherMouseUp,
-            kCGMouseButtonCenter,
-        ),
+        Button::Left => (kCGEventLeftMouseDown, kCGEventLeftMouseUp, kCGMouseButtonLeft),
+        Button::Right => (kCGEventRightMouseDown, kCGEventRightMouseUp, kCGMouseButtonRight),
+        Button::Middle => (kCGEventOtherMouseDown, kCGEventOtherMouseUp, kCGMouseButtonCenter),
     }
 }
 
@@ -488,15 +427,13 @@ impl KeySink for ProcessKeys<'_> {
         if let Key::Mod(modifier) = key {
             self.flags |= flag(modifier);
         }
-        self.poster
-            .key(keycode(key)?, true, Route::Process(self.pid), self.flags)
+        self.poster.key(keycode(key)?, true, Route::Process(self.pid), self.flags)
     }
     fn up(&mut self, key: Key) -> Result<(), String> {
         if let Key::Mod(modifier) = key {
             self.flags &= !flag(modifier);
         }
-        self.poster
-            .key(keycode(key)?, false, Route::Process(self.pid), self.flags)
+        self.poster.key(keycode(key)?, false, Route::Process(self.pid), self.flags)
     }
     fn text(&mut self, text: &str) -> Result<(), String> {
         self.poster.text(text, Route::Process(self.pid))
@@ -509,8 +446,7 @@ pub fn input_held() -> bool {
     // SAFETY: plain HID state queries.
     unsafe {
         (0u16..128).any(|code| CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, code))
-            || (0u32..3)
-                .any(|button| CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, button))
+            || (0u32..3).any(|button| CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, button))
     }
 }
 

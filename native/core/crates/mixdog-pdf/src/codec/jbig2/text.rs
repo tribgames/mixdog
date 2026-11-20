@@ -163,10 +163,7 @@ impl TextRegion<'_> {
             Corner::TopLeft => (x, y),
             Corner::TopRight => (x.wrapping_sub(width.wrapping_sub(1)), y),
             Corner::BottomLeft => (x, y.wrapping_sub(height.wrapping_sub(1))),
-            Corner::BottomRight => (
-                x.wrapping_sub(width.wrapping_sub(1)),
-                y.wrapping_sub(height.wrapping_sub(1)),
-            ),
+            Corner::BottomRight => (x.wrapping_sub(width.wrapping_sub(1)), y.wrapping_sub(height.wrapping_sub(1))),
         };
         image.compose_to(region, x, y, self.comb_op);
     }
@@ -174,12 +171,7 @@ impl TextRegion<'_> {
     /// `DecodeArith`: the region as arithmetic coded, with the context table `gr_cx` of the refinements and the
     /// integer decoders `ids`. The strip and symbol positions are added with overflow checks (an overflow fails the
     /// region); a refinement that fails to decode leaves the instance out.
-    pub fn decode_arith(
-        &self,
-        decoder: &mut ArithDecoder,
-        gr_cx: &mut [ArithCx],
-        ids: &mut IntStates,
-    ) -> Option<Image> {
+    pub fn decode_arith(&self, decoder: &mut ArithDecoder, gr_cx: &mut [ArithCx], ids: &mut IntStates) -> Option<Image> {
         let mut region = Image::new(self.width, self.height)?;
         region.fill(self.def_pixel);
         let initial = ids.iadt.decode(decoder)?;
@@ -206,19 +198,11 @@ impl TextRegion<'_> {
                 if instances >= self.num_instances {
                     break;
                 }
-                let cur_t = if self.strips != 1 {
-                    ids.iait.decode(decoder).unwrap_or(0)
-                } else {
-                    0
-                };
+                let cur_t = if self.strips != 1 { ids.iait.decode(decoder).unwrap_or(0) } else { 0 };
                 let t = strip_t.checked_add(cur_t)?;
                 let id = ids.iaid.decode(decoder);
                 let original = *self.symbols.get(id as usize)?;
-                let refined = if self.refine {
-                    ids.iari.decode(decoder).unwrap_or(0)
-                } else {
-                    0
-                };
+                let refined = if self.refine { ids.iari.decode(decoder).unwrap_or(0) } else { 0 };
                 let owned;
                 let symbol: &Symbol = if refined == 0 {
                     original
@@ -229,14 +213,7 @@ impl TextRegion<'_> {
                         ids.iardx.decode(decoder).unwrap_or(0),
                         ids.iardy.decode(decoder).unwrap_or(0),
                     ];
-                    owned = match refined_symbol(
-                        original,
-                        self.r_template,
-                        self.r_at,
-                        deltas,
-                        decoder,
-                        gr_cx,
-                    ) {
+                    owned = match refined_symbol(original, self.r_template, self.r_at, deltas, decoder, gr_cx) {
                         Ok(Some(symbol)) => symbol,
                         Ok(None) => continue,
                         Err(Failure) => return None,
@@ -286,11 +263,7 @@ impl TextRegion<'_> {
                     };
                     cur_s = cur_s.checked_add(ids_value)?.checked_add(self.ds_offset)?;
                 }
-                let cur_t = if self.strips != 1 {
-                    stream.read_nbits(self.strips.trailing_zeros())? as i32
-                } else {
-                    0
-                };
+                let cur_t = if self.strips != 1 { stream.read_nbits(self.strips.trailing_zeros())? as i32 } else { 0 };
                 let t = strip_t.checked_add(cur_t)?;
                 let id = self.read_symbol_id(stream)?;
                 let original = self.symbols[id];
@@ -307,15 +280,7 @@ impl TextRegion<'_> {
                     stream.align_byte();
                     let start = stream.byte_index();
                     let mut decoder = ArithDecoder::new(stream.data(), start);
-                    let refined = refined_symbol(
-                        original,
-                        self.r_template,
-                        self.r_at,
-                        [rdw, rdh, rdx, rdy],
-                        &mut decoder,
-                        gr_cx,
-                    )
-                    .ok()?;
+                    let refined = refined_symbol(original, self.r_template, self.r_at, [rdw, rdh, rdx, rdy], &mut decoder, gr_cx).ok()?;
                     owned = refined?;
                     stream.set_byte_index(decoder.byte_index());
                     stream.align_byte();
@@ -362,10 +327,7 @@ impl TextRegion<'_> {
 fn read_symbol_codes(stream: &mut BitStream, count: u32) -> Option<Vec<Code>> {
     let mut run_codes = Vec::with_capacity(35);
     for _ in 0..35 {
-        run_codes.push(Code {
-            len: stream.read_nbits(4)?,
-            code: 0,
-        });
+        run_codes.push(Code { len: stream.read_nbits(4)?, code: 0 });
     }
     let run_codes = assigned(run_codes)?;
     let mut codes = vec![Code::default(); count as usize];
@@ -480,11 +442,7 @@ impl Context<'_> {
             symbol_codes = read_symbol_codes(stream, count).ok_or(Failure)?;
             stream.align_byte();
         }
-        let tables = if huffman {
-            Some(text_tables(table_flags, &found)?)
-        } else {
-            None
-        };
+        let tables = if huffman { Some(text_tables(table_flags, &found)?) } else { None };
         let region = TextRegion {
             width: info.width,
             height: info.height,
@@ -502,11 +460,7 @@ impl Context<'_> {
             r_template,
             r_at,
         };
-        let mut gr_cx = if refine {
-            vec![ArithCx::default(); refine::context_count(r_template)]
-        } else {
-            Vec::new()
-        };
+        let mut gr_cx = if refine { vec![ArithCx::default(); refine::context_count(r_template)] } else { Vec::new() };
         let image = if huffman {
             let image = region.decode_huffman(stream, &mut gr_cx).ok_or(Failure)?;
             stream.align_byte();
@@ -589,13 +543,7 @@ mod tests {
     }
 
     fn render(img: &Image) -> Vec<String> {
-        (0..img.height())
-            .map(|y| {
-                (0..img.width())
-                    .map(|x| if img.get_pixel(x, y) == 1 { '#' } else { '.' })
-                    .collect()
-            })
-            .collect()
+        (0..img.height()).map(|y| (0..img.width()).map(|x| if img.get_pixel(x, y) == 1 { '#' } else { '.' }).collect()).collect()
     }
 
     fn region<'a>(symbols: &'a [&'a Symbol], transposed: bool, corner: Corner) -> TextRegion<'a> {

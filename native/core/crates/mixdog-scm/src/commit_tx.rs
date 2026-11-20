@@ -46,20 +46,13 @@ fn literal(path: &str) -> String {
 
 fn comparable(path: &str) -> String {
     let normalized = path.replace('\\', "/");
-    if cfg!(windows) {
-        normalized.to_lowercase()
-    } else {
-        normalized
-    }
+    if cfg!(windows) { normalized.to_lowercase() } else { normalized }
 }
 
 fn assert_commit_path(path: &str) -> Result<(), ScmFailure> {
     // Argument-injection guard on the caller's exact bytes: a pathspec may never read as an
     // option, an absolute or drive path, a traversal, or a NUL-spliced value.
-    let drive = path.len() >= 3
-        && path.as_bytes()[0].is_ascii_alphabetic()
-        && path.as_bytes()[1] == b':'
-        && matches!(path.as_bytes()[2], b'/' | b'\\');
+    let drive = path.len() >= 3 && path.as_bytes()[0].is_ascii_alphabetic() && path.as_bytes()[1] == b':' && matches!(path.as_bytes()[2], b'/' | b'\\');
     if path.starts_with('-')
         || path.contains('\0')
         || path.starts_with(['/', '\\'])
@@ -74,16 +67,11 @@ fn assert_commit_path(path: &str) -> Result<(), ScmFailure> {
 
 fn within_selection(prefixes: &[String], path: &str) -> bool {
     let value = comparable(path);
-    prefixes
-        .iter()
-        .any(|prefix| value == *prefix || value.starts_with(&format!("{prefix}/")))
+    prefixes.iter().any(|prefix| value == *prefix || value.starts_with(&format!("{prefix}/")))
 }
 
 fn outside(prefixes: &[String], paths: impl IntoIterator<Item = String>) -> Vec<String> {
-    paths
-        .into_iter()
-        .filter(|path| !within_selection(prefixes, path))
-        .collect()
+    paths.into_iter().filter(|path| !within_selection(prefixes, path)).collect()
 }
 
 fn listed(paths: &[String]) -> String {
@@ -99,10 +87,7 @@ impl Drop for Scratch {
     }
 }
 fn not_in_repository(paths: &[String]) -> ScmFailure {
-    ScmFailure::refused(
-        "PATH_UNKNOWN",
-        format!("Not in this repository: {}. Refresh Source Control and try again.", listed(paths)),
-    )
+    ScmFailure::refused("PATH_UNKNOWN", format!("Not in this repository: {}. Refresh Source Control and try again.", listed(paths)))
 }
 
 /// git's own rule for "there is a hook here": the file must be executable, not merely present.
@@ -212,7 +197,6 @@ mod plain_path_tests {
     }
 }
 
-
 impl Repo {
     /// Every entry of the user's index: path → "<mode> <object> <stage>".
     async fn index_snapshot(&self) -> Result<HashMap<String, String>, ScmFailure> {
@@ -232,16 +216,7 @@ impl Repo {
 
     async fn in_head(&self, path: &str) -> Result<bool, ScmFailure> {
         let spec = literal(path);
-        let output = self
-            .scm
-            .git
-            .outcome(
-                &self.cancel,
-                self.root()?,
-                &["ls-tree", "-r", "--name-only", "HEAD", "--", &spec],
-                &RunOptions::default(),
-            )
-            .await?;
+        let output = self.scm.git.outcome(&self.cancel, self.root()?, &["ls-tree", "-r", "--name-only", "HEAD", "--", &spec], &RunOptions::default()).await?;
         Ok(output.success() && !output.stdout_text().trim().is_empty())
     }
 
@@ -291,11 +266,7 @@ impl Repo {
     async fn commit_paths_at(&self, message: &str, paths: &[String]) -> Result<String, ScmFailure> {
         let requested: Vec<&String> = paths.iter().filter(|path| !path.is_empty()).collect();
         // repositoryIdentity: the repository is asked who it is before anything else is read.
-        let identity = self
-            .scm
-            .git
-            .outcome(&self.cancel, &self.cwd, &["rev-parse", "--absolute-git-dir", "--show-toplevel"], &RunOptions::default())
-            .await;
+        let identity = self.scm.git.outcome(&self.cancel, &self.cwd, &["rev-parse", "--absolute-git-dir", "--show-toplevel"], &RunOptions::default()).await;
         let named = identity.as_ref().is_ok_and(|out| {
             let text = out.stdout_text();
             let mut lines = text.lines().map(str::trim);
@@ -347,12 +318,7 @@ impl Repo {
                     candidates = Some(all);
                 }
                 let wanted = comparable(raw);
-                let found: HashSet<&String> = candidates
-                    .as_ref()
-                    .into_iter()
-                    .flatten()
-                    .filter(|candidate| comparable(candidate) == wanted)
-                    .collect();
+                let found: HashSet<&String> = candidates.as_ref().into_iter().flatten().filter(|candidate| comparable(candidate) == wanted).collect();
                 match found.len() {
                     0 => {}
                     1 => matched = found.into_iter().next().cloned().unwrap_or_default(),
@@ -378,29 +344,17 @@ impl Repo {
         if !ambiguous.is_empty() {
             return Err(ScmFailure::refused(
                 "PATH_AMBIGUOUS",
-                format!(
-                    "More than one file matches {}. Select it again from Source Control.",
-                    listed(&ambiguous)
-                ),
+                format!("More than one file matches {}. Select it again from Source Control.", listed(&ambiguous)),
             ));
         }
-        let conflicted: Vec<String> = selected
-            .iter()
-            .filter_map(|(_, entry)| entry.filter(|e| e.conflicted).map(|e| e.path.clone()))
-            .collect();
+        let conflicted: Vec<String> = selected.iter().filter_map(|(_, entry)| entry.filter(|e| e.conflicted).map(|e| e.path.clone())).collect();
         if !conflicted.is_empty() {
-            return Err(ScmFailure::refused(
-                "PATH_CONFLICTED",
-                format!("Resolve the conflict in {} before committing it.", listed(&conflicted)),
-            ));
+            return Err(ScmFailure::refused("PATH_CONFLICTED", format!("Resolve the conflict in {} before committing it.", listed(&conflicted))));
         }
         if !status.operation.is_empty() {
             return Err(ScmFailure::refused(
                 "OPERATION_IN_PROGRESS",
-                format!(
-                    "A {} is in progress. Continue or abort it before committing files.",
-                    status.operation
-                ),
+                format!("A {} is in progress. Continue or abort it before committing files.", status.operation),
             ));
         }
         let mut specs: Vec<String> = Vec::new();
@@ -411,21 +365,15 @@ impl Repo {
             }
             // A rename is one change: both halves, whichever form was passed.
             if let Some(old) = entry.and_then(|e| e.old_path.clone())
-                && !specs.contains(&old) {
+                && !specs.contains(&old)
+            {
                 specs.push(old);
             }
         }
         Ok(specs)
     }
 
-    async fn hook(
-        &self,
-        index_file: &Path,
-        enabled: bool,
-        name: &str,
-        args: &[&str],
-        advisory: bool,
-    ) -> Result<(), ScmFailure> {
+    async fn hook(&self, index_file: &Path, enabled: bool, name: &str, args: &[&str], advisory: bool) -> Result<(), ScmFailure> {
         if !enabled {
             return Ok(());
         }
@@ -434,22 +382,14 @@ impl Repo {
             argv.push("--");
             argv.extend(args);
         }
-        let options = RunOptions {
-            index_file: Some(index_file.to_path_buf()),
-            protect_hook: true,
-            ..RunOptions::default()
-        };
+        let options = RunOptions { index_file: Some(index_file.to_path_buf()), protect_hook: true, ..RunOptions::default() };
         match self.scm.git.text(&self.cancel, self.root()?, &argv, &options).await {
             Ok(_) => Ok(()),
             // git ignores post-commit's exit status; every other hook is a veto.
             Err(_) if advisory => Ok(()),
             Err(ScmFailure::Command { text, .. }) => Err(ScmFailure::refused(
                 "HOOK_REFUSED",
-                if text.is_empty() {
-                    format!("The {name} hook refused this commit.")
-                } else {
-                    format!("The {name} hook refused this commit:\n{text}")
-                },
+                if text.is_empty() { format!("The {name} hook refused this commit.") } else { format!("The {name} hook refused this commit:\n{text}") },
             )),
             Err(other) => Err(other),
         }
@@ -489,42 +429,25 @@ impl Repo {
 
     /// Which commit hooks this repository defines (`core.hooksPath` aware).
     async fn present_hooks(&self) -> Result<Vec<&'static str>, ScmFailure> {
-        let dir = self
-            .scm
-            .git
-            .outcome(&self.cancel, self.root()?, &["rev-parse", "--git-path", "hooks"], &RunOptions::default())
-            .await?;
+        let dir = self.scm.git.outcome(&self.cancel, self.root()?, &["rev-parse", "--git-path", "hooks"], &RunOptions::default()).await?;
         let dir = dir.stdout_text();
         if dir.trim().is_empty() {
             return Ok(Vec::new());
         }
         let hooks_dir = self.root()?.join(dir.trim());
-        on_lane(self.scm.lane, &self.cancel, move || {
-            COMMIT_HOOKS
-                .iter()
-                .copied()
-                .filter(|name| executable_hook(&hooks_dir.join(name)))
-                .collect::<Vec<_>>()
-        })
-        .await
+        on_lane(self.scm.lane, &self.cancel, move || COMMIT_HOOKS.iter().copied().filter(|name| executable_hook(&hooks_dir.join(name))).collect::<Vec<_>>())
+            .await
     }
 
     /// `commit.cleanup`, read the way git reads it: exit 1 is "not set", any other failure is
     /// a config git could not read, and an unknown mode is refused in git's own words.
     async fn cleanup_mode(&self) -> Result<String, ScmFailure> {
-        let probe = self
-            .scm
-            .git
-            .outcome(&self.cancel, self.root()?, &["config", "--get", "commit.cleanup"], &RunOptions::default())
-            .await?;
+        let probe = self.scm.git.outcome(&self.cancel, self.root()?, &["config", "--get", "commit.cleanup"], &RunOptions::default()).await?;
         match probe.code {
             Some(1) => return Ok("default".into()),
             Some(0) => {}
             _ => {
-                return Err(ScmFailure::git(format!(
-                    "Could not read commit.cleanup: {}",
-                    probe.stderr_text().trim()
-                )));
+                return Err(ScmFailure::git(format!("Could not read commit.cleanup: {}", probe.stderr_text().trim())));
             }
         }
         let mode = probe.stdout_text().trim().to_owned();
@@ -541,24 +464,12 @@ impl Repo {
         if mode == "verbatim" {
             return Ok(if raw.ends_with('\n') { raw.to_owned() } else { format!("{raw}\n") });
         }
-        let args: &[&str] = if mode == "strip" {
-            &["stripspace", "--strip-comments"]
-        } else {
-            &["stripspace"]
-        };
-        let options = RunOptions {
-            input: Some(raw.as_bytes().to_vec()),
-            ..RunOptions::default()
-        };
+        let args: &[&str] = if mode == "strip" { &["stripspace", "--strip-comments"] } else { &["stripspace"] };
+        let options = RunOptions { input: Some(raw.as_bytes().to_vec()), ..RunOptions::default() };
         self.scm.git.text(&self.cancel, self.root()?, args, &options).await
     }
 
-    async fn commit_through_scratch_index(
-        &self,
-        message: &str,
-        specs: &[String],
-        addable: &[String],
-    ) -> Result<String, ScmFailure> {
+    async fn commit_through_scratch_index(&self, message: &str, specs: &[String], addable: &[String]) -> Result<String, ScmFailure> {
         let root = self.root()?.to_path_buf();
         let git_dir = self.identity.git_dir.clone();
         // Config git validates before it runs anything is validated first too: an unusable
@@ -602,16 +513,7 @@ impl Repo {
         // writes; without one, an entry that changes meanwhile belongs to somebody else.
         let watched = hooks && present.iter().any(|name| *name != "post-commit");
         let head = {
-            let found = self
-                .scm
-                .git
-                .outcome(
-                    &self.cancel,
-                    &root,
-                    &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
-                    &RunOptions::default(),
-                )
-                .await?;
+            let found = self.scm.git.outcome(&self.cancel, &root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
             found.success().then(|| found.stdout_text().trim().to_owned())
         };
         let prefixes: Vec<String> = specs.iter().map(|spec| comparable(spec)).collect();
@@ -620,10 +522,7 @@ impl Repo {
         self.scm.sweep_commit_scratch(&self.cancel).await?;
         let scratch = Scratch::create(self.scm.commit_scratch_root())?;
         let index_file = scratch.0.join("commit.index");
-        let scratch_options = RunOptions {
-            index_file: Some(index_file.clone()),
-            ..RunOptions::default()
-        };
+        let scratch_options = RunOptions { index_file: Some(index_file.clone()), ..RunOptions::default() };
         let git = &self.scm.git;
         let read_tree: Vec<&str> = match &head {
             Some(head) => vec!["read-tree", head.as_str()],
@@ -664,11 +563,7 @@ impl Repo {
         if cleaned.trim().is_empty() {
             return Err(ScmFailure::invalid("message", "a commit message"));
         }
-        let tree = git
-            .text(&self.cancel, &root, &["write-tree"], &scratch_options)
-            .await?
-            .trim()
-            .to_owned();
+        let tree = git.text(&self.cancel, &root, &["write-tree"], &scratch_options).await?.trim().to_owned();
         let changed = self.committed_paths(head.as_deref(), &tree).await?;
         if changed.is_empty() {
             return Err(ScmFailure::refused(
@@ -680,19 +575,12 @@ impl Repo {
         if !strays.is_empty() {
             return Err(ScmFailure::refused(
                 "HOOK_STAGED_OTHERS",
-                format!(
-                    "A commit hook staged {}, which was not selected. Nothing was committed.",
-                    listed(&strays)
-                ),
+                format!("A commit hook staged {}, which was not selected. Nothing was committed.", listed(&strays)),
             ));
         }
         // `commit-tree` signs only when asked, so `commit.gpgsign` is read here; a malformed
         // value fails exactly as it fails for `git commit`.
-        let signed = git
-            .run(&self.cancel, &root, &["config", "--bool", "--default", "false", "--get", "commit.gpgsign"])
-            .await?
-            .trim()
-            == "true";
+        let signed = git.run(&self.cancel, &root, &["config", "--bool", "--default", "false", "--get", "commit.gpgsign"]).await?.trim() == "true";
         let mut commit_args = vec!["commit-tree", tree.as_str()];
         if signed {
             commit_args.push("-S");
@@ -700,41 +588,15 @@ impl Repo {
         if let Some(head) = &head {
             commit_args.extend(["-p", head.as_str()]);
         }
-        let commit_options = RunOptions {
-            index_file: Some(index_file.clone()),
-            input: Some(cleaned.as_bytes().to_vec()),
-            ..RunOptions::default()
-        };
-        let commit = git
-            .text(&self.cancel, &root, &commit_args, &commit_options)
-            .await?
-            .trim()
-            .to_owned();
+        let commit_options = RunOptions { index_file: Some(index_file.clone()), input: Some(cleaned.as_bytes().to_vec()), ..RunOptions::default() };
+        let commit = git.text(&self.cancel, &root, &commit_args, &commit_options).await?.trim().to_owned();
         let subject = cleaned.lines().next().unwrap_or("").trim().to_owned();
-        let reflog = format!(
-            "commit{}: {subject}",
-            if head.is_some() { "" } else { " (initial)" }
-        );
+        let reflog = format!("commit{}: {subject}", if head.is_some() { "" } else { " (initial)" });
         // The old value is a compare-and-swap: a commit that landed underneath aborts instead
         // of being overwritten, and the empty value demands that an unborn branch still be.
         let old = head.clone().unwrap_or_default();
-        if let Err(failure) = git
-            .text(
-                &self.cancel,
-                &root,
-                &["update-ref", "-m", &reflog, "HEAD", &commit, &old],
-                &RunOptions::default(),
-            )
-            .await
-        {
-            let now = git
-                .outcome(
-                    &self.cancel,
-                    &root,
-                    &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
-                    &RunOptions::default(),
-                )
-                .await?;
+        if let Err(failure) = git.text(&self.cancel, &root, &["update-ref", "-m", &reflog, "HEAD", &commit, &old], &RunOptions::default()).await {
+            let now = git.outcome(&self.cancel, &root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
             let current = now.success().then(|| now.stdout_text().trim().to_owned());
             if current != head {
                 return Err(ScmFailure::refused(
@@ -746,9 +608,7 @@ impl Repo {
         }
         self.hook(&index_file, hooks, "post-commit", &[], true).await?;
         self.refresh_committed_paths(&commit, &changed, &index_before, &scratch.0).await?;
-        let branch = git
-            .outcome(&self.cancel, &root, &["symbolic-ref", "--short", "HEAD"], &RunOptions::default())
-            .await?;
+        let branch = git.outcome(&self.cancel, &root, &["symbolic-ref", "--short", "HEAD"], &RunOptions::default()).await?;
         let branch = branch.stdout_text().trim().to_owned();
         Ok(format!(
             "[{}{} {}] {subject}\n",
@@ -760,12 +620,7 @@ impl Repo {
 
     /// The message hooks git runs for `commit -m`, through the file git uses so a hook that
     /// rewrites `$1` is honoured.
-    async fn message_through_hooks(
-        &self,
-        index_file: &Path,
-        hooks: bool,
-        message: &str,
-    ) -> Result<String, ScmFailure> {
+    async fn message_through_hooks(&self, index_file: &Path, hooks: bool, message: &str) -> Result<String, ScmFailure> {
         if !hooks {
             return Ok(message.to_owned());
         }
@@ -785,8 +640,7 @@ impl Repo {
         let raw = match head {
             Some(head) => {
                 let base = format!("{head}^{{tree}}");
-                self.run(&["diff-tree", "-r", "--name-only", "-z", "--no-commit-id", &base, tree])
-                    .await?
+                self.run(&["diff-tree", "-r", "--name-only", "-z", "--no-commit-id", &base, tree]).await?
             }
             None => self.run(&["ls-tree", "-r", "--name-only", "-z", tree]).await?,
         };
@@ -798,13 +652,7 @@ impl Repo {
     /// stage another process makes in between is never read and overwritten. A path is refreshed only while its entry still is
     /// what the commit was built from: anything staged underneath meanwhile is left alone and reported. The refresh is made on a
     /// copy of the index, and the copy's bytes are written into the lock and renamed onto the index.
-    async fn refresh_committed_paths(
-        &self,
-        commit: &str,
-        changed: &[String],
-        built_from: &HashMap<String, String>,
-        scratch: &Path,
-    ) -> Result<(), ScmFailure> {
+    async fn refresh_committed_paths(&self, commit: &str, changed: &[String], built_from: &HashMap<String, String>, scratch: &Path) -> Result<(), ScmFailure> {
         let short = &commit[..commit.len().min(7)];
         let refresh_failure = |paths: &[&String], detail: String| {
             let listed: Vec<String> = paths.iter().take(10).map(|p| (*p).clone()).collect();
@@ -823,10 +671,7 @@ impl Repo {
         let index_path = self.identity.git_dir.join("index");
         let lock_path = self.identity.git_dir.join("index.lock");
         let taking = lock_path.clone();
-        let created = on_lane(self.scm.lane, &self.cancel, move || {
-            std::fs::OpenOptions::new().write(true).create_new(true).open(&taking)
-        })
-        .await?;
+        let created = on_lane(self.scm.lane, &self.cancel, move || std::fs::OpenOptions::new().write(true).create_new(true).open(&taking)).await?;
         let mut lock = match created {
             Ok(file) => Some(file),
             Err(error) => {
@@ -848,9 +693,9 @@ impl Repo {
         let outcome: Result<Vec<&String>, ScmFailure> = async {
             // The lock is held from here on: nothing can reach the index between this read and the replace below.
             let current = self.index_snapshot().await?;
-            let (moved, refreshable): (Vec<&String>, Vec<&String>) = changed.iter().partition(|path| {
-                current.get(*path).map(String::as_str).unwrap_or("") != built_from.get(*path).map(String::as_str).unwrap_or("")
-            });
+            let (moved, refreshable): (Vec<&String>, Vec<&String>) = changed
+                .iter()
+                .partition(|path| current.get(*path).map(String::as_str).unwrap_or("") != built_from.get(*path).map(String::as_str).unwrap_or(""));
             if refreshable.is_empty() {
                 return Ok(moved);
             }
@@ -869,7 +714,11 @@ impl Repo {
                 let mut args = vec!["reset", "--quiet", commit, "--"];
                 args.extend(specs.iter().map(String::as_str));
                 let options = RunOptions { index_file: Some(staging.clone()), ..RunOptions::default() };
-                self.scm.git.text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options).await.map_err(|failure| failure.to_string())?;
+                self.scm
+                    .git
+                    .text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options)
+                    .await
+                    .map_err(|failure| failure.to_string())?;
                 // Node's commitRefreshProbe.betweenReadAndReplace (git-commit-transaction.ts): the window in which the lock is held.
                 #[cfg(test)]
                 commit_gate::between_read_and_replace(&self.identity.git_dir).await;
@@ -924,9 +773,7 @@ impl Scratch {
         const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         static NEXT: AtomicU64 = AtomicU64::new(0);
         loop {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos());
+            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
             let mut hash = Sha256::new();
             hash.update(nanos.to_le_bytes());
             hash.update(NEXT.fetch_add(1, Ordering::Relaxed).to_le_bytes());

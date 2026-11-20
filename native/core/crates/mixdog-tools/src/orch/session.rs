@@ -20,10 +20,10 @@ use serde_json::Value;
 use super::ports::CallerFacts;
 use super::ports::HEARTBEAT_NO_HANDOFF;
 use super::util::PortError;
+use super::util::action_failed;
 use super::util::clean;
 use super::util::compact;
 use super::util::denied;
-use super::util::action_failed;
 use super::util::field;
 use super::util::invalid;
 use super::util::pretty;
@@ -122,13 +122,7 @@ pub trait SessionPort: Send + Sync {
     async fn unknown_bot(&self, target: &str) -> Result<Option<String>, PortError>;
     /// `attachments` as stored prompt parts, resolved against the caller's conversation and
     /// folders; secret files are refused.
-    async fn resolve_attachments(
-        &self,
-        thread: &ThreadId,
-        names: &Value,
-        cwd: &AbsPath,
-        surface: &str,
-    ) -> Result<Vec<Value>, PortError>;
+    async fn resolve_attachments(&self, thread: &ThreadId, names: &Value, cwd: &AbsPath, surface: &str) -> Result<Vec<Value>, PortError>;
     /// list, bots, read, send, cancel, delete, create and status of a target.
     async fn control(&self, call: ControlCall) -> Result<Value, PortError>;
     async fn status(&self, thread: &ThreadId, cwd: &AbsPath) -> SessionStatus;
@@ -236,11 +230,7 @@ impl SessionTool {
                 "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions",
             ));
         }
-        let resolved = if BOT_TARGET_ACTIONS.contains(&action) && !target.is_empty() {
-            self.port.resolve_target(target).await?
-        } else {
-            target.to_owned()
-        };
+        let resolved = if BOT_TARGET_ACTIONS.contains(&action) && !target.is_empty() { self.port.resolve_target(target).await? } else { target.to_owned() };
         // A task session reaches its agent only through its reported result.
         if action == "send"
             && let Some(origin) = &caller.task_origin
@@ -295,11 +285,8 @@ impl Tool for SessionTool {
         let thread = &ctx.thread_id;
         let target = field(&args, "session_id");
         let raw_action = field(&args, "action");
-        let action = if raw_action.is_empty() {
-            if field(&args, "path").is_empty() { "status" } else { "set-project" }.to_owned()
-        } else {
-            raw_action.to_lowercase()
-        };
+        let action =
+            if raw_action.is_empty() { if field(&args, "path").is_empty() { "status" } else { "set-project" }.to_owned() } else { raw_action.to_lowercase() };
         let action = action.as_str();
         if args.get("attachments").is_some() && !matches!(action, "send" | "create") {
             return Err(invalid("attachments", format!("session: attachments apply to send and create, not action={action}")));
@@ -313,11 +300,7 @@ impl Tool for SessionTool {
             return Err(refused("heartbeat", format!("session: {why}")));
         }
         let lead = || {
-            if is_top_level(ctx.surface) {
-                Ok(())
-            } else {
-                Err(denied(format!("session: {action} belongs to the Lead session")))
-            }
+            if is_top_level(ctx.surface) { Ok(()) } else { Err(denied(format!("session: {action} belongs to the Lead session"))) }
         };
         if CONTROL_ACTIONS.contains(&action) || (action == "status" && !target.is_empty()) {
             lead()?;
@@ -329,10 +312,7 @@ impl Tool for SessionTool {
             if !caller.is_mixy_chat && !self.facts.is_heartbeat(thread).await {
                 return Err(denied("session: suggest belongs to Mixy's chat"));
             }
-            let receipt = self
-                .port
-                .suggest(&field(&args, "key"), &field(&args, "title"), args.get("value") == Some(&Value::Bool(false)))
-                .await?;
+            let receipt = self.port.suggest(&field(&args, "key"), &field(&args, "title"), args.get("value") == Some(&Value::Bool(false))).await?;
             return text(pretty(&Suggested { action, receipt: &receipt }));
         }
         if !target.is_empty() {
@@ -377,12 +357,7 @@ impl Tool for SessionTool {
             "compact" => {
                 lead()?;
                 self.port.schedule_compact(thread).await?;
-                text(pretty(&Compacting {
-                    action,
-                    session_id,
-                    scheduled: true,
-                    note: "Compaction runs right after the current turn finishes.",
-                }))
+                text(pretty(&Compacting { action, session_id, scheduled: true, note: "Compaction runs right after the current turn finishes." }))
             }
             "fork" => {
                 lead()?;
@@ -435,10 +410,7 @@ mod tests {
             pretty(&Sidebar { action: "archive", session_id: "s", favorite: None, archived: Some(true) }),
             "{\n  \"action\": \"archive\",\n  \"sessionId\": \"s\",\n  \"archived\": true\n}"
         );
-        assert_eq!(
-            compact(&Switched { cwd: "C:/p", session_id: "s" }),
-            "{\"cwd\":\"C:/p\",\"sessionId\":\"s\"}"
-        );
+        assert_eq!(compact(&Switched { cwd: "C:/p", session_id: "s" }), "{\"cwd\":\"C:/p\",\"sessionId\":\"s\"}");
     }
 
     #[test]

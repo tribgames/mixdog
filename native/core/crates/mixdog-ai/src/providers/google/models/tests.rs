@@ -10,11 +10,11 @@ use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::Provenance;
+use mixdog_core_api::domain::provider::ProviderAdapter;
+use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
-use mixdog_core_api::domain::provider::ProviderAdapter;
-use mixdog_core_api::domain::provider::Provenance;
-use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Value;
@@ -64,11 +64,7 @@ impl Scripted {
 
 #[async_trait]
 impl HttpSend for Scripted {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().unwrap().push(request);
         let (status, body) = self.answers.lock().unwrap().pop().expect("an answer was scripted");
         Ok(HttpResponse { status, headers: vec![], body: Box::new(Once(Some(Bytes::from(body)))) })
@@ -102,16 +98,8 @@ impl RequestAuth for Bearer {
     }
 }
 
-
-
 fn antigravity_adapter(http: Arc<Scripted>, project: &str, traits: Arc<dyn ModelTraits>) -> GoogleAdapter {
-    GoogleAdapter::new(
-        GoogleCodec::antigravity(ANTIGRAVITY_ORIGIN, project, "2.19.1", traits),
-        policy::antigravity(),
-        http,
-        Arc::new(Bearer),
-        String::new(),
-    )
+    GoogleAdapter::new(GoogleCodec::antigravity(ANTIGRAVITY_ORIGIN, project, "2.19.1", traits), policy::antigravity(), http, Arc::new(Bearer), String::new())
 }
 
 #[tokio::test]
@@ -168,19 +156,37 @@ async fn a_catalog_ladder_narrows_the_levels_of_a_bare_gemini_wire() {
 /// the three flagged rows it carries: `gemini-4-carbon-disabled` (`disabled`), and two `chat_*` ids (`isInternal`).
 fn live_roster() -> Value {
     let rows = [
-        ("claude-sonnet-5-5-high", "Claude Sonnet 5.5 (High)"), ("claude-sonnet-5-5-medium", "Claude Sonnet 5.5 (Medium)"), ("claude-sonnet-5-5-low", "Claude Sonnet 5.5 (Low)"),
-        ("claude-opus-5-5-high", "Claude Opus 5.5 (High)"), ("claude-opus-5-5-medium", "Claude Opus 5.5 (Medium)"), ("claude-opus-5-5-low", "Claude Opus 5.5 (Low)"),
-        ("gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"), ("gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Medium)"), ("gemini-4-hydrogen-low", "Gemini 4 Hydrogen (Low)"),
-        ("gemini-4-neon-high", "Gemini 4 Neon (High)"), ("gemini-4-neon-medium", "Gemini 4 Neon (Medium)"), ("gemini-4-neon-low", "Gemini 4 Neon (Low)"), ("gemini-4-neon-xhigh", "Gemini 4 Neon (XHigh)"),
-          ("gemini-4-argon-high", "Gemini 4 Argon (High)"), ("gemini-4-argon-medium", "Gemini 4 Argon (Medium)"), ("gemini-4-argon-low", "Gemini 4 Argon (Low)"),
-        ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"), ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"), ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
-        ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"), ("gemini-3-flash", "Gemini 3 Flash"), ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ("claude-sonnet-5-5-high", "Claude Sonnet 5.5 (High)"),
+        ("claude-sonnet-5-5-medium", "Claude Sonnet 5.5 (Medium)"),
+        ("claude-sonnet-5-5-low", "Claude Sonnet 5.5 (Low)"),
+        ("claude-opus-5-5-high", "Claude Opus 5.5 (High)"),
+        ("claude-opus-5-5-medium", "Claude Opus 5.5 (Medium)"),
+        ("claude-opus-5-5-low", "Claude Opus 5.5 (Low)"),
+        ("gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"),
+        ("gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Medium)"),
+        ("gemini-4-hydrogen-low", "Gemini 4 Hydrogen (Low)"),
+        ("gemini-4-neon-high", "Gemini 4 Neon (High)"),
+        ("gemini-4-neon-medium", "Gemini 4 Neon (Medium)"),
+        ("gemini-4-neon-low", "Gemini 4 Neon (Low)"),
+        ("gemini-4-neon-xhigh", "Gemini 4 Neon (XHigh)"),
+        ("gemini-4-argon-high", "Gemini 4 Argon (High)"),
+        ("gemini-4-argon-medium", "Gemini 4 Argon (Medium)"),
+        ("gemini-4-argon-low", "Gemini 4 Argon (Low)"),
+        ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+        ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"),
+        ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
+        ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"),
+        ("gemini-3-flash", "Gemini 3 Flash"),
+        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
     ];
     let mut models = serde_json::Map::new();
     for (wire, display) in rows {
         models.insert(wire.into(), json!({ "displayName": display, "maxTokens": 1_000_000, "maxOutputTokens": 64_000, "supportsThinking": true }));
     }
-    models.insert("gemini-4-carbon-disabled".into(), json!({ "displayName": "Gemini 4 Carbon", "maxTokens": 1_048_576, "disabled": true, "tagTitle": "Unavailable" }));
+    models.insert(
+        "gemini-4-carbon-disabled".into(),
+        json!({ "displayName": "Gemini 4 Carbon", "maxTokens": 1_048_576, "disabled": true, "tagTitle": "Unavailable" }),
+    );
     models.insert("model-hidden-from-users".into(), json!({ "displayName": "Hidden Model", "maxTokens": 32_768, "isInternal": true }));
     json!({ "models": models })
 }
@@ -227,7 +233,14 @@ fn a_disabled_or_internal_roster_row_is_not_listed() {
     let records = antigravity_records(live_roster().to_string().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
     let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
     assert!(!ids.iter().any(|id| id.contains("carbon") || id.contains("hidden")), "{ids:?}");
-    let wires: Vec<String> = records.iter().flat_map(|r| match &r.wire { Some(WireIds::One(w)) => vec![w.clone()], Some(WireIds::Tiers(t)) => t.iter().map(|(_, w)| w.clone()).collect(), None => vec![] }).collect();
+    let wires: Vec<String> = records
+        .iter()
+        .flat_map(|r| match &r.wire {
+            Some(WireIds::One(w)) => vec![w.clone()],
+            Some(WireIds::Tiers(t)) => t.iter().map(|(_, w)| w.clone()).collect(),
+            None => vec![],
+        })
+        .collect();
     assert!(!wires.iter().any(|w| w.contains("carbon") || w.contains("hidden")), "{wires:?}");
     assert!(ids.contains(&"gemini-4-argon"), "the served rows are still listed: {ids:?}");
 }
@@ -239,7 +252,11 @@ fn the_offline_fallback_holds_only_models_the_live_roster_serves() {
     let records = antigravity_records(live_roster().to_string().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
     for (id, _, wires) in crate::catalog::ANTIGRAVITY_FALLBACK {
         let record = records.iter().find(|r| r.id == id).unwrap_or_else(|| panic!("the fallback row {id} is not in the live roster"));
-        let served: Vec<String> = match &record.wire { Some(WireIds::One(w)) => vec![w.clone()], Some(WireIds::Tiers(t)) => t.iter().map(|(_, w)| w.clone()).collect(), None => vec![] };
+        let served: Vec<String> = match &record.wire {
+            Some(WireIds::One(w)) => vec![w.clone()],
+            Some(WireIds::Tiers(t)) => t.iter().map(|(_, w)| w.clone()).collect(),
+            None => vec![],
+        };
         for wire in wires {
             assert!(served.iter().any(|w| w == wire), "{id}: wire id {wire} is not served; the roster has {served:?}");
         }
@@ -250,7 +267,6 @@ fn the_offline_fallback_holds_only_models_the_live_roster_serves() {
     assert!(records.iter().any(|r| r.id == DEFAULT_ANTIGRAVITY_MODEL), "the default model is served");
 }
 
-
 /// The Gemini list that outlives its timer reads as the real Node function did (`sites.geminiModelList`):
 /// `AbortSignal.timeout`'s own error, not `fetch failed`.
 #[tokio::test(start_paused = true)]
@@ -260,18 +276,12 @@ async fn a_gemini_list_that_outlives_its_timer_reads_as_nodes() {
     use crate::transport::site_probe::assert_transport;
 
     let transport = TimingOut::new();
-    let adapter = GoogleAdapter::new(
-        GoogleCodec::gemini(GEMINI_ORIGIN, traits()),
-        policy::gemini(),
-        transport.clone(),
-        Arc::new(ApiKeyAuth::new("k")),
-        String::new(),
-    );
+    let adapter =
+        GoogleAdapter::new(GoogleCodec::gemini(GEMINI_ORIGIN, traits()), policy::gemini(), transport.clone(), Arc::new(ApiKeyAuth::new("k")), String::new());
     let error = adapter.list_models().await.expect_err("the list never answers");
     assert_transport("geminiModelList", &transport);
     assert_thrown("geminiModelList", &error.message);
 }
-
 
 fn vertex_adapter(http: Arc<Scripted>, place: super::super::serving::VertexPlace, auth: Arc<dyn RequestAuth>) -> GoogleAdapter {
     GoogleAdapter::new(GoogleCodec::vertex(place, traits()), policy::gemini(), http, auth, String::new())
@@ -406,4 +416,3 @@ async fn a_slow_publisher_listing_answers_the_table_inside_the_catalog_budget() 
     assert_eq!((listed.rows.len(), listed.provenance), (52, Provenance::Seed));
     assert!(began.elapsed() < crate::catalog::LIST_DEADLINE, "answered after {:?}", began.elapsed());
 }
-

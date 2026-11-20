@@ -120,15 +120,36 @@ impl RunnerResult {
 /// Process spawning behind a seam, so chunking behaviour is testable without real engines.
 #[async_trait]
 pub trait Spawn: Send + Sync {
-    #[allow(clippy::too_many_arguments, reason = "Preserve the public process-runner port and its independent timeout, cancellation, environment and input arguments for existing implementers")]
-    async fn run(&self, bin: &str, args: &[String], cwd: &Path, timeout: Duration, cancel: Option<&CancellationToken>, env: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> ProcessResult;
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Preserve the public process-runner port and its independent timeout, cancellation, environment and input arguments for existing implementers"
+    )]
+    async fn run(
+        &self,
+        bin: &str,
+        args: &[String],
+        cwd: &Path,
+        timeout: Duration,
+        cancel: Option<&CancellationToken>,
+        env: Option<&HashMap<String, String>>,
+        input: Option<Vec<u8>>,
+    ) -> ProcessResult;
 }
 
 pub struct SystemSpawn(pub Processes);
 
 #[async_trait]
 impl Spawn for SystemSpawn {
-    async fn run(&self, bin: &str, args: &[String], cwd: &Path, timeout: Duration, cancel: Option<&CancellationToken>, env: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> ProcessResult {
+    async fn run(
+        &self,
+        bin: &str,
+        args: &[String],
+        cwd: &Path,
+        timeout: Duration,
+        cancel: Option<&CancellationToken>,
+        env: Option<&HashMap<String, String>>,
+        input: Option<Vec<u8>>,
+    ) -> ProcessResult {
         let mut options = RunOptions::new(cwd);
         options.timeout = timeout;
         options.cancel = cancel;
@@ -154,7 +175,18 @@ pub struct RunRequest {
 
 impl RunRequest {
     pub fn new(cwd: &Path, bin: &str, files: Vec<String>, spawn: Arc<dyn Spawn>, lane: DurabilityIo) -> Self {
-        Self { files, cwd: cwd.to_owned(), bin: bin.to_owned(), args: Vec::new(), timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, module_path: None, spawn, files_per_spawn: FILES_PER_SPAWN, lane }
+        Self {
+            files,
+            cwd: cwd.to_owned(),
+            bin: bin.to_owned(),
+            args: Vec::new(),
+            timeout: DEFAULT_ENGINE_TIMEOUT,
+            cancel: None,
+            module_path: None,
+            spawn,
+            files_per_spawn: FILES_PER_SPAWN,
+            lane,
+        }
     }
 }
 
@@ -402,7 +434,14 @@ pub struct LineEndingFlags {
 /// run by how they end their lines, each group told its own. `plan` builds a spawn from the flags
 /// to add and a group of files. A file tidy cannot read is unprocessed for that reason and is not
 /// handed to the engine.
-pub async fn run_by_line_ending(req: &RunRequest, id: &str, command: Command, flags: &LineEndingFlags, plan: &(dyn Fn(&[&str], &[String]) -> Invocation + Sync), read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> Pass {
+pub async fn run_by_line_ending(
+    req: &RunRequest,
+    id: &str,
+    command: Command,
+    flags: &LineEndingFlags,
+    plan: &(dyn Fn(&[&str], &[String]) -> Invocation + Sync),
+    read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync),
+) -> Pass {
     let files = match files_by_line_ending(req, id).await {
         Ok(files) => files,
         Err(why) => return Pass { failure: Some(why), ..Default::default() },
@@ -462,8 +501,15 @@ struct Batches<'a> {
 enum Attempt {
     Stopped(String),
     /// The group is settled: `left_out` are the files of it the engine said it did not process.
-    Done { findings: Findings, left_out: Vec<(String, String)>, stderr: String },
-    Incomplete { reason: String, truncated: bool },
+    Done {
+        findings: Findings,
+        left_out: Vec<(String, String)>,
+        stderr: String,
+    },
+    Incomplete {
+        reason: String,
+        truncated: bool,
+    },
 }
 
 impl Batches<'_> {
@@ -538,7 +584,15 @@ impl Batches<'_> {
 
 /// Runs one engine command over `files`, `per_spawn` of them at a time: `plan` builds the spawn
 /// for a group and `read` says whether the engine completed it.
-pub async fn run_groups(req: &RunRequest, id: &str, command: Command, files: &[String], per_spawn: usize, plan: &(dyn Fn(&[String]) -> Invocation + Sync), read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> Pass {
+pub async fn run_groups(
+    req: &RunRequest,
+    id: &str,
+    command: Command,
+    files: &[String],
+    per_spawn: usize,
+    plan: &(dyn Fn(&[String]) -> Invocation + Sync),
+    read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync),
+) -> Pass {
     let batches = Batches { req, id, command, plan, read };
     let mut pass = Pass::default();
     for group in files.chunks(per_spawn.max(1)) {
@@ -551,7 +605,14 @@ pub async fn run_groups(req: &RunRequest, id: &str, command: Command, files: &[S
 }
 
 /// Runs one reporting command over `files`.
-pub async fn run_batches(req: &RunRequest, id: &str, files: &[String], per_spawn: usize, plan: &(dyn Fn(&[String]) -> Invocation + Sync), read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> Pass {
+pub async fn run_batches(
+    req: &RunRequest,
+    id: &str,
+    files: &[String],
+    per_spawn: usize,
+    plan: &(dyn Fn(&[String]) -> Invocation + Sync),
+    read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync),
+) -> Pass {
     run_groups(req, id, Command::Reads, files, per_spawn, plan, read).await
 }
 
@@ -616,7 +677,16 @@ pub fn parse_pattern_paths(output: &str, pattern: &JsRegex, cwd: &Path) -> Vec<S
 pub fn reformat_diagnostics(changed: &[String], id: &str, code: &str) -> Vec<Diagnostic> {
     changed
         .iter()
-        .map(|file| diagnostic(DiagnosticInit { file, code, message: &format!("{id} would reformat this file"), severity: "warning", fixable: true, ..Default::default() }))
+        .map(|file| {
+            diagnostic(DiagnosticInit {
+                file,
+                code,
+                message: &format!("{id} would reformat this file"),
+                severity: "warning",
+                fixable: true,
+                ..Default::default()
+            })
+        })
         .collect()
 }
 
@@ -709,17 +779,26 @@ mod tests {
 
     #[async_trait]
     impl Spawn for Scripted {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> ProcessResult {
             self.0.lock().unwrap().push(args.to_vec());
             self.1.clone()
         }
     }
 
-
     #[tokio::test]
     async fn list_formatters_chunk_the_files_and_report_listed_ones_as_fixable() {
         let spawn = Arc::new(Scripted(Default::default(), ProcessResult { stdout: "a.sh\n".into(), ..Default::default() }));
-        let mut req = RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect(), spawn.clone(), mixdog_rt::testing::tokens().durability_io);
+        let mut req =
+            RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect(), spawn.clone(), mixdog_rt::testing::tokens().durability_io);
         req.files_per_spawn = 2;
         let runner = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"], listed: exited_zero };
         let out = runner.check(&req).await;
@@ -736,7 +815,13 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_or_timed_out_run_is_a_failure_whatever_the_killed_engine_printed() {
         let partial = ProcessResult { code: -1, stdout: "a.sh\n".into(), ..Default::default() };
-        let mut req = RunRequest::new(Path::new("/r"), "shfmt", vec!["a.sh".into(), "b.sh".into()], Arc::new(Scripted(Default::default(), partial.clone())), mixdog_rt::testing::tokens().durability_io);
+        let mut req = RunRequest::new(
+            Path::new("/r"),
+            "shfmt",
+            vec!["a.sh".into(), "b.sh".into()],
+            Arc::new(Scripted(Default::default(), partial.clone())),
+            mixdog_rt::testing::tokens().durability_io,
+        );
         let cancel = CancellationToken::new();
         cancel.cancel();
         req.cancel = Some(cancel);
@@ -753,12 +838,22 @@ mod tests {
         struct Cut;
         #[async_trait]
         impl Spawn for Cut {
-            async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+            async fn run(
+                &self,
+                _: &str,
+                args: &[String],
+                _: &Path,
+                _: Duration,
+                _: Option<&CancellationToken>,
+                _: Option<&HashMap<String, String>>,
+                _: Option<Vec<u8>>,
+            ) -> ProcessResult {
                 let files = &args[1..];
                 ProcessResult { stdout: files.iter().map(|f| format!("{f}\n")).collect(), truncated: files.len() > 1, ..Default::default() }
             }
         }
-        let req = RunRequest::new(Path::new("/r"), "shfmt", (0..5).map(|n| format!("f{n}.sh")).collect(), Arc::new(Cut), mixdog_rt::testing::tokens().durability_io);
+        let req =
+            RunRequest::new(Path::new("/r"), "shfmt", (0..5).map(|n| format!("f{n}.sh")).collect(), Arc::new(Cut), mixdog_rt::testing::tokens().durability_io);
         let out = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"], listed: exited_zero }.check(&req).await;
         assert_eq!((out.changed_files.len(), out.files_checked, out.error, out.unprocessed.len()), (5, Some(5), None, 0));
     }

@@ -1,11 +1,10 @@
 //! Record framing for both carriers (`encodeRemoteTransportRecord`, `decodeRemoteTransportMessage`).
 //! Framing is unauthenticated on purpose: it only decides what reaches E2EE decryption.
 
-use super::consts::{
-    BOX_HEADER_BYTES, CHUNK_BYTES, CHUNK_HEADER_BYTES, GCM_TAG_BYTES, MAX_CONTROL_BOX_BYTES, MAX_MESSAGE_BYTES,
-    MAX_RECORD_BYTES, PREFIX_BYTES,
-};
 use super::TransportError;
+use super::consts::{
+    BOX_HEADER_BYTES, CHUNK_BYTES, CHUNK_HEADER_BYTES, GCM_TAG_BYTES, MAX_CONTROL_BOX_BYTES, MAX_MESSAGE_BYTES, MAX_RECORD_BYTES, PREFIX_BYTES,
+};
 
 const TRANSPORT_MAGIC: [u8; 4] = [0x4d, 0x58, 0x54, 0x01]; // 'MXT' v1
 const BOX_MAGIC: [u8; 4] = [0x4d, 0x58, 0x45, 0x01]; // an application box
@@ -134,11 +133,7 @@ pub fn decode_message(bytes: &[u8]) -> Result<Message, TransportError> {
             if count as usize != (total as usize).div_ceil(CHUNK_BYTES) || index >= count {
                 return Err(TransportError::invalid("chunk index"));
             }
-            let expected = if index == count - 1 {
-                total as usize - index as usize * CHUNK_BYTES
-            } else {
-                CHUNK_BYTES
-            };
+            let expected = if index == count - 1 { total as usize - index as usize * CHUNK_BYTES } else { CHUNK_BYTES };
             let data = &bytes[CHUNK_HEADER_BYTES..];
             if data.len() != expected {
                 return Err(TransportError::invalid("chunk length"));

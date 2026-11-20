@@ -19,8 +19,8 @@ use std::path::PathBuf;
 use mixdog_store::blobs::digest_of_reference;
 use mixdog_store::fsio;
 use mixdog_store::schema::blob::BLOB_DIR;
-use mixdog_store::schema::blob::LEGACY_BLOBS_IMPORTED;
 use mixdog_store::schema::blob::LEGACY_BLOB_DIR;
+use mixdog_store::schema::blob::LEGACY_BLOBS_IMPORTED;
 
 use crate::durable;
 use crate::error::Blocked;
@@ -174,8 +174,7 @@ fn finish_displacement(aside: &Path, target: &Path, digest: &str, observed: Opti
                 durable::sync_dir(parent)?;
                 return Ok(true);
             }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists
-                && digest_at(target)?.as_deref() == Some(digest) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && digest_at(target)?.as_deref() == Some(digest) => {}
             Err(error) => return Err(Blocked::io("restore blob", target, error)),
         }
     } else if digest_at(target)?.as_deref() != Some(digest) {
@@ -187,16 +186,9 @@ fn finish_displacement(aside: &Path, target: &Path, digest: &str, observed: Opti
     Ok(true)
 }
 
-fn install(
-    source: &Path,
-    target: &Path,
-    digest: &str,
-    fault: &dyn Fn(&str) -> Result<()>,
-    link: &dyn Fn(&Path, &Path) -> io::Result<()>,
-) -> Result<()> {
+fn install(source: &Path, target: &Path, digest: &str, fault: &dyn Fn(&str) -> Result<()>, link: &dyn Fn(&Path, &Path) -> io::Result<()>) -> Result<()> {
     let parent = target.parent().expect("a blob has a shard");
-    let tmp = tempfile::Builder::new().prefix(".mixdog-tmp-").tempfile_in(parent)
-        .map_err(|e| Blocked::io("create blob temp", parent, e))?.into_temp_path();
+    let tmp = tempfile::Builder::new().prefix(".mixdog-tmp-").tempfile_in(parent).map_err(|e| Blocked::io("create blob temp", parent, e))?.into_temp_path();
     let stage: &Path = tmp.as_ref();
     fs::remove_file(stage).map_err(|e| Blocked::io("remove empty blob temp", stage, e))?;
     match link(source, stage) {
@@ -238,8 +230,7 @@ fn install(
     fault("legacy-blobs:install")?;
     match tmp.persist_noclobber(target) {
         Ok(()) => Ok(()),
-        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists
-            && digest_at(target)?.as_deref() == Some(digest) => Ok(()),
+        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists && digest_at(target)?.as_deref() == Some(digest) => Ok(()),
         Err(error) => Err(Blocked::io("install blob", target, error.error)),
     }?;
     if let Some((aside, observed)) = displaced {
@@ -249,9 +240,5 @@ fn install(
 }
 
 fn require_finished(aside: &Path, target: &Path, digest: &str, observed: &str) -> Result<()> {
-    if finish_displacement(aside, target, digest, Some(observed))? {
-        Ok(())
-    } else {
-        Err(replacement_required(aside))
-    }
+    if finish_displacement(aside, target, digest, Some(observed))? { Ok(()) } else { Err(replacement_required(aside)) }
 }

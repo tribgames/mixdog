@@ -78,11 +78,8 @@ pub enum Temporal {
 }
 
 static ROLLING: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\d+)(m|h|d)$", ""));
-static DATE_RANGE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$", ""));
-static TIME_OF_DAY: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:(\d{4}-\d{2}-\d{2})[ T])?(\d{1,2}):(\d{2})~(\d{1,2}):(\d{2})$", "")
-});
+static DATE_RANGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$", ""));
+static TIME_OF_DAY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:(\d{4}-\d{2}-\d{2})[ T])?(\d{1,2}):(\d{2})~(\d{1,2}):(\d{2})$", ""));
 static SINGLE_DAY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\d{4}-\d{2}-\d{2})$", ""));
 
 /// `Date.parse` of a date and a time of day read as local time (`2026-02-31T00:00:00` is March 3).
@@ -99,11 +96,7 @@ fn day_window(clock: &Clock, period: &str) -> Option<Window> {
         return Some(Window { start_ms: clock.midnight(&today, 0), end_ms: Some(clock.now_ms), exact: false });
     }
     let (year, month, day) = (i64::from(today.year), i64::from(today.month), i64::from(today.day) - 1);
-    Some(Window {
-        start_ms: clock.midnight(&today, 1),
-        end_ms: clock.wall((year, month, day), (23, 59, 59, 999)),
-        exact: false,
-    })
+    Some(Window { start_ms: clock.midnight(&today, 1), end_ms: clock.wall((year, month, day), (23, 59, 59, 999)), exact: false })
 }
 
 fn week_window(clock: &Clock, period: &str) -> Option<Window> {
@@ -165,11 +158,7 @@ fn time_of_day_window(clock: &Clock, period: &str) -> Option<Window> {
 fn single_day_window(clock: &Clock, period: &str) -> Option<Window> {
     let caps = SINGLE_DAY.captures(period)?;
     let date = caps.get(1).unwrap_or_default();
-    Some(Window {
-        start_ms: parse_local(clock, date, "00:00:00"),
-        end_ms: parse_local(clock, date, "23:59:59.999"),
-        exact: true,
-    })
+    Some(Window { start_ms: parse_local(clock, date, "00:00:00"), end_ms: parse_local(clock, date, "23:59:59.999"), exact: true })
 }
 
 /// The window a period names. An empty period with a query means the last 30
@@ -182,8 +171,7 @@ pub fn parse_period(clock: &Clock, period: &str, has_query: bool) -> Option<Temp
     if period == "last" {
         return Some(Temporal::Last);
     }
-    let parsers: [fn(&Clock, &str) -> Option<Window>; 6] =
-        [day_window, week_window, rolling_window, date_range_window, time_of_day_window, single_day_window];
+    let parsers: [fn(&Clock, &str) -> Option<Window>; 6] = [day_window, week_window, rolling_window, date_range_window, time_of_day_window, single_day_window];
     parsers.iter().find_map(|parse| parse(clock, period)).map(Temporal::Window)
 }
 
@@ -197,19 +185,15 @@ fn relative_unit(word: &str) -> char {
     }
 }
 
-static EXPLICIT_RANGE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\b(\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2})\b", ""));
-static EXPLICIT_DATE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\b(\d{4}-\d{2}-\d{2})\b", ""));
+static EXPLICIT_RANGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\b(\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2})\b", ""));
+static EXPLICIT_DATE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\b(\d{4}-\d{2}-\d{2})\b", ""));
 static LAST_WEEK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:지난|저번)\s*주|last\s+week", ""));
 static THIS_WEEK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"이번\s*주|this\s+week", ""));
 static YESTERDAY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"어제|yesterday", ""));
 static TODAY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"오늘|today", ""));
 static JUST_NOW: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"방금(?:\s*전)?|just\s+now", ""));
-static KO_RELATIVE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"(?:최근|지난)\s*(\d+)\s*(분|시간|일)(?:\s*(?:동안|이내|전))?", ""));
-static EN_RELATIVE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"(?:last|past)\s*(\d+)\s*(minutes?|hours?|days?)", ""));
+static KO_RELATIVE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:최근|지난)\s*(\d+)\s*(분|시간|일)(?:\s*(?:동안|이내|전))?", ""));
+static EN_RELATIVE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:last|past)\s*(\d+)\s*(minutes?|hours?|days?)", ""));
 
 /// The period a query's own words imply, when it names one.
 pub fn infer_recall_period(query: &str) -> Option<String> {
@@ -251,11 +235,7 @@ pub fn infer_recall_period(query: &str) -> Option<String> {
 /// `[<local minute> <offset>]` stamp body: a millisecond epoch renders as a
 /// local stamp, anything else as its first 16 characters.
 pub fn format_ts(clock: &Clock, ts: i64) -> String {
-    if ts > 1_000_000_000_000 {
-        clock.recall_stamp(ts)
-    } else {
-        ts.to_string().chars().take(16).collect()
-    }
+    if ts > 1_000_000_000_000 { clock.recall_stamp(ts) } else { ts.to_string().chars().take(16).collect() }
 }
 
 pub fn format_local_minute(clock: &Clock, ts: i64) -> String {
@@ -298,11 +278,8 @@ mod tests {
             ("2d", Some(clock.now_ms - 2 * 86_400_000)),
         ];
         // Node, `now - n * unit`: plain numbers, finite however large (beyond i64 they saturate).
-        let numbers = [
-            ("3000000000h", Some(-10_798_220_000_000_000)),
-            ("6000000000000m", Some(-359_998_220_000_000_000)),
-            ("999999999999999999999m", Some(i64::MIN)),
-        ];
+        let numbers =
+            [("3000000000h", Some(-10_798_220_000_000_000)), ("6000000000000m", Some(-359_998_220_000_000_000)), ("999999999999999999999m", Some(i64::MIN))];
         for (period, start) in days.into_iter().chain(numbers) {
             let found = window(&clock, period);
             assert_eq!((found.start_ms, found.end_ms), (start, Some(clock.now_ms)), "{period}");

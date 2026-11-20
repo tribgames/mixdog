@@ -209,10 +209,21 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_api::ClaimedHostChannel for NoDesktop {
-        async fn request_claimed(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(mixdog_core_api::HostClaim, Value), mixdog_core_api::HostError> {
+        async fn request_claimed(
+            &self,
+            _: mixdog_core_api::HostCapability,
+            _: mixdog_core_api::ids::Method,
+            _: Value,
+        ) -> Result<(mixdog_core_api::HostClaim, Value), mixdog_core_api::HostError> {
             unreachable!("a computer fill sends nothing to the desktop")
         }
-        async fn request_to(&self, _: &mixdog_core_api::HostClaim, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+        async fn request_to(
+            &self,
+            _: &mixdog_core_api::HostClaim,
+            _: mixdog_core_api::HostCapability,
+            _: mixdog_core_api::ids::Method,
+            _: Value,
+        ) -> Result<Value, mixdog_core_api::HostError> {
             unreachable!("a computer fill sends nothing to the desktop")
         }
     }
@@ -238,12 +249,7 @@ mod tests {
         let fill = fill_over(&slots, &helper);
         let computers = Arc::new(Computers(HashMap::from([("sess_pc".to_owned(), helper.clone())])));
         let env = SessionHandoffEnv::new(runs.clone(), store.clone(), fill.clone(), computers, aborts.clone());
-        Rig {
-            env,
-            slots,
-            fill,
-            helper,
-        }
+        Rig { env, slots, fill, helper }
     }
 
     fn thread(id: &str) -> ThreadId {
@@ -290,6 +296,4 @@ mod tests {
         assert!(!rig.slots.has("secret_abcdefgh"), "the value is taken once");
         assert_eq!(rig.fill.redact(&pc, "the pw"), "the [redacted]");
     }
-
-
 }

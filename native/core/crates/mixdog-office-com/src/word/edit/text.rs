@@ -28,11 +28,7 @@ const REPLACE_LIMIT: i32 = 10_000;
 /// `[regex]::Matches($text, '\s+|\S+')`: the words and the spaces between them, in order.
 fn words_and_spaces(text: &str) -> Vec<String> {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN
-        .get_or_init(|| Regex::new(r"\s+|\S+").expect("the word pattern is valid"))
-        .find_iter(text)
-        .map(|found| found.as_str().to_owned())
-        .collect()
+    PATTERN.get_or_init(|| Regex::new(r"\s+|\S+").expect("the word pattern is valid")).find_iter(text).map(|found| found.as_str().to_owned()).collect()
 }
 
 /// The length .NET gives a string: UTF-16 units.
@@ -79,16 +75,8 @@ pub(super) fn replace_text(document: &Obj, op: &Value) -> Result<Value> {
     let mut range = document.get("Content")?.member("Duplicate")?;
     let mut resume_at = 0;
     loop {
-        let execute = [
-            Com::from(find.as_str()),
-            Com::Bool(false),
-            Com::Bool(false),
-            Com::Bool(false),
-            Com::Bool(false),
-            Com::Bool(false),
-            Com::Bool(true),
-            Com::I4(0),
-        ];
+        let execute =
+            [Com::from(find.as_str()), Com::Bool(false), Com::Bool(false), Com::Bool(false), Com::Bool(false), Com::Bool(false), Com::Bool(true), Com::I4(0)];
         if !super::truth(&range.member("Find")?.call_member("Execute", &execute)?) {
             break;
         }
@@ -158,10 +146,8 @@ pub(super) fn remove_paragraph(document: &Obj, op: &Value) -> Result<Value> {
     // The only paragraph between two tables keeps them two; deleting its mark joins them: the words go and the empty
     // paragraph stays.
     let neighbour_in_table = |neighbour: &str| -> bool {
-        (|| -> Result<bool> {
-            Ok(super::truth(&super::indexed(&paragraph.call_member(neighbour, &[])?.member("Range")?, "Information", &[Com::I4(12)])?))
-        })()
-        .unwrap_or(false)
+        (|| -> Result<bool> { Ok(super::truth(&super::indexed(&paragraph.call_member(neighbour, &[])?.member("Range")?, "Information", &[Com::I4(12)])?)) })()
+            .unwrap_or(false)
     };
     let previous_in_table = neighbour_in_table("Previous");
     let next_in_table = neighbour_in_table("Next");
@@ -174,11 +160,7 @@ pub(super) fn remove_paragraph(document: &Obj, op: &Value) -> Result<Value> {
         if grows(&words)? {
             words.call_member("Delete", &[])?;
         }
-        return Ok(ordered(vec![
-            ("op", Value::string("remove_paragraph")),
-            ("changed", Value::Bool(true)),
-            ("keptBetweenTables", Value::Bool(true)),
-        ]));
+        return Ok(ordered(vec![("op", Value::string("remove_paragraph")), ("changed", Value::Bool(true)), ("keptBetweenTables", Value::Bool(true))]));
     }
     paragraph.member("Range")?.call_member("Delete", &[])?;
     Ok(ordered(vec![("op", Value::string("remove_paragraph")), ("changed", Value::Bool(true))]))
@@ -239,10 +221,8 @@ pub(super) fn add_image(document: &Obj, op: &Value) -> Result<Value> {
     };
     let picture_range = picture_paragraph.member("Range")?.member("Duplicate")?;
     picture_range.call_member("Collapse", &[Com::I4(1)])?;
-    let shape = document.get("InlineShapes")?.call_member(
-        "AddPicture",
-        &[Com::from(text_of(&prop(op, "path"))), Com::Bool(false), Com::Bool(true), picture_range],
-    )?;
+    let shape =
+        document.get("InlineShapes")?.call_member("AddPicture", &[Com::from(text_of(&prop(op, "path"))), Com::Bool(false), Com::Bool(true), picture_range])?;
     if width > 0.0 {
         shape.set_member("Width", Com::R4(width))?;
     }

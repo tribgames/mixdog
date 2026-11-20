@@ -110,7 +110,9 @@ fn accumulate(session: &Header, patch: &mut HeaderPatch, delta: &Value, input_ex
     let (input, output, cached_read, cache_write) = (field("deltaInput"), field("deltaOutput"), field("deltaCachedRead"), field("deltaCacheWrite"));
     // Old sessions have spend but no reasoning counters: their past usage stays unknown, even after
     // the first newly measured response arrives.
-    let had_usage = truthy(session.get("reasoningUsage")) || number_or_zero(session.get("totalInputTokens")) > 0.0 || number_or_zero(session.get("totalOutputTokens")) > 0.0;
+    let had_usage = truthy(session.get("reasoningUsage"))
+        || number_or_zero(session.get("totalInputTokens")) > 0.0
+        || number_or_zero(session.get("totalOutputTokens")) > 0.0;
     let reasoning = if had_usage {
         combine_reasoning(session.get("reasoningUsage"), Some(delta))
     } else {
@@ -217,8 +219,7 @@ pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: 
     let (cached_read, cache_write) = (context("contextCachedReadTokens", "deltaCachedRead"), context("contextCacheWriteTokens", "deltaCacheWrite"));
     let measured = if input_excludes_cache { number_or_zero(cached_read) + number_or_zero(cache_write) } else { 0.0 };
     let prompt = number_or_zero(input) + measured;
-    let prompt_known = match delta.get("contextPromptKnown").and_then(Value::as_bool)
-        .or_else(|| (delta["promptKnown"] == Value::Bool(false)).then_some(false))
+    let prompt_known = match delta.get("contextPromptKnown").and_then(Value::as_bool).or_else(|| (delta["promptKnown"] == Value::Bool(false)).then_some(false))
     {
         Some(known) => known && input.and_then(Value::as_f64).is_some(),
         None => prompt > 0.0,

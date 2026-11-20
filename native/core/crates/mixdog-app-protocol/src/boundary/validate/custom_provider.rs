@@ -12,8 +12,24 @@ use crate::error::ErrorData;
 type Check = Result<(), ErrorData>;
 
 const PROVIDER_KEYS: &[&str] = &[
-    "id", "name", "protocol", "baseURL", "apiKey", "apiKeyEnv", "extraApiKeys", "models", "schemaVersion", "enabled", "auth", "discovery",
-    "modelOverrides", "wires", "modelWires", "headers", "requestBody", "type",
+    "id",
+    "name",
+    "protocol",
+    "baseURL",
+    "apiKey",
+    "apiKeyEnv",
+    "extraApiKeys",
+    "models",
+    "schemaVersion",
+    "enabled",
+    "auth",
+    "discovery",
+    "modelOverrides",
+    "wires",
+    "modelWires",
+    "headers",
+    "requestBody",
+    "type",
 ];
 const V2_ONLY_KEYS: &[&str] = &["discovery", "modelOverrides", "wires", "modelWires", "headers", "requestBody"];
 const WIRES: &[&str] = &["chat", "responses", "messages"];
@@ -131,10 +147,7 @@ fn positive_safe_integer(value: &Value) -> bool {
 fn is_uuid(text: &str) -> bool {
     let groups: Vec<&str> = text.split('-').collect();
     groups.len() == 5
-        && groups
-            .iter()
-            .zip([8, 4, 4, 4, 12])
-            .all(|(group, len)| group.len() == len && group.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, len)| group.len() == len && group.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
 
 /// `/^custom-<uuid>$/`.
@@ -279,9 +292,9 @@ fn provider_input(params: &Map<String, Value>, models_optional: bool) -> Check {
         header_map(headers, &at(path, "headers"), "custom provider headers", "custom provider headers are too large.")?;
     }
     if let Some(wires) = field("wires") {
-        let valid = wires.as_array().is_some_and(|list| {
-            !list.is_empty() && list.len() <= WIRES.len() && list.iter().all(|w| w.as_str().is_some_and(|w| WIRES.contains(&w)))
-        });
+        let valid = wires
+            .as_array()
+            .is_some_and(|list| !list.is_empty() && list.len() <= WIRES.len() && list.iter().all(|w| w.as_str().is_some_and(|w| WIRES.contains(&w))));
         if !valid {
             return Err(fail(&at(path, "wires"), "custom provider wires are invalid."));
         }
@@ -431,10 +444,7 @@ fn model_override(value: &Value, path: &str, patch: bool, protocol: Option<&str>
 /// the custom id form here: the service finds no such provider and says so, as it does for the other id-keyed methods.
 fn save_key(params: &Map<String, Value>) -> Check {
     // An absent secret is `undefined` to the host's `validateSecret`.
-    let valid = params
-        .get("secret")
-        .and_then(Value::as_str)
-        .is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_API_KEY);
+    let valid = params.get("secret").and_then(Value::as_str).is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_API_KEY);
     if !valid {
         return Err(fail("/secret", "provider secret is invalid."));
     }
@@ -528,7 +538,8 @@ mod tests {
     fn validate_custom_provider_save_and_test_of_a_saved_provider() {
         use serde_json::json;
         let id = "custom-0190f3c2-7a31-7c00-8000-000000000001";
-        let unversioned = json!({ "name": "live-check", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:4010/v1", "auth": "none", "models": [{ "id": "smoke" }] });
+        let unversioned =
+            json!({ "name": "live-check", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:4010/v1", "auth": "none", "models": [{ "id": "smoke" }] });
         let saved = {
             let mut input = unversioned.clone();
             input["id"] = json!(id);

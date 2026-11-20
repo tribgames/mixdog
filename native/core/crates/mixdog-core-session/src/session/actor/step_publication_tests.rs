@@ -119,7 +119,8 @@ fn usage() -> crate::session::UsageReport {
         reasoning_tokens_complete: false,
         outgoing: Vec::new().into(),
         sent_at_ms: 0,
-        input_excludes_cache: false, tail_book: None,
+        input_excludes_cache: false,
+        tail_book: None,
     }
 }
 
@@ -191,7 +192,10 @@ async fn a_step_with_a_call_still_blocked_is_published_as_it_happens() {
     let batch = turn.position(|method, params| method == "thread/toolBatch/updated" && params["phase"] == "started").expect("the batch's start is published");
     let queued = turn.position(|method, _| method == "thread/queue/changed").expect("the person's message is published");
     let toast = turn
-        .position(|method, params| method == "thread/runtime/updated" && params["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == "setup needed")))
+        .position(|method, params| {
+            method == "thread/runtime/updated"
+                && params["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == "setup needed"))
+        })
         .expect("the toast is published");
     // A framed consumer is told the state of each change at the next frame boundary (a timer of the session's: the paused clock is
     // moved past it).

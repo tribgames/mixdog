@@ -9,12 +9,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use mixdog_remote::media::ByteSource;
-use mixdog_remote::media::MediaSources;
-use mixdog_remote::media::SourceFailure;
 use mixdog_remote::clients::Revocation;
+use mixdog_remote::media::ByteSource;
 use mixdog_remote::media::LeaseGuard;
+use mixdog_remote::media::MediaSources;
 use mixdog_remote::media::Permit;
+use mixdog_remote::media::SourceFailure;
 use mixdog_remote::transport::media::MediaLink;
 use mixdog_remote::transport::media::TransportMedia;
 use serde_json::Value;
@@ -177,7 +177,6 @@ impl MediaLink for LinkFake {
 async fn settle(adapter: &TransportMedia<LinkFake>, state: &Arc<Mutex<LinkState>>, gate: &Gate) {
     adapter.settled(|| state.lock().unwrap().held.len() + gate.held.lock().unwrap().len(), &gate.changed).await;
 }
-
 
 /// Two requests past the stream limit arrive before the refusal pump has run, and the first error's
 /// send is still pending: the queue head is sealed once. (the pump is claimed synchronously, so the
@@ -446,7 +445,8 @@ async fn ending_one_leases_stream_leaves_the_sessions_other_stream_working() {
     let direct = Direct::new(usize::MAX, Revocation::default());
     direct.link.room.store(false, std::sync::atomic::Ordering::SeqCst);
     direct.request();
-    let other = json!({ "type": "transport-media", "op": "request", "id": "m2", "assetId": SECOND_LEASE_ID, "variant": "original", "range": "", "enc": "e2ee1" });
+    let other =
+        json!({ "type": "transport-media", "op": "request", "id": "m2", "assetId": SECOND_LEASE_ID, "variant": "original", "range": "", "enc": "e2ee1" });
     assert!(direct.adapter.receive(&other));
     direct.settled().await;
     assert_eq!(direct.adapter.active(), 2, "both parked for room");
@@ -475,7 +475,8 @@ impl Direct {
     }
 
     fn with(stall: usize, stall_op: Option<&'static str>, fail_later: bool, revocation: Revocation) -> Self {
-        let (effects, valid, dropped) = (Arc::new(Mutex::new(Vec::new())), Arc::new(std::sync::atomic::AtomicBool::new(true)), Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+        let (effects, valid, dropped) =
+            (Arc::new(Mutex::new(Vec::new())), Arc::new(std::sync::atomic::AtomicBool::new(true)), Arc::new(std::sync::atomic::AtomicUsize::new(0)));
         let ended = tokio_util::sync::CancellationToken::new();
         let link = Arc::new(GateLink {
             effects: effects.clone(),
@@ -587,5 +588,3 @@ async fn a_queued_end_or_error_send_is_released_by_the_end_of_the_lease_with_no_
         assert_eq!(direct.ops(), before, "{op}: nothing more was sent");
     }
 }
-
-

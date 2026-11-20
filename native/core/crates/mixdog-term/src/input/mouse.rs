@@ -81,12 +81,7 @@ fn parse_sgr(s: &str) -> Option<Sgr> {
     if !sc.at_end() {
         return None;
     }
-    Some(Sgr {
-        button: to_int32(digits_value(button)),
-        col: to_int32(digits_value(col)),
-        row: to_int32(digits_value(row)),
-        press,
-    })
+    Some(Sgr { button: to_int32(digits_value(button)), col: to_int32(digits_value(col)), row: to_int32(digits_value(row)), press })
 }
 
 /// The button byte of an X10 report (`ESC [ M` and three bytes, six units in all).

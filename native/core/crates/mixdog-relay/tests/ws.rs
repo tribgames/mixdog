@@ -8,9 +8,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use mixdog_relay::ws::codec::{Receiver, ReceiverEvent, frame_header};
 use mixdog_relay::ws::handshake::{self, HandshakeRequest};
-use mixdog_relay::ws::{
-    Gate, Holder, RawTap, ReadyState, Refused, ServerOptions, WebSocket, WebSocketServer, WsEvent, WsEvents,
-};
+use mixdog_relay::ws::{Gate, Holder, RawTap, ReadyState, Refused, ServerOptions, WebSocket, WebSocketServer, WsEvent, WsEvents};
 use mixdog_rt::time::{Instant, sleep, timeout};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -35,14 +33,7 @@ fn upgrade() -> Vec<u8> {
 
 fn upgrade_with(extra: &[&str]) -> Vec<u8> {
     let key = format!("Sec-WebSocket-Key: {KEY}");
-    let mut lines = vec![
-        "GET /ws HTTP/1.1",
-        "Host: relay",
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        key.as_str(),
-        "Sec-WebSocket-Version: 13",
-    ];
+    let mut lines = vec!["GET /ws HTTP/1.1", "Host: relay", "Upgrade: websocket", "Connection: Upgrade", key.as_str(), "Sec-WebSocket-Version: 13"];
     lines.extend_from_slice(extra);
     head(&lines)
 }
@@ -135,11 +126,7 @@ async fn read_head(stream: &mut TcpStream) -> Option<(HandshakeRequest, Bytes)> 
         if let httparse::Status::Complete(end) = request.parse(&buffer).ok()? {
             let parsed = HandshakeRequest {
                 method: request.method?.to_string(),
-                headers: request
-                    .headers
-                    .iter()
-                    .map(|header| (header.name.to_string(), String::from_utf8_lossy(header.value).into_owned()))
-                    .collect(),
+                headers: request.headers.iter().map(|header| (header.name.to_string(), String::from_utf8_lossy(header.value).into_owned())).collect(),
             };
             return Some((parsed, Bytes::copy_from_slice(&buffer[end..])));
         }
@@ -179,10 +166,7 @@ async fn rust_target(max_payload: u64, close_timeout_ms: u64) -> Target {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let port = listener.local_addr().expect("address").port();
     let log: Log = Arc::default();
-    let server = Arc::new(WebSocketServer::new(ServerOptions {
-        max_payload,
-        close_timeout: Duration::from_millis(close_timeout_ms),
-    }));
+    let server = Arc::new(WebSocketServer::new(ServerOptions { max_payload, close_timeout: Duration::from_millis(close_timeout_ms) }));
     let served = Arc::clone(&log);
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
@@ -320,11 +304,7 @@ struct Session {
     answer: String,
 }
 
-async fn open_session(
-    options: ServerOptions,
-    handshake_and_frames: Vec<u8>,
-    prepare: impl FnOnce(&WebSocket),
-) -> Session {
+async fn open_session(options: ServerOptions, handshake_and_frames: Vec<u8>, prepare: impl FnOnce(&WebSocket)) -> Session {
     let (mut client, mut stream) = tcp_pair().await;
     client.write_all(&handshake_and_frames).await.expect("write the head");
     let (request, leftover) = read_head(&mut stream).await.expect("a request head");
@@ -368,11 +348,7 @@ async fn wait_for_count(count: &AtomicUsize, wanted: usize) {
 const BIG_FRAME_BYTES: usize = 48 * 1024 * 1024;
 
 /// A peer that writes one huge frame stalls while the server does not read, and finishes once every holder let go.
-async fn stalled_until_released(
-    prepare: impl FnOnce(&WebSocket),
-    partial: impl FnOnce(&WebSocket),
-    release: impl FnOnce(&WebSocket),
-) {
+async fn stalled_until_released(prepare: impl FnOnce(&WebSocket), partial: impl FnOnce(&WebSocket), release: impl FnOnce(&WebSocket)) {
     let session = open_session(ServerOptions::new(128 * 1024 * 1024), upgrade(), prepare).await;
     let Session { client, ws, events, server: _server, .. } = session;
     let count = counted_messages(events).await;
@@ -393,10 +369,7 @@ async fn stalled_until_released(
     sleep(Duration::from_millis(400)).await;
     assert!(!writer.is_finished(), "one holder letting go is not enough");
     release(&ws);
-    let _write = timeout(Duration::from_secs(30), writer)
-        .await
-        .expect("the writes complete once reading resumes")
-        .expect("writer");
+    let _write = timeout(Duration::from_secs(30), writer).await.expect("the writes complete once reading resumes").expect("writer");
     wait_for_count(&count, 1).await;
 }
 
@@ -464,8 +437,7 @@ async fn buffered_amount_counts_queued_bytes_and_the_callback_fires_once_each_af
     let mut remaining = frames * (one_mib + 10);
     let mut buffer = vec![0u8; 256 * 1024];
     while remaining > 0 {
-        let count =
-            timeout(Duration::from_secs(20), client.read(&mut buffer)).await.expect("the peer reads").expect("read");
+        let count = timeout(Duration::from_secs(20), client.read(&mut buffer)).await.expect("the peer reads").expect("read");
         assert!(count > 0, "the connection ended early");
         remaining -= count;
     }
@@ -486,14 +458,14 @@ async fn a_send_after_close_fails_its_callback_and_stays_counted_as_ws_does() {
     ws.terminate();
     assert_eq!(ws.ready_state(), ReadyState::Closing);
     let (tx, rx) = tokio::sync::oneshot::channel();
-    ws.send_text("late", Some(Box::new(move |result| {
-        let _ = tx.send(result);
-    })));
-    let result = timeout(Duration::from_secs(5), rx).await.expect("the callback ran").expect("sent");
-    assert_eq!(
-        result.map_err(|error| error.to_string()),
-        Err("WebSocket is not open: readyState 2 (CLOSING)".to_string())
+    ws.send_text(
+        "late",
+        Some(Box::new(move |result| {
+            let _ = tx.send(result);
+        })),
     );
+    let result = timeout(Duration::from_secs(5), rx).await.expect("the callback ran").expect("sent");
+    assert_eq!(result.map_err(|error| error.to_string()), Err("WebSocket is not open: readyState 2 (CLOSING)".to_string()));
     assert_eq!(ws.buffered_amount(), 4);
 }
 
@@ -557,9 +529,7 @@ async fn a_hold_standing_when_the_close_frame_is_parsed_does_not_stop_the_close(
 
 #[tokio::test]
 async fn a_malformed_frame_on_a_closing_socket_ends_the_connection_and_frees_its_slot() {
-    let session =
-        open_session(ServerOptions { max_payload: 1024, close_timeout: Duration::from_millis(300) }, upgrade(), |_| {})
-            .await;
+    let session = open_session(ServerOptions { max_payload: 1024, close_timeout: Duration::from_millis(300) }, upgrade(), |_| {}).await;
     let Session { mut client, ws, mut events, server, answer } = session;
     assert!(answer.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
     assert!(answer.contains(&format!("Sec-WebSocket-Accept: {SAMPLE_ACCEPT}\r\n")));
@@ -612,15 +582,8 @@ async fn the_server_close_refuses_new_upgrades_with_503_and_waits_for_its_client
     sleep(Duration::from_millis(200)).await;
     assert!(!closing.is_finished(), "close waits for the open socket");
     let (mut client, stream) = tcp_pair().await;
-    let request = HandshakeRequest::new(
-        "GET",
-        &[
-            ("Upgrade", "websocket"),
-            ("Connection", "Upgrade"),
-            ("Sec-WebSocket-Key", KEY),
-            ("Sec-WebSocket-Version", "13"),
-        ],
-    );
+    let request =
+        HandshakeRequest::new("GET", &[("Upgrade", "websocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", "13")]);
     match server.handle_upgrade(&request, stream, Bytes::new()).await {
         Err(Refused::Status(503)) => {}
         _ => panic!("a closing server answers 503"),
@@ -690,46 +653,28 @@ fn frame_headers_use_the_shortest_length_form() {
 #[test]
 fn the_handshake_validates_as_handle_upgrade_does() {
     let ok = |headers: &[(&str, &str)]| handshake::validate(&HandshakeRequest::new("GET", headers));
-    let good = [
-        ("Upgrade", "WebSocket"),
-        ("Connection", "Upgrade"),
-        ("Sec-WebSocket-Key", KEY),
-        ("Sec-WebSocket-Version", "13"),
-    ];
+    let good = [("Upgrade", "WebSocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", "13")];
     let accepted = ok(&good).expect("accepted");
     assert_eq!(accepted.protocol, None);
     let answer = String::from_utf8(handshake::accept_bytes(&accepted.key, None)).expect("ASCII");
     assert_eq!(
         answer,
-        format!(
-            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {SAMPLE_ACCEPT}\r\n\r\n"
-        )
+        format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {SAMPLE_ACCEPT}\r\n\r\n")
     );
-    let with_version = |version: &'static str| {
-        [("Upgrade", "websocket"), ("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", version)]
-    };
+    let with_version = |version: &'static str| [("Upgrade", "websocket"), ("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", version)];
     for version in ["13", "8", " 13 ", "13.0", "0x0d", "1.3e1"] {
         assert!(ok(&with_version(version)).is_ok(), "version {version:?}");
     }
     for version in ["", "12", "14", "abc", "13a"] {
         let refusal = ok(&with_version(version)).expect_err("refused");
-        assert_eq!(
-            (refusal.status, refusal.headers),
-            (400, vec![("Sec-WebSocket-Version", "13, 8")]),
-            "version {version:?}"
-        );
+        assert_eq!((refusal.status, refusal.headers), (400, vec![("Sec-WebSocket-Version", "13, 8")]), "version {version:?}");
     }
     let refusal = handshake::validate(&HandshakeRequest::new("POST", &good)).expect_err("refused");
     assert_eq!((refusal.status, refusal.message), (405, "Invalid HTTP method"));
     let refusal = ok(&[("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", "13")]).expect_err("refused");
     assert_eq!((refusal.status, refusal.message), (400, "Invalid Upgrade header"));
     // Repeated headers are joined.
-    let twice = [
-        ("Upgrade", "websocket"),
-        ("Sec-WebSocket-Key", KEY),
-        ("sec-websocket-key", KEY),
-        ("Sec-WebSocket-Version", "13"),
-    ];
+    let twice = [("Upgrade", "websocket"), ("Sec-WebSocket-Key", KEY), ("sec-websocket-key", KEY), ("Sec-WebSocket-Version", "13")];
     assert_eq!(ok(&twice).expect_err("refused").message, "Missing or invalid Sec-WebSocket-Key header");
 }
 
@@ -738,12 +683,7 @@ fn the_subprotocol_header_is_parsed_as_ws_parses_it() {
     let with = |protocol: &str| {
         handshake::validate(&HandshakeRequest::new(
             "GET",
-            &[
-                ("Upgrade", "websocket"),
-                ("Sec-WebSocket-Key", KEY),
-                ("Sec-WebSocket-Version", "13"),
-                ("Sec-WebSocket-Protocol", protocol),
-            ],
+            &[("Upgrade", "websocket"), ("Sec-WebSocket-Key", KEY), ("Sec-WebSocket-Version", "13"), ("Sec-WebSocket-Protocol", protocol)],
         ))
     };
     assert_eq!(with("chat, superchat").expect("accepted").protocol.as_deref(), Some("chat"));
@@ -753,8 +693,7 @@ fn the_subprotocol_header_is_parsed_as_ws_parses_it() {
         assert_eq!(with(bad).expect_err("refused").message, "Invalid Sec-WebSocket-Protocol header", "{bad:?}");
     }
     let accepted = with("chat, superchat").expect("accepted");
-    let answer =
-        String::from_utf8(handshake::accept_bytes(&accepted.key, accepted.protocol.as_deref())).expect("ASCII");
+    let answer = String::from_utf8(handshake::accept_bytes(&accepted.key, accepted.protocol.as_deref())).expect("ASCII");
     assert!(answer.ends_with("Sec-WebSocket-Protocol: chat\r\n\r\n"));
 }
 
@@ -765,17 +704,11 @@ fn the_refusal_is_what_abort_handshake_writes() {
         "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 22\r\n\r\nInvalid Upgrade header"
     );
     assert_eq!(
-        String::from_utf8(handshake::refusal_bytes(
-            400,
-            Some("Missing or invalid Sec-WebSocket-Version header"),
-            &[("Sec-WebSocket-Version", "13, 8")]
-        ))
-        .expect("ASCII"),
+        String::from_utf8(handshake::refusal_bytes(400, Some("Missing or invalid Sec-WebSocket-Version header"), &[("Sec-WebSocket-Version", "13, 8")]))
+            .expect("ASCII"),
         "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 47\r\nSec-WebSocket-Version: 13, 8\r\n\r\nMissing or invalid Sec-WebSocket-Version header"
     );
 }
-
-
 
 // ---- the protocol rules, on the parser ----
 
@@ -852,13 +785,8 @@ fn a_close_frame_is_reported_with_its_code_and_reason_and_an_empty_one_as_1005()
 
 #[test]
 fn pings_and_pongs_are_reported_in_order_and_do_not_split_a_fragmented_message() {
-    let wire = joined(&[
-        frame(0x89, b"one", true),
-        frame(0x89, b"", true),
-        text("between"),
-        frame(0x89, &[b'z'; 125], true),
-        frame(0x8a, b"unsolicited", true),
-    ]);
+    let wire =
+        joined(&[frame(0x89, b"one", true), frame(0x89, b"", true), text("between"), frame(0x89, &[b'z'; 125], true), frame(0x8a, b"unsolicited", true)]);
     let (events, error) = fed(1024, &wire);
     assert_eq!(error, None);
     assert_eq!(
@@ -871,20 +799,9 @@ fn pings_and_pongs_are_reported_in_order_and_do_not_split_a_fragmented_message()
             ReceiverEvent::Pong(Bytes::from_static(b"unsolicited")),
         ]
     );
-    let fragmented = joined(&[
-        frame(0x01, b"he", true),
-        frame(0x89, b"mid", true),
-        frame(0x00, b"ll", true),
-        frame(0x80, b"o", true),
-    ]);
+    let fragmented = joined(&[frame(0x01, b"he", true), frame(0x89, b"mid", true), frame(0x00, b"ll", true), frame(0x80, b"o", true)]);
     let (events, _) = fed(1024, &fragmented);
-    assert_eq!(
-        events,
-        vec![
-            ReceiverEvent::Ping(Bytes::from_static(b"mid")),
-            ReceiverEvent::Message { data: Bytes::from_static(b"hello"), binary: false },
-        ]
-    );
+    assert_eq!(events, vec![ReceiverEvent::Ping(Bytes::from_static(b"mid")), ReceiverEvent::Message { data: Bytes::from_static(b"hello"), binary: false },]);
 }
 
 #[test]
@@ -932,22 +849,13 @@ fn status_line(wire: &[u8]) -> String {
 #[tokio::test]
 async fn an_upgraded_socket_echoes_messages_answers_pings_and_echoes_the_close() {
     let target = rust_target(1024, 300).await;
-    let steps = vec![
-        send(upgrade()),
-        send(text("hello")),
-        send(frame(0x82, &[1, 2, 3], true)),
-        send(frame(0x89, b"p", true)),
-        send(close_frame(1000, "bye")),
-    ];
+    let steps = vec![send(upgrade()), send(text("hello")), send(frame(0x82, &[1, 2, 3], true)), send(frame(0x89, b"p", true)), send(close_frame(1000, "bye"))];
     let (wire, events) = target.run(&scenario("echo", steps)).await;
     assert_eq!(status_line(&wire), "HTTP/1.1 101 Switching Protocols");
     assert!(String::from_utf8_lossy(&wire).contains("Sec-WebSocket-Accept: "));
     let mut close = vec![0x03, 0xe8];
     close.extend_from_slice(b"bye");
-    assert_eq!(
-        server_frames(&wire),
-        vec![(1, b"hello".to_vec()), (2, vec![1, 2, 3]), (0xa, b"p".to_vec()), (8, close)]
-    );
+    assert_eq!(server_frames(&wire), vec![(1, b"hello".to_vec()), (2, vec![1, 2, 3]), (0xa, b"p".to_vec()), (8, close)]);
     assert_eq!(events.last().expect("events")["ev"], "close");
     assert_eq!(events.last().expect("events")["code"], 1000);
 }
@@ -1017,7 +925,8 @@ async fn an_upgrade_that_breaks_the_handshake_rules_is_refused_with_a_status_lin
 #[tokio::test]
 async fn the_first_offered_subprotocol_is_answered_and_extensions_are_not() {
     let target = rust_target(1024, 300).await;
-    let steps = vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, superchat", "Sec-WebSocket-Extensions: permessage-deflate"])), send(close_frame(1000, ""))];
+    let steps =
+        vec![send(upgrade_with(&["Sec-WebSocket-Protocol: chat, superchat", "Sec-WebSocket-Extensions: permessage-deflate"])), send(close_frame(1000, ""))];
     let (wire, _) = target.run(&scenario("subprotocol", steps)).await;
     let answer = String::from_utf8_lossy(&wire);
     assert_eq!(status_line(&wire), "HTTP/1.1 101 Switching Protocols");

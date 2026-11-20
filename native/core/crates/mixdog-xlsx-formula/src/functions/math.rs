@@ -19,10 +19,7 @@ WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEM
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
-use crate::coerce::{
-    apply_criteria, array_values_to_numbers, flatten, is_truthy, meets_criteria, parse_float,
-    parse_number, parse_number_array, to_js_number,
-};
+use crate::coerce::{apply_criteria, array_values_to_numbers, flatten, is_truthy, meets_criteria, parse_float, parse_number, parse_number_array, to_js_number};
 use crate::coerce::{parse_float_utf16, parse_int_utf16, to_js_utf16};
 use crate::{ErrorValue as E, Failure, Table, Value};
 use mixdog_js::{math as j, number_to_string, string_to_number};
@@ -87,15 +84,7 @@ binary!(atan2, x, y, num(j::atan2(x, y)));
 unary!(atanh, x, nan_num(j::ln((1.0 + x) / (1.0 - x)) / 2.0));
 unary!(cos, x, num(j::cos(x)));
 unary!(cosh, x, num(j::add(j::exp(x), j::exp(-x)) / 2.0));
-unary!(
-    cot,
-    x,
-    if x == 0.0 {
-        err(E::Div0)
-    } else {
-        num(1.0 / j::tan(x))
-    }
-);
+unary!(cot, x, if x == 0.0 { err(E::Div0) } else { num(1.0 / j::tan(x)) });
 unary!(
     coth,
     x,
@@ -106,36 +95,12 @@ unary!(
         num((e + 1.0) / (e - 1.0))
     }
 );
-unary!(
-    csc,
-    x,
-    if x == 0.0 {
-        err(E::Div0)
-    } else {
-        num(1.0 / j::sin(x))
-    }
-);
-unary!(
-    csch,
-    x,
-    if x == 0.0 {
-        err(E::Div0)
-    } else {
-        num(2.0 / (j::exp(x) - j::exp(-x)))
-    }
-);
+unary!(csc, x, if x == 0.0 { err(E::Div0) } else { num(1.0 / j::sin(x)) });
+unary!(csch, x, if x == 0.0 { err(E::Div0) } else { num(2.0 / (j::exp(x) - j::exp(-x))) });
 unary!(degrees, x, num((x * 180.0) / std::f64::consts::PI));
 unary!(int, x, num(j::floor(x)));
 unary!(ln, x, if x == 0.0 { err(E::Num) } else { num(j::ln(x)) });
-unary!(
-    log10,
-    x,
-    if x == 0.0 {
-        err(E::Num)
-    } else {
-        num(j::ln(x) / j::ln(10.0))
-    }
-);
+unary!(log10, x, if x == 0.0 { err(E::Num) } else { num(j::ln(x) / j::ln(10.0)) });
 unary!(radians, x, num((x * std::f64::consts::PI) / 180.0));
 unary!(sec, x, num(1.0 / j::cos(x)));
 unary!(sech, x, num(2.0 / j::add(j::exp(x), j::exp(-x))));
@@ -152,15 +117,7 @@ unary!(
 );
 unary!(sin, x, num(j::sin(x)));
 unary!(sinh, x, num((j::exp(x) - j::exp(-x)) / 2.0));
-unary!(
-    sqrt,
-    x,
-    if x < 0.0 {
-        err(E::Num)
-    } else {
-        num(j::sqrt(x))
-    }
-);
+unary!(sqrt, x, if x < 0.0 { err(E::Num) } else { num(j::sqrt(x)) });
 unary!(sqrtpi, x, num(j::sqrt(x * std::f64::consts::PI)));
 unary!(tan, x, num(j::tan(x)));
 unary!(tanh, x, {
@@ -215,22 +172,8 @@ binary!(
         num(j::round(x / m) * m)
     }
 );
-binary!(
-    power,
-    x,
-    p,
-    if x == 0.0 && p == 0.0 {
-        err(E::Num)
-    } else {
-        nan_num(j::pow(x, p))
-    }
-);
-binary!(
-    quotient,
-    x,
-    y,
-    num(mixdog_js::parse_int_radix(&number_to_string(x / y), 10.0))
-);
+binary!(power, x, p, if x == 0.0 && p == 0.0 { err(E::Num) } else { nan_num(j::pow(x, p)) });
+binary!(quotient, x, y, num(mixdog_js::parse_int_radix(&number_to_string(x / y), 10.0)));
 binary!(trunc, x, d, {
     let sign = if x > 0.0 { 1.0 } else { -1.0 };
     num((sign * j::floor(j::abs(x) * j::pow(10.0, d))) / j::pow(10.0, d))
@@ -260,22 +203,14 @@ pub fn log(a: &[Value]) -> Result<Value, Failure> {
         Ok(p) => p,
         Err(e) => return err(e),
     };
-    if p[0] == 0.0 || p[1] == 0.0 {
-        err(E::Num)
-    } else {
-        num(j::ln(p[0]) / j::ln(p[1]))
-    }
+    if p[0] == 0.0 || p[1] == 0.0 { err(E::Num) } else { num(j::ln(p[0]) / j::ln(p[1])) }
 }
 fn ceil_floor_math(a: &[Value], ceil: bool) -> Result<Value, Failure> {
     let x = arg(a, 0);
     let mut s = arg(a, 1);
     let mut mode = arg(a, 2);
     if matches!(s, Value::Undefined) {
-        s = Value::Number(if ceil && to_js_number(&x) <= 0.0 {
-            -1.0
-        } else {
-            1.0
-        })
+        s = Value::Number(if ceil && to_js_number(&x) <= 0.0 { -1.0 } else { 1.0 })
     }
     if matches!(mode, Value::Undefined) {
         mode = Value::Number(0.0)
@@ -303,11 +238,7 @@ pub fn floor_math(a: &[Value]) -> Result<Value, Failure> {
 pub fn floor_precise(a: &[Value]) -> Result<Value, Failure> {
     ceil_floor_math(&[arg(a, 0), arg(a, 1)], false)
 }
-unary!(
-    even,
-    x,
-    ceiling_math(&[Value::Number(x), Value::Number(-2.0), Value::Number(-1.0)])
-);
+unary!(even, x, ceiling_math(&[Value::Number(x), Value::Number(-2.0), Value::Number(-1.0)]));
 unary!(odd, x, {
     let mut t = j::ceil(j::abs(x));
     if !(t.is_finite() && t % 2.0 == 1.0) {
@@ -354,16 +285,7 @@ unary!(factdouble, x, {
     }
     num(v)
 });
-binary!(
-    combin,
-    n,
-    k,
-    if n < k {
-        err(E::Num)
-    } else {
-        num(factorial(n)? / (factorial(k)? * factorial(n - k)?))
-    }
-);
+binary!(combin, n, k, if n < k { err(E::Num) } else { num(factorial(n)? / (factorial(k)? * factorial(n - k)?)) });
 binary!(
     combina,
     n,
@@ -386,11 +308,7 @@ fn rounding(a: &[Value], mode: u8) -> Result<Value, Failure> {
     let shift = |x: f64, exp: f64| {
         let text = format!("{}e{}", number_to_string(x), number_to_string(exp));
         let mut parts = text.split('e');
-        string_to_number(&format!(
-            "{}e{}",
-            parts.next().unwrap(),
-            parts.next().unwrap()
-        ))
+        string_to_number(&format!("{}e{}", parts.next().unwrap(), parts.next().unwrap()))
     };
     let shifted = shift(j::abs(n), d);
     let shifted = match mode {
@@ -427,12 +345,7 @@ fn random() -> f64 {
 pub fn rand(_: &[Value]) -> Result<Value, Failure> {
     num(random())
 }
-binary!(
-    randbetween,
-    b,
-    t,
-    num(b + j::ceil((t - b + 1.0) * random()) - 1.0)
-);
+binary!(randbetween, b, t, num(b + j::ceil((t - b + 1.0) * random()) - 1.0));
 pub fn base(a: &[Value]) -> Result<Value, Failure> {
     let p = match parsed(a, 3) {
         Ok(p) => p,
@@ -444,31 +357,19 @@ pub fn base(a: &[Value]) -> Result<Value, Failure> {
     let result = mixdog_js::number_to_radix(p[0], p[1]).map_err(Failure::thrown)?;
     let len = j::max(p[2] + 1.0 - result.len() as f64, 0.0);
     let zeros = array_length(len)?;
-    Ok(Value::Text(format!(
-        "{}{}",
-        repeat_text("0", zeros.saturating_sub(1))?,
-        result
-    )))
+    Ok(Value::Text(format!("{}{}", repeat_text("0", zeros.saturating_sub(1))?, result)))
 }
 fn array_length(n: f64) -> Result<usize, Failure> {
-    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 || n > f64::from(u32::MAX) {
-        Err(Failure::thrown("Invalid array length"))
-    } else {
-        Ok(n as usize)
-    }
+    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 || n > f64::from(u32::MAX) { Err(Failure::thrown("Invalid array length")) } else { Ok(n as usize) }
 }
 fn repeat_text(text: &str, n: usize) -> Result<String, Failure> {
-    let size = text
-        .len()
-        .checked_mul(n)
-        .ok_or_else(|| Failure::thrown("Invalid string length"))?;
+    let size = text.len().checked_mul(n).ok_or_else(|| Failure::thrown("Invalid string length"))?;
     // V8's 64-bit string length limit (the original packaged Node/Electron).
     if size > (1usize << 29) - 24 {
         return Err(Failure::thrown("Invalid string length"));
     }
     let mut out = String::new();
-    out.try_reserve_exact(size)
-        .map_err(|_| Failure::thrown("Invalid string length"))?;
+    out.try_reserve_exact(size).map_err(|_| Failure::thrown("Invalid string length"))?;
     for _ in 0..n {
         out.push_str(text)
     }
@@ -506,10 +407,7 @@ pub fn arabic(a: &[Value]) -> Result<Value, Failure> {
     let Ok(text) = String::from_utf16(&to_js_utf16(&v)) else {
         return err(E::Value);
     };
-    let pattern = mixdog_js::JsRegex::new_static(
-        r"^M*(?:D?C{0,3}|C[MD])(?:L?X{0,3}|X[CL])(?:V?I{0,3}|I[XV])$",
-        "",
-    );
+    let pattern = mixdog_js::JsRegex::new_static(r"^M*(?:D?C{0,3}|C[MD])(?:L?X{0,3}|X[CL])(?:V?I{0,3}|I[XV])$", "");
     if !pattern.is_match(&text) {
         return err(E::Value);
     }
@@ -530,11 +428,7 @@ pub fn arabic(a: &[Value]) -> Result<Value, Failure> {
     let mut total = 0i64;
     for (i, &b) in bytes.iter().enumerate() {
         let n = values(b);
-        total += if bytes.get(i + 1).is_some_and(|next| values(*next) > n) {
-            -n
-        } else {
-            n
-        };
+        total += if bytes.get(i + 1).is_some_and(|next| values(*next) > n) { -n } else { n };
     }
     num(total as f64)
 }
@@ -546,26 +440,19 @@ pub fn roman(a: &[Value]) -> Result<Value, Failure> {
     };
     let mut digits: Vec<char> = number_to_string(p[0]).chars().collect();
     const KEY: [&str; 30] = [
-        "", "C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM", "", "X", "XX", "XXX", "XL",
-        "L", "LX", "LXX", "LXXX", "XC", "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX",
+        "", "C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM", "", "X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC", "", "I", "II", "III", "IV",
+        "V", "VI", "VII", "VIII", "IX",
     ];
     let mut result = String::new();
     for i in (0..3).rev() {
-        let key = digits
-            .pop()
-            .and_then(|c| c.to_digit(10))
-            .map(|d| d as usize + i * 10);
+        let key = digits.pop().and_then(|c| c.to_digit(10)).map(|d| d as usize + i * 10);
         if let Some(t) = key.and_then(|k| KEY.get(k)) {
             result = format!("{t}{result}")
         }
     }
     let prefix: String = digits.iter().collect();
     let n = array_length(string_to_number(&prefix) + 1.0)?;
-    Ok(Value::Text(format!(
-        "{}{}",
-        repeat_text("M", n.saturating_sub(1))?,
-        result
-    )))
+    Ok(Value::Text(format!("{}{}", repeat_text("M", n.saturating_sub(1))?, result)))
 }
 
 pub fn gcd(a: &[Value]) -> Result<Value, Failure> {
@@ -633,10 +520,7 @@ pub fn multinomial(a: &[Value]) -> Result<Value, Failure> {
     num(factorial(sum)? / divisor)
 }
 pub fn product(a: &[Value]) -> Result<Value, Failure> {
-    let vals: Vec<_> = flatten(a)
-        .into_iter()
-        .filter(|v| !matches!(v, Value::Undefined | Value::Null))
-        .collect();
+    let vals: Vec<_> = flatten(a).into_iter().filter(|v| !matches!(v, Value::Undefined | Value::Null)).collect();
     if vals.is_empty() {
         return num(0.0);
     }
@@ -654,9 +538,7 @@ pub fn product(a: &[Value]) -> Result<Value, Failure> {
 pub fn sum(a: &[Value]) -> Result<Value, Failure> {
     let mut stack = vec![(a.iter(), 0.0)];
     loop {
-        let Some((items, total)) = stack.last_mut() else {
-            unreachable!()
-        };
+        let Some((items, total)) = stack.last_mut() else { unreachable!() };
         match items.next() {
             Some(Value::Error(e)) => return err(*e),
             Some(Value::Number(n)) => *total += n,
@@ -694,20 +576,12 @@ fn primitive(v: Value) -> Value {
 fn add(a: Value, b: Value) -> Value {
     let a = primitive(a);
     let b = primitive(b);
-    if a.is_text() || b.is_text() {
-        Value::from_utf16([to_js_utf16(&a), to_js_utf16(&b)].concat())
-    } else {
-        Value::Number(to_js_number(&a) + to_js_number(&b))
-    }
+    if a.is_text() || b.is_text() { Value::from_utf16([to_js_utf16(&a), to_js_utf16(&b)].concat()) } else { Value::Number(to_js_number(&a) + to_js_number(&b)) }
 }
 pub fn sumif(a: &[Value]) -> Result<Value, Failure> {
     let range = flatten(&[arg(a, 0)]);
     let criteria = arg(a, 1);
-    let sum_range = if is_truthy(&arg(a, 2)) {
-        flatten(&[arg(a, 2)])
-    } else {
-        range.clone()
-    };
+    let sum_range = if is_truthy(&arg(a, 2)) { flatten(&[arg(a, 2)]) } else { range.clone() };
     if matches!(criteria, Value::Undefined | Value::Null | Value::Error(_)) {
         return num(0.0);
     }
@@ -741,12 +615,8 @@ pub fn sumifs(a: &[Value]) -> Result<Value, Failure> {
 }
 fn length(v: &Value) -> Result<Option<usize>, Failure> {
     match v {
-        Value::Null => Err(Failure::thrown(
-            "Cannot read properties of null (reading 'length')",
-        )),
-        Value::Undefined => Err(Failure::thrown(
-            "Cannot read properties of undefined (reading 'length')",
-        )),
+        Value::Null => Err(Failure::thrown("Cannot read properties of null (reading 'length')")),
+        Value::Undefined => Err(Failure::thrown("Cannot read properties of undefined (reading 'length')")),
         Value::Array(v) => Ok(Some(v.len())),
         Value::Text(s) => Ok(Some(s.encode_utf16().count())),
         Value::Utf16(units) => Ok(Some(units.len())),
@@ -755,18 +625,10 @@ fn length(v: &Value) -> Result<Option<usize>, Failure> {
 }
 fn index(v: &Value, i: usize) -> Result<Value, Failure> {
     match v {
-        Value::Null => Err(Failure::thrown(format!(
-            "Cannot read properties of null (reading '{i}')"
-        ))),
-        Value::Undefined => Err(Failure::thrown(format!(
-            "Cannot read properties of undefined (reading '{i}')"
-        ))),
+        Value::Null => Err(Failure::thrown(format!("Cannot read properties of null (reading '{i}')"))),
+        Value::Undefined => Err(Failure::thrown(format!("Cannot read properties of undefined (reading '{i}')"))),
         Value::Array(v) => Ok(arg(v, i)),
-        v if v.is_text() => Ok(v
-            .text_units()
-            .unwrap()
-            .get(i)
-            .map_or(Value::Undefined, |c| Value::from_utf16(vec![*c]))),
+        v if v.is_text() => Ok(v.text_units().unwrap().get(i).map_or(Value::Undefined, |c| Value::from_utf16(vec![*c]))),
         _ => Ok(Value::Undefined),
     }
 }
@@ -778,20 +640,12 @@ pub fn sumproduct(a: &[Value]) -> Result<Value, Failure> {
     let first = &a[0];
     for i in 0..length(first)?.unwrap_or(0) {
         let row = index(first, i)?;
-        let columns = if matches!(row, Value::Array(_)) {
-            Some(length(&row)?.unwrap_or(0))
-        } else {
-            None
-        };
+        let columns = if matches!(row, Value::Array(_)) { Some(length(&row)?.unwrap_or(0)) } else { None };
         for col in 0..columns.unwrap_or(1) {
             let mut product = 1.0;
             for v in a {
                 let item = index(v, i)?;
-                let item = if columns.is_some() {
-                    index(&item, col)?
-                } else {
-                    item
-                };
+                let item = if columns.is_some() { index(&item, col)? } else { item };
                 match parse_number(&item) {
                     Value::Number(n) => product *= n,
                     Value::Error(e) => return err(e),
@@ -872,9 +726,7 @@ pub fn seriessum(a: &[Value]) -> Result<Value, Failure> {
             let index = units.len() - 1;
             // Failure::Thrown is the final UTF-8 exception boundary, not an intermediate value.
             let text = String::from_utf16_lossy(&units);
-            return Err(Failure::thrown(format!(
-                "Cannot assign to read only property '{index}' of string '{text}'"
-            )));
+            return Err(Failure::thrown(format!("Cannot assign to read only property '{index}' of string '{text}'")));
         }
         Value::Text(s) if !s.is_empty() => {
             let i = s.encode_utf16().count() - 1;
@@ -882,9 +734,7 @@ pub fn seriessum(a: &[Value]) -> Result<Value, Failure> {
             if matches!(parse_number(&c), Value::Error(_)) {
                 return err(E::Value);
             }
-            return Err(Failure::thrown(format!(
-                "Cannot assign to read only property '{i}' of string '{s}'"
-            )));
+            return Err(Failure::thrown(format!("Cannot assign to read only property '{i}' of string '{s}'")));
         }
         ref v if !is_truthy(v) || matches!(v, Value::Error(_)) => return err(E::Value),
         v => v,
@@ -909,12 +759,10 @@ pub fn munit(a: &[Value]) -> Result<Value, Failure> {
     }
     let n = array_length(n)?;
     let mut rows = Vec::new();
-    rows.try_reserve_exact(n)
-        .map_err(|_| Failure::thrown("Invalid array length"))?;
+    rows.try_reserve_exact(n).map_err(|_| Failure::thrown("Invalid array length"))?;
     for i in 0..n {
         let mut row = Vec::new();
-        row.try_reserve_exact(n)
-            .map_err(|_| Failure::thrown("Invalid array length"))?;
+        row.try_reserve_exact(n).map_err(|_| Failure::thrown("Invalid array length"))?;
         row.resize(n, Value::Number(0.0));
         row[i] = Value::Number(1.0);
         rows.push(Value::Array(row))
@@ -936,14 +784,10 @@ pub fn mmult(a: &[Value]) -> Result<Value, Failure> {
     }
     for rows in [x, y] {
         if rows.is_empty() {
-            return Err(Failure::thrown(
-                "Reduce of empty array with no initial value",
-            ));
+            return Err(Failure::thrown("Reduce of empty array with no initial value"));
         }
         if rows.len() == 1 && !matches!(rows[0], Value::Array(_)) {
-            return Err(Failure::thrown(
-                "flattenShallow(...).some is not a function",
-            ));
+            return Err(Failure::thrown("flattenShallow(...).some is not a function"));
         }
         for row in rows {
             let Value::Array(items) = row else {
@@ -961,9 +805,7 @@ pub fn mmult(a: &[Value]) -> Result<Value, Failure> {
     let columns = length(&arg(y, 0))?.unwrap_or(0);
     let mut result = Vec::new();
     for row in x {
-        let Value::Array(row) = row else {
-            unreachable!()
-        };
+        let Value::Array(row) = row else { unreachable!() };
         let mut out = Vec::new();
         for col in 0..columns {
             let mut total = 0.0;
@@ -979,9 +821,7 @@ pub fn mmult(a: &[Value]) -> Result<Value, Failure> {
 fn dispatch_stat(name: &str, args: &[Value]) -> Result<Value, Failure> {
     // The statistics task owns these bodies; the final production registry is
     // populated before any formulas are served. Do not duplicate their algorithms.
-    let f = crate::registry::library()
-        .resolve(name)
-        .ok_or_else(|| Failure::unsupported(format!("{name} is not implemented")))?;
+    let f = crate::registry::library().resolve(name).ok_or_else(|| Failure::unsupported(format!("{name} is not implemented")))?;
     f(args)
 }
 fn aggregate_kind(n: f64, ref1: Value, ref2: Value) -> Result<Value, Failure> {
@@ -1007,11 +847,7 @@ fn aggregate_kind(n: f64, ref1: Value, ref2: Value) -> Result<Value, Failure> {
         19.0 => "QUARTILE.EXC",
         _ => return Ok(Value::Undefined),
     };
-    if n >= 14.0 {
-        dispatch_stat(name, &[ref1, ref2])
-    } else {
-        dispatch_stat(name, &[ref1])
-    }
+    if n >= 14.0 { dispatch_stat(name, &[ref1, ref2]) } else { dispatch_stat(name, &[ref1]) }
 }
 pub fn aggregate(a: &[Value]) -> Result<Value, Failure> {
     let n = match parse_number(&arg(a, 0)) {
@@ -1029,11 +865,7 @@ pub fn subtotal(a: &[Value]) -> Result<Value, Failure> {
         Value::Error(e) => return err(e),
         _ => unreachable!(),
     };
-    let n = if (101.0..=111.0).contains(&n) {
-        n - 100.0
-    } else {
-        n
-    };
+    let n = if (101.0..=111.0).contains(&n) { n - 100.0 } else { n };
     if !(1.0..=11.0).contains(&n) {
         return Ok(Value::Undefined);
     }

@@ -1,5 +1,3 @@
-
-
 //! The raw console, the reader and the guard on a real terminal.
 //!
 //! Unix: a test program (this test binary run again on `unix_pty::pty_child`) enters the screen, turns raw mode on, reads
@@ -48,9 +46,7 @@ mod unix_pty {
         assert!(is_raw());
         let guard = TerminalGuard::new(modes, Some(raw));
         let restorer = guard.restorer();
-        restorer
-            .write(&format!("{}{}{}READY\r\n", screen_entry_sequence(), env.extended_keys_on(), env.mouse_on()))
-            .expect("write");
+        restorer.write(&format!("{}{}{}READY\r\n", screen_entry_sequence(), env.extended_keys_on(), env.mouse_on())).expect("write");
         let (tx, rx) = mpsc::channel();
         let mut reader = spawn_reader(tx);
         let mut got: Vec<u8> = Vec::new();
@@ -93,9 +89,7 @@ mod unix_pty {
         config.before_cleanup = Some(restorer.hook());
         config.cleanup = Some(Arc::new(|reason| println!("CLEANUP:{reason}")));
         let _cleanup = SignalCleanup::install(config);
-        restorer
-            .write(&format!("{}{}{}READY\r\n", screen_entry_sequence(), env.extended_keys_on(), env.mouse_on()))
-            .expect("write");
+        restorer.write(&format!("{}{}{}READY\r\n", screen_entry_sequence(), env.extended_keys_on(), env.mouse_on())).expect("write");
         // The signal ends the process; a program that is still here after the limit failed.
         thread::park_timeout(LIMIT);
         println!("NO-SIGNAL");
@@ -149,9 +143,7 @@ mod unix_pty {
     }
 
     fn start(scenario: &str, stderr_log: &std::path::Path) -> Run {
-        let pair = native_pty_system()
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-            .expect("openpty");
+        let pair = native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).expect("openpty");
         let mut command = CommandBuilder::new(std::env::current_exe().expect("current exe"));
         command.args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"]);
         command.env(CHILD_ENV, scenario);
@@ -283,7 +275,6 @@ mod unix_pty {
     }
 }
 
-
 #[cfg(windows)]
 mod windows_console {
     use std::os::windows::io::AsRawHandle;
@@ -291,8 +282,8 @@ mod windows_console {
     use mixdog_fsio::{File, OpenOptions, Unlaned};
     use mixdog_term::console::{RawConsole, terminal_size};
     use windows_sys::Win32::System::Console::{
-        ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT,
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT, GetConsoleMode,
+        ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT,
+        GetConsoleMode,
     };
 
     fn open(name: &str) -> File {

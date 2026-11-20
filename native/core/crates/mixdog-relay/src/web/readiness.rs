@@ -28,13 +28,10 @@ pub const READINESS_CACHE_MS: i64 = 2000;
 const MAX_DOCUMENT_BYTES: u64 = 128 * 1024;
 const MAX_ASSETS: usize = 128;
 
-static VERSION_META: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"<meta name="mixdog-shell-version" content="([a-f0-9]{64})">"#, ""));
+static VERSION_META: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<meta name="mixdog-shell-version" content="([a-f0-9]{64})">"#, ""));
 static ASSETS_META: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<meta name="mixdog-shell-assets" content="([^"]+)">"#, ""));
-static DOCUMENT_REFERENCE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"<(?:script|link)\b[^>]*?\b(?:src|href)=["']([^"']+)["'][^>]*>"#, "gi"));
-static IMPORT_SCRIPTS: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"\bimportScripts\(\s*["']([^"']+)["']\s*\)"#, "g"));
+static DOCUMENT_REFERENCE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<(?:script|link)\b[^>]*?\b(?:src|href)=["']([^"']+)["'][^>]*>"#, "gi"));
+static IMPORT_SCRIPTS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bimportScripts\(\s*["']([^"']+)["']\s*\)"#, "g"));
 static HAS_EXTENSION: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\.[a-z0-9]+$", "i"));
 
 /// Why a renderer is not ready. The text is for the log: the public answer never carries it.

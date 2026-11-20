@@ -189,9 +189,7 @@ pub fn summarize_tool_args(name: &str, args: &Value, max: usize) -> String {
     match normalized.as_str() {
         "read" | "view_image" | "apply_patch" | "list" | "ls" | "grep" | "glob" | "find" => summarize_file_tool_args(&normalized, &a, max),
         "shell" | "bash" | "bash_session" | "shell_command" | "job_wait" => truncate_command(&picked_text(&a, &["description", "command", "cmd"]), max),
-        "task" => {
-            compact_parts(&[or_text(&a, &["action", "type"], "task"), text_or_empty(field(&a, "task_id"))])
-        }
+        "task" => compact_parts(&[or_text(&a, &["action", "type"], "task"), text_or_empty(field(&a, "task_id"))]),
         "git" => {
             if matches!(field(&a, "action"), Some(Value::String(action)) if action == "stage") {
                 return count_unit(&a, &["change_ids", "change_id"], "change", "changes");
@@ -206,14 +204,13 @@ pub fn summarize_tool_args(name: &str, args: &Value, max: usize) -> String {
                 Some(Value::Array(items)) => items,
                 _ => &[],
             };
-            let headers: Vec<String> = questions
-                .iter()
-                .map(|question| js_trim(&picked_text(question, &["header", "question"])).to_owned())
-                .filter(|text| !text.is_empty())
-                .collect();
+            let headers: Vec<String> =
+                questions.iter().map(|question| js_trim(&picked_text(question, &["header", "question"])).to_owned()).filter(|text| !text.is_empty()).collect();
             truncate_tool_text(&headers.join(", "), max)
         }
-        "search_query" | "image_query" | "web_search" | "web_search_call" | "load_tool" | "web_fetch" | "fetch" => summarize_web_tool_args(&normalized, &a, max),
+        "search_query" | "image_query" | "web_search" | "web_search_call" | "load_tool" | "web_fetch" | "fetch" => {
+            summarize_web_tool_args(&normalized, &a, max)
+        }
         "browser" | "browser_devtools" | "computer" | "terminal" | "visualize" | "office" | "media" | "tidy" => {
             summarize_interface_tool_args(&normalized, &a, args, max)
         }
@@ -225,7 +222,11 @@ pub fn summarize_tool_args(name: &str, args: &Value, max: usize) -> String {
         }
         "read_mcp_resource" => truncate_tool_text(&picked_text(&a, &["uri"]), max),
         "list_mcp_resources" | "list_mcp_resource_templates" => {
-            if truthy(field(&a, "server")) { format!("server \"{}\"", truncate_value(field(&a, "server"), max)) } else { "all servers".to_owned() }
+            if truthy(field(&a, "server")) {
+                format!("server \"{}\"", truncate_value(field(&a, "server"), max))
+            } else {
+                "all servers".to_owned()
+            }
         }
         "cwd" | "session" | "setup" | "memory" | "remember" | "save_memory" | "update_memory" | "recall_memory" | "recall" | "search_memories" => {
             summarize_state_tool_args(&normalized, &a, max)
@@ -446,16 +447,10 @@ fn summarize_state_tool_args(normalized: &str, a: &Value, max: usize) -> String 
             .into_iter()
             .filter(|query| !query.is_null() && !js_trim(&value_to_string(query)).is_empty())
             .collect();
-            let shown = if queries.len() > 1 {
-                format_counted_unit(queries.len() as f64, "query", "queries")
-            } else {
-                quoted_value(queries.first().copied(), max)
-            };
-            let top = if truthy(field(a, "limit")) || truthy(field(a, "topK")) {
-                format!("top {}", text_of(coalesce(a, &["limit", "topK"])))
-            } else {
-                String::new()
-            };
+            let shown =
+                if queries.len() > 1 { format_counted_unit(queries.len() as f64, "query", "queries") } else { quoted_value(queries.first().copied(), max) };
+            let top =
+                if truthy(field(a, "limit")) || truthy(field(a, "topK")) { format!("top {}", text_of(coalesce(a, &["limit", "topK"]))) } else { String::new() };
             compact_parts(&[ids.join(", "), shown, top])
         }
         _ => String::new(),
@@ -846,7 +841,10 @@ mod tests {
         let header = |name: &str, args: Value, options: HeaderOptions| format_tool_action_header(name, &args, &options);
         assert_eq!(header("read", json!({ "paths": ["a", "b"] }), HeaderOptions::default()), "Read 2 files");
         assert_eq!(header("bash", json!({ "command": "ls" }), HeaderOptions { pending: true, ..HeaderOptions::default() }), "Running 1 command");
-        assert_eq!(header("apply_patch", json!({ "patch": "*** Update File: a" }), HeaderOptions { failed: true, ..HeaderOptions::default() }), "Failed while editing 1 file");
+        assert_eq!(
+            header("apply_patch", json!({ "patch": "*** Update File: a" }), HeaderOptions { failed: true, ..HeaderOptions::default() }),
+            "Failed while editing 1 file"
+        );
         assert_eq!(header("load_tool", json!({ "select": "x" }), HeaderOptions { pending: true, ..HeaderOptions::default() }), "Loading x");
         assert_eq!(header("read", json!({}), HeaderOptions { stable_verb_width: true, ..HeaderOptions::default() }), "Read    1 file");
     }
@@ -863,7 +861,13 @@ mod tests {
         assert_eq!(tallies.iter().map(|t| (t.category.as_str(), t.count)).collect::<Vec<_>>(), vec![("Read", 3.0), ("Shell", 1.0)]);
         let map: Map<String, Value> = tallies.iter().map(|t| (t.key.clone(), t.to_value())).collect();
         assert_eq!(format_aggregate_header(&Value::Object(map), &AggregateHeaderOptions::default()), "Read 3 files, Ran 1 command");
-        assert_eq!(format_aggregate_header(&json!({ "Setup": 2, "Read": { "count": 1 } }), &AggregateHeaderOptions { pending: true, ..AggregateHeaderOptions::default() }), "Setting up 2 items, Reading 1 file");
+        assert_eq!(
+            format_aggregate_header(
+                &json!({ "Setup": 2, "Read": { "count": 1 } }),
+                &AggregateHeaderOptions { pending: true, ..AggregateHeaderOptions::default() }
+            ),
+            "Setting up 2 items, Reading 1 file"
+        );
         let mut yields = 0;
         let many = vec![json!({ "name": "read", "args": {} }); 40];
         aggregate_done_categories_steps(&many, || yields += 1);

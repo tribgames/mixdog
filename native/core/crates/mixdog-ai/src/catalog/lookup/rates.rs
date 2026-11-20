@@ -9,8 +9,7 @@ use crate::service::admin_route::jnum;
 pub type Obj = Map<String, Value>;
 
 pub const RATE_KEYS: [&str; 4] = ["inputCostPerM", "outputCostPerM", "cacheReadCostPerM", "cacheWriteCostPerM"];
-const LITELLM_KEYS: [&str; 4] =
-    ["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost", "cache_creation_input_token_cost"];
+const LITELLM_KEYS: [&str; 4] = ["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost", "cache_creation_input_token_cost"];
 const MODELSDEV_KEYS: [&str; 4] = ["input", "output", "cache_read", "cache_write"];
 
 /// `validRate`: a finite, non-negative number.
@@ -35,23 +34,20 @@ fn suffixed(keys: &[&str; 4], tail: &str) -> [String; 4] {
 
 /// The threshold of a `<prefix>_above_<N>k_tokens<suffix>` column, in tokens.
 fn tier_threshold(key: &str, suffix: &str) -> Option<u64> {
-    LITELLM_KEYS.iter().find_map(|prefix| {
-        let rest = key.strip_prefix(prefix)?.strip_prefix("_above_")?;
-        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-        let (number, tail) = rest.split_at(digits);
-        (digits > 0 && tail.strip_prefix("k_tokens") == Some(suffix)).then(|| number.parse::<u64>().ok()).flatten()
-    })
-    .map(|k| k * 1000)
+    LITELLM_KEYS
+        .iter()
+        .find_map(|prefix| {
+            let rest = key.strip_prefix(prefix)?.strip_prefix("_above_")?;
+            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+            let (number, tail) = rest.split_at(digits);
+            (digits > 0 && tail.strip_prefix("k_tokens") == Some(suffix)).then(|| number.parse::<u64>().ok()).flatten()
+        })
+        .map(|k| k * 1000)
 }
 
 /// `litellmPricing(entry, suffix)`: `suffix` selects a service-tier column set (`_priority`).
 pub fn litellm_pricing(entry: Option<&Value>, suffix: &str) -> Obj {
-    let mut thresholds: Vec<u64> = entry
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|o| o.keys())
-        .filter_map(|key| tier_threshold(key, suffix))
-        .collect();
+    let mut thresholds: Vec<u64> = entry.and_then(Value::as_object).into_iter().flat_map(|o| o.keys()).filter_map(|key| tier_threshold(key, suffix)).collect();
     thresholds.sort_unstable();
     thresholds.dedup();
     let mut out = rates(entry, suffixed(&LITELLM_KEYS, suffix), 1_000_000.0);

@@ -84,10 +84,7 @@ async fn an_act_is_refused_while_a_browser_approval_is_pending_and_free_after_de
     assert!(!reaches(&gated, &helper).await);
     assert_eq!(
         gated.run(act(), CancellationToken::new()).await.unwrap_err(),
-        ComputerError::Failed {
-            code: "human_only_approval_pending".into(),
-            message: "Computer Use is blocked while a human-only approval is pending".into()
-        }
+        ComputerError::Failed { code: "human_only_approval_pending".into(), message: "Computer Use is blocked while a human-only approval is pending".into() }
     );
     assert!(lock.begin_computer_operation().is_err(), "a secret fill's host command is refused by the same lock");
     // The card is denied: the answer releases the hold.
@@ -145,7 +142,6 @@ async fn drained_waits_for_the_running_operation() {
     drop(operation);
     assert!(futures::poll!(drained.as_mut()).is_ready());
 }
-
 
 #[tokio::test(start_paused = true)]
 async fn the_hold_is_released_at_its_expiry() {

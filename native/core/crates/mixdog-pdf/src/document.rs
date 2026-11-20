@@ -34,14 +34,7 @@ pub struct OpenOptions {
 
 impl Default for OpenOptions {
     fn default() -> Self {
-        OpenOptions {
-            password: None,
-            cancel: None,
-            budget: Budget::default(),
-            ignore_errors: true,
-            use_system_fonts: true,
-            disable_font_face: true,
-        }
+        OpenOptions { password: None, cancel: None, budget: Budget::default(), ignore_errors: true, use_system_fonts: true, disable_font_face: true }
     }
 }
 
@@ -63,11 +56,7 @@ pub fn wrap_reason(error: &PdfError) -> Exception {
         PdfError::Cancelled => ("AbortException", None),
         _ => ("UnknownErrorException", None),
     };
-    Exception {
-        name,
-        code,
-        message: error.message().to_owned(),
-    }
+    Exception { name, code, message: error.message().to_owned() }
 }
 
 /// Where a page's dictionary was found: the dictionary and, when it was reached by a reference, that reference.
@@ -119,20 +108,11 @@ impl Document {
             bytes.into(),
             XrefOptions {
                 filters: Arc::new(CodecFilters),
-                decryptor: Some(Arc::new(CodecDecryptorFactory::new(
-                    options.password.clone(),
-                    options.budget.max_bytes,
-                ))),
+                decryptor: Some(Arc::new(CodecDecryptorFactory::new(options.password.clone(), options.budget.max_bytes))),
                 guard,
             },
         )?;
-        let mut document = Document {
-            xref,
-            options: options.clone(),
-            state: RefCell::new(State::default()),
-            num_pages: 0,
-            doc_id,
-        };
+        let mut document = Document { xref, options: options.clone(), state: RefCell::new(State::default()), num_pages: 0, doc_id };
         match document.init(false) {
             Ok(()) => {}
             Err(PdfError::XRefParse) => {
@@ -219,19 +199,13 @@ impl Document {
             return Err(reason);
         }
         if let Some(last) = last {
-            self.state
-                .borrow_mut()
-                .pages
-                .remove(&usize::try_from(last).unwrap_or(usize::MAX));
+            self.state.borrow_mut().pages.remove(&usize::try_from(last).unwrap_or(usize::MAX));
         }
         self.cleanup();
         if matches!(reason, PdfError::XRefEntry(_)) && !recovery_mode {
             return Err(PdfError::XRefParse);
         }
-        tracing::warn!(
-            "checkLastPage - invalid /Pages tree /Count: {}.",
-            last.map_or_else(|| "undefined".to_owned(), |n| (n + 1).to_string())
-        );
+        tracing::warn!("checkLastPage - invalid /Pages tree /Count: {}.", last.map_or_else(|| "undefined".to_owned(), |n| (n + 1).to_string()));
         let pages = match self.all_page_dicts(recovery_mode) {
             Ok(pages) => pages,
             Err(e) if e.is_fatal() => return Err(e),
@@ -260,8 +234,7 @@ impl Document {
             return Ok(());
         }
         *last = Some(num_pages - 1);
-        self.page_source(usize::try_from(num_pages - 1).unwrap_or(usize::MAX))
-            .map(|_| ())
+        self.page_source(usize::try_from(num_pages - 1).unwrap_or(usize::MAX)).map(|_| ())
     }
 
     /// `Catalog.cleanup`, the part that matters here.
@@ -273,9 +246,7 @@ impl Document {
 
     /// The catalog dictionary (`xref.getCatalogObj()`).
     fn root(&self) -> Result<Arc<Dict>> {
-        self.xref
-            .root()
-            .ok_or_else(|| PdfError::format("Catalog object is not a dictionary."))
+        self.xref.root().ok_or_else(|| PdfError::format("Catalog object is not a dictionary."))
     }
 
     /// `toplevelPagesDict`.
@@ -290,12 +261,7 @@ impl Document {
     /// `_pagesCount`: the `/Count` of the top-level pages dictionary.
     fn pages_count(&self) -> Result<i64> {
         let pages = self.toplevel_pages_dict()?;
-        self.xref
-            .get(&pages, "Count")?
-            .as_int()
-            .ok_or_else(|| {
-                PdfError::format("Page count in top-level pages dictionary is not an integer.")
-            })
+        self.xref.get(&pages, "Count")?.as_int().ok_or_else(|| PdfError::format("Page count in top-level pages dictionary is not an integer."))
     }
 
     /// `fetchIfRef` of a raw dictionary value; a missing key is `null`.
@@ -350,23 +316,13 @@ impl Document {
     /// The `try` of `#getLinearizationPage`.
     fn read_linearization_page(&self, reference: Ref) -> Slot {
         if let Obj::Dict(dict) = self.xref.fetch(reference, false)? {
-            let is_page = self.resolve(dict.get_raw("Type"))?.is_name("Page")
-                || (!dict.has("Type") && !dict.has("Kids") && dict.has("Contents"));
+            let is_page = self.resolve(dict.get_raw("Type"))?.is_name("Page") || (!dict.has("Type") && !dict.has("Kids") && dict.has("Contents"));
             if is_page {
-                self.state
-                    .borrow_mut()
-                    .kids_count
-                    .entry(reference.to_string())
-                    .or_insert(1);
-                return Ok(PageSource {
-                    dict,
-                    reference: Some(reference),
-                });
+                self.state.borrow_mut().kids_count.entry(reference.to_string()).or_insert(1);
+                return Ok(PageSource { dict, reference: Some(reference) });
             }
         }
-        Err(PdfError::format(
-            "The Linearization dictionary doesn't point to a valid Page dictionary.",
-        ))
+        Err(PdfError::format("The Linearization dictionary doesn't point to a valid Page dictionary."))
     }
 
     /// `Catalog.getPageDict`: walks the tree to the page at `index`, skipping the subtrees whose page count is
@@ -400,16 +356,9 @@ impl Document {
                     if let Obj::Dict(dict) = &obj
                         && self.is_page(dict)?
                     {
-                        self.state
-                            .borrow_mut()
-                            .kids_count
-                            .entry(key)
-                            .or_insert(1);
+                        self.state.borrow_mut().kids_count.entry(key).or_insert(1);
                         if current == index {
-                            return Ok(PageSource {
-                                dict: dict.clone(),
-                                reference: Some(reference),
-                            });
+                            return Ok(PageSource { dict: dict.clone(), reference: Some(reference) });
                         }
                         current += 1;
                         continue;
@@ -422,11 +371,7 @@ impl Document {
                         && count >= 0
                     {
                         if let Some(id) = &dict.obj_id {
-                            self.state
-                                .borrow_mut()
-                                .kids_count
-                                .entry(id.clone())
-                                .or_insert(count);
+                            self.state.borrow_mut().kids_count.entry(id.clone()).or_insert(count);
                         }
                         if current.saturating_add(count) <= index {
                             current = current.saturating_add(count);
@@ -436,24 +381,17 @@ impl Document {
                     let Obj::Array(kids) = self.resolve(dict.get_raw("Kids"))? else {
                         if self.is_page(&dict)? {
                             if current == index {
-                                return Ok(PageSource {
-                                    dict,
-                                    reference: None,
-                                });
+                                return Ok(PageSource { dict, reference: None });
                             }
                             current += 1;
                             continue;
                         }
-                        return Err(PdfError::format(
-                            "Page dictionary kids object is not an array.",
-                        ));
+                        return Err(PdfError::format("Page dictionary kids object is not an array."));
                     };
                     nodes.extend(kids.iter().rev().cloned());
                 }
                 _ => {
-                    return Err(PdfError::format(
-                        "Page dictionary kid reference points to wrong type of object.",
-                    ));
+                    return Err(PdfError::format("Page dictionary kid reference points to wrong type of object."));
                 }
             }
         }
@@ -471,10 +409,7 @@ impl Document {
             }
             if recovery_mode && ignore_errors && map.is_empty() {
                 tracing::warn!("getAllPageDicts - Skipping invalid first page: \"{error}\".");
-                map.push(Ok(PageSource {
-                    dict: Arc::new(Dict::new()),
-                    reference: None,
-                }));
+                map.push(Ok(PageSource { dict: Arc::new(Dict::new()), reference: None }));
             } else {
                 map.push(Err(error));
             }
@@ -499,14 +434,8 @@ impl Document {
             };
             let Obj::Array(kids) = kids else {
                 match self.is_page(&node) {
-                    Ok(true) => map.push(Ok(PageSource {
-                        dict: node,
-                        reference: None,
-                    })),
-                    Ok(false) => add_error(
-                        &mut map,
-                        PdfError::format("Page dictionary kids object is not an array."),
-                    )?,
+                    Ok(true) => map.push(Ok(PageSource { dict: node, reference: None })),
+                    Ok(false) => add_error(&mut map, PdfError::format("Page dictionary kids object is not an array."))?,
                     Err(e) => add_error(&mut map, e)?,
                 }
                 break;
@@ -517,10 +446,7 @@ impl Document {
             };
             let obj = if let Obj::Ref(reference) = kid {
                 if !visited.insert(reference.to_string()) {
-                    add_error(
-                        &mut map,
-                        PdfError::format("Pages tree contains circular reference."),
-                    )?;
+                    add_error(&mut map, PdfError::format("Pages tree contains circular reference."))?;
                     break;
                 }
                 match self.xref.fetch(*reference, false) {
@@ -534,17 +460,11 @@ impl Document {
                 kid.clone()
             };
             let Obj::Dict(dict) = obj else {
-                add_error(
-                    &mut map,
-                    PdfError::format("Page dictionary kid reference points to wrong type of object."),
-                )?;
+                add_error(&mut map, PdfError::format("Page dictionary kid reference points to wrong type of object."))?;
                 break;
             };
             match self.is_page(&dict) {
-                Ok(true) => map.push(Ok(PageSource {
-                    dict,
-                    reference: kid.as_ref_value(),
-                })),
+                Ok(true) => map.push(Ok(PageSource { dict, reference: kid.as_ref_value() })),
                 Ok(false) => {
                     queue[item].1 += 1;
                     queue.push((dict, 0));

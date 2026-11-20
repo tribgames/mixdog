@@ -3,10 +3,7 @@
 //! (`compileCharString`). Hints are ignored; `endchar` with four arguments (seac) draws the accent and the base.
 
 use super::truetype::{subarray, u8_at};
-use super::{
-    error, lookup_cmap, CmapRange, Commands, Matrix, Result, CURVE_TO, FONT_IDENTITY_MATRIX,
-    LINE_TO, MOVE_TO,
-};
+use super::{CURVE_TO, CmapRange, Commands, FONT_IDENTITY_MATRIX, LINE_TO, MOVE_TO, Matrix, Result, error, lookup_cmap};
 
 const MAX_SUBR_NESTING: u32 = 10;
 const MAX_FD_ARRAY_COUNT: usize = 256;
@@ -84,11 +81,7 @@ fn subroutine_bias(count: usize) -> i64 {
 
 /// `array[n]` of a JS array: `None` for an index that is not a whole number inside it.
 fn index_of(n: f64, len: usize) -> Option<usize> {
-    if n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n < len as f64 {
-        Some(n as usize)
-    } else {
-        None
-    }
+    if n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n < len as f64 { Some(n as usize) } else { None }
 }
 
 impl Type2Font {
@@ -129,19 +122,7 @@ impl Type2Font {
         let Some(code) = self.glyph(id) else {
             return error("Cannot read properties of undefined (reading 'buffer')");
         };
-        Interpreter {
-            font: self,
-            cmap,
-            cmds,
-            glyph_id: id,
-            stack: Vec::new(),
-            x: 0.0,
-            y: 0.0,
-            stems: 0,
-            first_point: None,
-            depth: 0,
-        }
-        .run(code)
+        Interpreter { font: self, cmap, cmds, glyph_id: id, stack: Vec::new(), x: 0.0, y: 0.0, stems: 0, first_point: None, depth: 0 }.run(code)
     }
 }
 
@@ -176,10 +157,7 @@ fn parse_index(bytes: &[u8], pos: usize) -> Result<(Vec<Vec<u8>>, usize)> {
         }
         end = offsets[count];
     }
-    let objects = offsets
-        .windows(2)
-        .map(|w| subarray(bytes, w[0], w[1]).to_vec())
-        .collect();
+    let objects = offsets.windows(2).map(|w| subarray(bytes, w[0], w[1]).to_vec()).collect();
     Ok((objects, end))
 }
 
@@ -266,8 +244,7 @@ fn parse_dict(dict: &[u8]) -> Vec<(u16, Vec<f64>)> {
                     f64::from(v)
                 }
                 29 => {
-                    let v =
-                        i32::from_be_bytes([get(pos), get(pos + 1), get(pos + 2), get(pos + 3)]);
+                    let v = i32::from_be_bytes([get(pos), get(pos + 1), get(pos + 2), get(pos + 3)]);
                     pos += 4;
                     f64::from(v)
                 }
@@ -368,9 +345,7 @@ fn parse_private(bytes: &[u8], parent: &Dict) -> Result<Private> {
         return Ok(Private::Present { subrs: None });
     }
     let (objects, _) = parse_index(bytes, relative.max(0.0) as usize)?;
-    Ok(Private::Present {
-        subrs: Some(objects),
-    })
+    Ok(Private::Present { subrs: Some(objects) })
 }
 
 /// pdf.js `parseFDSelect`: the font dictionary index of each of `length` glyphs.
@@ -408,10 +383,7 @@ fn parse_fd_select(bytes: &[u8], mut pos: usize, length: usize) -> Result<Vec<u8
             }
         }
         other => {
-            return error(format!(
-                "parseFDSelect: Unknown format \"{}\".",
-                other.map_or("undefined".to_string(), |f| f.to_string())
-            ));
+            return error(format!("parseFDSelect: Unknown format \"{}\".", other.map_or("undefined".to_string(), |f| f.to_string())));
         }
     }
     if select.len() != length {
@@ -464,10 +436,7 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
     let top = Dict::from_entries(parse_dict(top_raw));
     let top_private = parse_private(bytes, &top)?;
     let is_cid = top.has(OP_ROS);
-    let (mut glyphs, _) = parse_index(
-        bytes,
-        top.scalar(OP_CHARSTRINGS).unwrap_or(0.0).max(0.0) as usize,
-    )?;
+    let (mut glyphs, _) = parse_index(bytes, top.scalar(OP_CHARSTRINGS).unwrap_or(0.0).max(0.0) as usize)?;
     let glyph_count = glyphs.len();
     let mut locals: Vec<Option<Vec<Vec<u8>>>> = Vec::new();
     let mut fd_array: Vec<FontDict> = Vec::new();
@@ -492,11 +461,7 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
         for raw in fd_objects.iter().take(fd_count) {
             let dict = Dict::from_entries(parse_dict(raw));
             let private = parse_private(bytes, &dict)?;
-            let font_matrix = dict
-                .0
-                .get(&OP_FONT_MATRIX)
-                .cloned()
-                .unwrap_or_else(|| FONT_IDENTITY_MATRIX.to_vec());
+            let font_matrix = dict.0.get(&OP_FONT_MATRIX).cloned().unwrap_or_else(|| FONT_IDENTITY_MATRIX.to_vec());
             fd_array.push(FontDict { font_matrix });
             match private {
                 Private::Present { subrs } => {
@@ -512,18 +477,9 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
         let Some(select_offset) = top.scalar(OP_FDSELECT) else {
             return error("Cannot read properties of undefined (reading 'length')");
         };
-        fd_select = Some(parse_fd_select(
-            bytes,
-            select_offset.max(0.0) as usize,
-            glyph_count,
-        )?);
+        fd_select = Some(parse_fd_select(bytes, select_offset.max(0.0) as usize, glyph_count)?);
     }
-    let mut ctx = Repair {
-        glyphs: &mut glyphs,
-        gsubrs,
-        locals,
-        seac_analysis,
-    };
+    let mut ctx = Repair { glyphs: &mut glyphs, gsubrs, locals, seac_analysis };
     for i in 0..glyph_count {
         let mut valid = true;
         let mut local_set = None;
@@ -552,14 +508,7 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
                 }
             }
         }
-        let mut state = RepairState {
-            call_depth: 0,
-            stack_size: 0,
-            stack: Vec::new(),
-            hints: 0,
-            first_stack_clearing: true,
-            has_v_stems: false,
-        };
+        let mut state = RepairState { call_depth: 0, stack_size: 0, stack: Vec::new(), hints: 0, first_stack_clearing: true, has_v_stems: false };
         valid = valid && ctx.parse_char_string(&mut state, Ref::Glyph(i), local_set);
         if !valid {
             ctx.glyphs[i] = vec![14];
@@ -567,16 +516,7 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
     }
     let Repair { gsubrs, locals, .. } = ctx;
     let subrs_bias = subroutine_bias(locals[0].as_ref().map_or(0, Vec::len));
-    Ok(Type2Font {
-        glyphs,
-        gsubrs_bias: subroutine_bias(gsubrs.len()),
-        gsubrs,
-        locals,
-        subrs_bias,
-        is_cid,
-        fd_select,
-        fd_array,
-    })
+    Ok(Type2Font { glyphs, gsubrs_bias: subroutine_bias(gsubrs.len()), gsubrs, locals, subrs_bias, is_cid, fd_select, fd_array })
 }
 
 impl Type2Font {
@@ -587,42 +527,17 @@ impl Type2Font {
     pub fn from_charstrings(glyphs: Vec<Vec<u8>>, subrs: Vec<Vec<u8>>) -> Self {
         let mut all = Vec::with_capacity(glyphs.len() + 1);
         all.push(vec![0x8b, 0x0e]);
-        all.extend(
-            glyphs
-                .into_iter()
-                .map(|g| if g.is_empty() { vec![0x8b, 0x0e] } else { g }),
-        );
-        let mut ctx = Repair {
-            glyphs: &mut all,
-            gsubrs: Vec::new(),
-            locals: vec![Some(subrs)],
-            seac_analysis: true,
-        };
+        all.extend(glyphs.into_iter().map(|g| if g.is_empty() { vec![0x8b, 0x0e] } else { g }));
+        let mut ctx = Repair { glyphs: &mut all, gsubrs: Vec::new(), locals: vec![Some(subrs)], seac_analysis: true };
         for i in 0..ctx.glyphs.len() {
-            let mut state = RepairState {
-                call_depth: 0,
-                stack_size: 0,
-                stack: Vec::new(),
-                hints: 0,
-                first_stack_clearing: true,
-                has_v_stems: false,
-            };
+            let mut state = RepairState { call_depth: 0, stack_size: 0, stack: Vec::new(), hints: 0, first_stack_clearing: true, has_v_stems: false };
             if !ctx.parse_char_string(&mut state, Ref::Glyph(i), Some(0)) {
                 ctx.glyphs[i] = vec![14];
             }
         }
         let Repair { gsubrs, locals, .. } = ctx;
         let subrs_bias = subroutine_bias(locals[0].as_ref().map_or(0, Vec::len));
-        Self {
-            glyphs: all,
-            gsubrs_bias: subroutine_bias(gsubrs.len()),
-            gsubrs,
-            locals,
-            subrs_bias,
-            is_cid: false,
-            fd_select: None,
-            fd_array: Vec::new(),
-        }
+        Self { glyphs: all, gsubrs_bias: subroutine_bias(gsubrs.len()), gsubrs, locals, subrs_bias, is_cid: false, fd_select: None, fd_array: Vec::new() }
     }
 }
 
@@ -666,49 +581,19 @@ enum StackFn {
 }
 
 const fn plain(min: i64) -> Validation {
-    Validation {
-        min,
-        stack_clearing: false,
-        reset_stack: false,
-        stem: false,
-        delta: None,
-    }
+    Validation { min, stack_clearing: false, reset_stack: false, stem: false, delta: None }
 }
 const fn clearing(min: i64) -> Validation {
-    Validation {
-        min,
-        stack_clearing: true,
-        reset_stack: false,
-        stem: false,
-        delta: None,
-    }
+    Validation { min, stack_clearing: true, reset_stack: false, stem: false, delta: None }
 }
 const fn stem(min: i64) -> Validation {
-    Validation {
-        min,
-        stack_clearing: true,
-        reset_stack: false,
-        stem: true,
-        delta: None,
-    }
+    Validation { min, stack_clearing: true, reset_stack: false, stem: true, delta: None }
 }
 const fn reset(min: i64) -> Validation {
-    Validation {
-        min,
-        stack_clearing: false,
-        reset_stack: true,
-        stem: false,
-        delta: None,
-    }
+    Validation { min, stack_clearing: false, reset_stack: true, stem: false, delta: None }
 }
 const fn delta(min: i64, d: i64, f: Option<StackFn>) -> Validation {
-    Validation {
-        min,
-        stack_clearing: false,
-        reset_stack: false,
-        stem: false,
-        delta: Some((d, f)),
-    }
+    Validation { min, stack_clearing: false, reset_stack: false, stem: false, delta: Some((d, f)) }
 }
 
 /// `CharstringValidationData[op]`.
@@ -810,12 +695,7 @@ impl Repair<'_> {
 
     /// pdf.js `CFFParser.parseCharString`: validates the charstring at `r` (and the subroutines it calls) and repairs
     /// it in place. `false` marks it invalid.
-    fn parse_char_string(
-        &mut self,
-        state: &mut RepairState,
-        r: Ref,
-        local_set: Option<usize>,
-    ) -> bool {
+    fn parse_char_string(&mut self, state: &mut RepairState, r: Ref, local_set: Option<usize>) -> bool {
         if state.call_depth > MAX_SUBR_NESTING {
             return false;
         }
@@ -838,10 +718,7 @@ impl Repair<'_> {
                     command = validation12(q);
                 }
             } else if value == 28 {
-                let v = i16::from_be_bytes([
-                    self.byte(r, j).unwrap_or(0),
-                    self.byte(r, j + 1).unwrap_or(0),
-                ]);
+                let v = i16::from_be_bytes([self.byte(r, j).unwrap_or(0), self.byte(r, j + 1).unwrap_or(0)]);
                 push_value(state, &mut stack_size, f64::from(v));
                 j += 2;
             } else if value == 14 {
@@ -887,18 +764,9 @@ impl Repair<'_> {
                 stack_size %= 2;
                 command = validation(value);
             } else if value == 10 || value == 29 {
-                let count = if value == 10 {
-                    local_set
-                        .and_then(|s| self.locals[s].as_ref())
-                        .map(Vec::len)
-                } else {
-                    Some(self.gsubrs.len())
-                };
+                let count = if value == 10 { local_set.and_then(|s| self.locals[s].as_ref()).map(Vec::len) } else { Some(self.gsubrs.len()) };
                 let Some(count) = count else {
-                    tracing::warn!(
-                        "Missing subrsIndex for {}",
-                        if value == 10 { "callsubr" } else { "callgsubr" }
-                    );
+                    tracing::warn!("Missing subrsIndex for {}", if value == 10 { "callsubr" } else { "callgsubr" });
                     return false;
                 };
                 let bias = if count < 1240 {
@@ -909,30 +777,15 @@ impl Repair<'_> {
                     32768
                 };
                 stack_size -= 1;
-                let popped = if stack_size >= 0 {
-                    state
-                        .stack
-                        .get(stack_size as usize)
-                        .copied()
-                        .unwrap_or(f64::NAN)
-                } else {
-                    f64::NAN
-                };
+                let popped = if stack_size >= 0 { state.stack.get(stack_size as usize).copied().unwrap_or(f64::NAN) } else { f64::NAN };
                 let subr_number = popped + f64::from(bias);
                 let Some(index) = index_of(subr_number, count) else {
-                    tracing::warn!(
-                        "Out of bounds subrIndex for {}",
-                        if value == 10 { "callsubr" } else { "callgsubr" }
-                    );
+                    tracing::warn!("Out of bounds subrIndex for {}", if value == 10 { "callsubr" } else { "callgsubr" });
                     return false;
                 };
                 state.stack_size = stack_size;
                 state.call_depth += 1;
-                let target = if value == 10 {
-                    Ref::Local(local_set.unwrap_or(0), index)
-                } else {
-                    Ref::Gsubr(index)
-                };
+                let target = if value == 10 { Ref::Local(local_set.unwrap_or(0), index) } else { Ref::Gsubr(index) };
                 if !self.parse_char_string(state, target, local_set) {
                     return false;
                 }
@@ -982,13 +835,7 @@ impl Repair<'_> {
                 }
                 if let Some((d, function)) = cmd.delta {
                     if let Some(function) = function {
-                        let at = |k: i64| -> f64 {
-                            if k >= 0 {
-                                state.stack.get(k as usize).copied().unwrap_or(f64::NAN)
-                            } else {
-                                f64::NAN
-                            }
-                        };
+                        let at = |k: i64| -> f64 { if k >= 0 { state.stack.get(k as usize).copied().unwrap_or(f64::NAN) } else { f64::NAN } };
                         let a = at(stack_size - 2);
                         let b = at(stack_size - 1);
                         let (slot, v) = match function {
@@ -1042,11 +889,7 @@ impl<'a> Interpreter<'a> {
     }
 
     fn shift(&mut self) -> f64 {
-        if self.stack.is_empty() {
-            f64::NAN
-        } else {
-            self.stack.remove(0)
-        }
+        if self.stack.is_empty() { f64::NAN } else { self.stack.remove(0) }
     }
 
     fn pop(&mut self) -> f64 {
@@ -1073,19 +916,12 @@ impl<'a> Interpreter<'a> {
     fn local_subr(&self, n: f64) -> Option<&'a [u8]> {
         let font = self.font;
         if font.is_cid {
-            let Some(fd) = font
-                .fd_select
-                .as_ref()
-                .and_then(|s| s.get(self.glyph_id))
-                .map(|&f| usize::from(f))
-                .filter(|&f| f < font.fd_array.len())
-            else {
+            let Some(fd) = font.fd_select.as_ref().and_then(|s| s.get(self.glyph_id)).map(|&f| usize::from(f)).filter(|&f| f < font.fd_array.len()) else {
                 tracing::warn!("Invalid fd index for glyph index.");
                 return None;
             };
             let subrs = font.locals.get(1 + fd)?.as_ref()?;
-            return index_of(n + subroutine_bias(subrs.len()) as f64, subrs.len())
-                .map(|i| subrs[i].as_slice());
+            return index_of(n + subroutine_bias(subrs.len()) as f64, subrs.len()).map(|i| subrs[i].as_slice());
         }
         let subrs = font.locals[0].as_deref().unwrap_or(&[]);
         index_of(n + font.subrs_bias as f64, subrs.len()).map(|i| subrs[i].as_slice())
@@ -1350,12 +1186,7 @@ impl<'a> Interpreter<'a> {
                         xb = xa + self.shift();
                         yb = ya + self.shift();
                         self.x = xb + self.shift();
-                        self.y = yb
-                            + if self.stack.len() == 1 {
-                                self.shift()
-                            } else {
-                                0.0
-                            };
+                        self.y = yb + if self.stack.len() == 1 { self.shift() } else { 0.0 };
                         self.curve_to(xa, ya, xb, yb, self.x, self.y);
                         if self.stack.is_empty() {
                             break;
@@ -1365,12 +1196,7 @@ impl<'a> Interpreter<'a> {
                         xb = xa + self.shift();
                         yb = ya + self.shift();
                         self.y = yb + self.shift();
-                        self.x = xb
-                            + if self.stack.len() == 1 {
-                                self.shift()
-                            } else {
-                                0.0
-                            };
+                        self.x = xb + if self.stack.len() == 1 { self.shift() } else { 0.0 };
                         self.curve_to(xa, ya, xb, yb, self.x, self.y);
                     }
                 }
@@ -1381,12 +1207,7 @@ impl<'a> Interpreter<'a> {
                         xb = xa + self.shift();
                         yb = ya + self.shift();
                         self.y = yb + self.shift();
-                        self.x = xb
-                            + if self.stack.len() == 1 {
-                                self.shift()
-                            } else {
-                                0.0
-                            };
+                        self.x = xb + if self.stack.len() == 1 { self.shift() } else { 0.0 };
                         self.curve_to(xa, ya, xb, yb, self.x, self.y);
                         if self.stack.is_empty() {
                             break;
@@ -1396,12 +1217,7 @@ impl<'a> Interpreter<'a> {
                         xb = xa + self.shift();
                         yb = ya + self.shift();
                         self.x = xb + self.shift();
-                        self.y = yb
-                            + if self.stack.len() == 1 {
-                                self.shift()
-                            } else {
-                                0.0
-                            };
+                        self.y = yb + if self.stack.len() == 1 { self.shift() } else { 0.0 };
                         self.curve_to(xa, ya, xb, yb, self.x, self.y);
                     }
                 }
@@ -1414,20 +1230,16 @@ impl<'a> Interpreter<'a> {
                     } else if v < 251 {
                         let next = code.get(i).map_or(f64::NAN, |&b| f64::from(b));
                         i += 1;
-                        self.stack
-                            .push((f64::from(v) - 247.0) * 256.0 + next + 108.0);
+                        self.stack.push((f64::from(v) - 247.0) * 256.0 + next + 108.0);
                     } else if v < 255 {
                         let next = code.get(i).map_or(f64::NAN, |&b| f64::from(b));
                         i += 1;
-                        self.stack
-                            .push(-(f64::from(v) - 251.0) * 256.0 - next - 108.0);
+                        self.stack.push(-(f64::from(v) - 251.0) * 256.0 - next - 108.0);
                     } else {
                         let Some(b) = code.get(i..i + 4) else {
                             return error("Offset is outside the bounds of the DataView");
                         };
-                        self.stack.push(
-                            f64::from(i32::from_be_bytes([b[0], b[1], b[2], b[3]])) / 65536.0,
-                        );
+                        self.stack.push(f64::from(i32::from_be_bytes([b[0], b[1], b[2], b[3]])) / 65536.0);
                         i += 4;
                     }
                 }
@@ -1484,43 +1296,15 @@ mod tests {
     #[test]
     fn a_triangle_charstring_draws_move_and_lines() {
         // 100 0 rmoveto, 100 0 rlineto, -100 100 rlineto endchar
-        let glyph = vec![
-            num(100),
-            num(0),
-            21,
-            num(100),
-            num(0),
-            5,
-            num(-100),
-            num(100),
-            5,
-            14,
-        ];
+        let glyph = vec![num(100), num(0), 21, num(100), num(0), 5, num(-100), num(100), 5, 14];
         let font = Type2Font::from_charstrings(vec![glyph], Vec::new());
         let path = path_of(&font, 1);
-        assert_eq!(
-            path,
-            vec![MOVE_TO, 100.0, 0.0, LINE_TO, 200.0, 0.0, LINE_TO, 100.0, 100.0]
-        );
+        assert_eq!(path, vec![MOVE_TO, 100.0, 0.0, LINE_TO, 200.0, 0.0, LINE_TO, 100.0, 100.0]);
     }
 
     #[test]
     fn a_second_moveto_closes_the_previous_contour_with_a_line_to_its_start() {
-        let glyph = vec![
-            num(10),
-            num(10),
-            21,
-            num(5),
-            num(0),
-            5,
-            num(20),
-            num(20),
-            21,
-            num(5),
-            num(0),
-            5,
-            14,
-        ];
+        let glyph = vec![num(10), num(10), 21, num(5), num(0), 5, num(20), num(20), 21, num(5), num(0), 5, 14];
         let font = Type2Font::from_charstrings(vec![glyph], Vec::new());
         let path = path_of(&font, 1);
         assert_eq!(path[0], MOVE_TO);

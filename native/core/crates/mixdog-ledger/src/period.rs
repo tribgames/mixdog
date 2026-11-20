@@ -17,17 +17,11 @@ use crate::time::set_local_time;
 const HOUR_MS: i64 = 3_600_000;
 
 fn type_error(message: &'static str) -> LedgerError {
-    LedgerError::Period {
-        range: false,
-        message,
-    }
+    LedgerError::Period { range: false, message }
 }
 
 fn range_error(message: &'static str) -> LedgerError {
-    LedgerError::Period {
-        range: true,
-        message,
-    }
+    LedgerError::Period { range: true, message }
 }
 
 /// What a caller may name; every field is optional and `view` defaults to the 24-hour view.
@@ -47,14 +41,7 @@ fn midnight(ts_ms: i64) -> i64 {
 
 fn is_day_text(text: &str) -> bool {
     let bytes = text.as_bytes();
-    bytes.len() == 10
-        && bytes.iter().enumerate().all(|(at, b)| {
-            if at == 4 || at == 7 {
-                *b == b'-'
-            } else {
-                b.is_ascii_digit()
-            }
-        })
+    bytes.len() == 10 && bytes.iter().enumerate().all(|(at, b)| if at == 4 || at == 7 { *b == b'-' } else { b.is_ascii_digit() })
 }
 
 /// Local midnight of the calendar date `anchor` names (`YYYY-MM-DD`, 1970 or later).
@@ -65,8 +52,7 @@ fn anchor_date(anchor: Option<&str>, now: i64) -> Result<i64> {
     if !is_day_text(anchor) {
         return Err(type_error("Usage period anchor must be a calendar date"));
     }
-    let invalid =
-        || type_error("Usage period anchor must be a valid calendar date from 1970 onward");
+    let invalid = || type_error("Usage period anchor must be a valid calendar date from 1970 onward");
     // `new Date(`${anchor}T00:00:00`)`: an ISO date-time without an offset is local time.
     let parsed = mixdog_js::time::date_parse(&format!("{anchor}T00:00:00"));
     if !parsed.is_finite() {
@@ -92,12 +78,7 @@ fn clock_time(value: Option<&str>, message: &'static str) -> Result<Option<Clock
         return Ok(None);
     };
     let bytes = text.as_bytes();
-    let digit = |at: usize| {
-        bytes
-            .get(at)
-            .filter(|b| b.is_ascii_digit())
-            .map(|b| u32::from(b - b'0'))
-    };
+    let digit = |at: usize| bytes.get(at).filter(|b| b.is_ascii_digit()).map(|b| u32::from(b - b'0'));
     let pair = |at: usize| Some(digit(at)? * 10 + digit(at + 1)?);
     let parsed = match bytes.len() {
         5 if bytes[2] == b':' => pair(0).zip(pair(3)).map(|(h, m)| (h, m, None)),
@@ -108,15 +89,8 @@ fn clock_time(value: Option<&str>, message: &'static str) -> Result<Option<Clock
         _ => None,
     };
     match parsed {
-        Some((hours, minutes, seconds))
-            if hours <= 23 && minutes <= 59 && seconds.unwrap_or(0) <= 59 =>
-        {
-            Ok(Some(ClockTime {
-                hours,
-                minutes,
-                seconds,
-                text: text.to_string(),
-            }))
+        Some((hours, minutes, seconds)) if hours <= 23 && minutes <= 59 && seconds.unwrap_or(0) <= 59 => {
+            Ok(Some(ClockTime { hours, minutes, seconds, text: text.to_string() }))
         }
         _ => Err(type_error(message)),
     }
@@ -126,25 +100,14 @@ fn clock_time(value: Option<&str>, message: &'static str) -> Result<Option<Clock
 /// end spans that unit whole, so 09:00–18:00 keeps all of 18:00.
 fn clock_ms(day: i64, time: Option<&ClockTime>, start: bool) -> i64 {
     match (start, time) {
-        (true, time) => set_local_time(
-            day,
-            time.map_or(0, |t| t.hours),
-            time.map_or(0, |t| t.minutes),
-            time.and_then(|t| t.seconds).unwrap_or(0),
-            0,
-        ),
+        (true, time) => set_local_time(day, time.map_or(0, |t| t.hours), time.map_or(0, |t| t.minutes), time.and_then(|t| t.seconds).unwrap_or(0), 0),
         (false, None) => set_local_time(day, 23, 59, 59, 999),
         (false, Some(t)) => set_local_time(day, t.hours, t.minutes, t.seconds.unwrap_or(59), 999),
     }
 }
 
 fn object(fields: Vec<(&str, Value)>) -> Value {
-    Value::Object(
-        fields
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect::<Map<_, _>>(),
-    )
+    Value::Object(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<Map<_, _>>())
 }
 
 fn text(value: String) -> Value {
@@ -161,11 +124,7 @@ fn optional(value: Option<String>) -> Value {
 /// at the end of the selected range.
 pub fn resolve_usage_stats_period(request: &PeriodRequest, now: i64) -> Result<Value> {
     let view = request.view.as_deref().unwrap_or("hour");
-    if ![
-        "hour", "7d", "day", "week", "month", "year", "all", "custom",
-    ]
-    .contains(&view)
-    {
+    if !["hour", "7d", "day", "week", "month", "year", "all", "custom"].contains(&view) {
         return Err(type_error("Unknown usage statistics view"));
     }
     if now <= 0 {
@@ -209,21 +168,13 @@ pub fn resolve_usage_stats_period(request: &PeriodRequest, now: i64) -> Result<V
 /// The whole days from the start day to the end day, narrowed by clock times when given, never
 /// reaching into the future.
 fn custom_period(request: &PeriodRequest, now: i64, today: String) -> Result<Value> {
-    let (Some(start_day), Some(end_day)) =
-        (request.start_day.as_deref(), request.end_day.as_deref())
-    else {
+    let (Some(start_day), Some(end_day)) = (request.start_day.as_deref(), request.end_day.as_deref()) else {
         return Err(type_error("Usage range requires a start and end date"));
     };
     let start = anchor_date(Some(start_day), now)?;
     let end = anchor_date(Some(end_day), now)?;
-    let from = clock_time(
-        request.start_time.as_deref(),
-        "Usage range start time must be a HH:MM clock time",
-    )?;
-    let to = clock_time(
-        request.end_time.as_deref(),
-        "Usage range end time must be a HH:MM clock time",
-    )?;
+    let from = clock_time(request.start_time.as_deref(), "Usage range start time must be a HH:MM clock time")?;
+    let to = clock_time(request.end_time.as_deref(), "Usage range end time must be a HH:MM clock time")?;
     if start > end {
         return Err(range_error("Usage range start must not follow its end"));
     }
@@ -281,22 +232,8 @@ fn calendar_period(view: &str, anchor: Option<&str>, now: i64) -> Result<Value> 
         ("startDay", text(day_key(start))),
         ("endDay", text(day_key(end))),
         ("days", days.into()),
-        (
-            "previousAnchor",
-            if local_fields(previous).date().year() >= 1970 {
-                text(day_key(previous))
-            } else {
-                Value::Null
-            },
-        ),
-        (
-            "nextAnchor",
-            if end < current {
-                text(day_key(next.min(current)))
-            } else {
-                Value::Null
-            },
-        ),
+        ("previousAnchor", if local_fields(previous).date().year() >= 1970 { text(day_key(previous)) } else { Value::Null }),
+        ("nextAnchor", if end < current { text(day_key(next.min(current))) } else { Value::Null }),
         ("isCurrent", (end == current).into()),
     ]))
 }

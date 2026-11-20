@@ -4,7 +4,7 @@
 //! pooling and L2 normalisation that produce a stored vector. One text per
 //! graph run, never padded, so a vector is the same however it was batched.
 
-use mixdog_js::{js_trim};
+use mixdog_js::js_trim;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -124,7 +124,6 @@ pub struct Embedder {
     inner: Arc<Inner>,
 }
 
-
 impl Embedder {
     /// Whether a caller holds this model besides the provider's own cell (an embed in flight keeps its own handle).
     pub fn in_use(&self) -> bool {
@@ -222,17 +221,13 @@ impl Embedder {
             feeds.push(("token_type_ids", make(vec![0; n])?.into_dyn()));
         }
         // A free session first; when all are busy, wait on the next in turn.
-        let guard = inner
-            .sessions
-            .iter()
-            .find_map(|slot| slot.try_lock().ok())
-            .map_or_else(
-                || {
-                    let slot = &inner.sessions[n % inner.sessions.len()];
-                    slot.lock().map_err(|_| MemoryError::Runtime("embedding session poisoned".into()))
-                },
-                Ok,
-            )?;
+        let guard = inner.sessions.iter().find_map(|slot| slot.try_lock().ok()).map_or_else(
+            || {
+                let slot = &inner.sessions[n % inner.sessions.len()];
+                slot.lock().map_err(|_| MemoryError::Runtime("embedding session poisoned".into()))
+            },
+            Ok,
+        )?;
         let mut session = guard;
         let outputs = session.run(feeds).map_err(|error| runtime_error("embedding run", error))?;
         let name = outputs
@@ -240,16 +235,13 @@ impl Embedder {
             .map(|_| "last_hidden_state".to_owned())
             .or_else(|| outputs.keys().next().map(str::to_owned))
             .ok_or_else(|| MemoryError::Runtime(format!("embedding output missing (model={})", inner.model_id)))?;
-        let (shape, data) =
-            outputs[name.as_str()].try_extract_tensor::<f32>().map_err(|error| runtime_error("embedding output", error))?;
+        let (shape, data) = outputs[name.as_str()].try_extract_tensor::<f32>().map_err(|error| runtime_error("embedding output", error))?;
         let dims = *shape.last().ok_or_else(|| MemoryError::Runtime("embedding output shape".into()))? as usize;
         if dims == 0 || dims > data.len() || inner.pooling == Pooling::Mean && n > data.len() / dims {
             return Err(MemoryError::Runtime(format!("embedding output missing (model={})", inner.model_id)));
         }
         if let Some(expected) = config::known_dims(&inner.model_id).filter(|expected| *expected != dims) {
-            return Err(MemoryError::Embedding(format!(
-                "embedding dims invariant violation: model={} expected={expected} measured={dims}", inner.model_id
-            )));
+            return Err(MemoryError::Embedding(format!("embedding dims invariant violation: model={} expected={expected} measured={dims}", inner.model_id)));
         }
         let mut vector = vec![0f32; dims];
         match inner.pooling {
@@ -280,9 +272,7 @@ impl Embedder {
             return Ok(Arc::new(Vec::new()));
         }
         let this = self.clone();
-        let vector = run_on_lane(self.inner.lane, move || this.embed_blocking(&prepared))
-            .await
-            .map_err(|error| runtime_error("embedding", error))??;
+        let vector = run_on_lane(self.inner.lane, move || this.embed_blocking(&prepared)).await.map_err(|error| runtime_error("embedding", error))??;
         Ok(Arc::new(vector))
     }
 

@@ -28,10 +28,7 @@ pub const GENERATED_FNV1A64: &str = "44f32f785342ea36";
 
 /// The value of `key` in a table sorted by name.
 pub fn lookup<V: Copy>(table: &[(&str, V)], key: &str) -> Option<V> {
-    table
-        .binary_search_by(|entry| entry.0.cmp(key))
-        .ok()
-        .map(|at| table[at].1)
+    table.binary_search_by(|entry| entry.0.cmp(key)).ok().map(|at| table[at].1)
 }
 
 /// Whether `key` is in a sorted name list.
@@ -41,10 +38,7 @@ pub fn contains_name(names: &[&str], key: &str) -> bool {
 
 /// The value of `code` in a table sorted by code.
 pub fn lookup_code(table: &[(u32, u32)], code: u32) -> Option<u32> {
-    table
-        .binary_search_by(|entry| entry.0.cmp(&code))
-        .ok()
-        .map(|at| table[at].1)
+    table.binary_search_by(|entry| entry.0.cmp(&code)).ok().map(|at| table[at].1)
 }
 
 /// `getGlyphsUnicode()[name]`.
@@ -60,10 +54,7 @@ pub fn dingbats_glyph_unicode(name: &str) -> Option<u32> {
 /// The first glyph name of the glyph list (in pdf.js's key order) with this code point: what `recoverGlyphName` finds.
 pub fn glyph_name_for_unicode(unicode: u32) -> Option<&'static str> {
     let table = &glyphlist::GLYPH_NAME_BY_UNICODE;
-    table
-        .binary_search_by(|entry| entry.0.cmp(&unicode))
-        .ok()
-        .map(|at| table[at].1)
+    table.binary_search_by(|entry| entry.0.cmp(&unicode)).ok().map(|at| table[at].1)
 }
 
 /// `getMetrics()[name]`.
@@ -87,13 +78,7 @@ pub fn is_js_whitespace(ch: char) -> bool {
     matches!(
         ch,
         '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
     )
 }
 
@@ -106,21 +91,12 @@ fn parse_int_hex(text: &str) -> Option<i64> {
         Some(b'+') => (false, &text[1..]),
         _ => (false, text),
     };
-    let text = text
-        .strip_prefix("0x")
-        .or_else(|| text.strip_prefix("0X"))
-        .unwrap_or(text);
-    let digits = text
-        .bytes()
-        .take_while(|byte| byte.is_ascii_hexdigit())
-        .count();
+    let text = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")).unwrap_or(text);
+    let digits = text.bytes().take_while(|byte| byte.is_ascii_hexdigit()).count();
     if digits == 0 {
         return None;
     }
-    let value = text[..digits].bytes().fold(0i64, |sum, byte| {
-        sum.saturating_mul(16)
-            .saturating_add(i64::from((byte as char).to_digit(16).unwrap_or(0)))
-    });
+    let value = text[..digits].bytes().fold(0i64, |sum, byte| sum.saturating_mul(16).saturating_add(i64::from((byte as char).to_digit(16).unwrap_or(0))));
     Some(if negative { -value } else { value })
 }
 
@@ -157,9 +133,7 @@ pub fn map_special_unicode_values(code: u32) -> u32 {
     if (0xfff0..=0xffff).contains(&code) {
         0
     } else if (0xf600..=0xf8ff).contains(&code) {
-        lookup_code(&glyphlist::SPECIAL_PUA_SYMBOLS, code)
-            .filter(|mapped| *mapped != 0)
-            .unwrap_or(code)
+        lookup_code(&glyphlist::SPECIAL_PUA_SYMBOLS, code).filter(|mapped| *mapped != 0).unwrap_or(code)
     } else if code == 0x00ad {
         0x002d
     } else {
@@ -170,21 +144,13 @@ pub fn map_special_unicode_values(code: u32) -> u32 {
 /// pdf.js `getUnicodeRangeFor(value, lastPosition)`: the index of the Unicode range holding `value` (the bit of the
 /// OS/2 table), trying `last_position` first; `None` is -1.
 pub fn get_unicode_range_for(value: u32, last_position: Option<usize>) -> Option<usize> {
-    let in_range = |range: &[u32]| {
-        range
-            .as_chunks::<2>().0.iter()
-            .any(|pair| value >= pair[0] && value <= pair[1])
-    };
+    let in_range = |range: &[u32]| range.as_chunks::<2>().0.iter().any(|pair| value >= pair[0] && value <= pair[1]);
     if let Some(last) = last_position
-        && unicode::UNICODE_RANGES
-            .get(last)
-            .is_some_and(|range| in_range(range))
+        && unicode::UNICODE_RANGES.get(last).is_some_and(|range| in_range(range))
     {
         return Some(last);
     }
-    unicode::UNICODE_RANGES
-        .iter()
-        .position(|range| in_range(range))
+    unicode::UNICODE_RANGES.iter().position(|range| in_range(range))
 }
 
 /// pdf.js `getCharUnicodeCategory(char)`: which of the three classes the character falls in.
@@ -214,11 +180,7 @@ fn in_ranges(table: &[(u32, u32)], ch: char) -> bool {
 /// is white space when it starts with white space, else a diacritic at its first nonspacing mark or, only when it
 /// is its last character, a format mark.
 pub fn get_char_unicode_category(text: &str) -> CharCategory {
-    let mut category = CharCategory {
-        is_whitespace: false,
-        is_zero_width_diacritic: false,
-        is_invisible_format_mark: false,
-    };
+    let mut category = CharCategory { is_whitespace: false, is_zero_width_diacritic: false, is_invisible_format_mark: false };
     let count = text.chars().count();
     for (at, ch) in text.chars().enumerate() {
         if at == 0 && is_js_whitespace(ch) {
@@ -337,10 +299,7 @@ fn is_odd(level: i32) -> bool {
 }
 
 fn find_unequal(types: &[BidiType], start: usize, value: BidiType) -> usize {
-    types[start.min(types.len())..]
-        .iter()
-        .position(|t| *t != value)
-        .map_or(types.len(), |at| start + at)
+    types[start.min(types.len())..].iter().position(|t| *t != value).map_or(types.len(), |at| start + at)
 }
 
 /// The type of the nearest strong character on one side, as the neutral-resolution rule reads it.
@@ -358,10 +317,7 @@ fn strong_side(t: BidiType) -> Option<BidiType> {
 pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText {
     let len = text.len();
     if len == 0 || vertical {
-        return BidiText {
-            units: text.to_vec(),
-            dir: if vertical { BidiDir::Ttb } else { BidiDir::Ltr },
-        };
+        return BidiText { units: text.to_vec(), dir: if vertical { BidiDir::Ttb } else { BidiDir::Ltr } };
     }
     let mut chars: Vec<u16> = text.to_vec();
     let mut types: Vec<BidiType> = Vec::with_capacity(len);
@@ -377,10 +333,7 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
             if char_type == BidiType::Unknown {
                 tracing::warn!("Bidi: invalid Unicode character {code:x}");
             }
-        } else if (0x0700..=0x08ac).contains(&code)
-            || (0xfb50..=0xfdff).contains(&code)
-            || (0xfe70..=0xfeff).contains(&code)
-        {
+        } else if (0x0700..=0x08ac).contains(&code) || (0xfb50..=0xfdff).contains(&code) || (0xfe70..=0xfeff).contains(&code) {
             char_type = BidiType::Al;
         }
         if matches!(char_type, BidiType::R | BidiType::Al | BidiType::An) {
@@ -389,10 +342,7 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
         types.push(char_type);
     }
     if num_bidi == 0 {
-        return BidiText {
-            units: text.to_vec(),
-            dir: BidiDir::Ltr,
-        };
+        return BidiText { units: text.to_vec(), dir: BidiDir::Ltr };
     }
     let (is_ltr, start_level) = match start_level {
         Some(level) => (true, level),
@@ -401,11 +351,7 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
     };
     // pdf.js sets isLTR only when it chooses the level itself; a level given by the caller keeps it true.
     let mut levels = vec![start_level; len];
-    let e = if is_odd(start_level) {
-        BidiType::R
-    } else {
-        BidiType::L
-    };
+    let e = if is_odd(start_level) { BidiType::R } else { BidiType::L };
     let sor = e;
     let eor = sor;
 
@@ -420,11 +366,7 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
     last_type = sor;
     for t in types.iter_mut() {
         if *t == BidiType::En {
-            *t = if last_type == BidiType::Al {
-                BidiType::An
-            } else {
-                BidiType::En
-            };
+            *t = if last_type == BidiType::Al { BidiType::An } else { BidiType::En };
         } else if matches!(*t, BidiType::R | BidiType::L | BidiType::Al) {
             last_type = *t;
         }
@@ -435,50 +377,32 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
         }
     }
     for i in 1..len.saturating_sub(1) {
-        if types[i] == BidiType::Es && types[i - 1] == BidiType::En && types[i + 1] == BidiType::En
-        {
+        if types[i] == BidiType::Es && types[i - 1] == BidiType::En && types[i + 1] == BidiType::En {
             types[i] = BidiType::En;
         }
-        if types[i] == BidiType::Cs
-            && matches!(types[i - 1], BidiType::En | BidiType::An)
-            && types[i + 1] == types[i - 1]
-        {
+        if types[i] == BidiType::Cs && matches!(types[i - 1], BidiType::En | BidiType::An) && types[i + 1] == types[i - 1] {
             types[i] = types[i - 1];
         }
     }
     for i in 0..len {
         if types[i] == BidiType::En {
-            for t in types[..i]
-                .iter_mut()
-                .rev()
-                .take_while(|t| **t == BidiType::Et)
-            {
+            for t in types[..i].iter_mut().rev().take_while(|t| **t == BidiType::Et) {
                 *t = BidiType::En;
             }
-            for t in types[i + 1..]
-                .iter_mut()
-                .take_while(|t| **t == BidiType::Et)
-            {
+            for t in types[i + 1..].iter_mut().take_while(|t| **t == BidiType::Et) {
                 *t = BidiType::En;
             }
         }
     }
     for t in types.iter_mut() {
-        if matches!(
-            *t,
-            BidiType::Ws | BidiType::Es | BidiType::Et | BidiType::Cs
-        ) {
+        if matches!(*t, BidiType::Ws | BidiType::Es | BidiType::Et | BidiType::Cs) {
             *t = BidiType::On;
         }
     }
     last_type = sor;
     for t in types.iter_mut() {
         if *t == BidiType::En {
-            *t = if last_type == BidiType::L {
-                BidiType::L
-            } else {
-                BidiType::En
-            };
+            *t = if last_type == BidiType::L { BidiType::L } else { BidiType::En };
         } else if matches!(*t, BidiType::R | BidiType::L) {
             last_type = *t;
         }
@@ -487,15 +411,8 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
     while i < len {
         if types[i] == BidiType::On {
             let end = find_unequal(&types, i + 1, BidiType::On);
-            let before = types[..i]
-                .iter()
-                .rev()
-                .find_map(|t| strong_side(*t))
-                .unwrap_or(sor);
-            let after = types[end..]
-                .iter()
-                .find_map(|t| strong_side(*t))
-                .unwrap_or(eor);
+            let before = types[..i].iter().rev().find_map(|t| strong_side(*t)).unwrap_or(sor);
+            let after = types[end..].iter().find_map(|t| strong_side(*t)).unwrap_or(eor);
             if before == after {
                 types[i..end].fill(before);
             }
@@ -545,10 +462,7 @@ pub fn bidi(text: &[u16], start_level: Option<i32>, vertical: bool) -> BidiText 
         level -= 1;
     }
     chars.retain(|&c| c != u16::from(b'<') && c != u16::from(b'>'));
-    BidiText {
-        units: chars,
-        dir: if is_ltr { BidiDir::Ltr } else { BidiDir::Rtl },
-    }
+    BidiText { units: chars, dir: if is_ltr { BidiDir::Ltr } else { BidiDir::Rtl } }
 }
 
 /// Removes pdf.js's escape sequences (`/\x1b[^\x1b]*(?:\x1b|$)/g`) from a decoded string.
@@ -567,14 +481,10 @@ fn strip_escape_sequences(text: &str) -> String {
 
 fn decode_utf16(bytes: &[u8], big_endian: bool) -> Option<String> {
     let units: Vec<u16> = bytes
-        .as_chunks::<2>().0.iter()
-        .map(|pair| {
-            if big_endian {
-                u16::from_be_bytes([pair[0], pair[1]])
-            } else {
-                u16::from_le_bytes([pair[0], pair[1]])
-            }
-        })
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| if big_endian { u16::from_be_bytes([pair[0], pair[1]]) } else { u16::from_le_bytes([pair[0], pair[1]]) })
         .collect();
     String::from_utf16(&units).ok()
 }
@@ -604,11 +514,7 @@ pub fn string_to_pdf_string(bytes: &[u8], keep_escape_sequence: bool) -> String 
             decoded = String::from_utf8(bytes[3..].to_vec()).ok();
         }
         if let Some(text) = decoded {
-            return if keep_escape_sequence || !text.contains('\u{1b}') {
-                text
-            } else {
-                strip_escape_sequences(&text)
-            };
+            return if keep_escape_sequence || !text.contains('\u{1b}') { text } else { strip_escape_sequences(&text) };
         }
         if !encoding.is_empty() {
             tracing::warn!("stringToPDFString: the {encoding} text is malformed.");
@@ -626,11 +532,8 @@ pub fn string_to_pdf_string(bytes: &[u8], keep_escape_sequence: bool) -> String 
             at += 1;
             continue;
         }
-        let mapped = pdfdoc::PDF_STRING_TRANSLATE_TABLE
-            .get(usize::from(byte))
-            .copied()
-            .filter(|code| *code != 0)
-            .and_then(|code| char::from_u32(u32::from(code)));
+        let mapped =
+            pdfdoc::PDF_STRING_TRANSLATE_TABLE.get(usize::from(byte)).copied().filter(|code| *code != 0).and_then(|code| char::from_u32(u32::from(code)));
         out.push(mapped.unwrap_or(char::from(byte)));
         at += 1;
     }
@@ -646,9 +549,7 @@ mod tests {
     }
 
     fn fnv1a(text: &str) -> u64 {
-        text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        })
+        text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3))
     }
 
     #[test]
@@ -678,9 +579,7 @@ mod tests {
             items.windows(2).all(|pair| pair[0] < pair[1])
         }
         assert!(sorted(glyphlist::GLYPHS_UNICODE.iter().map(|e| e.0)));
-        assert!(sorted(
-            glyphlist::DINGBATS_GLYPHS_UNICODE.iter().map(|e| e.0)
-        ));
+        assert!(sorted(glyphlist::DINGBATS_GLYPHS_UNICODE.iter().map(|e| e.0)));
         assert!(sorted(glyphlist::GLYPH_NAME_BY_UNICODE.iter().map(|e| e.0)));
         assert!(sorted(glyphlist::SPECIAL_PUA_SYMBOLS.iter().map(|e| e.0)));
         assert!(sorted(metrics::METRICS.iter().map(|e| e.0)));
@@ -693,17 +592,9 @@ mod tests {
         assert!(sorted(standard_fonts::NON_STD_FONT_MAP.iter().map(|e| e.0)));
         assert!(sorted(standard_fonts::SERIF_FONTS.iter()));
         assert!(sorted(standard_fonts::SYMBOLS_FONTS.iter()));
-        assert!(sorted(
-            standard_fonts::FONT_NAME_TO_FILE.iter().map(|e| e.0)
-        ));
-        assert!(sorted(
-            standard_fonts::GLYPH_MAP_FOR_STANDARD_FONTS
-                .iter()
-                .map(|e| e.0)
-        ));
-        assert!(sorted(
-            unicode::VERTICAL_PRESENTATION_FORM.iter().map(|e| e.0)
-        ));
+        assert!(sorted(standard_fonts::FONT_NAME_TO_FILE.iter().map(|e| e.0)));
+        assert!(sorted(standard_fonts::GLYPH_MAP_FOR_STANDARD_FONTS.iter().map(|e| e.0)));
+        assert!(sorted(unicode::VERTICAL_PRESENTATION_FORM.iter().map(|e| e.0)));
         assert!(sorted(unicode::NFKC_NORMALIZED.iter().map(|e| e.0)));
     }
 
@@ -720,18 +611,9 @@ mod tests {
         assert_eq!(standard_fonts::FONT_NAME_TO_FILE.len(), 18);
         assert_eq!(standard_fonts::GLYPH_MAP_FOR_MAC_ORDERED_FONTS.len(), 256);
         assert_eq!(standard_fonts::GLYPH_MAP_FOR_STANDARD_FONTS.len(), 496);
-        assert_eq!(
-            standard_fonts::SUPPLEMENTAL_GLYPH_MAP_FOR_TREBUCHET_MS.len(),
-            75
-        );
-        assert_eq!(
-            standard_fonts::SUPPLEMENTAL_GLYPH_MAP_FOR_ARIAL_BLACK.len(),
-            3
-        );
-        assert_eq!(
-            standard_fonts::SUPPLEMENTAL_GLYPH_MAP_FOR_CALIBRI.len(),
-            117
-        );
+        assert_eq!(standard_fonts::SUPPLEMENTAL_GLYPH_MAP_FOR_TREBUCHET_MS.len(), 75);
+        assert_eq!(standard_fonts::SUPPLEMENTAL_GLYPH_MAP_FOR_ARIAL_BLACK.len(), 3);
+        assert_eq!(standard_fonts::SUPPLEMENTAL_GLYPH_MAP_FOR_CALIBRI.len(), 117);
         assert_eq!(unicode::VERTICAL_PRESENTATION_FORM.len(), 33);
         assert_eq!(unicode::UNICODE_RANGES.len(), 123);
         assert_eq!(pdfdoc::PDF_STRING_TRANSLATE_TABLE.len(), 161);
@@ -764,35 +646,17 @@ mod tests {
         let helvetica = metrics_of("Helvetica").unwrap();
         assert_eq!(helvetica.glyph_width("space"), Some(278));
         assert_eq!(helvetica.glyph_width("quotedbl"), Some(355));
-        assert_eq!(
-            metrics_of("Times-Roman").unwrap().glyph_width("space"),
-            Some(250)
-        );
-        assert_eq!(
-            metrics_of("Symbol").unwrap().glyph_width("alpha"),
-            Some(631)
-        );
+        assert_eq!(metrics_of("Times-Roman").unwrap().glyph_width("space"), Some(250));
+        assert_eq!(metrics_of("Symbol").unwrap().glyph_width("alpha"), Some(631));
         assert!(metrics_of("Arial").is_none());
         assert_eq!(font_flags::FIXED_PITCH, 1);
         assert_eq!(font_flags::NONSYMBOLIC, 32);
         assert_eq!(font_flags::FORCE_BOLD, 262144);
-        assert_eq!(
-            lookup(&standard_fonts::STD_FONT_MAP, "Helvetica"),
-            Some("Helvetica")
-        );
-        assert!(contains_name(
-            &standard_fonts::SYMBOLS_FONTS,
-            "Wingdings-Bold"
-        ));
+        assert_eq!(lookup(&standard_fonts::STD_FONT_MAP, "Helvetica"), Some("Helvetica"));
+        assert!(contains_name(&standard_fonts::SYMBOLS_FONTS, "Wingdings-Bold"));
         assert!(!contains_name(&standard_fonts::SYMBOLS_FONTS, "Arial"));
-        assert_eq!(
-            lookup_code(&standard_fonts::GLYPH_MAP_FOR_STANDARD_FONTS, 3),
-            Some(32)
-        );
-        assert_eq!(
-            lookup_code(&unicode::VERTICAL_PRESENTATION_FORM, 0x2014),
-            Some(0xfe31)
-        );
+        assert_eq!(lookup_code(&standard_fonts::GLYPH_MAP_FOR_STANDARD_FONTS, 3), Some(32));
+        assert_eq!(lookup_code(&unicode::VERTICAL_PRESENTATION_FORM, 0x2014), Some(0xfe31));
     }
 
     #[test]
@@ -833,11 +697,7 @@ mod tests {
     fn character_categories() {
         let category = |text: &str| {
             let c = get_char_unicode_category(text);
-            (
-                c.is_whitespace,
-                c.is_zero_width_diacritic,
-                c.is_invisible_format_mark,
-            )
+            (c.is_whitespace, c.is_zero_width_diacritic, c.is_invisible_format_mark)
         };
         assert_eq!(category(" "), (true, false, false));
         assert_eq!(category("\u{a0}"), (true, false, false));
@@ -863,10 +723,7 @@ mod tests {
         assert_eq!(normalize_unicode("\u{fb05}"), "\u{17f}t");
         assert_eq!(normalize_unicode("\u{fb05}\u{fb05}"), "undefined");
         assert_eq!(normalize_unicode("\u{fb05}a\u{fb05}"), "\u{17f}ta\u{17f}t");
-        assert_eq!(
-            normalize_unicode("\u{fb00}\u{fb05}\u{fb01}"),
-            "ff\u{17f}tfi"
-        );
+        assert_eq!(normalize_unicode("\u{fb00}\u{fb05}\u{fb01}"), "ff\u{17f}tfi");
         assert_eq!(normalize_unicode("plain"), "plain");
         assert_eq!(normalize_unicode("\u{2126}"), "\u{3a9}");
     }
@@ -874,64 +731,25 @@ mod tests {
     #[test]
     fn pdf_strings() {
         assert_eq!(string_to_pdf_string(b"abc", false), "abc");
-        assert_eq!(
-            string_to_pdf_string(&[0x18, 0x1f, 0x80, 0x95, 0x9f, 0xa0, 0xad, 0xff], false),
-            "\u{2d8}\u{2dc}\u{2022}\u{141}\u{9f}\u{20ac}\u{ad}\u{ff}"
-        );
-        assert_eq!(
-            string_to_pdf_string(&[0xfe, 0xff, 0x00, 0x41, 0x20, 0xac], false),
-            "A\u{20ac}"
-        );
+        assert_eq!(string_to_pdf_string(&[0x18, 0x1f, 0x80, 0x95, 0x9f, 0xa0, 0xad, 0xff], false), "\u{2d8}\u{2dc}\u{2022}\u{141}\u{9f}\u{20ac}\u{ad}\u{ff}");
+        assert_eq!(string_to_pdf_string(&[0xfe, 0xff, 0x00, 0x41, 0x20, 0xac], false), "A\u{20ac}");
         assert_eq!(string_to_pdf_string(&[0xff, 0xfe, 0x41, 0x00], false), "A");
-        assert_eq!(
-            string_to_pdf_string(&[0xef, 0xbb, 0xbf, 0xe2, 0x82, 0xac], false),
-            "\u{20ac}"
-        );
+        assert_eq!(string_to_pdf_string(&[0xef, 0xbb, 0xbf, 0xe2, 0x82, 0xac], false), "\u{20ac}");
         // an odd byte count loses the last byte
-        assert_eq!(
-            string_to_pdf_string(&[0xfe, 0xff, 0x00, 0x41, 0x00], false),
-            "A"
-        );
+        assert_eq!(string_to_pdf_string(&[0xfe, 0xff, 0x00, 0x41, 0x00], false), "A");
         assert_eq!(string_to_pdf_string(&[0xfe, 0xff], false), "");
         assert_eq!(string_to_pdf_string(&[0xfe], false), "\u{fe}");
         // a malformed text under a byte order mark falls back to PDFDocEncoding over the bytes
-        assert_eq!(
-            string_to_pdf_string(&[0xfe, 0xff, 0xd8, 0x00], false),
-            "\u{fe}\u{ff}\u{d8}\u{0}"
-        );
-        assert_eq!(
-            string_to_pdf_string(&[0xef, 0xbb, 0xbf, 0xff], false),
-            "\u{ef}\u{bb}\u{bf}\u{ff}"
-        );
+        assert_eq!(string_to_pdf_string(&[0xfe, 0xff, 0xd8, 0x00], false), "\u{fe}\u{ff}\u{d8}\u{0}");
+        assert_eq!(string_to_pdf_string(&[0xef, 0xbb, 0xbf, 0xff], false), "\u{ef}\u{bb}\u{bf}\u{ff}");
         // escape sequences (language tags) are dropped unless kept
         assert_eq!(string_to_pdf_string(b"a\x1b(en)\x1bb", false), "ab");
-        assert_eq!(
-            string_to_pdf_string(b"a\x1b(en)\x1bb", true),
-            "a\u{2d9}(en)\u{2d9}b"
-        );
+        assert_eq!(string_to_pdf_string(b"a\x1b(en)\x1bb", true), "a\u{2d9}(en)\u{2d9}b");
         assert_eq!(string_to_pdf_string(b"a\x1bxyz", false), "a");
-        assert_eq!(
-            string_to_pdf_string(
-                &[0xfe, 0xff, 0, 0x61, 0, 0x1b, 0, 0x62, 0, 0x1b, 0, 0x63],
-                false
-            ),
-            "ac"
-        );
-        assert_eq!(
-            string_to_pdf_string(
-                &[0xfe, 0xff, 0, 0x61, 0, 0x1b, 0, 0x62, 0, 0x1b, 0, 0x63],
-                true
-            ),
-            "a\u{1b}b\u{1b}c"
-        );
-        assert_eq!(
-            string_to_pdf_string(&[0xff, 0xfe, 0x1b, 0, 0x61, 0], false),
-            ""
-        );
-        assert_eq!(
-            string_to_pdf_string(&[0xff, 0xfe, 0x1b, 0, 0x61, 0, 0x1b, 0, 0x62, 0], false),
-            "b"
-        );
+        assert_eq!(string_to_pdf_string(&[0xfe, 0xff, 0, 0x61, 0, 0x1b, 0, 0x62, 0, 0x1b, 0, 0x63], false), "ac");
+        assert_eq!(string_to_pdf_string(&[0xfe, 0xff, 0, 0x61, 0, 0x1b, 0, 0x62, 0, 0x1b, 0, 0x63], true), "a\u{1b}b\u{1b}c");
+        assert_eq!(string_to_pdf_string(&[0xff, 0xfe, 0x1b, 0, 0x61, 0], false), "");
+        assert_eq!(string_to_pdf_string(&[0xff, 0xfe, 0x1b, 0, 0x61, 0, 0x1b, 0, 0x62, 0], false), "b");
         assert_eq!(string_to_pdf_string(b"", false), "");
     }
 
@@ -950,42 +768,20 @@ mod tests {
             ("ab \u{5d0}\u{5d1} cd", "ab \u{5d1}\u{5d0} cd", "ltr"),
             ("<\u{5d0}>", "\u{5d0}", "rtl"),
             ("\u{5d0} 123 \u{5d1}", "\u{5d1} 123 \u{5d0}", "ltr"),
-            (
-                "abc 123 \u{627}\u{644}\u{639}",
-                "abc 123 \u{639}\u{644}\u{627}",
-                "ltr",
-            ),
-            (
-                "\u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629} 123",
-                "123 \u{629}\u{64a}\u{628}\u{631}\u{639}\u{644}\u{627}",
-                "rtl",
-            ),
+            ("abc 123 \u{627}\u{644}\u{639}", "abc 123 \u{639}\u{644}\u{627}", "ltr"),
+            ("\u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629} 123", "123 \u{629}\u{64a}\u{628}\u{631}\u{639}\u{644}\u{627}", "rtl"),
             ("1,234 \u{5d0}", "1,234 \u{5d0}", "ltr"),
             ("\u{5d0}-5%", "5%-\u{5d0}", "rtl"),
             ("\u{5d0}\u{1f600}\u{5d1}", "\u{5d1}\u{1f600}\u{5d0}", "rtl"),
             ("\u{605}\u{5d0}", "\u{5d0}\u{605}", "rtl"),
             ("\u{670}\u{627}", "\u{627}\u{670}", "rtl"),
-            (
-                "a\u{5d0}b\u{5d1}c\u{5d2}d\u{5d3}e",
-                "e\u{5d3}d\u{5d2}c\u{5d1}b\u{5d0}a",
-                "rtl",
-            ),
+            ("a\u{5d0}b\u{5d1}c\u{5d2}d\u{5d3}e", "e\u{5d3}d\u{5d2}c\u{5d1}b\u{5d0}a", "rtl"),
         ];
         for (input, expected, dir) in cases {
-            assert_eq!(
-                visual(input, None, false),
-                (expected.to_string(), *dir),
-                "bidi of {input:?}"
-            );
+            assert_eq!(visual(input, None, false), (expected.to_string(), *dir), "bidi of {input:?}");
         }
-        assert_eq!(
-            visual("ab \u{5d0}\u{5d1}", Some(0), false),
-            ("ab \u{5d1}\u{5d0}".into(), "ltr")
-        );
-        assert_eq!(
-            visual("ab \u{5d0}\u{5d1}", Some(1), false),
-            ("\u{5d1}\u{5d0} ab".into(), "ltr")
-        );
+        assert_eq!(visual("ab \u{5d0}\u{5d1}", Some(0), false), ("ab \u{5d1}\u{5d0}".into(), "ltr"));
+        assert_eq!(visual("ab \u{5d0}\u{5d1}", Some(1), false), ("\u{5d1}\u{5d0} ab".into(), "ltr"));
         assert_eq!(visual("abc", None, true), ("abc".into(), "ttb"));
     }
 }

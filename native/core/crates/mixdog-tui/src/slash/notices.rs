@@ -49,9 +49,7 @@ pub fn model_switch_notice() -> String {
 /// `outputStyleNotice(result)`.
 pub fn output_style_notice(result: &Value) -> String {
     let current = result.get("current").cloned().unwrap_or(Value::Null);
-    let label = first_truthy_text(&current, &["label", "id"])
-        .or_else(|| first_truthy_text(result, &["configured"]))
-        .unwrap_or_else(|| "Default".to_owned());
+    let label = first_truthy_text(&current, &["label", "id"]).or_else(|| first_truthy_text(result, &["configured"])).unwrap_or_else(|| "Default".to_owned());
     if result.get("appliedToCurrentSession") == Some(&Value::Bool(false)) {
         format!("Output style set to {label}. Use /clear to apply to this chat.")
     } else {

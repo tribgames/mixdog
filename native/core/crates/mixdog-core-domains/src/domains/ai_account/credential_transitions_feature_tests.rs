@@ -75,12 +75,17 @@ async fn serve(mut socket: TcpStream, refusing: Arc<Vec<String>>, message: Strin
             }
             ("GET", "/v1/models") => (200, "application/json", "{\"data\":[{\"id\":\"m-a\"}]}".to_owned()),
             ("POST", "/auth/cli/token") => (200, "application/json", json!({ "token": GRANT }).to_string()),
-            ("POST", "/v1/chat/completions") if refusing.contains(&bearer) => (400, "application/json", json!({ "error": { "message": message, "type": "invalid_request_error" } }).to_string()),
+            ("POST", "/v1/chat/completions") if refusing.contains(&bearer) => {
+                (400, "application/json", json!({ "error": { "message": message, "type": "invalid_request_error" } }).to_string())
+            }
             ("POST", "/v1/chat/completions") => (200, "text/event-stream", OK_CHAT.to_owned()),
             other => panic!("a request the scripted endpoint does not know: {other:?}"),
         };
         let reason = if status == 200 { "OK" } else { "Bad Request" };
-        let reply = format!("HTTP/1.1 {status} {reason}\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: keep-alive\r\nkeep-alive: timeout=5\r\n\r\n{body}", body.len());
+        let reply = format!(
+            "HTTP/1.1 {status} {reason}\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: keep-alive\r\nkeep-alive: timeout=5\r\n\r\n{body}",
+            body.len()
+        );
         socket.write_all(reply.as_bytes()).await.unwrap();
         socket.flush().await.unwrap();
     }
@@ -122,7 +127,10 @@ async fn a_key_the_account_rotated_away_from_is_still_redacted_when_a_later_refu
 async fn a_string_no_request_carried_is_shown_as_the_upstream_quoted_it() {
     let addr = server(&["account-a-credential-5f3c"], &["account-a-credential-5f3c", "someone-elses-credential-9"]).await;
     let (w, settings) = account(addr).await;
-    assert_eq!(tested(&w, &settings, "account-a-credential-5f3c").await, Err("400 refused; the keys on file: [REDACTED], someone-elses-credential-9".to_owned()));
+    assert_eq!(
+        tested(&w, &settings, "account-a-credential-5f3c").await,
+        Err("400 refused; the keys on file: [REDACTED], someone-elses-credential-9".to_owned())
+    );
 }
 
 #[tokio::test]

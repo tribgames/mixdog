@@ -8,16 +8,16 @@ use mixdog_js::value_to_string;
 use serde_json::Value;
 
 use crate::docx_edits::{
-    DocxContext, add_docx_bookmark, add_docx_comment, add_docx_hyperlink, add_docx_image, add_docx_page_numbers, add_docx_table,
-    append_docx_text, delete_docx_comment, edit_docx_table_rows_or_columns, fill_docx_template, insert_docx_break, insert_docx_toc,
-    normalize_docx_story_runs, reply_or_resolve_docx_comment, replace_docx_text, set_docx_font, set_docx_header_footer, set_docx_list,
-    set_docx_paragraph_format, set_docx_paragraph_style, set_docx_table_cell, set_docx_table_style, set_docx_track_changes,
-};
-use crate::docx_operations::{
-    add_docx_note, define_docx_styles, edit_docx_paragraph, fill_docx_content_control, fit_docx_table, resolve_docx_revisions,
-    set_docx_document_font, set_docx_page, style_or_merge_docx_table_cell,
+    DocxContext, add_docx_bookmark, add_docx_comment, add_docx_hyperlink, add_docx_image, add_docx_page_numbers, add_docx_table, append_docx_text,
+    delete_docx_comment, edit_docx_table_rows_or_columns, fill_docx_template, insert_docx_break, insert_docx_toc, normalize_docx_story_runs, replace_docx_text,
+    reply_or_resolve_docx_comment, set_docx_font, set_docx_header_footer, set_docx_list, set_docx_paragraph_format, set_docx_paragraph_style,
+    set_docx_table_cell, set_docx_table_style, set_docx_track_changes,
 };
 pub use crate::docx_operations::refresh_docx_table_of_contents;
+use crate::docx_operations::{
+    add_docx_note, define_docx_styles, edit_docx_paragraph, fill_docx_content_control, fit_docx_table, resolve_docx_revisions, set_docx_document_font,
+    set_docx_page, style_or_merge_docx_table_cell,
+};
 use crate::docx_parts::document_tracks_changes;
 use crate::snapshot_docx::{close_trailing_table, has_adjacent_tables, separate_adjacent_tables};
 use crate::text_metrics::TextMeasurer;
@@ -184,11 +184,8 @@ mod tests {
     #[test]
     fn track_changes_carries_to_the_operations_after_it() {
         let mut zip = document("<w:p><w:r><w:t>old text</w:t></w:r></w:p>");
-        let results = batch(
-            &mut zip,
-            &[json!({ "op": "track_changes" }), json!({ "op": "replace_text", "find": "old", "replace": "new", "author": "Eve" })],
-        )
-        .expect("a tracked batch");
+        let results = batch(&mut zip, &[json!({ "op": "track_changes" }), json!({ "op": "replace_text", "find": "old", "replace": "new", "author": "Eve" })])
+            .expect("a tracked batch");
         assert_eq!(results[0], json!({ "op": "track_changes", "changed": true, "enabled": true }));
         assert_eq!(results[1]["tracked"], json!(true));
         assert!(zip.text(DOCUMENT_PART).contains("<w:del "));

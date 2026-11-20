@@ -96,10 +96,7 @@ pub fn validate_questions(args: &Value) -> Result<Vec<Question>, String> {
             if utf16_len(description) > 200 {
                 return Err(format!("{at} has an option description over 200 characters"));
             }
-            if option
-                .as_object()
-                .is_some_and(|o| o.keys().any(|k| k != "label" && k != "description"))
-            {
+            if option.as_object().is_some_and(|o| o.keys().any(|k| k != "label" && k != "description")) {
                 return Err(format!("{at}: options take only a label and a description"));
             }
             if !labels.insert(label.to_owned()) {
@@ -116,11 +113,7 @@ pub fn validate_questions(args: &Value) -> Result<Vec<Question>, String> {
                 }
             }
         }
-        out.push(Question {
-            question: question.to_owned(),
-            labels: label_list,
-            multi_select: q.get("multi_select").and_then(Value::as_bool) == Some(true),
-        });
+        out.push(Question { question: question.to_owned(), labels: label_list, multi_select: q.get("multi_select").and_then(Value::as_bool) == Some(true) });
     }
     Ok(out)
 }
@@ -186,22 +179,13 @@ pub fn result_text(questions: &[Question], resolution: &ApprovalResolution) -> S
         return ASK_USER_DISMISSED.to_owned();
     }
     let answers = normalize_answers(decision.answers.as_deref().unwrap_or_default(), questions);
-    let reply = decision
-        .reply
-        .as_deref()
-        .filter(|r| utf16_len(r) <= ASK_USER_MAX_TEXT)
-        .map(str::trim)
-        .unwrap_or_default();
+    let reply = decision.reply.as_deref().filter(|r| utf16_len(r) <= ASK_USER_MAX_TEXT).map(str::trim).unwrap_or_default();
     let has_answers = answers.iter().any(Option::is_some);
     if reply.is_empty() {
         return if has_answers { format_answers(questions, &answers) } else { ASK_USER_DISMISSED.to_owned() };
     }
     let lead = format!("User replied in chat: {}. ", quote(reply));
-    if has_answers {
-        format!("{lead}{}", format_answers(questions, &answers))
-    } else {
-        format!("{lead}{CONTINUE}")
-    }
+    if has_answers { format!("{lead}{}", format_answers(questions, &answers)) } else { format!("{lead}{CONTINUE}") }
 }
 
 pub struct AskUserTool {
@@ -212,11 +196,7 @@ pub struct AskUserTool {
 
 impl AskUserTool {
     pub fn new(facts: Arc<dyn CallerFacts>, todos: Arc<dyn TodoStore>) -> Self {
-        Self {
-            spec: spec_from_def(include_str!("defs/ask_user.json"), false, &[]),
-            facts,
-            todos,
-        }
+        Self { spec: spec_from_def(include_str!("defs/ask_user.json"), false, &[]), facts, todos }
     }
 }
 
@@ -276,25 +256,11 @@ mod tests {
     }
 
     fn decided(decision: ToolApprovalDecision) -> ApprovalResolution {
-        ApprovalResolution::Decided {
-            decision,
-            device: "d".into(),
-            connection_kind: ConnectionKind::Desktop,
-            at: 0,
-        }
+        ApprovalResolution::Decided { decision, device: "d".into(), connection_kind: ConnectionKind::Desktop, at: 0 }
     }
 
     fn decision(approved: bool) -> ToolApprovalDecision {
-        ToolApprovalDecision {
-            approved,
-            reason: None,
-            answers: None,
-            reply: None,
-            response: None,
-            edited_args: None,
-            remember: None,
-            scope: None,
-        }
+        ToolApprovalDecision { approved, reason: None, answers: None, reply: None, response: None, edited_args: None, remember: None, scope: None }
     }
 
     #[test]
@@ -316,23 +282,14 @@ mod tests {
         d.answers = Some(vec![Some(QuestionAnswer { selected: vec!["nope".into()], text: None }), None]);
         assert_eq!(result_text(&questions(), &decided(d.clone())), ASK_USER_DISMISSED);
         d.reply = Some("  go on ".into());
-        assert_eq!(
-            result_text(&questions(), &decided(d)),
-            "User replied in chat: \"go on\". You can now continue with these answers in mind."
-        );
+        assert_eq!(result_text(&questions(), &decided(d)), "User replied in chat: \"go on\". You can now continue with these answers in mind.");
         assert_eq!(result_text(&questions(), &decided(decision(false))), ASK_USER_DISMISSED);
-        assert_eq!(
-            result_text(&questions(), &ApprovalResolution::TimedOut { at: 1 }),
-            ASK_USER_DISMISSED
-        );
+        assert_eq!(result_text(&questions(), &ApprovalResolution::TimedOut { at: 1 }), ASK_USER_DISMISSED);
     }
 
     #[test]
     fn validation_reports_the_existing_wordings() {
-        assert_eq!(
-            validate_questions(&json!({})).unwrap_err(),
-            "ask_user requires 1-4 questions"
-        );
+        assert_eq!(validate_questions(&json!({})).unwrap_err(), "ask_user requires 1-4 questions");
         assert_eq!(
             validate_questions(&json!({"questions":[{"question":"q","header":"h","options":[
                 {"label":"A","description":"d"},{"label":"A","description":"d"}]}]}))

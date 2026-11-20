@@ -51,15 +51,7 @@ pub(super) fn undo_preblend_buffer(buffer: &mut [u8], length: usize, matte: [u8;
 impl PdfImage {
     /// `fillOpacity`: writes the alpha of `width x height` pixels into `rgba` (the first `actual_height` rows).
     /// `image` holds the components before `Decode` is applied.
-    pub(super) fn fill_opacity(
-        &self,
-        xref: &Xref,
-        rgba: &mut [u8],
-        width: usize,
-        height: usize,
-        actual_height: usize,
-        image: &Comps,
-    ) -> Result<()> {
+    pub(super) fn fill_opacity(&self, xref: &Xref, rgba: &mut [u8], width: usize, height: usize, actual_height: usize, image: &Comps) -> Result<()> {
         let options = |invert_output: bool| GrayOptions {
             dest_width: Some(width),
             dest_height: Some(height),
@@ -100,12 +92,7 @@ impl PdfImage {
     }
 
     /// `undoPreblend(buffer, width, height)`: the `Matte` of the soft mask, in this image's colour space.
-    pub(super) fn undo_preblend(
-        &self,
-        buffer: &mut [u8],
-        width: usize,
-        height: usize,
-    ) -> Result<()> {
+    pub(super) fn undo_preblend(&self, buffer: &mut [u8], width: usize, height: usize) -> Result<()> {
         let Some(matte) = self.smask.as_ref().and_then(|s| s.matte.as_ref()) else {
             return Ok(());
         };
@@ -118,21 +105,12 @@ impl PdfImage {
     }
 
     /// `fillGrayBuffer`: the gray levels of this image, resampled to the destination size, written into `buffer`.
-    pub(super) fn fill_gray_buffer(
-        &self,
-        xref: &Xref,
-        buffer: &mut [u8],
-        options: GrayOptions,
-    ) -> Result<()> {
+    pub(super) fn fill_gray_buffer(&self, xref: &Xref, buffer: &mut [u8], options: GrayOptions) -> Result<()> {
         if self.num_comps != 1 {
-            return Err(format_error(format!(
-                "Reading gray scale from a color image: {}",
-                self.num_comps
-            )));
+            return Err(format_error(format!("Reading gray scale from a color image: {}", self.num_comps)));
         }
         let (src_width, src_height, bpc) = (self.width, self.height, self.bpc);
-        let row_bytes =
-            ((src_width as u128 * self.num_comps as u128 * u128::from(bpc) + 7) >> 3) as usize;
+        let row_bytes = ((src_width as u128 * self.num_comps as u128 * u128::from(bpc) + 7) >> 3) as usize;
         let image = self.gray_bytes(xref, buffer_length(&[src_height, row_bytes])?)?;
         let mut comps = self.components(image)?;
         let dest_width = options.dest_width.unwrap_or(src_width);
@@ -146,11 +124,7 @@ impl PdfImage {
             output_width = dest_width;
             y_ratio = src_height as f64 / dest_height as f64;
             let x_ratio = src_width as f64 / dest_width as f64;
-            x_scaled = Some(
-                (0..dest_width)
-                    .map(|i| (i as f64 * x_ratio).floor() as usize)
-                    .collect(),
-            );
+            x_scaled = Some((0..dest_width).map(|i| (i as f64 * x_ratio).floor() as usize).collect());
         }
         let mask: i64 = if options.invert_output { 0xff } else { 0 };
         let (offset, stride) = (options.offset, options.stride);
@@ -194,11 +168,7 @@ impl PdfImage {
         let scale = 255.0 / super::decode::max_value(bpc);
         let level = |comps: &Comps, index: usize| -> i64 {
             let value = scale * comps.get(index);
-            let integer = if value.is_nan() {
-                0
-            } else {
-                i64::from(value as i64 as i32)
-            };
+            let integer = if value.is_nan() { 0 } else { i64::from(value as i64 as i32) };
             integer ^ mask
         };
         match &x_scaled {

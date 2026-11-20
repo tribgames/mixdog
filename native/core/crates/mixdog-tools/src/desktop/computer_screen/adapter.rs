@@ -450,7 +450,6 @@ impl HelperAdapter<HelperFrame> for SecureDesktopAdapter {
         }
     }
 
-
     fn on_frame(&self, listener: Listener<HelperFrame>) -> Unsub {
         self.inner.frames.add(listener)
     }

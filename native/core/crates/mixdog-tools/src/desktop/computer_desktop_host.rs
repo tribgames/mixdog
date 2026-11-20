@@ -13,12 +13,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use crate::state::secrets::ComputerSecretHost;
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
-use mixdog_core_api::ids::Method;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::ComputerRequest;
@@ -31,11 +31,11 @@ use mixdog_core_api::domain::computer::ScreenInput;
 use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolPart;
+use mixdog_core_api::ids::Method;
 use mixdog_js::js_trim;
 use mixdog_js::to_number;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
-use crate::state::secrets::ComputerSecretHost;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -43,9 +43,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::computer_authority::Authority;
 use super::computer_backend::HOST_READ_ACTIONS;
-use super::computer_backend::is_lifecycle;
 use super::computer_backend::ObserveOnly;
 use super::computer_backend::REPORTED_CODE;
+use super::computer_backend::is_lifecycle;
 use super::computer_command::host_command;
 use super::computer_command::text;
 use super::computer_command::validate;
@@ -158,10 +158,7 @@ fn is_user_control_active(message: &str) -> bool {
 
 /// `pendingCaptureTarget`: the exact window the original command named.
 fn capture_target(command: &Map<String, Value>) -> Option<Map<String, Value>> {
-    ["window_id", "app", "window"]
-        .into_iter()
-        .find(|key| command.get(*key).is_some_and(truthy))
-        .map(|key| command_of(&[(key, command[key].clone())]))
+    ["window_id", "app", "window"].into_iter().find(|key| command.get(*key).is_some_and(truthy)).map(|key| command_of(&[(key, command[key].clone())]))
 }
 
 fn command_of(fields: &[(&str, Value)]) -> Map<String, Value> {
@@ -788,7 +785,10 @@ mod tests {
     async fn a_host_that_does_not_know_the_method_makes_computer_unavailable() {
         let host = FakeHost::new(vec![Answer::Rpc(METHOD_NOT_FOUND, "method not found")]);
         let (code, message) = failure(backend(&host).run(capture(), CancellationToken::new()).await.unwrap_err());
-        assert_eq!((code.as_str(), message.as_str()), (REPORTED_CODE, "Error: computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings"));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            (REPORTED_CODE, "Error: computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings")
+        );
         // Another JSON-RPC error is the host's own failure text.
         let host = FakeHost::new(vec![Answer::Rpc(-32000, "capture_failed: no display")]);
         let (code, message) = failure(backend(&host).run(capture(), CancellationToken::new()).await.unwrap_err());
@@ -933,7 +933,6 @@ mod tests {
         assert!(!may_have_executed(&read_only));
     }
 
-
     #[tokio::test]
     async fn a_cancelled_call_abandons_the_request_and_aborts_the_session() {
         let host = FakeHost::new(vec![Answer::Hang, ok("OK")]);
@@ -955,10 +954,18 @@ mod tests {
     }
 }
 
-
 impl DesktopHostBackend {
     pub fn new(desktop: Arc<dyn HostChannel>, blobs: Arc<dyn ComputerBlobs>, session_id: impl Into<String>, observe_only: ObserveOnly) -> Self {
-        Self { desktop, blobs, session_id: session_id.into(), observe_only, bound: AtomicBool::new(false), secret_focus: AtomicBool::new(false), screen: Default::default(), authority: Authority::default() }
+        Self {
+            desktop,
+            blobs,
+            session_id: session_id.into(),
+            observe_only,
+            bound: AtomicBool::new(false),
+            secret_focus: AtomicBool::new(false),
+            screen: Default::default(),
+            authority: Authority::default(),
+        }
     }
 
     /// Hands commands to the desktop's host only under `authority`.
@@ -1109,11 +1116,9 @@ impl DesktopHostBackend {
         match self.post(command, cancel, REQUEST_TIMEOUT).await {
             Ok(Posted::Reply(reply)) => Ok(reply),
             // The capture of a session the person still holds: the work is still pending.
-            Ok(Posted::Refused(message)) if capture && is_user_control_active(&message) => Ok(HostReply {
-                text: json!({ "ok": false, "status": "paused", "code": PENDING_CODE }).to_string(),
-                image: None,
-                is_error: false,
-            }),
+            Ok(Posted::Refused(message)) if capture && is_user_control_active(&message) => {
+                Ok(HostReply { text: json!({ "ok": false, "status": "paused", "code": PENDING_CODE }).to_string(), image: None, is_error: false })
+            }
             _ => Err(()),
         }
     }
@@ -1152,7 +1157,10 @@ impl DesktopHostBackend {
                         ("status", json!(if status == Some("cancelled") { "cancelled" } else { "paused" })),
                         ("reason", reason),
                         ("input_replayed", json!(false)),
-                        ("recovery", json!({ "next": "wait_for_user", "guidance": "Work has not completed. Resume was not confirmed; no input was replayed." })),
+                        (
+                            "recovery",
+                            json!({ "next": "wait_for_user", "guidance": "Work has not completed. Resume was not confirmed; no input was replayed." }),
+                        ),
                     ],
                 ))));
             }

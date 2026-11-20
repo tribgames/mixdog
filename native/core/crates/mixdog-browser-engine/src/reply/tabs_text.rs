@@ -46,10 +46,7 @@ pub fn status_without_visible_page(pages: &[PageDescriptor], active_page_id: Opt
     if active_page_id.is_some() || pages.is_empty() || pages.iter().any(|page| is_visible_tab_id(&page.tab_id)) {
         return None;
     }
-    Some(format!(
-        "No visible page is open; the session has background pages. Name one with tab to read its status.\n{}",
-        list_tabs_text(pages, active_page_id)
-    ))
+    Some(format!("No visible page is open; the session has background pages. Name one with tab to read its status.\n{}", list_tabs_text(pages, active_page_id)))
 }
 
 fn title_and_address(page: &PageDescriptor) -> String {
@@ -96,7 +93,9 @@ mod tests {
         let background = vec![page("p2", true, "Beta", "https://b.test/")];
         assert_eq!(
             status_without_visible_page(&background, None).as_deref(),
-            Some("No visible page is open; the session has background pages. Name one with tab to read its status.\nTabs:\n- p2 [\"t-p2\"] (background): Beta \u{2014} https://b.test/")
+            Some(
+                "No visible page is open; the session has background pages. Name one with tab to read its status.\nTabs:\n- p2 [\"t-p2\"] (background): Beta \u{2014} https://b.test/"
+            )
         );
         // A visible page, an active page, or no page at all: the command goes on to the page it resolves.
         let visible = vec![page("p1", false, "One", "https://one.test/"), page("p2", true, "Beta", "https://b.test/")];
@@ -112,11 +111,7 @@ mod tests {
 
     #[test]
     fn visible_tabs_are_numbered_and_the_active_one_is_marked_before_the_background_ones() {
-        let pages = vec![
-            page("p9", true, "Worker", "https://w.test/"),
-            page("p1", false, "One", "https://one.test/"),
-            page("p2", false, "", ""),
-        ];
+        let pages = vec![page("p9", true, "Worker", "https://w.test/"), page("p1", false, "One", "https://one.test/"), page("p2", false, "", "")];
         assert_eq!(
             list_tabs_text(&pages, Some("p2")),
             "Tabs:\n- p1 [v1]: One — https://one.test/\n- p2 [v2] (active): (untitled) — about:blank\n- p9 [\"t-p9\"] (background): Worker — https://w.test/"
@@ -134,7 +129,9 @@ mod tests {
             list_tabs_text(&pages, Some("p5")),
             "Tabs:\n- p1 [v1]: One — https://one.test/\n- p5 [\"user-tab-1\"] (background): Mine — https://mine.test/"
         );
-        assert!(is_visible_tab_id("v2") && is_visible_tab_id("V10") && !is_visible_tab_id("v") && !is_visible_tab_id("v1a") && !is_visible_tab_id("user-tab-1"));
+        assert!(
+            is_visible_tab_id("v2") && is_visible_tab_id("V10") && !is_visible_tab_id("v") && !is_visible_tab_id("v1a") && !is_visible_tab_id("user-tab-1")
+        );
     }
 
     #[test]

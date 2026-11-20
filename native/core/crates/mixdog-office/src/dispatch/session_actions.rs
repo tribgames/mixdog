@@ -79,7 +79,14 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
     }
 
     /// `dispatchOfficeSessionAction({ action, session, args, cwd, signal })`.
-    pub async fn dispatch_session_action(&self, action: &str, handle: &SessionHandle, args: &Value, cwd: &str, signal: Option<&CancellationToken>) -> Result<Value, TransactionError> {
+    pub async fn dispatch_session_action(
+        &self,
+        action: &str,
+        handle: &SessionHandle,
+        args: &Value,
+        cwd: &str,
+        signal: Option<&CancellationToken>,
+    ) -> Result<Value, TransactionError> {
         // Write receipt: every other verb may write the session's document (an edit, save, rollback, autoFix, or a render that
         // numbers its contents).
         if !READ_ACTIONS.contains(&action) {

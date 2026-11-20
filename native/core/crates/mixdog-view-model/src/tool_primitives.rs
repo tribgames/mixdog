@@ -261,10 +261,7 @@ pub fn is_external_mcp_tool_name(name: &str) -> bool {
 
 /// An MCP server id for display (`playwright` is `Playwright`).
 pub fn title_case_mcp_server(server: &str) -> String {
-    split_words(server)
-        .map(|part| if part == js_to_lowercase(part) { upper_first(part) } else { part.to_owned() })
-        .collect::<Vec<_>>()
-        .join(" ")
+    split_words(server).map(|part| if part == js_to_lowercase(part) { upper_first(part) } else { part.to_owned() }).collect::<Vec<_>>().join(" ")
 }
 
 /// The tool of an MCP name, else the name without its `functions.` prefix.
@@ -410,17 +407,9 @@ pub(crate) fn first_text_of(args: &Value, keys: &[&str]) -> String {
 /// `splitToolSearchSelection`: a list's or a comma/space separated text's trimmed, non-empty names.
 pub fn split_tool_search_selection(value: Option<&Value>) -> Vec<String> {
     if let Some(Value::Array(items)) = value {
-        return items
-            .iter()
-            .map(|item| js_trim(&text_or_empty(Some(item))).to_owned())
-            .filter(|item| !item.is_empty())
-            .collect();
+        return items.iter().map(|item| js_trim(&text_or_empty(Some(item))).to_owned()).filter(|item| !item.is_empty()).collect();
     }
-    text_or_empty(value)
-        .split(|c: char| c == ',' || is_js_space(c))
-        .map(|item| js_trim(item).to_owned())
-        .filter(|item| !item.is_empty())
-        .collect()
+    text_or_empty(value).split(|c: char| c == ',' || is_js_space(c)).map(|item| js_trim(item).to_owned()).filter(|item| !item.is_empty()).collect()
 }
 
 fn tool_search_target_kind(value: &str) -> &'static str {

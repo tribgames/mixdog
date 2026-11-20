@@ -13,16 +13,15 @@ use crate::xlsx_audit_support::{js_text, truthy};
 use crate::xlsx_charts::add_worksheet_chart;
 use crate::xlsx_drawings::{add_worksheet_image, delete_worksheet_drawing, set_worksheet_drawing};
 use crate::xlsx_operations::{
-    WORKBOOK_PATH, add_worksheet, add_worksheet_validation, apply_conditional_format, delete_worksheet, rename_worksheet,
-    set_worksheet_header_footer,
+    WORKBOOK_PATH, add_worksheet, add_worksheet_validation, apply_conditional_format, delete_worksheet, rename_worksheet, set_worksheet_header_footer,
 };
 use crate::xlsx_pivot_ops::add_worksheet_pivot_table;
 use crate::xlsx_range_layout::{autofit_worksheet_range, sort_worksheet_range};
 use crate::xlsx_sheet_edits::{
-    add_worksheet_note, add_worksheet_table, append_worksheet_row, clear_worksheet_cell, copy_worksheet, define_workbook_name,
-    delete_worksheet_note, freeze_worksheet_panes, merge_worksheet_cells, protect_worksheet, replace_workbook_text,
-    set_row_height_or_column_width, set_row_or_column_visibility, set_worksheet_autofilter, set_worksheet_cell, set_worksheet_formulas,
-    set_worksheet_hyperlink, set_worksheet_range, set_worksheet_style, set_worksheet_view, set_worksheet_visibility, shift_worksheet_rows_or_columns,
+    add_worksheet_note, add_worksheet_table, append_worksheet_row, clear_worksheet_cell, copy_worksheet, define_workbook_name, delete_worksheet_note,
+    freeze_worksheet_panes, merge_worksheet_cells, protect_worksheet, replace_workbook_text, set_row_height_or_column_width, set_row_or_column_visibility,
+    set_worksheet_autofilter, set_worksheet_cell, set_worksheet_formulas, set_worksheet_hyperlink, set_worksheet_range, set_worksheet_style,
+    set_worksheet_view, set_worksheet_visibility, shift_worksheet_rows_or_columns,
 };
 use crate::zipio::Package;
 
@@ -56,9 +55,7 @@ fn select_worksheet<'a>(sheets: &'a [Sheet], op: &Map<String, Value>) -> Result<
     } else {
         sheets.first()
     };
-    selected.ok_or_else(|| {
-        format!("Worksheet not found: {}", if truthy(op.get("sheet")) { js_text(op.get("sheet")) } else { "(first sheet)".to_owned() })
-    })
+    selected.ok_or_else(|| format!("Worksheet not found: {}", if truthy(op.get("sheet")) { js_text(op.get("sheet")) } else { "(first sheet)".to_owned() }))
 }
 
 /// The operation's own row followed by what a sheet-management operation adds to it (`{ op, changed: true, ...extra }`).
@@ -97,11 +94,8 @@ pub fn apply_xlsx<P: ReadProof>(proof: &P, measurer: &TextMeasurer<'_, P>, zip: 
         }
         let sheet = select_worksheet(&sheets, op)?.clone();
         if name == "rename_sheet" || name == "delete_sheet" {
-            let changed = if name == "rename_sheet" {
-                rename_worksheet(zip, &sheet, op.get("name"), &sheets)?
-            } else {
-                delete_worksheet(zip, &sheets, &sheet)?
-            };
+            let changed =
+                if name == "rename_sheet" { rename_worksheet(zip, &sheet, op.get("name"), &sheets)? } else { delete_worksheet(zip, &sheets, &sheet)? };
             sheets = workbook_sheets(zip);
             results.push(management_row(op, changed));
             continue;
@@ -113,9 +107,8 @@ pub fn apply_xlsx<P: ReadProof>(proof: &P, measurer: &TextMeasurer<'_, P>, zip: 
                 other.get("op").and_then(Value::as_str) == Some("set_formula")
                     && select_worksheet(&sheets, other).is_ok_and(|selected| selected.path == sheet.path)
             };
-            let run: Vec<&Map<String, Value>> = std::iter::once(op)
-                .chain(operations[next..].iter().map_while(|following| following.as_object().filter(|fields| same_sheet(fields))))
-                .collect();
+            let run: Vec<&Map<String, Value>> =
+                std::iter::once(op).chain(operations[next..].iter().map_while(|following| following.as_object().filter(|fields| same_sheet(fields)))).collect();
             if let Some(written) = set_worksheet_formulas(zip, &sheet, &xml, &run, &sheets)? {
                 next += run.len() - 1;
                 recalculation_required = true;
@@ -148,9 +141,7 @@ pub fn apply_xlsx<P: ReadProof>(proof: &P, measurer: &TextMeasurer<'_, P>, zip: 
             "freeze_panes" => freeze_worksheet_panes(zip, &sheet, &xml, op)?,
             "set_sheet_view" => set_worksheet_view(zip, &sheet, &xml, op)?,
             "autofit_range" => autofit_worksheet_range(measurer, zip, &sheet, &xml, op)?,
-            "insert_rows" | "delete_rows" | "insert_columns" | "delete_columns" => {
-                shift_worksheet_rows_or_columns(zip, &sheet, &xml, op, &sheets)?
-            }
+            "insert_rows" | "delete_rows" | "insert_columns" | "delete_columns" => shift_worksheet_rows_or_columns(zip, &sheet, &xml, op, &sheets)?,
             "set_autofilter" => set_worksheet_autofilter(zip, &sheet, &xml, op)?,
             "set_sheet_visibility" => set_worksheet_visibility(zip, &sheet, op)?,
             // What a printed sheet says on every page (the confidentiality mark, the document number). Word and PowerPoint

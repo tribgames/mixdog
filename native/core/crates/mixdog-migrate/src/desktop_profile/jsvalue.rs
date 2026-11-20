@@ -55,10 +55,7 @@ pub(super) fn positive(value: &Value) -> Option<&Number> {
 
 /// `^[A-Za-z0-9_-]+$`, the desktop's `isSessionId`.
 pub(super) fn is_session_id(text: &str) -> bool {
-    !text.is_empty()
-        && text
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
 #[cfg(test)]
@@ -69,16 +66,41 @@ mod tests {
     #[test]
     fn to_number_matches_node() {
         let cases: &[(&str, Option<f64>)] = &[
-            ("null", Some(0.0)), ("true", Some(1.0)), ("false", Some(0.0)), (r#""""#, Some(0.0)),
-            (r#"" ""#, Some(0.0)), (r#""  12  ""#, Some(12.0)), (r#""0x10""#, Some(16.0)),
-            (r#""0b11""#, Some(3.0)), (r#""0o7""#, Some(7.0)), (r#""-0x1""#, None), (r#""+5""#, Some(5.0)),
-            (r#""-5""#, Some(-5.0)), (r#""1e3""#, Some(1000.0)), (r#""1.""#, Some(1.0)),
-            (r#"".5""#, Some(0.5)), (r#"".""#, None), (r#""1_0""#, None),
-            (r#""Infinity""#, Some(f64::INFINITY)), (r#""-Infinity""#, Some(f64::NEG_INFINITY)),
-            (r#""infinity""#, None), (r#""NaN""#, None), (r#""4abc""#, None),
-            (r#""\u00a05\ufeff""#, Some(5.0)), ("[]", Some(0.0)), ("[5]", Some(5.0)), (r#"["7"]"#, Some(7.0)),
-            ("[null]", Some(0.0)), ("[true]", None), ("[1,2]", None), ("[[3]]", Some(3.0)), ("{}", None),
-            (r#"{"a":1}"#, None), ("1.5", Some(1.5)), (r#""1e""#, None), (r#""0x""#, None),
+            ("null", Some(0.0)),
+            ("true", Some(1.0)),
+            ("false", Some(0.0)),
+            (r#""""#, Some(0.0)),
+            (r#"" ""#, Some(0.0)),
+            (r#""  12  ""#, Some(12.0)),
+            (r#""0x10""#, Some(16.0)),
+            (r#""0b11""#, Some(3.0)),
+            (r#""0o7""#, Some(7.0)),
+            (r#""-0x1""#, None),
+            (r#""+5""#, Some(5.0)),
+            (r#""-5""#, Some(-5.0)),
+            (r#""1e3""#, Some(1000.0)),
+            (r#""1.""#, Some(1.0)),
+            (r#"".5""#, Some(0.5)),
+            (r#"".""#, None),
+            (r#""1_0""#, None),
+            (r#""Infinity""#, Some(f64::INFINITY)),
+            (r#""-Infinity""#, Some(f64::NEG_INFINITY)),
+            (r#""infinity""#, None),
+            (r#""NaN""#, None),
+            (r#""4abc""#, None),
+            (r#""\u00a05\ufeff""#, Some(5.0)),
+            ("[]", Some(0.0)),
+            ("[5]", Some(5.0)),
+            (r#"["7"]"#, Some(7.0)),
+            ("[null]", Some(0.0)),
+            ("[true]", None),
+            ("[1,2]", None),
+            ("[[3]]", Some(3.0)),
+            ("{}", None),
+            (r#"{"a":1}"#, None),
+            ("1.5", Some(1.5)),
+            (r#""1e""#, None),
+            (r#""0x""#, None),
             (r#""12.5e-1""#, Some(1.25)),
         ];
         for (input, expected) in cases {

@@ -40,11 +40,7 @@ pub(crate) fn extname(name: &str) -> String {
 
 /// The text of a file system error as Node writes it for a missing path, else the system's own.
 pub(crate) fn fs_message(error: &std::io::Error, call: &str, path: &Path) -> String {
-    if error.kind() == std::io::ErrorKind::NotFound {
-        format!("ENOENT: no such file or directory, {call} '{}'", path.display())
-    } else {
-        error.to_string()
-    }
+    if error.kind() == std::io::ErrorKind::NotFound { format!("ENOENT: no such file or directory, {call} '{}'", path.display()) } else { error.to_string() }
 }
 
 /// `walkTemplateDirectory(root, output, depth)`: the template files under a directory, depth first, names in locale
@@ -54,7 +50,8 @@ pub fn walk_template_directory<P: ReadProof>(proof: &P, root: &Path, output: &mu
         return;
     }
     let Ok(reader) = mixdog_fsio::read_dir(proof, root) else { return };
-    let mut entries: Vec<(String, mixdog_fsio::DirEntry)> = reader.filter_map(Result::ok).map(|entry| (entry.file_name().to_string_lossy().into_owned(), entry)).collect();
+    let mut entries: Vec<(String, mixdog_fsio::DirEntry)> =
+        reader.filter_map(Result::ok).map(|entry| (entry.file_name().to_string_lossy().into_owned(), entry)).collect();
     entries.sort_by(|left, right| locale_compare(&left.0, &right.0));
     for (name, entry) in entries {
         if output.len() >= MAX_LOCAL_TEMPLATE_COUNT {
@@ -123,7 +120,11 @@ pub struct SlideEntry {
 }
 
 fn numbered(slides: Vec<(String, String)>) -> Vec<SlideEntry> {
-    slides.into_iter().enumerate().map(|(index, (relationship_id, name))| SlideEntry { part: number_from_path(&name), relationship_id, name, slide: index + 1 }).collect()
+    slides
+        .into_iter()
+        .enumerate()
+        .map(|(index, (relationship_id, name))| SlideEntry { part: number_from_path(&name), relationship_id, name, slide: index + 1 })
+        .collect()
 }
 
 /// `pptxSlideEntries(zip)`: the slides of a deck in the order its presentation lists them; by part number where the
@@ -204,7 +205,8 @@ fn relationship_blocks(xml: &str) -> Vec<String> {
 /// where they would collide with a non-slide relationship or an earlier pick.
 fn selected_slide_relationship_ids(entries: &[SlideEntry], relationships: &str, count: usize) -> Vec<String> {
     let slide_ids: Vec<&str> = entries.iter().map(|entry| entry.relationship_id.as_str()).filter(|id| !id.is_empty()).collect();
-    let non_slide: HashSet<String> = relationship_blocks(relationships).iter().filter(|block| !relationship_type(block, "slide")).map(|block| xml_attribute(block, "Id")).collect();
+    let non_slide: HashSet<String> =
+        relationship_blocks(relationships).iter().filter(|block| !relationship_type(block, "slide")).map(|block| xml_attribute(block, "Id")).collect();
     let mut ids: Vec<String> = Vec::new();
     let mut next = 2;
     for index in 0..count {
@@ -229,7 +231,11 @@ struct SlideParts {
 fn read_slide_parts(zip: &Package, entry: &SlideEntry) -> SlideParts {
     let part = number_to_string(entry.part);
     let slide_relationships = zip.text(&format!("ppt/slides/_rels/slide{part}.xml.rels"));
-    let notes_target = relationship_blocks(&slide_relationships).into_iter().find(|block| relationship_type(block, "notesSlide")).map(|block| xml_attribute(&block, "Target")).unwrap_or_default();
+    let notes_target = relationship_blocks(&slide_relationships)
+        .into_iter()
+        .find(|block| relationship_type(block, "notesSlide"))
+        .map(|block| xml_attribute(&block, "Target"))
+        .unwrap_or_default();
     let notes_part = compiled(r"notesSlide(\d+)\.xml$", "i").captures(&notes_target).and_then(|found| found.get(1).map(string_to_number)).unwrap_or(0.0);
     let (notes, notes_relationships) = if notes_part != 0.0 {
         let number = number_to_string(notes_part);
@@ -250,8 +256,11 @@ fn presentation_with_slide_list(presentation: &str, relationship_ids: &[String])
 }
 
 fn presentation_relationships_with_slides(relationships: &str, relationship_ids: &[String]) -> String {
-    let slides: String =
-        relationship_ids.iter().enumerate().map(|(index, id)| format!("<Relationship Id=\"{id}\" Type=\"{SLIDE_RELATIONSHIP_TYPE}\" Target=\"slides/slide{}.xml\"/>", index + 1)).collect();
+    let slides: String = relationship_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| format!("<Relationship Id=\"{id}\" Type=\"{SLIDE_RELATIONSHIP_TYPE}\" Target=\"slides/slide{}.xml\"/>", index + 1))
+        .collect();
     let kept = compiled(RELATIONSHIP_BLOCK, "gi").replace_all_with(relationships, |found| {
         let block = found.get(0).unwrap_or("");
         if relationship_type(block, "slide") { String::new() } else { block.to_owned() }
@@ -390,7 +399,9 @@ pub fn direct_pptx_shape_blocks(xml: &str) -> Vec<ShapeBlock> {
 
 fn token_slot_role(text: &str) -> String {
     let Some(token) = compiled(r"\{\{([A-Z0-9_]+)\}\}", "").captures(text).and_then(|found| found.get(1).map(str::to_owned)) else { return String::new() };
-    for (pattern, family) in [(r"^METRIC_(\d+)_(VALUE|LABEL|DETAIL)$", "metric"), (r"^COLUMN_(\d+)_(TITLE|BODY)$", "column"), (r"^STEP_(\d+)_(TITLE|DETAIL)$", "step")] {
+    for (pattern, family) in
+        [(r"^METRIC_(\d+)_(VALUE|LABEL|DETAIL)$", "metric"), (r"^COLUMN_(\d+)_(TITLE|BODY)$", "column"), (r"^STEP_(\d+)_(TITLE|DETAIL)$", "step")]
+    {
         if let Some(found) = compiled(pattern, "").captures(&token) {
             return format!("{family}-{}-{}", js_to_lowercase(found.get(2).unwrap_or("")), found.get(1).unwrap_or(""));
         }
@@ -458,7 +469,11 @@ pub fn pptx_shape_metadata(block: &ShapeBlock, shape: usize) -> Value {
         .map(|found| string_to_number(found.get(1).unwrap_or("")) / 100.0)
         .filter(|size| *size > 0.0)
         .collect();
-    let preset = if block.kind == "sp" { compiled(r#"<a:prstGeom\b[^>]*\bprst="([^"]+)""#, "i").captures(xml).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default() } else { String::new() };
+    let preset = if block.kind == "sp" {
+        compiled(r#"<a:prstGeom\b[^>]*\bprst="([^"]+)""#, "i").captures(xml).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default()
+    } else {
+        String::new()
+    };
     let mut metadata = Map::new();
     metadata.insert("shape".to_owned(), json!(shape));
     metadata.insert("name".to_owned(), Value::String(xml_attribute(c_nv_pr, "name")));
@@ -502,7 +517,8 @@ pub fn pptx_shape_metadata(block: &ShapeBlock, shape: usize) -> Value {
 /// `inferPptxSampleKind(sample, total)`: the job a page does: cover, closing, process, comparison, metrics, split,
 /// statement or content.
 pub fn infer_pptx_sample_kind(sample: &Value, total: f64) -> String {
-    let roles: Vec<String> = prop(sample, "slots").and_then(Value::as_array).map(|slots| slots.iter().map(|slot| crate::text(prop(slot, "role"))).collect()).unwrap_or_default();
+    let roles: Vec<String> =
+        prop(sample, "slots").and_then(Value::as_array).map(|slots| slots.iter().map(|slot| crate::text(prop(slot, "role"))).collect()).unwrap_or_default();
     let title = js_to_lowercase(&crate::text(prop(sample, "title")));
     let any = |prefix: &str| roles.iter().any(|role| role.starts_with(prefix));
     // The first page is the cover unless it carries a structure no cover has: a flow of steps, or columns with their
@@ -562,7 +578,10 @@ fn number_or_zero(value: Option<&Value>) -> f64 {
 pub fn pptx_sample_capacity(sample: &Value) -> Value {
     let slots: Vec<Value> = prop(sample, "slots").and_then(Value::as_array).cloned().unwrap_or_default();
     let text_slots: Vec<&Value> = slots.iter().filter(|slot| prop(slot, "type") == Some(&Value::String("text".to_owned()))).collect();
-    let area: f64 = text_slots.iter().map(|slot| number_or_zero(opt_prop(prop(slot, "geometry"), "width")).max(0.0) * number_or_zero(opt_prop(prop(slot, "geometry"), "height")).max(0.0)).sum();
+    let area: f64 = text_slots
+        .iter()
+        .map(|slot| number_or_zero(opt_prop(prop(slot, "geometry"), "width")).max(0.0) * number_or_zero(opt_prop(prop(slot, "geometry"), "height")).max(0.0))
+        .sum();
     json!({
         "sampleTextChars": json_number(number_or_zero(prop(sample, "textChars"))),
         "shapeCount": prop(sample, "shapes").and_then(Value::as_array).map_or(0, Vec::len),
@@ -590,7 +609,11 @@ fn unique_sorted(values: impl Iterator<Item = Value>) -> Vec<Value> {
 /// pages of a template cover, and which of the recommended ones it lacks.
 pub fn office_template_coverage(sample_slides: &[Value]) -> Value {
     let field_texts = |key: &str| unique_sorted(sample_slides.iter().map(|sample| Value::String(crate::text(prop(sample, key)))).filter(|value| *value != ""));
-    let list_values = |key: &str| unique_sorted(sample_slides.iter().flat_map(|sample| prop(sample, key).filter(|value| truthy(value)).and_then(Value::as_array).cloned().unwrap_or_default()));
+    let list_values = |key: &str| {
+        unique_sorted(
+            sample_slides.iter().flat_map(|sample| prop(sample, key).filter(|value| truthy(value)).and_then(Value::as_array).cloned().unwrap_or_default()),
+        )
+    };
     let kinds = field_texts("kind");
     let densities = field_texts("density");
     let purposes = list_values("purposes");

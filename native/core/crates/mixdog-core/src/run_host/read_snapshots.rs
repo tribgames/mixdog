@@ -39,7 +39,11 @@ fn sweep_dir(dir: &Path, now: SystemTime) {
 }
 
 /// `mkdirSync(dir, { recursive: true, mode: 0o700 })`: the snapshot directory belongs to the user alone where the system has modes.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "FileSnapshotPersist::save is called by ReadState Persistence::run inside its awaited DurabilityIo job")]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "FileSnapshotPersist::save is called by ReadState Persistence::run inside its awaited DurabilityIo job"
+)]
 fn make_private_dir(dir: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
@@ -79,10 +83,7 @@ impl SnapshotPersist for FileSnapshotPersist {
     /// The scope keys of the files on disk (each file's name without `.json`).
     fn scopes(&self) -> Vec<String> {
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return Vec::new() };
-        entries
-            .flatten()
-            .filter_map(|e| e.path().file_name()?.to_str()?.strip_suffix(".json").map(str::to_owned))
-            .collect()
+        entries.flatten().filter_map(|e| e.path().file_name()?.to_str()?.strip_suffix(".json").map(str::to_owned)).collect()
     }
     /// Writes beside the file and renames over it, so a reader never sees half a file. `None` removes it.
     fn save(&self, scope: &str, json: Option<&str>) {
@@ -126,20 +127,13 @@ mod tests {
         assert_eq!(file_name(&"x".repeat(300)).len(), 200 + ".json".len());
     }
 
-
     #[tokio::test]
     async fn only_scopes_older_than_thirty_days_are_swept() {
         let dir = tempfile::tempdir().unwrap();
         let store = FileSnapshotPersist::new(dir.path());
         store.save("new", Some("{}"));
         // The old scope's file is made through the temp file's handle, which carries the mtime.
-        let (old, path) = tempfile::Builder::new()
-            .prefix("old-")
-            .suffix(".json")
-            .tempfile_in(dir.path().join("read-snapshots"))
-            .unwrap()
-            .keep()
-            .unwrap();
+        let (old, path) = tempfile::Builder::new().prefix("old-").suffix(".json").tempfile_in(dir.path().join("read-snapshots")).unwrap().keep().unwrap();
         old.set_modified(SystemTime::now() - Duration::from_secs(31 * 24 * 60 * 60)).unwrap();
         let old = path.file_stem().unwrap().to_str().unwrap().to_owned();
         store.sweep_stale(mixdog_rt::testing::tokens().maintenance_io, SystemTime::now()).await;

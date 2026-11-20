@@ -95,11 +95,7 @@ impl Worktrees {
         }
         let mut shared = Vec::new();
         if blocked.is_empty() {
-            let asked: Vec<&str> = ledger
-                .iter()
-                .filter(|i| i.mode == "link" && i.status == "created" && !i.dependency)
-                .map(|i| i.rel.as_str())
-                .collect();
+            let asked: Vec<&str> = ledger.iter().filter(|i| i.mode == "link" && i.status == "created" && !i.dependency).map(|i| i.rel.as_str()).collect();
             let subdir = subdir_of(&current);
             for rel in linked_artefacts(self.scm(), cancel, &session_root(&current)).await? {
                 let top = if subdir.is_empty() { rel.clone() } else { format!("{subdir}/{rel}") };

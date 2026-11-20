@@ -40,11 +40,7 @@ fn call_line(seq: u64, obj: u64, kind: &str, member: &str, flags: u32, args: Jso
 
 fn failure_message(run: impl FnOnce()) -> String {
     let payload = catch_unwind(AssertUnwindSafe(run)).expect_err("the call should have failed the replay");
-    payload
-        .downcast_ref::<String>()
-        .cloned()
-        .or_else(|| payload.downcast_ref::<&str>().map(|text| (*text).to_owned()))
-        .unwrap_or_default()
+    payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|text| (*text).to_owned())).unwrap_or_default()
 }
 
 fn every_value_kind() -> Vec<Value> {
@@ -124,12 +120,10 @@ fn put_put_with_and_put_ref_send_their_flags_and_the_assigned_value() {
 
 #[test]
 fn missing_and_named_arguments_are_compared_in_the_order_given() {
-    let log = lines(&[
-        json!({"seq": 1, "obj": 1, "kind": "call", "member": "Open", "flags": CALL_FLAGS,
+    let log = lines(&[json!({"seq": 1, "obj": 1, "kind": "call", "member": "Open", "flags": CALL_FLAGS,
                "args": [{"t": "str", "v": "a.xlsx"}, {"t": "missing"}, {"t": "bool", "v": true}],
                "named": [["Password", {"t": "str", "v": "x"}], ["ReadOnly", {"t": "bool", "v": true}]],
-               "result": {"t": "null"}}),
-    ]);
+               "result": {"t": "null"}})]);
     let fake = Fake::from_lines(&log);
     let object = fake.object(1);
     let args = [Value::from("a.xlsx"), Value::Missing, Value::Bool(true)];
@@ -161,10 +155,7 @@ fn one_dimensional_arrays_keep_their_lower_bound() {
 
 #[test]
 fn two_dimensional_arrays_are_column_major_with_their_lower_bounds() {
-    let rows = vec![
-        vec![Value::I4(11), Value::I4(12), Value::I4(13)],
-        vec![Value::I4(21), Value::I4(22), Value::I4(23)],
-    ];
+    let rows = vec![vec![Value::I4(11), Value::I4(12), Value::I4(13)], vec![Value::I4(21), Value::I4(22), Value::I4(23)]];
     for lbounds in [(0, 0), (1, 1)] {
         let array = SafeArray::from_rows(lbounds, rows.clone()).expect("rectangular");
         assert_eq!(array.dims(), &[Dim { lbound: lbounds.0, len: 2 }, Dim { lbound: lbounds.1, len: 3 }]);
@@ -238,10 +229,7 @@ fn the_binder_rules_for_null_and_missing_members() {
 
     assert_eq!(Value::Null.member("Anything").expect("a property of null is null"), Value::Null);
     assert_eq!(Value::Empty.member("Anything").expect("a property of null is null"), Value::Null);
-    assert_eq!(
-        Value::Null.call_member("Quit", &[]).expect_err("a method of null fails").message(),
-        "You cannot call a method on a null-valued expression."
-    );
+    assert_eq!(Value::Null.call_member("Quit", &[]).expect_err("a method of null fails").message(), "You cannot call a method on a null-valued expression.");
     assert_eq!(
         Value::Null.set_member("Visible", Value::Bool(true)).expect_err("a property set on null fails").message(),
         "The property 'Visible' cannot be found on this object. Verify that the property exists and can be set."
@@ -302,10 +290,8 @@ fn the_first_difference_fails_with_both_calls_in_the_message() {
 
 #[test]
 fn boundaries_are_consumed_by_name_and_a_call_that_meets_one_fails() {
-    let log = [
-        json!({"seq": 1, "boundary": "operation", "name": "set_range"}),
-        call_line(2, 1, "get", "Name", GET_FLAGS, json!([]), json!({"t": "str", "v": "x"})),
-    ];
+    let log =
+        [json!({"seq": 1, "boundary": "operation", "name": "set_range"}), call_line(2, 1, "get", "Name", GET_FLAGS, json!([]), json!({"t": "str", "v": "x"}))];
     let source = lines(&log);
     let fake = Fake::from_lines(&source);
     fake.boundary("operation", "set_range");
@@ -383,7 +369,6 @@ fn decimals_parse_and_print_exactly() {
     assert_eq!(Decimal::from_i64(-7).to_string(), "-7");
 }
 
-
 #[test]
 fn symbolic_names_follow_the_net_suffix_rule() {
     let text = |_: i32| Some("The object invoked has disconnected from its clients.".to_owned());
@@ -404,7 +389,10 @@ fn com_error(hresult: i32) -> Error {
     Error::Com(ComError { hresult, inner_hresult: hresult, message: format!("busy {hresult}"), inner_message: String::new(), unknown_member: false })
 }
 
-fn attempts_until_failure(hresult: i32, run: impl Fn(&ManualClock, &dyn Fn() -> Result<(), Error>) -> Result<(), Error>) -> (u32, Result<(), Error>, ManualClock) {
+fn attempts_until_failure(
+    hresult: i32,
+    run: impl Fn(&ManualClock, &dyn Fn() -> Result<(), Error>) -> Result<(), Error>,
+) -> (u32, Result<(), Error>, ManualClock) {
     let clock = ManualClock::new();
     let attempts = Cell::new(0);
     let operation = || {
@@ -421,10 +409,7 @@ fn excel_retries_its_three_codes_fifty_times_then_reports_busy() {
         let (attempts, result, clock) = attempts_until_failure(hresult, |clock, operation| retry::excel(clock, "Excel chart proxy", &[], operation));
         assert_eq!(attempts, 50);
         assert_eq!(clock.pauses(), vec![Duration::from_millis(100); 50]);
-        assert_eq!(
-            result.expect_err("busy").message(),
-            format!("Excel chart proxy remained busy after transient COM retries. Last error: busy {hresult}")
-        );
+        assert_eq!(result.expect_err("busy").message(), format!("Excel chart proxy remained busy after transient COM retries. Last error: busy {hresult}"));
     }
 }
 
@@ -655,7 +640,6 @@ mod live {
     }
 }
 
-
 // ---- error texts ------------------------------------------------------------------------
 
 #[test]
@@ -695,19 +679,13 @@ fn codes_the_runtime_maps_to_an_exception_use_that_exceptions_message_and_others
     }
     // Any other code: the system's text, then the hex code and, when known, its symbolic name.
     let raw = Raw { hresult: 0x8004_0154_u32 as i32, description: None };
-    assert_eq!(
-        errtext::inner_message(&raw, &system),
-        "system text for 80040154 (Exception from HRESULT: 0x80040154 (REGDB_E_CLASSNOTREG))"
-    );
+    assert_eq!(errtext::inner_message(&raw, &system), "system text for 80040154 (Exception from HRESULT: 0x80040154 (REGDB_E_CLASSNOTREG))");
     // A description from the member wins over every rule.
     let raw = Raw { hresult: 0x8007_0005_u32 as i32, description: Some("Mine".to_owned()) };
     assert_eq!(errtext::inner_message(&raw, &system), "Mine");
     // An empty system text adds nothing before the suffix.
     let raw = Raw { hresult: 0x8004_0154_u32 as i32, description: None };
-    assert_eq!(
-        errtext::inner_message(&raw, &|_: i32| Some(String::new())),
-        "Exception from HRESULT: 0x80040154 (REGDB_E_CLASSNOTREG)"
-    );
+    assert_eq!(errtext::inner_message(&raw, &|_: i32| Some(String::new())), "Exception from HRESULT: 0x80040154 (REGDB_E_CLASSNOTREG)");
 }
 
 #[test]
@@ -732,4 +710,3 @@ fn a_com_failure_is_retried_by_the_wrapped_hresult_not_the_com_code() {
     let (attempts, _, _) = attempts_until_failure(wrapped.hresult, |clock, operation| retry::excel(clock, "x", &[], operation));
     assert_eq!(attempts, 1);
 }
-

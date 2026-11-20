@@ -123,11 +123,7 @@ impl SetupRequests {
     pub fn claim(&self, thread: &ThreadId, id: &str, owner: &str) -> Option<Value> {
         let mut pending = self.pending.lock().expect("setup requests");
         let entry = pending.get_mut(id)?;
-        if entry.owner.is_some()
-            || entry.claim_by <= Instant::now()
-            || mixdog_js::js_trim(owner).is_empty()
-            || &entry.thread != thread
-        {
+        if entry.owner.is_some() || entry.claim_by <= Instant::now() || mixdog_js::js_trim(owner).is_empty() || &entry.thread != thread {
             return None;
         }
         entry.owner = Some(owner.to_owned());
@@ -249,8 +245,7 @@ pub struct SetupRequestsService {
     requests: Arc<SetupRequests>,
 }
 
-const SETUP_REQUEST_METHODS: &[&str] =
-    &["config/isSetupRequestActive", "config/claimSetupRequest", "config/completeSetupRequest"];
+const SETUP_REQUEST_METHODS: &[&str] = &["config/isSetupRequestActive", "config/claimSetupRequest", "config/completeSetupRequest"];
 
 impl SetupRequestsService {
     pub fn new(requests: Arc<SetupRequests>) -> Self {
@@ -283,9 +278,7 @@ impl DomainService for SetupRequestsService {
             "config/isSetupRequestActive" => {
                 json!(thread.is_some_and(|thread| self.requests.is_active(&thread, &id, &owner)))
             }
-            "config/claimSetupRequest" => {
-                thread.and_then(|thread| self.requests.claim(&thread, &id, &owner)).unwrap_or(Value::Null)
-            }
+            "config/claimSetupRequest" => thread.and_then(|thread| self.requests.claim(&thread, &id, &owner)).unwrap_or(Value::Null),
             "config/completeSetupRequest" => {
                 let receipt = params.get("receipt").cloned().unwrap_or(Value::Null);
                 match self.requests.complete(&id, &owner, &receipt) {

@@ -15,38 +15,26 @@ fn re(pattern: &str, flags: &str) -> JsRegex {
 
 static NOTIFICATION_FIELD: LazyLock<JsRegex> = LazyLock::new(|| re(r"^<([\w-]+)>([^<]*)<\/\1>$", "gm"));
 static SURFACE_TASK: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(\S+) task ", ""));
-static BRACKETED_SHELL_STATUS: LazyLock<JsRegex> = LazyLock::new(|| {
-    re(
-        r"^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]",
-        "im",
-    )
-});
+static BRACKETED_SHELL_STATUS: LazyLock<JsRegex> =
+    LazyLock::new(|| re(r"^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]", "im"));
 static BRACKETED_TASK_ID: LazyLock<JsRegex> = LazyLock::new(|| re(r"^\[task_id:\s*\S+\]", "im"));
 static BACKGROUND_HEAD: LazyLock<JsRegex> = LazyLock::new(|| re(r"^background task\b", "i"));
 static TASK_ID_LINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^task_id:\s*\S+", "im"));
-static STATUS_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
-    re(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b", "im")
-});
-static DESCRIPTOR_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
-    re(r"^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*", "im")
-});
+static STATUS_LINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b", "im"));
+static DESCRIPTOR_LINE: LazyLock<JsRegex> =
+    LazyLock::new(|| re(r"^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*", "im"));
 static ASYNC_HEADER: LazyLock<JsRegex> = LazyLock::new(|| re(r"^Async .+ finished\.", "i"));
-static CONTEXT: LazyLock<JsRegex> = LazyLock::new(|| {
-    re(r"^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b", "i")
-});
+static CONTEXT: LazyLock<JsRegex> = LazyLock::new(|| re(r"^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b", "i"));
 static SYNTHETIC: LazyLock<JsRegex> = LazyLock::new(|| {
     re(
         r"^(?:\[mixdog-runtime\]|A previous model worked on this task and produced the compacted handoff summary below\b|Re-attached after compaction\b|Reference files:\s)",
         "i",
     )
 });
-static USER_INTERRUPT: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^\[request interrupted by user(?: for tool use)?\]$", "i"));
-static CANCELLED_STATUS: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^\[request interrupted(?: by process restart)?\]$", "i"));
+static USER_INTERRUPT: LazyLock<JsRegex> = LazyLock::new(|| re(r"^\[request interrupted by user(?: for tool use)?\]$", "i"));
+static CANCELLED_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^\[request interrupted(?: by process restart)?\]$", "i"));
 static RESULT_MARK: LazyLock<JsRegex> = LazyLock::new(|| re(r"\bResult:\s*(?:\r?\n|$)", "i"));
-static LOOSE_RESULT_SPLIT: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"\r?\n(?:[ \t]*\r?\n)?Result:[ \t]*\r?\n", "i"));
+static LOOSE_RESULT_SPLIT: LazyLock<JsRegex> = LazyLock::new(|| re(r"\r?\n(?:[ \t]*\r?\n)?Result:[ \t]*\r?\n", "i"));
 
 /// `value.split(/\r?\n/)`.
 pub fn split_lines(value: &str) -> Vec<&str> {
@@ -80,11 +68,7 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNotification> {
     if !value.starts_with(OPEN) || !value.ends_with(CLOSE) {
         return None;
     }
-    let mut fields_text = if value.len() >= OPEN.len() + CLOSE.len() {
-        value[OPEN.len()..value.len() - CLOSE.len()].to_owned()
-    } else {
-        String::new()
-    };
+    let mut fields_text = if value.len() >= OPEN.len() + CLOSE.len() { value[OPEN.len()..value.len() - CLOSE.len()].to_owned() } else { String::new() };
     let mut result = String::new();
     if let Some(start) = fields_text.find("\n<result>\n") {
         let end = fields_text.rfind("\n</result>")?;
@@ -97,19 +81,13 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNotification> {
     }
     let mut fields: HashMap<String, String> = HashMap::new();
     for caps in NOTIFICATION_FIELD.captures_iter(&fields_text) {
-        let decoded = caps
-            .get(2)
-            .unwrap_or_default()
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&");
+        let decoded = caps.get(2).unwrap_or_default().replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
         fields.insert(caps.get(1).unwrap_or_default().to_owned(), decoded);
     }
     let field = |name: &str| fields.get(name).cloned().unwrap_or_default();
     let status = field("status");
     let summary = field("summary");
-    if field("task-id").is_empty() || !matches!(status.as_str(), "completed" | "failed" | "cancelled") || summary.is_empty()
-    {
+    if field("task-id").is_empty() || !matches!(status.as_str(), "completed" | "failed" | "cancelled") || summary.is_empty() {
         return None;
     }
     let surface = if summary.starts_with("Agent \"") {
@@ -117,21 +95,9 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNotification> {
     } else if summary.starts_with("Shell task ") {
         "shell".to_owned()
     } else {
-        SURFACE_TASK
-            .captures(&summary)
-            .and_then(|c| c.get(1))
-            .unwrap_or("tool")
-            .to_owned()
+        SURFACE_TASK.captures(&summary).and_then(|c| c.get(1)).unwrap_or("tool").to_owned()
     };
-    Some(TaskNotification {
-        task_id: field("task-id"),
-        tag: field("tag"),
-        surface,
-        status,
-        summary,
-        result,
-        error: field("error"),
-    })
+    Some(TaskNotification { task_id: field("task-id"), tag: field("tag"), surface, status, summary, result, error: field("error") })
 }
 
 fn is_bracketed_shell_notification_envelope(value: &str) -> bool {
@@ -154,9 +120,7 @@ pub fn is_internal_runtime_notification_text(text: &str) -> bool {
     if parse_task_notification(value).is_some() || is_bracketed_shell_notification_envelope(value) {
         return true;
     }
-    TASK_ID_LINE.is_match(value)
-        && STATUS_LINE.is_match(value)
-        && (BACKGROUND_HEAD.is_match(value) || DESCRIPTOR_LINE.is_match(value))
+    TASK_ID_LINE.is_match(value) && STATUS_LINE.is_match(value) && (BACKGROUND_HEAD.is_match(value) || DESCRIPTOR_LINE.is_match(value))
 }
 
 /// `completionWrapperQuotedLines`: the non-empty lines after the `Result:` separator of an
@@ -168,10 +132,7 @@ fn completion_wrapper_quoted_lines(text: &str) -> Option<Vec<&str>> {
     if preamble.is_empty() || !ASYNC_HEADER.is_match(preamble) {
         return None;
     }
-    let lines: Vec<&str> = split_lines(&value[at + "\n\nResult:\n".len()..])
-        .into_iter()
-        .filter(|line| !line.is_empty())
-        .collect();
+    let lines: Vec<&str> = split_lines(&value[at + "\n\nResult:\n".len()..]).into_iter().filter(|line| !line.is_empty()).collect();
     (!lines.is_empty()).then_some(lines)
 }
 

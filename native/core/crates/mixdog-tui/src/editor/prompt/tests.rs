@@ -176,7 +176,8 @@ impl Harness {
     /// The skill palette is active while a mention precedes the reported caret.
     fn refresh_palette(&mut self) {
         let caret = self.rec.carets.last().copied();
-        let active = skill_mention_query(&self.rec.draft_changes.last().cloned().unwrap_or_else(|| self.value().to_owned()), caret.unwrap_or(usize::MAX)).is_some();
+        let active =
+            skill_mention_query(&self.rec.draft_changes.last().cloned().unwrap_or_else(|| self.value().to_owned()), caret.unwrap_or(usize::MAX)).is_some();
         self.props.command_palette_active = active;
         self.props.command_palette_option_count = Some(i64::from(active));
         self.props.command_palette_moves_caret = true;
@@ -505,15 +506,7 @@ fn an_open_palette_with_options_owns_up_down_page_home_and_end() {
     h.feed("\x1b[D");
     assert_eq!(
         h.rec.navs,
-        [
-            PaletteNav::Step(-1),
-            PaletteNav::Step(1),
-            PaletteNav::Step(-8),
-            PaletteNav::Step(8),
-            PaletteNav::Home,
-            PaletteNav::End,
-            PaletteNav::Left
-        ]
+        [PaletteNav::Step(-1), PaletteNav::Step(1), PaletteNav::Step(-8), PaletteNav::Step(8), PaletteNav::Home, PaletteNav::End, PaletteNav::Left]
     );
     h.props.command_palette_option_count = Some(1);
     h.feed("\x1b[A");

@@ -222,10 +222,10 @@ async fn a_rewrite_at_the_same_cursor_retries_the_read_instead_of_storing_the_ol
     assert_eq!(ingest.backfill(&Edited(AtomicBool::new(false))).await.unwrap(), 1);
     let rows = db.db().query("SELECT ordinal, role, ts, content FROM session_search.messages WHERE session_id = 'masked' ORDER BY ordinal", &[]).await.unwrap();
     let rows: Vec<(i32, String, Option<i64>, String)> = rows.iter().map(|row| (row.get(0), row.get(1), row.get(2), row.get(3))).collect();
-    assert_eq!(rows, [
-        (0, "user".to_owned(), None, "updated albatross [redacted]".to_owned()),
-        (2, "assistant".to_owned(), Some(20), "updated heron".to_owned()),
-    ]);
+    assert_eq!(
+        rows,
+        [(0, "user".to_owned(), None, "updated albatross [redacted]".to_owned()), (2, "assistant".to_owned(), Some(20), "updated heron".to_owned()),]
+    );
     assert_eq!(db.backfill_stamps().await.unwrap().get("masked").map(String::as_str), Some(AFTER));
 }
 
@@ -250,10 +250,7 @@ async fn ingest_search_redact_and_delete() {
     assert!(db.search("the of", 10).await.expect("stopwords").is_empty());
 
     // A value marked sensitive after the rows were written replaces them.
-    let secret = vec![
-        json!({ "role": "user", "content": "Finish the sign-up." }),
-        json!({ "role": "assistant", "content": "The code is 682419." }),
-    ];
+    let secret = vec![json!({ "role": "user", "content": "Finish the sign-up." }), json!({ "role": "assistant", "content": "The code is 682419." })];
     db.append("masked", &secret).await.expect("plain rows");
     ingest.ingest_turn(IngestSession { id: "masked".into(), messages: secret.clone(), agent_only: false });
     ingest.settle("masked").await;
@@ -322,10 +319,7 @@ fn holders(root: &std::path::Path, value: &str) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops() {
-    let secret = vec![
-        json!({ "role": "user", "content": "Finish the sign-up." }),
-        json!({ "role": "assistant", "content": "The code is 682419." }),
-    ];
+    let secret = vec![json!({ "role": "user", "content": "Finish the sign-up." }), json!({ "role": "assistant", "content": "The code is 682419." })];
     let redacted = Mask.redact_messages("masked", &secret);
     for kill_after in [ScrubStep::Owed, ScrubStep::Rewritten, ScrubStep::WalRemoved] {
         let mut pg = TestPg::start_own().await;
@@ -345,7 +339,6 @@ async fn a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_
     }
 }
 
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn closing_a_session_cancels_running_and_queued_writes() {
@@ -353,16 +346,11 @@ async fn closing_a_session_cancels_running_and_queued_writes() {
     let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
     let (entered_tx, entered_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
-    let ingest = SessionSearchIngest::new(
-        db.clone(),
-        Arc::new(Gate { entered: entered_tx, release: std::sync::Mutex::new(release_rx) }),
-    );
+    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(Gate { entered: entered_tx, release: std::sync::Mutex::new(release_rx) }));
     let first = vec![json!({ "role": "user", "content": "running turn zebra" })];
     let queued = vec![json!({ "role": "user", "content": "queued turn giraffe" })];
     ingest.ingest_turn(IngestSession { id: "closing".into(), messages: first, agent_only: false });
-    tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(10)).expect("write started"))
-        .await
-        .expect("join");
+    tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(10)).expect("write started")).await.expect("join");
     ingest.ingest_turn(IngestSession { id: "closing".into(), messages: queued, agent_only: false });
     mixdog_rt::time::sleep(Duration::from_millis(200)).await;
 
@@ -381,10 +369,7 @@ async fn closing_a_session_cancels_running_and_queued_writes() {
     let (reopened_tx, _reopened_rx) = std::sync::mpsc::channel();
     let (reopen_release_tx, reopen_release_rx) = std::sync::mpsc::channel();
     reopen_release_tx.send(()).expect("pre-release");
-    let reopened = SessionSearchIngest::new(
-        db.clone(),
-        Arc::new(Gate { entered: reopened_tx, release: std::sync::Mutex::new(reopen_release_rx) }),
-    );
+    let reopened = SessionSearchIngest::new(db.clone(), Arc::new(Gate { entered: reopened_tx, release: std::sync::Mutex::new(reopen_release_rx) }));
     reopened.ingest_turn(IngestSession {
         id: "closing".into(),
         messages: vec![json!({ "role": "user", "content": "later turn flamingo" })],
@@ -403,10 +388,7 @@ impl StoredSessions for Stored {
     }
     async fn read(&self, id: &str) -> Option<IngestSession> {
         self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.sessions
-            .iter()
-            .find(|s| s.0 == id)
-            .map(|s| IngestSession { id: s.0.clone(), messages: s.2.clone(), agent_only: s.3 })
+        self.sessions.iter().find(|s| s.0 == id).map(|s| IngestSession { id: s.0.clone(), messages: s.2.clone(), agent_only: s.3 })
     }
 }
 #[async_trait::async_trait]

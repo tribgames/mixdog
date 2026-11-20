@@ -66,7 +66,15 @@ pub struct RouteFacts {
 impl RouteFacts {
     /// The facts of a send an adapter knows the wire of. The account is whatever the adapter pins sends to (opaque).
     pub fn declared(endpoint: &str, model: &str, branch: WireBranch, vision: Vision) -> Self {
-        Self { endpoint: endpoint.to_owned(), account: String::new(), model: model.to_owned(), branch, operation: "send".to_owned(), capability_revision: 1, vision }
+        Self {
+            endpoint: endpoint.to_owned(),
+            account: String::new(),
+            model: model.to_owned(),
+            branch,
+            operation: "send".to_owned(),
+            capability_revision: 1,
+            vision,
+        }
     }
 
     /// The facts of a route that declared none: it takes no image.

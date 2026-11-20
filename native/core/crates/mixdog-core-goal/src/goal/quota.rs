@@ -15,9 +15,7 @@ use mixdog_core_base::quota_resume::QuotaResumeStore;
 pub fn suspended_goal_id(before: Option<&Goal>, settled: Option<&Goal>) -> String {
     match (before, settled) {
         (Some(before), Some(settled))
-            if string(before, "status") == "active"
-                && string(settled, "status") == "usage_limited"
-                && string(settled, "id") == string(before, "id") =>
+            if string(before, "status") == "active" && string(settled, "status") == "usage_limited" && string(settled, "id") == string(before, "id") =>
         {
             string(settled, "id")
         }
@@ -38,13 +36,7 @@ impl GoalQuotaResume {
 
     /// `finishQuotaSettlement`: records the Goal the failure `turn_key` suspended (nothing when
     /// none was).
-    pub async fn note_suspension(
-        &self,
-        session_id: &str,
-        turn_key: &str,
-        before: Option<&Goal>,
-        settled: Option<&Goal>,
-    ) -> Result<bool, QuotaError> {
+    pub async fn note_suspension(&self, session_id: &str, turn_key: &str, before: Option<&Goal>, settled: Option<&Goal>) -> Result<bool, QuotaError> {
         self.note_goal(session_id, turn_key, &suspended_goal_id(before, settled)).await
     }
 
@@ -101,13 +93,7 @@ impl GoalQuotaResume {
 
     /// `finishResume`: the entry the resume fired from (when there is one) is cancelled at its
     /// generation, then the note is dropped if it still names the same Goal.
-    pub async fn finish_resume(
-        &self,
-        session_id: &str,
-        turn_key: &str,
-        goal_id: &str,
-        entry_generation: Option<u64>,
-    ) -> Result<bool, QuotaError> {
+    pub async fn finish_resume(&self, session_id: &str, turn_key: &str, goal_id: &str, entry_generation: Option<u64>) -> Result<bool, QuotaError> {
         if entry_generation.is_some() {
             self.store.cancel(session_id, entry_generation).await?;
         }

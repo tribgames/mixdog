@@ -138,8 +138,7 @@ pub fn summarize_payload(payload: &Value) -> String {
     }
     let provider = truthy(payload.get("provider"));
     if provider || truthy(payload.get("model")) {
-        let named: Vec<String> =
-            ["provider", "model"].iter().filter_map(|key| payload.get(*key)).filter(|v| truthy(Some(v))).map(value_to_string).collect();
+        let named: Vec<String> = ["provider", "model"].iter().filter_map(|key| payload.get(*key)).filter(|v| truthy(Some(v))).map(value_to_string).collect();
         parts.push(named.join("/"));
     }
     if let Some(prompt) = payload.get("prompt").filter(|v| truthy(Some(v))) {
@@ -169,13 +168,7 @@ fn iso_utc(ms: i64) -> String {
     let day = day_of_year - (153 * month_index + 2) / 5 + 1;
     let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        in_day / 3_600_000,
-        in_day / 60_000 % 60,
-        in_day / 1000 % 60,
-        in_day % 1000
-    )
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", in_day / 3_600_000, in_day / 60_000 % 60, in_day / 1000 % 60, in_day % 1000)
 }
 
 struct Log {
@@ -332,8 +325,7 @@ impl HooksStatus for HookStatus {
         let mut sorted = counts;
         sorted.sort_by(|a, b| locale_compare(&a.0, &b.0));
         let counts: Map<String, Value> = sorted.into_iter().map(|(name, count)| (name, json!(count))).collect();
-        let errors: Vec<Value> =
-            config.errors.iter().map(|(file, error)| json!({ "file": file.display().to_string(), "error": error })).collect();
+        let errors: Vec<Value> = config.errors.iter().map(|(file, error)| json!({ "file": file.display().to_string(), "error": error })).collect();
         json!({
             "enabled": !config.disabled,
             "mode": "standalone-standard",
@@ -361,7 +353,6 @@ impl HooksStatus for HookStatus {
 }
 
 // Every test here compares the status, the payload and rule summaries against Node's recording of the same inputs.
-
 
 impl HookObserver for HookEventLog {
     fn emit(&self, event: &str, payload: Value) {

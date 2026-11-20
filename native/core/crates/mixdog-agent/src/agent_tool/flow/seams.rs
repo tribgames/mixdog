@@ -8,10 +8,10 @@ type TerminalResultCallback = dyn Fn(&TurnResult) + Send + Sync;
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use serde_json::Value;
 use crate::cancel::Cancel;
 use crate::env::Yielder;
+use async_trait::async_trait;
+use serde_json::Value;
 
 use crate::response::Termination;
 

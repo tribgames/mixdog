@@ -21,7 +21,8 @@ const ROUTES: [(&str, &str); 4] = [
 ];
 
 fn entries(office: &Harness) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(&office.docs).expect("the folder").map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned()).collect();
+    let mut names: Vec<String> =
+        std::fs::read_dir(&office.docs).expect("the folder").map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned()).collect();
     names.sort();
     names
 }
@@ -55,7 +56,10 @@ fn an_existing_deck_or_pdf_is_not_replaced_without_overwrite_and_nothing_runs() 
     for (path, html) in [ROUTES[0], ROUTES[3]] {
         office.put(path, "existing bytes");
         let text = office.text_of(json!({ "action": "author", "path": path, "script": html }), false).replace('\\', "/");
-        assert!(text.starts_with("Error: author target already exists: ") && text.ends_with(&format!("/{path}; pass overwrite:true to replace it")), "{path}: {text}");
+        assert!(
+            text.starts_with("Error: author target already exists: ") && text.ends_with(&format!("/{path}; pass overwrite:true to replace it")),
+            "{path}: {text}"
+        );
         assert!(!text.contains("no browser here"), "{path}: the check comes before the browser is asked for");
         assert_eq!(office.read(path), "existing bytes");
     }

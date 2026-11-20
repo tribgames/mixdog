@@ -26,7 +26,6 @@ use mixdog_core::run_host::media::{AttachmentFacts, StoredFacts};
 use mixdog_core::run_host::process::{HostInfo, LocalModels};
 use mixdog_core::run_host::vault::KeychainVault;
 
-
 /// The machine itself: libuv's `os.type()` and `os.release()` and Node's `os.arch()`.
 #[test]
 fn this_machine_is_read_as_libuv_does() {
@@ -56,11 +55,7 @@ fn this_machine_is_read_as_libuv_does() {
 /// invocation of its `powershell()`: the DPAPI call Node's vault makes on Windows. A blob only
 /// decrypts for the user who made it, so the tests make theirs with this call at run time.
 #[cfg(windows)]
-mod node_dpapi {
-
-
-
-}
+mod node_dpapi {}
 struct Failing;
 
 #[async_trait]
@@ -134,10 +129,7 @@ impl mixdog_ai::transport::http::HttpSend for Offline {
         &self,
         _: mixdog_core_api::domain::provider::WireRequest,
         _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<
-        mixdog_ai::transport::http::HttpResponse,
-        mixdog_core_api::domain::provider::ProviderError,
-    > {
+    ) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
         Err(mixdog_core_api::domain::provider::ProviderError::new(
             mixdog_core_api::domain::provider::ErrorKind::Transient,
             mixdog_core_api::domain::provider::DeliveryState::NotSent,
@@ -158,7 +150,7 @@ impl mixdog_core::run_host::process::SessionHeaders for NoHeaders {
 #[tokio::test]
 async fn the_production_services_are_built_from_the_process_and_the_roots_stores() {
     use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
-    use mixdog_ai::netproxy::{system::SystemProxy, NetworkProxy};
+    use mixdog_ai::netproxy::{NetworkProxy, system::SystemProxy};
     use mixdog_ai::oauth::CredentialIo;
     use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_config::config::{Config, ConfigLanes};
@@ -251,6 +243,4 @@ async fn the_media_layer_passes_a_text_request_through() {
     assert_eq!(prepared, messages);
 }
 
-
 // ---- HostInfo ----------------------------------------------------------------------------
-

@@ -15,23 +15,20 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::HostNotificationShowParams;
 use mixdog_app_server_client::api::RequestId;
 use mixdog_core_domains::notify::decision::{
-    allows_device_notice, decide, Conversation, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView,
-    SessionFields,
+    Conversation, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView, SessionFields, allows_device_notice, decide,
 };
 use mixdog_core_domains::notify::engine::ToastStyle;
 use mixdog_core_domains::notify::preview::notification_preview;
 use mixdog_rt::CancellationToken;
 use mixdog_services::bots::routine::is_routine_quiet_reply;
 use mixdog_services::task_reports::chain::sessions_with_pending_work;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::link::ServerLink;
 use crate::link_machine::{LinkState, LinkViewState};
-use crate::server_feed::{
-    is_session_missing, AgentRowLite, ApprovalKind, FinalAnswer, FinalAnswerStatus, PendingApproval, SessionSummaryLite,
-};
+use crate::server_feed::{AgentRowLite, ApprovalKind, FinalAnswer, FinalAnswerStatus, PendingApproval, SessionSummaryLite, is_session_missing};
 
 /// A drop shorter than this is not worth a notification.
 pub const LINK_LOST_NOTICE_DELAY_MS: u64 = 5_000;
@@ -135,7 +132,6 @@ impl FinalAnswers for LinkAnswers {
     }
 }
 
-
 // ---- the final-answer watcher: one implementation for this PC's session notifier and for a server's
 
 /// What a roster row says about a session's turn.
@@ -206,8 +202,15 @@ impl TurnTracker {
 /// What the watcher asks of its owner's loop: delivered back to [`AnswerWatch::on_wake`].
 pub enum WatchWake {
     /// The quiet period of a completion ended: read its answer.
-    Deliver { session_id: String, generation: u64 },
-    Read { session_id: String, generation: u64, result: Result<Option<FinalAnswer>, AnswerReadError> },
+    Deliver {
+        session_id: String,
+        generation: u64,
+    },
+    Read {
+        session_id: String,
+        generation: u64,
+        result: Result<Option<FinalAnswer>, AnswerReadError>,
+    },
 }
 
 /// A turn whose answer is ready to be told.
@@ -255,17 +258,7 @@ impl<T> AnswerWatch<T> {
         enabled: Arc<dyn Fn() -> bool + Send + Sync>,
         report: StepReport,
     ) -> Self {
-        Self {
-            tracker: TurnTracker::default(),
-            pending: HashMap::new(),
-            queue: VecDeque::new(),
-            reading: false,
-            generation: 0,
-            answers,
-            wake,
-            enabled,
-            report,
-        }
+        Self { tracker: TurnTracker::default(), pending: HashMap::new(), queue: VecDeque::new(), reading: false, generation: 0, answers, wake, enabled, report }
     }
 
     /// A fresh number for the owner's own timers: it never repeats one the watcher used.
@@ -364,22 +357,14 @@ impl<T> AnswerWatch<T> {
             drop(tokio::spawn(async move {
                 let result = match mixdog_rt::time::timeout(READ_DEADLINE, answers.read(&session_id, started_at)).await {
                     Ok(result) => result,
-                    Err(_) => Err(AnswerReadError::Failed(format!(
-                        "final answer read timed out after {} ms",
-                        READ_DEADLINE.as_millis()
-                    ))),
+                    Err(_) => Err(AnswerReadError::Failed(format!("final answer read timed out after {} ms", READ_DEADLINE.as_millis()))),
                 };
                 wake(WatchWake::Read { session_id, generation, result });
             }));
         }
     }
 
-    fn settle(
-        &mut self,
-        session_id: &str,
-        generation: u64,
-        result: Result<Option<FinalAnswer>, AnswerReadError>,
-    ) -> Option<Settled<T>> {
+    fn settle(&mut self, session_id: &str, generation: u64, result: Result<Option<FinalAnswer>, AnswerReadError>) -> Option<Settled<T>> {
         let answer = match result {
             Err(AnswerReadError::SessionMissing) => {
                 // Terminal: the record is gone, so no retry can ever succeed.
@@ -420,8 +405,7 @@ impl<T> AnswerWatch<T> {
             (self.report)("suppressed", session_id, json!({ "sessionId": session_id, "reason": "reaction" }));
             return None;
         }
-        let ready = answer
-            .filter(|answer| answer.at >= started_at && !(answer.status == FinalAnswerStatus::Done && answer.text.trim().is_empty()));
+        let ready = answer.filter(|answer| answer.at >= started_at && !(answer.status == FinalAnswerStatus::Done && answer.text.trim().is_empty()));
         let Some(answer) = ready else {
             if !entry.waiting_reported {
                 entry.waiting_reported = true;
@@ -812,8 +796,7 @@ impl Notifier {
     fn tell_approval(&self, approval: &PendingApproval) -> Option<()> {
         let session_id = approval.session_id.as_str();
         let event = if approval.kind == ApprovalKind::Question { Event::Question } else { Event::Approval };
-        let conversation =
-            self.conversations.get(session_id).cloned().unwrap_or_else(|| Conversation::of(session_id, &SessionFields::default()));
+        let conversation = self.conversations.get(session_id).cloned().unwrap_or_else(|| Conversation::of(session_id, &SessionFields::default()));
         if !self.allowed(session_id, event, &conversation)? {
             return Some(());
         }

@@ -255,12 +255,7 @@ fn post_save_validate<P: WriteProof>(
 
 /// `render`: PowerPoint honours only the first PDF export of an open presentation, so a repeat render saves the deck and
 /// reopens it to get a fresh export slot; the other formats leave the document looking as saved as it was.
-fn render<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    out: &mut Emitter,
-    state: &mut SessionState,
-    request: &Value,
-) -> std::result::Result<Value, String> {
+fn render<P: WriteProof>(actions: &Actions<'_, P>, out: &mut Emitter, state: &mut SessionState, request: &Value) -> std::result::Result<Value, String> {
     let format = state.format.clone();
     let mut document = document_of(state)?;
     let output = output_path(request)?;
@@ -325,11 +320,7 @@ pub fn invoke_session_action<P: WriteProof>(
             }
             save_document_copy(&document, &format, &output).map_err(text)?;
             let document_saved = saved(&document).map_err(text)?;
-            session_response(
-                state,
-                &actions.env,
-                &fields(vec![("output", Value::String(output)), ("saved", Value::Bool(document_saved)), ("value", value)]),
-            )
+            session_response(state, &actions.env, &fields(vec![("output", Value::String(output)), ("saved", Value::Bool(document_saved)), ("value", value)]))
         }
         "save_copy" => {
             let document = document_of(state)?;

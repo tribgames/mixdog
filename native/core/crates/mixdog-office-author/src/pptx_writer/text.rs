@@ -12,7 +12,9 @@
 //! Not carried: placeholders (`placeholder`, `defineSlideMaster`'s objects), the custom geometry points
 //! (`shape: 'custGeom'`) and the deprecated spellings of options (`lineSize`, `lineDash`, `lineHead`, `lineTail`).
 
-use super::shapes::{Fill, Hyperlink, Line, ShapeOptions, adjustments_xml, color_element, color_selection, line_xml, link_click_xml, location_attributes, shape_shadow_xml};
+use super::shapes::{
+    Fill, Hyperlink, Line, ShapeOptions, adjustments_xml, color_element, color_selection, line_xml, link_click_xml, location_attributes, shape_shadow_xml,
+};
 use super::{Axis, CRLF, Dim, Layout, ONE_PT, encode_xml_entities, inch_to_emu, is_set, num, or, round, smart_parse, val_to_pts};
 
 const DEFAULT_FONT_COLOR: &str = "000000";
@@ -196,7 +198,12 @@ impl TextObject {
 
     /// `addTextDefinition` and the text branch of `slideObjectToXml`. `link` is given a hyperlink and returns the
     /// relationship id the slide stored it under.
-    pub(crate) fn new(content: TextContent, options: Option<TextOptions>, place: &Placement<'_>, link: &mut dyn FnMut(&Hyperlink) -> usize) -> Result<Self, String> {
+    pub(crate) fn new(
+        content: TextContent,
+        options: Option<TextOptions>,
+        place: &Placement<'_>,
+        link: &mut dyn FnMut(&Hyperlink) -> usize,
+    ) -> Result<Self, String> {
         let shared = options.is_some() && matches!(content, TextContent::Plain(_));
         let mut main = options.unwrap_or_default();
         if main.shape.as_deref() == Some("custGeom") {
@@ -233,7 +240,9 @@ impl TextObject {
         for run in &runs {
             let options = &mut arena[run.opt];
             if options.hyperlink_rid.is_none() {
-                if let Some(hyperlink) = options.frame.hyperlink.as_ref().filter(|hyperlink| hyperlink.url.as_deref().is_some_and(|url| !url.is_empty()) || is_set(hyperlink.slide)) {
+                if let Some(hyperlink) =
+                    options.frame.hyperlink.as_ref().filter(|hyperlink| hyperlink.url.as_deref().is_some_and(|url| !url.is_empty()) || is_set(hyperlink.slide))
+                {
                     let rid = link(hyperlink);
                     options.hyperlink_rid = Some(rid);
                 }
@@ -332,7 +341,13 @@ fn clean_options(options: &mut TextOptions, main_color: Option<&str>, text_objec
     if !is_set(options.line_spacing_multiple) {
         options.line_spacing_multiple = None;
     }
-    let mut body = BodyProperties { auto_fit: options.auto_fit, anchor: Some("ctr".to_owned()), vert: options.vert.clone().filter(|vert| !vert.is_empty()), wrap: options.wrap.unwrap_or(true), ..BodyProperties::default() };
+    let mut body = BodyProperties {
+        auto_fit: options.auto_fit,
+        anchor: Some("ctr".to_owned()),
+        vert: options.vert.clone().filter(|vert| !vert.is_empty()),
+        wrap: options.wrap.unwrap_or(true),
+        ..BodyProperties::default()
+    };
     if let Some(inset) = options.inset.filter(|inset| !inset.is_nan()) {
         let emu = inch_to_emu(inset);
         body.l_ins = Some(emu);
@@ -398,7 +413,11 @@ fn shape_xml(options: &TextOptions, text_body: &str, place: &Placement<'_>) -> S
     xml.push_str(&format!("<a:xfrm{}>", location_attributes(frame.rotate, frame.flip_h, frame.flip_v)));
     xml.push_str(&format!("<a:off x=\"{}\" y=\"{}\"/>", num(x), num(y)));
     xml.push_str(&format!("<a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm>", num(cx), num(cy)));
-    xml.push_str(&format!("<a:prstGeom prst=\"{}\"><a:avLst>{}</a:avLst></a:prstGeom>", options.shape.as_deref().filter(|shape| !shape.is_empty()).unwrap_or("rect"), adjustments_xml(frame, cx, cy)));
+    xml.push_str(&format!(
+        "<a:prstGeom prst=\"{}\"><a:avLst>{}</a:avLst></a:prstGeom>",
+        options.shape.as_deref().filter(|shape| !shape.is_empty()).unwrap_or("rect"),
+        adjustments_xml(frame, cx, cy)
+    ));
     match &frame.fill {
         Some(fill) => xml.push_str(&color_selection(fill)),
         None => xml.push_str("<a:noFill/>"),
@@ -723,7 +742,13 @@ fn paragraph_properties_xml(options: &TextOptions) -> String {
     if let Some(stops) = &options.tab_stops {
         let tabs: String = stops
             .iter()
-            .map(|stop| format!("<a:tab pos=\"{}\" algn=\"{}\"/>", num(inch_to_emu(or(stop.position, 1.0))), stop.alignment.as_deref().filter(|align| !align.is_empty()).unwrap_or("l")))
+            .map(|stop| {
+                format!(
+                    "<a:tab pos=\"{}\" algn=\"{}\"/>",
+                    num(inch_to_emu(or(stop.position, 1.0))),
+                    stop.alignment.as_deref().filter(|align| !align.is_empty()).unwrap_or("l")
+                )
+            })
             .collect();
         tab_stops = format!("<a:tabLst>{tabs}</a:tabLst>");
     }
@@ -802,7 +827,11 @@ fn run_properties_xml(options: &TextOptions) -> Result<String, String> {
             let size = round(glow.size.unwrap_or(8.0) * ONE_PT);
             let opacity = round(glow.opacity.unwrap_or(0.75) * 100_000.0);
             let glow_color = glow.color.as_deref().unwrap_or("FFFFFF");
-            xml.push_str(&format!("<a:effectLst><a:glow rad=\"{}\">{}</a:glow></a:effectLst>", num(size), color_element(glow_color, &format!("<a:alpha val=\"{}\"/>", num(opacity)))));
+            xml.push_str(&format!(
+                "<a:effectLst><a:glow rad=\"{}\">{}</a:glow></a:effectLst>",
+                num(size),
+                color_element(glow_color, &format!("<a:alpha val=\"{}\"/>", num(opacity)))
+            ));
         }
         if let Some(face) = options.font_face.as_deref().filter(|face| !face.is_empty()) {
             xml.push_str(&format!(
@@ -862,7 +891,13 @@ mod tests {
     #[test]
     fn a_plain_text_box_has_a_body_a_paragraph_and_a_run() {
         let options = TextOptions {
-            frame: ShapeOptions { x: Some(Dim::Number(1.0)), y: Some(Dim::Number(2.0)), w: Some(Dim::Number(3.0)), h: Some(Dim::Number(1.0)), ..ShapeOptions::default() },
+            frame: ShapeOptions {
+                x: Some(Dim::Number(1.0)),
+                y: Some(Dim::Number(2.0)),
+                w: Some(Dim::Number(3.0)),
+                h: Some(Dim::Number(1.0)),
+                ..ShapeOptions::default()
+            },
             ..sized(18.0)
         };
         let xml = built(TextContent::Plain("Hello & <you>".to_owned()), Some(options));
@@ -909,22 +944,40 @@ mod tests {
 
     #[test]
     fn margins_set_the_insets_in_the_order_left_right_bottom_top() {
-        let options = TextOptions { margin: Some(Margin::Each(vec![1.0, 2.0, 3.0, 4.0])), valign: Some("middle".to_owned()), wrap: Some(false), ..TextOptions::default() };
+        let options = TextOptions {
+            margin: Some(Margin::Each(vec![1.0, 2.0, 3.0, 4.0])),
+            valign: Some("middle".to_owned()),
+            wrap: Some(false),
+            ..TextOptions::default()
+        };
         let xml = built(TextContent::Plain("x".to_owned()), Some(options));
         assert!(xml.contains("<a:bodyPr wrap=\"none\" lIns=\"12700\" tIns=\"50800\" rIns=\"25400\" bIns=\"38100\" rtlCol=\"0\" anchor=\"ctr\">"));
     }
 
     #[test]
     fn bullets_alignment_and_spacing_make_the_paragraph_properties() {
-        let options = TextOptions { bullet: Some(Bullet::Flag(true)), align: Some("center".to_owned()), line_spacing_multiple: Some(1.5), indent_level: Some(1.0), para_space_after: Some(6.0), ..TextOptions::default() };
+        let options = TextOptions {
+            bullet: Some(Bullet::Flag(true)),
+            align: Some("center".to_owned()),
+            line_spacing_multiple: Some(1.5),
+            indent_level: Some(1.0),
+            para_space_after: Some(6.0),
+            ..TextOptions::default()
+        };
         let xml = paragraph_properties_xml(&options);
         assert_eq!(
             xml,
             "<a:pPr algn=\"ctr\" lvl=\"1\" marL=\"685800\" indent=\"-342900\"><a:lnSpc><a:spcPct val=\"150000\"/></a:lnSpc><a:spcAft><a:spcPts val=\"600\"/></a:spcAft><a:buSzPct val=\"100000\"/><a:buChar char=\"&#x2022;\"/></a:pPr>"
         );
-        let numbered = TextOptions { bullet: Some(Bullet::Spec(BulletSpec { kind: Some("Number".to_owned()), start_at: Some(3.0), ..BulletSpec::default() })), ..TextOptions::default() };
+        let numbered = TextOptions {
+            bullet: Some(Bullet::Spec(BulletSpec { kind: Some("Number".to_owned()), start_at: Some(3.0), ..BulletSpec::default() })),
+            ..TextOptions::default()
+        };
         assert!(paragraph_properties_xml(&numbered).contains("<a:buAutoNum type=\"arabicPeriod\" startAt=\"3\"/>"));
-        let odd = TextOptions { bullet: Some(Bullet::Spec(BulletSpec { character_code: Some("22AB".to_owned()), ..BulletSpec::default() })), ..TextOptions::default() };
+        let odd = TextOptions {
+            bullet: Some(Bullet::Spec(BulletSpec { character_code: Some("22AB".to_owned()), ..BulletSpec::default() })),
+            ..TextOptions::default()
+        };
         assert!(paragraph_properties_xml(&odd).contains("<a:buChar char=\"&#x22AB;\"/>"));
         let bad = TextOptions { bullet: Some(Bullet::Spec(BulletSpec { code: Some("ZZ".to_owned()), ..BulletSpec::default() })), ..TextOptions::default() };
         assert!(paragraph_properties_xml(&bad).contains("<a:buChar char=\"&#x2022;\"/>"));
@@ -953,7 +1006,10 @@ mod tests {
     #[test]
     fn a_hyperlink_takes_the_relationship_the_slide_gave_and_underlines_the_run() {
         let link = Hyperlink { url: Some("https://x.test".to_owned()), ..Hyperlink::default() };
-        let runs = vec![TextRun { text: "go".to_owned(), options: Some(TextOptions { frame: ShapeOptions { hyperlink: Some(link), ..ShapeOptions::default() }, ..TextOptions::default() }) }];
+        let runs = vec![TextRun {
+            text: "go".to_owned(),
+            options: Some(TextOptions { frame: ShapeOptions { hyperlink: Some(link), ..ShapeOptions::default() }, ..TextOptions::default() }),
+        }];
         let mut asked = Vec::new();
         let object = built_with(TextContent::Runs(runs), None, &mut |link: &Hyperlink| {
             asked.push(link.url.clone());
@@ -961,9 +1017,14 @@ mod tests {
         })
         .expect("text");
         assert_eq!(asked, vec![Some("https://x.test".to_owned())]);
-        assert!(object.xml().contains("u=\"sng\" dirty=\"0\"><a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill><a:hlinkClick r:id=\"rId5\" invalidUrl=\"\""));
+        assert!(
+            object.xml().contains("u=\"sng\" dirty=\"0\"><a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill><a:hlinkClick r:id=\"rId5\" invalidUrl=\"\"")
+        );
         assert!(object.xml().contains("endSnd=\"0\"> <a:extLst>"));
-        let refused = vec![TextRun { text: "go".to_owned(), options: Some(TextOptions { frame: ShapeOptions { hyperlink: Some(Hyperlink::default()), ..ShapeOptions::default() }, ..TextOptions::default() }) }];
+        let refused = vec![TextRun {
+            text: "go".to_owned(),
+            options: Some(TextOptions { frame: ShapeOptions { hyperlink: Some(Hyperlink::default()), ..ShapeOptions::default() }, ..TextOptions::default() }),
+        }];
         assert!(built_with(TextContent::Runs(refused), None, &mut no_links).is_err());
     }
 
@@ -978,7 +1039,11 @@ mod tests {
     fn a_line_box_needs_its_line_and_gets_the_line_defaults() {
         let bare = TextOptions { shape: Some("line".to_owned()), ..TextOptions::default() };
         assert!(built_with(TextContent::Plain("x".to_owned()), Some(bare), &mut no_links).is_err());
-        let line = TextOptions { shape: Some("line".to_owned()), frame: ShapeOptions { line: Some(Line::default()), ..ShapeOptions::default() }, ..TextOptions::default() };
+        let line = TextOptions {
+            shape: Some("line".to_owned()),
+            frame: ShapeOptions { line: Some(Line::default()), ..ShapeOptions::default() },
+            ..TextOptions::default()
+        };
         let xml = built(TextContent::Plain("x".to_owned()), Some(line));
         assert!(xml.contains("<a:prstGeom prst=\"line\"><a:avLst></a:avLst></a:prstGeom><a:noFill/><a:ln w=\"12700\"><a:solidFill><a:srgbClr val=\"333333\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln>"));
     }

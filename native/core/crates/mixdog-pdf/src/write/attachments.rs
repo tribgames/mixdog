@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use crate::object::{Dict, Obj, Ref};
 use crate::error::Guard;
+use crate::object::{Dict, Obj, Ref};
 use crate::stream::StreamFilters;
 use crate::write::object_streams::flate_stream;
 use crate::write::pages::{edit_child_array, edit_child_dict, invalid};
@@ -133,12 +133,7 @@ impl PdfDocument {
                 Some(Obj::Str(text)) => decode_text_string(text),
                 Some(_) => return None,
             };
-            output.push(Attachment {
-                index: output.len() + 1,
-                name: decode_text_string(name),
-                description,
-                spec: spec.clone(),
-            });
+            output.push(Attachment { index: output.len() + 1, name: decode_text_string(name), description, spec: spec.clone() });
             at += 2;
         }
         Some(output)
@@ -146,12 +141,7 @@ impl PdfDocument {
 
     /// `attachmentBytes`: the decoded stream of `EF /UF`, else `EF /F`. `Ok(None)` when that entry is not a stream;
     /// a filespec without an `EF` dictionary is an error, as it is in pdf-lib.
-    pub fn attachment_bytes(
-        &self,
-        spec: &Dict,
-        filters: &dyn StreamFilters,
-        guard: &Guard,
-    ) -> Result<Option<Vec<u8>>, WriteError> {
+    pub fn attachment_bytes(&self, spec: &Dict, filters: &dyn StreamFilters, guard: &Guard) -> Result<Option<Vec<u8>>, WriteError> {
         let Some(Obj::Dict(files)) = self.store.lookup(spec, "EF") else {
             return Err(invalid("Expected instance of PDFDict, but got instance of undefined"));
         };

@@ -44,7 +44,13 @@ pub fn window_rows(result: &Map<String, Value>) -> Vec<WindowRow> {
                 _ => return None,
             };
             let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-            (!id.is_empty()).then(|| WindowRow { id, focused: row.get("focused") == Some(&json!(true)), app: field("app"), title: field("title"), class_name: field("class_name") })
+            (!id.is_empty()).then(|| WindowRow {
+                id,
+                focused: row.get("focused") == Some(&json!(true)),
+                app: field("app"),
+                title: field("title"),
+                class_name: field("class_name"),
+            })
         })
         .collect()
 }
@@ -120,10 +126,13 @@ fn ocr_report(probe: &Probe) -> Map<String, Value> {
             report.insert("available".into(), json!(result.get("available") == Some(&json!(true))));
             report.insert("requested_language".into(), result.get("requested_language").cloned().unwrap_or(Value::Null));
             report.insert("active_language".into(), result.get("active_language").cloned().unwrap_or(Value::Null));
-            report.insert("installed_languages".into(), match result.get("installed_languages") {
-                Some(list @ Value::Array(_)) => list.clone(),
-                _ => json!([]),
-            });
+            report.insert(
+                "installed_languages".into(),
+                match result.get("installed_languages") {
+                    Some(list @ Value::Array(_)) => list.clone(),
+                    _ => json!([]),
+                },
+            );
         }
     }
     report
@@ -159,16 +168,20 @@ fn input_report(probe: &Probe) -> Map<String, Value> {
     report.insert("ready".into(), json!(ready));
     report.insert("observer_ready".into(), json!(flag("observer_ready")));
     report.insert("desktop_ready".into(), json!(flag("desktop_ready")));
-    if !ready && ok
+    if !ready
+        && ok
         && let Some((cause, reason)) = observer_cause(result)
     {
         report.insert("cause".into(), json!(cause));
         report.insert("reason".into(), json!(reason));
     }
-    report.insert("input_held".into(), match result.get("held") {
-        Some(held @ Value::Bool(_)) => held.clone(),
-        _ => Value::Null,
-    });
+    report.insert(
+        "input_held".into(),
+        match result.get("held") {
+            Some(held @ Value::Bool(_)) => held.clone(),
+            _ => Value::Null,
+        },
+    );
     if let Some(idle) = result.get("idleMs").filter(|idle| idle.is_number()) {
         report.insert("idle_ms".into(), idle.clone());
     }
@@ -218,7 +231,11 @@ pub fn diagnose_text(diagnosis: &Diagnosis) -> String {
         issues.push(if input.get("input_held") == Some(&json!(true)) {
             "foreground input is unavailable while physical input is held".into()
         } else {
-            ["error", "reason"].iter().find_map(|key| input.get(*key).and_then(Value::as_str).filter(|text| !text.is_empty())).unwrap_or("foreground input observation is unavailable").to_owned()
+            ["error", "reason"]
+                .iter()
+                .find_map(|key| input.get(*key).and_then(Value::as_str).filter(|text| !text.is_empty()))
+                .unwrap_or("foreground input observation is unavailable")
+                .to_owned()
         });
     }
     if accessibility.get("available") == Some(&json!(false)) {

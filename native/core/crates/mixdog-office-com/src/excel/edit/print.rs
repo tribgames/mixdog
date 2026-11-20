@@ -251,10 +251,7 @@ pub(super) fn set_page_setup(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "set_page_setup",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("printArea", Value::String(string_of_com(&setup.member("PrintArea")?))),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("printArea", Value::String(string_of_com(&setup.member("PrintArea")?)))],
     ))
 }
 
@@ -303,9 +300,7 @@ fn apply_page_setup(book: &Com, op: &Value, sheet: &Com, setup: &Com) -> Result<
         let first = int_cast(&Value::String(span[0].clone()))?;
         let last = if span.len() > 1 { int_cast(&Value::String(span[1].clone()))? } else { first };
         if first < 1 || last < first {
-            return Err(Error::host(format!(
-                "set_page_setup printTitleRows is a row or a span of rows such as \"1\" or \"4:5\", not \"{given}\""
-            )));
+            return Err(Error::host(format!("set_page_setup printTitleRows is a row or a span of rows such as \"1\" or \"4:5\", not \"{given}\"")));
         }
         setup.set_member("PrintTitleRows", com_text(format!("${first}:${last}")))?;
     }
@@ -329,24 +324,13 @@ pub(super) fn set_header_footer(book: &Com, op: &Value) -> Result<Value> {
     let slot: String = letters.next().map(|first| first.to_ascii_uppercase()).into_iter().chain(letters).collect();
     let property = format!("{slot}{}", if named == "header" { "Header" } else { "Footer" });
     let mut marked = text_of(op, "text").replace('&', "&&");
-    for (token, code) in [
-        (r"\{page\}", "&P"),
-        (r"\{pages\}", "&N"),
-        (r"\{date\}", "&D"),
-        (r"\{time\}", "&T"),
-        (r"\{sheet\}", "&A"),
-        (r"\{file\}", "&F"),
-    ] {
+    for (token, code) in [(r"\{page\}", "&P"), (r"\{pages\}", "&N"), (r"\{date\}", "&D"), (r"\{time\}", "&T"), (r"\{sheet\}", "&A"), (r"\{file\}", "&F")] {
         marked = text::replace(&marked, token, code, false).map_err(Error::host)?;
     }
     sheet.member("PageSetup")?.set_member(&property, com_text(marked))?;
     Ok(record_of(
         "set_header_footer",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("kind", Value::String(named)),
-            ("alignment", Value::String(alignment)),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("kind", Value::String(named)), ("alignment", Value::String(alignment))],
     ))
 }

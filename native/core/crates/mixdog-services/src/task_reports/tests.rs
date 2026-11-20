@@ -4,16 +4,14 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use async_trait::async_trait;
 use crate::bots::delivery::env::{RetryTimer, SleepRetry};
+use async_trait::async_trait;
 use serde_json::{Map, Value, json};
 
 use super::chain::*;
 use super::follow::*;
 use super::rearm::*;
 use super::{progress_run_id, turn_report_run_id};
-
-
 
 #[test]
 fn queue_row_names_follow_the_task_sessions() {
@@ -198,7 +196,6 @@ async fn recovery_reports_a_gone_session_once_and_skips_this_process_s_own_watch
     assert_eq!(*host.disowned.lock().unwrap(), vec!["q1".to_owned()]);
     assert_eq!(*host.ended.lock().unwrap(), vec!["w1".to_owned(), "q1".to_owned()]);
 }
-
 
 /// A stored task session: a request and its one final answer, "all done" (`simple`), or an answer that hands work off, the handed-off
 /// task's result and the final answer after it, "final answer" (`handedOff`).

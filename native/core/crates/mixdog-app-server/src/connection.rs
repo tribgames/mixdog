@@ -15,8 +15,8 @@ use mixdog_app_protocol::RequestId;
 use mixdog_app_protocol::v1::ClientInfo;
 use mixdog_app_protocol::v1::HostCapabilities;
 use mixdog_core_api::ConnectionSink;
-use mixdog_core_api::HostError;
 use mixdog_core_api::FeedSource;
+use mixdog_core_api::HostError;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::Method;
@@ -146,9 +146,7 @@ impl Connection {
             handshake_done: AtomicBool::new(false),
             subs: Mutex::new(Some(HashMap::new())),
             next_sub: AtomicU64::new(1),
-            host: Mutex::new(HostState {
-                pending: Some(HashMap::new()),
-            }),
+            host: Mutex::new(HostState { pending: Some(HashMap::new()) }),
         }
     }
 
@@ -184,12 +182,7 @@ impl Connection {
     /// free in between, left a moment in which a client already holding its attach response did not count as
     /// attached ([`Self::is_eligible`]): an ask made then was held as if no client could show it. Node sets a
     /// turn's approval hook in the same synchronous step that answers the client.
-    pub(crate) fn send_attach_response<E>(
-        &self,
-        feed: &FeedId,
-        id: &SubscriptionId,
-        send: impl FnOnce() -> Result<(), E>,
-    ) -> Result<(), E> {
+    pub(crate) fn send_attach_response<E>(&self, feed: &FeedId, id: &SubscriptionId, send: impl FnOnce() -> Result<(), E>) -> Result<(), E> {
         let mut subs = lock(&self.subs);
         send()?;
         if let Some(sub) = subs.as_mut().and_then(|subs| subs.get_mut(feed))
@@ -203,11 +196,7 @@ impl Connection {
     /// Runs `answer` with the subscription this connection holds live on `feed`, if it holds one: the answer is
     /// queued while that subscription is the registered one, as one step for every reader of the subscriptions
     /// ([`Self::send_attach_response`]).
-    pub(crate) fn answer_held_subscription<T>(
-        &self,
-        feed: &FeedId,
-        answer: impl FnOnce(&SubscriptionId) -> Option<T>,
-    ) -> Option<T> {
+    pub(crate) fn answer_held_subscription<T>(&self, feed: &FeedId, answer: impl FnOnce(&SubscriptionId) -> Option<T>) -> Option<T> {
         let subs = lock(&self.subs);
         let held = subs.as_ref()?.get(feed).filter(|sub| sub.live)?;
         answer(&held.id)
@@ -218,35 +207,21 @@ impl Connection {
     }
 
     pub(crate) fn live_feed(&self, feed: &FeedId) -> Option<Arc<dyn FeedSource>> {
-        lock(&self.subs)
-            .as_ref()?
-            .get(feed)
-            .filter(|sub| sub.live)
-            .map(|sub| Arc::clone(&sub.feed))
+        lock(&self.subs).as_ref()?.get(feed).filter(|sub| sub.live).map(|sub| Arc::clone(&sub.feed))
     }
 
     pub(crate) fn live_feeds(&self) -> Vec<(FeedId, Arc<dyn FeedSource>)> {
-        lock(&self.subs)
-            .iter()
-            .flat_map(|subs| subs.iter())
-            .filter(|(_, sub)| sub.live)
-            .map(|(id, sub)| (id.clone(), Arc::clone(&sub.feed)))
-            .collect()
+        lock(&self.subs).iter().flat_map(|subs| subs.iter()).filter(|(_, sub)| sub.live).map(|(id, sub)| (id.clone(), Arc::clone(&sub.feed))).collect()
     }
 
     pub(crate) fn is_live_on(&self, feed: &FeedId) -> bool {
-        lock(&self.subs)
-            .as_ref()
-            .and_then(|subs| subs.get(feed))
-            .is_some_and(|sub| sub.live)
+        lock(&self.subs).as_ref().and_then(|subs| subs.get(feed)).is_some_and(|sub| sub.live)
     }
 
     /// The desktop: `initialize` declared kind `desktop` on the desktop's own connection (not a window's socket,
     /// [`Session::view`]), and the app feed is live on it. Closing a window therefore never changes this.
     pub(crate) fn is_desktop_on(&self, feed: &FeedId) -> bool {
-        self.session()
-            .is_some_and(|session| !session.view && session.client.kind == mixdog_protocol::ConnectionKind::Desktop)
-            && self.is_live_on(feed)
+        self.session().is_some_and(|session| !session.view && session.client.kind == mixdog_protocol::ConnectionKind::Desktop) && self.is_live_on(feed)
     }
 
     /// Whether a server request of `thread` shown on `surface` is for this connection
@@ -262,11 +237,7 @@ impl Connection {
     }
 
     /// Registers a `host/*` request sent to this connection; `None` once it closed.
-    pub(crate) fn register_host_request(
-        &self,
-        id: RequestId,
-        method: Method,
-    ) -> Option<oneshot::Receiver<HostReply>> {
+    pub(crate) fn register_host_request(&self, id: RequestId, method: Method) -> Option<oneshot::Receiver<HostReply>> {
         let (tx, rx) = oneshot::channel();
         lock(&self.host).pending.as_mut()?.insert(id, (method, Waiter::Reply(tx)));
         Some(rx)
@@ -274,11 +245,7 @@ impl Connection {
 
     /// [`Self::register_host_request`] for a request whose claimant streams events ahead of its
     /// answer; `None` once the connection closed.
-    pub(crate) fn register_host_stream(
-        &self,
-        id: RequestId,
-        method: Method,
-    ) -> Option<mpsc::UnboundedReceiver<Streamed>> {
+    pub(crate) fn register_host_stream(&self, id: RequestId, method: Method) -> Option<mpsc::UnboundedReceiver<Streamed>> {
         let (tx, rx) = mpsc::unbounded_channel();
         lock(&self.host).pending.as_mut()?.insert(id, (method, Waiter::Stream(tx)));
         Some(rx)
@@ -290,16 +257,8 @@ impl Connection {
     }
 
     /// Delivers the claimant's answer; gives it back when the request is not pending here.
-    pub(crate) fn complete_host_request(
-        &self,
-        id: &RequestId,
-        reply: HostReply,
-    ) -> Result<(), HostReply> {
-        let waiter = lock(&self.host)
-            .pending
-            .as_mut()
-            .and_then(|pending| pending.remove(id))
-            .map(|(_, waiter)| waiter);
+    pub(crate) fn complete_host_request(&self, id: &RequestId, reply: HostReply) -> Result<(), HostReply> {
+        let waiter = lock(&self.host).pending.as_mut().and_then(|pending| pending.remove(id)).map(|(_, waiter)| waiter);
         match waiter {
             // The requester may have abandoned the request; the answer is then unwanted.
             Some(Waiter::Reply(sender)) => {
@@ -345,10 +304,7 @@ impl Connection {
     /// elsewhere. Pending `host/*` requests are dropped, which fails their waiters.
     pub(crate) fn close(&self) -> Closed {
         self.cancel.cancel();
-        let subs = lock(&self.subs)
-            .take()
-            .map(|subs| subs.into_values().collect())
-            .unwrap_or_default();
+        let subs = lock(&self.subs).take().map(|subs| subs.into_values().collect()).unwrap_or_default();
         let mut host = lock(&self.host);
         host.pending = None;
         Closed { subs }

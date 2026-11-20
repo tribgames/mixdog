@@ -4,11 +4,3 @@
 //! builder builds from the recorded configuration over the recorder's hub; every request is compared whole with Node's,
 //! the recorded answer (the search call, its sources and a citation as each wire reports them) whole with Node's result,
 //! and the stream callbacks in order.
-
-
-
-
-
-
-
-

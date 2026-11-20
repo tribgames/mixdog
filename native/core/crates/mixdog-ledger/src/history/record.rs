@@ -32,12 +32,7 @@ pub(super) fn truthy(value: &Value) -> bool {
 
 /// `a || b || c`: the first truthy operand, else the last one.
 fn first<'a>(operands: &[Option<&'a Value>]) -> Option<&'a Value> {
-    operands
-        .iter()
-        .copied()
-        .find(|operand| matches!(operand, Some(value) if truthy(value)))
-        .or_else(|| operands.last().copied())
-        .flatten()
+    operands.iter().copied().find(|operand| matches!(operand, Some(value) if truthy(value))).or_else(|| operands.last().copied()).flatten()
 }
 
 /// `a ?? b`: the first operand that is neither absent nor null.
@@ -77,9 +72,7 @@ fn inclusive(provider: &str) -> bool {
 fn timestamp(value: Option<&Value>) -> Option<i64> {
     let ms = match value? {
         Value::Number(number) => number.as_f64()?,
-        Value::String(digits) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => {
-            mixdog_js::string_to_number(digits)
-        }
+        Value::String(digits) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => mixdog_js::string_to_number(digits),
         other => mixdog_js::time::date_parse(&mixdog_js::value_to_string(other)),
     };
     (ms.is_finite() && ms.fract() == 0.0 && ms > 0.0 && ms <= MAX_SAFE_INTEGER as f64).then_some(ms as i64)
@@ -134,10 +127,7 @@ fn record_id(record: &UsageRecord, response_id: &str) -> String {
     } else {
         json!(["response", record.provider, record.model, response_id])
     };
-    Sha256::digest(mixdog_js::json_stringify(&identity).as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    Sha256::digest(mixdog_js::json_stringify(&identity).as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// `importTraceRow` then `makeUsageRecord(.., historical: true)`: `None` for a row that cannot
@@ -162,28 +152,21 @@ pub(super) fn import_row(row: &Value, pricer: &dyn Pricer) -> Result<Option<Usag
     if provider.is_empty() || model.is_empty() {
         return Err(crate::LedgerError::History("Usage requires a provider and model".into()));
     }
-    let ts = timestamp(row.get("ts"))
-        .ok_or_else(|| crate::LedgerError::History("Usage requires a valid timestamp".into()))?;
+    let ts = timestamp(row.get("ts")).ok_or_else(|| crate::LedgerError::History("Usage requires a valid timestamp".into()))?;
     let kind = route_kind(&provider);
     let requested = text(first(&[row.get("requested_model"), in_payload("requested_model")]));
     let pricing_model = Some(text(first(&[row.get("pricing_model"), in_payload("pricing_model")]))).filter(|m| !m.is_empty());
     let cache_read = field("cached_tokens", "cacheReadTokens");
     let cache_write = field("cache_write_tokens", "cacheWriteTokens");
     let (cached, written) = (amount(cache_read), amount(cache_write));
-    let uncached = if raw {
-        nullish(&[row.get("uncached_input_tokens"), in_payload("uncached_input_tokens")])
-    } else {
-        None
-    };
+    let uncached = if raw { nullish(&[row.get("uncached_input_tokens"), in_payload("uncached_input_tokens")]) } else { None };
     let uncached_input = match uncached {
         Some(uncached) => amount(Some(uncached)),
         None if inclusive(&provider) => (amount(input) - cached - written).max(0.0),
         None => amount(input),
     };
     let written_1h = if raw {
-        in_payload("raw_usage")
-            .and_then(|usage| usage.get("cache_creation"))
-            .and_then(|creation| creation.get("ephemeral_1h_input_tokens"))
+        in_payload("raw_usage").and_then(|usage| usage.get("cache_creation")).and_then(|creation| creation.get("ephemeral_1h_input_tokens"))
     } else {
         None
     };
@@ -227,22 +210,13 @@ pub(super) fn import_row(row: &Value, pricer: &dyn Pricer) -> Result<Option<Usag
     } else {
         "catalog"
     };
-    let rates = if reported || kind == "local" {
-        Some(own_rates(priced.rates.as_deref(), &provider, kind))
-    } else {
-        priced.rates
-    };
+    let rates = if reported || kind == "local" { Some(own_rates(priced.rates.as_deref(), &provider, kind)) } else { priced.rates };
     let session = first(&[row.get("session_id"), row.get("sessionId")]);
     let session_id = match session {
         Some(Value::String(id)) if id == "no-session" || id == "(none)" => String::new(),
         other => text(other),
     };
-    let source_type = text(first(&[
-        row.get("sourceType"),
-        row.get("source_type"),
-        in_payload("sourceType"),
-        in_payload("source_type"),
-    ]));
+    let source_type = text(first(&[row.get("sourceType"), row.get("source_type"), in_payload("sourceType"), in_payload("source_type")]));
     let response_id = text(first(&[row.get("response_id"), in_payload("response_id")]));
     let duration = first(&[row.get("duration_ms"), row.get("durationMs"), row.get("duration")]);
     let mut record = UsageRecord {

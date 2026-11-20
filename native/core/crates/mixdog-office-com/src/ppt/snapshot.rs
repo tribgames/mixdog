@@ -323,10 +323,7 @@ fn runs_of(chains: &TextChains, font_size: Option<f64>, font_rgb: Option<i64>) -
         };
         let range_color = rgb as f64;
         if range_size > 0.0 && range_color >= 0.0 {
-            return Ok(ordered(vec![
-                ("sizes", Value::Array(vec![Value::Double(range_size)])),
-                ("colors", Value::Array(vec![Value::Double(range_color)])),
-            ]));
+            return Ok(ordered(vec![("sizes", Value::Array(vec![Value::Double(range_size)])), ("colors", Value::Array(vec![Value::Double(range_color)]))]));
         }
         let mut sizes = Vec::new();
         let mut colors = Vec::new();
@@ -579,10 +576,14 @@ fn background_of(presentation: &Com, slide: &Com, follow_master: bool) -> (&'sta
     let mut color: Option<String> = None;
     let _ = (|| -> Result<()> {
         if follow_master {
-            color = hex_of(slide.member("CustomLayout").and_then(|layout| layout.member("Background")?.member("Fill")?.member("ForeColor")?.member("RGB"))).ok();
+            color =
+                hex_of(slide.member("CustomLayout").and_then(|layout| layout.member("Background")?.member("Fill")?.member("ForeColor")?.member("RGB"))).ok();
             if color.is_none() {
                 source = "master";
-                color = hex_of(presentation.member("SlideMaster").and_then(|master| master.member("Background")?.member("Fill")?.member("ForeColor")?.member("RGB"))).ok();
+                color = hex_of(
+                    presentation.member("SlideMaster").and_then(|master| master.member("Background")?.member("Fill")?.member("ForeColor")?.member("RGB")),
+                )
+                .ok();
             }
         } else {
             color = Some(hex_of(slide.member("Background").and_then(|background| background.member("Fill")?.member("ForeColor")?.member("RGB")))?);
@@ -618,22 +619,12 @@ fn slide_value(presentation: &Com, slide: &Com) -> Result<Value> {
         ("index", Value::Int(slide_index)),
         ("hidden", Value::Bool(hidden)),
         ("layout", ordered(vec![("index", Value::Int(layout_index)), ("name", Value::String(layout_name))])),
-        (
-            "background",
-            ordered(vec![
-                ("followMaster", Value::Bool(follow_master)),
-                ("source", Value::string(background_source)),
-                ("color", background_color),
-            ]),
-        ),
+        ("background", ordered(vec![("followMaster", Value::Bool(follow_master)), ("source", Value::string(background_source)), ("color", background_color)])),
         ("shapes", Value::Array(shapes)),
         ("notes", Value::String(notes)),
         ("comments", Value::Array(comments)),
         ("animations", Value::Array(animations)),
-        (
-            "transition",
-            ordered(vec![("effect", Value::Int(effect)), ("advanceOnTime", Value::Bool(advance_on_time)), ("advanceTime", advance_time)]),
-        ),
+        ("transition", ordered(vec![("effect", Value::Int(effect)), ("advanceOnTime", Value::Bool(advance_on_time)), ("advanceTime", advance_time)])),
     ]))
 }
 
@@ -703,8 +694,7 @@ pub fn snapshot_powerpoint(document: &Obj, payload: &Value) -> Result<Value> {
     let pagination = if paged {
         let returned = slides.len() as i64;
         let total = to_index(slide_total()?);
-        let next_offset =
-            if !has_pages && slide_offset + returned < slide_total()? { Value::Int(to_index(slide_offset + returned)) } else { Value::Null };
+        let next_offset = if !has_pages && slide_offset + returned < slide_total()? { Value::Int(to_index(slide_offset + returned)) } else { Value::Null };
         ordered(vec![
             ("unit", Value::string("slide")),
             ("offset", Value::Int(to_index(slide_offset))),

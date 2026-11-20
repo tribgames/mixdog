@@ -104,11 +104,7 @@ fn raw_reasoning(raw: &Value) -> Option<u64> {
 /// provider's `input_tokens` already holds the cached portion; the prompt total
 /// is then the input itself, else the input plus the cache reads and writes.
 pub fn usage_delta(session_id: &str, requested_model: &str, model: &str, usage: &Usage, input_inclusive: bool, ts: i64) -> Value {
-    let prompt = if input_inclusive {
-        usage.input_tokens
-    } else {
-        usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
-    };
+    let prompt = if input_inclusive { usage.input_tokens } else { usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens };
     // A count the provider named (an explicit 0 included); otherwise the raw object's.
     let reasoning = usage.reasoning_tokens.or_else(|| usage.raw.as_ref().and_then(raw_reasoning));
     let mut delta = Map::new();

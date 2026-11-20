@@ -97,16 +97,10 @@ mod tests {
         let settings = titled("Settings");
         assert!(should_supersede_panel_epoch(Some(&settings), None));
         assert!(should_supersede_panel_epoch(Some(&settings), Some(&titled("Core memories"))));
-        assert!(should_supersede_panel_epoch(
-            Some(&Panel { kind: "mcp-servers", title: "Extensions" }),
-            Some(&Panel { kind: "skills", title: "Extensions" })
-        ));
+        assert!(should_supersede_panel_epoch(Some(&Panel { kind: "mcp-servers", title: "Extensions" }), Some(&Panel { kind: "skills", title: "Extensions" })));
         assert!(!should_supersede_panel_epoch(Some(&settings), Some(&titled("Settings"))));
         assert!(!should_supersede_panel_epoch(Some(&settings), Some(&settings)));
-        assert!(!should_supersede_panel_epoch(
-            Some(&Panel { kind: "mcp-servers", title: "MCP · 1" }),
-            Some(&Panel { kind: "mcp-servers", title: "MCP · 2" })
-        ));
+        assert!(!should_supersede_panel_epoch(Some(&Panel { kind: "mcp-servers", title: "MCP · 1" }), Some(&Panel { kind: "mcp-servers", title: "MCP · 2" })));
         assert!(!should_supersede_panel_epoch::<Panel>(None, None));
         assert!(!should_supersede_panel_epoch(None, Some(&settings)));
     }

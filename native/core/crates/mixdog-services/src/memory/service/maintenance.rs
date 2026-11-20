@@ -141,9 +141,7 @@ fn role_line(role: &str, content: &str) -> String {
 
 /// `buildSessionChunks`' order: source turn, then timestamp, then id.
 fn sort_chunks(chunks: &mut [Chunk]) {
-    chunks.sort_by(|a, b| {
-        a.source_turn.unwrap_or(NO_TURN).cmp(&b.source_turn.unwrap_or(NO_TURN)).then(a.ts.cmp(&b.ts)).then(a.id.cmp(&b.id))
-    });
+    chunks.sort_by(|a, b| a.source_turn.unwrap_or(NO_TURN).cmp(&b.source_turn.unwrap_or(NO_TURN)).then(a.ts.cmp(&b.ts)).then(a.id.cmp(&b.id)));
 }
 
 /// `renderSessionChunks`: one labelled block per chunk.
@@ -272,9 +270,7 @@ pub(crate) fn truthy(value: &Value) -> bool {
 /// `prune`: unclassified entries older than `maxDays` (30 by default), after the confirm phrase.
 pub async fn prune(db: &Db, args: &Value) -> Result<ToolReply> {
     if args.get("confirm").and_then(Value::as_str) != Some("PRUNE OLD ENTRIES") {
-        return Ok(ToolReply::error(
-            "prune requires confirm: \"PRUNE OLD ENTRIES\" (permanently deletes unclassified entries older than maxDays)",
-        ));
+        return Ok(ToolReply::error("prune requires confirm: \"PRUNE OLD ENTRIES\" (permanently deletes unclassified entries older than maxDays)"));
     }
     let asked = first_of(args, &["maxDays"]).map_or(30.0, to_number);
     let days = if asked.is_nan() { asked } else { asked.max(1.0) };
@@ -485,13 +481,7 @@ fn within(workspace: &Path, candidate: &Path) -> bool {
 
 /// The files a backfill takes: newest first up to `limit`, then oldest first. `workspace` keeps only
 /// the transcripts whose session directory lies inside it.
-async fn select_transcripts(
-    lane: MaintenanceIo,
-    root: &Path,
-    since: Option<f64>,
-    limit: Option<f64>,
-    workspace: Option<&Path>,
-) -> Vec<PathBuf> {
+async fn select_transcripts(lane: MaintenanceIo, root: &Path, since: Option<f64>, limit: Option<f64>, workspace: Option<&Path>) -> Vec<PathBuf> {
     let mut files = scan_transcripts(lane, root, since).await;
     if let Some(workspace) = workspace {
         let mut kept = Vec::new();
@@ -626,7 +616,10 @@ mod tests {
     fn the_cycle1_overrides_are_pinned_at_the_top_level_and_the_concurrency_is_capped() {
         let args = json!({ "min_batch": 3, "windowSize": "40", "maxRowsPerSession": 7, "sessionId": " s1 ", "concurrency": 20.9, "batch_size": -1, "session_cap": "x" });
         let config = cycle1_config_from_args(&args, json!({ "batch_size": 50, "interval": "10m" }));
-        assert_eq!(config, json!({ "batch_size": 50, "interval": "10m", "min_batch": 3, "window_size": 40, "rows_per_session": 7, "session_id": "s1", "concurrency": 8 }));
+        assert_eq!(
+            config,
+            json!({ "batch_size": 50, "interval": "10m", "min_batch": 3, "window_size": 40, "rows_per_session": 7, "session_id": "s1", "concurrency": 8 })
+        );
         assert_eq!(cycle1_config_from_args(&json!({}), json!({})), json!({}));
     }
 
@@ -673,9 +666,28 @@ mod tests {
 
     #[test]
     fn the_session_chunks_are_ordered_by_turn_then_time_and_labelled() {
-        let root = Chunk { id: 7, root: true, chunk_root: None, ts: 5, source_turn: Some(2), category: Some("fact".into()), summary: "el — sum".into(), text: "user: hi".into() };
-        let pending = Chunk { id: 9, root: false, chunk_root: None, ts: 1, source_turn: None, category: None, summary: String::new(), text: "user: later".into() };
-        let terminal = Chunk { id: 8, root: false, chunk_root: Some(8), ts: 9, source_turn: Some(1), category: None, summary: String::new(), text: "assistant: first".into() };
+        let root = Chunk {
+            id: 7,
+            root: true,
+            chunk_root: None,
+            ts: 5,
+            source_turn: Some(2),
+            category: Some("fact".into()),
+            summary: "el — sum".into(),
+            text: "user: hi".into(),
+        };
+        let pending =
+            Chunk { id: 9, root: false, chunk_root: None, ts: 1, source_turn: None, category: None, summary: String::new(), text: "user: later".into() };
+        let terminal = Chunk {
+            id: 8,
+            root: false,
+            chunk_root: Some(8),
+            ts: 9,
+            source_turn: Some(1),
+            category: None,
+            summary: String::new(),
+            text: "assistant: first".into(),
+        };
         let mut chunks = vec![pending, root, terminal];
         sort_chunks(&mut chunks);
         assert_eq!(chunks.iter().map(|c| c.id).collect::<Vec<_>>(), [8, 7, 9]);
@@ -702,7 +714,9 @@ mod tests {
         let (_pg, db) = store().await;
         let day = 86_400_000_i64;
         let old = now_ms() - 40 * day;
-        db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES ($1, 'user', 'old raw', 'a'), ($2, 'user', 'new raw', 'b')", &[&old, &now_ms()]).await.unwrap();
+        db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES ($1, 'user', 'old raw', 'a'), ($2, 'user', 'new raw', 'b')", &[&old, &now_ms()])
+            .await
+            .unwrap();
         db.execute("INSERT INTO core_entries(element, summary, category, created_at, updated_at) VALUES ('e', 's', 'fact', 1, 1)", &[]).await.unwrap();
         assert!(prune(&db, &json!({})).await.unwrap().is_error);
         assert!(purge(&db, &json!({ "confirm": "delete all memory" })).await.unwrap().is_error);
@@ -728,20 +742,23 @@ mod tests {
         .await
         .unwrap();
         let root: i64 = db.query("SELECT id FROM entries WHERE source_ref = 'r1'", &[]).await.unwrap()[0].get(0);
-        db.execute("UPDATE entries SET is_root = 1, chunk_root = $1, element = 'greeting', category = 'fact', summary = 'said hello' WHERE id = $1", &[&root]).await.unwrap();
+        db.execute("UPDATE entries SET is_root = 1, chunk_root = $1, element = 'greeting', category = 'fact', summary = 'said hello' WHERE id = $1", &[&root])
+            .await
+            .unwrap();
         db.execute("UPDATE entries SET chunk_root = $1 WHERE source_ref = 'r2'", &[&root]).await.unwrap();
         let reply = dump_session_roots(&db, &json!({ "sessionId": "s1" })).await.unwrap();
         assert_eq!(
             reply.text,
-            format!("# chunk 1 root={root} category=fact\nsummary: greeting — said hello\nassistant: general reply\n\n# raw_pending 2 id={}\nuser: still raw",
-                db.query("SELECT id FROM entries WHERE source_ref = 'r3'", &[]).await.unwrap()[0].get::<_, i64>(0))
+            format!(
+                "# chunk 1 root={root} category=fact\nsummary: greeting — said hello\nassistant: general reply\n\n# raw_pending 2 id={}\nuser: still raw",
+                db.query("SELECT id FROM entries WHERE source_ref = 'r3'", &[]).await.unwrap()[0].get::<_, i64>(0)
+            )
         );
         let rootless = dump_session_roots(&db, &json!({ "session_id": "s1", "includeRaw": false })).await.unwrap();
         assert!(!rootless.text.contains("raw_pending"));
         let none = dump_session_roots(&db, &json!({})).await.unwrap();
         assert!(none.is_error && none.text == "(no current session)");
     }
-
 
     #[tokio::test]
     async fn the_backfill_takes_the_newest_files_of_the_window_oldest_first_and_skips_agent_transcripts() {
@@ -804,7 +821,10 @@ mod tests {
         assert_eq!(gone.text, format!("deleted (id={id}, rows=2): [decision] deploy"));
         assert_eq!(m.manage(&db, &json!({ "op": "delete", "id": id })).await.unwrap().text, format!("manage delete: no entry with id={id}"));
         assert_eq!(m.manage(&db, &json!({ "op": "sideways" })).await.unwrap().text, "manage requires op: \"add\" | \"edit\" | \"delete\"");
-        assert_eq!(m.manage(&db, &json!({ "op": "add", "status": "active" })).await.unwrap().text, "manage: history importance classification is no longer supported");
+        assert_eq!(
+            m.manage(&db, &json!({ "op": "add", "status": "active" })).await.unwrap().text,
+            "manage: history importance classification is no longer supported"
+        );
     }
     #[tokio::test]
     async fn a_cancelled_caller_ends_a_backfill_at_its_first_step_and_frees_the_mutex() {
@@ -841,7 +861,6 @@ mod tests {
     }
 }
 
-
 // ---- search, dump_session_roots ----------------------------------------------------------------
 
 /// The `search` action: `handleSearch(args)` itself, the ranked rows without the recall tool's cap.
@@ -858,11 +877,7 @@ pub fn search_reply(outcome: crate::memory::recall::RecallOutcome) -> ToolReply 
 async fn flush_embeddings(flush: &Arc<RawEmbedFlush>, cancel: &CancellationToken) -> Result<usize> {
     let done = flush.flush_roots(cancel).await.map_err(|error| MemoryError::rejected(error.to_string()))?;
     if done.timed_out || !done.failed.is_empty() {
-        return Err(MemoryError::rejected(format!(
-            "embedding maintenance incomplete: failed={} timedOut={}",
-            done.failed.len(),
-            done.timed_out
-        )));
+        return Err(MemoryError::rejected(format!("embedding maintenance incomplete: failed={} timedOut={}", done.failed.len(), done.timed_out)));
     }
     Ok(done.succeeded)
 }
@@ -914,7 +929,9 @@ impl Maintenance {
         let deadline = to_number(args.get("_callerDeadlineMs").unwrap_or(&Value::Null));
         let plan = PlanOptions { caller_deadline_ms: (deadline.is_finite() && deadline > 0.0).then_some(deadline), ..PlanOptions::default() };
         checkpoint(cancel)?;
-        let result = unless_cancelled(cancel, async { scheduler.await_cycle1_run(cycle1, Cycle1Options { plan, ..Cycle1Options::default() }).await.map_err(plain) }).await?;
+        let result =
+            unless_cancelled(cancel, async { scheduler.await_cycle1_run(cycle1, Cycle1Options { plan, ..Cycle1Options::default() }).await.map_err(plain) })
+                .await?;
         checkpoint(cancel)?;
         Ok(ToolReply::ok(cycle1_summary(&result)))
     }
@@ -931,9 +948,7 @@ impl Maintenance {
 
     async fn rebuild(&self, db: &Db, args: &Value, cancel: &CancellationToken) -> Result<ToolReply> {
         if args.get("confirm").and_then(Value::as_str) != Some("REBUILD MEMORY") {
-            return Ok(ToolReply::error(
-                "rebuild requires confirm: \"REBUILD MEMORY\" (truncates classification columns and re-runs summarization)",
-            ));
+            return Ok(ToolReply::error("rebuild requires confirm: \"REBUILD MEMORY\" (truncates classification columns and re-runs summarization)"));
         }
         let (scheduler, config) = self.cycles()?;
         let cycle1 = cycle1_base(config);
@@ -948,7 +963,8 @@ impl Maintenance {
         checkpoint(cancel)?;
         reset_classification(db).await?;
         // A fresh run over the reset rows: nothing is in flight now, so this one starts, never joins.
-        let result = unless_cancelled(cancel, async { scheduler.start_cycle1_run(cycle1, Cycle1Options::default()).await.map_err(MemoryError::rejected) }).await?;
+        let result =
+            unless_cancelled(cancel, async { scheduler.start_cycle1_run(cycle1, Cycle1Options::default()).await.map_err(MemoryError::rejected) }).await?;
         checkpoint(cancel)?;
         let embedded = flush_embeddings(&self.flush, cancel).await?;
         checkpoint(cancel)?;
@@ -1108,10 +1124,7 @@ impl Maintenance {
         let Some(id) = numeric_id(args.get("id")) else {
             return Ok(ToolReply::error("manage edit requires numeric id"));
         };
-        let Some(existing) = db
-            .query_opt("SELECT element, summary, category, is_root FROM entries WHERE id = $1", &[&id])
-            .await?
-        else {
+        let Some(existing) = db.query_opt("SELECT element, summary, category, is_root FROM entries WHERE id = $1", &[&id]).await? else {
             return Ok(ToolReply::error(format!("manage edit: no entry with id={id}")));
         };
         if existing.get::<_, i16>("is_root") != 1 {

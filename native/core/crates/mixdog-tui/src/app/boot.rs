@@ -20,9 +20,8 @@ impl AppState {
         self.mounted = true;
         self.sync_welcome_hint();
         let verdict = self.options.onboarding_completed;
-        let completed = resolve_onboarding_completed(verdict, || {
-            self.store.has_method("getOnboardingStatus").then(|| self.call_store("getOnboardingStatus", json!([])))
-        });
+        let completed =
+            resolve_onboarding_completed(verdict, || self.store.has_method("getOnboardingStatus").then(|| self.call_store("getOnboardingStatus", json!([]))));
         let onboarding_owns_screen = !completed || self.options.force_onboarding;
         if !onboarding_owns_screen && self.item_count() == 0 {
             let cwd = self.session_cwd();

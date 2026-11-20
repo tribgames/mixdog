@@ -33,10 +33,7 @@ fn a_session_is_announced_once_when_it_stops_working_and_never_before_it_worked(
     assert_eq!(tracker.observe("a", &facts(false), 11, &nothing_pending()), None);
     assert_eq!(tracker.observe("a", &facts(true), 20, &nothing_pending()), None);
     assert!(!tracker.is_idle("a"));
-    assert_eq!(
-        tracker.observe("a", &facts(false), 30, &nothing_pending()),
-        Some(TurnEnd { started_at: 20, lead_finished: true })
-    );
+    assert_eq!(tracker.observe("a", &facts(false), 30, &nothing_pending()), Some(TurnEnd { started_at: 20, lead_finished: true }));
     assert!(tracker.is_idle("a"));
     assert_eq!(tracker.observe("a", &facts(false), 40, &nothing_pending()), None, "a repeated idle roster is not a second finish");
 }
@@ -47,10 +44,7 @@ fn every_real_finish_is_announced_with_its_own_start() {
     let mut tracker = TurnTracker::default();
     for (start, stop) in [(100, 200), (201, 202)] {
         assert_eq!(tracker.observe("a", &facts(true), start, &nothing_pending()), None);
-        assert_eq!(
-            tracker.observe("a", &facts(false), stop, &nothing_pending()),
-            Some(TurnEnd { started_at: start, lead_finished: true })
-        );
+        assert_eq!(tracker.observe("a", &facts(false), stop, &nothing_pending()), Some(TurnEnd { started_at: start, lead_finished: true }));
     }
 }
 
@@ -234,7 +228,6 @@ async fn the_steps_of_a_turn_are_reported_with_their_reasons() {
     let reasons: Vec<Value> = rig.steps_named("suppressed").iter().map(|details| details["reason"].clone()).collect();
     assert_eq!(reasons, [json!("cancelled"), json!("reaction"), json!("routine-quiet")]);
 }
-
 
 impl Rig {
     /// The turn of `id` runs and ends; its answer is then read.

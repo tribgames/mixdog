@@ -354,12 +354,7 @@ fn read_spec(name: &str, args: &[String], powershell: bool) -> Option<ReadSpec> 
             return (args.len() == 1).then(|| ReadSpec { file: args[0].clone(), ..ReadSpec::default() });
         }
         let window = count_window(name, args)?;
-        return (window.operands.len() == 1).then(|| ReadSpec {
-            file: window.operands[0].clone(),
-            first: window.first,
-            last: window.last,
-            skip: window.skip,
-        });
+        return (window.operands.len() == 1).then(|| ReadSpec { file: window.operands[0].clone(), first: window.first, last: window.last, skip: window.skip });
     }
     let mut spec = ReadSpec::default();
     let mut file: Option<String> = None;

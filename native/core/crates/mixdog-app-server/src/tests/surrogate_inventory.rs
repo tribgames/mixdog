@@ -163,11 +163,17 @@ async fn every_host_answer_field_of_the_inventory_answers_or_fails_as_classed() 
             "host/visualize/command" => HostCapability::Visualize,
             "host/update/command" => HostCapability::Updater,
             "host/capture/fileSnapshot" => HostCapability::Files,
-            "host/computer/capture" | "host/computer/displays" | "host/computer/foregroundLease" | "host/computer/internalWindows" | "host/computer/pixels"
-            | "host/computer/appWindows" | "host/computer/appInput" | "host/computer/cursorPrepare" | "host/computer/permissions" | "host/computer/command"
-            | "host/computer/revokeScopes" => {
-                HostCapability::Computer
-            }
+            "host/computer/capture"
+            | "host/computer/displays"
+            | "host/computer/foregroundLease"
+            | "host/computer/internalWindows"
+            | "host/computer/pixels"
+            | "host/computer/appWindows"
+            | "host/computer/appInput"
+            | "host/computer/cursorPrepare"
+            | "host/computer/permissions"
+            | "host/computer/command"
+            | "host/computer/revokeScopes" => HostCapability::Computer,
             other if other.starts_with("host/browser/") && other != "host/browser/command" => HostCapability::BrowserEngine,
             other => panic!("an answer of {other}: no capability serves it"),
         };

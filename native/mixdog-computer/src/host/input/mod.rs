@@ -8,13 +8,13 @@ mod recovery;
 #[cfg(test)]
 mod ref_tests;
 
-use super::{sleep_ms, Host, Res};
+use super::{Host, Res, sleep_ms};
 use crate::a11y::{Element, Stale};
 use crate::obj;
 use crate::observer::now_ms;
-use crate::platform::{parse_window_id, window_id, Wid};
-use crate::protocol::{round_half_even, Obj, Req};
-use serde_json::{json, Value};
+use crate::platform::{Wid, parse_window_id, window_id};
+use crate::protocol::{Obj, Req, round_half_even};
+use serde_json::{Value, json};
 use std::rc::Rc;
 
 /// The native path name background pixel and key input reports.
@@ -55,9 +55,7 @@ impl Host {
             return Err(format!("ref {reference} is stale, from another session, or unknown; take a fresh snapshot/find"));
         };
         if !current {
-            return Err(format!(
-                "ref {reference} is stale; take a fresh snapshot/find"
-            ));
+            return Err(format!("ref {reference} is stale; take a fresh snapshot/find"));
         }
         let continuation = self.current_request().bool_true("sequence_continuation");
         let refuse = |element: &Rc<dyn Element>, kind: Stale| {
@@ -69,10 +67,7 @@ impl Host {
         };
         let same = element.alive() && {
             let top = element.top_window();
-            top != 0
-                && self.is_window(top)
-                && window_id(top) == window
-                && element.identity() == identity
+            top != 0 && self.is_window(top) && window_id(top) == window && element.identity() == identity
         };
         if same {
             // An identity survives a relabel in place, so the role and name the
@@ -92,10 +87,7 @@ impl Host {
                 .then(|| {
                     self.session(|session| {
                         let record = session.refs.get_mut(reference)?;
-                        let rebound = self
-                            .desktop
-                            .accessibility()?
-                            .rebind(parse_window_id(&window), record)?;
+                        let rebound = self.desktop.accessibility()?.rebind(parse_window_id(&window), record)?;
                         record.identity = rebound.identity();
                         record.element = rebound.clone();
                         Some(rebound)
@@ -109,9 +101,7 @@ impl Host {
         }
         // An earlier step of this sequence may have covered, hidden, or disabled it.
         if continuation && (!element.enabled() || element.offscreen()) {
-            return Err(format!(
-                "ref {reference} is disabled or off screen after an earlier step; take a fresh snapshot/find"
-            ));
+            return Err(format!("ref {reference} is disabled or off screen after an earlier step; take a fresh snapshot/find"));
         }
         Ok((element, window))
     }
@@ -142,11 +132,7 @@ impl Host {
         if require_topmost && top != 0 && at != 0 && at != top && !self.is_contained(at, top) {
             return Err(format!("element {reference} is covered by another window at its click point; call focus_window first"));
         }
-        Ok(Point {
-            x: px,
-            y: py,
-            target: top,
-        })
+        Ok(Point { x: px, y: py, target: top })
     }
 
     fn point_arg(&self, req: &Req) -> Res<Point> {
@@ -154,21 +140,14 @@ impl Host {
             return self.el_point(&reference, false);
         }
         let (Some(x), Some(y)) = (req.int("x"), req.int("y")) else {
-            return Err(format!(
-                "{} requires ref or x/y screen coordinates",
-                req.action()
-            ));
+            return Err(format!("{} requires ref or x/y screen coordinates", req.action()));
         };
         let (x, y) = (x as i32, y as i32);
         if req.has("window_id") || req.has("window") {
             let selected = self.resolve_window(req)?;
             let at = self.desktop.window_at_point(x, y);
             if at == selected.handle {
-                return Ok(Point {
-                    x,
-                    y,
-                    target: selected.handle,
-                });
+                return Ok(Point { x, y, target: selected.handle });
             }
             if at != 0 && self.is_contained(at, selected.handle) {
                 return Ok(Point { x, y, target: at });
@@ -180,35 +159,20 @@ impl Host {
                 }
             }
             if !req.delivery_foreground() {
-                return Ok(Point {
-                    x,
-                    y,
-                    target: selected.handle,
-                });
+                return Ok(Point { x, y, target: selected.handle });
             }
             return Ok(Point { x, y, target: at });
         }
-        Ok(Point {
-            x,
-            y,
-            target: self.desktop.window_at_point(x, y),
-        })
+        Ok(Point { x, y, target: self.desktop.window_at_point(x, y) })
     }
 
     // --- background ----------------------------------------------------------
 
-    fn background_or_unsupported(
-        &self,
-        action: &str,
-        window: Option<String>,
-    ) -> Result<&dyn crate::platform::Background, Obj> {
+    fn background_or_unsupported(&self, action: &str, window: Option<String>) -> Result<&dyn crate::platform::Background, Obj> {
         self.desktop.background().ok_or_else(|| {
             self.background_unavailable(
                 action,
-                &format!(
-                    "{} offers no background input route; use explicit foreground delivery",
-                    self.desktop.name()
-                ),
+                &format!("{} offers no background input route; use explicit foreground delivery", self.desktop.name()),
                 window,
                 "background_unsupported",
                 false,
@@ -217,12 +181,7 @@ impl Host {
     }
 
     /// The accessibility result of an action, reported at the point it acted on.
-    pub(super) fn background_semantic_opt(
-        &self,
-        req: &Req,
-        effect: &str,
-        op: impl FnOnce(&Host) -> Res<Option<Obj>>,
-    ) -> Res<Option<Obj>> {
+    pub(super) fn background_semantic_opt(&self, req: &Req, effect: &str, op: impl FnOnce(&Host) -> Res<Option<Obj>>) -> Res<Option<Obj>> {
         let reference = req.text("ref");
         let (_, window) = self.ref_record(&reference)?;
         let point = self.show_reference_pointer(&reference, "prepare");
@@ -241,12 +200,7 @@ impl Host {
     /// A background call to a target the person is not in runs under the
     /// platform's activation guard (Invoke-BackgroundWindow,
     /// input-semantic.ps1:32-141), whose facts the reply reports.
-    fn guarded_semantic(
-        &self,
-        req: &Req,
-        target: Wid,
-        op: impl FnOnce(&Host) -> Res<Option<Obj>>,
-    ) -> Res<Option<Obj>> {
+    fn guarded_semantic(&self, req: &Req, target: Wid, op: impl FnOnce(&Host) -> Res<Option<Obj>>) -> Res<Option<Obj>> {
         if req.delivery_foreground() || self.desktop.foreground() == target {
             return op(self);
         }
@@ -263,47 +217,29 @@ impl Host {
         };
         // The id of the line being served, which the lease is asked for.
         let request_id = self.feedback.borrow().id;
-        let (result, facts) =
-            self.desktop
-                .guard_semantic(target, request_id, &*self.lease, &mut guarded);
+        let (result, facts) = self.desktop.guard_semantic(target, request_id, &*self.lease, &mut guarded);
         if facts.is_some() {
             self.activation_facts.replace(facts);
         }
         result.map(|result| (!declined).then_some(result))
     }
 
-    pub(super) fn background_semantic(
-        &self,
-        req: &Req,
-        effect: &str,
-        op: impl FnOnce(&Host) -> Res<Obj>,
-    ) -> Res<Obj> {
-        Ok(self
-            .background_semantic_opt(req, effect, |host| op(host).map(Some))?
-            .unwrap_or_default())
+    pub(super) fn background_semantic(&self, req: &Req, effect: &str, op: impl FnOnce(&Host) -> Res<Obj>) -> Res<Obj> {
+        Ok(self.background_semantic_opt(req, effect, |host| op(host).map(Some))?.unwrap_or_default())
     }
 
     /// Runs `body` with `target` kept inactive from its first delivery to its
     /// last: one settle and one foreground recovery when it ends, not one
     /// between deliveries (BeginInactive / EndInactive). A scope that cannot
     /// end cleanly outranks the body's own error.
-    pub(in crate::host) fn within_scope<T>(
-        &self,
-        background: &dyn crate::platform::Background,
-        target: Wid,
-        body: impl FnOnce() -> Res<T>,
-    ) -> Res<T> {
+    pub(in crate::host) fn within_scope<T>(&self, background: &dyn crate::platform::Background, target: Wid, body: impl FnOnce() -> Res<T>) -> Res<T> {
         background.begin_scope(target)?;
         let outcome = body();
         background.end_scope(target)?;
         outcome
     }
 
-    pub(super) fn show_reference_pointer(
-        &self,
-        reference: &str,
-        phase: &str,
-    ) -> Option<(i32, i32)> {
+    pub(super) fn show_reference_pointer(&self, reference: &str, phase: &str) -> Option<(i32, i32)> {
         if !self.feedback_enabled() {
             return None;
         }
@@ -341,22 +277,9 @@ impl Host {
             let after = self.observable_state(element, action);
             changed = after.is_some_and(|after| after != before);
         }
-        let suffix = if changed {
-            "; target state changed, but the requested goal is not verified"
-        } else {
-            "; refresh state before treating it as complete"
-        };
+        let suffix = if changed { "; target state changed, but the requested goal is not verified" } else { "; refresh state before treating it as complete" };
         let text = format!("{} ({message_target}){suffix}", message);
-        let mut result = self.action_result(
-            action,
-            NATIVE_MESSAGE,
-            "unverifiable",
-            false,
-            &text,
-            None,
-            "background",
-            window,
-        );
+        let mut result = self.action_result(action, NATIVE_MESSAGE, "unverifiable", false, &text, None, "background", window);
         result.insert("state_changed".into(), json!(changed));
         result
     }
@@ -365,12 +288,10 @@ impl Host {
 
     pub(super) fn validate_background_input(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
-        let background = self.desktop.background().ok_or_else(|| {
-            format!(
-                "background_unsupported|{} offers no background input route; no input sent",
-                self.desktop.name()
-            )
-        })?;
+        let background = self
+            .desktop
+            .background()
+            .ok_or_else(|| format!("background_unsupported|{} offers no background input route; no input sent", self.desktop.name()))?;
         for step in req.list("steps") {
             let step = Req(step);
             let (mut target, mut preferred) = (info.handle, 0);
@@ -434,11 +355,7 @@ impl Host {
         }) else {
             return Err("sequence_step_invalid: expected one exact-window background input".into());
         };
-        if step.action() == "wait"
-            && !step
-                .f64("duration")
-                .is_some_and(|duration| (0.0..=5.0).contains(&duration))
-        {
+        if step.action() == "wait" && !step.f64("duration").is_some_and(|duration| (0.0..=5.0).contains(&duration)) {
             return Err("sequence_step_invalid: wait requires 0..5 seconds".into());
         }
         self.authorize(&step, 0)?;
@@ -461,11 +378,7 @@ impl Host {
             let delivered_at = now_ms() - started;
             let delivery_ms = delivered_at - before_ms;
             let settle_ms = self.cfg.sequence_settle_ms;
-            let credit_ms = if step.action() == "wait" {
-                settle_ms.min(delivery_ms)
-            } else {
-                0
-            };
+            let credit_ms = if step.action() == "wait" { settle_ms.min(delivery_ms) } else { 0 };
             let remaining_ms = settle_ms - credit_ms;
             if remaining_ms > 0 {
                 sleep_ms(remaining_ms);
@@ -494,11 +407,7 @@ impl Host {
             })
         })();
         // A step the host cannot read back stops its sequence, so its hold ends too.
-        let ended = if !hold_ended && (!continues || outcome.is_err()) {
-            self.end_sequence_hold(handle)
-        } else {
-            Ok(())
-        };
+        let ended = if !hold_ended && (!continues || outcome.is_err()) { self.end_sequence_hold(handle) } else { Ok(()) };
         ended?;
         outcome
     }
@@ -510,10 +419,7 @@ impl Host {
             return Ok(());
         };
         let stale: Vec<Wid> = self.session(|session| {
-            let others = session
-                .inactive_scopes
-                .keys()
-                .filter(|window| **window != handle);
+            let others = session.inactive_scopes.keys().filter(|window| **window != handle);
             others.copied().collect()
         });
         let mut failure = None;
@@ -538,10 +444,7 @@ impl Host {
         let Some(background) = self.desktop.background() else {
             return Ok(());
         };
-        if self
-            .session(|session| session.inactive_scopes.remove(&handle))
-            .is_none()
-        {
+        if self.session(|session| session.inactive_scopes.remove(&handle)).is_none() {
             return Ok(());
         }
         background.end_scope(handle)
@@ -559,11 +462,7 @@ impl Host {
     /// (Release-SequenceHolds, sequence.ps1:76-88); every one is ended even
     /// when another fails.
     pub(super) fn release_sequence_holds(&self) -> Res<Obj> {
-        let held: Vec<Wid> = self.session(|session| {
-            std::mem::take(&mut session.inactive_scopes)
-                .into_keys()
-                .collect()
-        });
+        let held: Vec<Wid> = self.session(|session| std::mem::take(&mut session.inactive_scopes).into_keys().collect());
         let mut released = 0;
         let mut failure = None;
         for window in held {

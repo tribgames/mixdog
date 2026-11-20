@@ -66,13 +66,10 @@ fn is_array(schema: &Value) -> bool {
     schema.get("type") == Some(&json!("array")) || schema.get("items").is_some()
 }
 
-
 const SCHEMA: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_methods.json");
 impl Samples {
     pub(crate) fn new() -> Self {
-        Self {
-            schema: serde_json::from_str(&SCHEMA).expect("golden schema parses"),
-        }
+        Self { schema: serde_json::from_str(&SCHEMA).expect("golden schema parses") }
     }
 
     pub(crate) fn params(&self, method: &str) -> Value {
@@ -103,34 +100,21 @@ impl Samples {
             return first.clone();
         }
         for choice in ["allOf", "oneOf", "anyOf"] {
-            if let Some(first) = schema
-                .get(choice)
-                .and_then(Value::as_array)
-                .and_then(|choices| {
-                    choices
-                        .iter()
-                        .find(|choice| choice.get("type") != Some(&json!("null")))
-                })
+            if let Some(first) =
+                schema.get(choice).and_then(Value::as_array).and_then(|choices| choices.iter().find(|choice| choice.get("type") != Some(&json!("null"))))
             {
                 return self.sample(first, name);
             }
         }
         let kind = match schema.get("type") {
             Some(Value::String(kind)) => kind.as_str(),
-            Some(Value::Array(kinds)) => kinds
-                .iter()
-                .filter_map(Value::as_str)
-                .find(|kind| *kind != "null")
-                .unwrap_or("null"),
+            Some(Value::Array(kinds)) => kinds.iter().filter_map(Value::as_str).find(|kind| *kind != "null").unwrap_or("null"),
             _ => "object",
         };
         match kind {
             "string" if name == "digest" => json!(format!("sha256:{}", "0".repeat(64))),
             "string" => json!("x"),
-            "integer" | "number" => schema
-                .get("minimum")
-                .and_then(Value::as_f64)
-                .map_or(json!(1), |minimum| json!(minimum as i64)),
+            "integer" | "number" => schema.get("minimum").and_then(Value::as_f64).map_or(json!(1), |minimum| json!(minimum as i64)),
             "boolean" => json!(false),
             "array" => {
                 let wanted = schema.get("minItems").and_then(Value::as_u64).unwrap_or(0);
@@ -189,11 +173,8 @@ impl Samples {
             }
         }
         let map = schema.get("additionalProperties").is_some_and(Value::is_object);
-        let fits = if segment == "*" || segment.parse::<usize>().is_ok() {
-            is_array(schema) || map
-        } else {
-            schema["properties"].get(segment).is_some() || map
-        };
+        let fits =
+            if segment == "*" || segment.parse::<usize>().is_ok() { is_array(schema) || map } else { schema["properties"].get(segment).is_some() || map };
         fits.then_some((schema, false))
     }
 
@@ -229,11 +210,8 @@ impl Samples {
             }
             let key = if segment == "*" { "k" } else { segment };
             let property = part.and_then(|part| part["properties"].get(segment).or_else(|| part.get("additionalProperties").filter(|p| p.is_object())));
-            let entry = at
-                .as_object_mut()
-                .expect("an object")
-                .entry(key)
-                .or_insert_with(|| property.map_or(Value::Null, |property| self.sample(property, key)));
+            let entry =
+                at.as_object_mut().expect("an object").entry(key).or_insert_with(|| property.map_or(Value::Null, |property| self.sample(property, key)));
             self.put(entry, property, rest, text);
         }
     }

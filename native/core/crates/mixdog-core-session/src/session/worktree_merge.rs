@@ -19,12 +19,7 @@ pub(super) struct Admission {
 impl Inner {
     /// A checkout or merge in the shared checkout `folder` refuses while another session (not
     /// this Lead's own workers) works there, then holds the folder.
-    pub(super) fn hold_project_folder(
-        self: &Arc<Self>,
-        actor: Option<&str>,
-        folder: &str,
-        hold: bool,
-    ) -> Result<worktree_gate::FolderGuard, ScmFailure> {
+    pub(super) fn hold_project_folder(self: &Arc<Self>, actor: Option<&str>, folder: &str, hold: bool) -> Result<worktree_gate::FolderGuard, ScmFailure> {
         let users: Vec<String> = self
             .host
             .live_sessions()
@@ -76,27 +71,23 @@ impl FolderAdmission for Admission {
         for folder in &wanted {
             let checkout = inner.of(folder, &cancel).await?;
             holds.push(Box::new(inner.hold_project_folder(actor, folder, !checkout.as_ref().is_some_and(|c| c.external))?));
-            checkouts.push((folder.clone(), checkout.ok_or_else(|| errors::coded_text(errors::WORKTREE_UNSUPPORTED_REPO, "This repository does not support managed worktrees."))?));
+            checkouts.push((
+                folder.clone(),
+                checkout.ok_or_else(|| errors::coded_text(errors::WORKTREE_UNSUPPORTED_REPO, "This repository does not support managed worktrees."))?,
+            ));
         }
         holds.push(Box::new(inner.gate.hold_activity(&checkouts, actor)?));
         let live = inner.host.live_sessions();
-        let mut consumers: BTreeMap<String, LiveSession> =
-            inner.host.stored_consumers().await?.into_iter().map(|s| (s.id.clone(), s)).collect();
+        let mut consumers: BTreeMap<String, LiveSession> = inner.host.stored_consumers().await?.into_iter().map(|s| (s.id.clone(), s)).collect();
         for session in live.into_iter().filter(|s| !s.closed) {
             consumers.insert(session.id.clone(), session);
         }
-        let affected: Vec<&LiveSession> = consumers
-            .values()
-            .filter(|s| s.cwd.as_deref().is_some_and(|cwd| wanted.iter().any(|f| is_within(f, cwd))))
-            .collect();
+        let affected: Vec<&LiveSession> = consumers.values().filter(|s| s.cwd.as_deref().is_some_and(|cwd| wanted.iter().any(|f| is_within(f, cwd)))).collect();
         let blocking: Vec<String> = affected
             .iter()
             .filter(|s| {
                 removing
-                    || (s.active
-                        && !actor.is_some_and(|a| {
-                            s.id == a || s.owner_session_id.as_deref() == Some(a) || s.parent_session_id.as_deref() == Some(a)
-                        }))
+                    || (s.active && !actor.is_some_and(|a| s.id == a || s.owner_session_id.as_deref() == Some(a) || s.parent_session_id.as_deref() == Some(a)))
             })
             .map(|s| s.id.clone())
             .collect();
@@ -153,10 +144,7 @@ impl Inner {
         };
         let branch = branch.ok_or_else(|| errors::missing(None, None, None))?;
         let admission = Admission { inner: self.clone(), actor: Some(session.to_owned()) };
-        self.ops
-            .wt
-            .merge_confirmed_target(std::path::Path::new(&workspace.project_path), &branch, target, &admission, cancel)
-            .await
+        self.ops.wt.merge_confirmed_target(std::path::Path::new(&workspace.project_path), &branch, target, &admission, cancel).await
     }
 
     /// Merge the retained worktree into the project folder's checked-out branch, with the
@@ -185,10 +173,7 @@ impl Inner {
         if !self.ops.settings.worktree_settings().await.auto_cleanup {
             return Ok(with_fields(
                 merged,
-                vec![(
-                    "cleanup",
-                    json!({ "removed": false, "reason": "auto-cleanup-off", "message": "Auto cleanup is off; the worktree is kept." }),
-                )],
+                vec![("cleanup", json!({ "removed": false, "reason": "auto-cleanup-off", "message": "Auto cleanup is off; the worktree is kept." }))],
             ));
         }
         // The merge is committed: a failed or refused cleanup is a cleanup notice, never a
@@ -197,11 +182,7 @@ impl Inner {
         match self.cleanup_merged(session, own_turn, cancel).await {
             Ok(removed) => Ok(with_fields(
                 merged,
-                vec![
-                    ("cleanup", removed["removed"].clone()),
-                    ("revision", removed["revision"].clone()),
-                    ("workspace", removed["workspace"].clone()),
-                ],
+                vec![("cleanup", removed["removed"].clone()), ("revision", removed["revision"].clone()), ("workspace", removed["workspace"].clone())],
             )),
             Err(error) => {
                 let workspace = self.workspace(session)?;
@@ -214,14 +195,7 @@ impl Inner {
                 if let Some(code) = code {
                     cleanup["code"] = json!(code);
                 }
-                Ok(with_fields(
-                    merged,
-                    vec![
-                        ("cleanup", cleanup),
-                        ("revision", json!(workspace.revision)),
-                        ("workspace", workspace.to_value()),
-                    ],
-                ))
+                Ok(with_fields(merged, vec![("cleanup", cleanup), ("revision", json!(workspace.revision)), ("workspace", workspace.to_value())]))
             }
         }
     }
@@ -240,7 +214,13 @@ impl Inner {
     /// Remove managed worktree `entry` this session owns but does not work in now, without
     /// entering it first: the folder's consumers still refuse, as do dirty or unmerged work
     /// without `force` and other sessions' references.
-    pub(super) async fn remove_owned(self: &Arc<Self>, session: &str, entry_id: &str, force: bool, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
+    pub(super) async fn remove_owned(
+        self: &Arc<Self>,
+        session: &str,
+        entry_id: &str,
+        force: bool,
+        cancel: &CancellationToken,
+    ) -> Result<JsonValue, ScmFailure> {
         let row = self.list_rows(cancel).await?.into_iter().find(|r| r["id"] == entry_id);
         let row = row.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let owner = row["ownerSessionId"].as_str().map(str::to_owned);
@@ -284,10 +264,6 @@ impl Inner {
     /// The listed worktree matching `predicate` whose owner is gone and that the list reports
     /// removable: no owner lane can remove it.
     pub(super) async fn orphan(&self, cancel: &CancellationToken, predicate: impl Fn(&JsonValue) -> bool) -> Result<Option<JsonValue>, ScmFailure> {
-        Ok(self
-            .list_rows(cancel)
-            .await?
-            .into_iter()
-            .find(|row| predicate(row) && row["ownerLive"] == false && row["removable"] == true))
+        Ok(self.list_rows(cancel).await?.into_iter().find(|row| predicate(row) && row["ownerLive"] == false && row["removable"] == true))
     }
 }

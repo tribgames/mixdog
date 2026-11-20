@@ -164,10 +164,7 @@ pub(super) fn set_style(book: &Com, op: &Value) -> Result<Value> {
 fn set_indent(target: &Com, props: &Value) -> Result<()> {
     let rounded = convert::round(double_cast(&member(props, "indent"))?);
     let level = int_cast(&Value::Double(rounded))?.clamp(0, 15);
-    if level > 0
-        && !flag(props, "horizontalAlignment")
-        && attempt(|| int_of_com(&target.member("HorizontalAlignment")?)).unwrap_or(0) == 1
-    {
+    if level > 0 && !flag(props, "horizontalAlignment") && attempt(|| int_of_com(&target.member("HorizontalAlignment")?)).unwrap_or(0) == 1 {
         target.set_member("HorizontalAlignment", Com::I4(-4131))?;
     }
     target.set_member("IndentLevel", Com::I4(level))

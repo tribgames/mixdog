@@ -17,8 +17,7 @@ pub const READ_LINE_NO_SEP: char = '→';
 static ROW: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\d+)→", ""));
 static RUN_MARKER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[lines (\d+)-(\d+)\]$", ""));
 static NUMBERED_ROW: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\d+)→([\s\S]*)$", ""));
-static FOOTER: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^\[lines (\d+)-(\d+) of (\d+)(?:; offset:\d+ for more)?\]$", ""));
+static FOOTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[lines (\d+)-(\d+) of (\d+)(?:; offset:\d+ for more)?\]$", ""));
 static EMPTY_FILE: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"^<system-reminder>File exists but has empty contents: [^\n]*</system-reminder>$", ""));
 static EMPTY_RANGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\(no lines in range; file has (\d+) lines\)$", ""));

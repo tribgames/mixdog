@@ -129,8 +129,7 @@ impl CachedProviderSetup {
         if inner.host.model_proxy_client() {
             return inner.builder.proxy(force).await;
         }
-        if !force
-            && let Some(setup) = self.state().setup.clone() {
+        if !force && let Some(setup) = self.state().setup.clone() {
             return Ok(setup);
         }
         if quick {
@@ -148,7 +147,10 @@ impl CachedProviderSetup {
             state.builds += 1;
             let id = state.builds;
             let builder = Arc::clone(&inner.builder);
-            let building: Building = async move { builder.build(SetupOptions { check_secrets: true, detect_local: true }).await.map_err(|failure| failure.message().to_owned()) }.boxed().shared();
+            let building: Building =
+                async move { builder.build(SetupOptions { check_secrets: true, detect_local: true }).await.map_err(|failure| failure.message().to_owned()) }
+                    .boxed()
+                    .shared();
             state.pending = Some((id, building.clone()));
             (id, state.generation, building)
         };
@@ -165,8 +167,7 @@ impl CachedProviderSetup {
     }
 
     async fn quick(&self, force: bool) -> Result<Value, Failure> {
-        if !force
-            && let Some(quick) = self.state().quick.clone() {
+        if !force && let Some(quick) = self.state().quick.clone() {
             return Ok(quick);
         }
         let (request, generation) = {

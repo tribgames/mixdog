@@ -258,7 +258,11 @@ mod tests {
         }
         async fn set_archived(&self, id: &str, archived: bool) -> Result<(), RoomError> {
             let mut w = self.0.lock().unwrap();
-            if archived { w.archived.insert(id.into()) } else { w.archived.remove(id) };
+            if archived {
+                w.archived.insert(id.into())
+            } else {
+                w.archived.remove(id)
+            };
             Ok(())
         }
         async fn is_retired(&self, id: &str) -> Result<bool, RoomError> {
@@ -266,7 +270,11 @@ mod tests {
         }
         async fn set_retired(&self, id: &str, retired: bool) -> Result<(), RoomError> {
             let mut w = self.0.lock().unwrap();
-            if retired { w.retired.insert(id.into()) } else { w.retired.remove(id) };
+            if retired {
+                w.retired.insert(id.into())
+            } else {
+                w.retired.remove(id)
+            };
             Ok(())
         }
         async fn name_retired(&self, _id: &str, _agent: &str) -> Result<(), RoomError> {

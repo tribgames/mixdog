@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-use super::heights::{HeightParams, ItemHeights, item_id, item_kind, is_streaming_tail};
+use super::heights::{HeightParams, ItemHeights, is_streaming_tail, item_id, item_kind};
 
 /// The settled items and the live tail after them: the items of the transcript without copying the settled ones
 /// (`transcriptItemsWithStableTail`).
@@ -134,13 +134,8 @@ impl IncrementalRowIndex {
             }
             return &self.index;
         };
-        let shape = Shape {
-            columns: params.columns,
-            tool_expanded: params.tool_output_expanded,
-            prefix_len: tail_at,
-            prefix_revision,
-            tail: Some(item_id(tail)),
-        };
+        let shape =
+            Shape { columns: params.columns, tool_expanded: params.tool_output_expanded, prefix_len: tail_at, prefix_revision, tail: Some(item_id(tail)) };
         if self.shape.as_ref() == Some(&shape) && self.index.rows.len() > tail_at {
             self.index.truncate(tail_at);
         } else {

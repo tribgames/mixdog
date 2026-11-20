@@ -2,8 +2,8 @@
 //! asks of the process (reconnects, toggles, announcements), the refusals in the words users read, how a plugin's server is left alone, and what
 //! signing out or starting a sign-in announces to the session that asked. (Node `session-runtime/mcp-api.mjs`, whose answers these keep.)
 
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -308,7 +308,13 @@ fn plugin_declared() -> Vec<Declared> {
 }
 
 fn plain() -> Fixture {
-    fixture(json!({"demo": {"type": "stdio", "command": "node", "args": ["s.js"]}, "remote": {"type": "http", "url": "https://x.example/mcp"}}), Vec::new(), true, "pending", false)
+    fixture(
+        json!({"demo": {"type": "stdio", "command": "node", "args": ["s.js"]}, "remote": {"type": "http", "url": "https://x.example/mcp"}}),
+        Vec::new(),
+        true,
+        "pending",
+        false,
+    )
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -321,7 +327,10 @@ async fn an_added_server_is_stored_under_its_slug_and_connected_and_a_taken_name
     let again = call(&f, "mcp/addMcpServer", json!({"input": {"name": "new-server", "command": "other"}})).await;
     assert_eq!(again.unwrap_err(), "MCP server already exists: new-server");
     assert_eq!(call(&f, "mcp/addMcpServer", json!({"input": {"name": "x"}})).await.unwrap_err(), "MCP server command or URL is required");
-    assert_eq!(call(&f, "mcp/addMcpServer", json!({"input": {"name": "c", "command": "x", "connector": "nonesuch"}})).await.unwrap_err(), "Unknown connector: nonesuch");
+    assert_eq!(
+        call(&f, "mcp/addMcpServer", json!({"input": {"name": "c", "command": "x", "connector": "nonesuch"}})).await.unwrap_err(),
+        "Unknown connector: nonesuch"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -337,8 +346,14 @@ async fn a_saved_server_keeps_what_the_edit_leaves_alone_and_a_rename_drops_the_
     assert_eq!(servers["renamed"]["timeoutMs"].as_f64(), Some(2000.0));
     assert_eq!(*f.log.lock().unwrap(), ["reconnect:renamed:true:demo"]);
 
-    assert_eq!(call(&f, "mcp/saveMcpServer", json!({"input": {"originalName": "ghost", "name": "ghost", "command": "x"}})).await.unwrap_err(), "MCP server not configured: ghost");
-    assert_eq!(call(&f, "mcp/saveMcpServer", json!({"input": {"originalName": "renamed", "name": "remote", "command": "x"}})).await.unwrap_err(), "MCP server already exists: remote");
+    assert_eq!(
+        call(&f, "mcp/saveMcpServer", json!({"input": {"originalName": "ghost", "name": "ghost", "command": "x"}})).await.unwrap_err(),
+        "MCP server not configured: ghost"
+    );
+    assert_eq!(
+        call(&f, "mcp/saveMcpServer", json!({"input": {"originalName": "renamed", "name": "remote", "command": "x"}})).await.unwrap_err(),
+        "MCP server already exists: remote"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -368,15 +383,24 @@ async fn a_plugins_server_cannot_be_edited_or_removed_but_can_be_switched_and_th
     let f = fixture(json!({}), plugin_declared(), true, "pending", false);
     let refused = "MCP server \"plugin-alpha-tool\" is provided by plugin \"alpha-536a8a2d\" (server \"tool\"); enable or disable it with set_mcp_enabled, or manage the plugin instead";
     assert_eq!(call(&f, "mcp/removeMcpServer", json!({"name": "plugin-alpha-tool"})).await.unwrap_err(), refused);
-    assert_eq!(call(&f, "mcp/saveMcpServer", json!({"input": {"originalName": "plugin-alpha-tool", "name": "plugin-alpha-tool", "command": "x"}})).await.unwrap_err(), refused);
-    assert_eq!(call(&f, "mcp/addMcpServer", json!({"input": {"name": "plugin-alpha-tool", "command": "x"}})).await.unwrap_err(), "MCP server already exists: plugin-alpha-tool (provided by plugin \"alpha-536a8a2d\")");
+    assert_eq!(
+        call(&f, "mcp/saveMcpServer", json!({"input": {"originalName": "plugin-alpha-tool", "name": "plugin-alpha-tool", "command": "x"}})).await.unwrap_err(),
+        refused
+    );
+    assert_eq!(
+        call(&f, "mcp/addMcpServer", json!({"input": {"name": "plugin-alpha-tool", "command": "x"}})).await.unwrap_err(),
+        "MCP server already exists: plugin-alpha-tool (provided by plugin \"alpha-536a8a2d\")"
+    );
 
     call(&f, "mcp/setMcpServerEnabled", json!({"name": "plugin-alpha-tool", "enabled": false})).await.unwrap();
     assert_eq!(f.runtime.catalog().await.servers["plugin-alpha-tool"]["enabled"], false);
     assert_eq!(stored(&f), json!({}), "the user's own servers are not touched");
     call(&f, "mcp/setMcpServerEnabled", json!({"name": "plugin-alpha-tool", "enabled": true})).await.unwrap();
     assert_eq!(f.runtime.catalog().await.servers["plugin-alpha-tool"]["enabled"], true);
-    assert_eq!(*f.log.lock().unwrap(), ["toggle:plugin-alpha-tool:false", "publish:plugin-alpha-tool=false", "toggle:plugin-alpha-tool:true", "publish:plugin-alpha-tool=true"]);
+    assert_eq!(
+        *f.log.lock().unwrap(),
+        ["toggle:plugin-alpha-tool:false", "publish:plugin-alpha-tool=false", "toggle:plugin-alpha-tool:true", "publish:plugin-alpha-tool=true"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -403,7 +427,10 @@ async fn a_sign_in_that_waits_for_the_browser_is_announced_and_one_that_cannot_s
     let off = fixture(json!({"remote": {"type": "http", "url": "https://x.example/mcp", "enabled": false}}), Vec::new(), true, "pending", false);
     assert_eq!(call(&off, "mcp/beginMcpOAuthLogin", json!({"name": "remote"})).await.unwrap_err(), "MCP server is disabled: remote");
     let signed_out = fixture(json!({"remote": {"type": "http", "url": "https://x.example/mcp"}}), Vec::new(), false, "pending", false);
-    assert_eq!(call(&signed_out, "mcp/beginMcpOAuthLogin", json!({"name": "remote", "options": {"mode": "switch"}})).await.unwrap_err(), "MCP server \"remote\" is not signed in");
+    assert_eq!(
+        call(&signed_out, "mcp/beginMcpOAuthLogin", json!({"name": "remote", "options": {"mode": "switch"}})).await.unwrap_err(),
+        "MCP server \"remote\" is not signed in"
+    );
     assert_eq!(call(&f, "mcp/beginMcpOAuthLogin", json!({"name": "demo"})).await.unwrap_err(), "MCP server \"demo\" does not use OAuth sign-in");
 }
 
@@ -434,7 +461,8 @@ async fn the_auth_probe_needs_an_http_or_sse_config_and_passes_only_the_connecti
     let f = plain();
     assert_eq!(call(&f, "mcp/probeMcpServerAuth", json!({})).await.unwrap_err(), "MCP server config is required");
     assert_eq!(call(&f, "mcp/probeMcpServerAuth", json!({"cfg": {"type": "stdio", "command": "x"}})).await.unwrap_err(), "type must be 'http' or 'sse'");
-    let probed = call(&f, "mcp/probeMcpServerAuth", json!({"cfg": {"type": "sse", "url": "https://x/s", "command": "ignored", "headers": {"A": "b"}}})).await.unwrap();
+    let probed =
+        call(&f, "mcp/probeMcpServerAuth", json!({"cfg": {"type": "sse", "url": "https://x/s", "command": "ignored", "headers": {"A": "b"}}})).await.unwrap();
     assert_eq!(probed, json!({"probed": {"type": "sse", "url": "https://x/s", "headers": {"A": "b"}}}));
 }
 

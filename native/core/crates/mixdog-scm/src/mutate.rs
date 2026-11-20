@@ -36,9 +36,7 @@ impl Drop for WriteScope<'_> {
 
 fn stash_ref(reference: &str) -> Result<String, ScmFailure> {
     let value = reference.trim();
-    let digits = value
-        .strip_prefix("stash@{")
-        .and_then(|rest| rest.strip_suffix('}'));
+    let digits = value.strip_prefix("stash@{").and_then(|rest| rest.strip_suffix('}'));
     match digits {
         Some(n) if !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit()) => Ok(value.to_owned()),
         _ => Err(ScmFailure::invalid("ref", "a stash reference like stash@{0}")),
@@ -83,13 +81,9 @@ mod tests {
     }
 }
 
-
 impl Repo {
     pub async fn write_scope(&self) -> Result<WriteScope<'_>, ScmFailure> {
-        Ok(WriteScope {
-            repo: self,
-            _guard: self.lock_work_tree().await?,
-        })
+        Ok(WriteScope { repo: self, _guard: self.lock_work_tree().await? })
     }
 
     async fn has_head(&self) -> Result<bool, ScmFailure> {
@@ -117,10 +111,7 @@ impl Repo {
         if let Some(operation) = self.operation() {
             return Err(ScmFailure::refused(
                 "OPERATION_IN_PROGRESS",
-                format!(
-                    "A {} is already in progress. Continue or abort it before {action}.",
-                    operation_verb(operation)
-                ),
+                format!("A {} is already in progress. Continue or abort it before {action}.", operation_verb(operation)),
             ));
         }
         Ok(())
@@ -143,14 +134,7 @@ impl Repo {
     async fn conflicted_paths(&self) -> Vec<String> {
         self.run(&["diff", "--name-only", "--diff-filter=U"])
             .await
-            .map(|names| {
-                names
-                    .lines()
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
+            .map(|names| names.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default()
     }
 
@@ -194,15 +178,8 @@ impl Repo {
             args.push("--reverse");
         }
         args.extend([include.as_str(), "-"]);
-        let options = RunOptions {
-            input: Some(patch.as_bytes().to_vec()),
-            ..RunOptions::default()
-        };
-        self.scm
-            .git
-            .text(&self.cancel, self.root()?, &args, &options)
-            .await
-            .map(drop)
+        let options = RunOptions { input: Some(patch.as_bytes().to_vec()), ..RunOptions::default() };
+        self.scm.git.text(&self.cancel, self.root()?, &args, &options).await.map(drop)
     }
 
     pub async fn ignore(&self, path: &str, scope: &str) -> Result<(), ScmFailure> {
@@ -246,11 +223,7 @@ impl Repo {
     pub async fn amend(&self, message: &str) -> Result<String, ScmFailure> {
         let _scope = self.write_scope().await?;
         let trimmed = message.trim();
-        if trimmed.is_empty() {
-            self.run(&["commit", "--amend", "--no-edit"]).await
-        } else {
-            self.run(&["commit", "--amend", "-m", trimmed]).await
-        }
+        if trimmed.is_empty() { self.run(&["commit", "--amend", "--no-edit"]).await } else { self.run(&["commit", "--amend", "-m", trimmed]).await }
     }
 
     pub async fn undo_last_commit(&self) -> Result<String, ScmFailure> {
@@ -303,24 +276,15 @@ impl Repo {
             };
         }
         if self.has_head().await? {
-            return self
-                .run(&["restore", "--source=HEAD", "--staged", "--worktree", "--", path])
-                .await
-                .map(drop);
+            return self.run(&["restore", "--source=HEAD", "--staged", "--worktree", "--", path]).await.map(drop);
         }
         self.run(&["rm", "--cached", "-r", "--ignore-unmatch", "--", path]).await?;
         self.run(&["clean", "-f", "-d", "--", path]).await.map(drop)
     }
 
     pub async fn push(&self) -> Result<String, ScmFailure> {
-        let has_upstream = self
-            .succeeds(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
-            .await?;
-        if has_upstream {
-            self.run(&["push"]).await
-        } else {
-            self.run(&["push", "-u", "origin", "HEAD"]).await
-        }
+        let has_upstream = self.succeeds(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).await?;
+        if has_upstream { self.run(&["push"]).await } else { self.run(&["push", "-u", "origin", "HEAD"]).await }
     }
 
     async fn remote(&self, args: &[&str]) -> Result<String, ScmFailure> {
@@ -339,18 +303,12 @@ impl Repo {
     pub async fn sync(&self) -> Result<String, ScmFailure> {
         let pulled = self.pull().await?;
         let pushed = self.push().await.map_err(crate::git::readable_remote_error)?;
-        Ok([pulled, pushed]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n"))
+        Ok([pulled, pushed].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n"))
     }
 
     /// `continue` / `abort` of the operation in progress, by git's own subcommand name.
     pub async fn finish_operation(&self, flag: &str, verb: &str) -> Result<String, ScmFailure> {
-        let operation = self.operation().ok_or_else(|| {
-            ScmFailure::refused("NO_OPERATION", format!("There is no Git operation to {verb}."))
-        })?;
+        let operation = self.operation().ok_or_else(|| ScmFailure::refused("NO_OPERATION", format!("There is no Git operation to {verb}.")))?;
         let _scope = self.write_scope().await?;
         self.run(&[operation_verb(operation), flag]).await
     }
@@ -369,14 +327,12 @@ impl Repo {
         if hash.len() < 4 || hash.len() > 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(ScmFailure::invalid("hash", "a commit hash"));
         }
-        let shadow = self
-            .run(&["rev-parse", "--verify", "--quiet", "--symbolic-full-name", hash])
-            .await
-            .unwrap_or_default();
+        let shadow = self.run(&["rev-parse", "--verify", "--quiet", "--symbolic-full-name", hash]).await.unwrap_or_default();
         if shadow.trim().is_empty() {
             let peeled = format!("{hash}^{{commit}}");
             if let Ok(resolved) = self.run(&["rev-parse", "--verify", "--quiet", &peeled]).await
-                && !resolved.trim().is_empty() {
+                && !resolved.trim().is_empty()
+            {
                 return Ok(resolved.trim().to_owned());
             }
         }
@@ -394,33 +350,19 @@ impl Repo {
         }
         match commits.len() {
             1 => Ok(commits.remove(0)),
-            0 => Err(ScmFailure::refused(
-                "COMMIT_NOT_FOUND",
-                format!("No commit named {hash} in this repository."),
-            )),
+            0 => Err(ScmFailure::refused("COMMIT_NOT_FOUND", format!("No commit named {hash} in this repository."))),
             _ => Err(ScmFailure::refused(
                 "COMMIT_AMBIGUOUS",
-                format!(
-                    "Commit name {hash} is ambiguous: {}.",
-                    commits.iter().map(|sha| &sha[..sha.len().min(12)]).collect::<Vec<_>>().join(", ")
-                ),
+                format!("Commit name {hash} is ambiguous: {}.", commits.iter().map(|sha| &sha[..sha.len().min(12)]).collect::<Vec<_>>().join(", ")),
             )),
         }
     }
 
     async fn parent_count(&self, commit: &str) -> usize {
-        self.run(&["rev-list", "--parents", "-n", "1", commit])
-            .await
-            .map(|row| row.split_whitespace().count().saturating_sub(1))
-            .unwrap_or(0)
+        self.run(&["rev-list", "--parents", "-n", "1", commit]).await.map(|row| row.split_whitespace().count().saturating_sub(1)).unwrap_or(0)
     }
 
-    pub async fn reset_to_commit(
-        &self,
-        value: &str,
-        mode: &str,
-        confirmed_dirty: bool,
-    ) -> Result<String, ScmFailure> {
+    pub async fn reset_to_commit(&self, value: &str, mode: &str, confirmed_dirty: bool) -> Result<String, ScmFailure> {
         if !matches!(mode, "soft" | "mixed" | "hard") {
             return Err(ScmFailure::invalid("mode", "`soft`, `mixed` or `hard`"));
         }
@@ -445,13 +387,7 @@ impl Repo {
         self.run(&["reset", &flag, &commit]).await
     }
 
-    async fn sequencer_failure(
-        &self,
-        operation: RepoOperation,
-        verb: &str,
-        commit: &str,
-        failure: ScmFailure,
-    ) -> ScmFailure {
+    async fn sequencer_failure(&self, operation: RepoOperation, verb: &str, commit: &str, failure: ScmFailure) -> ScmFailure {
         // git-mutations.ts:321 `sequencerFailure`: a diagnostic naming a conflict counts as one even with no operation in progress.
         if !failure.to_string().to_lowercase().contains("conflict") && self.operation() != Some(operation) {
             return failure;
@@ -460,19 +396,11 @@ impl Repo {
         let listed = if files.is_empty() {
             String::new()
         } else {
-            format!(
-                " in {} file(s): {}",
-                files.len(),
-                files.iter().take(10).cloned().collect::<Vec<_>>().join(", ")
-            )
+            format!(" in {} file(s): {}", files.len(), files.iter().take(10).cloned().collect::<Vec<_>>().join(", "))
         };
         ScmFailure::refused(
             "SEQUENCER_CONFLICT",
-            format!(
-                "{verb} {} hit conflicts{listed}. Resolve them, then continue or abort the {}.",
-                &commit[..commit.len().min(8)],
-                operation_verb(operation)
-            ),
+            format!("{verb} {} hit conflicts{listed}. Resolve them, then continue or abort the {}.", &commit[..commit.len().min(8)], operation_verb(operation)),
         )
     }
 
@@ -487,9 +415,7 @@ impl Repo {
         args.push(&commit);
         match self.run(&args).await {
             Ok(out) => Ok(out),
-            Err(failure) => Err(self
-                .sequencer_failure(RepoOperation::Revert, "Reverting", &commit, failure)
-                .await),
+            Err(failure) => Err(self.sequencer_failure(RepoOperation::Revert, "Reverting", &commit, failure).await),
         }
     }
 
@@ -507,10 +433,11 @@ impl Repo {
         args.push(&commit);
         // runCherryPick: a git that does not know `--empty=keep` is asked again with the legacy pair.
         let outcome = match self.run(&args).await {
-            Err(failure) if {
-                let text = failure.to_string().to_lowercase();
-                text.contains("unknown option") || text.contains("usage: git cherry-pick")
-            } =>
+            Err(failure)
+                if {
+                    let text = failure.to_string().to_lowercase();
+                    text.contains("unknown option") || text.contains("usage: git cherry-pick")
+                } =>
             {
                 let mut legacy = vec!["cherry-pick", "--allow-empty", "--keep-redundant-commits"];
                 legacy.extend(&args[2..]);
@@ -520,9 +447,7 @@ impl Repo {
         };
         match outcome {
             Ok(out) => Ok(out),
-            Err(failure) => Err(self
-                .sequencer_failure(RepoOperation::CherryPick, "Cherry-picking", &commit, failure)
-                .await),
+            Err(failure) => Err(self.sequencer_failure(RepoOperation::CherryPick, "Cherry-picking", &commit, failure).await),
         }
     }
 

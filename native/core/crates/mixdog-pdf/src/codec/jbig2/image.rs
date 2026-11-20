@@ -71,12 +71,7 @@ impl Image {
         if size as i64 > MAX_IMAGE_BYTES {
             return None;
         }
-        Some(Image {
-            width,
-            height,
-            stride,
-            data: vec![0; size],
-        })
+        Some(Image { width, height, stride, data: vec![0; size] })
     }
 
     pub fn width(&self) -> i32 {
@@ -150,9 +145,7 @@ impl Image {
         let sx0 = (-x).max(0);
         let sx1 = i64::from(self.width).min(i64::from(dst.width) - x);
         let sy0 = i64::from(rows.start).max(0).max(-y);
-        let sy1 = i64::from(rows.end)
-            .min(i64::from(self.height))
-            .min(i64::from(dst.height) - y);
+        let sy1 = i64::from(rows.end).min(i64::from(self.height)).min(i64::from(dst.height) - y);
         if sx0 >= sx1 || sy0 >= sy1 {
             return;
         }
@@ -225,13 +218,7 @@ mod tests {
     }
 
     fn render(img: &Image) -> Vec<String> {
-        (0..img.height())
-            .map(|y| {
-                (0..img.width())
-                    .map(|x| if img.get_pixel(x, y) == 1 { '#' } else { '.' })
-                    .collect()
-            })
-            .collect()
+        (0..img.height()).map(|y| (0..img.width()).map(|x| if img.get_pixel(x, y) == 1 { '#' } else { '.' }).collect()).collect()
     }
 
     #[test]
@@ -261,16 +248,7 @@ mod tests {
 
     #[test]
     fn operators_of_the_flags_byte() {
-        let expected = [
-            ComposeOp::Or,
-            ComposeOp::And,
-            ComposeOp::Xor,
-            ComposeOp::Xnor,
-            ComposeOp::Replace,
-            ComposeOp::And,
-            ComposeOp::Xor,
-            ComposeOp::Xnor,
-        ];
+        let expected = [ComposeOp::Or, ComposeOp::And, ComposeOp::Xor, ComposeOp::Xnor, ComposeOp::Replace, ComposeOp::And, ComposeOp::Xor, ComposeOp::Xnor];
         for (flags, op) in expected.iter().enumerate() {
             assert_eq!(ComposeOp::from_flags(flags as u8), *op);
             assert_eq!(ComposeOp::from_flags(flags as u8 | 0xf8), *op);

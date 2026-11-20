@@ -49,13 +49,28 @@ fn rows(world: &World, providers: Vec<(&str, Value)>, check_secrets: bool) -> Ve
 }
 
 fn shown(row: &Value) -> (String, String, bool, bool) {
-    (row["status"].as_str().unwrap().to_owned(), row["detail"].as_str().unwrap().to_owned(), row["authenticated"].as_bool().unwrap(), row["stored"].as_bool().unwrap())
+    (
+        row["status"].as_str().unwrap().to_owned(),
+        row["detail"].as_str().unwrap().to_owned(),
+        row["authenticated"].as_bool().unwrap(),
+        row["stored"].as_bool().unwrap(),
+    )
 }
 
 #[test]
 fn only_generated_custom_providers_are_listed_in_config_order() {
     let world = World::default();
-    let listed = rows(&world, vec![(B, provider(json!({}))), ("openai", json!({ "enabled": true })), (A, provider(json!({}))), ("custom-x", provider(json!({}))), ("custom-33333333-3333-4333-8333-333333333333", json!({ "type": "other" }))], true);
+    let listed = rows(
+        &world,
+        vec![
+            (B, provider(json!({}))),
+            ("openai", json!({ "enabled": true })),
+            (A, provider(json!({}))),
+            ("custom-x", provider(json!({}))),
+            ("custom-33333333-3333-4333-8333-333333333333", json!({ "type": "other" })),
+        ],
+        true,
+    );
     assert_eq!(listed.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), [B, A]);
     assert!(rows(&world, vec![], true).is_empty());
 }
@@ -85,7 +100,10 @@ fn a_key_variable_decides_the_status_by_whether_it_is_set() {
     let unset = World::default();
     let entry = provider(json!({ "apiKeyEnv": "MY_KEY" }));
     let row = &rows(&set, vec![(A, entry.clone())], true)[0];
-    assert_eq!((shown(row), row["env"].clone(), row["envName"].clone(), row["apiKeyEnv"].clone()), (("Env".into(), "MY_KEY".into(), true, false), json!(true), json!("MY_KEY"), json!("MY_KEY")));
+    assert_eq!(
+        (shown(row), row["env"].clone(), row["envName"].clone(), row["apiKeyEnv"].clone()),
+        (("Env".into(), "MY_KEY".into(), true, false), json!(true), json!("MY_KEY"), json!("MY_KEY"))
+    );
     assert_eq!(shown(&rows(&unset, vec![(A, entry.clone())], true)[0]), ("No Key".into(), "MY_KEY".into(), false, false));
     let empty = World { env: HashMap::from([("MY_KEY", "")]), ..World::default() };
     assert_eq!(rows(&empty, vec![(A, entry)], true)[0]["env"], false, "an empty variable is not set");
@@ -110,7 +128,10 @@ fn additional_keys_are_listed_by_id_only() {
 fn a_stored_config_that_does_not_normalize_is_shown_as_invalid_instead_of_connected() {
     let world = World { stored: vec![A], ..World::default() };
     let row = &rows(&world, vec![(A, provider(json!({ "protocol": "grpc" })))], true)[0];
-    assert_eq!((row["status"].clone(), row["detail"].clone(), row["configError"].clone()), (json!("Invalid config"), json!("unsupported protocol: grpc"), json!("unsupported protocol: grpc")));
+    assert_eq!(
+        (row["status"].clone(), row["detail"].clone(), row["configError"].clone()),
+        (json!("Invalid config"), json!("unsupported protocol: grpc"), json!("unsupported protocol: grpc"))
+    );
     assert_eq!((row["usable"].clone(), row["ready"].clone(), row["authenticated"].clone()), (json!(false), json!(false), json!(false)));
     assert_eq!(row["models"], json!([]));
 }
@@ -120,7 +141,10 @@ fn the_row_carries_the_name_protocol_url_models_and_the_normalized_extras() {
     let world = World::default();
     let entry = provider(json!({ "modelOverrides": { "m1": { "manual": true } }, "headers": { "X-Team": " blue " }, "wires": ["chat", "responses"] }));
     let row = &rows(&world, vec![(A, entry)], true)[0];
-    assert_eq!((row["name"].clone(), row["protocol"].clone(), row["baseURL"].clone(), row["custom"].clone(), row["group"].clone(), row["type"].clone()), (json!("Alpha"), json!("openai-chat"), json!("http://localhost:1234/v1"), json!(true), json!("api"), json!("api-key")));
+    assert_eq!(
+        (row["name"].clone(), row["protocol"].clone(), row["baseURL"].clone(), row["custom"].clone(), row["group"].clone(), row["type"].clone()),
+        (json!("Alpha"), json!("openai-chat"), json!("http://localhost:1234/v1"), json!(true), json!("api"), json!("api-key"))
+    );
     assert_eq!(row["models"][0]["id"], "m1");
     assert_eq!(row["headers"], json!({ "X-Team": "blue" }), "the normalized headers");
     assert_eq!(row["wires"], json!(["chat", "responses"]));

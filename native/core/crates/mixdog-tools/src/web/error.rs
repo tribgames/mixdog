@@ -44,13 +44,7 @@ pub struct FetchError {
 
 impl FetchError {
     pub fn new(kind: FetchKind, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            message: message.into(),
-            status: None,
-            retry_after: Duration::ZERO,
-            lookup: None,
-        }
+        Self { kind, message: message.into(), status: None, retry_after: Duration::ZERO, lookup: None }
     }
 
     pub fn policy(message: impl Into<String>) -> Self {
@@ -68,22 +62,14 @@ impl FetchError {
             cause = inner.source();
         }
         let transient = error.is_connect() || error.is_timeout() || error.is_body() || error.is_decode();
-        let kind = if transient {
-            FetchKind::NetworkTransient
-        } else {
-            FetchKind::Network
-        };
+        let kind = if transient { FetchKind::NetworkTransient } else { FetchKind::Network };
         let mut detail = String::new();
         let mut source = std::error::Error::source(error);
         while let Some(cause) = source {
             detail = cause.to_string();
             source = cause.source();
         }
-        let message = if detail.is_empty() {
-            "fetch failed".to_string()
-        } else {
-            format!("fetch failed: {detail}")
-        };
+        let message = if detail.is_empty() { "fetch failed".to_string() } else { format!("fetch failed: {detail}") };
         Self::new(kind, message)
     }
 

@@ -279,11 +279,7 @@ impl Element<'_> {
             return Ok(None);
         }
         let number = |key: &str| found.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-        Ok(Some((
-            Rect { x: number("x"), y: number("y"), width: number("width"), height: number("height") },
-            number("pageLeft"),
-            number("pageTop"),
-        )))
+        Ok(Some((Rect { x: number("x"), y: number("y"), width: number("width"), height: number("height") }, number("pageLeft"), number("pageTop"))))
     }
 
     /// `element.screenshot({ omitBackground })` as a PNG: the element is scrolled into view when it is not wholly in
@@ -314,10 +310,12 @@ impl Element<'_> {
 /// function declarations that need nothing outside themselves) and calls its function `name` with its own arguments:
 /// what `page.evaluate(name, ...args)` shipped as the function's text.
 pub fn page_function(script: &str, name: &str) -> String {
-    format!("function () {{
+    format!(
+        "function () {{
 {script}
 return {name}.apply(null, arguments);
-}}")
+}}"
+    )
 }
 
 fn call_expression(function: &str, args: &[Value]) -> String {
@@ -429,10 +427,13 @@ mod tests {
     #[test]
     fn a_page_script_is_called_through_a_wrapper() {
         let wrapped = page_function("function pick(a, b) { return b; }", "pick");
-        assert_eq!(call_expression(&wrapped, &[json!(1), json!(2)]), "(function () {
+        assert_eq!(
+            call_expression(&wrapped, &[json!(1), json!(2)]),
+            "(function () {
 function pick(a, b) { return b; }
 return pick.apply(null, arguments);
-})(1, 2)");
+})(1, 2)"
+        );
     }
 
     #[test]
@@ -441,7 +442,6 @@ return pick.apply(null, arguments);
         assert_eq!(call_expression("() => 1", &[]), "(() => 1)()");
     }
 }
-
 
 impl Page {
     /// Opens a blank page in the browser context `context_id`.
@@ -528,9 +528,8 @@ impl Page {
 
     /// Evaluates the JavaScript expression `expression` in the page: its value (a promise is awaited) by value.
     pub async fn evaluate_expression(&self, expression: &str) -> Result<Value, String> {
-        let reply = self
-            .send("Runtime.evaluate", json!({ "expression": expression, "returnByValue": true, "awaitPromise": true, "userGesture": true }))
-            .await?;
+        let reply =
+            self.send("Runtime.evaluate", json!({ "expression": expression, "returnByValue": true, "awaitPromise": true, "userGesture": true })).await?;
         if let Some(details) = reply.get("exceptionDetails") {
             return Err(exception_message(details));
         }

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_ai::registry::keys::{SecretVault, VaultError};
 use mixdog_rt::DurabilityIo;
-use mixdog_secrets::{default_store, SecretError, SecretStore};
+use mixdog_secrets::{SecretError, SecretStore, default_store};
 
 pub struct KeychainVault {
     store: Arc<dyn SecretStore>,
@@ -46,7 +46,10 @@ impl SecretVault for KeychainVault {
     /// session key): what it yields is a credential before anything can carry it, the keychain entry its source.
     async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
         let value = self.store.get(account).await.map_err(vault_error)?;
-        mixdog_ai::oauth::carried::keep(&mixdog_ai::registry::keys::keychain_source(&self.identity(), account), &value.as_deref().into_iter().collect::<Vec<_>>());
+        mixdog_ai::oauth::carried::keep(
+            &mixdog_ai::registry::keys::keychain_source(&self.identity(), account),
+            &value.as_deref().into_iter().collect::<Vec<_>>(),
+        );
         Ok(value)
     }
 

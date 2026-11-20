@@ -335,10 +335,7 @@ fn visual_variety_issue(content: &[Value], visual_types: &[String]) -> Option<Va
     if content.len() < 5 || unique >= required {
         return None;
     }
-    Some(issue(
-        "visual_role_variety_low",
-        &format!("The deck uses {unique} visual role(s) across {} content slides; use at least {required}.", content.len()),
-    ))
+    Some(issue("visual_role_variety_low", &format!("The deck uses {unique} visual role(s) across {} content slides; use at least {required}.", content.len())))
 }
 
 /// `{ ...candidate, id: undefined }` written by `JSON.stringify`: the candidate with its id left out.
@@ -411,9 +408,7 @@ pub fn review_pptx_deck_diversity(reads: &dyn AuthorReads, document: &Value, des
     if content.is_empty() {
         return Vec::new();
     }
-    let pick = |first: f64, second: f64, fallback: f64| {
-        [first, second].into_iter().find(|number| !number.is_nan() && *number != 0.0).unwrap_or(fallback)
-    };
+    let pick = |first: f64, second: f64, fallback: f64| [first, second].into_iter().find(|number| !number.is_nan() && *number != 0.0).unwrap_or(fallback);
     let format = field(design, "format");
     let canvas = (
         pick(to_number_of(field(document, "slideWidth")), to_number_of(field_of(format, "canvasWidth")), 960.0),

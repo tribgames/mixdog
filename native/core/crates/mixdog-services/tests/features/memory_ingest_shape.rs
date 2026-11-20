@@ -1,7 +1,8 @@
 //! Which transcript messages are conversation, what text they contribute, and the stable identity of each.
 
 use mixdog_services::memory::ingest_shape::{
-    all_text_content, normalize_ingest_role, project_session_messages_for_ingest, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref,
+    all_text_content, normalize_ingest_role, project_session_messages_for_ingest, session_message_content_for_ingest, should_exclude_ingest_message,
+    stable_session_source_ref,
 };
 use serde_json::{Value, json};
 

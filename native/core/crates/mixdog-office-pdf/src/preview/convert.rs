@@ -21,22 +21,21 @@ use std::sync::Arc;
 
 use mixdog_fsio::OpenOptions;
 use mixdog_office_crypto::{
-    CancelToken, Descriptor, Integrity, KeyDerivation, KeyError, decrypt_package, is_encrypted_binary_presentation,
-    is_encrypted_ooxml, is_encrypted_word_document, ooxml_encryption, package_intact, read_encrypted_ooxml,
-    read_ooxml_encryption_info,
+    CancelToken, Descriptor, Integrity, KeyDerivation, KeyError, decrypt_package, is_encrypted_binary_presentation, is_encrypted_ooxml,
+    is_encrypted_word_document, ooxml_encryption, package_intact, read_encrypted_ooxml, read_ooxml_encryption_info,
 };
 use mixdog_rt::{CancellationToken, CpuBulk, DurabilityIo, InLane, InteractiveIo};
 use serde_json::{Map, Value, json};
 
 use super::cache::{
-    DOCUMENT_CACHE_DIRECTORY, Identity, PREVIEW_PDF_NAME, StagingOwner, UnlockedEntry, cache_key, file_size, identity_of, prune_cache,
-    publish, reclaim_staging, stat_error, touch_directory,
+    DOCUMENT_CACHE_DIRECTORY, Identity, PREVIEW_PDF_NAME, StagingOwner, UnlockedEntry, cache_key, file_size, identity_of, prune_cache, publish,
+    reclaim_staging, stat_error, touch_directory,
 };
 use super::scratch::{create_scratch, remove_scratch};
 use super::{
     DocumentPreview, OFFICE_PREVIEW_PASSWORD_CORRUPT, OFFICE_PREVIEW_PASSWORD_NEEDS_OFFICE, OFFICE_PREVIEW_PASSWORD_PROTECTED,
-    OFFICE_PREVIEW_PASSWORD_UNSUPPORTED, OFFICE_PREVIEW_UNAVAILABLE, OFFICE_PREVIEW_WRONG_PASSWORD, OFFICE_RENDER_TIMEOUT, PdfPreview,
-    PreviewError, PreviewOptions, job, office_family, preview_format,
+    OFFICE_PREVIEW_PASSWORD_UNSUPPORTED, OFFICE_PREVIEW_UNAVAILABLE, OFFICE_PREVIEW_WRONG_PASSWORD, OFFICE_RENDER_TIMEOUT, PdfPreview, PreviewError,
+    PreviewOptions, job, office_family, preview_format,
 };
 
 const NOT_A_PREVIEW_TYPE: &str = "This file type has no built-in document preview.";
@@ -76,11 +75,7 @@ fn js_text(value: Option<&Value>) -> String {
         Some(Value::Bool(flag)) => flag.to_string(),
         Some(Value::Number(number)) => number.as_f64().map_or_else(|| number.to_string(), mixdog_js::number_to_string),
         Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| if item.is_null() { String::new() } else { js_text(Some(item)) })
-            .collect::<Vec<_>>()
-            .join(","),
+        Some(Value::Array(items)) => items.iter().map(|item| if item.is_null() { String::new() } else { js_text(Some(item)) }).collect::<Vec<_>>().join(","),
         Some(Value::Object(_)) => "[object Object]".to_owned(),
     }
 }
@@ -124,9 +119,8 @@ async fn protection(preview: &DocumentPreview, path: &Path) -> Result<Protection
         if lower.ends_with(".doc") {
             return if is_encrypted_word_document(lane, &target) { Protection::Word } else { Protection::None };
         }
-        const OOXML: [&str; 14] = [
-            ".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx", ".xltm", ".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm",
-        ];
+        const OOXML: [&str; 14] =
+            [".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx", ".xltm", ".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm"];
         if !OOXML.iter().any(|extension| lower.ends_with(extension)) || !is_encrypted_ooxml(lane, &target) {
             return Protection::None;
         }
@@ -147,9 +141,7 @@ fn malformed(descriptor: &Descriptor) -> bool {
 async fn office_installed(preview: &DocumentPreview, family: &str) -> bool {
     let detected = preview.engines.detect_office(family.to_owned()).await;
     detected.get("applications").and_then(Value::as_array).is_some_and(|applications| {
-        applications.iter().any(|application| {
-            application.get("format").and_then(Value::as_str) == Some(family) && truthy(application.get("installed"))
-        })
+        applications.iter().any(|application| application.get("format").and_then(Value::as_str) == Some(family) && truthy(application.get("installed")))
     })
 }
 
@@ -260,7 +252,8 @@ async fn render_unlocked_package(
 ) -> Result<(), PreviewError> {
     let target = path.to_path_buf();
     let read = job(preview.lanes.interactive_io, move |lane: &InLane<InteractiveIo>| {
-        read_encrypted_ooxml(lane, &target).and_then(|encrypted| ooxml_encryption(&encrypted.encryption_info).map(|descriptor| (descriptor, encrypted.encrypted_package)))
+        read_encrypted_ooxml(lane, &target)
+            .and_then(|encrypted| ooxml_encryption(&encrypted.encryption_info).map(|descriptor| (descriptor, encrypted.encrypted_package)))
     })
     .await?;
     let Some((descriptor, encrypted_package)) = read else { return Err(password_unsupported()) };

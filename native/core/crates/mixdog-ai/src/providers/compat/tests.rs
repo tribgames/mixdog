@@ -6,8 +6,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use mixdog_core_api::domain::conformance::{check_retry_policy};
-use mixdog_core_api::domain::provider::{CacheTier, Content, ContentPart, DeliveryState, ErrorKind, ImageSource, Message, ModelRequest, ProviderReplay, RequestOptions, Role, StopReason, StreamEvent, ToolCall, ToolDefinition, WireCodec};
+use mixdog_core_api::domain::conformance::check_retry_policy;
+use mixdog_core_api::domain::provider::{
+    CacheTier, Content, ContentPart, DeliveryState, ErrorKind, ImageSource, Message, ModelRequest, ProviderReplay, RequestOptions, Role, StopReason,
+    StreamEvent, ToolCall, ToolDefinition, WireCodec,
+};
 use mixdog_core_api::domain::retry::{RetryClass, RetryDecider, RetryState, Verdict};
 use mixdog_protocol::{JsonValue, ProviderId};
 use serde_json::json;
@@ -16,7 +19,6 @@ use super::chat::{CompatChatCodec, CompatConfig};
 use super::models::{ModelTable, parse_models};
 use super::profile::{CompatProfile, CredentialKind};
 use crate::retry::StandardRetryDecider;
-
 
 fn lookup_tool() -> ToolDefinition {
     ToolDefinition {
@@ -39,10 +41,7 @@ fn text_message(role: Role, text: &str) -> Message {
 fn base_request(model: &str) -> ModelRequest {
     ModelRequest {
         model: model.into(),
-        messages: vec![
-            text_message(Role::System, "You are a fixture assistant."),
-            text_message(Role::User, "Look up the answer."),
-        ],
+        messages: vec![text_message(Role::System, "You are a fixture assistant."), text_message(Role::User, "Look up the answer.")],
         tools: vec![lookup_tool()],
         options: RequestOptions::default(),
     }
@@ -51,12 +50,7 @@ fn base_request(model: &str) -> ModelRequest {
 fn followup_request(model: &str) -> ModelRequest {
     let mut request = base_request(model);
     let mut call = text_message(Role::Assistant, "");
-    call.tool_calls = vec![ToolCall {
-        id: "call_fx1".into(),
-        name: "lookup".into(),
-        arguments: json!({"key": "answer"}),
-        native_type: None,
-    }];
+    call.tool_calls = vec![ToolCall { id: "call_fx1".into(), name: "lookup".into(), arguments: json!({"key": "answer"}), native_type: None }];
     let mut result = text_message(Role::Tool, "42");
     result.tool_call_id = Some("call_fx1".into());
     request.messages.extend([call, result]);
@@ -64,17 +58,9 @@ fn followup_request(model: &str) -> ModelRequest {
 }
 
 fn plain_codec() -> CompatChatCodec {
-    let profile = CompatProfile::plain(
-        "groq",
-        "https://api.groq.com/v1",
-        CredentialKind::StaticKey {
-            reauth_on_401: false,
-        },
-    );
+    let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
     CompatChatCodec::new(profile, CompatConfig::default())
 }
-
-
 
 fn body_of(codec: &CompatChatCodec, request: &ModelRequest) -> JsonValue {
     let wire = codec.encode(request).expect("encodes");
@@ -110,7 +96,6 @@ fn tool_calls_of(events: &[StreamEvent]) -> Vec<ToolCall> {
         })
         .collect()
 }
-
 
 fn stop_of(events: &[StreamEvent]) -> StopReason {
     match events.last() {
@@ -150,10 +135,7 @@ fn reasoning_text_is_kept_and_replayed_under_the_key_it_arrived_on() {
     assert_eq!(body["messages"][2]["reasoning_content"], "think hard");
     // Another provider's envelope is never replayed.
     let mut foreign = followup_request("m");
-    foreign.messages[2].push_replay(ProviderReplay {
-        owner: ProviderId::from("someone-else"),
-        items: json!({"reasoningContent": "secret"}),
-    });
+    foreign.messages[2].push_replay(ProviderReplay { owner: ProviderId::from("someone-else"), items: json!({"reasoningContent": "secret"}) });
     assert!(body_of(&codec, &foreign)["messages"][2].get("reasoning_content").is_none());
 }
 
@@ -162,13 +144,7 @@ fn effort_reaches_the_body_by_dialect_not_by_provider_name() {
     let with = |profile: CompatProfile, effort: &str, params: Option<JsonValue>, models: Vec<JsonValue>| {
         let table = std::sync::Arc::new(ModelTable::default());
         table.replace(parse_models(&JsonValue::Array(models)));
-        let codec = CompatChatCodec::new(
-            profile,
-            CompatConfig {
-                models: table,
-                ..CompatConfig::default()
-            },
-        );
+        let codec = CompatChatCodec::new(profile, CompatConfig { models: table, ..CompatConfig::default() });
         let mut request = base_request("m");
         request.options.effort = Some(effort.into());
         request.options.model_parameters = params;
@@ -198,12 +174,7 @@ fn effort_reaches_the_body_by_dialect_not_by_provider_name() {
     assert_eq!(mimo["reasoning_effort"], "high");
     assert_eq!(mimo["max_completion_tokens"], 4000, "bounded by the model's own ceiling");
 
-    let cc = with(
-        CompatProfile::command_code_oauth(),
-        "medium",
-        None,
-        vec![json!({"id":"m","reasoning_efforts":["low","high"]})],
-    );
+    let cc = with(CompatProfile::command_code_oauth(), "medium", None, vec![json!({"id":"m","reasoning_efforts":["low","high"]})]);
     assert_eq!(cc["reasoning_effort"], "high", "folded onto the declared levels");
     let cc_basic = with(CompatProfile::command_code_oauth(), "medium", None, vec![]);
     assert_eq!(cc_basic["reasoning_effort"], "medium");
@@ -219,10 +190,7 @@ fn tool_choice_is_sent_only_where_documented() {
         body_of(&codec, &request)
     };
     assert_eq!(choose(CompatProfile::xai(), "required", None)["tool_choice"], "required");
-    assert_eq!(
-        choose(CompatProfile::xai(), "lookup", None)["tool_choice"],
-        json!({"type": "function", "function": {"name": "lookup"}})
-    );
+    assert_eq!(choose(CompatProfile::xai(), "lookup", None)["tool_choice"], json!({"type": "function", "function": {"name": "lookup"}}));
     assert_eq!(choose(CompatProfile::xai(), "none", None)["tool_choice"], "none");
     // DeepSeek takes a forced choice only with thinking explicitly disabled.
     assert!(choose(CompatProfile::deepseek(), "required", None).get("tool_choice").is_none());
@@ -233,10 +201,7 @@ fn tool_choice_is_sent_only_where_documented() {
     assert!(mimo_none.get("tools").is_none() && mimo_none.get("tool_choice").is_none());
     assert!(choose(CompatProfile::mimo_oauth(), "required", None).get("tool_choice").is_none());
     // A plain endpoint knows `none` only.
-    let plain = CompatChatCodec::new(
-        CompatProfile::plain("p", "http://localhost:8080/v1", CredentialKind::Keyless),
-        CompatConfig::default(),
-    );
+    let plain = CompatChatCodec::new(CompatProfile::plain("p", "http://localhost:8080/v1", CredentialKind::Keyless), CompatConfig::default());
     let mut request = base_request("m");
     request.options.tool_choice = Some("required".into());
     assert!(body_of(&plain, &request).get("tool_choice").is_none());
@@ -250,12 +215,7 @@ fn media_and_tool_results_lower_to_chat_content() {
         Role::User,
         Content::Parts(vec![
             ContentPart::Text("look".into(), None),
-            ContentPart::Image(ImageSource::Base64 {
-                data: "AAAA".into(),
-                mime_type: "image/png".into(),
-                width: None,
-                height: None,
-            }),
+            ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into(), width: None, height: None }),
         ]),
     );
     user.source = None;
@@ -274,14 +234,8 @@ fn media_and_tool_results_lower_to_chat_content() {
     request.messages[3].content = Content::Parts(vec![ContentPart::Image(ImageSource::Url("https://x/y.png".into()))]);
     let body = body_of(&codec, &request);
     assert_eq!(body["messages"][3]["role"], "tool");
-    assert_eq!(
-        body["messages"][3]["content"],
-        "[tool result included media content in the following user message]"
-    );
-    assert_eq!(
-        body["messages"][4],
-        json!({"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://x/y.png"}}]})
-    );
+    assert_eq!(body["messages"][3]["content"], "[tool result included media content in the following user message]");
+    assert_eq!(body["messages"][4], json!({"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://x/y.png"}}]}));
 }
 
 #[test]
@@ -331,9 +285,7 @@ fn billed_cost_is_read_from_the_dialect_field() {
 fn a_gateway_failure_in_the_stream_is_typed() {
     let codec = plain_codec();
     for (reason, status) in [("network_error", None), ("error", Some(502))] {
-        let sse = format!(
-            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
-        );
+        let sse = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n");
         let mut decoder = codec.decoder(&base_request("m"));
         // The text decoded before the failure in the same chunk is delivered first; the failure ends the stream.
         let first = decoder.feed(sse.as_bytes()).expect(reason);
@@ -424,9 +376,7 @@ fn calls_sharing_an_id_are_dispatched_once_and_returned_both() {
     // `emitCompatToolCallOnce` dispatches one call per id; the turn still returns the parsed list whole
     // (`settleCompatStream`), and the loop's id resolver renames the second.
     let codec = plain_codec();
-    let call = |index: u32, key: &str| {
-        json!({"index": index, "id": "c", "type": "function", "function": {"name": "lookup", "arguments": json!({"key": key}).to_string()}})
-    };
+    let call = |index: u32, key: &str| json!({"index": index, "id": "c", "type": "function", "function": {"name": "lookup", "arguments": json!({"key": key}).to_string()}});
     let chunk = json!({"choices": [{"delta": {"tool_calls": [call(0, "a"), call(1, "b")]}, "finish_reason": "tool_calls"}]});
     let events = decode(&codec, format!("data: {chunk}\n\ndata: [DONE]\n\n").as_bytes(), 7);
     let dispatched = tool_calls_of(&events);
@@ -476,11 +426,7 @@ fn status_error(kind: ErrorKind, status: u16, advice: Option<u64>) -> mixdog_cor
     err
 }
 
-fn verdict_for(
-    profile: &CompatProfile,
-    err: &mixdog_core_api::domain::provider::ProviderError,
-    retries_done: u32,
-) -> Verdict {
+fn verdict_for(profile: &CompatProfile, err: &mixdog_core_api::domain::provider::ProviderError, retries_done: u32) -> Verdict {
     let policy = profile.retry_policy();
     let decider = StandardRetryDecider;
     let samples = mixdog_core_api::domain::retry::JitterSamples { step: 0.5, advice: 0.5 };
@@ -520,19 +466,11 @@ fn profile_numbers_drive_the_one_verdict() {
     assert_eq!(verdict_for(&cc, &status_error(ErrorKind::Transient, 502, None), 2), Verdict::Exhausted);
 
     // Retry-After ceilings: deepseek 10 s, muse 60 s, mimo 300 s, unprofiled 60 s.
-    for (profile, ceiling) in [
-        (CompatProfile::deepseek(), 10),
-        (CompatProfile::muse_code_oauth(), 60),
-        (CompatProfile::mimo_oauth(), 300),
-        (CompatProfile::openrouter(), 60),
-    ] {
+    for (profile, ceiling) in
+        [(CompatProfile::deepseek(), 10), (CompatProfile::muse_code_oauth(), 60), (CompatProfile::mimo_oauth(), 300), (CompatProfile::openrouter(), 60)]
+    {
         let at = status_error(ErrorKind::RateLimited, 429, Some(ceiling));
-        assert_eq!(
-            retry_delay(&verdict_for(&profile, &at, 0)),
-            Some(Duration::from_secs(ceiling)),
-            "{} waits advice up to its ceiling in full",
-            profile.id
-        );
+        assert_eq!(retry_delay(&verdict_for(&profile, &at, 0)), Some(Duration::from_secs(ceiling)), "{} waits advice up to its ceiling in full", profile.id);
         let over = status_error(ErrorKind::RateLimited, 429, Some(ceiling + 1));
         assert_eq!(verdict_for(&profile, &over, 0), Verdict::Exhausted, "{}", profile.id);
     }
@@ -597,13 +535,7 @@ fn tiered_system_messages_go_out_as_node_sends_them() {
     core.cache_tier = Some(CacheTier::Tier3);
     let mut env = text_message(Role::System, "env");
     env.cache_tier = Some(CacheTier::Env);
-    request.messages = vec![
-        text_message(Role::System, "rules"),
-        text_message(Role::System, "stable"),
-        core,
-        env,
-        text_message(Role::User, "hi"),
-    ];
+    request.messages = vec![text_message(Role::System, "rules"), text_message(Role::System, "stable"), core, env, text_message(Role::User, "hi")];
     assert_eq!(body_of(&codec, &request)["messages"], recorded);
 }
 
@@ -615,17 +547,6 @@ mod responses_heads {
     use super::*;
     use crate::providers::compat::responses::CompatResponsesCodec;
     use mixdog_core_api::domain::keepalive::TransportKind;
-
-
-
-
-
-
-
-
-
-
-
 
     fn muse_codec() -> CompatResponsesCodec {
         let profile = CompatProfile::muse_code_oauth();
@@ -682,7 +603,6 @@ mod responses_heads {
         assert!(muse_body(&request).get("reasoning").is_none());
     }
 
-
     #[test]
     fn replay_envelopes_belong_to_the_compat_owner() {
         let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1);
@@ -700,9 +620,6 @@ mod responses_heads {
             .collect();
         assert!(!owners.is_empty() && owners.iter().all(|o| o == "xai-responses"), "{owners:?}");
     }
-
-
-
 }
 
 // ---------------------------------------------------------------------------
@@ -738,17 +655,9 @@ mod liveness {
 
     #[async_trait]
     impl HttpSend for Scripted {
-        async fn send(
-            &self,
-            request: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
             self.sent.lock().unwrap().push(request);
-            Ok(HttpResponse {
-                status: self.status,
-                headers: vec![],
-                body: Box::new(Chunks(self.chunks.clone().into_iter())),
-            })
+            Ok(HttpResponse { status: self.status, headers: vec![], body: Box::new(Chunks(self.chunks.clone().into_iter())) })
         }
     }
 
@@ -770,10 +679,6 @@ mod liveness {
         let codec = CompatChatCodec::new(profile, CompatConfig::default());
         (CompatAdapter::new(codec, http.clone(), Some(Arc::new(Key("sk-test-key")))), http)
     }
-
-
-
-
 
     #[tokio::test]
     async fn a_refusal_is_classified_once_and_never_echoes_the_key() {
@@ -802,7 +707,8 @@ mod liveness {
         assert!(!events.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "no text delta streams");
         assert!(matches!(events.last(), Some(StreamEvent::Completed { .. })), "{events:?}");
         let sent = http.sent.lock().unwrap();
-        let (mut expected, sent_body): (JsonValue, JsonValue) = (serde_json::from_slice(&streaming.body).unwrap(), serde_json::from_slice(&sent[0].body).unwrap());
+        let (mut expected, sent_body): (JsonValue, JsonValue) =
+            (serde_json::from_slice(&streaming.body).unwrap(), serde_json::from_slice(&sent[0].body).unwrap());
         assert_eq!(expected["stream"], true);
         expected["stream"] = json!(false);
         expected.as_object_mut().unwrap().remove("stream_options");
@@ -856,7 +762,6 @@ mod liveness {
         assert!(adapter.recover_spent(Arc::new(base_request("m"))).await.is_err());
     }
 
-
     #[test]
     fn a_half_open_link_ends_as_a_keepalive_failure_within_the_schedule() {
         let (adapter, _) = adapter(200, vec![]);
@@ -867,7 +772,6 @@ mod liveness {
         // The schedule bounds how long such a link stays undetected.
         assert_eq!(adapter.keepalive().tcp_detection_bound(), std::time::Duration::from_secs(360));
     }
-
 
     /// No module of the family arms a content timer: the only clock it may
     /// read is the one that dates a `Retry-After` header or a reset field.
@@ -1013,11 +917,7 @@ mod liveness {
 /// with the shared ±20 % jitter).
 #[test]
 fn the_unprofiled_default_equals_nodes_retry_loop() {
-    let recorded: [(f64, [u64; 4]); 3] = [
-        (0.0, [800, 1600, 3200, 6400]),
-        (0.5, [1000, 2000, 4000, 8000]),
-        (1.0, [1200, 2400, 4800, 9600]),
-    ];
+    let recorded: [(f64, [u64; 4]); 3] = [(0.0, [800, 1600, 3200, 6400]), (0.5, [1000, 2000, 4000, 8000]), (1.0, [1200, 2400, 4800, 9600])];
     let policy = CompatProfile::openrouter().retry_policy();
     let err = status_error(ErrorKind::Transient, 503, None);
     for (random, delays) in recorded {
@@ -1041,9 +941,6 @@ fn per_status_caps_are_carried_as_data() {
     assert_eq!(CompatProfile::xai().retry_policy().status.caps, [(429, 1)]);
     assert_eq!(CompatProfile::mimo_oauth().retry_policy().status.caps, [(429, 5)]);
 }
-
-
-
 
 // ---------------------------------------------------------------------------
 // Chat Completions: recorded bodies and streams
@@ -1086,12 +983,7 @@ fn a_tool_call_streamed_in_two_argument_deltas_reaches_the_tool_whole() {
         let events = decode(&codec, sse.as_bytes(), split);
         assert_eq!(
             tool_calls_of(&events),
-            [ToolCall {
-                id: "call_harness_1".into(),
-                name: "read".into(),
-                arguments: json!({"path": "hello.txt"}),
-                native_type: None,
-            }],
+            [ToolCall { id: "call_harness_1".into(), name: "read".into(), arguments: json!({"path": "hello.txt"}), native_type: None }],
             "split at {split}"
         );
         assert_eq!(stop_of(&events), StopReason::ToolUse);

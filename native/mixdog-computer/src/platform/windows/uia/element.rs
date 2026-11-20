@@ -4,16 +4,16 @@
 use super::super::background::{hold_inactive, release_inactive};
 use super::super::{msaa, native};
 use super::{role_of, text};
-use crate::a11y::{format_value, Element};
+use crate::a11y::{Element, format_value};
 use crate::obj;
 use crate::platform::Wid;
-use crate::port::windows::{WinPort, A11y};
+use crate::port::windows::{A11y, WinPort};
 use crate::protocol::Obj;
 use serde_json::json;
 use std::sync::Arc;
-use windows::core::{BSTR, Interface};
 use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData};
 use windows::Win32::UI::Accessibility::*;
+use windows::core::{BSTR, Interface};
 
 #[allow(non_upper_case_globals)]
 pub(super) fn toggle_label(state: ToggleState) -> &'static str {
@@ -59,9 +59,7 @@ pub(in crate::platform::windows) fn runtime_key(element: &IUIAutomationElement) 
 /// when the read failed.
 fn native_handle_read(element: &IUIAutomationElement) -> Option<Wid> {
     // SAFETY: a plain property read.
-    unsafe { element.CurrentNativeWindowHandle() }
-        .ok()
-        .map(|handle| handle.0 as usize as Wid)
+    unsafe { element.CurrentNativeWindowHandle() }.ok().map(|handle| handle.0 as usize as Wid)
 }
 
 pub(in crate::platform::windows) fn native_handle(element: &IUIAutomationElement) -> Wid {
@@ -133,12 +131,7 @@ impl Element for UiaElement {
     fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         // SAFETY: a plain property read.
         let rect = unsafe { self.element.CurrentBoundingRectangle() }.ok()?;
-        Some((
-            rect.left as f64,
-            rect.top as f64,
-            (rect.right - rect.left) as f64,
-            (rect.bottom - rect.top) as f64,
-        ))
+        Some((rect.left as f64, rect.top as f64, (rect.right - rect.left) as f64, (rect.bottom - rect.top) as f64))
     }
     fn enabled(&self) -> bool {
         unsafe { self.element.CurrentIsEnabled() }.is_ok_and(|flag| flag.as_bool())
@@ -160,20 +153,14 @@ impl Element for UiaElement {
     }
     fn toggle_state(&self) -> Option<String> {
         let toggle = self.pattern::<IUIAutomationTogglePattern>(UIA_TogglePatternId)?;
-        unsafe { toggle.CurrentToggleState() }
-            .ok()
-            .map(|state| toggle_label(state).to_string())
+        unsafe { toggle.CurrentToggleState() }.ok().map(|state| toggle_label(state).to_string())
     }
     fn expand_state(&self) -> Option<String> {
         let pattern = self.pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)?;
-        unsafe { pattern.CurrentExpandCollapseState() }
-            .ok()
-            .map(|state| expand_label(state).to_string())
+        unsafe { pattern.CurrentExpandCollapseState() }.ok().map(|state| expand_label(state).to_string())
     }
     fn set_expanded(&self, expanded: bool) -> Result<(), String> {
-        let pattern = self
-            .pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)
-            .ok_or("element cannot expand or collapse")?;
+        let pattern = self.pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId).ok_or("element cannot expand or collapse")?;
         self.held(if expanded { A11y::Expand(&pattern) } else { A11y::Collapse(&pattern) })
     }
     fn value(&self) -> Option<String> {
@@ -182,9 +169,7 @@ impl Element for UiaElement {
     }
     fn settable(&self) -> bool {
         self.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId)
-            .is_some_and(|pattern| {
-                unsafe { pattern.CurrentIsReadOnly() }.is_ok_and(|flag| !flag.as_bool())
-            })
+            .is_some_and(|pattern| unsafe { pattern.CurrentIsReadOnly() }.is_ok_and(|flag| !flag.as_bool()))
             && !self.ignores_value_write()
     }
     fn read_only(&self) -> bool {
@@ -196,51 +181,29 @@ impl Element for UiaElement {
         text(unsafe { self.element.CurrentClassName() }) == "XLSpreadsheetCell"
     }
     fn set_value(&self, value: &str) -> Result<(), String> {
-        let pattern = self
-            .pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId)
-            .ok_or("element exposes no value")?;
+        let pattern = self.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId).ok_or("element exposes no value")?;
         let value = BSTR::from(value);
         self.held(A11y::SetValue(&pattern, &value))
     }
     fn can_select(&self) -> bool {
-        self.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
-            .is_some()
+        self.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId).is_some()
     }
     fn select(&self) -> Result<(), String> {
-        let pattern = self
-            .pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
-            .ok_or("element is not selectable")?;
+        let pattern = self.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId).ok_or("element is not selectable")?;
         self.held(A11y::Select(&pattern))
     }
     fn scroll(&self, horizontal: bool, increments: i32) -> Result<Option<(String, String)>, String> {
         let Some(pattern) = self.pattern::<IUIAutomationScrollPattern>(UIA_ScrollPatternId) else {
             return Ok(None);
         };
-        let scrollable = unsafe {
-            if horizontal {
-                pattern.CurrentHorizontallyScrollable()
-            } else {
-                pattern.CurrentVerticallyScrollable()
-            }
-        }
-        .is_ok_and(|flag| flag.as_bool());
+        let scrollable = unsafe { if horizontal { pattern.CurrentHorizontallyScrollable() } else { pattern.CurrentVerticallyScrollable() } }
+            .is_ok_and(|flag| flag.as_bool());
         if !scrollable {
             return Ok(None);
         }
-        let read = || unsafe {
-            if horizontal {
-                pattern.CurrentHorizontalScrollPercent()
-            } else {
-                pattern.CurrentVerticalScrollPercent()
-            }
-        }
-        .unwrap_or(0.0);
+        let read = || unsafe { if horizontal { pattern.CurrentHorizontalScrollPercent() } else { pattern.CurrentVerticalScrollPercent() } }.unwrap_or(0.0);
         let before = read();
-        let amount = if increments < 0 {
-            ScrollAmount_SmallDecrement
-        } else {
-            ScrollAmount_SmallIncrement
-        };
+        let amount = if increments < 0 { ScrollAmount_SmallDecrement } else { ScrollAmount_SmallIncrement };
         for _ in 0..increments.unsigned_abs() {
             self.held(A11y::Scroll(&pattern, horizontal, amount))?;
         }
@@ -258,10 +221,7 @@ impl Element for UiaElement {
             let mut current = walker.as_ref().and_then(|walker| walker.GetParentElement(&self.element).ok());
             for depth in 0..80 {
                 let Some(parent) = current else { break };
-                if desktop
-                    .as_ref()
-                    .is_some_and(|desktop| self.automation.CompareElements(&parent, desktop).is_ok_and(|same| same.as_bool()))
-                {
+                if desktop.as_ref().is_some_and(|desktop| self.automation.CompareElements(&parent, desktop).is_ok_and(|same| same.as_bool())) {
                     break;
                 }
                 let id = runtime_key(&parent);
@@ -304,9 +264,7 @@ impl Element for UiaElement {
     }
     fn control_type(&self) -> String {
         // SAFETY: a plain property read.
-        unsafe { self.element.CurrentControlType() }
-            .map(|kind| role_of(kind.0).to_string())
-            .unwrap_or_default()
+        unsafe { self.element.CurrentControlType() }.map(|kind| role_of(kind.0).to_string()).unwrap_or_default()
     }
     fn name(&self) -> String {
         text(unsafe { self.element.CurrentName() })
@@ -324,12 +282,7 @@ impl Element for UiaElement {
     fn scroll_percent(&self) -> Option<(f64, f64)> {
         let pattern = self.pattern::<IUIAutomationScrollPattern>(UIA_ScrollPatternId)?;
         // SAFETY: plain property reads.
-        unsafe {
-            Some((
-                pattern.CurrentHorizontalScrollPercent().ok()?,
-                pattern.CurrentVerticalScrollPercent().ok()?,
-            ))
-        }
+        unsafe { Some((pattern.CurrentHorizontalScrollPercent().ok()?, pattern.CurrentVerticalScrollPercent().ok()?)) }
     }
     fn offscreen(&self) -> bool {
         // SAFETY: a plain property read; an unreadable element counts as off screen.

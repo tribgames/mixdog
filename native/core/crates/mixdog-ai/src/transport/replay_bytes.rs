@@ -140,10 +140,7 @@ impl Drop for Delegate {
 /// `work`, which the task that calls this spawns as part of its own turn: its waits park that turn as the turn's own task's
 /// would, and add no run of their own, while the caller holds the [`Delegate`].
 pub(crate) fn delegate<F: std::future::Future>(work: F) -> (impl std::future::Future<Output = F::Output>, Delegate) {
-    let delegated = RUN
-        .try_with(Run::clone)
-        .ok()
-        .map(|run| Run(std::sync::Arc::new(Waits::Delegated { run, state: Mutex::new(Delegated::default()) })));
+    let delegated = RUN.try_with(Run::clone).ok().map(|run| Run(std::sync::Arc::new(Waits::Delegated { run, state: Mutex::new(Delegated::default()) })));
     (mixdog_rt::within_local(&RUN, delegated.clone(), work), Delegate(delegated))
 }
 
@@ -350,7 +347,6 @@ mod settled_tests {
         outside.abort();
     }
 }
-
 
 fn announcer() -> Option<&'static Mutex<Announcer>> {
     static ANNOUNCER: OnceLock<Option<Mutex<Announcer>>> = OnceLock::new();

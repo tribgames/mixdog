@@ -71,13 +71,7 @@ struct Kind {
 }
 
 const fn kind(file: &'static str, kind: ItemKind, destination: Destination, secret: bool, backup: Backup) -> Kind {
-    Kind {
-        file,
-        kind,
-        destination,
-        secret,
-        backup,
-    }
+    Kind { file, kind, destination, secret, backup }
 }
 
 /// A desktop file that lands in a config key: its file and key are `mixdog_protocol::config::desktop_files`'.
@@ -95,7 +89,13 @@ const FILE_KINDS: &[Kind] = &[
     kind("remote-access-settings.json", ItemKind::RemoteAccessSettings, Destination::Data("remote/settings.json"), true, Backup::None),
     kind("remote-clients.json", ItemKind::RemoteClients, Destination::Data("remote/clients.json"), true, Backup::None),
     kind("relay-device.json", ItemKind::RelayDevice, Destination::Data("remote/device.json"), true, Backup::Restore(Check::Json)),
-    kind("relay-device-revocations.json", ItemKind::RelayDeviceRevocations, Destination::Data("remote/device-revocations.json"), true, Backup::Restore(Check::Json)),
+    kind(
+        "relay-device-revocations.json",
+        ItemKind::RelayDeviceRevocations,
+        Destination::Data("remote/device-revocations.json"),
+        true,
+        Backup::Restore(Check::Json),
+    ),
     kind("relay-e2ee.json", ItemKind::RelayE2ee, Destination::Data("remote/e2ee.json"), true, Backup::None),
     kind("remote-bridge.token", ItemKind::PairingToken, Destination::Data("remote/pairing-token"), true, Backup::Retire),
     kind("remote-native-push.json", ItemKind::NativePush, Destination::Data("remote/native-push.json"), true, Backup::None),
@@ -108,11 +108,7 @@ const WEB_PUSH_FILE: &str = "remote-push.json";
 const LLM_TITLE_LOG: &str = "llm-title.log";
 const UNCLASSIFIED_WORKSPACE: &str = "workspace/unclassified";
 /// Whole directories that are re-created by the core: every file in them retires.
-const RETIRED_TREES: &[&str] = &[
-    "document-previews",
-    "document-preview-pages",
-    "shell-integration",
-];
+const RETIRED_TREES: &[&str] = &["document-previews", "document-preview-pages", "shell-integration"];
 /// Where the core reads the editor's state: the unsaved-draft backups in the user-data folder (`Backups::new`), the interrupted-save
 /// journals in the data dir's recovery store (`recovery::JOURNALS_DIR`), the person's editor settings beside the backups
 /// (`read_editor_settings`). Tests assert these names equal the core's.
@@ -233,13 +229,7 @@ fn destination(kind: &Kind) -> (Contract, Target) {
     match &kind.destination {
         Destination::State(table) => (Contract::Convert, Target::StateTable { table: *table }),
         Destination::Config(key) => (Contract::Convert, Target::ConfigKey { key: (*key).to_owned() }),
-        Destination::Data(path) => (
-            Contract::Preserve,
-            Target::File {
-                root: Root::Data,
-                path: (*path).to_owned(),
-            },
-        ),
+        Destination::Data(path) => (Contract::Preserve, Target::File { root: Root::Data, path: (*path).to_owned() }),
     }
 }
 
@@ -289,21 +279,18 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
         items.push(kind_item(ItemKind::WebPush, Contract::Retire, vec![file], None)?);
     }
 
-    for (kind, dir, secret, target) in [
-        (ItemKind::EditorBackups, "editor-backups", true, EDITOR_BACKUPS_TARGET),
-        (ItemKind::EditorRecovery, "editor-recovery", false, EDITOR_RECOVERY_TARGET),
-    ] {
+    for (kind, dir, secret, target) in
+        [(ItemKind::EditorBackups, "editor-backups", true, EDITOR_BACKUPS_TARGET), (ItemKind::EditorRecovery, "editor-recovery", false, EDITOR_RECOVERY_TARGET)]
+    {
         debug_assert_eq!(preserve::source_dir(kind), Some(dir));
         // The writer of each directory (`editor-backups.ts:118`, `project-recovery-store.ts:338`) may have been cut before
         // it published: that temp file is retired, not kept as the editor's data.
-        let (temps, kept): (Vec<String>, Vec<String>) = files_under(profile, dir)?.into_iter().partition(|path| is_editor_temp(kind, path.rsplit('/').next().unwrap_or(path)));
+        let (temps, kept): (Vec<String>, Vec<String>) =
+            files_under(profile, dir)?.into_iter().partition(|path| is_editor_temp(kind, path.rsplit('/').next().unwrap_or(path)));
         retired.extend(sources(profile, sink, &temps, secret)?);
         let files = sources(profile, sink, &kept, secret)?;
         if !files.is_empty() {
-            let target = Target::File {
-                root: Root::Data,
-                path: target.to_owned(),
-            };
+            let target = Target::File { root: Root::Data, path: target.to_owned() };
             items.push(kind_item(kind, Contract::Preserve, files, Some(target))?);
         }
     }
@@ -330,9 +317,7 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
     }
 
     if std::fs::symlink_metadata(resolve(profile, UNCLASSIFIED_WORKSPACE)).is_ok_and(|meta| meta.is_dir()) {
-        let target = Target::ConfigKey {
-            key: keys::DESKTOP_UNCLASSIFIED_WORKSPACE_ROOT.to_owned(),
-        };
+        let target = Target::ConfigKey { key: keys::DESKTOP_UNCLASSIFIED_WORKSPACE_ROOT.to_owned() };
         items.push(kind_item(ItemKind::UnclassifiedWorkspace, Contract::Preserve, Vec::new(), Some(target))?);
     }
 
@@ -340,10 +325,8 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
     for tree in RETIRED_TREES {
         retired.extend(sources(profile, sink, &files_under(profile, tree)?, false)?);
     }
-    let bridges: Vec<String> = files_under(profile, BRIDGES_DIR)?
-        .into_iter()
-        .filter(|path| path.matches('/').count() == 1 && path.ends_with(BRIDGE_SUFFIX))
-        .collect();
+    let bridges: Vec<String> =
+        files_under(profile, BRIDGES_DIR)?.into_iter().filter(|path| path.matches('/').count() == 1 && path.ends_with(BRIDGE_SUFFIX)).collect();
     retired.extend(sources(profile, sink, &bridges, true)?);
 
     for file in retired {

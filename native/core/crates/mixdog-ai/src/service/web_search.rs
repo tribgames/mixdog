@@ -197,14 +197,10 @@ pub fn flatten_sources(result: &Value) -> Vec<Value> {
     out.into_iter()
         .filter(|row| {
             let url = row["url"].as_str().unwrap_or("");
-            let key = if url.is_empty() {
-                format!("{}\n{}", row["title"].as_str().unwrap_or(""), row["snippet"].as_str().unwrap_or(""))
-            } else {
-                url.to_owned()
-            };
+            let key =
+                if url.is_empty() { format!("{}\n{}", row["title"].as_str().unwrap_or(""), row["snippet"].as_str().unwrap_or("")) } else { url.to_owned() };
             seen.insert(key)
         })
         .map(Value::Object)
         .collect()
 }
-

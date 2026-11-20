@@ -31,35 +31,23 @@ fn flock_nb(fd: &OwnedFd) -> io::Result<()> {
 }
 
 pub(super) fn lock(dir: &DataDir) -> Result<LockFile, AcquireError> {
-    let fd = dir
-        .openat(
-            LOCK_FILE,
-            libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW,
-            0o600,
-        )
-        .map_err(AcquireError::Unavailable)?;
+    let fd = dir.openat(LOCK_FILE, libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW, 0o600).map_err(AcquireError::Unavailable)?;
     match flock_nb(&fd) {
         Ok(()) => Ok(LockFile { fd }),
-        Err(error) if error.raw_os_error() == Some(libc::EWOULDBLOCK) => {
-            Err(AcquireError::AlreadyOwned)
-        }
+        Err(error) if error.raw_os_error() == Some(libc::EWOULDBLOCK) => Err(AcquireError::AlreadyOwned),
         Err(error) => Err(AcquireError::Unavailable(error)),
     }
 }
 
 pub(super) fn pin(dir: &DataDir, name: &str) -> io::Result<BarrierPin> {
-    Ok(BarrierPin {
-        id: file_id(&dir.stat_at(name)?),
-    })
+    Ok(BarrierPin { id: file_id(&dir.stat_at(name)?) })
 }
 
 fn fstat_id(fd: libc::c_int) -> Option<(u64, u64)> {
     // SAFETY: zeroed `stat` is a valid out-parameter.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
     // SAFETY: valid fd and out-pointer.
-    cvt(unsafe { libc::fstat(fd, &mut stat) })
-        .ok()
-        .map(|_| file_id(&stat))
+    cvt(unsafe { libc::fstat(fd, &mut stat) }).ok().map(|_| file_id(&stat))
 }
 
 fn stat_path_id(dir: &DataDir) -> Option<(u64, u64)> {
@@ -67,19 +55,13 @@ fn stat_path_id(dir: &DataDir) -> Option<(u64, u64)> {
     // SAFETY: zeroed `stat` is a valid out-parameter.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
     // SAFETY: valid path and out-pointer.
-    cvt(unsafe { libc::stat(path.as_ptr(), &mut stat) })
-        .ok()
-        .map(|_| file_id(&stat))
+    cvt(unsafe { libc::stat(path.as_ptr(), &mut stat) }).ok().map(|_| file_id(&stat))
 }
 
 /// LR §2.4, in order: the data path still names the locked directory; the lock
 /// file entry is the locked file; the barrier is the installed one; and the
 /// lock still holds (an NFSv4 lease lost while suspended fails here).
-pub(super) fn check(
-    dir: &DataDir,
-    lock: &LockFile,
-    barrier: Option<&BarrierPin>,
-) -> Result<(), FenceReason> {
+pub(super) fn check(dir: &DataDir, lock: &LockFile, barrier: Option<&BarrierPin>) -> Result<(), FenceReason> {
     let held_dir = fstat_id(dir.raw_fd());
     if held_dir.is_none() || stat_path_id(dir) != held_dir {
         return Err(FenceReason::DataDirReplaced);

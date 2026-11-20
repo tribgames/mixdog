@@ -36,9 +36,7 @@ fn parse(text: &str) -> Value {
 
 /// A row is read only when it is truthy (`catModels[id] || null`); every held row is an object, which is.
 fn held(row: &Value) -> bool {
-    !matches!(row, Value::Null | Value::Bool(false))
-        && !row.as_str().is_some_and(str::is_empty)
-        && !row.as_f64().is_some_and(|n| n == 0.0 || n.is_nan())
+    !matches!(row, Value::Null | Value::Bool(false)) && !row.as_str().is_some_and(str::is_empty) && !row.as_f64().is_some_and(|n| n == 0.0 || n.is_nan())
 }
 
 impl Overlay {

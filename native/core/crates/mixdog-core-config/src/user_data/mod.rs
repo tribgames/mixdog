@@ -173,7 +173,6 @@ pub struct UserData {
     state: Mutex<State>,
 }
 
-
 impl std::error::Error for GuardError {}
 impl Env {
     /// The process environment and its home directory.

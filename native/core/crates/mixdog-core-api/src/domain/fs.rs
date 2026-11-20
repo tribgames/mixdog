@@ -79,7 +79,10 @@ pub enum WritePrecondition {
     /// The current content must equal these bytes.
     ContentEquals(Vec<u8>),
     /// The target must still be the observed file, with the same metadata and bytes.
-    FileEquals { stat: FileStat, bytes: Vec<u8> },
+    FileEquals {
+        stat: FileStat,
+        bytes: Vec<u8>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -219,7 +222,9 @@ pub enum FsErrorKind {
     /// The caller's cancellation arrived before a write was published: the target was not replaced. `left` names what
     /// the cancelled write could not clean up (its temp file, or the empty placeholder a create claimed at the target)
     /// and is still on disk; empty when nothing was left behind.
-    Cancelled { left: Vec<AbsPath> },
+    Cancelled {
+        left: Vec<AbsPath>,
+    },
     Io {
         os_code: Option<i32>,
     },
@@ -252,13 +257,18 @@ pub enum FsErrorKind {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum FsStep {
     /// Creating the temp file.
-    Open { path: AbsPath },
+    Open {
+        path: AbsPath,
+    },
     /// Writing the content to the temp file.
     Write,
     /// Syncing the temp file (a code the filesystem is allowed to refuse is not a failure).
     Fsync,
     /// Replacing the target with the temp file, after the retries.
-    Rename { from: AbsPath, to: AbsPath },
+    Rename {
+        from: AbsPath,
+        to: AbsPath,
+    },
     Unlink,
 }
 
@@ -297,22 +307,11 @@ pub trait FileService: Send + Sync {
     async fn lstat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
         self.stat_for_locator(lane, path).await
     }
-    async fn read(
-        &self,
-        lane: InteractiveIo,
-        path: AbsPath,
-        range: ReadRange,
-    ) -> Result<FileBytes, FsError>;
+    async fn read(&self, lane: InteractiveIo, path: AbsPath, range: ReadRange) -> Result<FileBytes, FsError>;
 
     /// Returns a bounded read and the file version it came from so a caller can assemble windows across reads.
     /// Reject a change during the read. Implementations with access to a file handle should stat that handle.
-    async fn read_versioned(
-        &self,
-        lane: InteractiveIo,
-        path: AbsPath,
-        offset: u64,
-        max_len: u64,
-    ) -> Result<(FileStat, FileBytes), FsError> {
+    async fn read_versioned(&self, lane: InteractiveIo, path: AbsPath, offset: u64, max_len: u64) -> Result<(FileStat, FileBytes), FsError> {
         let before = self.stat(lane, path.clone()).await?;
         let bytes = self.read(lane, path.clone(), ReadRange { offset, max_len: Some(max_len) }).await?;
         let after = self.stat(lane, path.clone()).await?;
@@ -347,11 +346,7 @@ pub trait FileService: Send + Sync {
     /// the files already replaced from their prior contents held in memory,
     /// as Node does; nothing is journaled, so a crash mid-batch can leave it
     /// partly applied.
-    async fn write_batch(
-        &self,
-        lane: DurabilityIo,
-        requests: Vec<WriteRequest>,
-    ) -> Result<Vec<FileStat>, FsError>;
+    async fn write_batch(&self, lane: DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<FileStat>, FsError>;
 
     /// [`write_batch`](Self::write_batch) that checks `cancel` before each file and immediately before each one is
     /// published: once it has fired no further file is replaced, the files already replaced are restored as for any
@@ -366,54 +361,20 @@ pub trait FileService: Send + Sync {
         let _ = cancel;
         self.write_batch(lane, requests).await
     }
-    async fn create_dir(
-        &self,
-        lane: DurabilityIo,
-        path: AbsPath,
-        recursive: bool,
-    ) -> Result<(), FsError>;
-    async fn rename(
-        &self,
-        lane: DurabilityIo,
-        from: AbsPath,
-        to: AbsPath,
-        overwrite: bool,
-    ) -> Result<(), FsError>;
-    async fn copy(
-        &self,
-        lane: DurabilityIo,
-        from: AbsPath,
-        to: AbsPath,
-        overwrite: bool,
-    ) -> Result<(), FsError>;
-    async fn remove(
-        &self,
-        lane: DurabilityIo,
-        path: AbsPath,
-        recursive: bool,
-    ) -> Result<(), FsError>;
+    async fn create_dir(&self, lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError>;
+    async fn rename(&self, lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError>;
+    async fn copy(&self, lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError>;
+    async fn remove(&self, lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError>;
 
-    fn walk(
-        &self,
-        lane: MaintenanceIo,
-        request: WalkRequest,
-    ) -> Box<dyn EventSource<Result<DirEntry, FsError>>>;
+    fn walk(&self, lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>>;
     /// The matches of `request`, in the search's file order. An error that names a file (its search failed, or the
     /// deadline cut it) withdraws the matches of that file already streamed: the file is not answered in part.
-    fn search_text(
-        &self,
-        lane: MaintenanceIo,
-        request: SearchRequest,
-    ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>>;
+    fn search_text(&self, lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>>;
 
     /// Search for file totals (or the first match per file when requested), without needing line text or columns.
     /// The caller supplies no line limit and sums `count` by path, withdrawing a file on the same errors as
     /// `search_text`. Implementations may send one total per file instead of individual matches.
-    fn search_summary(
-        &self,
-        lane: MaintenanceIo,
-        request: SearchRequest,
-    ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    fn search_summary(&self, lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         self.search_text(lane, request)
     }
 }

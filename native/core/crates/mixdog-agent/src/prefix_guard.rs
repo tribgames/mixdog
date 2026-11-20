@@ -124,7 +124,15 @@ pub fn compare(previous: Option<&Snapshot>, next: &Snapshot, options: &GuardOpti
         if changed.is_none() && !request_prefix_changed {
             return None;
         }
-        return Some(base("intentional", intent, json!("compaction"), changed, hash_at(previous_hashes, changed), hash_at(next_hashes, changed), request_prefix_changed));
+        return Some(base(
+            "intentional",
+            intent,
+            json!("compaction"),
+            changed,
+            hash_at(previous_hashes, changed),
+            hash_at(next_hashes, changed),
+            request_prefix_changed,
+        ));
     }
     let mutation = |kind: &str, index: usize, previous_hash: Value, next_hash: Value| {
         let mut details = base("unexpected", kind, text_or_null(options.mutation_source), Some(index), previous_hash, next_hash, request_prefix_changed);

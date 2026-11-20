@@ -50,7 +50,15 @@ fn equal_requests_have_equal_signatures_whatever_the_key_order() {
 // ---- the classifier's reply ----
 
 fn row(id: i64, session: &str) -> Row {
-    Row { id, ts: 1_700_000_000_000 + id, role: Some("user".into()), content: format!("row {id}"), session_id: Some(session.into()), project_id: None, element: None }
+    Row {
+        id,
+        ts: 1_700_000_000_000 + id,
+        role: Some("user".into()),
+        content: format!("row {id}"),
+        session_id: Some(session.into()),
+        project_id: None,
+        element: None,
+    }
 }
 
 #[test]
@@ -206,7 +214,12 @@ async fn a_rewrite_that_cannot_be_sent_leaves_its_row_raw_and_keeps_the_other_su
     assert_eq!(generated.chunks.len(), 1);
     assert_eq!(generated.chunks[0].members.iter().map(|m| m.id).collect::<Vec<_>>(), [2]);
     assert_eq!(generated.raw_row_ids, [1]);
-    assert_eq!(calls.len(), 1, "the oversize rewrite is not sent: {:?}", calls.iter().map(|c| (c.len(), c.lines().next().unwrap().to_owned())).collect::<Vec<_>>());
+    assert_eq!(
+        calls.len(),
+        1,
+        "the oversize rewrite is not sent: {:?}",
+        calls.iter().map(|c| (c.len(), c.lines().next().unwrap().to_owned())).collect::<Vec<_>>()
+    );
 }
 
 #[tokio::test]

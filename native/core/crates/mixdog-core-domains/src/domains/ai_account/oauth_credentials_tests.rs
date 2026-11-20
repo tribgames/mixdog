@@ -1,10 +1,7 @@
 //! The credential files and loaders: every load of a credential file is a counted credential read.
 
-
-
 use super::oauth_credentials::credential_file;
 use super::oauth_credentials::load_oauth_credentials;
-
 
 /// Each load of a credential file is one counted credential read (`mixdog_ai::work`), the file present or not: the
 /// describe screens read the files themselves, not through `CredentialFile`, so they move the same counter.
@@ -18,6 +15,3 @@ fn every_load_of_a_credential_file_is_a_counted_credential_read() {
         assert!(mixdog_ai::work::credential_reads() > before, "load {read} of a missing credential file moved no credential counter");
     }
 }
-
-
-

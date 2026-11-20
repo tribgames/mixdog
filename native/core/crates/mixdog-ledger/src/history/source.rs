@@ -4,10 +4,7 @@
 //! and one that is damaged is skipped with a warning and leaves the import unmarked so that a
 //! repair is retried.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "a maintenance-lane job body: it runs on the lane's thread, not an async task"
-)]
+#![allow(clippy::disallowed_methods, reason = "a maintenance-lane job body: it runs on the lane's thread, not an async task")]
 
 use std::io::ErrorKind;
 use std::path::Path;
@@ -49,9 +46,7 @@ fn optional(path: &Path) -> Result<Option<String>> {
 fn is_trace_name(name: &str) -> bool {
     match name.strip_prefix("agent-trace.jsonl") {
         Some("") => true,
-        Some(rest) => rest
-            .strip_prefix('.')
-            .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())),
+        Some(rest) => rest.strip_prefix('.').is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())),
         None => false,
     }
 }
@@ -91,12 +86,7 @@ fn trace_file(path: &Path, original: &str) -> TraceFile {
         }
     }
     let digest = Sha256::digest(original.as_bytes());
-    TraceFile {
-        path: path.display().to_string(),
-        sha256: digest.iter().map(|byte| format!("{byte:02x}")).collect(),
-        rows,
-        torn,
-    }
+    TraceFile { path: path.display().to_string(), sha256: digest.iter().map(|byte| format!("{byte:02x}")).collect(), rows, torn }
 }
 
 /// A gateway event as an import row: always a `usage` row, its session under `session_id`.
@@ -138,12 +128,7 @@ fn rollup_days(text: &str) -> std::result::Result<Value, String> {
 }
 
 pub(super) fn read_gateway(data_dir: &Path) -> Result<Originals> {
-    let mut originals = Originals {
-        gateway: None,
-        rollup_days: None,
-        ready: true,
-        warnings: Vec::new(),
-    };
+    let mut originals = Originals { gateway: None, rollup_days: None, ready: true, warnings: Vec::new() };
     // The JSONL store supersedes the legacy JSON file (it is migrated from it).
     let jsonl = optional(&data_dir.join("gateway-usage.local.jsonl"))?;
     let legacy = match jsonl {

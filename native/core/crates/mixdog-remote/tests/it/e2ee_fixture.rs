@@ -3,8 +3,6 @@
 
 use mixdog_remote::e2ee::*;
 
-
-
 #[test]
 fn rust_sessions_round_trip_and_reject_replay() {
     let server_identity = ServerIdentity::generate();
@@ -12,8 +10,7 @@ fn rust_sessions_round_trip_and_reject_replay() {
     assert_eq!(reloaded.server_public_key, server_identity.server_public_key);
     for binary in [true, false] {
         let challenge = Challenge::create(&["binaryFrames", "deflate", "mediaE2ee"]);
-        let (hello, mut phone) =
-            create_client_handshake(&reloaded.pairing(), &challenge, Default::default()).unwrap();
+        let (hello, mut phone) = create_client_handshake(&reloaded.pairing(), &challenge, Default::default()).unwrap();
         let mut pc = accept_client_hello(&reloaded, &challenge, &hello).unwrap();
         let small = br#"{"jsonrpc":"2.0","id":1}"#.to_vec();
         let big = serde_json::to_vec(&serde_json::json!({"text": "x".repeat(4000)})).unwrap();
@@ -22,8 +19,14 @@ fn rust_sessions_round_trip_and_reject_replay() {
             let bytes;
             let text;
             let wire = match &sealed {
-                Sealed::Binary(b) => { bytes = b.clone(); Wire::Binary(&bytes) }
-                Sealed::Text(t) => { text = t.clone(); Wire::Text(&text) }
+                Sealed::Binary(b) => {
+                    bytes = b.clone();
+                    Wire::Binary(&bytes)
+                }
+                Sealed::Text(t) => {
+                    text = t.clone();
+                    Wire::Text(&text)
+                }
             };
             assert_eq!(&phone.open(wire).unwrap(), payload);
             assert_eq!(phone.open(wire).err(), Some(E2eeError::Replay));
@@ -64,8 +67,6 @@ fn transport_session_negotiates_confirms_and_separates_domains() {
     // An app box does not open as control, and the oversize bound holds before a sequence is spent.
     assert!(pc.seal(&vec![b'a'; 1024 * 1024 + 1], true).is_err());
 }
-
-
 
 #[test]
 fn a_hello_with_a_wrong_proof_or_for_another_challenge_is_refused() {

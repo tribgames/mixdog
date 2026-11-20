@@ -28,11 +28,7 @@ use mixdog_protocol::ThreadSummary;
 use serde_json::Value;
 
 /// `catalogWithRooms(rows, rooms, summaryOf)` over the rows of one listing, in their order.
-pub fn with_rooms(
-    rows: Vec<ThreadSummary>,
-    rooms: &HashMap<String, RoomRecord>,
-    summary_of: impl Fn(&RoomRecord) -> Value,
-) -> Vec<ThreadSummary> {
+pub fn with_rooms(rows: Vec<ThreadSummary>, rooms: &HashMap<String, RoomRecord>, summary_of: impl Fn(&RoomRecord) -> Value) -> Vec<ThreadSummary> {
     rows.into_iter()
         .filter_map(|mut row| {
             if room_member_of_session(row.id.as_str()).is_some() {
@@ -54,11 +50,7 @@ pub fn with_rooms(
 
 /// The rows `catalogWithRooms` makes up for rooms whose log has no catalog row (`unlisted`): the room's name, its last message time
 /// (else its creation) and its summary, as a task thread with nothing in it.
-pub fn unlisted_rows(
-    rooms: &[RoomRecord],
-    logs: &[ThreadId],
-    summary_of: impl Fn(&RoomRecord) -> Value,
-) -> Vec<ThreadSummary> {
+pub fn unlisted_rows(rooms: &[RoomRecord], logs: &[ThreadId], summary_of: impl Fn(&RoomRecord) -> Value) -> Vec<ThreadSummary> {
     rooms
         .iter()
         .filter_map(|room| {
@@ -103,8 +95,7 @@ impl<S: RoomStore + 'static> ListRooms for RoomListRows<S> {
         if !rows.iter().any(|row| is_room_thread_session_id(row.id.as_str())) {
             return Ok(rows);
         }
-        let rooms: HashMap<String, _> =
-            self.rooms.list().await.map_err(|error| error.to_string())?.into_iter().map(|room| (room.id.clone(), room)).collect();
+        let rooms: HashMap<String, _> = self.rooms.list().await.map_err(|error| error.to_string())?.into_iter().map(|room| (room.id.clone(), room)).collect();
         let names = self.names.names().await;
         Ok(with_rooms(rows, &rooms, |room| room_summary(room, &names, self.runner.is_running(&room.id))))
     }
@@ -122,8 +113,4 @@ impl<S: RoomStore + 'static> ListRooms for RoomListRows<S> {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
-
+mod tests {}

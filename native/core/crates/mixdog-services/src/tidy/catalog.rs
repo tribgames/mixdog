@@ -75,7 +75,10 @@ mod tests {
         let python: Vec<&str> = engines_for_languages(&["python".into()]).iter().map(|e| e.id.as_str()).collect();
         assert_eq!(python, ["ruff"]);
         let by_language = |language: &str| engines_for_languages(&[language.to_owned()]).iter().map(|e| e.id.as_str()).collect::<Vec<_>>();
-        assert_eq!((by_language("java"), by_language("kotlin"), by_language("toml"), by_language("yaml")), (vec!["google-java-format"], vec!["ktfmt"], vec!["dprint", "taplo"], vec!["biome", "prettier"]));
+        assert_eq!(
+            (by_language("java"), by_language("kotlin"), by_language("toml"), by_language("yaml")),
+            (vec!["google-java-format"], vec!["ktfmt"], vec!["dprint", "taplo"], vec!["biome", "prettier"])
+        );
         assert_eq!(engines_for_languages(&[]).len(), 23);
     }
 }

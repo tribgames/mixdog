@@ -138,12 +138,13 @@ mod tests {
         assert!(!user_facts(&mut hook, &NoBlobs).visible);
     }
 
-
     /// `write_blob` run on an interactive-io lane, as intake runs it.
     async fn write(store: &AttachmentStore, bytes: Vec<u8>) -> Result<String, BlobError> {
         let store = store.clone();
         let tokens = mixdog_rt::testing::tokens();
-        mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| store.write_blob(lane, &bytes)).await.unwrap()
+        mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| store.write_blob(lane, &bytes))
+            .await
+            .unwrap()
     }
     #[tokio::test]
     async fn a_pasted_text_is_refused_at_intake_as_node_refuses_it_and_a_cut_blob_is_replaced() {
@@ -210,11 +211,7 @@ mod tests {
             convert([&mut migrated], &NoBlobs);
             let mut live = message.clone();
             let facts = user_facts(&mut live, &NoBlobs);
-            assert_eq!(
-                (facts.visible, facts.prompt, live),
-                (migrated.visible, migrated.prompt, migrated.body),
-                "{message}"
-            );
+            assert_eq!((facts.visible, facts.prompt, live), (migrated.visible, migrated.prompt, migrated.body), "{message}");
         }
     }
 }

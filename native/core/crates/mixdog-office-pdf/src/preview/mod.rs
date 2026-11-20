@@ -147,8 +147,7 @@ pub(crate) fn system_error(error: &io::Error, call: &str, path: &Path) -> Previe
 
 /// The convertible format for this filename, or `None` (`documentPreviewFormat`).
 pub fn preview_format(path: &str) -> Option<&'static str> {
-    const FORMATS: [&str; 14] =
-        ["docx", "doc", "docm", "dotx", "rtf", "odt", "xlsx", "xls", "xlsm", "ods", "pptx", "ppt", "pptm", "odp"];
+    const FORMATS: [&str; 14] = ["docx", "doc", "docm", "dotx", "rtf", "odt", "xlsx", "xls", "xlsm", "ods", "pptx", "ppt", "pptm", "odp"];
     let name = path.rsplit(['/', '\\']).next().unwrap_or("");
     let dot = name.rfind('.')?;
     if dot + 1 == name.len() {
@@ -233,9 +232,7 @@ impl PreviewEngines for SystemEngines {
     fn libre_office_available(&self) -> BoxFuture<'_, bool> {
         Box::pin(async move {
             let soffice = self.soffice;
-            job(self.lanes.maintenance_io, move |_: &InLane<MaintenanceIo>| soffice.available())
-                .await
-                .unwrap_or(false)
+            job(self.lanes.maintenance_io, move |_: &InLane<MaintenanceIo>| soffice.available()).await.unwrap_or(false)
         })
     }
 
@@ -269,11 +266,9 @@ impl PreviewEngines for SystemEngines {
 
     fn remove_directory(&self, directory: PathBuf) -> BoxFuture<'_, io::Result<()>> {
         Box::pin(async move {
-            let removed = job(self.lanes.durability_io, move |lane: &InLane<DurabilityIo>| {
-                match mixdog_fsio::remove_dir_all(lane, &directory) {
-                    Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-                    _ => Ok(()),
-                }
+            let removed = job(self.lanes.durability_io, move |lane: &InLane<DurabilityIo>| match mixdog_fsio::remove_dir_all(lane, &directory) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+                _ => Ok(()),
             })
             .await;
             removed.unwrap_or_else(|error| Err(io::Error::other(error.to_string())))
@@ -469,6 +464,5 @@ impl DocumentPreview {
         pages::preview_pages(self, pdf, options).await
     }
 }
-
 
 impl std::error::Error for PreviewError {}

@@ -72,11 +72,7 @@ fn nullable_text(value: Option<&Value>, name: &str) -> Result<Option<String>, Sc
 fn nullable_commit(value: Option<&Value>, name: &str) -> Result<Option<String>, ScmFailure> {
     match value {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s))
-            if (s.len() == 40 || s.len() == 64) && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) =>
-        {
-            Ok(Some(s.clone()))
-        }
+        Some(Value::String(s)) if (s.len() == 40 || s.len() == 64) && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) => Ok(Some(s.clone())),
         _ => Err(plain(format!("{name} must be a full lowercase commit id."))),
     }
 }
@@ -86,16 +82,9 @@ impl Workspace {
     pub fn from_value(input: &Value) -> Result<Self, ScmFailure> {
         let value = input.as_object().ok_or_else(|| plain("workspace must be an object."))?;
         let default_transition = json!({ "state": "idle", "txId": null });
-        let transition = value
-            .get("transition")
-            .unwrap_or(&default_transition)
-            .as_object()
-            .ok_or_else(|| plain("workspace.transition must be an object."))?;
-        let state = transition
-            .get("state")
-            .and_then(Value::as_str)
-            .and_then(|s| TransitionState::ALL.into_iter().find(|t| t.wire() == s))
-            .ok_or_else(|| {
+        let transition = value.get("transition").unwrap_or(&default_transition).as_object().ok_or_else(|| plain("workspace.transition must be an object."))?;
+        let state =
+            transition.get("state").and_then(Value::as_str).and_then(|s| TransitionState::ALL.into_iter().find(|t| t.wire() == s)).ok_or_else(|| {
                 let names: Vec<&str> = TransitionState::ALL.iter().map(|t| t.wire()).collect();
                 plain(format!("workspace.transition.state must be one of {}.", names.join(", ")))
             })?;
@@ -105,10 +94,7 @@ impl Workspace {
         }
         let revision = match value.get("revision") {
             None => 0,
-            Some(v) => v
-                .as_u64()
-                .filter(|r| *r <= MAX_SAFE_INTEGER)
-                .ok_or_else(|| plain("workspace.revision must be a non-negative integer."))?,
+            Some(v) => v.as_u64().filter(|r| *r <= MAX_SAFE_INTEGER).ok_or_else(|| plain("workspace.revision must be a non-negative integer."))?,
         };
         let workspace = Self {
             project_path: text(value.get("projectPath"), "workspace.projectPath")?,
@@ -274,10 +260,7 @@ mod tests {
             bad(json!({"projectPath": "/a", "cwd": "/a", "transition": {"state": "switching", "txId": null}})),
             "workspace.transition.txId must be null exactly when the state is idle."
         );
-        assert_eq!(
-            bad(json!({"projectPath": "/a", "cwd": "/a", "worktreeId": "w"})),
-            "A worktree-bound workspace requires repoCommonDir and branch."
-        );
+        assert_eq!(bad(json!({"projectPath": "/a", "cwd": "/a", "worktreeId": "w"})), "A worktree-bound workspace requires repoCommonDir and branch.");
         assert_eq!(bad(json!({"projectPath": "/a", "cwd": "/a", "revision": -1})), "workspace.revision must be a non-negative integer.");
         let ok = Workspace::from_value(&json!({"projectPath": "/a", "cwd": "/a"})).unwrap();
         assert_eq!((ok.revision, ok.next_revision(), ok.is_bound()), (0, 1, false));
@@ -306,7 +289,6 @@ mod tests {
         assert_eq!(bound_workspace_cwd(Some(&bound), false), Some(("/p".to_owned(), true)));
     }
 
-
     #[test]
     fn subfolder_projects_map_into_the_checkout() {
         assert_eq!(project_subdir_of("/r", "/r/apps/web"), "apps/web");
@@ -316,7 +298,6 @@ mod tests {
         assert!(is_within("/r", "/r/a") && !is_within("/r", "/rx"));
     }
 }
-
 
 /// Repository-relative folder of a Project registered below the repository root ('' for the
 /// root or anything outside it), with forward slashes.

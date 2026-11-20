@@ -13,7 +13,6 @@ use mixdog_mcp::connector_accounts::ConnectorAccounts;
 use mixdog_mcp::connector_accounts::split_mcp_tool_name;
 use serde_json::Value;
 
-
 #[tokio::test]
 async fn a_state_file_that_cannot_be_read_is_an_error_not_an_empty_choice() {
     let tokens = mixdog_rt::testing::tokens();
@@ -45,10 +44,10 @@ async fn a_retired_servers_late_report_does_not_overwrite_its_replacements_healt
 
 #[tokio::test(flavor = "multi_thread")]
 async fn three_connector_accounts_publish_one_toolset_and_route_the_selected_account() {
-    use mixdog_mcp::{McpHub, McpIo, McpServerConfig};
     use mixdog_mcp::connector_transport::AccountRuntime;
     use mixdog_mcp::result::OutputPolicy;
     use mixdog_mcp::server::ServerState;
+    use mixdog_mcp::{McpHub, McpIo, McpServerConfig};
     use serde_json::json;
     use tokio_util::sync::CancellationToken;
 
@@ -56,24 +55,36 @@ async fn three_connector_accounts_publish_one_toolset_and_route_the_selected_acc
     let dir = tempfile::tempdir().unwrap();
     let hub = McpHub::new(
         McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
-        dir.path().join("artifacts"), OutputPolicy::default(),
+        dir.path().join("artifacts"),
+        OutputPolicy::default(),
     );
     hub.set_account_runtime(AccountRuntime {
-        health: Arc::new(AccountHealth::default()), data_dir: dir.path().to_path_buf(), maintenance: tokens.maintenance_io,
+        health: Arc::new(AccountHealth::default()),
+        data_dir: dir.path().to_path_buf(),
+        maintenance: tokens.maintenance_io,
     });
-    let accounts: Vec<Value> = ["gmail", "gmail-2", "gmail-3"].iter().map(|name| json!({
-        "name": name, "id": format!("identity-{name}"), "type": "stdio",
-        "command": env!("CARGO_BIN_EXE_mixdog-mcp-mock-server"),
-        "env": {"MOCK_TOOLS": "[\"fixture_0\"]", "MOCK_FIXTURES": json!([name]).to_string()}
-    })).collect();
-    let config = McpServerConfig::from_entry("gmail", &json!({
-        "type": "http", "url": "https://connectors.mixdog.invalid/gmail/mcp", "connector": "gmail", "accounts": accounts,
-    }), &std::env::vars().collect()).unwrap();
+    let accounts: Vec<Value> = ["gmail", "gmail-2", "gmail-3"]
+        .iter()
+        .map(|name| {
+            json!({
+                "name": name, "id": format!("identity-{name}"), "type": "stdio",
+                "command": env!("CARGO_BIN_EXE_mixdog-mcp-mock-server"),
+                "env": {"MOCK_TOOLS": "[\"fixture_0\"]", "MOCK_FIXTURES": json!([name]).to_string()}
+            })
+        })
+        .collect();
+    let config = McpServerConfig::from_entry(
+        "gmail",
+        &json!({
+            "type": "http", "url": "https://connectors.mixdog.invalid/gmail/mcp", "connector": "gmail", "accounts": accounts,
+        }),
+        &std::env::vars().collect(),
+    )
+    .unwrap();
     hub.apply(vec![config]);
     let server = hub.server("gmail").unwrap();
     let mut state = server.subscribe();
-    tokio::time::timeout(std::time::Duration::from_secs(60), state.wait_for(|state| !matches!(**state, ServerState::Starting)))
-        .await.unwrap().unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(60), state.wait_for(|state| !matches!(**state, ServerState::Starting))).await.unwrap().unwrap();
     let tools = hub.tools();
     assert_eq!(tools.iter().map(|tool| tool.spec().name.as_str()).collect::<Vec<_>>(), ["mcp__gmail__fixture_0"]);
     assert_eq!(tools[0].spec().input_schema["properties"]["account"]["type"], "string");
@@ -84,17 +95,22 @@ async fn three_connector_accounts_publish_one_toolset_and_route_the_selected_acc
     assert_eq!(result["content"][1]["text"], "(Gmail account: gmail-3)");
     let remembered = hub.resolve_tool_account("mcp__gmail__fixture_0", &json!({}), "conversation").await.unwrap().unwrap();
     assert_eq!(remembered.name, "gmail-3");
-    let received = server.account_server("gmail-3").unwrap()
-        .call_tool_settled("", "fixture_args", json!({}), &CancellationToken::new(), None).await.unwrap();
+    let received = server.account_server("gmail-3").unwrap().call_tool_settled("", "fixture_args", json!({}), &CancellationToken::new(), None).await.unwrap();
     assert_eq!(serde_json::from_str::<Value>(received["content"][0]["text"].as_str().unwrap()).unwrap(), json!([{"text": "hello"}]));
     for name in ["gmail", "gmail-2", "gmail-3"] {
         wait_account(&server.account_server(name).unwrap(), |state| matches!(state, ServerState::Ready(_))).await;
     }
-    let expected = "Accounts: gmail, gmail-2, gmail-3. `account` picks one; left out, a call uses the account used last, and its result names it.\n\nmock instructions";
+    let expected =
+        "Accounts: gmail, gmail-2, gmail-3. `account` picks one; left out, a call uses the account used last, and its result names it.\n\nmock instructions";
     wait_account(&server, |state| matches!(state, ServerState::Ready(ready) if ready.instructions.as_deref() == Some(expected))).await;
     let state = server.state();
     let ServerState::Ready(ready) = &*state else { panic!("connector not ready") };
-    assert_eq!(ready.instructions.as_deref(), Some("Accounts: gmail, gmail-2, gmail-3. `account` picks one; left out, a call uses the account used last, and its result names it.\n\nmock instructions"));
+    assert_eq!(
+        ready.instructions.as_deref(),
+        Some(
+            "Accounts: gmail, gmail-2, gmail-3. `account` picks one; left out, a call uses the account used last, and its result names it.\n\nmock instructions"
+        )
+    );
     hub.close_all().await;
 }
 
@@ -102,10 +118,13 @@ fn account_hub(dir: &std::path::Path) -> Arc<mixdog_mcp::McpHub> {
     let tokens = mixdog_rt::testing::tokens();
     let hub = mixdog_mcp::McpHub::new(
         mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
-        dir.join("artifacts"), mixdog_mcp::result::OutputPolicy::default(),
+        dir.join("artifacts"),
+        mixdog_mcp::result::OutputPolicy::default(),
     );
     hub.set_account_runtime(mixdog_mcp::connector_transport::AccountRuntime {
-        health: Arc::new(AccountHealth::default()), data_dir: dir.to_path_buf(), maintenance: tokens.maintenance_io,
+        health: Arc::new(AccountHealth::default()),
+        data_dir: dir.to_path_buf(),
+        maintenance: tokens.maintenance_io,
     });
     hub
 }
@@ -118,9 +137,14 @@ fn mock_account(name: &str, id: &str) -> Value {
 }
 
 fn accounts_config(accounts: Vec<Value>) -> mixdog_mcp::McpServerConfig {
-    mixdog_mcp::McpServerConfig::from_entry("gmail", &serde_json::json!({
-        "type": "http", "url": "https://connectors.mixdog.invalid/gmail/mcp", "connector": "gmail", "accounts": accounts,
-    }), &std::env::vars().collect()).unwrap()
+    mixdog_mcp::McpServerConfig::from_entry(
+        "gmail",
+        &serde_json::json!({
+            "type": "http", "url": "https://connectors.mixdog.invalid/gmail/mcp", "connector": "gmail", "accounts": accounts,
+        }),
+        &std::env::vars().collect(),
+    )
+    .unwrap()
 }
 
 async fn wait_account(server: &mixdog_mcp::McpServer, wanted: impl Fn(&mixdog_mcp::server::ServerState) -> bool) {
@@ -129,8 +153,11 @@ async fn wait_account(server: &mixdog_mcp::McpServer, wanted: impl Fn(&mixdog_mc
 }
 
 async fn call_group(hub: &mixdog_mcp::McpHub, server: &mixdog_mcp::McpServer, args: Value) -> Result<Value, mixdog_mcp::server::CallError> {
-    let chosen = hub.resolve_tool_account("mcp__gmail__fixture_0", &args, "conversation").await
-        .map_err(|error| mixdog_mcp::server::CallError::Recovery { message: error.to_string(), outcome_unknown: false })?.unwrap();
+    let chosen = hub
+        .resolve_tool_account("mcp__gmail__fixture_0", &args, "conversation")
+        .await
+        .map_err(|error| mixdog_mcp::server::CallError::Recovery { message: error.to_string(), outcome_unknown: false })?
+        .unwrap();
     let binding = mixdog_core_api::domain::tool::ConnectorAccountBinding { name: chosen.name, id: chosen.id };
     server.call_tool_settled_bound("conversation", "fixture_0", args, &tokio_util::sync::CancellationToken::new(), None, Some(&binding)).await
 }
@@ -222,11 +249,19 @@ async fn an_approved_account_replaced_under_the_same_name_cannot_receive_the_sen
         let hub = hub.clone();
         let tokens = mixdog_rt::testing::tokens();
         let ctx = ToolContext {
-            call_id: "send".into(), thread_id: "conversation".into(), turn_id: "turn".into(), tool: "mcp__gmail__fixture_0".into(),
-            cwd: AbsPath::new(dir.path().to_path_buf()).unwrap(), surface: SurfaceKind::Lead, cancel: CancellationToken::new(), deadline: None,
+            call_id: "send".into(),
+            thread_id: "conversation".into(),
+            turn_id: "turn".into(),
+            tool: "mcp__gmail__fixture_0".into(),
+            cwd: AbsPath::new(dir.path().to_path_buf()).unwrap(),
+            surface: SurfaceKind::Lead,
+            cancel: CancellationToken::new(),
+            deadline: None,
             progress: Arc::new(MockProgress::default()),
             io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
-            approvals: Arc::new(MockApprovalGate::default()), files: Arc::new(MockFileService::default()), processes: Arc::new(MockProcessManager::default()),
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(MockProcessManager::default()),
             options: CallOptions { connector_account: Some(ConnectorAccountBinding { name: chosen.name, id: chosen.id }), ..Default::default() },
             review: None,
         };
@@ -242,15 +277,13 @@ async fn an_approved_account_replaced_under_the_same_name_cannot_receive_the_sen
     let unbound = server.call_tool_settled("conversation", "fixture_0", json!({"account": "gmail-2"}), &CancellationToken::new(), None).await.unwrap();
     approve.send(()).unwrap();
     let refused = dispatch.await.unwrap();
-    let calls = server.account_server("gmail-2").unwrap()
-        .call_tool_settled("", "fixture_count", json!({}), &CancellationToken::new(), None).await.unwrap();
+    let calls = server.account_server("gmail-2").unwrap().call_tool_settled("", "fixture_count", json!({}), &CancellationToken::new(), None).await.unwrap();
     hub.close_all().await;
     assert!(refused.unwrap_err().message_for_model.contains("same identity"), "the old approval must not authorize the replacement");
     assert_eq!(unbound["isError"], true);
     assert!(unbound["content"][0]["text"].as_str().unwrap().contains("requires a bound account identity"));
     assert_eq!(calls["content"][0]["text"], "0");
 }
-
 
 fn seeds(names: &[&str]) -> Vec<AccountSeed> {
     names.iter().map(|name| AccountSeed { name: (*name).to_owned(), id: format!("id-{name}"), email: format!("{name}@example.com") }).collect()
@@ -303,4 +336,3 @@ async fn an_account_nobody_configured_is_refused() {
     let got = accounts.choose(&ChooseCall { tool: "search", wanted: Some("nobody"), conversation: "c1" }).await;
     assert!(matches!(got, Err(AccountError::Refused(_))), "{got:?}");
 }
-

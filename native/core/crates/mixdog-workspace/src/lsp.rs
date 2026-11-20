@@ -58,13 +58,7 @@ pub struct Spec {
 }
 
 fn spec(id: &str, name: &str, command: &str, args: &[&str]) -> Spec {
-    Spec {
-        id: id.into(),
-        name: name.into(),
-        command: command.into(),
-        args: args.iter().map(|a| (*a).into()).collect(),
-        project_candidates: Vec::new(),
-    }
+    Spec { id: id.into(), name: name.into(), command: command.into(), args: args.iter().map(|a| (*a).into()).collect(), project_candidates: Vec::new() }
 }
 
 /// `SERVER_BY_LANGUAGE`.
@@ -74,9 +68,11 @@ pub fn default_spec(language: &str) -> Option<Spec> {
     Some(match language {
         "typescript" | "javascript" => ts(),
         "python" => Spec {
-            project_candidates: vec![PathBuf::from("node_modules")
-                .join(".bin")
-                .join(if cfg!(windows) { "pyright-langserver.cmd" } else { "pyright-langserver" })],
+            project_candidates: vec![PathBuf::from("node_modules").join(".bin").join(if cfg!(windows) {
+                "pyright-langserver.cmd"
+            } else {
+                "pyright-langserver"
+            })],
             ..spec("pyright", "Pyright", "pyright-langserver", &["--stdio"])
         },
         "go" => spec("gopls", "gopls", "gopls", &[]),
@@ -147,9 +143,7 @@ fn project_specs(root: &Path) -> WsResult<HashMap<String, Spec>> {
     };
     let list = |v: Option<&Value>, name: &str, max: usize, len: usize| -> WsResult<Vec<String>> {
         match v.and_then(Value::as_array) {
-            Some(a) if !a.is_empty() && a.len() <= max => {
-                a.iter().enumerate().map(|(i, e)| text(Some(e), &format!("{name}[{i}]"), len)).collect()
-            }
+            Some(a) if !a.is_empty() && a.len() <= max => a.iter().enumerate().map(|(i, e)| text(Some(e), &format!("{name}[{i}]"), len)).collect(),
             _ => Err(WsError::invalid(format!("{name} is invalid."))),
         }
     };
@@ -208,12 +202,8 @@ fn executable(path: &Path) -> bool {
 #[allow(clippy::disallowed_methods, reason = "a lane-job body: the manager only calls it through its maintenance lane")]
 fn resolve_executable(spec: &Spec, root: &Path) -> Option<PathBuf> {
     let command = spec.command.trim_matches('"');
-    let mut candidates: Vec<PathBuf> = spec
-        .project_candidates
-        .iter()
-        .map(|c| if c.is_absolute() { c.clone() } else { root.join(c) })
-        .flat_map(variants)
-        .collect();
+    let mut candidates: Vec<PathBuf> =
+        spec.project_candidates.iter().map(|c| if c.is_absolute() { c.clone() } else { root.join(c) }).flat_map(variants).collect();
     let given = Path::new(command);
     if given.is_absolute() {
         candidates.extend(variants(given.to_path_buf()));
@@ -244,9 +234,8 @@ fn resolve_executable(spec: &Spec, root: &Path) -> Option<PathBuf> {
         return None;
     }
     let extensions: Vec<&str> = if cfg!(windows) && Path::new(command).extension().is_none() { vec![".exe", ".cmd", ".bat", ""] } else { vec![""] };
-    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).find_map(|dir| {
-        extensions.iter().map(|e| dir.join(format!("{command}{e}"))).find(|c| executable(c))
-    })
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .find_map(|dir| extensions.iter().map(|e| dir.join(format!("{command}{e}"))).find(|c| executable(c)))
 }
 
 /// Receives what the servers say; called from reader tasks, it must not block.
@@ -358,7 +347,8 @@ pub struct DocumentInput {
 impl DocumentInput {
     pub fn from_value(value: &Value) -> WsResult<Self> {
         let text = |k: &str| value.get(k).and_then(Value::as_str).map(str::to_owned);
-        let kind = text("kind").filter(|k| matches!(k.as_str(), "open" | "change" | "save" | "close")).ok_or_else(|| WsError::invalid("document.kind is invalid."))?;
+        let kind =
+            text("kind").filter(|k| matches!(k.as_str(), "open" | "change" | "save" | "close")).ok_or_else(|| WsError::invalid("document.kind is invalid."))?;
         Ok(Self {
             kind,
             language_id: text("languageId").ok_or_else(|| WsError::invalid("document.languageId is invalid."))?,
@@ -524,13 +514,8 @@ impl LspManager {
     }
 
     fn refresh_capabilities(&self, session: &Session) {
-        let docs: Vec<(String, String, String)> = session
-            .documents
-            .lock()
-            .expect("lsp documents")
-            .iter()
-            .map(|(uri, d)| (uri.clone(), d.language_id.clone(), d.rel_path.clone()))
-            .collect();
+        let docs: Vec<(String, String, String)> =
+            session.documents.lock().expect("lsp documents").iter().map(|(uri, d)| (uri.clone(), d.language_id.clone(), d.rel_path.clone())).collect();
         let mut emitted = HashSet::new();
         for (uri, language, rel) in docs {
             let caps = session.capabilities(&language, Some(&uri));
@@ -599,7 +584,10 @@ impl LspManager {
     async fn start(self: &Arc<Self>, project_path: &str, root: &Path, language_id: &str, spec: &Spec, key: String) -> Option<Arc<Session>> {
         self.emit_status((project_path, root, language_id), Some(spec), "starting", None, None, None);
         let (probe_spec, probe_root) = (spec.clone(), root.to_path_buf());
-        let found = crate::lanes::run(self.lane, &tokio_util::sync::CancellationToken::new(), move || resolve_executable(&probe_spec, &probe_root)).await.ok().flatten();
+        let found = crate::lanes::run(self.lane, &tokio_util::sync::CancellationToken::new(), move || resolve_executable(&probe_spec, &probe_root))
+            .await
+            .ok()
+            .flatten();
         let Some(executable) = found else {
             self.health.lock().expect("lsp health").missing_until.insert(key, Instant::now() + Duration::from_secs(30));
             self.emit_status((project_path, root, language_id), Some(spec), "missing", None, None, None);
@@ -725,7 +713,8 @@ impl LspManager {
         let _ = self.pm.kill(&session.handle);
         let delay = self.record_failure(&session.key);
         let tail = session.stderr.lock().expect("lsp stderr").trim().lines().last().map(|l| l.chars().take(500).collect::<String>());
-        let detail = [Some(error.to_owned()), tail, Some(format!("Retrying after {}s.", delay.div_ceil(1000)))].into_iter().flatten().collect::<Vec<_>>().join(" ");
+        let detail =
+            [Some(error.to_owned()), tail, Some(format!("Retrying after {}s.", delay.div_ceil(1000)))].into_iter().flatten().collect::<Vec<_>>().join(" ");
         self.emit_status((&session.project_path, &session.root, language_id), Some(&session.spec), "error", Some(&detail), None, None);
     }
 
@@ -751,7 +740,8 @@ impl LspManager {
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
                 let uri = params.get("uri").and_then(Value::as_str).unwrap_or_default();
                 let Some(rel) = relative_document_path(&session.root, uri) else { return };
-                let diagnostics: Vec<Value> = params.get("diagnostics").and_then(Value::as_array).map(|a| a.iter().take(2000).cloned().collect()).unwrap_or_default();
+                let diagnostics: Vec<Value> =
+                    params.get("diagnostics").and_then(Value::as_array).map(|a| a.iter().take(2000).cloned().collect()).unwrap_or_default();
                 self.sink.diagnostics(json!({
                     "projectPath": session.project_path, "relPath": rel, "uri": uri,
                     "server": session.spec.name, "diagnostics": diagnostics,
@@ -804,7 +794,9 @@ impl LspManager {
                     self.refresh_capabilities(session);
                 }
             }
-            "workspace/applyEdit" => conn.respond(id, json!({ "applied": false, "failureReason": "Server-initiated edits require an explicit editor action." })),
+            "workspace/applyEdit" => {
+                conn.respond(id, json!({ "applied": false, "failureReason": "Server-initiated edits require an explicit editor action." }))
+            }
             _ => conn.respond(id, Value::Null),
         }
     }
@@ -895,7 +887,15 @@ impl LspManager {
 
     /// A language-server request (`lsp/request`). An entry `projectEntryPathIn` refuses fails the call, as Node's
     /// `LanguageServerRouter.request` threw it (the idle stop re-armed all the same).
-    pub async fn request(self: &Arc<Self>, project_path: &str, root: &Path, rel_path: &str, language_id: &str, method: &str, params: &Value) -> WsResult<Value> {
+    pub async fn request(
+        self: &Arc<Self>,
+        project_path: &str,
+        root: &Path,
+        rel_path: &str,
+        language_id: &str,
+        method: &str,
+        params: &Value,
+    ) -> WsResult<Value> {
         let spec = match self.spec_for(root, language_id).await {
             Ok(Some(spec)) => spec,
             Ok(None) => return Ok(json!({ "available": false, "status": "unsupported", "server": "" })),
@@ -938,14 +938,7 @@ impl LspManager {
 
     /// Stops the servers rooted in `root` (a worktree being removed); returns their roots.
     pub async fn dispose_under(&self, root: &Path) -> Vec<String> {
-        let doomed: Vec<Arc<Session>> = self
-            .sessions
-            .lock()
-            .expect("lsp sessions")
-            .values()
-            .filter(|s| is_within(root, &s.root))
-            .cloned()
-            .collect();
+        let doomed: Vec<Arc<Session>> = self.sessions.lock().expect("lsp sessions").values().filter(|s| is_within(root, &s.root)).cloned().collect();
         for session in &doomed {
             self.stop(session).await;
         }

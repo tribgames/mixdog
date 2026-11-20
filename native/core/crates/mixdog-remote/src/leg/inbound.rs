@@ -17,12 +17,18 @@ pub enum Inbound {
     PairCode(Value),
     ClientClaim(Value),
     /// `credential_id` is empty on a relay that does not name it: the leg stays untrusted.
-    ClientOpen { client_id: String, credential_id: String },
+    ClientOpen {
+        client_id: String,
+        credential_id: String,
+    },
     ClientClose(String),
     Media(Value),
     /// The relay refused an oversize frame instead of dropping the leg.
     FrameTooLarge(Value),
-    Frame { client_id: String, payload: Payload },
+    Frame {
+        client_id: String,
+        payload: Payload,
+    },
     Ignored,
 }
 
@@ -52,10 +58,7 @@ pub fn classify(envelope: Value) -> Inbound {
         "pair-code-issued" | "pair-code-used" => Inbound::PairCode(envelope),
         "client-claim" => Inbound::ClientClaim(envelope),
         "client-open" => match string_field(&envelope, "clientId") {
-            Some(client_id) => Inbound::ClientOpen {
-                client_id,
-                credential_id: string_field(&envelope, "browserClientId").unwrap_or_default(),
-            },
+            Some(client_id) => Inbound::ClientOpen { client_id, credential_id: string_field(&envelope, "browserClientId").unwrap_or_default() },
             None => Inbound::Ignored,
         },
         "client-close" => string_field(&envelope, "clientId").map_or(Inbound::Ignored, Inbound::ClientClose),

@@ -78,7 +78,6 @@ impl mixdog_agent::env::McpCatalog for SettingsMcp {
     }
 }
 
-
 /// What a turn start does to the thread's settings.
 #[async_trait]
 pub trait TurnSettings: Send + Sync + 'static {

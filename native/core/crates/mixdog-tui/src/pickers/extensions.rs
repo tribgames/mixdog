@@ -46,16 +46,8 @@ pub struct Extensions {
 }
 
 /// The openers [`Extensions::open`] serves.
-const OPENERS: [Opener; 8] = [
-    Opener::Mcp,
-    Opener::McpServers,
-    Opener::Skills,
-    Opener::ProjectSkills,
-    Opener::Plugins,
-    Opener::MemoryCore,
-    Opener::Project,
-    Opener::Resume,
-];
+const OPENERS: [Opener; 8] =
+    [Opener::Mcp, Opener::McpServers, Opener::Skills, Opener::ProjectSkills, Opener::Plugins, Opener::MemoryCore, Opener::Project, Opener::Resume];
 
 /// The openers a `returnTo` option can name.
 const RETURN_TARGETS: [Opener; 4] = [Opener::Settings, Opener::Model, Opener::ProviderSetup, Opener::AutoClear];

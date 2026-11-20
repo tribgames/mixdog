@@ -102,9 +102,7 @@ fn agent_of(args: &Value, caller: &MemoryCaller) -> Result<Option<String>> {
         }
         return Ok(Some(caller.agent_id.clone()));
     }
-    valid_agent_id(raw)
-        .map(|id| Some(id.to_owned()))
-        .ok_or_else(|| MemoryError::rejected(format!("agent_id \"{raw}\" is not an agent id")))
+    valid_agent_id(raw).map(|id| Some(id.to_owned())).ok_or_else(|| MemoryError::rejected(format!("agent_id \"{raw}\" is not an agent id")))
 }
 
 async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>) -> Result<Option<String>> {
@@ -122,8 +120,7 @@ async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>)
 }
 
 async fn describe(ctx: &CoreContext<'_>, entry: &store::CoreEntry) -> Result<String> {
-    let identity =
-        index::public_identity(ctx.db, entry.project_id.as_deref(), entry.agent_id.as_deref(), entry.id).await?;
+    let identity = index::public_identity(ctx.db, entry.project_id.as_deref(), entry.agent_id.as_deref(), entry.id).await?;
     Ok(format!("({identity}): {} — {}", entry.element, entry.summary))
 }
 
@@ -171,7 +168,10 @@ pub async fn run(ctx: &CoreContext<'_>, args: &Value) -> ToolReply {
 }
 
 pub(crate) async fn run_cancellable(
-    ctx: &CoreContext<'_>, args: &Value, cancel: Option<&tokio_util::sync::CancellationToken>, settlement: Option<&store::DeleteSettlement>,
+    ctx: &CoreContext<'_>,
+    args: &Value,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+    settlement: Option<&store::DeleteSettlement>,
 ) -> ToolReply {
     let Some(op) = parse_op(args.get("op")) else {
         return ToolReply::error("core requires op: add | edit | delete | list");
@@ -183,7 +183,11 @@ pub(crate) async fn run_cancellable(
 }
 
 async fn execute(
-    ctx: &CoreContext<'_>, args: &Value, op: Op, cancel: Option<&tokio_util::sync::CancellationToken>, settlement: Option<&store::DeleteSettlement>,
+    ctx: &CoreContext<'_>,
+    args: &Value,
+    op: Op,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+    settlement: Option<&store::DeleteSettlement>,
 ) -> Result<ToolReply> {
     store::check_write_start(cancel)?;
     let caller = MemoryCaller::from_value(args.get("memory_caller"));
@@ -234,25 +238,13 @@ async fn execute(
             if agent.is_some() && (args.get("target_project_id").is_some() || args.get("target_cwd").is_some_and(truthy)) {
                 return Err(MemoryError::rejected("agent memory has no project scope"));
             }
-            let record = index::resolve(
-                ctx.db,
-                project,
-                agent,
-                args.get("id").unwrap_or(&Value::Null),
-                args.get("index_revision").unwrap_or(&Value::Null),
-            )
-            .await?;
+            let record =
+                index::resolve(ctx.db, project, agent, args.get("id").unwrap_or(&Value::Null), args.get("index_revision").unwrap_or(&Value::Null)).await?;
             let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await? };
             let entry = store::edit_cancellable(
                 ctx.db,
                 record,
-                Edit {
-                    input: &write_args,
-                    expected_project_id: project,
-                    expected_agent_id: agent,
-                    target_project_id: target.as_deref(),
-                    caller: &caller,
-                },
+                Edit { input: &write_args, expected_project_id: project, expected_agent_id: agent, target_project_id: target.as_deref(), caller: &caller },
                 cancel,
             )
             .await?;
@@ -284,31 +276,18 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-async fn run_list(
-    ctx: &CoreContext<'_>,
-    args: &Value,
-    project: Option<&str>,
-    agent: Option<&str>,
-    caller: &MemoryCaller,
-) -> Result<ToolReply> {
+async fn run_list(ctx: &CoreContext<'_>, args: &Value, project: Option<&str>, agent: Option<&str>, caller: &MemoryCaller) -> Result<ToolReply> {
     caller.assert_read(agent)?;
     let mut project_scopes = None;
     if let Some(paths) = args.get("project_paths").and_then(Value::as_array) {
         let mut scopes = Vec::with_capacity(paths.len());
         for path in paths.iter().filter_map(Value::as_str) {
-            scopes.push(ProjectScopeOf {
-                path: path.to_owned(),
-                project_id: resolve_project_scope(ctx.lane, Some(path), None).await?,
-            });
+            scopes.push(ProjectScopeOf { path: path.to_owned(), project_id: resolve_project_scope(ctx.lane, Some(path), None).await? });
         }
         project_scopes = Some(scopes);
     }
     let page = list::list(ctx.db, ListOptions { scope: project, agent_id: agent, args, project_scopes }).await?;
-    let text = if args.get("format").and_then(Value::as_str) == Some("json") {
-        page_json(&page)
-    } else {
-        list::format(&page)
-    };
+    let text = if args.get("format").and_then(Value::as_str) == Some("json") { page_json(&page) } else { list::format(&page) };
     let mut reply = ToolReply::ok(text).with_field("entries", &page.entries).with_field("nextOffset", &page.next_offset);
     if let Some(scopes) = &page.project_scopes {
         reply = reply.with_field("projectScopes", scopes);

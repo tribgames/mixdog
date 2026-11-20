@@ -30,10 +30,8 @@ pub fn docx_run_font(xml: &str) -> Value {
     let color = first_group(r#"<w:color\b[^>]*\bw:val="([0-9A-Fa-f]{6}|auto)""#, "", xml);
     let tracking = first_group(r#"<w:spacing\b[^>]*\bw:val="(-?\d+)""#, "", xml);
     let caps_off = compiled(r#"\bw:val="(?:0|false)""#, "");
-    let caps_tags: Vec<String> = compiled(r"<w:(?:caps|smallCaps)\b([^>]*)>", "g")
-        .captures_iter(xml)
-        .map(|found| found.get(1).unwrap_or("").to_owned())
-        .collect();
+    let caps_tags: Vec<String> =
+        compiled(r"<w:(?:caps|smallCaps)\b([^>]*)>", "g").captures_iter(xml).map(|found| found.get(1).unwrap_or("").to_owned()).collect();
     let caps = caps_tags.iter().any(|tag| !caps_off.is_match(tag));
     let mut font = Map::new();
     font.insert("size".to_owned(), json_number(sizes.iter().copied().fold(0.0, math::max)));
@@ -140,28 +138,26 @@ pub fn next_page_offset(offset: f64, returned: f64, total: f64) -> Option<f64> {
 /// `populatedCellPagination({ options, page, selectedSheets, sheets, sheetOffset })`: pagination facts for a paged workbook
 /// read: the populated-cell window of the sheet just read, and the next sheet when this one is read out and the caller named
 /// none. `page` is `{ records, total }` or null; `sheets_len` is how many sheets the workbook has.
-pub fn populated_cell_pagination(
-    options: &Value,
-    page: &Value,
-    selected_sheets: &[Value],
-    sheets_len: usize,
-    sheet_offset: f64,
-) -> Value {
+pub fn populated_cell_pagination(options: &Value, page: &Value, selected_sheets: &[Value], sheets_len: usize, sheet_offset: f64) -> Value {
     let offset = math::max(0.0, number_or_zero(options.get("offset")));
     let has_page = truthy(page);
     let returned = (if has_page { page.get("records").and_then(Value::as_array).map_or(0, Vec::len) } else { 0 }) as f64;
     let total_value = page.get("total").filter(|value| truthy(value)).cloned().unwrap_or_else(|| Value::from(0));
     let next_offset = if has_page { next_page_offset(offset, returned, to_number_of(Some(&total_value))) } else { None };
     let range_suffix = options.get("range").filter(|value| truthy(value)).map(|range| format!("!{}", mixdog_js::value_to_string(range))).unwrap_or_default();
-    let sheet_name = selected_sheets.first().and_then(|sheet| sheet.get("name")).filter(|name| truthy(name)).map(mixdog_js::value_to_string).unwrap_or_default();
+    let sheet_name =
+        selected_sheets.first().and_then(|sheet| sheet.get("name")).filter(|name| truthy(name)).map(mixdog_js::value_to_string).unwrap_or_default();
     let mut pagination = Map::new();
     pagination.insert("unit".to_owned(), Value::from("populated-cell"));
     pagination.insert("scope".to_owned(), Value::String(format!("{sheet_name}{range_suffix}")));
     pagination.insert("offset".to_owned(), json_number(offset));
-    pagination.insert("limit".to_owned(), json_number(math::max(1.0, {
-        let limit = number_or_zero(options.get("limit"));
-        if limit == 0.0 { 2000.0 } else { limit }
-    })));
+    pagination.insert(
+        "limit".to_owned(),
+        json_number(math::max(1.0, {
+            let limit = number_or_zero(options.get("limit"));
+            if limit == 0.0 { 2000.0 } else { limit }
+        })),
+    );
     pagination.insert("returned".to_owned(), json_number(returned));
     pagination.insert("total".to_owned(), total_value);
     pagination.insert("nextOffset".to_owned(), next_offset.map_or(Value::Null, json_number));

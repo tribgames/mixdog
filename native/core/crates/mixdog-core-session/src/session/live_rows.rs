@@ -206,7 +206,6 @@ pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
     parts.join(" · ")
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,7 +256,13 @@ mod tests {
         assert_eq!(compact_event_detail(&event(false, true, CompactTrigger::Auto)), "0s");
         assert!(!compact_changed(&event(true, false, CompactTrigger::Auto)));
         // The marker reads the pass's own numbers: seconds rounded up, and before→after tokens.
-        let timed = CompactEvent { duration_ms: 1_200, before_tokens: 12_345, pressure_tokens: 40_000, after_tokens: 3_400, ..event(false, true, CompactTrigger::Auto) };
+        let timed = CompactEvent {
+            duration_ms: 1_200,
+            before_tokens: 12_345,
+            pressure_tokens: 40_000,
+            after_tokens: 3_400,
+            ..event(false, true, CompactTrigger::Auto)
+        };
         assert_eq!(compact_event_detail(&timed), "2s · 12k→3.4k");
         let same = CompactEvent { duration_ms: 40, before_tokens: 900, pressure_tokens: 900, after_tokens: 900, ..event(false, false, CompactTrigger::Auto) };
         assert_eq!(compact_event_detail(&same), "1s");
@@ -265,10 +270,7 @@ mod tests {
         assert_eq!(compact_event_label(&skipped), "Compact skipped");
         assert!(!compact_changed(&skipped));
     }
-
-
 }
-
 
 /// The delta `accumulateCompactUsage` reports for a compaction pass's summary (`pre-send-compact.mjs`), key for key:
 /// no request facts, the source `fresh_context_compact`. The turn and epoch are the session's (`usage_books`).

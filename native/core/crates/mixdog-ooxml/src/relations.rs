@@ -83,9 +83,7 @@ pub fn shape_identity(xml: &str) -> ShapeIdentity {
     let Some(encoded) = name.strip_prefix(PREFIX) else {
         return ShapeIdentity { shape_id, relation: None, relation_error: None };
     };
-    let declared = decode_uri_component(encoded)
-        .and_then(|text| json_parse(&text).ok())
-        .filter(|relation| relation_options(relation).is_ok());
+    let declared = decode_uri_component(encoded).and_then(|text| json_parse(&text).ok()).filter(|relation| relation_options(relation).is_ok());
     match declared {
         Some(relation) => ShapeIdentity { shape_id, relation: Some(relation), relation_error: None },
         None => ShapeIdentity { shape_id, relation: None, relation_error: Some("Invalid shape relationship declaration") },
@@ -175,9 +173,7 @@ pub fn independent_text_unit(shapes: &[RelationBox], at: usize, index: &Relation
         "value" => role_at(shapes, index, relation.label.as_deref()).as_deref() == Some("label"),
         "label" => shapes.iter().enumerate().any(|(other_at, shape)| {
             shape.relation.as_ref().is_some_and(|other| {
-                other.role == "value"
-                    && other.label.as_deref() == Some(relation.id.as_str())
-                    && index.get(&other.id).copied().flatten() == Some(other_at)
+                other.role == "value" && other.label.as_deref() == Some(relation.id.as_str()) && index.get(&other.id).copied().flatten() == Some(other_at)
             })
         }),
         // `relation.group && relation.row && relation.column`: an empty identifier counts as absent.
@@ -220,10 +216,7 @@ pub fn review_declared_relations(shapes: &[RelationBox], maximum_gap: f64) -> Ve
         let duplicated = relation.is_some_and(|declared| matches!(index.get(&declared.id), Some(None)));
         let error = shape.relation_error.as_deref().filter(|error| !error.is_empty());
         if error.is_some() || duplicated {
-            let message = error.map_or_else(
-                || format!("Duplicate relationship id: {}", relation.map_or("", |declared| declared.id.as_str())),
-                str::to_owned,
-            );
+            let message = error.map_or_else(|| format!("Duplicate relationship id: {}", relation.map_or("", |declared| declared.id.as_str())), str::to_owned);
             issues.push(json!({ "code": "shape_relation_invalid", "path": path, "message": message }));
         }
         let Some(declared) = relation.filter(|declared| declared.role == "value") else { continue };
@@ -264,14 +257,7 @@ mod tests {
     use super::*;
 
     fn declared(id: &str, role: &str, label: Option<&str>) -> Option<Relation> {
-        Some(Relation {
-            id: id.to_owned(),
-            role: role.to_owned(),
-            label: label.map(str::to_owned),
-            group: None,
-            row: None,
-            column: None,
-        })
+        Some(Relation { id: id.to_owned(), role: role.to_owned(), label: label.map(str::to_owned), group: None, row: None, column: None })
     }
 
     fn shape(shape: f64, left: f64, top: f64, relation: Option<Relation>) -> RelationBox {
@@ -342,8 +328,7 @@ mod tests {
             shape(4.0, 0.0, 0.0, declared("l", "label", None)),
         ];
         let issues = review_declared_relations(&shapes, 80.0);
-        assert!(issues.iter().any(|issue| issue["code"] == "shape_relation_invalid"
-            && issue["path"].as_str().is_some_and(|path| path.ends_with("shape[1]"))));
+        assert!(issues.iter().any(|issue| issue["code"] == "shape_relation_invalid" && issue["path"].as_str().is_some_and(|path| path.ends_with("shape[1]"))));
         let duplicate = issues.iter().find(|issue| issue["path"] == "/slide[1]/shape[2]").expect("duplicate");
         assert_eq!(duplicate["message"], "Duplicate relationship id: l");
         assert!(!independent_text_unit(&shapes, 1, &relation_index(&shapes)));

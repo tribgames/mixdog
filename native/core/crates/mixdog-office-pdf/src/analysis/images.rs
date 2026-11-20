@@ -56,18 +56,10 @@ pub struct ImageOptions {
 /// on the page.
 fn image_placement(viewport: &Viewport, ctm: &[f64]) -> (f64, f64, f64, f64) {
     let full = transform(&viewport.transform, ctm);
-    let corners: Vec<(f64, f64)> = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
-        .into_iter()
-        .map(|point| apply_point(point, &full))
-        .collect();
+    let corners: Vec<(f64, f64)> = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].into_iter().map(|point| apply_point(point, &full)).collect();
     let left = min_of(corners.iter().map(|p| p.0));
     let top = min_of(corners.iter().map(|p| p.1));
-    (
-        round2(left),
-        round2(top),
-        round2(max_of(corners.iter().map(|p| p.0)) - left),
-        round2(max_of(corners.iter().map(|p| p.1)) - top),
-    )
+    (round2(left), round2(top), round2(max_of(corners.iter().map(|p| p.0)) - left), round2(max_of(corners.iter().map(|p| p.1)) - top))
 }
 
 /// `pdfImageBuffer`: the pixels as a PNG, or none when the image has no data or no whole 1 to 4 channels.
@@ -76,9 +68,7 @@ fn png_of(image: &ImageData) -> Result<Option<Vec<u8>>, AnalysisError> {
         return Ok(None);
     };
     let (Ok(width), Ok(height)) = (u32::try_from(image.width), u32::try_from(image.height)) else {
-        return Err(AnalysisError::plain(
-            "Input image exceeds the maximum supported pixel limit",
-        ));
+        return Err(AnalysisError::plain("Input image exceeds the maximum supported pixel limit"));
     };
     Image::from_raw(width, height, channels as u8, &image.data)
         .and_then(|raster| raster.to_png())
@@ -86,12 +76,7 @@ fn png_of(image: &ImageData) -> Result<Option<Vec<u8>>, AnalysisError> {
         .map_err(|error| AnalysisError::plain(error.message()))
 }
 
-fn collect_page_images(
-    document: &Document,
-    page: &Page,
-    number: usize,
-    images: &mut Vec<ExtractedImage>,
-) -> Result<(), AnalysisError> {
+fn collect_page_images(document: &Document, page: &Page, number: usize, images: &mut Vec<ExtractedImage>) -> Result<(), AnalysisError> {
     let reader = |error: PdfError| AnalysisError::from_pdf_or_cancelled(&error, CANCELLED);
     let list = oplist::get_operator_list(document, page, None).map_err(reader)?;
     let viewport = page.viewport(1.0);
@@ -110,9 +95,7 @@ fn collect_page_images(
         }
         // A failure of the reader on one image leaves it out, as pdf.js hands the page an empty object for it.
         let decoded = match op {
-            Op::PaintInlineImage(small) => {
-                image::decode_small_inline_image(xref, Some(&*resources), &small.source)
-            }
+            Op::PaintInlineImage(small) => image::decode_small_inline_image(xref, Some(&*resources), &small.source),
             Op::PaintImage(reference) => {
                 // A large inline image is painted as an image XObject; it names its colour space in the resources,
                 // and has no object number of its own.
@@ -150,26 +133,17 @@ fn collect_page_images(
 }
 
 /// `extractPdfImages(path, { pages, signal })`.
-pub fn extract_pdf_images<P: ReadProof>(
-    proof: &P,
-    source: PdfSource<'_>,
-    options: &ImageOptions,
-) -> Result<ImageExtraction, AnalysisError> {
+pub fn extract_pdf_images<P: ReadProof>(proof: &P, source: PdfSource<'_>, options: &ImageOptions) -> Result<ImageExtraction, AnalysisError> {
     let document = open_pdf(proof, source, options.cancel.clone())?;
     let mut images = Vec::new();
     for number in selected_pages(document.num_pages(), options.pages.as_deref())? {
         if options.cancel.as_ref().is_some_and(|cancel| cancel()) {
             return Err(AnalysisError::plain(CANCELLED));
         }
-        let page = document
-            .page(number - 1)
-            .map_err(|error| AnalysisError::from_pdf_or_cancelled(&error, CANCELLED))?;
+        let page = document.page(number - 1).map_err(|error| AnalysisError::from_pdf_or_cancelled(&error, CANCELLED))?;
         collect_page_images(&document, &page, number, &mut images)?;
     }
-    Ok(ImageExtraction {
-        page_count: document.num_pages(),
-        images,
-    })
+    Ok(ImageExtraction { page_count: document.num_pages(), images })
 }
 
 impl ExtractedImage {
@@ -200,24 +174,8 @@ impl ImageExtraction {
         object(vec![
             ("pageCount", Value::from(self.page_count)),
             ("imageCount", Value::from(self.images.len())),
-            (
-                "images",
-                Value::Array(
-                    self.images
-                        .iter()
-                        .map(|image| image.to_json(false))
-                        .collect(),
-                ),
-            ),
-            (
-                "_images",
-                Value::Array(
-                    self.images
-                        .iter()
-                        .map(|image| image.to_json(true))
-                        .collect(),
-                ),
-            ),
+            ("images", Value::Array(self.images.iter().map(|image| image.to_json(false)).collect())),
+            ("_images", Value::Array(self.images.iter().map(|image| image.to_json(true)).collect())),
         ])
     }
 }
@@ -230,33 +188,24 @@ mod tests {
     use super::*;
 
     fn viewport() -> Viewport {
-        Viewport::new([0.0, 0.0, 612.0, 792.0], 1.0, 1.0, Obj::Num(0.0), 0.0, 0.0)
-            .expect("an upright viewport")
+        Viewport::new([0.0, 0.0, 612.0, 792.0], 1.0, 1.0, Obj::Num(0.0), 0.0, 0.0).expect("an upright viewport")
     }
 
     fn data(kind: ImageKind, width: usize, height: usize, bytes: Vec<u8>) -> ImageData {
-        ImageData {
-            width,
-            height,
-            interpolate: None,
-            kind,
-            data: bytes,
-        }
+        ImageData { width, height, interpolate: None, kind, data: bytes }
     }
 
     #[test]
     fn placement_is_the_unit_square_under_the_transform() {
         let viewport = viewport();
-        let (x, top, width, height) =
-            image_placement(&viewport, &[50.0, 0.0, 0.0, 40.0, 100.0, 600.0]);
+        let (x, top, width, height) = image_placement(&viewport, &[50.0, 0.0, 0.0, 40.0, 100.0, 600.0]);
         assert_eq!((x, top, width, height), (100.0, 152.0, 50.0, 40.0));
     }
 
     #[test]
     fn a_rotated_image_is_placed_by_its_bounding_box() {
         let viewport = viewport();
-        let (x, top, width, height) =
-            image_placement(&viewport, &[0.0, 30.0, -30.0, 0.0, 200.0, 100.0]);
+        let (x, top, width, height) = image_placement(&viewport, &[0.0, 30.0, -30.0, 0.0, 200.0, 100.0]);
         assert_eq!((x, top, width, height), (170.0, 662.0, 30.0, 30.0));
     }
 
@@ -293,10 +242,7 @@ mod tests {
             mime_type: "image/png",
             png: vec![1, 2, 3],
         };
-        let extraction = ImageExtraction {
-            page_count: 1,
-            images: vec![image],
-        };
+        let extraction = ImageExtraction { page_count: 1, images: vec![image] };
         let json = extraction.to_json();
         assert_eq!(json["imageCount"], 1);
         assert!(json["images"][0].get("data").is_none());

@@ -133,7 +133,13 @@ fn label_for_window(key: &str, entry: &Value) -> String {
         "seven_day" | "seven_days" | "weekly" | "week" | "7d" | "7_day" => "7D".into(),
         "monthly" | "month" | "30d" | "30_day" => "M".into(),
         "daily" | "day" | "24h" | "24_hour" => "24H".into(),
-        _ => if key.is_empty() { "USE".into() } else { key.to_uppercase() },
+        _ => {
+            if key.is_empty() {
+                "USE".into()
+            } else {
+                key.to_uppercase()
+            }
+        }
     }
 }
 
@@ -367,7 +373,13 @@ fn local_route_spend(input: &LimitsInput<'_>, section: &mut RouteSection, route:
 
 /// `buildGatewayLimits(routeInfo, providerOut, usageSnapshot)`: the provider's own windows, else the snapshot's,
 /// else the configured ones with the local spend; the snapshot's balance, else the configured one; the route spend.
-pub fn build_gateway_limits(input: &LimitsInput<'_>, section: &mut RouteSection, route: &Value, provider_out: Option<&Value>, usage_snapshot: Option<&Value>) -> Value {
+pub fn build_gateway_limits(
+    input: &LimitsInput<'_>,
+    section: &mut RouteSection,
+    route: &Value,
+    provider_out: Option<&Value>,
+    usage_snapshot: Option<&Value>,
+) -> Value {
     let raw = provider_out.and_then(|out| out.get("usage")).and_then(|usage| usage.get("raw"));
     let provider_windows = raw_usage_windows(raw, input.now);
     let snapshot_windows: Vec<Value> = usage_snapshot.and_then(|snapshot| snapshot.get("quotaWindows")).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -379,7 +391,11 @@ pub fn build_gateway_limits(input: &LimitsInput<'_>, section: &mut RouteSection,
     } else {
         configured.into_iter().map(Value::Object).collect()
     };
-    let balance = usage_snapshot.and_then(|snapshot| snapshot.get("balance")).filter(|balance| truthy(Some(balance))).cloned().or_else(|| configured_balance(input, route));
+    let balance = usage_snapshot
+        .and_then(|snapshot| snapshot.get("balance"))
+        .filter(|balance| truthy(Some(balance)))
+        .cloned()
+        .or_else(|| configured_balance(input, route));
     let route_spend = local_route_spend(input, section, route);
     json!({ "quotaWindows": quota_windows, "balance": balance, "routeSpend": route_spend })
 }
@@ -402,10 +418,7 @@ mod tests {
         });
         let windows = raw_usage_windows(Some(&raw), NOW);
         assert_eq!(windows.len(), 3);
-        assert_eq!(
-            Value::Object(windows[0].clone()),
-            json!({ "label": "5H", "source": "provider", "usedPct": 41.26, "resetAt": 1_800_003_600_000_i64 })
-        );
+        assert_eq!(Value::Object(windows[0].clone()), json!({ "label": "5H", "source": "provider", "usedPct": 41.26, "resetAt": 1_800_003_600_000_i64 }));
         assert_eq!(windows[1]["label"], "7D");
         assert_eq!(windows[1]["usedPct"], 7);
         assert_eq!((windows[2]["label"].clone(), windows[2]["usedUsd"].clone(), windows[2]["limitUsd"].clone()), (json!("24H"), json!(1.5), json!(5)));
@@ -427,7 +440,10 @@ mod tests {
         let limits = build_gateway_limits(&input(&gateway, &agent, &events), &mut section, &route, None, None);
         let windows = limits["quotaWindows"].as_array().unwrap();
         assert_eq!(windows.len(), 2);
-        assert_eq!((windows[0]["label"].clone(), windows[0]["usedUsd"].clone(), windows[0]["remainingUsd"].clone(), windows[0]["usedPct"].clone()), (json!("24H"), json!(2.5), json!(7.5), json!(25)));
+        assert_eq!(
+            (windows[0]["label"].clone(), windows[0]["usedUsd"].clone(), windows[0]["remainingUsd"].clone(), windows[0]["usedPct"].clone()),
+            (json!("24H"), json!(2.5), json!(7.5), json!(25))
+        );
         assert_eq!((windows[1]["label"].clone(), windows[1]["usedUsd"].clone(), windows[1]["usedPct"].clone()), (json!("WEEK"), json!(6.5), json!(6.5)));
         assert!(windows[0]["resetAt"].as_f64().unwrap() > NOW);
         assert_eq!(limits["balance"], Value::Null);
@@ -446,10 +462,7 @@ mod tests {
         let out = json!({ "usage": { "raw": { "quotaWindows": { "5h": { "percent": 10 } } } } });
         let limits = build_gateway_limits(&input(&gateway, &empty, &events), &mut section, &route, Some(&out), None);
         assert_eq!(limits["quotaWindows"][0]["label"], "5H");
-        assert_eq!(
-            limits["balance"],
-            json!({ "source": "local-budget", "period": "7d", "budgetUsd": 20, "spentUsd": 5, "remainingUsd": 15 })
-        );
+        assert_eq!(limits["balance"], json!({ "source": "local-budget", "period": "7d", "budgetUsd": 20, "spentUsd": 5, "remainingUsd": 15 }));
     }
 
     #[test]
@@ -470,7 +483,10 @@ mod tests {
         section = RouteSection::default();
         event::ensure_route_section(&mut section, &route, (NOW - 20_000.0) as i64);
         let spend = build_gateway_limits(&later, &mut section, &route, None, None);
-        assert_eq!(spend["routeSpend"], json!({ "label": "SESS", "source": "local-route", "period": "session", "startedAt": (NOW - 20_000.0) as i64, "costUsd": 0.5 }));
+        assert_eq!(
+            spend["routeSpend"],
+            json!({ "label": "SESS", "source": "local-route", "period": "session", "startedAt": (NOW - 20_000.0) as i64, "costUsd": 0.5 })
+        );
         // An OAuth route tracks no dollars.
         let oauth = json!({ "provider": "openai-oauth", "model": "m" });
         assert_eq!(build_gateway_limits(&later, &mut section, &oauth, None, None)["routeSpend"], Value::Null);
@@ -482,10 +498,14 @@ mod tests {
         let first = b"{\"ts\":1}\n{\"ts\":2}\n{\"ts\":3";
         assert_eq!(view.refresh("a", first.len() as u64, |offset, len| Some(first[offset as usize..][..len].to_vec())).len(), 2);
         let grown = b"{\"ts\":1}\n{\"ts\":2}\n{\"ts\":3}\n";
-        assert_eq!(view.refresh("a", grown.len() as u64, |offset, len| {
-            assert_eq!(offset, 18);
-            Some(grown[offset as usize..][..len].to_vec())
-        }).len(), 3);
+        assert_eq!(
+            view.refresh("a", grown.len() as u64, |offset, len| {
+                assert_eq!(offset, 18);
+                Some(grown[offset as usize..][..len].to_vec())
+            })
+            .len(),
+            3
+        );
         // A shorter file is a compaction: it is read again from the start.
         let compacted = b"{\"ts\":3}\n";
         assert_eq!(view.refresh("a", compacted.len() as u64, |offset, len| Some(compacted[offset as usize..][..len].to_vec())).len(), 1);

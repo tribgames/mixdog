@@ -192,7 +192,9 @@ fn normalize_charts(sheet: &mut Map<String, Value>) {
     let Some(Value::Array(charts)) = sheet.get_mut("charts") else { return };
     for chart in charts.iter_mut() {
         let Value::Object(next) = chart else { continue };
-        if let Some(kind) = next.get("chartType").filter(|kind| kind.is_number()).and_then(|kind| kind.as_f64()).and_then(|kind| chart_kind(&number_to_string(kind))) {
+        if let Some(kind) =
+            next.get("chartType").filter(|kind| kind.is_number()).and_then(|kind| kind.as_f64()).and_then(|kind| chart_kind(&number_to_string(kind)))
+        {
             next.insert("chartType".to_owned(), Value::String(kind.to_owned()));
         }
         if let Some(Value::Array(series)) = next.get("series") {

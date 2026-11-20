@@ -1,22 +1,22 @@
 //! Menu paths: a classic menu bar answered from its own menu handles, else
 //! the UI Automation walk that opens one level at a time.
 
-use super::super::background::{hold_inactive, release_inactive, WinBackground};
+use super::super::background::{WinBackground, hold_inactive, release_inactive};
 use super::super::bounded::Mta;
-use super::super::msaa::{self, AccNode, MsaaNode, MAXIMUM};
+use super::super::msaa::{self, AccNode, MAXIMUM, MsaaNode};
 use super::super::native::{self, hwnd};
 use super::element::{toggle_label, top_window};
-use super::{any_of, control_type_id, property_condition, text, Uia};
-use crate::a11y::{normalize_menu_label, MenuOutcome};
-use crate::platform::{window_id, Background, Wid, WindowInfo};
-use crate::port::windows::{Posted, Refusal, A11y};
+use super::{Uia, any_of, control_type_id, property_condition, text};
+use crate::a11y::{MenuOutcome, normalize_menu_label};
+use crate::platform::{Background, Wid, WindowInfo, window_id};
+use crate::port::windows::{A11y, Posted, Refusal};
 use std::collections::HashSet;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::WindowsAndMessaging::OBJID_CLIENT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetMenu, GetMenuItemCount, GetMenuItemInfoW, GetMenuStringW, HMENU, MENUITEMINFOW, MF_BYPOSITION, MFS_DISABLED,
-    MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_SUBMENU,
+    GetMenu, GetMenuItemCount, GetMenuItemInfoW, GetMenuStringW, HMENU, MENUITEMINFOW, MF_BYPOSITION, MFS_DISABLED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID,
+    MIIM_STATE, MIIM_SUBMENU,
 };
 
 /// Closes the levels a failed walk opened. The Escapes are an ordinary new key sequence through the port, refused once the
@@ -28,12 +28,7 @@ fn close_opened(background: &WinBackground, window: Wid, opened: usize) {
 }
 
 impl Uia {
-    pub(super) fn menu(
-        &self,
-        window: &WindowInfo,
-        path: &[String],
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String> {
+    pub(super) fn menu(&self, window: &WindowInfo, path: &[String], authorize: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
         if let Some(outcome) = classic_menu(&self.background, window, path, authorize)? {
             return Ok(outcome);
         }
@@ -73,20 +68,10 @@ impl Uia {
                 let last = index == path.len() - 1;
                 authorize()?;
                 // Read again right before the action (MixMsaa.cs DoDefaultAction), which the port arbitrates.
-                let invoked = if node.refresh() {
-                    node.do_default_action(&self.port)
-                } else {
-                    Err("MSAA element is stale".to_string())
-                };
-                invoked.map_err(|error| {
-                    format!("{}: '{segment}' MSAA default action failed: {error}", default_action_code(last))
-                })?;
+                let invoked = if node.refresh() { node.do_default_action(&self.port) } else { Err("MSAA element is stale".to_string()) };
+                invoked.map_err(|error| format!("{}: '{segment}' MSAA default action failed: {error}", default_action_code(last)))?;
                 if last {
-                    return Ok(MenuOutcome {
-                        path: "msaa_menu",
-                        verified: false,
-                        message: format!("invoked menu path: {}", walked.join(" > ")),
-                    });
+                    return Ok(MenuOutcome { path: "msaa_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) });
                 }
                 std::thread::sleep(std::time::Duration::from_millis(120));
                 *opened += 1;
@@ -114,16 +99,10 @@ impl Uia {
                 // A wrong path and a popup chain that closed under the person's
                 // own click fail alike, so the count that separates them travels.
                 let owned = native::related_windows(window.handle).len();
-                return Err(format!(
-                    "menu_path_not_found: no enabled menu entry named '{segment}' after {}; owned_popups={owned}",
-                    walked.join(" > ")
-                ));
+                return Err(format!("menu_path_not_found: no enabled menu entry named '{segment}' after {}; owned_popups={owned}", walked.join(" > ")));
             }
             if candidates.len() > 1 {
-                return Err(format!(
-                    "menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path",
-                    candidates.len()
-                ));
+                return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", candidates.len()));
             }
             let element = candidates.remove(0);
             let owner = top_window(&self.automation, &element);
@@ -147,11 +126,7 @@ impl Uia {
                 if last {
                     if let Ok(invoke) = element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
                         act(A11y::Invoke(&invoke))?;
-                        return Ok(MenuOutcome {
-                            path: "uia_menu",
-                            verified: false,
-                            message: format!("invoked menu path: {}", walked.join(" > ")),
-                        });
+                        return Ok(MenuOutcome { path: "uia_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) });
                     }
                     if let Ok(toggle) = element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
                         let before = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
@@ -160,10 +135,7 @@ impl Uia {
                         return Ok(MenuOutcome {
                             path: "uia_menu_toggle",
                             verified: before != after,
-                            message: format!(
-                                "toggled menu path: {} from {before} to {after}",
-                                walked.join(" > ")
-                            ),
+                            message: format!("toggled menu path: {} from {before} to {after}", walked.join(" > ")),
                         });
                     }
                     return Err(format!("menu_item_not_invokable: '{segment}' exposes no menu action"));
@@ -182,11 +154,7 @@ impl Uia {
                         Ok(invoke) => {
                             act(A11y::Invoke(&invoke))?;
                         }
-                        Err(_) => {
-                            return Err(format!(
-                                "menu_expand_unavailable: '{segment}' cannot be opened through accessibility"
-                            ))
-                        }
+                        Err(_) => return Err(format!("menu_expand_unavailable: '{segment}' cannot be opened through accessibility")),
                     }
                 }
             }
@@ -216,9 +184,7 @@ impl Uia {
                 let id = window_id(handle);
                 // Win32 menu bars belong to OBJID_MENU, not the client tree.
                 let nodes = match msaa::menu_snapshot(handle, &id, MAXIMUM) {
-                    Ok(nodes) if nodes.is_empty() => {
-                        msaa::snapshot(handle, &id, MAXIMUM, OBJID_CLIENT.0).map(|(nodes, _)| nodes)
-                    }
+                    Ok(nodes) if nodes.is_empty() => msaa::snapshot(handle, &id, MAXIMUM, OBJID_CLIENT.0).map(|(nodes, _)| nodes),
                     other => other,
                 };
                 // A window that cannot be read is skipped, as the PowerShell does.
@@ -235,22 +201,13 @@ impl Uia {
 /// The error code of a failed default action: the last level names an item
 /// that cannot be invoked, an earlier one a menu that cannot be opened.
 fn default_action_code(last: bool) -> &'static str {
-    if last {
-        "menu_item_not_invokable"
-    } else {
-        "menu_expand_unavailable"
-    }
+    if last { "menu_item_not_invokable" } else { "menu_expand_unavailable" }
 }
 
 /// The nodes that are enabled, on screen, of a menu role (a menu item only
 /// below the first level), named `wanted`, and not seen before by label, role,
 /// area and default action (the filter of Get-MsaaMenuCandidates).
-fn usable_candidates<A: AccNode>(
-    nodes: Vec<MsaaNode<A>>,
-    wanted: &str,
-    menu_only: bool,
-    seen: &mut HashSet<String>,
-) -> Vec<MsaaNode<A>> {
+fn usable_candidates<A: AccNode>(nodes: Vec<MsaaNode<A>>, wanted: &str, menu_only: bool, seen: &mut HashSet<String>) -> Vec<MsaaNode<A>> {
     nodes
         .into_iter()
         .filter_map(|mut node| {
@@ -275,25 +232,16 @@ fn usable_candidates<A: AccNode>(
 /// and a lone one that is not usable leaves the level to UIA.
 fn single<T>(mut found: Vec<T>, segment: &str, usable: impl Fn(&T) -> bool) -> Result<Option<T>, String> {
     if found.len() > 1 {
-        return Err(format!(
-            "menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path",
-            found.len()
-        ));
+        return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", found.len()));
     }
     Ok(found.pop().filter(usable))
 }
 
 fn menu_candidates(automation: &IUIAutomation, root: &IUIAutomationElement, name: &str, menu_only: bool) -> Vec<IUIAutomationElement> {
     let wanted = normalize_menu_label(name);
-    let roles: &[&str] = if menu_only {
-        &["MenuItem"]
-    } else {
-        &["MenuItem", "Button", "SplitButton", "ListItem"]
-    };
-    let Ok(conditions) = roles
-        .iter()
-        .map(|role| property_condition(automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role))))
-        .collect::<Result<Vec<_>, _>>()
+    let roles: &[&str] = if menu_only { &["MenuItem"] } else { &["MenuItem", "Button", "SplitButton", "ListItem"] };
+    let Ok(conditions) =
+        roles.iter().map(|role| property_condition(automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role)))).collect::<Result<Vec<_>, _>>()
     else {
         return Vec::new();
     };
@@ -310,10 +258,7 @@ fn menu_candidates(automation: &IUIAutomation, root: &IUIAutomationElement, name
         let count = found.Length().unwrap_or(0);
         (0..count)
             .filter_map(|index| found.GetElement(index).ok())
-            .filter(|element| {
-                !element.CurrentIsOffscreen().map_or(true, |flag| flag.as_bool())
-                    && normalize_menu_label(&text(element.CurrentName())) == wanted
-            })
+            .filter(|element| !element.CurrentIsOffscreen().map_or(true, |flag| flag.as_bool()) && normalize_menu_label(&text(element.CurrentName())) == wanted)
             .collect()
     }
 }
@@ -379,34 +324,17 @@ fn classic_menu(
     for (index, segment) in path.iter().enumerate() {
         let wanted = normalize_menu_label(segment);
         let entries = menu_entries(background, window.handle, menu, position, index > 0);
-        let matches: Vec<usize> = entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| normalize_menu_label(&entry.label) == wanted)
-            .map(|(at, _)| at)
-            .collect();
+        let matches: Vec<usize> = entries.iter().enumerate().filter(|(_, entry)| normalize_menu_label(&entry.label) == wanted).map(|(at, _)| at).collect();
         if matches.is_empty() {
             if index == 0 {
                 return Ok(None);
             }
             // The level's own entries turn a guessed name into a corrected one.
-            let available: Vec<String> = entries
-                .iter()
-                .map(|entry| normalize_menu_label(&entry.label))
-                .filter(|label| !label.is_empty())
-                .take(20)
-                .collect();
-            return Err(format!(
-                "menu_path_not_found: no menu entry named '{segment}' after {}; entries: {}",
-                walked.join(" > "),
-                available.join(", ")
-            ));
+            let available: Vec<String> = entries.iter().map(|entry| normalize_menu_label(&entry.label)).filter(|label| !label.is_empty()).take(20).collect();
+            return Err(format!("menu_path_not_found: no menu entry named '{segment}' after {}; entries: {}", walked.join(" > "), available.join(", ")));
         }
         if matches.len() > 1 {
-            return Err(format!(
-                "menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path",
-                matches.len()
-            ));
+            return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", matches.len()));
         }
         let entry = &entries[matches[0]];
         if !entry.enabled {
@@ -416,19 +344,14 @@ fn classic_menu(
         let has_submenu = !entry.submenu.0.is_null();
         if index < path.len() - 1 {
             if !has_submenu {
-                return Err(format!(
-                    "menu_path_not_found: '{segment}' opens no submenu for '{}'",
-                    path[index + 1]
-                ));
+                return Err(format!("menu_path_not_found: '{segment}' opens no submenu for '{}'", path[index + 1]));
             }
             menu = entry.submenu;
             position = matches[0];
             continue;
         }
         if has_submenu {
-            return Err(format!(
-                "menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"
-            ));
+            return Err(format!("menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"));
         }
         authorize()?;
         // The notification a person choosing the item produces, without opening
@@ -438,11 +361,7 @@ fn classic_menu(
             Refusal::Isolated => "background_blocked_uipi|Windows integrity isolation blocked the menu command".to_string(),
             other => format!("background_message_rejected|menu command failed: {other:?}"),
         })?;
-        return Ok(Some(MenuOutcome {
-            path: "win32_menu",
-            verified: false,
-            message: format!("invoked menu path: {}", walked.join(" > ")),
-        }));
+        return Ok(Some(MenuOutcome { path: "win32_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) }));
     }
     Ok(None)
 }
@@ -497,17 +416,7 @@ mod tests {
     const STATE_INVISIBLE: u32 = 0x8000;
 
     fn node(name: &str, role: u32, state: u32, x: i32) -> MsaaNode<Fake> {
-        let reading = Reading {
-            x,
-            y: 0,
-            w: 40,
-            h: 10,
-            name: name.into(),
-            role,
-            state,
-            default_action: "Click".into(),
-            ..Reading::default()
-        };
+        let reading = Reading { x, y: 0, w: 40, h: 10, name: name.into(), role, state, default_action: "Click".into(), ..Reading::default() };
         MsaaNode::new(Fake(reading), 0, String::new(), 1, "w")
     }
 
@@ -545,10 +454,7 @@ mod tests {
 
     #[test]
     fn several_candidates_are_refused_and_a_lone_unusable_one_is_left_to_uia() {
-        assert_eq!(
-            single(vec![1, 2], "File", |_| true),
-            Err("menu_path_ambiguous: 'File' matched 2 entries; use a more exact path".into())
-        );
+        assert_eq!(single(vec![1, 2], "File", |_| true), Err("menu_path_ambiguous: 'File' matched 2 entries; use a more exact path".into()));
         assert_eq!(single(vec![1], "File", |_| true), Ok(Some(1)));
         assert_eq!(single(vec![1], "File", |_| false), Ok(None));
         assert_eq!(single(Vec::<u8>::new(), "File", |_| true), Ok(None));

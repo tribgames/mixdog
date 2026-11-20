@@ -106,7 +106,16 @@ mod tests {
     }
 
     fn fold(records: &[Record]) -> Fold {
-        let session = SessionRecord { v: 2, id: id("s"), log_id: "0".repeat(24).as_str().try_into().expect("log id"), base: None, origin: None, op: None, control: false, header: Slot::Inline(Header::new()) };
+        let session = SessionRecord {
+            v: 2,
+            id: id("s"),
+            log_id: "0".repeat(24).as_str().try_into().expect("log id"),
+            base: None,
+            origin: None,
+            op: None,
+            control: false,
+            header: Slot::Inline(Header::new()),
+        };
         let mut fold = Fold::from_session(&session, Header::new(), FramePos { ordinal: 0, file_no: 0, offset: 0 });
         let effects = fold.prepare(records, &NoIndex, &mut |_| Err("no blob".into())).expect("prepared");
         for effect in effects {

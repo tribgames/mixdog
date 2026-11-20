@@ -261,7 +261,8 @@ pub async fn handle_slash(line: &str, ctx: &mut SlashContext<'_>) -> Result<Slas
             return Ok(SlashOutcome::Exit);
         }
         _ => {
-            let message = format!("{}{}\n", ctx.styler.paint(Style::Red, &format!("unknown command: /{command}")), ctx.styler.paint(Style::Dim, "  (try /help)"));
+            let message =
+                format!("{}{}\n", ctx.styler.paint(Style::Red, &format!("unknown command: /{command}")), ctx.styler.paint(Style::Dim, "  (try /help)"));
             ctx.write(&message)?;
         }
     }
@@ -338,7 +339,8 @@ mod tests {
     async fn run(session: &Scripted, line: &str, styler: Styler) -> (Result<SlashOutcome, String>, String) {
         let mut out = Capture::default();
         let result = {
-            let mut ctx = SlashContext { out: &mut out, session, footer: &FixedFooter, styler, cwd: "/w", provider_name: Some("cfg"), model: None, tool_mode: "full" };
+            let mut ctx =
+                SlashContext { out: &mut out, session, footer: &FixedFooter, styler, cwd: "/w", provider_name: Some("cfg"), model: None, tool_mode: "full" };
             handle_slash(line, &mut ctx).await
         };
         (result, out.text)
@@ -351,7 +353,8 @@ mod tests {
         let session = Scripted::new(json!({}), vec![]);
         let (result, text) = run(&session, "/help", OFF).await;
         assert_eq!(result, Ok(SlashOutcome::Continue));
-        let mut listed: Vec<&str> = text.split(|c: char| !(c.is_ascii_alphabetic() || c == '-' || c == '/')).filter(|word| word.len() > 1 && word.starts_with('/')).collect();
+        let mut listed: Vec<&str> =
+            text.split(|c: char| !(c.is_ascii_alphabetic() || c == '-' || c == '/')).filter(|word| word.len() > 1 && word.starts_with('/')).collect();
         listed.sort_unstable();
         listed.dedup();
         let mut expected = vec!["/clear", "/compact", "/exit", "/help", "/mode", "/model", "/output-style", "/outputstyle", "/quit", "/style"];
@@ -366,7 +369,10 @@ mod tests {
             (json!({ "changed": false }), "nothing to compact\n"),
             (json!({ "error": "boom" }), "compact failed\n"),
             (Value::Null, "compact failed\n"),
-            (json!({ "changed": true, "beforeMessages": 5, "afterMessages": 2, "beforeTokens": 100, "afterTokens": 40 }), "\u{2713} compacted context: 5\u{2192}2 messages, context 100\u{2192}40\n"),
+            (
+                json!({ "changed": true, "beforeMessages": 5, "afterMessages": 2, "beforeTokens": 100, "afterTokens": 40 }),
+                "\u{2713} compacted context: 5\u{2192}2 messages, context 100\u{2192}40\n",
+            ),
         ] {
             let session = Scripted::new(json!({}), vec![("compact", Ok(answer))]);
             let (result, text) = run(&session, "/compact", OFF).await;
@@ -394,7 +400,10 @@ mod tests {
         assert_eq!(result, Ok(SlashOutcome::Continue));
         assert_eq!(text, "compacting conversation before the model change\u{2026}\n\u{2713} model \u{2192} google/gemini-3.5-flash\n");
         let calls = session.calls.lock().expect("calls").clone();
-        assert_eq!(calls.iter().map(|(action, _)| action.as_str()).filter(|action| matches!(*action, "compact" | "setRoute")).collect::<Vec<_>>(), ["compact", "setRoute"]);
+        assert_eq!(
+            calls.iter().map(|(action, _)| action.as_str()).filter(|action| matches!(*action, "compact" | "setRoute")).collect::<Vec<_>>(),
+            ["compact", "setRoute"]
+        );
         assert_eq!(calls.last().expect("a call").1, vec![json!({ "model": "gemini-3.5-flash" })]);
     }
 
@@ -434,7 +443,14 @@ mod tests {
     #[tokio::test]
     async fn output_style_and_mode_show_and_switch() {
         let styles = json!({ "current": { "label": "Concise" }, "styles": [{ "label": "Concise" }, { "id": "verbose" }] });
-        let session = Scripted::new(json!({ "toolMode": "readonly" }), vec![("getOutputStyle", Ok(styles)), ("setOutputStyle", Ok(json!({ "current": { "id": "verbose" }, "appliedToCurrentSession": false }))), ("setToolMode", Ok(Value::Null))]);
+        let session = Scripted::new(
+            json!({ "toolMode": "readonly" }),
+            vec![
+                ("getOutputStyle", Ok(styles)),
+                ("setOutputStyle", Ok(json!({ "current": { "id": "verbose" }, "appliedToCurrentSession": false }))),
+                ("setToolMode", Ok(Value::Null)),
+            ],
+        );
         assert_eq!(run(&session, "/style", OFF).await.1, "current output style: Concise\navailable: Concise, verbose\n");
         assert_eq!(run(&session, "/output-style verbose", OFF).await.1, "\u{2713} output style \u{2192} verbose (use /clear to apply to this chat)\n");
         assert_eq!(run(&session, "/mode", OFF).await.1, "current mode: readonly\nusage: /mode full|readonly\n");

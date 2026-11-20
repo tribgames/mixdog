@@ -12,8 +12,8 @@ use crate::ps::text;
 use super::ItemAt;
 use super::array_of;
 use super::as_int_nonzero;
-use super::bstr;
 use super::boolean;
+use super::bstr;
 use super::color;
 use super::count;
 use super::i4;
@@ -94,11 +94,7 @@ pub(crate) fn duplicate_slide(presentation: &Com, op: &Value) -> Result<Value> {
     if truthy(&index) {
         copy.call_member("MoveTo", &[i4(int(&index)?)])?;
     }
-    Ok(record(vec![
-        ("op", Value::string("duplicate_slide")),
-        ("changed", Value::Bool(true)),
-        ("slide", Value::Int(slide_index(&copy)?)),
-    ]))
+    Ok(record(vec![("op", Value::string("duplicate_slide")), ("changed", Value::Bool(true)), ("slide", Value::Int(slide_index(&copy)?))]))
 }
 
 /// `import_slides`: the slides of another saved deck inserted after a slide (`InsertFromFile`).
@@ -136,10 +132,7 @@ pub(crate) fn import_slides(presentation: &Com, op: &Value) -> Result<Value> {
     if truthy(&slides) {
         for source_slide in array_of(&slides) {
             let number = int(&source_slide)?;
-            let added = presentation.member("Slides")?.call_member(
-                "InsertFromFile",
-                &[bstr(&source_path), i4(after + inserted), i4(number), i4(number)],
-            )?;
+            let added = presentation.member("Slides")?.call_member("InsertFromFile", &[bstr(&source_path), i4(after + inserted), i4(number), i4(number)])?;
             inserted += int_value(&added)?;
         }
     } else {
@@ -223,7 +216,13 @@ pub(crate) fn set_transition(presentation: &Com, op: &Value) -> Result<Value> {
     let duration = prop(op, "duration");
     if present(&duration) {
         let seconds = single(&duration)?;
-        let speed = if seconds <= 0.5 { 1 } else if seconds <= 1.5 { 2 } else { 3 };
+        let speed = if seconds <= 0.5 {
+            1
+        } else if seconds <= 1.5 {
+            2
+        } else {
+            3
+        };
         put_path(&slide, &["SlideShowTransition", "Speed"], i4(speed))?;
     }
     Ok(record(vec![
@@ -311,11 +310,7 @@ pub(crate) fn apply_theme(presentation: &Com, op: &Value) -> Result<Value> {
         return Err(Error::host("apply_theme requires path"));
     }
     presentation.call_member("ApplyTheme", &[bstr(&text_of(&prop(op, "path")))])?;
-    Ok(record(vec![
-        ("op", Value::string("apply_theme")),
-        ("changed", Value::Bool(true)),
-        ("path", Value::String(text_of(&prop(op, "path")))),
-    ]))
+    Ok(record(vec![("op", Value::string("apply_theme")), ("changed", Value::Bool(true)), ("path", Value::String(text_of(&prop(op, "path"))))]))
 }
 
 /// `$slide.NotesPage.Shapes.Placeholders.Item(2).TextFrame.TextRange`: the speaker notes' body.

@@ -7,20 +7,13 @@ use std::rc::Rc;
 
 impl Host {
     /// The element states an action can visibly change, joined for comparison.
-    pub(in crate::host) fn observable_state(
-        &self,
-        element: &Rc<dyn Element>,
-        action: &str,
-    ) -> Option<String> {
+    pub(in crate::host) fn observable_state(&self, element: &Rc<dyn Element>, action: &str) -> Option<String> {
         // An MSAA node reads as one piece (Get-ObservableTargetState).
         if element.source() == "msaa" {
             return element.observable_state();
         }
         let mut parts = Vec::new();
-        if matches!(
-            action,
-            "click" | "double_click" | "right_click" | "middle_click" | "triple_click"
-        ) {
+        if matches!(action, "click" | "double_click" | "right_click" | "middle_click" | "triple_click") {
             if let Some(toggle) = element.toggle_state() {
                 parts.push(format!("toggle={toggle}"));
             }
@@ -46,10 +39,7 @@ impl Host {
                 parts.push(format!("scroll={horizontal},{vertical}"));
             }
         }
-        let native = self
-            .desktop
-            .background()
-            .and_then(|background| background.native_state(element.native_handle(), action));
+        let native = self.desktop.background().and_then(|background| background.native_state(element.native_handle(), action));
         parts.extend(native);
         (!parts.is_empty()).then(|| parts.join("|"))
     }
@@ -208,7 +198,7 @@ pub(in crate::host::semantic) mod probe {
 
 #[cfg(test)]
 mod tests {
-    use super::probe::{probe_node, Probe};
+    use super::probe::{Probe, probe_node};
     use crate::host::semantic::tests::{host, snapshot};
     use serde_json::json;
     use std::rc::Rc;

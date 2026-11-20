@@ -60,12 +60,7 @@ fn rig_with_panes() -> (Arc<HostService>, Arc<MockStatePublisher>, Arc<Spy>, Arc
     let publisher = Arc::new(MockStatePublisher::default());
     let spy = Arc::new(Spy::default());
     let panes = Arc::new(mixdog_exthost::VisualizePanes::default());
-    (
-        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), panes.clone()),
-        publisher,
-        spy,
-        panes,
-    )
+    (HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), panes.clone()), publisher, spy, panes)
 }
 
 /// What the core handed the phones that view a session: the session, whether everyone gets it, and the payloads in order.
@@ -98,11 +93,7 @@ fn from_claim(claimant: bool, value: Value) -> CoreRequest {
 fn a_browser_surface_request_reaches_the_open_feed_and_a_malformed_one_is_dropped() {
     let (service, _, spy) = rig();
     let from = ConnectionId(1);
-    service.notify(
-        Method("host/browser/surface"),
-        json!({ "sessionId": "s1", "reveal": true, "tabId": "p1", "title": "Docs" }),
-        from,
-    );
+    service.notify(Method("host/browser/surface"), json!({ "sessionId": "s1", "reveal": true, "tabId": "p1", "title": "Docs" }), from);
     service.notify(Method("host/browser/surface"), json!({ "hide": true }), from);
     let seen = spy.surfaces.lock().unwrap();
     assert_eq!(seen.len(), 1);
@@ -122,18 +113,8 @@ fn set(change: &SectionChange) -> Value {
 #[tokio::test]
 async fn desktop_state_is_published_under_its_key() {
     let (service, publisher, _) = rig();
-    let tabs =
-        json!([{ "id": "t1", "title": "Docs", "url": "https://example.com", "loading": false }]);
-    let reply = value(
-        &*service,
-        request(
-            "host/state/set",
-            json!({ "key": "browserTabs", "value": tabs }),
-            None,
-        ),
-    )
-    .await
-    .unwrap();
+    let tabs = json!([{ "id": "t1", "title": "Docs", "url": "https://example.com", "loading": false }]);
+    let reply = value(&*service, request("host/state/set", json!({ "key": "browserTabs", "value": tabs }), None)).await.unwrap();
     assert_eq!(reply, json!({}));
     let published = publisher.published();
     assert_eq!(published.len(), 1);
@@ -141,16 +122,7 @@ async fn desktop_state_is_published_under_its_key() {
     assert_eq!(published[0].1.as_deref(), Some("browserTabs"));
     assert_eq!(set(&published[0].2), tabs);
     // A key outside the four is not a request.
-    assert!(matches!(
-        service
-            .call(request(
-                "host/state/set",
-                json!({ "key": "other", "value": 1 }),
-                None
-            ))
-            .await,
-        Err(CoreError::InvalidParams { .. })
-    ));
+    assert!(matches!(service.call(request("host/state/set", json!({ "key": "other", "value": 1 }), None)).await, Err(CoreError::InvalidParams { .. })));
 }
 
 #[tokio::test]
@@ -167,10 +139,7 @@ async fn losing_a_desktop_host_removes_only_its_browser_dialog_marks() {
     service.call(report(2, second.clone(), vec!["two", "shared"])).await.unwrap();
     first.cancel();
     service.connection_closed(ConnectionId(1));
-    assert!(matches!(
-        service.call(report(1, first, vec!["one"])).await,
-        Err(CoreError::ConnectionClosed)
-    ));
+    assert!(matches!(service.call(report(1, first, vec!["one"])).await, Err(CoreError::ConnectionClosed)));
     second.cancel();
     service.connection_closed(ConnectionId(2));
     let lists: Vec<_> = publisher.published().iter().map(|(_, _, change)| set(change)).collect();
@@ -180,46 +149,12 @@ async fn losing_a_desktop_host_removes_only_its_browser_dialog_marks() {
 #[tokio::test]
 async fn the_remote_target_is_a_loopback_tunnel_or_absent() {
     let (service, _, spy) = rig();
-    value(
-        &*service,
-        request(
-            "host/remoteTarget/set",
-            json!({ "endpoint": "ws://127.0.0.1:52100/rpc", "token": "t" }),
-            None,
-        ),
-    )
-    .await
-    .unwrap();
-    value(&*service, request("host/remoteTarget/set", json!({}), None))
-        .await
-        .unwrap();
-    assert_eq!(
-        *spy.targets.lock().unwrap(),
-        vec![
-            Some(RemoteTarget {
-                endpoint: "ws://127.0.0.1:52100/rpc".into(),
-                token: Some("t".into())
-            }),
-            None
-        ]
-    );
-    for endpoint in [
-        "wss://127.0.0.1:1/rpc",
-        "ws://example.com:80/rpc",
-        "ws://127.0.0.1/rpc",
-        "nonsense",
-    ] {
+    value(&*service, request("host/remoteTarget/set", json!({ "endpoint": "ws://127.0.0.1:52100/rpc", "token": "t" }), None)).await.unwrap();
+    value(&*service, request("host/remoteTarget/set", json!({}), None)).await.unwrap();
+    assert_eq!(*spy.targets.lock().unwrap(), vec![Some(RemoteTarget { endpoint: "ws://127.0.0.1:52100/rpc".into(), token: Some("t".into()) }), None]);
+    for endpoint in ["wss://127.0.0.1:1/rpc", "ws://example.com:80/rpc", "ws://127.0.0.1/rpc", "nonsense"] {
         assert!(
-            matches!(
-                service
-                    .call(request(
-                        "host/remoteTarget/set",
-                        json!({ "endpoint": endpoint }),
-                        None
-                    ))
-                    .await,
-                Err(CoreError::InvalidParams { .. })
-            ),
+            matches!(service.call(request("host/remoteTarget/set", json!({ "endpoint": endpoint }), None)).await, Err(CoreError::InvalidParams { .. })),
             "{endpoint}"
         );
     }
@@ -233,30 +168,13 @@ fn notifications_reach_their_consumers() {
     service.notify(Method("host/power"), json!({ "event": "suspend" }), from);
     service.notify(Method("host/power"), json!({ "event": "resume" }), from);
     service.notify(Method("host/power"), json!({ "event": "sleep" }), from);
-    service.notify(
-        Method("host/notification/clicked"),
-        json!({ "threadId": "th-1" }),
-        from,
-    );
-    service.notify(
-        Method("host/update/report"),
-        json!({ "state": { "phase": "downloaded", "version": "1.4.6" } }),
-        from,
-    );
-    assert_eq!(
-        *spy.power.lock().unwrap(),
-        vec![PowerEvent::Suspend, PowerEvent::Resume]
-    );
+    service.notify(Method("host/notification/clicked"), json!({ "threadId": "th-1" }), from);
+    service.notify(Method("host/update/report"), json!({ "state": { "phase": "downloaded", "version": "1.4.6" } }), from);
+    assert_eq!(*spy.power.lock().unwrap(), vec![PowerEvent::Suspend, PowerEvent::Resume]);
     assert_eq!(*spy.clicks.lock().unwrap(), vec!["th-1".to_owned()]);
     let published = publisher.published();
-    assert_eq!(
-        (published[0].0, published[0].1.as_deref()),
-        (SectionName::Update, None)
-    );
-    assert_eq!(
-        set(&published[0].2),
-        json!({ "phase": "downloaded", "version": "1.4.6" })
-    );
+    assert_eq!((published[0].0, published[0].1.as_deref()), (SectionName::Update, None));
+    assert_eq!(set(&published[0].2), json!({ "phase": "downloaded", "version": "1.4.6" }));
 }
 
 #[test]
@@ -303,7 +221,6 @@ fn remote_viewing_lists_the_visualize_panels_paired_devices_view() {
     assert_eq!(remote_viewing_value(&registry), json!({ "sessionIds": [] }));
 }
 
-
 /// The visualize state the desktop sets is folded into the core's copy of its panes, whatever the section publishes: the
 /// snapshot Node's mirror was given in `fixtures/phone-guards/golden.json` makes its PDF pane a page file, and an event that
 /// empties the session takes it away (`createRemoteVisualizeMirror` `replace` / `apply`).
@@ -335,7 +252,9 @@ async fn visualize_events_go_to_viewers_whole_and_path_free_and_the_section_hold
     let send = |value: Value| service.call(from_claim(true, value));
     let session = snapshot[0]["sessionId"].clone();
     send(snapshot.clone()).await.unwrap();
-    send(json!({ "sessionId": session, "state": snapshot[0].clone(), "reveal": true, "tab": "t1", "updated": "t1", "held": true, "heldSince": 7 })).await.unwrap();
+    send(json!({ "sessionId": session, "state": snapshot[0].clone(), "reveal": true, "tab": "t1", "updated": "t1", "held": true, "heldSince": 7 }))
+        .await
+        .unwrap();
     // The turn is released: the producer publishes the state without `held`.
     send(json!({ "sessionId": session, "state": snapshot[0].clone() })).await.unwrap();
     send(json!({ "sessionId": session, "openUrl": "https://a.test/" })).await.unwrap();
@@ -353,7 +272,10 @@ async fn visualize_events_go_to_viewers_whole_and_path_free_and_the_section_hold
         assert!(!text.contains(&cwd) && !text.contains(&pdf), "a host path reached a phone: {text}");
     }
     let held = &pushed[0].2[0];
-    assert_eq!((held["reveal"].clone(), held["tab"].clone(), held["held"].clone(), held["heldSince"].clone()), (json!(true), json!("t1"), json!(true), json!(7)));
+    assert_eq!(
+        (held["reveal"].clone(), held["tab"].clone(), held["held"].clone(), held["heldSince"].clone()),
+        (json!(true), json!("t1"), json!(true), json!(7))
+    );
     assert!(held["state"]["tabs"].as_array().is_some_and(|tabs| !tabs.is_empty()), "the event carries the state it announces");
     let released = &pushed[1].2[0];
     assert!(released.get("held").is_none() && released.get("reveal").is_none(), "no effect is invented: held stays absent, as published");

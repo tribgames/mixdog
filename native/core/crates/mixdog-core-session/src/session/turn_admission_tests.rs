@@ -18,11 +18,11 @@ use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::request;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_runs_admitted_and_releases_its_admission_when_it_settles() {
@@ -66,7 +66,13 @@ async fn a_refused_admission_fails_the_turn_unrun_with_the_refusals_text() {
     turn(&handle, "one", "op-1").await;
     // The failed turn's end, with the refusal's text, is shown once its completion is durable (`publishTurnClose`), after the
     // run is gone: the feed says when.
-    eventually_on!(&[&rig.feeds.published], || rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd" && params.to_string().contains(&text)).then_some(())).await;
+    eventually_on!(&[&rig.feeds.published], || rig
+        .feeds
+        .frames(handle.id.as_str())
+        .iter()
+        .any(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd" && params.to_string().contains(&text))
+        .then_some(()))
+    .await;
     assert!(idle(&handle), "the run is gone when its end is shown");
     assert!(!ran.load(Ordering::SeqCst), "the loop never ran");
     assert!(lock(&rig.admissions.seen).is_empty(), "nothing was admitted");
@@ -110,7 +116,13 @@ async fn a_refusing_workspace_gate_fails_the_turn_unrun_and_releases_its_admissi
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "one", "op-1").await;
-    eventually_on!(&[&rig.feeds.published], || rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd" && params.to_string().contains(&text)).then_some(())).await;
+    eventually_on!(&[&rig.feeds.published], || rig
+        .feeds
+        .frames(handle.id.as_str())
+        .iter()
+        .any(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd" && params.to_string().contains(&text))
+        .then_some(()))
+    .await;
     assert!(!ran.load(Ordering::SeqCst), "the loop never ran");
     let id = handle.id.as_str();
     eventually_on!(&[&*rig.admissions.changed], || (lock(&rig.admissions.seen).len() == 2).then_some(())).await;

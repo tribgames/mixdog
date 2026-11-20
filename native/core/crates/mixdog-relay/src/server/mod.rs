@@ -51,7 +51,6 @@ mod tests {
     }
 }
 
-
 /// Runs the relay from the process environment until the process ends.
 pub fn run_cli() -> ExitCode {
     let config = Config::from_process();

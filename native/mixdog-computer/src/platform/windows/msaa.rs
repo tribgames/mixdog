@@ -3,17 +3,13 @@
 
 use super::native::hwnd;
 use crate::platform::Wid;
-use crate::port::windows::{WinPort, A11y};
+use crate::port::windows::{A11y, WinPort};
 use std::collections::HashMap;
-use windows::core::{IUnknown, Interface, BSTR};
 use windows::Win32::System::Com::IDispatch;
 use windows::Win32::System::Variant::{VARIANT, VT_DISPATCH, VT_EMPTY, VT_UNKNOWN};
-use windows::Win32::UI::Accessibility::{
-    AccessibleChildren, AccessibleObjectFromWindow, GetRoleTextW, GetStateTextW, IAccessible,
-};
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetMenu, CHILDID_SELF, OBJID_CLIENT, OBJID_MENU, STATE_SYSTEM_PROTECTED, STATE_SYSTEM_READONLY,
-};
+use windows::Win32::UI::Accessibility::{AccessibleChildren, AccessibleObjectFromWindow, GetRoleTextW, GetStateTextW, IAccessible};
+use windows::Win32::UI::WindowsAndMessaging::{CHILDID_SELF, GetMenu, OBJID_CLIENT, OBJID_MENU, STATE_SYSTEM_PROTECTED, STATE_SYSTEM_READONLY};
+use windows::core::{BSTR, IUnknown, Interface};
 
 /// The most nodes one walk may be asked for (SnapshotObject).
 pub const MAXIMUM: usize = 5000;
@@ -87,8 +83,7 @@ fn number(value: windows::core::Result<VARIANT>) -> Option<u32> {
 impl AccNode for IAccessible {
     fn identity(&self) -> usize {
         // The IUnknown pointer is the COM identity (MixMsaa.Identity).
-        self.cast::<IUnknown>()
-            .map_or(self.as_raw() as usize, |unknown| unknown.as_raw() as usize)
+        self.cast::<IUnknown>().map_or(self.as_raw() as usize, |unknown| unknown.as_raw() as usize)
     }
 
     fn read(&self, child: i32) -> Option<Reading> {
@@ -134,8 +129,7 @@ impl AccNode for IAccessible {
         let mut slots = vec![VARIANT::default(); count];
         let mut obtained = 0;
         // SAFETY: `slots` is as long as the count passed with it.
-        unsafe { AccessibleChildren(self, start, &mut slots, &mut obtained) }
-            .map_err(|error| error.to_string())?;
+        unsafe { AccessibleChildren(self, start, &mut slots, &mut obtained) }.map_err(|error| error.to_string())?;
         slots.truncate(usize::try_from(obtained).unwrap_or(0));
         Ok(slots.iter().map(child_of).collect())
     }
@@ -349,20 +343,8 @@ impl<A: AccNode> Walk<'_, A> {
 
 /// The nodes under `root`, which is not one of them, and whether the walk was
 /// complete (SnapshotObject).
-fn walk<A: AccNode>(
-    root: &A,
-    window: Wid,
-    window_id: &str,
-    maximum: usize,
-) -> Result<(Vec<MsaaNode<A>>, bool), String> {
-    let mut walk = Walk {
-        window,
-        window_id,
-        maximum,
-        nodes: Vec::new(),
-        visited: HashMap::new(),
-        complete: true,
-    };
+fn walk<A: AccNode>(root: &A, window: Wid, window_id: &str, maximum: usize) -> Result<(Vec<MsaaNode<A>>, bool), String> {
+    let mut walk = Walk { window, window_id, maximum, nodes: Vec::new(), visited: HashMap::new(), complete: true };
     walk.traverse(root, "0", 0, false)?;
     Ok((walk.nodes, walk.complete))
 }
@@ -388,12 +370,7 @@ fn object_from_window(window: Wid, objid: i32) -> windows::core::Result<Option<I
 
 /// Up to `maximum` nodes under `objid` (OBJID_CLIENT or OBJID_MENU) of
 /// `hwnd`, and whether the walk was complete (MixMsaa.SnapshotObject).
-pub fn snapshot(
-    hwnd: Wid,
-    window_id: &str,
-    maximum: usize,
-    objid: i32,
-) -> Result<(Vec<MsaaNode>, bool), String> {
+pub fn snapshot(hwnd: Wid, window_id: &str, maximum: usize, objid: i32) -> Result<(Vec<MsaaNode>, bool), String> {
     if hwnd == 0 {
         return Err("MSAA window handle is required".into());
     }
@@ -422,10 +399,7 @@ pub fn is_protected_input(hwnd: Wid) -> Option<bool> {
     if hwnd == 0 {
         return Some(false);
     }
-    let state = object_from_window(hwnd, OBJID_CLIENT.0)
-        .ok()
-        .flatten()
-        .and_then(|client| client.state(SELF));
+    let state = object_from_window(hwnd, OBJID_CLIENT.0).ok().flatten().and_then(|client| client.state(SELF));
     Some(protected(state))
 }
 
@@ -728,9 +702,7 @@ mod tests {
 
     /// A root over a chain of `depth` nested objects.
     fn chain(depth: usize) -> Fake {
-        (1..=depth).rev().fold(object(depth + 1, "leaf", 0, Vec::new()), |child, level| {
-            object(level, "level", 0, vec![child])
-        })
+        (1..=depth).rev().fold(object(depth + 1, "leaf", 0, Vec::new()), |child, level| object(level, "level", 0, vec![child]))
     }
 
     #[test]
@@ -789,29 +761,18 @@ mod tests {
         let pane = || FakeData { id: 2, own: Some(seen("pane", 0)), ..FakeData::default() };
         // No location: the object is left out, and its children are walked.
         let under = FakeChild::Object(object(3, "under", 0, Vec::new()));
-        assert_eq!(
-            unread(FakeData { id: 2, count: Some(1), children: vec![under], ..FakeData::default() }),
-            ["0/0/0 under", "0/1 ok"]
-        );
+        assert_eq!(unread(FakeData { id: 2, count: Some(1), children: vec![under], ..FakeData::default() }), ["0/0/0 under", "0/1 ok"]);
         // No child count.
         assert_eq!(unread(pane()), ["0/0 pane", "0/1 ok"]);
         // Fewer children than counted.
         assert_eq!(unread(FakeData { count: Some(3), ..pane() }), ["0/0 pane", "0/1 ok"]);
         // A simple child without an area.
         assert_eq!(
-            unread(FakeData {
-                simple: vec![(5, Some(Reading::default()))],
-                count: Some(1),
-                children: vec![FakeChild::Simple(5)],
-                ..pane()
-            }),
+            unread(FakeData { simple: vec![(5, Some(Reading::default()))], count: Some(1), children: vec![FakeChild::Simple(5)], ..pane() }),
             ["0/0 pane", "0/1 ok"]
         );
         // A slot that is neither an object nor a child id.
-        assert_eq!(
-            unread(FakeData { count: Some(1), children: vec![FakeChild::Unreadable], ..pane() }),
-            ["0/0 pane", "0/1 ok"]
-        );
+        assert_eq!(unread(FakeData { count: Some(1), children: vec![FakeChild::Unreadable], ..pane() }), ["0/0 pane", "0/1 ok"]);
     }
 
     #[test]

@@ -52,16 +52,96 @@ macro_rules! font {
 }
 
 pub const NOTO_FONTS: [FontDef; 10] = [
-    font!("noto-sans-latin", "Noto Sans", "NotoSans-Variable.ttf", "notosans", "NotoSans%5Bwdth%2Cwght%5D.ttf", 2049096, "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"),
-    font!("noto-sans-kr", "Noto Sans KR", "NotoSansKR-Variable.ttf", "notosanskr", "NotoSansKR%5Bwght%5D.ttf", 10414588, "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252"),
-    font!("noto-sans-sc", "Noto Sans SC", "NotoSansSC-Variable.ttf", "notosanssc", "NotoSansSC%5Bwght%5D.ttf", 17772300, "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"),
-    font!("noto-sans-jp", "Noto Sans JP", "NotoSansJP-Variable.ttf", "notosansjp", "NotoSansJP%5Bwght%5D.ttf", 9589900, "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f"),
-    font!("noto-sans-tc", "Noto Sans TC", "NotoSansTC-Variable.ttf", "notosanstc", "NotoSansTC%5Bwght%5D.ttf", 11941968, "864727d210d54f2537bbe23b3a839436c3992af72de9322af5270897246bd44f"),
-    font!("noto-sans-arabic", "Noto Sans Arabic", "NotoSansArabic-Variable.ttf", "notosansarabic", "NotoSansArabic%5Bwdth%2Cwght%5D.ttf", 844676, "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e"),
-    font!("noto-sans-devanagari", "Noto Sans Devanagari", "NotoSansDevanagari-Variable.ttf", "notosansdevanagari", "NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf", 641944, "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e"),
-    font!("noto-sans-thai", "Noto Sans Thai", "NotoSansThai-Variable.ttf", "notosansthai", "NotoSansThai%5Bwdth%2Cwght%5D.ttf", 218652, "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8"),
-    font!("noto-sans-hebrew", "Noto Sans Hebrew", "NotoSansHebrew-Variable.ttf", "notosanshebrew", "NotoSansHebrew%5Bwdth%2Cwght%5D.ttf", 112640, "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88"),
-    font!("noto-sans-bengali", "Noto Sans Bengali", "NotoSansBengali-Variable.ttf", "notosansbengali", "NotoSansBengali%5Bwdth%2Cwght%5D.ttf", 463668, "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a"),
+    font!(
+        "noto-sans-latin",
+        "Noto Sans",
+        "NotoSans-Variable.ttf",
+        "notosans",
+        "NotoSans%5Bwdth%2Cwght%5D.ttf",
+        2049096,
+        "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+    ),
+    font!(
+        "noto-sans-kr",
+        "Noto Sans KR",
+        "NotoSansKR-Variable.ttf",
+        "notosanskr",
+        "NotoSansKR%5Bwght%5D.ttf",
+        10414588,
+        "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252"
+    ),
+    font!(
+        "noto-sans-sc",
+        "Noto Sans SC",
+        "NotoSansSC-Variable.ttf",
+        "notosanssc",
+        "NotoSansSC%5Bwght%5D.ttf",
+        17772300,
+        "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    ),
+    font!(
+        "noto-sans-jp",
+        "Noto Sans JP",
+        "NotoSansJP-Variable.ttf",
+        "notosansjp",
+        "NotoSansJP%5Bwght%5D.ttf",
+        9589900,
+        "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f"
+    ),
+    font!(
+        "noto-sans-tc",
+        "Noto Sans TC",
+        "NotoSansTC-Variable.ttf",
+        "notosanstc",
+        "NotoSansTC%5Bwght%5D.ttf",
+        11941968,
+        "864727d210d54f2537bbe23b3a839436c3992af72de9322af5270897246bd44f"
+    ),
+    font!(
+        "noto-sans-arabic",
+        "Noto Sans Arabic",
+        "NotoSansArabic-Variable.ttf",
+        "notosansarabic",
+        "NotoSansArabic%5Bwdth%2Cwght%5D.ttf",
+        844676,
+        "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e"
+    ),
+    font!(
+        "noto-sans-devanagari",
+        "Noto Sans Devanagari",
+        "NotoSansDevanagari-Variable.ttf",
+        "notosansdevanagari",
+        "NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf",
+        641944,
+        "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e"
+    ),
+    font!(
+        "noto-sans-thai",
+        "Noto Sans Thai",
+        "NotoSansThai-Variable.ttf",
+        "notosansthai",
+        "NotoSansThai%5Bwdth%2Cwght%5D.ttf",
+        218652,
+        "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8"
+    ),
+    font!(
+        "noto-sans-hebrew",
+        "Noto Sans Hebrew",
+        "NotoSansHebrew-Variable.ttf",
+        "notosanshebrew",
+        "NotoSansHebrew%5Bwdth%2Cwght%5D.ttf",
+        112640,
+        "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88"
+    ),
+    font!(
+        "noto-sans-bengali",
+        "Noto Sans Bengali",
+        "NotoSansBengali-Variable.ttf",
+        "notosansbengali",
+        "NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
+        463668,
+        "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a"
+    ),
 ];
 
 impl FontDef {
@@ -85,10 +165,7 @@ pub fn verify(def: &FontDef, buffer: &[u8]) -> Result<(), String> {
 
 /// `isFontInstalled`: the face's file in the user font folder, else in the system folder.
 pub fn installed_path<P: ReadProof>(proof: &P, env: &HostEnv, def: &FontDef) -> Option<PathBuf> {
-    [env.user_font_dir(), env.system_font_dir()]
-        .into_iter()
-        .map(|dir| dir.join(def.file_name))
-        .find(|path| mixdog_fsio::exists(proof, path).unwrap_or(false))
+    [env.user_font_dir(), env.system_font_dir()].into_iter().map(|dir| dir.join(def.file_name)).find(|path| mixdog_fsio::exists(proof, path).unwrap_or(false))
 }
 
 /// `macOfficeFontDirectory`: the font folder of the first installed Office for Mac app, on macOS only.
@@ -121,7 +198,8 @@ fn register_verified(def: &FontDef, path: &Path, bytes: Vec<u8>, registry: &mut 
     if let Some(ids) = registry.family(def.family) {
         for &id in ids {
             // family() also resolves aliases; register_bytes deduplicates actual registered names only.
-            if registry.family_of(id) == def.family && registry.path_of(id) == Some(path)
+            if registry.family_of(id) == def.family
+                && registry.path_of(id) == Some(path)
                 && registry.face(id).bytes().map(|data| data.as_ref()) != Some(bytes.as_slice())
             {
                 return Err(format!("Font {} registration conflicts with a retained snapshot: {}", def.family, path.display()));
@@ -162,13 +240,24 @@ mod tests {
         assert_eq!(files.len(), 10);
         let first = &NOTO_FONTS[0];
         assert_eq!((first.id, first.family, first.registry_name), ("noto-sans-latin", "Noto Sans", "Noto Sans (TrueType)"));
-        assert_eq!(first.url(), "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf");
+        assert_eq!(
+            first.url(),
+            "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf"
+        );
         assert!(NOTO_FONTS.iter().all(|def| def.sha256.len() == 64 && def.registry_name.starts_with(def.family)));
     }
 
     #[test]
     fn a_buffer_is_verified_with_nodes_messages() {
-        let hello = FontDef { id: "x", family: "Hello", file_name: "h.ttf", registry_name: "", path: "", bytes: 5, sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" };
+        let hello = FontDef {
+            id: "x",
+            family: "Hello",
+            file_name: "h.ttf",
+            registry_name: "",
+            path: "",
+            bytes: 5,
+            sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        };
         assert_eq!(verify(&hello, b"hello"), Ok(()));
         assert_eq!(verify(&hello, b"hell"), Err("Font Hello size mismatch: expected 5 bytes, got 4".to_owned()));
         assert_eq!(
@@ -182,7 +271,6 @@ mod tests {
         let env = HostEnv { os: Os::Linux, home: PathBuf::from("/home/ann"), windir: None, local_app_data: None, xdg_data_home: None };
         assert_eq!(mac_office_font_dir(&mixdog_fsio::Unlaned, &env), None);
     }
-
 
     // A face of the repository read explicitly, pinned by the size and sha256 of its own bytes; no HostEnv or
     // installed-font discovery is involved.
@@ -202,8 +290,7 @@ mod tests {
         verify(&new_def, &new).unwrap();
         let mut registry = Registry::new();
         let id = registry.register_described(path, &old, Some("Pinned")).unwrap();
-        let outcome = register_verified(&new_def, path, new, &mut registry)
-            .map_or_else(Provisioned::Rejected, Provisioned::Registered);
+        let outcome = register_verified(&new_def, path, new, &mut registry).map_or_else(Provisioned::Rejected, Provisioned::Registered);
         assert!(matches!(outcome, Provisioned::Rejected(ref message) if message.contains("retained snapshot")));
         assert_eq!(registry.len(), 1);
         assert_eq!(registry.face(id).bytes().unwrap().as_ref(), old.as_slice());

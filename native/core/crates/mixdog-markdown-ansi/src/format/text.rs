@@ -63,24 +63,17 @@ pub(super) fn decode_entities(text: &str) -> String {
         return text.to_owned();
     }
     let quoted = text.replace("&quot;", "\"");
-    let apostrophes = replace_numeric_references(&quoted, false, |digits| {
-        (digits.trim_start_matches('0') == "39").then(|| "'".to_owned())
-    });
+    let apostrophes = replace_numeric_references(&quoted, false, |digits| (digits.trim_start_matches('0') == "39").then(|| "'".to_owned()));
     let named = apostrophes.replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">");
     let decimal = replace_numeric_references(&named, false, |digits| code_point(digits.parse().ok()));
-    let hexadecimal =
-        replace_numeric_references(&decimal, true, |digits| code_point(u64::from_str_radix(digits, 16).ok()));
+    let hexadecimal = replace_numeric_references(&decimal, true, |digits| code_point(u64::from_str_radix(digits, 16).ok()));
     hexadecimal.replace("&amp;", "&")
 }
 
 /// `ADJACENT_STRONG_RE`: CommonMark refuses to close `**0.118%**이며` or `**A.**B` (punctuation before the closing
 /// delimiter, a letter after it), so the markers would stay visible as literal text.
-static ADJACENT_STRONG: LazyLock<Re> = LazyLock::new(|| {
-    Re::new(
-        r"(?:\*\*(?!\s)([^*\n]*?[^\s\p{L}\p{N}*])\*\*|__(?!\s)([^_\n]*?[^\s\p{L}\p{N}_])__)(?=[\p{L}\p{N}])",
-        "u",
-    )
-});
+static ADJACENT_STRONG: LazyLock<Re> =
+    LazyLock::new(|| Re::new(r"(?:\*\*(?!\s)([^*\n]*?[^\s\p{L}\p{N}*])\*\*|__(?!\s)([^_\n]*?[^\s\p{L}\p{N}_])__)(?=[\p{L}\p{N}])", "u"));
 
 /// `repairAdjacentStrong(text)`.
 pub(super) fn repair_adjacent_strong(text: &str) -> String {

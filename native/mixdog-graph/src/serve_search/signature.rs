@@ -32,8 +32,7 @@ impl TrigramSignature {
                 self.bits[first / 64] |= 1u64 << (first % 64);
                 self.bits[second / 64] |= 1u64 << (second % 64);
                 let folded = byte.to_ascii_lowercase();
-                let (folded_first, folded_second) =
-                    trigram_bits(self.folded_previous[0], self.folded_previous[1], folded);
+                let (folded_first, folded_second) = trigram_bits(self.folded_previous[0], self.folded_previous[1], folded);
                 self.folded_bits[folded_first / 64] |= 1u64 << (folded_first % 64);
                 self.folded_bits[folded_second / 64] |= 1u64 << (folded_second % 64);
             }
@@ -46,13 +45,8 @@ impl TrigramSignature {
     }
 
     pub(super) fn contains(&self, first: usize, second: usize, folded: bool) -> bool {
-        let bits = if folded {
-            &self.folded_bits
-        } else {
-            &self.bits
-        };
-        (bits[first / 64] & (1u64 << (first % 64))) != 0
-            && (bits[second / 64] & (1u64 << (second % 64))) != 0
+        let bits = if folded { &self.folded_bits } else { &self.bits };
+        (bits[first / 64] & (1u64 << (first % 64))) != 0 && (bits[second / 64] & (1u64 << (second % 64))) != 0
     }
 }
 
@@ -73,9 +67,7 @@ pub(super) struct FileMetadataEntry {
     pub(super) identity: Option<crate::serve_search_usn::FileIdentity>,
 }
 
-pub(super) static CONTENT_SIGNATURE_CACHE: OnceLock<
-    [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS],
-> = OnceLock::new();
+pub(super) static CONTENT_SIGNATURE_CACHE: OnceLock<[Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS]> = OnceLock::new();
 // Not a OnceLock: an in-process server releases this cache on idle and must be
 // able to reload it from the snapshot on the next search, exactly as a fresh
 // standalone process would. A OnceLock can never be re-armed.
@@ -83,36 +75,24 @@ pub(super) static CONTENT_SIGNATURE_CACHE_LOADED: AtomicBool = AtomicBool::new(f
 pub(super) static CONTENT_SIGNATURE_CACHE_LOAD: Mutex<()> = Mutex::new(());
 pub(super) static CONTENT_SIGNATURE_CACHE_DIRTY: AtomicUsize = AtomicUsize::new(0);
 pub(super) static CONTENT_SIGNATURE_CACHE_PERSISTING: AtomicBool = AtomicBool::new(false);
-pub(super) static FILE_METADATA_CACHE: OnceLock<
-    [Mutex<HashMap<PathBuf, FileMetadataEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS],
-> = OnceLock::new();
+pub(super) static FILE_METADATA_CACHE: OnceLock<[Mutex<HashMap<PathBuf, FileMetadataEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS]> = OnceLock::new();
 pub(super) static TRUSTED_USN_VOLUMES: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
 pub(super) static TRUSTED_WATCH_ROOTS: OnceLock<RwLock<HashSet<PathBuf>>> = OnceLock::new();
 
-pub(super) fn content_signature_cache(
-) -> &'static [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
+pub(super) fn content_signature_cache() -> &'static [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
     ensure_content_signature_cache_loaded();
     raw_content_signature_cache()
 }
 
-pub(super) fn raw_content_signature_cache(
-) -> &'static [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
+pub(super) fn raw_content_signature_cache() -> &'static [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
     CONTENT_SIGNATURE_CACHE.get_or_init(|| std::array::from_fn(|_| Mutex::new(HashMap::new())))
 }
 
 pub(super) fn content_signature_snapshot_path() -> Option<PathBuf> {
-    let data_dir = std::env::var_os("MIXDOG_DATA_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            let home = std::env::var_os("MIXDOG_HOME")
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))?;
-            Some(home.join(if std::env::var_os("MIXDOG_HOME").is_some() {
-                "data"
-            } else {
-                ".mixdog/data"
-            }))
-        })?;
+    let data_dir = std::env::var_os("MIXDOG_DATA_DIR").map(PathBuf::from).or_else(|| {
+        let home = std::env::var_os("MIXDOG_HOME").map(PathBuf::from).or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))?;
+        Some(home.join(if std::env::var_os("MIXDOG_HOME").is_some() { "data" } else { ".mixdog/data" }))
+    })?;
     Some(data_dir.join("search-index/content-signatures-v2.bin"))
 }
 
@@ -126,18 +106,12 @@ fn read_signature_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> 
         || read_snapshot_u32(reader)? != CONTENT_SIGNATURE_SNAPSHOT_VERSION
         || read_snapshot_u32(reader)? as usize != CONTENT_SIGNATURE_WORDS
     {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "signature snapshot header",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "signature snapshot header"));
     }
     let checkpoint_count = read_snapshot_u32(reader)? as usize;
     let entry_count = read_snapshot_u32(reader)? as usize;
     if checkpoint_count > 256 || entry_count > CONTENT_SIGNATURE_CACHE_MAX {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "signature snapshot count",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "signature snapshot count"));
     }
     Ok((checkpoint_count, entry_count))
 }
@@ -148,23 +122,14 @@ fn read_signature_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> 
 fn read_signature_entry<R: Read>(reader: &mut R) -> io::Result<(PathBuf, ContentSignatureEntry)> {
     let path_len = read_snapshot_u32(reader)? as usize;
     if path_len == 0 || path_len > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "signature snapshot path",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "signature snapshot path"));
     }
     let mut path_bytes = vec![0u8; path_len];
     reader.read_exact(&mut path_bytes)?;
-    let path = PathBuf::from(
-        String::from_utf8(path_bytes)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "signature snapshot utf8"))?,
-    );
+    let path = PathBuf::from(String::from_utf8(path_bytes).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "signature snapshot utf8"))?);
     let size = read_snapshot_u64(reader)?;
     let modified_ns = read_snapshot_u128(reader)?;
-    let identity = crate::serve_search_usn::FileIdentity {
-        volume: read_snapshot_u32(reader)?,
-        file_id: read_snapshot_u64(reader)?,
-    };
+    let identity = crate::serve_search_usn::FileIdentity { volume: read_snapshot_u32(reader)?, file_id: read_snapshot_u64(reader)? };
     let mut bits = [0u64; CONTENT_SIGNATURE_WORDS];
     let mut folded_bits = [0u64; CONTENT_SIGNATURE_WORDS];
     for word in &mut bits {
@@ -180,23 +145,13 @@ fn read_signature_entry<R: Read>(reader: &mut R) -> io::Result<(PathBuf, Content
             modified_ns,
             identity: Some(identity),
             persisted: true,
-            signature: TrigramSignature {
-                bits,
-                folded_bits,
-                previous: [0; 2],
-                folded_previous: [0; 2],
-                seen: 0,
-                complete: true,
-            },
+            signature: TrigramSignature { bits, folded_bits, previous: [0; 2], folded_previous: [0; 2], seen: 0, complete: true },
         },
     ))
 }
 
 pub(super) fn load_content_signature_cache_binary(path: &Path) -> bool {
-    if fs::metadata(path)
-        .ok()
-        .is_none_or(|metadata| metadata.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_BYTES)
-    {
+    if fs::metadata(path).ok().is_none_or(|metadata| metadata.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_BYTES) {
         return false;
     }
     let Ok(file) = File::open(path) else {
@@ -210,8 +165,7 @@ pub(super) fn load_content_signature_cache_binary(path: &Path) -> bool {
         inserted.reserve(entry_count);
         for _ in 0..entry_count {
             let (path, entry) = read_signature_entry(&mut reader)?;
-            lock_recover(&raw_content_signature_cache()[content_signature_shard(&path)])
-                .insert(path.clone(), entry);
+            lock_recover(&raw_content_signature_cache()[content_signature_shard(&path)]).insert(path.clone(), entry);
             inserted.push(path);
         }
         Ok(checkpoints)
@@ -223,8 +177,7 @@ pub(super) fn load_content_signature_cache_binary(path: &Path) -> bool {
         }
         _ => {
             for path in inserted {
-                lock_recover(&raw_content_signature_cache()[content_signature_shard(&path)])
-                    .remove(&path);
+                lock_recover(&raw_content_signature_cache()[content_signature_shard(&path)]).remove(&path);
             }
             false
         }
@@ -270,10 +223,7 @@ pub(super) fn persist_content_signature_cache() {
     if checkpoints.is_empty() {
         return;
     }
-    let trusted_serials = checkpoints
-        .iter()
-        .map(|checkpoint| checkpoint.volume_serial)
-        .collect::<HashSet<_>>();
+    let trusted_serials = checkpoints.iter().map(|checkpoint| checkpoint.volume_serial).collect::<HashSet<_>>();
     let Some(path) = content_signature_snapshot_path() else {
         return;
     };
@@ -295,17 +245,12 @@ pub(super) fn persist_content_signature_cache() {
         for shard in content_signature_cache() {
             let cache = lock_recover(shard);
             for (path, entry) in cache.iter() {
-                let Some(identity) = entry
-                    .identity
-                    .filter(|identity| trusted_serials.contains(&identity.volume))
-                else {
+                let Some(identity) = entry.identity.filter(|identity| trusted_serials.contains(&identity.volume)) else {
                     continue;
                 };
                 let path_bytes = path.to_string_lossy();
                 let path_bytes = path_bytes.as_bytes();
-                if path_bytes.is_empty()
-                    || path_bytes.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES
-                {
+                if path_bytes.is_empty() || path_bytes.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
                     continue;
                 }
                 writer.write_all(&(path_bytes.len() as u32).to_le_bytes())?;
@@ -335,9 +280,7 @@ pub(super) fn persist_content_signature_cache() {
 
 pub(super) fn schedule_content_signature_cache_persist() {
     if CONTENT_SIGNATURE_CACHE_DIRTY.load(Ordering::Acquire) == 0
-        || CONTENT_SIGNATURE_CACHE_PERSISTING
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
+        || CONTENT_SIGNATURE_CACHE_PERSISTING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
     {
         return;
     }
@@ -351,8 +294,7 @@ pub(super) fn schedule_content_signature_cache_persist() {
     });
 }
 
-pub(super) fn file_metadata_cache(
-) -> &'static [Mutex<HashMap<PathBuf, FileMetadataEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
+pub(super) fn file_metadata_cache() -> &'static [Mutex<HashMap<PathBuf, FileMetadataEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
     FILE_METADATA_CACHE.get_or_init(|| std::array::from_fn(|_| Mutex::new(HashMap::new())))
 }
 
@@ -374,19 +316,12 @@ impl TrustSnapshot {
     pub(super) fn capture() -> Self {
         Self {
             usn_volumes: Arc::new(lock_recover(trusted_usn_volumes()).clone()),
-            watch_roots: Arc::new(
-                read_recover(trusted_watch_roots())
-                    .iter()
-                    .cloned()
-                    .collect(),
-            ),
+            watch_roots: Arc::new(read_recover(trusted_watch_roots()).iter().cloned().collect()),
         }
     }
 
     pub(super) fn watcher_covers(&self, path: &Path) -> bool {
-        self.watch_roots
-            .iter()
-            .any(|root| path.starts_with(root) || path_starts_with(path, root))
+        self.watch_roots.iter().any(|root| path.starts_with(root) || path_starts_with(path, root))
     }
 }
 
@@ -408,9 +343,7 @@ pub(super) fn apply_content_signature_journal_sync(result: crate::serve_search_u
     }
     CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
     let changed = |identity: Option<crate::serve_search_usn::FileIdentity>| {
-        identity.is_some_and(|identity| {
-            identity.volume == serial && result.changed.contains(&identity.file_id)
-        })
+        identity.is_some_and(|identity| identity.volume == serial && result.changed.contains(&identity.file_id))
     };
     for shard in content_signature_cache() {
         lock_recover(shard).retain(|_, entry| !changed(entry.identity));
@@ -423,10 +356,7 @@ pub(super) fn apply_content_signature_journal_sync(result: crate::serve_search_u
 pub(super) fn refresh_content_signature_journals(targets: &[String], cwd: &Path) {
     ensure_content_signature_cache_loaded();
     // Path::join replaces the base when the target is absolute.
-    let absolute_targets = targets
-        .iter()
-        .map(|target| cwd.join(target))
-        .collect::<Vec<_>>();
+    let absolute_targets = targets.iter().map(|target| cwd.join(target)).collect::<Vec<_>>();
     let mut volumes = HashSet::new();
     for absolute in absolute_targets {
         if let Some(volume) = crate::serve_search_usn::volume_for_path(&absolute) {
@@ -447,43 +377,28 @@ pub(super) fn content_signature_shard(path: &Path) -> usize {
 pub(super) fn trigram_bits(first: u8, second: u8, third: u8) -> (usize, usize) {
     let packed = ((first as u32) << 16) | ((second as u32) << 8) | third as u32;
     let one = packed.wrapping_mul(0x9E37_79B1) as usize & (CONTENT_SIGNATURE_BITS - 1);
-    let two =
-        packed.rotate_left(13).wrapping_mul(0x85EB_CA6B) as usize & (CONTENT_SIGNATURE_BITS - 1);
+    let two = packed.rotate_left(13).wrapping_mul(0x85EB_CA6B) as usize & (CONTENT_SIGNATURE_BITS - 1);
     (one, two)
 }
 
-pub(super) fn literal_trigram_requirements(
-    parsed: &ParsedArgs,
-) -> Option<Vec<Vec<(usize, usize)>>> {
+pub(super) fn literal_trigram_requirements(parsed: &ParsedArgs) -> Option<Vec<Vec<(usize, usize)>>> {
     if parsed.patterns.is_empty() {
         return None;
     }
     let mut all = Vec::with_capacity(parsed.patterns.len());
     for pattern in &parsed.patterns {
-        let literal = if parsed.fixed_strings {
-            pattern.as_bytes().to_vec()
-        } else {
-            mandatory_regex_literal(pattern)?
-        };
+        let literal = if parsed.fixed_strings { pattern.as_bytes().to_vec() } else { mandatory_regex_literal(pattern)? };
         if literal.len() < 3 || (parsed.case_insensitive && !literal.is_ascii()) {
             return None;
         }
         let folded;
         let bytes = if parsed.case_insensitive {
-            folded = literal
-                .iter()
-                .map(|byte| byte.to_ascii_lowercase())
-                .collect::<Vec<_>>();
+            folded = literal.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<_>>();
             folded.as_slice()
         } else {
             literal.as_slice()
         };
-        all.push(
-            bytes
-                .windows(3)
-                .map(|window| trigram_bits(window[0], window[1], window[2]))
-                .collect(),
-        );
+        all.push(bytes.windows(3).map(|window| trigram_bits(window[0], window[1], window[2])).collect());
     }
     Some(all)
 }
@@ -491,9 +406,7 @@ pub(super) fn literal_trigram_requirements(
 pub(super) fn mandatory_regex_literal(pattern: &str) -> Option<Vec<u8>> {
     let bytes = pattern.as_bytes();
     let mut index = usize::from(bytes.first() == Some(&b'^'));
-    let end = bytes
-        .len()
-        .saturating_sub(usize::from(bytes.last() == Some(&b'$')));
+    let end = bytes.len().saturating_sub(usize::from(bytes.last() == Some(&b'$')));
     let mut runs = Vec::<Vec<u8>>::new();
     let mut current = Vec::new();
     while index < end {
@@ -532,14 +445,7 @@ pub(super) fn mandatory_regex_literal(pattern: &str) -> Option<Vec<u8>> {
 /// Modification time in nanoseconds since the epoch, or `None` when the
 /// platform or filesystem cannot report one.
 fn modified_ns(metadata: &std::fs::Metadata) -> Option<u128> {
-    Some(
-        metadata
-            .modified()
-            .ok()?
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?
-            .as_nanos(),
-    )
+    Some(metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos())
 }
 
 pub(super) fn file_content_fingerprint(path: &Path) -> Option<(u64, u128)> {
@@ -554,27 +460,16 @@ pub(super) fn file_mtime_ms(path: &Path, trust: &TrustSnapshot) -> Option<u128> 
         cache.get(path).cloned()
     };
     if let Some(entry) = cached.as_ref() {
-        if entry
-            .identity
-            .is_some_and(|identity| trust.usn_volumes.contains(&identity.volume))
-        {
+        if entry.identity.is_some_and(|identity| trust.usn_volumes.contains(&identity.volume)) {
             return Some(entry.mtime_ms);
         }
     }
     let (metadata, identity) = crate::serve_search_usn::metadata_and_identity(path)?;
     let modified_ns = modified_ns(&metadata)?;
-    if cached
-        .as_ref()
-        .is_some_and(|entry| entry.size == metadata.len() && entry.modified_ns == modified_ns)
-    {
+    if cached.as_ref().is_some_and(|entry| entry.size == metadata.len() && entry.modified_ns == modified_ns) {
         return cached.map(|entry| entry.mtime_ms);
     }
-    let entry = FileMetadataEntry {
-        size: metadata.len(),
-        modified_ns,
-        mtime_ms: modified_ns / 1_000_000,
-        identity,
-    };
+    let entry = FileMetadataEntry { size: metadata.len(), modified_ns, mtime_ms: modified_ns / 1_000_000, identity };
     let mtime_ms = entry.mtime_ms;
     lock_recover(&file_metadata_cache()[shard]).insert(path.to_path_buf(), entry);
     Some(mtime_ms)
@@ -587,12 +482,7 @@ pub(super) enum CachedSignatureState {
     Excludes,
 }
 
-pub(super) fn cached_signature_state(
-    path: &Path,
-    requirements: &[Vec<(usize, usize)>],
-    folded: bool,
-    trust: &TrustSnapshot,
-) -> CachedSignatureState {
+pub(super) fn cached_signature_state(path: &Path, requirements: &[Vec<(usize, usize)>], folded: bool, trust: &TrustSnapshot) -> CachedSignatureState {
     let shard = content_signature_shard(path);
     let watcher_trusted = trust.watcher_covers(path);
     let entry = {
@@ -600,9 +490,7 @@ pub(super) fn cached_signature_state(
         let Some(entry) = cache.get(path) else {
             return CachedSignatureState::Missing;
         };
-        let usn_trusted = entry
-            .identity
-            .is_some_and(|identity| trust.usn_volumes.contains(&identity.volume));
+        let usn_trusted = entry.identity.is_some_and(|identity| trust.usn_volumes.contains(&identity.volume));
         if usn_trusted || (!entry.persisted && watcher_trusted) {
             return reusable_signature_state(&entry.signature, requirements, folded);
         }
@@ -621,36 +509,19 @@ pub(super) fn cached_signature_state(
 
 /// What a trusted cached signature says about this request: the file cannot
 /// contain every required trigram, or it has to be scanned.
-fn reusable_signature_state(
-    signature: &TrigramSignature,
-    requirements: &[Vec<(usize, usize)>],
-    folded: bool,
-) -> CachedSignatureState {
-    if !requirements.is_empty() && signature_excludes_requirements(signature, requirements, folded)
-    {
+fn reusable_signature_state(signature: &TrigramSignature, requirements: &[Vec<(usize, usize)>], folded: bool) -> CachedSignatureState {
+    if !requirements.is_empty() && signature_excludes_requirements(signature, requirements, folded) {
         CachedSignatureState::Excludes
     } else {
         CachedSignatureState::Reusable
     }
 }
 
-pub(super) fn signature_excludes_requirements(
-    signature: &TrigramSignature,
-    requirements: &[Vec<(usize, usize)>],
-    folded: bool,
-) -> bool {
-    requirements.iter().all(|pattern| {
-        pattern
-            .iter()
-            .any(|&(first, second)| !signature.contains(first, second, folded))
-    })
+pub(super) fn signature_excludes_requirements(signature: &TrigramSignature, requirements: &[Vec<(usize, usize)>], folded: bool) -> bool {
+    requirements.iter().all(|pattern| pattern.iter().any(|&(first, second)| !signature.contains(first, second, folded)))
 }
 
-pub(super) fn remember_content_signature(
-    path: &Path,
-    signature: &TrigramSignature,
-    identity: Option<crate::serve_search_usn::FileIdentity>,
-) {
+pub(super) fn remember_content_signature(path: &Path, signature: &TrigramSignature, identity: Option<crate::serve_search_usn::FileIdentity>) {
     if !signature.complete {
         return;
     }
@@ -672,35 +543,21 @@ pub(super) fn remember_content_signature(
             cache.remove(&oldest);
         }
     }
-    cache.insert(
-        path.to_path_buf(),
-        ContentSignatureEntry {
-            size,
-            modified_ns,
-            identity,
-            persisted: false,
-            signature: signature.clone(),
-        },
-    );
+    cache.insert(path.to_path_buf(), ContentSignatureEntry { size, modified_ns, identity, persisted: false, signature: signature.clone() });
     CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
 }
 
 pub(super) static SIGNATURE_PREWARM_RUNNING: AtomicBool = AtomicBool::new(false);
 
 pub(super) fn schedule_signature_prewarm(files: Arc<Vec<PathBuf>>) {
-    if SIGNATURE_PREWARM_RUNNING
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
+    if SIGNATURE_PREWARM_RUNNING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
         return;
     }
     std::thread::spawn(move || {
         let mut total_bytes = 0u64;
         let mut buffer = vec![0u8; 256 * 1024];
         for path in files.iter().take(8_192) {
-            if lock_recover(&raw_content_signature_cache()[content_signature_shard(path)])
-                .contains_key(path)
-            {
+            if lock_recover(&raw_content_signature_cache()[content_signature_shard(path)]).contains_key(path) {
                 continue;
             }
             let Ok(metadata) = fs::metadata(path) else {
@@ -755,22 +612,13 @@ fn invalidate_path_keyed_shards<T>(
         if paths.is_empty() {
             cache.clear();
         } else {
-            cache.retain(|cached, _| {
-                !paths
-                    .iter()
-                    .any(|changed| FileListStore::paths_overlap(cached, changed))
-            });
+            cache.retain(|cached, _| !paths.iter().any(|changed| FileListStore::paths_overlap(cached, changed)));
         }
     }
 }
 
 pub(super) fn invalidate_content_signatures(paths: &[PathBuf], recursive: bool) {
-    invalidate_path_keyed_shards(
-        raw_content_signature_cache(),
-        content_signature_cache,
-        paths,
-        recursive,
-    );
+    invalidate_path_keyed_shards(raw_content_signature_cache(), content_signature_cache, paths, recursive);
 }
 
 pub(super) fn invalidate_file_metadata(paths: &[PathBuf], recursive: bool) {

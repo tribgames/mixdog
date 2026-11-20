@@ -15,23 +15,23 @@ use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobSnapshot;
 use mixdog_agent::agent_tool::progress::Progress;
 use mixdog_agent::agent_tool::progress::ProgressInput;
-use mixdog_agent::agent_tool::progress::frozen_progress;
 use mixdog_agent::agent_tool::progress::WatchdogPolicy;
+use mixdog_agent::agent_tool::progress::frozen_progress;
 use mixdog_agent::agent_tool::progress::progress_fields;
-use mixdog_agent::agent_tool::watchdog::AgentKind;
-use mixdog_agent::agent_tool::watchdog::Overrides;
-use mixdog_agent::agent_tool::watchdog::resolve_policy;
-use mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds;
-use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::positive_int;
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
-use mixdog_core_run::run_host::progress::WaitedJobs;
 use mixdog_agent::agent_tool::views::WorkerLive;
 use mixdog_agent::agent_tool::views::is_active_worker;
+use mixdog_agent::agent_tool::watchdog::AgentKind;
+use mixdog_agent::agent_tool::watchdog::Overrides;
+use mixdog_agent::agent_tool::watchdog::resolve_policy;
 use mixdog_app_protocol::v2::thread::ThreadAgents;
-use mixdog_core_api::ids::ThreadId;
 use mixdog_core_agents::agents::todo_progress;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds;
+use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
+use mixdog_core_run::run_host::progress::WaitedJobs;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -72,7 +72,8 @@ fn text(session: &Row, key: &str) -> Option<String> {
 /// `rowState`: a closed session reads `closed`; a stage of its own wins; an idle, errored or closed
 /// status is its own stage; otherwise the runtime's.
 pub(super) fn row_state(session: &Row, runtime_stage: Option<&str>) -> (String, String) {
-    let status = if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { text(session, "status").unwrap_or_else(|| "idle".to_owned()) };
+    let status =
+        if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { text(session, "status").unwrap_or_else(|| "idle".to_owned()) };
     let stage = text(session, "stage").unwrap_or_else(|| {
         if matches!(status.as_str(), "idle" | "error" | "closed") {
             status.clone()
@@ -85,11 +86,7 @@ pub(super) fn row_state(session: &Row, runtime_stage: Option<&str>) -> (String, 
 
 /// `resolveAgentWatchdogPolicy(role)` with no overrides, the internal role's own idle cap included.
 fn resolve_role_policy(role: &str) -> WatchdogPolicy {
-    let kind = AgentKind {
-        name: Some(role),
-        hidden: hidden_agent_traits(role).is_some(),
-        stall_cap_idle_seconds: hidden_agent_stall_cap_idle_seconds(role),
-    };
+    let kind = AgentKind { name: Some(role), hidden: hidden_agent_traits(role).is_some(), stall_cap_idle_seconds: hidden_agent_stall_cap_idle_seconds(role) };
     resolve_policy(kind, Overrides::default(), &|name: &str| std::env::var(name).ok())
 }
 
@@ -284,10 +281,14 @@ pub fn job_status_row(input: &JobStatus<'_>) -> Map<String, Value> {
     let _ = session_id;
     let session_status = input.session.and_then(|s| text(s, "status"));
     if let Some(session) = input.session {
-        let status = if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { session_status.clone().unwrap_or_else(|| "idle".to_owned()) };
+        let status =
+            if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { session_status.clone().unwrap_or_else(|| "idle".to_owned()) };
         let progress = progress_of(session_status.as_deref(), input.live, None, input.now);
         row.insert("workerStatus".into(), json!(status));
-        row.insert("stage".into(), json!(if progress.worker_stage.is_empty() { input.live.runtime_stage.clone().unwrap_or(status) } else { progress.worker_stage.clone() }));
+        row.insert(
+            "stage".into(),
+            json!(if progress.worker_stage.is_empty() { input.live.runtime_stage.clone().unwrap_or(status) } else { progress.worker_stage.clone() }),
+        );
         if let Some(awaiting) = input.awaiting_user.as_ref().filter(|a| truthy(Some(a))) {
             row.insert("awaitingUser".into(), awaiting.clone());
         }
@@ -403,7 +404,8 @@ impl AgentStatus for AgentToolStatus {
             let id = job.meta.session_id.clone().filter(|id| !id.is_empty());
             let session = id.as_deref().and_then(|id| self.directory.handle(&ThreadId::from(id))).map(|h| h.cell.header.load_full());
             // A finished job's row is frozen: no progress is read, so no role policy is asked for.
-            let live = id.as_deref().filter(|_| !is_terminal(&job.status)).map(|id| self.live(id, job.meta.agent.as_deref(), now, &mut pending)).unwrap_or_default();
+            let live =
+                id.as_deref().filter(|_| !is_terminal(&job.status)).map(|id| self.live(id, job.meta.agent.as_deref(), now, &mut pending)).unwrap_or_default();
             jobs.push(Value::Object(job_status_row(&JobStatus {
                 job: &job,
                 session: session.as_deref(),
@@ -427,4 +429,3 @@ pub(crate) fn agent_scope(thread: &ThreadId, header: &Map<String, Value>) -> Val
     }
     json!({ "clientHostPid": positive_int(header.get("clientHostPid")).unwrap_or_else(|| u64::from(std::process::id())) })
 }
-

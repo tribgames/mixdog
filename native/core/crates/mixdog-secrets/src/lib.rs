@@ -13,15 +13,15 @@
 //! calls run on the durability lane.
 
 mod fallback;
-mod status;
-#[cfg(feature = "count-work")]
-pub mod work;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+mod status;
 #[cfg(windows)]
 mod windows;
+#[cfg(feature = "count-work")]
+pub mod work;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,11 +34,11 @@ use mixdog_rt::LaneToken;
 use tokio_util::sync::CancellationToken;
 
 pub use fallback::Unsafe;
+pub use fallback::unsafe_store;
 pub use status::FailureCode;
 pub use status::Snapshot;
 pub use status::StatusTracker;
 pub use status::TrackedStore;
-pub use fallback::unsafe_store;
 
 /// The keychain service every item is stored under.
 pub const SERVICE: &str = "mixdog";
@@ -95,10 +95,7 @@ pub trait SecretStore: Send + Sync {
 }
 
 /// Runs a blocking closure on the durability lane.
-pub(crate) async fn on_lane<T: Send + 'static>(
-    io: DurabilityIo,
-    work: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, SecretError> {
+pub(crate) async fn on_lane<T: Send + 'static>(io: DurabilityIo, work: impl FnOnce() -> T + Send + 'static) -> Result<T, SecretError> {
     let job = io.submit(&CancellationToken::new(), move |_lane| work()).map_err(|_| SecretError::unrun("the durability lane is full"))?;
     job.await.map_err(|e| SecretError::unrun(format!("{e:?}")))
 }

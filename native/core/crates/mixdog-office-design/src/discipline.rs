@@ -56,11 +56,9 @@ const SAFE_FONT_FAMILIES: &[&str] = &[
     "Hiragino Sans",
 ];
 
-static SAFE_FONT_KEYS: LazyLock<HashSet<String>> =
-    LazyLock::new(|| SAFE_FONT_FAMILIES.iter().map(|name| font_family_key(name)).collect());
+static SAFE_FONT_KEYS: LazyLock<HashSet<String>> = LazyLock::new(|| SAFE_FONT_FAMILIES.iter().map(|name| font_family_key(name)).collect());
 
-static WEIGHT_SUFFIX: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\s+(?:semilight|light|semibold|medium|black|thin|extrabold|display)$", "u"));
+static WEIGHT_SUFFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\s+(?:semilight|light|semibold|medium|black|thin|extrabold|display)$", "u"));
 
 const TYPOGRAPHY_ROLES: [&str; 3] = ["display", "body", "data"];
 /// Motif shapes are named so structural review can tell deliberate decoration from content that must stay legible.
@@ -90,10 +88,8 @@ pub fn signed_visual_type(slide: &Value) -> String {
                 .collect()
         })
         .unwrap_or_default();
-    if let Some(variant) = signatures
-        .iter()
-        .find(|parts| parts[0] == "structure" && parts.get(1).is_some_and(|variant| !variant.is_empty()))
-        .map(|parts| &parts[1])
+    if let Some(variant) =
+        signatures.iter().find(|parts| parts[0] == "structure" && parts.get(1).is_some_and(|variant| !variant.is_empty())).map(|parts| &parts[1])
     {
         return format!("structure:{variant}");
     }
@@ -161,11 +157,7 @@ pub fn normalize_typography_tokens(requested: Option<&Value>, fallback: Option<&
             replaced.push(json!({ "role": role, "requested": value, "applied": value }));
         }
     }
-    let families: HashSet<String> = TYPOGRAPHY_ROLES
-        .iter()
-        .map(|role| font_family_key(&text(typography.get(*role))))
-        .filter(|key| !key.is_empty())
-        .collect();
+    let families: HashSet<String> = TYPOGRAPHY_ROLES.iter().map(|role| font_family_key(&text(typography.get(*role)))).filter(|key| !key.is_empty()).collect();
     TypographyTokens { typography, replaced, family_count: families.len() }
 }
 
@@ -308,9 +300,10 @@ fn ensure_contrast(colors: &mut Map<String, Value>, foreground_role: &str, backg
             (candidate, measured)
         })
         .collect();
-    let best = candidates.iter().find(|(_, measured)| *measured >= minimum).unwrap_or_else(|| {
-        candidates.iter().skip(1).fold(&candidates[0], |left, right| if right.1 > left.1 { right } else { left })
-    });
+    let best = candidates
+        .iter()
+        .find(|(_, measured)| *measured >= minimum)
+        .unwrap_or_else(|| candidates.iter().skip(1).fold(&candidates[0], |left, right| if right.1 > left.1 { right } else { left }));
     let repaired = best.0.clone();
     if repaired != foreground {
         colors.insert(foreground_role.to_owned(), repaired.clone());
@@ -348,11 +341,7 @@ pub fn normalize_palette_tokens(source: &Value) -> PaletteTokens {
         && (inverse.lightness < 7.0 || inverse.saturation < 8.0)
     {
         let hue = if inverse.saturation < 8.0 { hsl_of(&colors, "accent").map_or(216.0, |accent| accent.hue) } else { inverse.hue };
-        let repaired = hsl_to_hex(
-            hue,
-            clamp(inverse.saturation.max(22.0), 12.0, 40.0),
-            clamp(inverse.lightness.max(10.0), 10.0, 20.0),
-        );
+        let repaired = hsl_to_hex(hue, clamp(inverse.saturation.max(22.0), 12.0, 40.0), clamp(inverse.lightness.max(10.0), 10.0, 20.0));
         adjustments.push(json!({
             "role": "inverse",
             "from": color(&colors, "inverse"),
@@ -416,11 +405,7 @@ pub fn normalize_palette_tokens(source: &Value) -> PaletteTokens {
         if !is_hex(&color(&colors, role)) {
             let solid = Value::String(hsl_to_hex(hue, 65.0, 48.0));
             let canvas = color(&colors, "canvas");
-            let mark = if is_hex(&canvas) {
-                adjust_lightness_for_contrast(&solid, &canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1.0)
-            } else {
-                solid
-            };
+            let mark = if is_hex(&canvas) { adjust_lightness_for_contrast(&solid, &canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1.0) } else { solid };
             colors.insert(role.to_owned(), mark);
         }
         let weak_key = format!("{role}Weak");
@@ -540,19 +525,9 @@ mod tests {
             Some(&json!({ "display": "Aptos Display", "body": "Segoe UI", "data": "Courier New" })),
             Some(&json!({ "display": "Cambria", "body": "Calibri", "data": "Arial" })),
         );
-        assert_eq!(
-            Value::Object(typography.typography.clone()),
-            json!({ "display": "Aptos Display", "body": "Segoe UI", "data": "Courier New" })
-        );
-        let pairs: Vec<(String, String)> = typography
-            .replaced
-            .iter()
-            .map(|entry| (text(prop(entry, "requested")), text(prop(entry, "applied"))))
-            .collect();
-        assert_eq!(
-            pairs,
-            [("Aptos Display".to_owned(), "Aptos Display".to_owned()), ("Segoe UI".to_owned(), "Segoe UI".to_owned())]
-        );
+        assert_eq!(Value::Object(typography.typography.clone()), json!({ "display": "Aptos Display", "body": "Segoe UI", "data": "Courier New" }));
+        let pairs: Vec<(String, String)> = typography.replaced.iter().map(|entry| (text(prop(entry, "requested")), text(prop(entry, "applied")))).collect();
+        assert_eq!(pairs, [("Aptos Display".to_owned(), "Aptos Display".to_owned()), ("Segoe UI".to_owned(), "Segoe UI".to_owned())]);
         assert!(!is_safe_font_family("Consolas"));
         assert!(is_safe_font_family("맑은 고딕"));
         assert!(is_safe_font_family("Noto Sans KR"));
@@ -597,11 +572,7 @@ mod tests {
             with_states.push(text(colors.get(&format!("{role}Text"))));
             with_states.push(text(colors.get(&format!("{role}Weak"))));
         }
-        assert_eq!(
-            saturated_hue_families(&with_states).len(),
-            saturated_hue_families(&accents).len(),
-            "state words and fields stay under the saturated band"
-        );
+        assert_eq!(saturated_hue_families(&with_states).len(), saturated_hue_families(&accents).len(), "state words and fields stay under the saturated band");
         assert_eq!(
             colors_of(&[("canvas", "FFFFFF"), ("ink", "111111"), ("critical", "B00020")])["critical"],
             json!("B00020"),

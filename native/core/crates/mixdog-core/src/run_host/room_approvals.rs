@@ -37,7 +37,13 @@ use serde_json::json;
 
 /// The log's `roomView` for what the room's exchange shows and its members' questions.
 pub fn room_view_of(view: Option<ExchangeView>, questions: &[Value]) -> Option<ThreadRoomView> {
-    let state = view.map(|view| RoomViewState { speaking: view.speaking, speaking_name: view.speaking_name, typing_id: view.typing_id, approval: view.approval, deciding: view.deciding });
+    let state = view.map(|view| RoomViewState {
+        speaking: view.speaking,
+        speaking_name: view.speaking_name,
+        typing_id: view.typing_id,
+        approval: view.approval,
+        deciding: view.deciding,
+    });
     room_view(state.as_ref(), questions)
 }
 
@@ -181,7 +187,10 @@ impl RoomMemberEvents for LateRoomMembers {
         let Some((stopped, saved)) = self.1.get().map(|stop| stop(room_id)) else {
             return Some(mixdog_core_api::thread::RoomStopped { stopped: false, saved: Box::pin(async { Ok(()) }) });
         };
-        let saved = Box::pin(async move { saved.await.map_err(|error| mixdog_core_base::support::coded("session", mixdog_core_session::session::STOP_NOT_SAVED, error)) });
+        let saved =
+            Box::pin(
+                async move { saved.await.map_err(|error| mixdog_core_base::support::coded("session", mixdog_core_session::session::STOP_NOT_SAVED, error)) },
+            );
         Some(mixdog_core_api::thread::RoomStopped { stopped, saved })
     }
 }

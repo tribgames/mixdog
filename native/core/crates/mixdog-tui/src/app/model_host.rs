@@ -3,14 +3,13 @@
 
 use serde_json::{Value, json};
 
-use super::picker::AppPicker;
 use super::AppState;
+use super::picker::AppPicker;
 use crate::pickers::common::{PickerFn, PickerHost, PickerPanel, ProviderSetupRequest, RouteState};
 use crate::pickers::model::catalog::{CatalogRefresh, ModelCatalogCaches};
 use crate::pickers::provider::{Callback, SetupOptions, open_provider_setup as open_setup};
 use crate::slash::host::{Opener, Tone};
 use crate::surface::SurfaceClaim;
-
 
 fn text(state: &Value, key: &str) -> String {
     match state.get(key) {

@@ -59,16 +59,12 @@ impl Net for MockNet {
 
 #[tokio::test(flavor = "current_thread")]
 async fn conformance_scenarios() {
-    common::run_all(|| async { Arc::new(MockNet(Arc::new(MockNetwork::default()))) as Arc<dyn Net> })
-        .await;
+    common::run_all(|| async { Arc::new(MockNet(Arc::new(MockNetwork::default()))) as Arc<dyn Net> }).await;
 }
 
 #[test]
 fn ladder_is_full_jitter_doubling_to_the_cap() {
-    let got: Vec<u64> = [0, 1, 2, 3, 4, 5, 9]
-        .iter()
-        .map(|a| ladder_delay(*a, 0.5, DEFAULT_LADDER))
-        .collect();
+    let got: Vec<u64> = [0, 1, 2, 3, 4, 5, 9].iter().map(|a| ladder_delay(*a, 0.5, DEFAULT_LADDER)).collect();
     assert_eq!(got, [125, 250, 500, 1000, 2000, 2500, 2500]);
     assert_eq!(ladder_delay(3, 0.0, DEFAULT_LADDER), 0);
 }

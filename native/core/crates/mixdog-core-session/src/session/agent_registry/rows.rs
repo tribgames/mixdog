@@ -103,7 +103,10 @@ pub(super) mod work {
         });
     }
 
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub fn counts() -> Counts {
         COUNTS.with(Cell::get)
     }
@@ -160,8 +163,7 @@ pub fn is_lead_pool_agent(value: Option<&Value>) -> bool {
 pub fn is_terminal_worker_status(status: &str) -> bool {
     matches!(
         mixdog_js::js_trim(status).to_lowercase().as_str(),
-        "idle" | "closed" | "complete" | "completed" | "done" | "success" | "fail" | "failed" | "error" | "cancelled"
-            | "canceled" | "killed" | "timeout"
+        "idle" | "closed" | "complete" | "completed" | "done" | "success" | "fail" | "failed" | "error" | "cancelled" | "canceled" | "killed" | "timeout"
     )
 }
 
@@ -224,16 +226,25 @@ pub fn normalize_row(row: &Row) -> Option<Row> {
     for key in ["agent", "provider", "model", "preset", "effort"] {
         out.insert(key.into(), text(key));
     }
-    out.insert("fast".into(), match row.get("fast") {
-        Some(Value::Bool(b)) => Value::Bool(*b),
-        _ => Value::Null,
-    });
+    out.insert(
+        "fast".into(),
+        match row.get("fast") {
+            Some(Value::Bool(b)) => Value::Bool(*b),
+            _ => Value::Null,
+        },
+    );
     if row.get("autoEffort") == Some(&Value::Bool(false)) {
         out.insert("autoEffort".into(), Value::Bool(false));
     }
     let status = clean(row.get("status"));
     let stage = clean(row.get("stage"));
-    let stage = if !stage.is_empty() { stage } else if !status.is_empty() { status.clone() } else { "idle".into() };
+    let stage = if !stage.is_empty() {
+        stage
+    } else if !status.is_empty() {
+        status.clone()
+    } else {
+        "idle".into()
+    };
     out.insert("status".into(), Value::String(if status.is_empty() { "idle".into() } else { status }));
     out.insert("stage".into(), Value::String(stage));
     for key in ["createdAt", "updatedAt", "lastUsedAt", "finishedAt", "turnStartedAt", "reapAt"] {
@@ -342,11 +353,14 @@ pub fn row_from_session(session: &Row, fallback_tag: &str, extra: &Row, runtime_
     row.insert("model".into(), first([over("model"), pick("model")]));
     row.insert("preset".into(), first([over("preset"), pick("presetName")]));
     row.insert("effort".into(), first([over("effort"), pick("effort")]));
-    row.insert("fast".into(), match (extra.get("fast"), session.get("fast")) {
-        (Some(Value::Bool(b)), _) => Value::Bool(*b),
-        (_, Some(Value::Bool(true))) => Value::Bool(true),
-        _ => Value::Null,
-    });
+    row.insert(
+        "fast".into(),
+        match (extra.get("fast"), session.get("fast")) {
+            (Some(Value::Bool(b)), _) => Value::Bool(*b),
+            (_, Some(Value::Bool(true))) => Value::Bool(true),
+            _ => Value::Null,
+        },
+    );
     let auto_effort = match extra.get("autoEffort") {
         Some(v @ Value::Bool(_)) => Some(v),
         _ => session.get("autoEffort"),
@@ -364,14 +378,8 @@ pub fn row_from_session(session: &Row, fallback_tag: &str, extra: &Row, runtime_
     for key in ["finishedAt", "turnStartedAt", "reapAt"] {
         row.insert(key.into(), text_or_null(over(key)));
     }
-    row.insert(
-        "clientHostPid".into(),
-        pid_value(positive_int(extra.get("clientHostPid")).or_else(|| positive_int(session.get("clientHostPid")))),
-    );
-    row.insert(
-        "runtimePid".into(),
-        Value::from(positive_int(extra.get("runtimePid")).unwrap_or_else(|| u64::from(std::process::id()))),
-    );
+    row.insert("clientHostPid".into(), pid_value(positive_int(extra.get("clientHostPid")).or_else(|| positive_int(session.get("clientHostPid")))));
+    row.insert("runtimePid".into(), Value::from(positive_int(extra.get("runtimePid")).unwrap_or_else(|| u64::from(std::process::id()))));
     row.insert("cwd".into(), first([pick("cwd"), over("cwd")]));
     row.insert("task_id".into(), text_or_null(clean(either(extra, "task_id", "taskId"))));
     for key in ["error", "failureReason", "restartNotified"] {
@@ -437,11 +445,7 @@ pub fn tombstone_key(row: &Row) -> String {
     work::note(|c| c.tombstones_keyed += 1);
     let parent = clean(either(row, "parentSessionId", "ownerSessionId"));
     let tag = clean(row.get("tag"));
-    if parent.is_empty() {
-        format!("{}\0{tag}", positive_int(row.get("clientHostPid")).unwrap_or(0))
-    } else {
-        format!("session:{parent}\0{tag}")
-    }
+    if parent.is_empty() { format!("{}\0{tag}", positive_int(row.get("clientHostPid")).unwrap_or(0)) } else { format!("session:{parent}\0{tag}") }
 }
 
 /// `findTagTombstone(row, tombstones, tag)`.
@@ -450,7 +454,6 @@ pub fn find_tombstone<'a>(row: &Row, by_key: &'a std::collections::HashMap<Strin
     let by_parent = (!parent.is_empty()).then(|| by_key.get(&format!("session:{parent}\0{tag}"))).flatten();
     by_parent.or_else(|| by_key.get(&format!("{}\0{tag}", positive_int(row.get("clientHostPid")).unwrap_or(0))))
 }
-
 
 /// `Date.parse(text)`, 0 for an invalid or zero time (`|| 0`).
 fn parse_or_zero(text: &str) -> f64 {

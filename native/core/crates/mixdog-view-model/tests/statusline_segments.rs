@@ -151,7 +151,11 @@ fn recently_finished_background_jobs_ride_in_the_session_bucket_without_counting
         json!({ "command": "git status", "foreground": true, "status": "completed", "exitCode": 0, "finishedAt": finished_at(0.0) }),
         true,
     );
-    write(format!("job_{}_old", START - 3.0), json!({ "command": "old", "status": "completed", "exitCode": 0, "finishedAt": finished_at(3.0 * 3_600_000.0) }), true);
+    write(
+        format!("job_{}_old", START - 3.0),
+        json!({ "command": "old", "status": "completed", "exitCode": 0, "finishedAt": finished_at(3.0 * 3_600_000.0) }),
+        true,
+    );
     segments.shell_jobs_status(owner as f64, Some("sess-fin"));
     let status = segments.shell_jobs_status(owner as f64, Some("sess-fin"));
     assert_eq!(status["count"], json!(1));
@@ -199,9 +203,10 @@ fn a_fresh_status_scans_now_so_a_just_finished_shell_is_visible_on_the_same_call
     assert_eq!(running["sessions"]["sess-fresh"]["count"], json!(1), "the first call already sees the running shell");
 
     let mut finished = record;
-    finished.as_object_mut().unwrap().extend(
-        json!({ "status": "completed", "exitCode": 0, "finishedAt": format_utc_timestamp(START) }).as_object().unwrap().clone(),
-    );
+    finished
+        .as_object_mut()
+        .unwrap()
+        .extend(json!({ "status": "completed", "exitCode": 0, "finishedAt": format_utc_timestamp(START) }).as_object().unwrap().clone());
     world.record(&id, finished);
     world.put(&format!("{id}.done"), "");
     world.remove(&format!("{id}.owner-{owner}"));
@@ -254,7 +259,10 @@ fn a_foreground_command_whose_termination_is_unconfirmed_stays_listed_after_its_
     let status = segments.shell_jobs_status_fresh(ME as f64);
     assert_eq!(status["count"], json!(1));
     let jobs = status["sessions"]["sess-unconfirmed"]["jobs"].as_array().expect("jobs");
-    assert_eq!(jobs.iter().map(|job| (job["command"].clone(), job["terminationUnconfirmed"].clone())).collect::<Vec<_>>(), [(json!("node server.js"), json!(true))]);
+    assert_eq!(
+        jobs.iter().map(|job| (job["command"].clone(), job["terminationUnconfirmed"].clone())).collect::<Vec<_>>(),
+        [(json!("node server.js"), json!(true))]
+    );
     assert_eq!(unconfirmed_shell_count(&status), 1);
 }
 
@@ -263,7 +271,8 @@ fn a_closed_sessions_unconfirmed_shells_stay_listed_until_their_records_retire_o
     let world = World::new();
     let segments = world.segments();
     let write = |id: &str, record: Value, owner: u64| {
-        let mut base = json!({ "ownerSessionId": "sess-closed", "foreground": true, "terminationUnconfirmed": true, "ownerSessionClosed": true, "cwd": "/work" });
+        let mut base =
+            json!({ "ownerSessionId": "sess-closed", "foreground": true, "terminationUnconfirmed": true, "ownerSessionClosed": true, "cwd": "/work" });
         base.as_object_mut().unwrap().extend(record.as_object().unwrap().clone());
         world.record(id, base);
         world.marker(id, owner);

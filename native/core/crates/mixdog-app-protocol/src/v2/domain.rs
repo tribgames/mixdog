@@ -139,10 +139,7 @@ pub struct ChannelCallParams {
 impl ChannelCallParams {
     /// `args.sessionId`, which keys the call on that thread.
     pub fn thread_id(&self) -> Option<ThreadId> {
-        self.args
-            .get("sessionId")
-            .and_then(JsonValue::as_str)
-            .map(ThreadId::from)
+        self.args.get("sessionId").and_then(JsonValue::as_str).map(ThreadId::from)
     }
 }
 

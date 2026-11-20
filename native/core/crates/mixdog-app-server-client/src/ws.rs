@@ -21,10 +21,7 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    api::{
-        Connector, Target, TransportClosed, TransportEvent, TransportHalves, TransportReader,
-        TransportWriter,
-    },
+    api::{Connector, Target, TransportClosed, TransportEvent, TransportHalves, TransportReader, TransportWriter},
     discovery::{Discovery, Endpoint},
 };
 
@@ -64,9 +61,7 @@ impl DiscoveryResolver {
 #[async_trait]
 impl EndpointResolver for DiscoveryResolver {
     async fn resolve(&self, _target: &Target) -> Result<Endpoint, String> {
-        Discovery::read(&self.path)
-            .and_then(|d| d.rpc_endpoint())
-            .map_err(|e| e.to_string())
+        Discovery::read(&self.path).and_then(|d| d.rpc_endpoint()).map_err(|e| e.to_string())
     }
 }
 
@@ -108,10 +103,7 @@ struct Writer {
 #[async_trait]
 impl TransportWriter for Writer {
     async fn send(&mut self, text: String) -> Result<(), TransportClosed> {
-        self.queue
-            .send(WriteCmd::Text(text))
-            .await
-            .map_err(|_| TransportClosed)
+        self.queue.send(WriteCmd::Text(text)).await.map_err(|_| TransportClosed)
     }
 
     async fn close(&mut self, code: u16, reason: String) {
@@ -153,37 +145,20 @@ impl TransportReader for Reader {
                 Some(Ok(Message::Text(text))) => return TransportEvent::Frame(text.to_string()),
                 Some(Ok(Message::Binary(_))) => {
                     let reason = "binary frame".to_string();
-                    let _ = self
-                        .queue
-                        .send(WriteCmd::Close {
-                            code: UNSUPPORTED_DATA,
-                            reason: reason.clone(),
-                        })
-                        .await;
-                    return self.finish(TransportEvent::Closed {
-                        code: UNSUPPORTED_DATA,
-                        reason,
-                    });
+                    let _ = self.queue.send(WriteCmd::Close { code: UNSUPPORTED_DATA, reason: reason.clone() }).await;
+                    return self.finish(TransportEvent::Closed { code: UNSUPPORTED_DATA, reason });
                 }
                 // Ping/pong/continuation are handled inside the protocol layer.
                 Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
                 Some(Ok(Message::Close(frame))) => {
-                    let (code, reason) = frame.map_or((NO_STATUS, String::new()), |f| {
-                        (u16::from(f.code), f.reason.to_string())
-                    });
+                    let (code, reason) = frame.map_or((NO_STATUS, String::new()), |f| (u16::from(f.code), f.reason.to_string()));
                     return self.finish(TransportEvent::Closed { code, reason });
                 }
                 Some(Err(e)) => {
-                    return self.finish(TransportEvent::Closed {
-                        code: ABNORMAL,
-                        reason: e.to_string(),
-                    });
+                    return self.finish(TransportEvent::Closed { code: ABNORMAL, reason: e.to_string() });
                 }
                 None => {
-                    return self.finish(TransportEvent::Closed {
-                        code: ABNORMAL,
-                        reason: "connection ended".into(),
-                    });
+                    return self.finish(TransportEvent::Closed { code: ABNORMAL, reason: "connection ended".into() });
                 }
             }
         }
@@ -194,20 +169,10 @@ impl TransportReader for Reader {
 impl Connector for WsConnector {
     async fn open(&self, target: &Target) -> Result<TransportHalves, String> {
         let endpoint = self.resolver.resolve(target).await?;
-        let mut request = format!("ws://127.0.0.1:{}/rpc", endpoint.port)
-            .into_client_request()
-            .map_err(|e| e.to_string())?;
-        request.headers_mut().insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", endpoint.token))
-                .map_err(|e| e.to_string())?,
-        );
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(MAX_INBOUND_BYTES))
-            .max_frame_size(Some(MAX_INBOUND_BYTES));
-        let (socket, _response) = connect_async_with_config(request, Some(config), true)
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut request = format!("ws://127.0.0.1:{}/rpc", endpoint.port).into_client_request().map_err(|e| e.to_string())?;
+        request.headers_mut().insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", endpoint.token)).map_err(|e| e.to_string())?);
+        let config = WebSocketConfig::default().max_message_size(Some(MAX_INBOUND_BYTES)).max_frame_size(Some(MAX_INBOUND_BYTES));
+        let (socket, _response) = connect_async_with_config(request, Some(config), true).await.map_err(|e| e.to_string())?;
         let (mut sink, stream) = socket.split();
 
         let (queue, mut commands) = mpsc::channel::<WriteCmd>(WRITE_QUEUE);
@@ -221,10 +186,7 @@ impl Connector for WsConnector {
                         }
                     }
                     WriteCmd::Close { code, reason } => {
-                        let frame = CloseFrame {
-                            code: CloseCode::from(code),
-                            reason: reason.into(),
-                        };
+                        let frame = CloseFrame { code: CloseCode::from(code), reason: reason.into() };
                         let _ = sink.send(Message::Close(Some(frame))).await;
                         let _ = sink.close().await;
                         return;
@@ -236,16 +198,8 @@ impl Connector for WsConnector {
         });
 
         Ok(TransportHalves {
-            writer: Box::new(Writer {
-                queue: queue.clone(),
-                local_close,
-            }),
-            reader: Box::new(Reader {
-                stream,
-                local_close: local_close_rx,
-                queue,
-                done: None,
-            }),
+            writer: Box::new(Writer { queue: queue.clone(), local_close }),
+            reader: Box::new(Reader { stream, local_close: local_close_rx, queue, done: None }),
         })
     }
 }
@@ -262,10 +216,7 @@ mod tests {
 
     async fn connector_to(listener: &TcpListener) -> WsConnector {
         let port = listener.local_addr().unwrap().port();
-        WsConnector::new(Arc::new(FixedEndpoint(Endpoint {
-            port,
-            token: "secret".into(),
-        })))
+        WsConnector::new(Arc::new(FixedEndpoint(Endpoint { port, token: "secret".into() })))
     }
 
     fn target() -> Target {
@@ -283,18 +234,14 @@ mod tests {
             let mut ws = accept_hdr_async(tcp, |req: &Request, resp: Response| {
                 seen = Some((
                     req.uri().path().to_string(),
-                    req.headers()
-                        .get(AUTHORIZATION)
-                        .map(|v| v.to_str().unwrap().to_string()),
+                    req.headers().get(AUTHORIZATION).map(|v| v.to_str().unwrap().to_string()),
                     req.headers().contains_key("origin"),
                 ));
                 Ok(resp)
             })
             .await
             .unwrap();
-            let Some(Ok(Message::Text(t))) = ws.next().await else {
-                panic!("no text frame")
-            };
+            let Some(Ok(Message::Text(t))) = ws.next().await else { panic!("no text frame") };
             ws.send(Message::text(format!("echo:{t}"))).await.unwrap();
             // A client close is answered by the library; drain until the stream ends.
             while ws.next().await.is_some() {}
@@ -303,18 +250,9 @@ mod tests {
 
         let mut halves = connector.open(&target()).await.unwrap();
         halves.writer.send("hello".into()).await.unwrap();
-        assert_eq!(
-            halves.reader.recv().await,
-            TransportEvent::Frame("echo:hello".into())
-        );
+        assert_eq!(halves.reader.recv().await, TransportEvent::Frame("echo:hello".into()));
         halves.writer.close(1000, "done".into()).await;
-        assert_eq!(
-            halves.reader.recv().await,
-            TransportEvent::Closed {
-                code: 1000,
-                reason: "done".into()
-            }
-        );
+        assert_eq!(halves.reader.recv().await, TransportEvent::Closed { code: 1000, reason: "done".into() });
         let (path, auth, origin) = server.await.unwrap();
         assert_eq!(path, "/rpc");
         assert_eq!(auth.as_deref(), Some("Bearer secret"));
@@ -328,19 +266,11 @@ mod tests {
         tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-            ws.close(Some(CloseFrame {
-                code: CloseCode::from(4000),
-                reason: "slowConsumer".into(),
-            }))
-            .await
-            .unwrap();
+            ws.close(Some(CloseFrame { code: CloseCode::from(4000), reason: "slowConsumer".into() })).await.unwrap();
             while ws.next().await.is_some() {}
         });
         let mut halves = connector.open(&target()).await.unwrap();
-        let closed = TransportEvent::Closed {
-            code: 4000,
-            reason: "slowConsumer".into(),
-        };
+        let closed = TransportEvent::Closed { code: 4000, reason: "slowConsumer".into() };
         assert_eq!(halves.reader.recv().await, closed);
         assert_eq!(halves.reader.recv().await, closed);
     }
@@ -353,11 +283,7 @@ mod tests {
             let (mut tcp, _) = listener.accept().await.unwrap();
             let mut buf = [0u8; 1024];
             let _ = tokio::io::AsyncReadExt::read(&mut tcp, &mut buf).await;
-            let _ = tokio::io::AsyncWriteExt::write_all(
-                &mut tcp,
-                b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n",
-            )
-            .await;
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut tcp, b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n").await;
         });
         assert!(connector.open(&target()).await.is_err());
     }

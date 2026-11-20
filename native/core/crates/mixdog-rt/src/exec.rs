@@ -66,23 +66,10 @@ use pool::LaneExec;
 use pool::apply_priority;
 use tasks::TaskRegistry;
 
-const LANES: [LaneKind; 7] = [
-    LaneKind::CpuInteractive,
-    LaneKind::CpuBulk,
-    LaneKind::InteractiveIo,
-    LaneKind::DurabilityIo,
-    LaneKind::MaintenanceIo,
-    LaneKind::SpawnIo,
-    LaneKind::PtyIo,
-];
+const LANES: [LaneKind; 7] =
+    [LaneKind::CpuInteractive, LaneKind::CpuBulk, LaneKind::InteractiveIo, LaneKind::DurabilityIo, LaneKind::MaintenanceIo, LaneKind::SpawnIo, LaneKind::PtyIo];
 
-const THREAD_KINDS: [ThreadKind; 5] = [
-    ThreadKind::Control,
-    ThreadKind::Computer,
-    ThreadKind::WebrtcMedia,
-    ThreadKind::SqliteWriter,
-    ThreadKind::EffortJudge,
-];
+const THREAD_KINDS: [ThreadKind; 5] = [ThreadKind::Control, ThreadKind::Computer, ThreadKind::WebrtcMedia, ThreadKind::SqliteWriter, ThreadKind::EffortJudge];
 
 fn lane_index(kind: LaneKind) -> usize {
     match kind {
@@ -111,9 +98,7 @@ const fn lane_priority(kind: LaneKind) -> Priority {
     match kind {
         LaneKind::CpuInteractive => Priority::AboveNormal,
         LaneKind::CpuBulk | LaneKind::MaintenanceIo => Priority::BelowNormal,
-        LaneKind::InteractiveIo | LaneKind::DurabilityIo | LaneKind::SpawnIo | LaneKind::PtyIo => {
-            Priority::Normal
-        }
+        LaneKind::InteractiveIo | LaneKind::DurabilityIo | LaneKind::SpawnIo | LaneKind::PtyIo => Priority::Normal,
     }
 }
 
@@ -252,11 +237,7 @@ impl RtConfig {
 
     /// The table for this machine's available parallelism.
     pub fn detect() -> Self {
-        Self::for_cores(
-            std::thread::available_parallelism()
-                .map(usize::from)
-                .unwrap_or(1),
-        )
+        Self::for_cores(std::thread::available_parallelism().map(usize::from).unwrap_or(1))
     }
 }
 
@@ -316,13 +297,7 @@ impl Executors {
             pooled(LaneKind::DurabilityIo, config.durability_io)?,
             pooled(LaneKind::MaintenanceIo, config.maintenance_io)?,
             pooled(LaneKind::SpawnIo, config.spawn_io)?,
-            LaneExec::per_job(
-                LaneKind::PtyIo,
-                lane_priority(LaneKind::PtyIo),
-                config.pty_max_live,
-                NODE_NORMAL_QUEUE,
-                &priority_failures,
-            )?,
+            LaneExec::per_job(LaneKind::PtyIo, lane_priority(LaneKind::PtyIo), config.pty_max_live, NODE_NORMAL_QUEUE, &priority_failures)?,
         ];
         debug_assert!(LANES.iter().all(|k| lanes[lane_index(*k)].kind() == *k));
         Ok(Self {
@@ -345,10 +320,7 @@ impl Executors {
             lanes: self.lanes.iter().map(LaneExec::snapshot).collect(),
             threads_entered: THREAD_KINDS
                 .iter()
-                .map(|kind| ThreadSnapshot {
-                    kind: *kind,
-                    entered: self.threads_entered[thread_index(*kind)].load(Relaxed),
-                })
+                .map(|kind| ThreadSnapshot { kind: *kind, entered: self.threads_entered[thread_index(*kind)].load(Relaxed) })
                 .collect(),
             priority_failures: self.priority_failures.load(Relaxed),
             poll_violations,
@@ -437,19 +409,9 @@ impl Backend for Executors {
     }
 }
 
-fn runtime(
-    name: &str,
-    threads: usize,
-    priority: Priority,
-    failures: &Arc<AtomicU64>,
-) -> io::Result<Runtime> {
+fn runtime(name: &str, threads: usize, priority: Priority, failures: &Arc<AtomicU64>) -> io::Result<Runtime> {
     let failures = failures.clone();
-    Builder::new_multi_thread()
-        .worker_threads(threads)
-        .thread_name(name)
-        .enable_all()
-        .on_thread_start(move || apply_priority(priority, &failures))
-        .build()
+    Builder::new_multi_thread().worker_threads(threads).thread_name(name).enable_all().on_thread_start(move || apply_priority(priority, &failures)).build()
 }
 
 /// Everything the diagnostics method reports about the executors.

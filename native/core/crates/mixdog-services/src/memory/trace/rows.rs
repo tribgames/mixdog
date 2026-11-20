@@ -67,7 +67,6 @@ fn number_or_null(value: Option<&Value>) -> Option<f64> {
     value.filter(|v| !v.is_null()).map(to_number)
 }
 
-
 fn int32(value: Option<f64>) -> Result<Option<i32>, RowError> {
     let Some(n) = value else { return Ok(None) };
     if n.is_finite() && n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(i32::MAX) {
@@ -99,13 +98,9 @@ pub fn event_timestamp_ms(ev: &Event, now_ms: i64) -> f64 {
 /// `new Date(ms).toISOString()`.
 fn event_timestamp_iso(ev: &Event, now_ms: i64) -> Result<String, RowError> {
     let ms = event_timestamp_ms(ev, now_ms).trunc();
-    let stamp = (ms.abs() <= 8.64e15)
-        .then(|| chrono::DateTime::from_timestamp_millis(ms as i64))
-        .flatten()
-        .filter(|t| (0..=9999).contains(&chrono::Datelike::year(t)));
-    stamp
-        .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-        .ok_or_else(|| RowError("Invalid time value".into()))
+    let stamp =
+        (ms.abs() <= 8.64e15).then(|| chrono::DateTime::from_timestamp_millis(ms as i64)).flatten().filter(|t| (0..=9999).contains(&chrono::Datelike::year(t)));
+    stamp.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()).ok_or_else(|| RowError("Invalid time value".into()))
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +191,6 @@ impl TraceEventRow {
         })
     }
 
-
     /// Checks the numbers fit their columns (a value Postgres would reject fails the batch).
     pub fn cells(&self) -> Result<TraceEventCells, RowError> {
         Ok(TraceEventCells {
@@ -247,8 +241,7 @@ pub enum Column {
     Int(Vec<Option<i32>>),
 }
 
-impl Column {
-}
+impl Column {}
 
 struct Common {
     sid: String,
@@ -370,18 +363,12 @@ pub fn collect_agent_rows(events: &[Event], now_ms: i64) -> Result<AgentRows, Ro
         }
         let Some(sid) = event_session_id(ev) else { continue };
         let common = || -> Result<Common, RowError> {
-            Ok(Common {
-                sid: text(Some(sid)).unwrap_or_default(),
-                ts: event_timestamp_iso(ev, now_ms)?,
-                iteration: number_or_null(ev.get("iteration")),
-            })
+            Ok(Common { sid: text(Some(sid)).unwrap_or_default(), ts: event_timestamp_iso(ev, now_ms)?, iteration: number_or_null(ev.get("iteration")) })
         };
         let kind = ev.get("kind").and_then(Value::as_str);
         if kind == Some("tool") {
             rows.tool_rows.push(tool_row(ev, common()?));
-        } else if kind == Some("usage_raw")
-            || (ev.get("input_tokens").is_some_and(|v| !v.is_null()) && ev.get("output_tokens").is_some_and(|v| !v.is_null()))
-        {
+        } else if kind == Some("usage_raw") || (ev.get("input_tokens").is_some_and(|v| !v.is_null()) && ev.get("output_tokens").is_some_and(|v| !v.is_null())) {
             rows.llm_rows.push(llm_row(ev, common()?));
         }
     }
@@ -389,11 +376,7 @@ pub fn collect_agent_rows(events: &[Event], now_ms: i64) -> Result<AgentRows, Ro
     Ok(rows)
 }
 
-fn session_slot<'a>(
-    sessions: &'a mut Vec<(String, SessionSummary)>,
-    sid: &str,
-    ts: &str,
-) -> &'a mut SessionSummary {
+fn session_slot<'a>(sessions: &'a mut Vec<(String, SessionSummary)>, sid: &str, ts: &str) -> &'a mut SessionSummary {
     if let Some(at) = sessions.iter().position(|(key, _)| key == sid) {
         return &mut sessions[at].1;
     }

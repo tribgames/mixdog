@@ -10,8 +10,8 @@ use mixdog_raster::Image;
 use serde_json::{Value, json};
 
 use crate::aesthetics_metrics::rounded;
-use crate::rendered::{node_base64, paint_on_white, rendered_page_images};
 use crate::field;
+use crate::rendered::{node_base64, paint_on_white, rendered_page_images};
 
 /// How far from the background tone a pixel must sit to read as ink.
 const INK_TOLERANCE: f64 = 0.04;
@@ -101,8 +101,8 @@ pub fn rendered_air(base64: &str, options: &AirOptions) -> Option<Air> {
         yb2 += b * b;
     }
     let n = (w * h) as f64;
-    let colour = (max(0.0, rg2 / n - (rg / n) * (rg / n)) + max(0.0, yb2 / n - (yb / n) * (yb / n))).sqrt()
-        + 0.3 * ((rg / n) * (rg / n) + (yb / n) * (yb / n)).sqrt();
+    let colour =
+        (max(0.0, rg2 / n - (rg / n) * (rg / n)) + max(0.0, yb2 / n - (yb / n) * (yb / n))).sqrt() + 0.3 * ((rg / n) * (rg / n) + (yb / n) * (yb / n)).sqrt();
     // Integral images of x and x^2 give the local mean and variance in constant time per cell.
     let stride = w + 1;
     let mut sum = vec![0.0f64; stride * (h + 1)];
@@ -184,12 +184,7 @@ fn largest_object(gray: &[f64], w: usize, h: usize) -> f64 {
             size += 1;
             let x = i % w;
             let y = i / w;
-            let neighbours = [
-                (x > 0).then(|| i - 1),
-                (x < w - 1).then(|| i + 1),
-                (y > 0).then(|| i - w),
-                (y < h - 1).then(|| i + w),
-            ];
+            let neighbours = [(x > 0).then(|| i - 1), (x < w - 1).then(|| i + 1), (y > 0).then(|| i - w), (y < h - 1).then(|| i + w)];
             for j in neighbours.into_iter().flatten() {
                 if seen[j] || !is_ink(j) {
                     continue;

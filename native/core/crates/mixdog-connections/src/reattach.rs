@@ -6,10 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use mixdog_app_protocol::v2::connections::ConnectionNotice;
+use mixdog_rt::time::Instant;
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
-use mixdog_rt::time::Instant;
 
 use crate::link::ServerLink;
 use crate::link_machine::{LinkState, LinkViewState};
@@ -194,10 +194,7 @@ mod tests {
         let (states, states_rx) = broadcast::channel(16);
         let (view_tx, view_rx) = watch::channel(view(LinkState::Connected));
         let (calls, calls_rx) = broadcast::channel(16);
-        let report = ReattachReport::start(
-            notices,
-            ReattachSources { sessions: sessions_rx, states: states_rx, view: view_rx, model_calls: calls_rx },
-        );
+        let report = ReattachReport::start(notices, ReattachSources { sessions: sessions_rx, states: states_rx, view: view_rx, model_calls: calls_rx });
         Rig { notices: receiver, sessions, states, view: view_tx, calls, _report: report }
     }
 
@@ -240,10 +237,7 @@ mod tests {
         settle().await;
         rig.sessions.send(Vec::new()).unwrap();
         settle().await;
-        assert_eq!(
-            rig.notices.try_recv().unwrap(),
-            ConnectionNotice::Reattached { finished: vec![], continued: vec![], interrupted_model_calls: 1 }
-        );
+        assert_eq!(rig.notices.try_recv().unwrap(), ConnectionNotice::Reattached { finished: vec![], continued: vec![], interrupted_model_calls: 1 });
         // A second outage with nothing to tell.
         rig.view.send(view(lost())).unwrap();
         settle().await;
@@ -272,15 +266,11 @@ mod tests {
         assert!(rig.notices.try_recv().is_err());
         rig.states.send(state("a", false, tools)).unwrap();
         settle().await;
-        assert_eq!(
-            rig.notices.try_recv().unwrap(),
-            ConnectionNotice::OutcomeUnknown { session_id: "a".into(), tool_ids: vec!["t1".into()] }
-        );
+        assert_eq!(rig.notices.try_recv().unwrap(), ConnectionNotice::OutcomeUnknown { session_id: "a".into(), tool_ids: vec!["t1".into()] });
         rig.states.send(state("a", false, json!([{"kind": "tool", "id": "t1"}]))).unwrap();
         settle().await;
         assert!(rig.notices.try_recv().is_err());
     }
-
 
     #[tokio::test(start_paused = true)]
     async fn the_known_list_is_used_after_the_wait() {
@@ -321,16 +311,11 @@ mod tests {
     }
 }
 
-
 impl ReattachReport {
     /// Starts watching `link`. Must be called inside a tokio runtime.
     pub fn attach(link: &ServerLink) -> ReattachReport {
-        let sources = ReattachSources {
-            sessions: link.feed().sessions(),
-            states: link.feed().session_states(),
-            view: link.view(),
-            model_calls: link.model_calls(),
-        };
+        let sources =
+            ReattachSources { sessions: link.feed().sessions(), states: link.feed().session_states(), view: link.view(), model_calls: link.model_calls() };
         Self::start(link.notices().clone(), sources)
     }
 
@@ -456,7 +441,8 @@ impl Report {
 
     fn on_model_call(&mut self, call: &ProxyCallSettled) {
         if call.outcome == CallOutcome::Abandoned
-            && let Some(record) = self.away.as_mut().or(self.returned.as_mut()) {
+            && let Some(record) = self.away.as_mut().or(self.returned.as_mut())
+        {
             record.interrupted_model_calls += 1;
         }
     }

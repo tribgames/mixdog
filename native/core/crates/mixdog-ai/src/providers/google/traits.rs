@@ -106,10 +106,4 @@ impl ModelTraits for CatalogGoogleTraits {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-}
-
+mod tests {}

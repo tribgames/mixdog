@@ -44,7 +44,9 @@ fn context_usage_below_threshold(status: &ContextStatus, min_percent: f64) -> bo
     if min_percent.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return false;
     }
-    let used = [status.used_tokens, status.current_estimated_tokens, status.compaction_current_estimated_tokens].into_iter().fold(0.0_f64, |best, n| if n.is_finite() && n > best { n } else { best });
+    let used = [status.used_tokens, status.current_estimated_tokens, status.compaction_current_estimated_tokens]
+        .into_iter()
+        .fold(0.0_f64, |best, n| if n.is_finite() && n > best { n } else { best });
     let trigger = [status.compaction_trigger_tokens, status.compaction_auto_compact_token_limit, status.session_auto_compact_token_limit]
         .into_iter()
         .find(|n| *n != 0.0 && !n.is_nan())
@@ -180,19 +182,30 @@ mod tests {
     fn the_route_value_and_the_meter_are_read_as_nodes_gate_reads_them() {
         let config = idle_config_of(&json!({ "enabled": true, "idleMs": 120000, "minContextPercent": null })).unwrap();
         assert_eq!(config, IdleConfig { enabled: true, idle_ms: 120_000.0, min_context_percent: None });
-        assert_eq!(idle_config_of(&json!({ "enabled": false, "idleMs": "60000", "minContextPercent": 25 })), Some(IdleConfig { enabled: false, idle_ms: 60_000.0, min_context_percent: Some(25.0) }));
+        assert_eq!(
+            idle_config_of(&json!({ "enabled": false, "idleMs": "60000", "minContextPercent": 25 })),
+            Some(IdleConfig { enabled: false, idle_ms: 60_000.0, min_context_percent: Some(25.0) })
+        );
         assert_eq!(idle_config_of(&json!({ "enabled": true })), None);
         assert!(idle_window_elapsed(&IDLE, 5000.0, 6000.0), "exactly the window is idle enough");
         assert!(!idle_window_elapsed(&IDLE, 5000.0, 5999.0));
         assert!(!idle_window_elapsed(&IDLE, 0.0, 6000.0));
-        let status = context_status_of(&json!({ "usedTokens": "7", "currentEstimatedTokens": null, "compaction": { "currentEstimatedTokens": 3, "triggerTokens": 100, "autoCompactTokenLimit": "x" }, "session": { "autoCompactTokenLimit": 50 } }));
+        let status = context_status_of(
+            &json!({ "usedTokens": "7", "currentEstimatedTokens": null, "compaction": { "currentEstimatedTokens": 3, "triggerTokens": 100, "autoCompactTokenLimit": "x" }, "session": { "autoCompactTokenLimit": 50 } }),
+        );
         assert_eq!(
             status,
-            ContextStatus { used_tokens: 7.0, current_estimated_tokens: 0.0, compaction_current_estimated_tokens: 3.0, compaction_trigger_tokens: 100.0, compaction_auto_compact_token_limit: 0.0, session_auto_compact_token_limit: 50.0 }
+            ContextStatus {
+                used_tokens: 7.0,
+                current_estimated_tokens: 0.0,
+                compaction_current_estimated_tokens: 3.0,
+                compaction_trigger_tokens: 100.0,
+                compaction_auto_compact_token_limit: 0.0,
+                session_auto_compact_token_limit: 50.0
+            }
         );
         assert_eq!(context_status_of(&Value::Null), ContextStatus::default());
     }
-
 
     #[test]
     fn activity_is_the_latest_use_of_a_session_with_a_visible_conversation() {
@@ -205,11 +218,13 @@ mod tests {
         let bare = json!({ "messages": [{ "role": "tool", "content": "" }] });
         assert_eq!(session_activity_timestamp(&bare, 9.0, 0.0, &no_attachments), 9.0);
         let by_attachment = json!({ "lastUsedAt": 4, "messages": [{ "role": "user", "content": [{ "type": "text", "ref": "a" }, { "type": "image" }] }] });
-        assert_eq!(prompt_content_text(&by_attachment["messages"][0]["content"], &|part: &Value| part.get("ref").map(|_| "attached".to_owned())), "attached\n[Image]");
+        assert_eq!(
+            prompt_content_text(&by_attachment["messages"][0]["content"], &|part: &Value| part.get("ref").map(|_| "attached".to_owned())),
+            "attached\n[Image]"
+        );
         assert_eq!(prompt_content_text(&json!(7), &no_attachments), "7");
     }
 }
-
 
 /// `timestampMs(value)`: a positive number or a date string as epoch ms, else 0.
 fn timestamp_ms(value: Option<&Value>) -> f64 {
@@ -234,6 +249,7 @@ pub fn session_activity_timestamp(session: &Value, fallback: f64, warm_use_at: f
     if !has_model_visible_conversation(messages, text_of_part) {
         return 0.0;
     }
-    let own = [timestamp_ms(session.get("lastUsedAt")), timestamp_ms(session.get("updatedAt")), fallback.max(0.0)].into_iter().find(|n| *n != 0.0).unwrap_or(0.0);
+    let own =
+        [timestamp_ms(session.get("lastUsedAt")), timestamp_ms(session.get("updatedAt")), fallback.max(0.0)].into_iter().find(|n| *n != 0.0).unwrap_or(0.0);
     own.max(warm_use_at)
 }

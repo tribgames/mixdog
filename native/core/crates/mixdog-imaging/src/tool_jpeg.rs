@@ -123,20 +123,15 @@ pub fn compact_tool_result_image(base64: &str, mime_type: &str) -> Option<Compac
     Some(CompactedImage {
         data,
         mime: "image/jpeg".to_owned(),
-        dimensions: Dimensions {
-            original_width: decoded.width,
-            original_height: decoded.height,
-            display_width: fitted.width,
-            display_height: fitted.height,
-        },
+        dimensions: Dimensions { original_width: decoded.width, original_height: decoded.height, display_width: fitted.width, display_height: fitted.height },
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encode::encode_in_format;
     use crate::decode::Format;
+    use crate::encode::encode_in_format;
 
     fn noisy(width: u32, height: u32) -> Raster {
         let mut data = Vec::new();
@@ -193,14 +188,18 @@ mod tests {
         let compacted = compact_tool_result_image(&base64, "image/png").expect("compacted");
         assert_eq!(compacted.mime, "image/jpeg");
         assert!(compacted.data.len() < base64.len());
-        assert_eq!(
-            compacted.dimensions,
-            Dimensions { original_width: 500, original_height: 400, display_width: 500, display_height: 400 }
-        );
+        assert_eq!(compacted.dimensions, Dimensions { original_width: 500, original_height: 400, display_width: 500, display_height: 400 });
         let jpeg = STANDARD.decode(&compacted.data).unwrap();
         assert_eq!(&jpeg[..2], &[0xFF, 0xD8]);
         // Base64 as Buffer.from reads it: line breaks skipped, the URL-safe alphabet taken, padding optional.
-        let wrapped: String = base64.trim_end_matches('=').replace('+', "-").replace('/', "_").as_bytes().chunks(76).map(|line| format!("{}\r\n", String::from_utf8_lossy(line))).collect();
+        let wrapped: String = base64
+            .trim_end_matches('=')
+            .replace('+', "-")
+            .replace('/', "_")
+            .as_bytes()
+            .chunks(76)
+            .map(|line| format!("{}\r\n", String::from_utf8_lossy(line)))
+            .collect();
         assert_eq!(compact_tool_result_image(&wrapped, "image/png").map(|image| image.dimensions), Some(compacted.dimensions));
     }
 

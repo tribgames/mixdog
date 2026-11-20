@@ -253,7 +253,8 @@ impl MirrorWork {
         }
         // Read after the sessions were taken: every commit that owed them had published its snapshot before it did.
         let snapshot = current(&self.view);
-        let changes: Vec<(String, Option<f64>)> = taken.iter().filter_map(|(id, _)| snapshot.entry(id).map(|entry| (id.clone(), entry.archived_at()))).collect();
+        let changes: Vec<(String, Option<f64>)> =
+            taken.iter().filter_map(|(id, _)| snapshot.entry(id).map(|entry| (id.clone(), entry.archived_at()))).collect();
         let path = self.path.clone();
         let written = match self.lane.submit(&mixdog_rt::CancellationToken::new(), move |lane| mirror_archived(lane, &path, &changes)) {
             Ok(job) => job.await.map_err(|error| format!("{error:?}")).and_then(|result| result),

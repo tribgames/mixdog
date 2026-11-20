@@ -26,14 +26,7 @@ use serde_json::Value;
 use crate::profile_harness::*;
 
 /// What a 1.4.5 profile holds of the second generation, each `.bak` the desktop's atomic writer kept beside its file.
-const FILES: [&str; 6] = [
-    "port-forwards.json",
-    "port-forwards.json.bak",
-    "remote-hosts.json",
-    "server-windows.json",
-    "ssh-hosts.json",
-    "ssh-hosts.json.bak",
-];
+const FILES: [&str; 6] = ["port-forwards.json", "port-forwards.json.bak", "remote-hosts.json", "server-windows.json", "ssh-hosts.json", "ssh-hosts.json.bak"];
 
 /// The roots of a recorded directory copied under `base`, with the profile named (`<base>/profile`).
 fn named_roots(base: &Path) -> MigrationRoots {
@@ -90,9 +83,8 @@ fn on_step(step: Step, path: &Path, _bytes: &[u8]) {
         Some(stop) if *stop == at => std::process::exit(KILLED),
         Some(_) => {}
         None => {
-            let rel = path
-                .strip_prefix(BASE.get().expect("base"))
-                .map_or_else(|_| path.to_string_lossy().into_owned(), |p| p.to_string_lossy().replace('\\', "/"));
+            let rel =
+                path.strip_prefix(BASE.get().expect("base")).map_or_else(|_| path.to_string_lossy().into_owned(), |p| p.to_string_lossy().replace('\\', "/"));
             LOG.lock().expect("log").push(format!("{step:?} {rel}"));
         }
     }
@@ -132,20 +124,14 @@ fn crash_child() {
     }
     BASE.set(PathBuf::from(&base)).expect("once");
     durable::set_step_hook(on_step);
-    migrator(&named_roots(Path::new(&base)), MigrateOptions { workers: 1, fault: None, verified: None })
-        .run()
-        .expect("the run the child was not stopped in");
+    migrator(&named_roots(Path::new(&base)), MigrateOptions { workers: 1, fault: None, verified: None }).run().expect("the run the child was not stopped in");
     if let Some(log) = std::env::var_os("UPGRADE_CHAIN_LOG") {
         std::fs::write(log, LOG.lock().expect("log").join("\n")).expect("step log");
     }
 }
 fn child(base: &Path, stop: Option<usize>, log: Option<&Path>) -> Option<i32> {
     let mut command = Command::new(std::env::current_exe().expect("this test binary"));
-    command
-        .args(["--exact", "upgrade_chain::crash_child", "--test-threads=1"])
-        .env("UPGRADE_CHAIN_BASE", base)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.args(["--exact", "upgrade_chain::crash_child", "--test-threads=1"]).env("UPGRADE_CHAIN_BASE", base).stdout(Stdio::null()).stderr(Stdio::null());
     if let Some(stop) = stop {
         command.env("UPGRADE_CHAIN_STOP_AT", stop.to_string());
     }
@@ -154,7 +140,6 @@ fn child(base: &Path, stop: Option<usize>, log: Option<&Path>) -> Option<i32> {
     }
     command.status().expect("spawn the child").code()
 }
-
 
 /// The bytes of a profile file, as the desktop's compact writer leaves them (no trailing newline).
 fn vector(name: &str) -> Vec<u8> {

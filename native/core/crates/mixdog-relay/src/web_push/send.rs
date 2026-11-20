@@ -27,10 +27,8 @@ const MAX_BODY_CHARS: usize = 5462;
 const DEFAULT_URGENCY: &str = "high";
 
 /// `Buffer.from(text, 'base64url')`: lenient about the unused bits of the last character and about a dangling single character.
-const LENIENT: GeneralPurpose = GeneralPurpose::new(
-    &URL_SAFE,
-    GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::RequireNone),
-);
+const LENIENT: GeneralPurpose =
+    GeneralPurpose::new(&URL_SAFE, GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::RequireNone));
 
 fn is_urgency(value: &str) -> bool {
     matches!(value, "very-low" | "low" | "normal" | "high")

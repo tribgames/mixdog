@@ -56,11 +56,7 @@ impl std::error::Error for Invalid {}
 
 /// The byte length base64 text of canonical shape decodes to.
 fn decoded_len(data: &str) -> usize {
-    let padding = if data.ends_with("==") {
-        2
-    } else {
-        usize::from(data.ends_with('='))
-    };
+    let padding = if data.ends_with("==") { 2 } else { usize::from(data.ends_with('=')) };
     data.len() / 4 * 3 - padding
 }
 
@@ -89,11 +85,7 @@ fn canonical_base64(data: &str) -> bool {
     if data.is_empty() || !data.len().is_multiple_of(4) {
         return false;
     }
-    let pad = if data.ends_with("==") {
-        2
-    } else {
-        usize::from(data.ends_with('='))
-    };
+    let pad = if data.ends_with("==") { 2 } else { usize::from(data.ends_with('=')) };
     let body = &data[..data.len() - pad];
     if !body.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/') {
         return false;
@@ -112,12 +104,7 @@ fn unsafe_name(name: &str) -> bool {
 }
 
 fn safe_name(name: &str) -> bool {
-    !name.is_empty()
-        && js::js_len(name) <= MAX_NAME_CHARS
-        && name == js::js_trim(name)
-        && !name.starts_with('.')
-        && !name.ends_with('.')
-        && !unsafe_name(name)
+    !name.is_empty() && js::js_len(name) <= MAX_NAME_CHARS && name == js::js_trim(name) && !name.starts_with('.') && !name.ends_with('.') && !unsafe_name(name)
 }
 
 /// `normalizeFeedbackAttachments(value)`: an absent value is none; anything invalid is [`Invalid`]. `value` is parsed JSON:

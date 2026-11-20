@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 use mixdog_graph::calls::CallInfo;
 use mixdog_graph::lang::{lang_for, lang_static};
 use mixdog_graph::outline::{self, SymbolInfo};
-use mixdog_graph::resolve::{extract_top_level_types, resolve_and_link, ImportRecord};
+use mixdog_graph::resolve::{ImportRecord, extract_top_level_types, resolve_and_link};
 use mixdog_graph::scan;
 use mixdog_graph::scan_lang::scan_lang_for_path;
 use mixdog_graph::serve_search;
@@ -274,18 +274,10 @@ fn run_search(root: &Path, symbol: &str) -> Result<(), String> {
             let mut out: Vec<SearchHit> = outline::identifier_hits(&text, scan_lang, symbol)
                 .into_iter()
                 .map(|(line, col)| {
-                    let display = original_lines
-                        .get(line as usize - 1)
-                        .map(|s| s.trim())
-                        .unwrap_or("");
+                    let display = original_lines.get(line as usize - 1).map(|s| s.trim()).unwrap_or("");
                     // One trimmed, 80-character preview of the hit's line.
                     let trimmed: String = display.chars().take(80).collect();
-                    SearchHit {
-                        rel: rel.clone(),
-                        line,
-                        col,
-                        text: trimmed,
-                    }
+                    SearchHit { rel: rel.clone(), line, col, text: trimmed }
                 })
                 .collect();
             out.sort_by_key(|hit| (hit.line, hit.col));
@@ -321,30 +313,14 @@ struct SrcFile {
 // `Ok(None)` means the file is over the cap and is not indexed. Both the walk
 // and the `--files` path go through here, so neither can drift from the other.
 fn src_file_from(path: &Path, root: &Path, lang: &'static str) -> Result<Option<SrcFile>, String> {
-    let meta = fs::metadata(path)
-        .map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
+    let meta = fs::metadata(path).map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
     let size = meta.len();
     if size > MAX_FILE_BYTES {
         return Ok(None);
     }
-    let rel = path
-        .strip_prefix(root)
-        .map_err(|err| format!("path is outside graph root ({}): {err}", path.display()))?
-        .to_string_lossy()
-        .replace('\\', "/");
-    let mtime_ms = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    Ok(Some(SrcFile {
-        path: path.to_path_buf(),
-        rel,
-        lang,
-        size,
-        mtime_ms,
-    }))
+    let rel = path.strip_prefix(root).map_err(|err| format!("path is outside graph root ({}): {err}", path.display()))?.to_string_lossy().replace('\\', "/");
+    let mtime_ms = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0);
+    Ok(Some(SrcFile { path: path.to_path_buf(), rel, lang, size, mtime_ms }))
 }
 
 // Full parse (tokens/imports/symbols) from an already-collected SrcFile.
@@ -352,8 +328,7 @@ fn src_file_from(path: &Path, root: &Path, lang: &'static str) -> Result<Option<
 // record without claiming that call extraction ran.
 fn parse_file_from(src: &SrcFile) -> Result<FileRecord, String> {
     let lang = src.lang;
-    let bytes = fs::read(&src.path)
-        .map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
+    let bytes = fs::read(&src.path).map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
     let decoded = decode_source_text(bytes);
     let (text, parse_error) = match decoded {
         Ok(text) => (text, String::new()),
@@ -372,11 +347,7 @@ fn parse_file_from(src: &SrcFile) -> Result<FileRecord, String> {
     // A file that never decoded was not parsed, so its call list is unknown
     // (key omitted) rather than known-empty — `outline::extract` saw an empty
     // source here, not the file's real contents.
-    let calls = if parse_error.is_empty() {
-        outline.calls
-    } else {
-        None
-    };
+    let calls = if parse_error.is_empty() { outline.calls } else { None };
     let package_name = outline.package_name;
     let namespace_name = outline.namespace_name;
     let go_package_name = outline.go_package_name;
@@ -429,14 +400,9 @@ fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
     // Phase 1 (sequential walk, no stat): gather candidate paths + lang. The
     // ignore-crate walk is inherently sequential, but doing zero I/O here keeps
     // it cheap.
-    let candidates = walk_classified_files(root, |path| {
-        path.extension().and_then(|s| s.to_str()).and_then(lang_for)
-    })?;
+    let candidates = walk_classified_files(root, |path| path.extension().and_then(|s| s.to_str()).and_then(lang_for))?;
     // Phase 2 (parallel): one stat per candidate for size/mtime + the 2MB gate.
-    let file_results: Vec<Result<Option<SrcFile>, String>> = candidates
-        .par_iter()
-        .map(|(path, lang)| src_file_from(path, root, lang))
-        .collect();
+    let file_results: Vec<Result<Option<SrcFile>, String>> = candidates.par_iter().map(|(path, lang)| src_file_from(path, root, lang)).collect();
     let mut files = Vec::with_capacity(file_results.len());
     for result in file_results {
         if let Some(file) = result? {
@@ -464,10 +430,7 @@ fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
     // Path::join replaces the root when a path is absolute.
     let paths: Vec<PathBuf> = files.iter().map(|f| root.join(f)).collect();
     // Full-parse the fresh subset (tokens/symbols/imports/package/types).
-    let fresh_results: Vec<Result<Option<FileRecord>, String>> = paths
-        .par_iter()
-        .map(|p| parse_file(p.as_path(), root))
-        .collect();
+    let fresh_results: Vec<Result<Option<FileRecord>, String>> = paths.par_iter().map(|p| parse_file(p.as_path(), root)).collect();
     let mut fresh = Vec::with_capacity(fresh_results.len());
     for result in fresh_results {
         if let Some(record) = result? {
@@ -483,21 +446,15 @@ fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
     let reused: Vec<FileRecord> = {
         use std::io::Read;
         let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(|err| format!("stdin read failed: {err}"))?;
+        std::io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read failed: {err}"))?;
         let mut records = Vec::new();
         for (index, line) in buf.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            let meta = serde_json::from_str::<ReusedMeta>(line)
-                .map_err(|err| format!("invalid reused JSONL at line {}: {err}", index + 1))?;
+            let meta = serde_json::from_str::<ReusedMeta>(line).map_err(|err| format!("invalid reused JSONL at line {}: {err}", index + 1))?;
             if meta.rel.is_empty() {
-                return Err(format!(
-                    "invalid reused JSONL at line {}: rel is empty",
-                    index + 1
-                ));
+                return Err(format!("invalid reused JSONL at line {}: rel is empty", index + 1));
             }
             records.push(record_from_reused(meta));
         }
@@ -624,10 +581,7 @@ mod tests {
     impl std::io::Write for FailingWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             if self.lines >= self.ok_lines {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "pipe closed",
-                ));
+                return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe closed"));
             }
             self.lines += buf.iter().filter(|byte| **byte == b'\n').count();
             Ok(buf.len())
@@ -645,18 +599,8 @@ mod tests {
     #[test]
     fn a_failed_hit_write_is_fatal_instead_of_dropping_the_hit() {
         let hits = vec![
-            SearchHit {
-                rel: "a.rs".to_string(),
-                line: 1,
-                col: 0,
-                text: "fn run() {}".to_string(),
-            },
-            SearchHit {
-                rel: "b.rs".to_string(),
-                line: 2,
-                col: 4,
-                text: "run();".to_string(),
-            },
+            SearchHit { rel: "a.rs".to_string(), line: 1, col: 0, text: "fn run() {}".to_string() },
+            SearchHit { rel: "b.rs".to_string(), line: 2, col: 4, text: "run();".to_string() },
         ];
 
         let mut all = Vec::new();
@@ -665,14 +609,8 @@ mod tests {
 
         // The pipe closes after the first line: the second hit cannot be
         // written, and that has to surface as an error, not a short list.
-        let mut broken = FailingWriter {
-            ok_lines: 1,
-            lines: 0,
-        };
+        let mut broken = FailingWriter { ok_lines: 1, lines: 0 };
         let error = emit_search_hits(&hits, &mut broken).expect_err("a write failure is fatal");
-        assert!(
-            error.starts_with("stdout write failed for hit 1"),
-            "{error}"
-        );
+        assert!(error.starts_with("stdout write failed for hit 1"), "{error}");
     }
 }

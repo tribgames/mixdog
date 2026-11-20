@@ -5,12 +5,8 @@
 use std::collections::HashSet;
 
 use super::JpxError;
-use super::markers::{
-    CBLK_BYPASS, CBLK_TERMALL, EPH, Poc, Progression, SOP,
-};
-use super::tiles::{
-    CodeBlock, PacketRecord, Segment, TileComponent, TileStructure, ceil_div, floor_div_pow2,
-};
+use super::markers::{CBLK_BYPASS, CBLK_TERMALL, EPH, Poc, Progression, SOP};
+use super::tiles::{CodeBlock, PacketRecord, Segment, TileComponent, TileStructure, ceil_div, floor_div_pow2};
 
 fn eof() -> JpxError {
     JpxError::new("the packet header runs past the end of the data")
@@ -199,11 +195,7 @@ fn read_header(
         let prc = &mut band.precincts[precno];
         for (ci, blk) in prc.blocks.iter_mut().enumerate() {
             let first = blk.segments.is_empty();
-            let included = if first {
-                prc.inclusion.decode(bits, ci, layer + 1)?
-            } else {
-                bits.bit()?
-            };
+            let included = if first { prc.inclusion.decode(bits, ci, layer + 1)? } else { bits.bit()? };
             if !included {
                 continue;
             }
@@ -297,10 +289,8 @@ fn precinct_at(t: &TileStructure, c: &TileComponent, r: usize, x: u64, y: u64) -
     if res.pw == 0 || res.ph == 0 || trx0 == trx1 || try0 == try1 {
         return None;
     }
-    let prci = floor_div_pow2(ceil_div(x, dx << level) as i64, res.ppx as u32)
-        - floor_div_pow2(trx0 as i64, res.ppx as u32);
-    let prcj = floor_div_pow2(ceil_div(y, dy << level) as i64, res.ppy as u32)
-        - floor_div_pow2(try0 as i64, res.ppy as u32);
+    let prci = floor_div_pow2(ceil_div(x, dx << level) as i64, res.ppx as u32) - floor_div_pow2(trx0 as i64, res.ppx as u32);
+    let prcj = floor_div_pow2(ceil_div(y, dy << level) as i64, res.ppy as u32) - floor_div_pow2(try0 as i64, res.ppy as u32);
     let precno = prci + prcj * res.pw as i64;
     if prci < 0 || prcj < 0 || precno >= (res.pw as i64) * (res.ph as i64) {
         return None;
@@ -442,14 +432,7 @@ fn progression_changes(t: &TileStructure) -> Vec<Poc> {
     let comps = t.components.len() as u32;
     let layers = t.params.layers as u32;
     if t.params.pocs.is_empty() {
-        return vec![Poc {
-            res0: 0,
-            comp0: 0,
-            layer1: layers,
-            res1: max_res,
-            comp1: comps,
-            progression: t.params.progression,
-        }];
+        return vec![Poc { res0: 0, comp0: 0, layer1: layers, res1: max_res, comp1: comps, progression: t.params.progression }];
     }
     t.params
         .pocs
@@ -484,11 +467,7 @@ pub fn packet_order(t: &TileStructure) -> Vec<(u32, u32, u32, u32)> {
 /// Reads every packet of the tile from `body` (and, with PPM or PPT, the packet headers from `packed`), filling in
 /// the code-blocks. Data that ends early stops the reading and sets `truncated`; it is not an error. Returns the
 /// bytes of `packed` the packet headers took.
-pub(super) fn read_packets(
-    tile: &mut TileStructure,
-    body: &[u8],
-    packed: Option<&[u8]>,
-) -> Result<usize, JpxError> {
+pub(super) fn read_packets(tile: &mut TileStructure, body: &[u8], packed: Option<&[u8]>) -> Result<usize, JpxError> {
     let order = packet_order(tile);
     let sop = tile.params.sop;
     let eph = tile.params.eph;
@@ -514,8 +493,7 @@ pub(super) fn read_packets(
         };
         let mut bits = Bits::new(src);
         taken.clear();
-        let parsed = read_header(tile, c, r, p, layer, &mut bits, &mut taken)
-            .and_then(|nonempty| bits.align().map(|used| (nonempty, used)));
+        let parsed = read_header(tile, c, r, p, layer, &mut bits, &mut taken).and_then(|nonempty| bits.align().map(|used| (nonempty, used)));
         let (nonempty, mut used) = match parsed {
             Ok(v) => v,
             Err(_) => {
@@ -533,8 +511,7 @@ pub(super) fn read_packets(
         let mut data_len = 0u32;
         let mut cut = false;
         for (bi, ci, lens) in &taken {
-            let blk: &mut CodeBlock =
-                &mut tile.components[c].resolutions[r].bands[*bi].precincts[p].blocks[*ci];
+            let blk: &mut CodeBlock = &mut tile.components[c].resolutions[r].bands[*bi].precincts[p].blocks[*ci];
             for &(si, len) in lens {
                 let avail = body.len().saturating_sub(bpos);
                 let got = (len as usize).min(avail);
@@ -551,14 +528,7 @@ pub(super) fn read_packets(
                 break;
             }
         }
-        tile.packets.push(PacketRecord {
-            layer,
-            resolution: res,
-            component: comp,
-            precinct: precno,
-            empty: !nonempty,
-            data_len,
-        });
+        tile.packets.push(PacketRecord { layer, resolution: res, component: comp, precinct: precno, empty: !nonempty, data_len });
         if cut {
             tile.truncated = true;
             break;

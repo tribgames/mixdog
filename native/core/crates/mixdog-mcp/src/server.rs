@@ -46,14 +46,14 @@ use crate::rpc::RpcClient;
 use crate::rpc::RpcError;
 use crate::sse::SseTransport;
 use crate::stdio::StdioSpec;
+use crate::stdio::StdioTransport;
 use crate::tools::Feature;
 use crate::transport::Authorizer;
-use crate::transport::append_stderr_tail;
-use crate::ws::WebSocketTransport;
-use crate::stdio::StdioTransport;
 use crate::transport::IncomingRx;
 use crate::transport::Transport;
 use crate::transport::TransportError;
+use crate::transport::append_stderr_tail;
+use crate::ws::WebSocketTransport;
 
 /// The protocol revision this client speaks; a server answers with the one it settles on.
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -479,15 +479,8 @@ mod catalog_tests {
     }
 }
 
-
 impl McpServer {
-    pub fn new(
-        config: McpServerConfig,
-        io: McpIo,
-        spiller: Spiller,
-        policy: OutputPolicy,
-        authorizer: Option<Arc<dyn Authorizer>>,
-    ) -> Arc<Self> {
+    pub fn new(config: McpServerConfig, io: McpIo, spiller: Spiller, policy: OutputPolicy, authorizer: Option<Arc<dyn Authorizer>>) -> Arc<Self> {
         let gate = AdmissionGate::new(config.max_concurrency, config.max_queue, config.min_owner_queue);
         let secrets = config.secret_values();
         let (state, _) = watch::channel(Arc::new(ServerState::Starting));
@@ -636,14 +629,16 @@ impl McpServer {
         // The namespace owns no remote handshake: each private connection has its own
         // startup deadline, and the namespace waits only for one usable account.
         let startup_timeout = if self.accounts.get().is_some() { None } else { self.config.startup_timeout };
-        let handshake = async { match startup_timeout {
-            Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(opened)).await {
-                Ok(result) => result,
-                Err(_) => Err(ConnectError::StartupTimeout { name: self.config.name.clone(), ms: budget.as_millis() }),
-            },
-            // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
-            None => self.handshake(opened).await,
-        }};
+        let handshake = async {
+            match startup_timeout {
+                Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(opened)).await {
+                    Ok(result) => result,
+                    Err(_) => Err(ConnectError::StartupTimeout { name: self.config.name.clone(), ms: budget.as_millis() }),
+                },
+                // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
+                None => self.handshake(opened).await,
+            }
+        };
         let outcome = tokio::select! {
             outcome = handshake => outcome,
             () = self.shutdown.cancelled() => Err(ConnectError::Closed),
@@ -793,16 +788,10 @@ impl McpServer {
         if let Some(version) = init.get("protocolVersion").and_then(Value::as_str) {
             client.transport().set_protocol_version(version);
         }
-        client
-            .notify_and_wait("notifications/initialized", json!({}))
-            .await?;
+        client.notify_and_wait("notifications/initialized", json!({})).await?;
         client.transport().initialized();
         let capabilities = init.get("capabilities").cloned().unwrap_or(Value::Null);
-        let tools = if capabilities.get("tools").is_some_and(Value::is_object) {
-            list_tools(&client).await?
-        } else {
-            Vec::new()
-        };
+        let tools = if capabilities.get("tools").is_some_and(Value::is_object) { list_tools(&client).await? } else { Vec::new() };
         let outputs = OutputValidators::of(&tools).map_err(ConnectError::Failed)?;
         Ok(Ready {
             catalog: Arc::new(build_catalog(&self.config.name, &tools, &capabilities)),
@@ -982,7 +971,12 @@ impl McpServer {
     }
 
     pub(crate) async fn call_account(
-        self: &Arc<Self>, owner: &str, tool: &str, arguments: Value, cancel: &CancellationToken, forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
+        self: &Arc<Self>,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
     ) -> Result<Value, CallError> {
         // A failed initial handshake has no dead connection to recover. It is a fresh
         // per-server connect; live-connection failures use the shared call recovery below.
@@ -1000,8 +994,14 @@ impl McpServer {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn call_tool_bound_in(
-        self: &Arc<Self>, scope: Option<&str>, owner: &str, tool: &str, arguments: Value,
-        cancel: &CancellationToken, deadline: Option<Instant>, account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
+        self: &Arc<Self>,
+        scope: Option<&str>,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+        account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
     ) -> Result<ToolOutput, CallError> {
         let gate = scope.map_or_else(|| self.gate.clone(), |scope| self.gate_in(scope));
         let delivery = CallDelivery { account: account.cloned(), ..Default::default() };
@@ -1077,8 +1077,14 @@ impl McpServer {
 
     #[allow(clippy::too_many_arguments)]
     async fn call_raw_through(
-        self: &Arc<Self>, gate: &Arc<AdmissionGate>, owner: &str, tool: &str, arguments: Value,
-        cancel: &CancellationToken, deadline: Option<Instant>, delivery: &CallDelivery,
+        self: &Arc<Self>,
+        gate: &Arc<AdmissionGate>,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+        delivery: &CallDelivery,
     ) -> Result<Value, CallError> {
         let ready = match self.ready() {
             Ok(ready) if !ready.client.is_closed() => ready,
@@ -1163,9 +1169,7 @@ impl McpServer {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
         };
         match self.settle(gate, &ready, owner, request, arguments, cancel, deadline, delivery).await {
-            Err(retry @ (CallError::Rpc(_) | CallError::TimedOut(_)))
-                if !matches!(retry, CallError::Rpc(RpcError::Cancelled)) && !cancel.is_cancelled() =>
-            {
+            Err(retry @ (CallError::Rpc(_) | CallError::TimedOut(_))) if !matches!(retry, CallError::Rpc(RpcError::Cancelled)) && !cancel.is_cancelled() => {
                 // The SDK's text of a JSON-RPC error (`McpError`); a timed-out replay is wrapped too (`retryMsg`).
                 let (text, answered) = match &retry {
                     CallError::Rpc(RpcError::Server { code, message, .. }) => (format!("MCP error {code}: {message}"), true),
@@ -1214,7 +1218,12 @@ impl McpServer {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn call_tool_unlisted_bound(
-        &self, owner: &str, tool: &str, arguments: Value, cancel: &CancellationToken, deadline: Option<Instant>,
+        &self,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
         account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
     ) -> Result<ToolOutput, CallError> {
         let ready = self.ready()?;
@@ -1238,7 +1247,12 @@ impl McpServer {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn call_tool_settled_bound(
-        &self, owner: &str, tool: &str, arguments: Value, cancel: &CancellationToken, deadline: Option<Instant>,
+        &self,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
         account: Option<&mixdog_core_api::domain::tool::ConnectorAccountBinding>,
     ) -> Result<Value, CallError> {
         let ready = self.ready()?;
@@ -1247,12 +1261,10 @@ impl McpServer {
     }
 
     async fn map_output(&self, result: &Value) -> Result<ToolOutput, CallError> {
-        map_call_result(result, self.policy, &self.spiller)
-            .await
-            .map_err(|mut reported| {
-                reported.text = scrub(&reported.text, &self.secrets);
-                CallError::Reported(reported)
-            })
+        map_call_result(result, self.policy, &self.spiller).await.map_err(|mut reported| {
+            reported.text = scrub(&reported.text, &self.secrets);
+            CallError::Reported(reported)
+        })
     }
 
     /// `request` sent as the SDK's `Client.callTool` settles it (a feature's as `_callMcpFeatureWithTimeout` does): the

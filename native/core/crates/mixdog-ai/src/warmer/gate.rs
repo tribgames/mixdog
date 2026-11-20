@@ -12,10 +12,10 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_protocol::ProviderId;
 
-use crate::accounts::{Account, Usage, Window};
 use crate::accounts::policy::{account_exhausted, quota_reading_fresh, stale_quota_windows};
 use crate::accounts::rotation::{AccountRotation, Failed};
 use crate::accounts::{ACCOUNT_PROVIDERS, AccountStore};
+use crate::accounts::{Account, Usage, Window};
 use crate::admission::{Admission, Block, LaneKey, LaneSettings};
 use crate::service::oauth_usage::{OAuthUsage, RouteInfo};
 
@@ -192,11 +192,7 @@ impl AccountGate {
         seams: HostSeams,
     ) -> Self {
         let HostSeams { switch, resumes, snapshots, scope } = seams;
-        let now_ms = Arc::new(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as i64)
-        });
+        let now_ms = Arc::new(|| std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64));
         Self { admission, lane_settings, store, rotation, switch, resumes, snapshots, scope, now_ms }
     }
 
@@ -236,8 +232,7 @@ impl AccountGate {
             return held.then(|| "account blocked".to_owned());
         }
         let snapshot = if pool.accounts.is_empty() { self.snapshots.cached(&target.provider).await } else { None };
-        roster_block(&target.provider, &target.account_id, &target.model, now, &pool.accounts, pool.uses_credits(), snapshot.as_ref())
-            .map(str::to_owned)
+        roster_block(&target.provider, &target.account_id, &target.model, now, &pool.accounts, pool.uses_credits(), snapshot.as_ref()).map(str::to_owned)
     }
 }
 

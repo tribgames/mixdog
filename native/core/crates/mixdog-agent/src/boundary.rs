@@ -18,18 +18,18 @@ enum Ran {
     QuietFailure,
 }
 
+use crate::env::Clock;
 use crate::env::CompactError;
 use crate::env::CompactEvent;
 use crate::env::CompactPass;
-use crate::env::Dropped;
-use crate::env::PassStage;
 use crate::env::CompactRequest;
 use crate::env::CompactStatus;
-use crate::env::Clock;
 use crate::env::CompactTrigger;
 use crate::env::Compactor;
-use crate::env::RunEvent;
+use crate::env::Dropped;
+use crate::env::PassStage;
 use crate::env::Rewrite;
+use crate::env::RunEvent;
 use crate::env::SessionPressure;
 use crate::env::Stage;
 use crate::env::Tone;
@@ -141,17 +141,9 @@ impl CompactPolicy {
             (None, Some(window)) => window,
             (None, None) => positive(s.auto_limit)?,
         };
-        let calibration = if s.token_calibration > 0.0 {
-            s.token_calibration
-        } else {
-            1.0
-        };
+        let calibration = if s.token_calibration > 0.0 { s.token_calibration } else { 1.0 };
         let cap = (boundary as f64 * MAX_BUFFER_RATIO).floor() as u64;
-        let buffer = if s.buffer_tokens > 0 {
-            s.buffer_tokens.min(cap)
-        } else {
-            ((boundary as f64 * s.buffer_ratio.max(0.0)).floor() as u64).min(cap)
-        };
+        let buffer = if s.buffer_tokens > 0 { s.buffer_tokens.min(cap) } else { ((boundary as f64 * s.buffer_ratio.max(0.0)).floor() as u64).min(cap) };
         let explicit_limit = positive(s.auto_limit).filter(|limit| *limit < boundary);
         let policy_trigger = explicit_limit.unwrap_or_else(|| boundary.saturating_sub(buffer).max(1));
         let configured = s.configured_reserve_tokens;
@@ -160,11 +152,7 @@ impl CompactPolicy {
             Some(explicit) => explicit.clamp(1, boundary),
             None => {
                 let min_target = boundary.min(positive(s.target_min_tokens).unwrap_or(COMPACT_TARGET_MIN_TOKENS));
-                let ratio = s
-                    .target_ratio
-                    .filter(|r| *r > 0.0)
-                    .map(|r| if r > 1.0 { r / 100.0 } else { r })
-                    .unwrap_or(CONTEXT_SHARE_RATIO);
+                let ratio = s.target_ratio.filter(|r| *r > 0.0).map(|r| if r > 1.0 { r / 100.0 } else { r }).unwrap_or(CONTEXT_SHARE_RATIO);
                 let by_ratio = ((boundary as f64 * ratio).floor() as u64).max(1);
                 min_target.max(by_ratio).clamp(1, boundary)
             }
@@ -174,11 +162,8 @@ impl CompactPolicy {
         // Main sessions must not compact into their own next trigger: keep a
         // 1%-of-boundary (up to 1,024) gap above the post-compact target.
         let margin = ((boundary as f64 * 0.01).floor() as u64).clamp(1, 1_024);
-        let base_trigger = if !single_shot && !s.agent_owner && explicit_limit.is_none() {
-            policy_trigger.max(boundary.min(legacy_target + margin))
-        } else {
-            policy_trigger
-        };
+        let base_trigger =
+            if !single_shot && !s.agent_owner && explicit_limit.is_none() { policy_trigger.max(boundary.min(legacy_target + margin)) } else { policy_trigger };
         let trigger = base_trigger.saturating_sub(configured).max(1);
         Some(Self {
             boundary_tokens: boundary,
@@ -200,16 +185,8 @@ impl CompactPolicy {
     /// The raw budget handed to the compactor.
     pub fn target_budget(&self) -> u64 {
         let raw_boundary = self.raw(self.boundary_tokens);
-        let raw_target = self
-            .raw(self.target_tokens)
-            .min(raw_boundary)
-            .saturating_sub(self.request_reserve_tokens)
-            .max(1);
-        let raw_trigger = if self.trigger_tokens > 0 {
-            raw_boundary.min(self.raw(self.trigger_tokens))
-        } else {
-            0
-        };
+        let raw_target = self.raw(self.target_tokens).min(raw_boundary).saturating_sub(self.request_reserve_tokens).max(1);
+        let raw_trigger = if self.trigger_tokens > 0 { raw_boundary.min(self.raw(self.trigger_tokens)) } else { 0 };
         let single = self.single_shot || (raw_trigger > 0 && self.reserve_tokens >= raw_trigger);
         let legacy = (raw_target + self.reserve_tokens).clamp(1, raw_boundary);
         if single || raw_trigger == 0 {
@@ -243,10 +220,7 @@ impl Baseline {
         if self.count > messages.len() {
             return None;
         }
-        match messages[self.count..]
-            .iter()
-            .position(|m| m.role() == Role::Assistant)
-        {
+        match messages[self.count..].iter().position(|m| m.role() == Role::Assistant) {
             Some(offset) => Some((self.tokens, self.count + offset + 1)),
             None => Some((self.tokens.saturating_sub(self.output_tokens), self.count)),
         }
@@ -305,12 +279,7 @@ mod tests {
     use super::*;
 
     fn settings(window: u64) -> CompactSettings {
-        CompactSettings {
-            auto: true,
-            context_window: Some(window),
-            token_calibration: 1.0,
-            ..CompactSettings::default()
-        }
+        CompactSettings { auto: true, context_window: Some(window), token_calibration: 1.0, ..CompactSettings::default() }
     }
 
     #[test]
@@ -347,10 +316,7 @@ mod tests {
         s.auto = false;
         assert!(CompactPolicy::resolve(&s).is_none());
     }
-
-
 }
-
 
 impl Run {
     /// Records the provider's reading of the request just sent.
@@ -360,11 +326,7 @@ impl Run {
         if prompt == 0 || tokens == 0 {
             return;
         }
-        self.baseline = Some(Baseline {
-            tokens,
-            output_tokens: usage.output_tokens,
-            count: self.messages.len(),
-        });
+        self.baseline = Some(Baseline { tokens, output_tokens: usage.output_tokens, count: self.messages.len() });
         // `recordProviderContextBaseline` drops the session's unanchored mark.
         self.reanchored = true;
     }
@@ -379,11 +341,7 @@ impl Run {
             }
             None => session.unwrap_or_else(|| policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages))),
         };
-        if reactive {
-            base.max(policy.trigger_tokens.max(1))
-        } else {
-            base
-        }
+        if reactive { base.max(policy.trigger_tokens.max(1)) } else { base }
     }
 
     /// Repairs the transcript, then runs the compaction pass until the
@@ -452,9 +410,7 @@ impl Run {
     /// The proactive/reactive compaction decision and execution before each
     /// provider request. Returns whether the transcript changed.
     async fn pre_send_compact_pass(&mut self, skip_proactive: bool) -> Result<bool, AgentError> {
-        let (Some(compactor), Some(settings)) =
-            (self.env.compactor.clone(), self.config.compact.clone())
-        else {
+        let (Some(compactor), Some(settings)) = (self.env.compactor.clone(), self.config.compact.clone()) else {
             return Ok(false);
         };
         let Some(policy) = CompactPolicy::resolve(&settings) else {
@@ -486,11 +442,7 @@ impl Run {
         let measured_below = estimate_only && session.reading_count == Some(self.messages.len()) && session.reading.is_some_and(|reading| reading < trigger);
         let over = !session.unanchored && !(policy.single_shot && session.single_shot_consumed) && !measured_below && pressure >= trigger;
         let mut should = !skip_proactive && (reactive || media_pressure || over);
-        let budget = if should {
-            policy.target_budget()
-        } else {
-            policy.boundary_tokens
-        };
+        let budget = if should { policy.target_budget() } else { policy.boundary_tokens };
         let trigger_kind = if reactive { CompactTrigger::Reactive } else { CompactTrigger::Auto };
         // A proactive pass never replaces the transcript with an equal-sized
         // or larger one; media pressure compacts to drop bytes, not tokens.
@@ -541,11 +493,17 @@ impl Run {
         // A turn is offered a rewrite only for a lifetime that ran out: a history with no send on record is sent as it is.
         let lead = "The transcript's prompt cache expired.";
         let notice = |this: &mut Self, why: &str| {
-            this.emit(RunEvent::Stage(Stage::Notice { message: format!("{lead} {why}, so this request will resend the transcript unchanged."), tone: Tone::Info }));
+            this.emit(RunEvent::Stage(Stage::Notice {
+                message: format!("{lead} {why}, so this request will resend the transcript unchanged."),
+                tone: Tone::Info,
+            }));
         };
-        let sized = self.env.compactor.clone().zip(self.config.compact.clone()).and_then(|(compactor, settings)| {
-            CompactPolicy::resolve(&CompactSettings { auto: true, ..settings }).map(|policy| (compactor, policy))
-        });
+        let sized = self
+            .env
+            .compactor
+            .clone()
+            .zip(self.config.compact.clone())
+            .and_then(|(compactor, settings)| CompactPolicy::resolve(&CompactSettings { auto: true, ..settings }).map(|policy| (compactor, policy)));
         let Some((compactor, policy)) = sized else {
             notice(self, "No context window is configured");
             return Ok(Resolution::NoSizing);
@@ -595,7 +553,13 @@ impl Run {
         let request_messages = self.messages.clone();
         let request_tools = self.tools.definitions();
         let pass = |stage: PassStage| {
-            RunEvent::CompactPass(Box::new(CompactPass { request: request_messages.clone(), tools: request_tools.clone(), reactive, trigger: trigger_kind.clone(), stage }))
+            RunEvent::CompactPass(Box::new(CompactPass {
+                request: request_messages.clone(),
+                tools: request_tools.clone(),
+                reactive,
+                trigger: trigger_kind.clone(),
+                stage,
+            }))
         };
         self.emit(pass(PassStage::Started));
         // The one-shot reactive flag is consumed by this pass.
@@ -630,9 +594,7 @@ impl Run {
             active_turn: true,
             latest_user_prefix: "",
         };
-        let outcome = or_cancelled(&self.cancel, compactor.compact(request))
-            .await
-            .ok_or(AgentError::Aborted)?;
+        let outcome = or_cancelled(&self.cancel, compactor.compact(request)).await.ok_or(AgentError::Aborted)?;
         let output = match outcome {
             Ok(output) => output,
             Err(CompactError::Aborted) => return Err(AgentError::Aborted),
@@ -645,10 +607,7 @@ impl Run {
                 // Agent mode retries a failed compaction quietly once per
                 // turn: the context is still under the model's boundary and
                 // the next send's pass compacts again.
-                if self.config.agent_mode
-                    && !self.quiet_compact_retry_used
-                    && matches!(error, CompactError::Failed(_) | CompactError::RouteFailed(..))
-                {
+                if self.config.agent_mode && !self.quiet_compact_retry_used && matches!(error, CompactError::Failed(_) | CompactError::RouteFailed(..)) {
                     self.quiet_compact_retry_used = true;
                     return Ok(Ran::QuietFailure);
                 }
@@ -658,7 +617,13 @@ impl Run {
         if let Some(usage) = &output.usage {
             // `accumulateCompactUsage` reports it through `onUsageDelta` as well as into the aggregate.
             let (reasoning_tokens, reasoning_tokens_complete) = crate::run::reasoning_usage(usage);
-            self.emit(RunEvent::CompactUsage { iteration: self.iterations + 1, usage: usage.clone(), reasoning_tokens, reasoning_tokens_complete, input_excludes_cache: output.input_excludes_cache });
+            self.emit(RunEvent::CompactUsage {
+                iteration: self.iterations + 1,
+                usage: usage.clone(),
+                reasoning_tokens,
+                reasoning_tokens_complete,
+                input_excludes_cache: output.input_excludes_cache,
+            });
             self.last_usage = Some(add_usage(self.last_usage.take(), usage));
             if self.first_turn_usage.is_none() {
                 self.first_turn_usage = Some(usage.clone());
@@ -736,41 +701,27 @@ impl Run {
         self.config.options.tail_generation = Some(generation);
     }
 
-    fn compact_error(
-        &self,
-        error: CompactError,
-        policy: &CompactPolicy,
-        budget: u64,
-        pressure: u64,
-    ) -> AgentError {
+    fn compact_error(&self, error: CompactError, policy: &CompactPolicy, budget: u64, pressure: u64) -> AgentError {
         let provider = self.provider.id().to_string();
         match error {
             CompactError::Aborted => AgentError::Aborted,
-            CompactError::Overflow(cause) => {
-                AgentError::ContextOverflow(Box::new(ContextOverflow {
-                    stage: "pre_send",
-                    provider,
-                    model: self.model.clone(),
-                    context_window: policy.context_window,
-                    budget_tokens: Some(budget),
-                    reserve_tokens: Some(policy.reserve_tokens),
-                    message_tokens_est: Some(pressure),
-                    cause: Some(cause),
-                }))
-            }
-            CompactError::Failed(cause) => AgentError::CompactFailed(Box::new(CompactFailure {
+            CompactError::Overflow(cause) => AgentError::ContextOverflow(Box::new(ContextOverflow {
                 stage: "pre_send",
                 provider,
                 model: self.model.clone(),
-                cause,
+                context_window: policy.context_window,
+                budget_tokens: Some(budget),
+                reserve_tokens: Some(policy.reserve_tokens),
+                message_tokens_est: Some(pressure),
+                cause: Some(cause),
             })),
+            CompactError::Failed(cause) => {
+                AgentError::CompactFailed(Box::new(CompactFailure { stage: "pre_send", provider, model: self.model.clone(), cause }))
+            }
             // `agentCompactFailedError`: the route that failed, not necessarily the conversation's.
-            CompactError::RouteFailed(cause, route) => AgentError::CompactFailed(Box::new(CompactFailure {
-                stage: "pre_send",
-                provider: route.provider,
-                model: route.model,
-                cause,
-            })),
+            CompactError::RouteFailed(cause, route) => {
+                AgentError::CompactFailed(Box::new(CompactFailure { stage: "pre_send", provider: route.provider, model: route.model, cause }))
+            }
         }
     }
 }

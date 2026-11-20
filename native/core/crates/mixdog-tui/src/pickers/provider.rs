@@ -28,15 +28,13 @@ use crate::surface::SurfaceClaim;
 
 pub use items::ListOptions;
 pub use onboarding::{
-    AgentEntry, OnboardingState, Prefetch, finish_onboarding, onboarding_cancel, open_auth_step,
-    open_models_step, open_role_model_picker, output_style_advance, output_style_back,
-    prefetched_agents, prefetched_provider_models, resolve_onboarding_completed, start_onboarding,
-    theme_advance, theme_back,
+    AgentEntry, OnboardingState, Prefetch, finish_onboarding, onboarding_cancel, open_auth_step, open_models_step, open_role_model_picker,
+    output_style_advance, output_style_back, prefetched_agents, prefetched_provider_models, resolve_onboarding_completed, start_onboarding, theme_advance,
+    theme_back,
 };
 pub use panel::{PanelFooter, PanelOwner, PanelRow, ProviderPanel, ProviderRef, RowKind};
 pub use setup::{
-    ProviderSetup, SetupOptions, oauth_cancel_return, oauth_failure_return, oauth_settled,
-    oauth_success_return, open_provider_setup, run_return_to,
+    ProviderSetup, SetupOptions, oauth_cancel_return, oauth_failure_return, oauth_settled, oauth_success_return, open_provider_setup, run_return_to,
 };
 
 /// The model-list helpers the wizard and the sort of the provider list use (`app/model-options.mjs`), which the model picker
@@ -56,11 +54,7 @@ pub trait ModelLabels {
 pub trait ProviderHost: SlashHost + ModelLabels {
     /// `own.paint(panel)` under `claim`: the guarded write of the picker (`None` clears it and keeps the flow). The new
     /// claim, re-armed on the surface the write took, or `None` when the claim no longer held and nothing was written.
-    fn paint_provider_panel(
-        &mut self,
-        claim: SurfaceClaim,
-        panel: Option<ProviderPanel>,
-    ) -> Option<SurfaceClaim>;
+    fn paint_provider_panel(&mut self, claim: SurfaceClaim, panel: Option<ProviderPanel>) -> Option<SurfaceClaim>;
 
     /// `canOpenBrowser()`: whether a browser can plausibly open here.
     fn can_open_browser(&self) -> bool {
@@ -157,20 +151,11 @@ pub fn opener_named(name: &str) -> Option<Opener> {
 /// A return target from its option form: `{ "opener": name, "options": {...} }`.
 pub(crate) fn callback_from_value(value: &Value) -> Option<Callback> {
     let opener = opener_named(value.get("opener")?.as_str()?)?;
-    Some(Callback::Open(
-        opener,
-        value
-            .get("options")
-            .cloned()
-            .unwrap_or_else(|| Value::Object(Map::new())),
-    ))
+    Some(Callback::Open(opener, value.get("options").cloned().unwrap_or_else(|| Value::Object(Map::new()))))
 }
 
 /// Runs the provider setup flow the host holds on `event`; the flow is put back unless the event replaced it.
-fn with_flow(
-    host: &mut dyn ProviderHost,
-    event: impl FnOnce(&mut dyn ProviderHost, &mut ProviderSetup),
-) {
+fn with_flow(host: &mut dyn ProviderHost, event: impl FnOnce(&mut dyn ProviderHost, &mut ProviderSetup)) {
     let Some(mut flow) = host.take_provider_flow() else {
         return;
     };
@@ -185,9 +170,7 @@ pub fn select(host: &mut dyn ProviderHost, owner: &PanelOwner, index: usize) {
     match owner {
         PanelOwner::ProviderSetup => with_flow(host, |host, flow| flow.select(host, index)),
         PanelOwner::OnboardingModels => onboarding::models_select(host, index),
-        PanelOwner::OnboardingRoleModel(target) => {
-            onboarding::role_model_select(host, target, index)
-        }
+        PanelOwner::OnboardingRoleModel(target) => onboarding::role_model_select(host, target, index),
     }
 }
 
@@ -241,11 +224,7 @@ pub(crate) mod tests {
         }
 
         fn normalize_model_options(&self, models: &[Value]) -> Vec<Value> {
-            models
-                .iter()
-                .filter(|m| m["provider"].is_string() && m["id"].is_string())
-                .cloned()
-                .collect()
+            models.iter().filter(|m| m["provider"].is_string() && m["id"].is_string()).cloned().collect()
         }
 
         fn model_description(&self, model: &Value) -> String {
@@ -255,20 +234,7 @@ pub(crate) mod tests {
         fn agent_model_parts(&self, route: Option<&Value>) -> Vec<MetaPart> {
             let model = route.and_then(|r| r["model"].as_str()).unwrap_or_default();
             let effort = route.and_then(|r| r["effort"].as_str()).unwrap_or_default();
-            vec![
-                MetaPart {
-                    text: model.to_owned(),
-                    width: 17,
-                },
-                MetaPart {
-                    text: effort.to_owned(),
-                    width: 6,
-                },
-                MetaPart {
-                    text: String::new(),
-                    width: 9,
-                },
-            ]
+            vec![MetaPart { text: model.to_owned(), width: 17 }, MetaPart { text: effort.to_owned(), width: 6 }, MetaPart { text: String::new(), width: 9 }]
         }
     }
 }

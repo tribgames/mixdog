@@ -116,16 +116,12 @@ impl MediaFrameHeader {
     }
 
     /// Splits a binary frame into header and payload.
-    pub fn decode(
-        frame: &[u8],
-        max_media_frame_bytes: u64,
-    ) -> Result<(Self, &[u8]), MediaFrameError> {
+    pub fn decode(frame: &[u8], max_media_frame_bytes: u64) -> Result<(Self, &[u8]), MediaFrameError> {
         if frame.len() < MEDIA_HEADER_LEN {
             return Err(MediaFrameError::Truncated);
         }
         let (head, payload) = frame.split_at(MEDIA_HEADER_LEN);
-        let purpose =
-            MediaPurpose::from_byte(head[0]).ok_or(MediaFrameError::UnknownPurpose(head[0]))?;
+        let purpose = MediaPurpose::from_byte(head[0]).ok_or(MediaFrameError::UnknownPurpose(head[0]))?;
         let flags = head[1];
         if flags & !MediaFlags::KNOWN != 0 {
             return Err(MediaFrameError::UnknownFlags(flags));
@@ -133,8 +129,7 @@ impl MediaFrameHeader {
         let stream_id = u32::from_be_bytes([head[2], head[3], head[4], head[5]]);
         let width = u16::from_be_bytes([head[6], head[7]]);
         let height = u16::from_be_bytes([head[8], head[9]]);
-        let format =
-            MediaFormat::from_byte(head[10]).ok_or(MediaFrameError::UnknownFormat(head[10]))?;
+        let format = MediaFormat::from_byte(head[10]).ok_or(MediaFrameError::UnknownFormat(head[10]))?;
         if head[11..].iter().any(|byte| *byte != 0) {
             return Err(MediaFrameError::NonZeroPadding);
         }
@@ -144,17 +139,7 @@ impl MediaFrameHeader {
         if payload.len() as u64 > max_media_frame_bytes {
             return Err(MediaFrameError::PayloadTooLarge);
         }
-        Ok((
-            Self {
-                purpose,
-                flags,
-                stream_id,
-                width,
-                height,
-                format,
-            },
-            payload,
-        ))
+        Ok((Self { purpose, flags, stream_id, width, height, format }, payload))
     }
 }
 

@@ -52,11 +52,7 @@ impl Slot {
     }
 
     pub(crate) fn take_any(&self) -> Option<Arc<CallOut>> {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-            .map(|(_, out)| out)
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take().map(|(_, out)| out)
     }
 }
 
@@ -69,16 +65,29 @@ pub(crate) struct Queued {
 
 /// Everything the dispatcher reacts to.
 pub(crate) enum Event {
-    Enqueue { id: u32, queued: Queued },
+    Enqueue {
+        id: u32,
+        queued: Queued,
+    },
     /// The consumer dropped its stream.
     Dropped(u32),
-    Spawned { worker: u32, result: Result<Proc, String> },
+    Spawned {
+        worker: u32,
+        result: Result<Proc, String>,
+    },
     Ready(u32),
-    Finished { worker: u32, call: u32, pin: bool },
+    Finished {
+        worker: u32,
+        call: u32,
+        pin: bool,
+    },
     Exited(u32),
     Stop(u32),
     /// The grace after a cancel for `call` on `worker` has passed.
-    CancelGrace { worker: u32, call: u32 },
+    CancelGrace {
+        worker: u32,
+        call: u32,
+    },
     Shutdown(Option<oneshot::Sender<()>>),
     /// The grace the close gave every worker to leave on its `BYE` has passed.
     CloseGrace,

@@ -19,8 +19,8 @@ use serde_json::Value;
 use super::error::{GoalError, GoalResult};
 use super::js::{Goal, clean, now_wall_ms, put, put_num, string, truthy};
 use super::state::{
-    DEFAULT_COMPLETED_GOAL_TTL_MS, DEFAULT_GOAL_DEADLINE_WARNING_MS, DEFAULT_GOAL_TIME_LIMIT_MS, assert_session_id,
-    completed_goal_expired, discard_unobserved_time, normalize_stored_goal, normalized_completed_goal_ttl_ms, public_goal,
+    DEFAULT_COMPLETED_GOAL_TTL_MS, DEFAULT_GOAL_DEADLINE_WARNING_MS, DEFAULT_GOAL_TIME_LIMIT_MS, assert_session_id, completed_goal_expired,
+    discard_unobserved_time, normalize_stored_goal, normalized_completed_goal_ttl_ms, public_goal,
 };
 use super::storage::{self, delete_stored_goal_file, goals_root, record_path};
 
@@ -349,11 +349,7 @@ impl Inner {
 
     /// `withMutation`: serialized per session, under the record's lock, reading from disk; the
     /// publications it made go out once it has settled.
-    pub async fn with_mutation<R: Send + 'static>(
-        self: &Arc<Self>,
-        id: &str,
-        op: impl FnOnce(&mut Tx<'_>) -> GoalResult<R> + Send + 'static,
-    ) -> GoalResult<R> {
+    pub async fn with_mutation<R: Send + 'static>(self: &Arc<Self>, id: &str, op: impl FnOnce(&mut Tx<'_>) -> GoalResult<R> + Send + 'static) -> GoalResult<R> {
         let id = assert_session_id(id)?;
         let slot = self.slot(&id);
         let turn = reserve_turn(&slot);
@@ -376,11 +372,7 @@ impl Inner {
             let result = storage::locked(lane, &path, || op(&mut tx)).and_then(|r| r);
             (result, tx.held)
         };
-        let submitted = self
-            .env
-            .lane
-            .submit(&CancellationToken::new(), job)
-            .map_err(|_| GoalError::new("goal storage is busy"))?;
+        let submitted = self.env.lane.submit(&CancellationToken::new(), job).map_err(|_| GoalError::new("goal storage is busy"))?;
         let (result, held) = submitted.await.map_err(|_| GoalError::new("goal storage stopped"))?;
         // A mutation takes the record's lock in the goals directory; the directory watch of
         // Node's cache answers with a re-read of the file as stored, which replaces a copy the
@@ -397,8 +389,7 @@ impl Inner {
     }
 
     pub fn notify(&self, id: &str, goal: Option<Goal>) {
-        let listeners: Vec<Listener> =
-            self.listeners.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
+        let listeners: Vec<Listener> = self.listeners.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
         let event = GoalEvent { session_id: id.to_owned(), goal };
         for listener in listeners {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(&event)));
@@ -651,8 +642,7 @@ impl<'a> Tx<'a> {
             if let Some(is_current) = &admission.is_current {
                 accepted = check(is_current.as_ref());
             }
-            if accepted
-                && let Some(accept) = &admission.accept {
+            if accepted && let Some(accept) = &admission.accept {
                 accepted = check(accept.as_ref());
             }
             if !accepted {
@@ -746,7 +736,8 @@ impl GoalRuntime {
     /// `readStoredGoalSnapshot({ dataDir, sessionId })`: the Goal a reader without the runtime sees in its file, the
     /// open segment counted only up to `liveAt`; an archived one reads as none.
     pub async fn read_stored_snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
-        let (root, at, ttl, id) = (self.inner.root.clone(), self.inner.now(), normalized_completed_goal_ttl_ms(self.inner.completed_retention_ms), session_id.to_owned());
+        let (root, at, ttl, id) =
+            (self.inner.root.clone(), self.inner.now(), normalized_completed_goal_ttl_ms(self.inner.completed_retention_ms), session_id.to_owned());
         self.inner
             .env
             .lane

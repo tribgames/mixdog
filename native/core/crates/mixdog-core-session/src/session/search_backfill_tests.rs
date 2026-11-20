@@ -88,22 +88,16 @@ pub(crate) async fn migrated(golden: &Value) -> (tempfile::TempDir, Arc<StoreThr
         .await
         .expect("job ran");
     let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: tokio::runtime::Handle::current() };
-    Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector), office), MigrateOptions::default())
-        .run()
-        .expect("migrated");
+    Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector), office), MigrateOptions::default()).run().expect("migrated");
     let data = roots.data.clone();
     let index = tokens
         .maintenance_io
-        .submit(&CancellationToken::new(), move |lane| {
-            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
-        })
+        .submit(&CancellationToken::new(), move |lane| SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data))
         .expect("lane")
         .await
         .expect("job ran")
         .expect("index");
-    let threads = StoreThreads::over_data_dir(&roots.data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io)
-        .await
-        .expect("thread store");
+    let threads = StoreThreads::over_data_dir(&roots.data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store");
     let lanes = SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
     (dir, Arc::new(threads), lanes)
 }

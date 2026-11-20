@@ -224,12 +224,7 @@ async fn fail(out: &mut dyn MediaOutput, status: u16) {
 /// Answers one request on `out`: a status, or a 200 head, the authenticated meta frame and the
 /// window's segment frames, then the end. Shared by every lane, so a window is the same bytes
 /// whichever lane carries it.
-pub async fn serve_media_window(
-    sources: &dyn MediaSources,
-    media: &MediaRequest,
-    session: &MediaSession,
-    out: &mut dyn MediaOutput,
-) {
+pub async fn serve_media_window(sources: &dyn MediaSources, media: &MediaRequest, session: &MediaSession, out: &mut dyn MediaOutput) {
     // Only a client that explicitly speaks the encrypted scheme gets bytes.
     if media.enc != MEDIA_SCHEME {
         return fail(out, 404).await;
@@ -442,11 +437,7 @@ impl MediaOutput for LaneOutput {
     }
 
     async fn head(&mut self, status: u16) {
-        let headers = if status == 200 {
-            json!({ "Content-Type": "application/octet-stream", "Cache-Control": "no-store" })
-        } else {
-            json!({})
-        };
+        let headers = if status == 200 { json!({ "Content-Type": "application/octet-stream", "Cache-Control": "no-store" }) } else { json!({}) };
         let head = json!({ "type": "media-head", "id": self.id, "status": status, "headers": headers });
         if status == 200 {
             self.deliver(head);
@@ -862,7 +853,8 @@ mod tests {
         // the capability the unpair set, the one thing it can still observe.
         snapshot.revoke();
         rig.start(snapshot).await.unwrap();
-        let heads: Vec<u64> = rig.sent.lock().unwrap().iter().filter(|frame| frame["type"] == "media-head").map(|frame| frame["status"].as_u64().unwrap()).collect();
+        let heads: Vec<u64> =
+            rig.sent.lock().unwrap().iter().filter(|frame| frame["type"] == "media-head").map(|frame| frame["status"].as_u64().unwrap()).collect();
         assert_eq!(rig.frames("media-chunk"), 0, "no bytes");
         assert!(heads.is_empty() || heads == [403], "{heads:?}: refused, never a 200");
         assert_eq!(rig.lane.active(), 0);
@@ -890,7 +882,6 @@ mod tests {
         assert_eq!(reads.lock().unwrap().len(), 1, "only the first request read");
     }
 
-
     impl Rig {
         fn new(gallery: bool, stall_after: usize) -> Self {
             Self::with_wait_hook(gallery, stall_after, None)
@@ -903,7 +894,9 @@ mod tests {
             let leases: HashMap<String, TestLease> = ["lease-1", "lease-2"].iter().map(|asset| ((*asset).to_owned(), TestLease::new())).collect();
             let stalled: Arc<dyn Fn() -> bool + Send + Sync> = {
                 let (sent, released) = (sent.clone(), released.clone());
-                Arc::new(move || !released.load(Ordering::SeqCst) && sent.lock().unwrap().iter().filter(|frame| frame["type"] == "media-chunk").count() >= stall_after)
+                Arc::new(move || {
+                    !released.load(Ordering::SeqCst) && sent.lock().unwrap().iter().filter(|frame| frame["type"] == "media-chunk").count() >= stall_after
+                })
             };
             let lane = Arc::new(RelayMediaLane::new(
                 Arc::new(Guarded { leases: leases.clone(), gallery, dropped: dropped.clone() }),
@@ -924,7 +917,15 @@ mod tests {
         }
 
         fn request(asset: &str) -> MediaRequest {
-            MediaRequest { id: format!("r-{asset}"), asset_id: asset.into(), variant: "original".into(), method: "GET".into(), range: "bytes=0-".into(), sid: String::new(), enc: MEDIA_SCHEME.into() }
+            MediaRequest {
+                id: format!("r-{asset}"),
+                asset_id: asset.into(),
+                variant: "original".into(),
+                method: "GET".into(),
+                range: "bytes=0-".into(),
+                sid: String::new(),
+                enc: MEDIA_SCHEME.into(),
+            }
         }
 
         fn start_asset(&self, asset: &str, revocation: Revocation) -> tokio::task::JoinHandle<()> {

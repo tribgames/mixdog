@@ -138,7 +138,11 @@ fn only_a_400_naming_the_field_or_beta_is_a_floor_feature_rejection() {
     assert_eq!(rejection(Some(400), "thinking.display: Extra inputs are not permitted"), Some(Feature::ProgressUpdates));
     assert_eq!(rejection(Some(400), "unknown beta header thinking-display-updates"), Some(Feature::ProgressUpdates));
     assert_eq!(rejection(Some(400), "clear_at and thinking.display both"), Some(Feature::ProgressUpdates), "the progress field is named first");
-    assert_eq!(rejection(Some(400), "messages.1.clear_at: a turn-scoped message supports text blocks only"), None, "a rule about the content is the model taking the message");
+    assert_eq!(
+        rejection(Some(400), "messages.1.clear_at: a turn-scoped message supports text blocks only"),
+        None,
+        "a rule about the content is the model taking the message"
+    );
     assert_eq!(rejection(Some(400), "not permitted on a turn-scoped message: clear_at"), None);
     assert_eq!(rejection(Some(400), "max_tokens: too large"), None);
     assert_eq!(rejection(Some(400), "thinkingxdisplay"), None);

@@ -97,7 +97,10 @@ mod tests {
     #[tokio::test]
     async fn host_input_time_joins_the_input_phase_and_the_steps_stop_at_six() {
         let timer = CommandTimer::start(0.0);
-        timer.merge_input(&[BrowserInputTiming { input_ms: 4.0, key_events: 1, mouse_events: 0 }, BrowserInputTiming { input_ms: 2.5, key_events: 0, mouse_events: 3 }]);
+        timer.merge_input(&[
+            BrowserInputTiming { input_ms: 4.0, key_events: 1, mouse_events: 0 },
+            BrowserInputTiming { input_ms: 2.5, key_events: 0, mouse_events: 3 },
+        ]);
         for index in 1..=8 {
             timer.step(index, async {}).await;
         }
@@ -115,7 +118,6 @@ mod tests {
         timer.merge_input(&[BrowserInputTiming { input_ms: 9.0, key_events: 0, mouse_events: 0 }]);
         assert_eq!(timer.finish(), CommandTiming::default());
     }
-
 
     #[tokio::test]
     async fn the_target_and_actionability_waits_are_entered_on_the_commands_row_and_a_page_with_none_runs_them_bare() {

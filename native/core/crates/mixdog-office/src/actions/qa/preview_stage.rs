@@ -103,7 +103,9 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         copy.mode = if copy.backend == Backend::MicrosoftOfficeCom { Mode::Background } else { Mode::Portable };
         copy.state = SessionState::Idle;
         let baseline_session = Arc::new(Mutex::new(copy));
-        let rendered = render_office_preview(engine, &baseline_session, &with_field(args, "output", Value::String(baseline_output)), cwd, PreviewOptions::default()).await?;
+        let rendered =
+            render_office_preview(engine, &baseline_session, &with_field(args, "output", Value::String(baseline_output)), cwd, PreviewOptions::default())
+                .await?;
         Ok(json!({
             "available": true,
             "output": rendered.get("output").cloned().unwrap_or(Value::Null),
@@ -113,7 +115,15 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
     }
 
     /// `acquireQaPreview(session, args, cwd, { reuseRender, structuralReview, measureOnly })`.
-    pub(crate) async fn acquire_qa_preview(&self, handle: &SessionHandle, args: &Value, cwd: &Path, reuse_render: bool, structural: bool, measure_only: bool) -> Result<Value, String> {
+    pub(crate) async fn acquire_qa_preview(
+        &self,
+        handle: &SessionHandle,
+        args: &Value,
+        cwd: &Path,
+        reuse_render: bool,
+        structural: bool,
+        measure_only: bool,
+    ) -> Result<Value, String> {
         let engine = self.engine();
         if reuse_render
             && !structural
@@ -136,7 +146,15 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
     }
 
     /// `compareQaBaseline(session, args, cwd, preview, { structuralReview, measureOnly })`.
-    pub(crate) async fn compare_qa_baseline(&self, handle: &SessionHandle, args: &Value, cwd: &Path, preview: &Value, structural: bool, measure_only: bool) -> Compared {
+    pub(crate) async fn compare_qa_baseline(
+        &self,
+        handle: &SessionHandle,
+        args: &Value,
+        cwd: &Path,
+        preview: &Value,
+        structural: bool,
+        measure_only: bool,
+    ) -> Compared {
         let mut baseline = json!({
             "available": false,
             "reason": if structural { "Delimited text uses structural QA instead of paginated rendering." } else { "No active transaction baseline." },

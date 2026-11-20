@@ -55,21 +55,14 @@ pub const MESSAGE_STOP_WAIT_MS: u64 = 5_000;
 const MAX_BREAKPOINTS: usize = 4;
 
 const NORMAL_STOPS: [&str; 5] = ["end_turn", "tool_use", "stop_sequence", "pause_turn", "max_tokens"];
-const REPLAY_CODES: [&str; 4] = [
-    "thread_not_found",
-    "thread_already_continued",
-    "thread_continue_in_flight",
-    "thread_fingerprint_mismatch",
-];
+const REPLAY_CODES: [&str; 4] = ["thread_not_found", "thread_already_continued", "thread_continue_in_flight", "thread_fingerprint_mismatch"];
 /// `thread_unsupported_request` values that are organization settings: no request of this account can be threaded.
 const ACCOUNT_UNSUPPORTED: [&str; 2] = ["hipaa", "inference_hooks"];
 
 /// An uncoded refusal that names the `thread` parameter or the beta itself.
 static EXPLICIT_THREAD_REJECTION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(
-        r#"(?i){MESSAGE_THREADS_BETA}|(?:^|[^\w-])thread(?:[`'"]|\s*:|\.(?:type|previous_message_id)\b|\s+(?:parameter|field)\b)"#
-    ))
-    .expect("a valid pattern")
+    Regex::new(&format!(r#"(?i){MESSAGE_THREADS_BETA}|(?:^|[^\w-])thread(?:[`'"]|\s*:|\.(?:type|previous_message_id)\b|\s+(?:parameter|field)\b)"#))
+        .expect("a valid pattern")
 });
 
 fn sha(text: &str) -> String {
@@ -172,9 +165,7 @@ pub fn response_digest(content: &Value) -> String {
 fn count_controls(value: &Value) -> usize {
     match value {
         Value::Array(items) => items.iter().map(count_controls).sum(),
-        Value::Object(map) => {
-            usize::from(map.get("cache_control").is_some_and(truthy)) + map.get("content").filter(|c| c.is_array()).map_or(0, count_controls)
-        }
+        Value::Object(map) => usize::from(map.get("cache_control").is_some_and(truthy)) + map.get("content").filter(|c| c.is_array()).map_or(0, count_controls),
         _ => 0,
     }
 }
@@ -450,7 +441,8 @@ fn error_details(error_body: &str) -> (String, Vec<String>, String) {
     let error = if parsed.get("error").is_some_and(Value::is_object) { parsed["error"].clone() } else { parsed.clone() };
     let details = error.get("details").cloned().unwrap_or(Value::Null);
     let code = details["error_code"].as_str().unwrap_or_default().to_owned();
-    let unsupported = details["unsupported"].as_array().map(|all| all.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect()).unwrap_or_default();
+    let unsupported =
+        details["unsupported"].as_array().map(|all| all.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect()).unwrap_or_default();
     let message = error["message"].as_str().filter(|m| !m.is_empty()).map_or_else(|| error_body.to_owned(), str::to_owned);
     (code, unsupported, message)
 }
@@ -513,7 +505,8 @@ impl Threads {
         let generation_id = inner.next;
         let generation = inner.scopes.entry(input.scope.to_owned()).or_insert_with(|| Generation { id: generation_id, records: HashMap::new() });
         let generation_id = generation.id;
-        let displaced = generation.records.insert(input.provider.to_owned(), Record { token, in_flight: true, state: None, disabled_account: None, retry: None });
+        let displaced =
+            generation.records.insert(input.provider.to_owned(), Record { token, in_flight: true, state: None, disabled_account: None, retry: None });
         let replay = replayed || input.directive.is_some_and(|d| d.replay);
         let carried = if mode == Mode::Continue || retry.is_some() { prior.clone() } else { None };
         let after_replay = mode == Mode::Continue && prior.as_ref().is_some_and(|s| s.from_replay);
@@ -635,7 +628,16 @@ pub struct Plan {
 
 impl Plan {
     fn unthreaded(body: &Value, betas: &[String]) -> Self {
-        Self { mode: Mode::None, body: body.clone(), betas: betas.to_vec(), blocker: None, after_replay: false, directive: None, session: None, displaced: None }
+        Self {
+            mode: Mode::None,
+            body: body.clone(),
+            betas: betas.to_vec(),
+            blocker: None,
+            after_replay: false,
+            directive: None,
+            session: None,
+            displaced: None,
+        }
     }
 
     /// The planned write was refused before any byte left: the conversation is as it was before this plan, so the write

@@ -21,11 +21,11 @@ use std::sync::mpsc;
 mod batch_tests;
 mod gate;
 pub mod lead;
+pub mod listing;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod purge_tests;
-pub mod listing;
 mod withheld;
 #[cfg(test)]
 pub(crate) use withheld::WITHHELD_DDL;
@@ -35,8 +35,8 @@ mod withheld_tests;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
-use mixdog_rt::MaintenanceIo;
 use mixdog_rt::LaneToken;
+use mixdog_rt::MaintenanceIo;
 use mixdog_rt::SqliteWriterThread;
 use mixdog_rt::ThreadToken;
 use rusqlite::Connection;
@@ -174,9 +174,7 @@ fn open_writer(path: &Path, ddl: Option<&str>) -> Result<Connection, DbError> {
         // it from the logs just like a missing file, rather than installing DDL here.
         None => {
             let conn = check_schema(open_connection(path)?, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
-            let has_sessions = conn.query_row(
-                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'", [], |_| Ok(()),
-            ).optional()?.is_some();
+            let has_sessions = conn.query_row("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'", [], |_| Ok(())).optional()?.is_some();
             if !has_sessions {
                 return Err(DbError::Rebuild("missing sessions table".to_owned()));
             }
@@ -205,10 +203,7 @@ pub const INDEX_FILE: &str = "index/store.sqlite";
 pub(crate) fn needs_rebuild(e: &DbError) -> bool {
     match e {
         DbError::Rebuild(_) => true,
-        DbError::Sqlite(e) => matches!(
-            e.sqlite_error_code(),
-            Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)
-        ),
+        DbError::Sqlite(e) => matches!(e.sqlite_error_code(), Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)),
         _ => false,
     }
 }
@@ -457,8 +452,7 @@ impl SessionStatus {
 
 /// The one write of a session's damage state (FORMAT.md §3.4), live and rebuild alike.
 fn set_status_on(tx: &Transaction, session: &str, status: SessionStatus, damage: Option<&str>) -> rusqlite::Result<()> {
-    tx.prepare_cached("UPDATE sessions SET status = ?2, damage = ?3 WHERE id = ?1")?
-        .execute(params![session, status.as_str(), damage])?;
+    tx.prepare_cached("UPDATE sessions SET status = ?2, damage = ?3 WHERE id = ?1")?.execute(params![session, status.as_str(), damage])?;
     Ok(())
 }
 
@@ -500,9 +494,7 @@ fn remove_session_dir(_lane: &InLane<MaintenanceIo>, dir: &Path) -> Result<(), D
     use crate::fsio::IoOp;
     let _writing = crate::log_epoch::writing_dir(dir);
     let gone = |r: std::io::Result<()>, op: IoOp, path: &Path| match r {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            Err(DbError::Write(crate::fsio::err(op, path)(e).to_string()))
-        }
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(DbError::Write(crate::fsio::err(op, path)(e).to_string())),
         _ => Ok(()),
     };
     let first = dir.join(crate::log::log_name(0));
@@ -599,7 +591,13 @@ fn listed_on(c: &Connection, sessions: &[String]) -> Result<Vec<Option<Option<St
 /// snapshot ([`withheld`]).
 pub(crate) const WITHHELD_COL: &str = "EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)";
 
-fn upsert(tx: &Transaction<'_>, head: &CatalogHead, dirty: DirtyMark, labels: &PlaceholderLabels, archive: Option<&ArchiveSnapshot>) -> rusqlite::Result<usize> {
+fn upsert(
+    tx: &Transaction<'_>,
+    head: &CatalogHead,
+    dirty: DirtyMark,
+    labels: &PlaceholderLabels,
+    archive: Option<&ArchiveSnapshot>,
+) -> rusqlite::Result<usize> {
     upsert_edge(tx, head, dirty, labels, false, archive).map(|(written, _)| written)
 }
 
@@ -666,13 +664,15 @@ fn write_offload_refs(tx: &Transaction<'_>, head: &CatalogHead) -> rusqlite::Res
     if sets::holds_set(&head.header) {
         tx.prepare_cached("DELETE FROM offload_refs WHERE session = ?1")?.execute([&head.session])?;
         for source in sets::sources(&head.header) {
-            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?
+                .execute(params![sets::segment_key(&source), head.session])?;
         }
         tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, NULL, ?2) ON CONFLICT(session) DO UPDATE SET ordinal = NULL, rules = excluded.rules")?
             .execute(params![head.session, sets::RULES])?;
     } else {
         for source in sets::sources(&head.header) {
-            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?
+                .execute(params![sets::segment_key(&source), head.session])?;
         }
         tx.prepare_cached("DELETE FROM offload_known WHERE session = ?1 AND ordinal IS NULL")?.execute([&head.session])?;
     }
@@ -761,28 +761,78 @@ pub struct Rewritten {
 }
 
 enum Command {
-    Upsert { head: Arc<CatalogHead>, dirty: DirtyMark, ack: Option<Ack> },
-    MarkDirty { session: String, ack: Ack },
-    Status { session: String, status: SessionStatus, damage: Option<String>, ack: Ack },
-    Delete { session: String, ack: Ack },
-    Project { projection: Projection, ack: Option<Ack> },
-    Labels { labels: PlaceholderLabels, ack: Ack },
-    OffloadScan { session: String, ordinal: i64, sources: Vec<String>, ack: Ack },
+    Upsert {
+        head: Arc<CatalogHead>,
+        dirty: DirtyMark,
+        ack: Option<Ack>,
+    },
+    MarkDirty {
+        session: String,
+        ack: Ack,
+    },
+    Status {
+        session: String,
+        status: SessionStatus,
+        damage: Option<String>,
+        ack: Ack,
+    },
+    Delete {
+        session: String,
+        ack: Ack,
+    },
+    Project {
+        projection: Projection,
+        ack: Option<Ack>,
+    },
+    Labels {
+        labels: PlaceholderLabels,
+        ack: Ack,
+    },
+    OffloadScan {
+        session: String,
+        ordinal: i64,
+        sources: Vec<String>,
+        ack: Ack,
+    },
     /// A pending row takes the identity of the log that is there now ([`Adopting::arrived`]).
-    Arrived { session: String, log_id: String, base_session: Option<String>, ack: Ack },
+    Arrived {
+        session: String,
+        log_id: String,
+        base_session: Option<String>,
+        ack: Ack,
+    },
     /// The list rows of the sessions still to be converted ([`SqliteStore::list_pending`]).
-    Pending { sessions: Vec<(CatalogHead, crate::summary::MessageStats)>, ack: Ack },
+    Pending {
+        sessions: Vec<(CatalogHead, crate::summary::MessageStats)>,
+        ack: Ack,
+    },
     /// The rows of these sessions take their archive entries ([`SqliteStore::project_archive`]).
-    Archive { sessions: Vec<String>, read: Arc<std::sync::atomic::AtomicU64>, ack: Ack },
+    Archive {
+        sessions: Vec<String>,
+        read: Arc<std::sync::atomic::AtomicU64>,
+        ack: Ack,
+    },
     /// Drop the index rows of a deleted session whose folder is gone.
-    Purge { session: String, ack: Ack },
+    Purge {
+        session: String,
+        ack: Ack,
+    },
     /// Exactly these sessions are withheld ([`SqliteStore::withhold`]).
-    Withhold { sessions: Vec<String>, ack: Ack },
+    Withhold {
+        sessions: Vec<String>,
+        ack: Ack,
+    },
     /// A withheld session, its rows rebuilt from its rewritten log, is answered in full from the commit on, and its row is
     /// told as changed ([`SqliteStore::release_withheld`]).
-    Release { session: String, ack: Ack },
+    Release {
+        session: String,
+        ack: Ack,
+    },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
-    Reproject { rewrite: Rewritten, ack: Ack },
+    Reproject {
+        rewrite: Rewritten,
+        ack: Ack,
+    },
     /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
     /// written clean (`reconcile`). Answered on a channel the lane job blocks on.
     Reconcile {
@@ -910,25 +960,16 @@ fn send(acks: Vec<Ack>, result: &Result<(), String>) {
 impl Writer {
     fn start(path: &Path) -> Result<Writer, DbError> {
         let conn = open_writer(path, None)?;
-        let stored: Option<String> = conn
-            .query_row("SELECT value FROM meta WHERE key = ?1", [LABELS_KEY], |r| r.get(0))
-            .optional()?;
+        let stored: Option<String> = conn.query_row("SELECT value FROM meta WHERE key = ?1", [LABELS_KEY], |r| r.get(0)).optional()?;
         let labels = match stored {
             Some(json) => {
-                let [image, video, file]: [String; 3] =
-                    serde_json::from_str(&json).map_err(|e| DbError::Rebuild(e.to_string()))?;
+                let [image, video, file]: [String; 3] = serde_json::from_str(&json).map_err(|e| DbError::Rebuild(e.to_string()))?;
                 PlaceholderLabels { image, video, file }
             }
             None => PlaceholderLabels::default(),
         };
-        let refold: bool = conn
-            .query_row("SELECT 1 FROM meta WHERE key = ?1", [REFOLD_JOB], |_| Ok(()))
-            .optional()?
-            .is_some();
-        let views: bool = conn
-            .query_row("SELECT 1 FROM message_views WHERE state = 'pending' LIMIT 1", [], |_| Ok(()))
-            .optional()?
-            .is_some();
+        let refold: bool = conn.query_row("SELECT 1 FROM meta WHERE key = ?1", [REFOLD_JOB], |_| Ok(())).optional()?.is_some();
+        let views: bool = conn.query_row("SELECT 1 FROM message_views WHERE state = 'pending' LIMIT 1", [], |_| Ok(())).optional()?.is_some();
         Ok(Writer {
             conn,
             labels,
@@ -958,10 +999,7 @@ impl Writer {
                 let _ = ack.send(self.reconcile_apply(&session, &frames, finish.map(|finish| *finish)));
             }
             Command::Upsert { head, dirty, ack } => {
-                let entry = self
-                    .upserts
-                    .entry(head.session.clone())
-                    .or_insert_with(|| (head.clone(), dirty, Vec::new(), seq));
+                let entry = self.upserts.entry(head.session.clone()).or_insert_with(|| (head.clone(), dirty, Vec::new(), seq));
                 // Coalesce: newest fields; a Set/Clear outranks an earlier Keep.
                 entry.0 = head;
                 entry.3 = seq;
@@ -1037,9 +1075,7 @@ impl Writer {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut budget = self.step_rows;
         for (table, key) in PURGE_TABLES {
-            let sql = format!(
-                "DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)"
-            );
+            let sql = format!("DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)");
             budget -= tx.prepare_cached(&sql)?.execute(params![session, budget as i64])?;
             if budget == 0 {
                 tx.commit()?;
@@ -1074,12 +1110,7 @@ impl Writer {
 
     /// One message of the reconcile (`reconcile`): the frames, then with `finish` the row
     /// (and damage) of the session, which clears its dirty mark in the row's transaction.
-    fn reconcile_apply(
-        &mut self,
-        session: &str,
-        frames: &[ProjectedFrame],
-        finish: Option<(CatalogHead, Option<String>)>,
-    ) -> Result<(), DbError> {
+    fn reconcile_apply(&mut self, session: &str, frames: &[ProjectedFrame], finish: Option<(CatalogHead, Option<String>)>) -> Result<(), DbError> {
         apply_all(&mut self.conn, session, frames)?;
         let Some((head, damage)) = finish else { return Ok(()) };
         let archive = bound_archive(&self.archive);
@@ -1190,174 +1221,166 @@ impl Writer {
         // One snapshot for the whole transaction: a commit of the authority after it is projected by its own command, queued after.
         let archive = bound_archive(&self.archive);
         let read_seq = self.archive_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        let result = (|| -> rusqlite::Result<()> {
-            let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            // Small commands (dirty marks, status): one row each.
-            while rows < self.append_rows
-                && let Some(cmd) = self.small.pop_front()
-            {
-                rows += 1;
-                match cmd {
-                    Command::MarkDirty { session, ack } => {
-                        tx.prepare_cached("UPDATE sessions SET dirty = 1 WHERE id = ?1")?.execute([&session])?;
-                        acks.push(ack);
-                    }
-                    Command::Status { session, status, damage, ack } => {
-                        set_status_on(&tx, &session, status, damage.as_deref())?;
-                        acks.push(ack);
-                    }
-                    Command::Delete { session, ack } => {
-                        tx.prepare_cached("UPDATE sessions SET deleted = 1, dirty = 0 WHERE id = ?1")?
-                            .execute([&session])?;
-                        acks.push(ack);
-                    }
-                    Command::Labels { labels, ack } => {
-                        let json = serde_json::to_string(&[&labels.image, &labels.video, &labels.file])
-                            .expect("labels encode");
-                        let mut meta = tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")?;
-                        meta.execute([LABELS_KEY, json.as_str()])?;
-                        meta.execute([REFOLD_JOB, "0"])?;
-                        self.labels = labels;
-                        self.refold = true;
-                        acks.push(ack);
-                    }
-                    Command::OffloadScan { session, ordinal, sources, ack } => {
-                        record_offload_scan(&tx, &session, ordinal, &sources)?;
-                        acks.push(ack);
-                    }
-                    Command::Arrived { session, log_id, base_session, ack } => {
-                        tx.prepare_cached("UPDATE sessions SET log_id = ?2, base_session = ?3, dirty = 1 WHERE id = ?1 AND log_id = ?4")?
-                            .execute(params![session, log_id, base_session, PENDING_LOG_ID])?;
-                        acks.push(ack);
-                    }
-                    Command::Pending { sessions, ack } => {
-                        // One transaction for them all: they are listed once, before the first client reads the list.
-                        for (head, stats) in &sessions {
-                            // A row there is (taken in already, or listed by an earlier start) is left as it is.
-                            if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
-                                let mut row = crate::summary::catalog_row(head, stats, now_ms());
-                                resolve_archive(&mut row, archive.as_deref());
-                                write_row(&tx, &row, DirtyMark::Clear, &self.labels)?;
-                            }
+        let result =
+            (|| -> rusqlite::Result<()> {
+                let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                // Small commands (dirty marks, status): one row each.
+                while rows < self.append_rows
+                    && let Some(cmd) = self.small.pop_front()
+                {
+                    rows += 1;
+                    match cmd {
+                        Command::MarkDirty { session, ack } => {
+                            tx.prepare_cached("UPDATE sessions SET dirty = 1 WHERE id = ?1")?.execute([&session])?;
+                            acks.push(ack);
                         }
-                        acks.push(ack);
-                    }
-                    Command::Archive { sessions, read, ack } => {
-                        read.store(read_seq, std::sync::atomic::Ordering::SeqCst);
-                        for session in &sessions {
-                            let Some(entry) = archive.as_deref().and_then(|archive| archive.entry(session)) else { continue };
-                            let archived_at = entry.archived_at();
-                            let before = tx
-                                .prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
-                                .query_row([session], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
-                                .optional()?;
-                            let changed = tx
-                                .prepare_cached("UPDATE sessions SET archived = ?2, archived_at = ?3 WHERE id = ?1 AND (archived <> ?2 OR archived_at IS NOT ?3)")?
-                                .execute(params![session, archived_at.is_some(), archived_at])?;
-                            if let Some(mut before) = before.filter(|before| watch && changed > 0 && before.archived != archived_at.is_some()) {
-                                // The row of a session owing its sensitive rewrite is told without its content.
-                                if withheld::is_withheld_in(&tx, session)? {
-                                    before.summary = withheld::blank_summary(&before.summary);
-                                    before.user_name = None;
+                        Command::Status { session, status, damage, ack } => {
+                            set_status_on(&tx, &session, status, damage.as_deref())?;
+                            acks.push(ack);
+                        }
+                        Command::Delete { session, ack } => {
+                            tx.prepare_cached("UPDATE sessions SET deleted = 1, dirty = 0 WHERE id = ?1")?.execute([&session])?;
+                            acks.push(ack);
+                        }
+                        Command::Labels { labels, ack } => {
+                            let json = serde_json::to_string(&[&labels.image, &labels.video, &labels.file]).expect("labels encode");
+                            let mut meta =
+                                tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")?;
+                            meta.execute([LABELS_KEY, json.as_str()])?;
+                            meta.execute([REFOLD_JOB, "0"])?;
+                            self.labels = labels;
+                            self.refold = true;
+                            acks.push(ack);
+                        }
+                        Command::OffloadScan { session, ordinal, sources, ack } => {
+                            record_offload_scan(&tx, &session, ordinal, &sources)?;
+                            acks.push(ack);
+                        }
+                        Command::Arrived { session, log_id, base_session, ack } => {
+                            tx.prepare_cached("UPDATE sessions SET log_id = ?2, base_session = ?3, dirty = 1 WHERE id = ?1 AND log_id = ?4")?
+                                .execute(params![session, log_id, base_session, PENDING_LOG_ID])?;
+                            acks.push(ack);
+                        }
+                        Command::Pending { sessions, ack } => {
+                            // One transaction for them all: they are listed once, before the first client reads the list.
+                            for (head, stats) in &sessions {
+                                // A row there is (taken in already, or listed by an earlier start) is left as it is.
+                                if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
+                                    let mut row = crate::summary::catalog_row(head, stats, now_ms());
+                                    resolve_archive(&mut row, archive.as_deref());
+                                    write_row(&tx, &row, DirtyMark::Clear, &self.labels)?;
                                 }
-                                let after = StoredRow { archived: archived_at.is_some(), ..before.clone() };
-                                edges.push(RowEdge { id: session.clone(), before: Some(before), after });
                             }
+                            acks.push(ack);
                         }
-                        acks.push(ack);
-                    }
-                    Command::Withhold { sessions, ack } => {
-                        Writer::withhold_on(&tx, &sessions)?;
-                        acks.push(ack);
-                    }
-                    Command::Release { session, ack } => {
-                        edges.extend(Writer::release_on(&tx, &session, watch)?);
-                        acks.push(ack);
-                    }
-                    Command::Close => unreachable!("the writer stops before it queues a close"),
-                    Command::Upsert { .. }
-                    | Command::Project { .. }
-                    | Command::Purge { .. }
-                    | Command::Reproject { .. }
-                    | Command::Reconcile { .. } => {
-                        unreachable!("queued separately")
+                        Command::Archive { sessions, read, ack } => {
+                            read.store(read_seq, std::sync::atomic::Ordering::SeqCst);
+                            for session in &sessions {
+                                let Some(entry) = archive.as_deref().and_then(|archive| archive.entry(session)) else { continue };
+                                let archived_at = entry.archived_at();
+                                let before = tx
+                                    .prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
+                                    .query_row([session], |r| {
+                                        Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? })
+                                    })
+                                    .optional()?;
+                                let changed = tx
+                                    .prepare_cached(
+                                        "UPDATE sessions SET archived = ?2, archived_at = ?3 WHERE id = ?1 AND (archived <> ?2 OR archived_at IS NOT ?3)",
+                                    )?
+                                    .execute(params![session, archived_at.is_some(), archived_at])?;
+                                if let Some(mut before) = before.filter(|before| watch && changed > 0 && before.archived != archived_at.is_some()) {
+                                    // The row of a session owing its sensitive rewrite is told without its content.
+                                    if withheld::is_withheld_in(&tx, session)? {
+                                        before.summary = withheld::blank_summary(&before.summary);
+                                        before.user_name = None;
+                                    }
+                                    let after = StoredRow { archived: archived_at.is_some(), ..before.clone() };
+                                    edges.push(RowEdge { id: session.clone(), before: Some(before), after });
+                                }
+                            }
+                            acks.push(ack);
+                        }
+                        Command::Withhold { sessions, ack } => {
+                            Writer::withhold_on(&tx, &sessions)?;
+                            acks.push(ack);
+                        }
+                        Command::Release { session, ack } => {
+                            edges.extend(Writer::release_on(&tx, &session, watch)?);
+                            acks.push(ack);
+                        }
+                        Command::Close => unreachable!("the writer stops before it queues a close"),
+                        Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } | Command::Reproject { .. } | Command::Reconcile { .. } => {
+                            unreachable!("queued separately")
+                        }
                     }
                 }
-            }
-            // Projections in arrival order, frame by frame. A projection is answered once its catalog row is written, so past
-            // the transaction's first frame (not held back, so a frame larger than the room the rows leave still goes in) a
-            // frame goes in only while the rows still fit after it: one per session with a row to write, and this projection's.
-            let mut first = true;
-            'outer: for pending in self.projections.iter_mut() {
-                while pending.next < pending.projection.frames.len() {
-                    let frame = &pending.projection.frames[pending.next];
-                    let owed = if first {
-                        0
-                    } else {
-                        self.upserts.len() + usize::from(!self.upserts.contains_key(&pending.projection.session))
-                    };
-                    let budget = self.append_rows.saturating_sub(rows + owed);
-                    if budget == 0 || bytes >= APPEND_BYTES {
-                        break 'outer;
+                // Projections in arrival order, frame by frame. A projection is answered once its catalog row is written, so past
+                // the transaction's first frame (not held back, so a frame larger than the room the rows leave still goes in) a
+                // frame goes in only while the rows still fit after it: one per session with a row to write, and this projection's.
+                let mut first = true;
+                'outer: for pending in self.projections.iter_mut() {
+                    while pending.next < pending.projection.frames.len() {
+                        let frame = &pending.projection.frames[pending.next];
+                        let owed = if first { 0 } else { self.upserts.len() + usize::from(!self.upserts.contains_key(&pending.projection.session)) };
+                        let budget = self.append_rows.saturating_sub(rows + owed);
+                        if budget == 0 || bytes >= APPEND_BYTES {
+                            break 'outer;
+                        }
+                        first = false;
+                        reached = done_projections + 1;
+                        let (used, complete) = apply_frame(&tx, &pending.projection.session, frame, budget, self.append_rows)?;
+                        rows += used;
+                        bytes += 64 * used;
+                        if !complete {
+                            break 'outer;
+                        }
+                        pending.next += 1;
                     }
-                    first = false;
-                    reached = done_projections + 1;
-                    let (used, complete) =
-                        apply_frame(&tx, &pending.projection.session, frame, budget, self.append_rows)?;
-                    rows += used;
-                    bytes += 64 * used;
-                    if !complete {
-                        break 'outer;
+                    done_projections += 1;
+                    // The frames are in: the row is built from this projection's own head (a
+                    // newer explicit upsert of the session wins).
+                    let latest = pending.projection.head.clone();
+                    let seq = pending.seq;
+                    let entry = self.upserts.entry(pending.projection.session.clone()).or_insert_with(|| (latest.clone(), DirtyMark::Keep, Vec::new(), seq));
+                    if entry.3 < seq {
+                        entry.0 = latest;
+                        entry.3 = seq;
                     }
-                    pending.next += 1;
                 }
-                done_projections += 1;
-                // The frames are in: the row is built from this projection's own head (a
-                // newer explicit upsert of the session wins).
-                let latest = pending.projection.head.clone();
-                let seq = pending.seq;
-                let entry = self
-                    .upserts
-                    .entry(pending.projection.session.clone())
-                    .or_insert_with(|| (latest.clone(), DirtyMark::Keep, Vec::new(), seq));
-                if entry.3 < seq {
-                    entry.0 = latest;
-                    entry.3 = seq;
+                // Catalog rows, coalesced per session, after the frames so they see their state. A session's row waits while a
+                // projection of it still queued is partly in (the row would count part of its frames) or came before the head the
+                // row would take (that projection's own, older head would be written over it once it is in). A projection queued
+                // after it does not hold it back: it writes the row again once it is in, so the row of a session whose
+                // projections keep coming is not put off until they stop.
+                let held: std::collections::HashSet<&str> = self
+                    .projections
+                    .iter()
+                    .skip(done_projections)
+                    .filter(|p| p.next > 0 || self.upserts.get(&p.projection.session).is_some_and(|entry| entry.3 > p.seq))
+                    .map(|p| p.projection.session.as_str())
+                    .collect();
+                let ids: Vec<String> = self.upserts.keys().filter(|id| !held.contains(id.as_str())).cloned().collect();
+                for id in ids {
+                    if rows >= self.append_rows || bytes >= APPEND_BYTES {
+                        break;
+                    }
+                    let (head, dirty, waiters, seq) = self.upserts.remove(&id).expect("listed");
+                    rows += 1;
+                    let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch, archive.as_deref())?;
+                    edges.extend(edge);
+                    if written == 0 {
+                        waiting.push((id.clone(), (head, seq)));
+                    }
+                    bytes += written;
+                    acks.extend(waiters);
                 }
-            }
-            // Catalog rows, coalesced per session, after the frames so they see their state. A session's row waits while a
-            // projection of it still queued is partly in (the row would count part of its frames) or came before the head the
-            // row would take (that projection's own, older head would be written over it once it is in). A projection queued
-            // after it does not hold it back: it writes the row again once it is in, so the row of a session whose
-            // projections keep coming is not put off until they stop.
-            let held: std::collections::HashSet<&str> = self
-                .projections
-                .iter()
-                .skip(done_projections)
-                .filter(|p| p.next > 0 || self.upserts.get(&p.projection.session).is_some_and(|entry| entry.3 > p.seq))
-                .map(|p| p.projection.session.as_str())
-                .collect();
-            let ids: Vec<String> = self.upserts.keys().filter(|id| !held.contains(id.as_str())).cloned().collect();
-            for id in ids {
-                if rows >= self.append_rows || bytes >= APPEND_BYTES {
-                    break;
+                if let Some(sink) = self.sink.get().filter(|_| !edges.is_empty()) {
+                    sink.writing(edges.len());
+                    told = edges.len();
                 }
-                let (head, dirty, waiters, seq) = self.upserts.remove(&id).expect("listed");
-                rows += 1;
-                let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch, archive.as_deref())?;
-                edges.extend(edge);
-                if written == 0 {
-                    waiting.push((id.clone(), (head, seq)));
-                }
-                bytes += written;
-                acks.extend(waiters);
-            }
-            if let Some(sink) = self.sink.get().filter(|_| !edges.is_empty()) {
-                sink.writing(edges.len());
-                told = edges.len();
-            }
-            tx.commit()
-        })();
+                tx.commit()
+            })();
         let result = result.map_err(|e| e.to_string());
         // The count told to the sink is given back before anything can leave this function: the assertion below panics in a
         // debug build, and a count never given back makes every later listing wait for ever.
@@ -1378,8 +1401,7 @@ impl Writer {
         } else {
             let failed: std::collections::HashSet<String> =
                 self.projections.iter().take(reached.max(done_projections).max(1)).map(|p| p.projection.session.clone()).collect();
-            let (dropped, kept): (VecDeque<Pending>, VecDeque<Pending>) =
-                self.projections.drain(..).partition(|p| failed.contains(&p.projection.session));
+            let (dropped, kept): (VecDeque<Pending>, VecDeque<Pending>) = self.projections.drain(..).partition(|p| failed.contains(&p.projection.session));
             self.projections = kept;
             dropped.into()
         };
@@ -1438,7 +1460,6 @@ impl Writer {
             self.refold = false;
         }
     }
-
 }
 
 fn pos_params(pos: &FramePos) -> (i64, i64, i64) {
@@ -1454,13 +1475,7 @@ fn serde_name<T: serde::Serialize>(v: &T) -> String {
 
 /// Applies one frame within `budget` rows: `(rows written, frame complete)`. Only a
 /// rewind can be incomplete; it resumes where it stopped (its updates are idempotent).
-fn apply_frame(
-    tx: &Transaction<'_>,
-    session: &str,
-    frame: &ProjectedFrame,
-    budget: usize,
-    cap: usize,
-) -> rusqlite::Result<(usize, bool)> {
+fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budget: usize, cap: usize) -> rusqlite::Result<(usize, bool)> {
     let need = frame.rows();
     if need > budget && need <= cap {
         return Ok((0, false));
@@ -1471,8 +1486,7 @@ fn apply_frame(
     match &frame.kind {
         FrameKind::Session { base } => {
             if let Some(base) = base {
-                tx.prepare_cached("INSERT OR IGNORE INTO fork_edges (base, child) VALUES (?1, ?2)")?
-                    .execute(params![base.session.as_str(), session])?;
+                tx.prepare_cached("INSERT OR IGNORE INTO fork_edges (base, child) VALUES (?1, ?2)")?.execute(params![base.session.as_str(), session])?;
                 let end = base.end_ordinal_exclusive as i64;
                 crate::message_index::open_view(tx, session, ordinal, base.session.as_str(), end, end)?;
             }
@@ -1534,8 +1548,7 @@ fn apply_frame(
                      frame_len, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
                 )?
                 .execute(params![session, ordinal, target, file_no, offset, len])?;
-                tx.prepare_cached("UPDATE history SET amend_ordinal = ?3 WHERE session = ?1 AND ordinal = ?2")?
-                    .execute(params![session, target, ordinal])?;
+                tx.prepare_cached("UPDATE history SET amend_ordinal = ?3 WHERE session = ?1 AND ordinal = ?2")?.execute(params![session, target, ordinal])?;
                 for alias in aliases {
                     tx.prepare_cached("INSERT OR IGNORE INTO history_alias (session, alias, ordinal) VALUES (?1, ?2, ?3)")?
                         .execute(params![session, alias, target])?;
@@ -1628,9 +1641,7 @@ fn apply_frame(
             )?
             .execute(params![session, ordinal, cid, file_no, offset, len, boundary, at, *mode as i64, i64::from(*silent)])?;
             if let Some(dropped) = dropped {
-                let mut put = tx.prepare_cached(
-                    "INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)",
-                )?;
+                let mut put = tx.prepare_cached("INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)")?;
                 for id in &dropped.message_ids {
                     put.execute(params![session, 0, id, ordinal])?;
                 }
@@ -1651,8 +1662,12 @@ fn apply_frame(
             }
             RunPhase::Attempt => {}
             ended => {
-                tx.prepare_cached("UPDATE turns SET end_ordinal = ?3, phase = ?4 WHERE session = ?1 AND rid = ?2")?
-                    .execute(params![session, rid, ordinal, serde_name(ended)])?;
+                tx.prepare_cached("UPDATE turns SET end_ordinal = ?3, phase = ?4 WHERE session = ?1 AND rid = ?2")?.execute(params![
+                    session,
+                    rid,
+                    ordinal,
+                    serde_name(ended)
+                ])?;
             }
         },
         FrameKind::Approval { aid, rid, phase } => match phase {
@@ -1664,8 +1679,7 @@ fn apply_frame(
                 .execute(params![session, aid, rid, ordinal, file_no, offset, len])?;
             }
             ApprovalPhase::Decided | ApprovalPhase::Expired => {
-                tx.prepare_cached("DELETE FROM approvals WHERE session = ?1 AND aid = ?2")?
-                    .execute(params![session, aid])?;
+                tx.prepare_cached("DELETE FROM approvals WHERE session = ?1 AND aid = ?2")?.execute(params![session, aid])?;
             }
         },
         // No rewind mark: the boundary lives while its anchor row does (FORMAT.md §5.3).
@@ -1698,39 +1712,30 @@ fn apply_frame(
     // The first acceptance of a submission is its receipt: a later frame naming the id (the queued prompt's start, a requeue)
     // leaves it. A rewind or clear does not take it out: the send was accepted whatever the history shows now.
     if let Some(receipt) = &frame.receipt {
-        tx.prepare_cached("INSERT OR IGNORE INTO submissions (session, submission_id, ordinal, answer) VALUES (?1, ?2, ?3, ?4)")?
-            .execute(params![session, receipt.submission, ordinal, receipt.answer.to_string()])?;
+        tx.prepare_cached("INSERT OR IGNORE INTO submissions (session, submission_id, ordinal, answer) VALUES (?1, ?2, ?3, ?4)")?.execute(params![
+            session,
+            receipt.submission,
+            ordinal,
+            receipt.answer.to_string()
+        ])?;
     }
     tx.prepare_cached(
         "UPDATE sessions SET projected_file_no = ?2, projected_offset = ?3, projected_ordinal = ?4,
          newest_file_no = max(newest_file_no, ?2), history_rev = ?5, row_count = ?6, visible_count = ?7
          WHERE id = ?1",
     )?
-    .execute(params![
-        session,
-        file_no,
-        offset + len,
-        ordinal + 1,
-        frame.history_rev as i64,
-        frame.rows as i64,
-        frame.visible_rows as i64
-    ])?;
+    .execute(params![session, file_no, offset + len, ordinal + 1, frame.history_rev as i64, frame.rows as i64, frame.visible_rows as i64])?;
     Ok((used, true))
 }
 
 /// Points `key`'s prompt-history row at its newest live occurrence, or removes it.
 fn refresh_prompt(tx: &Transaction<'_>, session: &str, key: &str) -> rusqlite::Result<()> {
-    let newest: Option<(i64, String)> = tx
-        .prepare_cached(PROMPT_NEWEST_SQL)?
-        .query_row([session, key], |r| Ok((r.get(0)?, r.get(1)?)))
-        .optional()?;
+    let newest: Option<(i64, String)> = tx.prepare_cached(PROMPT_NEWEST_SQL)?.query_row([session, key], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
     match newest {
         Some((ordinal, text)) => tx
             .prepare_cached("UPDATE prompt_history SET ordinal = ?3, text = ?4 WHERE session = ?1 AND key = ?2")?
             .execute(params![session, key, ordinal, text])?,
-        None => tx
-            .prepare_cached("DELETE FROM prompt_history WHERE session = ?1 AND key = ?2")?
-            .execute([session, key])?,
+        None => tx.prepare_cached("DELETE FROM prompt_history WHERE session = ?1 AND key = ?2")?.execute([session, key])?,
     };
     Ok(())
 }
@@ -1876,12 +1881,7 @@ impl SqliteStore {
     /// create publishes `log.000000` before anything else, and a purge unlinks it first, so
     /// such a folder is a half-finished create or purge, which no rebuild indexes), with its
     /// id's index rows; then every deleted session no fork reads (`purge_deleted`).
-    pub fn open(
-        lane: &InLane<MaintenanceIo>,
-        thread: SqliteWriterThread,
-        read_lane: InteractiveIo,
-        data: &Path,
-    ) -> Result<SqliteStore, DbError> {
+    pub fn open(lane: &InLane<MaintenanceIo>, thread: SqliteWriterThread, read_lane: InteractiveIo, data: &Path) -> Result<SqliteStore, DbError> {
         Self::open_reporting(lane, thread, read_lane, data, None)
     }
 
@@ -1925,18 +1925,13 @@ impl SqliteStore {
             })
             .map_err(|e| DbError::Write(e.to_string()))?;
         }
-        let dirty: Vec<String> = writer
-            .conn
-            .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
-            .query_map([], |r| r.get(0))?
-            .collect::<Result<_, _>>()?;
+        let dirty: Vec<String> =
+            writer.conn.prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
         let rows = writer.sink.clone();
         let archive = writer.archive.clone();
         let archive_reads = writer.archive_reads.clone();
         let (sender, rx) = mpsc::channel();
-        let handle = thread
-            .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
-            .map_err(|e| DbError::Write(e.to_string()))?;
+        let handle = thread.spawn_thread("mixdog-index-writer", move |_| writer.run(rx)).map_err(|e| DbError::Write(e.to_string()))?;
         let (gate, reconciler) = gate::Gate::new(ReadPool::new(path, read_lane), sender, !dirty.is_empty());
         let store = SqliteStore {
             shared: Arc::new(Shared {
@@ -2182,29 +2177,21 @@ impl SqliteStore {
     }
 
     /// Whether the projection has reached this exact durable log end, including its identity.
-    pub fn history_projected_through_on_lane(
-        &self,
-        _lane: &InLane<InteractiveIo>,
-        session: &str,
-        log_id: &str,
-        end: FramePos,
-    ) -> Result<bool, DbError> {
-        self.shared.gate.with(|c| Ok(c.prepare_cached(
-            "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND log_id = ?2
+    pub fn history_projected_through_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, log_id: &str, end: FramePos) -> Result<bool, DbError> {
+        self.shared.gate.with(|c| {
+            Ok(c.prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND log_id = ?2
              AND projected_ordinal = ?3 AND projected_file_no = ?4 AND projected_offset = ?5)",
-        )?.query_row(params![session, log_id, end.ordinal as i64, end.file_no, end.offset as i64], |r| r.get(0))?))
+            )?
+            .query_row(params![session, log_id, end.ordinal as i64, end.file_no, end.offset as i64], |r| r.get(0))?)
+        })
     }
 
     /// The session's prompt history (`OpenedLog.prompts`): the newest 50 distinct prompts
     /// of its lineage, newest first: its own (`prompt_history`), then each base's below
     /// the fork point and `cut`, live as of the fork (as history pages). Inside the open's
     /// J2 job on the read lane.
-    pub fn prompts_on_lane(
-        &self,
-        _lane: &InLane<InteractiveIo>,
-        lineage: &[LineageLevel],
-        cut: Option<u64>,
-    ) -> Result<Vec<String>, DbError> {
+    pub fn prompts_on_lane(&self, _lane: &InLane<InteractiveIo>, lineage: &[LineageLevel], cut: Option<u64>) -> Result<Vec<String>, DbError> {
         self.shared.gate.with(|c| {
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
@@ -2283,14 +2270,7 @@ impl SqliteStore {
     /// the end of the rows before the compaction. A compaction a rewind or `clear`
     /// superseded has none. Finding an inherited kept row costs one indexed lookup per
     /// replacement entry and deeper level, on the read lane.
-    pub async fn dividers(
-        &self,
-        lineage: Vec<LineageLevel>,
-        cut: Option<u64>,
-        level: usize,
-        from: u64,
-        to: u64,
-    ) -> Result<Vec<Divider>, DbError> {
+    pub async fn dividers(&self, lineage: Vec<LineageLevel>, cut: Option<u64>, level: usize, from: u64, to: u64) -> Result<Vec<Divider>, DbError> {
         self.read(move |c| dividers_on(c, &lineage, cut, level, from, to)).await
     }
 
@@ -2389,9 +2369,9 @@ impl SqliteStore {
                 "SELECT title FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0
                  AND NOT EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)",
             )?
-                .query_row([&session], |r| r.get(0))
-                .optional()?
-                .flatten())
+            .query_row([&session], |r| r.get(0))
+            .optional()?
+            .flatten())
         })
         .await
     }
@@ -2414,12 +2394,7 @@ impl SqliteStore {
     /// `None` for a session the index does not hold (never created, or purged).
     pub async fn deleted(&self, session: &str) -> Result<Option<bool>, DbError> {
         let session = session.to_owned();
-        self.read(move |c| {
-            Ok(c.prepare_cached("SELECT deleted FROM sessions WHERE id = ?1")?
-                .query_row([&session], |r| r.get(0))
-                .optional()?)
-        })
-        .await
+        self.read(move |c| Ok(c.prepare_cached("SELECT deleted FROM sessions WHERE id = ?1")?.query_row([&session], |r| r.get(0)).optional()?)).await
     }
 
     /// Every session the index holds as deleted, in one read ([`deleted`](Self::deleted) for all of them).
@@ -2478,9 +2453,8 @@ impl SqliteStore {
             let mut stmt = c.prepare_cached(sql)?;
             // The row and its withheld state are one statement (`rows_sql!`'s fourth column).
             let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
-                let mut worker = serde_json::from_str(r.get_ref(1)?.as_str()?).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
-                })?;
+                let mut worker = serde_json::from_str(r.get_ref(1)?.as_str()?)
+                    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
                 let mut summary: String = r.get(2)?;
                 if r.get::<_, bool>(3)? {
                     withheld::keep_structural(&mut worker);
@@ -2507,14 +2481,13 @@ impl SqliteStore {
         let hold = self.shared.worker_read_hold.lock().expect("hold").take();
         self.read(move |c| {
             let tx = c.unchecked_transaction()?;
-            let (revision, floor, generation) = tx.query_row(crate::worker::REVISION_SQL, [], |r| {
-                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64))
-            })?;
+            let (revision, floor, generation) =
+                tx.query_row(crate::worker::REVISION_SQL, [], |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64)))?;
             let row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<IndexedSession> {
                 let worker = match r.get::<_, Option<String>>(2)? {
-                    Some(text) => Some(serde_json::from_str(&text).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-                    })?),
+                    Some(text) => {
+                        Some(serde_json::from_str(&text).map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e)))?)
+                    }
                     None => None,
                 };
                 let summary: Option<String> = r.get(4)?;
@@ -2549,13 +2522,11 @@ impl SqliteStore {
                     }
                 };
                 let gone = |id: String| IndexedSession { session: id, created_at: None, worker: None, agent: None };
-                let removed: Vec<String> =
-                    tx.prepare_cached(crate::worker::REMOVED_SINCE_SQL)?.query_map([since], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                let removed: Vec<String> = tx.prepare_cached(crate::worker::REMOVED_SINCE_SQL)?.query_map([since], |r| r.get(0))?.collect::<Result<_, _>>()?;
                 for id in removed {
                     put(&mut sessions, gone(id));
                 }
-                let changed: Vec<IndexedSession> =
-                    tx.prepare_cached(crate::worker::INDEXED_SINCE_SQL)?.query_map([since], row)?.collect::<Result<_, _>>()?;
+                let changed: Vec<IndexedSession> = tx.prepare_cached(crate::worker::INDEXED_SINCE_SQL)?.query_map([since], row)?.collect::<Result<_, _>>()?;
                 for s in changed {
                     put(&mut sessions, s);
                 }
@@ -2792,12 +2763,7 @@ impl SqliteStore {
     /// its `ordinal` is that of a `model_switch` anchor on the entry (FORMAT.md §5.3). The
     /// newest such frame when later replacements kept the entry; `None` when no live one
     /// holds it.
-    pub async fn compaction_entry(
-        &self,
-        lineage: Vec<LineageLevel>,
-        cut: Option<u64>,
-        iid: String,
-    ) -> Result<Option<CompactionEntry>, DbError> {
+    pub async fn compaction_entry(&self, lineage: Vec<LineageLevel>, cut: Option<u64>, iid: String) -> Result<Option<CompactionEntry>, DbError> {
         self.read(move |c| compaction_entry_on(c, &lineage, cut, &iid)).await
     }
 
@@ -2821,20 +2787,13 @@ pub struct CompactionEntry {
 }
 
 /// Newest level first: a session's own compactions follow its bases'.
-fn compaction_entry_on(
-    c: &Connection,
-    lineage: &[LineageLevel],
-    cut: Option<u64>,
-    iid: &str,
-) -> Result<Option<CompactionEntry>, DbError> {
+fn compaction_entry_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, iid: &str) -> Result<Option<CompactionEntry>, DbError> {
     for (i, level) in lineage.iter().enumerate() {
         let asof = level.end.map_or(i64::MAX, |v| v.min(i64::MAX as u64) as i64);
         let bound = crate::archive_index::level_bound(lineage, cut, i);
         let found = c
             .prepare_cached(COMPACTION_ENTRY_SQL)?
-            .query_row(params![level.session, iid, asof, bound], |r| {
-                Ok(CompactionEntry { ordinal: r.get::<_, i64>(0)? as u64, cid: r.get(1)? })
-            })
+            .query_row(params![level.session, iid, asof, bound], |r| Ok(CompactionEntry { ordinal: r.get::<_, i64>(0)? as u64, cid: r.get(1)? }))
             .optional()?;
         if found.is_some() {
             return Ok(found);
@@ -2860,11 +2819,7 @@ pub(crate) const COMPACTION_ENTRY_SQL: &str = "SELECT m.ordinal, c.cid FROM mess
 /// frames before the failure stay projected, and a log without a readable `session` frame
 /// keeps only an unlisted row carrying its damage. Only an index write error fails the call.
 /// Blocking: the migration runs it on its own thread before the runtime starts.
-pub fn project_index(
-    data: &Path,
-    db: &Path,
-    sessions: &[String],
-) -> Result<(), String> {
+pub fn project_index(data: &Path, db: &Path, sessions: &[String]) -> Result<(), String> {
     project_into(data, db, sessions, INDEX_DDL, None)
 }
 
@@ -3162,13 +3117,7 @@ impl SqliteStore {
 /// own transaction, and a process that ends between the projection and the row reconciles the
 /// session again. `Ok(false)`: the test seam ended it, as a process ending there.
 #[allow(clippy::disallowed_methods, reason = "runs on the read lane job (lane proof argument)")]
-fn reconcile(
-    _lane: &InLane<InteractiveIo>,
-    pool: &ReadPool,
-    sender: &mpsc::Sender<Command>,
-    data: &Path,
-    dirty: Vec<String>,
-) -> Result<bool, String> {
+fn reconcile(_lane: &InLane<InteractiveIo>, pool: &ReadPool, sender: &mpsc::Sender<Command>, data: &Path, dirty: Vec<String>) -> Result<bool, String> {
     #[cfg(test)]
     reconcile_seam::wait_if_held(data);
     let blobs = crate::blobs::BlobStore::new(data);
@@ -3372,9 +3321,7 @@ fn unreadable_head(id: &str) -> CatalogHead {
 
 /// `Date.now()` for a header without `updatedAt`.
 fn now_ms() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
 /// `frames` in transactions of at most `APPEND_ROWS` rows.
@@ -3416,14 +3363,7 @@ pub struct Divider {
     pub model_switches: Vec<ModelSwitchEntry>,
 }
 
-fn dividers_on(
-    c: &Connection,
-    lineage: &[LineageLevel],
-    cut: Option<u64>,
-    level: usize,
-    from: u64,
-    to: u64,
-) -> Result<Vec<Divider>, DbError> {
+fn dividers_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, level: usize, from: u64, to: u64) -> Result<Vec<Divider>, DbError> {
     let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
     let mut out = Vec::new();
     for (i, home) in lineage.iter().enumerate() {
@@ -3454,10 +3394,7 @@ fn dividers_on(
                     let end = holder.end.map_or(i64::MAX, clamp);
                     let mut stmt = c.prepare_cached(ENTRY_SWITCHES_SQL)?;
                     let rows = stmt.query_map(params![holder.session, ordinal, home.session, end], |s| {
-                        Ok((
-                            (s.get::<_, i64>(0)?, rank, s.get::<_, i64>(1)?),
-                            ModelSwitchEntry { provider: s.get(2)?, model_id: s.get(3)?, at: s.get(4)? },
-                        ))
+                        Ok(((s.get::<_, i64>(0)?, rank, s.get::<_, i64>(1)?), ModelSwitchEntry { provider: s.get(2)?, model_id: s.get(3)?, at: s.get(4)? }))
                     })?;
                     for row in rows {
                         found.push(row?);
@@ -3512,11 +3449,7 @@ fn anchor_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ids: &[
     if ids.is_empty() {
         return Ok(None);
     }
-    let rev: i64 = c
-        .prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?
-        .query_row([&lineage[0].session], |r| r.get(0))
-        .optional()?
-        .unwrap_or(0);
+    let rev: i64 = c.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
     let marks = (0..ids.len()).map(|i| format!("?{}", i + 4)).collect::<Vec<_>>().join(",");
     let by_iid = format!(
         "SELECT min(h.ordinal), count(*) FROM history h WHERE h.session = ?1 AND h.iid IN ({marks}) AND h.ordinal < ?2 AND h.visible = 1
@@ -3531,7 +3464,8 @@ fn anchor_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ids: &[
         let (before, floor) = level_bounds(lineage, cut, level, u64::MAX);
         let before = before.min(i64::MAX as u64) as i64;
         let session = &lineage[level].session;
-        let by_name = c.prepare_cached(by_alias)?.query_row(params![session, before, floor, alias], |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, i64>(1)?)))?;
+        let by_name =
+            c.prepare_cached(by_alias)?.query_row(params![session, before, floor, alias], |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, i64>(1)?)))?;
         let mut args: Vec<&dyn rusqlite::ToSql> = vec![session, &before, &floor];
         args.extend(ids.iter().map(|id| id as &dyn rusqlite::ToSql));
         let by_id = c.prepare(&by_iid)?.query_row(args.as_slice(), |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, i64>(1)?)))?;
@@ -3542,20 +3476,11 @@ fn anchor_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ids: &[
     }
     Ok(found.map(|(level, ordinal)| HistoryAnchor { cursor: PageCursor { history_rev: rev as u64, level, before: ordinal + 1 }, named }))
 }
-fn page_on(
-    c: &Connection,
-    lineage: &[LineageLevel],
-    cut: Option<u64>,
-    cursor: Option<PageCursor>,
-    limit: usize,
-) -> Result<Page, DbError> {
+fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: Option<PageCursor>, limit: usize) -> Result<Page, DbError> {
     {
         {
-            let rev: i64 = c
-                .prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?
-                .query_row([&lineage[0].session], |r| r.get(0))
-                .optional()?
-                .unwrap_or(0);
+            let rev: i64 =
+                c.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
             let rev = rev as u64;
             let mut cur = match cursor {
                 Some(c) if c.history_rev != rev => return Err(DbError::CursorStale),
@@ -3579,10 +3504,7 @@ fn page_on(
                     crate::read_count::add(&lineage[0].session, 1);
                     let frame_len = r.get::<_, i64>(7)? as u64;
                     let amend = match r.get::<_, Option<i64>>(8)? {
-                        Some(o) => Some((
-                            FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 },
-                            r.get::<_, i64>(11)? as u64,
-                        )),
+                        Some(o) => Some((FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 }, r.get::<_, i64>(11)? as u64)),
                         None => None,
                     };
                     let cost = frame_len + amend.map_or(0, |(_, l)| l);
@@ -3608,11 +3530,7 @@ fn page_on(
                         let mut copies = c.prepare_cached(KEPT_SQL)?;
                         let found = copies.query_map(params![level.session, iid, ordinal as i64, floor], |k| {
                             Ok(KeptCopy {
-                                compaction: FramePos {
-                                    ordinal: k.get::<_, i64>(0)? as u64,
-                                    file_no: k.get(1)?,
-                                    offset: k.get::<_, i64>(2)? as u64,
-                                },
+                                compaction: FramePos { ordinal: k.get::<_, i64>(0)? as u64, file_no: k.get(1)?, offset: k.get::<_, i64>(2)? as u64 },
                                 frame_len: k.get::<_, i64>(3)? as u64,
                                 idx: k.get(4)?,
                             })
@@ -3668,8 +3586,7 @@ fn page_on(
 
 /// The live replacement copies (oldest compaction first) of message `?2` written after its
 /// row at `?3`, as of `?4` (the fork point, else `i64::MAX`).
-pub(crate) const KEPT_SQL: &str =
-    "SELECT c.ordinal, c.file_no, c.frame_offset, c.frame_len, m.idx FROM message_rows m
+pub(crate) const KEPT_SQL: &str = "SELECT c.ordinal, c.file_no, c.frame_offset, c.frame_len, m.idx FROM message_rows m
      JOIN compactions c ON c.session = m.session AND c.ordinal = m.ordinal
      WHERE m.session = ?1 AND m.iid = ?2 AND m.ordinal > ?3 AND m.ordinal < ?4 AND m.ver = m.ordinal
        AND (m.superseded_rev IS NULL OR m.superseded_rev >= ?4)
@@ -3688,8 +3605,7 @@ pub(crate) const ENTRY_SWITCHES_SQL: &str = "SELECT min(m.idx), s.ordinal, s.pro
      WHERE s.session = ?1 AND s.anchor_ordinal = ?2 AND s.ordinal < ?4 GROUP BY s.ordinal";
 
 /// One history page level: visible rows below `?2`, live for the reader at `?3`.
-pub(crate) const PAGE_SQL: &str =
-    "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
+pub(crate) const PAGE_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
        a.ordinal, a.file_no, a.frame_offset, a.frame_len,
        h.facets
      FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
@@ -3697,9 +3613,7 @@ pub(crate) const PAGE_SQL: &str =
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
      ORDER BY h.ordinal DESC LIMIT ?4";
 
-pub(crate) const PROJECTED_SQL: &str =
-    "SELECT projected_ordinal, projected_file_no, projected_offset FROM sessions WHERE id = ?1";
-
+pub(crate) const PROJECTED_SQL: &str = "SELECT projected_ordinal, projected_file_no, projected_offset FROM sessions WHERE id = ?1";
 
 pub(crate) const THREAD_OP_SQL: &str = "SELECT method, payload_digest, state, ordinal, file_no, frame_offset,
      frame_len FROM thread_ops WHERE session = ?1 AND op_id = ?2";
@@ -3712,8 +3626,7 @@ pub(crate) const PROMPT_NEWEST_SQL: &str = "SELECT ordinal, text FROM prompt_occ
 pub const PROMPT_HISTORY_LIMIT: usize = 50;
 
 /// The newest distinct prompts of one session, newest first.
-pub(crate) const PROMPTS_SQL: &str =
-    "SELECT key, text FROM prompt_history WHERE session = ?1 ORDER BY ordinal DESC LIMIT ?2";
+pub(crate) const PROMPTS_SQL: &str = "SELECT key, text FROM prompt_history WHERE session = ?1 ORDER BY ordinal DESC LIMIT ?2";
 
 /// A base level's prompt occurrences below `?2`, live for a fork at `?3`, newest first;
 /// read until the lineage has 50 distinct keys.
@@ -3771,9 +3684,7 @@ pub(crate) fn search_statement(query: &str, limit: usize) -> (String, String, us
 
 fn projected_on(c: &Connection, session: &str) -> Result<Option<FramePos>, DbError> {
     Ok(c.prepare_cached(PROJECTED_SQL)?
-        .query_row([session], |r| {
-            Ok(FramePos { ordinal: r.get::<_, i64>(0)? as u64, file_no: r.get(1)?, offset: r.get::<_, i64>(2)? as u64 })
-        })
+        .query_row([session], |r| Ok(FramePos { ordinal: r.get::<_, i64>(0)? as u64, file_no: r.get(1)?, offset: r.get::<_, i64>(2)? as u64 }))
         .optional()?)
 }
 
@@ -3784,9 +3695,8 @@ fn thread_op_on(c: &Connection, session: &str, op_id: &str) -> Result<Option<Thr
             Ok(ThreadOp {
                 method: r.get(0)?,
                 payload_digest: r.get(1)?,
-                state: serde_json::from_value(serde_json::Value::String(state)).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-                })?,
+                state: serde_json::from_value(serde_json::Value::String(state))
+                    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e)))?,
                 pos: FramePos { ordinal: r.get::<_, i64>(3)? as u64, file_no: r.get(4)?, offset: r.get::<_, i64>(5)? as u64 },
                 frame_len: r.get::<_, i64>(6)? as u64,
             })
@@ -3799,9 +3709,7 @@ fn submission_on(c: &Connection, session: &str, submission: &str) -> Result<Opti
         .prepare_cached("SELECT answer FROM submissions WHERE session = ?1 AND submission_id = ?2")?
         .query_row([session, submission], |r| r.get(0))
         .optional()?;
-    answer
-        .map(|answer| serde_json::from_str(&answer).map_err(|e| DbError::Rebuild(format!("a stored submission answer does not parse: {e}"))))
-        .transpose()
+    answer.map(|answer| serde_json::from_str(&answer).map_err(|e| DbError::Rebuild(format!("a stored submission answer does not parse: {e}")))).transpose()
 }
 
 fn fenced_ops_on(c: &Connection, session: &str) -> Result<Vec<String>, DbError> {
@@ -3827,12 +3735,7 @@ pub(crate) struct ReadPool {
 
 impl ReadPool {
     pub(crate) fn new(path: &Path, lane: InteractiveIo) -> Arc<ReadPool> {
-        Arc::new(ReadPool {
-            path: path.to_path_buf(),
-            lane,
-            conns: Mutex::new(Vec::new()),
-            closed: std::sync::RwLock::new(false),
-        })
+        Arc::new(ReadPool { path: path.to_path_buf(), lane, conns: Mutex::new(Vec::new()), closed: std::sync::RwLock::new(false) })
     }
 
     /// Waits for the reads in flight, closes every pooled connection, and makes every later read fail as the stopped writer
@@ -3874,10 +3777,7 @@ impl ReadPool {
         f: impl FnOnce(&InLane<InteractiveIo>, &Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
         let pool = self.clone();
-        let job = self
-            .lane
-            .submit(&CancellationToken::new(), move |lane| pool.with(|c| f(lane, c)))
-            .map_err(|_| DbError::LaneFull);
+        let job = self.lane.submit(&CancellationToken::new(), move |lane| pool.with(|c| f(lane, c))).map_err(|_| DbError::LaneFull);
         async move { job?.await.map_err(|_| DbError::Stopped)? }
     }
 }
@@ -3889,9 +3789,9 @@ impl LineageIndex for SqliteStore {
             if projected < to {
                 return Ok(Err(LookupError::Behind { projected, needed: to }));
             }
-            Ok(Ok(c.prepare_cached(LIVE_ROWS_SQL)?.query_row(params![session, from as i64, to as i64], |r| {
-                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64))
-            })?))
+            Ok(Ok(c
+                .prepare_cached(LIVE_ROWS_SQL)?
+                .query_row(params![session, from as i64, to as i64], |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64)))?))
         })?
     }
 

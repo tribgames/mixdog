@@ -163,9 +163,25 @@ const TABLE: [Row; 5] = [
         file_ids: true,
         limits: Limits { max_images: None, max_edge: Some(2000), max_image_base64: Some(5 * 1024 * 1024) },
     },
-    Row { column: Column::Responses, accepted: &[Png, Jpeg, Gif, Webp], still_only: &[Gif], roles: ALL_ROLES, links: true, file_ids: true, limits: Limits::NONE },
+    Row {
+        column: Column::Responses,
+        accepted: &[Png, Jpeg, Gif, Webp],
+        still_only: &[Gif],
+        roles: ALL_ROLES,
+        links: true,
+        file_ids: true,
+        limits: Limits::NONE,
+    },
     Row { column: Column::Chat, accepted: &[Png, Jpeg, Gif, Webp], still_only: &[], roles: ALL_ROLES, links: true, file_ids: false, limits: Limits::NONE },
-    Row { column: Column::Inline, accepted: &[Png, Jpeg, Webp], still_only: &[], roles: &[Role::User, Role::Tool], links: false, file_ids: false, limits: Limits::NONE },
+    Row {
+        column: Column::Inline,
+        accepted: &[Png, Jpeg, Webp],
+        still_only: &[],
+        roles: &[Role::User, Role::Tool],
+        links: false,
+        file_ids: false,
+        limits: Limits::NONE,
+    },
 ];
 
 /// The tightest edge and base64 length any destination declares: a rendition made at import within both reaches every one.

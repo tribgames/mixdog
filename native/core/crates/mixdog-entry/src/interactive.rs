@@ -78,7 +78,8 @@ mod tests {
 
     #[test]
     fn the_route_flags_and_modes_reach_the_terminal_interface() {
-        let tui = tui_options(&options(&["--provider", "p", "--model", "m", "--effort", "high", "--fast", "--web-search", "--readonly", "--remote", "--onboarding"]));
+        let tui =
+            tui_options(&options(&["--provider", "p", "--model", "m", "--effort", "high", "--fast", "--web-search", "--readonly", "--remote", "--onboarding"]));
         assert_eq!((tui.provider.as_deref(), tui.model.as_deref(), tui.effort.as_deref()), (Some("p"), Some("m"), Some("high")));
         assert!(tui.fast && tui.web_search && tui.remote && tui.force_onboarding);
         assert_eq!((tui.tool_mode.as_deref(), tui.worktree, tui.cwd, tui.resume), (Some("readonly"), None, None, None));
@@ -120,7 +121,6 @@ mod tests {
         assert_eq!(config_dir_of(&|_| None, Some(PathBuf::from("/home/u"))), PathBuf::from("/home/u").join(".mixdog"));
     }
 }
-
 
 /// Runs the interactive session with `options` and returns the process's exit code.
 pub fn run_interactive(mode: Mode, options: &Options) -> i32 {

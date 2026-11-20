@@ -50,7 +50,11 @@ fn a_request_that_extends_the_exchange_sends_only_its_new_tail_anchored_on_the_r
     assert_eq!(framed.stripped, 1, "the response item the request replayed is not sent again");
     assert_eq!(framed.frame["previous_response_id"], "resp_1");
     assert_eq!(framed.frame["input"], json!([user("and now?")]));
-    assert_eq!(keys(&framed), ["type", "model", "instructions", "previous_response_id", "input", "tools", "store"], "type first, the anchor right before the tail, no transport-only fields");
+    assert_eq!(
+        keys(&framed),
+        ["type", "model", "instructions", "previous_response_id", "input", "tools", "store"],
+        "type first, the anchor right before the tail, no transport-only fields"
+    );
     assert_eq!(framed.frame["type"], "response.create");
 }
 
@@ -131,7 +135,11 @@ fn a_response_item_the_request_did_not_replay_makes_the_frame_full() {
     let diff = framed.output_mismatch.expect("the missing item is described");
     assert_eq!((diff.expected_type.as_str(), diff.expected_response_item_count, diff.actual_type.as_str()), ("reasoning", 2, "message"));
     // Replayed in order they are stripped, and the tail is what follows them.
-    let ok = compute(true, &chain, &body(vec![user("a"), json!({"type": "reasoning", "id": "rs_1", "encrypted_content": "E", "summary": []}), answer("x"), user("b")]));
+    let ok = compute(
+        true,
+        &chain,
+        &body(vec![user("a"), json!({"type": "reasoning", "id": "rs_1", "encrypted_content": "E", "summary": []}), answer("x"), user("b")]),
+    );
     assert_eq!((ok.mode, ok.stripped), (Mode::Delta, 2));
     assert_eq!(ok.frame["input"], json!([user("b")]));
 }
@@ -144,7 +152,10 @@ fn a_replayed_item_is_the_response_item_when_it_says_the_same_thing() {
     assert!(!logical_item_match(&json!({"type": "function_call", "call_id": "c2", "name": "lookup", "arguments": "{\"b\":1,\"a\":2}"}), &call));
     assert!(!logical_item_match(&json!({"type": "function_call", "call_id": "c1", "name": "other", "arguments": "{}"}), &call));
     let anonymous = json!({"type": "function_call", "name": "lookup", "arguments": "{\"b\":1,\"a\":2}"});
-    assert!(logical_item_match(&json!({"type": "function_call", "name": "lookup", "arguments": "{ \"a\": 2, \"b\": 1 }"}), &anonymous), "same arguments whatever the spelling");
+    assert!(
+        logical_item_match(&json!({"type": "function_call", "name": "lookup", "arguments": "{ \"a\": 2, \"b\": 1 }"}), &anonymous),
+        "same arguments whatever the spelling"
+    );
     assert!(!logical_item_match(&json!({"type": "function_call", "name": "lookup", "arguments": "{\"a\":3}"}), &anonymous));
 
     // A message: role and text, the input and output spellings of text being one.
@@ -162,7 +173,10 @@ fn a_replayed_item_is_the_response_item_when_it_says_the_same_thing() {
     // A custom tool call: by call id and name, else by name and raw input.
     let patch = json!({"type": "custom_tool_call", "call_id": "p1", "name": "apply_patch", "input": "*** Begin"});
     assert!(logical_item_match(&json!({"type": "custom_tool_call", "call_id": "p1", "name": "apply_patch", "input": "other"}), &patch));
-    assert!(!logical_item_match(&json!({"type": "function_call", "call_id": "p1", "name": "apply_patch", "arguments": "{}"}), &patch), "a different kind of call");
+    assert!(
+        !logical_item_match(&json!({"type": "function_call", "call_id": "p1", "name": "apply_patch", "arguments": "{}"}), &patch),
+        "a different kind of call"
+    );
 
     // Any other item: everything but its id and status.
     let search = json!({"type": "image_generation_call", "id": "ig_1", "status": "completed", "result": "AAAA"});

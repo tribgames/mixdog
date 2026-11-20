@@ -60,8 +60,7 @@ fn signature(env: &EnvSpec) -> String {
     for (key, value) in &env.set {
         effective.insert(key.clone(), value.clone());
     }
-    let entries: Vec<String> =
-        effective.iter().filter(|(key, _)| !SCRATCH_KEYS.contains(&key.as_str())).map(|(key, value)| format!("{key}={value}")).collect();
+    let entries: Vec<String> = effective.iter().filter(|(key, _)| !SCRATCH_KEYS.contains(&key.as_str())).map(|(key, value)| format!("{key}={value}")).collect();
     sha2::Sha256::digest(entries.join("\n")).iter().map(|b| format!("{b:02x}")).collect()
 }
 

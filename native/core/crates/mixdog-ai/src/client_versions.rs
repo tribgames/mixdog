@@ -227,13 +227,7 @@ impl LastKnown {
 
 /// One GET of `url`, whole body as text; `None` when offline, slow or not a success.
 async fn fetch_text(http: &dyn HttpSend, url: &str, headers: &[(String, String)], deadline: Duration) -> Option<String> {
-    let request = WireRequest {
-        transport: TransportKind::Http1,
-        method: "GET".into(),
-        url: url.to_owned(),
-        headers: headers.to_vec(),
-        body: Vec::new(),
-    };
+    let request = WireRequest { transport: TransportKind::Http1, method: "GET".into(), url: url.to_owned(), headers: headers.to_vec(), body: Vec::new() };
     let response = http.send(request, abort_signal(deadline)).await.ok()?;
     if !response.is_success() {
         return None;
@@ -259,14 +253,11 @@ pub fn parse_npm_latest(body: &str) -> Option<String> {
 
 static CURSOR_BUILD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"downloads\.cursor\.com/lab/([0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{6,40})/").expect("static pattern"));
-static CURSOR_BUILD_DATE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^cli-([0-9]{4}\.[0-9]{2}\.[0-9]{2})-[0-9a-f]+$").expect("static pattern"));
-static ANTIGRAVITY_MANIFEST_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^\s*version\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))\s*(?:#.*)?$"#).expect("static pattern")
-});
-static GROK_MINIMUM: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:minimum|required|at least|>=|newer than|upgrade to)[^0-9]{0,40}?([0-9]+\.[0-9]+\.[0-9]+)").expect("static pattern")
-});
+static CURSOR_BUILD_DATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^cli-([0-9]{4}\.[0-9]{2}\.[0-9]{2})-[0-9a-f]+$").expect("static pattern"));
+static ANTIGRAVITY_MANIFEST_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^\s*version\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))\s*(?:#.*)?$"#).expect("static pattern"));
+static GROK_MINIMUM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:minimum|required|at least|>=|newer than|upgrade to)[^0-9]{0,40}?([0-9]+\.[0-9]+\.[0-9]+)").expect("static pattern"));
 
 /// `parseCursorInstallBuild`: the `cli-<build>` the installer script names.
 pub fn parse_cursor_install_build(body: &str) -> Option<String> {
@@ -589,8 +580,7 @@ impl ClientVersions {
             return self.grok_env.clone();
         }
         let learned = lock(&self.learned).clone();
-        max_semver(&[Some(GROK_CLIENT_VERSION_FLOOR), learned.as_deref(), self.grok.sync().as_deref()])
-            .unwrap_or_else(|| GROK_CLIENT_VERSION_FLOOR.to_owned())
+        max_semver(&[Some(GROK_CLIENT_VERSION_FLOOR), learned.as_deref(), self.grok.sync().as_deref()]).unwrap_or_else(|| GROK_CLIENT_VERSION_FLOOR.to_owned())
     }
 
     /// `cursorClientVersion`: the override, else the live build when newer than the floor.
@@ -675,4 +665,4 @@ impl ClientVersions {
 mod tests;
 
 #[cfg(test)]
-pub(crate) use tests::{versions_in, Net};
+pub(crate) use tests::{Net, versions_in};

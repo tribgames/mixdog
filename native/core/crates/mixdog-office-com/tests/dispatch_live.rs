@@ -57,5 +57,3 @@ fn dispatch_live_roundtrip() {
     document.call("Close", &[Value::I4(0)]).expect("Close");
     word.call("Quit", &[Value::I4(0)]).expect("Quit");
 }
-
-

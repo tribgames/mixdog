@@ -15,10 +15,7 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 
 use mixdog_fsio::Unlaned;
-use mixdog_pdf::inspect::{
-    Detail, InspectError, InspectOptions, Inspection, MAX_PDF_PAGES, PDF_INTAKE_TIMEOUT_MS, PageRange,
-    inspect_pdf_input,
-};
+use mixdog_pdf::inspect::{Detail, InspectError, InspectOptions, Inspection, MAX_PDF_PAGES, PDF_INTAKE_TIMEOUT_MS, PageRange, inspect_pdf_input};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -103,10 +100,7 @@ fn max_pages(value: Option<&Value>) -> Option<u64> {
 /// The options of an inspection as `pdf.inspect` passes them through.
 fn inspect_options(params: &Value, cancel: &tokio_util::sync::CancellationToken) -> InspectOptions {
     let range = match params.get("pageRange") {
-        Some(Value::Object(range)) => Some(PageRange {
-            from: mixdog_js::to_number_of(range.get("from")),
-            to: mixdog_js::to_number_of(range.get("to")),
-        }),
+        Some(Value::Object(range)) => Some(PageRange { from: mixdog_js::to_number_of(range.get("from")), to: mixdog_js::to_number_of(range.get("to")) }),
         _ => None,
     };
     let token = cancel.clone();
@@ -131,14 +125,17 @@ fn inspection_value(inspection: Inspection, read_pages: bool) -> Value {
             json!({"pageCount": count, "textPages": text_pages, "textChars": text_chars})
         }
         Detail::Text { text, truncated, pages } => {
-            let pages: Vec<Value> = pages.into_iter().map(|page| {
-                let mut entry = json!({"page": page.page});
-                entry["text"] = Value::String(page.text);
-                if read_pages {
-                    entry["hasTextLayer"] = Value::Bool(page.has_text_layer);
-                }
-                entry
-            }).collect();
+            let pages: Vec<Value> = pages
+                .into_iter()
+                .map(|page| {
+                    let mut entry = json!({"page": page.page});
+                    entry["text"] = Value::String(page.text);
+                    if read_pages {
+                        entry["hasTextLayer"] = Value::Bool(page.has_text_layer);
+                    }
+                    entry
+                })
+                .collect();
             let mut value = json!({"pageCount": count});
             value["pages"] = Value::Array(pages);
             if !read_pages {
@@ -237,9 +234,9 @@ fn pdf_counts(ctx: CallCtx) -> HandlerResult {
         ..InspectOptions::default()
     };
     match inspect_pdf_input(bytes, &options, false) {
-        Ok(Inspection { page_count, detail: Detail::Counts { text_pages, text_chars } }) => Ok(Outcome::value(
-            json!({"counts": {"pageCount": page_count, "textPages": text_pages, "textChars": text_chars}}),
-        )),
+        Ok(Inspection { page_count, detail: Detail::Counts { text_pages, text_chars } }) => {
+            Ok(Outcome::value(json!({"counts": {"pageCount": page_count, "textPages": text_pages, "textChars": text_chars}})))
+        }
         Ok(_) => Err(CodedError::failed("the inspection measured nothing")),
         Err(error @ (InspectError::Timeout(_) | InspectError::Cancelled)) => Err(failure(&error)),
         Err(error) => Ok(Outcome::value(json!({"rejected": error.message()}))),

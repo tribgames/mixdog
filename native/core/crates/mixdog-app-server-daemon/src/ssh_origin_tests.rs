@@ -59,7 +59,8 @@ async fn serving_core(dir: &Path) -> (Serving, oneshot::Receiver<()>, std::path:
     let core = Arc::new(
         crate::compose::compose(
             &tokens,
-            ComposeConfig { rebuild: Default::default(),
+            ComposeConfig {
+                rebuild: Default::default(),
                 data_dir: crate::compose_test_support::data_in(dir),
                 user_data_dir: dir.join("userdata"),
                 runtime_root: dir.join("runtime"),
@@ -169,12 +170,7 @@ struct PublishedDiscovery {
 
 #[async_trait]
 impl Transport for PublishedDiscovery {
-    async fn bootstrap(
-        &self,
-        _: Option<ModelLogin>,
-        _: bool,
-        progress: &(dyn Fn(BootstrapPhase) + Sync),
-    ) -> Result<RemoteReport, ConnectError> {
+    async fn bootstrap(&self, _: Option<ModelLogin>, _: bool, progress: &(dyn Fn(BootstrapPhase) + Sync)) -> Result<RemoteReport, ConnectError> {
         progress(BootstrapPhase::Check { detail: "test".to_owned() });
         Ok(RemoteReport {
             home: "/home/me".to_owned(),
@@ -284,7 +280,8 @@ fn an_ordinary_loopback_desktop_leaving_ends_the_core_on_the_local_grace() {
         tokio::runtime::Builder::new_multi_thread(),
         |dir| async move {
             let (serving, exit, root) = serving_core(&dir).await;
-            let document: serde_json::Value = serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, crate::discovery::path(&root)).unwrap()).unwrap();
+            let document: serde_json::Value =
+                serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, crate::discovery::path(&root)).unwrap()).unwrap();
             let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
             let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
             let socket = attach(rpc, &token).await;

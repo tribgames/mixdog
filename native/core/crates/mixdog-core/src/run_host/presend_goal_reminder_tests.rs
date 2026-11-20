@@ -13,13 +13,13 @@ use mixdog_agent::env::CompactRequest;
 use mixdog_agent::env::CompactTrigger;
 use mixdog_agent::env::Compactor;
 use mixdog_agent::message::AgentMessage;
+use mixdog_core_api::CoreRequest;
+use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_api::CoreRequest;
-use mixdog_core_api::Reply;
-use mixdog_core_api::ThreadHandle;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_session::session::RunOutcome;
 use mixdog_core_session::session::RunStart;
@@ -51,7 +51,17 @@ struct Inner {
 }
 
 fn output(messages: Vec<AgentMessage>, skipped: bool) -> CompactOutput {
-    CompactOutput { messages, usage: None, input_excludes_cache: false, dropped_count: 0, dropped: None, skipped, pipeline_ms: 0.0, summary_ms: None, summary_route: None }
+    CompactOutput {
+        messages,
+        usage: None,
+        input_excludes_cache: false,
+        dropped_count: 0,
+        dropped: None,
+        skipped,
+        pipeline_ms: 0.0,
+        summary_ms: None,
+        summary_route: None,
+    }
 }
 
 #[async_trait]
@@ -109,8 +119,17 @@ async fn observe(pass: Pass) -> Observed {
         let (seen, slot, during, thread) = (seen.clone(), slot.clone(), during.clone(), thread.clone());
         Box::pin(async move {
             let compactor = GoalReminderCompactor::new(Arc::new(Inner { pass, prefixes: seen }), run.port.clone());
-            let messages: Vec<AgentMessage> = ["first", "second"].iter().map(|text| message_of(&json!({ "role": "user", "content": text })).expect("a stored row")).collect();
-            let request = || CompactRequest { messages: &messages, budget_tokens: 1000, trigger: CompactTrigger::Auto, require_reduction: true, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" };
+            let messages: Vec<AgentMessage> =
+                ["first", "second"].iter().map(|text| message_of(&json!({ "role": "user", "content": text })).expect("a stored row")).collect();
+            let request = || CompactRequest {
+                messages: &messages,
+                budget_tokens: 1000,
+                trigger: CompactTrigger::Auto,
+                require_reduction: true,
+                reference_latest_attachments: false,
+                active_turn: true,
+                latest_user_prefix: "",
+            };
             compactor.reduces(&request()).await;
             // A header write made now is stored after the preview's reads: the preview changed nothing.
             run.port.save_header(mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }).await.expect("barrier");

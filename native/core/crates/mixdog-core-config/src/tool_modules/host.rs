@@ -15,8 +15,8 @@ use mixdog_rt::CancellationToken;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::TaskClass;
-use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::install::Manifest;
+use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::local_provider::assets::Fetcher;
 use mixdog_services::local_provider::installations::wait;
 use mixdog_services::local_provider::provider::LocalProvider;
@@ -125,22 +125,20 @@ impl ToolModulesHost for ServicesToolModulesHost {
         let embedder = parts.embedder.clone();
         // The info readers stat and read files.
         let read = parts.read_lane.submit(&CancellationToken::new(), move |_| {
-            (embedder.map_or_else(|| { let env = EmbedEnv::from_process(); EmbeddingProvider::info_unbuilt(&env.model_id(), env.dtype.as_deref()) }, |embedder| embedder.info()), judge.status(), which("git", None, None).is_some())
+            (
+                embedder.map_or_else(
+                    || {
+                        let env = EmbedEnv::from_process();
+                        EmbeddingProvider::info_unbuilt(&env.model_id(), env.dtype.as_deref())
+                    },
+                    |embedder| embedder.info(),
+                ),
+                judge.status(),
+                which("git", None, None).is_some(),
+            )
         });
         // A full or stopped lane reads as nothing installed; the next tick reads again.
-        let nothing = || {
-            (
-                Value::Null,
-                JudgeStatus {
-                    available: false,
-                    installing: false,
-                    ready: false,
-                    last_error: String::new(),
-                    info: Value::Null,
-                },
-                false,
-            )
-        };
+        let nothing = || (Value::Null, JudgeStatus { available: false, installing: false, ready: false, last_error: String::new(), info: Value::Null }, false);
         let (embedding_info, status, git_available) = match read {
             Ok(job) => job.await.unwrap_or_else(|_| nothing()),
             Err(_) => nothing(),
@@ -166,11 +164,7 @@ impl ToolModulesHost for ServicesToolModulesHost {
         self.merged.subscribe()
     }
 
-    async fn prepare_builtin_feature(
-        &self,
-        name: &str,
-        engines: Option<&[String]>,
-    ) -> Result<Option<Value>, String> {
+    async fn prepare_builtin_feature(&self, name: &str, engines: Option<&[String]>) -> Result<Option<Value>, String> {
         match name {
             "memory" => {
                 // The keyword index does not need the semantic embedder.
@@ -185,13 +179,7 @@ impl ToolModulesHost for ServicesToolModulesHost {
             }
             "tidy" => self.prepare_tidy(engines).await.map(Some),
             // Downloads the judge model (verified per file) unless it is current.
-            "autoEffort" => self
-                .parts
-                .judge
-                .install(&self.parts.judge_manifest, None, &self.cancel)
-                .await
-                .map(|_| None)
-                .map_err(|error| error.to_string()),
+            "autoEffort" => self.parts.judge.install(&self.parts.judge_manifest, None, &self.cancel).await.map(|_| None).map_err(|error| error.to_string()),
             _ => Ok(None),
         }
     }

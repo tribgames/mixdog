@@ -144,10 +144,8 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
     log.cross_turn_receipt(CrossTurnReceipt { iteration: 2, tool: "grep", occurrence: 2, first_iteration: 1, total: 1 });
     writer.flush().await;
 
-    let rows: Vec<Value> = mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl"))
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
+    let rows: Vec<Value> =
+        mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl")).lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     let kinds: Vec<&str> = rows.iter().map(|row| row["kind"].as_str().unwrap()).collect();
     assert_eq!(kinds, ["batch", "tool", "tool", "tool", "tool", "steer"]);
     let batch_id = rows[0]["payload"]["batch_id"].as_str().unwrap();
@@ -166,9 +164,12 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
         assert!(row["tool_args"].is_null() && row["tool_args_hash"].is_null());
         assert!(!row.to_string().contains("private-"));
     }
-    assert_eq!(rows[5]["payload"], json!({
-        "tag": "cross_turn_dedup", "tool": "grep", "occurrence": 2, "first_iteration": 1, "dedup_stub_total": 1,
-    }));
+    assert_eq!(
+        rows[5]["payload"],
+        json!({
+            "tag": "cross_turn_dedup", "tool": "grep", "occurrence": 2, "first_iteration": 1, "dedup_stub_total": 1,
+        })
+    );
     let failures = mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl"));
     assert_eq!(failures.lines().count(), 1, "the error call's failure row, once");
 }
@@ -261,12 +262,23 @@ async fn a_requests_usage_raw_row_joins_the_agent_trace() {
         let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
         let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
         let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 100, output_tokens: 7, cache_read_tokens: 60, ..Default::default() };
-        log.request_usage(RequestUsage { iteration: 3, provider: provider.into(), model: "m".into(), requested_model: "m".into(), source_type: Some("compaction".into()), usage });
+        log.request_usage(RequestUsage {
+            iteration: 3,
+            provider: provider.into(),
+            model: "m".into(),
+            requested_model: "m".into(),
+            source_type: Some("compaction".into()),
+            usage,
+        });
         writer.flush().await;
         let written = mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl"));
         let row: Value = serde_json::from_str(written.lines().next().expect("a row")).unwrap();
         assert_eq!((row["kind"].as_str(), row["session_id"].as_str(), row["iteration"].as_u64()), (Some("usage_raw"), Some("s"), Some(3)), "{provider}");
-        assert_eq!((row["input_tokens"].as_u64(), row["output_tokens"].as_u64(), row["cached_tokens"].as_u64(), row["prompt_tokens"].as_u64()), (Some(100), Some(7), Some(60), Some(prompt)), "{provider}");
+        assert_eq!(
+            (row["input_tokens"].as_u64(), row["output_tokens"].as_u64(), row["cached_tokens"].as_u64(), row["prompt_tokens"].as_u64()),
+            (Some(100), Some(7), Some(60), Some(prompt)),
+            "{provider}"
+        );
         assert_eq!((row["request_kind"].as_str(), row["payload"]["source_type"].as_str()), (Some("compaction"), Some("compaction")), "{provider}");
     }
 }

@@ -1,15 +1,42 @@
 //! The path strings `read` refuses before it stats anything, and the host spellings it normalizes
 //! (`shared/device-paths.mjs`, `posixPathToWindowsPath` / `windowsPathToPosixPath` of `path-utils.mjs`).
 
-const BLOCKED_DEVICE_PATHS: [&str; 11] = [
-    "/dev/zero", "/dev/random", "/dev/urandom", "/dev/full", "/dev/stdin", "/dev/tty", "/dev/console", "/dev/stdout",
-    "/dev/stderr", "/dev/fd/0", "/dev/fd/1",
-];
+const BLOCKED_DEVICE_PATHS: [&str; 11] =
+    ["/dev/zero", "/dev/random", "/dev/urandom", "/dev/full", "/dev/stdin", "/dev/tty", "/dev/console", "/dev/stdout", "/dev/stderr", "/dev/fd/0", "/dev/fd/1"];
 
 const WIN_RESERVED_BASENAMES: [&str; 32] = [
-    "CON", "NUL", "PRN", "AUX", "CONIN$", "CONOUT$", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "COM\u{b9}", "COM\u{b2}",
-    "COM\u{b3}", "LPT\u{b9}", "LPT\u{b2}", "LPT\u{b3}",
+    "CON",
+    "NUL",
+    "PRN",
+    "AUX",
+    "CONIN$",
+    "CONOUT$",
+    "COM0",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT0",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+    "COM\u{b9}",
+    "COM\u{b2}",
+    "COM\u{b3}",
+    "LPT\u{b9}",
+    "LPT\u{b2}",
+    "LPT\u{b3}",
 ];
 
 /// BOM, zero-width joiners and bidi controls, which Win32 path opens ignore.
@@ -77,22 +104,28 @@ fn guard_in_order(p: &str, texts: [&'static str; 4]) -> Option<&'static str> {
 
 /// The refusal a path string earns from `read`.
 pub(super) fn string_guard(p: &str) -> Option<&'static str> {
-    guard_in_order(p, [
-        "cannot read UNC / SMB path (network credential leak risk)",
-        "cannot read Windows device path (reserved name or raw-device namespace)",
-        "cannot read Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)",
-        "cannot read device file (would block or produce infinite output)",
-    ])
+    guard_in_order(
+        p,
+        [
+            "cannot read UNC / SMB path (network credential leak risk)",
+            "cannot read Windows device path (reserved name or raw-device namespace)",
+            "cannot read Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)",
+            "cannot read device file (would block or produce infinite output)",
+        ],
+    )
 }
 
 /// Node `guardWritePath` (external-tool-adapters.mjs): the refusal a write target earns.
 pub(super) fn write_guard(p: &str) -> Option<&'static str> {
-    guard_in_order(p, [
-        "cannot write UNC / SMB path (network credential leak risk)",
-        "cannot write Windows device path (reserved name or raw-device namespace)",
-        "cannot write Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)",
-        "cannot write device file (would block or corrupt a device)",
-    ])
+    guard_in_order(
+        p,
+        [
+            "cannot write UNC / SMB path (network credential leak risk)",
+            "cannot write Windows device path (reserved name or raw-device namespace)",
+            "cannot write Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)",
+            "cannot write device file (would block or corrupt a device)",
+        ],
+    )
 }
 
 /// `posixPathToWindowsPath`: `/c/x`, `/cygdrive/c/x`, `/mnt/c/x` and `//host/x` on Windows.
@@ -229,11 +262,7 @@ pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
     let fwd = raw.replace('\\', "/");
     let under = |root: &str, path: &str| -> Option<String> {
         let (r, p) = if cfg!(windows) { (root.to_lowercase(), path.to_lowercase()) } else { (root.to_owned(), path.to_owned()) };
-        if p == r {
-            Some(String::new())
-        } else {
-            p.strip_prefix(&format!("{r}/")).map(|_| path[root.len()..].to_owned())
-        }
+        if p == r { Some(String::new()) } else { p.strip_prefix(&format!("{r}/")).map(|_| path[root.len()..].to_owned()) }
     };
     // `relative(cwd, fwd)` resolves both paths first (`path.resolve`): a path that climbs out of `cwd` is not cwd-relative.
     let resolved = resolve_segments(&fwd);
@@ -260,9 +289,7 @@ pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
 /// `normalizeErrorMessage`'s pass over quoted absolute paths: each is redacted as `redact` does.
 pub(crate) fn normalize_error_message(msg: &str, cwd: Option<&str>) -> String {
     static QUOTED: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let quoted = QUOTED.get_or_init(|| {
-        regex::Regex::new(r#"'([A-Za-z]:[\\/][^'"]+|/[^'"]+)'|"([A-Za-z]:[\\/][^'"]+|/[^'"]+)""#).expect("a fixed pattern")
-    });
+    let quoted = QUOTED.get_or_init(|| regex::Regex::new(r#"'([A-Za-z]:[\\/][^'"]+|/[^'"]+)'|"([A-Za-z]:[\\/][^'"]+|/[^'"]+)""#).expect("a fixed pattern"));
     static FILE_URI: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let file_uri = FILE_URI.get_or_init(|| regex::Regex::new(r#"file:///([A-Za-z]:/[^\s'"<>)\]]+|/[^\s'"<>)\]]+)"#).expect("a fixed pattern"));
     let msg = file_uri.replace_all(msg, |c: &regex::Captures| redact(&c[1], cwd));

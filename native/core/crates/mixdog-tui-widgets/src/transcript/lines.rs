@@ -8,14 +8,7 @@ use crate::Line;
 /// The SGR parameters that set `style` from the default style, empty for the default.
 fn style_codes(style: Style) -> String {
     let mut codes: Vec<String> = Vec::new();
-    for (flag, code) in [
-        (style.bold, "1"),
-        (style.dim, "2"),
-        (style.italic, "3"),
-        (style.underline, "4"),
-        (style.inverse, "7"),
-        (style.strikethrough, "9"),
-    ] {
+    for (flag, code) in [(style.bold, "1"), (style.dim, "2"), (style.italic, "3"), (style.underline, "4"), (style.inverse, "7"), (style.strikethrough, "9")] {
         if flag {
             codes.push(code.to_owned());
         }
@@ -95,7 +88,6 @@ mod tests {
         assert_eq!(lines[1].0, "");
         assert_eq!(lines[0].0, "a\x1b[0m\x1b[1;38;2;1;2;3mb\x1b[0m \x1b]8;;http://x\x07\u{754c}\x1b]8;;\x07");
     }
-
 
     #[test]
     fn a_background_blank_is_kept_and_read_back_as_the_same_cells() {

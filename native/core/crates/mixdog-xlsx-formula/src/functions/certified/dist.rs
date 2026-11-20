@@ -198,9 +198,7 @@ pub fn gamma_cdf(x: f64, a: f64, scale: f64, upper: bool) -> R {
 
 pub fn gamma_pdf(x: f64, a: f64, scale: f64) -> R {
     let t = gamma_t(x, scale);
-    certified_value(|| {
-        Val::Log(gamma_log_mass(&B::f(a), &gamma_vx(&t, a)).sub(&ln(&B::f(x))))
-    })
+    certified_value(|| Val::Log(gamma_log_mass(&B::f(a), &gamma_vx(&t, a)).sub(&ln(&B::f(x)))))
 }
 
 /// Chi-square: gamma with shape d/2 and scale 2 (d an exact double).
@@ -332,7 +330,6 @@ pub fn f_cdf(x: f64, d1: f64, d2: f64, upper: bool) -> R {
     })
 }
 
-
 /// F.TEST's two-sided probability 2 min(lower, upper) (at most 1 since the tails sum to 1), doubled before
 /// rounding; the two tails are compared by their enclosures (when they overlap both are within their radii
 /// of 1/2 and either serves).
@@ -374,4 +371,3 @@ pub fn gamma(x: f64) -> R {
 pub fn gammaln(x: f64) -> R {
     certified_value(|| Val::Num(lgamma(&B::f(x))))
 }
-

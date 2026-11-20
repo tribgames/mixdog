@@ -13,26 +13,23 @@ pub(crate) fn run_server() -> Result<(), String> {
     // arrived within the idle window; the JS layer transparently respawns on the
     // next request (getNativePatchServer detects `.exited`). Tunable via
     // MIXDOG_PATCH_SERVER_IDLE_MS (default 300000ms); set 0 to disable.
-    let idle_ms: u64 = env::var("MIXDOG_PATCH_SERVER_IDLE_MS")
-        .ok()
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(300_000);
+    let idle_ms: u64 = env::var("MIXDOG_PATCH_SERVER_IDLE_MS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(300_000);
     let last_activity = Arc::new(AtomicU64::new(now_ms()));
     if idle_ms > 0 {
         let watch = Arc::clone(&last_activity);
         let step = Duration::from_millis(idle_ms.clamp(250, 5_000));
-        thread::spawn(move || loop {
-            thread::sleep(step);
-            if now_ms().saturating_sub(watch.load(Ordering::Relaxed)) >= idle_ms {
-                std::process::exit(0);
+        thread::spawn(move || {
+            loop {
+                thread::sleep(step);
+                if now_ms().saturating_sub(watch.load(Ordering::Relaxed)) >= idle_ms {
+                    std::process::exit(0);
+                }
             }
         });
     }
     loop {
         let mut header = String::new();
-        let n = reader
-            .read_line(&mut header)
-            .map_err(|e| format!("server read header: {e}"))?;
+        let n = reader.read_line(&mut header).map_err(|e| format!("server read header: {e}"))?;
         if n == 0 {
             break;
         }
@@ -43,9 +40,7 @@ pub(crate) fn run_server() -> Result<(), String> {
         }
         if header == "PING" {
             writeln!(stdout, "OK\tPONG").map_err(|e| format!("server write ping response: {e}"))?;
-            stdout
-                .flush()
-                .map_err(|e| format!("server flush ping response: {e}"))?;
+            stdout.flush().map_err(|e| format!("server flush ping response: {e}"))?;
             continue;
         }
         // Contract handshake. The RUNNING session states the engine contract it
@@ -53,19 +48,13 @@ pub(crate) fn run_server() -> Result<(), String> {
         // work: a wrapper that only prints the marker cannot answer here, and a
         // swapped artifact cannot change what this process already is.
         if header == "CONTRACT" {
-            writeln!(stdout, "OK\t{ENGINE_CONTRACT_MARKER}")
-                .map_err(|e| format!("server write contract response: {e}"))?;
-            stdout
-                .flush()
-                .map_err(|e| format!("server flush contract response: {e}"))?;
+            writeln!(stdout, "OK\t{ENGINE_CONTRACT_MARKER}").map_err(|e| format!("server write contract response: {e}"))?;
+            stdout.flush().map_err(|e| format!("server flush contract response: {e}"))?;
             continue;
         }
         let parts: Vec<&str> = header.split_whitespace().collect();
-        let next = if parts.first() == Some(&"EDIT") {
-            handle_edit(&parts, &mut reader, &mut stdout)?
-        } else {
-            handle_apply(&parts, &mut reader, &mut stdout)?
-        };
+        let next =
+            if parts.first() == Some(&"EDIT") { handle_edit(&parts, &mut reader, &mut stdout)? } else { handle_apply(&parts, &mut reader, &mut stdout)? };
         if let Next::Stop = next {
             break;
         }
@@ -89,11 +78,7 @@ fn reject(out: &mut impl Write, msg: &str) -> Result<Next, String> {
 /// EDIT protocol: invariant-safe char-indexed edit over the persistent
 /// server. EDIT <path_len> <old_len> <new_len> <replace_all> <dry_run>
 /// then path+old+new bytes on stdin. Reuses apply_invariant_safe_edit.
-fn handle_edit(
-    parts: &[&str],
-    reader: &mut impl Read,
-    out: &mut impl Write,
-) -> Result<Next, String> {
+fn handle_edit(parts: &[&str], reader: &mut impl Read, out: &mut impl Write) -> Result<Next, String> {
     if parts.len() != 6 {
         return reject(out, "bad edit header");
     }
@@ -130,33 +115,21 @@ fn handle_edit(
     let Ok(path) = String::from_utf8(path_buf) else {
         return reject(out, "edit path is not UTF-8");
     };
-    match apply_invariant_safe_edit_to_path(
-        Path::new(&path),
-        &old_buf,
-        &new_buf,
-        replace_all,
-        dry_run,
-    ) {
+    match apply_invariant_safe_edit_to_path(Path::new(&path), &old_buf, &new_buf, replace_all, dry_run) {
         Ok((stats, tier)) => {
-            writeln!(out, "{}", stats.ok_line(tier))
-                .map_err(|e| format!("server write edit response: {e}"))?;
+            writeln!(out, "{}", stats.ok_line(tier)).map_err(|e| format!("server write edit response: {e}"))?;
         }
         Err(e) => {
             write_server_err(out, &e)?;
         }
     }
-    out.flush()
-        .map_err(|e| format!("server flush edit response: {e}"))?;
+    out.flush().map_err(|e| format!("server flush edit response: {e}"))?;
     Ok(Next::Continue)
 }
 
 /// Protocol: APPLY base_len patch_len timing dry_run fuzz reject_partial,
 /// then base+patch bytes on stdin. The timing field is accepted and ignored.
-fn handle_apply(
-    parts: &[&str],
-    reader: &mut impl Read,
-    out: &mut impl Write,
-) -> Result<Next, String> {
+fn handle_apply(parts: &[&str], reader: &mut impl Read, out: &mut impl Write) -> Result<Next, String> {
     if parts.len() != 7 || parts[0] != "APPLY" {
         return reject(out, "bad header");
     }
@@ -175,10 +148,7 @@ fn handle_apply(
         "1" => true,
         _ => return reject(out, "bad reject_partial value"),
     };
-    let opts = ApplyOptions {
-        fuzz_factor,
-        reject_partial,
-    };
+    let opts = ApplyOptions { fuzz_factor, reject_partial };
     let mut base_buf = vec![0u8; base_len];
     let mut patch_buf = vec![0u8; patch_len];
     if let Err(err) = reader.read_exact(&mut base_buf) {
@@ -210,13 +180,7 @@ fn write_apply_response(out: &mut impl Write, stats: &ApplyStats) -> Result<(), 
         writeln!(
             out,
             "OK\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{}",
-            stats.files,
-            stats.read_ms,
-            stats.apply_ms,
-            stats.write_ms,
-            stats.total_ms,
-            stats.hash_ms,
-            content_hashes
+            stats.files, stats.read_ms, stats.apply_ms, stats.write_ms, stats.total_ms, stats.hash_ms, content_hashes
         )
         .map_err(|e| format!("server write response: {e}"))?;
     } else {
@@ -245,13 +209,11 @@ fn write_apply_response(out: &mut impl Write, stats: &ApplyStats) -> Result<(), 
         )
         .map_err(|e| format!("server write response: {e}"))?;
     }
-    out.flush()
-        .map_err(|e| format!("server flush response: {e}"))
+    out.flush().map_err(|e| format!("server flush response: {e}"))
 }
 
 pub(crate) fn write_server_err(out: &mut dyn Write, msg: &str) -> Result<(), String> {
     let clean = msg.replace(['\r', '\n', '\t'], " ");
     writeln!(out, "ERR\t{clean}").map_err(|e| format!("server write error response: {e}"))?;
-    out.flush()
-        .map_err(|e| format!("server flush error response: {e}"))
+    out.flush().map_err(|e| format!("server flush error response: {e}"))
 }

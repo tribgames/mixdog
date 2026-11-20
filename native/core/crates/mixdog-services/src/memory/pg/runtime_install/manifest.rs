@@ -12,8 +12,7 @@ use super::RuntimeInstallError;
 /// The manifest shipped with this build: the repository's own `src/runtime/memory/data/runtime-manifest.json`, the one file the runtime release, the deploy, the smoke and the health check also read.
 const BUNDLED: &str = include_str!("../../../../../../../../src/runtime/memory/data/runtime-manifest.json");
 
-static GITHUB_RELEASE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^https://github\.com/([^/]+/[^/]+)/releases/download/", "i"));
+static GITHUB_RELEASE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^https://github\.com/([^/]+/[^/]+)/releases/download/", "i"));
 static SHA256: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[0-9a-f]{64}$", ""));
 
 /// `process.platform` and `process.arch` of the host the runtime is installed for.
@@ -106,8 +105,7 @@ impl Manifest {
         let primary = self.assets().and_then(|assets| assets.get(&pkey));
         if !primary.is_some_and(truthy) {
             // The platform is absent from the manifest entirely.
-            let supported: Vec<&str> =
-                self.assets().into_iter().flatten().filter(|(_, asset)| usable(asset).is_some()).map(|(key, _)| key.as_str()).collect();
+            let supported: Vec<&str> = self.assets().into_iter().flatten().filter(|(_, asset)| usable(asset).is_some()).map(|(key, _)| key.as_str()).collect();
             let supported = if supported.is_empty() { "(none)".to_owned() } else { supported.join(", ") };
             return Err(RuntimeInstallError::Unavailable(format!(
                 "[runtime-fetcher] memory runtime not available on {pkey}: no runtime asset for this platform/arch in the manifest. Supported: {supported}. Memory is disabled on this platform; the rest of mixdog continues to work."
@@ -144,10 +142,7 @@ fn usable(asset: &Value) -> Option<Asset> {
 
 /// `MIXDOG_RUNTIME_RELEASE_REPOSITORY || RUNTIME_RELEASE_REPOSITORY || ''`, read through `read`.
 pub fn repositories_env(read: impl Fn(&str) -> Option<String>) -> String {
-    ["MIXDOG_RUNTIME_RELEASE_REPOSITORY", "RUNTIME_RELEASE_REPOSITORY"]
-        .iter()
-        .find_map(|name| read(name).filter(|value| !value.is_empty()))
-        .unwrap_or_default()
+    ["MIXDOG_RUNTIME_RELEASE_REPOSITORY", "RUNTIME_RELEASE_REPOSITORY"].iter().find_map(|name| read(name).filter(|value| !value.is_empty())).unwrap_or_default()
 }
 
 /// `runtimeAssetUrlCandidates`: the manifest url, then the same release path under each

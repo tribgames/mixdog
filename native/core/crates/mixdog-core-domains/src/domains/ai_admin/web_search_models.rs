@@ -24,9 +24,7 @@ use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::service::admin_models::{model_proxy_client_mode, provider_model_cache_row, sort_provider_models};
 use mixdog_ai::service::model_listing::listing_value;
 use mixdog_ai::service::routes::web_search_capable_for;
-use mixdog_ai::service::web_search_models::{
-    CatalogFacts, QuickFacts, WebSearchCatalog, hydrated_model, main_model_meta,
-};
+use mixdog_ai::service::web_search_models::{CatalogFacts, QuickFacts, WebSearchCatalog, hydrated_model, main_model_meta};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::LiveRoute;
 use serde_json::{Map, Value};
@@ -72,11 +70,7 @@ impl Facts {
         if let Some(host) = &self.list.host {
             return host.last_providers();
         }
-        self.config
-            .agent()
-            .get("providers")
-            .and_then(Value::as_object)
-            .map_or_else(Vec::new, |m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        self.config.agent().get("providers").and_then(Value::as_object).map_or_else(Vec::new, |m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 
     fn listings(&self, name: &str) -> Option<Vec<Value>> {

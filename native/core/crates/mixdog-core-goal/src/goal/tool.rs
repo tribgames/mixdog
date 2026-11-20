@@ -19,11 +19,7 @@ fn port_error(error: GoalError) -> PortError {
 
 /// `toolReply`'s input: the public Goal and `goal?.remainingMs ?? null`.
 fn snapshot_of(goal: Option<Goal>) -> GoalSnapshot {
-    let remaining_ms = goal
-        .as_ref()
-        .and_then(|g| g.get("remainingMs"))
-        .and_then(Value::as_f64)
-        .map(|ms| ms as u64);
+    let remaining_ms = goal.as_ref().and_then(|g| g.get("remainingMs")).and_then(Value::as_f64).map(|ms| ms as u64);
     GoalSnapshot { goal: goal.map(Value::Object), remaining_ms }
 }
 

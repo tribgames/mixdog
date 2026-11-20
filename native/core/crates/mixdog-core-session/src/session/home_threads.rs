@@ -69,7 +69,10 @@ impl HomeThreads for DirectoryHomeThreads {
         let thread = ThreadId::from(id);
         let Some(header) = self.header(&thread).await? else { return Ok(None) };
         let messages = self.directory.model_context(&thread).read().await.map_err(|error| error.to_string())?;
-        Ok(Some(ThreadSnapshot { closed: header.get("closed") == Some(&Value::Bool(true)), messages: messages.into_iter().map(|(_, message)| message).collect() }))
+        Ok(Some(ThreadSnapshot {
+            closed: header.get("closed") == Some(&Value::Bool(true)),
+            messages: messages.into_iter().map(|(_, message)| message).collect(),
+        }))
     }
 
     async fn append(&self, id: &str, rows: Vec<Value>, _touched_at: Option<i64>) -> Result<(), String> {

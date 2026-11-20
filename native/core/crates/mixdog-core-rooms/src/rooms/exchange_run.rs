@@ -276,7 +276,11 @@ impl ExchangeHost for Session {
             .filter(|id| in_room.members.contains(id))
             .map(|id| {
                 let label = self.labels.get(id);
-                SupervisorMember { id: id.clone(), name: label.map_or_else(|| id.clone(), |label| label.name.clone()), description: label.map_or_else(String::new, |label| label.description.clone()) }
+                SupervisorMember {
+                    id: id.clone(),
+                    name: label.map_or_else(|| id.clone(), |label| label.name.clone()),
+                    description: label.map_or_else(String::new, |label| label.description.clone()),
+                }
             })
             .collect();
         let step = SupervisorStep { room_name: in_room.name, members, rows: supervisor_rows(&rows), decide: input.clone() };
@@ -311,20 +315,38 @@ async fn exchange_turns(host: &Arc<dyn RoomExchangeHost>, state: &Arc<TurnState>
     hand_over_calls(host, state, run);
 }
 
-async fn turns_body(host: &Arc<dyn RoomExchangeHost>, state: &Arc<TurnState>, run: &Arc<Run>, request: &Request, room: &Arc<Mutex<RoomRecord>>) -> Result<(), String> {
+async fn turns_body(
+    host: &Arc<dyn RoomExchangeHost>,
+    state: &Arc<TurnState>,
+    run: &Arc<Run>,
+    request: &Request,
+    room: &Arc<Mutex<RoomRecord>>,
+) -> Result<(), String> {
     let labels = Arc::new(host.labels().await?);
     // A switched-off bot stays a member but takes no new turn.
     let members = room.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).members.clone();
     let speaking: Vec<String> = members.into_iter().filter(|id| labels.get(id).is_none_or(|label| !label.disabled)).collect();
     let max_messages = host.max_messages();
-    let session = Session { host: host.clone(), state: state.clone(), run: Arc::clone(run), room: Arc::clone(room), labels, speaking: speaking.clone(), fatal: Mutex::default() };
+    let session = Session {
+        host: host.clone(),
+        state: state.clone(),
+        run: Arc::clone(run),
+        room: Arc::clone(room),
+        labels,
+        speaking: speaking.clone(),
+        fatal: Mutex::default(),
+    };
     let params = ExchangeParams {
         members: speaking.clone(),
         to: request.to.clone(),
         max_rounds: host.max_rounds(),
         // A user-addressed set keeps the full cap; a free exchange stops at a budget drawn each
         // time, so it does not always end at the same count.
-        max_messages: if request.to.is_empty() { room_message_budget(u32::try_from(speaking.len()).unwrap_or(u32::MAX), max_messages, host.random()) } else { max_messages },
+        max_messages: if request.to.is_empty() {
+            room_message_budget(u32::try_from(speaking.len()).unwrap_or(u32::MAX), max_messages, host.random())
+        } else {
+            max_messages
+        },
         waiting: state.waiting(),
         only: request.only,
         whole_room: Some(request.everyone),
@@ -338,7 +360,10 @@ async fn turns_body(host: &Arc<dyn RoomExchangeHost>, state: &Arc<TurnState>, ru
         Outcome::Limited => {
             // No supervisor step ran after the turn that met the limit, so the member still in
             // `speakingName` is the one that did.
-            let usage = result.usage.as_ref().map_or(Value::Null, |usage| json!({ "kind": usage.kind, "provider": usage.provider, "model": usage.model, "resetAt": usage.reset_at }));
+            let usage = result
+                .usage
+                .as_ref()
+                .map_or(Value::Null, |usage| json!({ "kind": usage.kind, "provider": usage.provider, "model": usage.model, "resetAt": usage.reset_at }));
             let id = format!("row_{}", host.new_id());
             let (_, name, _) = state.speaking();
             host.post(vec![json!({ "id": id, "kind": "cap", "at": host.now(), "text": "", "name": name, "limit": "usage", "usage": usage })]).await?;
@@ -352,7 +377,10 @@ async fn turns_body(host: &Arc<dyn RoomExchangeHost>, state: &Arc<TurnState>, ru
                 Some(CapLimit::Rounds) | None => "rounds",
             };
             let id = format!("row_{}", host.new_id());
-            host.post(vec![json!({ "id": id, "kind": "cap", "at": host.now(), "text": "", "limit": limit, "rounds": result.rounds, "messages": result.messages })]).await?;
+            host.post(vec![
+                json!({ "id": id, "kind": "cap", "at": host.now(), "text": "", "limit": limit, "rounds": result.rounds, "messages": result.messages }),
+            ])
+            .await?;
         }
         Outcome::Stopped => {
             let id = format!("row_{}", host.new_id());

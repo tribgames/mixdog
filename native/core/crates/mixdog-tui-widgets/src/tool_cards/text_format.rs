@@ -88,13 +88,10 @@ mod tests {
                 (" lines).".to_owned(), text),
             ]
         );
-        assert_eq!(parts("+0 line\n- 2 LINES"), vec![
-            ("+0".to_owned(), success),
-            (" line".to_owned(), text),
-            ("\n".to_owned(), text),
-            ("-2".to_owned(), error),
-            (" LINES".to_owned(), text),
-        ]);
+        assert_eq!(
+            parts("+0 line\n- 2 LINES"),
+            vec![("+0".to_owned(), success), (" line".to_owned(), text), ("\n".to_owned(), text), ("-2".to_owned(), error), (" LINES".to_owned(), text),]
+        );
     }
 
     #[test]

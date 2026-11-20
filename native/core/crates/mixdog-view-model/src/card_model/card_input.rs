@@ -68,26 +68,26 @@ fn trim_trailing(value: Option<&Value>) -> Option<String> {
 pub fn read_card_input<'a>(input: &Value, name: &str, args: Value, options: &CardOptions<'a>) -> CardBase<'a> {
     let default_truncate: Truncate<'a> = &clip_plain;
     let truncate = options.truncate.unwrap_or(default_truncate);
-    let max_result_chars = options
-        .max_result_chars
-        .map_or(RESULT_LINE_HARD_MAX as f64, |chars| chars)
-        .min(RESULT_LINE_HARD_MAX as f64)
-        .max(MIN_RESULT_LINE_CHARS as f64);
+    let max_result_chars =
+        options.max_result_chars.map_or(RESULT_LINE_HARD_MAX as f64, |chars| chars).min(RESULT_LINE_HARD_MAX as f64).max(MIN_RESULT_LINE_CHARS as f64);
     let result = field(input, "result");
     let result_absent = result.is_none_or(Value::is_null);
     let group_count = number_or(field(input, "count"), 1.0).max(1.0);
     let completed = field(input, "completedCount").filter(|v| !v.is_null());
-    let done_count = completed
-        .map_or(if result_absent { 0.0 } else { group_count }, |value| to_number_of(Some(value)))
-        .min(group_count)
-        .max(0.0);
+    let done_count = completed.map_or(if result_absent { 0.0 } else { group_count }, |value| to_number_of(Some(value))).min(group_count).max(0.0);
     let rt = trim_trailing(result);
     let raw_rt = trim_trailing(field(input, "rawResult"));
     let pending = done_count < group_count;
     let started_at = number_or(field(input, "startedAt"), 0.0);
     let completed_at = number_or(field(input, "completedAt"), 0.0);
     let now = number_or(field(input, "nowMs"), system_now_ms());
-    let end = if pending { now } else if completed_at != 0.0 && !completed_at.is_nan() { completed_at } else { now };
+    let end = if pending {
+        now
+    } else if completed_at != 0.0 && !completed_at.is_nan() {
+        completed_at
+    } else {
+        now
+    };
     let elapsed_ms = if started_at != 0.0 && !started_at.is_nan() { (end - started_at).max(0.0) } else { 0.0 };
     let is_error = truthy(field(input, "isError"));
     let header_finalized = field(input, "headerFinalized") != Some(&Value::Bool(false));

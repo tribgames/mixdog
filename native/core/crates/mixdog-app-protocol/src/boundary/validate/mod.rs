@@ -27,26 +27,13 @@ type ValidationGroup = fn(&str, Option<&Value>) -> Option<Result<(), ErrorData>>
 /// What the typed groups other than the capability table refuse in `params` of `method`: the refusal that names a field a call
 /// left out, which the table's argument count must not hide.
 pub(crate) fn typed_refusal(method: &str, params: Option<&Value>) -> Option<ErrorData> {
-    let groups: [ValidationGroup; 5] = [
-        capability_settings::check,
-        custom_provider::check,
-        model::check,
-        workspace_names::check,
-        worktree_import::check,
-    ];
+    let groups: [ValidationGroup; 5] = [capability_settings::check, custom_provider::check, model::check, workspace_names::check, worktree_import::check];
     groups.iter().find_map(|group| group(method, params)).and_then(Result::err)
 }
 
 /// Checks `params` of `method` against the group that owns the method; a method no group owns passes.
 pub fn check(method: &str, params: Option<&Value>) -> Result<(), ErrorData> {
-    let groups: [ValidationGroup; 7] = [
-        prompt::check,
-        capability::check,
-        capability_settings::check,
-        custom_provider::check,
-        model::check,
-        workspace_names::check,
-        worktree_import::check,
-    ];
+    let groups: [ValidationGroup; 7] =
+        [prompt::check, capability::check, capability_settings::check, custom_provider::check, model::check, workspace_names::check, worktree_import::check];
     groups.iter().find_map(|group| group(method, params)).unwrap_or(Ok(()))
 }

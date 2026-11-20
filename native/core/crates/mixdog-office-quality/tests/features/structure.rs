@@ -35,7 +35,10 @@ fn a_format_with_no_review_and_an_empty_document_report_nothing() {
 
 #[test]
 fn a_heading_that_skips_a_level_is_reported_at_the_heading() {
-    let issues = docx(json!([heading("Intro", "Heading 1", 20.0), { "text": "Deep", "style": "Heading 3", "path": "/p[2]", "font": { "size": 14, "bold": true } }]), json!([]));
+    let issues = docx(
+        json!([heading("Intro", "Heading 1", 20.0), { "text": "Deep", "style": "Heading 3", "path": "/p[2]", "font": { "size": 14, "bold": true } }]),
+        json!([]),
+    );
     let jump = only(&issues, "heading_hierarchy_jump");
     assert_eq!(jump.len(), 1);
     assert_eq!(jump[0]["message"], "Heading level jumps from 1 to 3.");
@@ -139,7 +142,8 @@ fn a_short_table_split_over_pages_an_unmarked_total_and_an_oversized_label_are_r
         ],
     });
     assert!(docx(json!([]), json!([marked])).is_empty());
-    let label = json!({ "rows": [{ "cells": [json!({ "text": "Quarterly revenue", "font": { "size": 20 } }), json!({ "text": "1,200", "font": { "size": 20 } })] }] });
+    let label =
+        json!({ "rows": [{ "cells": [json!({ "text": "Quarterly revenue", "font": { "size": 20 } }), json!({ "text": "1,200", "font": { "size": 20 } })] }] });
     let oversized = docx(json!([]), json!([label]));
     assert_eq!(codes(&oversized), ["table_label_oversized"], "a figure may be large; its label may not");
     assert!(oversized[0]["message"].as_str().expect("message").starts_with("\"Quarterly revenue\" is set at 20 pt: display size is for figures."));
@@ -187,10 +191,7 @@ fn a_total_row_must_be_set_apart_and_a_chart_must_not_plot_it() {
     let unmarked = only(&issues, "total_row_unmarked");
     assert_eq!(unmarked.len(), 1);
     assert_eq!(unmarked[0]["path"], "/sheet[Data]/cell[A3]");
-    assert_eq!(
-        unmarked[0]["message"],
-        "The \"Total\" row is set like the rows it sums; set it bold with a rule above (set_style bold, borders.top)."
-    );
+    assert_eq!(unmarked[0]["message"], "The \"Total\" row is set like the rows it sums; set it bold with a rule above (set_style bold, borders.top).");
     let plotted = only(&issues, "chart_includes_total_row");
     assert_eq!(plotted.len(), 1);
     assert_eq!(plotted[0]["message"], "Chart source includes total or subtotal row 3; separate summary rows from comparison series.");
@@ -221,7 +222,11 @@ fn a_bold_header_over_figures_must_be_aligned_with_them() {
         found[0]["message"],
         "Header \"Revenue\" is set left over a column of figures set right; align it right (set_style horizontalAlignment:'right')."
     );
-    let aligned = json!([json!({ "ref": "B1", "value": "Revenue", "style": { "bold": true, "horizontalAlignment": "right" } }), cell("B2", json!(10)), cell("B3", json!(20))]);
+    let aligned = json!([
+        json!({ "ref": "B1", "value": "Revenue", "style": { "bold": true, "horizontalAlignment": "right" } }),
+        cell("B2", json!(10)),
+        cell("B3", json!(20))
+    ]);
     assert!(only(&xlsx(json!({ "cells": aligned })), "header_alignment_mismatch").is_empty());
 }
 

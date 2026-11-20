@@ -93,8 +93,7 @@ impl DeveloperPicker {
             .map(|section| {
                 let mut item = PickerItem::new(&text_of(member(section, "id")), &text_of(member(section, "label")));
                 item.meta = format!("{} on", options_of(section).iter().filter(|option| truthy(member(option, "enabled"))).count());
-                item.description =
-                    options_of(section).iter().map(|option| text_of(member(option, "label"))).collect::<Vec<_>>().join(", ");
+                item.description = options_of(section).iter().map(|option| text_of(member(option, "label"))).collect::<Vec<_>>().join(", ");
                 item
             })
             .collect();

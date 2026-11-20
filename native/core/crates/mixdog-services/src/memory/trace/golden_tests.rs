@@ -4,7 +4,6 @@
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixture I/O")]
 
-
 use serde_json::Value;
 
 use super::RecordReply;
@@ -15,22 +14,13 @@ use super::sql;
 use super::store::first_boot_statements;
 use super::store::retention_statements;
 
-
-
-
 #[test]
 fn record_checks_the_body_like_the_route() {
     let now = 1;
     let bad = serde_json::json!({"events": "x"});
-    assert_eq!(
-        TraceStore::record(None, &bad, now),
-        RecordReply::Rejected { status: 400, error: "body.events must be an array".into() }
-    );
+    assert_eq!(TraceStore::record(None, &bad, now), RecordReply::Rejected { status: 400, error: "body.events must be an array".into() });
     let many = serde_json::json!({"events": vec![serde_json::json!({}); 501]});
-    assert_eq!(
-        TraceStore::record(None, &many, now),
-        RecordReply::Rejected { status: 413, error: "too many events (max 500)".into() }
-    );
+    assert_eq!(TraceStore::record(None, &many, now), RecordReply::Rejected { status: 413, error: "too many events (max 500)".into() });
     let ok = serde_json::json!({"events": [{"kind": "x"}]});
     assert_eq!(TraceStore::record(None, &ok, now), RecordReply::Disabled);
 }
@@ -70,7 +60,11 @@ async fn closing_the_store_takes_the_rows_waiting_on_the_feed_timer() {
 
 #[test]
 fn an_event_row_defaults_what_the_event_leaves_out_and_reads_either_spelling_of_a_result() {
-    let row = TraceEventRow::from_event(&serde_json::json!({ "resultKind": "error", "result_error_category": "timeout", "tool_name": { "a": 1 } }), 1_700_000_000_000).unwrap();
+    let row = TraceEventRow::from_event(
+        &serde_json::json!({ "resultKind": "error", "result_error_category": "timeout", "tool_name": { "a": 1 } }),
+        1_700_000_000_000,
+    )
+    .unwrap();
     assert_eq!((row.ts, row.kind.as_str(), row.payload.as_str()), (1_700_000_000_000.0, "unknown", "{}"));
     assert_eq!((row.result_kind.as_deref(), row.result_error_category.as_deref()), (Some("error"), Some("timeout")));
     assert_eq!(row.tool_name.as_deref(), Some("{\"a\":1}"), "an object bound to a text column is its JSON text");
@@ -128,5 +122,3 @@ fn the_first_boot_runs_inside_one_lock_taken_first_and_released_last() {
     assert_eq!(statements.last().unwrap(), sql::UNLOCK);
     assert_eq!(statements.iter().filter(|s| s.as_str() == sql::UNLOCK).count(), 1);
 }
-
-

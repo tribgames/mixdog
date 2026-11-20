@@ -23,15 +23,15 @@ use mixdog_core_api::mock::MockScopedFeeds;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_api::sink::ConnectionSink;
 use mixdog_protocol::Origin;
+use mixdog_store::state::CoreState;
 use mixdog_workspace::lanes::Lanes;
 use mixdog_workspace::pathguard::canonical;
 use mixdog_workspace::recovery::Action;
 use mixdog_workspace::recovery::PreparedFile;
 use mixdog_workspace::recovery::RecoveryStore;
-use mixdog_store::state::CoreState;
 use mixdog_workspace::service::Deps;
-use mixdog_workspace::zip::TrackedFiles;
 use mixdog_workspace::service::WorkspaceService;
+use mixdog_workspace::zip::TrackedFiles;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -60,12 +60,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
     let limits = MockLimits::default();
     let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &base.join("core.sqlite")).unwrap();
     let service = WorkspaceService::new(Deps {
-        lanes: Lanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        },
+        lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
         feeds: Arc::new(MockScopedFeeds::new(limits)),
         processes: Arc::new(MockProcessManager::default()),
         tracked: Arc::new(GitCli),
@@ -81,7 +76,14 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
     .unwrap();
     // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
     // the recorded folder listings of this project do not have.
-    let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    let row = mixdog_store::state::ProjectRow {
+        path: root.to_string_lossy().into_owned(),
+        alias: None,
+        hidden: false,
+        hidden_rank: None,
+        last_used_at: None,
+        name: None,
+    };
     futures_block(state.write(move |tx| tx.put_project(&row))).unwrap();
     Env { _dir: dir, root, service, state, limits }
 }
@@ -141,17 +143,13 @@ async fn a_closed_connection_gives_up_its_unfinished_read_and_no_other() {
     let first = json!({ "root": root, "rel": "w.txt", "maxChars": 4 });
     let mut ids = Vec::new();
     for connection in [1, 2] {
-        let Reply::Value(answer) = env.service.call(as_connection(connection, first.clone())).await.unwrap() else {
-            panic!("readText answers with a value")
-        };
+        let Reply::Value(answer) = env.service.call(as_connection(connection, first.clone())).await.unwrap() else { panic!("readText answers with a value") };
         ids.push(answer["readId"].as_str().expect("the read is held").to_owned());
     }
     env.service.connection_closed(&ConnectionId(1));
     let next = |id: &str| json!({ "root": root, "rel": "w.txt", "readId": id, "fromChar": 4, "maxChars": 4 });
     assert!(env.service.call(as_connection(1, next(&ids[0]))).await.is_err(), "the closed connection's read is gone");
-    let Reply::Value(second) = env.service.call(as_connection(2, next(&ids[1]))).await.unwrap() else {
-        panic!("readText answers with a value")
-    };
+    let Reply::Value(second) = env.service.call(as_connection(2, next(&ids[1]))).await.unwrap() else { panic!("readText answers with a value") };
     assert_eq!(second["content"], "4567");
 }
 /// A file is answered a window of code points at a time (one connection answer is capped), `nextChar` naming where the next starts;
@@ -201,7 +199,8 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     let attachment = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy(), "sessionId": "s1" })).await.unwrap();
     assert!(attachment["accessToken"].is_string());
 
-    let source = |rel: &str, token: &str| json!({ "source": { "kind": "granted", "accessToken": token, "projectPath": outside.to_string_lossy(), "relPath": rel } });
+    let source =
+        |rel: &str, token: &str| json!({ "source": { "kind": "granted", "accessToken": token, "projectPath": outside.to_string_lossy(), "relPath": rel } });
     let began = call(&env, "transfer/beginRead", source("note.txt", &token)).await.unwrap();
     assert_eq!(began["size"], 3);
     let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 3 })).await.unwrap();
@@ -302,7 +301,11 @@ async fn a_relay_backup_is_kept_under_the_file_that_was_admitted() {
     let kept = call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap();
     assert_ne!(kept, Value::Null, "the desktop's backup of the other folder's file");
 
-    assert_eq!(call(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), Value::Null, "the phone reads the project's file's backup: none");
+    assert_eq!(
+        call(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(),
+        Value::Null,
+        "the phone reads the project's file's backup: none"
+    );
     call(&env, "projectFs/backup/delete", json!({ "sourcePath": source })).await.unwrap();
     assert_eq!(call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), kept, "the phone's delete did not reach it");
 }
@@ -382,9 +385,7 @@ async fn stat_local_reports_a_failure_per_path() {
     let env = env();
     let present = env.root.join("a.txt");
     let missing = env.root.join("missing.txt");
-    let listed = call(&env, "projectFs/statLocal", json!({ "paths": [present.to_string_lossy(), missing.to_string_lossy()] }))
-        .await
-        .unwrap();
+    let listed = call(&env, "projectFs/statLocal", json!({ "paths": [present.to_string_lossy(), missing.to_string_lossy()] })).await.unwrap();
     assert_eq!(listed[0]["name"], "a.txt");
     assert!(listed[1]["error"].is_string(), "a path that cannot be read carries its own error: {listed}");
 }
@@ -502,10 +503,7 @@ async fn interrupted_batch_is_listed_inspected_and_restored_to_the_pre_image() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancelled_unwatch_still_ends_the_os_watch() {
     let env = env();
-    env.service
-        .call(request("fs/watch", json!({ "watchId": "w", "path": env.root.to_string_lossy(), "recursive": false })))
-        .await
-        .unwrap();
+    env.service.call(request("fs/watch", json!({ "watchId": "w", "path": env.root.to_string_lossy(), "recursive": false }))).await.unwrap();
     assert_eq!(env.service.open_os_watches(), 1);
     let unwatch = request("fs/unwatch", json!({ "watchId": "w" }));
     unwatch.ctx.cancel.cancel();
@@ -520,11 +518,7 @@ async fn watch_takes_any_absolute_folder_and_a_missing_one_fails_like_fs_watch()
     let env = env();
     let outside = std::env::temp_dir().join(format!("mixdog-watch-outside-{}", std::process::id()));
     std::fs::create_dir_all(&outside).unwrap();
-    let reply = env
-        .service
-        .call(request("fs/watch", json!({ "watchId": "out", "path": outside.to_string_lossy(), "recursive": false })))
-        .await
-        .unwrap();
+    let reply = env.service.call(request("fs/watch", json!({ "watchId": "out", "path": outside.to_string_lossy(), "recursive": false }))).await.unwrap();
     assert!(matches!(reply, Reply::Subscribe(_)), "a folder outside the project is watched");
     std::fs::remove_dir_all(&outside).unwrap();
 
@@ -562,11 +556,7 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
     let env = env();
     // No event can reach the watcher before the watch exists, so every flush is at least a window after this instant.
     let began = std::time::Instant::now();
-    let reply = env
-        .service
-        .call(request("fs/watch", json!({ "watchId": "w1", "path": env.root.to_string_lossy(), "recursive": true })))
-        .await
-        .unwrap();
+    let reply = env.service.call(request("fs/watch", json!({ "watchId": "w1", "path": env.root.to_string_lossy(), "recursive": true }))).await.unwrap();
     let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
     let conn = MockConnection::new(ConnectionId(1), env.limits);
     let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
@@ -609,11 +599,7 @@ impl Drop for WatchFolder {
 #[tokio::test(flavor = "multi_thread")]
 async fn search_session_ends_with_the_last_query_and_stop_frees_the_index() {
     let env = env();
-    let reply = env
-        .service
-        .call(request("search/start", json!({ "sessionId": "q1", "roots": [env.root.to_string_lossy()] })))
-        .await
-        .unwrap();
+    let reply = env.service.call(request("search/start", json!({ "sessionId": "q1", "roots": [env.root.to_string_lossy()] }))).await.unwrap();
     let Reply::Subscribe(sub) = reply else { panic!("search/start must subscribe") };
     let conn = MockConnection::new(ConnectionId(1), env.limits);
     let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
@@ -638,9 +624,7 @@ async fn workspace_text_search_and_replace_round_trip_through_the_service() {
     let found = call(&env, "projectFs/searchText", json!({ "root": root, "options": { "query": "one" } })).await.unwrap();
     assert_eq!(found["matchCount"], 1);
     let replaced =
-        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "one", "matchCase": true }, "replacement": "1" }))
-            .await
-            .unwrap();
+        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "one", "matchCase": true }, "replacement": "1" })).await.unwrap();
     assert_eq!(replaced["filesChanged"], 1);
     assert_eq!(std::fs::read_to_string(env.root.join("a.txt")).unwrap(), "1\n");
 }
@@ -673,7 +657,12 @@ impl mixdog_workspace::transfer::TransferSource for FixedSource {
     }
     async fn open(&self, _: &Value, _: &CancellationToken) -> Result<mixdog_workspace::transfer::SourceFile, mixdog_workspace::error::WsError> {
         std::fs::write(&self.0, b"exported").unwrap();
-        Ok(mixdog_workspace::transfer::SourceFile { file: std::fs::File::open(&self.0).unwrap(), name: "session.md".into(), mime_type: "text/markdown".into(), cleanup: None })
+        Ok(mixdog_workspace::transfer::SourceFile {
+            file: std::fs::File::open(&self.0).unwrap(),
+            name: "session.md".into(),
+            mime_type: "text/markdown".into(),
+            cleanup: None,
+        })
     }
 }
 
@@ -737,16 +726,38 @@ impl mixdog_core_api::turn_review::TurnReviewApi for NoteLog {
     async fn revert_turn_review(&self, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         unimplemented!()
     }
-    async fn revert_turn_review_file(&self, _: &str, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn revert_turn_review_file(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         unimplemented!()
     }
-    async fn turn_changes(&self, _: &str, _: mixdog_core_api::turn_review::ChangesRead) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn turn_changes(
+        &self,
+        _: &str,
+        _: mixdog_core_api::turn_review::ChangesRead,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         unimplemented!()
     }
-    async fn revert_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn revert_turn_changes(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: f64,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         unimplemented!()
     }
-    async fn reapply_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn reapply_turn_changes(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: f64,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         unimplemented!()
     }
     async fn clear_change_history(&self, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
@@ -760,9 +771,7 @@ async fn the_service_tells_the_turn_review_which_files_it_changed_and_only_after
     let env = env_with(Some(log.clone()));
     let root = env.root.to_string_lossy().into_owned();
     let abs = |rel: &str| env.root.join(rel);
-    let noted = || -> Vec<Option<Vec<PathBuf>>> {
-        log.0.lock().unwrap().iter().map(|n| n.as_ref().map(|p| p.iter().map(PathBuf::from).collect())).collect()
-    };
+    let noted = || -> Vec<Option<Vec<PathBuf>>> { log.0.lock().unwrap().iter().map(|n| n.as_ref().map(|p| p.iter().map(PathBuf::from).collect())).collect() };
 
     call(&env, "projectFs/writeText", json!({ "root": root, "rel": "a.txt", "content": "two\n", "expectedContent": "one\n" })).await.unwrap();
     assert_eq!(noted(), [Some(vec![abs("a.txt")])]);
@@ -772,10 +781,16 @@ async fn the_service_tells_the_turn_review_which_files_it_changed_and_only_after
     assert!(refused.is_err());
     assert_eq!(noted().len(), 1);
 
-    call(&env, "projectFs/writeTextBatch", json!({ "root": root, "files": [
+    call(
+        &env,
+        "projectFs/writeTextBatch",
+        json!({ "root": root, "files": [
         { "relPath": "a.txt", "content": "three\n", "expectedContent": "two\n" },
         { "relPath": "readme.md", "content": "# yo\n", "expectedContent": "# hi\n" },
-    ] })).await.unwrap();
+    ] }),
+    )
+    .await
+    .unwrap();
     call(&env, "projectFs/create", json!({ "root": root, "relDir": "src", "name": "new.txt" })).await.unwrap();
     call(&env, "projectFs/rename", json!({ "root": root, "rel": "src/new.txt", "newName": "old.txt" })).await.unwrap();
     call(&env, "projectFs/move", json!({ "root": root, "rel": "src/old.txt", "targetDirRel": "." })).await.unwrap();
@@ -832,11 +847,7 @@ async fn a_trashed_project_entry_is_noted_by_its_absolute_path() {
     assert!(!env.root.join("to-trash.txt").exists());
     // The item sits in the user's real recycle bin: take it out again, found by its original path
     // (the project folder is this test's own temp directory, so nothing else can match).
-    let ours: Vec<_> = trash::os_limited::list()
-        .unwrap()
-        .into_iter()
-        .filter(|item| item.original_path() == env.root.join("to-trash.txt"))
-        .collect();
+    let ours: Vec<_> = trash::os_limited::list().unwrap().into_iter().filter(|item| item.original_path() == env.root.join("to-trash.txt")).collect();
     assert_eq!(ours.len(), 1, "the trashed file is in the recycle bin");
     trash::os_limited::purge_all(ours).unwrap();
     let noted = log.0.lock().unwrap().clone();
@@ -909,10 +920,6 @@ fn futures_block<F: std::future::Future>(f: F) -> F::Output {
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(f))
 }
 
-
-
-
-
 /// `project/create` leaves `<project>/.mixdog/project.id` holding the folder's name and a newline (memory classification reads only
 /// that), a path given with a trailing separator or a `..` spelling is the same project, and `project/touch` leaves the marker for a
 /// project that was registered without one.
@@ -920,7 +927,8 @@ fn futures_block<F: std::future::Future>(f: F) -> F::Output {
 async fn project_create_and_touch_leave_the_project_id_marker() {
     let env = env();
     let base = env.root.parent().unwrap().join("markers");
-    for (phase, sub, spellings) in [("create", "a", vec!["a", "a/"]), ("create", "rel/proj", vec!["rel/proj", "rel/../rel/proj/."]), ("touch", "n", vec!["n"])] {
+    for (phase, sub, spellings) in [("create", "a", vec!["a", "a/"]), ("create", "rel/proj", vec!["rel/proj", "rel/../rel/proj/."]), ("touch", "n", vec!["n"])]
+    {
         let root = base.join(phase);
         std::fs::create_dir_all(root.join(sub)).unwrap();
         for spelling in spellings {
@@ -950,7 +958,15 @@ async fn the_project_calls_register_list_touch_rename_and_remove_a_folder() {
         std::fs::create_dir_all(base.join(name)).unwrap();
     }
     let at = |name: &str| canonical(&base.join(name)).unwrap().to_string_lossy().into_owned();
-    let names = |listing: &Value| -> Vec<String> { listing["projects"].as_array().unwrap().iter().filter(|p| p["path"].as_str().unwrap().starts_with(&*base.to_string_lossy())).map(|p| p["name"].as_str().unwrap().to_owned()).collect() };
+    let names = |listing: &Value| -> Vec<String> {
+        listing["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["path"].as_str().unwrap().starts_with(&*base.to_string_lossy()))
+            .map(|p| p["name"].as_str().unwrap().to_owned())
+            .collect()
+    };
 
     let zeta = call(&env, "project/create", json!({ "path": at("zeta") })).await.unwrap();
     assert_eq!((&zeta["project"]["name"], &zeta["project"]["alias"], &zeta["project"]["hidden"]), (&json!("zeta"), &Value::Null, &json!(false)));
@@ -1061,7 +1077,10 @@ async fn a_transfer_read_serves_ranges_of_the_file_until_it_ends() {
     let root = env.root.to_string_lossy().into_owned();
     std::fs::write(env.root.join("report.bin"), b"0123456789abcdef".repeat(8)).unwrap();
     let began = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "report.bin" } })).await.unwrap();
-    assert_eq!((&began["size"], &began["entry"]["name"], &began["entry"]["rangeMaxBytes"], &began["mimeType"]), (&json!(128), &json!("report.bin"), &json!(4_194_304), &json!("application/octet-stream")));
+    assert_eq!(
+        (&began["size"], &began["entry"]["name"], &began["entry"]["rangeMaxBytes"], &began["mimeType"]),
+        (&json!(128), &json!("report.bin"), &json!(4_194_304), &json!("application/octet-stream"))
+    );
     let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
     assert!(matches!(&outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
     let id = began["transferId"].as_str().unwrap().to_owned();
@@ -1084,7 +1103,14 @@ async fn project_holding(env: &Env, name: &str, files: &[(&str, &[u8])]) -> Stri
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, data).unwrap();
     }
-    let row = mixdog_store::state::ProjectRow { path: dir.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    let row = mixdog_store::state::ProjectRow {
+        path: dir.to_string_lossy().into_owned(),
+        alias: None,
+        hidden: false,
+        hidden_rank: None,
+        last_used_at: None,
+        name: None,
+    };
     env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
     dir.to_string_lossy().into_owned()
 }
@@ -1116,7 +1142,13 @@ async fn a_project_folder_lists_and_reads_its_files() {
     let file = |name: &str| (name.to_owned(), false);
     assert_eq!(entries(&listing), [("dir".to_owned(), true), file("bin.dat"), file("bom8.txt"), file("crlf.txt"), file("utf16le.txt"), file("utf8.txt")]);
     assert_eq!(entries(&call(&env, "projectFs/listDir", json!({ "root": root, "rel": "dir" })).await.unwrap()), [file("inner.txt")]);
-    for (rel, binary, content, encoding) in [("utf8.txt", false, "héllo\nworld\n", "utf8"), ("crlf.txt", false, "a\r\nb\r\n", "utf8"), ("bom8.txt", false, "bom\n", "utf8bom"), ("utf16le.txt", false, "hi\n", "utf16le"), ("bin.dat", true, "", "utf8")] {
+    for (rel, binary, content, encoding) in [
+        ("utf8.txt", false, "héllo\nworld\n", "utf8"),
+        ("crlf.txt", false, "a\r\nb\r\n", "utf8"),
+        ("bom8.txt", false, "bom\n", "utf8bom"),
+        ("utf16le.txt", false, "hi\n", "utf16le"),
+        ("bin.dat", true, "", "utf8"),
+    ] {
         let mut read = call(&env, "projectFs/readText", json!({ "root": root, "rel": rel })).await.unwrap();
         // The answer carries the file's modification time (a number the test cannot know); the rest is the file's text and kind.
         assert!(read.as_object_mut().unwrap().remove("mtimeMs").unwrap().is_number(), "{rel}");
@@ -1135,7 +1167,8 @@ async fn a_project_folder_lists_and_reads_its_files() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_file_is_written_only_over_what_the_editor_saw_and_entries_are_created_renamed_moved_and_copied() {
     let env = env();
-    let root = project_holding(&env, "pf-write", &[("utf8.txt", "héllo\nworld\n".as_bytes()), ("crlf.txt", b"a\r\nb\r\n"), ("dir/inner.txt", b"inner\n")]).await;
+    let root =
+        project_holding(&env, "pf-write", &[("utf8.txt", "héllo\nworld\n".as_bytes()), ("crlf.txt", b"a\r\nb\r\n"), ("dir/inner.txt", b"inner\n")]).await;
     let mismatch = call(&env, "projectFs/writeText", json!({ "root": root, "rel": "utf8.txt", "content": "new", "expectedContent": "WRONG" })).await;
     assert!(matches!(&mismatch, Err(CoreError::PreconditionFailed { .. })), "{mismatch:?}");
     assert_eq!(std::fs::read_to_string(Path::new(&root).join("utf8.txt")).unwrap(), "héllo\nworld\n");
@@ -1161,7 +1194,12 @@ fn matches_of(result: &Value) -> Vec<(String, Vec<(u64, u64, String)>)> {
         .unwrap()
         .iter()
         .map(|file| {
-            let found = file["matches"].as_array().unwrap().iter().map(|m| (m["line"].as_u64().unwrap(), m["column"].as_u64().unwrap(), m["matchText"].as_str().unwrap().to_owned())).collect();
+            let found = file["matches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| (m["line"].as_u64().unwrap(), m["column"].as_u64().unwrap(), m["matchText"].as_str().unwrap().to_owned()))
+                .collect();
             (file["relPath"].as_str().unwrap().to_owned(), found)
         })
         .collect()
@@ -1193,7 +1231,10 @@ async fn workspace_search_finds_matches_by_the_options_and_replace_changes_exact
     let all = search(json!({ "query": "hello" })).await;
     assert_eq!(
         matches_of(&all),
-        [("a.txt".to_owned(), vec![m(1, 1, "Hello"), m(2, 1, "hello"), m(3, 1, "HELLO")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "hello"), m(1, 16, "Hello"), m(2, 10, "hello")])]
+        [
+            ("a.txt".to_owned(), vec![m(1, 1, "Hello"), m(2, 1, "hello"), m(3, 1, "HELLO")]),
+            ("src/x.mjs".to_owned(), vec![m(1, 7, "hello"), m(1, 16, "Hello"), m(2, 10, "hello")])
+        ]
     );
     assert_eq!((all["matchCount"].clone(), all["limitHit"].clone()), (json!(6), json!(false)));
     assert_eq!(all["files"][0]["matches"][0]["preview"], "Hello World");
@@ -1211,7 +1252,8 @@ async fn workspace_search_finds_matches_by_the_options_and_replace_changes_exact
     let capped = search(json!({ "query": "hello", "maxResults": 2 })).await;
     assert_eq!((capped["matchCount"].clone(), capped["limitHit"].clone(), matches_of(&capped)[0].1.len()), (json!(2), json!(true), 2));
 
-    let replaced = call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "hello", "matchCase": true }, "replacement": "bye" })).await.unwrap();
+    let replaced =
+        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "hello", "matchCase": true }, "replacement": "bye" })).await.unwrap();
     assert_eq!(replaced, json!({ "filesChanged": 2, "paths": ["a.txt", "src/x.mjs"], "replacements": 3 }));
     let after = search(json!({ "query": "bye" })).await;
     assert_eq!(matches_of(&after), [("a.txt".to_owned(), vec![m(2, 1, "bye")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "bye"), m(2, 10, "bye")])]);
@@ -1250,7 +1292,9 @@ fn an_invalid_search_pattern_is_refused_with_the_reason_a_user_reads() {
     ];
     for (query, reason) in cases {
         for (match_case, flags) in [(false, "giu"), (true, "gu")] {
-            let refused = Pattern::compile(&TextQuery { query: query.into(), regex: true, match_case, ..Default::default() }).err().unwrap_or_else(|| panic!("{query:?} compiles"));
+            let refused = Pattern::compile(&TextQuery { query: query.into(), regex: true, match_case, ..Default::default() })
+                .err()
+                .unwrap_or_else(|| panic!("{query:?} compiles"));
             assert_eq!(refused.message, format!("Invalid search pattern: Invalid regular expression: /{query}/{flags}: {reason}"), "{query:?}");
         }
     }
@@ -1258,7 +1302,6 @@ fn an_invalid_search_pattern_is_refused_with_the_reason_a_user_reads() {
         assert!(Pattern::compile(&TextQuery { query: valid.into(), regex: true, ..Default::default() }).is_ok(), "{valid:?}");
     }
 }
-
 
 #[tokio::test(flavor = "multi_thread")]
 async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribers() {
@@ -1292,16 +1335,16 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     let conn2 = MockConnection::new(ConnectionId(2), env.limits);
     let attached = subscribe(&late.feed, SubscriptionId::from("s2"), late.window, None, &conn2).unwrap();
     conn2.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-    let snapshot = conn2.drain_text_until(|texts| texts.iter().any(|f| f.contains("feed/snapshot"))).await.into_iter().find(|f| f.contains("feed/snapshot")).expect("a snapshot");
+    let snapshot = conn2
+        .drain_text_until(|texts| texts.iter().any(|f| f.contains("feed/snapshot")))
+        .await
+        .into_iter()
+        .find(|f| f.contains("feed/snapshot"))
+        .expect("a snapshot");
     assert!(snapshot.contains("lspStatus") && snapshot.contains(key.replace('\0', "\\u0000").as_str()), "{snapshot}");
 }
 
 // ---- the phone's start calls: what Node's `canonicalDirectory`, `knownProject` and `enter` answered (fixtures/phone-chat/host.json) --------
-
-
-
-
-
 
 /// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one
 /// read come from the one read the first window made: a file replaced between two windows changes nothing the reader joins. Node's answer
@@ -1328,7 +1371,13 @@ async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them
     pin(at_ms + 1_000_000);
     while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
         let read_id = part["readId"].clone();
-        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "readId": read_id, "fromChar": next, "maxChars": window })).await.unwrap();
+        part = call(
+            &env,
+            "projectFs/readText",
+            json!({ "root": root, "rel": "toolong.txt", "authorized": true, "readId": read_id, "fromChar": next, "maxChars": window }),
+        )
+        .await
+        .unwrap();
         joined.push_str(part["content"].as_str().unwrap());
     }
     assert!(joined == text, "the joined windows are the first version of the file ({} of {} bytes)", joined.len(), text.len());
@@ -1361,7 +1410,8 @@ async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_
     call(&env, "transfer/grant/mint", json!({ "path": granted })).await.unwrap();
     let refused = json!({ "ok": false, "error": "Project is not available.", "errorCode": "PROJECT_UNAVAILABLE" });
     let beyond = json!({ "ok": false, "error": "Path is outside the project." });
-    let saved = |content: &str, expected: &str| json!({ "ok": true, "value": { "content": content, "expectedContent": expected, "updatedAt": 1_780_819_750_000_u64 } });
+    let saved =
+        |content: &str, expected: &str| json!({ "ok": true, "value": { "content": content, "expectedContent": expected, "updatedAt": 1_780_819_750_000_u64 } });
     let none = json!({ "ok": true, "value": null });
     // (call, folder the phone names, file in it, whether the call carries the grant, backup content, expected content, frame)
     let steps = [
@@ -1551,7 +1601,9 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
     }
     assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, for the {} names", paths.len());
     std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
-    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
+    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty())))
+        .await
+        .expect("a change under each name within 60 s");
     for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
         let dir = folder.fill(reported["dir"].as_str().unwrap());
         let paths = changed(&frames, id);
@@ -1587,7 +1639,9 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
             None => {
                 got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
                 std::fs::write(&path, "b").unwrap();
-                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
+                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty()))
+                    .await
+                    .expect("the watched file's change within 60 s");
                 let under = folder.fill(case["reportedUnder"].as_str().unwrap());
                 assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
             }
@@ -1596,4 +1650,3 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
     env.service.connection_closed(&ConnectionId(1));
 }
 // ---- DS-WS-1: the service's answers ----------------------------------------------------------------
-

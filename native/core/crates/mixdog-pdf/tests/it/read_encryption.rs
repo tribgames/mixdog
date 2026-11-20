@@ -10,15 +10,14 @@ use sha2::{Digest, Sha256, Sha384, Sha512};
 use crate::read_support::{build_with_trailer, stream};
 
 const PAD: [u8; 32] = [
-    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00,
-    0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C,
+    0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ];
 
 fn md5(input: &[u8]) -> [u8; 16] {
     const S: [u32; 64] = [
-        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14,
-        20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6,
-        10, 15, 21,
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4,
+        11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
     ];
     let k: Vec<u32> = (0..64).map(|i| ((f64::from(i) + 1.0).sin().abs() * 4_294_967_296.0) as u32).collect();
     let (mut a0, mut b0, mut c0, mut d0) = (0x6745_2301u32, 0xefcd_ab89u32, 0x98ba_dcfeu32, 0x1032_5476u32);
@@ -146,11 +145,7 @@ fn standard_file(revision: u8, user: &str, owner: &str, aes: bool) -> Vec<u8> {
         object_key.extend_from_slice(b"sAlT");
     }
     let object_key = &md5(&object_key)[..(n + 5).min(16)];
-    let secret = if aes {
-        aes_data(object_key, CONTENT.as_bytes())
-    } else {
-        rc4(object_key, CONTENT.as_bytes())
-    };
+    let secret = if aes { aes_data(object_key, CONTENT.as_bytes()) } else { rc4(object_key, CONTENT.as_bytes()) };
     let encrypt = if aes {
         format!(
             "<< /Filter /Standard /V 4 /R 4 /Length 128 /P -4 /O <{}> /U <{}> /CF << /StdCF << /CFM /AESV2 /AuthEvent /DocOpen /Length 16 >> >> /StmF /StdCF /StrF /StdCF >>",
@@ -158,13 +153,7 @@ fn standard_file(revision: u8, user: &str, owner: &str, aes: bool) -> Vec<u8> {
             hex(&u)
         )
     } else {
-        format!(
-            "<< /Filter /Standard /V {} /R {revision} /Length {} /P -4 /O <{}> /U <{}> >>",
-            if revision == 2 { 1 } else { 2 },
-            n * 8,
-            hex(&o),
-            hex(&u)
-        )
+        format!("<< /Filter /Standard /V {} /R {revision} /Length {} /P -4 /O <{}> /U <{}> >>", if revision == 2 { 1 } else { 2 }, n * 8, hex(&o), hex(&u))
     };
     let objects = vec![
         (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
@@ -207,18 +196,10 @@ fn a_user_password_is_needed_and_the_wrong_one_is_refused() {
         let bytes = encrypted(revision, "open sesame", "owner-secret");
         let missing = open_with(&bytes, None).err().expect("no password");
         let missing = wrap_reason(&missing);
-        assert_eq!(
-            (missing.name, missing.code, missing.message.as_str()),
-            ("PasswordException", Some(1), "No password given"),
-            "revision {revision}"
-        );
+        assert_eq!((missing.name, missing.code, missing.message.as_str()), ("PasswordException", Some(1), "No password given"), "revision {revision}");
         let wrong = open_with(&bytes, Some("not the password")).err().expect("a wrong password");
         let wrong = wrap_reason(&wrong);
-        assert_eq!(
-            (wrong.name, wrong.code, wrong.message.as_str()),
-            ("PasswordException", Some(2), "Incorrect Password"),
-            "revision {revision}"
-        );
+        assert_eq!((wrong.name, wrong.code, wrong.message.as_str()), ("PasswordException", Some(2), "Incorrect Password"), "revision {revision}");
         let document = open_with(&bytes, Some("open sesame")).expect("the user password");
         assert_eq!(content_of(&document), CONTENT.as_bytes(), "revision {revision}");
     }
@@ -301,7 +282,11 @@ fn aes256_file(user: &str, owner: &str) -> Vec<u8> {
     let perms = cbc(&file_key, &[0; 16], &permissions);
     let encrypt = format!(
         "<< /Filter /Standard /V 5 /R 6 /Length 256 /P -4 /O <{}> /U <{}> /OE <{}> /UE <{}> /Perms <{}> /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> /StmF /StdCF /StrF /StdCF >>",
-        hex(&o), hex(&u), hex(&oe), hex(&ue), hex(&perms)
+        hex(&o),
+        hex(&u),
+        hex(&oe),
+        hex(&ue),
+        hex(&perms)
     );
     let objects = vec![
         (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),

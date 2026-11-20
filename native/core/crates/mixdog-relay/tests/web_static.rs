@@ -9,25 +9,16 @@ use mixdog_relay::web::files::{
     StaticBody, StaticOptions, StaticRequest, StaticResolution, answer_static_file, mime_type, not_modified, resolve_static_target,
 };
 use mixdog_relay::web::headers::{
-    ResponseHeaders, browser_security_headers, device_cookie_headers, pairing_cookie_headers, request_cookie_token,
-    security_headers_for_target,
+    ResponseHeaders, browser_security_headers, device_cookie_headers, pairing_cookie_headers, request_cookie_token, security_headers_for_target,
 };
 use mixdog_relay::web::negotiate::{encoding_accepted, parse_accept_encoding, select_precompressed};
 use mixdog_rt::InteractiveIo;
 use sha2::{Digest, Sha256};
 
-
 fn write(path: &Path, bytes: impl AsRef<[u8]>) {
     mixdog_fsio::create_dir_all(&Unlaned, path.parent().unwrap()).unwrap();
     mixdog_fsio::write(&Unlaned, path, bytes).unwrap();
 }
-
-
-
-
-
-
-
 
 #[test]
 fn the_cookie_of_a_cross_site_request_never_authenticates() {
@@ -37,11 +28,6 @@ fn the_cookie_of_a_cross_site_request_never_authenticates() {
     headers.add("origin", "null".to_owned());
     assert_eq!(request_cookie_token(&headers), "");
 }
-
-
-
-
-
 
 #[test]
 fn weak_comparison_and_the_method_decide_not_modified() {
@@ -68,10 +54,7 @@ fn pairing_and_device_cookies_keep_max_age_httponly_samesite_forms() {
     let token = "abcd";
     let device = "12345678-abcd-4321-abcd-1234567890ab";
     assert_eq!(pairing_cookie_headers(token, false).get("Set-Cookie"), Some("mixdog_token=abcd; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax"));
-    assert_eq!(
-        pairing_cookie_headers(token, true).get("Set-Cookie"),
-        Some("mixdog_token=abcd; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure")
-    );
+    assert_eq!(pairing_cookie_headers(token, true).get("Set-Cookie"), Some("mixdog_token=abcd; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure"));
     assert_eq!(
         device_cookie_headers(device, false).get("Set-Cookie"),
         Some(format!("mixdog_device={device}; Path=/; Max-Age=31536000; SameSite=Lax").as_str())
@@ -321,7 +304,4 @@ async fn static_responses_apply_browser_security_headers_without_changing_head_b
     }
 }
 
-
 // ---- the recording: heads ----
-
-

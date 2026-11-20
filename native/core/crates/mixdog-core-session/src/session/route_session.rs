@@ -21,17 +21,17 @@ use serde_json::json;
 
 use super::Clock;
 use super::SessionDirectory;
+use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::route::RouteSession;
 use mixdog_core_ports::ports::route::is_summary_anchor;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::run_host::hop_host::HopSession;
 use mixdog_core_run::run_host::hop_host::HopSessions;
-use mixdog_core_run::run_host::route_fallback::HopWrite;
 use mixdog_core_run::run_host::route_chain::BotRoutes;
-use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_run::run_host::route_chain::owner_route_fallbacks;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
+use mixdog_core_run::run_host::route_fallback::HopWrite;
 
 /// What a route change reads from outside the header, collected by [`RouteChange::lookups`] and
 /// handed to [`RouteChange::route_change`]; each implementation downcasts its own.
@@ -246,10 +246,8 @@ impl RouteSession for SessionRouteAdapter {
 
     /// `writeStatuslineRoute(statusRoutes, session, route)`.
     fn write_statusline(&self, thread: &ThreadId, route: &Route) {
-        let pid = self
-            .directory
-            .handle(thread)
-            .and_then(|handle| handle.cell.header.load().get("clientHostPid").and_then(Value::as_u64).filter(|pid| *pid > 0));
+        let pid =
+            self.directory.handle(thread).and_then(|handle| handle.cell.header.load().get("clientHostPid").and_then(Value::as_u64).filter(|pid| *pid > 0));
         self.statusline.write(thread.as_str(), route, pid);
     }
 
@@ -381,8 +379,6 @@ mod tests {
         fn adopt_held(&self, _: &ThreadId, _: &Route) {}
     }
 
-
-
     /// `applyRouteFields`: only the fields the route names; a chain restart clears the hop.
     #[test]
     fn route_fields_follow_apply_route_fields() {
@@ -409,7 +405,6 @@ mod tests {
         assert!(is_uuid_v7(minted.set["codexWireSessionId"].as_str().unwrap()));
     }
 
-
     /// `updateSessionRoute`: the route fields and the route change land as one header change.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_route_update_is_one_header_change_with_the_route_change() {
@@ -421,15 +416,8 @@ mod tests {
         directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
         let change = Arc::new(Change(Mutex::default()));
-        let adapter = SessionRouteAdapter::new(
-            directory.clone(),
-            threads.clone(),
-            change.clone(),
-            Arc::new(Quiet),
-            Arc::new(Quiet),
-            Arc::new(Quiet),
-            rig.clock.clone(),
-        );
+        let adapter =
+            SessionRouteAdapter::new(directory.clone(), threads.clone(), change.clone(), Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
         let route = obj(json!({ "provider": "anthropic", "model": "claude-x", "fast": true }));
         assert!(adapter.update_route(&thread, route, true).await.expect("update"));
         let stored = threads.header(&thread).await.expect("header");
@@ -457,7 +445,15 @@ mod tests {
         }));
         directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), Arc::new(NullWire), Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
+        let adapter = Arc::new(SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(NullWire),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        ));
         let hops = SessionHops::new(adapter.clone());
         assert!(hops.open(&ThreadId::from("sess_gone")).is_none());
         let session = hops.open(&thread).expect("loaded");
@@ -497,7 +493,10 @@ mod tests {
         let records = Arc::new(SessionThreads::new(directory.clone()));
         let routes = mixdog_core_ports::ports::route::SessionRoutes::new(records.clone(), records, adapter, Arc::new(Live(pick)));
         let follow = mixdog_core_ports::ports::route::FollowOptions {
-            apply_to_current_session: true, defer_until_next_turn: true, lease: Some(routes.open_lease(&thread, None)), ..Default::default()
+            apply_to_current_session: true,
+            defer_until_next_turn: true,
+            lease: Some(routes.open_lease(&thread, None)),
+            ..Default::default()
         };
         routes.follow(&thread, &follow).await.unwrap();
         let staged = session.header().unwrap();
@@ -505,7 +504,10 @@ mod tests {
         assert_eq!(staged["pendingRoute"]["fast"], true);
         routes.apply_pending(&thread).await.unwrap();
         let seated = session.header().unwrap();
-        assert_eq!((&seated["model"], &seated["effort"], &seated["fast"], &seated["autoEffort"]), (&json!("claude-x"), &json!("high"), &json!(true), &json!(false)));
+        assert_eq!(
+            (&seated["model"], &seated["effort"], &seated["fast"], &seated["autoEffort"]),
+            (&json!("claude-x"), &json!("high"), &json!(true), &json!(false))
+        );
         assert_eq!(seated["modelParameters"], json!({ "verbosity": "low" }));
         assert!(!seated.contains_key("pendingRoute"));
     }
@@ -513,12 +515,12 @@ mod tests {
     /// reply, the route lands as a cross-provider change, and the switch row follows the reply.
     #[tokio::test(start_paused = true)]
     async fn switch_now_switches_the_conversation_in_place() {
-        use mixdog_core_ports::ports::route::SessionRoutes;
-        use crate::session::thread_state::SessionThreads;
         use crate::eventually_on;
         use crate::session::tests::idle;
         use crate::session::tests::start_thread;
         use crate::session::tests::turn;
+        use crate::session::thread_state::SessionThreads;
+        use mixdog_core_ports::ports::route::SessionRoutes;
 
         let rig = crate::session::testing::Rig::new();
         rig.set_script(Arc::new(|run| {
@@ -543,15 +545,8 @@ mod tests {
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         threads.patch_header(&handle.id, obj(json!({ "provider": "openai", "model": "gpt-a" })), Vec::new()).await.expect("route");
         let change = Arc::new(Change(Mutex::default()));
-        let adapter = SessionRouteAdapter::new(
-            directory.clone(),
-            threads.clone(),
-            change.clone(),
-            Arc::new(Quiet),
-            Arc::new(Quiet),
-            Arc::new(Quiet),
-            rig.clock.clone(),
-        );
+        let adapter =
+            SessionRouteAdapter::new(directory.clone(), threads.clone(), change.clone(), Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
         let live = Live(obj(json!({ "provider": "anthropic", "model": "claude-x" })));
         let routes = SessionRoutes::new(threads.clone(), threads.clone(), Arc::new(adapter), Arc::new(live));
 
@@ -565,7 +560,6 @@ mod tests {
         assert!(items[2].id().as_str().starts_with(&format!("{}:model:", items[1].id().as_str())));
     }
 }
-
 
 /// `applyRouteFields(session, route)`: the route's own fields onto the session.
 fn route_fields(header: &Header, route: &Route) -> HeaderChange {
@@ -626,13 +620,16 @@ fn route_fields(header: &Header, route: &Route) -> HeaderChange {
     change
 }
 
-
 impl SessionRouteAdapter {
-
     /// `advanceAgentRoute`'s one write: `updateSessionRoute(id, route, { crossProvider: true })`
     /// followed by the hop's fields, in the one header change. The route change leaves
     /// `wireRoute` null. The updated header; `None` when the session is closed or gone.
-    pub(crate) async fn write_hop(&self, thread: &ThreadId, route: Route, hop: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<Header>, PortError> {
+    pub(crate) async fn write_hop(
+        &self,
+        thread: &ThreadId,
+        route: Route,
+        hop: &mixdog_core_run::run_host::route_fallback::HopWrite,
+    ) -> Result<Option<Header>, PortError> {
         let hop = hop.clone();
         let hop_fields = move |header: &Header, change: &mut HeaderChange| {
             unset(change, "effectiveEffort");

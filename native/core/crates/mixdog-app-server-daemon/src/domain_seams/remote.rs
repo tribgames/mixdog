@@ -336,10 +336,7 @@ pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
     let registry = Arc::new(DeviceRegistry::default());
     let events = Arc::new(SectionEvents::new());
     let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
-    let settings = Arc::new(
-        AccessSettings::new(inputs.dir.clone(), Arc::new(host_name))
-            .with_migrated_activation(inputs.migrated_activation),
-    );
+    let settings = Arc::new(AccessSettings::new(inputs.dir.clone(), Arc::new(host_name)).with_migrated_activation(inputs.migrated_activation));
     let runtime = RemoteRuntime::new(
         RuntimeConfig {
             dir: inputs.dir,
@@ -353,9 +350,7 @@ pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
             link: LegLink::default(),
             events: events.clone(),
         },
-        Box::new(|wiring: PairWiring| {
-            Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))
-        }),
+        Box::new(|wiring: PairWiring| Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))),
     );
     Ok(BuiltRemote { runtime: Arc::new(runtime), registry, events })
 }
@@ -548,7 +543,8 @@ mod tests {
             assert_eq!(settings_view(&settings.read()), case["view"], "{name}");
             assert_eq!(settings.disabled(), case["disabled"].as_bool().unwrap(), "{name}");
             assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), json!({}), "{name}");
-            let mut listed: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|entry| as_node_named(&entry.unwrap().file_name().to_string_lossy())).collect();
+            let mut listed: Vec<String> =
+                std::fs::read_dir(dir.path()).unwrap().map(|entry| as_node_named(&entry.unwrap().file_name().to_string_lossy())).collect();
             listed.sort();
             assert_eq!(serde_json::to_value(listed).unwrap(), case["after"], "{name}");
         }
@@ -584,7 +580,6 @@ mod tests {
             assert_eq!(file, step["file"], "{} {}", step["op"], step["args"]);
         }
     }
-
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_runtime_starts_with_the_relay_off() {
@@ -686,7 +681,8 @@ mod tests {
                 .collect();
             assert_eq!(Value::Array(frames), step["sent"], "{} at {at}", step["op"]);
             if step["op"] == "ensure" {
-                let shown = code.current().filter(|view| view.expires_at > at).map_or(Value::Null, |view| json!({ "code": view.code, "expiresAt": view.expires_at }));
+                let shown =
+                    code.current().filter(|view| view.expires_at > at).map_or(Value::Null, |view| json!({ "code": view.code, "expiresAt": view.expires_at }));
                 assert_eq!(shown, step["result"], "ensure at {at}");
             }
         }

@@ -18,9 +18,8 @@ const RENDERED_SEGMENT_CACHE_MAX_CHARS: usize = 256 * 1024;
 /// Block/inline syntax probe. Beyond the inline marker class it catches the block forms whose markers are not in that
 /// class, or the text renders as a literal paragraph: `+ ` bullets, `1)` ordered items, a setext `===` underline, and
 /// 4-space indented code.
-static MD_SYNTAX: LazyLock<Re> = LazyLock::new(|| {
-    Re::new(r##"[#*`|[>\-_~]|\n\n|(?:^|\n)\d+[.)] |(?:^|\n)\+ |(?:^|\n)={2,}[ \t]*(?:\n|$)|(?:^|\n) {4}\S"##, "")
-});
+static MD_SYNTAX: LazyLock<Re> =
+    LazyLock::new(|| Re::new(r##"[#*`|[>\-_~]|\n\n|(?:^|\n)\d+[.)] |(?:^|\n)\+ |(?:^|\n)={2,}[ \t]*(?:\n|$)|(?:^|\n) {4}\S"##, ""));
 
 /// The tokens of settled text, by the text (`tokenCache` of `render-ansi.mjs`).
 static TOKEN_CACHE: LazyLock<Mutex<Lru<String, Arc<Vec<Token>>>>> = LazyLock::new(|| Mutex::new(Lru::new(TOKEN_CACHE_MAX)));
@@ -111,9 +110,7 @@ pub fn render_token_ansi_segments(content: &str, options: RenderOptions) -> Arc<
     let theme_version = get_theme_version();
     {
         let mut cache = SEGMENT_CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-        let hit = cache.iter().rposition(|entry| {
-            entry.options == options && entry.theme_version == theme_version && entry.text == content
-        });
+        let hit = cache.iter().rposition(|entry| entry.options == options && entry.theme_version == theme_version && entry.text == content);
         if let Some(at) = hit {
             let entry = cache.remove(at);
             let segments = Arc::clone(&entry.segments);
@@ -141,13 +138,7 @@ pub fn render_token_ansi_segments(content: &str, options: RenderOptions) -> Arc<
     let units = content.encode_utf16().count();
     if units <= RENDERED_SEGMENT_CACHE_MAX_CHARS {
         let mut cache = SEGMENT_CACHE.lock().unwrap_or_else(PoisonError::into_inner);
-        cache.push(SegmentEntry {
-            text: content.to_owned(),
-            units,
-            options,
-            theme_version,
-            segments: Arc::clone(&segments),
-        });
+        cache.push(SegmentEntry { text: content.to_owned(), units, options, theme_version, segments: Arc::clone(&segments) });
         let mut chars: usize = cache.iter().map(|entry| entry.units).sum();
         while cache.len() > RENDERED_SEGMENT_CACHE_MAX || chars > RENDERED_SEGMENT_CACHE_MAX_CHARS {
             let removed = cache.remove(0);
@@ -262,10 +253,7 @@ mod tests {
 
     #[test]
     fn blocks_are_laid_out_one_blank_row_apart_and_an_unknown_width_is_eighty() {
-        let lines: Vec<String> = render_markdown_ansi("# a\n\ntext\n\n---\n", 0)
-            .iter()
-            .map(|line| mixdog_termtext::strip_ansi(line).into_owned())
-            .collect();
+        let lines: Vec<String> = render_markdown_ansi("# a\n\ntext\n\n---\n", 0).iter().map(|line| mixdog_termtext::strip_ansi(line).into_owned()).collect();
         let rule = "\u{2500}".repeat(80);
         assert_eq!(lines, ["a", "", "text", "", rule.as_str()]);
     }

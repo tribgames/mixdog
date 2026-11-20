@@ -54,8 +54,4 @@ pub fn request_begin(exclusions: Arc<SessionToolExclusions>, thread: ThreadId, d
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
-
+mod tests {}

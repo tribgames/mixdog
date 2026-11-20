@@ -54,10 +54,18 @@ pub trait ArtifactStore: Send + Sync {
 pub enum ImageOutcome {
     /// Re-encoded; `note` is the text that supersedes the original's size
     /// metadata, placed before the image.
-    Compacted { data: String, mime: String, note: Option<String> },
+    Compacted {
+        data: String,
+        mime: String,
+        note: Option<String>,
+    },
     /// Imported into the attachment store: the history holds the reference. The store records the picture's verdict, a
     /// refusal included, so the image is never replaced by text; a send that cannot carry it names it.
-    Stored { reference: String, mime: String, note: Option<String> },
+    Stored {
+        reference: String,
+        mime: String,
+        note: Option<String>,
+    },
     Keep,
 }
 
@@ -86,10 +94,7 @@ pub trait ImageIntake: Send + Sync {
 }
 
 fn aggregate_excluded(tool: &str) -> bool {
-    matches!(
-        tool.to_lowercase().as_str(),
-        "shell" | "task" | "read" | "head" | "tail" | "diff" | "skill" | "skill_view" | "skills_list"
-    )
+    matches!(tool.to_lowercase().as_str(), "shell" | "task" | "read" | "head" | "tail" | "diff" | "skill" | "skill_view" | "skills_list")
 }
 
 fn u16_len(s: &str) -> usize {
@@ -114,11 +119,16 @@ fn build_preview(text: &str, max: usize) -> (String, bool) {
     let head_budget = (max as f64 * 0.6).floor() as usize;
     let tail_budget = max - head_budget;
     let edge_bytes = |chars: &mut dyn Iterator<Item = char>, mut left: usize| {
-        chars.take_while(|c| {
-            if c.len_utf16() > left { return false; }
-            left -= c.len_utf16();
-            true
-        }).map(char::len_utf8).sum::<usize>()
+        chars
+            .take_while(|c| {
+                if c.len_utf16() > left {
+                    return false;
+                }
+                left -= c.len_utf16();
+                true
+            })
+            .map(char::len_utf8)
+            .sum::<usize>()
     };
     let mut head = &text[..edge_bytes(&mut text.chars(), head_budget)];
     if let Some(cut) = head.rfind('\n')
@@ -133,12 +143,7 @@ fn build_preview(text: &str, max: usize) -> (String, bool) {
         tail = &tail[cut + 1..];
     }
     let omitted_kb = js_round((len - u16_len(head) - u16_len(tail)) as f64 / 1024.0).max(1);
-    (
-        format!(
-            "{head}\n... [preview middle omitted — {omitted_kb} KB] ...\n{tail}"
-        ),
-        true,
-    )
+    (format!("{head}\n... [preview middle omitted — {omitted_kb} KB] ...\n{tail}"), true)
 }
 
 /// One text body replaced by its pointer and preview; unchanged when it did
@@ -223,10 +228,7 @@ pub(crate) async fn compact_owned_images(compactor: &dyn ImageCompactor, content
     compact_parts(compactor, parts.into_iter().map(std::borrow::Cow::Owned)).await
 }
 
-async fn compact_parts<'a>(
-    compactor: &dyn ImageCompactor,
-    parts: impl ExactSizeIterator<Item = std::borrow::Cow<'a, ContentPart>>,
-) -> Content {
+async fn compact_parts<'a>(compactor: &dyn ImageCompactor, parts: impl ExactSizeIterator<Item = std::borrow::Cow<'a, ContentPart>>) -> Content {
     let mut out = Vec::with_capacity(parts.len());
     for part in parts {
         if let ContentPart::Image(ImageSource::FileId(id)) = part.as_ref()
@@ -285,7 +287,6 @@ mod tests {
         assert!(!preview.contains('\u{fffd}'));
     }
 
-
     #[tokio::test]
     async fn a_large_result_becomes_a_pointer_and_a_head_tail_preview() {
         let store = Store(Mutex::new(Vec::new()));
@@ -333,7 +334,9 @@ mod tests {
             async fn persist(&self, _: &str) -> Option<Artifact> {
                 std::future::pending().await
             }
-            async fn preview(&self, _: &str) -> Option<Artifact> { None }
+            async fn preview(&self, _: &str) -> Option<Artifact> {
+                None
+            }
         }
         let body = "result".repeat(10_000);
         let mut entries = [BatchEntry { tool: "grep".into(), content: Content::Text(body.clone()) }];
@@ -358,14 +361,10 @@ mod tests {
         ];
         offload_batch(&store, &mut entries).await;
         // 245k > 200k: one forced offload, the latest of the equal results
-        let offloaded: Vec<bool> = entries
-            .iter()
-            .map(|e| matches!(&e.content, Content::Text(t) if is_offloaded(t)))
-            .collect();
+        let offloaded: Vec<bool> = entries.iter().map(|e| matches!(&e.content, Content::Text(t) if is_offloaded(t))).collect();
         assert_eq!(offloaded, [false, false, false, false, true]);
     }
 }
-
 
 /// Characters a tool's result may keep inline (`usize::MAX`: never offloaded).
 /// Read-like tools bound themselves; shell and task already cap and name
@@ -382,27 +381,21 @@ fn threshold(tool: &str) -> usize {
 }
 /// `SETUP_OUTPUT_MAX_BYTES` (`MIXDOG_SETUP_OUTPUT_MAX_BYTES`, 20 KiB): the setup result's cap and its inline-offload threshold.
 fn setup_threshold() -> usize {
-    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_SETUP_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    static MAX: std::sync::LazyLock<usize> =
+        std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_SETUP_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
     *MAX
 }
 /// A result's per-tool offload (`force`: whatever its size). Errors stay inline
 /// up to the global default so the model can self-correct without a read turn.
 /// An error is the text that reads as one (the first text part of a structured
 /// result), whatever kind the call was recorded with.
-pub async fn offload_result(
-    store: &dyn ArtifactStore,
-    tool: &str,
-    content: &Content,
-    force: bool,
-) -> Content {
+pub async fn offload_result(store: &dyn ArtifactStore, tool: &str, content: &Content, force: bool) -> Content {
     match planned_offload(store, tool, content, force).await {
         None => content.clone(),
         Some(Replacement::Text(text)) => Content::Text(text),
         Some(Replacement::Parts(mut edits)) => {
             let Content::Parts(parts) = content else { unreachable!() };
-            Content::Parts(parts.iter().enumerate().map(|(i, part)| {
-                edits.remove(&i).unwrap_or_else(|| part.clone())
-            }).collect())
+            Content::Parts(parts.iter().enumerate().map(|(i, part)| edits.remove(&i).unwrap_or_else(|| part.clone())).collect())
         }
     }
 }

@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::env::{Clock, Compactor, RouteFallback, SkillSelector, TurnGuards};
+use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_agent::todo::{TodoGuards, TodoView};
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{RunCarry, RunConfig};
@@ -24,23 +26,21 @@ use mixdog_core_api::domain::provider::RequestThread;
 use mixdog_core_api::domain::tool::{SurfaceKind, Tool, ToolIo};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::TurnError;
-use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_services::effort_judge::judge::{EffortJudge, EffortJudgeModel};
-use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use super::factory::{AssembleInput, Assembled, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
+use super::hooks::{PostToolDispatch, SessionToolHooks};
+use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
+use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_ports::ports::gate::SessionGate;
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
 use mixdog_core_run::run_host::failure_log::FailureWriter;
 use mixdog_core_run::run_host::failure_log::RunFailureLog;
-use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
-use super::hooks::{PostToolDispatch, SessionToolHooks};
-use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
 use mixdog_core_run::run_host::route_fallback::HopHost;
 use mixdog_core_run::run_host::route_fallback::RouteHop;
-use mixdog_core_ports::ports::gate::GateEnv;
-use mixdog_core_ports::ports::gate::SessionGate;
 
 /// The tools of a session's surface.
 pub struct SessionTools {
@@ -59,8 +59,8 @@ mod prefix_guard_tests {
     use mixdog_core_api::domain::provider::{CacheTier, Content, Message, ModelRequest, Role, ToolDefinition};
     use mixdog_core_session::session::route_session::RouteChange;
 
-    use super::*;
     use super::super::route_change::{RouteFacts, RunHostRouteChange};
+    use super::*;
 
     struct Facts;
 
@@ -119,7 +119,10 @@ mod prefix_guard_tests {
         let thread = ThreadId::from("route-guard");
         for (provider, model) in [("anthropic", "new-model"), ("openai", "old-model"), ("openai", "new-model")] {
             for held in [false, true] {
-                let mut header = json!({ "id": thread.as_str(), "provider": "anthropic", "model": "old-model", "transcriptEpoch": "same-lineage" }).as_object().unwrap().clone();
+                let mut header = json!({ "id": thread.as_str(), "provider": "anthropic", "model": "old-model", "transcriptEpoch": "same-lineage" })
+                    .as_object()
+                    .unwrap()
+                    .clone();
                 let mut before = request("anthropic", "old-model");
                 before.messages[0].cache_tier = Some(CacheTier::Tier3);
                 before.messages[2].thinking_blocks = Some(json!([{ "type": "thinking", "thinking": "Earlier reasoning.", "signature": "old-signature" }]));
@@ -139,7 +142,13 @@ mod prefix_guard_tests {
                 apply_route(&change, &mut header, provider, model).await;
                 let mut next = request(provider, model);
                 next.messages[0].cache_tier = Some(CacheTier::Env);
-                next.tools.push(ToolDefinition { name: "read".into(), description: "Read a file.".into(), input_schema: json!({ "type": "object" }), defer_loading: false, freeform: None });
+                next.tools.push(ToolDefinition {
+                    name: "read".into(),
+                    description: "Read a file.".into(),
+                    input_schema: json!({ "type": "object" }),
+                    defer_loading: false,
+                    freeform: None,
+                });
                 next.messages.push(Message::new(Role::User, Content::Text("Next turn.".into())));
                 let next_guard = fingerprint(&next, provider);
                 let options = GuardOptions { provider, model, intent: None, mutation_source: None };
@@ -163,12 +172,15 @@ mod prefix_guard_tests {
             "cwd": "new-workspace", "bp3EnvSplit": true, "bp3EnvironmentContext": "- Workspace: old",
             "promptEnv": "# Session\nCwd: old-workspace\nModel: Old-Model\n\n- Workspace: old",
             "workspaceReroot": { "rootCwd": "old-workspace", "target": { "environmentContext": "- Workspace: new" } }
-        }).as_object().unwrap().clone();
+        })
+        .as_object()
+        .unwrap()
+        .clone();
         let mut before = request("anthropic", "old-model");
         before.messages[0] = mixdog_core_prompt::prompt::blocks::request_system_messages(&header).pop().unwrap();
         let old = fingerprint(&before, "anthropic");
         slot.for_header(&header);
-                slot.keep(Some(old.clone()));
+        slot.keep(Some(old.clone()));
         // No guard lookup or send between A -> B -> A. The first switch consumes the staged re-root;
         // returning to A must not revive A's old baseline.
         apply_route(&change, &mut header, "openai", "new-model").await;
@@ -215,7 +227,12 @@ pub(crate) fn request_identity(thread: &ThreadId, header: &Header, turn: Option<
 
 /// The identity fields of a request's options, shared by the turn's assembly and the parity test: Node's
 /// `codexSessionId`, thread and cache key are all the stored wire identity (`cache-strategy.mjs:312`).
-pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::RequestOptions, thread: &ThreadId, header: &Header, turn: Option<mixdog_core_api::ids::TurnId>) {
+pub(crate) fn apply_identity(
+    options: &mut mixdog_core_api::domain::provider::RequestOptions,
+    thread: &ThreadId,
+    header: &Header,
+    turn: Option<mixdog_core_api::ids::TurnId>,
+) {
     let identity = request_identity(thread, header, turn);
     options.session_id = Some(identity.id.to_string());
     options.thread = Some(identity);
@@ -230,10 +247,21 @@ pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::Re
 pub(crate) fn apply_cache_opts(options: &mut mixdog_core_api::domain::provider::RequestOptions, header: &Header) {
     let Some(opts) = header.get("providerCacheOpts").and_then(Value::as_object) else { return };
     for key in [
-        "cacheStrategy", "responsesPromptCacheKey", "promptCacheKey", "providerCacheKey", "promptCacheLane",
-        "promptCacheLaneShards", "openaiCacheLaneShards", "promptCacheLaneAuto", "openaiCacheLaneAuto",
-        "promptCacheLaneMaxParallel", "openaiCacheMaxParallel", "promptCacheLaneIgnoreAliases",
-        "promptCacheLaneSlot", "cacheLaneSlot", "promptCacheLaneSeed",
+        "cacheStrategy",
+        "responsesPromptCacheKey",
+        "promptCacheKey",
+        "providerCacheKey",
+        "promptCacheLane",
+        "promptCacheLaneShards",
+        "openaiCacheLaneShards",
+        "promptCacheLaneAuto",
+        "openaiCacheLaneAuto",
+        "promptCacheLaneMaxParallel",
+        "openaiCacheMaxParallel",
+        "promptCacheLaneIgnoreAliases",
+        "promptCacheLaneSlot",
+        "cacheLaneSlot",
+        "promptCacheLaneSeed",
     ] {
         if let Some(value) = opts.get(key).filter(|v| key != "cacheStrategy" || v.is_object()) {
             let parameters = options.model_parameters.get_or_insert_with(|| Value::Object(serde_json::Map::new()));
@@ -283,7 +311,11 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 /// stops the tool being callable (the builder keeps its definition and answers a call unavailable). The definition leaves the
 /// stored lists, and so the request, at a cold fold or an explicit surface rebuild (`ToolSurface::repair`), as in Node, so a warm
 /// prefix is never rewritten between two sends.
-pub(crate) fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+pub(crate) fn boundary_tools(
+    header: &Header,
+    tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    native: &[Value],
+) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
     let provider = text(header, "provider").to_lowercase();
     let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
     super::context_world::snapshot_tools(header, tools, referenced, &provider)
@@ -318,7 +350,11 @@ fn not_available(provider_id: &str) -> TurnError {
 /// or a cold heir does not carry the source's, `cold-heir.mjs:70`) mints one and stores it before its first request.
 /// `Some` is the session's header as stored afterwards; `None` when the session needed none.
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
-pub(crate) async fn ensure_codex_wire_id(directory: &mixdog_core_session::session::SessionDirectory, thread: &ThreadId, header: &Header) -> Result<Option<Arc<Header>>, TurnError> {
+pub(crate) async fn ensure_codex_wire_id(
+    directory: &mixdog_core_session::session::SessionDirectory,
+    thread: &ThreadId,
+    header: &Header,
+) -> Result<Option<Arc<Header>>, TurnError> {
     if text(header, "provider") != "openai-oauth" || is_uuid_v7(&text(header, "codexWireSessionId").to_lowercase()) {
         return Ok(None);
     }
@@ -354,7 +390,6 @@ mod cwd_tests {
     }
 }
 
-
 /// What a non-bridge session's call reaches by name though its request did not carry it: a connected server's
 /// tool (`isMcpTool`, `mcp__…`) and a tool of the session's deferred catalog. A natively loaded tool is callable
 /// (`deferredCallableTools`) without joining the session's `tools`, and Node runs it from the registry once the
@@ -373,7 +408,12 @@ impl ToolResolver for Surfaced {
 
 /// The registry behind a session's tool set (see [`HostRunParts::surface_tools`]), and the catalog tools it cannot run: a name
 /// `load_tool` reported unavailable (`ToolSurface::runs`, the same registered set) is answered with that reason when called.
-pub(super) fn with_surface_registry(set: ToolSet, registry: Arc<dyn ToolResolver>, scope: Option<String>, surface: &mixdog_tools::policy::SessionSurface) -> ToolSet {
+pub(super) fn with_surface_registry(
+    set: ToolSet,
+    registry: Arc<dyn ToolResolver>,
+    scope: Option<String>,
+    surface: &mixdog_tools::policy::SessionSurface,
+) -> ToolSet {
     let unavailable = surface
         .catalog_tools
         .iter()
@@ -616,10 +656,12 @@ mod unserved_provider_tests {
         assert!(unserved_provider("custom-x", gone.clone()).unwrap().is_none());
         // Another provider's failure, and another reason, keep their own text.
         assert_eq!(unserved_provider("custom-y", gone).err().unwrap().message, "[provider] Failed to init \"custom-x\": unknown enabled provider: custom-x");
-        assert_eq!(unserved_provider("anthropic", "[provider] Failed to init \"anthropic\": not signed in".into()).err().unwrap().message, "[provider] Failed to init \"anthropic\": not signed in");
+        assert_eq!(
+            unserved_provider("anthropic", "[provider] Failed to init \"anthropic\": not signed in".into()).err().unwrap().message,
+            "[provider] Failed to init \"anthropic\": not signed in"
+        );
     }
 }
-
 
 /// `RunConfig` fields that come from the route, the settings and the agent definition.
 pub struct RunSettings {
@@ -695,7 +737,12 @@ pub trait SessionSeams: Send + Sync + 'static {
     /// (`effortOptionsFor(provider, autoEffortModel(..))`, and a custom route's row, protocol and
     /// base URL). The host picks the ladder and builds the judge over its `EffortJudgeModel`.
     /// Owner: WP-AI-SVC (catalog rows, registry, custom config). `None`: the route has no facts.
-    async fn step_ladder_facts(&self, thread: &ThreadId, header: &Header, auto: &mixdog_agent::step_effort::StepAutoEffort) -> Option<super::step_judge::StepLadderFacts>;
+    async fn step_ladder_facts(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        auto: &mixdog_agent::step_effort::StepAutoEffort,
+    ) -> Option<super::step_judge::StepLadderFacts>;
     /// Tool-result image compaction. Owner: WP-AGENT (ImageCompactor has no implementation).
     fn image_compactor(&self) -> Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>;
     /// The install's plugin root (`rules/`, `output-styles/`): `mixdog_store::paths::Paths::plugin_root`.
@@ -729,8 +776,15 @@ impl HostRunParts {
 
     /// The route's provider, readied; `Ok(None)` when it is not available. `Err` is a readiness failure, which says
     /// nothing about the provider's availability.
-    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
-    async fn ready_provider(&self, thread: &ThreadId, header: &Header) -> Result<Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>>, TurnError> {
+    #[allow(
+        clippy::result_large_err,
+        reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
+    )]
+    async fn ready_provider(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+    ) -> Result<Option<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>>, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
         let provider_id = text(header, "provider");
@@ -751,8 +805,15 @@ impl HostRunParts {
         })
     }
 
-    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
-    async fn request_parts(&self, source: RequestSource<'_>, provider: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>) -> Result<RequestParts, TurnError> {
+    #[allow(
+        clippy::result_large_err,
+        reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
+    )]
+    async fn request_parts(
+        &self,
+        source: RequestSource<'_>,
+        provider: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>,
+    ) -> Result<RequestParts, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
         let (thread, header) = (source.thread, source.header);
@@ -761,9 +822,7 @@ impl HostRunParts {
         let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
         let tool_set = self.surface_tools(tool_set, header, source.surface);
         let effort = match (&s.settings.first_auto_effort, source.first_send) {
-            (Some(auto), Some(cancel)) => auto
-                .first_request_effort(thread.as_str(), header, source.prior, source.request, source.injected, cancel)
-                .await,
+            (Some(auto), Some(cancel)) => auto.first_request_effort(thread.as_str(), header, source.prior, source.request, source.injected, cancel).await,
             _ => None,
         };
         let settings = super::settings::merge_settings(
@@ -861,7 +920,8 @@ impl HostRunParts {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
-        let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, first_send: None, provider_state, turn: None, generation };
+        let source =
+            RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, first_send: None, provider_state, turn: None, generation };
         let provider = self.ready_provider(thread, header).await.ok().flatten()?;
         let parts = self.request_parts(source, provider).await.ok()?;
         let mut messages = rebuilt_messages(header, &rows)?;
@@ -948,7 +1008,10 @@ impl HostRunParts {
 impl HostRunParts {
     /// Composes a session's prompt: the probes it asks for are settled first, then job runs in an
     /// io-interactive lane job over RealSources (see [super::prewarm::compose]).
-    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
+    #[allow(
+        clippy::result_large_err,
+        reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
+    )]
     pub async fn compose_prompt<R: Send + 'static>(&self, job: super::prewarm::ComposeJob<R>) -> Result<R, TurnError> {
         let seams = &self.services.seams;
         let facts = Arc::new(super::prewarm::PromptFacts::from_process(seams.plugin_root(), seams.data_dir(), seams.stored_instruction_files()));
@@ -967,7 +1030,6 @@ fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
     }
     std::env::current_dir().map_err(|_| refuse("the session has no working directory"))
 }
-
 
 #[async_trait]
 impl RunParts for HostRunParts {
@@ -1005,7 +1067,12 @@ impl RunParts for HostRunParts {
         Ok(migrated.map(|header| super::factory::system_messages(&header)))
     }
 
-    async fn request_snapshot(&self, thread: &ThreadId, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: Vec<Value>) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
+    async fn request_snapshot(
+        &self,
+        thread: &ThreadId,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        native: Vec<Value>,
+    ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
         let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let header = directory.live_header(thread).header();
         Ok(boundary_tools(&header, tools, &native))
@@ -1102,18 +1169,21 @@ impl RunParts for HostRunParts {
         };
         let provider_id = text(header, "provider");
         let RequestParts { provider, cwd, tool_set, settings, mut options } = self
-            .request_parts(RequestSource {
-                thread,
-                header,
-                surface: &input.surface,
-                prior: input.prior,
-                request: input.request,
-                injected: input.injected,
-                first_send: Some(input.cancel),
-                provider_state: input.port.provider_state().await,
-                turn: Some(input.turn.clone()),
-                generation: input.generation,
-            }, provider)
+            .request_parts(
+                RequestSource {
+                    thread,
+                    header,
+                    surface: &input.surface,
+                    prior: input.prior,
+                    request: input.request,
+                    injected: input.injected,
+                    first_send: Some(input.cancel),
+                    provider_state: input.port.provider_state().await,
+                    turn: Some(input.turn.clone()),
+                    generation: input.generation,
+                },
+                provider,
+            )
             .await?;
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
@@ -1131,7 +1201,11 @@ impl RunParts for HostRunParts {
                     options.wire_pin = wire_pin_of(Some(&pin));
                     let mut set = serde_json::Map::new();
                     set.insert("wireRoute".into(), pin);
-                    input.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await.map_err(|_| refuse("the pinned wire route could not be saved"))?;
+                    input
+                        .port
+                        .save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() })
+                        .await
+                        .map_err(|_| refuse("the pinned wire route could not be saved"))?;
                 }
             }
         }
@@ -1152,7 +1226,8 @@ impl RunParts for HostRunParts {
         };
         // `beginTodoTurn(session, { genuine: !turnPromptSource?.source })` over the cycle state the record carries.
         let todo_guards = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden).with_saved(header.get("todoCheck")));
-        todo_guards.start_turn(!input.injected).await;        let guards: Arc<dyn TurnGuards> = todo_guards;
+        todo_guards.start_turn(!input.injected).await;
+        let guards: Arc<dyn TurnGuards> = todo_guards;
         let observer: super::tool_exclusions::ObserverSlot = Arc::default();
 
         let mut config = RunConfig::new(thread.clone(), input.turn.clone(), text(header, "model"));
@@ -1245,11 +1320,18 @@ impl RunParts for HostRunParts {
         // No settings, no compaction policy: Node has no compactor for the session.
         let compactor = match compact_settings {
             Some(settings) => {
-                seams.compactor(thread, header, input.prior, CompactorInput { settings, rows: rows.clone(), archive: artifacts.clone(), blobs: s.blobs.clone() }).await
+                seams
+                    .compactor(thread, header, input.prior, CompactorInput { settings, rows: rows.clone(), archive: artifacts.clone(), blobs: s.blobs.clone() })
+                    .await
             }
             None => None,
         };
-        let side = s.side.tap(super::side_requests::RunSide { thread: thread.clone(), provider_name: provider_id.to_owned(), provider: provider.clone(), agent_owner: super::compaction_world::is_agent_owner(header) });
+        let side = s.side.tap(super::side_requests::RunSide {
+            thread: thread.clone(),
+            provider_name: provider_id.to_owned(),
+            provider: provider.clone(),
+            agent_owner: super::compaction_world::is_agent_owner(header),
+        });
         Ok(Assembled {
             rows: rows.clone(),
             provider,
@@ -1266,7 +1348,11 @@ impl RunParts for HostRunParts {
             skills: seams.skill_parts().map(|parts| {
                 let selection = input.skill_selection.clone();
                 Box::new(move |run: SkillContext| {
-                    Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection).with_deliveries(parts.deliveries)) as Arc<dyn SkillSelector>
+                    Arc::new(
+                        super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel)
+                            .with_selection(selection)
+                            .with_deliveries(parts.deliveries),
+                    ) as Arc<dyn SkillSelector>
                 }) as SkillsBuilder
             }),
             hooks: Some(Arc::new(
@@ -1274,7 +1360,12 @@ impl RunParts for HostRunParts {
             )),
             // The session's own cache: the one its earlier turns filled (Node's `_bySession`), not one per run.
             reuse: Some(s.reuses.run(s.io, session_id, s.clock.clone())),
-            reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
+            reactions: Some(Arc::new(LoopReactions::new(
+                session_id,
+                s.reaction_targets.clone(),
+                rows,
+                mixdog_protocol::text_class::is_internal_transcript_display_text,
+            ))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(self.tail_reminder(header)),
             side: Some(side),

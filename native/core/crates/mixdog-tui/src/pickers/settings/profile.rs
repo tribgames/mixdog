@@ -83,18 +83,12 @@ pub fn open_profile_picker(host: &mut dyn PickerHost, options: &Value) -> Option
     title.meta = if view.title.is_empty() { "(not set)".to_owned() } else { view.title.clone() };
     title.description = "Preferred form of address. Enter to edit.".to_owned();
     let mut experience = PickerItem::new("experience-level", "Experience");
-    experience.meta = view
-        .experience_index()
-        .and_then(|at| first_truthy_text(&view.experience_levels[at], &["label"]))
-        .unwrap_or_else(|| "(not set)".to_owned());
+    experience.meta =
+        view.experience_index().and_then(|at| first_truthy_text(&view.experience_levels[at], &["label"])).unwrap_or_else(|| "(not set)".to_owned());
     experience.description = "Development experience. \u{2190}/\u{2192} to change, Enter to cycle.".to_owned();
     let mut language = PickerItem::new("language", "Language");
     let shown = view.language_index().unwrap_or(0);
-    language.meta = view
-        .languages
-        .get(shown)
-        .and_then(|entry| first_truthy_text(entry, &["label"]))
-        .unwrap_or_else(|| "System (locale)".to_owned());
+    language.meta = view.languages.get(shown).and_then(|entry| first_truthy_text(entry, &["label"])).unwrap_or_else(|| "System (locale)".to_owned());
     language.description = "Response language. \u{2190}/\u{2192} to change, Enter to cycle.".to_owned();
     let panel = Panel {
         title: "Profile".to_owned(),

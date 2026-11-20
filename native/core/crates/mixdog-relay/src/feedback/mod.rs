@@ -13,11 +13,7 @@ pub mod service;
 pub use attachments::Attachment;
 pub use http::FeedbackEndpoint;
 pub use mailer::Mailer;
-pub use service::{
-    Accepted, Clock, FeedbackError, FeedbackMail, FeedbackOptions, FeedbackSender, FeedbackService, LogSink, MailAttachment,
-    SendFailure,
-};
-
+pub use service::{Accepted, Clock, FeedbackError, FeedbackMail, FeedbackOptions, FeedbackSender, FeedbackService, LogSink, MailAttachment, SendFailure};
 
 /// The most bytes a feedback request body may declare or carry: the text envelope, the base64 of the attachment total cap and
 /// the names and JSON around them (`MAX_FEEDBACK_BODY_BYTES`).

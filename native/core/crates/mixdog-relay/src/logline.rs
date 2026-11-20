@@ -98,11 +98,7 @@ pub fn desktop_leg_missed_handshake_turn(turn: impl std::fmt::Display) -> Line {
 }
 
 pub fn phone_leg_closed(client_id: &str, code: u16, reason: &str, lived_ms: i64) -> Line {
-    out(format!(
-        "[relay] phone leg closed client={} code={code} reason={} lived={lived_ms}ms",
-        short(client_id),
-        crate::js::js_slice(reason, 60)
-    ))
+    out(format!("[relay] phone leg closed client={} code={code} reason={} lived={lived_ms}ms", short(client_id), crate::js::js_slice(reason, 60)))
 }
 
 pub fn device_store_not_tightened(message: &str) -> Line {
@@ -200,11 +196,7 @@ pub struct LoopDelay {
 
 /// `812B`, `3.4KB`.
 pub fn bytes_label(bytes: f64) -> String {
-    if bytes >= 1024.0 {
-        format!("{}KB", mixdog_js::math::to_fixed(bytes / 1024.0, 1))
-    } else {
-        format!("{}B", bytes.floor().max(0.0))
-    }
+    if bytes >= 1024.0 { format!("{}KB", mixdog_js::math::to_fixed(bytes / 1024.0, 1)) } else { format!("{}B", bytes.floor().max(0.0)) }
 }
 
 /// `[relay] sockets 30s phones=2 buffered desktop:ab=0B ... loop-p50=0.0ms loop-p99=0.0ms loop-max=0.0ms`

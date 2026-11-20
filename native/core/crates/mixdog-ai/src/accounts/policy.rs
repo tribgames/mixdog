@@ -34,9 +34,7 @@ pub fn scoped_window_labels(provider: &str) -> &'static [&'static str] {
 
 pub fn stale_quota_windows(provider: &str, windows: &[Window]) -> bool {
     let labels = scoped_window_labels(provider);
-    windows.iter().any(|w| {
-        labels.contains(&js_trim(&w.label)) && w.models.is_none() && w.except.is_none()
-    })
+    windows.iter().any(|w| labels.contains(&js_trim(&w.label)) && w.models.is_none() && w.except.is_none())
 }
 
 /// `7D <Family>` → the family (a single token starting with a letter).
@@ -141,10 +139,7 @@ fn block_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Vec<&'a Window>
     let windows = windows_of(usage);
     let limit = block.blocked_limit.as_deref().unwrap_or("");
     if !limit.is_empty() {
-        let named: Vec<_> = windows
-            .iter()
-            .filter(|w| w.limit.as_deref() == Some(limit))
-            .collect();
+        let named: Vec<_> = windows.iter().filter(|w| w.limit.as_deref() == Some(limit)).collect();
         if !named.is_empty() {
             return named;
         }
@@ -157,10 +152,7 @@ fn block_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Vec<&'a Window>
     if earned.is_empty() {
         return Vec::new();
     }
-    windows
-        .iter()
-        .filter(|w| is_scoped(w) && quota_window_applies_to_model(w, earned))
-        .collect()
+    windows.iter().filter(|w| is_scoped(w) && quota_window_applies_to_model(w, earned)).collect()
 }
 
 /// The windows a fresh reading must show below 100% to lift a block.
@@ -168,11 +160,7 @@ pub fn block_evidence_windows<'a>(usage: &'a Option<Usage>, block: &Block) -> Ve
     let earned = js_trim(block.blocked_model.as_deref().unwrap_or(""));
     let mut out = block_windows(usage, block);
     for window in windows_of(usage) {
-        let gates = if earned.is_empty() {
-            !display_only(window)
-        } else {
-            quota_window_applies_to_model(window, earned)
-        };
+        let gates = if earned.is_empty() { !display_only(window) } else { quota_window_applies_to_model(window, earned) };
         if gates && !out.iter().any(|w| std::ptr::eq(*w, window)) {
             out.push(window);
         }
@@ -202,11 +190,7 @@ fn block_applies_to_model(usage: &Option<Usage>, block: &Block, model: &str) -> 
 /// When the blocks holding `model` lift (every block when none is named): the
 /// latest of their deadlines. Past deadlines are returned as they are.
 pub fn account_blocked_until(row: &Account, model: &str) -> Option<i64> {
-    row.blocks()
-        .iter()
-        .filter(|b| block_applies_to_model(&row.usage, b, model))
-        .map(|b| b.blocked_until)
-        .max()
+    row.blocks().iter().filter(|b| block_applies_to_model(&row.usage, b, model)).map(|b| b.blocked_until).max()
 }
 
 /// The provider states credit left in the window: its rounded percent reading full is then a display figure, not
@@ -219,7 +203,8 @@ pub(super) fn has_room_reading(row: &Account, now: i64, model: &str) -> bool {
     row.usage.as_ref().is_some_and(|usage| {
         quota_reading_fresh(usage.checked_at, now)
             && usage.windows.iter().any(|w| {
-                w.binding != Some(false) && quota_window_applies_to_model(w, model)
+                w.binding != Some(false)
+                    && quota_window_applies_to_model(w, model)
                     && (states_remaining(w) || w.used_pct.is_some_and(|percent| percent < 100.0))
                     && w.reset_at.is_none_or(|reset| reset == 0 || reset > now)
             })
@@ -227,10 +212,7 @@ pub(super) fn has_room_reading(row: &Account, now: i64, model: &str) -> bool {
 }
 
 pub(super) fn quota_block_expired(row: &Account, now: i64, model: &str) -> bool {
-    row.blocks().iter().any(|block| {
-        block.blocked_quota == Some(true) && block.blocked_until <= now
-            && block_applies_to_model(&row.usage, block, model)
-    })
+    row.blocks().iter().any(|block| block.blocked_quota == Some(true) && block.blocked_until <= now && block_applies_to_model(&row.usage, block, model))
 }
 
 fn window_full(row: &Account, window: &Window, now: i64) -> bool {
@@ -244,19 +226,13 @@ fn window_full(row: &Account, window: &Window, now: i64) -> bool {
 }
 
 pub fn account_exhausted(row: &Account, now: i64, model: &str, use_credits: bool) -> bool {
-    if row
-        .blocks()
-        .iter()
-        .any(|b| b.blocked_until > now && block_applies_to_model(&row.usage, b, model))
-    {
+    if row.blocks().iter().any(|b| b.blocked_until > now && block_applies_to_model(&row.usage, b, model)) {
         return true;
     }
     if use_credits {
         return false;
     }
-    windows_of(&row.usage)
-        .iter()
-        .any(|w| quota_window_applies_to_model(w, model) && window_full(row, w, now))
+    windows_of(&row.usage).iter().any(|w| quota_window_applies_to_model(w, model) && window_full(row, w, now))
 }
 
 /// Earliest moment any of the exhausted `rows` can serve `model` again, or
@@ -337,14 +313,9 @@ pub enum Limit {
 pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit> {
     let windows = windows_of(&row.usage);
     let blocks = row.blocks();
-    let covering: Vec<(Vec<&Window>, Option<String>)> = blocks
-        .iter()
-        .filter(|b| b.blocked_until > now)
-        .map(|b| (block_windows(&row.usage, b), claim_family(b)))
-        .collect();
-    if covering.iter().any(|(meters, family)| {
-        (meters.is_empty() && family.is_none()) || meters.iter().any(|w| !is_scoped(w))
-    }) {
+    let covering: Vec<(Vec<&Window>, Option<String>)> =
+        blocks.iter().filter(|b| b.blocked_until > now).map(|b| (block_windows(&row.usage, b), claim_family(b))).collect();
+    if covering.iter().any(|(meters, family)| (meters.is_empty() && family.is_none()) || meters.iter().any(|w| !is_scoped(w))) {
         return Some(Limit::Account);
     }
     if !use_credits && windows.iter().any(|w| !is_scoped(w) && window_full(row, w, now)) {
@@ -360,7 +331,9 @@ pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit
         for window in meters {
             add(window_family(window));
         }
-        if meters.is_empty() && let Some(family) = family {
+        if meters.is_empty()
+            && let Some(family) = family
+        {
             add(family.clone());
         }
     }
@@ -377,8 +350,7 @@ pub fn account_limit(row: &Account, now: i64, use_credits: bool) -> Option<Limit
 /// The account refuses `model` only through a model-scoped limit: it still
 /// serves other models.
 pub fn account_exhausted_for_model_only(row: &Account, now: i64, model: &str, use_credits: bool) -> bool {
-    account_exhausted(row, now, model, use_credits)
-        && matches!(account_limit(row, now, use_credits), Some(Limit::Model(_)))
+    account_exhausted(row, now, model, use_credits) && matches!(account_limit(row, now, use_credits), Some(Limit::Model(_)))
 }
 
 /// Whether a reading taken at `checked_at` may still steer a decision.
@@ -405,13 +377,7 @@ fn account_headroom(row: &Account, now: i64, model: &str) -> Option<f64> {
 /// The account a request of `model` should go to. `session_account_id` is the
 /// account the requesting session already runs on (headroom policy only):
 /// kept while usable, so a session switches only on a limit.
-pub fn choose_account<'a>(
-    pool: &'a Pool,
-    excluded: &HashSet<String>,
-    now: i64,
-    model: &str,
-    session_account_id: Option<&str>,
-) -> Option<&'a Account> {
+pub fn choose_account<'a>(pool: &'a Pool, excluded: &HashSet<String>, now: i64, model: &str, session_account_id: Option<&str>) -> Option<&'a Account> {
     let credits = pool.uses_credits();
     let usable = |row: &Account| !excluded.contains(&row.id) && !account_exhausted(row, now, model, credits);
     let selected = pool.selected();
@@ -423,11 +389,7 @@ pub fn choose_account<'a>(
         }
         return (credits || usable(selected)).then_some(selected);
     }
-    let preferred = if policy == Policy::Headroom {
-        session_account_id.and_then(|id| pool.account(id))
-    } else {
-        selected
-    };
+    let preferred = if policy == Policy::Headroom { session_account_id.and_then(|id| pool.account(id)) } else { selected };
     if let Some(row) = preferred.filter(|r| usable(r)) {
         return Some(row);
     }
@@ -438,18 +400,11 @@ pub fn choose_account<'a>(
     if candidates.len() < 2 {
         return candidates.first().copied();
     }
-    let headroom: Option<Vec<f64>> = candidates
-        .iter()
-        .map(|row| account_headroom(row, now, model))
-        .collect();
+    let headroom: Option<Vec<f64>> = candidates.iter().map(|row| account_headroom(row, now, model)).collect();
     let Some(headroom) = headroom else {
         return Some(candidates[0]);
     };
-    let best = headroom
-        .iter()
-        .enumerate()
-        .fold((0, f64::MIN), |(bi, bv), (i, v)| if *v > bv { (i, *v) } else { (bi, bv) })
-        .0;
+    let best = headroom.iter().enumerate().fold((0, f64::MIN), |(bi, bv), (i, v)| if *v > bv { (i, *v) } else { (bi, bv) }).0;
     Some(candidates[best])
 }
 
@@ -458,19 +413,11 @@ mod tests {
     use super::*;
 
     fn win(label: &str, used: f64, reset: Option<i64>) -> Window {
-        Window {
-            label: label.into(),
-            used_pct: Some(used),
-            reset_at: reset,
-            ..Window::default()
-        }
+        Window { label: label.into(), used_pct: Some(used), reset_at: reset, ..Window::default() }
     }
 
     fn row(id: &str, windows: Vec<Window>, checked_at: i64) -> Account {
-        Account {
-            usage: Some(Usage { windows, checked_at }),
-            ..Account::new(id)
-        }
+        Account { usage: Some(Usage { windows, checked_at }), ..Account::new(id) }
     }
 
     const NOW: i64 = 1_000_000_000;
@@ -492,11 +439,7 @@ mod tests {
 
     #[test]
     fn a_spent_keyed_gemini_bucket_gates_gemini_but_not_unrelated_or_separately_metered_models() {
-        let gemini = Window {
-            models: Some(vec!["gemini".into()]),
-            except: Some(vec!["argon".into()]),
-            ..win("5H", 100.0, Some(NOW + 5))
-        };
+        let gemini = Window { models: Some(vec!["gemini".into()]), except: Some(vec!["argon".into()]), ..win("5H", 100.0, Some(NOW + 5)) };
         assert!(quota_window_applies_to_model(&gemini, "gemini-3-flash-high"));
         assert!(!quota_window_applies_to_model(&gemini, "claude-opus-4"));
         assert!(!quota_window_applies_to_model(&gemini, "gpt-oss-120b"));
@@ -523,11 +466,7 @@ mod tests {
     fn blocks_stack_per_model_and_a_fresh_reading_lifts_only_what_it_shows_free() {
         let mut acct = row("a", vec![win("5H", 100.0, Some(NOW + 9))], NOW);
         let early = Block { blocked_until: NOW + 10, blocked_model: Some("m1".into()), ..Block::default() };
-        let late = Block {
-            blocked_until: NOW + 20,
-            blocked_source: Some("retry-after".into()),
-            ..Block::default()
-        };
+        let late = Block { blocked_until: NOW + 20, blocked_source: Some("retry-after".into()), ..Block::default() };
         acct.set_blocks(vec![early.clone(), late.clone()]);
         assert_eq!(acct.blocks(), vec![early.clone(), late.clone()]);
         assert_eq!(acct.blocked_buckets, Some(vec![early]));
@@ -555,11 +494,7 @@ mod tests {
         let none = HashSet::new();
         assert_eq!(choose_account(&pool, &none, NOW, "", None).map(|r| r.id.as_str()), Some("c"));
         pool.accounts[2].usage.as_mut().unwrap().checked_at = NOW - 2 * USAGE_EVIDENCE_MAX_AGE_MS;
-        assert_eq!(
-            choose_account(&pool, &none, NOW, "", None).map(|r| r.id.as_str()),
-            Some("b"),
-            "one unmeasured candidate means roster order, not ranking"
-        );
+        assert_eq!(choose_account(&pool, &none, NOW, "", None).map(|r| r.id.as_str()), Some("b"), "one unmeasured candidate means roster order, not ranking");
         pool.set_policy(Policy::Manual);
         assert!(choose_account(&pool, &none, NOW, "", None).is_none(), "manual serves the selected only");
         pool.set_policy(Policy::Headroom);
@@ -569,12 +504,8 @@ mod tests {
 
     #[test]
     fn a_family_claim_refusal_holds_only_its_family_and_a_shared_claim_holds_all() {
-        let claim = |limit: &str| Block {
-            blocked_until: NOW + 10,
-            blocked_model: Some("claude-opus-4".into()),
-            blocked_limit: Some(limit.into()),
-            ..Block::default()
-        };
+        let claim =
+            |limit: &str| Block { blocked_until: NOW + 10, blocked_model: Some("claude-opus-4".into()), blocked_limit: Some(limit.into()), ..Block::default() };
         // No reading at all: the claim alone attributes the refusal.
         let mut acct = row("a", vec![], NOW);
         acct.set_blocks(vec![claim("seven_day_opus")]);

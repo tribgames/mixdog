@@ -94,8 +94,7 @@ pub const MUSE_KEY: Exchange = Exchange::new(Liveness::unary(secs(20)), Redirect
 /// Grok's refresh: `createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh')`
 /// (`grok-oauth-tokens.mjs:304`), whose reason the fetch rejects with. Its authorization-code exchange is
 /// [`TOKEN_EXCHANGE`] (`grok-oauth-login.mjs:95-96` `AbortSignal.timeout`, on the fetch of `:76`).
-pub const TOKEN_GROK: Exchange =
-    Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchLabeled("grok-oauth refresh"));
+pub const TOKEN_GROK: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchLabeled("grok-oauth refresh"));
 
 /// Antigravity project lookup: `antigravity-oauth-tokens.mjs:78` 30_000; raw `fetch` in `requestCodeAssist`
 /// (`antigravity-oauth-login.mjs:60-74`, `redirect: 'error'` `:72`, `withTimeoutSignal` `:73` = `AbortSignal.timeout`).
@@ -172,13 +171,11 @@ pub fn compat_model_list_within(provider: &str, wait: Duration) -> Exchange {
     };
     Exchange::new(Liveness::unary(wait), Redirect::Follow, Surface::FetchLabeled(label))
 }
-pub const GROK_DISCOVERY: Exchange =
-    Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchLabeled("grok-oauth discovery"));
+pub const GROK_DISCOVERY: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchLabeled("grok-oauth discovery"));
 /// Cursor's unary calls are `callCursorUnary` over `http2` (`cursor-wire-transport.mjs:265`), whose timer rejects
 /// `providerTimeoutError('Cursor request', timeoutMs)` (`:274`): the model list passes 15_000
 /// (`cursor-wire-models.mjs:30`), the dashboard reads keep the default ([`CURSOR_USAGE`]).
-pub const CURSOR_MODELS: Exchange =
-    Exchange::new(Liveness::unary(secs(15)), Redirect::Manual, Surface::SocketLabeled("Cursor request"));
+pub const CURSOR_MODELS: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Manual, Surface::SocketLabeled("Cursor request"));
 pub const GEMINI_MODELS: Exchange = Exchange::new(Liveness::unary(secs(60)), Redirect::Follow, Surface::FetchSignal);
 
 /// Devin run: `devin-wire-transport.mjs:453` POSTs with `redirect: 'error'`; the same raw `fetch` call.
@@ -197,8 +194,7 @@ pub const OPENCODE_CONSOLE: Exchange = Exchange::new(Liveness::unary(secs(20)), 
 
 /// Grok model list: `grok-oauth.mjs:509` 10_000 and `:512` `redirect: 'error'`; raw `fetch` (`:507`, `:541`) under
 /// `createTimeoutSignal(null, 10_000, 'grok-oauth model list')` (`:505`).
-pub const GROK_LISTING: Exchange =
-    Exchange::new(Liveness::unary(secs(10)), Redirect::Error, Surface::FetchLabeled("grok-oauth model list"));
+pub const GROK_LISTING: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Error, Surface::FetchLabeled("grok-oauth model list"));
 
 /// Vertex token requests (service account, impersonation, the metadata server's mint): `_post` runs a raw `fetch` with no
 /// `redirect` option and no timer (`vertex-ai-auth.mjs:569` `this.fetchFn`, `fetchFn = fetch` at `:370`), so it follows
@@ -206,14 +202,12 @@ pub const GROK_LISTING: Exchange =
 pub const VERTEX_TOKEN: Exchange = NODE_DISPATCHER;
 
 /// The proxy model list of Grok: `grok-oauth.mjs:538` `createTimeoutSignal(null, 10_000, 'grok-oauth proxy model list')`.
-pub const GROK_PROXY_LISTING: Exchange =
-    Exchange::new(Liveness::unary(secs(10)), Redirect::Error, Surface::FetchLabeled("grok-oauth proxy model list"));
+pub const GROK_PROXY_LISTING: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Error, Surface::FetchLabeled("grok-oauth proxy model list"));
 
 /// Google cache create: `stall-policy.mjs:92` `PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS`
 /// (default `min(180_000, generate total)`); raw `fetch` (`gemini.mjs:519` `this._fetch`).
 /// The timer is `createTimeoutSignal(null, …, 'Gemini cachedContents.create total')` (`gemini.mjs:511`).
-pub const CACHE_CREATE: Exchange =
-    Exchange::new(Liveness::unary(secs(180)), Redirect::Follow, Surface::FetchLabeled("Gemini cachedContents.create total"));
+pub const CACHE_CREATE: Exchange = Exchange::new(Liveness::unary(secs(180)), Redirect::Follow, Surface::FetchLabeled("Gemini cachedContents.create total"));
 
 /// The registry check of the self-updater: `runtime/shared/update-checker.mjs:22`
 /// `FETCH_TIMEOUT_MS` 5_000; raw `fetch` (`update-checker.mjs:99`) on a bare `setTimeout(() => controller.abort())`.
@@ -226,11 +220,7 @@ pub const VOICE_INFERENCE: Exchange = Exchange::new(Liveness::cancel_only(), Red
 
 /// GCE metadata server: `vertex-ai-auth.mjs:18` `METADATA_PROBE_MS` 1000; raw `fetch`
 /// (`vertex-ai-auth.mjs:247-253` `probeVertexMetadata`).
-pub const VERTEX_METADATA: Exchange = Exchange::new(
-    Liveness::unary(Duration::from_millis(1000)),
-    Redirect::Follow,
-    Surface::FetchSignal,
-);
+pub const VERTEX_METADATA: Exchange = Exchange::new(Liveness::unary(Duration::from_millis(1000)), Redirect::Follow, Surface::FetchSignal);
 
 /// One shared credential refresh (lock wait plus token call): Node holds the credential
 /// lock at most `anthropic-oauth-credentials.mjs:470` 120_000 and then calls the token
@@ -240,5 +230,4 @@ pub const REFRESH_FLIGHT: Liveness = Liveness::unary(secs(150));
 /// The Cursor dashboard unary calls (`GetCurrentPeriodUsage`, `GetPlanInfo`): `callCursorUnary`'s default
 /// `timeoutMs` 5_000 (`cursor-wire-transport.mjs:265`); the raw HTTP/2 request handles no redirect and
 /// fails with the session's own error (`:308-309`).
-pub const CURSOR_USAGE: Exchange =
-    Exchange::new(Liveness::unary(secs(5)), Redirect::Manual, Surface::SocketLabeled("Cursor request"));
+pub const CURSOR_USAGE: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Manual, Surface::SocketLabeled("Cursor request"));

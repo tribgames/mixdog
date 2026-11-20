@@ -181,10 +181,7 @@ mod tests {
     fn a_session_holds_four_and_the_desktop_thirty_two() {
         let budget = Arc::new(CommandBudget::default());
         let held: Vec<_> = (0..PER_SESSION).map(|_| budget.acquire("a").unwrap()).collect();
-        assert_eq!(
-            refused(budget.acquire("a")),
-            "computer_capacity_exhausted: pending command limit reached; no input was queued"
-        );
+        assert_eq!(refused(budget.acquire("a")), "computer_capacity_exhausted: pending command limit reached; no input was queued");
         let others: Vec<_> = (0..MAXIMUM - PER_SESSION).map(|n| budget.acquire(&format!("s{}", n / PER_SESSION)).unwrap()).collect();
         refused(budget.acquire("late"));
         drop(held);

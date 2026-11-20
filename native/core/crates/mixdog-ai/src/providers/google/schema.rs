@@ -43,29 +43,11 @@ const FIELDS: &[&str] = &[
     "const",
 ];
 const ANNOTATIONS: &[&str] = &["$schema", "$id", "$comment", "examples"];
-const NON_CONSTRAINTS: &[&str] = &[
-    "$schema",
-    "$id",
-    "$comment",
-    "examples",
-    "description",
-    "title",
-    "default",
-    "example",
-];
+const NON_CONSTRAINTS: &[&str] = &["$schema", "$id", "$comment", "examples", "description", "title", "default", "example"];
 const TYPE_KEYWORDS: &[(&str, &[&str])] = &[
     ("string", &["minLength", "maxLength", "pattern", "format"]),
     ("array", &["minItems", "maxItems", "items"]),
-    (
-        "object",
-        &[
-            "minProperties",
-            "maxProperties",
-            "properties",
-            "required",
-            "propertyOrdering",
-        ],
-    ),
+    ("object", &["minProperties", "maxProperties", "properties", "required", "propertyOrdering"]),
     ("number", &["minimum", "maximum"]),
     ("integer", &["minimum", "maximum"]),
 ];
@@ -101,14 +83,10 @@ fn type_info(schema: &Value) -> Result<(Option<String>, bool), String> {
     let ty = match non_null.as_slice() {
         [] => None,
         [one] => Some((*one).to_owned()),
-        [a, b] if matches!((*a, *b), ("integer", "number") | ("number", "integer")) => {
-            Some("integer".to_owned())
-        }
+        [a, b] if matches!((*a, *b), ("integer", "number") | ("number", "integer")) => Some("integer".to_owned()),
         many => return Err(format!("unsupported type union {}", many.join("|"))),
     };
-    let allows_null = declared.is_empty()
-        || declared.contains(&"null")
-        || schema.get("nullable") == Some(&Value::Bool(true));
+    let allows_null = declared.is_empty() || declared.contains(&"null") || schema.get("nullable") == Some(&Value::Bool(true));
     Ok((ty, allows_null))
 }
 
@@ -116,11 +94,7 @@ fn type_info(schema: &Value) -> Result<(Option<String>, bool), String> {
 type Bound = Option<(f64, bool)>;
 
 fn raw_bound(schema: &Value, lower: bool) -> Bound {
-    let (inc, exc) = if lower {
-        ("minimum", "exclusiveMinimum")
-    } else {
-        ("maximum", "exclusiveMaximum")
-    };
+    let (inc, exc) = if lower { ("minimum", "exclusiveMinimum") } else { ("maximum", "exclusiveMaximum") };
     // `Number(x)` of whatever is written: a draft-04 `exclusiveMinimum: true` reads as 1.
     let number = |key: &str| Some(mixdog_js::to_number_of(schema.get(key))).filter(|n| n.is_finite());
     let mut out = number(inc).map(|v| (v, false));
@@ -164,11 +138,7 @@ fn flatten_all_of(input: &Value) -> Result<Value, String> {
         return Ok(input.clone());
     };
     let mut schema = Value::Object(map.clone());
-    let branches = schema
-        .as_object_mut()
-        .and_then(|m| m.shift_remove("allOf"))
-        .and_then(|b| b.as_array().cloned())
-        .unwrap_or_default();
+    let branches = schema.as_object_mut().and_then(|m| m.shift_remove("allOf")).and_then(|b| b.as_array().cloned()).unwrap_or_default();
     for branch in &branches {
         schema = merge(&schema, branch)?;
     }
@@ -184,8 +154,7 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
         }
     }
     for source in [&a, &b] {
-        if let Some(key) = obj(source).and_then(|m| m.keys().find(|k| !FIELDS.contains(&k.as_str())))
-        {
+        if let Some(key) = obj(source).and_then(|m| m.keys().find(|k| !FIELDS.contains(&k.as_str()))) {
             return Err(format!("unsupported allOf keyword {key}"));
         }
     }
@@ -241,20 +210,10 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
     {
         return Err("empty numeric range".into());
     }
-    for (min_key, max_key) in [
-        ("minLength", "maxLength"),
-        ("minItems", "maxItems"),
-        ("minProperties", "maxProperties"),
-    ] {
+    for (min_key, max_key) in [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")] {
         let num = |s: &Value, k: &str| s.get(k).and_then(Value::as_f64);
-        let min = [num(&a, min_key), num(&b, min_key)]
-            .into_iter()
-            .flatten()
-            .fold(0.0, f64::max);
-        let max = [num(&a, max_key), num(&b, max_key)]
-            .into_iter()
-            .flatten()
-            .reduce(f64::min);
+        let min = [num(&a, min_key), num(&b, min_key)].into_iter().flatten().fold(0.0, f64::max);
+        let max = [num(&a, max_key), num(&b, max_key)].into_iter().flatten().reduce(f64::min);
         if max.is_some_and(|m| min > m) {
             return Err(format!("{min_key}/{max_key}"));
         }
@@ -346,14 +305,8 @@ pub fn convert(schema: &Value) -> Value {
         Ok(flat) => flat,
         Err(why) => return conflict(&why),
     };
-    let mut result: Map<String, Value> = obj(&flat)
-        .map(|m| {
-            m.iter()
-                .filter(|(k, _)| FIELDS.contains(&k.as_str()))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut result: Map<String, Value> =
+        obj(&flat).map(|m| m.iter().filter(|(k, _)| FIELDS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
     if !result.contains_key("type") && (result.contains_key("properties") || result.contains_key("required")) {
         result.insert("type".into(), json!("object"));
     }
@@ -385,10 +338,7 @@ pub fn convert(schema: &Value) -> Value {
     let scalar = matches!(raw_type.as_deref(), Some("integer" | "number" | "boolean"));
     if let Some(c) = result.shift_remove("const") {
         if scalar {
-            return conflict(&format!(
-                "Gemini does not support {} const",
-                raw_type.as_deref().unwrap_or("")
-            ));
+            return conflict(&format!("Gemini does not support {} const", raw_type.as_deref().unwrap_or("")));
         }
         let text = match &c {
             Value::String(s) => s.clone(),
@@ -396,16 +346,8 @@ pub fn convert(schema: &Value) -> Value {
         };
         result.insert("enum".into(), json!([text]));
     }
-    if scalar
-        && result
-            .get("enum")
-            .and_then(Value::as_array)
-            .is_some_and(|e| e.iter().any(|v| !v.is_string()))
-    {
-        return conflict(&format!(
-            "Gemini does not support {} enum conjunction",
-            raw_type.as_deref().unwrap_or("")
-        ));
+    if scalar && result.get("enum").and_then(Value::as_array).is_some_and(|e| e.iter().any(|v| !v.is_string())) {
+        return conflict(&format!("Gemini does not support {} enum conjunction", raw_type.as_deref().unwrap_or("")));
     }
     if raw_type.as_deref() == Some("array") && !result.get("items").is_some_and(Value::is_object) {
         result.insert("items".into(), json!({"type": "string"}));
@@ -430,10 +372,8 @@ pub fn convert(schema: &Value) -> Value {
             result.insert("maximum".into(), int_bound(v, false));
         }
     }
-    if let (Some(min), Some(max)) = (
-        result.get("minimum").and_then(Value::as_f64),
-        result.get("maximum").and_then(Value::as_f64),
-    ) && min > max
+    if let (Some(min), Some(max)) = (result.get("minimum").and_then(Value::as_f64), result.get("maximum").and_then(Value::as_f64))
+        && min > max
     {
         return conflict("empty numeric range");
     }
@@ -448,8 +388,7 @@ pub fn convert(schema: &Value) -> Value {
 }
 
 fn convert_children(result: &mut Map<String, Value>) {
-    if result.get("properties").is_some_and(Value::is_object) || result.get("required").is_some_and(Value::is_array)
-    {
+    if result.get("properties").is_some_and(Value::is_object) || result.get("required").is_some_and(Value::is_array) {
         let mut props = Map::new();
         for (key, val) in result.get("properties").and_then(Value::as_object).into_iter().flatten() {
             props.insert(key.clone(), convert(val));
@@ -463,10 +402,7 @@ fn convert_children(result: &mut Map<String, Value>) {
             }
             for name in names.iter().filter_map(Value::as_str) {
                 if !props.contains_key(name) {
-                    props.insert(
-                        name.to_owned(),
-                        conflict(&format!("required property {name} has no representable schema")),
-                    );
+                    props.insert(name.to_owned(), conflict(&format!("required property {name} has no representable schema")));
                 }
             }
             if names.is_empty() {
@@ -525,24 +461,12 @@ fn size_bound(value: &Value) -> Option<u64> {
 
 /// Drops keywords foreign to the resolved type, then checks min/max pairs.
 fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Value> {
-    let allowed: &[&str] = TYPE_KEYWORDS
-        .iter()
-        .find(|(t, _)| Some(*t) == raw_type)
-        .map(|(_, keys)| *keys)
-        .unwrap_or(&[]);
-    let foreign: Vec<String> = result
-        .keys()
-        .filter(|k| is_type_keyword(k) && !allowed.contains(&k.as_str()))
-        .cloned()
-        .collect();
+    let allowed: &[&str] = TYPE_KEYWORDS.iter().find(|(t, _)| Some(*t) == raw_type).map(|(_, keys)| *keys).unwrap_or(&[]);
+    let foreign: Vec<String> = result.keys().filter(|k| is_type_keyword(k) && !allowed.contains(&k.as_str())).cloned().collect();
     for key in foreign {
         result.shift_remove(&key);
     }
-    for (min_key, max_key) in [
-        ("minLength", "maxLength"),
-        ("minItems", "maxItems"),
-        ("minProperties", "maxProperties"),
-    ] {
+    for (min_key, max_key) in [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")] {
         for key in [min_key, max_key] {
             if let Some(value) = result.get_mut(key) {
                 if let Some(n) = size_bound(value) {
@@ -552,10 +476,8 @@ fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Valu
                 }
             }
         }
-        if let (Some(min), Some(max)) = (
-            result.get(min_key).and_then(Value::as_u64),
-            result.get(max_key).and_then(Value::as_u64),
-        ) && min > max
+        if let (Some(min), Some(max)) = (result.get(min_key).and_then(Value::as_u64), result.get(max_key).and_then(Value::as_u64))
+            && min > max
         {
             return Some(conflict(&format!("{min_key}/{max_key}")));
         }
@@ -627,9 +549,7 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     if map.contains_key("const") && map.contains_key("enum") {
         return false;
     }
-    if matches!(ty, Some("integer" | "number" | "boolean"))
-        && (map.contains_key("enum") || map.contains_key("const"))
-    {
+    if matches!(ty, Some("integer" | "number" | "boolean")) && (map.contains_key("enum") || map.contains_key("const")) {
         return false;
     }
     if ty.is_none() && map.keys().any(|k| is_type_keyword(k)) {
@@ -644,18 +564,11 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     {
         return false;
     }
-    for (min_key, max_key) in [
-        ("minLength", "maxLength"),
-        ("minItems", "maxItems"),
-        ("minProperties", "maxProperties"),
-    ] {
+    for (min_key, max_key) in [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")] {
         let min = map.get(min_key);
         let max = map.get(max_key);
         let bounds = (min.and_then(size_bound), max.and_then(size_bound));
-        if (min.is_some() && bounds.0.is_none())
-            || (max.is_some() && bounds.1.is_none())
-            || matches!(bounds, (Some(min), Some(max)) if min > max)
-        {
+        if (min.is_some() && bounds.0.is_none()) || (max.is_some() && bounds.1.is_none()) || matches!(bounds, (Some(min), Some(max)) if min > max) {
             return false;
         }
     }
@@ -679,10 +592,7 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
             let Some(list) = required.as_array() else {
                 return false;
             };
-            if list
-                .iter()
-                .any(|n| n.as_str().is_none_or(|n| !names.iter().any(|x| x.as_str() == n)))
-            {
+            if list.iter().any(|n| n.as_str().is_none_or(|n| !names.iter().any(|x| x.as_str() == n))) {
                 return false;
             }
         }
@@ -691,9 +601,7 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
         }
     }
     if let Some(any_of) = map.get("anyOf")
-        && !any_of
-            .as_array()
-            .is_some_and(|a| a.iter().all(|b| legacy_representable(b, false)))
+        && !any_of.as_array().is_some_and(|a| a.iter().all(|b| legacy_representable(b, false)))
     {
         return false;
     }
@@ -734,14 +642,7 @@ fn strip_non_standard(schema: &Value) -> Value {
                     continue;
                 }
                 let next = if MAPS.contains(&key.as_str()) && value.is_object() {
-                    Value::Object(
-                        value
-                            .as_object()
-                            .into_iter()
-                            .flatten()
-                            .map(|(name, child)| (name.clone(), strip_non_standard(child)))
-                            .collect(),
-                    )
+                    Value::Object(value.as_object().into_iter().flatten().map(|(name, child)| (name.clone(), strip_non_standard(child))).collect())
                 } else if NODES.contains(&key.as_str()) {
                     strip_non_standard(value)
                 } else {
@@ -762,11 +663,7 @@ pub fn declaration_schema(input: &Value) -> (&'static str, Value) {
     if matches!(input, Value::Null | Value::String(_) | Value::Number(_)) {
         return ("parameters", input.clone());
     }
-    if input.is_boolean() || !legacy_representable(input, true) {
-        ("parametersJsonSchema", strip_non_standard(input))
-    } else {
-        ("parameters", convert(input))
-    }
+    if input.is_boolean() || !legacy_representable(input, true) { ("parametersJsonSchema", strip_non_standard(input)) } else { ("parameters", convert(input)) }
 }
 
 #[cfg(test)]
@@ -784,10 +681,7 @@ mod tests {
         // `additionalProperties:false` is a constraint the subset lacks.
         assert_eq!(declaration_schema(&input).0, "parametersJsonSchema");
         let input = json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]});
-        assert_eq!(
-            declaration_schema(&input),
-            ("parameters", json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}))
-        );
+        assert_eq!(declaration_schema(&input), ("parameters", json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]})));
     }
 
     #[test]
@@ -829,13 +723,8 @@ mod tests {
             },
             "required": ["mode"]
         });
-        let tool = ToolDefinition {
-            name: "lookup".into(),
-            description: "Read a record".into(),
-            input_schema: schema.clone(),
-            defer_loading: false,
-            freeform: None,
-        };
+        let tool =
+            ToolDefinition { name: "lookup".into(), description: "Read a record".into(), input_schema: schema.clone(), defer_loading: false, freeform: None };
         let declarations = function_declarations(&[tool], Declarations::Validated, &mut |_| panic!("accepted"));
         assert_eq!(declarations, [json!({"name": "lookup", "description": "Read a record", "parametersJsonSchema": schema})]);
     }
@@ -850,14 +739,20 @@ mod tests {
                 "details": {"type": "object", "properties": {"id": {"type": "string"}}, "maxProperties": 1.0}
             }
         });
-        assert_eq!(declaration_schema(&schema), ("parameters", json!({
-            "type": "object",
-            "properties": {
-                "label": {"type": "string", "minLength": 2, "maxLength": 4},
-                "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                "details": {"type": "object", "properties": {"id": {"type": "string"}}, "maxProperties": 1}
-            }
-        })));
+        assert_eq!(
+            declaration_schema(&schema),
+            (
+                "parameters",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "minLength": 2, "maxLength": 4},
+                        "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                        "details": {"type": "object", "properties": {"id": {"type": "string"}}, "maxProperties": 1}
+                    }
+                })
+            )
+        );
     }
 
     #[test]

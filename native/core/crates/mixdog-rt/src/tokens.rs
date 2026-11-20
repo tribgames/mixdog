@@ -54,9 +54,7 @@ pub struct OnThread<T> {
 
 impl<T> OnThread<T> {
     fn new() -> Self {
-        Self {
-            _thread: PhantomData,
-        }
+        Self { _thread: PhantomData }
     }
 }
 
@@ -112,11 +110,7 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
     /// `Err(ShutDown)`, and a queued job that no worker will ever run resolves its handle
     /// `Err(JobDropped)` (it never ran). A job that is running when its lane lease lapses is not
     /// abandoned: its handle resolves when it ends.
-    fn submit_wait<'a, R, F>(
-        self,
-        cancel: &'a CancellationToken,
-        job: F,
-    ) -> impl Future<Output = Result<JobHandle<R>, SubmitWaitError>> + Send + 'a
+    fn submit_wait<'a, R, F>(self, cancel: &'a CancellationToken, job: F) -> impl Future<Output = Result<JobHandle<R>, SubmitWaitError>> + Send + 'a
     where
         F: FnOnce(&InLane<Self>) -> R + Send + 'static,
         R: Send + 'static,
@@ -176,12 +170,7 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
 /// Waits until `ticket`'s job is admitted. Cancelled, or dropped before that, the job is taken out
 /// of the queue unrun; if the lane admitted it first, it stays queued (and a cancelled token
 /// drops it at dequeue).
-async fn admitted(
-    backend: &'static dyn crate::Backend,
-    lane: LaneKind,
-    cancel: &CancellationToken,
-    ticket: Ticket,
-) -> Result<(), SubmitWaitError> {
+async fn admitted(backend: &'static dyn crate::Backend, lane: LaneKind, cancel: &CancellationToken, ticket: Ticket) -> Result<(), SubmitWaitError> {
     let mut place = Place { backend, lane, ticket: Some(ticket.clone()) };
     loop {
         match ticket.end() {
@@ -268,12 +257,10 @@ pub trait ThreadToken: sealed::Sealed + Copy + Send + Sync + 'static {
         F: FnOnce(&OnThread<Self>) -> T + Send + 'static,
         T: Send + 'static,
     {
-        std::thread::Builder::new()
-            .name(name.to_owned())
-            .spawn(move || {
-                crate::backend().enter_thread(Self::KIND);
-                body(&OnThread::<Self>::new())
-            })
+        std::thread::Builder::new().name(name.to_owned()).spawn(move || {
+            crate::backend().enter_thread(Self::KIND);
+            body(&OnThread::<Self>::new())
+        })
     }
 }
 

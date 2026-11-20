@@ -77,13 +77,7 @@ fn arrange_slides(document: &crate::com::Obj, selected: &[i32], source_slide_cou
 }
 
 /// What the replacement does until it fails or is done.
-fn replace<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    out: &mut Emitter,
-    state: &mut SessionState,
-    source_path: &str,
-    request: &Value,
-) -> Result<Value, String> {
+fn replace<P: WriteProof>(actions: &Actions<'_, P>, out: &mut Emitter, state: &mut SessionState, source_path: &str, request: &Value) -> Result<Value, String> {
     let current = state.document.clone().ok_or_else(|| text(null_call()))?;
     current.call("Close", &[]).map_err(text)?;
     state.document = None;
@@ -128,10 +122,7 @@ fn replace<P: WriteProof>(
             ("replacedEmptyDeck", Value::Bool(true)),
         ],
     );
-    let fields = Value::object(
-        ObjectKind::Ordered,
-        vec![("saved", Value::Bool(true)), ("results", Value::Array(vec![result])), ("value", value)],
-    );
+    let fields = Value::object(ObjectKind::Ordered, vec![("saved", Value::Bool(true)), ("results", Value::Array(vec![result])), ("value", value)]);
     session_response(state, &actions.env, &fields)
 }
 

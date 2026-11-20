@@ -3,7 +3,6 @@
 //! origins (DS §4.2)`. The macros below generate the typed message enums,
 //! the static spec tables and, with the `codegen` feature, the type visitors used by `export`.
 
-
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __delivery {
@@ -23,9 +22,7 @@ macro_rules! __delivery {
         Some($crate::common::Delivery::AnyScoped)
     };
     (scoped($kind:ident)) => {
-        Some($crate::common::Delivery::Scoped(
-            $crate::v2::feed::ScopedFeedKind::$kind,
-        ))
+        Some($crate::common::Delivery::Scoped($crate::v2::feed::ScopedFeedKind::$kind))
     };
 }
 
@@ -236,11 +233,7 @@ pub const fn wire_path<const N: usize>(rust: &str) -> [u8; N] {
         if bytes[i] == b'_' {
             upper = true;
         } else {
-            out[o] = if upper {
-                bytes[i].to_ascii_uppercase()
-            } else {
-                bytes[i]
-            };
+            out[o] = if upper { bytes[i].to_ascii_uppercase() } else { bytes[i] };
             upper = false;
             o += 1;
         }
@@ -352,10 +345,7 @@ pub enum OpScopeRule {
     /// `thread:<params[field]>`.
     Thread { field: &'static str },
     /// `thread:<params[field]>` when present, else the domain scope.
-    ThreadOrDomain {
-        field: &'static str,
-        domain: OpDomain,
-    },
+    ThreadOrDomain { field: &'static str, domain: OpDomain },
 }
 
 impl OpScopeRule {
@@ -365,13 +355,10 @@ impl OpScopeRule {
             Mutation::None => Self::None,
             Mutation::Op(domain) => match scope {
                 ScopeRule::Thread { field } => Self::Thread { field },
-                ScopeRule::ThreadOrGlobal { field, .. }
-                | ScopeRule::ThreadOrSharedRead { field, .. }
-                | ScopeRule::ThreadOrNone { field } => Self::ThreadOrDomain { field, domain },
-                ScopeRule::ChannelCall => Self::ThreadOrDomain {
-                    field: "args.sessionId",
-                    domain,
-                },
+                ScopeRule::ThreadOrGlobal { field, .. } | ScopeRule::ThreadOrSharedRead { field, .. } | ScopeRule::ThreadOrNone { field } => {
+                    Self::ThreadOrDomain { field, domain }
+                }
+                ScopeRule::ChannelCall => Self::ThreadOrDomain { field: "args.sessionId", domain },
                 _ => Self::Domain { domain },
             },
         }
@@ -448,20 +435,14 @@ pub enum RequestDecodeError {
     /// `-32601 methodNotFound`.
     MethodNotFound(String),
     /// `-32602 invalidParams`.
-    InvalidParams {
-        method: &'static str,
-        detail: String,
-    },
+    InvalidParams { method: &'static str, detail: String },
 }
 
 impl RequestDecodeError {
     pub fn into_error_data(self) -> crate::error::ErrorData {
         match self {
             Self::MethodNotFound(method) => crate::error::ErrorData::MethodNotFound { method },
-            Self::InvalidParams { method, detail } => crate::error::ErrorData::InvalidParams {
-                path: format!("{method}.params"),
-                expected: detail,
-            },
+            Self::InvalidParams { method, detail } => crate::error::ErrorData::InvalidParams { path: format!("{method}.params"), expected: detail },
         }
     }
 }
@@ -470,8 +451,7 @@ impl RequestDecodeError {
 #[macro_export]
 macro_rules! __wire_path {
     ($field:ident) => {{
-        const BYTES: [u8; $crate::common::wire_path_len(stringify!($field))] =
-            $crate::common::wire_path(stringify!($field));
+        const BYTES: [u8; $crate::common::wire_path_len(stringify!($field))] = $crate::common::wire_path(stringify!($field));
         const PATH: &str = match ::core::str::from_utf8(&BYTES) {
             Ok(path) => path,
             Err(_) => panic!("field names are ASCII"),
@@ -493,73 +473,43 @@ macro_rules! __scope_rule {
         $crate::common::ScopeRule::SharedRead { key: $key }
     };
     (thread($field:ident)) => {
-        $crate::common::ScopeRule::Thread {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::Thread { field: $crate::__wire_path!($field) }
     };
     (thread_or_global($field:ident, $key:literal)) => {
-        $crate::common::ScopeRule::ThreadOrGlobal {
-            field: $crate::__wire_path!($field),
-            key: $key,
-        }
+        $crate::common::ScopeRule::ThreadOrGlobal { field: $crate::__wire_path!($field), key: $key }
     };
     (thread_or_shared_read($field:ident, $key:literal)) => {
-        $crate::common::ScopeRule::ThreadOrSharedRead {
-            field: $crate::__wire_path!($field),
-            key: $key,
-        }
+        $crate::common::ScopeRule::ThreadOrSharedRead { field: $crate::__wire_path!($field), key: $key }
     };
     (thread_or_none($field:ident)) => {
-        $crate::common::ScopeRule::ThreadOrNone {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::ThreadOrNone { field: $crate::__wire_path!($field) }
     };
     (keyed($namespace:literal, $field:ident)) => {
-        $crate::common::ScopeRule::Keyed {
-            namespace: $namespace,
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::Keyed { namespace: $namespace, field: $crate::__wire_path!($field) }
     };
     (keyed_text($namespace:literal, $field:ident, $maximum:literal)) => {
-        $crate::common::ScopeRule::Keyed {
-            namespace: $namespace,
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::Keyed { namespace: $namespace, field: $crate::__wire_path!($field) }
     };
     (process($field:ident)) => {
-        $crate::common::ScopeRule::Process {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::Process { field: $crate::__wire_path!($field) }
     };
     (terminal($field:ident)) => {
-        $crate::common::ScopeRule::Terminal {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::Terminal { field: $crate::__wire_path!($field) }
     };
     (terminal_or_none($field:ident)) => {
-        $crate::common::ScopeRule::TerminalOrNone {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::TerminalOrNone { field: $crate::__wire_path!($field) }
     };
     (fs_watch($field:ident)) => {
-        $crate::common::ScopeRule::FsWatch {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::FsWatch { field: $crate::__wire_path!($field) }
     };
     (fuzzy($field:ident)) => {
-        $crate::common::ScopeRule::FuzzySession {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::FuzzySession { field: $crate::__wire_path!($field) }
     };
     (mcp_oauth($field:ident)) => {
-        $crate::common::ScopeRule::McpOauth {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::McpOauth { field: $crate::__wire_path!($field) }
     };
     (repo($field:ident)) => {
-        $crate::common::ScopeRule::Repo {
-            field: $crate::__wire_path!($field),
-        }
+        $crate::common::ScopeRule::Repo { field: $crate::__wire_path!($field) }
     };
     (channel_call) => {
         $crate::common::ScopeRule::ChannelCall
@@ -579,15 +529,11 @@ macro_rules! __scope_expr {
         Some($crate::common::SerializationScope::GlobalSharedRead($key))
     };
     ($p:ident, thread($field:ident)) => {
-        Some($crate::common::SerializationScope::Thread {
-            thread_id: $p.$field.clone(),
-        })
+        Some($crate::common::SerializationScope::Thread { thread_id: $p.$field.clone() })
     };
     ($p:ident, thread_or_global($field:ident, $key:literal)) => {
         Some(match &$p.$field {
-            Some(thread_id) => $crate::common::SerializationScope::Thread {
-                thread_id: thread_id.clone(),
-            },
+            Some(thread_id) => $crate::common::SerializationScope::Thread { thread_id: thread_id.clone() },
             None => $crate::common::SerializationScope::Global($key),
         })
     };
@@ -598,60 +544,36 @@ macro_rules! __scope_expr {
         }
     };
     ($p:ident, thread_or_none($field:ident)) => {
-        $p.$field
-            .as_ref()
-            .map(|thread_id| $crate::common::SerializationScope::Thread {
-                thread_id: thread_id.clone(),
-            })
+        $p.$field.as_ref().map(|thread_id| $crate::common::SerializationScope::Thread { thread_id: thread_id.clone() })
     };
     ($p:ident, keyed($namespace:literal, $field:ident)) => {
-        Some($crate::common::SerializationScope::Keyed {
-            namespace: $namespace,
-            key: $p.$field.to_string(),
-        })
+        Some($crate::common::SerializationScope::Keyed { namespace: $namespace, key: $p.$field.to_string() })
     };
     // A raw argument the owner checks as Node's `requiredString`: keyed by the text it acts on; one it refuses joins no queue.
     ($p:ident, keyed_text($namespace:literal, $field:ident, $maximum:literal)) => {
-        $crate::common::required_text($p.$field.as_ref(), $maximum).map(|key| $crate::common::SerializationScope::Keyed {
-            namespace: $namespace,
-            key: key.to_owned(),
-        })
+        $crate::common::required_text($p.$field.as_ref(), $maximum)
+            .map(|key| $crate::common::SerializationScope::Keyed { namespace: $namespace, key: key.to_owned() })
     };
     ($p:ident, process($field:ident)) => {
-        Some($crate::common::SerializationScope::Process {
-            process_handle: $p.$field.to_string(),
-        })
+        Some($crate::common::SerializationScope::Process { process_handle: $p.$field.to_string() })
     };
     ($p:ident, terminal($field:ident)) => {
-        Some($crate::common::SerializationScope::Terminal {
-            tab_id: $p.$field.to_string(),
-        })
+        Some($crate::common::SerializationScope::Terminal { tab_id: $p.$field.to_string() })
     };
     ($p:ident, terminal_or_none($field:ident)) => {
-        $p.$field
-            .as_ref()
-            .map(|tab_id| $crate::common::SerializationScope::Terminal {
-                tab_id: tab_id.to_string(),
-            })
+        $p.$field.as_ref().map(|tab_id| $crate::common::SerializationScope::Terminal { tab_id: tab_id.to_string() })
     };
     ($p:ident, fs_watch($field:ident)) => {
-        Some($crate::common::SerializationScope::FsWatch {
-            watch_id: $p.$field.to_string(),
-        })
+        Some($crate::common::SerializationScope::FsWatch { watch_id: $p.$field.to_string() })
     };
     ($p:ident, fuzzy($field:ident)) => {
-        Some($crate::common::SerializationScope::FuzzySession {
-            session_id: $p.$field.to_string(),
-        })
+        Some($crate::common::SerializationScope::FuzzySession { session_id: $p.$field.to_string() })
     };
     ($p:ident, mcp_oauth($field:ident)) => {
-        Some($crate::common::SerializationScope::McpOauth {
-            server_name: $p.$field.to_string(),
-        })
+        Some($crate::common::SerializationScope::McpOauth { server_name: $p.$field.to_string() })
     };
     ($p:ident, repo($field:ident)) => {
-        $crate::common::repository_cwd($p.$field.as_ref())
-            .map(|root| $crate::common::SerializationScope::Repo { root: root.to_owned() })
+        $crate::common::repository_cwd($p.$field.as_ref()).map(|root| $crate::common::SerializationScope::Repo { root: root.to_owned() })
     };
     ($p:ident, channel_call) => {
         Some(match $p.thread_id() {
@@ -682,9 +604,7 @@ macro_rules! __op_expr {
     ($p:ident, $scope:expr, op($domain:ident)) => {{
         let op_id = $crate::common::HasOpId::op_id($p);
         let scope = match $scope {
-            Some($crate::common::SerializationScope::Thread { thread_id }) => {
-                $crate::common::OpScope::Thread(thread_id)
-            }
+            Some($crate::common::SerializationScope::Thread { thread_id }) => $crate::common::OpScope::Thread(thread_id),
             _ => $crate::common::OpScope::Domain($crate::common::OpDomain::$domain),
         };
         Some((scope, op_id))

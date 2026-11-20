@@ -11,9 +11,6 @@ pub struct TestProcesses;
 
 impl TestProcesses {
     pub fn shared() -> Arc<dyn ProcessManager> {
-        Arc::new(LocalProcessManager::new(
-            mixdog_rt::testing::tokens().spawn_io,
-            ProcessConfig::default(),
-        ))
+        Arc::new(LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default()))
     }
 }

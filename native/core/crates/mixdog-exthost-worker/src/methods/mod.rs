@@ -48,10 +48,7 @@ fn invalid_params(message: impl Into<String>) -> CodedError {
 
 /// The call's `data` parameter, a base64 string (`data must be a base64 string` otherwise).
 fn base64_param(params: &Value) -> Result<&str, CodedError> {
-    params
-        .get("data")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid_params("data must be a base64 string"))
+    params.get("data").and_then(Value::as_str).ok_or_else(|| invalid_params("data must be a base64 string"))
 }
 
 /// JavaScript's `String(value)` for the values a parameter can hold.
@@ -67,9 +64,7 @@ fn js_string(value: Option<&Value>) -> String {
 fn node_base64(data: &str) -> Vec<u8> {
     const LENIENT: GeneralPurpose = GeneralPurpose::new(
         &alphabet::STANDARD,
-        GeneralPurposeConfig::new()
-            .with_decode_allow_trailing_bits(true)
-            .with_decode_padding_mode(DecodePaddingMode::Indifferent),
+        GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::Indifferent),
     );
     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) {
         return bytes;

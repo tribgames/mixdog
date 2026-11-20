@@ -2,8 +2,7 @@
 
 use mixdog_relay::js;
 use mixdog_relay::pairing::codes::{
-    GLOBAL_FAIL_LIMIT, IP_BACKOFF_BASE_MS, IP_FAILS_PER_STRIKE, Issue, PAIR_CODE_TTL_MS, PairCodes, Resolve, clean_name, issued_answer,
-    presence_ids,
+    GLOBAL_FAIL_LIMIT, IP_BACKOFF_BASE_MS, IP_FAILS_PER_STRIKE, Issue, PAIR_CODE_TTL_MS, PairCodes, Resolve, clean_name, issued_answer, presence_ids,
 };
 use serde_json::json;
 
@@ -69,9 +68,7 @@ fn a_code_expires_after_five_minutes_and_a_new_lease_replaces_the_old_without_ex
     let mut now = T0;
     let first = issue(&mut codes, 1, now);
     now += PAIR_CODE_TTL_MS - 1_000;
-    let Issue::Ok { code: second, lease: second_lease, .. } = codes.issue_at(&device(1), Some("lease-000002"), Some(""), now) else {
-        panic!("issue refused")
-    };
+    let Issue::Ok { code: second, lease: second_lease, .. } = codes.issue_at(&device(1), Some("lease-000002"), Some(""), now) else { panic!("issue refused") };
     assert_eq!(second_lease, "lease-000002");
     // One live code per device: the replaced code is gone (unless the draw repeated it).
     if first != second {

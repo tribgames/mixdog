@@ -63,8 +63,8 @@ fn a_new_workbook_reads_whole_by_pages_for_its_selection_and_for_its_issues() {
     assert!(text.contains("\"format\":\"xlsx\"") && text.contains("\"sheets\":["), "{text}");
     assert!(text.contains("\"protection\":{\"protected\":false}"), "{text}");
 
-    let paged = snapshot_document(&drivers, &env, &document, "xlsx", &request(&json!({"paged": true, "limit": 100, "range": "A1:C3"})))
-        .expect("the paged read");
+    let paged =
+        snapshot_document(&drivers, &env, &document, "xlsx", &request(&json!({"paged": true, "limit": 100, "range": "A1:C3"}))).expect("the paged read");
     let text = to_json(&paged, 30);
     assert!(text.contains("\"representation\":\"cells\"") && text.contains("\"total\":9"), "{text}");
 
@@ -77,8 +77,8 @@ fn a_new_workbook_reads_whole_by_pages_for_its_selection_and_for_its_issues() {
         assert!(text.contains("\"format\":\"xlsx\"") && text.contains("\"auditCoverage\":{"), "{text}");
     }
 
-    let closed = close_session(&mut state, &env, &request(&json!({"action": "close_session", "session": "live-read", "save": false})))
-        .expect("the close answers");
+    let closed =
+        close_session(&mut state, &env, &request(&json!({"action": "close_session", "session": "live-read", "save": false}))).expect("the close answers");
     assert!(closed.closed);
     let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
 }

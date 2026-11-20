@@ -64,8 +64,7 @@ pub struct TextContent {
 /// honouring the document's `ignore_errors`. One loader serves every page of the document, so a font that several
 /// pages use is made once.
 pub fn font_loader(document: &Document) -> FontLoader {
-    FontLoader::new(document.doc_id(), document.options().ignore_errors)
-        .with_system_fonts(document.options().use_system_fonts)
+    FontLoader::new(document.doc_id(), document.options().ignore_errors).with_system_fonts(document.options().use_system_fonts)
 }
 
 impl Page {
@@ -130,19 +129,12 @@ mod tests {
                 None => pdf.extend_from_slice(b"0000000000 65535 f \n"),
             }
         }
-        pdf.extend_from_slice(
-            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n")
-                .as_bytes(),
-        );
+        pdf.extend_from_slice(format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n").as_bytes());
         pdf
     }
 
     fn stream(dict: &str, content: &str) -> Vec<u8> {
-        format!(
-            "<< {dict} /Length {} >>\nstream\n{content}\nendstream",
-            content.len()
-        )
-        .into_bytes()
+        format!("<< {dict} /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes()
     }
 
     /// A one-page document: Helvetica as object 5, `content` as the page's stream, extra objects from 6 on.
@@ -150,29 +142,14 @@ mod tests {
         let mut objects: Vec<(u32, Vec<u8>)> = vec![
             (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
             (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
-            (
-                3,
-                format!(
-                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources {resources} >>"
-                )
-                .into_bytes(),
-            ),
+            (3, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources {resources} >>").into_bytes()),
             (4, stream("", content)),
-            (
-                5,
-                b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
-                    .to_vec(),
-            ),
+            (5, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec()),
         ];
         objects.extend(extra.iter().cloned());
-        let document =
-            Document::open(build(&objects), &OpenOptions::default()).expect("a document");
+        let document = Document::open(build(&objects), &OpenOptions::default()).expect("a document");
         let fonts = font_loader(&document);
-        document
-            .page(0)
-            .expect("a page")
-            .text_content(&document, &fonts)
-            .expect("the text")
+        document.page(0).expect("a page").text_content(&document, &fonts).expect("the text")
     }
 
     const RESOURCES: &str = "<< /Font << /F1 5 0 R >> >>";
@@ -199,11 +176,7 @@ mod tests {
 
     #[test]
     fn a_move_to_the_next_line_ends_the_item_with_a_line_end() {
-        let text = text_of(
-            "BT /F1 12 Tf 20 100 Td (one) Tj 0 -14 Td (two) Tj ET",
-            &[],
-            RESOURCES,
-        );
+        let text = text_of("BT /F1 12 Tf 20 100 Td (one) Tj 0 -14 Td (two) Tj ET", &[], RESOURCES);
         assert_eq!(strings(&text), vec!["one", "two"]);
         assert!(text.items[0].has_eol);
         assert!(!text.items[1].has_eol);
@@ -211,11 +184,7 @@ mod tests {
 
     #[test]
     fn the_quote_operator_starts_the_next_line_a_leading_down() {
-        let text = text_of(
-            "BT /F1 12 Tf 14 TL 20 100 Td (a) Tj (b) ' ET",
-            &[],
-            RESOURCES,
-        );
+        let text = text_of("BT /F1 12 Tf 14 TL 20 100 Td (a) Tj (b) ' ET", &[], RESOURCES);
         assert_eq!(strings(&text), vec!["a", "b"]);
         assert!(text.items[0].has_eol);
         assert_eq!(text.items[1].transform[5], 86.0);
@@ -223,11 +192,7 @@ mod tests {
 
     #[test]
     fn a_kerning_gap_inside_a_word_adds_no_space_and_a_wide_one_adds_one() {
-        let text = text_of(
-            "BT /F1 12 Tf 20 100 Td [(AV) -20 (A) -300 (B)] TJ ET",
-            &[],
-            RESOURCES,
-        );
+        let text = text_of("BT /F1 12 Tf 20 100 Td [(AV) -20 (A) -300 (B)] TJ ET", &[], RESOURCES);
         assert_eq!(strings(&text), vec!["AVA B"]);
     }
 
@@ -244,11 +209,7 @@ mod tests {
             "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Matrix [1 0 0 1 10 20] /Resources << /Font << /F1 5 0 R >> >>",
             "BT /F1 10 Tf 0 0 Td (inside) Tj ET",
         );
-        let text = text_of(
-            "BT /F1 12 Tf 20 100 Td (outside) Tj ET /Fm0 Do",
-            &[(6, form)],
-            "<< /Font << /F1 5 0 R >> /XObject << /Fm0 6 0 R >> >>",
-        );
+        let text = text_of("BT /F1 12 Tf 20 100 Td (outside) Tj ET /Fm0 Do", &[(6, form)], "<< /Font << /F1 5 0 R >> /XObject << /Fm0 6 0 R >> >>");
         assert_eq!(strings(&text), vec!["outside", "inside"]);
         assert_eq!(text.items[1].transform, [10.0, 0.0, 0.0, 10.0, 10.0, 20.0]);
         assert_eq!(text.styles.len(), 1);
@@ -266,20 +227,13 @@ mod tests {
 
     #[test]
     fn a_show_operator_before_any_font_is_skipped() {
-        let text = text_of(
-            "BT 20 100 Td (nothing) Tj /F1 12 Tf (something) Tj ET",
-            &[],
-            RESOURCES,
-        );
+        let text = text_of("BT 20 100 Td (nothing) Tj /F1 12 Tf (something) Tj ET", &[], RESOURCES);
         assert_eq!(strings(&text), vec!["something"]);
     }
 
     #[test]
     fn a_stream_that_breaks_keeps_the_text_before_the_break() {
-        let content = format!(
-            "BT /F1 12 Tf 20 100 Td (kept) Tj ET {}Tj",
-            "1 ".repeat(40)
-        );
+        let content = format!("BT /F1 12 Tf 20 100 Td (kept) Tj ET {}Tj", "1 ".repeat(40));
         let text = text_of(&content, &[], RESOURCES);
         assert_eq!(strings(&text), vec!["kept"]);
     }

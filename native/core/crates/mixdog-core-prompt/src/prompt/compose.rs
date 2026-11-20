@@ -66,11 +66,8 @@ fn join(parts: &[&str]) -> String {
 }
 
 pub fn compose_system_prompt(slices: &Slices, sources: &dyn PromptSources) -> Composed {
-    let stable = join(&[
-        trimmed(slices.meta_context),
-        if slices.skip.skills { "" } else { trimmed(slices.skill_manifest) },
-        trimmed(slices.deferred_tool_manifest),
-    ]);
+    let stable =
+        join(&[trimmed(slices.meta_context), if slices.skip.skills { "" } else { trimmed(slices.skill_manifest) }, trimmed(slices.deferred_tool_manifest)]);
 
     let role_instructions = if slices.skip_role_catalog {
         String::new()
@@ -102,17 +99,8 @@ pub fn compose_system_prompt(slices: &Slices, sources: &dyn PromptSources) -> Co
         instruction_files,
         &memory_block,
     ]);
-    let environment = join(&[
-        trimmed(slices.session_start_context),
-        trimmed(slices.environment_context),
-        trimmed(slices.language_context),
-    ]);
-    Composed {
-        base_rules: slices.agent_rules.to_owned(),
-        stable_system_context: stable,
-        session_marker_core: core,
-        session_environment: environment,
-    }
+    let environment = join(&[trimmed(slices.session_start_context), trimmed(slices.environment_context), trimmed(slices.language_context)]);
+    Composed { base_rules: slices.agent_rules.to_owned(), stable_system_context: stable, session_marker_core: core, session_environment: environment }
 }
 
 #[cfg(test)]
@@ -176,10 +164,7 @@ mod tests {
         let out = compose_system_prompt(&slices, &Files);
         assert_eq!(out.base_rules, "rules");
         assert_eq!(out.stable_system_context, "meta\n\n---\n\nskills");
-        assert_eq!(
-            out.session_marker_core,
-            "wf\n\n---\n\n# Identity\n\n---\n\ncatalog:worker\n\n---\n\npersona:worker\n\n---\n\n# Core Memory\nmem"
-        );
+        assert_eq!(out.session_marker_core, "wf\n\n---\n\n# Identity\n\n---\n\ncatalog:worker\n\n---\n\npersona:worker\n\n---\n\n# Core Memory\nmem");
         assert_eq!(out.session_environment, "- Cwd\n\n---\n\n# Language");
         let skipped = Slices { skip: ProfileSkip { skills: true, memory: true, ..Default::default() }, skip_role_catalog: true, skip_persona: true, ..slices };
         let out = compose_system_prompt(&skipped, &Files);

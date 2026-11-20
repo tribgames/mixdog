@@ -37,13 +37,8 @@ struct Stack {
     reinstallable: bool,
 }
 
-static JS_LOCKFILES: [(&str, &str); 5] = [
-    ("package-lock.json", "npm"),
-    ("pnpm-lock.yaml", "pnpm"),
-    ("yarn.lock", "yarn"),
-    ("bun.lock", "bun"),
-    ("bun.lockb", "bun"),
-];
+static JS_LOCKFILES: [(&str, &str); 5] =
+    [("package-lock.json", "npm"), ("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lock", "bun"), ("bun.lockb", "bun")];
 
 const STACKS: [Stack; 7] = [
     Stack {
@@ -53,13 +48,7 @@ const STACKS: [Stack; 7] = [
         artefact: "node_modules",
         reinstallable: true,
     },
-    Stack {
-        name: "python",
-        names: &["uv.lock", "poetry.lock", "Pipfile.lock"],
-        globs: &["requirements*.txt"],
-        artefact: ".venv",
-        reinstallable: false,
-    },
+    Stack { name: "python", names: &["uv.lock", "poetry.lock", "Pipfile.lock"], globs: &["requirements*.txt"], artefact: ".venv", reinstallable: false },
     Stack { name: "ruby", names: &["Gemfile.lock"], globs: &[], artefact: ".bundle", reinstallable: false },
     Stack { name: "php", names: &["composer.lock"], globs: &[], artefact: "vendor", reinstallable: false },
     Stack { name: "dotnet", names: &["packages.lock.json"], globs: &["*.csproj"], artefact: "obj", reinstallable: false },
@@ -197,11 +186,7 @@ pub fn pnpm_workspace_patterns(text: &str) -> Vec<String> {
 pub fn workspace_matcher(patterns: &[String]) -> impl Fn(&str) -> bool + use<> {
     let compile = |pattern: &str| {
         let stripped = pattern.strip_prefix("./").unwrap_or(pattern).trim_end_matches('/');
-        let body = stripped
-            .split('/')
-            .map(|part| if part == "**" { ".*".to_owned() } else { segment_pattern(part) })
-            .collect::<Vec<_>>()
-            .join("/");
+        let body = stripped.split('/').map(|part| if part == "**" { ".*".to_owned() } else { segment_pattern(part) }).collect::<Vec<_>>().join("/");
         let body = match body.strip_suffix("/.*") {
             Some(head) => format!("{head}(?:/.*)?"),
             None => body,
@@ -220,7 +205,8 @@ pub fn workspace_matcher(patterns: &[String]) -> impl Fn(&str) -> bool + use<> {
 async fn workspace_patterns(scm: &Scm, cancel: &CancellationToken, project: &Path) -> Result<Vec<String>, ScmFailure> {
     let mut patterns = Vec::new();
     if let Some(bytes) = read_or_none(scm, cancel, project.join("package.json")).await?
-        && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
+    {
         let list = match value.get("workspaces") {
             Some(serde_json::Value::Array(list)) => Some(list),
             Some(serde_json::Value::Object(map)) => map.get("packages").and_then(serde_json::Value::as_array),
@@ -316,10 +302,7 @@ fn pick(stack: &Stack, files: &BTreeSet<String>) -> Option<Pick> {
                 return locked("dotnet", "packages.lock.json");
             }
             let csproj = JsRegex::new_static(r"\.csproj$", "i");
-            files
-                .iter()
-                .any(|name| csproj.is_match(name))
-                .then_some(Pick { manager: "dotnet", lockfile: None, requirements: Vec::new() })
+            files.iter().any(|name| csproj.is_match(name)).then_some(Pick { manager: "dotnet", lockfile: None, requirements: Vec::new() })
         }
         "elixir" if has("mix.lock") => locked("mix", "mix.lock"),
         "dart" if has("pubspec.lock") => locked("pub", "pubspec.lock"),
@@ -371,12 +354,7 @@ pub struct LockfileFolder {
 
 /// What to prepare, root first. `main_dir`: the same folder in the main checkout, whose
 /// installed artefacts admit nested folders.
-pub async fn find_lockfile_folders(
-    scm: &Scm,
-    cancel: &CancellationToken,
-    project: &Path,
-    main_dir: Option<&Path>,
-) -> Result<Vec<LockfileFolder>, ScmFailure> {
+pub async fn find_lockfile_folders(scm: &Scm, cancel: &CancellationToken, project: &Path, main_dir: Option<&Path>) -> Result<Vec<LockfileFolder>, ScmFailure> {
     let folders = committed_folders(scm, cancel, project).await?;
     let patterns = workspace_patterns(scm, cancel, project).await?;
     let is_workspace = workspace_matcher(&patterns);
@@ -385,11 +363,8 @@ pub async fn find_lockfile_folders(
         for stack in &STACKS {
             let Some(picked) = pick(stack, files) else { continue };
             let mut admitted = dir.is_empty() || is_workspace(dir);
-            if !admitted
-                && let Some(main) = main_dir {
-                admitted = lstat(scm, cancel, folder_path(main, dir).join(stack.artefact))
-                    .await?
-                    .is_some_and(|m| m.dir && !m.symlink);
+            if !admitted && let Some(main) = main_dir {
+                admitted = lstat(scm, cancel, folder_path(main, dir).join(stack.artefact)).await?.is_some_and(|m| m.dir && !m.symlink);
             }
             if admitted {
                 found.push(LockfileFolder {
@@ -403,9 +378,7 @@ pub async fn find_lockfile_folders(
             }
         }
     }
-    found.sort_by(|a, b| {
-        a.dir.split('/').count().cmp(&b.dir.split('/').count()).then_with(|| locale_compare(&a.dir, &b.dir))
-    });
+    found.sort_by(|a, b| a.dir.split('/').count().cmp(&b.dir.split('/').count()).then_with(|| locale_compare(&a.dir, &b.dir)));
     Ok(found)
 }
 
@@ -477,13 +450,7 @@ async fn yarn_install_flag(scm: &Scm, cancel: &CancellationToken, tool: &str, cw
 
 /// The install of `entry`; called without `tool` to name it, then with the resolved tool path
 /// for arguments that depend on its version.
-async fn install(
-    scm: &Scm,
-    cancel: &CancellationToken,
-    entry: &LockfileFolder,
-    cwd: &Path,
-    tool: Option<&str>,
-) -> Result<Option<Install>, ScmFailure> {
+async fn install(scm: &Scm, cancel: &CancellationToken, entry: &LockfileFolder, cwd: &Path, tool: Option<&str>) -> Result<Option<Install>, ScmFailure> {
     let plain = |tools: Vec<&'static str>, args: &[&str]| Some(Install { tools, args: strings(args), follow_up: None, env: None });
     let python_env = || Some(PYTHON_ENV.iter().map(|(k, v)| ((*k).to_owned(), v.map(str::to_owned))).collect::<Vec<_>>());
     Ok(match entry.stack {
@@ -503,7 +470,8 @@ async fn install(
                 "poetry" => with_env("poetry", &["install", "--no-root"]),
                 "pipenv" => with_env("pipenv", &["sync"]),
                 _ => {
-                    let venv_python = if cfg!(windows) { cwd.join(".venv").join("Scripts").join("python.exe") } else { cwd.join(".venv").join("bin").join("python") };
+                    let venv_python =
+                        if cfg!(windows) { cwd.join(".venv").join("Scripts").join("python.exe") } else { cwd.join(".venv").join("bin").join("python") };
                     let mut pip = strings(&["-m", "pip", "install"]);
                     for name in &entry.requirements {
                         pip.extend(["-r".to_owned(), name.clone()]);
@@ -520,7 +488,11 @@ async fn install(
         "ruby" => plain(vec!["bundle"], &["install", "--frozen"]),
         "php" => plain(vec!["composer"], &["install", "--no-interaction"]),
         "dotnet" => {
-            if entry.lockfile.is_some() { plain(vec!["dotnet"], &["restore", "--locked-mode"]) } else { plain(vec!["dotnet"], &["restore"]) }
+            if entry.lockfile.is_some() {
+                plain(vec!["dotnet"], &["restore", "--locked-mode"])
+            } else {
+                plain(vec!["dotnet"], &["restore"])
+            }
         }
         "elixir" => plain(vec!["mix"], &["deps.get", "--check-locked"]),
         "dart" => {
@@ -598,7 +570,7 @@ mod tests {
         git(&["add", "-f", "package.json", "yarn.lock"]);
         let scm = Scm::new(crate::testing::TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, dir.path().join("scratch"));
         let cancel = CancellationToken::new();
-        let plan =plan_dependency_setup(
+        let plan = plan_dependency_setup(
             &scm,
             &cancel,
             PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(bin.to_string_lossy().into_owned()) },
@@ -608,7 +580,6 @@ mod tests {
         assert_eq!(plan.commands.len(), 1, "{:?}", plan.notes);
         assert!(plan.commands[0].args.contains(&"--immutable".to_owned()), "{:?}", plan.commands);
     }
-
 
     #[tokio::test]
     async fn folders_come_from_committed_files_and_workspaces_and_links_block_installs() {
@@ -633,11 +604,7 @@ mod tests {
             std::fs::write(file, text).unwrap();
         }
         git(&["add", "-f", "."]);
-        let scm = Scm::new(
-            crate::testing::TestProcesses::shared(),
-            mixdog_rt::testing::tokens().maintenance_io,
-            dir.path().join("scratch"),
-        );
+        let scm = Scm::new(crate::testing::TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, dir.path().join("scratch"));
         let cancel = CancellationToken::new();
         let found = find_lockfile_folders(&scm, &cancel, &repo, None).await.unwrap();
         let dirs: Vec<_> = found.iter().map(|f| (f.dir.as_str(), f.manager)).collect();
@@ -645,33 +612,24 @@ mod tests {
         assert_eq!(dirs, [("", "npm"), ("packages/a", "npm")]);
         assert_eq!(dependency_artefacts(&scm, &cancel, &repo).await.unwrap().len(), 3);
         assert!(linked_artefacts(&scm, &cancel, &repo).await.unwrap().is_empty());
-        let none = plan_dependency_setup(
-            &scm,
-            &cancel,
-            PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(String::new()) },
-        )
-        .await
-        .unwrap();
+        let none =
+            plan_dependency_setup(&scm, &cancel, PlanInput { worktree_dir: repo.clone(), main_dir: None, shared: Vec::new(), path_var: Some(String::new()) })
+                .await
+                .unwrap();
         assert!(none.commands.is_empty());
         assert!(none.notes[0].starts_with("npm is not on PATH; packages/a was not prepared"), "{:?}", none.notes);
     }
 }
 
-
 /// What the first turn still has to do in the worktree folder: the installs and one note per
 /// folder it leaves alone (nothing found, tool not on PATH, an artefact that is a link).
 pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input: PlanInput) -> Result<DependencyPlan, ScmFailure> {
-    let path_var = input.path_var.clone().unwrap_or_else(|| {
-        std::env::var("PATH").or_else(|_| std::env::var("Path")).unwrap_or_default()
-    });
+    let path_var = input.path_var.clone().unwrap_or_else(|| std::env::var("PATH").or_else(|_| std::env::var("Path")).unwrap_or_default());
     let path_env = HashMap::from([("PATH".to_owned(), path_var)]);
     let path_index = Arc::new(PathIndex::new(Some(&path_env)));
     let folders = find_lockfile_folders(scm, cancel, &input.worktree_dir, input.main_dir.as_deref()).await?;
     if folders.is_empty() {
-        return Ok(DependencyPlan {
-            commands: Vec::new(),
-            notes: vec!["No lockfile or dependency manifest found; nothing was installed.".into()],
-        });
+        return Ok(DependencyPlan { commands: Vec::new(), notes: vec!["No lockfile or dependency manifest found; nothing was installed.".into()] });
     }
     let mut plan = DependencyPlan::default();
     // While any artefact is a link nothing is installed.
@@ -714,16 +672,13 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
         let candidates: Vec<&'static str> = named.tools.clone();
         let (lookup_env, lookup_index) = (path_env.clone(), path_index.clone());
         let located = on_lane(scm.lane, cancel, move || {
-            candidates.into_iter().find_map(|candidate| {
-                which(candidate, Some(&lookup_env), Some(&*lookup_index)).map(|found| (candidate, found.to_string_lossy().into_owned()))
-            })
+            candidates
+                .into_iter()
+                .find_map(|candidate| which(candidate, Some(&lookup_env), Some(&*lookup_index)).map(|found| (candidate, found.to_string_lossy().into_owned())))
         })
         .await?;
         let Some((found, tool)) = located else {
-            plan.notes.push(format!(
-                "{first} is not on PATH; {where_} was not prepared (run `{}` there if tests need it).",
-                command_line(first, &named)
-            ));
+            plan.notes.push(format!("{first} is not on PATH; {where_} was not prepared (run `{}` there if tests need it).", command_line(first, &named)));
             continue;
         };
         let Some(spec) = install(scm, cancel, entry, &cwd, Some(&tool)).await? else {

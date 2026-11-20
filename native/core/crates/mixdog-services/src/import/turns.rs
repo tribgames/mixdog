@@ -50,26 +50,14 @@ pub struct Part {
 
 impl Part {
     pub fn text(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            note: false,
-            tool: None,
-            summary: false,
-            command: false,
-        }
+        Self { text: text.into(), note: false, tool: None, summary: false, command: false }
     }
 
     /// A tool call: its name only, never its arguments.
     pub fn tool_note(name: &str) -> Self {
         let clean = mixdog_js::js_words(name).collect::<Vec<_>>().join(" ");
         let clean = if clean.is_empty() { "unknown".to_owned() } else { clean };
-        Self {
-            text: format!("[ran tool: {clean}]"),
-            note: true,
-            tool: Some(clean),
-            summary: false,
-            command: false,
-        }
+        Self { text: format!("[ran tool: {clean}]"), note: true, tool: Some(clean), summary: false, command: false }
     }
 }
 
@@ -125,10 +113,7 @@ pub fn string_or_null(value: Option<&serde_json::Value>) -> Option<String> {
 /// Whole-text match of one XML-style envelope element (`<tag>…</tag>`).
 pub fn is_whole_element(text: &str, tags: &[&str]) -> bool {
     let trimmed = mixdog_js::js_trim(text);
-    tags.iter().any(|tag| {
-        (trimmed.starts_with(&format!("<{tag}>")) || trimmed.starts_with(&format!("<{tag} ")))
-            && trimmed.ends_with(&format!("</{tag}>"))
-    })
+    tags.iter().any(|tag| (trimmed.starts_with(&format!("<{tag}>")) || trimmed.starts_with(&format!("<{tag} "))) && trimmed.ends_with(&format!("</{tag}>")))
 }
 
 /// `[ran tools: shell ×6, Read ×2]`, bounded: names are clipped and tools that do not fit are
@@ -150,10 +135,7 @@ pub fn tool_run_line(tools: &[ToolCount]) -> String {
     let mut shown_count = 0usize;
     for entry in &entries {
         let next = if shown_count > 0 { format!("{body}, {entry}") } else { entry.clone() };
-        let length = utf16_len(&format!(
-            "[ran tools: {next}{}]",
-            omitted_suffix(entries.len() - shown_count - 1)
-        ));
+        let length = utf16_len(&format!("[ran tools: {next}{}]", omitted_suffix(entries.len() - shown_count - 1)));
         if shown_count > 0 && length > TOOL_RUN_LINE_MAX_CHARS {
             break;
         }
@@ -229,11 +211,7 @@ pub fn normalize_turns(raw_turns: &[RawTurn]) -> Vec<Turn> {
         }
         match merged.last_mut() {
             Some(prev) if prev.role == raw.role => prev.parts.extend(parts),
-            _ => merged.push(Merged {
-                role: raw.role,
-                parts,
-                at: raw.at.as_ref().and_then(Stamp::millis),
-            }),
+            _ => merged.push(Merged { role: raw.role, parts, at: raw.at.as_ref().and_then(Stamp::millis) }),
         }
     }
     let mut turns: Vec<Turn> = merged
@@ -241,15 +219,7 @@ pub fn normalize_turns(raw_turns: &[RawTurn]) -> Vec<Turn> {
         .map(|m| {
             let all: Vec<&Part> = m.parts.iter().collect();
             let (text, tool_runs) = join_parts(&all);
-            let mut turn = Turn {
-                role: m.role,
-                text,
-                at: m.at,
-                tool_runs,
-                title_text: None,
-                command_text: None,
-                stub: false,
-            };
+            let mut turn = Turn { role: m.role, text, at: m.at, tool_runs, title_text: None, command_text: None, stub: false };
             // A carried-over compaction summary never names the conversation; a slash command
             // only when no typed prompt does.
             if m.parts.iter().any(|p| p.summary || p.command) {
@@ -267,25 +237,14 @@ pub fn normalize_turns(raw_turns: &[RawTurn]) -> Vec<Turn> {
         let at = turns[0].at;
         turns.insert(
             0,
-            Turn {
-                role: Role::User,
-                text: IMPORTED_USER_STUB_TEXT.to_owned(),
-                at,
-                tool_runs: Vec::new(),
-                title_text: None,
-                command_text: None,
-                stub: true,
-            },
+            Turn { role: Role::User, text: IMPORTED_USER_STUB_TEXT.to_owned(), at, tool_runs: Vec::new(), title_text: None, command_text: None, stub: true },
         );
     }
     turns
 }
 
 fn text_lines(text: &str) -> Vec<String> {
-    text.split('\n')
-        .map(|line| mixdog_js::js_words(line).collect::<Vec<_>>().join(" "))
-        .filter(|line| !line.is_empty())
-        .collect()
+    text.split('\n').map(|line| mixdog_js::js_words(line).collect::<Vec<_>>().join(" ")).filter(|line| !line.is_empty()).collect()
 }
 
 /// First non-empty line of a title text, whitespace-normalized, at most 100 characters.
@@ -307,10 +266,7 @@ pub fn conversation_title(turns: &[Turn]) -> Option<String> {
             let pick = lines.iter().find(|l| *l != IMAGE_OMITTED_TEXT).unwrap_or(&lines[0]);
             title_from_text(pick)
         }
-        None => turns
-            .iter()
-            .find(|t| t.role == Role::User && t.command_text.is_some())
-            .and_then(|t| title_from_text(t.command_text.as_deref()?)),
+        None => turns.iter().find(|t| t.role == Role::User && t.command_text.is_some()).and_then(|t| title_from_text(t.command_text.as_deref()?)),
     }
 }
 
@@ -324,15 +280,7 @@ mod tests {
 
     #[test]
     fn tool_notes_collapse_into_one_run_line() {
-        let turns = normalize_turns(&[raw(
-            Role::User,
-            vec![
-                Part::text("hi"),
-                Part::tool_note("shell"),
-                Part::tool_note("shell"),
-                Part::tool_note("Read"),
-            ],
-        )]);
+        let turns = normalize_turns(&[raw(Role::User, vec![Part::text("hi"), Part::tool_note("shell"), Part::tool_note("shell"), Part::tool_note("Read")])]);
         assert_eq!(turns[0].text, "hi\n\n[ran tools: shell ×2, Read ×1]");
         assert_eq!(turns[0].tool_runs[0].start, 4);
         assert_eq!(turns[0].tool_runs[0].end, utf16_len(&turns[0].text));
@@ -379,7 +327,6 @@ mod tests {
         assert!(utf16_len(&line) <= 400 && line.contains(", +") && line.ends_with(" more]"));
     }
 }
-
 
 impl Stamp {
     pub fn from_json(value: Option<&serde_json::Value>) -> Option<Self> {

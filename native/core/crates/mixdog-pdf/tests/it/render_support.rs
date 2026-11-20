@@ -15,10 +15,7 @@ pub fn pdf(media_box: &str, page_extra: &str, content: &str, resources: &str, ex
     let mut objects: Vec<Vec<u8>> = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [{media_box}] {page_extra} /Contents 4 0 R /Resources << {resources} >> >>"
-        )
-        .into_bytes(),
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [{media_box}] {page_extra} /Contents 4 0 R /Resources << {resources} >> >>").into_bytes(),
         stream("", content.as_bytes()),
     ];
     objects.extend(extra.iter().cloned());

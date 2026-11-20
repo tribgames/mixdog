@@ -101,7 +101,10 @@ async fn an_identity_question_is_answered_from_the_profile_title_and_asks_memory
     let memory = Arc::new(FakeMemory::default());
     let service = service_with(&memory, None, "  Alice  ");
     let answer = ask(&service, json!({ "query": "Who am I" })).await;
-    assert_eq!(answer, "[profile] Current configured user name/identity: Alice. This profile value is authoritative; ignore stale memory rows that say the user's identity is unknown.");
+    assert_eq!(
+        answer,
+        "[profile] Current configured user name/identity: Alice. This profile value is authoritative; ignore stale memory rows that say the user's identity is unknown."
+    );
     assert!(calls(&memory).is_empty());
 }
 
@@ -162,7 +165,10 @@ async fn the_callers_scope_and_raw_and_archive_choices_stand_in_the_scoped_recal
     let service = service_with(&memory, Some(live_session()), "");
     ask(&service, json!({ "query": "harbor", "args": { "projectScope": "proj-a", "includeRaw": false, "includeArchived": false } })).await;
     let scoped = &calls(&memory)[1][1];
-    assert_eq!((scoped["projectScope"].clone(), scoped["includeRaw"].clone(), scoped["includeArchived"].clone()), (json!("proj-a"), json!(false), json!(false)));
+    assert_eq!(
+        (scoped["projectScope"].clone(), scoped["includeRaw"].clone(), scoped["includeArchived"].clone()),
+        (json!("proj-a"), json!(false), json!(false))
+    );
 }
 
 #[tokio::test]
@@ -191,13 +197,19 @@ async fn the_memory_control_call_passes_its_arguments_and_marks_the_thread() {
     let memory = Arc::new(FakeMemory::default());
     let service = service_with(&memory, None, "");
     let reply = service
-        .call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "threadId": "sess_9", "args": { "action": "status" } }), op: None, ctx: CallContext::internal("test") })
+        .call(CoreRequest {
+            method: Method("memory/memoryControl"),
+            params: json!({ "threadId": "sess_9", "args": { "action": "status" } }),
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
         .await
         .expect("answers");
     assert!(matches!(reply, Reply::Value(Value::String(text)) if text == "ingest_session: considered=1 inserted=1"));
     assert_eq!(calls(&memory), [json!(["memory", { "action": "status" }])]);
     assert_eq!(*memory.noted.lock().unwrap(), ["sess_9"]);
-    let bare = service.call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "args": 0 }), op: None, ctx: CallContext::internal("test") }).await;
+    let bare =
+        service.call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "args": 0 }), op: None, ctx: CallContext::internal("test") }).await;
     assert!(bare.is_ok());
     assert_eq!(calls(&memory)[1], json!(["memory", {}]), "arguments that are not truthy are an empty object");
 }
@@ -238,9 +250,8 @@ async fn a_cancelled_memory_control_call_is_cancelled_before_it_reaches_memory()
     let service = service_with(&memory, None, "");
     let cancelled = CallContext::internal("test");
     cancelled.cancel.cancel();
-    let result = service.call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "args": { "action": "status" } }), op: None, ctx: cancelled }).await;
+    let result =
+        service.call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "args": { "action": "status" } }), op: None, ctx: cancelled }).await;
     assert!(result.is_err());
     assert!(calls(&memory).is_empty());
 }
-
-

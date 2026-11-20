@@ -124,7 +124,8 @@ fn quantize_to_palette(rgba: &mut [u8]) {
     // Each box carries its widest channel range, worked out once when the box is made.
     let mut boxes: Vec<(ColourBox, (u8, u32))> = vec![(colours.clone(), range_of(&colours))];
     while boxes.len() < budget {
-        let split = boxes.iter().enumerate().filter(|(_, (boxed, _))| boxed.len() > 1).map(|(at, &(_, range))| (at, range)).max_by_key(|&(_, (range, _))| range);
+        let split =
+            boxes.iter().enumerate().filter(|(_, (boxed, _))| boxed.len() > 1).map(|(at, &(_, range))| (at, range)).max_by_key(|&(_, (range, _))| range);
         let Some((at, (_, shift))) = split else { break };
         let (mut boxed, _) = boxes.swap_remove(at);
         boxed.sort_unstable_by_key(|&(key, _)| channel(key, shift));

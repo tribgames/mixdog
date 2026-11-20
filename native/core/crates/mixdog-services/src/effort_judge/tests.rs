@@ -7,22 +7,17 @@ use std::path::PathBuf;
 
 use mixdog_agent::step_effort::StepResult;
 
+use crate::effort_judge::EffortJudgeModel;
 use crate::effort_judge::ladder::StepLadder;
 use crate::effort_judge::model::{JudgeModel, ModelConfig, OrtRuntime};
-use crate::effort_judge::EffortJudgeModel;
-
-
-
 
 #[test]
 fn a_custom_route_snaps_onto_its_own_levels() {
     use crate::effort_judge::ladder::CustomLadder;
     use mixdog_ai::providers::custom::Protocol;
     use mixdog_ai::providers::custom::reasoning::ReasoningRow;
-    let row = |levels: Option<&[&str]>| ReasoningRow {
-        reasoning_levels: levels.map(|l| l.iter().map(|s| (*s).to_owned()).collect()),
-        ..ReasoningRow::default()
-    };
+    let row =
+        |levels: Option<&[&str]>| ReasoningRow { reasoning_levels: levels.map(|l| l.iter().map(|s| (*s).to_owned()).collect()), ..ReasoningRow::default() };
     let ladder = |levels: Option<&[&str]>| CustomLadder {
         base: "medium".into(),
         row: row(levels),
@@ -45,12 +40,21 @@ fn lane() -> crate::effort_judge::JudgeLanes {
 #[tokio::test(flavor = "multi_thread")]
 async fn step_support_follows_calibration_steps_one_and_is_read_once() {
     let judge_in = |dir: &std::path::Path| {
-        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) }, lane()).expect("model")
+        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) }, lane())
+            .expect("model")
     };
     let dir = tempfile::tempdir().expect("dir");
     // Not installed: no steps.
     assert!(!judge_in(dir.path()).supports_steps().await);
-    for (text, want) in [(r#"{"steps":1}"#, true), (r#"{"steps":1.0}"#, true), (r#"{"steps":0}"#, false), (r#"{"steps":"1"}"#, false), (r#"{"steps":true}"#, false), ("{}", false), ("not json", false)] {
+    for (text, want) in [
+        (r#"{"steps":1}"#, true),
+        (r#"{"steps":1.0}"#, true),
+        (r#"{"steps":0}"#, false),
+        (r#"{"steps":"1"}"#, false),
+        (r#"{"steps":true}"#, false),
+        ("{}", false),
+        ("not json", false),
+    ] {
         std::fs::write(dir.path().join("calibration.json"), text).expect("write");
         assert_eq!(judge_in(dir.path()).supports_steps().await, want, "{text}");
     }
@@ -82,5 +86,3 @@ async fn a_known_library_leaves_the_judge_to_the_installed_files() {
         assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::NotInstalled(_))));
     }
 }
-
-

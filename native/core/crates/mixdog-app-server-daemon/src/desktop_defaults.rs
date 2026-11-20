@@ -14,9 +14,7 @@ use mixdog_core_config::config::Config;
 pub async fn separate(config: &Config, now_ms: i64) -> DefaultsSeparation {
     match config.separate_desktop_defaults(now_ms).await {
         Ok(_) => DefaultsSeparation::default(),
-        Err(error) => {
-            DefaultsSeparation { ok: false, message: Some(error.node_message()) }
-        }
+        Err(error) => DefaultsSeparation { ok: false, message: Some(error.node_message()) },
     }
 }
 

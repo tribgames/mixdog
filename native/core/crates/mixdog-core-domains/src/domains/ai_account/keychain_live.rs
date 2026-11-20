@@ -39,7 +39,8 @@ impl HolderLive {
         let path = self.plugin_data.clone();
         let job = LaneToken::submit_wait(self.io, &CancellationToken::new(), move |_| mixdog_secrets::unsafe_store(&path)).await;
         if let Ok(job) = job
-            && let Ok(found) = job.await {
+            && let Ok(found) = job.await
+        {
             self.tracker.set_unsafe_store(found);
         }
     }

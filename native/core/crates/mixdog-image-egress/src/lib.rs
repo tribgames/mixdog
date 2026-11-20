@@ -14,7 +14,7 @@ pub use decide::{Choice, ImageFacts, Pointer, RenditionFacts, decide_local, deci
 pub use manifest::{Manifest, Outcome, Rendition};
 pub use origin::{ImageIntent, ImageSource, Origin, Role, SourceForm, StoredImageId};
 pub use policy::{Column, ImageKind, InputImagePolicy, Limits, RouteKey};
-pub use prepared::{Body, BatchBuilder, Plan, PreparedBatch, PreparedImage};
+pub use prepared::{BatchBuilder, Body, Plan, PreparedBatch, PreparedImage};
 pub use refusal::{NotSent, Reason, RecoveryAction, Refusal};
 
 #[cfg(test)]

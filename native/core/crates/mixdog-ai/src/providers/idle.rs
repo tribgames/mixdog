@@ -56,10 +56,7 @@ mod tests {
 
     #[test]
     fn the_windows_read_their_node_variables() {
-        let get = env(&[
-            ("MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS", "45000"),
-            ("MIXDOG_PROVIDER_WS_OUTPUT_IDLE_TIMEOUT_MS", "20000"),
-        ]);
+        let get = env(&[("MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS", "45000"), ("MIXDOG_PROVIDER_WS_OUTPUT_IDLE_TIMEOUT_MS", "20000")]);
         assert_eq!(policy::sse_idle_ms(&get), Some(45_000.0));
         assert_eq!(policy::semantic_idle_ms(&get), Some(45_000.0), "the semantic window falls back to the SSE variable");
         assert_eq!(policy::ws_semantic_idle_ms(&get), Some(20_000.0));
@@ -96,7 +93,6 @@ pub(crate) mod testing {
             Box::new(Self(items.iter().map(|(secs, chunk)| (Duration::from_secs(*secs), *chunk)).collect()))
         }
     }
-
 
     #[async_trait]
     impl BodyStream for Timetable {

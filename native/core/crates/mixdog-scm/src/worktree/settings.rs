@@ -63,22 +63,17 @@ fn valid_prefix(value: &str) -> bool {
         && !value.to_lowercase().contains(".lock/")
         && body.split('/').all(|part| {
             let mut chars = part.chars();
-            chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-                && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            chars.next().is_some_and(|c| c.is_ascii_alphanumeric()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
         })
 }
 
 /// Why `value` cannot be stored for `key`, or `None`.
 fn field_error(key: &str, value: &Value) -> Option<String> {
     let non_negative = || value.as_u64().is_none().then(|| "must be a non-negative integer".to_owned());
-    let bounded = |limit: u64| {
-        (!value.as_u64().is_some_and(|n| n <= limit)).then(|| format!("must be an integer from 0 to {limit}"))
-    };
+    let bounded = |limit: u64| (!value.as_u64().is_some_and(|n| n <= limit)).then(|| format!("must be an integer from 0 to {limit}"));
     match key {
-        "newTaskDefault" => (!matches!(value.as_str(), Some("branch" | "worktree")))
-            .then(|| "must be one of branch, worktree".to_owned()),
-        "branchPrefix" => (!value.as_str().is_some_and(valid_prefix))
-            .then(|| "must be empty or a ref path ending with \"/\", e.g. \"mixdog/\"".to_owned()),
+        "newTaskDefault" => (!matches!(value.as_str(), Some("branch" | "worktree"))).then(|| "must be one of branch, worktree".to_owned()),
+        "branchPrefix" => (!value.as_str().is_some_and(valid_prefix)).then(|| "must be empty or a ref path ending with \"/\", e.g. \"mixdog/\"".to_owned()),
         "sizeWarnBytes" => non_negative(),
         "maxWorktrees" => bounded(MAX_WORKTREES_LIMIT),
         "unusedDays" => bounded(UNUSED_DAYS_LIMIT),
@@ -117,10 +112,7 @@ pub fn normalize(stored: &Value) -> WorktreeSettings {
 
 /// Applies a user patch strictly: unknown keys and invalid values are refused.
 pub fn apply_patch(current: &Value, patch: &Value) -> Result<WorktreeSettings, ScmFailure> {
-    let map = patch
-        .as_object()
-        .filter(|map| !map.is_empty())
-        .ok_or_else(|| ScmFailure::invalid("worktree", "at least one setting"))?;
+    let map = patch.as_object().filter(|map| !map.is_empty()).ok_or_else(|| ScmFailure::invalid("worktree", "at least one setting"))?;
     for (key, value) in map {
         if let Some(error) = field_error(key, value) {
             return Err(ScmFailure::invalid(format!("worktree.{key}"), error));

@@ -10,7 +10,6 @@ use mixdog_relay::logline::{self, LoopDelay, SocketBuffer, Stream};
 use mixdog_relay::rate_limit::RateLimiter;
 use mixdog_relay::{js, tools};
 
-
 // ---- js.rs ----
 
 #[test]
@@ -175,7 +174,6 @@ fn every_close_a_peer_can_receive_has_its_published_code_and_reason() {
     assert_eq!(codes::DESKTOP_REJECTED_CLIENT_REASON_MAX, 120);
 }
 
-
 #[test]
 fn the_pc_offline_close_is_its_own_code_and_never_a_pairing_revoking_one() {
     assert_eq!(codes::DESKTOP_OFFLINE, 4002);
@@ -272,18 +270,9 @@ fn log_lines_keep_their_text_and_stream() {
     assert_eq!(logline::label_failed("phone frame", "boom").text, "[relay] phone frame failed: boom");
     let line = logline::phone_upgrade_refused(403, "revoked", "12345678-abcd");
     assert_eq!((line.stream, line.text.as_str()), (Stream::Out, "[relay] phone upgrade refused status=403 cause=revoked device=12345678"));
-    assert_eq!(
-        logline::phone_upgrade_refused_desktop_offline("abcdef0123").text,
-        "[relay] phone upgrade refused cause=desktop-offline device=abcdef01"
-    );
-    assert_eq!(
-        logline::slow_phone_handshake(3, logline::HEARD_LIVE).text,
-        "[relay] slow phone handshake turn=3; desktop leg is live, leaving the leg up"
-    );
-    assert_eq!(
-        logline::desktop_leg_missed_handshake_turn(3).text,
-        "[relay] desktop leg missed a phone handshake turn=3 and its probe; closing it"
-    );
+    assert_eq!(logline::phone_upgrade_refused_desktop_offline("abcdef0123").text, "[relay] phone upgrade refused cause=desktop-offline device=abcdef01");
+    assert_eq!(logline::slow_phone_handshake(3, logline::HEARD_LIVE).text, "[relay] slow phone handshake turn=3; desktop leg is live, leaving the leg up");
+    assert_eq!(logline::desktop_leg_missed_handshake_turn(3).text, "[relay] desktop leg missed a phone handshake turn=3 and its probe; closing it");
     let long_reason = "r".repeat(80);
     assert_eq!(
         logline::phone_leg_closed("0123456789", 4003, &long_reason, 1500).text,
@@ -316,7 +305,6 @@ fn the_sockets_line_lists_the_largest_and_sums_the_rest() {
     assert!(text.contains("buffered phone:13=13B phone:12=12B"), "{text}");
     assert!(text.contains(" +2 more=1B loop-p50="), "{text}");
 }
-
 
 // ---- the operator tools ----
 

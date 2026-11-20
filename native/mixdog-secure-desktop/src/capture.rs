@@ -18,15 +18,12 @@
 
 use std::io;
 
-use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateDCW, DeleteDC, DeleteObject,
-    GetDIBits, SelectObject, BITMAPINFO, BITMAPINFOHEADER, CAPTUREBLT, DIB_RGB_COLORS, HGDIOBJ,
-    ROP_CODE, SRCCOPY,
+    BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap, CreateCompatibleDC, CreateDCW, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDIBits,
+    HGDIOBJ, ROP_CODE, SRCCOPY, SelectObject,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN};
+use windows::core::PCWSTR;
 
 use crate::winutil::wide;
 
@@ -63,34 +60,20 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
 
         let display = wide("DISPLAY");
-        let screen_dc = CreateDCW(
-            PCWSTR(display.as_ptr()),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            None,
-        );
+        let screen_dc = CreateDCW(PCWSTR(display.as_ptr()), PCWSTR::null(), PCWSTR::null(), None);
         if screen_dc.is_invalid() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "CreateDCW(DISPLAY) failed",
-            ));
+            return Err(io::Error::new(io::ErrorKind::Other, "CreateDCW(DISPLAY) failed"));
         }
         let mem_dc = CreateCompatibleDC(Some(screen_dc));
         if mem_dc.is_invalid() {
             let _ = DeleteDC(screen_dc);
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "CreateCompatibleDC failed",
-            ));
+            return Err(io::Error::new(io::ErrorKind::Other, "CreateCompatibleDC failed"));
         }
         let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
         if bitmap.is_invalid() {
             let _ = DeleteDC(mem_dc);
             let _ = DeleteDC(screen_dc);
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "CreateCompatibleBitmap failed",
-            ));
+            return Err(io::Error::new(io::ErrorKind::Other, "CreateCompatibleBitmap failed"));
         }
         let previous = SelectObject(mem_dc, HGDIOBJ(bitmap.0));
 
@@ -99,17 +82,7 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
         // without it, layered UI such as parts of the sign-in and consent
         // screens is missing from the frame. Known cost: on some systems the
         // mouse cursor flickers while CAPTUREBLT copies are taken.
-        let blt = BitBlt(
-            mem_dc,
-            0,
-            0,
-            width,
-            height,
-            Some(screen_dc),
-            origin_x,
-            origin_y,
-            ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
-        );
+        let blt = BitBlt(mem_dc, 0, 0, width, height, Some(screen_dc), origin_x, origin_y, ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0));
 
         let stride = (width as u32) * 4;
         let mut pixels = vec![0u8; stride as usize * height as usize];
@@ -127,15 +100,7 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
             },
             ..Default::default()
         };
-        let scanlines = GetDIBits(
-            mem_dc,
-            bitmap,
-            0,
-            height as u32,
-            Some(pixels.as_mut_ptr() as *mut _),
-            &mut info,
-            DIB_RGB_COLORS,
-        );
+        let scanlines = GetDIBits(mem_dc, bitmap, 0, height as u32, Some(pixels.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
 
         // Restore and release every GDI object before evaluating success.
         SelectObject(mem_dc, previous);
@@ -147,19 +112,9 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
             return Err(io::Error::new(io::ErrorKind::Other, "BitBlt failed"));
         }
         if scanlines == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "GetDIBits returned no scanlines",
-            ));
+            return Err(io::Error::new(io::ErrorKind::Other, "GetDIBits returned no scanlines"));
         }
 
-        Ok(Frame {
-            width: width as u32,
-            height: height as u32,
-            stride,
-            origin_x,
-            origin_y,
-            pixels,
-        })
+        Ok(Frame { width: width as u32, height: height as u32, stride, origin_x, origin_y, pixels })
     }
 }

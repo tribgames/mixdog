@@ -175,7 +175,8 @@ fn payload_fix_kind(row: &Value, category: &str) -> &'static str {
     if category.starts_with("format") {
         return "safe";
     }
-    let tags: Vec<String> = row.get("tags").and_then(Value::as_array).map(|t| t.iter().filter_map(|v| v.as_str()).map(str::to_lowercase).collect()).unwrap_or_default();
+    let tags: Vec<String> =
+        row.get("tags").and_then(Value::as_array).map(|t| t.iter().filter_map(|v| v.as_str()).map(str::to_lowercase).collect()).unwrap_or_default();
     if tags.iter().any(|t| t == "unsafe") {
         "unsafe"
     } else if tags.iter().any(|t| t == "fixable") {
@@ -219,7 +220,14 @@ pub fn apply_biome_fix_kinds(diagnostics: &mut [Diagnostic], kinds: &HashMap<Str
 
 fn rows_to_result(rows: &[Value], cwd: &std::path::Path, truncated: bool) -> Parsed {
     let (mut diagnostics, mut changed) = (Vec::new(), Vec::new());
-    let category_of = |row: &Value| row.get("category").and_then(Value::as_str).or_else(|| row.pointer("/code/value").and_then(Value::as_str)).or_else(|| row.get("code").and_then(Value::as_str)).unwrap_or("").to_owned();
+    let category_of = |row: &Value| {
+        row.get("category")
+            .and_then(Value::as_str)
+            .or_else(|| row.pointer("/code/value").and_then(Value::as_str))
+            .or_else(|| row.get("code").and_then(Value::as_str))
+            .unwrap_or("")
+            .to_owned()
+    };
     // The formatter refuses a file that does not parse and says so as a `format` row: nothing
     // would be rewritten there, so it is neither a file to format nor a fixable finding.
     let unparsable: std::collections::HashSet<String> = rows.iter().filter(|r| category_of(r) == "parse").map(|r| location_of(r, cwd).0).collect();
@@ -282,7 +290,8 @@ pub fn parse_biome_json(stdout: &str, cwd: &std::path::Path, truncated_input: bo
         if doc.pointer("/summary/changed").or_else(|| doc.pointer("/summary/unchanged")).is_some() {
             // A file biome could not decode it counts as unchanged and as skipped; one that is not
             // there, or that its configuration leaves out, it does not count at all.
-            *processed.get_or_insert(0) += number(doc.pointer("/summary/changed")) + number(doc.pointer("/summary/unchanged")) - number(doc.pointer("/summary/skipped"));
+            *processed.get_or_insert(0) +=
+                number(doc.pointer("/summary/changed")) + number(doc.pointer("/summary/unchanged")) - number(doc.pointer("/summary/skipped"));
         }
     }
     Parsed { processed, ..rows_to_result(&rows, cwd, truncated_input || parse_truncated || omitted) }
@@ -304,7 +313,11 @@ pub fn biome_counts(diagnostics: &[Diagnostic], changed_files: &[String]) -> Val
     let (mut by_sev, mut by_fix) = ([0i64; 3], [0i64; 5]);
     let mut by_rule: std::collections::BTreeMap<String, i64> = Default::default();
     for f in diagnostics {
-        by_sev[match f.severity.as_str() { "error" => 0, "warning" => 1, _ => 2 }] += 1;
+        by_sev[match f.severity.as_str() {
+            "error" => 0,
+            "warning" => 1,
+            _ => 2,
+        }] += 1;
         let kind = match f.fix_kind.as_deref() {
             Some("unsafe") => 1,
             Some("safe") => 0,
@@ -312,7 +325,11 @@ pub fn biome_counts(diagnostics: &[Diagnostic], changed_files: &[String]) -> Val
             _ => 2,
         };
         by_fix[kind] += 1;
-        if kind == 0 { by_fix[3] += 1 } else { by_fix[4] += 1 }
+        if kind == 0 {
+            by_fix[3] += 1
+        } else {
+            by_fix[4] += 1
+        }
         *by_rule.entry(if f.code.is_empty() { "unknown".into() } else { f.code.clone() }).or_default() += 1;
     }
     json!({
@@ -327,7 +344,10 @@ pub fn biome_counts(diagnostics: &[Diagnostic], changed_files: &[String]) -> Val
 pub fn biome_stderr_tail(stderr: &str) -> String {
     static BANNERS: OnceLock<Vec<JsRegex>> = OnceLock::new();
     let banners = BANNERS.get_or_init(|| {
-        [r"^The `json` and `json-pretty` reporters are experimental", r"^\w+ ━+$", r"^[×✖]\s+Some errors were emitted while running checks\.?$"].iter().map(|p| JsRegex::new_static(p, "")).collect()
+        [r"^The `json` and `json-pretty` reporters are experimental", r"^\w+ ━+$", r"^[×✖]\s+Some errors were emitted while running checks\.?$"]
+            .iter()
+            .map(|p| JsRegex::new_static(p, ""))
+            .collect()
     });
     let kept: Vec<&str> = stderr.lines().filter(|l| !js_trim(l).is_empty() && !banners.iter().any(|b| b.is_match(js_trim(l)))).collect();
     tail600(&kept.join("\n"))
@@ -377,7 +397,12 @@ fn ignored_paths(stderr: &str) -> Vec<String> {
 }
 
 /// `biome check` over `files`, a group at a time, with `line_ending` added for the files that need it said.
-fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn: usize, line_ending: &'a [&'a str]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Chunks> + Send + 'a>> {
+fn run_json_chunks<'a>(
+    req: &'a RunRequest,
+    files: &'a [String],
+    files_per_spawn: usize,
+    line_ending: &'a [&'a str],
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Chunks> + Send + 'a>> {
     Box::pin(async move {
         let mut out = Chunks::default();
         for chunk in chunk_files(files, files_per_spawn) {
@@ -385,7 +410,13 @@ fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn
             if out.failure.is_some() {
                 break;
             }
-            let args: Vec<String> = req.args.iter().cloned().chain(BIOME_CHECK_ARGS.iter().chain(line_ending).map(|flag| (*flag).to_owned())).chain(chunk.iter().map(|file| path_arg(file))).collect();
+            let args: Vec<String> = req
+                .args
+                .iter()
+                .cloned()
+                .chain(BIOME_CHECK_ARGS.iter().chain(line_ending).map(|flag| (*flag).to_owned()))
+                .chain(chunk.iter().map(|file| path_arg(file)))
+                .collect();
             let result = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
             out.stderr.push_str(&result.stderr);
             if let Some(why) = stopped(req, "biome", &result) {
@@ -459,7 +490,10 @@ mod tests {
         apply_biome_fix_kinds(&mut diags, &HashMap::from([("noExplicitAny".to_owned(), "none".to_owned())]));
         assert_eq!(diags[2].fix_kind.as_deref(), Some("manual"));
         let counts = biome_counts(&diags, &p.changed_files);
-        assert_eq!((counts["bySeverity"]["error"].clone(), counts["byFixability"]["fixable"].clone(), counts["filesToFormat"].clone()), (json!(2), json!(2), json!(1)));
+        assert_eq!(
+            (counts["bySeverity"]["error"].clone(), counts["byFixability"]["fixable"].clone(), counts["filesToFormat"].clone()),
+            (json!(2), json!(2), json!(1))
+        );
     }
 
     #[test]
@@ -480,7 +514,12 @@ mod tests {
         assert_eq!(parse_explain_fix("x\n- Fix: Unsafe\n"), "unsafe");
         assert_eq!(parse_explain_fix("- Fix: safe"), "safe");
         assert_eq!(parse_explain_fix("No fix available."), "none");
-        assert_eq!(biome_stderr_tail("The `json` and `json-pretty` reporters are experimental\ncheck ━━━━\n× Some errors were emitted while running checks.\nreal problem"), "real problem");
+        assert_eq!(
+            biome_stderr_tail(
+                "The `json` and `json-pretty` reporters are experimental\ncheck ━━━━\n× Some errors were emitted while running checks.\nreal problem"
+            ),
+            "real problem"
+        );
         assert_eq!(rule_name("lint/style/useConst"), "useConst");
         assert_eq!(rule_name("format"), "");
     }
@@ -506,10 +545,18 @@ mod tests {
 
     struct Splitting(std::sync::Mutex<Vec<usize>>);
 
-
     #[async_trait]
     impl Spawn for Reply {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&tokio_util::sync::CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> crate::tidy::process::ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: std::time::Duration,
+            _: Option<&tokio_util::sync::CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> crate::tidy::process::ProcessResult {
             (self.0)(args)
         }
     }
@@ -545,7 +592,14 @@ mod tests {
             let rows: Vec<Value> = files.iter().filter(|f| f.as_str() == "unreadable.ts").map(|f| json!({"category": "internalError/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": f}})).collect();
             let stdout = json!({"summary": {"changed": 0, "unchanged": processed}, "diagnostics": rows}).to_string();
             // Biome names the paths only when nothing at all was processed; it names unreadable ones too.
-            let stderr = if processed == 0 { format!("  × No files were processed in the specified paths.\n  \n  i These paths were provided but ignored:\n  \n{}", files.iter().map(|f| format!("  - {f}\n")).collect::<String>()) } else { String::new() };
+            let stderr = if processed == 0 {
+                format!(
+                    "  × No files were processed in the specified paths.\n  \n  i These paths were provided but ignored:\n  \n{}",
+                    files.iter().map(|f| format!("  - {f}\n")).collect::<String>()
+                )
+            } else {
+                String::new()
+            };
             ProcessResult { stdout, stderr, code: i32::from(processed == 0), ..Default::default() }
         };
         let mixed = Biome.check(&request(&["a.ts", "ignored.ts", "b.ts"], by_config).1).await;
@@ -556,7 +610,10 @@ mod tests {
         // for the reason that error gives, with the diagnostic kept.
         let unreadable = Biome.check(&request(&["a.ts", "unreadable.ts"], by_config).1).await;
         assert_eq!(unreadable.unprocessed, [("unreadable.ts".to_owned(), "stream did not contain valid UTF-8".to_owned())]);
-        assert_eq!((unreadable.files_checked, unreadable.ignored.is_empty(), unreadable.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()), (Some(1), true, vec!["internalError/io"]));
+        assert_eq!(
+            (unreadable.files_checked, unreadable.ignored.is_empty(), unreadable.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()),
+            (Some(1), true, vec!["internalError/io"])
+        );
         // A file tidy itself cannot read is not handed to Biome.
         let (dir, mut gone) = request(&["a.ts"], by_config);
         gone.files.push("gone.ts".to_owned());
@@ -564,13 +621,31 @@ mod tests {
         assert_eq!((missing.files_checked, missing.unprocessed.iter().map(|(file, _)| file.as_str()).collect::<Vec<_>>()), (Some(1), vec!["gone.ts"]));
         drop(dir);
         // An invalid biome.json: exit 1, no report at all.
-        let rejected = Biome.check(&request(&["a.ts"], |_| ProcessResult { code: 1, stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(), ..Default::default() }).1).await;
+        let rejected = Biome
+            .check(
+                &request(&["a.ts"], |_| ProcessResult {
+                    code: 1,
+                    stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(),
+                    ..Default::default()
+                })
+                .1,
+            )
+            .await;
         assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
         assert!(rejected.files_checked.is_none() && rejected.diagnostics.is_empty());
     }
     #[async_trait]
     impl Spawn for Splitting {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&tokio_util::sync::CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> crate::tidy::process::ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: std::time::Duration,
+            _: Option<&tokio_util::sync::CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> crate::tidy::process::ProcessResult {
             if args.first().map(String::as_str) == Some("explain") {
                 return crate::tidy::process::ProcessResult { stdout: "- Fix: safe".into(), ..Default::default() };
             }
@@ -578,9 +653,14 @@ mod tests {
             self.0.lock().unwrap().push(files.len());
             // More than two files overflows the capture; each file alone reports one diagnostic.
             if files.len() > 2 {
-                return crate::tidy::process::ProcessResult { stdout: "{\"diagnostics\":[{\"category\":\"format\"".into(), truncated: true, ..Default::default() };
+                return crate::tidy::process::ProcessResult {
+                    stdout: "{\"diagnostics\":[{\"category\":\"format\"".into(),
+                    truncated: true,
+                    ..Default::default()
+                };
             }
-            let rows: Vec<Value> = files.iter().map(|f| json!({"category": "format", "severity": "error", "description": "d", "location": {"path": f}})).collect();
+            let rows: Vec<Value> =
+                files.iter().map(|f| json!({"category": "format", "severity": "error", "description": "d", "location": {"path": f}})).collect();
             crate::tidy::process::ProcessResult { stdout: json!({"diagnostics": rows}).to_string(), ..Default::default() }
         }
     }
@@ -590,7 +670,12 @@ mod tests {
         // Findings remain after the fixes: exit 1, with a report that counts the one file processed.
         let remaining = |args: &[String]| {
             assert_eq!(&args[..5], ["check", "--write", "--reporter=json", "--max-diagnostics=none", "--line-ending=lf"]);
-            ProcessResult { code: 1, stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": []}).to_string(), stderr: "× Some errors were emitted while applying fixes.".into(), ..Default::default() }
+            ProcessResult {
+                code: 1,
+                stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": []}).to_string(),
+                stderr: "× Some errors were emitted while applying fixes.".into(),
+                ..Default::default()
+            }
         };
         let applied = Biome.fix(&request(&["a.ts"], remaining).1).await;
         assert_eq!((applied.error, applied.unprocessed.len(), applied.files_checked), (None, 0, Some(1)));
@@ -598,7 +683,16 @@ mod tests {
         let partial = Biome.fix(&request(&["a.ts", "b.ts"], remaining).1).await;
         assert_eq!((partial.files_checked, partial.unprocessed.len()), (Some(0), 2));
         assert!(partial.unprocessed[0].1.contains("biome processed 1 of the 2 files"), "{:?}", partial.unprocessed);
-        let rejected = Biome.fix(&request(&["a.ts", "b.ts"], |_| ProcessResult { code: 1, stderr: "biome.json:1:2 deserialize\n  × Found an unknown key `bogus`.".into(), ..Default::default() }).1).await;
+        let rejected = Biome
+            .fix(
+                &request(&["a.ts", "b.ts"], |_| ProcessResult {
+                    code: 1,
+                    stderr: "biome.json:1:2 deserialize\n  × Found an unknown key `bogus`.".into(),
+                    ..Default::default()
+                })
+                .1,
+            )
+            .await;
         assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
         // Biome exits 0 after writing one file and failing to open the other, as 2.5.13 does: the
         // file it names is unprocessed for the reason it gives, and the other is written.
@@ -607,7 +701,10 @@ mod tests {
             ProcessResult { stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": rows}).to_string(), ..Default::default() }
         };
         let skipped = Biome.fix(&request(&["a.ts", "b.ts"], one_gone).1).await;
-        assert_eq!((skipped.files_checked, skipped.unprocessed, skipped.error), (Some(1), vec![("b.ts".to_owned(), "The system cannot find the file specified.".to_owned())], None));
+        assert_eq!(
+            (skipped.files_checked, skipped.unprocessed, skipped.error),
+            (Some(1), vec![("b.ts".to_owned(), "The system cannot find the file specified.".to_owned())], None)
+        );
         // A file it cannot decode it counts as unchanged and as skipped (2.6.8 names it under `fs/io`):
         // with a.ts written, the two account for a group of two, and not for one of three, whose third
         // file (one its configuration left out) the report does not name.
@@ -619,7 +716,11 @@ mod tests {
         assert_eq!((two.files_checked, two.unprocessed), (Some(1), vec![("b.ts".to_owned(), "stream did not contain valid UTF-8".to_owned())]));
         let three = Biome.fix(&request(&["a.ts", "b.ts", "c.ts"], undecodable).1).await;
         assert_eq!((three.files_checked, three.unprocessed.len()), (Some(0), 3));
-        assert!(three.unprocessed[0].1.contains("biome processed 1 of the 3 files") && three.unprocessed[2].1 == three.unprocessed[0].1, "{:?}", three.unprocessed);
+        assert!(
+            three.unprocessed[0].1.contains("biome processed 1 of the 3 files") && three.unprocessed[2].1 == three.unprocessed[0].1,
+            "{:?}",
+            three.unprocessed
+        );
         assert_eq!(three.unprocessed[1], ("b.ts".to_owned(), "stream did not contain valid UTF-8".to_owned()));
     }
 
@@ -636,7 +737,6 @@ mod tests {
         assert_eq!(spawn.0.lock().unwrap()[0], 5, "the whole set is tried first");
     }
 }
-
 
 const EXPLAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 #[async_trait]
@@ -679,7 +779,8 @@ impl Runner for Biome {
         apply_biome_fix_kinds(&mut parsed.diagnostics, &kinds);
         // Biome's reason for a file it did not process is what it reported against it.
         let reason = |file: &String| {
-            let against = could_not_read(&parsed.diagnostics, file).or_else(|| parsed.diagnostics.iter().find(|d| d.file == normalize_path(file) && d.severity == "error"));
+            let against = could_not_read(&parsed.diagnostics, file)
+                .or_else(|| parsed.diagnostics.iter().find(|d| d.file == normalize_path(file) && d.severity == "error"));
             against.map_or_else(|| "biome did not process it and gave no reason".to_owned(), |d| d.message.clone())
         };
         let unprocessed: Vec<(String, String)> = result.unexplained.iter().map(|file| (file.clone(), reason(file))).chain(files.unreadable).collect();
@@ -713,7 +814,8 @@ impl Runner for Biome {
 async fn write(req: &RunRequest) -> Pass {
     let wrote = |r: &crate::tidy::process::ProcessResult, files: &[String]| {
         let report = parse_biome_json(&r.stdout, &req.cwd, r.truncated);
-        let left_out: Vec<(String, String)> = files.iter().filter_map(|file| could_not_read(&report.diagnostics, file).map(|d| (file.clone(), d.message.clone()))).collect();
+        let left_out: Vec<(String, String)> =
+            files.iter().filter_map(|file| could_not_read(&report.diagnostics, file).map(|d| (file.clone(), d.message.clone()))).collect();
         match report.processed {
             Some(n) if n + left_out.len() as i64 >= files.len() as i64 => Batch::Partly(Findings::default(), left_out),
             // Which of the others it left out it does not say: each file keeps the reason biome
@@ -728,6 +830,8 @@ async fn write(req: &RunRequest) -> Pass {
             None => Batch::Refused(said(r)),
         }
     };
-    let call = |line_ending: &[&str], files: &[String]| Invocation::over(req, &[&["check", "--write", "--reporter=json", "--max-diagnostics=none"][..], line_ending].concat(), files);
+    let call = |line_ending: &[&str], files: &[String]| {
+        Invocation::over(req, &[&["check", "--write", "--reporter=json", "--max-diagnostics=none"][..], line_ending].concat(), files)
+    };
     run_by_line_ending(req, "biome", Command::Writes, &BIOME_LINE_ENDINGS, &call, &wrote).await
 }

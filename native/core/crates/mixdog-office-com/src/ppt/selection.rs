@@ -46,12 +46,8 @@ pub fn snapshot_selection(document: &Obj) -> Result<Value> {
         return Ok(unavailable("PowerPoint has no active window."));
     }
     let selection = window.member("Selection")?;
-    let slide_index = window
-        .member("View")
-        .and_then(|view| view.member("Slide"))
-        .and_then(|slide| slide.member("SlideIndex"))
-        .and_then(|index| int_of(&index))
-        .unwrap_or(0);
+    let slide_index =
+        window.member("View").and_then(|view| view.member("Slide")).and_then(|slide| slide.member("SlideIndex")).and_then(|index| int_of(&index)).unwrap_or(0);
     let selection_type = int_of(&selection.member("Type")?)?;
     let paths: Vec<String> = if matches!(selection_type, 2 | 3) && slide_index > 0 {
         selected_shape_paths(&document, &selection, slide_index)?

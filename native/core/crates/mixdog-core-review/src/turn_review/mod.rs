@@ -25,40 +25,40 @@ pub mod ports;
 mod reads;
 mod review_diff;
 mod scm_ports;
-mod shadow;
-mod snapshot;
 pub mod seams;
 mod service;
 mod session_review;
+mod shadow;
+mod snapshot;
 mod store;
 mod tracker;
 mod undo;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod store_tests;
-#[cfg(test)]
 mod git_limit_tests;
 #[cfg(test)]
 mod review_rules_tests;
 #[cfg(test)]
-mod turn_flow_tests;
-#[cfg(test)]
 mod signal_tests;
+#[cfg(test)]
+mod store_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod turn_flow_tests;
 
 pub use call_diff::call_ui_diff;
 pub use disk::LaneDisk;
 pub use scm_ports::ScmGit;
-pub use shadow::ShadowRepos;
 pub use scm_ports::ScmWorktrees;
 pub use seams::AgentTurnReviews;
 pub use seams::ThreadCwd;
 pub use seams::ToolReviewRecorder;
 pub use service::Config;
 pub use service::TurnReview;
+pub use shadow::ShadowRepos;
 pub use store::Store;
 #[cfg(test)]
 mod diff_feature_tests;

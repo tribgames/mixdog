@@ -12,8 +12,8 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 
 use mixdog_rt::CancellationToken;
-use mixdog_rt::LaneToken;
 use mixdog_rt::InLane;
+use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use mixdog_rt::TaskClass;
 use mixdog_statefile::Opts;
@@ -99,9 +99,7 @@ impl ToolEventsLog {
     /// stored `header` is `existing`, landed at `closed_at_ms`. Called once the tombstone write
     /// was acknowledged: the line is stamped now, its `lifeMs` ends at the close.
     pub fn session_closed(&self, id: &str, header: &Header, reason: &str, closed_at_ms: i64) {
-        let text = |key: &str| {
-            header.get(key).and_then(Value::as_str).filter(|value| !value.is_empty()).unwrap_or("-").to_owned()
-        };
+        let text = |key: &str| header.get(key).and_then(Value::as_str).filter(|value| !value.is_empty()).unwrap_or("-").to_owned();
         let created = header.get("createdAt").and_then(Value::as_f64).filter(|created| *created > 0.0);
         let life_ms = created.map_or(0.0, |created| closed_at_ms as f64 - created);
         let ts = mixdog_agent::agent_tool::stamp::iso_from_ms(self.clock.now_ms());
@@ -236,6 +234,4 @@ mod tests {
         assert!(text.starts_with(&"x".repeat(99)), "starts on a whole line");
         assert!(text.ends_with("lifeMs=0 id=sess_a\n"));
     }
-
-
 }

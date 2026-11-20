@@ -14,8 +14,8 @@ use mixdog_relay::legs::watchdog::HandshakeTiming;
 use mixdog_relay::net::Server;
 use mixdog_relay::pairing::Pairing;
 use mixdog_relay::pairing::claims::{
-    APPROVED_CLAIM_RETAIN_MS, CLAIM_TTL_MS, Claim, ClaimStatus, Claims, EXPIRED_CLAIM_RETAIN_MS, MAX_PENDING_CLAIMS,
-    MAX_PENDING_CLAIMS_PER_DEVICE, MAX_PENDING_CLAIMS_PER_SOURCE,
+    APPROVED_CLAIM_RETAIN_MS, CLAIM_TTL_MS, Claim, ClaimStatus, Claims, EXPIRED_CLAIM_RETAIN_MS, MAX_PENDING_CLAIMS, MAX_PENDING_CLAIMS_PER_DEVICE,
+    MAX_PENDING_CLAIMS_PER_SOURCE,
 };
 use mixdog_relay::rate_limit::RateLimiter;
 use mixdog_relay::store::{ClientProfile, DeviceStore};
@@ -65,11 +65,7 @@ struct Leg {
 impl Leg {
     fn frames_of(&self, kind: &str) -> Vec<Value> {
         let texts = self.texts.lock().unwrap().clone();
-        texts
-            .iter()
-            .filter_map(|text| mixdog_relay::js::parse(text).ok())
-            .filter(|frame| frame.get("type").and_then(Value::as_str) == Some(kind))
-            .collect()
+        texts.iter().filter_map(|text| mixdog_relay::js::parse(text).ok()).filter(|frame| frame.get("type").and_then(Value::as_str) == Some(kind)).collect()
     }
 }
 
@@ -205,7 +201,6 @@ async fn issue_code(rig: &Rig) -> String {
     assert_eq!(last["ok"], json!(true));
     last["code"].as_str().expect("a code").to_owned()
 }
-
 
 #[test]
 fn claim_get_for_an_id_this_relay_does_not_hold_is_unknown_not_expired_or_404() {

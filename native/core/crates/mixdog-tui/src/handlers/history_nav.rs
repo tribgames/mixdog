@@ -41,13 +41,7 @@ pub struct NavOutcome {
 }
 
 /// `navigatePromptHistory`: entries equal to the current text are skipped so Up/Down always moves to something different.
-pub fn navigate_prompt_history(
-    direction: HistoryDirection,
-    current_text: &str,
-    empty_draft: bool,
-    nav: &HistoryNav,
-    history: &[String],
-) -> NavOutcome {
+pub fn navigate_prompt_history(direction: HistoryDirection, current_text: &str, empty_draft: bool, nav: &HistoryNav, history: &[String]) -> NavOutcome {
     let down = direction == HistoryDirection::Down;
     let current_key = prompt_history_key(current_text);
     if (empty_draft && down) || history.is_empty() {
@@ -71,22 +65,12 @@ pub fn navigate_prompt_history(
         return NavOutcome::default();
     }
     let value = history[next as usize].clone();
-    NavOutcome {
-        nav: Some(HistoryNav { active: true, index: next, seed, last_value: value.clone() }),
-        value: Some(value),
-        draft_changed: true,
-        reset: false,
-    }
+    NavOutcome { nav: Some(HistoryNav { active: true, index: next, seed, last_value: value.clone() }), value: Some(value), draft_changed: true, reset: false }
 }
 
 /// `handlePromptHistoryNavigate(direction, currentText, meta)`: applies one step to the navigation state, the draft-change flag
 /// and the prompt hint; answers the text to show.
-pub fn handle_prompt_history_navigate(
-    host: &mut dyn PromptHost,
-    direction: HistoryDirection,
-    current_text: &str,
-    empty_draft: bool,
-) -> Option<String> {
+pub fn handle_prompt_history_navigate(host: &mut dyn PromptHost, direction: HistoryDirection, current_text: &str, empty_draft: bool) -> Option<String> {
     let history = host.recent_prompt_history();
     let outcome = navigate_prompt_history(direction, current_text, empty_draft, &host.prompt().history_nav, &history);
     let state = host.prompt();

@@ -234,10 +234,7 @@ pub struct TableArea<'a> {
 /// `tableAreas(sheet)`: the tables a sheet lists (`tables` `[{ range }]`) as areas; the body rows are records the table
 /// sources, not assumptions.
 pub fn table_areas(sheet: &Value) -> Vec<TableArea<'_>> {
-    list(sheet.get("tables"))
-        .iter()
-        .filter_map(|table| bounded_area(table.get("range")).map(|area| TableArea { area, table }))
-        .collect()
+    list(sheet.get("tables")).iter().filter_map(|table| bounded_area(table.get("range")).map(|area| TableArea { area, table })).collect()
 }
 
 /// `mergedAreas(sheet)`: merged blocks are display (a banner, a metric tile, a panel caption), never a column anyone
@@ -248,16 +245,12 @@ pub fn merged_areas(sheet: &Value) -> Vec<Area> {
 
 /// `insideArea(areas, at)`.
 pub fn inside_area(areas: &[Area], at: &Position) -> bool {
-    areas.iter().any(|area| {
-        at.row >= area.start_row && at.row <= area.end_row && at.column >= area.start_col && at.column <= area.end_col
-    })
+    areas.iter().any(|area| at.row >= area.start_row && at.row <= area.end_row && at.column >= area.start_col && at.column <= area.end_col)
 }
 
 /// `insideTableBody(areas, at)`: inside a table and below its header row.
 pub fn inside_table_body(areas: &[Area], at: &Position) -> bool {
-    areas.iter().any(|area| {
-        at.row > area.start_row && at.row <= area.end_row && at.column >= area.start_col && at.column <= area.end_col
-    })
+    areas.iter().any(|area| at.row > area.start_row && at.row <= area.end_row && at.column >= area.start_col && at.column <= area.end_col)
 }
 
 /// `notedRefs(sheet, cells)`: notes reach the audit two ways, a portable cell carries `note` and an Excel sheet lists

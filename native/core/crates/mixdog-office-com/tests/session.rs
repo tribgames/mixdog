@@ -261,9 +261,8 @@ fn a_new_excel_workbook_is_created_saved_and_its_folder_made() {
     log.get(1, "Hwnd", i4(8001));
     let fake = log.fake();
     world.apps.queue_create_then("Excel.Application", Ok(fake.object(1)), world.new_process(600, "EXCEL", 8001, "XLMAIN", false));
-    let mut state = world
-        .open(json!({"action": "open_session", "session": "s1", "format": "xlsx", "path": path, "mode": "background", "create": true}))
-        .expect("created");
+    let mut state =
+        world.open(json!({"action": "open_session", "session": "s1", "format": "xlsx", "path": path, "mode": "background", "create": true})).expect("created");
     fake.finish();
     assert_eq!(state.app_pid, 600);
     assert!(mixdog_fsio::is_dir(&Unlaned, world.dir.join("new").join("deeper")));
@@ -347,9 +346,7 @@ fn a_new_word_document_gets_the_portable_templates_defaults_in_order_and_is_save
     log.get(4, "Hwnd", i4(9001));
     let fake = log.fake();
     world.apps.queue_create_then("Word.Application", Ok(fake.object(1)), world.new_process(500, "WINWORD", 9001, "OpusApp", false));
-    world
-        .open(json!({"action": "open_session", "session": "s1", "format": "docx", "path": path, "mode": "background", "create": true}))
-        .expect("created");
+    world.open(json!({"action": "open_session", "session": "s1", "format": "docx", "path": path, "mode": "background", "create": true})).expect("created");
     fake.finish();
 }
 
@@ -604,10 +601,12 @@ fn an_application_killed_before_close_leaves_the_state_for_a_retry_and_says_why(
         "{text}"
     );
     assert!(text.starts_with("{\"ok\":false,") && text.contains("\"closed\":false"), "{text}");
-    assert!(text.contains("\"documentClosed\":false,\"detached\":false,\"applicationQuit\":false,\"applicationRetained\":true,\"processExited\":null"), "{text}");
+    assert!(
+        text.contains("\"documentClosed\":false,\"detached\":false,\"applicationQuit\":false,\"applicationRetained\":true,\"processExited\":null"),
+        "{text}"
+    );
     assert!(state.document.is_some() && state.app.is_some(), "kept for a retry");
 }
-
 
 impl World {
     fn new(name: &str) -> World {

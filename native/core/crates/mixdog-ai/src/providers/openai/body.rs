@@ -14,8 +14,8 @@ use super::config::OpenAiConfig;
 use super::config::PromptCacheLifetime;
 use super::config::REPLAY_OWNER;
 use super::config::Route;
-use super::effort::EffortProjection;
 use super::continuation::ContinuationSpec;
+use super::effort::EffortProjection;
 use super::input::LowerOptions;
 use super::input::ToolSearchReplay;
 use super::profile::BuildInputs;
@@ -52,13 +52,7 @@ fn service_tier(facts: &ModelFacts, request: &ModelRequest, route: Route) -> Opt
         Route::Codex => (facts.codex_fast_tier, facts.codex_ultrafast_tier),
         _ => (facts.fast_tier, facts.ultrafast_tier),
     };
-    let asks_ultrafast = request
-        .options
-        .model_parameters
-        .as_ref()
-        .and_then(|p| p.get("serviceTier"))
-        .and_then(Value::as_str)
-        == Some("ultrafast");
+    let asks_ultrafast = request.options.model_parameters.as_ref().and_then(|p| p.get("serviceTier")).and_then(Value::as_str) == Some("ultrafast");
     if asks_ultrafast && ultrafast {
         return Some("ultrafast");
     }
@@ -70,11 +64,7 @@ pub fn build(config: &OpenAiConfig, request: &ModelRequest) -> BuiltBody {
 }
 
 /// [`build`] with the conversation's mid-turn effort updates.
-pub fn build_with(
-    config: &OpenAiConfig,
-    request: &ModelRequest,
-    effort: Option<&EffortProjection>,
-) -> BuiltBody {
+pub fn build_with(config: &OpenAiConfig, request: &ModelRequest, effort: Option<&EffortProjection>) -> BuiltBody {
     build_with_tool_outputs(config, request, effort, false)
 }
 
@@ -92,10 +82,7 @@ pub(super) fn build_with_tool_outputs(
 
     let profile = ResponsesProfile {
         order: ORDER_FIRST_PARTY.to_vec(),
-        system: SystemPlacement::Instructions {
-            fallback: Some(DEFAULT_INSTRUCTIONS.to_owned()),
-            environment_message: true,
-        },
+        system: SystemPlacement::Instructions { fallback: Some(DEFAULT_INSTRUCTIONS.to_owned()), environment_message: true },
         input: LowerOptions {
             replay_owner: ProviderId::from(REPLAY_OWNER),
             codex_parity: codex,
@@ -106,11 +93,7 @@ pub(super) fn build_with_tool_outputs(
             phase: true,
             system_in_input: false,
         },
-        tools: if caps.native_tool_search {
-            ToolLowering::NativeClient
-        } else {
-            ToolLowering::Function
-        },
+        tools: if caps.native_tool_search { ToolLowering::NativeClient } else { ToolLowering::Function },
         tool_choice: ToolChoicePolicy::AutoDefault,
         parallel_tool_calls: ParallelToolCalls::Always,
         reasoning: caps.reasoning.then(|| ReasoningSpec {
@@ -120,28 +103,18 @@ pub(super) fn build_with_tool_outputs(
         }),
         store: config.store,
         stream: true,
-        stream_options: (codex && caps.reasoning && caps.reasoning_summaries)
-            .then(|| serde_json::json!({"reasoning_summary_delivery": "sequential_cutoff"})),
+        stream_options: (codex && caps.reasoning && caps.reasoning_summaries).then(|| serde_json::json!({"reasoning_summary_delivery": "sequential_cutoff"})),
         include_encrypted_reasoning: caps.reasoning,
         service_tier: tier.map(str::to_owned),
         prompt_cache_key: true,
         text_verbosity: caps.verbosity.then(|| DEFAULT_VERBOSITY.to_owned()),
         access_programs: facts.access_programs.clone().filter(|_| codex),
         max_output_tokens: !codex || config.context.flag("MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS"),
-        cache_lifetime: if route == Route::ApiKey && config.store {
-            facts.prompt_cache
-        } else {
-            PromptCacheLifetime::None
-        },
+        cache_lifetime: if route == Route::ApiKey && config.store { facts.prompt_cache } else { PromptCacheLifetime::None },
         tool_label: "[openai] tool".to_owned(),
         honor_parallel_override: false,
         instructions_with_previous_response: true,
-        continuation: ContinuationSpec {
-            state_key: "openaiResponses".to_owned(),
-            tag_history_owner: true,
-            stateless_only: None,
-            marker: None,
-        },
+        continuation: ContinuationSpec { state_key: "openaiResponses".to_owned(), tag_history_owner: true, stateless_only: None, marker: None },
     };
     // No continuation here: the first-party routes carry history through the
     // ordered provider replay (Node keeps no slot of its own for them), and a
@@ -156,15 +129,18 @@ pub(super) fn build_with_tool_outputs(
             cache_key::public_key(&request.options, &var, prefix, &config.cache_lanes)
         }
     };
-    let built = build_body(&profile, &BuildInputs { effort, keep_full_tool_outputs, prompt_cache_key: Some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
+    let built = build_body(
+        &profile,
+        &BuildInputs {
+            effort,
+            keep_full_tool_outputs,
+            prompt_cache_key: Some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String),
+            ..BuildInputs::new(request)
+        },
+    );
     for excluded in built.excluded {
         report_exclusion(&request.options, excluded);
     }
     let map = built.body;
-    BuiltBody {
-        cache_key: map.get("prompt_cache_key").and_then(Value::as_str).map(str::to_owned),
-        map,
-        service_tier: tier,
-        facts,
-    }
+    BuiltBody { cache_key: map.get("prompt_cache_key").and_then(Value::as_str).map(str::to_owned), map, service_tier: tier, facts }
 }

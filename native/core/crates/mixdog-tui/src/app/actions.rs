@@ -19,7 +19,9 @@ use crate::pickers::model::theme::{ThemeOptions, open_effort_picker, open_theme_
 use crate::pickers::model::web_search::{WebSearchOptions, open_web_search_picker};
 use crate::pickers::model::workflow::{WorkflowOptions, open_workflow_picker};
 use crate::pickers::model::{ModelPickerOptions, open_model_picker};
-use crate::pickers::provider::{SetupOptions, onboarding_cancel, open_provider_setup, opener_named, output_style_advance, output_style_back, theme_advance, theme_back};
+use crate::pickers::provider::{
+    SetupOptions, onboarding_cancel, open_provider_setup, opener_named, output_style_advance, output_style_back, theme_advance, theme_back,
+};
 use crate::pickers::settings::{self, Opening};
 use crate::slash::host::{Opener, Tone};
 use crate::slash::notices::{truthy, value_text};
@@ -63,11 +65,7 @@ fn handoff_panel(options: &Value) -> Option<PickerPanel> {
 /// `options.onboarding`: the wizard's hooks for the theme step or the output style step.
 fn onboarding(options: &Value, advance: AppAction, back: AppAction) -> Option<Onboarding> {
     options.get("onboarding").filter(|hooks| hooks.is_object())?;
-    Some(Onboarding {
-        on_advance: Some(continuation(advance)),
-        on_back: Some(continuation(back)),
-        on_cancel: Some(continuation(AppAction::OnboardingCancel)),
-    })
+    Some(Onboarding { on_advance: Some(continuation(advance)), on_back: Some(continuation(back)), on_cancel: Some(continuation(AppAction::OnboardingCancel)) })
 }
 
 impl AppState {
@@ -142,10 +140,7 @@ impl AppState {
                     },
                 );
             }
-            Opener::Workflow => open_workflow_picker(
-                self,
-                WorkflowOptions { return_to: opens(&options, "returnTo"), handoff_panel: handoff_panel(&options) },
-            ),
+            Opener::Workflow => open_workflow_picker(self, WorkflowOptions { return_to: opens(&options, "returnTo"), handoff_panel: handoff_panel(&options) }),
             Opener::OutputStyle => open_output_style_picker(
                 self,
                 OutputStyleOptions {
@@ -166,12 +161,10 @@ impl AppState {
             ),
             Opener::Effort => open_effort_picker(self),
             Opener::ProviderSetup => open_provider_setup(self, SetupOptions::from_value(&options)),
-            Opener::Settings | Opener::AutoClear | Opener::Profile | Opener::Update | Opener::Developer => {
-                match settings::open(self, opener, &options) {
-                    Opening::Open(picker) => self.settings_picker = Some(picker),
-                    Opening::Closed | Opening::NotMine => {}
-                }
-            }
+            Opener::Settings | Opener::AutoClear | Opener::Profile | Opener::Update | Opener::Developer => match settings::open(self, opener, &options) {
+                Opening::Open(picker) => self.settings_picker = Some(picker),
+                Opening::Closed | Opening::NotMine => {}
+            },
             Opener::Mcp
             | Opener::McpServers
             | Opener::Skills

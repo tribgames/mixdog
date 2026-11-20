@@ -84,7 +84,11 @@ fn split_units(bytes: &[u8], limit: usize) -> Vec<RelayFrame> {
         frames.push(std::mem::replace(frame, RelayFrame { lead, ..RelayFrame::default() }));
     };
     for chunk in bytes.utf8_chunks() {
-        let units_of = chunk.valid().chars().map(|c| (c.len_utf16(), c.len_utf8(), Some(c))).chain((!chunk.invalid().is_empty()).then_some((1, chunk.invalid().len(), None)));
+        let units_of = chunk.valid().chars().map(|c| (c.len_utf16(), c.len_utf8(), Some(c))).chain((!chunk.invalid().is_empty()).then_some((
+            1,
+            chunk.invalid().len(),
+            None,
+        )));
         for (width, len, c) in units_of {
             if units + width > limit && units > 0 {
                 if width == 2 && units + 1 == limit {

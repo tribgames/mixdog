@@ -15,13 +15,12 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::*;
+use crate::eventually_on;
 use crate::session::SessionDirectory;
 use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
-use crate::eventually_on;
 use crate::session::tests::start_thread;
 use crate::session::tests::turn;
-
 
 /// `requestToolApproval`'s delegation step: a sub-agent's request of a delegated kind names who asks and the chat it shows in;
 /// a question, a connector widening and a request whose surface is its own session carry neither.
@@ -39,13 +38,20 @@ fn a_sub_agents_card_names_its_chain_and_its_chat() {
         assert_eq!(delegated(kind, session), json!({ "kind": kind, "sessionId": session }), "{kind} of {session}");
     }
     // Read off the ask before the card is built: a bare gate (no kind) is delegated, a question and a connector widening are not.
-    let ask = |kind: ApprovalKind, tool: &str, payload: Value| ApprovalAsk { kind, call_id: None, tool: Some(tool.to_owned()), action_kind: None, reason: None, payload, remember: Vec::new(), expires_after: None };
+    let ask = |kind: ApprovalKind, tool: &str, payload: Value| ApprovalAsk {
+        kind,
+        call_id: None,
+        tool: Some(tool.to_owned()),
+        action_kind: None,
+        reason: None,
+        payload,
+        remember: Vec::new(),
+        expires_after: None,
+    };
     assert!(is_delegated(&ask(ApprovalKind::Tool, "bash", json!({ "name": "bash", "args": { "command": "ls" } }))));
     assert!(!is_delegated(&ask(ApprovalKind::UserInput, "ask_user", json!({ "questions": [] }))));
     assert!(!is_delegated(&ask(ApprovalKind::Tool, "connect", json!({ "kind": "connector" }))));
 }
-
-
 
 /// The row a client is shown for `input`, its offered scopes only.
 fn offered(input: Value) -> Value {
@@ -81,9 +87,6 @@ fn a_row_offers_only_what_its_writer_can_store_whatever_it_lists() {
         assert_eq!(offered(json!({ "kind": kind, "remember": every })), json!(["once"]), "{kind}");
     }
 }
-
-
-
 
 /// A member's turn waits on ask_user: its snapshot carries the approval as the room reads it, a
 /// room answer to another id is refused, and the answer to the shown one resolves the turn's
@@ -128,7 +131,17 @@ async fn a_room_reads_and_answers_the_members_approval() {
     let answer = |approval: String| {
         let (directory, thread) = (&directory, &handle.id);
         async move {
-            directory.answer_member_approval(thread, &approval, ConnectionId(1), "desktop".into(), ConnectionKind::Desktop, mixdog_protocol::Origin::Local, json!({ "approved": true })).await
+            directory
+                .answer_member_approval(
+                    thread,
+                    &approval,
+                    ConnectionId(1),
+                    "desktop".into(),
+                    ConnectionKind::Desktop,
+                    mixdog_protocol::Origin::Local,
+                    json!({ "approved": true }),
+                )
+                .await
         }
     };
     assert!(!answer("999".into()).await.expect("refused"), "not the approval the member shows");

@@ -17,13 +17,7 @@ struct Override(String);
 
 fn store(dir: &tempfile::TempDir) -> AccountStore {
     let tokens = mixdog_rt::testing::tokens();
-    AccountStore::new(
-        dir.path().to_path_buf(),
-        CredentialIo {
-            read: tokens.interactive_io,
-            write: tokens.durability_io,
-        },
-    )
+    AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
 }
 #[tokio::test]
 async fn an_unregistered_provider_has_no_accounts_and_no_credential() {
@@ -101,13 +95,9 @@ async fn change_validates_and_select_if_loses_to_a_newer_selection() {
         .unwrap();
     assert_eq!(ordered.accounts[0].id, ID_B);
     assert_eq!((ordered.policy(), ordered.auto), (Policy::Headroom, Some(true)));
-    let bad = s
-        .change(PROVIDER, AccountChange { order: Some(vec![ID_B.into()]), ..AccountChange::default() })
-        .await;
+    let bad = s.change(PROVIDER, AccountChange { order: Some(vec![ID_B.into()]), ..AccountChange::default() }).await;
     assert!(matches!(bad, Err(AccountError::Invalid(_))));
-    let gone = s
-        .change(PROVIDER, AccountChange { selected_id: Some("33333333-3333-4333-8333-333333333333".into()), ..AccountChange::default() })
-        .await;
+    let gone = s.change(PROVIDER, AccountChange { selected_id: Some("33333333-3333-4333-8333-333333333333".into()), ..AccountChange::default() }).await;
     assert!(matches!(gone, Err(AccountError::Rejected(_))));
     assert!(s.select_if(PROVIDER, Some("default"), ID_A, None).await.unwrap().is_none(), "selection is B, not default");
     let moved = s.select_if(PROVIDER, Some(ID_B), ID_A, Some(Policy::Headroom)).await.unwrap().unwrap();
@@ -140,10 +130,7 @@ async fn blocks_cap_replace_per_model_and_a_free_reading_lifts_them() {
     let far = s.now_ms() + 3 * MAX_BLOCK_MS;
     let pool = s.block(PROVIDER, ID_A, far, "m1", BlockOptions::default()).await.unwrap();
     assert!(pool.accounts[0].blocked_until.unwrap() < far, "inferred blocks are capped");
-    let pool = s
-        .block(PROVIDER, ID_A, far, "", BlockOptions { reset: true, quota: true, server_scheduled: true, ..BlockOptions::default() })
-        .await
-        .unwrap();
+    let pool = s.block(PROVIDER, ID_A, far, "", BlockOptions { reset: true, quota: true, server_scheduled: true, ..BlockOptions::default() }).await.unwrap();
     let blocks = pool.accounts[0].blocks();
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[1].blocked_until, far, "a named reset is kept as given");
@@ -151,7 +138,9 @@ async fn blocks_cap_replace_per_model_and_a_free_reading_lifts_them() {
     assert_eq!(pool.accounts[0].blocks().len(), 2, "same-model refusal replaces its own block");
     // A withdrawn meter retires the usage its own sign-in measured, read back from the stored row (so after a restart),
     // never another sign-in's or an unstamped one, and never the refusal blocks.
-    let stamped = |stamp: Option<&str>| vec![QuotaWindowInput { label: "5H".into(), used_pct: Some(100.0), credential: stamp.map(str::to_owned), ..QuotaWindowInput::default() }];
+    let stamped = |stamp: Option<&str>| {
+        vec![QuotaWindowInput { label: "5H".into(), used_pct: Some(100.0), credential: stamp.map(str::to_owned), ..QuotaWindowInput::default() }]
+    };
     s.record_usage(PROVIDER, ID_A, stamped(Some("mine"))).await.unwrap();
     assert!(!s.retire_usage(PROVIDER, ID_A, "someone else").await.unwrap(), "another credential's stamp retires nothing");
     assert_eq!(s.pool(PROVIDER).await.unwrap().account(ID_A).unwrap().usage.as_ref().unwrap().windows.len(), 1);
@@ -207,11 +196,8 @@ async fn a_damaged_roster_is_set_aside_and_the_last_good_copy_restored() {
     std::fs::write(s.roster_path(), "{ truncated").unwrap();
     let accounts = s.accounts(PROVIDER).await.unwrap();
     assert_eq!(accounts.len(), 1, "the .bak holds the roster before the second write");
-    let aside: Vec<_> = std::fs::read_dir(dir.path())
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
-        .collect();
+    let aside: Vec<_> =
+        std::fs::read_dir(dir.path()).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().contains(".corrupt-")).collect();
     assert_eq!(aside.len(), 1);
     std::fs::write(s.roster_path(), "").unwrap();
     std::fs::remove_file(dir.path().join("provider-accounts.json.bak")).unwrap();
@@ -278,7 +264,8 @@ async fn a_persisted_gemini_window_keeps_its_except_and_spares_argon() {
         { "bucketId": "gemini-5h", "window": "5h", "resetTime": "2099-01-01T00:00:00Z" },
         { "bucketId": "gemini-argon-wtu-weekly", "window": "weekly", "remainingFraction": 0.5 },
     ] }] });
-    let strings = |row: &Value, key: &str| row.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>());
+    let strings =
+        |row: &Value, key: &str| row.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>());
     let windows: Vec<QuotaWindowInput> = crate::service::usage_antigravity::quota_windows(&summary)
         .iter()
         .map(|row| QuotaWindowInput {

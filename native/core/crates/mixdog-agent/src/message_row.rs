@@ -22,7 +22,7 @@ use mixdog_core_api::domain::provider::{
     BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, ScopedCacheSource, StopReason, TextAttachment, ToolCall,
 };
 use mixdog_protocol::ProviderId;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 type Row = Map<String, Value>;
 
@@ -183,10 +183,14 @@ fn part_of(part: &Value) -> Result<ContentPart, String> {
         "image" | "file" => {
             let mime_type = text("mimeType").or_else(|| text("mediaType")).unwrap_or_default();
             match (text("data"), text("attachmentRef"), text("url"), kind) {
-                (Some(data), _, _, "image") => Ok(ContentPart::Image(ImageSource::Base64 { data, mime_type, width: pixels(part, "width"), height: pixels(part, "height") })),
+                (Some(data), _, _, "image") => {
+                    Ok(ContentPart::Image(ImageSource::Base64 { data, mime_type, width: pixels(part, "width"), height: pixels(part, "height") }))
+                }
                 (None, None, Some(url), "image") => Ok(ContentPart::Image(ImageSource::Url(url))),
                 (Some(data), _, _, _) => Ok(ContentPart::File { source: BinarySource::Base64(data), mime_type, filename: text("filename"), text: None }),
-                (None, Some(reference), _, _) => Ok(ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename: text("filename"), text: None }),
+                (None, Some(reference), _, _) => {
+                    Ok(ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename: text("filename"), text: None })
+                }
                 _ => Err(format!("a {kind} part with no data, attachmentRef or url")),
             }
         }
@@ -251,7 +255,16 @@ pub fn part_row(part: &ContentPart) -> Value {
         ContentPart::File { source, mime_type, filename, text } => {
             let mut row = Map::new();
             let image_ref = mime_type.starts_with("image/") && matches!(source, BinarySource::AttachmentRef(_));
-            row.insert("type".into(), json!(if text.is_some() { "text" } else if image_ref { "image" } else { "file" }));
+            row.insert(
+                "type".into(),
+                json!(if text.is_some() {
+                    "text"
+                } else if image_ref {
+                    "image"
+                } else {
+                    "file"
+                }),
+            );
             match source {
                 BinarySource::Base64(data) => row.insert("data".into(), json!(data)),
                 BinarySource::AttachmentRef(reference) => row.insert("attachmentRef".into(), json!(reference)),
@@ -349,7 +362,10 @@ fn typed_of(row: &Map<String, Value>) -> Result<AgentMessage, String> {
     message.message.native_tool_search = row.get("nativeToolSearch").cloned();
     message.message.turn_reminder = text("turnReminder").map(str::to_owned);
     if let Some(replay) = row.get("providerReplay").filter(|r| r.is_object()) {
-        message.message.push_replay(ProviderReplay { owner: ProviderId::from(str_of(replay, "provider").unwrap_or_default()), items: replay.get("items").cloned().unwrap_or(Value::Null) });
+        message.message.push_replay(ProviderReplay {
+            owner: ProviderId::from(str_of(replay, "provider").unwrap_or_default()),
+            items: replay.get("items").cloned().unwrap_or(Value::Null),
+        });
     }
     // `replayAccount`: `providerReplay.accountId ?? providerAccountId`.
     let replay_account = row.get("providerReplay").and_then(|replay| replay.get("accountId")).or_else(|| row.get("providerAccountId"));
@@ -359,10 +375,7 @@ fn typed_of(row: &Map<String, Value>) -> Result<AgentMessage, String> {
     message.tool_kind = text("toolKind").and_then(kind_of);
     if role == Role::Tool && message.tool_kind == Some(ToolKind::CacheHit) {
         message.message.scoped_cache_source = row.get("scopedCacheSource").and_then(|source| {
-            Some(ScopedCacheSource {
-                call_id: str_of(source, "callId")?.to_owned(),
-                body_sha256: str_of(source, "bodySha256")?.to_owned(),
-            })
+            Some(ScopedCacheSource { call_id: str_of(source, "callId")?.to_owned(), body_sha256: str_of(source, "bodySha256")?.to_owned() })
         });
     }
     message.tool_timing = timing_of(row.get("toolTiming"));
@@ -377,7 +390,8 @@ fn typed_of(row: &Map<String, Value>) -> Result<AgentMessage, String> {
                 message.source = Some(source_of(name).ok_or_else(|| format!("meta.source {name:?}"))?);
             }
             message.attempt = meta.get("attempt").and_then(Value::as_u64).map(|n| n as u32);
-            message.submission_ids = meta.get("submissionIds").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+            message.submission_ids =
+                meta.get("submissionIds").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
             message.message_id = meta.pointer("/transcript/messageId").and_then(Value::as_str).map(str::to_owned);
             message.originals_missing = meta.pointer("/transcript/originalImagesMissing").and_then(Value::as_u64).map_or(0, |n| n as u32);
             message.effort = meta.get("effortConfiguration").and_then(EffortSnapshot::from_value);
@@ -669,7 +683,8 @@ mod tests {
 
     #[test]
     fn rows_round_trip_through_the_message() {
-        let mut call = AgentMessage::assistant("looking", vec![ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({"a": 1}), native_type: None }]);
+        let mut call =
+            AgentMessage::assistant("looking", vec![ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({"a": 1}), native_type: None }]);
         call.stop_reason = Some(StopReason::ToolUse);
         call.message_id = Some("msg_1".into());
         let result = AgentMessage::tool_text("c1", "echo:{}", ToolKind::Normal);
@@ -733,7 +748,10 @@ mod tests {
             assert_eq!(back["content"], want);
             // A list envelope reads back as its one text part; a string envelope as text.
             let read = message_of(&back).unwrap().message.content;
-            assert_eq!(read, if want["content"].is_array() { Content::Parts(vec![ContentPart::Text("new".into(), None)]) } else { Content::Text("new".into()) });
+            assert_eq!(
+                read,
+                if want["content"].is_array() { Content::Parts(vec![ContentPart::Text("new".into(), None)]) } else { Content::Text("new".into()) }
+            );
         }
     }
 
@@ -821,7 +839,8 @@ mod tests {
     #[test]
     #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
     fn the_typed_fields_hold_everything_but_the_named_extras() {
-        const EXTRAS: [&str; 10] = ["createdAt", "iterations", "toolCallsTotal", "usage", "emptyFinal", "hasThinkingContent", "contentBlockTypes", "ts", "toolTiming", "agentTaskIds"];
+        const EXTRAS: [&str; 10] =
+            ["createdAt", "iterations", "toolCallsTotal", "usage", "emptyFinal", "hasThinkingContent", "contentBlockTypes", "ts", "toolTiming", "agentTaskIds"];
         let project = |row: &Value| -> Value {
             let mut row = row.as_object().unwrap().clone();
             for key in EXTRAS {
@@ -891,13 +910,16 @@ mod tests {
         assert!(messages > 0);
     }
 
-
     /// A reference part keeps its object as Node stores it, through the row and into the wire
     /// message, whose lowering carries the text only.
     #[test]
     fn a_reference_parts_object_survives_the_row_and_stays_off_the_wire() {
         let media = json!({ "kind": "pdf_pages", "pages": [1, 2], "path": "/p/a.pdf" }).as_object().unwrap().clone();
-        let files = json!({ "kind": "files", "files": [{ "attachmentRef": "r", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1, "path": "/p/a.pdf" }] }).as_object().unwrap().clone();
+        let files =
+            json!({ "kind": "files", "files": [{ "attachmentRef": "r", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1, "path": "/p/a.pdf" }] })
+                .as_object()
+                .unwrap()
+                .clone();
         for meta in [media, files] {
             let message = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("ref".into(), Some(meta.clone()))]));
             let row = row_of(&message);

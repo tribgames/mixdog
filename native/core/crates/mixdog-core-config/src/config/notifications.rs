@@ -27,10 +27,7 @@ fn clock(text: &str) -> bool {
 
 /// `^[\w.:-]{1,200}$`.
 fn target_id(text: &str) -> bool {
-    (1..=200).contains(&text.len())
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+    (1..=200).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 /// `Number.isSafeInteger`: an integer JSON number, `50.0` included.
@@ -97,10 +94,7 @@ impl Config {
     /// kind-and-pairing-time default a phone app paired after the migration gets belongs to the
     /// caller that knows the pairing.
     pub fn notification_device(&self, client_id: &str) -> NotificationDevicePreferences {
-        self.get("notifications")
-            .and_then(|doc| doc.get("devices")?.get(client_id).cloned())
-            .map(|stored| stored_device(&stored))
-            .unwrap_or_default()
+        self.get("notifications").and_then(|doc| doc.get("devices")?.get(client_id).cloned()).map(|stored| stored_device(&stored)).unwrap_or_default()
     }
 
     /// The conversation overrides still in force now: a mute whose `until` has passed is dropped
@@ -126,9 +120,7 @@ impl Config {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }
 
 fn device_ok(prefs: &NotificationDevicePreferences) -> bool {
@@ -139,9 +131,7 @@ fn override_ok(entry: &ConversationNotificationOverride) -> bool {
     target_id(&entry.target.id)
         && match entry.setting {
             ConversationNotificationSetting::Always => true,
-            ConversationNotificationSetting::Muted { until } => {
-                until.is_none_or(|u| (1..=MAX_SAFE_INTEGER).contains(&u))
-            }
+            ConversationNotificationSetting::Muted { until } => until.is_none_or(|u| (1..=MAX_SAFE_INTEGER).contains(&u)),
         }
 }
 
@@ -155,9 +145,7 @@ pub(crate) fn device(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn devices(value: &Value) -> Option<Value> {
-    typed::<std::collections::BTreeMap<String, NotificationDevicePreferences>>(value, |all| {
-        all.values().all(device_ok)
-    })
+    typed::<std::collections::BTreeMap<String, NotificationDevicePreferences>>(value, |all| all.values().all(device_ok))
 }
 
 pub(crate) fn overrides(value: &Value) -> Option<Value> {
@@ -229,8 +217,6 @@ pub(crate) fn doc(value: &Value) -> Option<Value> {
     // Unlike the parts, the whole document must be an object: `default` would take `null`.
     value.as_object()?;
     typed::<NotificationPreferences>(value, |all| {
-        (0..=MAX_SAFE_INTEGER).contains(&all.migrated_at)
-            && all.devices.values().all(device_ok)
-            && all.overrides.iter().all(override_ok)
+        (0..=MAX_SAFE_INTEGER).contains(&all.migrated_at) && all.devices.values().all(device_ok) && all.overrides.iter().all(override_ok)
     })
 }

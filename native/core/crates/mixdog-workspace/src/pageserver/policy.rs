@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking path checks run only as lane jobs (lanes::run_fallible); the page server never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking path checks run only as lane jobs (lanes::run_fallible); the page server never calls them on an async thread"
+)]
 //! Which files a page may be served (`pageAssetType`, `pageLocation` of `local-page-server.ts`).
 
 use std::path::{Path, PathBuf};

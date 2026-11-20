@@ -101,11 +101,8 @@ impl DomainService for BrowserService {
         if req.method.as_str() != "browser/command" {
             return Err(CoreError::InvalidParams { path: "method".into(), expected: "browser/command".into() });
         }
-        let action = req
-            .params
-            .get("action")
-            .and_then(Value::as_str)
-            .ok_or_else(|| CoreError::InvalidParams { path: "action".into(), expected: "a string".into() })?;
+        let action =
+            req.params.get("action").and_then(Value::as_str).ok_or_else(|| CoreError::InvalidParams { path: "action".into(), expected: "a string".into() })?;
         let mut input = req.params.get("input").cloned();
         if req.ctx.origin == Origin::Relay {
             relay_admit(action, &mut input)?;
@@ -159,9 +156,7 @@ mod tests {
         channel.reply(Method("host/browser/command"), json!({ "text": "done" }));
         let service = BrowserService::new(channel.clone());
 
-        let Reply::Value(value) =
-            service.call(request(json!({ "action": "navigate", "input": { "url": "x", "anything": [1] } }))).await.unwrap()
-        else {
+        let Reply::Value(value) = service.call(request(json!({ "action": "navigate", "input": { "url": "x", "anything": [1] } }))).await.unwrap() else {
             panic!("a value reply")
         };
         assert_eq!(value, json!({ "text": "done" }));
@@ -235,10 +230,7 @@ mod tests {
     async fn no_host_and_a_host_error_are_distinct_failures() {
         let channel = Arc::new(MockHostChannel::default());
         let service = BrowserService::new(channel.clone());
-        assert!(matches!(
-            service.call(request(json!({ "action": "x" }))).await,
-            Err(CoreError::CapabilityUnavailable { .. })
-        ));
+        assert!(matches!(service.call(request(json!({ "action": "x" }))).await, Err(CoreError::CapabilityUnavailable { .. })));
 
         channel.claim(HostCapability::Browser);
         channel.fail(Method("host/browser/command"), -32000, "Error: bad selector", None);
@@ -249,7 +241,6 @@ mod tests {
         assert_eq!(detail, None);
         assert!(matches!(service.call(request(json!({}))).await, Err(CoreError::InvalidParams { .. })));
     }
-
 
     fn relay_request(action: &str, input: Value) -> CoreRequest {
         CoreRequest {
@@ -307,9 +298,10 @@ mod tests {
         channel.claim(HostCapability::Browser);
         channel.reply(Method("host/browser/command"), json!({}));
         let service = BrowserService::new(channel.clone());
-        let Err(CoreError::DomainError { message, .. }) = service.call(relay_request("history", json!({ "query": "q".repeat(501) }))).await else { panic!("refused") };
+        let Err(CoreError::DomainError { message, .. }) = service.call(relay_request("history", json!({ "query": "q".repeat(501) }))).await else {
+            panic!("refused")
+        };
         assert_eq!(message.as_deref(), Some("Browser history query is invalid."));
         assert!(channel.sent().is_empty());
     }
-
 }

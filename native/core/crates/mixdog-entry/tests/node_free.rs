@@ -71,7 +71,6 @@ fn plain_answers_one_turn_without_node() {
     assert!(started.is_empty(), "started {started:?}");
 }
 
-
 /// Runs `mixdog args` to its end with the sandbox's environment and the stand-in's pin; (exit code, stdout, stderr, the Node or
 /// Electron images the watcher saw).
 fn run(sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> (Option<i32>, String, String, Vec<String>) {
@@ -142,9 +141,15 @@ fn exec_json_streams_one_json_event_per_line_from_the_thread_start_to_the_succes
     let types: Vec<&str> = events.iter().map(|event| event["type"].as_str().unwrap()).collect();
     assert_eq!(types[..2], ["thread.started", "turn.started"], "{types:?}");
     assert_eq!(types[types.len() - 2..], ["turn.completed", "result"], "{types:?}");
-    assert!(events.iter().any(|event| event["type"] == "item.completed" && event["item"]["type"] == "agent_message" && event["item"]["text"] == ANSWER), "{out}");
+    assert!(
+        events.iter().any(|event| event["type"] == "item.completed" && event["item"]["type"] == "agent_message" && event["item"]["text"] == ANSWER),
+        "{out}"
+    );
     let result = &events[events.len() - 1];
-    assert_eq!((result["subtype"].as_str(), result["is_error"].as_bool(), result["result"].as_str(), result["model"].as_str()), (Some("success"), Some(false), Some(ANSWER), Some("claude-sonnet-4-6")));
+    assert_eq!(
+        (result["subtype"].as_str(), result["is_error"].as_bool(), result["result"].as_str(), result["model"].as_str()),
+        (Some("success"), Some(false), Some(ANSWER), Some("claude-sonnet-4-6"))
+    );
     assert_eq!(events[0]["session"]["provider"], "anthropic", "{}", events[0]);
 }
 

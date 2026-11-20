@@ -208,7 +208,15 @@ impl SecretFill {
         };
         // Phase one: the bound desktop checks the page, with no value on the wire. It answers
         // `ready` and its own host id, or the outcome that refuses the fill.
-        let check = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_precheck", json!({ "request_id": request_id }))).await;
+        let check = self
+            .channel
+            .request_to(
+                &binding.claim,
+                HostCapability::Browser,
+                BROWSER_COMMAND,
+                command_params(thread, "secret_precheck", json!({ "request_id": request_id })),
+            )
+            .await;
         let answer = check.as_ref().ok();
         let text = answer.as_ref().and_then(|a| a.get("text")).and_then(Value::as_str).unwrap_or_default();
         let from_bound_host = answer.as_ref().and_then(|a| a.get("hostId")).and_then(Value::as_str) == Some(binding.claim.host.as_str());
@@ -388,14 +396,27 @@ impl HostCommands for SecretHostCommands {
         }
     }
 
-    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+    async fn browser_for_tool(
+        &self,
+        thread: &ThreadId,
+        action: &str,
+        input: JsonValue,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<BrowserToolReply, HostCommandError> {
         match action {
             "secret_input" | "secret_bind" => self.browser(thread, action, input, cancel).await.map(Into::into),
             _ => self.inner.browser_for_tool(thread, action, input, cancel).await,
         }
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+    async fn visualize(
+        &self,
+        thread: &ThreadId,
+        cwd: &str,
+        action: &str,
+        input: JsonValue,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<JsonValue, HostCommandError> {
         self.inner.visualize(thread, cwd, action, input, cancel).await
     }
 }

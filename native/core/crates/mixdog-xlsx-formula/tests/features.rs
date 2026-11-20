@@ -63,11 +63,7 @@ fn close(formula: &str, expected: f64, tolerance: f64) {
 /// `expected` to a relative 1e-12: the statistical functions are computed to that accuracy or better.
 fn rel(formula: &str, expected: f64) {
     let got = num(formula);
-    assert!(
-        (got - expected).abs() <= 1e-12 * expected.abs(),
-        "{formula}: {got:e} is not {expected:e} (relative {:e})",
-        ((got - expected) / expected).abs()
-    );
+    assert!((got - expected).abs() <= 1e-12 * expected.abs(), "{formula}: {got:e} is not {expected:e} (relative {:e})", ((got - expected) / expected).abs());
 }
 
 #[test]
@@ -298,14 +294,9 @@ fn right_tail_legacy_functions_coerce_numeric_text_and_accept_the_lower_bound() 
 fn quantile_functions_fix_the_singular_endpoint_and_the_integer_arguments() {
     assert_eq!(num("=BINOM.INV(0.5,0.5,0.9)"), 0.0);
     assert_eq!(num("=BINOM.INV(10.9,0.5,0.5)"), 5.0);
-    for bad in [
-        "=BINOM.INV(-1,0.5,0.5)",
-        "=BINOM.INV(10,0,0.5)",
-        "=BINOM.INV(10,1,0.5)",
-        "=BINOM.INV(10,0.5,0)",
-        "=BINOM.INV(10,0.5,1)",
-        "=CRITBINOM(10,0.5,1)",
-    ] {
+    for bad in
+        ["=BINOM.INV(-1,0.5,0.5)", "=BINOM.INV(10,0,0.5)", "=BINOM.INV(10,1,0.5)", "=BINOM.INV(10,0.5,0)", "=BINOM.INV(10,0.5,1)", "=CRITBINOM(10,0.5,1)"]
+    {
         assert_eq!(error(bad), ErrorValue::Num, "{bad}");
     }
     assert_eq!(error("=CONFIDENCE.T(0.05,1,1.9)"), ErrorValue::Div0);
@@ -317,14 +308,7 @@ fn quantile_functions_fix_the_singular_endpoint_and_the_integer_arguments() {
     rel("=F.INV(0.5,2.9,2.9)", 1.0);
     assert_eq!(error("=BETA.INV(0.5,2,2,4,4)"), ErrorValue::Num);
     assert_eq!(num("=F.INV(0,2,2)"), 0.0);
-    for singular in [
-        "=CHISQ.INV(1,2)",
-        "=F.INV(1,2,2)",
-        "=T.INV(1,5)",
-        "=GAMMA.INV(1,2,2)",
-        "=CHISQ.INV.RT(0,2)",
-        "=F.INV.RT(0,2,2)",
-    ] {
+    for singular in ["=CHISQ.INV(1,2)", "=F.INV(1,2,2)", "=T.INV(1,5)", "=GAMMA.INV(1,2,2)", "=CHISQ.INV.RT(0,2)", "=F.INV.RT(0,2,2)"] {
         assert_eq!(error(singular), ErrorValue::Num, "{singular}");
     }
     assert_eq!(num("=CHISQ.INV.RT(1,2)"), 0.0);
@@ -438,10 +422,7 @@ fn the_cumulative_flag_is_required_and_must_be_a_logical_or_a_number() {
         "=GAMMA.DIST(1,2,2)",
     ] {
         let got = eval(missing);
-        assert!(
-            matches!(got, Ok(Value::Error(ErrorValue::Value) | Value::Error(ErrorValue::Na))),
-            "{missing}: {got:?}"
-        );
+        assert!(matches!(got, Ok(Value::Error(ErrorValue::Value) | Value::Error(ErrorValue::Na))), "{missing}: {got:?}");
     }
     for bogus in ["=F.DIST(1,2,2,\"bogus\")", "=NORM.S.DIST(0,\"yes\")", "=BINOM.DIST(2,4,0.5,B1)"] {
         assert_eq!(error(bogus), ErrorValue::Value, "{bogus}");
@@ -755,10 +736,7 @@ fn xl_rel(formula: &str, expected: f64) {
 /// A number from the Excel sheet to the stated relative tolerance (Excel's own result is not always that exact).
 fn xl_near(formula: &str, expected: f64, tolerance: f64) {
     match xl(formula) {
-        Ok(Value::Number(got)) => assert!(
-            (got - expected).abs() <= tolerance * expected.abs(),
-            "{formula}: {got:e} is not {expected:e}"
-        ),
+        Ok(Value::Number(got)) => assert!((got - expected).abs() <= tolerance * expected.abs(), "{formula}: {got:e} is not {expected:e}"),
         other => panic!("{formula}: {other:?}"),
     }
 }
@@ -859,13 +837,7 @@ fn extreme_quantiles_and_tails_follow_excel() {
     xl_rel("=T.DIST.RT(3,1E9)", 0.0013498980648689591);
     xl_rel("=T.DIST(1E150,1,FALSE)", 3.1830988618379073e-301);
     assert_eq!(num("=T.DIST.RT(1E152,5)"), 0.0);
-    for bad in [
-        "=T.DIST.RT(1.35E154,1)",
-        "=T.DIST.2T(1E300,1)",
-        "=T.DIST(-1.4E154,1,TRUE)",
-        "=T.DIST(1.4E154,1,FALSE)",
-        "=TDIST(1.4E154,1,2)",
-    ] {
+    for bad in ["=T.DIST.RT(1.35E154,1)", "=T.DIST.2T(1E300,1)", "=T.DIST(-1.4E154,1,TRUE)", "=T.DIST(1.4E154,1,FALSE)", "=TDIST(1.4E154,1,2)"] {
         assert_eq!(error(bad), ErrorValue::Num, "{bad}");
     }
     // binomial: no rounding to 1e-10
@@ -938,12 +910,7 @@ fn every_registered_distribution_name_answers_like_its_function() {
 #[test]
 fn binomial_range_and_inverse_terminate_and_follow_excel_limits() {
     // Excel answers #NUM! from 2147483647 trials upward (2147483646 answers); the engine must also return, not loop.
-    for f in [
-        "=BINOM.DIST.RANGE(1E16,0.5,1E16,1E16)",
-        "=BINOM.DIST.RANGE(2147483647,0.5,5,5)",
-        "=BINOM.INV(1E16,0.5,0.5)",
-        "=BINOM.INV(2147483647,0.5,0.5)",
-    ] {
+    for f in ["=BINOM.DIST.RANGE(1E16,0.5,1E16,1E16)", "=BINOM.DIST.RANGE(2147483647,0.5,5,5)", "=BINOM.INV(1E16,0.5,0.5)", "=BINOM.INV(2147483647,0.5,0.5)"] {
         assert_eq!(error(f), ErrorValue::Num, "{f}");
     }
     assert_eq!(num("=BINOM.INV(2147483646,0.5,0.5)"), 1073741823.0); // Excel
@@ -1398,10 +1365,7 @@ fn every_registered_distribution_name_has_an_independently_referenced_accuracy_c
     let source = include_str!("../src/functions/distributions.rs");
     let table = &source[source.find("pub const FUNCTIONS: Table").unwrap()..];
     let table = &table[..table.find("];").unwrap()];
-    let mut registered: Vec<&str> = table
-        .lines()
-        .filter_map(|l| l.trim_start().strip_prefix("(\"")?.split('"').next())
-        .collect();
+    let mut registered: Vec<&str> = table.lines().filter_map(|l| l.trim_start().strip_prefix("(\"")?.split('"').next()).collect();
     registered.sort_unstable();
     let mut covered: Vec<&str> = cases.iter().map(|c| c.0).collect();
     covered.sort_unstable();
@@ -1409,20 +1373,12 @@ fn every_registered_distribution_name_has_an_independently_referenced_accuracy_c
     for (name, formula, want) in cases {
         assert!(library().resolve(name).is_some(), "{name} is not registered");
         let got = match with_local_zone(Tz::UTC, || {
-            if formula.contains("X1:X4") {
-                evaluate_formula(formula, &mut ProbSheet)
-            } else {
-                evaluate_formula(formula, &mut ExcelSheet)
-            }
+            if formula.contains("X1:X4") { evaluate_formula(formula, &mut ProbSheet) } else { evaluate_formula(formula, &mut ExcelSheet) }
         }) {
             Ok(Value::Number(x)) => x,
             other => panic!("{formula}: {other:?}"),
         };
-        assert!(
-            (got - want).abs() <= 1e-12 * want.abs(),
-            "{formula}: {got:e} is not {want:e} (relative {:e})",
-            ((got - want) / want).abs()
-        );
+        assert!((got - want).abs() <= 1e-12 * want.abs(), "{formula}: {got:e} is not {want:e} (relative {:e})", ((got - want) / want).abs());
     }
 }
 #[test]
@@ -1445,11 +1401,7 @@ fn domain_endpoints_follow_the_excel_table() {
             (Ok(Value::Error(e)), "#NUM!") => e == ErrorValue::Num,
             (Ok(Value::Error(e)), "#DIV/0!") => e == ErrorValue::Div0,
             (Ok(Value::Error(e)), "#N/A") => e == ErrorValue::Na,
-            (Ok(Value::Number(g)), n) => n
-                .replace("E+", "e")
-                .replace('E', "e")
-                .parse::<f64>()
-                .is_ok_and(|e| (g - e).abs() <= 1e-9 * e.abs().max(1e-300)),
+            (Ok(Value::Number(g)), n) => n.replace("E+", "e").replace('E', "e").parse::<f64>().is_ok_and(|e| (g - e).abs() <= 1e-9 * e.abs().max(1e-300)),
             _ => false,
         };
         if !ok {
@@ -1723,11 +1675,7 @@ fn sweep_eval() {
                 std::thread::park();
             }
         }
-        let cells = cells
-            .split(';')
-            .filter_map(|c| c.split_once('='))
-            .map(|(k, v)| (k.to_string(), v.parse::<f64>().expect("a numeric cell")))
-            .collect();
+        let cells = cells.split(';').filter_map(|c| c.split_once('=')).map(|(k, v)| (k.to_string(), v.parse::<f64>().expect("a numeric cell"))).collect();
         let start = std::time::Instant::now();
         let got = with_local_zone(Tz::UTC, || evaluate_formula(formula, &mut GivenCells(cells)));
         let us = start.elapsed().as_micros();

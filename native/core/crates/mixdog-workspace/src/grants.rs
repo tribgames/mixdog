@@ -5,8 +5,8 @@
 //! again), a grant minted for a conversation ends with it, and a device holds the newest [`MAX_GRANTS`]. The tokens
 //! are random; only their SHA-256 keys the table, as `selectedFileGrantKey` does.
 
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -129,7 +129,15 @@ fn required(value: &str, name: &str, maximum: usize) -> WsResult<String> {
 
 impl GrantStore {
     pub fn new(clock: Arc<dyn IdleClock>, catalog: Arc<dyn SessionCatalog>) -> Self {
-        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default(), unpaired: std::sync::OnceLock::new(), listed: std::sync::OnceLock::new() }
+        Self {
+            clock,
+            catalog,
+            devices: Mutex::default(),
+            bound: Mutex::default(),
+            seen: Mutex::default(),
+            unpaired: std::sync::OnceLock::new(),
+            listed: std::sync::OnceLock::new(),
+        }
     }
 
     /// Connects what is told the conversations each catalog publication lists. Set once.
@@ -225,10 +233,7 @@ impl GrantStore {
             return Ok(token);
         }
         let token = uuid::Uuid::new_v4().to_string();
-        grants.push((
-            key_of(&token),
-            Grant { path: path.to_path_buf(), session_id: session_id.to_owned(), expires_at: now + GRANT_TTL, token: token.clone() },
-        ));
+        grants.push((key_of(&token), Grant { path: path.to_path_buf(), session_id: session_id.to_owned(), expires_at: now + GRANT_TTL, token: token.clone() }));
         while grants.len() > MAX_GRANTS {
             grants.remove(0);
         }
@@ -426,8 +431,6 @@ mod tests {
         assert_eq!((project, relative.as_str()), (projects[1].as_str(), "src/a.rs"));
         assert!(owning_project(&projects, &root.join("elsewhere").join("a.rs")).is_none());
     }
-
-
 
     /// A selected-file grant: the same file for the same conversation is one token, kept alive an hour from its last mint; it
     /// redeems for its file under the folder given however the path is spelled, and nothing else; an unknown token, a wrong file,

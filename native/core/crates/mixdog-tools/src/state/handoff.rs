@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::orch::util::JsStr;
 use async_trait::async_trait;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalKind;
@@ -16,19 +17,18 @@ use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::HumanGateResponse;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
-use crate::orch::util::JsStr;
 use serde_json::Value;
 use serde_json::json;
 use url::Url;
 
 use crate::desktop::host::HostCommands;
 use crate::orch::ports::CallerFacts;
-use mixdog_core_api::domain::tool::ToolError;
 use crate::orch::util::action_failed;
 use crate::orch::util::cancelled;
 use crate::orch::util::invalid;
 use crate::orch::util::spec_from_def;
 use crate::orch::util::text;
+use mixdog_core_api::domain::tool::ToolError;
 
 pub const SECRET_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const HANDOFF_OUTCOMES: [&str; 6] = ["entered", "user_skipped", "no_field", "page_changed", "blocked", "expired"];
@@ -36,8 +36,10 @@ const HANDOFF_OUTCOMES: [&str; 6] = ["entered", "user_skipped", "no_field", "pag
 pub const TAKEOVER_EXPIRY: Duration = Duration::from_secs(15 * 60);
 /// The settle reason of a takeover that expired.
 const TAKEOVER_EXPIRED_REASON: &str = "expired";
-const UNATTENDED_TAKEOVER: &str = "Nobody is present in this routine run, so it ends here and the user is told what needs them. Stop; do not retry or work around this step.";
-const NO_TAKEOVER: &str = "Blocked: nobody can take over in this session, so this step was not done. Stop and tell the user what needs them; do not work around it.";
+const UNATTENDED_TAKEOVER: &str =
+    "Nobody is present in this routine run, so it ends here and the user is told what needs them. Stop; do not retry or work around this step.";
+const NO_TAKEOVER: &str =
+    "Blocked: nobody can take over in this session, so this step was not done. Stop and tell the user what needs them; do not work around it.";
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LoginPage {
@@ -133,31 +135,13 @@ pub fn validate(args: &Value) -> Result<Handoff, String> {
     let identity = if surface == "browser" {
         Identity { tab: token("tab", 64), ..Identity::default() }
     } else {
-        let app = handoff
-            .get("app")
-            .and_then(Value::as_str)
-            .map(|a| mixdog_js::slice_utf16(a.replace(['\r', '\n'], " ").js_trim(), 120))
-            .unwrap_or_default();
-        Identity {
-            window_id: token("window_id", 128),
-            app,
-            reference: if secret { token("ref", 64) } else { String::new() },
-            ..Identity::default()
-        }
+        let app = handoff.get("app").and_then(Value::as_str).map(|a| mixdog_js::slice_utf16(a.replace(['\r', '\n'], " ").js_trim(), 120)).unwrap_or_default();
+        Identity { window_id: token("window_id", 128), app, reference: if secret { token("ref", 64) } else { String::new() }, ..Identity::default() }
     };
     if secret && surface == "computer" && (identity.window_id.is_empty() || identity.reference.is_empty()) {
         return Err("handoff_user computer secret needs a valid window_id and ref".to_owned());
     }
-    Ok(Handoff {
-        secret,
-        surface,
-        target: text("target", 200),
-        field: text("field", 80),
-        instructions: text("instructions", 2000),
-        identity,
-        need,
-        login,
-    })
+    Ok(Handoff { secret, surface, target: text("target", 200), field: text("field", 80), instructions: text("instructions", 2000), identity, need, login })
 }
 
 /// The site a takeover is about: the first host its target (or instructions) names, else the
@@ -219,11 +203,7 @@ pub fn takeover_outcome(resolution: &ApprovalResolution, page_url: &str) -> Stri
     let Some(decision) = decided(resolution) else {
         return "user_skipped".to_owned();
     };
-    let did = if decision.reason.as_deref() == Some("saved_login") {
-        "User chose a saved login; it was filled in"
-    } else {
-        "User pressed Done"
-    };
+    let did = if decision.reason.as_deref() == Some("saved_login") { "User chose a saved login; it was filled in" } else { "User pressed Done" };
     match fact_url(page_url).as_str() {
         "" => did.to_owned(),
         url => format!("{did}; page now at {url}"),
@@ -278,12 +258,7 @@ pub struct HandoffUserTool {
 
 impl HandoffUserTool {
     /// `ids` mints unique request ids (`secret_<uuid>`).
-    pub fn new(
-        facts: Arc<dyn CallerFacts>,
-        host: Arc<dyn HostCommands>,
-        env: Arc<dyn HandoffEnv>,
-        ids: Arc<dyn Fn() -> String + Send + Sync>,
-    ) -> Self {
+    pub fn new(facts: Arc<dyn CallerFacts>, host: Arc<dyn HostCommands>, env: Arc<dyn HandoffEnv>, ids: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
         Self { spec: spec_from_def(include_str!("defs/handoff_user.json"), false, &[]), facts, host, env, ids }
     }
 
@@ -363,9 +338,7 @@ impl HandoffUserTool {
                 let value = self.page(thread, "secret_input", json!({"request_id": request_id}), &ctx.cancel).await;
                 value.and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default()
             } else {
-                self.env
-                    .computer_input(thread, &request_id, &h.identity.window_id, &h.identity.reference)
-                    .await
+                self.env.computer_input(thread, &request_id, &h.identity.window_id, &h.identity.reference).await
             };
             if filled != "user_skipped" && HANDOFF_OUTCOMES.contains(&filled.as_str()) { filled } else { "blocked".to_owned() }
         };
@@ -500,10 +473,7 @@ mod tests {
     fn takeover_outcomes_are_facts_without_query() {
         assert_eq!(takeover_outcome(&ApprovalResolution::Unavailable { at: 0 }, ""), "blocked");
         let done = decision(true, None, Some(HumanGateResponse::Done));
-        assert_eq!(
-            takeover_outcome(&done, "https://a.com/home?token=1#x"),
-            "User pressed Done; page now at https://a.com/home"
-        );
+        assert_eq!(takeover_outcome(&done, "https://a.com/home?token=1#x"), "User pressed Done; page now at https://a.com/home");
         assert_eq!(takeover_outcome(&done, "about:blank"), "User pressed Done");
         assert_eq!(takeover_outcome(&decision(false, None, None), ""), "user_skipped");
         assert_eq!(takeover_outcome(&ApprovalResolution::TimedOut { at: 1 }, ""), "expired");
@@ -523,10 +493,7 @@ mod tests {
     #[test]
     fn validation_wordings_and_defaults() {
         assert_eq!(validate(&json!({})).unwrap_err(), "handoff_user needs a handoff");
-        assert_eq!(
-            validate(&json!({"handoff":{"kind":"takeover","surface":"browser"}})).unwrap_err(),
-            "handoff_user takeover needs instructions"
-        );
+        assert_eq!(validate(&json!({"handoff":{"kind":"takeover","surface":"browser"}})).unwrap_err(), "handoff_user takeover needs instructions");
         let h = validate(&json!({"handoff":{"kind":"takeover","surface":"browser","instructions":"do it on shop.example.com","tab":"p1"}})).unwrap();
         assert_eq!((h.need.as_str(), h.identity.tab.as_str()), ("action", "p1"));
         assert_eq!(handoff_site(&h), "shop.example.com");

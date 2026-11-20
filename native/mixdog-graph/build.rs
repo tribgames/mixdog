@@ -4,8 +4,7 @@
 mod build_rules;
 
 fn bundle_outline_rules() {
-    let manifest_dir =
-        std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     build_rules::bundle_outline_rules(&manifest_dir);
 }
 

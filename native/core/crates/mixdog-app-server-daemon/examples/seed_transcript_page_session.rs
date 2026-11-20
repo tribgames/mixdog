@@ -47,6 +47,7 @@ async fn main() {
     let handle = directory.open_handle(&id, &CallContext::internal("seed")).await.expect("open");
     let text = |row: &str| format!("row {row} ").repeat(50);
     let messages: Vec<Value> = (0..300).map(|n| format!("c{n}")).chain(extra).map(|row| json!({ "role": "assistant", "content": text(&row) })).collect();
-    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("seed") };
+    let append =
+        CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("seed") };
     handle.request(append).await.expect("the conversation is stored");
 }

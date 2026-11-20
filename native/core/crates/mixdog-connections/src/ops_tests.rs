@@ -11,20 +11,19 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{
-    SshAgentState, SshAgentStatus, SshAskpass, SshCleanupPhase, SshCleanupRequest, SshCleanupResult, SshFailureKind, SshProgress,
-    SshServerLog,
+    SshAgentState, SshAgentStatus, SshAskpass, SshCleanupPhase, SshCleanupRequest, SshCleanupResult, SshFailureKind, SshProgress, SshServerLog,
 };
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_ssh::askpass::{AskpassKind, AskpassPrompter, AskpassQuestion};
 use mixdog_ssh::cleanup::{CleanupProgress, CleanupReport};
-use mixdog_ssh::command::{parse_ssh_target, FailureClass, SshError, SshTarget};
+use mixdog_ssh::command::{FailureClass, SshError, SshTarget, parse_ssh_target};
 use mixdog_ssh::connect_failure::ConnectError;
 use mixdog_ssh::context::{AskpassEnv, AttemptContext, Platform};
-use mixdog_ssh::diagnostics::{diagnostics_key_for, DiagnosticKind, Diagnostics};
+use mixdog_ssh::diagnostics::{DiagnosticKind, Diagnostics, diagnostics_key_for};
 use mixdog_ssh::host_key::ResolvedHost;
 use mixdog_ssh::session::Progress;
 use serde_json::json;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{Notify, mpsc};
 
 use crate::attempts::{Attempts, ConnectionsPush, ServerLinks};
 use crate::cleanup_ops::{Cleanup, CleanupDeps, CleanupProgressSink, ServerCleaner};
@@ -63,7 +62,13 @@ impl ServerLinks for FakeLinks {
         locked(&self.open).contains(id)
     }
 
-    async fn open(&self, _spec: LinkSpec, _context: AttemptContext, _progress: Option<Progress>, _cancel: Option<&tokio_util::sync::CancellationToken>) -> Result<crate::link::LinkOpen, ConnectError> {
+    async fn open(
+        &self,
+        _spec: LinkSpec,
+        _context: AttemptContext,
+        _progress: Option<Progress>,
+        _cancel: Option<&tokio_util::sync::CancellationToken>,
+    ) -> Result<crate::link::LinkOpen, ConnectError> {
         Ok(crate::link::LinkOpen::Reused)
     }
 
@@ -237,8 +242,7 @@ async fn cleanup_rig(outcomes: Vec<Result<CleanupReport, ConnectError>>) -> Clea
     });
     let progress = Arc::new(Mutex::new(Vec::new()));
     let seen = progress.clone();
-    let sink: CleanupProgressSink =
-        Arc::new(move |step| locked(&seen).push((step.operation_id.clone(), step.phase, step.detail.clone())));
+    let sink: CleanupProgressSink = Arc::new(move |step| locked(&seen).push((step.operation_id.clone(), step.phase, step.detail.clone())));
     CleanupRig { cleanup, hosts, links, cleaner, login, questions, progress, sink, _dir: dir }
 }
 
@@ -474,7 +478,12 @@ async fn a_server_window_asks_only_about_its_own_server() {
 #[tokio::test]
 async fn the_copied_text_names_the_app_ssh_and_what_ssh_resolves_without_the_server_names() {
     let rig = diagnostics_rig(Some(resolved(Some("jump@bastion.example:2222"), true)), Ok(String::new())).await;
-    rig.machine.diagnostics.record(Some(key("dev@build.example").as_str()), DiagnosticKind::Stderr, "login to build.internal as deploy failed via bastion.example", 1_000);
+    rig.machine.diagnostics.record(
+        Some(key("dev@build.example").as_str()),
+        DiagnosticKind::Stderr,
+        "login to build.internal as deploy failed via bastion.example",
+        1_000,
+    );
     let text = rig.ops.copy(&Asker::ThisPc, "dev@build.example", "1.4.2").await.expect("a report");
     assert!(text.starts_with("Mixdog SSH diagnostics\nApp: 1.4.2\nOS: win32 10.0.26100 (x64)\nssh: OpenSSH_9.5p1\nConfig:\n"), "{text}");
     assert!(text.contains("  HostName <server>\n  User <server>\n  Port 2200\n  ProxyJump <server>\n  ProxyCommand (set)\n"), "{text}");
@@ -508,9 +517,7 @@ async fn the_server_log_is_redacted_and_noted_in_the_ring() {
 #[tokio::test]
 async fn an_empty_server_log_and_an_unreachable_server_are_answers_not_errors() {
     let rig = diagnostics_rig(None, Ok("  \n".into())).await;
-    let SshServerLog::Text(log) = rig.ops.server_log(&Asker::ThisPc, "dev@build.example").await.expect("answered") else {
-        panic!("expected the log")
-    };
+    let SshServerLog::Text(log) = rig.ops.server_log(&Asker::ThisPc, "dev@build.example").await.expect("answered") else { panic!("expected the log") };
     assert_eq!(log.text, "(daemon.log is empty or does not exist yet)");
     // An address that is not saved is read in a context that only names the ring.
     assert_eq!(*locked(&rig.machine.contexts), vec![Some(key("dev@build.example"))]);

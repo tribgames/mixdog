@@ -25,11 +25,7 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 const NOW_MS: u64 = 1_793_306_570_000;
 
 fn op_id(ms: u64, n: u64) -> OpId {
-    OpId::from(format!(
-        "{:08x}-{:04x}-7000-8000-{n:012x}",
-        ms >> 16,
-        ms & 0xffff
-    ))
+    OpId::from(format!("{:08x}-{:04x}-7000-8000-{n:012x}", ms >> 16, ms & 0xffff))
 }
 
 fn ctx() -> CallContext {
@@ -56,19 +52,14 @@ impl Db {
     fn open(dir: &tempfile::TempDir) -> CoreState {
         let t = tokens();
         let path = dir.path().join("core.sqlite");
-        CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path)
-            .unwrap()
-            .0
+        CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap().0
     }
 
     /// A new process on the same file: boot recovery runs again.
     fn restart(self) -> Self {
         drop(self.state);
         let state = Self::open(&self.dir);
-        Self {
-            dir: self.dir,
-            state,
-        }
+        Self { dir: self.dir, state }
     }
 
     fn store(&self, name: &str) -> Arc<StateOpStore> {
@@ -86,22 +77,13 @@ impl Db {
                     method: req.method.clone(),
                     digest: req.digest.clone(),
                     audience: Some(replay_audience(&ctx())),
-                    state: OpState::Applied {
-                        seq: None,
-                        result: None,
-                    },
+                    state: OpState::Applied { seq: None, result: None },
                 };
                 (id.clone(), op_row(id, &record, NOW_MS as i64).unwrap())
             })
             .collect();
         let scope = name.to_owned();
-        self.state
-            .write(move |tx| {
-                rows.iter()
-                    .try_for_each(|(id, row)| tx.put_op(&scope, id.as_str(), row))
-            })
-            .await
-            .unwrap();
+        self.state.write(move |tx| rows.iter().try_for_each(|(id, row)| tx.put_op(&scope, id.as_str(), row))).await.unwrap();
         ids
     }
 
@@ -126,20 +108,11 @@ impl Owner {
 
     async fn on(db: Db, name: &str) -> Arc<Self> {
         let store = db.store(name);
-        Arc::new(Self {
-            gate: OpGate::domain(scope(name), store.clone()).await.unwrap(),
-            db,
-            store,
-            effects: AtomicUsize::new(0),
-        })
+        Arc::new(Self { gate: OpGate::domain(scope(name), store.clone()).await.unwrap(), db, store, effects: AtomicUsize::new(0) })
     }
 
     /// `started` fires once executing; the effect waits for `release`.
-    async fn mutate(
-        &self,
-        req: &OpRequest,
-        hold: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
-    ) -> Result<AppliedOp, CoreError> {
+    async fn mutate(&self, req: &OpRequest, hold: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>) -> Result<AppliedOp, CoreError> {
         match self.gate.begin(req, &ctx()).await? {
             Begin::Done(outcome) => outcome.into_result(&req.id),
             Begin::Execute(ticket) => {
@@ -148,14 +121,8 @@ impl Owner {
                     release.await.unwrap();
                 }
                 let n = self.effects.fetch_add(1, Ordering::SeqCst) + 1;
-                let applied = AppliedOp {
-                    seq: Some(n as u64),
-                    result: Some(json!({ "n": n })),
-                };
-                let record = ticket.settled_record(OpState::Applied {
-                    seq: applied.seq,
-                    result: applied.result.clone(),
-                });
+                let applied = AppliedOp { seq: Some(n as u64), result: Some(json!({ "n": n })) };
+                let record = ticket.settled_record(OpState::Applied { seq: applied.seq, result: applied.result.clone() });
                 let row = op_row(&req.id, &record, NOW_MS as i64)?;
                 let (scope, id) = (self.store.scope().to_owned(), req.id.clone());
                 self.db
@@ -178,18 +145,12 @@ impl Owner {
 }
 
 fn rename(id: &OpId, title: &str) -> OpRequest {
-    OpRequest::new(
-        id.clone(),
-        "thread/name/update",
-        &json!({ "opId": id.as_str(), "name": title }),
-    )
+    OpRequest::new(id.clone(), "thread/name/update", &json!({ "opId": id.as_str(), "name": title }))
 }
 
 #[test]
 fn payload_digest_is_canonical_and_ignores_the_op_id() {
-    let a = PayloadDigest::of_params(
-        &json!({ "z": true, "opId": "x", "a": [1, "x", { "c": 1.5, "b": null }] }),
-    );
+    let a = PayloadDigest::of_params(&json!({ "z": true, "opId": "x", "a": [1, "x", { "c": 1.5, "b": null }] }));
     let b = PayloadDigest::of_params(&json!({ "a": [1, "x", { "b": null, "c": 1.5 }], "z": true }));
     assert_eq!(a, b);
     assert_eq!(
@@ -197,10 +158,7 @@ fn payload_digest_is_canonical_and_ignores_the_op_id() {
         "sha256:0c7dfa09052b45548ea78f488795a6d2cdd4a1b5583a90a5dd328968ef2638a1",
         "sha256 of {{\"a\":[1,\"x\",{{\"b\":null,\"c\":1.5}}],\"z\":true}}"
     );
-    assert_ne!(
-        a,
-        PayloadDigest::of_params(&json!({ "a": [1, "x"], "z": true }))
-    );
+    assert_ne!(a, PayloadDigest::of_params(&json!({ "a": [1, "x"], "z": true })));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -223,14 +181,7 @@ async fn duplicate_with_the_same_payload_runs_once_and_shares_the_response() {
     });
     // The duplicate waits on the running execution, never re-executing.
     tokio::task::yield_now().await;
-    assert_eq!(
-        owner
-            .gate
-            .status(std::slice::from_ref(&req.id), false, &ctx())
-            .await
-            .unwrap(),
-        [OpStatus::InProgress]
-    );
+    assert_eq!(owner.gate.status(std::slice::from_ref(&req.id), false, &ctx()).await.unwrap(), [OpStatus::InProgress]);
     release.send(()).unwrap();
     let first = first.await.unwrap().unwrap();
     let second = second.await.unwrap().unwrap();
@@ -239,17 +190,7 @@ async fn duplicate_with_the_same_payload_runs_once_and_shares_the_response() {
     // A later duplicate replays the stored response.
     assert_eq!(owner.mutate(&req, None).await.unwrap(), first);
     assert_eq!(owner.effects(), 1);
-    assert_eq!(
-        owner
-            .gate
-            .status(std::slice::from_ref(&req.id), true, &ctx())
-            .await
-            .unwrap(),
-        [OpStatus::Applied {
-            seq: first.seq,
-            result: first.result
-        }]
-    );
+    assert_eq!(owner.gate.status(std::slice::from_ref(&req.id), true, &ctx()).await.unwrap(), [OpStatus::Applied { seq: first.seq, result: first.result }]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -266,10 +207,7 @@ async fn another_payload_under_the_same_op_id_conflicts() {
     });
     started.await.unwrap();
     let conflict = CoreError::OpIdConflict { op_id: id.clone() };
-    assert_eq!(
-        owner.mutate(&rename(&id, "b"), None).await,
-        Err(conflict.clone())
-    );
+    assert_eq!(owner.mutate(&rename(&id, "b"), None).await, Err(conflict.clone()));
     release.send(()).unwrap();
     running.await.unwrap().unwrap();
     assert_eq!(owner.mutate(&rename(&id, "b"), None).await, Err(conflict));
@@ -332,32 +270,12 @@ async fn a_fenced_id_never_executes() {
 
     // Without `fence` a missing id is reported but stays executable.
     let open = op_id(NOW_MS, 4);
-    assert_eq!(
-        owner
-            .gate
-            .status(std::slice::from_ref(&open), false, &ctx())
-            .await
-            .unwrap(),
-        [OpStatus::NotApplied]
-    );
+    assert_eq!(owner.gate.status(std::slice::from_ref(&open), false, &ctx()).await.unwrap(), [OpStatus::NotApplied]);
     owner.mutate(&rename(&open, "x"), None).await.unwrap();
 
-    assert_eq!(
-        owner
-            .gate
-            .status(std::slice::from_ref(&id), true, &ctx())
-            .await
-            .unwrap(),
-        [OpStatus::NotApplied]
-    );
-    assert_eq!(
-        owner.mutate(&rename(&id, "late"), None).await,
-        Err(CoreError::OpFenced { op_id: id.clone() })
-    );
-    assert_eq!(
-        owner.gate.status(&[id], false, &ctx()).await.unwrap(),
-        [OpStatus::NotApplied]
-    );
+    assert_eq!(owner.gate.status(std::slice::from_ref(&id), true, &ctx()).await.unwrap(), [OpStatus::NotApplied]);
+    assert_eq!(owner.mutate(&rename(&id, "late"), None).await, Err(CoreError::OpFenced { op_id: id.clone() }));
+    assert_eq!(owner.gate.status(&[id], false, &ctx()).await.unwrap(), [OpStatus::NotApplied]);
     assert_eq!(owner.effects(), 1);
 }
 
@@ -381,12 +299,7 @@ async fn a_fence_racing_its_late_arrival_has_one_winner() {
         let fence = fence.await.unwrap().unwrap();
         match &fence[..] {
             [OpStatus::NotApplied] => {
-                assert_eq!(
-                    arrival,
-                    Err(CoreError::OpFenced {
-                        op_id: req.id.clone()
-                    })
-                );
+                assert_eq!(arrival, Err(CoreError::OpFenced { op_id: req.id.clone() }));
                 assert_eq!(owner.effects(), effects_before);
             }
             [OpStatus::InProgress] | [OpStatus::Applied { .. }] => {
@@ -406,37 +319,21 @@ async fn a_crash_during_an_external_action_reads_external_unknown_after_restart(
     let Begin::Execute(ticket) = gate.begin(&req, &ctx()).await.unwrap() else {
         panic!("first arrival executes");
     };
-    ticket
-        .external_pending("git/push".into(), "origin".into())
-        .await
-        .unwrap();
+    ticket.external_pending("git/push".into(), "origin".into()).await.unwrap();
     // The process dies mid-action: nothing settles the ticket.
     std::mem::forget(ticket);
     drop(gate);
 
     let db = db.restart();
     let restarted = OpGate::domain(scope("git"), db.store("git")).await.unwrap();
-    let unknown = OpStatus::ExternalUnknown {
-        effect: "git/push".into(),
-        target: "origin".into(),
-    };
-    assert_eq!(
-        restarted
-            .status(std::slice::from_ref(&req.id), true, &ctx())
-            .await
-            .unwrap(),
-        [unknown]
-    );
+    let unknown = OpStatus::ExternalUnknown { effect: "git/push".into(), target: "origin".into() };
+    assert_eq!(restarted.status(std::slice::from_ref(&req.id), true, &ctx()).await.unwrap(), [unknown]);
     let Begin::Done(outcome) = restarted.begin(&req, &ctx()).await.unwrap() else {
         panic!("an op with an unknown outcome never re-executes");
     };
     assert_eq!(
         outcome.into_result(&req.id),
-        Err(CoreError::ExternalOutcomeUnknown {
-            op_id: req.id.clone(),
-            effect: "git/push".into(),
-            target: "origin".into(),
-        })
+        Err(CoreError::ExternalOutcomeUnknown { op_id: req.id.clone(), effect: "git/push".into(), target: "origin".into() })
     );
 }
 
@@ -447,25 +344,11 @@ async fn an_external_action_finishes_with_its_recorded_outcome() {
     let Begin::Execute(ticket) = owner.gate.begin(&req, &ctx()).await.unwrap() else {
         panic!("first arrival executes");
     };
-    ticket
-        .external_pending("git/push".into(), "origin".into())
-        .await
-        .unwrap();
-    let rejected = CoreError::DomainError {
-        domain: "git".into(),
-        code: Some("PUSH_REJECTED".into()),
-        message: None,
-        detail: None,
-    };
-    ticket
-        .finish(OpOutcome::Rejected(rejected.clone()))
-        .await
-        .unwrap();
+    ticket.external_pending("git/push".into(), "origin".into()).await.unwrap();
+    let rejected = CoreError::DomainError { domain: "git".into(), code: Some("PUSH_REJECTED".into()), message: None, detail: None };
+    ticket.finish(OpOutcome::Rejected(rejected.clone())).await.unwrap();
     assert_eq!(owner.mutate(&req, None).await, Err(rejected.clone()));
-    assert_eq!(
-        owner.gate.status(&[req.id], false, &ctx()).await.unwrap(),
-        [OpStatus::Rejected { error: rejected }]
-    );
+    assert_eq!(owner.gate.status(&[req.id], false, &ctx()).await.unwrap(), [OpStatus::Rejected { error: rejected }]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -504,41 +387,16 @@ async fn retention_prune_advances_the_watermark_and_older_ids_expire() {
     assert_eq!(owner.store.watermark().await.unwrap(), Some(watermark));
 
     let oldest = ids[0].clone();
-    assert_eq!(
-        owner
-            .gate
-            .status(std::slice::from_ref(&oldest), true, &ctx())
-            .await
-            .unwrap(),
-        [OpStatus::Expired]
-    );
+    assert_eq!(owner.gate.status(std::slice::from_ref(&oldest), true, &ctx()).await.unwrap(), [OpStatus::Expired]);
     assert_eq!(
         owner.mutate(&rename(&oldest, "x"), None).await,
-        Err(CoreError::OpIdExpired {
-            op_id: oldest,
-            watermark: super::uuid7::watermark_text(watermark),
-        })
+        Err(CoreError::OpIdExpired { op_id: oldest, watermark: super::uuid7::watermark_text(watermark) })
     );
-    assert!(matches!(
-        owner
-            .gate
-            .status(&[ids[100].clone()], false, &ctx())
-            .await
-            .unwrap()[..],
-        [OpStatus::Applied { .. }]
-    ));
+    assert!(matches!(owner.gate.status(&[ids[100].clone()], false, &ctx()).await.unwrap()[..], [OpStatus::Applied { .. }]));
 
     // The watermark survives a restart.
-    let restarted = OpGate::domain(scope("media"), owner.store.clone())
-        .await
-        .unwrap();
-    assert_eq!(
-        restarted
-            .status(&[ids[99].clone()], false, &ctx())
-            .await
-            .unwrap(),
-        [OpStatus::Expired]
-    );
+    let restarted = OpGate::domain(scope("media"), owner.store.clone()).await.unwrap();
+    assert_eq!(restarted.status(&[ids[99].clone()], false, &ctx()).await.unwrap(), [OpStatus::Expired]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -547,13 +405,7 @@ async fn records_younger_than_seven_days_are_kept() {
     db.seed("media", NOW_MS - DAY_MS, 10_100).await;
     let owner = Owner::on(db, "media").await;
     let step = owner.gate.prune_step(NOW_MS).await.unwrap();
-    assert_eq!(
-        step,
-        PruneStep {
-            deleted: 0,
-            more: false
-        }
-    );
+    assert_eq!(step, PruneStep { deleted: 0, more: false });
     assert!(owner.db.count("media", 10_100).await);
 }
 
@@ -598,10 +450,7 @@ async fn one_scope_waiting_on_its_store_never_delays_another() {
 
     let db = Db::new();
     let stall = Arc::new(Notify::new());
-    let slow = Arc::new(Stalled {
-        store: db.store("account"),
-        stall: stall.clone(),
-    });
+    let slow = Arc::new(Stalled { store: db.store("account"), stall: stall.clone() });
     let slow_gate = OpGate::domain(scope("account"), slow).await.unwrap();
     let waiting = tokio::spawn({
         let gate = slow_gate.clone();
@@ -611,10 +460,7 @@ async fn one_scope_waiting_on_its_store_never_delays_another() {
     tokio::task::yield_now().await;
 
     let other = Owner::new("config").await;
-    other
-        .mutate(&rename(&op_id(NOW_MS, 9), "b"), None)
-        .await
-        .unwrap();
+    other.mutate(&rename(&op_id(NOW_MS, 9), "b"), None).await.unwrap();
     assert!(!waiting.is_finished());
     stall.notify_one();
     waiting.await.unwrap().unwrap();
@@ -627,13 +473,7 @@ async fn op_index_routes_status_to_the_scope_gate() {
     #[async_trait]
     impl ThreadOpGates for Threads {
         async fn gate(&self, thread: &ThreadId, _ctx: &CallContext) -> Result<OpGate, CoreError> {
-            if thread.as_str() == "t1" {
-                Ok(self.0.clone())
-            } else {
-                Err(CoreError::ThreadNotFound {
-                    thread_id: thread.clone(),
-                })
-            }
+            if thread.as_str() == "t1" { Ok(self.0.clone()) } else { Err(CoreError::ThreadNotFound { thread_id: thread.clone() }) }
         }
     }
 
@@ -645,37 +485,10 @@ async fn op_index_routes_status_to_the_scope_gate() {
     let thread_gate = OpGate::thread(OpScope::Thread(ThreadId::from("t1")), thread_store);
     let index = CoreOpIndex::new([config.gate.clone()], Arc::new(Threads(thread_gate)));
 
-    let statuses = index
-        .status(&scope("config"), &[applied], false, &ctx())
-        .await
-        .unwrap();
+    let statuses = index.status(&scope("config"), &[applied], false, &ctx()).await.unwrap();
     assert!(matches!(statuses[..], [OpStatus::Applied { .. }]));
-    assert_eq!(
-        index
-            .status(
-                &OpScope::Thread("t1".into()),
-                &[op_id(NOW_MS, 11)],
-                true,
-                &ctx()
-            )
-            .await
-            .unwrap(),
-        [OpStatus::NotApplied]
-    );
-    assert!(matches!(
-        index.status(&scope("nope"), &[], false, &ctx()).await,
-        Err(CoreError::InvalidParams { .. })
-    ));
-    assert!(matches!(
-        index
-            .status(&OpScope::Thread("t2".into()), &[], false, &ctx())
-            .await,
-        Err(CoreError::ThreadNotFound { .. })
-    ));
-    assert!(matches!(
-        index
-            .status(&scope("config"), &[OpId::from("not-a-uuid")], false, &ctx())
-            .await,
-        Err(CoreError::InvalidParams { .. })
-    ));
+    assert_eq!(index.status(&OpScope::Thread("t1".into()), &[op_id(NOW_MS, 11)], true, &ctx()).await.unwrap(), [OpStatus::NotApplied]);
+    assert!(matches!(index.status(&scope("nope"), &[], false, &ctx()).await, Err(CoreError::InvalidParams { .. })));
+    assert!(matches!(index.status(&OpScope::Thread("t2".into()), &[], false, &ctx()).await, Err(CoreError::ThreadNotFound { .. })));
+    assert!(matches!(index.status(&scope("config"), &[OpId::from("not-a-uuid")], false, &ctx()).await, Err(CoreError::InvalidParams { .. })));
 }

@@ -1,10 +1,6 @@
 //! `git` tool behaviour against real repositories: command forms and refusals, staging by diff id, the worktree
 //! rules for a Lead and a worker, and the session transitions a Lead sends to its runtime (scripted here).
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the test builds real repositories with blocking filesystem and process calls"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test builds real repositories with blocking filesystem and process calls")]
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -86,8 +82,6 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
         None => path,
     }
 }
-
-
 
 /// The session runtime, scripted from a golden: the Lead is `session`, and every transition
 /// answers what Node's host answered (an `error` entry becomes a coded failure).
@@ -224,11 +218,7 @@ fn context(cwd: &Path, session: &str, call: &str) -> ToolContext {
         cancel: CancellationToken::new(),
         deadline: None,
         progress: Arc::new(MockProgress::default()),
-        io: ToolIo {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-        },
+        io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
         approvals: Arc::new(MockApprovalGate::default()),
         files: Arc::new(MockFileService::default()),
         processes: processes::TestProcesses::shared(),
@@ -259,7 +249,6 @@ fn text_of(outcome: ToolOutcome) -> String {
         other => panic!("not text: {other:?}"),
     }
 }
-
 
 struct Rig {
     _tmp: tempfile::TempDir,
@@ -368,9 +357,6 @@ async fn a_file_name_with_non_ascii_characters_is_shown_as_it_is() {
     assert!(status.contains("한글.txt"), "not octal-escaped: {status}");
 }
 
-
-
-
 /// A repository (`f.txt` committed as `a`) with `f.txt` changed and an untracked `u.txt`, driven by a tool without a worktree host.
 struct Plain {
     _tmp: tempfile::TempDir,
@@ -435,13 +421,22 @@ async fn a_command_that_would_hang_leave_the_repository_or_chain_shell_work_is_r
     let p = plain();
     for (input, want) in [
         (json!({"command": "git config --global user.name x"}), "error: git config --global is outside the local repository scope"),
-        (json!({"command": "git log | head"}), "error: git command must not contain shell operators or substitution; multiple commands belong in the command array. For | head/tail use output_limit, for | grep use the grep tool"),
-        (json!({"command": "git gui"}), "error: git gui opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)"),
+        (
+            json!({"command": "git log | head"}),
+            "error: git command must not contain shell operators or substitution; multiple commands belong in the command array. For | head/tail use output_limit, for | grep use the grep tool",
+        ),
+        (
+            json!({"command": "git gui"}),
+            "error: git gui opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)",
+        ),
         (json!({"command": "git archive HEAD"}), "error: git archive requires -o/--output; binary stdout is not returned"),
         (json!({"command": "git -C"}), "error: git -C requires a path"),
         (json!({"command": []}), "error: git command array requires 1 to 10 commands"),
         (json!({}), "error: git requires command: a full command starting with git, e.g. command:\"git status\""),
-        (json!({"include_stage_ids": true}), "error: git requires command; staging IDs come from command:\"git diff\" (or \"git diff -- <paths>\") with include_stage_ids:true"),
+        (
+            json!({"include_stage_ids": true}),
+            "error: git requires command; staging IDs come from command:\"git diff\" (or \"git diff -- <paths>\") with include_stage_ids:true",
+        ),
         (json!({"action": "sideways"}), "error: git action must be command, stage or worktree"),
         (json!({"command": "git worktree add --help"}), "error: git manual help can open an external viewer; use the subcommand -h form for terminal usage"),
     ] {
@@ -485,10 +480,7 @@ async fn a_stage_request_for_a_gone_changed_or_foreign_diff_is_declined_with_wha
     let expired = parsed(&p.run(json!({"action": "stage", "change_ids": ["c1"], "diff_id": "diff_nope"})).await);
     assert_eq!(expired["reason"], "expired_diff");
     assert_eq!(expired["staged"], false);
-    assert_eq!(
-        p.run(json!({"action": "stage", "change_ids": ["c99"], "diff_id": id})).await,
-        "error: git stage change_ids are not present in the diff: c99"
-    );
+    assert_eq!(p.run(json!({"action": "stage", "change_ids": ["c99"], "diff_id": id})).await, "error: git stage change_ids are not present in the diff: c99");
     std::fs::create_dir(p.ws.join("sub")).unwrap();
     let scope = text_of(p.tool.call(&context(&p.ws.join("sub"), "worker", "call1"), json!({"action": "stage", "change_ids": ["c1"], "diff_id": id})).await);
     assert_eq!(parsed(&scope)["reason"], "scope_mismatch");
@@ -505,19 +497,31 @@ async fn a_stage_or_worktree_call_with_arguments_that_do_not_belong_together_is_
         (json!({"action": "stage", "change_ids": ["c1"]}), "error: git stage requires diff_id from a prior git diff"),
         (json!({"action": "stage", "diff_id": "diff_x"}), "error: git stage requires at least one change_id"),
         (json!({"action": "stage", "change_ids": fifty_one, "diff_id": "d"}), "error: git stage accepts at most 50 change_ids"),
-        (json!({"action": "stage", "change_ids": ["c1"], "command": "git status", "diff_id": "diff_x"}), "error: git action:stage accepts diff_id/change_ids, not command/include_stage_ids"),
+        (
+            json!({"action": "stage", "change_ids": ["c1"], "command": "git status", "diff_id": "diff_x"}),
+            "error: git action:stage accepts diff_id/change_ids, not command/include_stage_ids",
+        ),
         (json!({"command": "git status", "diff_id": "diff_x"}), "error: git diff_id/change_ids require action:stage"),
         (json!({"action": "worktree"}), "error: git action:worktree requires worktree_action: enter, return, merge, remove, list, prune"),
         (json!({"action": "worktree", "command": "git status", "worktree_action": "list"}), "error: git action:worktree does not take command"),
         (json!({"action": "worktree", "force": true, "worktree_action": "merge"}), "error: force applies to worktree_action remove, not merge"),
         (json!({"action": "worktree", "branch": "x", "worktree_action": "merge"}), "error: branch applies to worktree_action enter, remove, not merge"),
         (json!({"action": "worktree", "create": true, "worktree_action": "enter"}), "error: create needs branch"),
-        (json!({"action": "worktree", "branch": "b", "name": "n", "worktree_action": "enter"}), "error: branch excludes name and carry (the branch names the worktree; changes stay in the project folder)"),
+        (
+            json!({"action": "worktree", "branch": "b", "name": "n", "worktree_action": "enter"}),
+            "error: branch excludes name and carry (the branch names the worktree; changes stay in the project folder)",
+        ),
         (json!({"action": "worktree", "carry": "maybe", "worktree_action": "enter"}), "error: carry must be leave or carry"),
-        (json!({"action": "worktree", "branch": "b", "session_id": "s", "worktree_action": "remove"}), "error: branch names one of this session's own worktrees; it excludes session_id"),
+        (
+            json!({"action": "worktree", "branch": "b", "session_id": "s", "worktree_action": "remove"}),
+            "error: branch names one of this session's own worktrees; it excludes session_id",
+        ),
         (json!({"command": "git status", "worktree_action": "list"}), "error: git worktree_action requires action:worktree"),
         (json!({"command": "git status", "force": true}), "error: git force requires action:worktree"),
-        (json!({"action": "stage", "change_ids": ["c1"], "confirm_large": true, "diff_id": "d"}), "error: git confirm_large applies to action:worktree or a git worktree add command"),
+        (
+            json!({"action": "stage", "change_ids": ["c1"], "confirm_large": true, "diff_id": "d"}),
+            "error: git confirm_large applies to action:worktree or a git worktree add command",
+        ),
     ] {
         assert_eq!(p.run(input.clone()).await, want, "{input}");
     }
@@ -558,7 +562,10 @@ async fn a_lead_worktree_add_with_options_that_cannot_be_managed_is_refused_nami
     let rig = rig();
     for (command, want) in [
         ("git worktree add -b main ../w", "error: git worktree add: a branch named 'main' already exists (omit -b to check it out)"),
-        ("git worktree add -B main ../w", "error: git worktree add: -B would reset the existing branch main; managed worktrees never reset a branch (omit -B to check it out as it is)"),
+        (
+            "git worktree add -B main ../w",
+            "error: git worktree add: -B would reset the existing branch main; managed worktrees never reset a branch (omit -B to check it out as it is)",
+        ),
         ("git worktree add -b", "error: git worktree add: -b requires a branch name"),
         ("git worktree add --detach -b x ../w", "error: git worktree add: --detach excludes -b/-B"),
         ("git worktree add --orphan ../w", "error: git worktree add: --orphan is not supported for managed worktrees"),
@@ -568,7 +575,10 @@ async fn a_lead_worktree_add_with_options_that_cannot_be_managed_is_refused_nami
         ("git worktree add ../w nonsense-ref", "error: git worktree add: nonsense-ref is not a commit"),
         ("git worktree remove", "error: git worktree remove requires exactly one <path>"),
         ("git worktree remove --weird ../w", "error: git worktree remove: option --weird is not supported"),
-        ("git worktree prune --expire=now", "error: git worktree prune: option --expire=now is not supported (managed prune takes -n/--dry-run and -v/--verbose)"),
+        (
+            "git worktree prune --expire=now",
+            "error: git worktree prune: option --expire=now is not supported (managed prune takes -n/--dry-run and -v/--verbose)",
+        ),
         ("git worktree prune extra", "error: git worktree prune: unexpected argument extra"),
     ] {
         assert_eq!(run(&rig, "lead", &rig.ws, json!({"command": command})).await, want, "{command}");
@@ -594,7 +604,10 @@ async fn a_lead_session_transition_is_sent_to_the_runtime_with_what_was_asked_an
     let tool = GitTool::new().with_worktrees(services(sessions.clone(), "lead", work.join("data")));
     let go = |input: Value| text_of_future(&tool, &ws, input);
     let entered = parsed(&go(json!({"action": "worktree", "worktree_action": "enter", "branch": "feat", "create": true})).await);
-    assert_eq!((&entered["ok"], &entered["worktree_action"], &entered["extra"], &entered["workspace"]["branch"]), (&json!(true), &json!("enter"), &json!(1), &json!("feat")));
+    assert_eq!(
+        (&entered["ok"], &entered["worktree_action"], &entered["extra"], &entered["workspace"]["branch"]),
+        (&json!(true), &json!("enter"), &json!(1), &json!("feat"))
+    );
     let returned = parsed(&go(json!({"action": "worktree", "worktree_action": "return", "session_id": "other"})).await);
     assert_eq!((&returned["ok"], &returned["sessionId"], &returned["unchanged"]), (&json!(true), &json!("other"), &json!(false)));
     let conflict = parsed(&go(json!({"action": "worktree", "worktree_action": "merge"})).await);

@@ -264,7 +264,8 @@ fn a_user_script_runs_on_the_interpreter_with_its_arguments_and_exit_code() {
     let Some(envs) = with_interpreter() else { return };
     for shell in shells() {
         let root = tempfile::tempdir().expect("temp dir");
-        let script = node_script(root.path(), "스크립트 probe.mjs", "console.log(JSON.stringify(process.argv.slice(2)));process.exitCode=Number(process.argv[2]);");
+        let script =
+            node_script(root.path(), "스크립트 probe.mjs", "console.log(JSON.stringify(process.argv.slice(2)));process.exitCode=Number(process.argv[2]);");
         for code in [0, 1, 2, 42] {
             let mut args = vec![script.clone(), code.to_string(), "a b".to_owned(), "caf\u{e9}".to_owned()];
             if shell.passes_quotes() {
@@ -298,5 +299,3 @@ fn stdout_and_stderr_of_a_user_script_keep_the_order_they_were_written_in() {
         assert_eq!(lines, ["out0", "err1", "out2", "err3", "out4", "err5"], "{shell:?}");
     }
 }
-
-

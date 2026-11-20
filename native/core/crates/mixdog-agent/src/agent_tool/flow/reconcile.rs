@@ -135,11 +135,7 @@ pub fn reconcile_terminal_result(job: &JobHandle, value: &WorkerResult) {
             terminal_reason: Some("agent-empty-final".to_owned()),
             ..Completion::new("failed")
         },
-        None => Completion {
-            result: Some(value.task_result()),
-            terminal_reason: Some("agent-terminal-result".to_owned()),
-            ..Completion::new("completed")
-        },
+        None => Completion { result: Some(value.task_result()), terminal_reason: Some("agent-terminal-result".to_owned()), ..Completion::new("completed") },
     };
     job.board.reconcile(&job.task_id, completion);
 }

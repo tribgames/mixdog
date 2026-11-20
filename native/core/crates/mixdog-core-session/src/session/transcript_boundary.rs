@@ -133,7 +133,6 @@ mod tests {
     use mixdog_store::schema::blob::Slot;
     use mixdog_store::schema::record::ItemRecord;
 
-
     use super::*;
     use crate::session::transcript::transcript_convert::message_items;
 
@@ -166,7 +165,6 @@ mod tests {
         assert_eq!(id_of(&live), "a1:model:200");
     }
 
-
     #[test]
     fn a_switch_is_recorded_once_and_a_bare_boundary_shows_nothing() {
         let entry = json!({ "provider": "openai", "modelId": "next", "at": 200 });
@@ -175,6 +173,4 @@ mod tests {
         assert_eq!(folded["meta"]["modelSwitches"], json!([entry]));
         assert!(model_switch_item("a1", None, &json!({ "provider": "openai", "at": 1 })).is_none());
     }
-
-
 }

@@ -40,7 +40,10 @@ fn elements(xml: &str) -> Vec<Child> {
         }
     }
     let accepted: Vec<&str> = names.iter().map(String::as_str).collect();
-    top_level_elements(xml, &accepted).into_iter().map(|element| Child { name: element.name, xml: element.xml, start: element.start, end: element.end }).collect()
+    top_level_elements(xml, &accepted)
+        .into_iter()
+        .map(|element| Child { name: element.name, xml: element.xml, start: element.start, end: element.end })
+        .collect()
 }
 
 /// The attributes of an element's opening tag, in source order (a repeated name keeps its first place and its last value).
@@ -102,10 +105,8 @@ fn patch_word_format(xml: &str, owner: &str, tag: &str, patch: &str) -> Result<S
     if patch.is_empty() {
         return Ok(xml.to_owned());
     }
-    let open_length = compiled(&format!(r"^<w:{owner}(?:\s[^>]*)?>"), "")
-        .find(xml)
-        .map(|range| range.end)
-        .ok_or_else(|| format!("Missing Word {owner} element"))?;
+    let open_length =
+        compiled(&format!(r"^<w:{owner}(?:\s[^>]*)?>"), "").find(xml).map(|range| range.end).ok_or_else(|| format!("Missing Word {owner} element"))?;
     let close = xml.rfind(&format!("</w:{owner}>")).unwrap_or_else(|| before_last(xml));
     let children = elements(&xml[open_length..close.max(open_length)]);
     let wanted_name = format!("w:{tag}");
@@ -122,7 +123,9 @@ fn patch_word_format(xml: &str, owner: &str, tag: &str, patch: &str) -> Result<S
     for entry in elements(patch) {
         let index = entries.iter().position(|value| value.0 == entry.name);
         let value = match index {
-            Some(at) if ["w:spacing", "w:rFonts", "w:lang", "w:ind"].contains(&entry.name.as_str()) => merge_attributes(&entries[at].1, &entry.xml, &entry.name),
+            Some(at) if ["w:spacing", "w:rFonts", "w:lang", "w:ind"].contains(&entry.name.as_str()) => {
+                merge_attributes(&entries[at].1, &entry.xml, &entry.name)
+            }
             _ => entry.xml.clone(),
         };
         match index {
@@ -155,11 +158,7 @@ fn open_style_properties(style_xml: &str, tag: &str) -> String {
             None => style_xml.to_owned(),
         };
     }
-    let before = if tag == "pPr" {
-        compiled(r"<w:(?:rPr|tblPr|trPr|tcPr|tblStylePr)\b", "")
-    } else {
-        compiled(r"<w:(?:tblPr|trPr|tcPr|tblStylePr)\b", "")
-    };
+    let before = if tag == "pPr" { compiled(r"<w:(?:rPr|tblPr|trPr|tcPr|tblStylePr)\b", "") } else { compiled(r"<w:(?:tblPr|trPr|tcPr|tblStylePr)\b", "") };
     let at = before.find(style_xml).map(|range| range.start).or_else(|| style_xml.rfind("</w:style>")).unwrap_or_else(|| before_last(style_xml));
     format!("{}<w:{tag}></w:{tag}>{}", &style_xml[..at], &style_xml[at..])
 }
@@ -266,7 +265,9 @@ pub fn format_first_body_phrase(document_xml: &str, find: &str, properties: &Val
             let updated = match patch_word_format(&run.xml, "r", "rPr", &patch) {
                 Ok(updated) => updated,
                 Err(error) => {
-                    if failure.borrow().is_none() { *failure.borrow_mut() = Some(error); }
+                    if failure.borrow().is_none() {
+                        *failure.borrow_mut() = Some(error);
+                    }
                     result.push_str(&run.xml);
                     continue;
                 }
@@ -282,7 +283,9 @@ pub fn format_first_body_phrase(document_xml: &str, find: &str, properties: &Val
             match patch_word_format(&text_run(run, &text_of(&run.text[from..to])), "r", "rPr", &patch) {
                 Ok(patched) => result.push_str(&patched),
                 Err(error) => {
-                    if failure.borrow().is_none() { *failure.borrow_mut() = Some(error); }
+                    if failure.borrow().is_none() {
+                        *failure.borrow_mut() = Some(error);
+                    }
                 }
             }
             if to < run.text.len() {
@@ -339,11 +342,7 @@ mod tests {
     fn a_substring_edit_changes_only_its_characters_and_only_the_first_occurrence() {
         let paragraph = format!("<w:p>{}</w:p>", run("before target after target", &format!("{FONTS}<w:b/>")));
         let result = format_first_body_phrase(&paragraph, "target", &json!({ "bold": false, "color": "FF0000" })).expect("formatted");
-        assert!(
-            compiled(r#"<w:b w:val="0"/><w:color w:val="FF0000"/>.*?<w:t xml:space="preserve">target</w:t>"#, "").is_match(&result.xml),
-            "{}",
-            result.xml
-        );
+        assert!(compiled(r#"<w:b w:val="0"/><w:color w:val="FF0000"/>.*?<w:t xml:space="preserve">target</w:t>"#, "").is_match(&result.xml), "{}", result.xml);
         assert_eq!(count(&result.xml, "FF0000"), 1);
         assert!(result.xml.contains(r#"<w:b/></w:rPr><w:t xml:space="preserve"> after target</w:t>"#));
     }
@@ -414,12 +413,8 @@ mod tests {
 
     #[test]
     fn a_hanging_indent_replaces_a_first_line_indent_and_a_style_patch_lands_in_schema_order() {
-        let hung = patch_paragraph_format(
-            r#"<w:p><w:pPr><w:ind w:left="720" w:firstLine="360"/></w:pPr></w:p>"#,
-            &json!({ "indentFirstLine": -18 }),
-            None,
-        )
-        .expect("patched");
+        let hung = patch_paragraph_format(r#"<w:p><w:pPr><w:ind w:left="720" w:firstLine="360"/></w:pPr></w:p>"#, &json!({ "indentFirstLine": -18 }), None)
+            .expect("patched");
         assert_eq!(hung, r#"<w:p><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:p>"#);
         let style = r#"<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:qFormat/></w:style>"#;
         let patched = patch_word_style(style, &json!({ "bold": true, "spacingAfter": 6 })).expect("patched");

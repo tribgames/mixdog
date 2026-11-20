@@ -18,24 +18,11 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 pub(crate) const DIAL: Liveness = Liveness::stream(Duration::from_secs(30));
 
-pub(crate) type Dialed = (
-    WebSocketStream<MaybeTlsStream<TcpStream>>,
-    Response<Option<Vec<u8>>>,
-);
+pub(crate) type Dialed = (WebSocketStream<MaybeTlsStream<TcpStream>>, Response<Option<Vec<u8>>>);
 
-pub(crate) async fn connect(
-    request: Request,
-    config: Option<WebSocketConfig>,
-) -> Result<Dialed, tungstenite::Error> {
-    DIAL.bound_head(tokio_tungstenite::connect_async_with_config(
-        request, config, false,
-    ))
-    .await
-    .map_err(|expired| {
-        tungstenite::Error::Io(io::Error::new(
-            io::ErrorKind::TimedOut,
-            format!("relay dial timed out after {}ms", expired.after.as_millis()),
-        ))
+pub(crate) async fn connect(request: Request, config: Option<WebSocketConfig>) -> Result<Dialed, tungstenite::Error> {
+    DIAL.bound_head(tokio_tungstenite::connect_async_with_config(request, config, false)).await.map_err(|expired| {
+        tungstenite::Error::Io(io::Error::new(io::ErrorKind::TimedOut, format!("relay dial timed out after {}ms", expired.after.as_millis())))
     })?
 }
 
@@ -59,10 +46,7 @@ mod tests {
         });
         let request = url.as_str().into_client_request().unwrap();
         let outcome = mixdog_rt::time::timeout(Duration::from_secs(90), connect(request, None)).await;
-        assert!(
-            matches!(outcome, Ok(Err(_))),
-            "the dial deadline ends it, the test timeout does not"
-        );
+        assert!(matches!(outcome, Ok(Err(_))), "the dial deadline ends it, the test timeout does not");
         silent.abort();
     }
 }

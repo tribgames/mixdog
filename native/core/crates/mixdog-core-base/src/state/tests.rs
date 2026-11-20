@@ -32,34 +32,17 @@ struct Rig {
 
 impl Rig {
     fn new(limits: MockLimits) -> Self {
-        let feed = Arc::new(MockFeed::new(
-            FeedId::from("app"),
-            epoch(7),
-            Arc::new(EchoView),
-            limits,
-        ));
+        let feed = Arc::new(MockFeed::new(FeedId::from("app"), epoch(7), Arc::new(EchoView), limits));
         let state = Arc::new(SectionFeedState::new(feed.clone()));
-        Self {
-            state,
-            feed,
-            limits,
-        }
+        Self { state, feed, limits }
     }
 
     fn attach(&self, n: u64) -> MockConnection {
         let conn = MockConnection::new(ConnectionId(n), self.limits);
         let source: Arc<dyn FeedSource> = self.feed.clone();
-        let attached = subscribe(
-            &source,
-            SubscriptionId::from("app"),
-            Window::Fixed,
-            None,
-            &conn,
-        )
-        .unwrap();
+        let attached = subscribe(&source, SubscriptionId::from("app"), Window::Fixed, None, &conn).unwrap();
         assert_eq!(attached.decision.mode, AttachMode::Snapshot);
-        conn.send_control_release(Bytes::from_static(b"{}"), attached.release)
-            .unwrap();
+        conn.send_control_release(Bytes::from_static(b"{}"), attached.release).unwrap();
         conn
     }
 }
@@ -69,10 +52,7 @@ fn fold(store: &mut Store, frame: &str) {
         return;
     };
     fn apply(store: &mut Store, u: &Value) {
-        let slot = (
-            u["section"].as_str().unwrap().to_owned(),
-            u["key"].as_str().map(str::to_owned),
-        );
+        let slot = (u["section"].as_str().unwrap().to_owned(), u["key"].as_str().map(str::to_owned));
         let revision = u["revision"].as_u64().unwrap();
         if store.get(&slot).is_none_or(|(r, _)| revision > *r) {
             if u.get("removed").is_some() {
@@ -123,8 +103,7 @@ fn late_attacher_sees_what_a_watcher_saw() {
         set(&rig.state, SectionName::Usage, Some(&key), json!({ "n": i }));
         set(&rig.state, SectionName::AgentPool, None, json!({ "rows": i }));
     }
-    rig.state
-        .publish(SectionName::Usage, Some("k0".into()), SectionChange::Removed);
+    rig.state.publish(SectionName::Usage, Some("k0".into()), SectionChange::Removed);
     let late = rig.attach(2);
 
     let want = |store: &Store| {
@@ -142,8 +121,7 @@ fn revision_is_strictly_increasing_per_key_across_removal() {
     let rig = Rig::new(MockLimits::default());
     set(&rig.state, SectionName::Notice, Some("a"), json!(1));
     let (r1, _) = rig.state.current(SectionName::Notice, Some("a")).unwrap();
-    rig.state
-        .publish(SectionName::Notice, Some("a".into()), SectionChange::Removed);
+    rig.state.publish(SectionName::Notice, Some("a".into()), SectionChange::Removed);
     assert!(rig.state.current(SectionName::Notice, Some("a")).is_none());
     set(&rig.state, SectionName::Notice, Some("a"), json!(2));
     let (r3, _) = rig.state.current(SectionName::Notice, Some("a")).unwrap();
@@ -155,27 +133,20 @@ fn revision_is_strictly_increasing_per_key_across_removal() {
 #[test]
 fn large_value_publishes_a_stub_in_frames_and_snapshot() {
     let rig = Rig::new(MockLimits::default());
-    let models: Vec<Value> = (0..4000)
-        .map(|i| json!({ "id": format!("model-{i}"), "pad": "x".repeat(120) }))
-        .collect();
+    let models: Vec<Value> = (0..4000).map(|i| json!({ "id": format!("model-{i}"), "pad": "x".repeat(120) })).collect();
     set(&rig.state, SectionName::ModelCatalog, None, Value::Array(models));
     let (_, change) = rig.state.current(SectionName::ModelCatalog, None).unwrap();
     assert_eq!(change, SectionChange::Stub { count: 4000 });
     let conn = rig.attach(1);
     let store = converge(&conn, |s| !s.is_empty());
-    assert_eq!(
-        store[&("modelCatalog".into(), None)].1,
-        json!({ "count": 4000, "stub": true })
-    );
+    assert_eq!(store[&("modelCatalog".into(), None)].1, json!({ "count": 4000, "stub": true }));
 }
 
 #[test]
 fn snapshot_with_1000_models_500_agents_50_providers_fits_the_budget() {
     let limits = MockLimits::default();
     let rig = Rig::new(limits);
-    let models: Vec<Value> = (0..1000)
-        .map(|i| json!({ "id": format!("model-{i}"), "provider": "p", "contextWindow": 200000 }))
-        .collect();
+    let models: Vec<Value> = (0..1000).map(|i| json!({ "id": format!("model-{i}"), "provider": "p", "contextWindow": 200000 })).collect();
     set(&rig.state, SectionName::ModelCatalog, None, Value::Array(models));
     let agents: Vec<Value> = (0..500).map(|i| json!({ "id": format!("agent-{i}") })).collect();
     set(&rig.state, SectionName::Agents, None, Value::Array(agents));
@@ -200,28 +171,16 @@ fn snapshot_with_1000_models_500_agents_50_providers_fits_the_budget() {
 
 #[test]
 fn stalled_client_resnapshots_and_converges() {
-    let limits = MockLimits {
-        queue_bytes: 64 << 10,
-        control_reserve_bytes: 4 << 10,
-        max_snapshot_bytes: 16 << 10,
-        ring_bytes: 1 << 20,
-    };
+    let limits = MockLimits { queue_bytes: 64 << 10, control_reserve_bytes: 4 << 10, max_snapshot_bytes: 16 << 10, ring_bytes: 1 << 20 };
     let rig = Rig::new(limits);
     let conn = rig.attach(1);
     for round in 0..12u64 {
         for k in 0..20 {
             let key = format!("scope-{k}");
-            set(
-                &rig.state,
-                SectionName::Usage,
-                Some(&key),
-                json!({ "round": round, "pad": "y".repeat(400) }),
-            );
+            set(&rig.state, SectionName::Usage, Some(&key), json!({ "round": round, "pad": "y".repeat(400) }));
         }
     }
-    let store = converge(&conn, |s| {
-        s.len() == 20 && s.values().all(|(_, v)| v["round"] == 11)
-    });
+    let store = converge(&conn, |s| s.len() == 20 && s.values().all(|(_, v)| v["round"] == 11));
     assert_eq!(store.len(), 20);
 }
 

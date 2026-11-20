@@ -218,7 +218,8 @@ impl SetupGatherer {
             }
             world.oauth_ids.insert(id);
             if options.check_secrets
-                && let Some(provider) = self.providers.iter().find(|p| p.id() == id) {
+                && let Some(provider) = self.providers.iter().find(|p| p.id() == id)
+            {
                 let account = self.account_of(id).await?;
                 world.oauth_described.insert(id, provider.describe(&account).await);
             }

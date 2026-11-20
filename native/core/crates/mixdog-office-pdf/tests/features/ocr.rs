@@ -25,7 +25,12 @@ fn row(line: u32, word: u32, left: f64, top: f64, width: f64, height: f64, conf:
 
 #[test]
 fn words_of_the_engines_table_become_lines_with_their_box_and_the_widest_gap() {
-    let table = format!("{HEADER}{}{}{}", row(1, 1, 10.0, 20.0, 50.0, 12.0, 95, "Hello"), row(1, 2, 70.0, 20.0, 60.0, 12.0, 90, "World"), row(2, 1, 10.0, 50.0, 80.0, 12.0, 88, "Second"));
+    let table = format!(
+        "{HEADER}{}{}{}",
+        row(1, 1, 10.0, 20.0, 50.0, 12.0, 95, "Hello"),
+        row(1, 2, 70.0, 20.0, 60.0, 12.0, 90, "World"),
+        row(2, 1, 10.0, 50.0, 80.0, 12.0, 88, "Second")
+    );
     let lines = ocr_text_lines(&table, "Hello World\nSecond\n");
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0].text, "Hello World");
@@ -111,7 +116,12 @@ fn recognised_words_are_placed_where_the_image_has_them_and_the_saved_page_can_b
     assert_ne!(before, after, "the text layer was written");
     let layout = extract_pdf_text_layout(&Unlaned, PdfSource::Bytes(&after), &LayoutOptions { shapes: false, ..LayoutOptions::default() }).expect("layout");
     let page = &layout.pages[0];
-    let find = |word: &str| page.items.iter().find(|item| item.text.contains(word)).unwrap_or_else(|| panic!("no {word} in {:?}", page.items.iter().map(|i| &i.text).collect::<Vec<_>>()));
+    let find = |word: &str| {
+        page.items
+            .iter()
+            .find(|item| item.text.contains(word))
+            .unwrap_or_else(|| panic!("no {word} in {:?}", page.items.iter().map(|i| &i.text).collect::<Vec<_>>()))
+    };
     let (hello, world, second) = (find("Hello"), find("World"), find("Second"));
     assert!(hello.x < world.x, "Hello is left of World");
     assert!(hello.top < second.top, "the second line is lower");

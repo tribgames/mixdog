@@ -1,11 +1,7 @@
 //! `ensure_core` against the test core `fake_core` (a stand-in for `mixdogd serve` that writes discovery the way the core
 //! does): a core is started and attached to, two launchers racing for one core both attach to the winner, and a core that
 //! ends leaves its capture and sidecar. Runs only with the `fake-core` feature.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the test lays out folders, starts a process and reads what it left on disk"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out folders, starts a process and reads what it left on disk")]
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -90,7 +86,10 @@ async fn a_core_is_started_once_and_the_next_launcher_attaches_to_it() {
     let sidecars = world.sidecars();
     assert_eq!(sidecars.len(), 1, "one boot, one capture");
     let sidecar = record(&sidecars[0]);
-    assert_eq!((sidecar["pid"].as_u64(), sidecar["ready"].as_bool(), sidecar["launcher"].as_str(), sidecar["detached"].as_bool()), (Some(u64::from(first.pid)), Some(true), Some("core"), Some(true)));
+    assert_eq!(
+        (sidecar["pid"].as_u64(), sidecar["ready"].as_bool(), sidecar["launcher"].as_str(), sidecar["detached"].as_bool()),
+        (Some(u64::from(first.pid)), Some(true), Some("core"), Some(true))
+    );
     assert!(sidecar["exitedAt"].is_null(), "the core still serves");
 
     world.stop(first.pid);
@@ -145,7 +144,6 @@ async fn a_binary_that_cannot_start_is_a_start_error_with_a_terminal_sidecar() {
     assert!(!sidecar["exitedAt"].is_null(), "a launch that never had a child is not in progress");
     assert!(sidecar["pid"].is_null() && sidecar["stderrFile"].is_null());
 }
-
 
 /// The keys of a launcher's sidecar once the core has ended: what tools that read a capture's `.json` rely on (the core's own
 /// `daemonExit` block, which only the core writes, is not among them).

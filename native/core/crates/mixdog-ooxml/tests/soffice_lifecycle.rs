@@ -182,11 +182,8 @@ fn a_cancelled_run_on_windows_stops_what_the_launcher_started_with_it() {
     let dir = tempfile::tempdir().expect("temp folder");
     let (launcher_file, child_file) = (pid_file(&dir, "launcher"), pid_file(&dir, "child"));
     let cancel = AtomicBool::new(false);
-    let (program, args, options) = fake(
-        "launch",
-        &[(PID_FILE, launcher_file.to_str().expect("utf-8")), (CHILD_PID_FILE, child_file.to_str().expect("utf-8"))],
-        Duration::from_secs(60),
-    );
+    let (program, args, options) =
+        fake("launch", &[(PID_FILE, launcher_file.to_str().expect("utf-8")), (CHILD_PID_FILE, child_file.to_str().expect("utf-8"))], Duration::from_secs(60));
     let options = options.cancelled_by(Some(&cancel));
     std::thread::scope(|scope| {
         let run = scope.spawn(|| run_soffice_blocking(&program, &args, &options));

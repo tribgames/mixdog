@@ -31,19 +31,19 @@ use mixdog_core_api::domain::retry::Verdict;
 use crate::boundary::CompactPolicy;
 use crate::env::PartialToolRecovery;
 use crate::env::RetractReason;
+use crate::env::Retracted;
 use crate::env::RouteDecision;
 use crate::env::RouteSwitch;
-use crate::env::Retracted;
 use crate::env::RunEvent;
 use crate::env::Stage;
-use crate::env::Tone;
 use crate::env::TextRetraction;
+use crate::env::Tone;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
 use crate::message::Source;
+use crate::repair::ToolCallIds;
 use crate::response::ModelResponse;
 use crate::response::ResponseBuilder;
-use crate::repair::ToolCallIds;
 use crate::run::AgentError;
 use crate::run::ContextOverflow;
 use crate::run::RetryStates;
@@ -157,8 +157,7 @@ impl Drop for SendGroup {
 
 /// An idle-window expiry of a stream that had started (`stallObserved`).
 fn is_stall(error: &ProviderError) -> bool {
-    error.timeout_phase == Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Idle)
-        || error.code.as_deref() == Some("ESTREAMSTALL")
+    error.timeout_phase == Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Idle) || error.code.as_deref() == Some("ESTREAMSTALL")
 }
 
 /// The facts that end a stream after it started: a transport that gave out, or a stall.
@@ -196,21 +195,14 @@ fn server_unavailable(error: &ProviderError) -> bool {
 }
 
 fn is_connect_fault(error: &ProviderError) -> bool {
-    matches!(
-        error.transport,
-        Some(TransportFault::Connect { .. } | TransportFault::Dns)
-    )
+    matches!(error.transport, Some(TransportFault::Connect { .. } | TransportFault::Dns))
 }
 
 /// The row that governs a failure first: the request or the stream row, a connect
 /// failure included (the provider's own `withRetry` covers it before the loop's
 /// outage ladder does, `golden/connect_errors.json`).
 fn first_class(midstream: bool) -> RetryClass {
-    if midstream {
-        RetryClass::Midstream
-    } else {
-        RetryClass::Request
-    }
+    if midstream { RetryClass::Midstream } else { RetryClass::Request }
 }
 
 /// Session-level replay once the provider rows are spent: after a connect failure,
@@ -230,11 +222,8 @@ fn escalate(class: RetryClass, error: &ProviderError, policy: &RetryPolicy) -> O
     if is_connect_fault(error) {
         Some(RetryClass::Connection)
     } else if error.transport.is_some() {
-        let replayed = policy.stream_cut_loop_replay
-            && class == RetryClass::Midstream
-            && !error.recovery_exhausted
-            && !error.recovery_terminal
-            && is_stream_cut(error);
+        let replayed =
+            policy.stream_cut_loop_replay && class == RetryClass::Midstream && !error.recovery_exhausted && !error.recovery_terminal && is_stream_cut(error);
         replayed.then_some(RetryClass::Transport)
     } else if server_unavailable(error) {
         Some(RetryClass::Recovery)
@@ -347,11 +336,7 @@ impl Run {
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
         // A failed reduction's leave is the request it was decided for: this one, and no later one.
         options.tail_unreduced = self.config.options.tail_unreduced.take();
-        let messages = if self.unprojected {
-            self.messages.iter().map(AgentMessage::wire).collect()
-        } else {
-            crate::project::project_for_wire(&self.messages)
-        };
+        let messages = if self.unprojected { self.messages.iter().map(AgentMessage::wire).collect() } else { crate::project::project_for_wire(&self.messages) };
         let messages = self.with_image_choices(messages);
         // The tail reminder rides on this request only; the assistant turn it
         // produces keeps its text.
@@ -493,7 +478,9 @@ impl Run {
             // A restarted process compares its first request with the last prefix fingerprint the record kept.
             mixdog_ai::providers::anthropic::prefix_trace::seed(self.config.thread_id.as_str(), self.carry.cache.prefix_baseline.as_ref());
             self.last_request = Some(request.clone());
-            if self.side_ticket.is_none() && let Some(tap) = &self.env.side {
+            if self.side_ticket.is_none()
+                && let Some(tap) = &self.env.side
+            {
                 self.side_ticket = Some(tap.begin_shared(&request));
             }
             if let Some(begin) = &self.config.request_begin {
@@ -666,7 +653,9 @@ impl Run {
         let usage = &response.usage;
         let counters = Counters::of_usage(usage);
         let sent_on = self.send_identity.account();
-        let account = response.account_routing.as_ref()
+        let account = response
+            .account_routing
+            .as_ref()
             .filter(|routing| routing.provider == provider)
             .map(|routing| routing.account_id.as_str())
             .or_else(|| sent_on.as_ref().map(|sent| sent.account.as_str()));
@@ -692,7 +681,9 @@ impl Run {
         let had_observation = cache.observation.is_some();
         let miss = cache_observation::settle(&mut cache.observation, request, counters);
         cache.changed |= had_observation && cache.observation.is_none();
-        if let Some(miss) = miss && let Some(log) = &self.env.failures {
+        if let Some(miss) = miss
+            && let Some(log) = &self.env.failures
+        {
             let mut record = serde_json::Map::new();
             record.insert("sessionId".into(), serde_json::json!(thread));
             record.insert("iteration".into(), serde_json::json!(self.iterations + 1));
@@ -703,7 +694,9 @@ impl Run {
             record.insert("model".into(), serde_json::json!(self.model));
             record.insert("actualCacheMiss".into(), serde_json::json!(true));
             record.insert("cachedTokens".into(), serde_json::json!(miss.read));
-            if cache_observation::has_prompt(usage) && let Some(written) = counters.created {
+            if cache_observation::has_prompt(usage)
+                && let Some(written) = counters.created
+            {
                 record.insert("promptTokens".into(), serde_json::json!(usage.input_tokens.saturating_add(miss.read).saturating_add(written)));
             }
             record.insert("previousCachedPrefixTokens".into(), serde_json::json!(miss.previous_prefix));
@@ -725,10 +718,7 @@ impl Run {
     }
 
     /// Exactly one attempt: admission, the stream, its fold.
-    async fn attempt_once(
-        &mut self,
-        request: Arc<ModelRequest>,
-    ) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
+    async fn attempt_once(&mut self, request: Arc<ModelRequest>) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
         let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages));
         let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
             let mut partial = builder.finish();
@@ -738,13 +728,7 @@ impl Run {
             {
                 partial.replay.push((**replay).clone());
             }
-            Err(Box::new(Failure {
-                error,
-                partial,
-                midstream,
-                shown_chars: shown,
-                reasoning_shown: reasoning,
-            }))
+            Err(Box::new(Failure { error, partial, midstream, shown_chars: shown, reasoning_shown: reasoning }))
         };
         // Stored text attachments become their text in every request; the saved
         // messages keep the reference.
@@ -752,26 +736,23 @@ impl Run {
             Some(resolver) => {
                 let mut built = (*request).clone();
                 let messages = std::mem::take(&mut built.messages);
-                let resolved = or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref()))
-                    .await
-                    .ok_or(AgentError::Aborted)?;
+                let resolved =
+                    or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref())).await.ok_or(AgentError::Aborted)?;
                 let resolved = match resolved {
                     // A text-only route reads and lowers its stored files itself.
                     Ok(messages) if self.config.text_only.is_none() => {
                         // The engine this request goes to says what it takes as a document (a gateway's Messages
                         // engine differs from its Chat wire).
                         let support = self.provider.media_support(&request).await;
-                        let resolved = or_cancelled(
-                            &self.cancel,
-                            crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf),
-                        )
-                        .await
-                        .ok_or(AgentError::Aborted)?;
+                        let resolved =
+                            or_cancelled(&self.cancel, crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf))
+                                .await
+                                .ok_or(AgentError::Aborted)?;
                         // `preparePdfTextForProvider`, and the text of an Office file, for every provider.
                         match (resolved, self.config.file_text.clone()) {
-                            (Ok(messages), Some(media)) => or_cancelled(&self.cancel, media.prepare_for_route(messages, support))
-                                .await
-                                .ok_or(AgentError::Aborted)?,
+                            (Ok(messages), Some(media)) => {
+                                or_cancelled(&self.cancel, media.prepare_for_route(messages, support)).await.ok_or(AgentError::Aborted)?
+                            }
                             (resolved, _) => resolved,
                         }
                     }
@@ -791,9 +772,7 @@ impl Run {
         let request = match self.config.text_only.clone() {
             Some(text_only) => {
                 let built = (*request).clone();
-                let prepared = or_cancelled(&self.cancel, crate::text_only::prepare_text_only_request(&text_only, built))
-                    .await
-                    .ok_or(AgentError::Aborted)?;
+                let prepared = or_cancelled(&self.cancel, crate::text_only::prepare_text_only_request(&text_only, built)).await.ok_or(AgentError::Aborted)?;
                 match prepared {
                     Ok(done) => Arc::new(done),
                     Err(error) => return Ok(fail(*error, builder, false, 0, false)),
@@ -836,11 +815,7 @@ impl Run {
     }
 
     /// The provider request and the fold of its stream.
-    async fn exchange(
-        &mut self,
-        request: Arc<ModelRequest>,
-        mut builder: ResponseBuilder,
-    ) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
+    async fn exchange(&mut self, request: Arc<ModelRequest>, mut builder: ResponseBuilder) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
         let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
             let mut partial = builder.finish();
             // What the provider kept of a cut stream beyond the events (`partialProviderReplay`).
@@ -853,21 +828,14 @@ impl Run {
             if partial.thinking_blocks.is_none() && !error.partial_thinking_blocks.is_empty() {
                 partial.thinking_blocks = Some(serde_json::Value::Array(error.partial_thinking_blocks.clone()));
             }
-            Err(Box::new(Failure {
-                error,
-                partial,
-                midstream,
-                shown_chars: shown,
-                reasoning_shown: reasoning,
-            }))
+            Err(Box::new(Failure { error, partial, midstream, shown_chars: shown, reasoning_shown: reasoning }))
         };
         let provider = Arc::clone(&self.provider);
         self.trace("request-prepared", format_args!("provider={} model={} messages={}", provider.id().as_str(), self.model, request.messages.len()));
         // The provider's own `requesting` stages (`onStageChange`): those it raises before a send's first attempt and
         // before every attempt, here; those it raises from inside the attempt, once the attempt is over.
         let stages = provider.send_stages_of(&request);
-        let first_attempt = self.retry.get(RetryClass::Request).count(None).retries == 0
-            && self.retry.get(RetryClass::Midstream).count(None).retries == 0;
+        let first_attempt = self.retry.get(RetryClass::Request).count(None).retries == 0 && self.retry.get(RetryClass::Midstream).count(None).retries == 0;
         if !std::mem::take(&mut self.readmitting) {
             if first_attempt {
                 for _ in 0..stages.preparing {
@@ -970,7 +938,10 @@ impl Run {
                     if !builder.completed() && !wire_left.load(std::sync::atomic::Ordering::Acquire) {
                         self.settle_gate.send_replace(true);
                     }
-                    let next = identity.deliver_stages(or_cancelled(&self.cancel, pending), |stage, payload| self.deliver_raised(stage, payload)).await.ok_or(AgentError::Aborted)?;
+                    let next = identity
+                        .deliver_stages(or_cancelled(&self.cancel, pending), |stage, payload| self.deliver_raised(stage, payload))
+                        .await
+                        .ok_or(AgentError::Aborted)?;
                     self.settle_gate.send_replace(false);
                     next
                 }
@@ -1033,9 +1004,7 @@ impl Run {
                 StreamEvent::Notice { message, warn } => self.show_notice(message, *warn),
                 // The account pool's `onStageChange`, in the order the pool raised it.
                 StreamEvent::AccountStage(stage) => self.emit(RunEvent::Stage(match stage {
-                    mixdog_core_api::domain::provider::AccountStage::Switching { message } => {
-                        Stage::AccountSwitching { message: message.clone() }
-                    }
+                    mixdog_core_api::domain::provider::AccountStage::Switching { message } => Stage::AccountSwitching { message: message.clone() },
                     mixdog_core_api::domain::provider::AccountStage::Changed { provider, account_id, at } => {
                         Stage::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
                     }
@@ -1069,10 +1038,7 @@ impl Run {
         }
         if !builder.completed() {
             // A stream may only end with its terminal event.
-            let mut error = ProviderError::transport(
-                TransportFault::TruncatedStream,
-                stream.delivery(),
-            );
+            let mut error = ProviderError::transport(TransportFault::TruncatedStream, stream.delivery());
             error.exposure.text_emitted = shown_chars > 0;
             return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
         }
@@ -1126,13 +1092,7 @@ impl Run {
     }
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {
-        let Failure {
-            mut error,
-            partial,
-            midstream,
-            shown_chars,
-            reasoning_shown,
-        } = fail;
+        let Failure { mut error, partial, midstream, shown_chars, reasoning_shown } = fail;
         // Every attempt a transport fault ended, retried or not, names the fault and the connection it rode in the daemon log
         // (a turn's `[ask-error]` line names only the last one): `TruncatedStream` is a body that ended cleanly before its
         // terminal event. No message text: a refusal's body may echo what the request carried.
@@ -1173,8 +1133,7 @@ impl Run {
         // unrun and the model told to split it. A call the stream handed over is dispatched whether or not it was admitted
         // for an eager run (`recoverableToolCalls`, `send-with-recovery.mjs:720`).
         let input_cut = error.exposure.tool_input_cut;
-        let recoverable = !partial.tool_calls.is_empty()
-            && (!input_cut || partial.tool_calls.iter().all(|c| self.stream_dispatched(&c.id)));
+        let recoverable = !partial.tool_calls.is_empty() && (!input_cut || partial.tool_calls.iter().all(|c| self.stream_dispatched(&c.id)));
         if is_stream_cut(&error) && recoverable {
             // `recoverPartialToolCalls`' trace (`send-with-recovery.mjs:769`), at the round's iteration (`nextIteration`).
             self.emit(RunEvent::PartialToolRecovery(PartialToolRecovery {
@@ -1183,26 +1142,16 @@ impl Run {
                 dropped_incomplete_input: input_cut,
                 partial_content_len: mixdog_js::utf16_len(&partial.content),
             }));
-            let recovery_notice = input_cut
-                .then(|| AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE));
-            return Ok(Recovery::Proceed(Box::new(ModelResponse {
-                stop: Some(StopReason::ToolUse),
-                recovery_notice,
-                ..partial
-            })));
+            let recovery_notice = input_cut.then(|| AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE));
+            return Ok(Recovery::Proceed(Box::new(ModelResponse { stop: Some(StopReason::ToolUse), recovery_notice, ..partial })));
         }
         // First-party Responses marks a failure after visible reasoning
         // terminal even when the UI could retract it. Keep the usage and
         // original error, without another sample on this or another route.
-        if error.recovery_terminal && error.unsafe_to_retry
-            && matches!(self.provider.id().as_str(), "openai" | "openai-oauth")
-        {
+        if error.recovery_terminal && error.unsafe_to_retry && matches!(self.provider.id().as_str(), "openai" | "openai-oauth") {
             return Err(AgentError::Provider(Box::new(error)));
         }
-        let replay_safe = !error.exposure.text_emitted
-            && !error.exposure.tool_dispatched
-            && shown_chars == 0
-            && !reasoning_shown;
+        let replay_safe = !error.exposure.text_emitted && !error.exposure.tool_dispatched && shown_chars == 0 && !reasoning_shown;
         if error.kind == ErrorKind::ContextOverflow {
             return self.on_context_overflow(error, replay_safe).await;
         }
@@ -1229,17 +1178,9 @@ impl Run {
             && !error.exposure.tool_dispatched
             && !self.env.observer.can_retract()
         {
-            return Ok(Recovery::Proceed(Box::new(ModelResponse {
-                stop: None,
-                truncated: true,
-                stream_cut: true,
-                tool_calls: Vec::new(),
-                ..partial
-            })));
+            return Ok(Recovery::Proceed(Box::new(ModelResponse { stop: None, truncated: true, stream_cut: true, tool_calls: Vec::new(), ..partial })));
         }
-        let ws_owner_replay = error.ws_phase == Some(WsPhase::Stream)
-            && !error.recovery_exhausted
-            && (exposed || error.exposure.tool_input_cut);
+        let ws_owner_replay = error.ws_phase == Some(WsPhase::Stream) && !error.recovery_exhausted && (exposed || error.exposure.tool_input_cut);
         // Withdrawing shown text makes a replay safe; it is asked only once a
         // replay is decided. A dispatched tool call can never be replayed.
         let retractable = exposed && !error.exposure.tool_dispatched && self.eager.is_empty() && partial.tool_calls.is_empty();
@@ -1282,10 +1223,7 @@ impl Run {
                 &decide_on,
                 &self.retry.get(class).at_elapsed(self.send_identity.elapsed()),
                 &policy,
-                JitterSamples {
-                    step: self.env.jitter.draw(),
-                    advice: self.env.jitter.draw(),
-                },
+                JitterSamples { step: self.env.jitter.draw(), advice: self.env.jitter.draw() },
             );
             // The provider's ladder ended on this failure: its re-issue of the send runs once before the loop's own
             // ladders (`recoverCompatNonStreaming`, `_recoverGeminiNonStreaming`).
@@ -1363,35 +1301,17 @@ impl Run {
                 _ => (next.count(None).retries, row_max(next.class())),
             };
             // Node's attempt is the one about to run, of the run's attempts.
-            let mut payload = mixdog_ai::retry::stage::reconnecting(
-                &decide_on,
-                used + 1,
-                max.saturating_add(1),
-                delay,
-                u64::try_from(self.env.clock.now_ms()).unwrap_or(0),
-            );
+            let mut payload =
+                mixdog_ai::retry::stage::reconnecting(&decide_on, used + 1, max.saturating_add(1), delay, u64::try_from(self.env.clock.now_ms()).unwrap_or(0));
             self.scheduled(&mut payload, &next, delay, &format!("{reason:?}"), replay_safe);
-            self.emit(RunEvent::Stage(Stage::Reconnecting {
-                attempt: used,
-                max,
-                delay,
-                reason,
-                payload: Some(payload),
-            }));
+            self.emit(RunEvent::Stage(Stage::Reconnecting { attempt: used, max, delay, reason, payload: Some(payload) }));
             self.retry_wait(delay).await?;
         }
         if split_notice {
             // A repeated cut keeps the single notice already at the tail.
-            let tail_is_notice = self
-                .messages
-                .last()
-                .is_some_and(|m| m.source == Some(Source::StreamCutRecovery));
+            let tail_is_notice = self.messages.last().is_some_and(|m| m.source == Some(Source::StreamCutRecovery));
             if !tail_is_notice {
-                self.push(AgentMessage::sourced(
-                    Source::StreamCutRecovery,
-                    TOOL_INPUT_CUT_NOTICE,
-                ))
-                .await?;
+                self.push(AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE)).await?;
             }
         }
         // Node's provider never re-issues a send that showed output or was cut in a tool call's arguments
@@ -1513,17 +1433,13 @@ impl Run {
             // The provider named a tool whose schema it rejects: the run drops
             // it (with a notice) and the turn is rebuilt without it, once.
             // Nothing was generated, and the same body would fail again.
-            ErrorKind::ToolSchemaRejected
-                if !self.tool_schema_drop_used && self.drop_rejected_tool(error) =>
-            {
+            ErrorKind::ToolSchemaRejected if !self.tool_schema_drop_used && self.drop_rejected_tool(error) => {
                 self.tool_schema_drop_used = true;
                 Some(Recovery::Rebuilt)
             }
             // The latest assistant turn carries reasoning replay the API will
             // not take back: drop it from that turn, in place, once.
-            ErrorKind::ReplayRejected
-                if !self.replay_repair_used && self.repair_thinking_replay() =>
-            {
+            ErrorKind::ReplayRejected if !self.replay_repair_used && self.repair_thinking_replay() => {
                 self.replay_repair_used = true;
                 Some(Recovery::Rebuilt)
             }
@@ -1533,11 +1449,7 @@ impl Run {
         }
     }
     fn retraction(&self, chars: usize, reasoning: bool) -> Retracted {
-        self.env.observer.retract_text(TextRetraction {
-            chars,
-            reasoning,
-            reason: RetractReason::TransportRetraction,
-        })
+        self.env.observer.retract_text(TextRetraction { chars, reasoning, reason: RetractReason::TransportRetraction })
     }
 
     /// The session's fallback chain takes the next model for a failure no
@@ -1547,9 +1459,7 @@ impl Run {
             return Ok(Route::Stay);
         };
         let running = self.last_usage.clone();
-        let decision = or_cancelled(&self.cancel, route.advance(error.clone(), running.as_ref()))
-            .await
-            .ok_or(AgentError::Aborted)?;
+        let decision = or_cancelled(&self.cancel, route.advance(error.clone(), running.as_ref())).await.ok_or(AgentError::Aborted)?;
         let switch = match decision {
             RouteDecision::Switch(switch) => switch,
             // The error as given: after a chain that ran out it names every model tried.
@@ -1641,10 +1551,7 @@ impl Run {
         self.carry.prefix_guard = None;
         self.carry.cache.changed |= self.carry.cache.observation.take().is_some();
         self.cache_break_keys.clear();
-        self.emit(RunEvent::Stage(Stage::Notice {
-            message: switch.notice,
-            tone: Tone::Info,
-        }));
+        self.emit(RunEvent::Stage(Stage::Notice { message: switch.notice, tone: Tone::Info }));
         // The session's durable hop publishes the full route. A second model-only update can
         // override the seated route (or a newer explicit pick) without carrying its tuning.
     }
@@ -1661,11 +1568,7 @@ impl Run {
     /// A context-window refusal is deterministic. Compacting and re-sending
     /// once is allowed when nothing reached the user; a second overflow, or
     /// one after output was shown, surfaces.
-    async fn on_context_overflow(
-        &mut self,
-        error: ProviderError,
-        replay_safe: bool,
-    ) -> Result<Recovery, AgentError> {
+    async fn on_context_overflow(&mut self, error: ProviderError, replay_safe: bool) -> Result<Recovery, AgentError> {
         let settings = self.config.compact.as_ref();
         let policy = settings.and_then(CompactPolicy::resolve);
         if !self.context_overflow_retry_used && policy.is_some() && replay_safe {
@@ -1676,11 +1579,7 @@ impl Run {
         if let Some(compactor) = self.env.compactor.as_ref() {
             compactor.prepare(&self.messages).await;
         }
-        let estimate = self
-            .env
-            .compactor
-            .as_ref()
-            .map(|c| c.estimate_tokens(&self.messages));
+        let estimate = self.env.compactor.as_ref().map(|c| c.estimate_tokens(&self.messages));
         // Node states `sessionRef.contextWindow` (null when the session states none) whether automatic
         // compaction is on or off (`recoverContextOverflow`); only the reserve comes from the policy.
         let context_window = settings.and_then(|s| s.context_window).filter(|window| *window > 0);

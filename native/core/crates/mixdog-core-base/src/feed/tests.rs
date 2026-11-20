@@ -44,10 +44,7 @@ use super::CoreFeed;
 use super::FeedLimits;
 
 fn feed_limits(limits: MockLimits) -> FeedLimits {
-    FeedLimits {
-        ring_bytes: limits.ring_bytes,
-        max_snapshot_bytes: limits.max_snapshot_bytes,
-    }
+    FeedLimits { ring_bytes: limits.ring_bytes, max_snapshot_bytes: limits.max_snapshot_bytes }
 }
 
 // ── scripted actor ──────────────────────────────────────────────────────────────────────
@@ -58,11 +55,7 @@ struct Model(BTreeMap<u64, u64>);
 impl Model {
     /// The actor's state after event `seq`.
     fn at(seq: u64, keys: u64) -> Self {
-        Model(
-            (seq.saturating_sub(keys - 1).max(1)..=seq)
-                .map(|s| (s % keys, s))
-                .collect(),
-        )
+        Model((seq.saturating_sub(keys - 1).max(1)..=seq).map(|s| (s % keys, s)).collect())
     }
 }
 
@@ -87,24 +80,9 @@ struct ModelView {
 }
 
 impl FeedView for ModelView {
-    fn encode_snapshot(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        window: &Window,
-    ) -> Bytes {
-        *self
-            .encodes
-            .0
-            .lock()
-            .unwrap()
-            .entry((self.feed.clone(), at.seq, window.clone()))
-            .or_default() += 1;
-        let body: Vec<String> = Model::at(at.seq, self.keys)
-            .0
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
+    fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, window: &Window) -> Bytes {
+        *self.encodes.0.lock().unwrap().entry((self.feed.clone(), at.seq, window.clone())).or_default() += 1;
+        let body: Vec<String> = Model::at(at.seq, self.keys).0.iter().map(|(k, v)| format!("{k}={v}")).collect();
         Bytes::from(format!("s {} {}", at.seq, body.join(",")))
     }
 }
@@ -124,10 +102,7 @@ struct Client {
 
 impl Client {
     fn at(seq: u64, keys: u64) -> Self {
-        Self {
-            state: Model::at(seq, keys),
-            last: Some(seq),
-        }
+        Self { state: Model::at(seq, keys), last: Some(seq) }
     }
 
     fn apply(&mut self, frame: &[u8]) {
@@ -150,15 +125,9 @@ impl Client {
                 self.last = Some(seq);
             }
             "e" => {
-                assert_eq!(
-                    self.last,
-                    Some(seq - 1),
-                    "event {seq} must follow the previous position"
-                );
+                assert_eq!(self.last, Some(seq - 1), "event {seq} must follow the previous position");
                 let (key, value) = rest.split_once(' ').unwrap();
-                self.state
-                    .0
-                    .insert(key.parse().unwrap(), value.parse().unwrap());
+                self.state.0.insert(key.parse().unwrap(), value.parse().unwrap());
                 self.last = Some(seq);
             }
             other => panic!("unknown frame kind {other}"),
@@ -166,35 +135,15 @@ impl Client {
     }
 
     fn resume_from(&self, epoch: &FeedEpoch, window: &Window) -> Option<ResumeFrom> {
-        self.last.map(|seq| ResumeFrom {
-            position: FeedPosition {
-                epoch: epoch.clone(),
-                seq,
-            },
-            window: window.clone(),
-        })
+        self.last.map(|seq| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: window.clone() })
     }
 }
 
 /// Subscribes and writes the response; returns the decision.
-fn attach(
-    feed: &Arc<CoreFeed>,
-    conn: &MockConnection,
-    sub: &str,
-    window: Window,
-    resume_from: Option<ResumeFrom>,
-) -> AttachDecision {
+fn attach(feed: &Arc<CoreFeed>, conn: &MockConnection, sub: &str, window: Window, resume_from: Option<ResumeFrom>) -> AttachDecision {
     let source: Arc<dyn FeedSource> = feed.clone();
-    let attached = subscribe(
-        &source,
-        SubscriptionId::from(sub),
-        window,
-        resume_from,
-        conn,
-    )
-    .unwrap();
-    conn.send_control_release(Bytes::from_static(b"resp"), attached.release)
-        .unwrap();
+    let attached = subscribe(&source, SubscriptionId::from(sub), window, resume_from, conn).unwrap();
+    conn.send_control_release(Bytes::from_static(b"resp"), attached.release).unwrap();
     attached.decision
 }
 
@@ -207,10 +156,7 @@ fn fold(conn: &MockConnection, clients: &mut HashMap<SubscriptionId, Client>) ->
         if written.frame.starts_with(b"s ") {
             snapshots += 1;
         }
-        clients
-            .get_mut(&sub)
-            .expect("frames only of live subscriptions")
-            .apply(&written.frame);
+        clients.get_mut(&sub).expect("frames only of live subscriptions").apply(&written.frame);
     }
     snapshots
 }
@@ -226,13 +172,7 @@ const KEYS: u64 = 4;
 /// The client folded the feed to 20 and left; the actor went on to 60. It resumes from
 /// `(epoch, seq, window)` with `window`. Returns the decision after asserting that the
 /// folded state equals the actor's and a fresh snapshot's.
-fn resume_case(
-    limits: MockLimits,
-    other_epoch: bool,
-    seq: u64,
-    resume_window: Window,
-    window: Window,
-) -> AttachDecision {
+fn resume_case(limits: MockLimits, other_epoch: bool, seq: u64, resume_window: Window, window: Window) -> AttachDecision {
     let encodes = Arc::new(Encodes::default());
     let mut actor = Actor::new("t", KEYS, feed_limits(limits), &encodes);
     actor.run_to(20);
@@ -244,16 +184,9 @@ fn resume_case(
     actor.feed.detach(SubscriptionId::from("old"));
     actor.run_to(60);
 
-    let epoch = if other_epoch {
-        FeedEpoch::from("ffffffffffffffffffffffffffffffff")
-    } else {
-        actor.feed.position().epoch
-    };
+    let epoch = if other_epoch { FeedEpoch::from("ffffffffffffffffffffffffffffffff") } else { actor.feed.position().epoch };
     let client = Client::at(seq, KEYS);
-    let resume_from = ResumeFrom {
-        position: FeedPosition { epoch, seq },
-        window: resume_window,
-    };
+    let resume_from = ResumeFrom { position: FeedPosition { epoch, seq }, window: resume_window };
     let conn = MockConnection::new(ConnectionId(2), limits);
     let decision = attach(&actor.feed, &conn, "new", window.clone(), Some(resume_from));
     let mut resumed = one("new", client);
@@ -272,12 +205,7 @@ fn resume_case(
 }
 
 fn small_budget() -> MockLimits {
-    MockLimits {
-        queue_bytes: 1024 + 96,
-        control_reserve_bytes: 1024,
-        max_snapshot_bytes: 48,
-        ring_bytes: 1 << 20,
-    }
+    MockLimits { queue_bytes: 1024 + 96, control_reserve_bytes: 1024, max_snapshot_bytes: 48, ring_bytes: 1 << 20 }
 }
 
 #[test]
@@ -291,38 +219,20 @@ fn resume_matrix() {
     assert_eq!((replay.mode, replay.start_seq, replay.live_seq), (AttachMode::Replay, 21, 61));
 
     let other_epoch = resume_case(default, true, 20, items.clone(), items.clone());
-    assert_eq!(
-        (other_epoch.mode, other_epoch.start_seq),
-        (AttachMode::Snapshot, 61)
-    );
+    assert_eq!((other_epoch.mode, other_epoch.start_seq), (AttachMode::Snapshot, 61));
 
-    let evicted = MockLimits {
-        ring_bytes: 100,
-        ..default
-    };
+    let evicted = MockLimits { ring_bytes: 100, ..default };
     let outside = resume_case(evicted, false, 20, items.clone(), items.clone());
-    assert_eq!(
-        (outside.mode, outside.start_seq),
-        (AttachMode::Snapshot, 61)
-    );
+    assert_eq!((outside.mode, outside.start_seq), (AttachMode::Snapshot, 61));
 
     let beyond_head = resume_case(default, false, 61, items.clone(), items.clone());
-    assert_eq!(
-        (beyond_head.mode, beyond_head.start_seq),
-        (AttachMode::Snapshot, 61)
-    );
+    assert_eq!((beyond_head.mode, beyond_head.start_seq), (AttachMode::Snapshot, 61));
 
     let changed_window = resume_case(default, false, 20, items.clone(), fewer);
-    assert_eq!(
-        (changed_window.mode, changed_window.start_seq),
-        (AttachMode::Snapshot, 61)
-    );
+    assert_eq!((changed_window.mode, changed_window.start_seq), (AttachMode::Snapshot, 61));
 
     let not_fitting = resume_case(small_budget(), false, 20, items.clone(), items.clone());
-    assert_eq!(
-        (not_fitting.mode, not_fitting.start_seq),
-        (AttachMode::Snapshot, 61)
-    );
+    assert_eq!((not_fitting.mode, not_fitting.start_seq), (AttachMode::Snapshot, 61));
 
     let fitting = resume_case(small_budget(), false, 55, items.clone(), items);
     assert_eq!((fitting.mode, fitting.start_seq), (AttachMode::Replay, 56));
@@ -346,12 +256,7 @@ impl Rng {
 
 #[test]
 fn a_slow_consumer_lags_only_its_own_lanes() {
-    let limits = MockLimits {
-        queue_bytes: 4096 + 1024,
-        control_reserve_bytes: 1024,
-        max_snapshot_bytes: 512,
-        ring_bytes: 1 << 20,
-    };
+    let limits = MockLimits { queue_bytes: 4096 + 1024, control_reserve_bytes: 1024, max_snapshot_bytes: 512, ring_bytes: 1 << 20 };
     let encodes = Arc::new(Encodes::default());
     let mut a = Actor::new("a", KEYS, feed_limits(limits), &encodes);
     let mut b = Actor::new("b", KEYS, feed_limits(limits), &encodes);
@@ -361,18 +266,9 @@ fn a_slow_consumer_lags_only_its_own_lanes() {
     let mut reader_clients = HashMap::new();
     // Subscription ids are unique across connections.
     for (actor, name) in [(&a, "a"), (&b, "b")] {
-        attach(
-            &actor.feed,
-            &slow,
-            &format!("slow-{name}"),
-            Window::Fixed,
-            None,
-        );
+        attach(&actor.feed, &slow, &format!("slow-{name}"), Window::Fixed, None);
         attach(&actor.feed, &reader, name, Window::Fixed, None);
-        slow_clients.insert(
-            SubscriptionId::from(format!("slow-{name}")),
-            Client::default(),
-        );
+        slow_clients.insert(SubscriptionId::from(format!("slow-{name}")), Client::default());
         reader_clients.insert(SubscriptionId::from(name), Client::default());
     }
     fold(&slow, &mut slow_clients);
@@ -384,16 +280,9 @@ fn a_slow_consumer_lags_only_its_own_lanes() {
         b.run_to(step * 20);
         fold(&reader, &mut reader_clients);
     }
-    assert_eq!(
-        slow.event_free(),
-        limits.event_budget_bytes(),
-        "lagged lanes hold no bytes"
-    );
+    assert_eq!(slow.event_free(), limits.event_budget_bytes(), "lagged lanes hold no bytes");
     for (name, actor) in [("a", &a), ("b", &b)] {
-        assert_eq!(
-            reader_clients[&SubscriptionId::from(name)].state,
-            actor.state()
-        );
+        assert_eq!(reader_clients[&SubscriptionId::from(name)].state, actor.state());
         assert_eq!(reader_clients[&SubscriptionId::from(name)].last, Some(1000));
     }
 
@@ -426,14 +315,9 @@ fn reconnect_storm_encodes_each_snapshot_once() {
     const CLIENTS: usize = 50;
     const KEYS: u64 = 16;
     const HEAD: u64 = 400;
-    let limits = MockLimits {
-        ring_bytes: 2048,
-        ..MockLimits::default()
-    };
+    let limits = MockLimits { ring_bytes: 2048, ..MockLimits::default() };
     let encodes = Arc::new(Encodes::default());
-    let mut actors: Vec<Actor> = (0..SESSIONS)
-        .map(|s| Actor::new(&format!("t{s}"), KEYS, feed_limits(limits), &encodes))
-        .collect();
+    let mut actors: Vec<Actor> = (0..SESSIONS).map(|s| Actor::new(&format!("t{s}"), KEYS, feed_limits(limits), &encodes)).collect();
     for actor in &mut actors {
         actor.run_to(HEAD);
     }
@@ -466,13 +350,7 @@ fn reconnect_storm_encodes_each_snapshot_once() {
                     start.wait();
                     for (s, feed) in feeds.iter().enumerate() {
                         let sub = format!("c{c}-t{s}");
-                        let resume_from = ResumeFrom {
-                            position: FeedPosition {
-                                epoch: epoch.clone(),
-                                seq,
-                            },
-                            window: window.clone(),
-                        };
+                        let resume_from = ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: window.clone() };
                         attach(feed, &conn, &sub, window.clone(), Some(resume_from));
                         clients.insert(SubscriptionId::from(sub), Client::at(seq, KEYS));
                     }
@@ -481,10 +359,7 @@ fn reconnect_storm_encodes_each_snapshot_once() {
             })
             .collect();
         producer.join().unwrap();
-        storm
-            .into_iter()
-            .map(|client| client.join().unwrap())
-            .unzip::<_, _, Vec<_>, Vec<_>>()
+        storm.into_iter().map(|client| client.join().unwrap()).unzip::<_, _, Vec<_>, Vec<_>>()
     });
 
     let expected = Model::at(HEAD + 40, KEYS);
@@ -495,10 +370,7 @@ fn reconnect_storm_encodes_each_snapshot_once() {
             assert_eq!(client.state, expected, "{sub}");
         }
     }
-    assert!(
-        encodes.max_per_key() <= 1,
-        "one encode per (session, S, window)"
-    );
+    assert!(encodes.max_per_key() <= 1, "one encode per (session, S, window)");
     assert!(encodes.total() > 0);
     for feed in &feeds {
         assert_eq!(feed.subscribers(), CLIENTS);
@@ -545,9 +417,7 @@ async fn a_deferred_view_serves_an_attach_its_snapshot_and_the_frames_after_it()
     actor.run_to(10);
     use mixdog_core_api::feed::Feed as _;
     assert!(actor.feed.defers());
-    let deferred: Vec<FeedFrame> = (11..=20)
-        .map(|seq| FeedFrame { seq, bytes: Bytes::from(format!("e {seq} {} {seq}", seq % KEYS)) })
-        .collect();
+    let deferred: Vec<FeedFrame> = (11..=20).map(|seq| FeedFrame { seq, bytes: Bytes::from(format!("e {seq} {} {seq}", seq % KEYS)) }).collect();
     actor.feed.publish_deferred(&deferred).unwrap();
     actor.seq = 20;
     actor.feed.publish(&[], None).unwrap();
@@ -555,12 +425,9 @@ async fn a_deferred_view_serves_an_attach_its_snapshot_and_the_frames_after_it()
     let decision = attach(&actor.feed, &conn, "a", Window::Fixed, None);
     assert_eq!(decision.mode, AttachMode::Snapshot);
     assert_eq!(decision.start_seq, 11, "the snapshot is the view's, at 10");
-    let written = tokio::time::timeout(
-        Duration::from_secs(10),
-        conn.drain_text_until(|written| written.iter().any(|frame| frame == "a:e 20 0 20")),
-    )
-    .await
-    .expect("snapshot and deferred suffix were delivered");
+    let written = tokio::time::timeout(Duration::from_secs(10), conn.drain_text_until(|written| written.iter().any(|frame| frame == "a:e 20 0 20")))
+        .await
+        .expect("snapshot and deferred suffix were delivered");
     assert_eq!(
         written,
         [
@@ -606,27 +473,16 @@ fn a_feed_nobody_watched_keeps_no_frame_its_view_describes() {
     assert_eq!((decision.mode, decision.start_seq), (AttachMode::Replay, 41));
 }
 
-
 fn cpu() -> CpuInteractive {
     mixdog_rt::testing::tokens().cpu_interactive
 }
 #[test]
 fn passes_the_attach_conformance_scenarios() {
-    conformance::run_all(&|limits| {
-        Arc::new(CoreFeed::new(
-            FeedId::from("app"),
-            epoch(9),
-            Arc::new(EchoView),
-            feed_limits(limits),
-            cpu(),
-        ))
-    });
+    conformance::run_all(&|limits| Arc::new(CoreFeed::new(FeedId::from("app"), epoch(9), Arc::new(EchoView), feed_limits(limits), cpu())));
 }
 #[test]
 fn passes_the_scoped_feed_conformance_scenarios() {
-    conformance::run_scoped(&|limits| {
-        Arc::new(super::CoreScopedFeeds::new(feed_limits(limits), cpu()))
-    });
+    conformance::run_scoped(&|limits| Arc::new(super::CoreScopedFeeds::new(feed_limits(limits), cpu())));
 }
 #[test]
 fn a_scoped_feed_is_found_by_its_id_while_its_owner_holds_it() {
@@ -643,16 +499,8 @@ fn a_scoped_feed_is_found_by_its_id_while_its_owner_holds_it() {
 impl Actor {
     fn new(name: &str, keys: u64, limits: FeedLimits, encodes: &Arc<Encodes>) -> Self {
         let id = FeedId::from(name);
-        let view = Arc::new(ModelView {
-            feed: id.clone(),
-            keys,
-            encodes: encodes.clone(),
-        });
-        Self {
-            feed: Arc::new(CoreFeed::new(id, epoch(42), view, limits, cpu())),
-            keys,
-            seq: 0,
-        }
+        let view = Arc::new(ModelView { feed: id.clone(), keys, encodes: encodes.clone() });
+        Self { feed: Arc::new(CoreFeed::new(id, epoch(42), view, limits, cpu())), keys, seq: 0 }
     }
 
     /// Publishes events up to `last` (the view encodes from the seq it is asked for).
@@ -660,10 +508,7 @@ impl Actor {
         while self.seq < last {
             self.seq += 1;
             let seq = self.seq;
-            let frame = FeedFrame {
-                seq,
-                bytes: Bytes::from(format!("e {seq} {} {seq}", seq % self.keys)),
-            };
+            let frame = FeedFrame { seq, bytes: Bytes::from(format!("e {seq} {} {seq}", seq % self.keys)) };
             self.feed.publish(&[frame], None).unwrap();
         }
     }
@@ -680,10 +525,7 @@ fn attach_under_load_folds_to_the_actor_state() {
     /// How long a connection may take to fold the last event before the test fails by name (a bound, not a wait).
     const CAUGHT_UP_WITHIN: Duration = Duration::from_secs(120);
     let snapshot_bytes = 2048;
-    let limits = FeedLimits {
-        ring_bytes: 64 << 10,
-        max_snapshot_bytes: snapshot_bytes,
-    };
+    let limits = FeedLimits { ring_bytes: 64 << 10, max_snapshot_bytes: snapshot_bytes };
     let encodes = Arc::new(Encodes::default());
     let mut actor = Actor::new("busy", KEYS, limits, &encodes);
     let feed = actor.feed.clone();
@@ -707,12 +549,7 @@ fn attach_under_load_folds_to_the_actor_state() {
                     // Every fifth connection has a 16 KiB event budget, so it lags and
                     // recovers while the producer runs.
                     let queue_bytes = if i % 5 == 0 { 64 << 10 } else { 8 << 20 };
-                    let conn_limits = MockLimits {
-                        queue_bytes,
-                        control_reserve_bytes: 48 << 10,
-                        max_snapshot_bytes: snapshot_bytes,
-                        ring_bytes: 0,
-                    };
+                    let conn_limits = MockLimits { queue_bytes, control_reserve_bytes: 48 << 10, max_snapshot_bytes: snapshot_bytes, ring_bytes: 0 };
                     let conn = MockConnection::new(ConnectionId(i), conn_limits);
                     let mut rng = Rng(0x9e37_79b9_7f4a_7c15 ^ (i + 1));
                     let mut client = Client::default();
@@ -765,24 +602,15 @@ fn attach_under_load_folds_to_the_actor_state() {
             })
             .collect();
         producer.join().unwrap();
-        clients
-            .into_iter()
-            .map(|client| client.join().unwrap())
-            .collect::<Vec<_>>()
+        clients.into_iter().map(|client| client.join().unwrap()).collect::<Vec<_>>()
     });
 
     let expected = Model::at(EVENTS, KEYS);
     for (i, (client, attaches)) in clients.iter().enumerate() {
         assert_eq!(client.last, Some(EVENTS), "connection {i}");
-        assert_eq!(
-            client.state, expected,
-            "connection {i} after {attaches} attaches"
-        );
+        assert_eq!(client.state, expected, "connection {i} after {attaches} attaches");
     }
-    assert!(
-        encodes.max_per_key() <= 1,
-        "one encode per (feed, S, window)"
-    );
+    assert!(encodes.max_per_key() <= 1, "one encode per (feed, S, window)");
 }
 /// A snapshot encode runs after the feed lock is released: while one is in progress, the
 /// same feed and every other feed publish and attach.
@@ -794,12 +622,7 @@ fn a_snapshot_encode_never_blocks_a_publish() {
     }
 
     impl FeedView for BlockingView {
-        fn encode_snapshot(
-            &self,
-            _lane: &InLane<CpuInteractive>,
-            at: FeedPosition,
-            _window: &Window,
-        ) -> Bytes {
+        fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
             self.entered.send(()).unwrap();
             self.release.lock().unwrap().recv().unwrap();
             Bytes::from(format!("s {} ", at.seq))
@@ -812,10 +635,7 @@ fn a_snapshot_encode_never_blocks_a_publish() {
     let blocked = Arc::new(CoreFeed::new(
         FeedId::from("blocked"),
         epoch(1),
-        Arc::new(BlockingView {
-            entered: entered_tx,
-            release: Mutex::new(release_rx),
-        }),
+        Arc::new(BlockingView { entered: entered_tx, release: Mutex::new(release_rx) }),
         feed_limits(limits),
         cpu(),
     ));
@@ -831,27 +651,18 @@ fn a_snapshot_encode_never_blocks_a_publish() {
         let blocked = &blocked;
         let other = &mut other;
         scope.spawn(move || {
-            let frame = FeedFrame {
-                seq: 1,
-                bytes: Bytes::from_static(b"e 1 1 1"),
-            };
+            let frame = FeedFrame { seq: 1, bytes: Bytes::from_static(b"e 1 1 1") };
             blocked.publish(&[frame], None).unwrap();
             other.run_to(100);
             let reader = MockConnection::new(ConnectionId(2), limits);
             attach(&other.feed, &reader, "y", Window::Fixed, None);
             published_tx.send(()).unwrap();
         });
-        published
-            .recv_timeout(Duration::from_secs(10))
-            .expect("publish and attach proceed during a snapshot encode");
+        published.recv_timeout(Duration::from_secs(10)).expect("publish and attach proceed during a snapshot encode");
         release.send(()).unwrap();
         attaching.join().unwrap();
     });
-    let text: Vec<String> = conn
-        .drain_text()
-        .into_iter()
-        .filter(|w| w.starts_with("x:"))
-        .collect();
+    let text: Vec<String> = conn.drain_text().into_iter().filter(|w| w.starts_with("x:")).collect();
     assert_eq!(text, ["x:s 0 ", "x:e 1 1 1"]);
 }
 // ── P §14.7 bounds ─────────────────────────────────────────────────────────────────────
@@ -859,28 +670,15 @@ fn a_snapshot_encode_never_blocks_a_publish() {
 #[test]
 fn ring_memory_stays_within_ring_bytes() {
     let ring_bytes = 4096;
-    let limits = MockLimits {
-        ring_bytes,
-        max_snapshot_bytes: 1024,
-        ..MockLimits::default()
-    };
-    let feed = Arc::new(CoreFeed::new(
-        FeedId::from("t"),
-        epoch(3),
-        Arc::new(EchoView),
-        feed_limits(limits),
-        cpu(),
-    ));
+    let limits = MockLimits { ring_bytes, max_snapshot_bytes: 1024, ..MockLimits::default() };
+    let feed = Arc::new(CoreFeed::new(FeedId::from("t"), epoch(3), Arc::new(EchoView), feed_limits(limits), cpu()));
     // The connection's event budget fits the whole stream, so the watcher stays live.
     let watcher = MockConnection::new(ConnectionId(1), limits);
     attach(&feed, &watcher, "watcher", Window::Fixed, None);
     let mut rng = Rng(7);
     for seq in 1..=5000 {
         let len = 1 + (rng.next() % 700) as usize;
-        let frame = FeedFrame {
-            seq,
-            bytes: Bytes::from(vec![b'e'; len]),
-        };
+        let frame = FeedFrame { seq, bytes: Bytes::from(vec![b'e'; len]) };
         feed.publish(&[frame], None).unwrap();
         let held = feed.ring_held();
         assert!((1..=ring_bytes).contains(&held), "held {held} bytes after seq {seq}");
@@ -888,10 +686,7 @@ fn ring_memory_stays_within_ring_bytes() {
 }
 #[tokio::test]
 async fn window_churn_evicts_completed_encodings_without_changing_the_snapshot() {
-    let limits = MockLimits {
-        max_snapshot_bytes: 32,
-        ..MockLimits::default()
-    };
+    let limits = MockLimits { max_snapshot_bytes: 32, ..MockLimits::default() };
     let encodes = Arc::new(Encodes::default());
     let mut actor = Actor::new("churn", KEYS, feed_limits(limits), &encodes);
     actor.run_to(4);
@@ -901,12 +696,9 @@ async fn window_churn_evicts_completed_encodings_without_changing_the_snapshot()
     for n in (1..=8).chain(std::iter::once(1)) {
         let decision = attach(&actor.feed, &conn, "a", Window::LastItems(n), None);
         assert_eq!((decision.mode, decision.start_seq), (AttachMode::Snapshot, 5));
-        let written = tokio::time::timeout(
-            Duration::from_secs(10),
-            conn.drain_text_until(|written| written.iter().any(|frame| frame.starts_with("a:s "))),
-        )
-        .await
-        .expect("snapshot was delivered");
+        let written = tokio::time::timeout(Duration::from_secs(10), conn.drain_text_until(|written| written.iter().any(|frame| frame.starts_with("a:s "))))
+            .await
+            .expect("snapshot was delivered");
         assert_eq!(written, ["control:resp", "a:s 4 0=4,1=1,2=2,3=3"]);
         actor.feed.detach(SubscriptionId::from("a"));
     }

@@ -22,12 +22,12 @@ use crate::oauth::AuthorizeRequest;
 use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
-use crate::oauth::RefreshFailure;
 use crate::oauth::Redirect;
+use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
-use crate::oauth::pages;
 use crate::oauth::http;
+use crate::oauth::pages;
 use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::HttpSend;
 
@@ -43,9 +43,7 @@ fn failed(code: &str, message: &str) -> LoginFailure {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Who the tokens belong to (`identityFromTokens`): `<sub>:<account id>` and
@@ -145,18 +143,12 @@ impl PkceProvider for OpenAiLogin {
             .append_pair("code_verifier", verifier)
             .finish()
             .into_bytes();
-        let reply = http::try_call(
-            self.http.as_ref(),
-            "POST",
-            &self.token_url,
-            vec![("Content-Type", "application/x-www-form-urlencoded".to_owned())],
-            body,
-        )
-        .await
-        .map_err(|error| {
-            let text = http::request_failed(OPERATION, &error);
-            Refusal { failure: failed("transport", &text), detail: Some(text) }
-        })?;
+        let reply = http::try_call(self.http.as_ref(), "POST", &self.token_url, vec![("Content-Type", "application/x-www-form-urlencoded".to_owned())], body)
+            .await
+            .map_err(|error| {
+                let text = http::request_failed(OPERATION, &error);
+                Refusal { failure: failed("transport", &text), detail: Some(text) }
+            })?;
         if !reply.ok() {
             // `oauthHttpError`: `<operation> <status>: <redacted body>`.
             let summary = oauth_body_summary(&reply.text(), &[code, verifier]);
@@ -175,11 +167,7 @@ impl PkceProvider for OpenAiLogin {
         };
         let text = |key: &str| json.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
         let (Some(access), Some(refresh)) = (text("access_token"), text("refresh_token")) else {
-            return Err(failed(
-                "token_exchange",
-                "[openai-oauth] token exchange response missing access_token or refresh_token",
-            )
-            .into());
+            return Err(failed("token_exchange", "[openai-oauth] token exchange response missing access_token or refresh_token").into());
         };
         // `expires_in` when the server sends a number, else the token's own `exp`.
         let expires_at = json
@@ -193,9 +181,7 @@ impl PkceProvider for OpenAiLogin {
             })
             .unwrap_or(0);
         let identity = identity_of(&[text("id_token").unwrap_or_default(), access]);
-        let label = identity
-            .as_ref()
-            .and_then(|i| i.get("email")?.as_str().map(str::to_owned));
+        let label = identity.as_ref().and_then(|i| i.get("email")?.as_str().map(str::to_owned));
         self.file.keep(&[access, refresh, text("id_token").unwrap_or_default()]);
         let mut stored = Map::new();
         stored.insert("access_token".into(), json!(access));
@@ -206,10 +192,7 @@ impl PkceProvider for OpenAiLogin {
         }
         stored.insert("identity".into(), identity.unwrap_or(Value::Null));
         // `saveTokens` replaces the file: a sign-in to another account must not keep the previous `account_id`.
-        self.file
-            .replace(stored)
-            .await
-            .map_err(|_| failed("storage", "the tokens could not be stored"))?;
+        self.file.replace(stored).await.map_err(|_| failed("storage", "the tokens could not be stored"))?;
         Ok(label)
     }
 }

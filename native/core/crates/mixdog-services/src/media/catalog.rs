@@ -105,7 +105,8 @@ fn image_api_reference_cap(row: &Value) -> f64 {
         }
     }
     let inputs = row.pointer("/architecture/input_modalities").and_then(Value::as_array);
-    let accepts = inputs.is_some_and(|i| i.iter().any(|m| m.as_str() == Some("image"))) && row.pointer("/capabilities/image_to_image") != Some(&Value::Bool(false));
+    let accepts =
+        inputs.is_some_and(|i| i.iter().any(|m| m.as_str() == Some("image"))) && row.pointer("/capabilities/image_to_image") != Some(&Value::Bool(false));
     if accepts { IMAGE_API_MAX_REFERENCES } else { 0.0 }
 }
 
@@ -119,7 +120,15 @@ fn image_api_controls(row: &Value) -> Value {
         };
         let mut seen = HashSet::new();
         let values: Vec<Value> = values
-            .map(|values| values.iter().map(|v| js_trim(&value_to_string(v)).to_owned()).filter(|s| !s.is_empty()).filter(|s| seen.insert(s.clone())).map(Value::String).collect())
+            .map(|values| {
+                values
+                    .iter()
+                    .map(|v| js_trim(&value_to_string(v)).to_owned())
+                    .filter(|s| !s.is_empty())
+                    .filter(|s| seen.insert(s.clone()))
+                    .map(Value::String)
+                    .collect()
+            })
             .unwrap_or_default();
         if !values.is_empty() {
             controls.insert(control.into(), Value::Array(values));
@@ -328,7 +337,8 @@ pub struct CatalogFailure {
 
 /// `catalogDiagnostic(error)`: the safe `(code, message)`.
 pub fn catalog_diagnostic(failure: &CatalogFailure) -> (&'static str, &'static str) {
-    const KNOWN: [&str; 6] = ["MEDIA_BILLING_BLOCKED", "MEDIA_AUTH_REJECTED", "MEDIA_ACCESS_DENIED", "MEDIA_RATE_LIMITED", "MEDIA_CATALOG_TIMEOUT", "MEDIA_CATALOG_UNAVAILABLE"];
+    const KNOWN: [&str; 6] =
+        ["MEDIA_BILLING_BLOCKED", "MEDIA_AUTH_REJECTED", "MEDIA_ACCESS_DENIED", "MEDIA_RATE_LIMITED", "MEDIA_CATALOG_TIMEOUT", "MEDIA_CATALOG_UNAVAILABLE"];
     let code = match failure.code.as_deref() {
         Some(code) if KNOWN.contains(&code) => KNOWN.iter().find(|k| **k == code).copied().unwrap_or("MEDIA_CATALOG_UNAVAILABLE"),
         _ if failure.timed_out => "MEDIA_CATALOG_TIMEOUT",

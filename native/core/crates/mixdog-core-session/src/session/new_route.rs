@@ -34,10 +34,7 @@ pub fn draft_pick(route: &ModelSelection) -> Map<String, Value> {
         pick.insert("autoEffort".into(), Value::Bool(auto));
     }
     if let Some(parameters) = &route.model_parameters {
-        pick.insert(
-            "modelParameters".into(),
-            Value::Object(parameters.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect()),
-        );
+        pick.insert("modelParameters".into(), Value::Object(parameters.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect()));
     }
     if let Some(percent) = route.context_percent {
         pick.insert("contextPercent".into(), mixdog_js::json_number(percent));
@@ -143,10 +140,7 @@ mod tests {
         );
         assert_eq!(record_route(&header(json!({ "provider": "p", "model": "" }))), None);
     }
-
-
 }
-
 
 /// The route keys `buildSessionRecord` / `createSession` write at creation and a route change does
 /// not (`session-record.mjs:121`, `session-lifecycle.mjs:227`), made from the route the session is
@@ -163,9 +157,7 @@ pub fn create_keys(route: &Map<String, Value>) -> Result<Map<String, Value>, Str
     let name = preset.and_then(|preset| preset.get("name")).and_then(Value::as_str).filter(|name| !name.is_empty());
     keys.insert("presetName".into(), name.map_or(Value::Null, |name| Value::String(name.to_owned())));
     // `toolPreset` (`session-lifecycle.mjs`): `opts.tools || presetObj.tools || .. || 'full'`; a new thread has no `opts.tools`.
-    let tools = preset
-        .and_then(|preset| preset.get("tools"))
-        .filter(|tools| !matches!(tools, Value::Null | Value::Bool(false)) && tools.as_str() != Some(""));
+    let tools = preset.and_then(|preset| preset.get("tools")).filter(|tools| !matches!(tools, Value::Null | Value::Bool(false)) && tools.as_str() != Some(""));
     keys.insert("preset".into(), tools.cloned().unwrap_or_else(|| Value::String("full".into())));
     let wire = if text("provider") == "openai-oauth" { Value::String(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
     keys.insert("codexWireSessionId".into(), wire);

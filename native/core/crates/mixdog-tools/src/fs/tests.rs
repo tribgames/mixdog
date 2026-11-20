@@ -2,20 +2,16 @@
 //! Cases replay in the recorder's order over one in-memory workspace (edits
 //! and patches mutate it for the cases after them). `list-meta` needs real
 //! mtimes and modes, which the in-memory file service does not carry.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the golden tests build and inspect real work trees with blocking filesystem calls"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the golden tests build and inspect real work trees with blocking filesystem calls")]
 
 use std::path::Path;
 use std::sync::Arc;
 
 use mixdog_core_api::domain::common::AbsPath;
-use mixdog_core_api::domain::fs::{DirEntry, FsError, FsErrorKind};
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::fs::WritePrecondition;
 use mixdog_core_api::domain::fs::WriteRequest;
+use mixdog_core_api::domain::fs::{DirEntry, FsError, FsErrorKind};
 use mixdog_core_api::domain::mock::MockApprovalGate;
 use mixdog_core_api::domain::mock::MockFileService;
 use mixdog_core_api::domain::mock::MockProcessManager;
@@ -43,7 +39,6 @@ fn seed() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
-
 pub(super) fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
     match outcome {
         Ok(out) => match &out.parts[0] {
@@ -53,12 +48,6 @@ pub(super) fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (b
         Err(e) => (true, e.message_for_model),
     }
 }
-
-
-
-
-
-
 
 /// The expansion's root is Node's `path.parse(raw).root` (Node v22 `path.win32.parse`, the runtime of b6f10295a).
 #[cfg(windows)]
@@ -111,7 +100,9 @@ impl ExtPool for ShortPdfImageHost {
         Ok(Box::new(ScriptedFrames(frames.into())))
     }
 
-    fn status(&self) -> Vec<ExtWorkerStatus> { Vec::new() }
+    fn status(&self) -> Vec<ExtWorkerStatus> {
+        Vec::new()
+    }
 
     fn stop_worker(&self, worker: ExtWorkerId) -> Result<(), ExtError> {
         ScriptedPdfHost.stop_worker(worker)
@@ -191,13 +182,6 @@ fn large_pdf() -> Vec<u8> {
 /// An extension host that extracts an OOXML file, answering with the output budget it was asked for.
 struct ScriptedOoxmlHost;
 
-
-
-
-
-
-
-
 // ---- turn review ----
 
 /// A turn review that keeps the calls it was told about and answers a card diff for each.
@@ -241,16 +225,38 @@ impl mixdog_core_api::turn_review::TurnReviewApi for FakeReview {
     async fn revert_turn_review(&self, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         Ok(Default::default())
     }
-    async fn revert_turn_review_file(&self, _: &str, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn revert_turn_review_file(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         Ok(Default::default())
     }
-    async fn turn_changes(&self, _: &str, _: mixdog_core_api::turn_review::ChangesRead) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn turn_changes(
+        &self,
+        _: &str,
+        _: mixdog_core_api::turn_review::ChangesRead,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         Ok(Default::default())
     }
-    async fn revert_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn revert_turn_changes(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: f64,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         Ok(Default::default())
     }
-    async fn reapply_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+    async fn reapply_turn_changes(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: f64,
+    ) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
         Ok(Default::default())
     }
     async fn clear_change_history(&self, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
@@ -307,16 +313,33 @@ impl FileService for BusyRemove {
     async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         self.0.stat(lane, path).await
     }
-    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+    async fn read(
+        &self,
+        lane: mixdog_rt::InteractiveIo,
+        path: AbsPath,
+        range: mixdog_core_api::domain::fs::ReadRange,
+    ) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
         self.0.read(lane, path, range).await
     }
-    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+    async fn list_dir(
+        &self,
+        lane: mixdog_rt::InteractiveIo,
+        path: AbsPath,
+    ) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
         self.0.list_dir(lane, path).await
     }
-    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+    async fn write(
+        &self,
+        lane: mixdog_rt::DurabilityIo,
+        request: WriteRequest,
+    ) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         self.0.write(lane, request).await
     }
-    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+    async fn write_batch(
+        &self,
+        lane: mixdog_rt::DurabilityIo,
+        requests: Vec<WriteRequest>,
+    ) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
         self.0.write_batch(lane, requests).await
     }
     async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
@@ -334,10 +357,18 @@ impl FileService for BusyRemove {
         }
         self.0.remove(lane, path, recursive).await
     }
-    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+    fn walk(
+        &self,
+        lane: mixdog_rt::MaintenanceIo,
+        request: mixdog_core_api::domain::fs::WalkRequest,
+    ) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
         self.0.walk(lane, request)
     }
-    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+    fn search_text(
+        &self,
+        lane: mixdog_rt::MaintenanceIo,
+        request: mixdog_core_api::domain::fs::SearchRequest,
+    ) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
         self.0.search_text(lane, request)
     }
 }
@@ -397,18 +428,10 @@ fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
     png
 }
 
-
-
-
-
-
-
-
 /// The decided changes to `read`'s delivery (batched windows by requested interval; an explicit read always returns its
 /// body), asserted on source text rather than on recordings.
 #[path = "read_delivery_tests.rs"]
 mod read_delivery_tests;
-
 
 /// One entry of a summary: its path, its rows by line number, and the number of complete lines its output-cap footer says
 /// it delivered (`[lines a-B of N; output capped …]` or `…; B of N lines shown …`), which is how a recording shows that a
@@ -433,7 +456,8 @@ fn entry_rows(parts: &[(String, String)]) -> Vec<EntryRows> {
         r"(?:; lines \d+-\d+ NOT returned \(output budget\) — re-read this file with offset:\d+ limit:\d+)?\]",
         r"|\[output capped at [^;\]]+; (?:\d+ KB file|\d+ of \d+ lines shown \(\d+ KB file\))(?:; offset:\d+ for more)?\]",
         r"|\[window lines \d+-\d+ NOT returned \(output budget\) — re-read this file with offset:\d+ limit:\d+\])$",
-    )).unwrap();
+    ))
+    .unwrap();
     let mut out: Vec<EntryRows> = Vec::new();
     let empty = || EntryRows { path: String::new(), status: String::new(), content: Vec::new(), rows: Default::default(), complete_end: None };
     for (_, text) in parts.iter().filter(|(kind, _)| kind == "text") {
@@ -494,9 +518,9 @@ fn agrees_with_recording(got: &[(String, String)], expected: &[(String, String)]
                 && g.status == e.status
                 && g.content == e.content
                 && (e.rows.is_empty() || g.rows.keys().next() == e.rows.keys().next())
-                && g.rows.iter().all(|(n, row)| {
-                    e.rows.get(n).is_none_or(|recorded| recorded == row || (Some(*n) == cut_row && row.starts_with(recorded.as_str())))
-                })
+                && g.rows
+                    .iter()
+                    .all(|(n, row)| e.rows.get(n).is_none_or(|recorded| recorded == row || (Some(*n) == cut_row && row.starts_with(recorded.as_str()))))
         })
 }
 
@@ -547,18 +571,14 @@ fn the_departure_checker_preserves_entry_status_and_unwindowed_content() {
     }
 }
 
-
-
-
-
-
-
-
-
-
 /// The local file service, except that stating a file with one of `names` fails, one with a name of the third list
 /// never answers (a dead mount) and one named in the control's `delays` answers after that many virtual milliseconds.
-pub(super) struct StatFails(pub(super) Arc<dyn FileService>, pub(super) &'static [&'static str], pub(super) &'static [&'static str], pub(super) Arc<StatControl>);
+pub(super) struct StatFails(
+    pub(super) Arc<dyn FileService>,
+    pub(super) &'static [&'static str],
+    pub(super) &'static [&'static str],
+    pub(super) Arc<StatControl>,
+);
 
 #[derive(Default)]
 pub(super) struct StatControl {
@@ -583,17 +603,6 @@ impl StatControl {
 // ---------------------------------------------------------------------------
 // One broad search at a time (`search-admission-*`, `record-tools-fs-search.mjs` `recordAdmission`)
 
-
-
-
-
-
-
-
-
-
-
-
 /// The local file service, whose walks ignore the caller's name rule: they enter every folder, as an unpruned walk does.
 struct Unpruned(Arc<dyn FileService>);
 
@@ -602,16 +611,33 @@ impl FileService for Unpruned {
     async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         self.0.stat(lane, path).await
     }
-    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+    async fn read(
+        &self,
+        lane: mixdog_rt::InteractiveIo,
+        path: AbsPath,
+        range: mixdog_core_api::domain::fs::ReadRange,
+    ) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
         self.0.read(lane, path, range).await
     }
-    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+    async fn list_dir(
+        &self,
+        lane: mixdog_rt::InteractiveIo,
+        path: AbsPath,
+    ) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
         self.0.list_dir(lane, path).await
     }
-    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+    async fn write(
+        &self,
+        lane: mixdog_rt::DurabilityIo,
+        request: WriteRequest,
+    ) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         self.0.write(lane, request).await
     }
-    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+    async fn write_batch(
+        &self,
+        lane: mixdog_rt::DurabilityIo,
+        requests: Vec<WriteRequest>,
+    ) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
         self.0.write_batch(lane, requests).await
     }
     async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
@@ -626,11 +652,19 @@ impl FileService for Unpruned {
     async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
         self.0.remove(lane, path, recursive).await
     }
-    fn walk(&self, lane: mixdog_rt::MaintenanceIo, mut request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+    fn walk(
+        &self,
+        lane: mixdog_rt::MaintenanceIo,
+        mut request: mixdog_core_api::domain::fs::WalkRequest,
+    ) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
         request.descent.guard = None;
         self.0.walk(lane, request)
     }
-    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+    fn search_text(
+        &self,
+        lane: mixdog_rt::MaintenanceIo,
+        request: mixdog_core_api::domain::fs::SearchRequest,
+    ) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
         self.0.search_text(lane, request)
     }
 }
@@ -646,14 +680,8 @@ pub(super) async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, 
     let tokens = mixdog_rt::testing::tokens();
     for (rel, bytes) in seeds {
         let path = AbsPath::new(root.as_path().join(rel)).unwrap();
-        files
-            .create_dir(tokens.durability_io, AbsPath::new(path.as_path().parent().unwrap()).unwrap(), true)
-            .await
-            .unwrap();
-        files
-            .write(tokens.durability_io, WriteRequest { path, content: bytes, precondition: WritePrecondition::Unconditional })
-            .await
-            .unwrap();
+        files.create_dir(tokens.durability_io, AbsPath::new(path.as_path().parent().unwrap()).unwrap(), true).await.unwrap();
+        files.write(tokens.durability_io, WriteRequest { path, content: bytes, precondition: WritePrecondition::Unconditional }).await.unwrap();
     }
     ToolContext {
         call_id: ToolCallId::from("c"),
@@ -665,11 +693,7 @@ pub(super) async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, 
         cancel: CancellationToken::new(),
         deadline: None,
         progress: Arc::new(MockProgress::default()),
-        io: ToolIo {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-        },
+        io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
         approvals: Arc::new(MockApprovalGate::default()),
         files,
         processes: Arc::new(MockProcessManager::default()),
@@ -702,7 +726,12 @@ async fn glob_refuses_a_sort_that_is_not_natural_or_mtime_as_node_does() {
     let (_dir, root) = small_dir();
     std::fs::write(root.as_path().join("a.txt"), "x\n").unwrap();
     let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
-    for (sort, got) in [(serde_json::json!("newest"), "\"newest\""), (serde_json::json!(" nat "), "\"nat\""), (serde_json::json!(3), "number"), (serde_json::json!(null), "null")] {
+    for (sort, got) in [
+        (serde_json::json!("newest"), "\"newest\""),
+        (serde_json::json!(" nat "), "\"nat\""),
+        (serde_json::json!(3), "number"),
+        (serde_json::json!(null), "null"),
+    ] {
         let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt", "sort": sort })).await);
         assert!(is_error, "{text}");
         assert_eq!(text, format!("Error: glob arg \"sort\" must be one of natural|mtime (got {got})"));
@@ -731,9 +760,7 @@ async fn list_meta_reports_the_modes_node_reports() {
     let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
     let (failed, text) = text_of(ListTool::new().call(&ctx, serde_json::json!({ "meta": true })).await);
     assert!(!failed, "{text}");
-    let row = |name: &str| {
-        text.lines().find(|l| l.split('\t').next() == Some(name)).unwrap_or_else(|| panic!("{text}")).split('\t').nth(4).unwrap().to_owned()
-    };
+    let row = |name: &str| text.lines().find(|l| l.split('\t').next() == Some(name)).unwrap_or_else(|| panic!("{text}")).split('\t').nth(4).unwrap().to_owned();
     let (file, dir, none) = if cfg!(windows) { ("666", "777", "666") } else { ("640", "750", "000") };
     assert_eq!((row("f.txt"), row("d"), row("z.txt")), (file.to_owned(), dir.to_owned(), none.to_owned()), "{text}");
 }
@@ -914,7 +941,15 @@ async fn read_keeps_media_rows_and_the_skipped_path_in_a_partial_batch() {
     let out = read.call(&ctx, serde_json::json!({ "file_path": file_path, "pages": "2" })).await.unwrap();
     assert_eq!(out.meta.unwrap()["complete"], false);
     assert_eq!(out.parts.iter().filter(|part| matches!(part, ToolPart::Image { .. })).count(), 1);
-    let text = out.parts.iter().filter_map(|part| match part { ToolPart::Text(s) => Some(s.as_str()), _ => None }).collect::<Vec<_>>().join("\n");
+    let text = out
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            ToolPart::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     for name in names {
         assert!(text.contains(&format!("{name} [ok]\n[lines 1-1]\nrow-{name}")), "{text}");
     }
@@ -1062,9 +1097,7 @@ async fn an_edit_through_a_symlink_waits_for_the_referents_lock() {
         eprintln!("symlink test skipped: {error}");
         return;
     }
-    let ctx = Arc::new(
-        context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await,
-    );
+    let ctx = Arc::new(context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await);
     let referent = std::fs::canonicalize(root.as_path().join("real").join("a.txt")).unwrap();
     let referent = AbsPath::new(referent.to_string_lossy().trim_start_matches(r"\\?\")).unwrap();
     let held = crate::git::path_locks::lock_paths(&[referent.as_path()], &ctx.cancel).await.unwrap();
@@ -1338,7 +1371,11 @@ async fn edit_refuses_the_write_targets_node_refuses() {
     let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
     let ads = "Error: cannot write Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)";
     let mut cases = vec![
-        ("//127.0.0.1/no-such-share/x.txt", "", "Error: cannot write UNC / SMB path (network credential leak risk): //127.0.0.1/no-such-share/x.txt".to_owned()),
+        (
+            "//127.0.0.1/no-such-share/x.txt",
+            "",
+            "Error: cannot write UNC / SMB path (network credential leak risk): //127.0.0.1/no-such-share/x.txt".to_owned(),
+        ),
         ("/dev/zero", "a", "Error: cannot write device file (would block or corrupt a device): /dev/zero".to_owned()),
     ];
     if cfg!(windows) {
@@ -1402,7 +1439,10 @@ async fn an_edit_of_a_path_that_never_answers_is_refused_as_unreachable() {
     tokio::time::advance(std::time::Duration::from_millis(2)).await;
     let std::task::Poll::Ready(outcome) = futures::poll!(&mut call) else { panic!("no answer past the bound") };
     let (is_error, text) = text_of(outcome);
-    assert!(is_error && text.starts_with("Error: path unreachable: stat exceeded 15000ms (possible dead mount / hung filesystem): ") && text.ends_with("hang.txt"), "{text}");
+    assert!(
+        is_error && text.starts_with("Error: path unreachable: stat exceeded 15000ms (possible dead mount / hung filesystem): ") && text.ends_with("hang.txt"),
+        "{text}"
+    );
 }
 /// A file another handle holds open without sharing still stats (as libuv's stat does), so `read`
 /// and `edit` answer with the open's own cause in Node's words, not a missing target.
@@ -1529,7 +1569,8 @@ async fn a_rename_between_two_spellings_of_one_file_edits_it_in_place() {
     let file = root.as_path().join("real").join("a.txt");
     for extra in [serde_json::json!({}), serde_json::json!({ "sequence": true })] {
         std::fs::write(&file, "one\ntwo\n").unwrap();
-        let mut args = serde_json::json!({ "patch": "*** Begin Patch\n*** Update File: real/a.txt\n*** Move to: alias/a.txt\n@@\n-one\n+ONE\n*** End Patch\n" });
+        let mut args =
+            serde_json::json!({ "patch": "*** Begin Patch\n*** Update File: real/a.txt\n*** Move to: alias/a.txt\n@@\n-one\n+ONE\n*** End Patch\n" });
         args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         let (is_error, text) = text_of(ApplyPatchTool::new().call(&ctx, args).await);
         assert!(!is_error, "{text}");
@@ -1602,7 +1643,12 @@ impl FileService for StatFails {
         }
         self.0.stat(lane, path).await
     }
-    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+    async fn read(
+        &self,
+        lane: mixdog_rt::InteractiveIo,
+        path: AbsPath,
+        range: mixdog_core_api::domain::fs::ReadRange,
+    ) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
         if path.as_path().ends_with("tail.txt") && self.3.fail_first_read.swap(false, std::sync::atomic::Ordering::Relaxed) {
             return Err(FsError::new(FsErrorKind::PermissionDenied, Some(path)));
         }
@@ -1611,13 +1657,25 @@ impl FileService for StatFails {
         }
         self.0.read(lane, path, range).await
     }
-    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+    async fn list_dir(
+        &self,
+        lane: mixdog_rt::InteractiveIo,
+        path: AbsPath,
+    ) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
         self.0.list_dir(lane, path).await
     }
-    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+    async fn write(
+        &self,
+        lane: mixdog_rt::DurabilityIo,
+        request: WriteRequest,
+    ) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         self.0.write(lane, request).await
     }
-    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+    async fn write_batch(
+        &self,
+        lane: mixdog_rt::DurabilityIo,
+        requests: Vec<WriteRequest>,
+    ) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
         self.0.write_batch(lane, requests).await
     }
     async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
@@ -1632,18 +1690,25 @@ impl FileService for StatFails {
     async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
         self.0.remove(lane, path, recursive).await
     }
-    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+    fn walk(
+        &self,
+        lane: mixdog_rt::MaintenanceIo,
+        request: mixdog_core_api::domain::fs::WalkRequest,
+    ) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
         assert!(!self.3.reject_probes, "unexpected walk: {:?}", request.root);
         let missed = self.3.missed_walk_entry.then(|| request.root.clone());
         let walk = self.0.walk(lane, request);
-        let extra = missed.map(|path| Err(FsError::new(FsErrorKind::PermissionDenied, Some(path))))
-            .or_else(|| self.3.repeated_walk_entry.clone().map(Ok));
+        let extra = missed.map(|path| Err(FsError::new(FsErrorKind::PermissionDenied, Some(path)))).or_else(|| self.3.repeated_walk_entry.clone().map(Ok));
         match extra {
             Some(extra) => Box::new(WalkWithExtra { walk, extra: Some(extra) }),
             None => walk,
         }
     }
-    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+    fn search_text(
+        &self,
+        lane: mixdog_rt::MaintenanceIo,
+        request: mixdog_core_api::domain::fs::SearchRequest,
+    ) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
         self.0.search_text(lane, request)
     }
 }
@@ -1673,9 +1738,15 @@ async fn read_reports_an_incomplete_glob_without_losing_the_readable_match() {
     let control = Arc::new(StatControl { missed_walk_entry: true, ..StatControl::default() });
     let files = Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &[], control));
     let ctx = context_seeded(&root, files, vec![("found.txt".to_owned(), b"keep this row\n".to_vec())]).await;
-    let out = ReadTool::new(None, None).call(&ctx, serde_json::json!({
-        "file_path": [{"file_path": "*.txt", "offset": 1, "limit": 1}, {"file_path": "*.txt", "offset": 2, "limit": 1}]
-    })).await.unwrap();
+    let out = ReadTool::new(None, None)
+        .call(
+            &ctx,
+            serde_json::json!({
+                "file_path": [{"file_path": "*.txt", "offset": 1, "limit": 1}, {"file_path": "*.txt", "offset": 2, "limit": 1}]
+            }),
+        )
+        .await
+        .unwrap();
     assert_eq!(out.meta.as_ref().unwrap()["complete"], false);
     let text = text_of(Ok(out)).1;
     assert!(text.contains("found.txt [ok]\n[lines 1-1]\nkeep this row"), "{text}");
@@ -1689,9 +1760,17 @@ async fn read_refuses_a_guarded_pattern_without_stating_or_expanding_it() {
     let control = Arc::new(StatControl { reject_probes: true, ..StatControl::default() });
     let files = Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &[], control));
     let ctx = context_seeded(&root, files, Vec::new()).await;
-    let text = text_of(ReadTool::new(None, None).call(&ctx, serde_json::json!({
-        "file_path": ["//server/share/*.txt", "//server/share/file#L9"], "tail": 2
-    })).await).1;
+    let text = text_of(
+        ReadTool::new(None, None)
+            .call(
+                &ctx,
+                serde_json::json!({
+                    "file_path": ["//server/share/*.txt", "//server/share/file#L9"], "tail": 2
+                }),
+            )
+            .await,
+    )
+    .1;
     assert_eq!(text.matches("cannot read UNC / SMB path").count(), 2, "{text}");
 }
 
@@ -1724,11 +1803,8 @@ async fn windows_colon_coordinates_read_only_the_guarded_base_file() {
 #[tokio::test]
 async fn a_failed_tail_read_reports_the_error_without_reading_the_head() {
     let (_dir, root) = small_dir();
-    let control = Arc::new(StatControl {
-        fail_first_read: std::sync::atomic::AtomicBool::new(true),
-        reads: Some(std::sync::Mutex::default()),
-        ..StatControl::default()
-    });
+    let control =
+        Arc::new(StatControl { fail_first_read: std::sync::atomic::AtomicBool::new(true), reads: Some(std::sync::Mutex::default()), ..StatControl::default() });
     let files = Arc::new(StatFails(local_ctx_files(), &[], &[], control.clone()));
     let ctx = context_seeded(&root, files, vec![("tail.txt".to_owned(), b"first\nmiddle\nlast\n".to_vec())]).await;
     let (error, text) = text_of(ReadTool::new(None, None).call(&ctx, serde_json::json!({ "file_path": "tail.txt", "tail": 1 })).await);
@@ -1824,10 +1900,8 @@ async fn a_glob_shaped_list_bounds_each_stat_and_keeps_what_it_read() {
 #[tokio::test]
 async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
     let root = AbsPath::new(if cfg!(windows) { "C:\\" } else { "/" }).unwrap();
-    let seeds = ["proc/1/status", "sys/block/sda/size", "dev/null-ish", "home/u/a.txt", "procfs.txt"]
-        .iter()
-        .map(|rel| (rel.to_string(), b"x\n".to_vec()))
-        .collect();
+    let seeds =
+        ["proc/1/status", "sys/block/sda/size", "dev/null-ish", "home/u/a.txt", "procfs.txt"].iter().map(|rel| (rel.to_string(), b"x\n".to_vec())).collect();
     let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
     let listed = |entries: Vec<mixdog_core_api::domain::fs::DirEntry>| {
         entries.into_iter().map(|e| super::common::display_under(e.path.as_path(), root.as_path())).collect::<Vec<_>>()
@@ -1836,7 +1910,8 @@ async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
     assert!(walked.complete);
     assert_eq!(listed(walked.entries), ["home/u/a.txt", "procfs.txt"]);
     let proc_root = AbsPath::new(root.as_path().join("proc")).unwrap();
-    let walked = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None, None).await.unwrap();
+    let walked =
+        super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None, None).await.unwrap();
     assert_eq!(walked.entries.len(), 1);
 }
 /// Past 50 000 files a bounded glob still ranks and counts every match (Node's windowed pass
@@ -1860,12 +1935,14 @@ async fn glob_and_find_see_files_past_fifty_thousand_entries() {
 #[tokio::test]
 async fn find_ranks_with_nucleo_and_breaks_ties_by_path() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-fuzzy").join("ws")).unwrap();
-    let seeds = ["b/zz.rs", "aaa/zz.rs", "aaa/other.rs", "aaa/n-e-e-d-l-e", "late/needle"]
-        .into_iter().map(|name| (name.to_owned(), Vec::new())).collect();
+    let seeds = ["b/zz.rs", "aaa/zz.rs", "aaa/other.rs", "aaa/n-e-e-d-l-e", "late/needle"].into_iter().map(|name| (name.to_owned(), Vec::new())).collect();
     let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
     let (_, find) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz" })).await);
-    assert_eq!(find, "aaa/zz.rs
-b/zz.rs");
+    assert_eq!(
+        find,
+        "aaa/zz.rs
+b/zz.rs"
+    );
     let (_, both) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz aaa" })).await);
     assert_eq!(both, "aaa/zz.rs");
     let (_, top) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz", "limit": 1 })).await);
@@ -1928,7 +2005,19 @@ async fn a_named_find_that_skips_folders_it_keeps_nothing_under_lists_what_a_ful
         serde_json::json!({ "sort": "mtime", "type": "dir", "head_limit": 2 }),
     ];
     // `None`: a find with no name, which keeps a noise folder's direct children.
-    for name in [None, Some("foo"), Some("*.js"), Some("**/foo*"), Some("node_modules/foo/*"), Some("a/**/b"), Some("FOO"), Some("foo/*"), Some("*"), Some(".foo"), Some("b")] {
+    for name in [
+        None,
+        Some("foo"),
+        Some("*.js"),
+        Some("**/foo*"),
+        Some("node_modules/foo/*"),
+        Some("a/**/b"),
+        Some("FOO"),
+        Some("foo/*"),
+        Some("*"),
+        Some(".foo"),
+        Some("b"),
+    ] {
         for hidden in [false, true] {
             for include_noise in [false, true] {
                 for depth in [serde_json::Value::Null, 1.into(), 2.into(), 3.into()] {
@@ -2012,11 +2101,7 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     assert!(tree_noise.contains("├── node_modules/"), "{tree_noise}");
 
     let by_size = run(serde_json::json!({ "path": ".", "depth": 3, "type": "file", "sort": "size" })).await;
-    assert_eq!(
-        by_size.lines().map(|l| l.split('\t').next().unwrap()).collect::<Vec<_>>(),
-        ["docs/readme.md", "src/a.ts", "src/b.ts", "top.txt"],
-        "{by_size}"
-    );
+    assert_eq!(by_size.lines().map(|l| l.split('\t').next().unwrap()).collect::<Vec<_>>(), ["docs/readme.md", "src/a.ts", "src/b.ts", "top.txt"], "{by_size}");
     // Below the first level the listing is the search server's inventory: it names a noise directory itself, and nothing in it.
     let dirs = run(serde_json::json!({ "path": ".", "depth": 2, "type": "dir" })).await;
     assert_eq!(dirs.lines().collect::<Vec<_>>(), ["docs\tdir", "node_modules\tdir", "src\tdir"], "{dirs}");
@@ -2039,9 +2124,6 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     assert!(is_error, "{bad}");
     assert_eq!(bad, "Error: invalid modified_after \"nonsense\"; expected an ISO date/time or a relative window like 90m / 12h / 7d");
 }
-
-
-
 
 /// Broad searches of different sessions run at once up to the gate's limit; at a limit of 1 the second session's search
 /// waits behind the first, as Node's one search at a time does, and is refused once its budget has passed.

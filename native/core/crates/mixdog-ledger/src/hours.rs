@@ -48,30 +48,12 @@ struct Bucket {
 
 impl Bucket {
     fn new(key: String, label: String, future: bool) -> Self {
-        Self {
-            key,
-            label,
-            future,
-            total: Slice::default(),
-            providers: Ordered::default(),
-            span: None,
-            unknown: false,
-        }
+        Self { key, label, future, total: Slice::default(), providers: Ordered::default(), span: None, unknown: false }
     }
 
-    fn add(
-        &mut self,
-        provider: &str,
-        turns: f64,
-        tokens: f64,
-        cost: f64,
-        unmeasured: f64,
-        known: f64,
-    ) {
+    fn add(&mut self, provider: &str, turns: f64, tokens: f64, cost: f64, unmeasured: f64, known: f64) {
         self.total.add(turns, tokens, cost, unmeasured, known);
-        self.providers
-            .entry(provider, Slice::default)
-            .add(turns, tokens, cost, unmeasured, known);
+        self.providers.entry(provider, Slice::default).add(turns, tokens, cost, unmeasured, known);
     }
 
     fn to_value(&self) -> Value {
@@ -83,14 +65,8 @@ impl Bucket {
         out.insert("turns".into(), js_number(self.total.turns));
         out.insert("tokens".into(), js_number(self.total.tokens));
         out.insert("costUsd".into(), fixed(self.total.cost_usd));
-        out.insert(
-            "costKnownTurns".into(),
-            js_number(self.total.cost_known_turns),
-        );
-        out.insert(
-            "unmeasuredTurns".into(),
-            js_number(self.total.unmeasured_turns),
-        );
+        out.insert("costKnownTurns".into(), js_number(self.total.cost_known_turns));
+        out.insert("unmeasuredTurns".into(), js_number(self.total.unmeasured_turns));
         let providers = self
             .providers
             .iter()
@@ -122,23 +98,13 @@ fn tokens_of(row: &Value, fields: [&str; 4]) -> f64 {
 }
 
 /// `records` is the rollup's `hourly`; the period bounds come from the resolved period.
-pub fn hourly_series(
-    records: Option<&Hourly>,
-    from_ms: i64,
-    to_ms: i64,
-    end_ms: i64,
-    conversation_only: bool,
-) -> Value {
+pub fn hourly_series(records: Option<&Hourly>, from_ms: i64, to_ms: i64, end_ms: i64, conversation_only: bool) -> Value {
     let mut buckets: Vec<Bucket> = Vec::new();
     let mut ts = from_ms;
     // Rolling windows always contain 24 elapsed hours, even across DST changes.
     while ts < end_ms {
         let local = local_fields(ts);
-        let mut bucket = Bucket::new(
-            ts.to_string(),
-            format!("{:02}:{:02}", local.hour(), local.minute()),
-            ts > to_ms,
-        );
+        let mut bucket = Bucket::new(ts.to_string(), format!("{:02}:{:02}", local.hour(), local.minute()), ts > to_ms);
         bucket.span = Some((ts, (ts + HOUR_MS).min(to_ms)));
         buckets.push(bucket);
         ts += HOUR_MS;
@@ -151,8 +117,7 @@ pub fn hourly_series(
         if conversation_only && !is_conversation_source(row.source_type.as_deref()) {
             continue;
         }
-        let at = (((row_ts - from_ms as f64) / HOUR_MS as f64).floor() as usize)
-            .min(buckets.len().saturating_sub(1));
+        let at = (((row_ts - from_ms as f64) / HOUR_MS as f64).floor() as usize).min(buckets.len().saturating_sub(1));
         let Some(bucket) = buckets.get_mut(at) else {
             continue;
         };
@@ -172,11 +137,7 @@ pub fn hourly_series(
     let mut unknown = Bucket::new("unknown-time".into(), String::new(), false);
     unknown.unknown = true;
     for route in records.into_iter().flat_map(|r| &r.unallocated) {
-        let usage = if conversation_only {
-            route.get("conversation")
-        } else {
-            Some(route)
-        };
+        let usage = if conversation_only { route.get("conversation") } else { Some(route) };
         let Some(usage) = usage.filter(|u| !u.is_null()) else {
             continue;
         };

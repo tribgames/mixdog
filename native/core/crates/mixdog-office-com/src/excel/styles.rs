@@ -119,14 +119,7 @@ pub(super) fn shared_cell_style(range: &Com) -> Result<Option<Value>> {
 /// `Excel-ColumnCellStyles`: the styles of one column's populated cells (`rows`: their sheet rows, ascending, of which
 /// `from..=to` are asked) into `styles` by address. A table's column shares one style below its header, so a block whose
 /// cells differ is halved until they agree or one cell is left, and that cell is read on its own.
-pub(super) fn column_cell_styles(
-    sheet: &Com,
-    letters: &str,
-    rows: &[i32],
-    styles: &mut HashMap<String, Value>,
-    from: usize,
-    to: usize,
-) -> Result<()> {
+pub(super) fn column_cell_styles(sheet: &Com, letters: &str, rows: &[i32], styles: &mut HashMap<String, Value>, from: usize, to: usize) -> Result<()> {
     let cell_at = |row: i32| get_with(sheet, "Range", &[Com::Str(format!("{letters}{row}"))]);
     if from == to {
         let style = cell_style(&cell_at(rows[from])?)?;

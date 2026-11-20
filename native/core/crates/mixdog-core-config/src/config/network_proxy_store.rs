@@ -47,8 +47,7 @@ mod tests {
         std::fs::write(&path, br#"{"agent":{"providers":{"openai":{"x":1}},"worktree":{"a":1}}}"#).unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) =
-            Config::open(path.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        let (config, _) = Config::open(path.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         assert_eq!(NetworkProxyStore::network_proxy(&config), Value::Null);
         config.save_network_proxy(json!({ "mode": "off" })).await.unwrap();
         assert_eq!(NetworkProxyStore::network_proxy(&config), json!({ "mode": "off" }));

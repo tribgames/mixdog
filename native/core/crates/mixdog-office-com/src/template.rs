@@ -91,10 +91,7 @@ pub fn template_result(op: &Value, filled: &[(String, i32)], ranges: &[Obj]) -> 
         let names: Vec<String> = unfilled.iter().map(convert::to_ps_string).collect();
         return Err(format!("Unfilled template tokens: {}", names.join(", ")));
     }
-    let counts = Value::object(
-        ObjectKind::Ordered,
-        filled.iter().map(|(key, count)| (key.as_str(), Value::Int(*count))).collect(),
-    );
+    let counts = Value::object(ObjectKind::Ordered, filled.iter().map(|(key, count)| (key.as_str(), Value::Int(*count))).collect());
     Ok(Value::object(
         ObjectKind::Ordered,
         vec![

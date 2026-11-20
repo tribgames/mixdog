@@ -479,7 +479,10 @@ impl Heartbeat {
 enum Verdict {
     /// The session had no item since its last review: that verdict stands.
     Prior(String),
-    Seen { note: String, tail: super::digest::Tail },
+    Seen {
+        note: String,
+        tail: super::digest::Tail,
+    },
 }
 
 fn hex(bytes: &[u8]) -> String {

@@ -40,16 +40,16 @@ mod models_tests;
 mod tests;
 
 pub use adapter::AnthropicAdapter;
+pub use adapter::ApiKeySource;
 pub use adapter::Compressor;
+pub use adapter::Credentials;
 #[cfg(any(test, feature = "test-support"))]
 pub use adapter::gzip_latched;
 #[cfg(any(test, feature = "test-support"))]
 pub use adapter::reset_gzip_latch;
-pub use adapter::ApiKeySource;
-pub use adapter::Credentials;
 pub use body::CacheStrategy;
-pub use body::anthropic_tool_exclusion;
 pub use body::CacheTtl;
+pub use body::anthropic_tool_exclusion;
 pub use caps::CapsLookup;
 pub use caps::ModelCaps;
 pub use client_version::ClaudeClientVersion;
@@ -61,13 +61,12 @@ pub use codec::DEFAULT_CLI_VERSION;
 pub use codec::Flavor;
 pub(crate) use codec::vertex_body;
 pub(crate) use decoder::AnthropicDecoder;
-pub(crate) use policy::retry_policy;
 pub use models::AnthropicModel;
 pub use models::Tier;
 pub use oauth::AnthropicLogin;
 pub use oauth::OAuthSession;
 pub use oauth::StoredOAuth;
-
+pub(crate) use policy::retry_policy;
 
 /// The Anthropic module state a send leaves in the process (the gzip latch, the message threads, the fast-mode cooldown
 /// and disabled reason), as a new process has it.

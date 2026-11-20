@@ -21,7 +21,6 @@ async fn a_disposed_runtime_starts_no_cleanup() {
     assert_eq!(cleanups.running(), 0);
 }
 
-
 #[tokio::test]
 async fn a_stop_ends_the_retries_of_its_session_only_and_the_snapshot_is_left_for_the_prune() {
     let rig = rig();

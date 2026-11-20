@@ -52,8 +52,7 @@ impl RoomStore for StateRoomStore {
                 upserts.push((id.clone(), text));
             }
         }
-        let deletes: Vec<String> =
-            stored.into_iter().map(|(id, _)| id).filter(|id| !doc.contains_key(id)).collect();
+        let deletes: Vec<String> = stored.into_iter().map(|(id, _)| id).filter(|id| !doc.contains_key(id)).collect();
         if upserts.is_empty() && deletes.is_empty() {
             return Ok(());
         }
@@ -85,11 +84,7 @@ mod tests {
         let t = mixdog_rt::testing::tokens();
         let (state, _) = CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
         let rooms = Rooms::new(StateRoomStore::new(state.clone()));
-        let input = RoomConfigInput {
-            name: "Plan".into(),
-            members: vec!["lead".into(), "bench".into()],
-            ..Default::default()
-        };
+        let input = RoomConfigInput { name: "Plan".into(), members: vec!["lead".into(), "bench".into()], ..Default::default() };
         rooms.create(&input, "room01", 5).await.unwrap();
         rooms.create(&input, "room02", 6).await.unwrap();
         rooms.remove("room01").await.unwrap();

@@ -16,21 +16,21 @@ use mixdog_ai::accounts::rotation::AccountRotation;
 use mixdog_ai::accounts::rotation::UsageProbe;
 use mixdog_ai::admission::Admission;
 use mixdog_ai::broker::ModelBroker;
-use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_ai::catalog::ListingLookup;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::oauth::pace::SystemPace;
 use mixdog_ai::providers::google::traits::ModelTraits;
 use mixdog_ai::providers::google::traits::ThinkingControl;
+use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::providers::openai::config::CodexIdentity;
 use mixdog_ai::providers::openai::config::NoFacts;
-use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::registry::builder::BuilderEnv;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::keys::ApiKeyStore;
 use mixdog_ai::registry::keys::Environment;
 use mixdog_ai::registry::keys::SecretVault;
 use mixdog_ai::registry::keys::VaultError;
+use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_ai::transport::HttpSend;
 use mixdog_ai::transport::KeepaliveDialer;
 use mixdog_ai::transport::KeepaliveSchedule;
@@ -179,12 +179,7 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
         route_traits: Arc::new(|_| None),
         openai_facts: Arc::new(NoFacts),
         openai_context: Arc::new(SessionContext::new()),
-        codex_identity: CodexIdentity {
-            installation_id: "i".into(),
-            user_agent: "ua".into(),
-            version: "1".into(),
-            beta_features: String::new(),
-        },
+        codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },
         pace: Arc::new(SystemPace),
         gzip_lane: tokens.cpu_bulk,
         client_version: "1.0.0".into(),
@@ -210,16 +205,8 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
     };
     let host = CustomHost::new(config.clone(), vault.clone(), keys, accounts.clone(), builder, env, seams);
     let refresh = Arc::new(CountingRefresh::default());
-    World {
-        admin: CustomAdmin::new(host, refresh.clone()),
-        env: test_env,
-        vault,
-        log,
-        _dir: dir,
-    }
+    World { admin: CustomAdmin::new(host, refresh.clone()), env: test_env, vault, log, _dir: dir }
 }
-
-
 
 /// What the scripted endpoint saw.
 #[derive(Clone, Debug)]
@@ -252,9 +239,7 @@ pub(super) async fn endpoint(refused: Vec<String>, flaky: usize) -> (String, Arc
                     }
                 };
                 let head = String::from_utf8_lossy(&raw[..head_end]).to_string();
-                let header = |name: &str| {
-                    head.lines().find_map(|l| l.to_lowercase().strip_prefix(&format!("{name}:")).map(|v| v.trim().to_owned()))
-                };
+                let header = |name: &str| head.lines().find_map(|l| l.to_lowercase().strip_prefix(&format!("{name}:")).map(|v| v.trim().to_owned()));
                 let length: usize = header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
                 while raw.len() < head_end + length {
                     let n = socket.read(&mut buffer).await.unwrap();
@@ -288,7 +273,10 @@ pub(super) async fn endpoint(refused: Vec<String>, flaky: usize) -> (String, Arc
                 } else {
                     let chunk = |delta: Value, finish: Value| {
                         let usage = if finish.is_null() { Value::Null } else { json!({ "prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4 }) };
-                        format!("data: {}\n\n", json!({ "id": "c1", "model": "m-a", "choices": [{ "index": 0, "delta": delta, "finish_reason": finish }], "usage": usage }))
+                        format!(
+                            "data: {}\n\n",
+                            json!({ "id": "c1", "model": "m-a", "choices": [{ "index": 0, "delta": delta, "finish_reason": finish }], "usage": usage })
+                        )
                     };
                     let mut stream = chunk(json!({ "role": "assistant", "content": "OK" }), Value::Null);
                     stream.push_str(&chunk(json!({}), json!("stop")));
@@ -334,11 +322,7 @@ async fn the_connection_test_sends_a_real_request_through_the_key_pool() {
 async fn a_send_every_key_is_refused_is_thrown_with_the_key_redacted() {
     let (base, _) = endpoint(vec!["Bearer sk-only-secret-key".into()], 0).await;
     let w = world(HashMap::new()).await;
-    let failure = w
-        .admin
-        .test(json!({ "name": "Refused", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-only-secret-key" }), 0)
-        .await
-        .unwrap_err();
+    let failure = w.admin.test(json!({ "name": "Refused", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-only-secret-key" }), 0).await.unwrap_err();
     assert!(failure.message().contains("quota"), "{}", failure.message());
     assert!(!failure.message().contains("sk-only-secret-key"));
 }
@@ -400,7 +384,10 @@ async fn a_removal_that_cannot_read_the_additional_key_list_deletes_nothing() {
     let w = world(HashMap::new()).await;
     let saved = w
         .admin
-        .save(json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }), 0)
+        .save(
+            json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }),
+            0,
+        )
         .await
         .unwrap();
     let id = saved["id"].as_str().unwrap().to_owned();
@@ -426,12 +413,8 @@ async fn a_removed_key_the_keychain_keeps_is_logged_and_the_save_holds() {
         .unwrap();
     let (id, key) = (saved["id"].as_str().unwrap(), saved["extraApiKeys"][0]["id"].as_str().unwrap().to_owned());
     w.vault.refuse_extra_deletes.store(true, Ordering::SeqCst);
-    let row = w.admin.save(json!({ "id": id, "schemaVersion": 2, "name": "Log", "protocol": "openai-chat", "baseURL": base, "extraApiKeys": [] }), 0).await.unwrap();
+    let row =
+        w.admin.save(json!({ "id": id, "schemaVersion": 2, "name": "Log", "protocol": "openai-chat", "baseURL": base, "extraApiKeys": [] }), 0).await.unwrap();
     assert!(row.get("extraApiKeys").is_none(), "the roster no longer lists the key");
-    assert_eq!(
-        w.log.lock().unwrap().clone(),
-        [format!("[provider-admin] could not delete additional API key {key} of {id}: keychain is locked\n")]
-    );
+    assert_eq!(w.log.lock().unwrap().clone(), [format!("[provider-admin] could not delete additional API key {key} of {id}: keychain is locked\n")]);
 }
-
-

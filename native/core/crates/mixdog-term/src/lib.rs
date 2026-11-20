@@ -15,6 +15,4 @@ pub mod reader;
 pub mod selection;
 pub mod testing;
 
-pub use input::{
-    Decoder, InputEvent, KeyEventType, KeyFlags, MouseKind, MouseReport, supports_extended_keys,
-};
+pub use input::{Decoder, InputEvent, KeyEventType, KeyFlags, MouseKind, MouseReport, supports_extended_keys};

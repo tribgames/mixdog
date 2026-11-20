@@ -29,13 +29,7 @@ fn start(fx: &Fixture) -> (ControlServer, String) {
     let server = ControlServer::start(
         ControlConfig {
             token: token.clone(),
-            legacy: Legacy {
-                pid: 4242,
-                version: "1.4.6".into(),
-                instance_id: "inst-1".into(),
-                build: "dev".into(),
-                update_text: TEXT.into(),
-            },
+            legacy: Legacy { pid: 4242, version: "1.4.6".into(), instance_id: "inst-1".into(), build: "dev".into(), update_text: TEXT.into() },
         },
         Arc::clone(&fx.lifecycle),
     )
@@ -82,7 +76,15 @@ fn legacy_clients_get_the_fixed_health_and_a_426_everywhere_else() {
     assert_eq!(health["build"], "dev");
     assert!(health.get("buildHash").is_none());
     assert!(health["packageVersion"].as_str().unwrap().contains(TEXT));
-    for (method, path) in [("POST", "/client/register"), ("GET", "/events"), ("POST", "/upgrade"), ("POST", "/stop"), ("POST", "/install-hold"), ("POST", "/shutdown"), ("POST", "/call")] {
+    for (method, path) in [
+        ("POST", "/client/register"),
+        ("GET", "/events"),
+        ("POST", "/upgrade"),
+        ("POST", "/stop"),
+        ("POST", "/install-hold"),
+        ("POST", "/shutdown"),
+        ("POST", "/call"),
+    ] {
         let (status, body) = call(server.port(), method, path, &[], Some(json!({"force": true})));
         assert_eq!(status, 426, "{path}");
         assert_eq!(body["error"], TEXT);
@@ -112,7 +114,13 @@ fn stop_and_abort_run_the_one_procedure_over_the_wire() {
     let (server, token) = start(&fx);
     let port = server.port();
 
-    let (status, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}})));
+    let (status, reply) = mgmt(
+        port,
+        &token,
+        "POST",
+        "/mgmt/stop",
+        Some(json!({"mode": "whenIdle", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}})),
+    );
     assert_eq!(status, 200, "{reply}");
     assert_eq!(reply["state"], "draining");
     assert_eq!(reply["drain"]["reason"], "fastDeploy");
@@ -122,11 +130,23 @@ fn stop_and_abort_run_the_one_procedure_over_the_wire() {
     let (_, status_reply) = mgmt(port, &token, "GET", "/mgmt/status", None);
     let confirm = status_reply["drain"]["confirmToken"].as_str().unwrap().to_owned();
 
-    let (status, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}})));
+    let (status, reply) = mgmt(
+        port,
+        &token,
+        "POST",
+        "/mgmt/stop",
+        Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}})),
+    );
     assert_eq!((status, reply["code"].as_str()), (409, Some("confirmationInvalid")));
     assert!(fx.recorder.cancelled().is_empty());
 
-    let (status, _) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}, "confirmToken": confirm})));
+    let (status, _) = mgmt(
+        port,
+        &token,
+        "POST",
+        "/mgmt/stop",
+        Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}, "confirmToken": confirm})),
+    );
     assert_eq!(status, 200);
     assert_eq!(fx.recorder.cancelled().len(), 1);
 
@@ -149,7 +169,8 @@ fn cancel_drain_and_hold_over_the_wire() {
     // A replacement that does not name its build is refused: Node's text (`daemon.mjs:589`) needs it.
     let (status, _) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update"})));
     assert_eq!(status, 400);
-    let (_, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update", "replacement": {"revision": "abc", "version": "1.5.0"}})));
+    let (_, reply) =
+        mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update", "replacement": {"revision": "abc", "version": "1.5.0"}})));
     assert_eq!(reply["hold"], false);
     let drain_id = reply["drain"]["drainId"].as_str().unwrap().to_owned();
     let (status, reply) = mgmt(port, &token, "POST", "/mgmt/cancelDrain", Some(json!({"drainId": drain_id})));
@@ -162,12 +183,7 @@ fn cancel_drain_and_hold_over_the_wire() {
 fn an_undecidable_prior_owner_is_released_by_the_user_alone() {
     let fx = fixture();
     fx.lifecycle
-        .set_blocked(crate::lifecycle::Blocked::Undecidable {
-            pid: 31,
-            image: "node".into(),
-            command_line: "node daemon.mjs".into(),
-            start_time: "t0".into(),
-        })
+        .set_blocked(crate::lifecycle::Blocked::Undecidable { pid: 31, image: "node".into(), command_line: "node daemon.mjs".into(), start_time: "t0".into() })
         .unwrap();
     let (server, token) = start(&fx);
     let port = server.port();

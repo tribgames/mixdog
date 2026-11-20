@@ -124,11 +124,7 @@ fn structured_token_floor<U: Copy + Into<u16>>(s: &[U]) -> f64 {
     if lines < 3 || non_ws == 0 {
         return 0.0;
     }
-    if json_like >= lines.div_ceil(2) || structural as f64 / non_ws as f64 >= 0.12 {
-        non_ws as f64 * 0.5 + (length - non_ws) as f64 * 0.25
-    } else {
-        0.0
-    }
+    if json_like >= lines.div_ceil(2) || structural as f64 / non_ws as f64 >= 0.12 { non_ws as f64 * 0.5 + (length - non_ws) as f64 * 0.25 } else { 0.0 }
 }
 
 /// The estimate: the max of the weighted code-point sum, the length/4 floor and the dense and
@@ -198,5 +194,3 @@ mod tests {
         assert_eq!(estimate_tokens("\u{fffd} lone"), 3);
     }
 }
-
-

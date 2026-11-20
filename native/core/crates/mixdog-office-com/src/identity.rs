@@ -67,10 +67,7 @@ mod tests {
     #[test]
     fn a_late_identity_is_taken_in_and_a_first_ownership_is_kept() {
         let mut identity = Identity::default();
-        identity.accept(
-            "test",
-            &json!({"session": "test", "ok": true, "ownership": "owned", "ownsApplication": true, "appPid": 101}),
-        );
+        identity.accept("test", &json!({"session": "test", "ok": true, "ownership": "owned", "ownsApplication": true, "appPid": 101}));
         assert_eq!(identity.ownership, Some(Ownership::Owned));
         assert_eq!(identity.owns_application, Some(true));
         assert_eq!(identity.app_pid, Some(101));
@@ -90,10 +87,7 @@ mod tests {
     #[test]
     fn completed_and_retained_applications_leave_no_stale_ownership() {
         let mut identity = Identity::default();
-        identity.accept(
-            "test",
-            &json!({"session": "test", "ok": true, "ownership": "owned", "ownsApplication": true, "appPid": 101}),
-        );
+        identity.accept("test", &json!({"session": "test", "ok": true, "ownership": "owned", "ownsApplication": true, "appPid": 101}));
         identity.accept("test", &json!({"session": "test", "appPid": 101, "cleanup": {"applicationRetained": true}}));
         assert_eq!(identity.owns_application, Some(false));
         identity.accept("test", &json!({"session": "test", "appPid": 101, "cleanup": {"processExited": true}}));

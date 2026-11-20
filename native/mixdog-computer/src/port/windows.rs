@@ -18,19 +18,19 @@ mod real;
 pub(crate) mod shared;
 
 use super::{Admitted, Boundary, Cleanup, Holder, Ledger, Outcome, Owned, Receipt, Scope, Settled};
-use crate::platform::windows_input::{Event, DELIVERY_FAILED, KEY_UP, RELEASE_REJECTED};
+use crate::platform::windows_input::{DELIVERY_FAILED, Event, KEY_UP, RELEASE_REJECTED};
 use crate::platform::{Wid, WinState};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use windows::core::BSTR;
 use windows::Win32::UI::Accessibility::{
-    IAccessible, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern, IUIAutomationScrollPattern,
-    IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationValuePattern, ScrollAmount,
+    IAccessible, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern, IUIAutomationScrollPattern, IUIAutomationSelectionItemPattern,
+    IUIAutomationTogglePattern, IUIAutomationValuePattern, ScrollAmount,
 };
+use windows::core::BSTR;
 
-pub(crate) use real::{read_message, release_recorded, restore_recorded, ReadMessage};
 #[cfg(test)]
 pub(crate) use real::send_unmarked;
+pub(crate) use real::{ReadMessage, read_message, release_recorded, restore_recorded};
 
 /// A button of a window's pointer messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,19 +63,52 @@ impl MouseButton {
 /// own `MK_*` bit: the port adds it to a press and a motion while the button is held.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Message {
-    MouseMove { flags: usize, point: isize },
-    ButtonDown { button: MouseButton, flags: usize, point: isize },
+    MouseMove {
+        flags: usize,
+        point: isize,
+    },
+    ButtonDown {
+        button: MouseButton,
+        flags: usize,
+        point: isize,
+    },
     /// The second press of a double click (`WM_LBUTTONDBLCLK`).
-    DoubleClick { flags: usize, point: isize },
-    ButtonUp { button: MouseButton, flags: usize, point: isize },
-    Wheel { horizontal: bool, packed: usize, point: isize },
-    KeyDown { vk: u16, lparam: isize },
-    KeyUp { vk: u16, lparam: isize },
-    Char { unit: usize, lparam: isize },
+    DoubleClick {
+        flags: usize,
+        point: isize,
+    },
+    ButtonUp {
+        button: MouseButton,
+        flags: usize,
+        point: isize,
+    },
+    Wheel {
+        horizontal: bool,
+        packed: usize,
+        point: isize,
+    },
+    KeyDown {
+        vk: u16,
+        lparam: isize,
+    },
+    KeyUp {
+        vk: u16,
+        lparam: isize,
+    },
+    Char {
+        unit: usize,
+        lparam: isize,
+    },
     /// `EM_SETSEL`: moves an edit's caret or selection.
-    EditSelect { start: usize, end: isize },
+    EditSelect {
+        start: usize,
+        end: isize,
+    },
     /// `WM_INITMENUPOPUP`: an opening menu refreshes its items.
-    MenuAnnounce { menu: usize, position: isize },
+    MenuAnnounce {
+        menu: usize,
+        position: isize,
+    },
 }
 
 impl Message {
@@ -97,16 +130,12 @@ impl Message {
     /// What a press holds and the exact message that lets go of it.
     fn press(&self) -> Option<(Pressed, Message)> {
         match *self {
-            Message::ButtonDown { button, flags, point } => {
-                Some((Pressed::Button(button), Message::ButtonUp { button, flags, point }))
-            }
+            Message::ButtonDown { button, flags, point } => Some((Pressed::Button(button), Message::ButtonUp { button, flags, point })),
             Message::DoubleClick { flags, point } => {
                 let button = MouseButton::Left;
                 Some((Pressed::Button(button), Message::ButtonUp { button, flags, point }))
             }
-            Message::KeyDown { vk, lparam } => {
-                Some((Pressed::Key(vk), Message::KeyUp { vk, lparam: lparam | 0xC000_0000u32 as i32 as isize }))
-            }
+            Message::KeyDown { vk, lparam } => Some((Pressed::Key(vk), Message::KeyUp { vk, lparam: lparam | 0xC000_0000u32 as i32 as isize })),
             _ => None,
         }
     }
@@ -308,9 +337,7 @@ fn presses(event: &Event) -> Vec<Hold> {
     match *event {
         Event::Key { vk, scan, flags } if flags & KEY_UP == 0 => vec![Hold::Key { vk, scan, flags }],
         Event::Key { .. } => Vec::new(),
-        Event::Mouse { flags, .. } => {
-            BUTTON_DOWNS.iter().filter(|down| flags & **down != 0).map(|down| Hold::Button(*down)).collect()
-        }
+        Event::Mouse { flags, .. } => BUTTON_DOWNS.iter().filter(|down| flags & **down != 0).map(|down| Hold::Button(*down)).collect(),
     }
 }
 
@@ -342,12 +369,7 @@ impl WinPort {
     }
 
     pub(crate) fn with_driver(scope: &Scope, driver: Box<dyn WinDriver>) -> Arc<WinPort> {
-        let port = Arc::new(WinPort {
-            scope: scope.clone(),
-            driver,
-            ledger: Ledger::new(scope.epoch()),
-            queued: Mutex::new(Vec::new()),
-        });
+        let port = Arc::new(WinPort { scope: scope.clone(), driver, ledger: Ledger::new(scope.epoch()), queued: Mutex::new(Vec::new()) });
         port.ledger.observe(scope);
         scope.hold(Arc::downgrade(&(port.clone() as Arc<dyn Holder>)));
         port
@@ -401,11 +423,7 @@ impl WinPort {
                 })
                 .collect();
             let batch: Vec<Event> = outgoing.iter().map(|(_, event)| *event).collect();
-            let sent = if batch.is_empty() {
-                Ok(0)
-            } else {
-                self.driver.send_input(&batch, admitted.then_some(&self.scope))
-            };
+            let sent = if batch.is_empty() { Ok(0) } else { self.driver.send_input(&batch, admitted.then_some(&self.scope)) };
             let sent = match sent {
                 // Revoked between the plan and the admission: nothing went out; the owned releases still go.
                 Err(refused) if admitted && refused == super::REVOKED => {
@@ -508,9 +526,7 @@ impl WinPort {
         });
         let message = match message {
             // A motion while a button is held carries the button, as a person's drag does.
-            Message::MouseMove { flags, point } => {
-                Message::MouseMove { flags: held.fold(flags, |flags, button| flags | button.down().1), point }
-            }
+            Message::MouseMove { flags, point } => Message::MouseMove { flags: held.fold(flags, |flags, button| flags | button.down().1), point },
             other => other,
         };
         let _admitted = self.scope.admit(Boundary::HandOver).map_err(|_| Refusal::Revoked)?;
@@ -548,9 +564,7 @@ impl WinPort {
                 let queued = self.queued.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 queued
                     .iter()
-                    .find(|(held_top, held, held_pressed, _)| {
-                        *held_top == top && (*held == target || target == 0) && *held_pressed == pressed
-                    })
+                    .find(|(held_top, held, held_pressed, _)| *held_top == top && (*held == target || target == 0) && *held_pressed == pressed)
                     .map(|(.., reply)| Ok(reply.clone()))
             }
         }
@@ -615,8 +629,7 @@ impl WinPort {
         if !threads.contains(&target_thread) {
             threads.push(target_thread);
         }
-        let attached: Vec<u32> =
-            threads.into_iter().filter(|thread| *thread != 0 && *thread != this).filter(|thread| self.attach(this, *thread)).collect();
+        let attached: Vec<u32> = threads.into_iter().filter(|thread| *thread != 0 && *thread != this).filter(|thread| self.attach(this, *thread)).collect();
         let steps = || -> Result<(), String> {
             if self.driver.iconic(window) {
                 let _admitted = self.admit("restore", Boundary::HandOver)?;
@@ -742,9 +755,7 @@ impl WinPort {
                 self.driver.send_input(std::slice::from_ref(&event), None) == Ok(1)
             }
             // Gone or reused: nothing of ours is left there.
-            Hold::Queue { target, owner, release, .. } => {
-                self.driver.owner(*target) != *owner || self.driver.enqueue(*target, *release).is_ok()
-            }
+            Hold::Queue { target, owner, release, .. } => self.driver.owner(*target) != *owner || self.driver.enqueue(*target, *release).is_ok(),
             Hold::NoActivate(root) => !self.driver.set_no_activate(*root, false),
             Hold::Disabled(window) => {
                 self.driver.set_enabled(*window, true);

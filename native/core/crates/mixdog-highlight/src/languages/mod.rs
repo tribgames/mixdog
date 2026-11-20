@@ -150,32 +150,17 @@ fn parse_language(name: &str, text: &str) -> Option<RawLanguage> {
             RawObject { frozen, fields }
         })
         .collect();
-    Some(RawLanguage {
-        name: name.to_string(),
-        root,
-        objects,
-    })
+    Some(RawLanguage { name: name.to_string(), root, objects })
 }
 
 /// Every language carried by the crate, in registration order.
 pub(crate) fn load_languages() -> Vec<RawLanguage> {
-    generated_index::LANGUAGES
-        .iter()
-        .filter_map(|(name, text)| parse_language(name, text))
-        .collect()
+    generated_index::LANGUAGES.iter().filter_map(|(name, text)| parse_language(name, text)).collect()
 }
 
 pub(crate) fn load_registry() -> RegistryFacts {
     let doc: Value = serde_json::from_str(generated_index::REGISTRY).unwrap_or(Value::Null);
-    let order = doc
-        .get("order")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+    let order = doc.get("order").and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let aliases = doc
         .get("aliases")
         .and_then(Value::as_array)
@@ -183,10 +168,7 @@ pub(crate) fn load_registry() -> RegistryFacts {
             a.iter()
                 .filter_map(|pair| {
                     let pair = pair.as_array()?;
-                    Some((
-                        pair.first()?.as_str()?.to_string(),
-                        pair.get(1)?.as_str()?.to_string(),
-                    ))
+                    Some((pair.first()?.as_str()?.to_string(), pair.get(1)?.as_str()?.to_string()))
                 })
                 .collect()
         })

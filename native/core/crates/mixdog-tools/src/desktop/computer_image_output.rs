@@ -68,9 +68,9 @@ fn modified_nanos(time: SystemTime) -> u128 {
 }
 
 fn is_frame_file(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
-        ext.eq_ignore_ascii_case("jpg") || ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("pdf")
-    })
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jpg") || ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("pdf"))
 }
 
 /// The frame files of every session folder under the root.
@@ -98,14 +98,14 @@ fn scan(root: &Path) -> Vec<Entry> {
 
 /// Keeps the newest `FRAME_MAX_FILES` frames within `FRAME_MAX_TOTAL_BYTES`, the one just written first of all
 /// (`pruneFrames`), and removes the rest and any session folder left empty.
-#[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+)]
 fn prune(root: &Path, protected: &Path) {
     let mut files = scan(root);
     files.sort_by(|left, right| {
-        (right.path == protected)
-            .cmp(&(left.path == protected))
-            .then(right.modified_at.cmp(&left.modified_at))
-            .then(left.path.cmp(&right.path))
+        (right.path == protected).cmp(&(left.path == protected)).then(right.modified_at.cmp(&left.modified_at)).then(left.path.cmp(&right.path))
     });
     let mut retained = 0u64;
     let mut kept = 0usize;
@@ -134,7 +134,10 @@ impl ImageOutput {
     }
 
     /// Writes the pixels for `frame_id` of `session` and prunes older frames; returns the file's path.
-    #[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+    )]
     pub fn write(&self, session: &str, frame_id: &str, bytes: &[u8], mime: &str) -> Result<PathBuf, ComputerError> {
         if bytes.is_empty() || bytes.len() > FRAME_MAX_BYTES {
             return Err(failed("the image is empty or larger than a frame file may be"));

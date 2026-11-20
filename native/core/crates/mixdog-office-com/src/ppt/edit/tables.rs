@@ -10,9 +10,9 @@ use crate::ps::text;
 use super::ItemAt;
 use super::array_of;
 use super::attempt;
-use super::bstr;
 use super::boolean;
 use super::box_value;
+use super::bstr;
 use super::color;
 use super::color_text;
 use super::count;
@@ -58,7 +58,11 @@ fn indexed(row: &Value, column: usize) -> Value {
         Value::String(text) => text.encode_utf16().nth(column).map_or(Value::Null, |unit| Value::String(String::from_utf16_lossy(&[unit]))),
         Value::Null => Value::Null,
         other => {
-            if column == 0 { other.clone() } else { Value::Null }
+            if column == 0 {
+                other.clone()
+            } else {
+                Value::Null
+            }
         }
     }
 }
@@ -66,11 +70,7 @@ fn indexed(row: &Value, column: usize) -> Value {
 /// The value of a table cell: the request's, or the empty text where the request has none (`$row -le $values.Count -and
 /// $column -le @($values[$row - 1]).Count`).
 fn cell_value(values: &[Value], row: usize, column: usize) -> Value {
-    if row <= values.len() && column <= array_of(&values[row - 1]).len() {
-        indexed(&values[row - 1], column - 1)
-    } else {
-        Value::string("")
-    }
+    if row <= values.len() && column <= array_of(&values[row - 1]).len() { indexed(&values[row - 1], column - 1) } else { Value::string("") }
 }
 
 /// The columns of a table whose body cells are all figures, which stand on the right edge of their column.

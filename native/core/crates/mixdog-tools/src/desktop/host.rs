@@ -6,17 +6,17 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_browser_engine::reply::reply::ReplyImage;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
-use mixdog_browser_engine::reply::reply::ReplyImage;
-use mixdog_core_api::ids::Method;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
+use mixdog_core_api::ids::Method;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use serde_json::Value;
@@ -44,11 +44,7 @@ pub enum HostCommandError {
     NoHost,
     /// The host's JSON-RPC error. `message` is already redacted by the host; `data.timing` is
     /// diagnostics for logs, never model text.
-    Rpc {
-        code: i64,
-        message: String,
-        timing: Option<Value>,
-    },
+    Rpc { code: i64, message: String, timing: Option<Value> },
     /// The caller's token fired while the command waited on the desktop.
     Cancelled,
 }
@@ -72,7 +68,13 @@ impl From<JsonValue> for BrowserToolReply {
 pub trait HostCommands: Send + Sync {
     /// Ends with `HostCommandError::Cancelled` when `cancel` fires first, abandoning the request.
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError>;
-    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+    async fn browser_for_tool(
+        &self,
+        thread: &ThreadId,
+        action: &str,
+        input: JsonValue,
+        cancel: &CancellationToken,
+    ) -> Result<BrowserToolReply, HostCommandError> {
         self.browser(thread, action, input, cancel).await.map(Into::into)
     }
     /// `cwd` is the session's working directory (`options.cwd`), which the pane resolves files against.
@@ -97,20 +99,10 @@ fn host_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken)
         Ok(value) => Ok(value),
         // The channel answers a cancel as `capabilityUnavailable{cancelled}`; the token says which it was.
         Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) if cancel.is_cancelled() => Err(HostCommandError::Cancelled),
-        Err(HostError::Rpc { code, message, data }) => Err(HostCommandError::Rpc {
-            code,
-            message,
-            timing: data.and_then(|data| data.get("timing").cloned()),
-        }),
-        Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) => {
-            Err(HostCommandError::NoHost)
-        }
+        Err(HostError::Rpc { code, message, data }) => Err(HostCommandError::Rpc { code, message, timing: data.and_then(|data| data.get("timing").cloned()) }),
+        Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) => Err(HostCommandError::NoHost),
         // Any other core failure reads as a failed command with the generic wording.
-        Err(HostError::Core(_)) => Err(HostCommandError::Rpc {
-            code: HOST_COMMAND_FAILED,
-            message: String::new(),
-            timing: None,
-        }),
+        Err(HostError::Core(_)) => Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: String::new(), timing: None }),
     }
 }
 
@@ -118,7 +110,9 @@ fn host_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken)
 /// failed command, not a missing desktop; no claimant, an unlisted method and the like never sent it and stay unavailable.
 fn visualize_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
     match &answer {
-        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if !cancel.is_cancelled() && mixdog_core_api::host::lost_after_dispatch(detail) => {
+        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. }))
+            if !cancel.is_cancelled() && mixdog_core_api::host::lost_after_dispatch(detail) =>
+        {
             Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: VISUALIZE_CONNECTION_LOST.to_owned(), timing: None })
         }
         _ => host_answer(answer, cancel),
@@ -137,7 +131,9 @@ pub(super) fn browser_connection_lost(action: &str) -> HostCommandError {
 /// A browser command whose host connection closed or lapsed after the request went out; the same rule as [`visualize_answer`].
 fn browser_answer(answer: Result<JsonValue, HostError>, cancel: &CancellationToken, action: &str) -> Result<JsonValue, HostCommandError> {
     match &answer {
-        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if !cancel.is_cancelled() && mixdog_core_api::host::lost_after_dispatch(detail) => {
+        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. }))
+            if !cancel.is_cancelled() && mixdog_core_api::host::lost_after_dispatch(detail) =>
+        {
             Err(browser_connection_lost(action))
         }
         _ => host_answer(answer, cancel),
@@ -201,9 +197,10 @@ pub fn command_error(tool_unavailable: &str, error: HostCommandError) -> ToolErr
 /// (`visualize-bridge/client.mjs`); every answer the desktop gives a command is HTTP 200.
 pub fn visualize_command_error(tool_unavailable: &str, error: HostCommandError) -> ToolError {
     match error {
-        HostCommandError::Rpc { message, timing, .. } if mixdog_js::js_trim(&message).is_empty() => {
-            command_error(tool_unavailable, HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "visualize bridge request failed (HTTP 200)".to_owned(), timing })
-        }
+        HostCommandError::Rpc { message, timing, .. } if mixdog_js::js_trim(&message).is_empty() => command_error(
+            tool_unavailable,
+            HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "visualize bridge request failed (HTTP 200)".to_owned(), timing },
+        ),
         error => command_error(tool_unavailable, error),
     }
 }
@@ -276,14 +273,8 @@ mod tests {
         let channel = Arc::new(MockHostChannel::default());
         let commands = ChannelHostCommands::new(channel.clone());
         let thread = ThreadId::from("t1");
-        assert_eq!(
-            commands.browser(&thread, "open", json!({}), &CancellationToken::new()).await,
-            Err(HostCommandError::NoHost)
-        );
-        assert_eq!(
-            commands.visualize(&thread, "/w", "open", json!({}), &CancellationToken::new()).await,
-            Err(HostCommandError::NoHost)
-        );
+        assert_eq!(commands.browser(&thread, "open", json!({}), &CancellationToken::new()).await, Err(HostCommandError::NoHost));
+        assert_eq!(commands.visualize(&thread, "/w", "open", json!({}), &CancellationToken::new()).await, Err(HostCommandError::NoHost));
     }
 
     /// A host that took the request and never answers; it keeps what it was sent.
@@ -325,10 +316,7 @@ mod tests {
         cancel.cancel();
         assert_eq!(commands.browser(&ThreadId::from("t1"), "open", json!({}), &cancel).await, Err(HostCommandError::Cancelled));
         assert_eq!(command_cancelled("browser", false).message_for_model, "Error: browser command cancelled");
-        assert_eq!(
-            command_cancelled("browser", true).message_for_model,
-            "Error: browser command cancelled; the action may have executed and was not replayed"
-        );
+        assert_eq!(command_cancelled("browser", true).message_for_model, "Error: browser command cancelled; the action may have executed and was not replayed");
         assert_eq!(command_cancelled("visualize", false).message_for_model, "Error: visualize command cancelled");
     }
 
@@ -383,21 +371,19 @@ mod tests {
             .iter()
             .map(|row| {
                 assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
-                assert_eq!(row.get("status").cloned(), row.get("body").map(|_| json!(200)), "an answered command is HTTP 200, one without an answer has no status");
+                assert_eq!(
+                    row.get("status").cloned(),
+                    row.get("body").map(|_| json!(200)),
+                    "an answered command is HTTP 200, one without an answer has no status"
+                );
                 (row["context"].clone(), row.get("body").cloned())
             })
             .collect();
         assert_eq!(
             seen,
             [
-                (
-                    json!({ "sessionId": "t1", "action": "click" }),
-                    Some(json!({ "ok": true, "value": { "timing": { "queueMs": 1, "commandMs": 9 } } })),
-                ),
-                (
-                    json!({ "sessionId": "t1", "turnId": 7, "action": "saved_login_admit" }),
-                    Some(json!({ "ok": false, "timing": { "commandMs": 2 } })),
-                ),
+                (json!({ "sessionId": "t1", "action": "click" }), Some(json!({ "ok": true, "value": { "timing": { "queueMs": 1, "commandMs": 9 } } })),),
+                (json!({ "sessionId": "t1", "turnId": 7, "action": "saved_login_admit" }), Some(json!({ "ok": false, "timing": { "commandMs": 2 } })),),
                 (json!({ "sessionId": "t1", "action": "read" }), None),
                 (json!({ "sessionId": "t1", "action": "type" }), None),
             ]
@@ -499,7 +485,6 @@ mod tests {
         }
     }
 
-
     /// The model reads the host's `-32000` message, led by `Error:` once; its timing never reaches the model and an
     /// empty message reads as a failed bridge request.
     #[test]
@@ -517,7 +502,6 @@ mod tests {
         }
     }
 }
-
 
 /// How long a `visualize` command may take: 30 s, and 60 s for the export and act actions that render or drive a page.
 const VISUALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -566,7 +550,14 @@ impl HostCommands for ChannelHostCommands {
         browser_answer(answer, cancel, action)
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, mut input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+    async fn visualize(
+        &self,
+        thread: &ThreadId,
+        cwd: &str,
+        action: &str,
+        mut input: JsonValue,
+        cancel: &CancellationToken,
+    ) -> Result<JsonValue, HostCommandError> {
         // An open's tool call id (`input.callId`, set by the tool) is a field of the request, beside `sessionId`, not of the input.
         let call_id = if action == "open" { input.as_object_mut().and_then(|input| input.shift_remove("callId")) } else { None };
         let mut params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });

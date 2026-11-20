@@ -75,8 +75,7 @@ const LONGEST_ACK_RANGE: &str = "[9007199254740991,9007199254740991],";
 pub const MAX_ACK_RANGES: usize = (MAX_CONTROL_PLAINTEXT_BYTES - LONGEST_ACK_ENVELOPE.len()) / LONGEST_ACK_RANGE.len();
 
 /// `JSON.stringify({type:'transport-fragment', id, index, count: MAX_SAFE_INTEGER, data: ''})`.
-const LONGEST_FRAGMENT_ENVELOPE: &str =
-    r#"{"type":"transport-fragment","id":9007199254740991,"index":9007199254740991,"count":9007199254740991,"data":""}"#;
+const LONGEST_FRAGMENT_ENVELOPE: &str = r#"{"type":"transport-fragment","id":9007199254740991,"index":9007199254740991,"count":9007199254740991,"data":""}"#;
 /// Fragment payload bytes: the largest multiple of 3 whose base64url form plus the envelope fits
 /// one record's plaintext.
 pub const FRAGMENT_BYTES: usize = (MAX_RECORD_PLAINTEXT_BYTES - LONGEST_FRAGMENT_ENVELOPE.len()) / 4 * 3;
@@ -96,11 +95,8 @@ pub fn record_charge(bytes: usize) -> usize {
 }
 
 /// Largest record a media adapter `chunk` seals to.
-pub const MEDIA_RECORD_MAX_BYTES: usize = r#"{"type":"transport-media","op":"chunk","id":"","frame":""}"#.len()
-    + 64
-    + MEDIA_CHUNK_MAX_CHARS
-    + BOX_HEADER_BYTES
-    + GCM_TAG_BYTES;
+pub const MEDIA_RECORD_MAX_BYTES: usize =
+    r#"{"type":"transport-media","op":"chunk","id":"","frame":""}"#.len() + 64 + MEDIA_CHUNK_MAX_CHARS + BOX_HEADER_BYTES + GCM_TAG_BYTES;
 
 /// A carrier is promotable only if its negotiated SCTP max message size takes our largest
 /// message (`None` when unknown).

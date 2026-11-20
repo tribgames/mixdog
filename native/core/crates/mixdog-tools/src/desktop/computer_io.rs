@@ -9,7 +9,9 @@ pub(super) async fn run<R: Send + 'static>(io: Option<InteractiveIo>, work: impl
     // Unit fixtures call the same synchronous file helpers without installing a
     // process-global executor. No production constructor can omit its token.
     #[cfg(test)]
-    if io.is_none() { return Ok(work()); }
+    if io.is_none() {
+        return Ok(work());
+    }
     let io = io.expect("production computer filesystem work requires its injected IO lane");
     let cancel = CancellationToken::new();
     let job = io.submit_wait(&cancel, move |_| work()).await.map_err(|error| error.to_string())?;
@@ -28,7 +30,9 @@ impl<'a> FrameBytes<'a> {
         let bytes = Some(Arc::new(std::mem::take(target)));
         Self { target, bytes }
     }
-    pub(super) fn share(&self) -> Arc<Vec<u8>> { self.bytes.as_ref().expect("frame bytes owned until drop").clone() }
+    pub(super) fn share(&self) -> Arc<Vec<u8>> {
+        self.bytes.as_ref().expect("frame bytes owned until drop").clone()
+    }
 }
 impl Drop for FrameBytes<'_> {
     fn drop(&mut self) {

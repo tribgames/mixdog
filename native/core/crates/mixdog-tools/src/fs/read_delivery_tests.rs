@@ -291,10 +291,9 @@ async fn public_large_tails_mark_omitted_rows_without_marking_a_complete_suffix(
     let whole = read.call(&ctx, serde_json::json!({ "file_path": "large.txt", "tail": 1 })).await.unwrap();
     assert!(whole.meta.is_none());
     assert!(has_row(&text_of(Ok(whole)).1, "last row"));
-    for input in [
-        serde_json::json!({ "file_path": "large.txt", "tail": 2001 }),
-        serde_json::json!({ "file_path": [{ "file_path": "large.txt", "tail": 400 }] }),
-    ] {
+    for input in
+        [serde_json::json!({ "file_path": "large.txt", "tail": 2001 }), serde_json::json!({ "file_path": [{ "file_path": "large.txt", "tail": 400 }] })]
+    {
         let exceeds_row_limit = input["tail"].as_u64() == Some(2001);
         let part = read.call(&ctx, input).await.unwrap();
         assert_eq!(part.meta.as_ref().and_then(|meta| meta["complete"].as_bool()), Some(false));

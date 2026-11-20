@@ -132,12 +132,6 @@ async fn a_cancelled_call_loses_its_request() {
     assert_eq!(broker.complete(&id, "desktop", &json!({ "result": { "saved": true } })).unwrap(), false);
 }
 
-
-
-
-
-
-
 /// The session shows a request until it can no longer be claimed: the broker settles it once,
 /// when a window claims it or when it ends unclaimed, and never settles one nobody took.
 #[tokio::test]
@@ -166,5 +160,3 @@ async fn a_request_is_settled_once_when_claimed_or_when_it_ends_unclaimed() {
     absent.request(&thread, &json!({})).await.unwrap();
     assert!(surface.settled.lock().unwrap().is_empty(), "a request nobody took is never shown");
 }
-
-

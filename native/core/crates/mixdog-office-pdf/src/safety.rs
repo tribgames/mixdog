@@ -80,10 +80,7 @@ pub fn active_content_issues(document: &PdfDocument) -> Vec<Value> {
                 continue;
             };
             if let Some(kind) = describe_action(document, action) {
-                issues.push(issue(
-                    &format!("/page[{number}]"),
-                    &format!("An annotation on page {number} triggers {kind}"),
-                ));
+                issues.push(issue(&format!("/page[{number}]"), &format!("An annotation on page {number} triggers {kind}")));
             }
         }
     }
@@ -148,11 +145,7 @@ mod tests {
     #[test]
     fn the_open_action_the_additional_actions_and_document_script_are_named() {
         let document = document_with(
-            vec![
-                ("OpenAction", dict(vec![("S", Obj::name("JavaScript"))])),
-                ("AA", dict(vec![])),
-                ("Names", dict(vec![("JavaScript", dict(vec![]))])),
-            ],
+            vec![("OpenAction", dict(vec![("S", Obj::name("JavaScript"))])), ("AA", dict(vec![])), ("Names", dict(vec![("JavaScript", dict(vec![]))]))],
             vec![],
         );
         assert_eq!(

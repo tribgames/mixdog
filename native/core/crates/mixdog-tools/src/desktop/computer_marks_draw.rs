@@ -291,16 +291,11 @@ fn decode_png(image: &[u8]) -> Result<Raster, PaintError> {
         // Adam7: (first column, first row, column step, row step) of the seven passes.
         vec![(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
     };
-    let sizes: Vec<(usize, usize)> = passes
-        .iter()
-        .map(|&(x0, y0, dx, dy)| ((width.saturating_sub(x0)).div_ceil(dx), (height.saturating_sub(y0)).div_ceil(dy)))
-        .collect();
+    let sizes: Vec<(usize, usize)> =
+        passes.iter().map(|&(x0, y0, dx, dy)| ((width.saturating_sub(x0)).div_ceil(dx), (height.saturating_sub(y0)).div_ceil(dy))).collect();
     let expected: usize = sizes.iter().filter(|&&(w, h)| w > 0 && h > 0).map(|&(w, h)| ((w * bits).div_ceil(8) + 1) * h).sum();
     let mut raw = Vec::with_capacity(expected);
-    flate2::read::ZlibDecoder::new(data.as_slice())
-        .take(expected as u64)
-        .read_to_end(&mut raw)
-        .map_err(|error| PaintError::Decode(error.to_string()))?;
+    flate2::read::ZlibDecoder::new(data.as_slice()).take(expected as u64).read_to_end(&mut raw).map_err(|error| PaintError::Decode(error.to_string()))?;
     if raw.len() != expected {
         return Err(fail("png pixel data is short"));
     }
@@ -437,14 +432,7 @@ fn encode(raster: &Raster, mime: &str, quality: u8) -> Result<PaintedImage, Pain
 /// Burns the marks into the image and re-encodes it in the input's format (`image/png` stays PNG, anything else is JPEG at
 /// `quality`). `width` and `height` are the frame's size the bounds are in; a decoded image of another size has the bounds
 /// scaled onto it. A mark with a non-finite bound is skipped, as `renderSomOverlay` did.
-pub fn paint_marks(
-    image: &[u8],
-    mime: &str,
-    width: u32,
-    height: u32,
-    marks: &[Mark],
-    quality: u8,
-) -> Result<PaintedImage, PaintError> {
+pub fn paint_marks(image: &[u8], mime: &str, width: u32, height: u32, marks: &[Mark], quality: u8) -> Result<PaintedImage, PaintError> {
     let mut raster = decode(image, mime)?;
     let scale = (raster.width as f64 / f64::from(width.max(1)), raster.height as f64 / f64::from(height.max(1)));
     for mark in marks.iter().filter(|mark| mark.bounds.iter().all(|value| value.is_finite())) {
@@ -454,14 +442,7 @@ pub fn paint_marks(
 }
 
 /// `renderSomOverlay`: no marks or a failed paint leaves the original image and says why, so a capture never fails on it.
-pub fn paint_marks_or_input(
-    image: &[u8],
-    mime: &str,
-    width: u32,
-    height: u32,
-    marks: &[Mark],
-    quality: u8,
-) -> Overlay {
+pub fn paint_marks_or_input(image: &[u8], mime: &str, width: u32, height: u32, marks: &[Mark], quality: u8) -> Overlay {
     let original = || PaintedImage { bytes: image.to_vec(), mime: mime.to_owned() };
     if marks.is_empty() {
         return Overlay { image: original(), rendered: false, error: None };
@@ -654,6 +635,5 @@ mod tests {
         assert_eq!(pixel(&painted, 20, 30), [0x29, 0xd3, 0xff]);
     }
 }
-
 
 impl std::error::Error for PaintError {}

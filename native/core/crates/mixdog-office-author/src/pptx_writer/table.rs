@@ -70,9 +70,16 @@ impl TableObject {
 
     /// `addTableDefinition` and the table branch of `slideObjectToXml`. `link` is given a hyperlink and returns the
     /// relationship id the slide stored it under.
-    pub(crate) fn new(rows: Vec<Vec<TableCell>>, options: TableOptions, place: &TablePlacement<'_>, link: &mut dyn FnMut(&Hyperlink) -> usize) -> Result<Self, String> {
+    pub(crate) fn new(
+        rows: Vec<Vec<TableCell>>,
+        options: TableOptions,
+        place: &TablePlacement<'_>,
+        link: &mut dyn FnMut(&Hyperlink) -> usize,
+    ) -> Result<Self, String> {
         if rows.is_empty() {
-            return Err("addTable: Array expected! EX: 'slide.addTable( [rows], {options} );' (https://gitbrent.github.io/PptxGenJS/docs/api-tables.html)".to_owned());
+            return Err(
+                "addTable: Array expected! EX: 'slide.addTable( [rows], {options} );' (https://gitbrent.github.io/PptxGenJS/docs/api-tables.html)".to_owned()
+            );
         }
         if options.auto_page {
             return Err("auto-paged tables are not carried by the pptx writer".to_owned());
@@ -255,7 +262,12 @@ impl Cell {
     /// `createHyperlinkRels` for the cell: the hyperlink of its text, or of each of its runs, gets a relationship.
     fn give_links(&mut self, link: &mut dyn FnMut(&Hyperlink) -> usize) {
         let usable = |options: &TextOptions| {
-            options.hyperlink_rid.is_none() && options.frame.hyperlink.as_ref().is_some_and(|hyperlink| hyperlink.url.as_deref().is_some_and(|url| !url.is_empty()) || is_set(hyperlink.slide))
+            options.hyperlink_rid.is_none()
+                && options
+                    .frame
+                    .hyperlink
+                    .as_ref()
+                    .is_some_and(|hyperlink| hyperlink.url.as_deref().is_some_and(|url| !url.is_empty()) || is_set(hyperlink.slide))
         };
         match &mut self.text {
             TextContent::Plain(_) => {
@@ -283,7 +295,9 @@ impl Cell {
     fn mentions_hyperlink(&self) -> bool {
         let in_text = match &self.text {
             TextContent::Plain(text) => text.contains("hyperlink"),
-            TextContent::Runs(runs) => runs.iter().any(|run| run.text.contains("hyperlink") || run.options.as_ref().is_some_and(|options| options.frame.hyperlink.is_some())),
+            TextContent::Runs(runs) => {
+                runs.iter().any(|run| run.text.contains("hyperlink") || run.options.as_ref().is_some_and(|options| options.frame.hyperlink.is_some()))
+            }
         };
         in_text || self.options.frame.hyperlink.is_some()
     }
@@ -425,9 +439,21 @@ fn cell_anchor(valign: &str) -> String {
 fn cell_margin_xml(margin: &[f64]) -> String {
     let at = |index: usize| margin.get(index).copied().unwrap_or(f64::NAN);
     if at(0) >= 1.0 {
-        format!(" marL=\"{}\" marR=\"{}\" marT=\"{}\" marB=\"{}\"", num(val_to_pts(at(3))), num(val_to_pts(at(1))), num(val_to_pts(at(0))), num(val_to_pts(at(2))))
+        format!(
+            " marL=\"{}\" marR=\"{}\" marT=\"{}\" marB=\"{}\"",
+            num(val_to_pts(at(3))),
+            num(val_to_pts(at(1))),
+            num(val_to_pts(at(0))),
+            num(val_to_pts(at(2)))
+        )
     } else {
-        format!(" marL=\"{}\" marR=\"{}\" marT=\"{}\" marB=\"{}\"", num(inch_to_emu(at(3))), num(inch_to_emu(at(1))), num(inch_to_emu(at(0))), num(inch_to_emu(at(2))))
+        format!(
+            " marL=\"{}\" marR=\"{}\" marT=\"{}\" marB=\"{}\"",
+            num(inch_to_emu(at(3))),
+            num(inch_to_emu(at(1))),
+            num(inch_to_emu(at(0))),
+            num(inch_to_emu(at(2)))
+        )
     }
 }
 
@@ -499,7 +525,12 @@ fn slot_xml(slot: &Slot, table: &TextOptions) -> Result<String, String> {
     let mut options = cell.options.clone();
     inherit_table_options(&mut options, table);
     let anchor = options.valign.as_deref().filter(|valign| !valign.is_empty()).map(|valign| format!(" anchor=\"{}\"", cell_anchor(valign))).unwrap_or_default();
-    let direction = options.text_direction.as_deref().filter(|direction| !direction.is_empty() && *direction != "horz").map(|direction| format!(" vert=\"{direction}\"")).unwrap_or_default();
+    let direction = options
+        .text_direction
+        .as_deref()
+        .filter(|direction| !direction.is_empty() && *direction != "horz")
+        .map(|direction| format!(" vert=\"{direction}\""))
+        .unwrap_or_default();
     let margin = match &options.margin {
         Some(Margin::All(all)) => vec![*all; 4],
         Some(Margin::Each(each)) => each.clone(),
@@ -559,7 +590,8 @@ mod tests {
     fn table(rows: Vec<Vec<TableCell>>, options: TableOptions) -> Result<String, String> {
         let layout = wide();
         let mut no_links = |_: &Hyperlink| -> usize { panic!("no hyperlink expected") };
-        TableObject::new(rows, options, &TablePlacement { tables_before: 0, slide_number: 3, layout: &layout }, &mut no_links).map(|object| object.xml().to_owned())
+        TableObject::new(rows, options, &TablePlacement { tables_before: 0, slide_number: 3, layout: &layout }, &mut no_links)
+            .map(|object| object.xml().to_owned())
     }
 
     fn cell(text: &str, options: TextOptions) -> TableCell {
@@ -567,21 +599,33 @@ mod tests {
     }
 
     fn framed(x: f64, y: f64, w: f64, h: f64) -> TableOptions {
-        let frame = super::super::shapes::ShapeOptions { x: Some(Dim::Number(x)), y: Some(Dim::Number(y)), w: Some(Dim::Number(w)), h: Some(Dim::Number(h)), ..Default::default() };
+        let frame = super::super::shapes::ShapeOptions {
+            x: Some(Dim::Number(x)),
+            y: Some(Dim::Number(y)),
+            w: Some(Dim::Number(w)),
+            h: Some(Dim::Number(h)),
+            ..Default::default()
+        };
         TableOptions { text: TextOptions { frame, ..TextOptions::default() }, ..TableOptions::default() }
     }
 
     #[test]
     fn a_table_frame_has_the_grid_the_rows_and_the_cells() {
-        let options = TableOptions { col_w: Some(ColWidths::Each(vec![2.0, 3.0])), row_h: Some(RowHeights::Each(vec![0.5, 0.75])), ..framed(1.0, 1.0, 5.0, 1.25) };
-        let rows = vec![vec![TableCell::Plain("a".to_owned()), TableCell::Plain("b".to_owned())], vec![TableCell::Plain("c".to_owned()), TableCell::Plain("d".to_owned())]];
+        let options =
+            TableOptions { col_w: Some(ColWidths::Each(vec![2.0, 3.0])), row_h: Some(RowHeights::Each(vec![0.5, 0.75])), ..framed(1.0, 1.0, 5.0, 1.25) };
+        let rows = vec![
+            vec![TableCell::Plain("a".to_owned()), TableCell::Plain("b".to_owned())],
+            vec![TableCell::Plain("c".to_owned()), TableCell::Plain("d".to_owned())],
+        ];
         let xml = table(rows, options).expect("table");
         assert!(xml.starts_with("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"4\" name=\"Table 0\"/>"));
         assert!(xml.contains("<p:xfrm><a:off x=\"914400\" y=\"914400\"/><a:ext cx=\"4572000\" cy=\"1143000\"/></p:xfrm>"));
         assert!(xml.contains("<a:tblPr/><a:tblGrid><a:gridCol w=\"1828800\"/><a:gridCol w=\"2743200\"/></a:tblGrid><a:tr h=\"457200\">"));
         assert!(xml.contains("<a:tr h=\"685800\">"));
         assert!(xml.contains("<a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\">"));
-        assert!(xml.contains("<a:endParaRPr lang=\"en-US\" sz=\"1200\" dirty=\"0\">") || xml.contains("<a:endParaRPr lang=\"en-US\" sz=\"1200\" dirty=\"0\"/>"));
+        assert!(
+            xml.contains("<a:endParaRPr lang=\"en-US\" sz=\"1200\" dirty=\"0\">") || xml.contains("<a:endParaRPr lang=\"en-US\" sz=\"1200\" dirty=\"0\"/>")
+        );
         assert!(xml.ends_with("</a:tcPr> </a:tc></a:tr>      </a:tbl>    </a:graphicData>  </a:graphic></p:graphicFrame>"));
     }
 
@@ -591,13 +635,20 @@ mod tests {
             frame: super::super::shapes::ShapeOptions { fill: Some(Fill::color("EEEEEE")), ..Default::default() },
             valign: Some("middle".to_owned()),
             margin: Some(Margin::Each(vec![0.1, 0.2, 0.1, 0.2])),
-            border: Some(Borders::Each(vec![Some(Border { kind: Some("solid".to_owned()), color: Some("112233".to_owned()), pt: Some(1.5) }), None, None, Some(Border { kind: Some("dash".to_owned()), color: Some("445566".to_owned()), pt: Some(1.0) })])),
+            border: Some(Borders::Each(vec![
+                Some(Border { kind: Some("solid".to_owned()), color: Some("112233".to_owned()), pt: Some(1.5) }),
+                None,
+                None,
+                Some(Border { kind: Some("dash".to_owned()), color: Some("445566".to_owned()), pt: Some(1.0) }),
+            ])),
             ..TextOptions::default()
         };
         let xml = table(vec![vec![cell("x", options)]], framed(0.5, 0.5, 2.0, 1.0)).expect("table");
         assert!(xml.contains("<a:tcPr marL=\"182880\" marR=\"182880\" marT=\"91440\" marB=\"91440\" anchor=\"ctr\"><a:lnL w=\"12700\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:srgbClr val=\"445566\"/></a:solidFill><a:prstDash val=\"sysDash\"/>"));
         assert!(xml.contains("</a:lnL><a:lnR w=\"0\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:noFill/></a:lnR><a:lnT w=\"19050\""));
-        assert!(xml.contains("<a:lnT w=\"19050\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:srgbClr val=\"112233\"/></a:solidFill><a:prstDash val=\"solid\"/>"));
+        assert!(xml.contains(
+            "<a:lnT w=\"19050\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:srgbClr val=\"112233\"/></a:solidFill><a:prstDash val=\"solid\"/>"
+        ));
         assert!(xml.contains("</a:lnB><a:solidFill><a:srgbClr val=\"EEEEEE\"/></a:solidFill>  </a:tcPr>"));
     }
 
@@ -610,10 +661,7 @@ mod tests {
     #[test]
     fn spans_reserve_merged_cells_in_the_row_and_the_rows_below() {
         let spanned = TextOptions { colspan: Some(2), rowspan: Some(2), ..TextOptions::default() };
-        let rows = vec![
-            vec![cell("a", spanned), TableCell::Plain("b".to_owned())],
-            vec![TableCell::Plain("c".to_owned())],
-        ];
+        let rows = vec![vec![cell("a", spanned), TableCell::Plain("b".to_owned())], vec![TableCell::Plain("c".to_owned())]];
         let xml = table(rows, framed(0.5, 0.5, 3.0, 2.0)).expect("table");
         assert!(xml.contains("<a:tc rowSpan=\"2\" gridSpan=\"2\">"));
         assert!(xml.contains("<a:tc rowSpan=\"2\" hMerge=\"1\"><a:tcPr/></a:tc>"));
@@ -639,7 +687,10 @@ mod tests {
     #[test]
     fn cell_runs_and_their_links_are_written_by_the_text_body() {
         let link = Hyperlink { url: Some("https://x.test".to_owned()), ..Hyperlink::default() };
-        let run = TextRun { text: "go".to_owned(), options: Some(TextOptions { frame: super::super::shapes::ShapeOptions { hyperlink: Some(link), ..Default::default() }, ..TextOptions::default() }) };
+        let run = TextRun {
+            text: "go".to_owned(),
+            options: Some(TextOptions { frame: super::super::shapes::ShapeOptions { hyperlink: Some(link), ..Default::default() }, ..TextOptions::default() }),
+        };
         let layout = wide();
         let mut asked = 0;
         let mut give = |_: &Hyperlink| -> usize {

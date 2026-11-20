@@ -386,7 +386,6 @@ mod tests {
         }
     }
 
-
     impl Scratch {
         fn new(name: &str) -> Self {
             let dir = std::env::temp_dir().join(format!("mixdog-unix-io-{name}-{}", std::process::id()));

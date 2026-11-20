@@ -718,10 +718,23 @@ mod tests {
 
     #[test]
     fn five_operations_reach_beyond_the_shape() {
-        let reaching: Vec<&str> = ["source-over", "source-in", "source-out", "source-atop", "destination-over", "destination-in", "destination-out", "destination-atop", "lighter", "copy", "xor", "multiply"]
-            .into_iter()
-            .filter(|name| CompositeOperation::parse(name).is_some_and(CompositeOperation::clears_outside_shape))
-            .collect();
+        let reaching: Vec<&str> = [
+            "source-over",
+            "source-in",
+            "source-out",
+            "source-atop",
+            "destination-over",
+            "destination-in",
+            "destination-out",
+            "destination-atop",
+            "lighter",
+            "copy",
+            "xor",
+            "multiply",
+        ]
+        .into_iter()
+        .filter(|name| CompositeOperation::parse(name).is_some_and(CompositeOperation::clears_outside_shape))
+        .collect();
         assert_eq!(reaching, ["source-in", "source-out", "destination-in", "destination-atop", "copy"]);
     }
 

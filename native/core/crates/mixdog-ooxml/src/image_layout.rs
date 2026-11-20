@@ -89,8 +89,9 @@ mod tests {
 
     #[test]
     fn contain_centres_the_whole_picture_in_the_frame() {
-        let placed = resolve_image_layout(&json!({ "sourceWidth": 400, "sourceHeight": 200, "left": 10, "top": 20, "width": 100, "height": 100, "fit": "contain" }))
-            .expect("layout");
+        let placed =
+            resolve_image_layout(&json!({ "sourceWidth": 400, "sourceHeight": 200, "left": 10, "top": 20, "width": 100, "height": 100, "fit": "contain" }))
+                .expect("layout");
         assert_eq!(placed, json!({ "left": 10, "top": 45, "width": 100, "height": 50, "fit": "contain", "crop": null }));
     }
 
@@ -104,10 +105,7 @@ mod tests {
     #[test]
     fn an_unknown_fit_or_an_unknown_size_is_refused() {
         assert_eq!(resolve_image_layout(&json!({ "fit": "tile" })), Err("Image fit must be stretch, contain, or cover".to_owned()));
-        assert_eq!(
-            resolve_image_layout(&json!({ "fit": "cover" })),
-            Err("Image fit cover requires a PNG, JPEG, or GIF with readable dimensions".to_owned())
-        );
+        assert_eq!(resolve_image_layout(&json!({ "fit": "cover" })), Err("Image fit cover requires a PNG, JPEG, or GIF with readable dimensions".to_owned()));
         assert_eq!(
             resolve_image_layout(&json!({})).expect("stretch"),
             json!({ "left": 0, "top": 0, "width": 100, "height": 100, "fit": "stretch", "crop": null })

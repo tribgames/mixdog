@@ -149,13 +149,7 @@ fn truthy(value: &Value) -> bool {
 /// registry id from the status rows `plugins`, and returns the config with that entry set
 /// (`projects` null or empty makes it global). The caller saves it, announces the kind and answers
 /// that kind's status.
-pub fn plan_extension_scope(
-    config: &Value,
-    kind: &Value,
-    name: &Value,
-    projects: &Value,
-    plugins: &[Value],
-) -> Result<ScopeChange, ScopeError> {
+pub fn plan_extension_scope(config: &Value, kind: &Value, name: &Value, projects: &Value, plugins: &[Value]) -> Result<ScopeChange, ScopeError> {
     let kind = ScopeKind::parse(&clean(kind)).ok_or(ScopeError::BadKind)?;
     if kind == ScopeKind::Mcp {
         return Err(ScopeError::McpNotScopable);
@@ -230,8 +224,7 @@ impl ExtensionScopes {
             let entries = &self.maps[kind as usize];
             let mut ordered: Vec<&(String, Vec<String>)> = entries.iter().collect();
             ordered.sort_by_key(|(name, _)| index(name).map_or((1, 0), |n| (0, n)));
-            let map: serde_json::Map<String, Value> =
-                ordered.into_iter().map(|(name, roots)| (name.clone(), Value::from(roots.clone()))).collect();
+            let map: serde_json::Map<String, Value> = ordered.into_iter().map(|(name, roots)| (name.clone(), Value::from(roots.clone()))).collect();
             out.insert(kind.key().to_owned(), Value::Object(map));
         }
         Value::Object(out)
@@ -294,7 +287,6 @@ mod tests {
         // Owner metadata, not the name, decides: a look-alike server of no plugin is free.
         assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-tools", None, &b));
     }
-
 
     fn base() -> String {
         std::env::temp_dir().join("scope-base").to_string_lossy().into_owned()
@@ -390,5 +382,4 @@ mod tests {
         assert_eq!(order[..2], ["2", "10"], "canonical integers first, ascending by value");
         assert_eq!(order.len(), 4);
     }
-
 }

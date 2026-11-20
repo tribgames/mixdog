@@ -9,7 +9,10 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::EventSource;
-use mixdog_core_api::domain::process::{CommandSpec, ExitStatus, KillReason, OutputStream, ProcessError, ProcessEvent, ProcessExit, ProcessInfo, ProcessManager, PtySize, SpawnRequest, SpawnedProcess};
+use mixdog_core_api::domain::process::{
+    CommandSpec, ExitStatus, KillReason, OutputStream, ProcessError, ProcessEvent, ProcessExit, ProcessInfo, ProcessManager, PtySize, SpawnRequest,
+    SpawnedProcess,
+};
 use mixdog_protocol::ProcessHandle;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -18,7 +21,6 @@ use tokio::sync::{Notify, mpsc};
 use super::whisper_owner::Os;
 
 pub(super) const WHISPER_PID: u32 = 2_147_480_001;
-
 
 fn stem(program: &str) -> String {
     let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
@@ -142,7 +144,11 @@ async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>
             std::future::pending::<()>().await;
         }
         let reply = r#"{"text":" hello world "}"#;
-        let _ = stream.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len()).as_bytes()).await;
+        let _ = stream
+            .write_all(
+                format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len()).as_bytes(),
+            )
+            .await;
         let _ = stream.shutdown().await;
     }
 }
@@ -230,4 +236,3 @@ impl ProcessManager for Scripted {
         Vec::new()
     }
 }
-

@@ -7,39 +7,36 @@ use std::sync::LazyLock;
 
 use mixdog_fsio::ReadProof;
 use mixdog_js::time::utc_to_ms;
-use mixdog_js::{
-    JsRegex, js_to_lowercase, js_trim, json_number, math, number_to_string, slice_utf16, string_to_number, to_number_of, value_to_string,
-};
+use mixdog_js::{JsRegex, js_to_lowercase, js_trim, json_number, math, number_to_string, slice_utf16, string_to_number, to_number_of, value_to_string};
 use mixdog_office_base::a1::{column_label, column_number, parse_cell_ref};
 use serde_json::{Map, Value, json};
 
 use crate::cells::{
-    CellEntry, CellStyle, CellValue, Sheet, cell_records, cell_style_indexes, expand_range, set_cell_in_sheet, set_cell_styles_in_sheet,
-    set_cells_in_sheet, set_formulas_in_sheet, shared_strings,
+    CellEntry, CellStyle, CellValue, Sheet, cell_records, cell_style_indexes, expand_range, set_cell_in_sheet, set_cell_styles_in_sheet, set_cells_in_sheet,
+    set_formulas_in_sheet, shared_strings,
 };
 use crate::opc::{
-    add_package_relationship, ensure_content_type_override, part_from_target, part_relationship_path, posix, provenance_citation,
-    relationship_target_by_type,
+    add_package_relationship, ensure_content_type_override, part_from_target, part_relationship_path, posix, provenance_citation, relationship_target_by_type,
 };
 use crate::sheet_page::{column_file_width, workbook_digit_width};
 use crate::sheet_parts::{NoteRequest, excel_password_hash, write_worksheet_note};
 use crate::sheet_styles::{apply_cell_style, style_has_number_format};
 use crate::sheet_xml::{
-    area_reference, compose_sheet_view, freeze_pane_xml, MergeIndex, merged_areas, merged_cell_anchor, merged_ranges, parse_area_range, safe_workbook_table_name,
-    sheet_view_parts, update_sheet_view, upsert_defined_name, upsert_worksheet_section, workbook_defined_name_fault, worksheet_section,
-    write_column_visibility, write_column_widths, write_merged_ranges,
+    MergeIndex, area_reference, compose_sheet_view, freeze_pane_xml, merged_areas, merged_cell_anchor, merged_ranges, parse_area_range,
+    safe_workbook_table_name, sheet_view_parts, update_sheet_view, upsert_defined_name, upsert_worksheet_section, workbook_defined_name_fault,
+    worksheet_section, write_column_visibility, write_column_widths, write_merged_ranges,
 };
 use crate::text_metrics::TextMeasurer;
 use crate::xlsx_audit_support::{js_text, text_or_empty, text_or_empty_nullish, truthy};
 use crate::xlsx_contract::normalize_xlsx_formula;
 use crate::xlsx_operations::{
-    MAX_STYLED_CELLS, TABLE_CONTENT_TYPE, WORKBOOK_PATH, WORKSHEET_CONTENT_TYPE, WORKSHEET_RELATIONSHIP, assert_worksheet_name, next_sheet_id,
-    replace_first, table_style_info_xml,
+    MAX_STYLED_CELLS, TABLE_CONTENT_TYPE, WORKBOOK_PATH, WORKSHEET_CONTENT_TYPE, WORKSHEET_RELATIONSHIP, assert_worksheet_name, next_sheet_id, replace_first,
+    table_style_info_xml,
 };
 use crate::xlsx_reference_shift::{ShiftRequest, copied_sheet_xml, copy_sheet_parts, inherited_rows, shift_worksheet_cells};
 use crate::xml::{
-    OFFICE_RELATIONSHIP_BASE, SPREADSHEET_MAIN, XML_HEADER, compiled, container_body, replace_across_runs, set_xml_attribute, tag_pattern,
-    xml_attribute, xml_encode,
+    OFFICE_RELATIONSHIP_BASE, SPREADSHEET_MAIN, XML_HEADER, compiled, container_body, replace_across_runs, set_xml_attribute, tag_pattern, xml_attribute,
+    xml_encode,
 };
 use crate::zipio::Package;
 
@@ -112,10 +109,7 @@ fn cell_result(sheet: &Sheet, op: &Op, cell: &str, formula: &str, anchored: bool
         result.insert("normalizedFormula".to_owned(), json!(format!("={formula}")));
     }
     if !anchored {
-        result.insert(
-            "warning".to_owned(),
-            json!("Cell is inside a merged range but is not its top-left anchor; Excel hides the value."),
-        );
+        result.insert("warning".to_owned(), json!("Cell is inside a merged range but is not its top-left anchor; Excel hides the value."));
     }
     Ok(Value::Object(result))
 }
@@ -231,8 +225,7 @@ fn write_typed_cells(zip: &mut Package, sheet: &Sheet, xml: &str, entries: &[(St
             }
         })
         .collect();
-    let written: Vec<CellEntry<'_>> =
-        entries.iter().zip(&typed).map(|((reference, _), value)| CellEntry { reference, value, formula: "" }).collect();
+    let written: Vec<CellEntry<'_>> = entries.iter().zip(&typed).map(|((reference, _), value)| CellEntry { reference, value, formula: "" }).collect();
     let mut next = set_cells_in_sheet(xml, &written)?;
     if !formatted.is_empty() {
         let mut styles = zip.text("xl/styles.xml");
@@ -468,10 +461,7 @@ pub fn freeze_worksheet_panes(zip: &mut Package, sheet: &Sheet, xml: &str, op: &
     // row and column name the first cell that scrolls, as Excel freezes at the selected cell; a caller who meant "freeze row
     // 1" with row:1 froze nothing.
     if pane.is_empty() {
-        result.insert(
-            "note".to_owned(),
-            json!("Nothing is frozen: row and column name the first row and column that scroll, so row:2 keeps row 1 in view."),
-        );
+        result.insert("note".to_owned(), json!("Nothing is frozen: row and column name the first row and column that scroll, so row:2 keeps row 1 in view."));
     }
     Ok(Value::Object(result))
 }
@@ -618,17 +608,13 @@ pub fn set_row_height_or_column_width<P: ReadProof>(
     let rows = op_name(op) == "set_row_height";
     let start = row_or_column_start(op, rows);
     if !start.is_finite() || start < 1.0 {
-        return Err(
-            if rows { "set_row_height requires row (1-based)" } else { "set_column_width requires column (a letter such as D, or a 1-based number)" }
-                .to_owned(),
-        );
+        return Err(if rows { "set_row_height requires row (1-based)" } else { "set_column_width requires column (a letter such as D, or a 1-based number)" }
+            .to_owned());
     }
     let size = to_number_of(op.get(if rows { "height" } else { "width" }));
     let limit = if rows { 409.0 } else { 255.0 };
     if !size.is_finite() || size < 0.0 || size > limit {
-        return Err(
-            if rows { "set_row_height requires height in points, 0-409" } else { "set_column_width requires width in characters, 0-255" }.to_owned(),
-        );
+        return Err(if rows { "set_row_height requires height in points, 0-409" } else { "set_column_width requires width in characters, 0-255" }.to_owned());
     }
     let targets = targets_of(start, op);
     let mut next = xml.to_owned();
@@ -795,8 +781,7 @@ pub fn copy_worksheet(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op, shee
     let without_tables = replace_first(&TABLE_PARTS, xml, |_| String::new());
     zip.set(&copy_part, copied_sheet_xml(&without_tables, &sheet.name, &label)?);
     ensure_content_type_override(zip, &format!("/{copy_part}"), WORKSHEET_CONTENT_TYPE);
-    let relationship_id =
-        add_package_relationship(zip, "xl/_rels/workbook.xml.rels", WORKSHEET_RELATIONSHIP, &format!("worksheets/sheet{ordinal}.xml"), "");
+    let relationship_id = add_package_relationship(zip, "xl/_rels/workbook.xml.rels", WORKSHEET_RELATIONSHIP, &format!("worksheets/sheet{ordinal}.xml"), "");
     let workbook = zip.text(WORKBOOK_PATH);
     let entry = format!("<sheet name=\"{}\" sheetId=\"{}\" r:id=\"{relationship_id}\"/>", xml_encode(&label), next_sheet_id(&workbook));
     zip.set(WORKBOOK_PATH, workbook.replacen(SHEETS_CLOSE, &format!("{entry}{SHEETS_CLOSE}"), 1));
@@ -846,8 +831,7 @@ pub fn protect_worksheet(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op) -
         let allow = |key: &str, attribute: &str| {
             if op.get(key) == Some(&Value::Bool(true)) { format!(" {attribute}=\"0\"") } else { String::new() }
         };
-        let password =
-            if truthy(op.get("password")) { format!(" password=\"{}\"", excel_password_hash(&js_text(op.get("password")))) } else { String::new() };
+        let password = if truthy(op.get("password")) { format!(" password=\"{}\"", excel_password_hash(&js_text(op.get("password")))) } else { String::new() };
         upsert_worksheet_section(
             xml,
             "sheetProtection",
@@ -869,8 +853,7 @@ pub fn add_worksheet_table(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op)
     if area.start_row == 0.0 || area.start_col == 0.0 {
         return Err("add_table requires a bounded range such as A1:C10".to_owned());
     }
-    let grid: HashMap<String, CellValue> =
-        cell_records(xml, &shared_strings(zip), None).into_iter().map(|record| (record.reference, record.value)).collect();
+    let grid: HashMap<String, CellValue> = cell_records(xml, &shared_strings(zip), None).into_iter().map(|record| (record.reference, record.value)).collect();
     let mut names: Vec<String> = Vec::new();
     let mut next = xml.to_owned();
     let mut column = area.start_col;
@@ -922,11 +905,8 @@ pub fn add_worksheet_table(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op)
     );
     let previous = worksheet_section(&next, "tableParts").map(|range| container_body(&next[range], "tableParts")).unwrap_or_default();
     let count = TABLE_PART_OPEN.find_iter(&previous).count() + 1;
-    next = upsert_worksheet_section(
-        &next,
-        "tableParts",
-        &format!("<tableParts count=\"{count}\">{previous}<tablePart r:id=\"{relationship_id}\"/></tableParts>"),
-    );
+    next =
+        upsert_worksheet_section(&next, "tableParts", &format!("<tableParts count=\"{count}\">{previous}<tablePart r:id=\"{relationship_id}\"/></tableParts>"));
     zip.set(&sheet.path, next);
     Ok(json!({ "op": op.get("op"), "changed": true, "sheet": sheet.name, "name": table_name, "columns": names.len() }))
 }
@@ -946,7 +926,9 @@ mod tests {
         let (xml, mut zip) = (filled(300), Package::new());
         zip.set("xl/worksheets/sheet1.xml", xml.clone());
         let sheet = Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" };
-        let ops: Vec<Op> = (1..=300).map(|row| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("A{row}"), "formula": "=ROW()" })).expect("an op")).collect();
+        let ops: Vec<Op> = (1..=300)
+            .map(|row| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("A{row}"), "formula": "=ROW()" })).expect("an op"))
+            .collect();
         let refs: Vec<&Op> = ops.iter().collect();
         MERGED_AREA_READS.with(|reads| reads.set(0));
         let results = set_worksheet_formulas(&mut zip, &sheet, &xml, &refs, std::slice::from_ref(&sheet)).expect("written").expect("a run");
@@ -961,9 +943,15 @@ mod tests {
         let merges: String = (1..=400).map(|row| format!("<mergeCell ref=\"B{row}:C{row}\"/>")).collect();
         let body: String = (1..=400).map(|row| format!("<row r=\"{row}\"><c r=\"A{row}\"><v>{row}</v></c></row>")).collect();
         let xml = format!("<worksheet><sheetData>{body}</sheetData><mergeCells count=\"400\">{merges}</mergeCells></worksheet>");
-        let (mut zip, sheet) = (Package::new(), Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" });
+        let (mut zip, sheet) =
+            (Package::new(), Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" });
         zip.set(&sheet.path, xml.clone());
-        let ops: Vec<Op> = (1..=400).flat_map(|row| ["A", "B"].map(|column| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("{column}{row}"), "formula": "=1" })).expect("an op"))).collect();
+        let ops: Vec<Op> = (1..=400)
+            .flat_map(|row| {
+                ["A", "B"]
+                    .map(|column| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("{column}{row}"), "formula": "=1" })).expect("an op"))
+            })
+            .collect();
         let refs: Vec<&Op> = ops.iter().collect();
         crate::sheet_xml::MERGE_PROBES.with(|probes| probes.set(0));
         let results = set_worksheet_formulas(&mut zip, &sheet, &xml, &refs, std::slice::from_ref(&sheet)).expect("written").expect("a run");
@@ -986,10 +974,18 @@ mod tests {
             out
         };
         let merges: String = (1..=400).map(|k| format!("<mergeCell ref=\"{}1:{}1\"/>", letters(2 * k), letters(2 * k + 1))).collect();
-        let xml = format!("<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><v>1</v></c></row></sheetData><mergeCells count=\"400\">{merges}</mergeCells></worksheet>");
-        let (mut zip, sheet) = (Package::new(), Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" });
+        let xml =
+            format!("<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><v>1</v></c></row></sheetData><mergeCells count=\"400\">{merges}</mergeCells></worksheet>");
+        let (mut zip, sheet) =
+            (Package::new(), Sheet { name: "Sheet1".to_owned(), path: "xl/worksheets/sheet1.xml".to_owned(), rid: "rId1".to_owned(), visibility: "visible" });
         zip.set(&sheet.path, xml.clone());
-        let ops: Vec<Op> = (1..=400).flat_map(|k| [2 * k, 2 * k + 1].map(|column| serde_json::from_value(json!({ "op": "set_formula", "cell": format!("{}1", letters(column)), "formula": "=1" })).expect("an op"))).collect();
+        let ops: Vec<Op> = (1..=400)
+            .flat_map(|k| {
+                [2 * k, 2 * k + 1].map(|column| {
+                    serde_json::from_value(json!({ "op": "set_formula", "cell": format!("{}1", letters(column)), "formula": "=1" })).expect("an op")
+                })
+            })
+            .collect();
         let refs: Vec<&Op> = ops.iter().collect();
         crate::sheet_xml::MERGE_PROBES.with(|probes| probes.set(0));
         let results = set_worksheet_formulas(&mut zip, &sheet, &xml, &refs, std::slice::from_ref(&sheet)).expect("written").expect("a run");

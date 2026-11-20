@@ -58,14 +58,8 @@ pub fn diagnostics_key_for(target: &SshTarget) -> String {
 // Daemon tokens, bearer headers, passwords, pairing codes and long secret-looking values.
 static SECRET_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
-        (
-            r#"(?i)(?-u:\b)([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSPHRASE|API_KEY)[A-Za-z0-9_]*)\s*[=:]\s*("[^"]*"|'[^']*'|\S+)"#,
-            "${1}=<redacted>",
-        ),
-        (
-            r#"(?i)(?-u:\b)(token|secret|password|passphrase|authorization)(["']?\s*[:=]\s*["']?)[^\s"',}]+"#,
-            "${1}${2}<redacted>",
-        ),
+        (r#"(?i)(?-u:\b)([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSPHRASE|API_KEY)[A-Za-z0-9_]*)\s*[=:]\s*("[^"]*"|'[^']*'|\S+)"#, "${1}=<redacted>"),
+        (r#"(?i)(?-u:\b)(token|secret|password|passphrase|authorization)(["']?\s*[:=]\s*["']?)[^\s"',}]+"#, "${1}${2}<redacted>"),
         (r"(?i)(?-u:\b)Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>"),
         (r"(?-u:\b)[A-Fa-f0-9]{32,}(?-u:\b)", "<redacted>"),
         (r"(?-u:\b)[A-Za-z0-9_-]{40,}(?-u:\b)", "<redacted>"),
@@ -139,9 +133,7 @@ pub fn redact_server(text: &str, names: &[String]) -> String {
             let hit = name_at(&chars, index, &name)
                 && if short {
                     let user_side = !name_before(before) && after == Some('@') && chars.get(end + 1).is_some_and(|c| c.is_ascii_alphanumeric());
-                    let host_side = before == Some('@')
-                        && index.checked_sub(2).map(|i| chars[i]).is_some_and(|c| name_before(Some(c)))
-                        && !name_after(after);
+                    let host_side = before == Some('@') && index.checked_sub(2).map(|i| chars[i]).is_some_and(|c| name_before(Some(c))) && !name_after(after);
                     user_side || host_side
                 } else {
                     !name_before(before) && !name_after(after)
@@ -247,10 +239,7 @@ impl Diagnostics {
     /// The ring as log lines: `12:00:01.234 stderr message`.
     pub fn lines(&self, key: &str, last: usize) -> Vec<String> {
         let entries = self.entries(key);
-        entries[entries.len().saturating_sub(last)..]
-            .iter()
-            .map(|entry| format!("{} {:<6} {}", stamp(entry.at), entry.kind.as_str(), entry.text))
-            .collect()
+        entries[entries.len().saturating_sub(last)..].iter().map(|entry| format!("{} {:<6} {}", stamp(entry.at), entry.kind.as_str(), entry.text)).collect()
     }
 
     /// The report a user can copy: environment, the resolved config summary and the last log lines, with the

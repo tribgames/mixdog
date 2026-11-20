@@ -1,10 +1,6 @@
 //! grep continuation and path-list hints: what a capped answer promises, followed to the end, and what a joined-path hint
 //! tells each tool's caller to do, run against the tool it names.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the tests build real work trees with blocking filesystem calls"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the tests build real work trees with blocking filesystem calls")]
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -74,7 +70,8 @@ async fn bare_content_followed_to_exhaustion_shows_every_row_once() {
         }
         let pages = follow(&ctx, input).await;
         assert!(pages.len() >= 2, "{limit:?}: 400 rows of ~95 bytes pass one page");
-        let seen: Vec<usize> = pages.iter().flat_map(|p| p.lines().filter_map(|l| l.split_once("needle ").map(|(_, rest)| rest[..4].parse().unwrap()))).collect();
+        let seen: Vec<usize> =
+            pages.iter().flat_map(|p| p.lines().filter_map(|l| l.split_once("needle ").map(|(_, rest)| rest[..4].parse().unwrap()))).collect();
         assert_eq!(seen, (0..400).collect::<Vec<_>>(), "{limit:?}: nothing skipped, nothing repeated");
     }
 }
@@ -116,7 +113,10 @@ async fn a_capped_fan_out_followed_by_its_cursor_shows_every_result_of_every_sec
             assert!(text.len() <= grep_max_bytes() + 400, "round {round}: {} bytes", text.len());
             assert!(!text.contains("pass offset to page each section") && !text.contains("narrow: run one pattern/path per call"), "{text}");
             first_headers.push(text.lines().next().unwrap_or_default().to_owned());
-            for word in text.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() == 4 && (w.starts_with('a') || w.starts_with('b')) && w[1..].bytes().all(|d| d.is_ascii_digit())) {
+            for word in text
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.len() == 4 && (w.starts_with('a') || w.starts_with('b')) && w[1..].bytes().all(|d| d.is_ascii_digit()))
+            {
                 *counts.entry(word.to_owned()).or_insert(0) += 1;
             }
             let Some((_, rest)) = text.rsplit_once("Continue with grep ") else {
@@ -256,7 +256,8 @@ async fn a_capped_file_list_over_paths_keeps_the_combined_scans_order() {
     }
     let pages = follow_footers(&ctx, serde_json::json!({ "pattern": "needle", "mode": "files", "path": ["f1", "f2", "f3"], "limit": 0 })).await;
     assert!(pages.len() >= 2, "{} page(s): 180 long rows pass the cap", pages.len());
-    let shown: Vec<String> = pages.iter().flat_map(|p| p.lines()).filter(|l| l.contains("file_with_a_rather_long_name_")).map(|l| l.trim().to_owned()).collect();
+    let shown: Vec<String> =
+        pages.iter().flat_map(|p| p.lines()).filter(|l| l.contains("file_with_a_rather_long_name_")).map(|l| l.trim().to_owned()).collect();
     let expected: Vec<String> = ["f1", "f2", "f3"].iter().flat_map(|d| names(d)).collect();
     assert_eq!(shown, expected, "the files in the scan's order, each once");
 }
@@ -320,12 +321,9 @@ async fn a_joined_path_list_is_repaired_for_the_tool_that_printed_it_and_the_rep
 /// One ignore rule for every grep mode: a gitignored file a glob names is listed by none of them.
 #[tokio::test]
 async fn a_gitignored_file_is_excluded_by_every_grep_mode() {
-    let (dir, ctx) = tree(vec![
-        (".gitignore".to_owned(), b"*.log\n".to_vec()),
-        ("a.log".to_owned(), b"needle\n".to_vec()),
-        ("b.txt".to_owned(), b"needle\n".to_vec()),
-    ])
-    .await;
+    let (dir, ctx) =
+        tree(vec![(".gitignore".to_owned(), b"*.log\n".to_vec()), ("a.log".to_owned(), b"needle\n".to_vec()), ("b.txt".to_owned(), b"needle\n".to_vec())])
+            .await;
     std::fs::create_dir_all(dir.path().join("ws/.git")).unwrap();
     for mode in ["files", "count", "content"] {
         let text = grep(&ctx, serde_json::json!({ "pattern": "needle", "mode": mode, "glob": "*.log" })).await;
@@ -338,11 +336,7 @@ async fn a_gitignored_file_is_excluded_by_every_grep_mode() {
 /// A footer names the limit that cut the page: the result limit when `limit` did, not a byte cap the output never neared.
 #[tokio::test]
 async fn a_footer_names_the_limit_that_cut_the_page() {
-    let (_dir, ctx) = tree(vec![
-        ("a/x.txt".to_owned(), rows('a', 6, 0)),
-        ("b/x.txt".to_owned(), rows('b', 6, 0)),
-    ])
-    .await;
+    let (_dir, ctx) = tree(vec![("a/x.txt".to_owned(), rows('a', 6, 0)), ("b/x.txt".to_owned(), rows('b', 6, 0))]).await;
     let text = grep(&ctx, serde_json::json!({ "pattern": "needle", "path": ["a", "b"], "context": 0, "limit": 2, "section": 1 })).await;
     let footer = text.rsplit_once("\n[").map(|(_, f)| f).unwrap_or_default();
     assert!(footer.starts_with("result limit 2 reached"), "{text}");

@@ -28,9 +28,9 @@ use mixdog_secure_desktop::winutil::OwnedDesktop;
 use tokio::sync::mpsc as async_mpsc;
 use windows_sys::Win32::Foundation::LPARAM;
 use windows_sys::Win32::Foundation::RECT;
+use windows_sys::Win32::Graphics::Gdi::BI_RGB;
 use windows_sys::Win32::Graphics::Gdi::BITMAPINFO;
 use windows_sys::Win32::Graphics::Gdi::BITMAPINFOHEADER;
-use windows_sys::Win32::Graphics::Gdi::BI_RGB;
 use windows_sys::Win32::Graphics::Gdi::BitBlt;
 use windows_sys::Win32::Graphics::Gdi::CAPTUREBLT;
 use windows_sys::Win32::Graphics::Gdi::CreateCompatibleDC;
@@ -102,11 +102,8 @@ unsafe extern "system" fn collect(monitor: HMONITOR, _: HDC, _: *mut RECT, found
     if unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
         let (mut dpi_x, mut dpi_y) = (0u32, 0u32);
         // SAFETY: the two out-values are live. A failed read leaves the 100 percent default.
-        let scale_percent = if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) } >= 0 && dpi_x > 0 {
-            percent_of_dpi(dpi_x)
-        } else {
-            100
-        };
+        let scale_percent =
+            if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) } >= 0 && dpi_x > 0 { percent_of_dpi(dpi_x) } else { 100 };
         found.push(Found { area: info.rcMonitor, primary: info.dwFlags & PRIMARY != 0, scale_percent });
     }
     1
@@ -132,7 +129,14 @@ fn enumerate() -> Vec<DisplayInfo> {
 fn display_of(index: usize, monitor: &Found) -> Option<DisplayInfo> {
     let width = u32::try_from(monitor.area.right.checked_sub(monitor.area.left)?).ok().filter(|width| *width > 0)?;
     let height = u32::try_from(monitor.area.bottom.checked_sub(monitor.area.top)?).ok().filter(|height| *height > 0)?;
-    Some(DisplayInfo { id: DisplayId(u32::try_from(index).ok()?), x: monitor.area.left, y: monitor.area.top, width, height, scale_percent: monitor.scale_percent })
+    Some(DisplayInfo {
+        id: DisplayId(u32::try_from(index).ok()?),
+        x: monitor.area.left,
+        y: monitor.area.top,
+        width,
+        height,
+        scale_percent: monitor.scale_percent,
+    })
 }
 
 /// The monitors of the PC, each with its rectangle in physical pixels of the virtual screen. A PC the system lists none of has its
@@ -287,10 +291,12 @@ mod tests {
     }
 }
 
-
 /// The pictures of display `display`, at its size, thirty a second, until the source is dropped.
 pub(super) fn source(display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
-    let shown = displays().into_iter().find(|listed| listed.id == display).ok_or_else(|| ComputerError::InvalidInput { reason: format!("unknown display {}", display.0) })?;
+    let shown = displays()
+        .into_iter()
+        .find(|listed| listed.id == display)
+        .ok_or_else(|| ComputerError::InvalidInput { reason: format!("unknown display {}", display.0) })?;
     let (tx, rx) = async_mpsc::channel(1);
     let (stop, stopped) = mpsc::channel();
     std::thread::spawn(move || capture_loop(&shown, &tx, &stopped));

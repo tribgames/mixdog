@@ -12,12 +12,12 @@ use super::agent_surface::is_agent_tool;
 use super::background_task::background_task_action_title;
 use super::background_task::background_task_result_title;
 use super::background_task::task_control_title;
+use super::card_detail::CardDetail;
 use super::card_input::CardBase;
 use super::card_status::CardStatus;
 use super::displayed_result::DisplayedResult;
 use super::generic_detail::bridge_described_tool_names;
 use super::generic_detail::tool_search_loaded_summary;
-use super::card_detail::CardDetail;
 use super::inline_text::safe_inline_text;
 use super::shell_surface::shell_header;
 use crate::tool_primitives::display_tool_search_target;
@@ -56,8 +56,7 @@ fn header_label(base: &CardBase, surface: &CardSurface, display: &DisplayedResul
         return shell_header(status.shell_status, base.group_count, parsed_args.get("verifyShell") == Some(&serde_json::Value::Bool(true)));
     }
     // Bridge load_tool describes definitions; it never loads a tool.
-    let described =
-        if normalized_name == "load_tool" && !base.header_pending { bridge_described_tool_names(&display.displayed_result_text) } else { None };
+    let described = if normalized_name == "load_tool" && !base.header_pending { bridge_described_tool_names(&display.displayed_result_text) } else { None };
     if let Some(names) = described {
         return if names.is_empty() {
             "Described".to_owned()
@@ -105,10 +104,7 @@ pub fn derive_card_header(base: &CardBase, surface: &CardSurface, display: &Disp
     let summary_is_header_count = !raw_summary_text.is_empty() && COUNT_SUMMARY.is_match(&raw_summary_text) && label_text.ends_with(&raw_summary_text);
     let loading_targets = tool_loading_targets(normalized_name, parsed_args);
     let summary_is_loading_targets = !loading_targets.is_empty() && raw_summary_text == loading_targets.join(", ");
-    CardHeader {
-        label_text,
-        summary_text: if summary_is_header_count || summary_is_loading_targets { String::new() } else { raw_summary_text },
-    }
+    CardHeader { label_text, summary_text: if summary_is_header_count || summary_is_loading_targets { String::new() } else { raw_summary_text } }
 }
 
 #[cfg(test)]

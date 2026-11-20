@@ -12,10 +12,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use futures::StreamExt;
-use mixdog_js::JsRegex;
-use mixdog_js::js_trim;
-use mixdog_js::json_stringify;
-use mixdog_js::value_to_string;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::process::CommandSpec;
 use mixdog_core_api::domain::process::EnvSpec;
@@ -28,6 +24,10 @@ use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
+use mixdog_js::JsRegex;
+use mixdog_js::js_trim;
+use mixdog_js::json_stringify;
+use mixdog_js::value_to_string;
 use mixdog_protocol::ProcessHandle;
 use mixdog_tools::exec::codepage::decode_shell_bytes;
 use mixdog_tools::exec::codepage::host_oem;
@@ -74,10 +74,7 @@ fn spawn_spec(handler: &HookHandler, project: &str, plugin_data: &str, plugin_ro
     let raw = &handler.raw;
     let command = resolve_placeholders(raw.get("command")?.as_str()?, project, plugin_data, plugin_root);
     if let Some(args) = raw.get("args").and_then(Value::as_array) {
-        let args = args
-            .iter()
-            .map(|a| resolve_placeholders(&value_to_string(a), project, plugin_data, plugin_root))
-            .collect();
+        let args = args.iter().map(|a| resolve_placeholders(&value_to_string(a), project, plugin_data, plugin_root)).collect();
         return Some((command, args));
     }
     let shell = match raw.get("shell").and_then(Value::as_str) {
@@ -85,10 +82,7 @@ fn spawn_spec(handler: &HookHandler, project: &str, plugin_data: &str, plugin_ro
         _ => default_shell_kind(),
     };
     Some(if shell == "powershell" {
-        (
-            if cfg!(windows) { "powershell.exe" } else { "pwsh" }.to_owned(),
-            vec!["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), command],
-        )
+        (if cfg!(windows) { "powershell.exe" } else { "pwsh" }.to_owned(), vec!["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), command])
     } else {
         (if cfg!(windows) { "bash.exe" } else { "bash" }.to_owned(), vec!["-lc".into(), command])
     })
@@ -158,7 +152,13 @@ fn private_hostname(host: &str) -> bool {
 
 /// The first two octets of a private, loopback, link-local or carrier-grade-NAT IPv4 address.
 fn private_v4_prefix(a: u32, b: u32) -> bool {
-    a == 10 || a == 127 || a == 0 || (a == 169 && b == 254) || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168) || (a == 100 && (64..=127).contains(&b))
+    a == 10
+        || a == 127
+        || a == 0
+        || (a == 169 && b == 254)
+        || (a == 172 && (16..=31).contains(&b))
+        || (a == 192 && b == 168)
+        || (a == 100 && (64..=127).contains(&b))
 }
 
 fn private_v4(ip: Ipv4Addr) -> bool {
@@ -205,9 +205,7 @@ fn validate_url(handler: &Value) -> Result<Checked, String> {
     let host = url.host_str().unwrap_or_default().to_lowercase();
     let allow_private = allowed.contains(&host) || handler.get("allowPrivateHosts") == Some(&Value::Bool(true));
     if !allow_private && private_hostname(&host) {
-        return Err(format!(
-            "blocked hook URL to private/loopback host: {host} (set allowPrivateHosts or allowedHosts to opt in)"
-        ));
+        return Err(format!("blocked hook URL to private/loopback host: {host} (set allowPrivateHosts or allowedHosts to opt in)"));
     }
     Ok(Checked { url, allow_private })
 }
@@ -218,7 +216,21 @@ mod tests {
 
     #[test]
     fn private_and_local_hosts_are_recognised() {
-        for host in ["localhost", "foo.localhost", "printer.local", "127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.1.1", "100.64.0.1", "[::1]", "fd12::1", "::ffff:127.0.0.1", ""] {
+        for host in [
+            "localhost",
+            "foo.localhost",
+            "printer.local",
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.20.0.1",
+            "192.168.1.1",
+            "169.254.1.1",
+            "100.64.0.1",
+            "[::1]",
+            "fd12::1",
+            "::ffff:127.0.0.1",
+            "",
+        ] {
             assert!(private_hostname(host), "{host}");
         }
         for host in ["example.com", "8.8.8.8", "172.32.0.1"] {
@@ -235,7 +247,6 @@ mod tests {
         assert!(validate_url(&serde_json::json!({"url": "http://localhost/h", "allowPrivateHosts": true})).is_ok());
         assert!(validate_url(&serde_json::json!({"url": "http://hooks.test/h", "allowedHosts": ["hooks.test"]})).is_ok());
     }
-
 
     #[test]
     fn headers_expand_only_allowed_environment_variables() {
@@ -287,7 +298,8 @@ mod tests {
         let report: DetachedReport = Arc::new(move |error: String| {
             let _ = reported.send(error);
         });
-        let ctx = CommandContext { project_dir: &dir, project_exists: true, plugin_data_dir: &dir, payload: &payload, event: "Stop", report_detached: Some(report) };
+        let ctx =
+            CommandContext { project_dir: &dir, project_exists: true, plugin_data_dir: &dir, payload: &payload, event: "Stop", report_detached: Some(report) };
         let run = runner.run(&handler, &ctx).await;
         assert!(run.is_async && run.exit_code == 0, "{run:?}");
         let error = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), reports.recv()).await.expect("the failure is reported").unwrap();
@@ -396,7 +408,6 @@ mod tests {
         assert!(run.is_async && run.exit_code == 0, "{run:?}");
     }
 }
-
 
 impl CommandRunner {
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
@@ -591,12 +602,7 @@ pub async fn run_http(handler: &HookHandler, payload: &Value, event: &str) -> Ha
         builder = builder.resolve_to_addrs(&host, &addresses);
     }
     let Ok(client) = builder.build() else { return HandlerRun::spawn_failed("could not build the HTTP client") };
-    let allowed: Vec<String> = handler
-        .raw
-        .get("allowedEnvVars")
-        .and_then(Value::as_array)
-        .map(|v| v.iter().map(value_to_string).collect())
-        .unwrap_or_default();
+    let allowed: Vec<String> = handler.raw.get("allowedEnvVars").and_then(Value::as_array).map(|v| v.iter().map(value_to_string).collect()).unwrap_or_default();
     let mut headers: BTreeMap<String, String> = BTreeMap::from([("Content-Type".to_owned(), "application/json".to_owned())]);
     if let Some(extra) = handler.raw.get("headers").and_then(Value::as_object) {
         for (key, value) in extra {

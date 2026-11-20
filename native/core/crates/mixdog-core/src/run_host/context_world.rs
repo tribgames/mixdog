@@ -31,9 +31,9 @@ use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
 use super::session_cache_opts::is_agent_mode_session;
-use super::tool_surface::parse_tool_selection;
 use super::tool_exposure::native_provider_family;
 use super::tool_exposure::native_request_tools;
+use super::tool_surface::parse_tool_selection;
 
 const DOMAIN: &str = "thread context";
 
@@ -115,7 +115,12 @@ pub(super) fn request_definitions(header: &serde_json::Map<String, Value>, docs:
 /// Nothing here is judged against the hub: an entry its owner withdrew (an MCP server publishing a catalog without it) stays in
 /// the request, as a tool that is only unavailable (its server down, its scope moved) does, until a cold fold or an explicit
 /// rebuild repairs the stored lists (`ToolSurface::repair`).
-pub(super) fn snapshot_tools(header: &serde_json::Map<String, Value>, base: Vec<ToolDefinition>, referenced: Vec<String>, provider: &str) -> Vec<ToolDefinition> {
+pub(super) fn snapshot_tools(
+    header: &serde_json::Map<String, Value>,
+    base: Vec<ToolDefinition>,
+    referenced: Vec<String>,
+    provider: &str,
+) -> Vec<ToolDefinition> {
     let mut names = HashSet::new();
     let mut out: Vec<ToolDefinition> = base
         .into_iter()
@@ -349,7 +354,9 @@ pub(crate) mod tests {
     /// definition, a flipped loading flag and a dropped one: the whole sequence is compared, every field of every row.
     #[test]
     fn the_departure_check_rejects_a_moved_or_flipped_definition() {
-        let row = |name: &str, description: &str, deferred: bool| (name.to_owned(), description.to_owned(), json!({ "type": "object", "properties": { name: {} } }), deferred);
+        let row = |name: &str, description: &str, deferred: bool| {
+            (name.to_owned(), description.to_owned(), json!({ "type": "object", "properties": { name: {} } }), deferred)
+        };
         let want = vec![row("read", "r.", false), row("office", "o.", true)];
         let stored = |name: &str| json!({ "name": name, "description": "k.", "inputSchema": { "type": "object", "properties": { name: {} } } });
         let expected = expected_departure(&want, &[(1, "mcp__alpha__list", false)], &stored);
@@ -394,5 +401,4 @@ pub(crate) mod tests {
         let sent: Vec<String> = super::super::assemble::boundary_tools(header.as_object().expect("header"), base, &[]).into_iter().map(|t| t.name).collect();
         assert_eq!(sent, ["read", "mcp__alpha__gone", "mcp__beta__down"], "nothing is judged against the hub here");
     }
-
 }

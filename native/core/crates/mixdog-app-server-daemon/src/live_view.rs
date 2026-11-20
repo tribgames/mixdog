@@ -380,7 +380,9 @@ impl Inner {
             let mut state = lock(&self.state);
             let facts = state.awaiting_picture.remove(session);
             match state.pages.get(session) {
-                Some((document_id, Some(geometry))) if geometry.pixel_width == u64::from(width) && geometry.pixel_height == u64::from(height) => (document_id.clone(), geometry.generation, facts),
+                Some((document_id, Some(geometry))) if geometry.pixel_width == u64::from(width) && geometry.pixel_height == u64::from(height) => {
+                    (document_id.clone(), geometry.generation, facts)
+                }
                 _ => (None, 0, facts),
             }
         };
@@ -603,7 +605,14 @@ fn close_reason(failure: PeerFailure) -> CloseReason {
 /// session's shared newest picture. The production peers are [`RtcPeers`].
 pub trait Peers: Send + Sync {
     /// Starts a connection; its events go to `events`. `Err` is a detail for the log.
-    fn open(&self, connection_id: &str, ice_servers: &[IceServer], receive_codecs: &[String], source: Arc<SharedSource>, events: Box<dyn Fn(SenderEvent) + Send + Sync>) -> Result<(), String>;
+    fn open(
+        &self,
+        connection_id: &str,
+        ice_servers: &[IceServer],
+        receive_codecs: &[String],
+        source: Arc<SharedSource>,
+        events: Box<dyn Fn(SenderEvent) + Send + Sync>,
+    ) -> Result<(), String>;
     fn answer(&self, connection_id: &str, sdp: &str);
     fn candidate(&self, connection_id: &str, candidate: &Option<mixdog_remote::webrtc::config::Candidate>);
     fn channel_send(&self, connection_id: &str, text: &str);
@@ -631,8 +640,16 @@ impl RtcPeers {
 }
 
 impl Peers for RtcPeers {
-    fn open(&self, connection_id: &str, ice_servers: &[IceServer], receive_codecs: &[String], source: Arc<SharedSource>, events: Box<dyn Fn(SenderEvent) + Send + Sync>) -> Result<(), String> {
-        let (peer, mut rx) = LiveViewConnection::spawn(PeerConfig::new(ice_servers.to_vec()), receive_codecs.to_vec(), source, self.media_thread).map_err(|error| error.to_string())?;
+    fn open(
+        &self,
+        connection_id: &str,
+        ice_servers: &[IceServer],
+        receive_codecs: &[String],
+        source: Arc<SharedSource>,
+        events: Box<dyn Fn(SenderEvent) + Send + Sync>,
+    ) -> Result<(), String> {
+        let (peer, mut rx) = LiveViewConnection::spawn(PeerConfig::new(ice_servers.to_vec()), receive_codecs.to_vec(), source, self.media_thread)
+            .map_err(|error| error.to_string())?;
         lock(&self.peers).insert(connection_id.to_owned(), Arc::new(peer));
         let id = connection_id.to_owned();
         mixdog_rt::spawn("live-view-events", TaskClass::Work, async move {
@@ -645,7 +662,9 @@ impl Peers for RtcPeers {
                         certificate: remote_certificate.map(|c| json!({ "fingerprintAlgorithm": c.fingerprint_algorithm, "fingerprint": c.fingerprint })),
                     },
                     LiveViewEvent::ChannelOpen => continue,
-                    LiveViewEvent::Channel { text, received_at_ms } => SenderEvent::Channel { connection_id: id.clone(), text, received_at: received_at_ms as f64 },
+                    LiveViewEvent::Channel { text, received_at_ms } => {
+                        SenderEvent::Channel { connection_id: id.clone(), text, received_at: received_at_ms as f64 }
+                    }
                     LiveViewEvent::Failed(fault) => SenderEvent::Failed { connection_id: id.clone(), reason: close_reason(fault.reason) },
                 };
                 events(routed);
@@ -701,9 +720,9 @@ impl HostEnv for LiveEnv {
         let inner = self.inner()?;
         let connection = client_connection(client)?;
         match source {
-            Source::Browser { session_id } => {
-                inner.subscribed(connection.0, session_id).then(|| Arc::new(BrowserPage { inner: self.0.clone(), session: session_id.clone() }) as Arc<dyn VideoSource>)
-            }
+            Source::Browser { session_id } => inner
+                .subscribed(connection.0, session_id)
+                .then(|| Arc::new(BrowserPage { inner: self.0.clone(), session: session_id.clone() }) as Arc<dyn VideoSource>),
             // A screen is opened per client, and only by its `ready`.
             #[cfg(windows)]
             Source::Screen { screen_id } => inner.screen_live.get()?.source(screen_id, connection, signal == "ready"),
@@ -1024,7 +1043,6 @@ mod tests {
     //! Node recorded. The peers are scripted; the ICE servers come from the relay in the core and
     //! from the test in Node's recording, so they are not compared.
 
-
     use mixdog_remote::access::runtime::LegLink;
     use mixdog_remote::access::runtime::RemoteEvents;
     use mixdog_remote::access::runtime::RuntimeConfig;
@@ -1041,12 +1059,6 @@ mod tests {
 
     use super::*;
 
-
-
-
-
-
-
     type SenderListener = Box<dyn Fn(SenderEvent) + Send + Sync>;
 
     #[derive(Default)]
@@ -1062,7 +1074,6 @@ mod tests {
             lock(&self.log).push(command);
             self.logged.notify_waiters();
         }
-
     }
 
     impl Peers for Scripted {
@@ -1070,7 +1081,14 @@ mod tests {
             format!("connection-id-{:04}", self.ids.fetch_add(1, Ordering::Relaxed) + 1)
         }
 
-        fn open(&self, connection_id: &str, _ice: &[IceServer], receive_codecs: &[String], _source: Arc<SharedSource>, events: Box<dyn Fn(SenderEvent) + Send + Sync>) -> Result<(), String> {
+        fn open(
+            &self,
+            connection_id: &str,
+            _ice: &[IceServer],
+            receive_codecs: &[String],
+            _source: Arc<SharedSource>,
+            events: Box<dyn Fn(SenderEvent) + Send + Sync>,
+        ) -> Result<(), String> {
             lock(&self.events).insert(connection_id.to_owned(), events);
             self.record(json!({ "type": "open", "connectionId": connection_id, "receiveCodecs": receive_codecs }));
             Ok(())
@@ -1135,17 +1153,7 @@ mod tests {
             Box::new(|_| Box::new(Quiet)),
         ))
     }
-
-
-
-
-
-
-
 }
-
-
-
 
 #[cfg(test)]
 #[path = "live_view_flow_tests.rs"]

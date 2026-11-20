@@ -111,11 +111,7 @@ fn compact_arg_value(value: &Value, key: &str, depth: usize) -> Value {
         Value::String(s) => {
             let text = if key == "command" { redact_shell_command(s) } else { s.clone() };
             let limit = if BODY_KEY.is_match(key) { 60 } else { 180 };
-            if mixdog_js::utf16_len(&text) > limit {
-                Value::String(format!("{}...", slice_utf16(&text, limit)))
-            } else {
-                Value::String(text)
-            }
+            if mixdog_js::utf16_len(&text) > limit { Value::String(format!("{}...", slice_utf16(&text, limit))) } else { Value::String(text) }
         }
         Value::Array(list) => {
             if depth >= 2 {
@@ -209,7 +205,8 @@ fn tool_failure_cause(text: &str) -> String {
     if body.starts_with('{')
         && let Ok(value) = mixdog_js::json_parse(body)
         && value.get("ok") == Some(&Value::Bool(false))
-        && let Some(error) = value.get("error").and_then(Value::as_str) {
+        && let Some(error) = value.get("error").and_then(Value::as_str)
+    {
         return error.to_string();
     }
     text.to_string()
@@ -225,7 +222,11 @@ fn leading_line(text: &str) -> String {
 }
 
 re!(EXPECTED_CANCEL, r#"^Session\s+"[^"]+"\s+closed:\s*(?:aborted|closed)\s+during call\b"#, "i");
-re!(USER_CONTROL_CANCEL, r"^(?:Error:\s*)?(?:Browser command interrupted by local user input\.|computer_session_aborted:|computer_user_control_active:|computer_user_takeover:)", "i");
+re!(
+    USER_CONTROL_CANCEL,
+    r"^(?:Error:\s*)?(?:Browser command interrupted by local user input\.|computer_session_aborted:|computer_user_control_active:|computer_user_takeover:)",
+    "i"
+);
 
 fn is_expected_cancellation(raw: &str) -> bool {
     EXPECTED_CANCEL.is_match(&leading_line(raw))
@@ -239,7 +240,11 @@ fn is_user_control_cancellation(text: &str) -> bool {
 // classifyToolFailure
 // ---------------------------------------------------------------------------
 
-re!(PATCH_COMMITTED, r"already applied to disk \(writes committed\)|applied to disk \(committed\) and left in place|applied \(committed to disk\)|rollback was incomplete|--- rollback incomplete ---|patch partially (?:applied|created|updated|written)", "");
+re!(
+    PATCH_COMMITTED,
+    r"already applied to disk \(writes committed\)|applied to disk \(committed\) and left in place|applied \(committed to disk\)|rollback was incomplete|--- rollback incomplete ---|patch partially (?:applied|created|updated|written)",
+    ""
+);
 re!(PATCH_LIMIT, r"patch too large|byte cap", "");
 re!(PATCH_DUP, r"(?:multiple|conflicting) operations target", "");
 re!(PATCH_CONTEXT, r"hunk rejected|context not found|context mismatch|anchor not found|expected first old(?:/context| line)", "");
@@ -248,7 +253,11 @@ re!(PATCH_PARSE_A, r"parse failed|invalid patch|malformed patch|missing \*\*\* (
 re!(PATCH_PARSE_B, r"contained no file sections|contains an empty file path", "");
 re!(PATCH_OUTSIDE, r"target\(s\) fall outside the write root", "");
 re!(PATCH_MISSING, r"enoent|no such file|target unreadable|source (?:missing or )?unreadable|destination unreadable|cannot find", "");
-re!(PATCH_VERIFY, r"preflight rejected|does not support|cannot be combined|only one v4a rename|missing parsed entry|internal js dispatch|rollback snapshot target|refusing hunkless delete", "");
+re!(
+    PATCH_VERIFY,
+    r"preflight rejected|does not support|cannot be combined|only one v4a rename|missing parsed entry|internal js dispatch|rollback snapshot target|refusing hunkless delete",
+    ""
+);
 
 /// `classifyPatchFailure`.
 fn classify_patch_failure(text: &str) -> Option<&'static str> {
@@ -280,7 +289,11 @@ fn classify_patch_failure(text: &str) -> Option<&'static str> {
 }
 
 re!(NAV_PERMISSION, r"\b(?:eacces|eperm)\b|access is denied|permission denied|operation not permitted", "i");
-re!(NAV_MISS, r#"\b(?:enoent|enotdir)\b|path does not exist|directory does not exist|no such (?:file|path)|not found at this path|file not found\b|symbol "[^"\n]*" not found in "#, "i");
+re!(
+    NAV_MISS,
+    r#"\b(?:enoent|enotdir)\b|path does not exist|directory does not exist|no such (?:file|path)|not found at this path|file not found\b|symbol "[^"\n]*" not found in "#,
+    "i"
+);
 
 /// `isReadOnlyNavigationMiss`.
 fn is_read_only_navigation_miss(tool_name: &str, result: &str) -> bool {
@@ -309,7 +322,11 @@ re!(C_SCHEMA_LEADING_C, r"^goal task exceeds \d+ characters$", "i");
 re!(C_SCHEMA_LEADING_D, r"^goal (?:tasks|updates) support at most \d+ entries(?:$|;)", "i");
 re!(C_SCHEMA_LEADING_E, r"^goal arguments contain unknown fields:", "i");
 re!(C_SCHEMA_LEADING_F, r"^Unsupported field for GitHub [\w.]+\.$", "i");
-re!(C_SCHEMA_LEADING_G, r#"^browser action "[^"]+" (?:does not accept input field|requires input\.|accepts only one input target form|fields must be inside input:|input\.[^\n]*(?:must be|requires|accepts at most))"#, "i");
+re!(
+    C_SCHEMA_LEADING_G,
+    r#"^browser action "[^"]+" (?:does not accept input field|requires input\.|accepts only one input target form|fields must be inside input:|input\.[^\n]*(?:must be|requires|accepts at most))"#,
+    "i"
+);
 re!(C_SCHEMA_LEADING_H, r"^Computer Use [^\n]*(?:does not accept|requires input|must be|accepts at most)", "i");
 re!(C_SCHEMA_LEADING_I, r"^regex parse error:", "i");
 re!(C_HTTP_ERROR, r"\berrorCode:\s*HTTP_ERROR\b", "");
@@ -369,8 +386,15 @@ pub fn classify_tool_failure(result: &Value, tool_name: &str) -> String {
         return out("expected-cancellation");
     }
     let schema_leading = [
-        &C_SCHEMA_LEADING_A, &C_SCHEMA_LEADING_B, &C_SCHEMA_LEADING_C, &C_SCHEMA_LEADING_D, &C_SCHEMA_LEADING_E,
-        &C_SCHEMA_LEADING_F, &C_SCHEMA_LEADING_G, &C_SCHEMA_LEADING_H, &C_SCHEMA_LEADING_I,
+        &C_SCHEMA_LEADING_A,
+        &C_SCHEMA_LEADING_B,
+        &C_SCHEMA_LEADING_C,
+        &C_SCHEMA_LEADING_D,
+        &C_SCHEMA_LEADING_E,
+        &C_SCHEMA_LEADING_F,
+        &C_SCHEMA_LEADING_G,
+        &C_SCHEMA_LEADING_H,
+        &C_SCHEMA_LEADING_I,
     ];
     if schema_leading.iter().any(|re| re.is_match(&leading)) {
         return out("schema/args");
@@ -523,10 +547,7 @@ fn split_grep_line_prefix(line: &str) -> Option<GrepPrefix> {
 /// `parseGrepCoverage`: `None` where Node returns null.
 pub fn parse_grep_coverage(result_text: &Value, tool_name: &str, tool_args: Option<&Value>, result_kind: Option<&str>) -> Option<Value> {
     let output_mode = tool_args.and_then(|a| a.get("output_mode"));
-    if tool_name != "grep"
-        || result_kind == Some("error")
-        || output_mode.is_some_and(|m| truthy(m) && m.as_str() != Some("content_with_context"))
-    {
+    if tool_name != "grep" || result_kind == Some("error") || output_mode.is_some_and(|m| truthy(m) && m.as_str() != Some("content_with_context")) {
         return None;
     }
     let tool_path = tool_args.and_then(|a| a.get("path")).and_then(Value::as_str);
@@ -632,11 +653,7 @@ impl SlowTool {
             .filter(|n| *n > 0)
             .unwrap_or(3000);
         let raw = get("MIXDOG_SLOW_TOOL_TRACE_NAMES").filter(|v| !v.is_empty()).unwrap_or_else(|| "recall,grep,code_graph".into());
-        let names = if js_trim(&raw) == "*" {
-            None
-        } else {
-            Some(raw.split(',').map(|n| js_trim(n).to_string()).filter(|n| !n.is_empty()).collect())
-        };
+        let names = if js_trim(&raw) == "*" { None } else { Some(raw.split(',').map(|n| js_trim(n).to_string()).filter(|n| !n.is_empty()).collect()) };
         Self { threshold_ms, names }
     }
 
@@ -659,13 +676,8 @@ fn summarize_tool_timing(timing: Option<&Value>) -> Option<Value> {
         let n = number_of(timing.get(key));
         n.is_finite().then_some(n)
     };
-    let (dispatch, exec_start, exec_end, post, done) = (
-        num("dispatchStartedAt"),
-        num("executionStartedAt"),
-        num("executionCompletedAt"),
-        num("postprocessStartedAt"),
-        num("resultCompletedAt"),
-    );
+    let (dispatch, exec_start, exec_end, post, done) =
+        (num("dispatchStartedAt"), num("executionStartedAt"), num("executionCompletedAt"), num("postprocessStartedAt"), num("resultCompletedAt"));
     let mut out = Map::new();
     let mut duration = |key: &str, start: Option<f64>, end: Option<f64>| {
         if let (Some(s), Some(e)) = (start, end) {
@@ -785,11 +797,7 @@ pub fn tool_records(a: &Args, slow: &SlowTool, now_ms: i64) -> ToolRecords {
     } else {
         Value::Null
     };
-    let category = if is_error {
-        Value::String(classify_tool_failure(result.unwrap_or(&null_result), &tool_name))
-    } else {
-        Value::Null
-    };
+    let category = if is_error { Value::String(classify_tool_failure(result.unwrap_or(&null_result), &tool_name)) } else { Value::Null };
     let local_search = match a.get("localSearchTelemetry") {
         Some(Value::Object(m)) if !m.is_empty() => Value::Object(m.clone()),
         _ => Value::Null,

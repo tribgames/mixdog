@@ -82,10 +82,7 @@ pub(crate) fn empty_payload() -> Value {
 /// `[ordered]@{ ok = $false; errors = @("<message>") }`: the record `Write-OfficeCleanupFailure` takes for a cleanup step
 /// that failed.
 pub(crate) fn failed_cleanup(message: &str) -> Value {
-    Value::object(
-        ObjectKind::Ordered,
-        vec![("ok", Value::Bool(false)), ("errors", Value::Array(vec![Value::string(message)]))],
-    )
+    Value::object(ObjectKind::Ordered, vec![("ok", Value::Bool(false)), ("errors", Value::Array(vec![Value::string(message)]))])
 }
 
 /// The message of a failure, as `$_.Exception.Message` has it.

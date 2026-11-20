@@ -42,10 +42,10 @@ use mixdog_core_session::session::statusline_limits::build_gateway_limits;
 use mixdog_core_session::session::statusline_status::StatusInput;
 use mixdog_core_session::session::statusline_status::StatusWorld;
 use mixdog_core_session::session::statusline_status::load_gateway_status;
+use mixdog_rt::InteractiveIo;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use mixdog_rt::InteractiveIo;
 use tokio_util::sync::CancellationToken;
 
 pub const STATUSLINE_READ: &str = "statusline/read";
@@ -119,7 +119,15 @@ impl StatusWorld for World<'_> {
     }
 
     fn inherited_route(&self) -> ClaudeRoute {
-        let sources = ClaudeSources { settings: self.settings, own: self.own, last: self.last, request: None, max_age_ms: PERSISTED_MAX_AGE_MS, for_boot: false, now: self.now };
+        let sources = ClaudeSources {
+            settings: self.settings,
+            own: self.own,
+            last: self.last,
+            request: None,
+            max_age_ms: PERSISTED_MAX_AGE_MS,
+            for_boot: false,
+            now: self.now,
+        };
         read_claude_code_current_route(self, &sources)
     }
 }
@@ -138,7 +146,8 @@ impl DomainService for StatuslineService {
         let inner = self.inner.clone();
         // A submitted read finishes as the old spawn_blocking read did; request cancellation does not abandon its cache update.
         let answer = on_lane_wait(self.io, &CancellationToken::new(), move |_| inner.read(&params))
-            .await.map_err(|error| failed("statusline", format!("statusline/read failed: {error}")))?;
+            .await
+            .map_err(|error| failed("statusline", format!("statusline/read failed: {error}")))?;
         Ok(Reply::Value(json!(answer)))
     }
 
@@ -165,7 +174,11 @@ impl ClaudeWorld for World<'_> {
 }
 impl Inner {
     /// The usage log's events: the file's identity is its path and creation time, so a replaced log is read from its start.
-    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "The incremental usage-file read and its short data lock execute inside StatuslineService's awaited InteractiveIo job.")]
+    #[allow(
+        clippy::disallowed_methods,
+        clippy::disallowed_types,
+        reason = "The incremental usage-file read and its short data lock execute inside StatuslineService's awaited InteractiveIo job."
+    )]
     fn usage_events(&self, now: f64) -> Vec<Value> {
         let path = self.data_dir.join(USAGE_FILE);
         let mut view = self.events.lock().unwrap_or_else(PoisonError::into_inner);
@@ -216,7 +229,9 @@ impl Inner {
         let raw = config.as_ref().unwrap_or(&empty);
         let events = self.usage_events(now);
         let limits_input = LimitsInput { gateway: raw.get("gateway").unwrap_or(&empty), agent: agent_config_section(raw), events: &events, now };
-        let limits = self.usage.with_route_section(|section| build_gateway_limits(&limits_input, section, &status, params.provider_out.as_ref(), params.usage_snapshot.as_ref()));
+        let limits = self
+            .usage
+            .with_route_section(|section| build_gateway_limits(&limits_input, section, &status, params.provider_out.as_ref(), params.usage_snapshot.as_ref()));
         StatuslineReadResult { status: Some(status), limits: Some(limits) }
     }
 }

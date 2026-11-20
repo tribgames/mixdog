@@ -165,4 +165,3 @@ async fn a_folder_past_the_file_or_byte_cap_is_too_large_to_zip() {
     assert!(by_bytes.message.starts_with("The folder is too large to zip. ("), "{}", by_bytes.message);
     assert!(scan_folder(&NoRepository, lanes(), &CancellationToken::new(), &root, 10, 2, None).await.is_ok());
 }
-

@@ -249,14 +249,7 @@ fn invoke(document: &Obj, op: &Value) -> Result<Value> {
 }
 
 impl FormatEditor for Editor {
-    fn apply_operation(
-        &self,
-        _context: &mut EditContext<'_>,
-        document: &Obj,
-        op: &Value,
-        _live: bool,
-        _allow_ui_activation: bool,
-    ) -> Result<Option<Value>> {
+    fn apply_operation(&self, _context: &mut EditContext<'_>, document: &Obj, op: &Value, _live: bool, _allow_ui_activation: bool) -> Result<Option<Value>> {
         author::with_author(document, op, || invoke(document, op)).map(Some)
     }
 

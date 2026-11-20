@@ -10,16 +10,12 @@ use serde_json::Value as JsonValue;
 
 use crate::message::AgentMessage;
 
-const KEY_WORD: &str =
-    "(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)";
-const CAMEL_WORD: &str =
-    "(?:Api[_-]?Key|Authorization|Auth|Cookie|Credential|Passwd|Password|Refresh[_-]?Token|Secret|Token)";
+const KEY_WORD: &str = "(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)";
+const CAMEL_WORD: &str = "(?:Api[_-]?Key|Authorization|Auth|Cookie|Credential|Passwd|Password|Refresh[_-]?Token|Secret|Token)";
 const REDACTED: &str = "[redacted]";
 
-static KEY: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(&format!(r"(?:^|[_-]){KEY_WORD}(?:$|[_-])"), "i"));
-static KEY_CAMEL: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(&format!("[a-z0-9]{CAMEL_WORD}s?$"), ""));
+static KEY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(&format!(r"(?:^|[_-]){KEY_WORD}(?:$|[_-])"), "i"));
+static KEY_CAMEL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(&format!("[a-z0-9]{CAMEL_WORD}s?$"), ""));
 
 /// One raw-pair matcher. `from_start` begins a search at index 0 and may open at the start of
 /// the text; `after` is the same pattern for a search resumed past index 0 (`lastIndex > 0`
@@ -82,11 +78,7 @@ pub fn redact_raw_secret_string(text: &str) -> String {
             } else {
                 let header = HEADER_STYLE.is_match(&value[found.clone()]);
                 let stop = |c: char| {
-                    if header {
-                        matches!(c, ',' | ')' | '}' | '\n')
-                    } else {
-                        matches!(c, ',' | ')' | '}') || is_js_space(c)
-                    }
+                    if header { matches!(c, ',' | ')' | '}' | '\n') } else { matches!(c, ',' | ')' | '}') || is_js_space(c) }
                 };
                 end += rest.find(stop).unwrap_or(rest.len());
             }

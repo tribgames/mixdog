@@ -59,7 +59,8 @@ use super::host::model_metadata;
 use super::io::StatusIo;
 
 /// The glyphs the L2 segments spin through, one step every [`L2_SPINNER_FRAME_MS`] (the worker spinner's dots, faster).
-const WORKER_SPINNER_FRAMES: [&str; 10] = ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280f}"];
+const WORKER_SPINNER_FRAMES: [&str; 10] =
+    ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280f}"];
 const L2_SPINNER_FRAME_MS: f64 = 120.0;
 /// How long a cached gateway or fallback quota status is served without a refresh.
 const GATEWAY_QUOTA_STATUS_CACHE_MS: f64 = 500.0;
@@ -192,12 +193,16 @@ fn provider_kind_for_quota(provider: &str) -> &'static str {
 fn status_matches_route(status: &Value, provider: &str, model: &str) -> bool {
     let (status_provider, status_model) = (clean(status.get("provider")), clean(status.get("model")));
     let (provider, model) = (js_trim(provider), js_trim(model));
-    !(!provider.is_empty() && !status_provider.is_empty() && status_provider != provider) && !(!model.is_empty() && !status_model.is_empty() && status_model != model)
+    !(!provider.is_empty() && !status_provider.is_empty() && status_provider != provider)
+        && !(!model.is_empty() && !status_model.is_empty() && status_model != model)
 }
 
 /// `isConfirmedCurrentProcessSnapshot(snapshot)`.
 fn confirmed_current_process(snapshot: Option<&Value>, started_ms: f64) -> bool {
-    snapshot.filter(|snapshot| snapshot.is_object()).map(|snapshot| num(snapshot.get("cachedAt"))).is_some_and(|cached_at| cached_at > 0.0 && cached_at >= started_ms)
+    snapshot
+        .filter(|snapshot| snapshot.is_object())
+        .map(|snapshot| num(snapshot.get("cachedAt")))
+        .is_some_and(|cached_at| cached_at > 0.0 && cached_at >= started_ms)
 }
 
 /// `acceptQuotaSnapshot(held, incoming)`: a newer or own reading replaces the one shown; an older shared one does not, so
@@ -375,7 +380,8 @@ impl StatuslineRenderer {
         let stats = args.stats.as_ref().filter(|stats| !stats.is_null()).unwrap_or(&empty);
         let ctx_pct = Self::context_pct(args, stats);
         let sep = format!(" {}\u{2502}{} ", self.inner.style.dim(), self.inner.style.reset());
-        let parts: Vec<String> = [self.model_segment(args, cols), self.context_segment(ctx_pct, cols, stats)].into_iter().filter(|part| !part.is_empty()).collect();
+        let parts: Vec<String> =
+            [self.model_segment(args, cols), self.context_segment(ctx_pct, cols, stats)].into_iter().filter(|part| !part.is_empty()).collect();
         if parts.is_empty() { self.inner.style.status_subtle("> mixdog") } else { parts.join(&sep) }
     }
 
@@ -389,7 +395,8 @@ impl StatuslineRenderer {
         let display = finite(args.display_context_window);
         let route_context_window = if display > 0.0 { display } else { finite(args.context_window) };
         let session_text = args.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or_default();
-        let route_key = [args.provider.as_str(), args.model.as_str(), args.effort.as_str(), if args.fast { "fast" } else { "" }, session_text, &pid_text(pid)].join("\0");
+        let route_key =
+            [args.provider.as_str(), args.model.as_str(), args.effort.as_str(), if args.fast { "fast" } else { "" }, session_text, &pid_text(pid)].join("\0");
         let key = [
             route_key.as_str(),
             &number_to_string(route_context_window),
@@ -557,7 +564,17 @@ impl StatuslineRenderer {
                 let colour = |pct: i64| colour_pct(style, pct as f64);
                 let hhmm = |ms: f64| epoch_ms_to_hhmm(ms);
                 let (dim, reset, green, yellow, red) = (style.dim(), style.reset(), style.green(), style.yellow(), style.red());
-                let fmt = SegmentFormat { cols: cols as u32, dim: &dim, reset: &reset, green: &green, yellow: &yellow, red: &red, colour_pct: &colour, epoch_ms_to_hhmm: &hhmm, now };
+                let fmt = SegmentFormat {
+                    cols: cols as u32,
+                    dim: &dim,
+                    reset: &reset,
+                    green: &green,
+                    yellow: &yellow,
+                    red: &red,
+                    colour_pct: &colour,
+                    epoch_ms_to_hhmm: &hhmm,
+                    now,
+                };
                 format_gateway_limit_segments(status, &fmt)
             }
             None => Vec::new(),
@@ -568,7 +585,15 @@ impl StatuslineRenderer {
         if !usage_ready || !state.armed.contains(&provider) {
             return Some(segments);
         }
-        let hold_key = [provider.as_str(), js_trim(&args.model), js_trim(&args.effort), if args.fast { "fast" } else { "" }, args.session_id.as_deref().unwrap_or(""), &pid_text(Self::pid_of(args))].join("\0");
+        let hold_key = [
+            provider.as_str(),
+            js_trim(&args.model),
+            js_trim(&args.effort),
+            if args.fast { "fast" } else { "" },
+            args.session_id.as_deref().unwrap_or(""),
+            &pid_text(Self::pid_of(args)),
+        ]
+        .join("\0");
         let held = state.held.iter().find(|(key, _)| *key == hold_key).map(|(_, held)| held.clone());
         let held_segments = || held.as_ref().filter(|held| !held.segments.is_empty()).map(|held| held.segments.clone());
         if segments.is_empty() {
@@ -639,7 +664,10 @@ impl StatuslineRenderer {
         }
         if unconfirmed > 0 {
             let yellow = style.yellow();
-            parts.push(format!("{yellow}\u{26a0} {unconfirmed} Shell{} termination unconfirmed{reset} {dim}\u{b7}{reset} /shells", if unconfirmed == 1 { "" } else { "s" }));
+            parts.push(format!(
+                "{yellow}\u{26a0} {unconfirmed} Shell{} termination unconfirmed{reset} {dim}\u{b7}{reset} /shells",
+                if unconfirmed == 1 { "" } else { "s" }
+            ));
         }
         let (searches, searching_since) = self.web_search_activity(args.active_tools.as_ref(), owner);
         if searches > 0.0 {
@@ -709,7 +737,8 @@ mod tests {
 
     #[test]
     fn the_primary_status_wins_the_merge_and_its_windows_carry_their_age() {
-        let primary = json!({ "provider": "openai-oauth", "quotaWindows": [{ "label": "5H" }], "quotaWindowsAsOf": 7, "quotaWindowsOwned": true, "balance": null });
+        let primary =
+            json!({ "provider": "openai-oauth", "quotaWindows": [{ "label": "5H" }], "quotaWindowsAsOf": 7, "quotaWindowsOwned": true, "balance": null });
         let fallback = json!({ "quotaWindows": [{ "label": "7D" }], "quotaWindowsAsOf": 3, "balance": { "remainingUsd": 2 }, "routeSpend": { "costUsd": 1 } });
         let merged = merge_quota_status(Some(primary.clone()), Some(fallback.clone())).unwrap();
         assert_eq!(merged["quotaWindows"], json!([{ "label": "5H" }]));
@@ -718,7 +747,10 @@ mod tests {
         assert_eq!(merged["providerKind"], "oauth");
         let empty_primary = json!({ "quotaWindows": [] });
         let merged = merge_quota_status(Some(empty_primary), Some(fallback.clone())).unwrap();
-        assert_eq!((merged["quotaWindows"].clone(), merged["quotaWindowsAsOf"].clone(), merged["quotaWindowsOwned"].clone()), (json!([{ "label": "7D" }]), json!(3.0), json!(false)));
+        assert_eq!(
+            (merged["quotaWindows"].clone(), merged["quotaWindowsAsOf"].clone(), merged["quotaWindowsOwned"].clone()),
+            (json!([{ "label": "7D" }]), json!(3.0), json!(false))
+        );
         assert_eq!(merge_quota_status(None, Some(fallback.clone())), Some(fallback));
         assert_eq!(merge_quota_status(Some(primary.clone()), None), Some(primary));
         assert_eq!(merge_quota_status(None, None), None);

@@ -11,10 +11,10 @@ use mixdog_agent::step_effort::StepInput;
 use tokio_util::sync::CancellationToken;
 
 use super::tests::{Route, Server, big, config, embed_config_with, manifest, real_ort};
+use crate::effort_judge::EffortJudgeModel;
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::judge::JudgeOptions;
-use crate::effort_judge::EffortJudgeModel;
 use crate::memory::embed::config::DEFAULT_MODEL_ID;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::recall::QueryEmbedder;
@@ -44,8 +44,7 @@ impl Files {
     }
 
     async fn serve(&self) -> Server {
-        Server::start(vec![("/model.onnx", Route::Body(self.model.clone())), ("/tokenizer.json", Route::Body(self.tokenizer.clone()))])
-            .await
+        Server::start(vec![("/model.onnx", Route::Body(self.model.clone())), ("/tokenizer.json", Route::Body(self.tokenizer.clone()))]).await
     }
 
     fn manifest(&self, server: &Server, release: &str) -> Manifest {
@@ -57,13 +56,7 @@ fn runtime(server: &Server, cache: &Path, flags: RuntimeFlags, tick: &StateTick)
     runtime_over(server, cache, flags, tick, PathBuf::from("unused"))
 }
 
-fn runtime_over(
-    server: &Server,
-    cache: &Path,
-    flags: RuntimeFlags,
-    tick: &StateTick,
-    ort_library: PathBuf,
-) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
+fn runtime_over(server: &Server, cache: &Path, flags: RuntimeFlags, tick: &StateTick, ort_library: PathBuf) -> (Arc<MemoryRuntime>, Arc<EmbeddingProvider>) {
     let embedder = Arc::new(EmbeddingProvider::with_tick(embed_config_with(cache, ort_library), tick.clone()).with_hub(server.base.clone()));
     (MemoryRuntime::new(embedder.clone(), flags, None), embedder)
 }
@@ -93,7 +86,13 @@ async fn a_failed_explicit_install_leaves_recall_on_its_text_lanes() {
 
     assert!(runtime.install_model(&CancellationToken::new()).await.is_err());
     assert!(!embedder.is_ready());
-    assert_eq!(crate::memory::recall::readiness::RecallEmbedder::new(embedder, false).query_vector("anything", &tokio_util::sync::CancellationToken::new()).await.expect("not aborted"), None);
+    assert_eq!(
+        crate::memory::recall::readiness::RecallEmbedder::new(embedder, false)
+            .query_vector("anything", &tokio_util::sync::CancellationToken::new())
+            .await
+            .expect("not aborted"),
+        None
+    );
 }
 
 /// Waits for `done`, re-checked after every tick. A condition that never comes
@@ -105,7 +104,9 @@ async fn until(tick: &StateTick, mut done: impl FnMut() -> bool) {
             changes.changed().await.expect("tick lives");
         }
     };
-    mixdog_rt::time::timeout(UNTIL_LIMIT, waited).await.expect("the awaited state did not come before the limit (the product published no tick that made it true)");
+    mixdog_rt::time::timeout(UNTIL_LIMIT, waited)
+        .await
+        .expect("the awaited state did not come before the limit (the product published no tick that made it true)");
 }
 /// How long [`until`] waits: longer than the slowest step it covers (a real model's download and load on a loaded machine).
 const UNTIL_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
@@ -122,8 +123,12 @@ fn judge_hosted(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: boo
     model.explicit = explicit;
     model.ort_library = crate::effort_judge::model::OrtRuntime::Library(ort_library);
     let host = real_host.then(|| crate::effort_judge::host_tests::real_host_launch(&model));
-    EffortJudgeModel::with_options(model, crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), host, ..JudgeOptions::default() })
-        .expect("judge")
+    EffortJudgeModel::with_options(
+        model,
+        crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens()),
+        JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), host, ..JudgeOptions::default() },
+    )
+    .expect("judge")
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn the_first_judged_step_refreshes_a_model_that_is_not_the_current_release_once() {
@@ -282,7 +287,8 @@ async fn explicit_install_downloads_the_files_without_starting_the_host() {
         (&format!("/{id}/resolve/main/tokenizer.json"), Route::Body(b"{}".to_vec())),
         (&format!("/{id}/resolve/main/tokenizer_config.json"), Route::Body(b"{}".to_vec())),
         (&format!("/{id}/resolve/main/onnx/model_quantized.onnx"), Route::Body(b"graph".to_vec())),
-    ]).await;
+    ])
+    .await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
     let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags::default(), &tick);

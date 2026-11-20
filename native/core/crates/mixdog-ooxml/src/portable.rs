@@ -21,9 +21,7 @@ use crate::text_metrics::TextMeasurer;
 use crate::xlsx::apply_xlsx;
 
 pub use crate::opc::image_pixel_size;
-pub use crate::package::{
-    CreateOptions, CreatedDocument, create_portable_ooxml_document, portable_create_supported,
-};
+pub use crate::package::{CreateOptions, CreatedDocument, create_portable_ooxml_document, portable_create_supported};
 pub use crate::pptx_core::inspect_pptx_text_boxes;
 pub use crate::pptx_package::clear_portable_presentation_slides;
 pub use crate::snapshot::snapshot_portable_ooxml;
@@ -52,12 +50,7 @@ pub fn apply_portable_ooxml_batch<P: WriteProof>(
         "xlsx" => apply_xlsx(proof, measurer, &mut zip, operations)?,
         _ => apply_pptx(proof, measurer, &mut zip, operations)?,
     };
-    if operations.iter().any(|operation| {
-        operation
-            .get("op")
-            .and_then(Value::as_str)
-            .is_some_and(|op| SWEEPING_OPERATIONS.contains(&op))
-    }) {
+    if operations.iter().any(|operation| operation.get("op").and_then(Value::as_str).is_some_and(|op| SWEEPING_OPERATIONS.contains(&op))) {
         // A package the sweep refuses (no relationship resolves to a part) is saved as it is: `.catch(() => ({ removed: [] }))`.
         let _ = remove_orphan_package_parts(&mut zip);
     }
@@ -84,17 +77,8 @@ mod tests {
     }
 
     fn create(path: &Path, kind: &str) {
-        create_portable_ooxml_document(
-            &Unlaned,
-            &NoWriteNote,
-            path,
-            &CreateOptions {
-                file_kind: kind,
-                title: "front",
-                sheet_name: "",
-            },
-        )
-        .expect("a blank document");
+        create_portable_ooxml_document(&Unlaned, &NoWriteNote, path, &CreateOptions { file_kind: kind, title: "front", sheet_name: "" })
+            .expect("a blank document");
     }
 
     #[test]
@@ -102,30 +86,19 @@ mod tests {
         let directory = tempfile::tempdir().expect("scratch folder");
         let word = directory.path().join("memo.docx");
         create(&word, "docx");
-        let results = batch(
-            &word,
-            "docx",
-            &[json!({ "op": "append_text", "text": "Quarterly memo" })],
-        )
-        .expect("a docx batch");
+        let results = batch(&word, "docx", &[json!({ "op": "append_text", "text": "Quarterly memo" })]).expect("a docx batch");
         assert_eq!(results.len(), 1);
         let package = load_package(&Unlaned, &word).expect("the saved package");
         assert!(package.text("word/document.xml").contains("Quarterly memo"));
         let book = directory.path().join("book.xlsx");
         create(&book, "xlsx");
-        assert_eq!(batch(&book, "xlsx", &[json!({ "op": "set_range", "sheet": "Sheet1", "range": "A1:B1", "values": [["a", 1]] })]).expect("an xlsx batch").len(), 1);
-        let deck = directory.path().join("deck.pptx");
-        create(&deck, "pptx");
         assert_eq!(
-            batch(
-                &deck,
-                "pptx",
-                &[json!({ "op": "add_slide", "layout": "blank" })]
-            )
-            .expect("a pptx batch")
-            .len(),
+            batch(&book, "xlsx", &[json!({ "op": "set_range", "sheet": "Sheet1", "range": "A1:B1", "values": [["a", 1]] })]).expect("an xlsx batch").len(),
             1
         );
+        let deck = directory.path().join("deck.pptx");
+        create(&deck, "pptx");
+        assert_eq!(batch(&deck, "pptx", &[json!({ "op": "add_slide", "layout": "blank" })]).expect("a pptx batch").len(), 1);
     }
 
     #[test]
@@ -134,22 +107,8 @@ mod tests {
         let word = directory.path().join("memo.docx");
         create(&word, "docx");
         let before = mixdog_fsio::read(&Unlaned, &word).expect("the blank document");
-        let error = batch(
-            &word,
-            "docx",
-            &[
-                json!({ "op": "append_text", "text": "kept?" }),
-                json!({ "op": "no_such_operation" }),
-            ],
-        )
-        .expect_err("a refusal");
-        assert_eq!(
-            error,
-            "Portable DOCX backend does not support operation: no_such_operation"
-        );
-        assert_eq!(
-            mixdog_fsio::read(&Unlaned, &word).expect("the file"),
-            before
-        );
+        let error = batch(&word, "docx", &[json!({ "op": "append_text", "text": "kept?" }), json!({ "op": "no_such_operation" })]).expect_err("a refusal");
+        assert_eq!(error, "Portable DOCX backend does not support operation: no_such_operation");
+        assert_eq!(mixdog_fsio::read(&Unlaned, &word).expect("the file"), before);
     }
 }

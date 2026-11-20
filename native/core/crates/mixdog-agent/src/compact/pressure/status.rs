@@ -25,7 +25,6 @@ use super::number_or_zero;
 use super::or;
 use super::or_null;
 use super::positive_int;
-use mixdog_ai::registry::keys::Environment as Vars;
 use super::string_or_empty;
 use super::truthy;
 use crate::compact::estimate::MessageMeter;
@@ -33,6 +32,7 @@ use crate::compact::tool_schema::RequestTools;
 use crate::compact::tool_schema::estimate_request_reserve_tokens;
 use crate::compact::tool_schema::tool_schema_signature;
 use crate::message::AgentMessage;
+use mixdog_ai::registry::keys::Environment as Vars;
 
 const SYSTEM_REMINDER_OPEN: &str = "<system-reminder>";
 const COMPACT_SAFETY_PERCENT: f64 = 1.0;
@@ -198,11 +198,7 @@ fn main_buffer_setting(env: &dyn Vars, cfg: &Header) -> Option<MainBuffer> {
     if let Some(tokens) = positive_int(env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_TOKENS").as_ref()) {
         return Some(MainBuffer::Tokens(tokens));
     }
-    buffer_ratio_candidate(
-        &[env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_PERCENT")],
-        &[env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_RATIO")],
-    )
-    .map(MainBuffer::Ratio)
+    buffer_ratio_candidate(&[env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_PERCENT")], &[env_text(env, "MIXDOG_MAIN_COMPACT_BUFFER_RATIO")]).map(MainBuffer::Ratio)
 }
 
 /// `compactionBufferTokensForBoundary(boundary, { explicitTokens, ratio, maxRatio })`.
@@ -326,12 +322,7 @@ fn session_compact_policy(env: &dyn Vars, session: &Header, boundary_tokens: Opt
         None => (boundary - main_compact_buffer_tokens(env, boundary, cfg)).max(1.0),
     };
     let buffer_tokens = (boundary - trigger).max(0.0);
-    SessionCompactPolicy {
-        auto_compact_token_limit: explicit_limit,
-        trigger_tokens: Some(trigger),
-        buffer_tokens,
-        buffer_ratio: buffer_tokens / boundary,
-    }
+    SessionCompactPolicy { auto_compact_token_limit: explicit_limit, trigger_tokens: Some(trigger), buffer_tokens, buffer_ratio: buffer_tokens / boundary }
 }
 
 // --- The worker policy (loop/compact-policy.mjs) -------------------------------
@@ -433,9 +424,7 @@ fn worker_policy(env: &dyn Vars, session: &Header, tools: &RequestTools<'_>, age
     }?;
     let compact_boundary = (boundary_tokens * COMPACT_SAFETY_PERCENT).floor().max(1.0);
     let policy = session_compact_policy(env, session, Some(compact_boundary));
-    let configured = first_positive(&[get(cfg, "reservedTokens")])
-        .or_else(|| env_positive_int(env, "MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
-        .unwrap_or(0.0);
+    let configured = first_positive(&[get(cfg, "reservedTokens")]).or_else(|| env_positive_int(env, "MIXDOG_AGENT_COMPACT_RESERVED_TOKENS")).unwrap_or(0.0);
     let request_reserve = estimate_request_reserve_tokens(tools) as f64;
     let reserve = request_reserve + configured;
     let target = compact_target_tokens(env, compact_boundary, cfg).unwrap_or(compact_boundary);
@@ -569,9 +558,7 @@ pub(super) fn provider_coverage(session: &Header, messages: &[AgentMessage], sig
     let count = number(get(session, "contextPressureBaselineMessageCount"));
     let baseline_at = number_or_zero(get(session, "contextPressureBaselineUpdatedAt"));
     let compaction = get(session, "compaction").and_then(Value::as_object);
-    let compact_at = compaction
-        .map(|c| number_or_zero(or(get(c, "lastChangedAt"), get(c, "lastCompactAt"))))
-        .unwrap_or(0.0);
+    let compact_at = compaction.map(|c| number_or_zero(or(get(c, "lastChangedAt"), get(c, "lastCompactAt")))).unwrap_or(0.0);
     if count.fract() != 0.0 || !finite(count) || count < 0.0 || count > messages.len() as f64 {
         return None;
     }
@@ -751,7 +738,8 @@ pub(super) fn section_bucket(section: &str) -> &'static str {
 
 /// `summarizeContextMessages(messages)`.
 pub fn summarize_messages(messages: &[AgentMessage], meter: &MessageMeter<'_>) -> Value {
-    let mut roles = [("system", 0.0, 0.0), ("user", 0.0, 0.0), ("assistant", 0.0, 0.0), ("tool", 0.0, 0.0), ("other", 0.0, 0.0)].map(|(name, count, tokens)| (name, Row { count, tokens }));
+    let mut roles = [("system", 0.0, 0.0), ("user", 0.0, 0.0), ("assistant", 0.0, 0.0), ("tool", 0.0, 0.0), ("other", 0.0, 0.0)]
+        .map(|(name, count, tokens)| (name, Row { count, tokens }));
     let mut semantic = Semantic::default();
     let (mut estimated, mut call_count, mut call_tokens, mut result_count, mut result_tokens) = (0.0, 0.0, 0.0, 0.0, 0.0);
     for message in messages {
@@ -859,9 +847,7 @@ fn measurement(session: &Header, active: bool) -> Value {
     }
     let updated_at = number_or_zero(get(session, "lastContextTokensUpdatedAt"));
     let compaction = get(session, "compaction").and_then(Value::as_object);
-    let compact_at = compaction
-        .map(|c| number_or_zero(get(c, "lastChangedAt")).max(number_or_zero(get(c, "lastCompactAt"))))
-        .unwrap_or(0.0);
+    let compact_at = compaction.map(|c| number_or_zero(get(c, "lastChangedAt")).max(number_or_zero(get(c, "lastCompactAt")))).unwrap_or(0.0);
     let differs = |baseline: &str, key: &str| truthy(get(session, baseline)) && get(session, baseline) != get(session, key);
     let route_mismatch = differs("contextPressureBaselineProvider", "provider") || differs("contextPressureBaselineModel", "model");
     if route_mismatch || (compact_at > 0.0 && updated_at <= compact_at) {
@@ -931,11 +917,7 @@ fn finite_or_null(value: Option<f64>) -> Value {
 fn empty_status(input: &StatusInput<'_>) -> Value {
     let session = input.session;
     let policy = worker_policy(input.env, session, &input.session_tools, input.agent_mode);
-    let route_window = number_or_zero(or(
-        get(session, "compactBoundaryTokens"),
-        or(get(session, "contextWindow"), Some(&input.route.context_window)),
-    ))
-    .max(0.0);
+    let route_window = number_or_zero(or(get(session, "compactBoundaryTokens"), or(get(session, "contextWindow"), Some(&input.route.context_window)))).max(0.0);
     let window = if route_window != 0.0 { num(route_window) } else { Value::Null };
     let boundary = {
         let configured = or(get(session, "compactBoundaryTokens"), None);
@@ -1175,7 +1157,8 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
         0.0
     } else {
         let estimated = number_or_zero(summarize_messages(messages, input.meter).get("estimatedTokens"));
-        round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(input.env, get(session, "provider"))).max(0.0)
+        round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(input.env, get(session, "provider")))
+            .max(0.0)
     };
     let gauge = aligned.as_ref().map_or(0.0, |policy| resolve_tokens(session, before_message_tokens, policy, messages, input).0);
     // `compactDisplayBeforeTokens`: the context the provider last measured, while that reading is live.
@@ -1195,7 +1178,19 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
             request + configured
         }
     };
-    Ok(Some(CompactionPlan { force, messages: messages.len(), boundary, before_message_tokens, trigger_tokens, buffer_tokens, buffer_ratio, budget, pressure_tokens, before_tokens, reserve_tokens }))
+    Ok(Some(CompactionPlan {
+        force,
+        messages: messages.len(),
+        boundary,
+        before_message_tokens,
+        trigger_tokens,
+        buffer_tokens,
+        buffer_ratio,
+        budget,
+        pressure_tokens,
+        before_tokens,
+        reserve_tokens,
+    }))
 }
 
 impl CompactionPlan {
@@ -1257,11 +1252,6 @@ pub fn forced_target_budget(input: &StatusInput<'_>) -> Option<f64> {
 mod commit;
 mod send_check;
 
-pub use send_check::StageMeta;
-pub use send_check::compact_telemetry;
-pub use send_check::post_compact_snapshot;
-pub use send_check::pre_send_check;
-pub use send_check::provider_pressure;
 pub use commit::Archived;
 pub use commit::CONFIG_KEYS as COMPACTION_CONFIG_KEYS;
 pub use commit::CommitInput;
@@ -1272,3 +1262,8 @@ pub use commit::TRANSCRIPT_MOVED_ERROR;
 pub use commit::commit_compaction;
 pub use commit::failed_compaction;
 pub use commit::usage_totals;
+pub use send_check::StageMeta;
+pub use send_check::compact_telemetry;
+pub use send_check::post_compact_snapshot;
+pub use send_check::pre_send_check;
+pub use send_check::provider_pressure;

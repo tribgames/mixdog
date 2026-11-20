@@ -14,18 +14,18 @@ use std::sync::Arc;
 
 use mixdog_agent::boundary::CompactSettings;
 use mixdog_agent::compact::settings::{Doc, adopt_session_compaction, normalize_compaction};
+use mixdog_app_protocol::v2::thread::ThreadRoute;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_js::{string_to_number, to_number, to_number_of};
 use mixdog_store::agent_mode::session_mode_of;
 use mixdog_store::schema::record::Header;
-use mixdog_app_protocol::v2::thread::ThreadRoute;
 use serde_json::Value;
 
-use mixdog_core_config::config::Config;
-use mixdog_core_agents::agents::AgentDefinitions;
 use crate::run_host::assemble::RunSettings;
 use crate::run_host::host_seams::ConfigSeams;
 use crate::run_host::rules_lead::{LeadPaths, build_lead_language};
+use mixdog_core_agents::agents::AgentDefinitions;
+use mixdog_core_config::config::Config;
 
 /// How the process environment is read (`process.env[name]`).
 pub type EnvReader = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -116,9 +116,7 @@ impl ConfigRunSeams {
     /// (`CompactPolicy::resolve`), while a manual or scheduled pass resolves them with `auto` forced
     /// on (`resolveSessionCompactionPolicy`, `compaction-runner.mjs`).
     pub(crate) fn compact_settings_with(&self, header: &Header, agent_mode: bool, cfg: Doc) -> CompactSettings {
-        let agent_owner = header
-            .get("owner")
-            .is_some_and(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).to_lowercase() == "agent");
+        let agent_owner = header.get("owner").is_some_and(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).to_lowercase() == "agent");
         let flag_off = cfg.get("auto") == Some(&Value::Bool(false));
         let auto = (!flag_off || agent_mode) && self.env_flag("MIXDOG_AGENT_COMPACT_AUTO", true);
         let mut settings = CompactSettings {
@@ -184,10 +182,7 @@ impl ConfigRunSeams {
         if let Some(tokens) = first_positive(&[self.env_value("MIXDOG_MAIN_COMPACT_BUFFER_TOKENS")]) {
             return (tokens, 0.0);
         }
-        let ratio = buffer_ratio_candidate(
-            &[self.env_value("MIXDOG_MAIN_COMPACT_BUFFER_PERCENT")],
-            &[self.env_value("MIXDOG_MAIN_COMPACT_BUFFER_RATIO")],
-        );
+        let ratio = buffer_ratio_candidate(&[self.env_value("MIXDOG_MAIN_COMPACT_BUFFER_PERCENT")], &[self.env_value("MIXDOG_MAIN_COMPACT_BUFFER_RATIO")]);
         (0, ratio.unwrap_or(0.0))
     }
 
@@ -200,13 +195,7 @@ impl ConfigRunSeams {
             .or_else(|| self.env_positive("MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS"))
             .or_else(|| self.env_positive("MIXDOG_COMPACT_TARGET_MIN_TOKENS"));
         let env_percent = self.env_value("MIXDOG_AGENT_COMPACT_TARGET_PERCENT").or_else(|| self.env_value("MIXDOG_COMPACT_TARGET_PERCENT"));
-        let raw = first_stated(&[
-            cfg.get("targetPercent"),
-            cfg.get("targetPct"),
-            cfg.get("targetRatio"),
-            cfg.get("targetFraction"),
-            env_percent.as_ref(),
-        ]);
+        let raw = first_stated(&[cfg.get("targetPercent"), cfg.get("targetPct"), cfg.get("targetRatio"), cfg.get("targetFraction"), env_percent.as_ref()]);
         settings.target_ratio = raw.map(to_number).filter(|n| n.is_finite() && *n > 0.0);
     }
 
@@ -296,7 +285,8 @@ impl ConfigSeams for ConfigRunSeams {
             (None, None) => (own("provider"), None),
         };
         // A pick held for the next turn (`pendingRoute`) is the runtime's route already (`getRoute()`).
-        let held = |key: &str| header.get("pendingRoute").and_then(|pick| pick.get(key)).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned);
+        let held =
+            |key: &str| header.get("pendingRoute").and_then(|pick| pick.get(key)).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned);
         let (provider, model) = match held("model") {
             Some(model) => (held("provider").or(provider), Some(model)),
             None => (provider, model),
@@ -354,7 +344,9 @@ impl ConfigSeams for ConfigRunSeams {
             model_max_output_tokens: None,
             auto_clear: Some({
                 let config = self.config.clone();
-                Arc::new(move || mixdog_agent::compact::settings::normalize_auto_clear(config.agent().get("autoClear")).get("enabled") != Some(&Value::Bool(false)))
+                Arc::new(move || {
+                    mixdog_agent::compact::settings::normalize_auto_clear(config.agent().get("autoClear")).get("enabled") != Some(&Value::Bool(false))
+                })
             }),
         }
     }
@@ -397,9 +389,8 @@ fn buffer_ratio_candidate(percents: &[Option<Value>], ratios: &[Option<Value>]) 
 /// `providerTokenCalibration(provider)`.
 pub(crate) fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> Option<String>) -> f64 {
     let provider = provider.filter(|p| !p.is_null()).map(mixdog_js::value_to_string).unwrap_or_default().to_lowercase();
-    let from_env = |name: &str, default: f64| {
-        env(name).map(|raw| string_to_number(&raw)).filter(|n| n.is_finite() && *n > 0.0).map_or(default, |n| n.clamp(0.25, 3.0))
-    };
+    let from_env =
+        |name: &str, default: f64| env(name).map(|raw| string_to_number(&raw)).filter(|n| n.is_finite() && *n > 0.0).map_or(default, |n| n.clamp(0.25, 3.0));
     if provider.starts_with("anthropic") {
         from_env("MIXDOG_TOKEN_CALIBRATION_ANTHROPIC", 1.4)
     } else if provider.starts_with("gemini") || provider.starts_with("google") {

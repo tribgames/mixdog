@@ -39,9 +39,9 @@ use super::agent_route_service::AgentRouteSetter;
 use super::chain::RouteContext;
 use super::chain::RouteFacts;
 use super::model_list::ModelListService;
+use super::route_service::LiveControls;
 use super::route_service::RouteService;
 use super::route_service::SessionFollow;
-use super::route_service::LiveControls;
 use super::route_set_service::FAST_SET;
 use super::route_set_service::Plan;
 use super::route_set_service::ROUTE_SET;
@@ -90,7 +90,11 @@ fn live() -> Value {
 
 #[test]
 fn a_session_only_request_for_what_the_route_already_is_changes_nothing() {
-    for selection in [json!({ "sessionOnly": true }), json!({ "sessionOnly": true, "effort": "high" }), json!({ "sessionOnly": true, "provider": "openai", "model": "gpt-5", "fast": false, "autoEffort": true })] {
+    for selection in [
+        json!({ "sessionOnly": true }),
+        json!({ "sessionOnly": true, "effort": "high" }),
+        json!({ "sessionOnly": true, "provider": "openai", "model": "gpt-5", "fast": false, "autoEffort": true }),
+    ] {
         assert!(matches!(plan(&obj(selection.clone()), &obj(live())), Plan::Unchanged), "{selection}");
     }
 }
@@ -272,8 +276,16 @@ async fn build(meta: Value, fast: bool) -> Rig {
     std::fs::write(&path, serde_json::to_vec(&json!({ "agent": {} })).unwrap()).unwrap();
     let (config, _) = Config::open(&path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
-    let models = Arc::new(ModelListService { catalog, config: config.clone(), primary_provider: Arc::new(String::new), unsupported: Arc::new(UnsupportedEfforts::default()), host: None });
+    let catalog = Arc::new(
+        CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await,
+    );
+    let models = Arc::new(ModelListService {
+        catalog,
+        config: config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::new(UnsupportedEfforts::default()),
+        host: None,
+    });
     let session = Arc::new(Session::default());
     let routes = RouteService {
         config: config.clone(),
@@ -293,7 +305,14 @@ async fn build(meta: Value, fast: bool) -> Rig {
     };
     let ops = scopes(state.path(), "route").await;
     let agent_routes = AgentRoutes::new(config.clone(), dir.path());
-    Rig { service: RouteSetService { routes: Arc::new(routes), agents: Arc::new(agents), ops }, session, published, agent_routes, file: path, _dirs: (dir, state) }
+    Rig {
+        service: RouteSetService { routes: Arc::new(routes), agents: Arc::new(agents), ops },
+        session,
+        published,
+        agent_routes,
+        file: path,
+        _dirs: (dir, state),
+    }
 }
 
 fn text(error: CoreError) -> String {
@@ -363,9 +382,17 @@ async fn a_selection_saves_the_models_own_settings_and_the_session_follows_it_wi
     let rig = build(gpt_5_row(), false).await;
     let params = with_op(json!({ "threadId": "t", "route": { "provider": "openai", "model": "gpt-5", "effort": "low" } }), 1);
     let answer = value(&rig.service, request(ROUTE_SET, params, Some(1))).await.expect("an answer");
-    assert_eq!((&answer["provider"], &answer["model"], &answer["effort"]), (&json!("openai"), &json!("gpt-5"), &json!("low")), "the live route is the selection");
+    assert_eq!(
+        (&answer["provider"], &answer["model"], &answer["effort"]),
+        (&json!("openai"), &json!("gpt-5"), &json!("low")),
+        "the live route is the selection"
+    );
     let saved = rig.saved_agent();
-    assert_eq!(saved["modelSettings"], json!({ "openai/gpt-5": { "effort": "low", "fast": false, "modelParameters": {} } }), "the model's settings are saved under provider/model, its parameters as resolved (none)");
+    assert_eq!(
+        saved["modelSettings"],
+        json!({ "openai/gpt-5": { "effort": "low", "fast": false, "modelParameters": {} } }),
+        "the model's settings are saved under provider/model, its parameters as resolved (none)"
+    );
     assert!(saved.get("presets").is_none() && saved.get("default").is_none(), "a selection keeps the Main model unless it says otherwise: {saved}");
     assert_eq!(rig.session.follows.lock().unwrap().len(), 1, "the addressed session follows the saved route once");
 }

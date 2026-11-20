@@ -52,42 +52,10 @@ struct Windows {
 }
 
 const WINDOWS: [Windows; 4] = [
-    Windows {
-        left_mask: 0x0f,
-        right_1: 3,
-        mask_1: 0x7f,
-        shift_1: 4,
-        right_2: 2,
-        mask_2: 0x1f,
-        shift_2: 11,
-    },
-    Windows {
-        left_mask: 0x07,
-        right_1: 3,
-        mask_1: 0x3f,
-        shift_1: 3,
-        right_2: 2,
-        mask_2: 0x0f,
-        shift_2: 9,
-    },
-    Windows {
-        left_mask: 0x03,
-        right_1: 2,
-        mask_1: 0x1f,
-        shift_1: 2,
-        right_2: 1,
-        mask_2: 0x07,
-        shift_2: 7,
-    },
-    Windows {
-        left_mask: 0x0f,
-        right_1: 2,
-        mask_1: 0x3f,
-        shift_1: 4,
-        right_2: 0,
-        mask_2: 0,
-        shift_2: 0,
-    },
+    Windows { left_mask: 0x0f, right_1: 3, mask_1: 0x7f, shift_1: 4, right_2: 2, mask_2: 0x1f, shift_2: 11 },
+    Windows { left_mask: 0x07, right_1: 3, mask_1: 0x3f, shift_1: 3, right_2: 2, mask_2: 0x0f, shift_2: 9 },
+    Windows { left_mask: 0x03, right_1: 2, mask_1: 0x1f, shift_1: 2, right_2: 1, mask_2: 0x07, shift_2: 7 },
+    Windows { left_mask: 0x0f, right_1: 2, mask_1: 0x3f, shift_1: 4, right_2: 0, mask_2: 0, shift_2: 0 },
 ];
 
 impl GenericRegion<'_> {
@@ -227,10 +195,7 @@ impl GenericRegion<'_> {
                 left = ((left << 1) | u32::from(bit)) & w.left_mask;
             }
         }
-        Some(Decoded {
-            image: img,
-            rows: self.height,
-        })
+        Some(Decoded { image: img, rows: self.height })
     }
 
     /// Decodes the region as MMR (T.6) data starting at bit `start_bit` of `src`; returns the image and the bit
@@ -251,14 +216,7 @@ mod tests {
     use super::*;
 
     fn region(width: i32, height: i32) -> GenericRegion<'static> {
-        GenericRegion {
-            width,
-            height,
-            template: 0,
-            tpgdon: false,
-            skip: None,
-            at: [3, -1, -3, -1, 2, -2, -2, -2],
-        }
+        GenericRegion { width, height, template: 0, tpgdon: false, skip: None, at: [3, -1, -3, -1, 2, -2, -2, -2] }
     }
 
     #[test]

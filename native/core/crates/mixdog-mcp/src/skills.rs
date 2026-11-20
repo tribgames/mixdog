@@ -128,8 +128,7 @@ fn yaml_error_text(front: &str, error: &serde_yaml::Error) -> String {
         let Some((line, column)) = at.split_once(" column ") else { continue };
         let (Ok(line), Ok(column)) = (line.trim().parse::<usize>(), column.trim().parse::<usize>()) else { continue };
         let before_on_line: String = front.lines().nth(line - 1).unwrap_or("").chars().take(column - 1).collect();
-        let blank_before = before_on_line.trim().is_empty()
-            && front.lines().take(line - 1).all(|l| l.trim().is_empty() || l.trim_start().starts_with('#'));
+        let blank_before = before_on_line.trim().is_empty() && front.lines().take(line - 1).all(|l| l.trim().is_empty() || l.trim_start().starts_with('#'));
         return if blank_before {
             format!("Flow {name} must end with a {end}")
         } else {
@@ -161,8 +160,7 @@ pub(crate) fn frontmatter_of(markdown: &str) -> Result<&str, SkillDocumentError>
 
 pub fn parse_document(markdown: &str) -> Result<SkillDocument, SkillDocumentError> {
     let (front, body) = split_frontmatter(markdown)?;
-    let yaml: serde_yaml::Value =
-        serde_yaml::from_str(front).map_err(|e| SkillDocumentError::InvalidYaml(yaml_error_text(front, &e)))?;
+    let yaml: serde_yaml::Value = serde_yaml::from_str(front).map_err(|e| SkillDocumentError::InvalidYaml(yaml_error_text(front, &e)))?;
     if !yaml.is_mapping() {
         return Err(SkillDocumentError::NotMapping);
     }
@@ -236,12 +234,7 @@ fn skill_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// Lists one directory: its `SKILL.md` files go to `out`, its subfolders to the back of `queue`.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn walk_skill_dir(
-    dir: &Path,
-    out: &mut Vec<PathBuf>,
-    ancestors: &mut Vec<PathBuf>,
-    queue: &mut std::collections::VecDeque<(PathBuf, Vec<PathBuf>)>,
-) {
+fn walk_skill_dir(dir: &Path, out: &mut Vec<PathBuf>, ancestors: &mut Vec<PathBuf>, queue: &mut std::collections::VecDeque<(PathBuf, Vec<PathBuf>)>) {
     let Ok(real) = std::fs::canonicalize(dir) else { return };
     if ancestors.contains(&real) {
         return;
@@ -333,8 +326,7 @@ impl SkillGate {
         if let Some(feature) = self.missing_feature(skill) {
             return Some(SkillRefusal::MissingFeature { skill: requested.to_owned(), feature: feature.to_owned() });
         }
-        (!Self::follows_feature(skill) && self.disabled.contains(&skill.name.to_lowercase()))
-            .then(|| SkillRefusal::Disabled(requested.to_owned()))
+        (!Self::follows_feature(skill) && self.disabled.contains(&skill.name.to_lowercase())).then(|| SkillRefusal::Disabled(requested.to_owned()))
     }
 
     pub fn offered<'a>(&self, skills: &'a [Skill]) -> Vec<&'a Skill> {
@@ -448,7 +440,10 @@ mod tests {
         link_dir(&skills, &skills.join("plain").join("back"));
         let mut found = Vec::new();
         skill_files(&skills, &mut found);
-        let names: Vec<String> = found.iter().map(|p| p.strip_prefix(&skills).unwrap().components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")).collect();
+        let names: Vec<String> = found
+            .iter()
+            .map(|p| p.strip_prefix(&skills).unwrap().components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"))
+            .collect();
         assert_eq!(names, ["linked/SKILL.md", "plain/SKILL.md"]);
     }
 
@@ -484,22 +479,10 @@ mod tests {
     #[test]
     fn rejects_bad_documents() {
         assert_eq!(parse_document("no front").unwrap_err(), SkillDocumentError::NoFrontmatter);
-        assert_eq!(
-            parse_document("---\nname: Bad_Name\ndescription: d\n---\n").unwrap_err(),
-            SkillDocumentError::NameCharset
-        );
-        assert_eq!(
-            parse_document("---\nname: a--b\ndescription: d\n---\n").unwrap_err(),
-            SkillDocumentError::NameHyphens
-        );
-        assert_eq!(
-            parse_document("---\nname: a\n---\n").unwrap_err(),
-            SkillDocumentError::NotString("description")
-        );
-        assert!(matches!(
-            parse_document("---\nname: a\nname: b\ndescription: d\n---\n").unwrap_err(),
-            SkillDocumentError::InvalidYaml(_)
-        ));
+        assert_eq!(parse_document("---\nname: Bad_Name\ndescription: d\n---\n").unwrap_err(), SkillDocumentError::NameCharset);
+        assert_eq!(parse_document("---\nname: a--b\ndescription: d\n---\n").unwrap_err(), SkillDocumentError::NameHyphens);
+        assert_eq!(parse_document("---\nname: a\n---\n").unwrap_err(), SkillDocumentError::NotString("description"));
+        assert!(matches!(parse_document("---\nname: a\nname: b\ndescription: d\n---\n").unwrap_err(), SkillDocumentError::InvalidYaml(_)));
     }
 
     #[test]
@@ -545,7 +528,6 @@ mod tests {
     const BROWSER_USE: &str = include_str!("../../../../../src/defaults/skills/browser-use/SKILL.md");
     const BROWSER_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser.json");
     const BROWSER_DEVTOOLS_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser_devtools.json");
-
 
     #[test]
     fn envelope_resolves_placeholders() {
@@ -594,7 +576,6 @@ mod tests {
         assert!(envelope.contains("# Browser Use"));
     }
 }
-
 
 /// The `<skill>` envelope a `Skill` call delivers; `${MIXDOG_SKILL_NODE}` and
 /// `${MIXDOG_SKILL_DIR}` in the body are resolved here.

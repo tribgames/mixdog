@@ -57,11 +57,10 @@ struct Candidate {
 /// powershell), so when one of them is the binary tidy uses, none of them shadows it.
 fn candidates_for(entry: &super::catalog::EngineEntry, engine: &Resolved, env: &HashMap<String, String>, npx_dirs: &[PathBuf]) -> Vec<Candidate> {
     let mut found = Vec::new();
-    let host_hits: Vec<String> = std::iter::once(&entry.bin).chain(entry.alt_bins.iter()).filter_map(|n| which(n, Some(env), None)).map(|p| p.to_string_lossy().into_owned()).collect();
+    let host_hits: Vec<String> =
+        std::iter::once(&entry.bin).chain(entry.alt_bins.iter()).filter_map(|n| which(n, Some(env), None)).map(|p| p.to_string_lossy().into_owned()).collect();
     let used_on_path = host_hits.iter().any(|h| uses_path(engine, h));
-    if !used_on_path
-        && let Some(first) = host_hits.first()
-    {
+    if !used_on_path && let Some(first) = host_hits.first() {
         found.push(Candidate { via: "path", path: first.clone() });
     }
     for dir in npx_dirs {
@@ -145,7 +144,11 @@ pub fn shadow_note(row: &Value) -> String {
     let route = if row["via"] == "path" { "PATH" } else { "npx cache" };
     let (id, bin) = (row["id"].as_str().unwrap_or(""), row["bin"].as_str().unwrap_or(""));
     let engine = match row.pointer("/engine/path").and_then(Value::as_str) {
-        Some(p) => format!("tidy runs {} {}", row.pointer("/engine/source").and_then(Value::as_str).unwrap_or(""), describe(p, row.pointer("/engine/version").and_then(Value::as_str).unwrap_or(""))),
+        Some(p) => format!(
+            "tidy runs {} {}",
+            row.pointer("/engine/source").and_then(Value::as_str).unwrap_or(""),
+            describe(p, row.pointer("/engine/version").and_then(Value::as_str).unwrap_or(""))
+        ),
         None => format!("tidy has no {id} ({})", row.pointer("/engine/source").and_then(Value::as_str).unwrap_or("")),
     };
     format!(
@@ -201,7 +204,10 @@ mod tests {
         let (name, body) = if cfg!(windows) {
             ("probe.cmd", "@if exist toolchain-marker (echo fake 1.10.0) else if exist broken-marker (echo usage 3.4 & exit /b 2) else (echo fake 1.9.0)\r\n")
         } else {
-            ("probe.sh", "#!/bin/sh\nif [ -e toolchain-marker ]; then echo fake 1.10.0; elif [ -e broken-marker ]; then echo usage 3.4; exit 2; else echo fake 1.9.0; fi\n")
+            (
+                "probe.sh",
+                "#!/bin/sh\nif [ -e toolchain-marker ]; then echo fake 1.10.0; elif [ -e broken-marker ]; then echo usage 3.4; exit 2; else echo fake 1.9.0; fi\n",
+            )
         };
         let bin = bin_dir.path().join(name);
         std::fs::write(&bin, body).unwrap();
@@ -259,7 +265,10 @@ mod tests {
         std::fs::create_dir_all(&bin_dir).unwrap();
         std::fs::write(bin_dir.join(bin("biome")), "x").unwrap();
         let empty = tempfile::tempdir().unwrap();
-        let env = HashMap::from([("PATH".to_owned(), empty.path().to_string_lossy().into_owned()), ("npm_config_cache".to_owned(), cache.path().to_string_lossy().into_owned())]);
+        let env = HashMap::from([
+            ("PATH".to_owned(), empty.path().to_string_lossy().into_owned()),
+            ("npm_config_cache".to_owned(), cache.path().to_string_lossy().into_owned()),
+        ]);
         let rows = detect_engine_shadows(&[engine("biome", "managed", "/m/biome")], &env, |_| String::new());
         assert_eq!(rows[0]["via"], "npx-cache");
         assert!(shadow_note(&rows[0]).contains("npx cache"));

@@ -259,7 +259,9 @@ fn inflate(decoder: &mut Decompress, data: &[u8], out: &mut Vec<u8>, limit: usiz
     loop {
         out.reserve(STEP);
         let (read, wrote) = (decoder.total_in(), decoder.total_out());
-        let status = decoder.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| fault(1007, "Z_DATA_ERROR", e.message().map_or_else(|| e.to_string(), str::to_owned)))?;
+        let status = decoder
+            .decompress_vec(input, out, FlushDecompress::Sync)
+            .map_err(|e| fault(1007, "Z_DATA_ERROR", e.message().map_or_else(|| e.to_string(), str::to_owned)))?;
         input = &input[(decoder.total_in() - read) as usize..];
         if out.len() > limit {
             return Err(fault(1009, "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH", "Max payload size exceeded"));
@@ -732,7 +734,10 @@ mod tests {
         let mut byte = [0u8; 1];
         let error = mixdog_rt::time::timeout(WITHIN, ws.read(&mut byte)).await.expect("the read fails within 20 s").unwrap_err();
         let refused = violation_of(&error).expect("the violation travels in the error");
-        assert_eq!((refused.code, refused.ws_code, refused.text.as_str()), (1002, "WS_ERR_UNEXPECTED_RSV_2_3", "Invalid WebSocket frame: RSV2 and RSV3 must be clear"));
+        assert_eq!(
+            (refused.code, refused.ws_code, refused.text.as_str()),
+            (1002, "WS_ERR_UNEXPECTED_RSV_2_3", "Invalid WebSocket frame: RSV2 and RSV3 must be clear")
+        );
         assert!(ws.read(&mut byte).await.is_err(), "and every later read");
         let mut flush = Box::pin(ws.flush());
         assert!(futures::poll!(flush.as_mut()).is_pending(), "the close is not over while the server's side is open");
@@ -813,7 +818,6 @@ mod tests {
         mixdog_rt::time::timeout(WITHIN, sender).await.expect("the sender ends within 20 s").unwrap();
         assert_eq!(read_back, client_messages);
     }
-
 }
 
 /// How long the close frame of a violation may wait for the socket to be writable before the connection is given up:

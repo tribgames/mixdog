@@ -87,10 +87,7 @@ impl From<mixdog_statefile::StateError> for StoreError {
 }
 
 /// Runs `job` as a job of the I/O lane the stores were given.
-pub(crate) async fn on_lane<R: Send + 'static>(
-    io: DurabilityIo,
-    job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static,
-) -> Result<R, StoreError> {
+pub(crate) async fn on_lane<R: Send + 'static>(io: DurabilityIo, job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> Result<R, StoreError> {
     let handle = io.submit(&CancellationToken::new(), job).map_err(|full| StoreError::new(full.to_string()))?;
     handle.await.map_err(|dropped| StoreError::new(dropped.to_string()))
 }
@@ -100,11 +97,7 @@ type StateValidator = fn(&Value) -> Result<(), mixdog_statefile::Invalid>;
 /// `readJsonState`: the document, or `None` when the file is missing, a newer build's, or damaged with no good copy
 /// (a damaged file is kept aside as `.corrupt-<ms>` and its `.bak` restored). A `validate` that refuses marks the
 /// document damaged. Only a file that cannot be read at all is an error.
-pub(crate) async fn read_state(
-    io: DurabilityIo,
-    file: PathBuf,
-    validate: Option<StateValidator>,
-) -> Result<Option<Value>, StoreError> {
+pub(crate) async fn read_state(io: DurabilityIo, file: PathBuf, validate: Option<StateValidator>) -> Result<Option<Value>, StoreError> {
     on_lane(io, move |lane| match validate {
         Some(check) => mixdog_statefile::read_json(lane, &file, Some(&check), &Opts::default()),
         None => mixdog_statefile::read_json(lane, &file, None, &Opts::default()),
@@ -134,11 +127,7 @@ pub(crate) fn js_string(value: &Value) -> String {
 
 /// `String(n)` of a finite number: integers without a fraction.
 pub(crate) fn js_number_text(number: f64) -> String {
-    if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e15 {
-        format!("{}", number as i64)
-    } else {
-        number.to_string()
-    }
+    if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e15 { format!("{}", number as i64) } else { number.to_string() }
 }
 
 /// `Number(value)`; `NaN` for what JavaScript cannot read as a number here (objects, arrays).
@@ -149,11 +138,7 @@ pub(crate) fn js_number(value: &Value) -> f64 {
         Value::Number(number) => number.as_f64().unwrap_or(f64::NAN),
         Value::String(text) => {
             let text = js_trim(text);
-            if text.is_empty() {
-                0.0
-            } else {
-                text.parse::<f64>().ok().filter(|number| number.is_finite()).unwrap_or(f64::NAN)
-            }
+            if text.is_empty() { 0.0 } else { text.parse::<f64>().ok().filter(|number| number.is_finite()).unwrap_or(f64::NAN) }
         }
         Value::Array(_) | Value::Object(_) => f64::NAN,
     }

@@ -34,11 +34,11 @@ use super::super::ports::BlockingFs;
 use super::super::ports::FileStamp;
 use super::super::ports::ReadFs;
 use super::super::review_diff::Obj;
-use super::CHANGES_VERSION;
+use super::CHANGE_RECORD_TTL_MS;
 use super::CHANGE_RECORDS_CACHE_BYTES;
 use super::CHANGE_RECORDS_CACHE_IDLE;
 use super::CHANGE_RECORDS_CACHE_SESSIONS;
-use super::CHANGE_RECORD_TTL_MS;
+use super::CHANGES_VERSION;
 use super::MAX_CHANGE_BYTES_PER_SESSION;
 use super::MAX_CHANGE_RECORD_FILES;
 use super::Record;
@@ -347,7 +347,14 @@ fn whole_file(session_id: &str, records: &IndexMap<String, Entry>) -> String {
 /// `evict`: appended to the file, or the file rewritten when it holds no valid state yet or its
 /// dead bytes outgrew the live ones. The cached state follows the file, so the next read parses
 /// nothing. The caller holds the session's cross-process lock.
-fn store_change_record(fs: &dyn BlockingFs, ctx: &Ctx, state: &ChangeState, record: Obj, prior_bytes: usize, evict: Vec<(String, usize)>) -> io::Result<SharedRecord> {
+fn store_change_record(
+    fs: &dyn BlockingFs,
+    ctx: &Ctx,
+    state: &ChangeState,
+    record: Obj,
+    prior_bytes: usize,
+    evict: Vec<(String, usize)>,
+) -> io::Result<SharedRecord> {
     let id = obj_str(&record, "checkpointId").to_owned();
     let line = json_stringify(&Value::Object(record.clone()));
     let evicted_bytes: usize = evict.iter().map(|(_, size)| size).sum();

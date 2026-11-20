@@ -127,14 +127,7 @@ fn plan(originals: &Originals, until: f64, pricer: &dyn Pricer) -> Result<Histor
         legacy_days,
         through: originals.ready.then(|| mixdog_js::number_to_string(until)),
         previously_inserted: 0,
-        receipt: Some(Receipt {
-            source_rows: 0,
-            unrecordable_rows: 0,
-            torn_trace_lines: 0,
-            files: Vec::new(),
-            trace_rows: 0,
-            until,
-        }),
+        receipt: Some(Receipt { source_rows: 0, unrecordable_rows: 0, torn_trace_lines: 0, files: Vec::new(), trace_rows: 0, until }),
     })
 }
 
@@ -149,21 +142,8 @@ fn is_day_key(day: &str) -> bool {
 }
 
 impl HistoryImporter {
-    pub(crate) fn new(
-        data_dir: PathBuf,
-        maintenance: MaintenanceIo,
-        cpu_bulk: CpuBulk,
-        pricer: Arc<dyn Pricer>,
-        trace: Arc<dyn OriginalTrace>,
-    ) -> Self {
-        Self {
-            data_dir,
-            maintenance,
-            cpu_bulk,
-            pricer,
-            trace,
-            state: Mutex::new(State::default()),
-        }
+    pub(crate) fn new(data_dir: PathBuf, maintenance: MaintenanceIo, cpu_bulk: CpuBulk, pricer: Arc<dyn Pricer>, trace: Arc<dyn OriginalTrace>) -> Self {
+        Self { data_dir, maintenance, cpu_bulk, pricer, trace, state: Mutex::new(State::default()) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -174,7 +154,9 @@ impl HistoryImporter {
     pub(crate) async fn ensure(&self, writer: &Arc<UsageWriter>, now: i64) -> Result<()> {
         let wait = {
             let mut state = self.lock();
-            if state.done { return Ok(()); }
+            if state.done {
+                return Ok(());
+            }
             if state.running {
                 let (tx, rx) = reply();
                 state.waiters.push(tx);
@@ -214,10 +196,7 @@ impl HistoryImporter {
         }
         let data_dir = self.data_dir.clone();
         let names = self.read(move || source::trace_names(&data_dir.join("history"))).await?;
-        let mut receipt = Receipt {
-            source_rows: 0, unrecordable_rows: 0, torn_trace_lines: 0,
-            files: Vec::new(), trace_rows: 0, until,
-        };
+        let mut receipt = Receipt { source_rows: 0, unrecordable_rows: 0, torn_trace_lines: 0, files: Vec::new(), trace_rows: 0, until };
         let mut inserted = 0;
         for name in names {
             let path = self.data_dir.join("history").join(name);
@@ -241,43 +220,55 @@ impl HistoryImporter {
         // Gateway IO and mapping happen after trace commits, and rollup IO after gateway commits.
         let data_dir = self.data_dir.clone();
         let mut originals = self.read(move || source::read_gateway(&data_dir)).await?;
-        for warning in &originals.warnings { mixdog_rt::node_stderr!("{warning}"); }
+        for warning in &originals.warnings {
+            mixdog_rt::node_stderr!("{warning}");
+        }
         originals.warnings.clear();
         if let Some(events) = originals.gateway.take() {
             inserted += self.accept(writer, events, until, &mut receipt).await?;
         }
         let data_dir = self.data_dir.clone();
         let originals = self.read(move || source::read_rollup(&data_dir, originals)).await?;
-        for warning in &originals.warnings { mixdog_rt::node_stderr!("{warning}"); }
+        for warning in &originals.warnings {
+            mixdog_rt::node_stderr!("{warning}");
+        }
         let pricer = self.pricer.clone();
-        let mut write = self.cpu_bulk.submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| {
-            plan(&originals, until, pricer.as_ref())
-        }).map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
-            .await.map_err(|_| LedgerError::Stopped)??;
+        let mut write = self
+            .cpu_bulk
+            .submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| plan(&originals, until, pricer.as_ref()))
+            .map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
+            .await
+            .map_err(|_| LedgerError::Stopped)??;
         write.receipt = Some(receipt);
         write.previously_inserted = inserted;
         Ok(writer.import_history(write).await?.marked)
     }
 
     async fn read<T: Send + 'static>(&self, work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
-        self.maintenance.submit(&CancellationToken::new(), move |_: &InLane<MaintenanceIo>| work())
+        self.maintenance
+            .submit(&CancellationToken::new(), move |_: &InLane<MaintenanceIo>| work())
             .map_err(|_| LedgerError::Busy { queue: "io-maintenance" })?
-            .await.map_err(|_| LedgerError::Stopped)?
+            .await
+            .map_err(|_| LedgerError::Stopped)?
     }
 
     async fn accept(&self, writer: &Arc<UsageWriter>, rows: Vec<Value>, until: f64, receipt: &mut Receipt) -> Result<usize> {
         let pricer = self.pricer.clone();
-        let accepted = self.cpu_bulk.submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| {
-            let mut accepted = Accepted::default();
-            accepted.take(&rows, until, pricer.as_ref())?;
-            Ok::<_, LedgerError>(accepted)
-        }).map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
-            .await.map_err(|_| LedgerError::Stopped)??;
+        let accepted = self
+            .cpu_bulk
+            .submit(&CancellationToken::new(), move |_: &InLane<CpuBulk>| {
+                let mut accepted = Accepted::default();
+                accepted.take(&rows, until, pricer.as_ref())?;
+                Ok::<_, LedgerError>(accepted)
+            })
+            .map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?
+            .await
+            .map_err(|_| LedgerError::Stopped)??;
         receipt.source_rows += accepted.source_rows;
         receipt.unrecordable_rows += accepted.unrecordable_rows;
-        Ok(writer.import_history(HistoryWrite {
-            records: accepted.records, legacy_days: Vec::new(), through: None,
-            receipt: None, previously_inserted: 0,
-        }).await?.inserted)
+        Ok(writer
+            .import_history(HistoryWrite { records: accepted.records, legacy_days: Vec::new(), through: None, receipt: None, previously_inserted: 0 })
+            .await?
+            .inserted)
     }
 }

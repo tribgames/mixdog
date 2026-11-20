@@ -151,8 +151,8 @@ pub(super) fn apply_number(document: &Obj, paragraph: &Para, index: i32, continu
     let mut carry_on = continued;
     if !carry_on && index > 1 {
         let previous = item(&document.get("Paragraphs")?, index - 1)?.member("Range")?;
-        carry_on = super::int(&previous.member("ListFormat")?.member("ListType")?)? != 0
-            && !super::truth(&super::indexed(&previous, "Information", &[Com::I4(12)])?);
+        carry_on =
+            super::int(&previous.member("ListFormat")?.member("ListType")?)? != 0 && !super::truth(&super::indexed(&previous, "Information", &[Com::I4(12)])?);
     }
     // A block of appended items comes as one range: the list opens, or is joined, at its first paragraph, which is where
     // its words are read and where the walk back to the list it continues starts.
@@ -214,9 +214,6 @@ mod tests {
         assert_eq!(numbered_list_scheme("Plan", &Value::Null).unwrap(), "global");
         assert_eq!(numbered_list_scheme("계획 A", &Value::Null).unwrap(), "korean");
         assert_eq!(numbered_list_scheme("계획", &Value::string("Global")).unwrap(), "global");
-        assert_eq!(
-            numbered_list_scheme("x", &Value::string("roman")).unwrap_err().message(),
-            "listNumbering must be 'korean' or 'global', not \"roman\""
-        );
+        assert_eq!(numbered_list_scheme("x", &Value::string("roman")).unwrap_err().message(), "listNumbering must be 'korean' or 'global', not \"roman\"");
     }
 }

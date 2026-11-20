@@ -5,9 +5,7 @@
 use super::budgets::Budgets;
 use super::surfaces::LiveHints;
 use super::{ShellLayoutInput, ShellRefs, TranscriptTail};
-use crate::surface::signature::{
-    is_instant_panel_close_transition, panel_kind_signature, panel_signature_flags, signature_rows, token,
-};
+use crate::surface::signature::{is_instant_panel_close_transition, panel_kind_signature, panel_signature_flags, signature_rows, token};
 
 /// `panelTransitionRef.current`: what the next render diffs against.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -48,11 +46,8 @@ fn same_commit_backfill_rows(prev_signature: &str, next_signature: &str, latest:
         0
     };
     let user_tail_appended = latest.is_some_and(|item| item.kind == "user" && item.id.as_deref() != previous_tail_id);
-    let queued_promote_collapse_rows = if user_tail_appended {
-        signature_rows(prev_signature, token::QUEUED).saturating_sub(signature_rows(next_signature, token::QUEUED))
-    } else {
-        0
-    };
+    let queued_promote_collapse_rows =
+        if user_tail_appended { signature_rows(prev_signature, token::QUEUED).saturating_sub(signature_rows(next_signature, token::QUEUED)) } else { 0 };
     spinner_meta_collapse_rows + queued_promote_collapse_rows
 }
 
@@ -72,14 +67,13 @@ pub(super) fn resolve_panel_transition(input: &ShellLayoutInput, budgets: &Budge
         // A shrink goes through the same one-commit ink mask as an instant panel close so the stale row is masked in the
         // very commit it disappears; growth needs no clearance (the shrink is 0 then).
         let prompt_rows_only_change = shrink_rows > 0 && panel_kind_signature(&transition.signature) == panel_kind_signature(signature);
-        let instant_panel_close = shrink_rows > 0
-            && (prompt_rows_only_change || is_instant_panel_close_transition(&transition.signature, signature, initial_project_entry_close));
+        let instant_panel_close =
+            shrink_rows > 0 && (prompt_rows_only_change || is_instant_panel_close_transition(&transition.signature, signature, initial_project_entry_close));
         // The slash palette opening on the empty welcome screen: the reserve already grows to its final size in this same
         // commit, but the renderer can still overpaint the just-vacated transcript row for one commit. One transitional
         // guard row is borrowed for exactly one commit; it only carves a blank row out of the transcript content height.
-        let slash_open_on_empty_transcript = initial_project_entry_close
-            && !panel_signature_flags(&transition.signature).slash
-            && panel_signature_flags(signature).slash;
+        let slash_open_on_empty_transcript =
+            initial_project_entry_close && !panel_signature_flags(&transition.signature).slash && panel_signature_flags(signature).slash;
         if instant_panel_close {
             // Slash palette and initial project-entry closes land on the final bottom reserve in one commit. The reclaimed
             // rows are a blank mask band below the transcript clip instead of inflating the reserve and reclaiming on the

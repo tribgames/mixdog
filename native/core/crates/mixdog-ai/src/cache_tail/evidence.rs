@@ -77,7 +77,7 @@ pub fn interpret(manifest: &WireManifest, counters: Counters, known: &[Extent]) 
 
 #[cfg(test)]
 mod tests {
-    use mixdog_core_api::domain::cache_tail::{Marker, Zone, TTL_1H_MS, TTL_5M_MS};
+    use mixdog_core_api::domain::cache_tail::{Marker, TTL_1H_MS, TTL_5M_MS, Zone};
 
     use super::*;
 
@@ -100,7 +100,11 @@ mod tests {
     /// so is inconsistent with the body and proves nothing; a read-back hour marker cannot explain new hour creation either.
     #[test]
     fn creation_at_a_tier_no_unread_marker_explains_proves_nothing() {
-        let only_tail = WireManifest { markers: vec![Marker { zone: Zone::Messages, ttl_ms: TTL_5M_MS, block: 9, digest: d(9) }], boundaries: (0..12).map(d).collect(), tail: Some(0) };
+        let only_tail = WireManifest {
+            markers: vec![Marker { zone: Zone::Messages, ttl_ms: TTL_5M_MS, block: 9, digest: d(9) }],
+            boundaries: (0..12).map(d).collect(),
+            tail: Some(0),
+        };
         assert_eq!(interpret(&only_tail, counters(0, 300, 200), &[]), Evidence::Unknown);
         assert_eq!(interpret(&only_tail, counters(0, 300, 0), &[]), Evidence::Wrote { extent: 300 });
         let read_system = Extent { block: 0, digest: d(0), tokens: 800 };
@@ -115,7 +119,11 @@ mod tests {
     #[test]
     fn a_five_minute_creation_only_the_tail_can_make_proves_its_write_and_extent() {
         assert_eq!(interpret(&manifest(TTL_5M_MS, true), counters(1000, 300, 2000), &[]), Evidence::Wrote { extent: 3300 });
-        assert_eq!(interpret(&manifest(TTL_5M_MS, true), counters(1000, 300, 0), &[]), Evidence::Wrote { extent: 1300 }, "a read of the system then the tail's own write");
+        assert_eq!(
+            interpret(&manifest(TTL_5M_MS, true), counters(1000, 300, 0), &[]),
+            Evidence::Wrote { extent: 1300 },
+            "a read of the system then the tail's own write"
+        );
     }
 
     #[test]

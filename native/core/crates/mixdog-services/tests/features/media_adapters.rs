@@ -2,8 +2,8 @@
 //! failure, and what it hands back.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -205,9 +205,20 @@ async fn image_api(http: &Http, public: &Public, lane: &str, options: Value, ref
 
 #[tokio::test]
 async fn the_image_api_request_names_the_model_the_trimmed_options_and_the_references() {
-    let http = Http::with(vec![answer(200, json!({"data": [{"b64_json": b64(&png()), "revised_prompt": "a better cat"}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}))]);
+    let http = Http::with(vec![answer(
+        200,
+        json!({"data": [{"b64_json": b64(&png()), "revised_prompt": "a better cat"}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}),
+    )]);
     let refs = list(vec![reference("AAAA"), reference("data:image/jpeg;base64,/9j/AA==")]);
-    let image = image_api(&http, &Public::default(), "openrouter", json!({"aspectRatio": " 16:9 ", "resolution": "2K", "quality": "", "background": null, "other": "x"}), &refs).await.unwrap();
+    let image = image_api(
+        &http,
+        &Public::default(),
+        "openrouter",
+        json!({"aspectRatio": " 16:9 ", "resolution": "2K", "quality": "", "background": null, "other": "x"}),
+        &refs,
+    )
+    .await
+    .unwrap();
     let sent = http.sent();
     assert_eq!(sent.len(), 1);
     assert_eq!((sent[0].method, sent[0].url.as_str(), sent[0].timeout), ("POST", "https://gw.example/v1/images", Duration::from_secs(180)));
@@ -280,20 +291,42 @@ fn xai_auth() -> Auth {
 
 #[tokio::test]
 async fn an_xai_image_goes_to_generations_or_to_edits_by_whether_there_are_references() {
-    let reply = || answer(200, json!({"data": [{"b64_json": b64(&png()), "mime_type": "image/webp", "revised_prompt": "r"}], "usage": {"cost_in_usd_ticks": 500_000_000}}));
+    let reply = || {
+        answer(200, json!({"data": [{"b64_json": b64(&png()), "mime_type": "image/webp", "revised_prompt": "r"}], "usage": {"cost_in_usd_ticks": 500_000_000}}))
+    };
     let http = Http::with(vec![reply(), reply(), reply()]);
     let options = json!({"aspectRatio": "3:2", "resolution": "2K"});
     let image = xai::generate_image(&http, &xai_auth(), "grok-img", "a dog", &options, &none(), &cancel()).await.unwrap();
-    assert_eq!((image.bytes, image.mime.as_str(), image.revised_prompt.as_deref(), image.usage), (png(), "image/webp", Some("r"), Some(json!({"costUsd": 0.05}))));
-    xai::generate_image(&http, &xai_auth(), "grok-img", "a dog", &json!({"aspectRatio": "auto", "resolution": "4k"}), &list(vec![reference("AAAA")]), &cancel()).await.unwrap();
+    assert_eq!(
+        (image.bytes, image.mime.as_str(), image.revised_prompt.as_deref(), image.usage),
+        (png(), "image/webp", Some("r"), Some(json!({"costUsd": 0.05})))
+    );
+    xai::generate_image(
+        &http,
+        &xai_auth(),
+        "grok-img",
+        "a dog",
+        &json!({"aspectRatio": "auto", "resolution": "4k"}),
+        &list(vec![reference("AAAA")]),
+        &cancel(),
+    )
+    .await
+    .unwrap();
     xai::generate_image(&http, &xai_auth(), "grok-img", "a dog", &json!({}), &list(vec![reference("AAAA"), reference("BBBB")]), &cancel()).await.unwrap();
     let sent = http.sent();
     assert_eq!(sent[0].url, "https://api.x.ai/v1/images/generations");
-    assert_eq!(mixdog_js::json_stringify(&sent[0].body), r#"{"model":"grok-img","prompt":"a dog","n":1,"response_format":"b64_json","aspect_ratio":"3:2","resolution":"2k"}"#);
+    assert_eq!(
+        mixdog_js::json_stringify(&sent[0].body),
+        r#"{"model":"grok-img","prompt":"a dog","n":1,"response_format":"b64_json","aspect_ratio":"3:2","resolution":"2k"}"#
+    );
     assert_eq!(sent[0].timeout, Duration::from_secs(180));
     assert_eq!(header(&sent[0], "Authorization"), Some("Bearer xk"));
     assert_eq!(sent[1].url, "https://api.x.ai/v1/images/edits");
-    assert_eq!(mixdog_js::json_stringify(&sent[1].body), r#"{"model":"grok-img","prompt":"a dog","n":1,"response_format":"b64_json","image":{"type":"image_url","url":"data:image/png;base64,AAAA"}}"#, "auto aspect and an unlisted resolution are not sent; one reference edits it");
+    assert_eq!(
+        mixdog_js::json_stringify(&sent[1].body),
+        r#"{"model":"grok-img","prompt":"a dog","n":1,"response_format":"b64_json","image":{"type":"image_url","url":"data:image/png;base64,AAAA"}}"#,
+        "auto aspect and an unlisted resolution are not sent; one reference edits it"
+    );
     assert_eq!(sent[2].body["images"].as_array().map(Vec::len), Some(2), "several references composite");
     assert!(sent[2].body.get("image").is_none());
 }
@@ -311,7 +344,15 @@ async fn an_xai_image_answer_without_data_or_with_an_error_status_fails_in_the_p
     assert_eq!(xai::generate_image(&down, &xai_auth(), "m", "p", &json!({}), &none(), &cancel()).await.unwrap_err().message, "fetch failed");
 }
 
-async fn video(http: &Http, public: &Public, pacer: &Wait, options: Value, refs: &References, cancel: &CancellationToken, progress: &(dyn Fn(f64) + Send + Sync)) -> Result<xai::GeneratedVideo, AdapterError> {
+async fn video(
+    http: &Http,
+    public: &Public,
+    pacer: &Wait,
+    options: Value,
+    refs: &References,
+    cancel: &CancellationToken,
+    progress: &(dyn Fn(f64) + Send + Sync),
+) -> Result<xai::GeneratedVideo, AdapterError> {
     xai::generate_video(http, public, pacer, &xai_auth(), "grok-vid", "a wave", &options, refs, cancel, progress).await
 }
 
@@ -327,14 +368,19 @@ async fn an_xai_video_is_submitted_polled_every_four_seconds_and_downloaded_when
     let pacer = Wait::new(4_000);
     let seen = Mutex::new(Vec::new());
     let progress = |p: f64| seen.lock().unwrap().push(p);
-    let video = video(&http, &public, &pacer, json!({"duration": 99, "resolution": "720p", "aspectRatio": "9:16"}), &none(), &cancel(), &progress).await.unwrap();
+    let video =
+        video(&http, &public, &pacer, json!({"duration": 99, "resolution": "720p", "aspectRatio": "9:16"}), &none(), &cancel(), &progress).await.unwrap();
     assert_eq!((video.bytes.as_slice(), video.mime, video.duration_seconds), (&b"mp4"[..], "video/mp4", json!(6)));
     assert_eq!(video.usage, json!({"costUsd": 0.05, "seconds": 6, "resolution": "720p"}));
     assert_eq!(pacer.waits(), vec![4_000, 4_000]);
     assert_eq!(*seen.lock().unwrap(), vec![0.4]);
     let sent = http.sent();
     assert_eq!((sent[0].method, sent[0].url.as_str(), sent[0].timeout), ("POST", "https://api.x.ai/v1/videos/generations", Duration::from_secs(60)));
-    assert_eq!(mixdog_js::json_stringify(&sent[0].body), r#"{"model":"grok-vid","prompt":"a wave","duration":15,"resolution":"720p","aspect_ratio":"9:16"}"#, "a longer clip is capped at 15 s");
+    assert_eq!(
+        mixdog_js::json_stringify(&sent[0].body),
+        r#"{"model":"grok-vid","prompt":"a wave","duration":15,"resolution":"720p","aspect_ratio":"9:16"}"#,
+        "a longer clip is capped at 15 s"
+    );
     assert_eq!((sent[1].method, sent[1].url.as_str()), ("GET", "https://api.x.ai/v1/videos/req1"));
 }
 
@@ -449,11 +495,31 @@ fn candidate(parts: Value, usage: Value) -> String {
 
 #[tokio::test]
 async fn a_gemini_image_request_asks_for_text_and_image_and_names_the_aspect_only_when_chosen() {
-    let http = Http::with(vec![answer(200, candidate(json!([{"text": "here"}, {"inlineData": {"mimeType": "image/jpeg", "data": b64(&[0xff, 0xd8, 0xff, 1])}}]), json!({"promptTokenCount": 5, "candidatesTokenCount": 2}))), answer(200, candidate(json!([{"inlineData": {"data": b64(&png())}}]), Value::Null))]);
-    let image = gemini_image::generate_image(&http, "gk", "gemini-2.5-flash-image", "a bird", &json!({"aspectRatio": "4:3"}), &list(vec![reference("AAAA")]), &cancel()).await.unwrap();
+    let http = Http::with(vec![
+        answer(
+            200,
+            candidate(
+                json!([{"text": "here"}, {"inlineData": {"mimeType": "image/jpeg", "data": b64(&[0xff, 0xd8, 0xff, 1])}}]),
+                json!({"promptTokenCount": 5, "candidatesTokenCount": 2}),
+            ),
+        ),
+        answer(200, candidate(json!([{"inlineData": {"data": b64(&png())}}]), Value::Null)),
+    ]);
+    let image = gemini_image::generate_image(
+        &http,
+        "gk",
+        "gemini-2.5-flash-image",
+        "a bird",
+        &json!({"aspectRatio": "4:3"}),
+        &list(vec![reference("AAAA")]),
+        &cancel(),
+    )
+    .await
+    .unwrap();
     assert_eq!((image.mime.as_str(), image.bytes), ("image/jpeg", vec![0xff, 0xd8, 0xff, 1]));
     assert!(image.usage.is_some_and(|usage| usage != json!({"images": 1})), "reported tokens are kept");
-    let plain = gemini_image::generate_image(&http, "gk", "gemini-2.5-flash-image", "a bird", &json!({"aspectRatio": "auto"}), &none(), &cancel()).await.unwrap();
+    let plain =
+        gemini_image::generate_image(&http, "gk", "gemini-2.5-flash-image", "a bird", &json!({"aspectRatio": "auto"}), &none(), &cancel()).await.unwrap();
     assert_eq!((plain.mime.as_str(), plain.usage), ("image/png", Some(json!({"images": 1}))), "no mime is png and no tokens is one priced image");
     let sent = http.sent();
     assert_eq!(sent[0].url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent");
@@ -535,7 +601,10 @@ fn sse(chunks: &[Value]) -> String {
 
 #[tokio::test]
 async fn an_antigravity_image_streams_through_the_gateway_envelope() {
-    let body = sse(&[json!({"response": {"candidates": [{"content": {"parts": [{"text": "working"}]}}], "usageMetadata": {"promptTokenCount": 1}}}), json!({"response": {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "image/png", "data": b64(&png())}}]}}], "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 9}}})]);
+    let body = sse(&[
+        json!({"response": {"candidates": [{"content": {"parts": [{"text": "working"}]}}], "usageMetadata": {"promptTokenCount": 1}}}),
+        json!({"response": {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "image/png", "data": b64(&png())}}]}}], "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 9}}}),
+    ]);
     let http = Http::with(vec![answer(200, body)]);
     let image = antigravity_image::generate_image(&http, &session(), "nano-banana", "a fox", &json!({}), &none(), &cancel()).await.unwrap();
     assert_eq!((image.bytes, image.mime.as_str()), (png(), "image/png"));
@@ -543,10 +612,18 @@ async fn an_antigravity_image_streams_through_the_gateway_envelope() {
     assert_eq!(sent[0].url, "https://gateway.example/v1internal:streamGenerateContent?alt=sse");
     assert_eq!(
         sent[0].headers,
-        vec![("Authorization".to_owned(), "Bearer at".to_owned()), ("Content-Type".to_owned(), "application/json".to_owned()), ("Accept".to_owned(), "text/event-stream".to_owned()), ("X-Client".to_owned(), "antigravity/1".to_owned())]
+        vec![
+            ("Authorization".to_owned(), "Bearer at".to_owned()),
+            ("Content-Type".to_owned(), "application/json".to_owned()),
+            ("Accept".to_owned(), "text/event-stream".to_owned()),
+            ("X-Client".to_owned(), "antigravity/1".to_owned())
+        ]
     );
     let envelope = &sent[0].body;
-    assert_eq!((envelope["project"].as_str(), envelope["model"].as_str(), envelope["userAgent"].as_str(), envelope["requestType"].as_str()), (Some("proj"), Some("nano-banana"), Some("antigravity"), Some("agent")));
+    assert_eq!(
+        (envelope["project"].as_str(), envelope["model"].as_str(), envelope["userAgent"].as_str(), envelope["requestType"].as_str()),
+        (Some("proj"), Some("nano-banana"), Some("antigravity"), Some("agent"))
+    );
     assert_eq!((envelope["requestId"].as_str(), envelope["request"]["sessionId"].as_str()), (Some("agent-u1"), Some("-u2")));
     assert_eq!(envelope["request"]["contents"][0]["parts"][0], json!({"text": "a fox"}));
 }
@@ -585,13 +662,42 @@ fn the_stream_reader_keeps_parts_across_chunks_skips_broken_records_and_takes_th
 
 #[tokio::test]
 async fn gemini_omni_answers_in_one_call_with_the_video_inline() {
-    let ok = answer(200, json!({"steps": [{"content": [{"type": "text"}, {"type": "video", "data": b64(b"webm!"), "mime_type": "video/webm"}]}], "usage": {"total_input_tokens": 4}}));
+    let ok = answer(
+        200,
+        json!({"steps": [{"content": [{"type": "text"}, {"type": "video", "data": b64(b"webm!"), "mime_type": "video/webm"}]}], "usage": {"total_input_tokens": 4}}),
+    );
     let plain = answer(200, json!({"steps": [{"content": {"type": "video", "data": b64(b"mp4!")}}]}));
     let http = Http::with(vec![ok, plain]);
     let public = Public::default();
-    let video = gemini_video::generate_video(&http, &public, &Wait::new(1), "gk", "gemini-omni-flash", "a sea", &json!({"aspectRatio": "auto"}), &none(), &cancel(), NOP).await.unwrap();
+    let video = gemini_video::generate_video(
+        &http,
+        &public,
+        &Wait::new(1),
+        "gk",
+        "gemini-omni-flash",
+        "a sea",
+        &json!({"aspectRatio": "auto"}),
+        &none(),
+        &cancel(),
+        NOP,
+    )
+    .await
+    .unwrap();
     assert_eq!((video.bytes.as_slice(), video.mime.as_str()), (&b"webm!"[..], "video/webm"));
-    let single = gemini_video::generate_video(&http, &public, &Wait::new(1), "gk", "Omni-2", "a sea", &json!({"aspectRatio": "9:16"}), &list(vec![reference("/9j/AA==")]), &cancel(), NOP).await.unwrap();
+    let single = gemini_video::generate_video(
+        &http,
+        &public,
+        &Wait::new(1),
+        "gk",
+        "Omni-2",
+        "a sea",
+        &json!({"aspectRatio": "9:16"}),
+        &list(vec![reference("/9j/AA==")]),
+        &cancel(),
+        NOP,
+    )
+    .await
+    .unwrap();
     assert_eq!((single.bytes.as_slice(), single.mime.as_str()), (&b"mp4!"[..], "video/mp4"));
     let sent = http.sent();
     assert_eq!((sent[0].url.as_str(), sent[0].timeout), ("https://generativelanguage.googleapis.com/v1beta/interactions", Duration::from_secs(600)));
@@ -633,12 +739,28 @@ async fn a_veo_video_is_submitted_polled_with_a_heartbeat_and_pulled_with_the_ke
     let seen = Mutex::new(Vec::new());
     let progress = |p: f64| seen.lock().unwrap().push(p);
     let options = json!({"aspectRatio": "auto", "resolution": "1080p", "duration": 6});
-    let video = gemini_video::generate_video(&http, &public, &pacer, "gk", "veo-3.1-generate-preview", "a hill", &options, &list(vec![reference("AAAA")]), &cancel(), &progress).await.unwrap();
+    let video = gemini_video::generate_video(
+        &http,
+        &public,
+        &pacer,
+        "gk",
+        "veo-3.1-generate-preview",
+        "a hill",
+        &options,
+        &list(vec![reference("AAAA")]),
+        &cancel(),
+        &progress,
+    )
+    .await
+    .unwrap();
     assert_eq!((video.bytes.as_slice(), video.mime.as_str(), video.usage), (&b"veo"[..], "video/mp4", Some(json!({"seconds": 6, "resolution": "1080p"}))));
     assert_eq!(pacer.waits(), vec![8_000, 8_000]);
     assert_eq!(*seen.lock().unwrap(), vec![50.0], "the operation reports no percentage: a coarse heartbeat");
     let sent = http.sent();
-    assert_eq!((sent[0].url.as_str(), sent[0].timeout), ("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning", Duration::from_secs(60)));
+    assert_eq!(
+        (sent[0].url.as_str(), sent[0].timeout),
+        ("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning", Duration::from_secs(60))
+    );
     assert_eq!(
         mixdog_js::json_stringify(&sent[0].body),
         r#"{"instances":[{"prompt":"a hill","image":{"bytesBase64Encoded":"AAAA","mimeType":"image/png"}}],"parameters":{"aspectRatio":"16:9","resolution":"1080p","durationSeconds":6}}"#
@@ -653,7 +775,20 @@ async fn veo_drops_a_resolution_or_length_it_does_not_take_and_bills_the_default
     let http = Http::with(vec![answer(200, json!({"name": "op"})), veo_done(VEO_URI)]);
     let public = Public::default();
     public.serve(&gemini_media_download_url(&json!(VEO_URI)).unwrap(), 200, &[], vec![b"v".to_vec()]);
-    let video = gemini_video::generate_video(&http, &public, &Wait::new(1), "gk", "veo-3", "p", &json!({"resolution": "480p", "duration": 5, "aspectRatio": "9:16"}), &none(), &cancel(), NOP).await.unwrap();
+    let video = gemini_video::generate_video(
+        &http,
+        &public,
+        &Wait::new(1),
+        "gk",
+        "veo-3",
+        "p",
+        &json!({"resolution": "480p", "duration": 5, "aspectRatio": "9:16"}),
+        &none(),
+        &cancel(),
+        NOP,
+    )
+    .await
+    .unwrap();
     assert_eq!(http.sent()[0].body["parameters"], json!({"aspectRatio": "9:16"}));
     assert_eq!(video.usage, Some(json!({"seconds": 8, "resolution": "720p"})));
 }
@@ -697,7 +832,9 @@ async fn a_veo_operation_that_never_completes_runs_out_of_budget() {
     let mut replies = vec![answer(200, json!({"name": "op"}))];
     replies.extend((0..3).map(|_| answer(200, json!({"done": false}))));
     let http = Http::with(replies);
-    let error = gemini_video::generate_video(&http, &Public::default(), &Wait::new(400_000), "gk", "veo-3", "p", &json!({}), &none(), &cancel(), NOP).await.unwrap_err();
+    let error = gemini_video::generate_video(&http, &Public::default(), &Wait::new(400_000), "gk", "veo-3", "p", &json!({}), &none(), &cancel(), NOP)
+        .await
+        .unwrap_err();
     assert_eq!(failure_of(&error), ("Veo poll budget exceeded", Some("MEDIA_TIMEOUT"), Some(504)));
 }
 
@@ -785,8 +922,14 @@ async fn the_chatgpt_images_endpoint_is_tried_first_with_the_clients_identity() 
     assert_eq!((sent[0].url.as_str(), sent[0].timeout), ("https://chatgpt.com/backend-api/codex/images/generations", Duration::from_secs(400)));
     let names: Vec<&str> = sent[0].headers.iter().map(|(k, _)| k.as_str()).collect();
     assert_eq!(names, ["Authorization", "Content-Type", "Accept", "originator", "x-client-request-id", "version", "User-Agent", "ChatGPT-Account-ID"]);
-    assert_eq!((header(&sent[0], "Authorization"), header(&sent[0], "version"), header(&sent[0], "ChatGPT-Account-ID")), (Some("Bearer ct"), Some("9.9.9"), Some("acct")));
-    assert_eq!(mixdog_js::json_stringify(&sent[0].body), r#"{"prompt":"a lamp","model":"gpt-image-2","size":"auto","quality":"auto","background":"transparent"}"#);
+    assert_eq!(
+        (header(&sent[0], "Authorization"), header(&sent[0], "version"), header(&sent[0], "ChatGPT-Account-ID")),
+        (Some("Bearer ct"), Some("9.9.9"), Some("acct"))
+    );
+    assert_eq!(
+        mixdog_js::json_stringify(&sent[0].body),
+        r#"{"prompt":"a lamp","model":"gpt-image-2","size":"auto","quality":"auto","background":"transparent"}"#
+    );
 }
 
 #[tokio::test]
@@ -795,7 +938,10 @@ async fn references_turn_the_request_into_an_edit() {
     codex(&http, &Codex::new(None), json!({}), &list(vec![reference("/9j/AA==")])).await.unwrap();
     let sent = http.sent();
     assert_eq!(sent[0].url, "https://chatgpt.com/backend-api/codex/images/edits");
-    assert_eq!(mixdog_js::json_stringify(&sent[0].body), r#"{"images":[{"image_url":"data:image/jpeg;base64,/9j/AA=="}],"prompt":"a lamp","model":"gpt-image-2","size":"auto","quality":"auto"}"#);
+    assert_eq!(
+        mixdog_js::json_stringify(&sent[0].body),
+        r#"{"images":[{"image_url":"data:image/jpeg;base64,/9j/AA=="}],"prompt":"a lamp","model":"gpt-image-2","size":"auto","quality":"auto"}"#
+    );
 }
 
 #[tokio::test]
@@ -804,7 +950,14 @@ async fn output_settings_the_connection_cannot_honour_are_refused_before_any_req
     let session = Codex::new(None);
     for options in [json!({"size": "1024x1024"}), json!({"quality": "high"}), json!({"resolution": "2K"}), json!({"aspectRatio": "16:9"})] {
         let error = codex(&http, &session, options, &none()).await.unwrap_err();
-        assert_eq!(failure_of(&error), ("ChatGPT selects image output settings; explicit size and quality are not supported on this connection.", Some("MEDIA_OPTION_UNSUPPORTED"), Some(400)));
+        assert_eq!(
+            failure_of(&error),
+            (
+                "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+                Some("MEDIA_OPTION_UNSUPPORTED"),
+                Some(400)
+            )
+        );
     }
     let error = codex(&http, &session, json!({"background": "red"}), &none()).await.unwrap_err();
     assert_eq!(error.message, "background must be transparent, opaque or auto.");
@@ -848,7 +1001,10 @@ async fn a_stream_without_a_final_image_says_why() {
         codex(&http, &Codex::new(None), json!({}), &none()).await.unwrap_err()
     };
     let partial = run(event(json!({"type": "response.image_generation_call.partial_image", "partial_image_b64": "AAAA"}))).await;
-    assert_eq!(failure_of(&partial), ("ChatGPT image: generation stopped after a partial preview; no final image was produced", Some("MEDIA_PARTIAL_ONLY"), Some(502)));
+    assert_eq!(
+        failure_of(&partial),
+        ("ChatGPT image: generation stopped after a partial preview; no final image was produced", Some("MEDIA_PARTIAL_ONLY"), Some(502))
+    );
     let nothing = run(String::new()).await;
     assert_eq!(failure_of(&nothing), ("ChatGPT returned no image data", Some("MEDIA_EMPTY_RESULT"), Some(502)));
     let failed = run(event(json!({"type": "response.failed", "response": {"error": {"message": "boom"}, "usage": {"input_tokens": 3}}}))).await;
@@ -874,7 +1030,10 @@ async fn a_usage_limit_names_its_reset_looked_up_when_the_failure_has_none() {
     assert!(session.looked_up.lock().unwrap().is_empty(), "no lookup when the failure carries the time");
     let unknown = Http::with(vec![answer(429, limited)]);
     let error = codex(&unknown, &Codex::new(None), json!({}), &none()).await.unwrap_err();
-    assert_eq!((error.resets_at, error.message.as_str()), (None, "ChatGPT image: image generation usage limit reached — try again after the usage window resets"));
+    assert_eq!(
+        (error.resets_at, error.message.as_str()),
+        (None, "ChatGPT image: image generation usage limit reached — try again after the usage window resets")
+    );
 }
 
 #[test]
@@ -893,7 +1052,11 @@ fn the_reset_of_an_exhausted_window_is_read_from_the_account_usage_summary() {
     });
     assert_eq!(limit_reset_from_usage(&extra, "codex_other"), Some(1_800_000_200), "the named limit wins");
     assert_eq!(limit_reset_from_usage(&extra, "unknown"), Some(1_800_000_300), "else an image limit");
-    assert_eq!(limit_reset_from_usage(&json!({"rate_limit": {"primary_window": {"used_percent": 100, "reset_at": 1800000100}}}), "x"), Some(1_800_000_100), "else the main window");
+    assert_eq!(
+        limit_reset_from_usage(&json!({"rate_limit": {"primary_window": {"used_percent": 100, "reset_at": 1800000100}}}), "x"),
+        Some(1_800_000_100),
+        "else the main window"
+    );
 }
 
 #[tokio::test]
@@ -904,7 +1067,14 @@ async fn the_reset_lookup_asks_the_usage_endpoint_once_with_the_account_and_give
     assert_eq!(chatgpt_limit_reset_at(&http, "ua/1", &auth, "", &cancel()).await, Some(1_800_000_100));
     let sent = http.sent();
     assert_eq!((sent[0].method, sent[0].url.as_str(), sent[0].timeout), ("GET", CHATGPT_USAGE_URL, Duration::from_secs(10)));
-    assert_eq!(sent[0].headers, vec![("Authorization".to_owned(), "Bearer ct".to_owned()), ("User-Agent".to_owned(), "ua/1".to_owned()), ("ChatGPT-Account-Id".to_owned(), "acct".to_owned())]);
+    assert_eq!(
+        sent[0].headers,
+        vec![
+            ("Authorization".to_owned(), "Bearer ct".to_owned()),
+            ("User-Agent".to_owned(), "ua/1".to_owned()),
+            ("ChatGPT-Account-Id".to_owned(), "acct".to_owned())
+        ]
+    );
     for reply in [answer(500, "x"), answer(200, "not json"), no_answer("fetch failed", false)] {
         let http = Http::with(vec![reply]);
         let alone = CodexAuth { access_token: "ct".into(), account_id: None };
@@ -975,5 +1145,8 @@ async fn a_gemini_download_sends_the_key_in_a_header_and_never_follows_a_redirec
     public.serve(&url, 403, &[], vec![]);
     let error = download_gemini_media(&public, VEO_URI, "gk", &Limits { max_bytes: 5, label: "Veo video" }, &cancel()).await.unwrap_err();
     assert_eq!(error.message, "Veo video download failed (403)");
-    assert_eq!(download_gemini_media(&public, "https://evil.example/x", "gk", &Limits::default(), &cancel()).await.unwrap_err().message, "Veo returned an untrusted video URI");
+    assert_eq!(
+        download_gemini_media(&public, "https://evil.example/x", "gk", &Limits::default(), &cancel()).await.unwrap_err().message,
+        "Veo returned an untrusted video URI"
+    );
 }

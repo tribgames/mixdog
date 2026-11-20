@@ -38,7 +38,11 @@ fn a_permission_is_allowed_once_with_its_narrowest_once_type_option_the_first_of
     let session = permission(json!([{ "id": "a", "kind": "allow_always" }, { "id": "s", "kind": "allow_session" }]));
     assert_eq!(allow_once_decision(&session), Some(json!({ "approved": true, "scope": "s" })));
     assert_eq!(allow_once_decision(&permission(json!([{ "id": "once" }]))), Some(json!({ "approved": true, "scope": "once" })), "no kind: read by its id");
-    assert_eq!(allow_once_decision(&permission(json!([{ "id": "x", "kind": "ALLOW_ONCE" }]))), Some(json!({ "approved": true, "scope": "x" })), "kinds read in lower case");
+    assert_eq!(
+        allow_once_decision(&permission(json!([{ "id": "x", "kind": "ALLOW_ONCE" }]))),
+        Some(json!({ "approved": true, "scope": "x" })),
+        "kinds read in lower case"
+    );
 }
 
 #[test]

@@ -27,9 +27,9 @@ use super::AccessToken;
 use crate::oauth::CredentialFile;
 use crate::oauth::Probe;
 use crate::providers::connect::ConnectFailure;
-use crate::transport::http::HttpSend;
 use crate::providers::connect::provider_error;
 use crate::retry::advice;
+use crate::transport::http::HttpSend;
 
 pub const EXCHANGE_URL: &str = "https://api2.cursor.sh/auth/exchange_user_api_key";
 /// A token this close to its expiry is refreshed first.
@@ -52,9 +52,7 @@ pub struct StoredTokens {
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// The `exp` claim of a JWT access token in milliseconds, 0 when absent. The
@@ -79,11 +77,7 @@ impl StoredTokens {
     pub fn from_exchange(access_token: String, refresh_token: Option<String>, now_ms: u64) -> Self {
         let expiry = token_expiry(&access_token);
         Self {
-            expires_at: if expiry > 0 {
-                expiry
-            } else {
-                now_ms + DEFAULT_TOKEN_LIFETIME.as_millis() as u64
-            },
+            expires_at: if expiry > 0 { expiry } else { now_ms + DEFAULT_TOKEN_LIFETIME.as_millis() as u64 },
             access_token,
             refresh_token,
             reauth_required: false,
@@ -122,12 +116,7 @@ pub fn exchange_error(status: u16, headers: &[(String, String)], detail: &str) -
         message.push_str(&format!(". {REAUTH_GUIDANCE}"));
     }
     let mut error = provider_error(
-        ConnectFailure {
-            code: code.to_owned(),
-            message,
-            http_status: Some(status),
-            retry_after: advice::from_headers(headers, SystemTime::now()),
-        },
+        ConnectFailure { code: code.to_owned(), message, http_status: Some(status), retry_after: advice::from_headers(headers, SystemTime::now()) },
         DeliveryState::Accepted,
     );
     error.reauth_required = permanent;
@@ -148,20 +137,11 @@ pub struct ApiKeyAccess {
 
 impl ApiKeyAccess {
     pub fn new(http: std::sync::Arc<dyn HttpSend>, api_key: String, slot: String) -> Self {
-        Self {
-            http,
-            api_key,
-            slot,
-            cached: ArcSwapOption::empty(),
-            exchanging: tokio::sync::Semaphore::new(1),
-        }
+        Self { http, api_key, slot, cached: ArcSwapOption::empty(), exchanging: tokio::sync::Semaphore::new(1) }
     }
 
     fn fresh(&self) -> Option<String> {
-        self.cached
-            .load_full()
-            .filter(|t| !t.needs_refresh(now_ms()))
-            .map(|t| t.access_token.clone())
+        self.cached.load_full().filter(|t| !t.needs_refresh(now_ms())).map(|t| t.access_token.clone())
     }
 }
 fn reauth(message: &str) -> ProviderError {
@@ -243,21 +223,13 @@ mod tests {
 
     #[async_trait]
     impl HttpSend for Exchange {
-        async fn send(
-            &self,
-            _request: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             for _ in 0..5 {
                 tokio::task::yield_now().await;
             }
             let body = format!(r#"{{"accessToken":"{}","refreshToken":"r"}}"#, jwt(4_100_000_000));
-            Ok(HttpResponse {
-                status: self.status,
-                headers: Vec::new(),
-                body: Box::new(Once(Some(Bytes::from(body)))),
-            })
+            Ok(HttpResponse { status: self.status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
         }
     }
 
@@ -282,11 +254,7 @@ mod tests {
 
     #[async_trait]
     impl HttpSend for Rotating {
-        async fn send(
-            &self,
-            _request: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
             let n = self.0.fetch_add(1, Ordering::SeqCst) as u64;
             let body = format!(r#"{{"accessToken":"{}","refreshToken":"rotating-refresh-{n:04}"}}"#, jwt(4_200_000_000 + n));
             Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
@@ -391,7 +359,6 @@ mod tests {
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 
-
     /// The refresh that outlives its timer reads as the real Node function did (`sites.cursorRefresh`).
     #[tokio::test(start_paused = true)]
     async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
@@ -403,7 +370,6 @@ mod tests {
         assert_thrown("cursorRefresh", &error.message);
     }
 }
-
 
 /// One token exchange: `token` (an API key or a refresh token) for a fresh
 /// access token.
@@ -437,16 +403,8 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
         error.message = "Cursor token exchange returned no access token".to_owned();
         return Err(error);
     };
-    let refresh = data
-        .get("refreshToken")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(token);
-    Ok(StoredTokens::from_exchange(
-        access.to_owned(),
-        Some(refresh.to_owned()),
-        now_ms(),
-    ))
+    let refresh = data.get("refreshToken").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(token);
+    Ok(StoredTokens::from_exchange(access.to_owned(), Some(refresh.to_owned()), now_ms()))
 }
 #[async_trait]
 impl AccessToken for ApiKeyAccess {
@@ -477,12 +435,7 @@ impl AccessToken for ApiKeyAccess {
 }
 impl FileAccess {
     pub fn new(http: std::sync::Arc<dyn HttpSend>, file: CredentialFile) -> Self {
-        Self {
-            http,
-            file,
-            refreshing: tokio::sync::Semaphore::new(1),
-            env_token: None,
-        }
+        Self { http, file, refreshing: tokio::sync::Semaphore::new(1), env_token: None }
     }
 
     pub fn with_env_token(mut self, token: Option<String>) -> Self {
@@ -518,13 +471,7 @@ impl FileAccess {
         let expected = refresh_token.to_owned();
         let mut update = serde_json::Map::new();
         update.insert("reauth_required".to_owned(), Value::Bool(true));
-        let _ = self
-            .file
-            .replace_if(
-                move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()),
-                update,
-            )
-            .await;
+        let _ = self.file.replace_if(move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()), update).await;
     }
 
     async fn refresh(&self, old: StoredTokens, force: bool) -> Result<StoredTokens, ProviderError> {

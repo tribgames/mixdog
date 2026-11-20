@@ -52,9 +52,7 @@ fn closed() -> String {
 
 impl Cdp {
     pub async fn connect(endpoint: &str) -> Result<Self, String> {
-        let (socket, _) = tokio_tungstenite::connect_async(endpoint)
-            .await
-            .map_err(|error| error.to_string())?;
+        let (socket, _) = tokio_tungstenite::connect_async(endpoint).await.map_err(|error| error.to_string())?;
         let (mut sink, mut stream) = socket.split();
         let (outgoing, mut queue) = mpsc::unbounded_channel::<String>();
         let pending: Pending = Arc::default();
@@ -75,11 +73,7 @@ impl Cdp {
                     let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) else { continue };
                     if let Some(id) = frame.get("id").and_then(Value::as_u64) {
                         let reply = match frame.get("error") {
-                            Some(error) => Err(error
-                                .get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("protocol error")
-                                .to_string()),
+                            Some(error) => Err(error.get("message").and_then(Value::as_str).unwrap_or("protocol error").to_string()),
                             None => Ok(frame.get("result").cloned().unwrap_or(Value::Null)),
                         };
                         let waiter = pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
@@ -100,13 +94,7 @@ impl Cdp {
                 }
             })
         };
-        Ok(Self {
-            outgoing,
-            pending,
-            next_id: AtomicU64::new(1),
-            events,
-            _tasks: [AbortOnDrop(writer), AbortOnDrop(reader)],
-        })
+        Ok(Self { outgoing, pending, next_id: AtomicU64::new(1), events, _tasks: [AbortOnDrop(writer), AbortOnDrop(reader)] })
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Event>> {

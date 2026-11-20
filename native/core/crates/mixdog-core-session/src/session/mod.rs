@@ -21,223 +21,223 @@
 
 mod actor;
 pub use actor::STOP_NOT_SAVED;
-mod archived_read;
-mod restore_hydrate;
+pub mod agent_activity;
+#[cfg(test)]
+mod agent_activity_tests;
+pub mod agent_evidence;
 mod agent_host;
 pub mod agent_registry;
 pub mod approval_surfaces;
+pub mod archive_trees;
+mod archived_read;
 pub mod attachments;
+pub mod auto_effort_mode;
+pub mod auto_retention;
 mod cards;
+#[cfg(test)]
+mod channel_notification_tests;
 pub mod close;
 mod completions;
 mod control;
-mod stop;
+pub mod delegation;
+pub mod delete;
+pub mod delivered;
+mod directory;
+pub mod dispatch_sessions;
+mod durability;
+#[cfg(test)]
+mod durability_settled_tests;
+pub mod failure_record;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
+mod frames;
+pub mod gateway_routes;
+pub mod goal_lane;
+pub mod goal_reminder;
+mod handle;
+pub mod heartbeat_catalog;
+pub mod heartbeat_host;
+pub mod home_threads;
+pub mod idle_auto_clear;
+pub mod import_sessions;
+pub mod lifecycle_hooks;
+#[cfg(test)]
+mod lifecycle_hooks_tests;
 mod live_call;
-mod spinner;
+mod live_end;
+mod live_rows;
+#[cfg(test)]
+mod mcp_failure_tests;
+mod message_reactions;
+mod model_switch;
+mod ops;
+mod outbox;
+mod pending;
+pub mod pending_read;
+pub mod pending_resume;
+mod phone_frame;
+pub mod prewarm_signals;
+#[cfg(test)]
+mod prewarm_signals_tests;
+pub mod prompt_notice;
+pub mod purge;
+pub mod reminders;
+#[cfg(test)]
+mod remote_control_tests;
+#[cfg(feature = "replay-settled")]
+mod replay_settled;
+mod restore_hydrate;
 #[cfg(test)]
 mod resumed_tools_tests;
+pub mod room_log;
 #[cfg(test)]
 mod room_questions_tests;
 #[cfg(test)]
 mod room_view_tests;
 #[cfg(test)]
-mod remote_control_tests;
-#[cfg(any(test, feature = "test-support"))]
-pub mod fixture_fs;
-pub mod delete;
-pub mod purge;
-pub mod sub_agent_retention;
-pub mod archive_trees;
-pub mod auto_retention;
-#[cfg(test)]
-mod thread_list_overlay_tests;
-pub mod heartbeat_catalog;
-pub mod shell_jobs;
-pub mod thread_list;
-pub mod thread_edges;
-pub mod thread_context;
-pub mod tool_events;
-pub mod workspace_sight;
-pub mod gateway_routes;
-pub mod statusline_claude;
-pub mod statusline_limits;
-pub mod statusline_status;
-pub mod statusline_agents;
-pub mod idle_auto_clear;
-pub mod pending_resume;
-pub mod auto_effort_mode;
-mod directory;
-pub mod goal_lane;
-pub mod goal_reminder;
-pub mod prompt_notice;
-pub mod reminders;
-pub mod heartbeat_host;
-pub mod thread_settings;
-pub mod thread_switches;
-mod live_rows;
-mod durability;
-mod frames;
-mod phone_frame;
-#[cfg(feature = "replay-settled")]
-mod replay_settled;
-mod handle;
-mod message_reactions;
-mod model_switch;
-pub mod home_threads;
-pub mod room_log;
-pub mod import_sessions;
+mod route_config_tests;
 mod route_exclusions;
 pub mod route_session;
-pub mod agent_evidence;
-pub mod agent_activity;
-pub mod prewarm_signals;
-#[cfg(test)]
-mod prewarm_signals_tests;
-pub mod lifecycle_hooks;
-#[cfg(test)]
-mod lifecycle_hooks_tests;
-#[cfg(test)]
-mod agent_activity_tests;
-#[cfg(test)]
-mod toast_tests;
-#[cfg(test)]
-mod durability_settled_tests;
-#[cfg(test)]
-mod start_hold_tests;
-#[cfg(test)]
-mod mcp_failure_tests;
-#[cfg(test)]
-mod route_config_tests;
-pub mod dispatch_sessions;
+pub mod route_setup;
+pub mod run_stamps;
+pub mod runtime_facts;
 pub mod search_backfill;
 pub mod secret_input;
 pub mod setup_facts;
 pub mod setup_ui;
-pub mod run_stamps;
-pub mod delegation;
-pub mod route_setup;
-mod ops;
-pub mod thread_ops;
-mod outbox;
-mod pending;
-pub mod delivered;
-pub mod pending_read;
-pub mod runtime_facts;
+pub mod shell_jobs;
+mod spinner;
 #[cfg(test)]
-mod channel_notification_tests;
-pub mod failure_record;
-mod live_end;
+mod start_hold_tests;
 mod stats;
+pub mod statusline_agents;
+pub mod statusline_claude;
+pub mod statusline_limits;
+pub mod statusline_status;
+mod stop;
+pub mod sub_agent_retention;
+pub mod thread_context;
+pub mod thread_edges;
+pub mod thread_list;
+#[cfg(test)]
+mod thread_list_overlay_tests;
+pub mod thread_ops;
+pub mod thread_settings;
+pub mod thread_switches;
+#[cfg(test)]
+mod toast_tests;
+pub mod tool_events;
+pub mod workspace_sight;
 pub use self::live_end::BuiltinSkills;
 pub use self::live_end::done_verb;
-pub mod turn_warm;
 mod reads;
 mod routine_turn;
+pub mod turn_warm;
 pub use routine_turn::SendSettle;
-pub mod report_runtime;
-pub mod room_member;
-pub mod room_approval;
+pub mod agent_route;
 pub mod approval_notification;
-pub mod prompt_history;
-pub mod session_title;
-pub mod quota_lane;
-mod usage_books;
-mod usage_metadata;
+pub mod composer_image;
+mod context_lens;
+pub mod delegated_host;
+#[cfg(test)]
+mod durability_invariant_tests;
+pub mod gateway_usage;
 pub mod goal_recovery_host;
+pub mod handoff_questions;
+pub mod image_gate;
+pub mod image_overlay_store;
+pub mod image_recovery;
+pub mod image_recovery_service;
+pub mod inheritance;
+mod mark_journal;
+pub mod new_route;
+pub mod new_task;
+pub mod node_hidden;
+pub mod notices;
+pub mod prompt_history;
+pub mod prompt_submission;
+pub mod quota_lane;
 pub mod quota_resume_host;
 pub mod quota_resume_scheduler;
 #[cfg(test)]
 mod quota_resume_scheduler_rules_tests;
+pub mod report_runtime;
+pub mod room_approval;
+pub mod room_member;
+pub mod route_cell;
 pub mod run;
-pub mod delegated_host;
-pub mod handoff_questions;
 pub mod runtime_hooks;
-pub mod gateway_usage;
-pub mod notices;
 mod seams;
+pub mod session_options;
+pub mod session_title;
+pub mod staged_originals;
 mod state;
-mod context_lens;
 pub mod store;
-mod mark_journal;
 mod surface;
 pub mod terminal_host;
-mod turn_gate;
-pub mod turn_draft;
-#[cfg(test)]
-mod turn_durability_tests;
-#[cfg(test)]
-mod durability_invariant_tests;
 pub mod transcript;
 pub mod transcript_export;
 pub mod transcript_writer;
+pub mod tui_client_methods;
+#[cfg(test)]
+mod tui_client_methods_tests;
+pub mod turn_actions;
+#[cfg(test)]
+mod turn_actions_tests;
+pub mod turn_draft;
+#[cfg(test)]
+mod turn_durability_tests;
+mod turn_gate;
+pub mod turn_ops;
+#[cfg(test)]
+mod turn_ops_tests;
 pub mod turn_snapshot;
 pub mod turn_snapshots;
 #[cfg(test)]
 mod turn_snapshots_tests;
-pub mod user_text;
-pub mod node_hidden;
-pub mod image_overlay_store;
-pub mod image_recovery;
-pub mod image_recovery_service;
-pub mod image_gate;
+mod usage_books;
+mod usage_metadata;
 pub mod user_cwd;
 pub mod user_facts;
-pub mod agent_route;
-pub mod route_cell;
-pub mod new_route;
-pub mod new_task;
-pub mod session_options;
+pub mod user_text;
 mod view;
 pub mod worktree;
-pub mod inheritance;
-pub mod turn_ops;
-#[cfg(test)]
-mod turn_ops_tests;
-pub mod composer_image;
-pub mod prompt_submission;
-pub mod staged_originals;
-pub mod turn_actions;
-#[cfg(test)]
-mod turn_actions_tests;
-pub mod tui_client_methods;
-#[cfg(test)]
-mod tui_client_methods_tests;
 
+#[cfg(test)]
+mod assembly_tests;
+#[cfg(test)]
+mod delete_idle_tests;
+#[cfg(test)]
+mod goal_lane_tests;
+#[cfg(test)]
+mod items_tail_tests;
+#[cfg(test)]
+mod new_task_tests;
+#[cfg(test)]
+mod phone_chat_tests;
+#[cfg(test)]
+mod recovery_kill_tests;
+#[cfg(test)]
+mod sensitive_carry_tests;
+#[cfg(test)]
+mod sensitive_record_tests;
+#[cfg(test)]
+mod session_grants_tests;
+#[cfg(test)]
+mod stop_race_tests;
+#[cfg(test)]
+mod store_burst_tests;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "testing/mod.rs"]
 pub mod testing;
 #[cfg(any(test, feature = "test-support"))]
-pub mod thread_settings_rig;
-#[cfg(any(test, feature = "test-support"))]
 pub mod tests;
 #[cfg(test)]
-mod recovery_kill_tests;
-#[cfg(test)]
-mod sensitive_record_tests;
-#[cfg(test)]
-mod items_tail_tests;
-#[cfg(test)]
-mod sensitive_carry_tests;
-#[cfg(test)]
 mod thread_fence_tests;
-#[cfg(test)]
-mod session_grants_tests;
-#[cfg(test)]
-mod goal_lane_tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod thread_settings_rig;
 #[cfg(test)]
 mod turn_admission_tests;
-#[cfg(test)]
-mod delete_idle_tests;
-#[cfg(test)]
-mod assembly_tests;
-#[cfg(test)]
-mod phone_chat_tests;
-#[cfg(test)]
-mod stop_race_tests;
-#[cfg(test)]
-mod new_task_tests;
-#[cfg(test)]
-mod store_burst_tests;
 
 use std::sync::Arc;
 
@@ -247,72 +247,72 @@ use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 
 pub use self::directory::ArrivingThreads;
-pub use self::directory::SessionDirectory;
-pub use self::directory::is_process_exit_reason;
-pub use self::reads::transcript_row;
-pub use self::transcript::live_end;
 #[cfg(any(test, feature = "test-support"))]
 pub use self::directory::DurabilitySettling;
-pub use self::model_switch::record_model_switch;
+pub use self::directory::SessionDirectory;
+pub use self::directory::is_process_exit_reason;
 pub use self::handle::SessionHandle;
-pub use self::prompt_history::FilePromptHistory;
+pub use self::model_switch::record_model_switch;
 pub use self::prompt_history::Appended;
+pub use self::prompt_history::FilePromptHistory;
 pub use self::prompt_history::PromptHistoryStore;
+pub use self::reads::transcript_row;
+pub use self::run::CompactUsageReport;
 pub use self::run::ItemCommit;
 pub use self::run::RunError;
 pub use self::run::RunPort;
 pub use self::run::SteerInput;
-pub use self::run::CompactUsageReport;
 pub use self::run::UsageReport;
 pub use self::seams::AgentTurn;
 pub use self::seams::AppendPosition;
-pub use self::seams::PrefixGuardSlot;
 pub use self::seams::BarrierError;
 pub use self::seams::CloseIngest;
-pub use self::seams::SensitiveMarks;
-pub use self::seams::SessionMeta;
-pub use self::user_cwd::UserCwd;
-pub use self::store::MemoryCloseIngest;
 pub use self::seams::CommitRecord;
 pub use self::seams::CrashedRows;
 pub use self::seams::CrashedRun;
+pub use self::seams::DraftSettings;
+pub use self::seams::EmptyToolSurface;
 pub use self::seams::EncodedRecord;
 pub use self::seams::FeedFactory;
-pub use self::seams::EmptyToolSurface;
-pub use self::seams::DraftSettings;
+pub use self::seams::HeadRead;
+pub use self::seams::NewThreadPlace;
 pub use self::seams::NewThreadRoute;
 pub use self::seams::NewThreadTools;
-pub use self::seams::NewThreadPlace;
-pub use self::seams::TaskWorkspace;
+pub use self::seams::OpenedLog;
+pub use self::seams::PrefixGuardSlot;
+pub use self::seams::RecordCodec;
 pub use self::seams::ResumedTools;
 pub use self::seams::RoomMemberEvents;
-pub use self::seams::HeadRead;
-pub use self::seams::OpenedLog;
-pub use self::seams::RecordCodec;
 pub use self::seams::RunFactory;
 pub use self::seams::RunOutcome;
 pub use self::seams::RunStart;
+pub use self::seams::SensitiveMarks;
 pub use self::seams::SessionLog;
+pub use self::seams::SessionMeta;
+pub use self::seams::TaskWorkspace;
 pub use self::seams::ThreadStore;
 pub use self::seams::ToolSurfaceSource;
 pub use self::seams::Transcript;
 pub use self::seams::TurnIngest;
 pub use self::seams::WindowDivider;
 pub use self::seams::WindowRead;
+pub use self::store::MemoryCloseIngest;
 pub use self::store::SessionSearchTurns;
-pub mod thread_state;
+pub use self::transcript::live_end;
+pub use self::user_cwd::UserCwd;
 pub mod runtime_release;
-pub use self::store::CoreThreadFeeds;
-pub use self::transcript::StoredRows;
-pub use self::store::Projector;
-pub use self::store::StoreCodec;
-pub use self::store::StoreThreads;
+pub mod thread_state;
 pub use self::route_exclusions::ExcludedTool;
 pub use self::route_exclusions::SessionToolExclusions;
 pub use self::route_exclusions::route_schema_family;
+pub use self::store::CoreThreadFeeds;
+pub use self::store::Projector;
+pub use self::store::StoreCodec;
+pub use self::store::StoreThreads;
 pub use self::surface::HeaderToolSurfaces;
 pub use self::surface::NoRouteExclusions;
 pub use self::surface::RouteExclusions;
+pub use self::transcript::StoredRows;
 use mixdog_core_base::approvals::ApprovalIds;
 use mixdog_core_base::approvals::Devices;
 
@@ -473,7 +473,6 @@ fn new_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
-
 /// Everything a session needs from the rest of the core. Built once by the composition root;
 /// every thread shares the same `Arc`.
 pub struct SessionDeps {
@@ -625,9 +624,7 @@ pub trait Clock: Send + Sync + 'static {
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
         // On a replay's clock, the replay's wall clock (mixdog_rt::virtual_clock).
-        let since = mixdog_rt::wall_clock!()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
+        let since = mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
     }
 }

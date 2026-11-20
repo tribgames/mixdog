@@ -6,7 +6,3 @@
 //! answered; a refusal the adapter does not recover itself is retried as the loop's decider rules under the policy the
 //! adapter names for the model, with the wait Node slept; the answer is compared whole with Node's result and the
 //! stream callbacks in order.
-
-
-
-

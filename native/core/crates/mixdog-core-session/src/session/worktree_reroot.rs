@@ -19,11 +19,11 @@ use mixdog_store::schema::record::HeaderChange;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::session::SessionDirectory;
 use super::worktree_host::Undo;
 use super::worktree_host_impl::WorkspaceContext;
 use super::worktree_host_impl::port;
 use super::worktree_state::plain;
+use crate::session::SessionDirectory;
 
 const SEPARATOR: &str = "\n\n---\n\n";
 const CORE_MEMORY_HEADING: &str = "# Core Memory\n";
@@ -319,14 +319,14 @@ pub fn presented_workspace(view: &PromptView) -> Value {
     let (_, instruction_files, memory) = split_core(core);
     let facts = text_of(view.header, "bp3EnvironmentContext").split(SEPARATOR).next().unwrap_or_default();
     let prompt_text = [view.env.unwrap_or_default(), view.tier3.unwrap_or_default()].join("\n");
-    let cwd = session_cwd
-        .captures(&prompt_text)
-        .or_else(|| worker_cwd.captures(facts))
-        .map(|found| js_trim(&found[1]).to_owned());
+    let cwd = session_cwd.captures(&prompt_text).or_else(|| worker_cwd.captures(facts)).map(|found| js_trim(&found[1]).to_owned());
     let mut presented = Map::new();
     presented.insert("cwd".into(), cwd.map_or(Value::Null, Value::String));
     presented.insert("environmentContext".into(), Value::String(if facts.starts_with("- ") { js_trim(facts).to_owned() } else { String::new() }));
-    presented.insert("coreMemoryContext".into(), Value::String(if memory.is_empty() { String::new() } else { js_trim(&memory[CORE_MEMORY_HEADING.len()..]).to_owned() }));
+    presented.insert(
+        "coreMemoryContext".into(),
+        Value::String(if memory.is_empty() { String::new() } else { js_trim(&memory[CORE_MEMORY_HEADING.len()..]).to_owned() }),
+    );
     presented.insert("instructionFilesContext".into(), Value::String(js_trim(&instruction_files).to_owned()));
     Value::Object(presented)
 }
@@ -396,25 +396,13 @@ pub fn in_place_reroot_patch(header: &Header, cwd: &str, context: &WorkspaceCont
 mod tests {
     use super::*;
 
-
-
-
-
-
-
-
-
-
     #[test]
     fn a_model_name_is_displayed_as_nodes_session_block_shows_it() {
         assert_eq!(model_display("gpt-5.4-2026-01-02"), "GPT-5.4");
         assert_eq!(model_display("claude-opus-4-1"), "Claude-Opus-4-1");
         assert_eq!(model_display("  "), "");
     }
-
-
 }
-
 
 /// `HostRuntime::reroot_prompt`: the in-place re-root of a loaded session's prompt, landed in one
 /// durable header patch; the undo is one patch putting the touched keys back.

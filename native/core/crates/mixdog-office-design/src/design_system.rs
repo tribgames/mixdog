@@ -304,7 +304,12 @@ mod tests {
 
     #[test]
     fn pdf_blocks_take_the_presets_sizes_and_colours() {
-        let blocks = [json!({ "type": "heading", "text": "T" }), json!({ "type": "Heading", "level": 3, "after": 0 }), json!({ "text": "p", "size": 9 }), json!({ "type": "image" })];
+        let blocks = [
+            json!({ "type": "heading", "text": "T" }),
+            json!({ "type": "Heading", "level": 3, "after": 0 }),
+            json!({ "text": "p", "size": 9 }),
+            json!({ "type": "image" }),
+        ];
         let native = apply_pdf_design(&blocks, &json!({}), None).expect("native");
         assert_eq!(native["blocks"], json!(blocks));
         assert_eq!(native["properties"], json!({}));

@@ -218,12 +218,8 @@ impl AgentMessage {
         message.account_routing = self.account_routing();
         message.message_id = self.message_id.clone();
         message.gemini_metadata = self.provider_metadata.as_ref().and_then(|m| m.get("gemini")).cloned();
-        message.sent_request_tail = self
-            .stored
-            .as_ref()
-            .and_then(|row| row.get("meta"))
-            .and_then(|meta| meta.get("sentRequestTail"))
-            == Some(&mixdog_protocol::JsonValue::Bool(true));
+        message.sent_request_tail =
+            self.stored.as_ref().and_then(|row| row.get("meta")).and_then(|meta| meta.get("sentRequestTail")) == Some(&mixdog_protocol::JsonValue::Bool(true));
         message
     }
 
@@ -254,12 +250,7 @@ impl AgentMessage {
         for call in &self.message.tool_calls {
             add(&call.id);
         }
-        if let Some(blocks) = self
-            .message
-            .assistant_blocks
-            .as_ref()
-            .and_then(|blocks| blocks.as_array())
-        {
+        if let Some(blocks) = self.message.assistant_blocks.as_ref().and_then(|blocks| blocks.as_array()) {
             for block in blocks {
                 if block.get("type").and_then(|t| t.as_str()) == Some("tool_use")
                     && let Some(id) = block.get("id").and_then(|id| id.as_str())

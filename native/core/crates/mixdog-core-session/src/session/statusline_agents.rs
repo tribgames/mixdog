@@ -49,7 +49,9 @@ impl AgentRow {
         if let Some(at) = self.finished_at_ms {
             out.insert("finishedAtMs".into(), mixdog_js::json_number(at));
         }
-        for (key, value) in [("agent", &self.agent), ("stage", &self.stage), ("sessionId", &self.session_id), ("provider", &self.provider), ("model", &self.model)] {
+        for (key, value) in
+            [("agent", &self.agent), ("stage", &self.stage), ("sessionId", &self.session_id), ("provider", &self.provider), ("model", &self.model)]
+        {
             out.insert(key.into(), value.clone().unwrap_or(Value::Null));
         }
         Value::Object(out)
@@ -294,7 +296,12 @@ pub fn active_hidden_agent_workers(runtimes: &[RuntimeEntry], owner: Owner<'_>, 
         if !is_active_hidden_status(shown) {
             continue;
         }
-        let tag = js_trim(&if session.agent_tag.is_empty() { format!("{agent}:{}", if id.is_empty() { rows.len().to_string() } else { id.clone() }) } else { session.agent_tag.clone() }).to_owned();
+        let tag = js_trim(&if session.agent_tag.is_empty() {
+            format!("{agent}:{}", if id.is_empty() { rows.len().to_string() } else { id.clone() })
+        } else {
+            session.agent_tag.clone()
+        })
+        .to_owned();
         rows.push(AgentRow {
             tag,
             task_id: None,
@@ -367,7 +374,10 @@ mod tests {
             closed,
         ];
         let rows = active_hidden_agent_workers(&runtimes, owner, &["memory-keeper".to_owned()]);
-        assert_eq!(rows.iter().map(|row| (row.tag.as_str(), row.stage.clone())).collect::<Vec<_>>(), vec![("cycle1-agent:s1", Some(json!("streaming"))), ("memory-keeper:s6", Some(json!("running")))]);
+        assert_eq!(
+            rows.iter().map(|row| (row.tag.as_str(), row.stage.clone())).collect::<Vec<_>>(),
+            vec![("cycle1-agent:s1", Some(json!("streaming"))), ("memory-keeper:s6", Some(json!("running")))]
+        );
         assert_eq!(rows[0].session_id, Some(json!("s1")));
         assert!(active_hidden_agent_workers(&runtimes, owner, &[]).iter().all(|row| row.agent != Some(json!("memory-keeper"))));
     }
@@ -375,7 +385,11 @@ mod tests {
     #[test]
     fn web_searches_of_a_leads_sub_sessions_are_counted_with_the_earliest_start() {
         let owner = Owner { session_id: "lead", client_host_pid: None };
-        let searching = |id: &str, tool: &str, at: f64| RuntimeEntry { last_tool_call: tool.into(), tool_started_at: at, ..runtime(id, "tool_running", sub("scout", "lead", None)) };
+        let searching = |id: &str, tool: &str, at: f64| RuntimeEntry {
+            last_tool_call: tool.into(),
+            tool_started_at: at,
+            ..runtime(id, "tool_running", sub("scout", "lead", None))
+        };
         let runtimes = [
             searching("a", "web_search", 300.0),
             searching("b", "web_fetch", 200.0),
@@ -388,10 +402,10 @@ mod tests {
         assert_eq!(agent_web_search_status(&[], owner), (0, 0.0));
     }
 
-
     #[test]
     fn a_worker_is_authoritative_over_its_spawn_job_unless_the_job_is_a_queued_reuse() {
-        let workers = [json!({ "tag": "scout", "status": "running" }), json!({ "agent": "writer", "status": "done" }), json!({ "name": " ", "status": "running" })];
+        let workers =
+            [json!({ "tag": "scout", "status": "running" }), json!({ "agent": "writer", "status": "done" }), json!({ "name": " ", "status": "running" })];
         let jobs = [
             json!({ "tag": "scout", "status": "running" }),
             json!({ "tag": "writer", "status": "queued" }),
@@ -403,7 +417,10 @@ mod tests {
         ];
         let payload = agent_statusline_payload(&workers, &jobs);
         assert_eq!(tags(&payload.workers), vec![("scout", "running"), ("writer", "queued"), ("fresh", "running"), ("t-9", "queued")]);
-        assert_eq!(payload.finished_jobs.iter().map(|job| (job.tag.as_str(), job.final_status.clone(), job.finished_at_ms)).collect::<Vec<_>>(), vec![("later", Some("error".to_owned()), Some(1000.0)), ("gone", Some("completed".to_owned()), Some(100.0))]);
+        assert_eq!(
+            payload.finished_jobs.iter().map(|job| (job.tag.as_str(), job.final_status.clone(), job.finished_at_ms)).collect::<Vec<_>>(),
+            vec![("later", Some("error".to_owned()), Some(1000.0)), ("gone", Some("completed".to_owned()), Some(100.0))]
+        );
         let json = payload.json();
         assert_eq!(json["sessions"]["roles"], json!(["scout", "writer", "fresh", "t-9"]));
         assert_eq!(json["workers"][2]["startedAtMs"], 5);
@@ -434,7 +451,6 @@ mod tests {
         assert_eq!(classified.running_workers.iter().map(|worker| worker.tag.as_str()).collect::<Vec<_>>(), vec!["scout"]);
     }
 }
-
 
 /// `timeMs(value)`: epoch ms from a positive number or a date string; 0 when neither parses.
 fn time_ms(value: Option<&Value>) -> f64 {

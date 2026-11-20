@@ -18,10 +18,7 @@ const NOW: f64 = 1_800_000_000_000.0;
 fn an_intent_names_a_session_only_when_its_transcript_is_named_after_it() {
     let intent = normalize_intent(&json!({"sessionId": " sess_1 ", "transcriptPath": "/work/sess_1.jsonl", "cwd": "/work", "updatedAt": 42}), NOW).unwrap();
     assert_eq!((intent.session_id.as_str(), intent.cwd.as_deref(), intent.updated_at), ("sess_1", Some("/work"), 42.0));
-    assert_eq!(
-        intent.to_json(),
-        json!({"version": 1, "sessionId": "sess_1", "transcriptPath": "/work/sess_1.jsonl", "cwd": "/work", "updatedAt": 42})
-    );
+    assert_eq!(intent.to_json(), json!({"version": 1, "sessionId": "sess_1", "transcriptPath": "/work/sess_1.jsonl", "cwd": "/work", "updatedAt": 42}));
     for refused in [
         json!({"sessionId": "sess_1", "transcriptPath": "/work/other.jsonl"}),
         json!({"sessionId": "sess_1"}),
@@ -57,7 +54,12 @@ type Logs = Arc<Mutex<Vec<String>>>;
 fn intent_file(root: &std::path::Path) -> (IntentFile, Logs) {
     let logs: Logs = Arc::default();
     let sink = logs.clone();
-    let file = IntentFile::with_clock(root, mixdog_rt::testing::tokens().maintenance_io, Arc::new(move |line: &str| sink.lock().unwrap().push(line.into())), Arc::new(|| NOW));
+    let file = IntentFile::with_clock(
+        root,
+        mixdog_rt::testing::tokens().maintenance_io,
+        Arc::new(move |line: &str| sink.lock().unwrap().push(line.into())),
+        Arc::new(|| NOW),
+    );
     (file, logs)
 }
 
@@ -134,7 +136,10 @@ async fn a_restart_restores_the_pinned_session_once_and_logs_it() {
 
     assert!(calls.restore_intent().await);
     assert_eq!(calls.remote_session().as_deref(), Some("s1"));
-    assert_eq!(*handler.calls.lock().unwrap(), vec![(ACTIVATE_TOOL.to_string(), json!({"active": true, "sessionId": "s1", "transcriptPath": "/t/s1.jsonl", "restore": true}))]);
+    assert_eq!(
+        *handler.calls.lock().unwrap(),
+        vec![(ACTIVATE_TOOL.to_string(), json!({"active": true, "sessionId": "s1", "transcriptPath": "/t/s1.jsonl", "restore": true}))]
+    );
     assert_eq!(*logs.lock().unwrap(), vec!["remote intent restored session=s1".to_string()]);
 
     assert!(calls.restore_intent().await, "a second restore finds it bound");
@@ -145,10 +150,9 @@ async fn a_restart_restores_the_pinned_session_once_and_logs_it() {
 async fn a_restore_the_bridge_refuses_leaves_the_session_pinned_but_not_live() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join(INTENT_FILE), r#"{"sessionId":"s1","transcriptPath":"/t/s1.jsonl"}"#).unwrap();
-    for (answer, reason) in [
-        (Ok(json!({"isError": true, "content": [{"type": "text", "text": "bridge unavailable"}]})), "bridge unavailable"),
-        (Err("boom".to_string()), "boom"),
-    ] {
+    for (answer, reason) in
+        [(Ok(json!({"isError": true, "content": [{"type": "text", "text": "bridge unavailable"}]})), "bridge unavailable"), (Err("boom".to_string()), "boom")]
+    {
         let calls = CallDispatch::new(bridge(answer), RunningWork::new());
         let (file, logs) = intent_file(dir.path());
         calls.load_intent(file).await;
@@ -169,7 +173,10 @@ async fn a_manual_on_pins_the_session_and_saves_the_intent_and_off_clears_both()
     calls.dispatch(lead(), on("sess_on", Some("/work/sess_on.jsonl"))).await.unwrap();
     assert_eq!((calls.pinned_session().as_deref(), calls.remote_session().as_deref()), (Some("sess_on"), Some("sess_on")));
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!((&saved["sessionId"], &saved["transcriptPath"], &saved["updatedAt"]), (&json!("sess_on"), &json!("/work/sess_on.jsonl"), &json!(1_800_000_000_000_u64)));
+    assert_eq!(
+        (&saved["sessionId"], &saved["transcriptPath"], &saved["updatedAt"]),
+        (&json!("sess_on"), &json!("/work/sess_on.jsonl"), &json!(1_800_000_000_000_u64))
+    );
 
     let off = CallRequest { name: ACTIVATE_TOOL.into(), args: json!({"active": false, "sessionId": "sess_on"}), call_id: None };
     calls.dispatch(lead(), off).await.unwrap();

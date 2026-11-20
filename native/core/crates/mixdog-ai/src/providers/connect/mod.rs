@@ -92,9 +92,7 @@ pub fn provider_error(failure: ConnectFailure, delivery: DeliveryState) -> Provi
     if !code.is_empty() && connect_code_status(&code).is_none() {
         code = "unknown".to_owned();
     }
-    let status = failure
-        .http_status
-        .or_else(|| connect_code_status(&code));
+    let status = failure.http_status.or_else(|| connect_code_status(&code));
     let kind = kind_of(&Facts {
         status,
         code: (!code.is_empty()).then_some(code.as_str()),
@@ -115,14 +113,7 @@ pub fn random_uuid() -> String {
     let bytes: [u8; 16] = crate::random::bytes();
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let variant = (u8::from_str_radix(&hex[16..17], 16).expect("hex") & 3) | 8;
-    format!(
-        "{}-{}-4{}-{variant:x}{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[13..16],
-        &hex[17..20],
-        &hex[20..32]
-    )
+    format!("{}-{}-4{}-{variant:x}{}-{}", &hex[0..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32])
 }
 
 #[cfg(test)]

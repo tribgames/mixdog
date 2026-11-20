@@ -23,11 +23,7 @@ pub fn path_key(path: &Path) -> String {
     let resolved = mixdog_js::nodepath::resolve_host(&[&path.to_string_lossy()]);
     let text = resolved.replace('\\', "/");
     let text = text.trim_end_matches('/');
-    if cfg!(windows) {
-        text.to_lowercase()
-    } else {
-        text.to_owned()
-    }
+    if cfg!(windows) { text.to_lowercase() } else { text.to_owned() }
 }
 
 /// `None` is the whole repository.
@@ -57,10 +53,7 @@ impl RepoState {
     fn drain(&mut self) {
         let mut waiting: Vec<Entry> = Vec::new();
         for mut entry in std::mem::take(&mut self.queue) {
-            let blocked = self
-                .running
-                .iter()
-                .any(|(_, scopes)| conflicts(scopes, &entry.scopes))
+            let blocked = self.running.iter().any(|(_, scopes)| conflicts(scopes, &entry.scopes))
                 || waiting.iter().any(|earlier| conflicts(&earlier.scopes, &entry.scopes));
             if blocked {
                 waiting.push(entry);
@@ -97,35 +90,20 @@ impl RepoLocks {
     }
 
     /// Waits for the repository's write lock. `cancel` leaves the queue without ever holding it.
-    pub async fn acquire(
-        self: &Arc<Self>,
-        common_dir: &Path,
-        work_trees: Option<&[&Path]>,
-        cancel: &CancellationToken,
-    ) -> Result<RepoGuard, ScmFailure> {
+    pub async fn acquire(self: &Arc<Self>, common_dir: &Path, work_trees: Option<&[&Path]>, cancel: &CancellationToken) -> Result<RepoGuard, ScmFailure> {
         let repo = path_key(common_dir);
-        let scopes: Scopes = work_trees
-            .filter(|trees| !trees.is_empty())
-            .map(|trees| trees.iter().map(|tree| path_key(tree)).collect());
+        let scopes: Scopes = work_trees.filter(|trees| !trees.is_empty()).map(|trees| trees.iter().map(|tree| path_key(tree)).collect());
         let (grant, granted) = oneshot::channel();
         let id = self.with(&repo, |state| {
             let id = state.next_id;
             state.next_id += 1;
-            state.queue.push(Entry {
-                id,
-                scopes,
-                grant: Some(grant),
-            });
+            state.queue.push(Entry { id, scopes, grant: Some(grant) });
             state.drain();
             id
         });
         // The guard exists before the wait: dropping it (on cancel or on a dropped future)
         // takes the entry out of the queue or releases it if it was already granted.
-        let guard = RepoGuard {
-            locks: self.clone(),
-            repo,
-            id,
-        };
+        let guard = RepoGuard { locks: self.clone(), repo, id };
         tokio::select! {
             _ = granted => Ok(guard),
             _ = cancel.cancelled() => Err(ScmFailure::Cancelled),
@@ -150,7 +128,6 @@ impl Drop for RepoGuard {
         });
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -195,11 +172,7 @@ mod tests {
         let later = {
             let locks = locks.clone();
             let cancel = cancel.clone();
-            tokio::spawn(async move {
-                locks
-                    .acquire(Path::new("/r/.git"), Some(&[Path::new("/r/b")]), &cancel)
-                    .await
-            })
+            tokio::spawn(async move { locks.acquire(Path::new("/r/.git"), Some(&[Path::new("/r/b")]), &cancel).await })
         };
         mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         assert!(!later.is_finished());
@@ -215,11 +188,7 @@ mod tests {
         let locks = RepoLocks::new();
         let cancel = CancellationToken::new();
         let _held = locks.acquire(Path::new("/one/.git"), None, &cancel).await.unwrap();
-        let other = mixdog_rt::time::timeout(
-            Duration::from_millis(200),
-            locks.acquire(Path::new("/two/.git"), None, &cancel),
-        )
-        .await;
+        let other = mixdog_rt::time::timeout(Duration::from_millis(200), locks.acquire(Path::new("/two/.git"), None, &cancel)).await;
         assert!(other.is_ok());
     }
 
@@ -241,8 +210,6 @@ mod tests {
         drop(held);
         assert!(locks.acquire(repo, None, &cancel).await.is_ok());
     }
-
-
 
     /// A repository key spells `.`/`..` out, separates with `/` and ignores a trailing separator; on Windows it folds case too.
     #[test]

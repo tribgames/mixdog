@@ -19,8 +19,14 @@ use tokio::sync::oneshot;
 pub(crate) type Waiter = oneshot::Sender<Result<Reply, CoreError>>;
 
 enum State {
-    InProgress { digest: String, waiters: Vec<Waiter> },
-    Done { digest: String, result: Value },
+    InProgress {
+        digest: String,
+        waiters: Vec<Waiter>,
+    },
+    Done {
+        digest: String,
+        result: Value,
+    },
     /// `op/status{fence}` recorded the id: it never executes (P §9.4).
     Fenced,
 }
@@ -112,13 +118,7 @@ impl OpTable {
     pub fn admit(&mut self, op: &OpId, digest: &str, waiter: Waiter) -> Admit {
         match self.ops.get_mut(op) {
             None => {
-                self.ops.insert(
-                    op.clone(),
-                    State::InProgress {
-                        digest: digest.to_owned(),
-                        waiters: Vec::new(),
-                    },
-                );
+                self.ops.insert(op.clone(), State::InProgress { digest: digest.to_owned(), waiters: Vec::new() });
                 Admit::New(waiter)
             }
             Some(State::InProgress { digest: d, waiters }) if d == digest => {
@@ -164,10 +164,7 @@ impl OpTable {
             }
             Some(State::Fenced) => Ok(()),
             Some(_) => Err(CoreError::PreconditionFailed {
-                precondition: mixdog_core_api::error::Precondition::Revision {
-                    expected: "op unseen".into(),
-                    actual: "op arrived".into(),
-                },
+                precondition: mixdog_core_api::error::Precondition::Revision { expected: "op unseen".into(), actual: "op arrived".into() },
             }),
         }
     }
@@ -185,13 +182,7 @@ impl OpTable {
             for waiter in waiters {
                 let _ = waiter.send(Ok(Reply::Value(result.clone())));
             }
-            self.ops.insert(
-                op.clone(),
-                State::Done {
-                    digest,
-                    result: result.clone(),
-                },
-            );
+            self.ops.insert(op.clone(), State::Done { digest, result: result.clone() });
             self.order.push_back(op.clone());
             self.trim();
         }

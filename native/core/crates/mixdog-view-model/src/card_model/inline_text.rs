@@ -82,8 +82,7 @@ pub fn normalize_count_map(value: &Value) -> Value {
     Value::Object(out)
 }
 
-static LINE_DELTA: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"(^|[\s([,{·])([+-]\s*\d+)(?=\s+Lines?\b)", "i"));
+static LINE_DELTA: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(^|[\s([,{·])([+-]\s*\d+)(?=\s+Lines?\b)", "i"));
 
 /// One piece of a detail row: plain text, or a `+N` / `-N` line-delta token (`delta` is its sign).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,17 +161,6 @@ mod tests {
     fn line_deltas_are_split_out() {
         let parts = split_line_delta_tokens("Edited (+ 12 lines, -3 Lines)");
         let texts: Vec<_> = parts.iter().map(|part| (part.text.as_str(), part.delta)).collect();
-        assert_eq!(
-            texts,
-            vec![
-                ("Edited ", None),
-                ("(", None),
-                ("+12", Some('+')),
-                (" lines,", None),
-                (" ", None),
-                ("-3", Some('-')),
-                (" Lines)", None)
-            ]
-        );
+        assert_eq!(texts, vec![("Edited ", None), ("(", None), ("+12", Some('+')), (" lines,", None), (" ", None), ("-3", Some('-')), (" Lines)", None)]);
     }
 }

@@ -188,11 +188,7 @@ mod tests {
     #[test]
     fn two_levels_in_place_restore_a_plane() {
         // A 4x4 plane whose resolutions are 1x1, 2x2 and 4x4: every sample 0 except the LL sample decodes flat.
-        let res = [
-            ResBox { x0: 0, y0: 0, x1: 1, y1: 1 },
-            ResBox { x0: 0, y0: 0, x1: 2, y1: 2 },
-            ResBox { x0: 0, y0: 0, x1: 4, y1: 4 },
-        ];
+        let res = [ResBox { x0: 0, y0: 0, x1: 1, y1: 1 }, ResBox { x0: 0, y0: 0, x1: 2, y1: 2 }, ResBox { x0: 0, y0: 0, x1: 4, y1: 4 }];
         let mut data = [0i32; 16];
         data[0] = 8;
         inverse_reversible(&mut data, 4, &res);

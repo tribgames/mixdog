@@ -153,13 +153,7 @@ impl UrlAdmission {
 
     /// The normalized form of a URL an agent typed (`mail_link`: the runtime-set provenance of a navigate, read against `now_ms`),
     /// once the host it names is known to be admitted.
-    pub async fn validated_agent_url(
-        &self,
-        raw: &str,
-        mail_link: Option<&MailLink>,
-        now_ms: i64,
-        resolver: &dyn Resolve,
-    ) -> Result<String, Refusal> {
+    pub async fn validated_agent_url(&self, raw: &str, mail_link: Option<&MailLink>, now_ms: i64, resolver: &dyn Resolve) -> Result<String, Refusal> {
         let normalized = normalize_agent_url(raw, &self.policy, mail_link, now_ms)?;
         self.assert_resolved_url_allowed(&normalized, true, resolver).await?;
         Ok(normalized)
@@ -210,11 +204,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_lookups_are_one_and_a_completed_answer_is_not_kept() {
         let gate = Arc::new(Notify::new());
-        let resolver = Counting {
-            calls: AtomicUsize::new(0),
-            gate: Some(Arc::clone(&gate)),
-            answers: vec![vec!["93.184.216.34"], vec!["192.168.1.10"]],
-        };
+        let resolver = Counting { calls: AtomicUsize::new(0), gate: Some(Arc::clone(&gate)), answers: vec![vec!["93.184.216.34"], vec!["192.168.1.10"]] };
         let admission = UrlAdmission::new(UrlPolicy::default());
         let first = admission.assert_resolved_url_allowed("https://rebind.example.test/", false, &resolver);
         let second = admission.assert_resolved_url_allowed("https://rebind.example.test/image.png", false, &resolver);
@@ -226,18 +216,14 @@ mod tests {
         assert_eq!((first, second), (Ok(()), Ok(())));
         assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
         let again = admission.assert_resolved_url_allowed("https://rebind.example.test/private", false, &resolver).await;
-        assert_eq!(
-            again.unwrap_err().reason,
-            "navigation to rebind.example.test resolved to blocked private or internal address 192.168.1.10"
-        );
+        assert_eq!(again.unwrap_err().reason, "navigation to rebind.example.test resolved to blocked private or internal address 192.168.1.10");
         assert_eq!(resolver.calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
     async fn a_name_over_the_pending_cap_is_refused_and_a_finished_one_frees_its_place() {
         let gate = Arc::new(Notify::new());
-        let resolver =
-            Counting { calls: AtomicUsize::new(0), gate: Some(Arc::clone(&gate)), answers: vec![vec!["93.184.216.34"]] };
+        let resolver = Counting { calls: AtomicUsize::new(0), gate: Some(Arc::clone(&gate)), answers: vec![vec!["93.184.216.34"]] };
         let admission = UrlAdmission::with_max_pending(UrlPolicy::default(), 1);
         let occupied = admission.assert_resolved_url_allowed("https://one.example.test/", false, &resolver);
         let refused = async {

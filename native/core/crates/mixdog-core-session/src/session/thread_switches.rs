@@ -236,19 +236,31 @@ fn listed(names: &[String]) -> String {
 }
 
 /// `workflowOverlayContent`.
-fn workflow_overlay_content(prompt_name: &str, workflow_name: &str, instructions: &str, denied: &[String], loadable: &[String], unavailable: &[String]) -> String {
+fn workflow_overlay_content(
+    prompt_name: &str,
+    workflow_name: &str,
+    instructions: &str,
+    denied: &[String],
+    loadable: &[String],
+    unavailable: &[String],
+) -> String {
     let name = workflow_name;
     let mut lines = vec![
         "<system-reminder>".to_owned(),
         "# Workflow Changed".to_owned(),
-        format!("This conversation now runs the {name} workflow. The system prompt's Active Workflow, orchestration mode and available agents are still {prompt_name}'s: they no longer apply; follow {name}'s below instead. This replaces every earlier Workflow Changed reminder in this conversation."),
+        format!(
+            "This conversation now runs the {name} workflow. The system prompt's Active Workflow, orchestration mode and available agents are still {prompt_name}'s: they no longer apply; follow {name}'s below instead. This replaces every earlier Workflow Changed reminder in this conversation."
+        ),
     ];
     if !denied.is_empty() {
         lines.push(format!("Not available in {name} (calls are refused): {}.", listed(denied)));
     }
     if !loadable.is_empty() {
         let pronoun = if loadable.len() == 1 { "it" } else { "them" };
-        lines.push(format!("{name} adds {}: not among your directly defined tools yet; load {pronoun} with `load_tool` before the first call.", listed(loadable)));
+        lines.push(format!(
+            "{name} adds {}: not among your directly defined tools yet; load {pronoun} with `load_tool` before the first call.",
+            listed(loadable)
+        ));
     }
     if !unavailable.is_empty() {
         lines.push(format!("{name} allows {}, but this session cannot use them; a new session can.", listed(unavailable)));
@@ -267,7 +279,9 @@ pub fn mode_notice_text(mode: &str, carried: bool, loadable: &[String], instruct
     let lead = if carried {
         format!("This conversation now uses the {name} orchestration mode, the one the system prompt carries.")
     } else {
-        format!("This conversation now uses the {name} orchestration mode. The system prompt's Orchestration Mode no longer applies; follow {name}'s below instead.")
+        format!(
+            "This conversation now uses the {name} orchestration mode. The system prompt's Orchestration Mode no longer applies; follow {name}'s below instead."
+        )
     };
     let mut lines = vec![
         "<system-reminder>".to_owned(),
@@ -329,8 +343,11 @@ pub fn merge_deferred_delta_with_servers(session: &mut Header, added: &[(String,
         }
     }
     let mut gone: Vec<String> = Vec::new();
-    let mut servers: HashMap<String, String> =
-        source.get("removedServers").and_then(Value::as_object).map(|map| map.iter().map(|(k, v)| (k.clone(), mixdog_js::value_to_string(v))).collect()).unwrap_or_default();
+    let mut servers: HashMap<String, String> = source
+        .get("removedServers")
+        .and_then(Value::as_object)
+        .map(|map| map.iter().map(|(k, v)| (k.clone(), mixdog_js::value_to_string(v))).collect())
+        .unwrap_or_default();
     for entry in array(source.get("removed")) {
         let name = trimmed(Some(match &entry {
             Value::String(_) => &entry,
@@ -499,8 +516,13 @@ async fn workflow_overlay(
     let denied: HashSet<String> = surface.live_denied_tools(session, &target.summary).await?.iter().map(|name| name.to_lowercase()).collect();
     let disallowed: HashSet<String> = strings(session.get("disallowedTools")).iter().map(|name| name.to_lowercase()).collect();
     let schema = schema_tools(session);
-    let denied_tools = unique(schema.iter().map(tool_name).filter(|name| !name.is_empty() && denied.contains(&name.to_lowercase()) && !disallowed.contains(&name.to_lowercase())));
-    let reopened: Vec<String> = unique(strings(session.get("disallowedTools")).into_iter().chain(strings(session.get("workflowOpenedTools")))).into_iter().filter(|name| !denied.contains(&name.to_lowercase())).collect();
+    let denied_tools = unique(
+        schema.iter().map(tool_name).filter(|name| !name.is_empty() && denied.contains(&name.to_lowercase()) && !disallowed.contains(&name.to_lowercase())),
+    );
+    let reopened: Vec<String> = unique(strings(session.get("disallowedTools")).into_iter().chain(strings(session.get("workflowOpenedTools"))))
+        .into_iter()
+        .filter(|name| !denied.contains(&name.to_lowercase()))
+        .collect();
     let mut known: HashSet<String> = schema.iter().map(tool_name).collect();
     let mut fresh = Vec::new();
     for tool in surface.internal_tools(session).await? {
@@ -620,8 +642,7 @@ fn mode_loadable_tools(session: &Header, mode: &str) -> Vec<String> {
     if mode == "none" {
         return Vec::new();
     }
-    let reached: HashSet<String> =
-        ["tools", "deferredCallableTools", "deferredDiscoveredTools"].iter().flat_map(|key| tool_names(session.get(*key))).collect();
+    let reached: HashSet<String> = ["tools", "deferredCallableTools", "deferredDiscoveredTools"].iter().flat_map(|key| tool_names(session.get(*key))).collect();
     let deferred: HashSet<String> = ["deferredToolCatalog", "deferredLateToolCatalog"].iter().flat_map(|key| tool_names(session.get(*key))).collect();
     let denied: HashSet<String> = strings(session.get("disallowedTools"))
         .into_iter()
@@ -840,7 +861,12 @@ pub async fn record_meta_boundary(directory: &SessionDirectory, thread: &ThreadI
 
 /// `recordAppliedSkills` on the live thread: the skills a turn's prompt loaded, stamped on its durable row `iid`
 /// and shown on its line (`thread/appliedSkills/set`).
-pub async fn record_applied_skills(directory: &SessionDirectory, thread: &ThreadId, iid: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), mixdog_core_api::CoreError> {
+pub async fn record_applied_skills(
+    directory: &SessionDirectory,
+    thread: &ThreadId,
+    iid: &mixdog_core_api::ids::ItemId,
+    names: &[String],
+) -> Result<(), mixdog_core_api::CoreError> {
     let ctx = CallContext::internal("applied-skills");
     let handle = directory.open_handle(thread, &ctx).await?;
     let params = json!({ "iid": iid.as_str(), "names": names });
@@ -1015,7 +1041,6 @@ impl ContextTarget for GaugeTarget {
         self.1.bump();
     }
 }
-
 
 /// `isScratchSession(session)`: an agent's home thread or a room's thread never is; any other
 /// is while it holds no user conversation and no completed turn.

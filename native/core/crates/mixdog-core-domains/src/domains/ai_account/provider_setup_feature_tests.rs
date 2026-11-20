@@ -124,14 +124,20 @@ fn an_environment_key_wins_over_a_stored_one_in_the_status_but_both_are_reported
 fn vertex_names_its_authentication_mode_and_defaults_to_the_global_location() {
     let snapshot = setup(&Fake::default(), json!({}));
     let row = api(&snapshot, "vertex-ai");
-    assert_eq!((row["authMode"].clone(), row["authKind"].clone(), row["detail"].clone()), (json!("service-account"), json!("service-account"), json!("Location: global")));
+    assert_eq!(
+        (row["authMode"].clone(), row["authKind"].clone(), row["detail"].clone()),
+        (json!("service-account"), json!("service-account"), json!("Location: global"))
+    );
     assert_eq!((row["location"].clone(), row["locationSource"].clone()), (json!("global"), json!("default")));
     assert_eq!(row["adc"]["state"], "missing");
 
     let world = Fake { stored: vec!["vertex-ai"], key_present: vec!["vertex-ai"], ..Fake::default() };
     let express = setup(&world, json!({ "providers": { "vertex-ai": { "enabled": true, "authMode": "api-key" } } }));
     let row = api(&express, "vertex-ai");
-    assert_eq!((row["status"].clone(), row["detail"].clone(), row["credentialSource"].clone()), (json!("Set"), json!("API key (express mode) · global"), json!("keychain")));
+    assert_eq!(
+        (row["status"].clone(), row["detail"].clone(), row["credentialSource"].clone()),
+        (json!("Set"), json!("API key (express mode) · global"), json!("keychain"))
+    );
 }
 
 #[test]
@@ -154,11 +160,14 @@ fn a_locked_keyring_is_reported_once_on_the_snapshot_and_on_each_row_that_needs_
 fn oauth_rows_carry_the_describe_of_their_provider_and_stay_off_until_enabled() {
     let snapshot = setup(&Fake::default(), json!({}));
     let rows = snapshot["oauth"].as_array().unwrap();
-    assert_eq!(rows[0], json!({
-        "id": "openai-oauth", "name": "OpenAI OAuth", "desc": "Mixdog OAuth credentials", "group": "oauth", "type": "oauth", "enabled": false,
-        "authenticated": false, "status": "Not Set", "detail": "Mixdog token store", "expiresAt": null, "plan": null, "usable": false,
-        "refreshable": false, "reauthRequired": false
-    }));
+    assert_eq!(
+        rows[0],
+        json!({
+            "id": "openai-oauth", "name": "OpenAI OAuth", "desc": "Mixdog OAuth credentials", "group": "oauth", "type": "oauth", "enabled": false,
+            "authenticated": false, "status": "Not Set", "detail": "Mixdog token store", "expiresAt": null, "plan": null, "usable": false,
+            "refreshable": false, "reauthRequired": false
+        })
+    );
     assert_eq!(rows[1]["id"], "anthropic-oauth");
     assert_eq!(rows[1]["detail"], "Mixdog OAuth credentials");
 }
@@ -194,13 +203,19 @@ fn ready_config() -> Value {
 fn a_local_provider_with_an_installed_runtime_and_models_is_ready_when_enabled_and_off_when_not() {
     let ready = local_row(ready_config(), Some(installed_runtime(&[true, false, true])), true);
     assert_eq!((ready["status"].clone(), ready["detail"].clone()), (json!("Ready"), json!("2 installed models")));
-    assert_eq!((ready["enabled"].clone(), ready["detected"].clone(), ready["authenticated"].clone(), ready["usable"].clone()), (json!(true), json!(true), json!(true), json!(true)));
+    assert_eq!(
+        (ready["enabled"].clone(), ready["detected"].clone(), ready["authenticated"].clone(), ready["usable"].clone()),
+        (json!(true), json!(true), json!(true), json!(true))
+    );
 
     let one = local_row(ready_config(), Some(installed_runtime(&[true])), true);
     assert_eq!(one["detail"], "1 installed model");
 
     let off = local_row(json!({ "builtins": { "localProvider": { "installed": true } } }), Some(installed_runtime(&[true])), true);
-    assert_eq!((off["status"].clone(), off["enabled"].clone(), off["detected"].clone(), off["usable"].clone()), (json!("Off"), json!(false), json!(true), json!(false)));
+    assert_eq!(
+        (off["status"].clone(), off["enabled"].clone(), off["detected"].clone(), off["usable"].clone()),
+        (json!("Off"), json!(false), json!(true), json!(false))
+    );
 }
 
 #[test]
@@ -225,7 +240,11 @@ fn the_local_runtime_is_not_asked_unless_detection_is_wanted() {
 }
 
 fn status_of(state: &str, fallback: bool, unsafe_store: Option<(&str, &str)>) -> KeychainStatus {
-    KeychainStatus { state: state.to_owned(), fallback, unsafe_store: unsafe_store.map(|(kind, path)| UnsafeStore { kind: kind.to_owned(), path: path.to_owned() }) }
+    KeychainStatus {
+        state: state.to_owned(),
+        fallback,
+        unsafe_store: unsafe_store.map(|(kind, path)| UnsafeStore { kind: kind.to_owned(), path: path.to_owned() }),
+    }
 }
 
 #[test]
@@ -247,10 +266,22 @@ fn the_private_file_store_is_an_issue_only_when_its_files_are_ignored_and_names_
     assert_eq!(keychain_issue_of(status_of("ok", true, None)), None, "a private file store in use, key stored there");
     assert_eq!(keychain_issue_of(status_of("locked", true, None)), None, "the keyring's locked state does not matter to the private file");
     for (kind, message) in [
-        ("permissions", "The private secrets folder has unsafe permissions, so its keys are ignored — run chmod 700 on the folder and chmod 600 on its files, or save the key again."),
-        ("owner", "The private secrets folder or one of its files belongs to another user, so its keys are ignored — change its owner to the current user (chown)."),
-        ("type", "The private secrets folder or one of its files is a symlink or not a regular file, so its keys are ignored — remove it and save the key again."),
-        ("anything-else", "The private secrets folder has unsafe permissions, so its keys are ignored — run chmod 700 on the folder and chmod 600 on its files, or save the key again."),
+        (
+            "permissions",
+            "The private secrets folder has unsafe permissions, so its keys are ignored — run chmod 700 on the folder and chmod 600 on its files, or save the key again.",
+        ),
+        (
+            "owner",
+            "The private secrets folder or one of its files belongs to another user, so its keys are ignored — change its owner to the current user (chown).",
+        ),
+        (
+            "type",
+            "The private secrets folder or one of its files is a symlink or not a regular file, so its keys are ignored — remove it and save the key again.",
+        ),
+        (
+            "anything-else",
+            "The private secrets folder has unsafe permissions, so its keys are ignored — run chmod 700 on the folder and chmod 600 on its files, or save the key again.",
+        ),
     ] {
         assert_eq!(
             keychain_issue_of(status_of("ok", true, Some((kind, "/home/u/.mixdog/secrets")))),

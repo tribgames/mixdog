@@ -117,11 +117,7 @@ impl OneShotHandler for OneShot<'_> {
         self.handles = acquire(request);
         self.cleanup_fails = flag(request, "cleanupFail");
         misbehave(request)?;
-        Ok(object(vec![
-            ("ok", Value::Bool(true)),
-            ("backend", Value::string(BACKEND)),
-            ("action", payload::property(request, "action")),
-        ]))
+        Ok(object(vec![("ok", Value::Bool(true)), ("backend", Value::string(BACKEND)), ("action", payload::property(request, "action"))]))
     }
 
     fn finish(&mut self, out: &mut Emitter) {
@@ -180,11 +176,7 @@ impl SessionHandler for Session<'_> {
 
     fn action(&mut self, _out: &mut Emitter, request: &Value) -> Result<Value, String> {
         misbehave(request)?;
-        Ok(object(vec![
-            ("ok", Value::Bool(true)),
-            ("backend", Value::string(BACKEND)),
-            ("action", payload::property(request, "action")),
-        ]))
+        Ok(object(vec![("ok", Value::Bool(true)), ("backend", Value::string(BACKEND)), ("action", payload::property(request, "action"))]))
     }
 
     fn close(&mut self, _out: &mut Emitter, request: &Value) -> Result<Closed, String> {
@@ -318,13 +310,8 @@ pub mod live {
                     errors.push(Value::String(format!("Document close failed: {error}")));
                 }
             }
-            let empty = word
-                .app
-                .get("Documents")
-                .ok()
-                .and_then(ComValue::into_obj)
-                .and_then(|documents| documents.count().ok())
-                .is_some_and(|count| count == 0);
+            let empty =
+                word.app.get("Documents").ok().and_then(ComValue::into_obj).and_then(|documents| documents.count().ok()).is_some_and(|count| count == 0);
             if empty {
                 if let Err(error) = word.app.call("Quit", &[]) {
                     errors.push(Value::String(format!("Application quit failed: {error}")));

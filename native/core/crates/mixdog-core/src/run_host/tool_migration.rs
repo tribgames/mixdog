@@ -11,7 +11,7 @@
 use mixdog_agent::compact::pressure::invalidate_provider_context_baseline;
 use mixdog_agent::env::Clock;
 use mixdog_store::schema::record::HeaderChange;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use super::thinking_binding::rebind_to_changed_prefix;
 use super::tool_exposure::TOOL_SURFACE_MIGRATION_INTENT;
@@ -68,10 +68,9 @@ pub fn mark_tool_surface_migrated(clock: &dyn Clock, intent: Option<&str>, trans
 /// `hasUnansweredToolCalls`: the latest assistant tool turn still waits for a result, which is not a
 /// safe boundary to migrate at.
 pub fn has_unanswered_tool_calls(messages: &[Value]) -> bool {
-    let Some(index) = messages
-        .iter()
-        .rposition(|m| m.get("role").and_then(Value::as_str) == Some("assistant") && m.get("toolCalls").and_then(Value::as_array).is_some_and(|c| !c.is_empty()))
-    else {
+    let Some(index) = messages.iter().rposition(|m| {
+        m.get("role").and_then(Value::as_str) == Some("assistant") && m.get("toolCalls").and_then(Value::as_array).is_some_and(|c| !c.is_empty())
+    }) else {
         return false;
     };
     let answered: Vec<&str> = messages[index + 1..]
@@ -87,7 +86,4 @@ pub fn has_unanswered_tool_calls(messages: &[Value]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-}
-
-
+mod tests {}

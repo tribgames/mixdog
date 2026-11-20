@@ -38,11 +38,23 @@ const CHILD_FLAGS: u32 = 0x0800_0000;
 
 #[derive(Debug)]
 pub enum EnsureError {
-    Spawn { bin: String, message: String },
+    Spawn {
+        bin: String,
+        message: String,
+    },
     /// A core is there and will not serve (`blocked`: the user's decision), or none served in time.
-    NotReady { state: Option<String>, blocked: Option<Value> },
+    NotReady {
+        state: Option<String>,
+        blocked: Option<Value>,
+    },
     /// The core this launcher started ended abnormally before serving.
-    EndedBeforeServing { reason: String, said: Option<String>, code: Option<i64>, signal: Option<String>, stderr_path: Option<PathBuf> },
+    EndedBeforeServing {
+        reason: String,
+        said: Option<String>,
+        code: Option<i64>,
+        signal: Option<String>,
+        stderr_path: Option<PathBuf>,
+    },
     Discovery(DiscoveryError),
 }
 
@@ -322,11 +334,11 @@ mod tests {
 
     #[test]
     fn a_version_refusal_is_one_mixdog_line() {
-        let refused = ClientError::VersionRefused { reason: "clientOutdated".to_owned(), server_version: "1.6.0".to_owned(), client_version: "1.5.0".to_owned() };
+        let refused =
+            ClientError::VersionRefused { reason: "clientOutdated".to_owned(), server_version: "1.6.0".to_owned(), client_version: "1.5.0".to_owned() };
         assert_eq!(client_error_line(&refused), "mixdog: version refused: clientOutdated (core 1.6.0, this program 1.5.0)");
         assert_eq!(client_error_line(&ClientError::ConnectionLost), "mixdog: connection lost");
     }
-
 
     #[tokio::test]
     async fn a_serving_core_is_attached_to_without_starting_one() {
@@ -337,7 +349,8 @@ mod tests {
     }
     #[tokio::test]
     async fn no_core_starts_one_once_and_waits_through_booting_and_migrating() {
-        let host = Script::new(vec![None, None, Some(view(9, "booting", false, None)), Some(view(9, "migrating", false, None)), Some(view(9, "serving", true, None))]);
+        let host =
+            Script::new(vec![None, None, Some(view(9, "booting", false, None)), Some(view(9, "migrating", false, None)), Some(view(9, "serving", true, None))]);
         let found = wait_for_core(&host, Duration::from_secs(5), FAST).await.unwrap();
         assert_eq!(found.discovery.pid, 9);
         assert_eq!(host.launches.load(Ordering::SeqCst), 1);
@@ -398,7 +411,6 @@ mod tests {
     }
 }
 
-
 impl std::error::Error for EnsureError {}
 /// What a launcher decides.
 #[derive(Clone)]
@@ -431,7 +443,8 @@ impl Default for EnsureOptions {
 }
 /// `Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || 15000`.
 fn ready_timeout_of_process() -> Duration {
-    let configured = std::env::var("MIXDOG_DAEMON_READY_TIMEOUT_MS").ok().and_then(|text| text.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms != 0.0);
+    let configured =
+        std::env::var("MIXDOG_DAEMON_READY_TIMEOUT_MS").ok().and_then(|text| text.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms != 0.0);
     // A negative number is a wait of the least length (`Math.max(1, ...)`).
     configured.map_or(DEFAULT_READY_TIMEOUT, |ms| Duration::from_millis(if ms < 0.0 { 1 } else { ms as u64 }))
 }

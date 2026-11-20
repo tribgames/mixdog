@@ -124,8 +124,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
         folded.newest_file_size = bytes.len() as u64;
         for (i, frame) in frames.iter().enumerate() {
             ordinal = frame.ordinal + 1;
-            let record: Record = serde_json::from_slice(&bytes[frame.payload.clone()])
-                .map_err(|e| format!("frame {}: {e}", frame.ordinal))?;
+            let record: Record = serde_json::from_slice(&bytes[frame.payload.clone()]).map_err(|e| format!("frame {}: {e}", frame.ordinal))?;
             let first = i == 0;
             match record {
                 Record::Session(s) if first && file_no == 0 && frame.ordinal == 0 => {
@@ -193,12 +192,8 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                 }
                 Record::Amend(a) => {
                     let (body, _) = resolve(cx, a.body)?;
-                    let row = folded
-                        .rows
-                        .iter_mut()
-                        .rev()
-                        .find(|r| r.iid == a.iid.as_str())
-                        .ok_or_else(|| format!("amend of unknown row {}", a.iid.as_str()))?;
+                    let row =
+                        folded.rows.iter_mut().rev().find(|r| r.iid == a.iid.as_str()).ok_or_else(|| format!("amend of unknown row {}", a.iid.as_str()))?;
                     row.body = body;
                 }
                 Record::Compacted(c) => {
@@ -209,9 +204,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                     let detail = r.detail.map(|d| resolve(cx, d)).transpose()?.map(|(d, _)| d);
                     match folded.runs.iter_mut().find(|x| x.0 == r.rid.as_str()) {
                         Some(run) => run.1.push((r.phase, detail)),
-                        None => folded
-                            .runs
-                            .push((r.rid.as_str().to_string(), vec![(r.phase, detail)], frame.ordinal)),
+                        None => folded.runs.push((r.rid.as_str().to_string(), vec![(r.phase, detail)], frame.ordinal)),
                     }
                 }
                 Record::Queue(qr) => match qr.action {
@@ -250,11 +243,8 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                     let entry = serde_json::to_value(resolve(cx, s.entry)?.0).expect("an entry encodes");
                     let body = row.body.as_object_mut().ok_or("a message body is an object")?;
                     let meta = body.entry("meta").or_insert_with(|| Value::Object(Default::default()));
-                    let switches = meta
-                        .as_object_mut()
-                        .ok_or("a message meta is an object")?
-                        .entry("modelSwitches")
-                        .or_insert_with(|| Value::Array(Vec::new()));
+                    let switches =
+                        meta.as_object_mut().ok_or("a message meta is an object")?.entry("modelSwitches").or_insert_with(|| Value::Array(Vec::new()));
                     switches.as_array_mut().ok_or("modelSwitches is a list")?.push(entry);
                 }
                 Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::Draft(_) | Record::WorkStop(_) => {
@@ -272,14 +262,7 @@ pub fn read_sessions(roots: &MigrationRoots, manifest_sha256: &str) -> Result<BT
     let manifest: Manifest = serde_json::from_slice(&manifest).map_err(|e| format!("{MANIFEST_PATH}: {e}"))?;
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
-    let cx = ItemContext {
-        roots,
-        manifest: &manifest,
-        manifest_sha256,
-        fault: None,
-        blobs: &blobs,
-        states: &states,
-    };
+    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256, fault: None, blobs: &blobs, states: &states };
     let sessions = roots.data.join("sessions");
     let mut out = BTreeMap::new();
     for (id, is_dir) in durable::list_dir(&sessions).map_err(|e| e.to_string())? {
@@ -296,13 +279,7 @@ impl Folded {
         let message = |r: &&FoldedRow| r.form == Form::Message;
         let context_start = self.context.as_ref().map_or(0, |c| c.0);
         let mut model_context: Vec<String> = self.context.as_ref().map(|c| c.1.clone()).unwrap_or_default();
-        model_context.extend(
-            self.rows
-                .iter()
-                .filter(message)
-                .filter(|r| r.model && r.ordinal > context_start)
-                .map(|r| r.iid.clone()),
-        );
+        model_context.extend(self.rows.iter().filter(message).filter(|r| r.model && r.ordinal > context_start).map(|r| r.iid.clone()));
         let mut refs = BTreeSet::new();
         for r in &self.rows {
             refs.extend(r.refs.iter().cloned());
@@ -312,31 +289,16 @@ impl Folded {
         }
         Ok(Observable {
             header: self.header.clone(),
-            transcript: self
-                .rows
-                .iter()
-                .filter(message)
-                .filter(|r| r.model && r.visible)
-                .map(|r| (r.iid.clone(), r.body.clone()))
-                .collect(),
+            transcript: self.rows.iter().filter(message).filter(|r| r.model && r.visible).map(|r| (r.iid.clone(), r.body.clone())).collect(),
             model_context,
-            archive: archive_view(
-                self.rows
-                    .iter()
-                    .filter_map(|r| r.archive.as_ref().map(|a| (a.seq, r.form, r.visible, &r.body))),
-            ),
+            archive: archive_view(self.rows.iter().filter_map(|r| r.archive.as_ref().map(|a| (a.seq, r.form, r.visible, &r.body)))),
             runs: self
                 .runs
                 .iter()
                 .map(|(rid, phases, started)| RunView {
                     rid: rid.clone(),
                     phases: phases.clone(),
-                    input_iids: self
-                        .rows
-                        .iter()
-                        .filter(|r| r.turn.as_deref() == Some(rid.as_str()) && r.ordinal < *started)
-                        .map(|r| r.iid.clone())
-                        .collect(),
+                    input_iids: self.rows.iter().filter(|r| r.turn.as_deref() == Some(rid.as_str()) && r.ordinal < *started).map(|r| r.iid.clone()).collect(),
                 })
                 .collect(),
             queue: self.queue.clone(),

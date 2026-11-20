@@ -156,9 +156,7 @@ impl MessageRows for CompactionRows {
         // A row found by id is the message's only while the message is still what was read from it.
         let unchanged = !stored.is_null()
             && (message.message_id.is_none()
-                || message_of(&stored).is_ok_and(|was| {
-                    was.message == message.message && (message.stored.is_none() || was.stored == message.stored)
-                }));
+                || message_of(&stored).is_ok_and(|was| was.message == message.message && (message.stored.is_none() || was.stored == message.stored)));
         if unchanged { stored } else { row_of(message) }
     }
 }
@@ -324,7 +322,13 @@ mod tests {
 
     fn input(window: Option<u64>, rows: &Arc<StoredRows>) -> CompactorInput {
         CompactorInput {
-            settings: CompactSettings { context_window: window, request_reserve_tokens: 1_200, configured_reserve_tokens: 800, token_calibration: 1.25, ..CompactSettings::default() },
+            settings: CompactSettings {
+                context_window: window,
+                request_reserve_tokens: 1_200,
+                configured_reserve_tokens: 800,
+                token_calibration: 1.25,
+                ..CompactSettings::default()
+            },
             rows: rows.clone(),
             archive: Arc::new(Archive),
             blobs: Arc::new(NoBlobs),
@@ -366,7 +370,12 @@ mod tests {
         };
         assert!(triggered(json!({ "conversationThresholdTokens": 1 })).await);
         assert!(triggered(json!({ "conversationThresholdTokens": "1.9" })).await, "floor of the number, as positiveInt");
-        for default in [json!({}), json!({ "conversationThresholdTokens": 0 }), json!({ "conversationThresholdTokens": "x" }), json!({ "conversationThresholdTokens": null })] {
+        for default in [
+            json!({}),
+            json!({ "conversationThresholdTokens": 0 }),
+            json!({ "conversationThresholdTokens": "x" }),
+            json!({ "conversationThresholdTokens": null }),
+        ] {
             assert!(!triggered(default.clone()).await, "{default}");
         }
     }

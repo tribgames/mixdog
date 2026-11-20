@@ -99,11 +99,7 @@ pub fn office_text_for_file(data_base64: &str, filename: &str) -> Option<String>
     let text = try_extract_ooxml_text_from_buffer(
         &node_base64_decode(data_base64),
         filename,
-        &Limits {
-            max_output_bytes: OFFICE_TEXT_MAX_BYTES,
-            max_part_bytes: OFFICE_PART_MAX_BYTES,
-            max_container_bytes: OFFICE_CONTAINER_MAX_BYTES,
-        },
+        &Limits { max_output_bytes: OFFICE_TEXT_MAX_BYTES, max_part_bytes: OFFICE_PART_MAX_BYTES, max_container_bytes: OFFICE_CONTAINER_MAX_BYTES },
     );
     let mut memo = MEMO.lock().unwrap_or_else(PoisonError::into_inner);
     // Another caller may have remembered the same file while this one extracted.

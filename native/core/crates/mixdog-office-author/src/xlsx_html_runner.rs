@@ -172,7 +172,12 @@ struct Laid {
 /// The sections' own extents as clips.
 fn clips_of(extents: &Value) -> Vec<Rect> {
     let number = |extent: &Value, key: &str| extent.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-    extents.as_array().map_or(&[][..], Vec::as_slice).iter().map(|extent| Rect { x: number(extent, "x"), y: number(extent, "y"), width: number(extent, "width"), height: number(extent, "height") }).collect()
+    extents
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .map(|extent| Rect { x: number(extent, "x"), y: number(extent, "y"), width: number(extent, "width"), height: number(extent, "height") })
+        .collect()
 }
 
 /// The work inside the browser: the sheets measured, then the reference each is held against (its section as the browser
@@ -252,7 +257,15 @@ async fn run(
 }
 
 /// The build and the write of the workbook.
-async fn write_workbook(tokens: LaneTokens, lanes: &AuthorLanes, registry: Arc<Registry>, note: &dyn WriteNote, output: &Path, artifacts: &XlsxHtmlArtifacts, laid: Laid) -> Result<Value, String> {
+async fn write_workbook(
+    tokens: LaneTokens,
+    lanes: &AuthorLanes,
+    registry: Arc<Registry>,
+    note: &dyn WriteNote,
+    output: &Path,
+    artifacts: &XlsxHtmlArtifacts,
+    laid: Laid,
+) -> Result<Value, String> {
     let Laid { measure, captures, html_pages, title } = laid;
     let (sheets, captured) = (measure.clone(), captures);
     let built = tokens
@@ -302,7 +315,13 @@ mod tests {
     fn the_logs_are_the_measure_notes_then_the_build_notes() {
         let measure = json!({ "sheets": [], "notes": ["left out"] });
         let logs = logs_of(&measure, &["{x} names no element with that id; it was left as written".to_owned()]);
-        assert_eq!(logs, vec![json!({ "level": "warn", "text": "left out" }), json!({ "level": "warn", "text": "{x} names no element with that id; it was left as written" })]);
+        assert_eq!(
+            logs,
+            vec![
+                json!({ "level": "warn", "text": "left out" }),
+                json!({ "level": "warn", "text": "{x} names no element with that id; it was left as written" })
+            ]
+        );
         assert!(logs_of(&json!({}), &[]).is_empty());
     }
 

@@ -24,35 +24,22 @@ fn pick<'a>(windows: &'a [WindowInfo], app: &str) -> Res<&'a WindowInfo> {
     if requested.is_empty() {
         return Err("app target is empty".into());
     }
-    let mut matches: Vec<&WindowInfo> = windows
-        .iter()
-        .filter(|window| window.app.to_lowercase() == requested)
-        .collect();
+    let mut matches: Vec<&WindowInfo> = windows.iter().filter(|window| window.app.to_lowercase() == requested).collect();
     if matches.is_empty() {
         matches = windows
             .iter()
-            .filter(|window| {
-                [&window.app, &window.title, &window.class_name]
-                    .iter()
-                    .any(|value| value.to_lowercase().contains(&requested))
-            })
+            .filter(|window| [&window.app, &window.title, &window.class_name].iter().any(|value| value.to_lowercase().contains(&requested)))
             .collect();
     }
     match matches.as_slice() {
-        [] => Err(format!(
-            "window_target_not_found: no visible window matched app \"{app}\""
-        )),
+        [] => Err(format!("window_target_not_found: no visible window matched app \"{app}\"")),
         [only] => Ok(only),
         several => {
             let candidates: Vec<String> = several
                 .iter()
                 .take(MAX_CANDIDATES)
                 .map(|window| {
-                    let title = if window.title.is_empty() {
-                        "<untitled>"
-                    } else {
-                        window.title.as_str()
-                    };
+                    let title = if window.title.is_empty() { "<untitled>" } else { window.title.as_str() };
                     format!("{} \"{title}\"", window.id())
                 })
                 .collect();
@@ -70,13 +57,7 @@ mod tests {
     use super::*;
 
     fn window(handle: u64, app: &str, title: &str, class_name: &str) -> WindowInfo {
-        WindowInfo {
-            handle,
-            app: app.into(),
-            title: title.into(),
-            class_name: class_name.into(),
-            ..Default::default()
-        }
+        WindowInfo { handle, app: app.into(), title: title.into(), class_name: class_name.into(), ..Default::default() }
     }
 
     fn desktop() -> Vec<WindowInfo> {
@@ -126,10 +107,7 @@ mod tests {
     #[test]
     fn no_match_and_an_empty_name_are_refused() {
         let windows = desktop();
-        assert_eq!(
-            picked(&windows, "Paint"),
-            Err("window_target_not_found: no visible window matched app \"Paint\"".to_string())
-        );
+        assert_eq!(picked(&windows, "Paint"), Err("window_target_not_found: no visible window matched app \"Paint\"".to_string()));
         assert_eq!(picked(&windows, "  "), Err("app target is empty".to_string()));
     }
 }

@@ -35,11 +35,13 @@ fn an_openai_model_of_the_sixth_generation_on_takes_updates_on_the_responses_wir
 
 #[test]
 fn the_oauth_catalog_answer_for_a_model_decides_over_its_version_when_it_has_one() {
-    let ask = |declared: Option<bool>| effort_configuration_mode("openai-oauth", &json!("gpt-6"), &json!({}), &UnsupportedEfforts::default(), &move |_| declared);
+    let ask =
+        |declared: Option<bool>| effort_configuration_mode("openai-oauth", &json!("gpt-6"), &json!({}), &UnsupportedEfforts::default(), &move |_| declared);
     assert_eq!(ask(Some(false)), None, "the catalog says no to a model the version would allow");
     assert_eq!(ask(Some(true)), Some(UpdateMode::Responses));
     assert_eq!(ask(None), Some(UpdateMode::Responses), "no answer: the version decides");
-    let key = |declared: &dyn Fn(&str) -> Option<bool>| effort_configuration_mode("openai", &json!("gpt-5"), &json!({}), &UnsupportedEfforts::default(), declared);
+    let key =
+        |declared: &dyn Fn(&str) -> Option<bool>| effort_configuration_mode("openai", &json!("gpt-5"), &json!({}), &UnsupportedEfforts::default(), declared);
     assert_eq!(key(&|_| Some(true)), None, "only the OAuth route asks the catalog");
 }
 
@@ -70,7 +72,11 @@ fn only_the_standard_single_agent_mode_takes_updates() {
     assert_eq!(mode("openai", "gpt-6", json!({"reasoning": {"mode": "deep"}})), None);
     assert_eq!(mode("openai", "gpt-6", json!({"modelParameters": {"reasoning_mode": "deep"}})), None);
     assert_eq!(mode("openai", "gpt-6", json!({"modelParameters": {"mode": "deep"}})), None);
-    assert_eq!(mode("openai", "gpt-6", json!({"reasoning": {"mode": "standard"}, "modelParameters": {"mode": "deep"}})), Some(UpdateMode::Responses), "the reasoning option is read first");
+    assert_eq!(
+        mode("openai", "gpt-6", json!({"reasoning": {"mode": "standard"}, "modelParameters": {"mode": "deep"}})),
+        Some(UpdateMode::Responses),
+        "the reasoning option is read first"
+    );
     assert_eq!(mode("openai", "gpt-6", json!({"multiAgent": true})), None);
     assert_eq!(mode("openai", "gpt-6", json!({"modelParameters": {"multi_agent": true}})), None);
     assert_eq!(mode("openai", "gpt-6", json!({"multiAgent": false, "modelParameters": {"multi_agent": false}})), Some(UpdateMode::Responses));

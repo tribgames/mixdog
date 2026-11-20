@@ -8,9 +8,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_services::media::accounts::{ACCOUNT_PROVIDERS, AccountProbe, AccountScope, ScopedLaneSources, SelectedAccounts, StudioAccounts, media_lane_account_provider, provider_account_path};
+use mixdog_services::media::accounts::{
+    ACCOUNT_PROVIDERS, AccountProbe, AccountScope, ScopedLaneSources, SelectedAccounts, StudioAccounts, media_lane_account_provider, provider_account_path,
+};
 use mixdog_services::media::catalog::{CatalogFailure, catalog_diagnostic, catalog_http_code, catalog_message, project_media_models};
-use mixdog_services::media::catalog_fetch::{Auth, CatalogHttp, FetchError, FileCatalogCache, HttpFailure, HttpReply, fetch_media_model_rows, media_catalog_timeout};
+use mixdog_services::media::catalog_fetch::{
+    Auth, CatalogHttp, FetchError, FileCatalogCache, HttpFailure, HttpReply, fetch_media_model_rows, media_catalog_timeout,
+};
 use mixdog_services::media::lanes::{CatalogRows, LaneSources, MediaLanes, lane_auth, lane_auth_provider};
 use mixdog_services::media::loader::CatalogCache;
 use mixdog_services::media::probe::{AccountedProbe, AgentKeys, AgentSettings, FileAccountProbe, ProbeParts, ProviderAuth};
@@ -76,7 +80,10 @@ fn the_chatgpt_account_exposes_one_automatic_image_engine_routed_through_a_liste
     assert_eq!((engine.id.as_str(), engine.label.as_str()), ("gpt-image-2", "GPT Image 2"));
     assert!(engine.request_model.as_deref().is_some_and(|m| m == "gpt-5.1" || m == "custom-x"));
     assert_eq!(engine.controls, json!({"maxReferences": 5, "background": ["auto", "transparent", "opaque"]}));
-    assert!(project_media_models("openai-oauth", &[json!({"id": "gpt-4o"}), json!({"id": "gpt-5-chat"})]).image.is_empty(), "no usable orchestrator, no engine");
+    assert!(
+        project_media_models("openai-oauth", &[json!({"id": "gpt-4o"}), json!({"id": "gpt-5-chat"})]).image.is_empty(),
+        "no usable orchestrator, no engine"
+    );
 }
 
 #[test]
@@ -115,7 +122,11 @@ fn a_catalog_failure_is_told_by_a_safe_code_and_a_fixed_sentence() {
     assert_eq!(catalog_message("OTHER"), None);
     assert_eq!(catalog_diagnostic(&CatalogFailure { code: Some("MEDIA_RATE_LIMITED".into()), timed_out: false }).0, "MEDIA_RATE_LIMITED");
     assert_eq!(catalog_diagnostic(&CatalogFailure { code: None, timed_out: true }).0, "MEDIA_CATALOG_TIMEOUT");
-    assert_eq!(catalog_diagnostic(&CatalogFailure { code: Some("SECRET_DETAIL".into()), timed_out: false }).0, "MEDIA_CATALOG_UNAVAILABLE", "an unknown code is never passed on");
+    assert_eq!(
+        catalog_diagnostic(&CatalogFailure { code: Some("SECRET_DETAIL".into()), timed_out: false }).0,
+        "MEDIA_CATALOG_UNAVAILABLE",
+        "an unknown code is never passed on"
+    );
 }
 
 // ---- the lanes' views and resolved requests ----
@@ -167,7 +178,13 @@ async fn a_lane_that_is_signed_out_lists_its_kinds_and_loads_nothing() {
 #[tokio::test]
 async fn a_signed_in_lane_publishes_each_models_controls_over_the_lanes_own() {
     let sources = Arc::new(Sources::default());
-    sources.sign_in("xai", Ok(CatalogRows { rows: vec![json!({"id": "grok-imagine-image"}), json!({"id": "grok-imagine-video"})], warning: Some("served from the last catalog".into()) }));
+    sources.sign_in(
+        "xai",
+        Ok(CatalogRows {
+            rows: vec![json!({"id": "grok-imagine-image"}), json!({"id": "grok-imagine-video"})],
+            warning: Some("served from the last catalog".into()),
+        }),
+    );
     let views = MediaLanes::new(sources).list(None).await;
     let grok = view_of(&views, "xai");
     assert_eq!(grok["kinds"], json!(["image", "video"]));
@@ -188,7 +205,10 @@ async fn a_catalog_that_failed_is_reported_without_the_providers_words_and_a_blo
     let grok = view_of(&views, "xai");
     assert_eq!(grok["catalogErrorCode"], "MEDIA_AUTH_REJECTED");
     assert_eq!(grok["catalogError"], "Grok Imagine (API key): Authentication failed. Check the API key or reconnect the account.");
-    assert_eq!(view_of(&views, "openai-oauth")["catalogError"], "OpenAI Images (Account): Model catalog request timed out. Retry after checking the connection.");
+    assert_eq!(
+        view_of(&views, "openai-oauth")["catalogError"],
+        "OpenAI Images (Account): Model catalog request timed out. Retry after checking the connection."
+    );
     assert!(views.iter().all(|v| v["id"] != "gemini"), "an unpaid lane is absent");
     assert_eq!(views.len(), 6);
 }
@@ -196,7 +216,10 @@ async fn a_catalog_that_failed_is_reported_without_the_providers_words_and_a_blo
 #[tokio::test]
 async fn a_request_resolves_to_the_default_or_a_named_model_or_says_why_not() {
     let sources = Arc::new(Sources::default());
-    sources.sign_in("xai", rows(json!([{"id": "grok-imagine-image", "created": 1}, {"id": "grok-imagine-image-pro", "created": 9}, {"id": "grok-imagine-video"}])));
+    sources.sign_in(
+        "xai",
+        rows(json!([{"id": "grok-imagine-image", "created": 1}, {"id": "grok-imagine-image-pro", "created": 9}, {"id": "grok-imagine-video"}])),
+    );
     sources.sign_in("openrouter", Err(CatalogFailure { code: Some("MEDIA_RATE_LIMITED".into()), timed_out: false }));
     let lanes = MediaLanes::new(sources);
     let resolved = lanes.resolve(" xai ", "image", "").await.unwrap();
@@ -206,7 +229,12 @@ async fn a_request_resolves_to_the_default_or_a_named_model_or_says_why_not() {
         (lanes.resolve("xai", "audio", "").await, "unsupported media kind \"audio\"", "MEDIA_KIND_UNSUPPORTED", 400),
         (lanes.resolve("zzz", "image", "").await, "unknown media lane \"zzz\"", "MEDIA_LANE_UNKNOWN", 400),
         (lanes.resolve("openrouter", "video", "").await, "openrouter does not support video", "MEDIA_KIND_UNSUPPORTED", 400),
-        (lanes.resolve("gemini", "image", "").await, "Google Gemini is not authenticated — sign in from Settings → Providers first", "MEDIA_LANE_UNAUTHENTICATED", 400),
+        (
+            lanes.resolve("gemini", "image", "").await,
+            "Google Gemini is not authenticated — sign in from Settings → Providers first",
+            "MEDIA_LANE_UNAUTHENTICATED",
+            400,
+        ),
         (lanes.resolve("xai", "image", "nope").await, "model \"nope\" is not available on xai/image", "MEDIA_MODEL_UNSUPPORTED", 400),
         (lanes.resolve("openrouter", "image", "").await, "OpenRouter (API key): Too many requests. Wait a moment and retry.", "MEDIA_RATE_LIMITED", 503),
     ];
@@ -291,7 +319,10 @@ async fn a_credential_file_the_host_bound_outranks_the_pool_and_is_what_the_defa
     let in_scope = host.with(data, "grok-oauth", "default").unwrap();
     assert_eq!(in_scope.auth_path(data, "grok-oauth", &selected).await, Some(PathBuf::from("/host/grok.json")));
     let chosen = host.with(data, "grok-oauth", ACCOUNT_B).unwrap();
-    assert_eq!(chosen.auth_path(data, "grok-oauth", &selected).await, Some(data.join("provider-accounts").join("grok-oauth").join(format!("{ACCOUNT_B}.json"))));
+    assert_eq!(
+        chosen.auth_path(data, "grok-oauth", &selected).await,
+        Some(data.join("provider-accounts").join("grok-oauth").join(format!("{ACCOUNT_B}.json")))
+    );
 }
 
 #[derive(Default)]
@@ -327,7 +358,12 @@ async fn the_lanes_of_a_pinned_account_read_that_accounts_credentials() {
     assert!(seen.contains(&("xai".to_owned(), None)), "a lane without accounts is probed with no file");
     assert!(accounts.lanes_as("grok-oauth", "bad").await.is_err());
     assert!(accounts.lanes_as("xai", ACCOUNT_A).await.is_err());
-    let scoped = ScopedLaneSources { data_dir: data.path().to_owned(), scope: AccountScope::default(), selected: Arc::new(Selected(HashMap::new())), probe: probe.clone() };
+    let scoped = ScopedLaneSources {
+        data_dir: data.path().to_owned(),
+        scope: AccountScope::default(),
+        selected: Arc::new(Selected(HashMap::new())),
+        probe: probe.clone(),
+    };
     assert!(scoped.authenticated("grok-oauth").await && !scoped.authenticated("xai").await);
 }
 
@@ -364,7 +400,12 @@ struct Oauth;
 #[async_trait]
 impl ProviderAuth for Oauth {
     async fn oauth(&self, _: &str, account: Option<&Path>) -> Result<Auth, FetchError> {
-        Ok(Auth { token: "bearer".into(), base_url: "https://oauth.example".into(), project_id: Some(format!("project-of-{}", account.map_or("default".to_owned(), |a| a.display().to_string()))), account_id: None })
+        Ok(Auth {
+            token: "bearer".into(),
+            base_url: "https://oauth.example".into(),
+            project_id: Some(format!("project-of-{}", account.map_or("default".to_owned(), |a| a.display().to_string()))),
+            account_id: None,
+        })
     }
     async fn provider_rows(&self, _: &str, _: &Auth) -> Result<Value, FetchError> {
         Ok(json!([{"id": "gpt-5.1"}]))
@@ -452,7 +493,12 @@ async fn nano_gpt_is_signed_in_through_an_enabled_custom_endpoint_on_its_own_hos
         json!({"custom-nano": base})
     };
     assert!(rig(&[], &[], provider(json!({})), false, net.clone()).probe.authenticated("nano-gpt", None).await);
-    for (extra, why) in [(json!({"enabled": false}), "disabled"), (json!({"auth": "none"}), "no auth"), (json!({"baseURL": "https://evil.example/v1"}), "another host"), (json!({"apiKey": ""}), "no key")] {
+    for (extra, why) in [
+        (json!({"enabled": false}), "disabled"),
+        (json!({"auth": "none"}), "no auth"),
+        (json!({"baseURL": "https://evil.example/v1"}), "another host"),
+        (json!({"apiKey": ""}), "no key"),
+    ] {
         assert!(!rig(&[], &[], provider(extra), false, net.clone()).probe.authenticated("nano-gpt", None).await, "{why}");
     }
     let by_env = rig(&[], &[("NANO_KEY", "x")], provider(json!({"apiKey": "", "apiKeyEnv": "NANO_KEY"})), false, net.clone());
@@ -512,11 +558,17 @@ async fn a_lanes_catalog_is_fetched_with_its_key_cached_per_credential_and_serve
     let first = r.probe.models("xai", None).await.unwrap();
     assert_eq!(first.rows, vec![json!({"id": "grok-imagine-image"})]);
     let asked = r.net.asked.lock().unwrap().clone();
-    assert_eq!((asked[0].0.as_str(), asked[0].1.clone(), asked[0].2), ("https://api.x.ai/v1/models", vec![("Authorization".to_owned(), "Bearer xk".to_owned())], Duration::from_secs(10)));
+    assert_eq!(
+        (asked[0].0.as_str(), asked[0].1.clone(), asked[0].2),
+        ("https://api.x.ai/v1/models", vec![("Authorization".to_owned(), "Bearer xk".to_owned())], Duration::from_secs(10))
+    );
     let scope: String = Sha256::digest(b"xk").iter().map(|b| format!("{b:02x}")).collect::<String>().chars().take(24).collect();
     let file = r.data.path().join(format!("studio-models-xai-{scope}.json"));
     let saved: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-    assert_eq!((saved["version"].clone(), saved["fetchedAt"].clone(), saved["models"].clone()), (json!(1), json!(1_800_000_000_000i64), json!([{"id": "grok-imagine-image"}])));
+    assert_eq!(
+        (saved["version"].clone(), saved["fetchedAt"].clone(), saved["models"].clone()),
+        (json!(1), json!(1_800_000_000_000i64), json!([{"id": "grok-imagine-image"}]))
+    );
     assert!(!std::fs::read_to_string(&file).unwrap().contains("xk"), "the key is never in the cache file");
     assert_eq!(r.probe.models("xai", None).await.unwrap().rows, first.rows);
     assert_eq!(r.net.asked.lock().unwrap().len(), 1, "the second listing is the cache's");
@@ -547,7 +599,11 @@ async fn two_accounts_of_one_provider_keep_their_catalogs_apart() {
     let a = r.probe.models("antigravity-oauth", Some(Path::new("/a.json"))).await;
     let b = r.probe.models("antigravity-oauth", Some(Path::new("/b.json"))).await;
     assert!(a.is_ok() && b.is_ok());
-    let cached: Vec<String> = std::fs::read_dir(r.data.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("studio-models-antigravity-oauth-")).collect();
+    let cached: Vec<String> = std::fs::read_dir(r.data.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("studio-models-antigravity-oauth-"))
+        .collect();
     assert_eq!(cached.len(), 2, "{cached:?}");
 }
 
@@ -581,7 +637,10 @@ async fn other_lanes_read_a_data_list_from_their_models_route() {
     let asked = net.asked.lock().unwrap().clone();
     assert_eq!((asked[0].0.as_str(), asked[1].0.as_str()), ("https://gw.example/v1/models", "https://gw.example/v1/images/models"));
     assert_eq!(asked[0].1, vec![("Authorization".to_owned(), "Bearer tok".to_owned())]);
-    assert_eq!((media_catalog_timeout("openrouter"), media_catalog_timeout("nano-gpt"), media_catalog_timeout("xai")), (Duration::from_secs(60), Duration::from_secs(60), Duration::from_secs(10)));
+    assert_eq!(
+        (media_catalog_timeout("openrouter"), media_catalog_timeout("nano-gpt"), media_catalog_timeout("xai")),
+        (Duration::from_secs(60), Duration::from_secs(60), Duration::from_secs(10))
+    );
 }
 
 #[tokio::test]
@@ -594,7 +653,10 @@ async fn a_catalog_request_that_fails_carries_a_code_a_status_and_whether_it_tim
         Err(HttpFailure { message: "fetch failed".into(), timed_out: false }),
     ]);
     let error = fetch_media_model_rows(net.as_ref(), "xai", &gateway()).await.unwrap_err();
-    assert_eq!((error.code.as_deref(), error.status, error.message.as_str(), error.timed_out), (Some("MEDIA_AUTH_REJECTED"), Some(401), "Authentication failed. Check the API key or reconnect the account.", false));
+    assert_eq!(
+        (error.code.as_deref(), error.status, error.message.as_str(), error.timed_out),
+        (Some("MEDIA_AUTH_REJECTED"), Some(401), "Authentication failed. Check the API key or reconnect the account.", false)
+    );
     assert_eq!(fetch_media_model_rows(net.as_ref(), "xai", &gateway()).await.unwrap_err().code.as_deref(), Some("MEDIA_BILLING_BLOCKED"));
     let invalid = fetch_media_model_rows(net.as_ref(), "xai", &gateway()).await.unwrap_err();
     assert_eq!((invalid.code, invalid.status), (None, None));
@@ -609,7 +671,11 @@ async fn the_catalog_file_is_valid_for_a_day_and_a_stale_read_ignores_the_age_bu
     let dir = tempfile::tempdir().unwrap();
     let now = Arc::new(std::sync::atomic::AtomicI64::new(1_800_000_000_000));
     let clock = now.clone();
-    let cache = FileCatalogCache { data_dir: dir.path().to_owned(), lane: mixdog_rt::testing::tokens().durability_io, now: Arc::new(move || clock.load(Ordering::SeqCst)) };
+    let cache = FileCatalogCache {
+        data_dir: dir.path().to_owned(),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        now: Arc::new(move || clock.load(Ordering::SeqCst)),
+    };
     assert_eq!(cache.load("k", false).await, None);
     cache.save("k", &[json!({"id": "m"})]).await;
     assert!(dir.path().join("studio-models-k.json").exists());
@@ -619,7 +685,11 @@ async fn the_catalog_file_is_valid_for_a_day_and_a_stale_read_ignores_the_age_bu
     now.fetch_add(1, Ordering::SeqCst);
     assert_eq!(cache.load("k", false).await, None, "older than a day");
     assert_eq!(cache.load("k", true).await, Some(vec![json!({"id": "m"})]), "a stale read takes any age");
-    for (doc, why) in [(json!({"version": 2, "fetchedAt": 1, "models": []}), "another version"), (json!({"version": 1, "models": []}), "no time"), (json!({"version": 1, "fetchedAt": 1}), "no models")] {
+    for (doc, why) in [
+        (json!({"version": 2, "fetchedAt": 1, "models": []}), "another version"),
+        (json!({"version": 1, "models": []}), "no time"),
+        (json!({"version": 1, "fetchedAt": 1}), "no models"),
+    ] {
         std::fs::write(dir.path().join("studio-models-k.json"), doc.to_string()).unwrap();
         assert_eq!(cache.load("k", true).await, None, "{why}");
     }

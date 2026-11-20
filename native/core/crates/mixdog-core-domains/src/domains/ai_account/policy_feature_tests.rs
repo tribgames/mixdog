@@ -4,8 +4,8 @@
 
 use std::collections::HashSet;
 
-use mixdog_ai::accounts::{AccountStore, Pool};
 use mixdog_ai::accounts::policy::{Limit, account_exhausted_for_model_only, account_limit, choose_account};
+use mixdog_ai::accounts::{AccountStore, Pool};
 use mixdog_ai::oauth::CredentialIo;
 use serde_json::{Value, json};
 
@@ -67,7 +67,13 @@ async fn a_policy_or_auto_change_keeps_the_other_readable_for_builds_that_predat
     }
     assert_eq!(
         seen,
-        [(json!(true), json!("headroom")), (json!(true), json!("headroom")), (json!(false), json!("manual")), (json!(true), json!("limit")), (json!(false), json!("manual"))]
+        [
+            (json!(true), json!("headroom")),
+            (json!(true), json!("headroom")),
+            (json!(false), json!("manual")),
+            (json!(true), json!("limit")),
+            (json!(false), json!("manual"))
+        ]
     );
 }
 
@@ -135,9 +141,15 @@ fn row(value: Value) -> mixdog_ai::accounts::Account {
 #[test]
 fn a_full_model_family_window_limits_that_family_only_and_a_full_five_hour_window_limits_the_account() {
     const NOW: i64 = 5_000_000;
-    let family_full = row(json!({ "id": "a", "usage": { "windows": [{ "label": "5H", "usedPct": 12, "resetAt": 5_001_000 }, { "label": "7D Fable", "usedPct": 100, "resetAt": 5_001_000 }], "checkedAt": NOW } }));
-    let everything_full = row(json!({ "id": "b", "usage": { "windows": [{ "label": "5H", "usedPct": 100, "resetAt": 5_001_000 }, { "label": "7D Fable", "usedPct": 100, "resetAt": 5_001_000 }], "checkedAt": NOW } }));
-    let blocked_family = row(json!({ "id": "c", "usage": { "windows": [{ "label": "7D Fable", "usedPct": 40 }], "checkedAt": NOW }, "blockedUntil": 5_001_000, "blockedModel": "claude-fable-5" }));
+    let family_full = row(
+        json!({ "id": "a", "usage": { "windows": [{ "label": "5H", "usedPct": 12, "resetAt": 5_001_000 }, { "label": "7D Fable", "usedPct": 100, "resetAt": 5_001_000 }], "checkedAt": NOW } }),
+    );
+    let everything_full = row(
+        json!({ "id": "b", "usage": { "windows": [{ "label": "5H", "usedPct": 100, "resetAt": 5_001_000 }, { "label": "7D Fable", "usedPct": 100, "resetAt": 5_001_000 }], "checkedAt": NOW } }),
+    );
+    let blocked_family = row(
+        json!({ "id": "c", "usage": { "windows": [{ "label": "7D Fable", "usedPct": 40 }], "checkedAt": NOW }, "blockedUntil": 5_001_000, "blockedModel": "claude-fable-5" }),
+    );
     let blocked_other_model = row(json!({ "id": "d", "blockedUntil": 5_001_000, "blockedModel": "gpt-5" }));
     let nearly_full = row(json!({ "id": "e", "usage": { "windows": [{ "label": "7D", "usedPct": 99 }], "checkedAt": NOW } }));
 
@@ -149,5 +161,8 @@ fn a_full_model_family_window_limits_that_family_only_and_a_full_five_hour_windo
 
     assert!(account_exhausted_for_model_only(&family_full, NOW, "claude-fable-5", false));
     assert!(!account_exhausted_for_model_only(&family_full, NOW, "claude-opus-4", false), "another family is still open");
-    assert!(!account_exhausted_for_model_only(&everything_full, NOW, "claude-fable-5", false), "an account that is full everywhere is not limited for one model only");
+    assert!(
+        !account_exhausted_for_model_only(&everything_full, NOW, "claude-fable-5", false),
+        "an account that is full everywhere is not limited for one model only"
+    );
 }

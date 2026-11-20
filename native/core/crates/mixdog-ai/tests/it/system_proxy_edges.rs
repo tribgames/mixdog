@@ -64,7 +64,11 @@ fn logged() -> (SystemProxy, Arc<Mutex<Vec<String>>>) {
 #[test]
 fn a_registry_proxy_server_is_one_address_for_every_scheme_or_a_list_that_must_name_an_https_proxy() {
     assert_eq!(parse_proxy_server("proxy.corp:8080"), Ok(pair("http://proxy.corp:8080", Some("http://proxy.corp:8080"))));
-    assert_eq!(parse_proxy_server(" HTTPS://secure.corp:443 "), Ok(pair("https://secure.corp:443", Some("https://secure.corp:443"))), "the scheme is read in any case");
+    assert_eq!(
+        parse_proxy_server(" HTTPS://secure.corp:443 "),
+        Ok(pair("https://secure.corp:443", Some("https://secure.corp:443"))),
+        "the scheme is read in any case"
+    );
     assert_eq!(parse_proxy_server("[::1]:3128"), Ok(pair("http://[::1]:3128", Some("http://[::1]:3128"))));
     assert_eq!(parse_proxy_server("http=a:1;https=b:2"), Ok(pair("http://b:2", Some("http://a:1"))));
     assert_eq!(parse_proxy_server("https=b:2"), Ok(pair("http://b:2", None)));
@@ -112,11 +116,18 @@ fn the_registry_decides_a_proxy_only_when_enabled_without_a_pac_and_with_exact_v
         let skipped = system_proxy_from_registry(Some(&values(disabled, "p:1", ""))).unwrap_err();
         assert_eq!(skipped, NotUsed { reason: "disabled".into(), silent: true }, "{disabled:?}");
     }
-    assert_eq!(system_proxy_from_registry(Some(&RegistryValues { proxy_enable: Some("1".into()), ..RegistryValues::default() })).unwrap_err().reason, "disabled", "no server");
+    assert_eq!(
+        system_proxy_from_registry(Some(&RegistryValues { proxy_enable: Some("1".into()), ..RegistryValues::default() })).unwrap_err().reason,
+        "disabled",
+        "no server"
+    );
     assert_eq!(system_proxy_from_registry(None).unwrap_err(), NotUsed { reason: "registry unreadable".into(), silent: true });
     let pac = RegistryValues { auto_config_url: Some("http://wpad/wpad.dat".into()), ..values("1", "p:1", "") };
     assert_eq!(system_proxy_from_registry(Some(&pac)).unwrap_err(), NotUsed { reason: "a PAC script is configured".into(), silent: false });
-    assert_eq!(system_proxy_from_registry(Some(&values("1", "nonsense", ""))).unwrap_err(), NotUsed { reason: "unsupported proxy server".into(), silent: false });
+    assert_eq!(
+        system_proxy_from_registry(Some(&values("1", "nonsense", ""))).unwrap_err(),
+        NotUsed { reason: "unsupported proxy server".into(), silent: false }
+    );
     assert_eq!(
         system_proxy_from_registry(Some(&values("1", "p:1", "8.8.*"))).unwrap_err(),
         NotUsed { reason: "proxy exceptions cannot be translated exactly".into(), silent: false }
@@ -134,7 +145,10 @@ fn reg_query_output_is_read_by_row_with_lower_cased_names() {
     assert_eq!(settings["other name"], "x y");
     assert_eq!(settings.len(), 5, "the key line is not a row");
     let found = registry_values(&settings);
-    assert_eq!((found.proxy_enable.as_deref(), found.proxy_server.as_deref(), found.auto_config_url.as_deref()), (Some("0x1"), Some("http=a:1;https=b:2"), Some("")));
+    assert_eq!(
+        (found.proxy_enable.as_deref(), found.proxy_server.as_deref(), found.auto_config_url.as_deref()),
+        (Some("0x1"), Some("http=a:1;https=b:2"), Some(""))
+    );
 }
 
 #[test]
@@ -152,7 +166,8 @@ fn chromiums_answer_gives_the_first_http_proxy_and_direct_ends_the_list() {
     assert_eq!(route("").proxy, None);
 }
 
-const HANDOFF: &str = r#"{"proxy":{"https":"http://hand.off:3128","http":"http://hand.off:3128"},"bypass":{"hosts":["exact.example"],"suffixes":["corp.example"]}}"#;
+const HANDOFF: &str =
+    r#"{"proxy":{"https":"http://hand.off:3128","http":"http://hand.off:3128"},"bypass":{"hosts":["exact.example"],"suffixes":["corp.example"]}}"#;
 
 #[tokio::test]
 async fn a_handoff_from_the_launching_process_is_the_decision_with_its_exceptions() {
@@ -211,7 +226,10 @@ async fn without_a_handoff_only_windows_reads_the_registry_and_a_skipped_registr
     for (registry, line) in [
         (None, None),
         (Some(values("0", "p:1", "")), None),
-        (Some(RegistryValues { auto_config_url: Some("http://wpad/x.pac".into()), ..values("1", "p:1", "") }), Some("[mixdog] system proxy not used: a PAC script is configured")),
+        (
+            Some(RegistryValues { auto_config_url: Some("http://wpad/x.pac".into()), ..values("1", "p:1", "") }),
+            Some("[mixdog] system proxy not used: a PAC script is configured"),
+        ),
         (Some(values("1", "only=http:1", "")), Some("[mixdog] system proxy not used: no HTTPS proxy (HTTP-only, SOCKS-only or other entries)")),
         (Some(values("1", "nonsense", "")), Some("[mixdog] system proxy not used: unsupported proxy server")),
     ] {
@@ -293,7 +311,11 @@ async fn a_lookup_that_fails_goes_direct_and_is_logged_once_and_a_socks_only_ans
     assert_eq!(system.route("https://a.example").await.proxy, None);
     assert_eq!(asked.load(Ordering::SeqCst), 1, "a failure is remembered too, for a shorter while");
     assert_eq!(system.route("https://b.example").await.proxy, None);
-    assert_eq!(lines.lock().unwrap().as_slice(), ["[mixdog] system proxy lookup failed or timed out; connecting directly"], "one line for the whole run of failures");
+    assert_eq!(
+        lines.lock().unwrap().as_slice(),
+        ["[mixdog] system proxy lookup failed or timed out; connecting directly"],
+        "one line for the whole run of failures"
+    );
     drop(claim);
 
     let _socks = system.attach_resolver(Arc::new(Answering { answer: "SOCKS5 10.0.0.1:1080".into(), asked: Arc::default() }));

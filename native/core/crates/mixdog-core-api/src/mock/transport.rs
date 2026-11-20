@@ -53,11 +53,7 @@ struct EventBudget {
 
 impl EventBudget {
     fn try_take(&self, bytes: usize) -> bool {
-        self.free
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |free| {
-                free.checked_sub(bytes)
-            })
-            .is_ok()
+        self.free.try_update(Ordering::AcqRel, Ordering::Acquire, |free| free.checked_sub(bytes)).is_ok()
     }
 }
 
@@ -88,18 +84,12 @@ struct LaneQueue {
 
 enum Entry {
     Frame(Bytes, Reservation),
-    Slot {
-        id: u64,
-        frame: Option<Bytes>,
-        reservation: Reservation,
-    },
+    Slot { id: u64, frame: Option<Bytes>, reservation: Reservation },
 }
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn received(&self) {
@@ -108,9 +98,7 @@ impl Shared {
 
     fn reserve(&self, bytes: usize) -> Option<Reservation> {
         let budget: Arc<dyn ByteBudget> = self.budget.clone();
-        self.budget
-            .try_take(bytes)
-            .then(|| Reservation::new(bytes, budget))
+        self.budget.try_take(bytes).then(|| Reservation::new(bytes, budget))
     }
 }
 
@@ -148,11 +136,7 @@ impl State {
             (lane.released && !lane.lagged && ready).then(|| sub.clone())
         };
         let after = self.last_written.clone();
-        let tail = self
-            .lanes
-            .iter()
-            .filter(|(sub, _)| after.as_ref().is_some_and(|last| *sub > last))
-            .find_map(writable);
+        let tail = self.lanes.iter().filter(|(sub, _)| after.as_ref().is_some_and(|last| *sub > last)).find_map(writable);
         tail.or_else(|| self.lanes.iter().find_map(writable))
     }
 }
@@ -163,9 +147,7 @@ impl MockConnection {
             shared: Arc::new(Shared {
                 id,
                 limits,
-                budget: Arc::new(EventBudget {
-                    free: AtomicUsize::new(limits.event_budget_bytes()),
-                }),
+                budget: Arc::new(EventBudget { free: AtomicUsize::new(limits.event_budget_bytes()) }),
                 state: Mutex::new(State::default()),
                 received: tokio::sync::watch::Sender::new(0),
             }),
@@ -203,17 +185,10 @@ impl MockConnection {
             let Some(sub) = state.next_writable() else {
                 break;
             };
-            let entry = state
-                .lanes
-                .get_mut(&sub)
-                .expect("writable lane exists")
-                .queue
-                .pop_front();
+            let entry = state.lanes.get_mut(&sub).expect("writable lane exists").queue.pop_front();
             let frame = match entry {
                 Some(Entry::Frame(frame, _reservation)) => frame,
-                Some(Entry::Slot {
-                    frame: Some(frame), ..
-                }) => {
+                Some(Entry::Slot { frame: Some(frame), .. }) => {
                     if state.recovering.as_ref() == Some(&sub) {
                         state.recovering = None;
                     }
@@ -222,10 +197,7 @@ impl MockConnection {
                 _ => unreachable!("next_writable checked the head"),
             };
             state.last_written = Some(sub.clone());
-            written.push(Written {
-                lane: Some(sub),
-                frame,
-            });
+            written.push(Written { lane: Some(sub), frame });
         }
         written
     }
@@ -268,8 +240,7 @@ impl MockConnection {
             let Some(sub) = state.lagged.front().cloned() else {
                 return;
             };
-            let Some(reservation) = self.shared.reserve(self.shared.limits.max_snapshot_bytes)
-            else {
+            let Some(reservation) = self.shared.reserve(self.shared.limits.max_snapshot_bytes) else {
                 return;
             };
             state.lagged.pop_front();
@@ -280,21 +251,14 @@ impl MockConnection {
         recovery.recover(sub, reservation);
     }
 
-    fn queue_control(
-        &self,
-        frame: Bytes,
-        release: Option<SubscriptionId>,
-    ) -> Result<(), SinkClosed> {
+    fn queue_control(&self, frame: Bytes, release: Option<SubscriptionId>) -> Result<(), SinkClosed> {
         let mut state = self.shared.lock();
         if state.closed {
             return Err(SinkClosed);
         }
         if state.control_used + frame.len() > self.shared.limits.control_reserve_bytes {
             // Control reserve exhausted: close 4000 slowConsumer.
-            *state = State {
-                closed: true,
-                ..State::default()
-            };
+            *state = State { closed: true, ..State::default() };
             return Err(SinkClosed);
         }
         state.control_used += frame.len();
@@ -314,36 +278,17 @@ impl ConnectionSink for MockConnection {
     }
 
     fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
-        assert_eq!(
-            release.connection(),
-            self.shared.id,
-            "lane release of another connection"
-        );
+        assert_eq!(release.connection(), self.shared.id, "lane release of another connection");
         self.queue_control(frame, Some(release.sub().clone()))
     }
 
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         let mut state = self.shared.lock();
         if state.closed {
             return Err(SinkClosed);
         }
-        state.lanes.insert(
-            sub.clone(),
-            LaneQueue {
-                released: false,
-                lagged: false,
-                queue: VecDeque::new(),
-                recovery,
-            },
-        );
-        let lane = Arc::new(MockLane {
-            shared: self.shared.clone(),
-            sub: sub.clone(),
-        });
+        state.lanes.insert(sub.clone(), LaneQueue { released: false, lagged: false, queue: VecDeque::new(), recovery });
+        let lane = Arc::new(MockLane { shared: self.shared.clone(), sub: sub.clone() });
         Ok((lane, LaneRelease::new(self.shared.id, sub)))
     }
 }
@@ -363,10 +308,7 @@ impl Lane for MockLane {
     }
 
     fn push(&self, reservation: Reservation, frame: Bytes) {
-        assert!(
-            frame.len() <= reservation.bytes(),
-            "frame exceeds its reservation"
-        );
+        assert!(frame.len() <= reservation.bytes(), "frame exceeds its reservation");
         let mut state = self.shared.lock();
         if let Some(lane) = state.lanes.get_mut(&self.sub)
             && !lane.lagged
@@ -383,18 +325,9 @@ impl Lane for MockLane {
         state.lagged.retain(|sub| *sub != self.sub);
         if let Some(lane) = state.lanes.get_mut(&self.sub) {
             lane.lagged = false;
-            lane.queue.push_back(Entry::Slot {
-                id,
-                frame: None,
-                reservation,
-            });
+            lane.queue.push_back(Entry::Slot { id, frame: None, reservation });
         }
-        SnapshotSlot::new(Box::new(MockSlot {
-            shared: Arc::downgrade(&self.shared),
-            sub: self.sub.clone(),
-            id,
-            filled: false,
-        }))
+        SnapshotSlot::new(Box::new(MockSlot { shared: Arc::downgrade(&self.shared), sub: self.sub.clone(), id, filled: false }))
     }
 
     fn lag(&self) -> usize {
@@ -402,11 +335,7 @@ impl Lane for MockLane {
     }
 
     fn is_lagged(&self) -> bool {
-        self.shared
-            .lock()
-            .lanes
-            .get(&self.sub)
-            .is_some_and(|lane| lane.lagged)
+        self.shared.lock().lanes.get(&self.sub).is_some_and(|lane| lane.lagged)
     }
 
     fn close(&self) {
@@ -436,33 +365,17 @@ impl MockSlot {
         let Some(lane) = state.lanes.get_mut(&self.sub) else {
             return;
         };
-        let Some(index) = lane
-            .queue
-            .iter()
-            .position(|entry| matches!(entry, Entry::Slot { id, .. } if *id == self.id))
-        else {
+        let Some(index) = lane.queue.iter().position(|entry| matches!(entry, Entry::Slot { id, .. } if *id == self.id)) else {
             return;
         };
         // Take the entry out so `f` may lag the lane, then put it back unless it lagged.
-        let Some(Entry::Slot {
-            id,
-            mut frame,
-            mut reservation,
-        }) = lane.queue.remove(index)
-        else {
+        let Some(Entry::Slot { id, mut frame, mut reservation }) = lane.queue.remove(index) else {
             unreachable!("position matched a slot");
         };
         if f(&mut state, &mut frame, &mut reservation)
             && let Some(lane) = state.lanes.get_mut(&self.sub)
         {
-            lane.queue.insert(
-                index,
-                Entry::Slot {
-                    id,
-                    frame,
-                    reservation,
-                },
-            );
+            lane.queue.insert(index, Entry::Slot { id, frame, reservation });
         }
     }
 }

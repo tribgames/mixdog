@@ -16,9 +16,9 @@ use serde_json::json;
 use super::schema::declaration_schema;
 use crate::providers::action_input::action_input_union_for;
 use crate::providers::compat::schema::Problem;
-use crate::providers::compat::schema::claude_bridge_input_schema;
 use crate::providers::compat::schema::Rule;
 use crate::providers::compat::schema::ToolExclusion;
+use crate::providers::compat::schema::claude_bridge_input_schema;
 use crate::providers::compat::schema::escape_pointer;
 use crate::providers::compat::schema::exclusion;
 use crate::providers::compat::schema::repaired_tool_input_schema;
@@ -66,22 +66,13 @@ fn entries(value: &Value) -> Vec<(String, Value)> {
     match value {
         Value::Object(map) => {
             let index = |key: &str| key.parse::<u32>().ok().filter(|n| *n < u32::MAX && n.to_string() == key);
-            let mut indexed: Vec<(u32, &String, &Value)> =
-                map.iter().filter_map(|(key, child)| index(key).map(|n| (n, key, child))).collect();
+            let mut indexed: Vec<(u32, &String, &Value)> = map.iter().filter_map(|(key, child)| index(key).map(|n| (n, key, child))).collect();
             indexed.sort_by_key(|(n, ..)| *n);
             let named = map.iter().filter(|(key, _)| index(key).is_none());
-            indexed
-                .into_iter()
-                .map(|(_, key, child)| (key.clone(), child.clone()))
-                .chain(named.map(|(key, child)| (key.clone(), child.clone())))
-                .collect()
+            indexed.into_iter().map(|(_, key, child)| (key.clone(), child.clone())).chain(named.map(|(key, child)| (key.clone(), child.clone()))).collect()
         }
         Value::Array(list) => list.iter().enumerate().map(|(i, child)| (i.to_string(), child.clone())).collect(),
-        Value::String(text) => text
-            .chars()
-            .enumerate()
-            .map(|(i, c)| (i.to_string(), Value::String(c.to_string())))
-            .collect(),
+        Value::String(text) => text.chars().enumerate().map(|(i, c)| (i.to_string(), Value::String(c.to_string()))).collect(),
         _ => Vec::new(),
     }
 }
@@ -122,16 +113,9 @@ fn legacy_problem(node: &Value, pointer: &str, root: bool) -> Option<Problem> {
             Some(Value::Array(list)) => Some((0..list.len()).map(|i| i.to_string()).collect()),
             _ => None,
         };
-        let undeclared = |list: &Vec<Value>| {
-            names
-                .as_ref()
-                .is_some_and(|names| list.iter().any(|n| !n.as_str().is_some_and(|n| names.iter().any(|x| x == n))))
-        };
+        let undeclared = |list: &Vec<Value>| names.as_ref().is_some_and(|names| list.iter().any(|n| !n.as_str().is_some_and(|n| names.iter().any(|x| x == n))));
         if required.as_array().is_none_or(undeclared) {
-            return bad(
-                "required must list properties declared in \"properties\"".into(),
-                format!("{pointer}/required"),
-            );
+            return bad("required must list properties declared in \"properties\"".into(), format!("{pointer}/required"));
         }
     }
     let mut children: Vec<(Value, String)> = Vec::new();
@@ -205,11 +189,7 @@ fn accepted_tool(tool: &ToolDefinition, index: usize, excluded: &mut dyn FnMut(T
 /// order: unchanged, or carrying the lowered schema when only that is accepted. The others are
 /// reported through `excluded` (`geminiAcceptedTools`).
 pub fn gemini_accepted_tools(tools: &[ToolDefinition], excluded: &mut dyn FnMut(ToolExclusion)) -> Vec<ToolDefinition> {
-    tools
-        .iter()
-        .enumerate()
-        .filter_map(|(index, tool)| accepted_tool(tool, index, excluded).map(|accepted| accepted.tool))
-        .collect()
+    tools.iter().enumerate().filter_map(|(index, tool)| accepted_tool(tool, index, excluded).map(|accepted| accepted.tool)).collect()
 }
 
 /// Why a Gemini route leaves `tool` out of its requests, or `None` when it is sent. Reports
@@ -254,11 +234,7 @@ pub fn claude_bridge_tool_exclusion(tool: &ToolDefinition) -> Option<ToolExclusi
 
 /// The `functionDeclarations` of a request (`toGeminiTools`): see [`Declarations`]. A tool left
 /// out is reported through `excluded`.
-pub fn function_declarations(
-    tools: &[ToolDefinition],
-    mode: Declarations,
-    excluded: &mut dyn FnMut(ToolExclusion),
-) -> Vec<Value> {
+pub fn function_declarations(tools: &[ToolDefinition], mode: Declarations, excluded: &mut dyn FnMut(ToolExclusion)) -> Vec<Value> {
     tools
         .iter()
         .enumerate()

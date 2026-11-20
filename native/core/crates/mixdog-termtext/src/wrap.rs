@@ -19,11 +19,8 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::ansi::{BEL, ESC, InkTokenKind, is_close_code, js_parse_int, js_trim_end, js_trim_start, sgr_code, style_close, tokenize_ink};
 use crate::lone;
-use crate::ansi::{
-    BEL, ESC, InkTokenKind, is_close_code, js_parse_int, js_trim_end, js_trim_start, sgr_code, style_close,
-    tokenize_ink,
-};
 use crate::policy::{display_width, display_width_with};
 use crate::slice::slice_ansi;
 use crate::strip::strip_ansi;
@@ -153,10 +150,7 @@ fn match_ansi_escape(text: &str, at: usize) -> Option<EscapeMatch<'_>> {
     while bytes.get(cursor).is_some_and(|b| (0x20..=0x2f).contains(b)) {
         cursor += 1;
     }
-    bytes
-        .get(cursor)
-        .filter(|b| (0x40..=0x7e).contains(*b))
-        .map(|_| EscapeMatch { len: cursor + 1 - at, kind: EscapeKind::Other })
+    bytes.get(cursor).filter(|b| (0x40..=0x7e).contains(*b)).map(|_| EscapeMatch { len: cursor + 1 - at, kind: EscapeKind::Other })
 }
 
 /// `forEachSegment`: the string as alternating plain text and complete escape sequences. A character that looks
@@ -167,8 +161,7 @@ fn segments(text: &str) -> Vec<Segment<'_>> {
     let mut plain_start = 0;
     let mut index = 0;
     while index < bytes.len() {
-        let introducer = (index..bytes.len())
-            .find(|&at| bytes[at] == 0x1b || (bytes[at] == 0xc2 && bytes.get(at + 1) == Some(&0x9b)));
+        let introducer = (index..bytes.len()).find(|&at| bytes[at] == 0x1b || (bytes[at] == 0xc2 && bytes.get(at + 1) == Some(&0x9b)));
         let Some(at) = introducer else { break };
         let Some(found) = match_ansi_escape(text, at) else {
             index = at + if bytes[at] == 0x1b { 1 } else { 2 };
@@ -218,10 +211,7 @@ fn get_tokens(text: &str) -> Vec<Token> {
                 tokens.extend(part.chars().map(|ch| Token { value: ch.to_string(), width: 1 }));
             }
             Segment::Plain(part) => {
-                tokens.extend(part.graphemes(true).map(|cluster| Token {
-                    value: cluster.to_owned(),
-                    width: get_string_width(cluster),
-                }));
+                tokens.extend(part.graphemes(true).map(|cluster| Token { value: cluster.to_owned(), width: get_string_width(cluster) }));
             }
             Segment::Escape(code) => tokens.push(Token { value: code.to_owned(), width: 0 }),
         }
@@ -450,8 +440,7 @@ fn restore_styles_across_rows(text: &str) -> String {
     let mut index = 0;
     let mut copied = 0;
     while index < bytes.len() {
-        let boundary = (index..bytes.len())
-            .find(|&at| matches!(bytes[at], b'\n' | 0x1b) || (bytes[at] == 0xc2 && bytes.get(at + 1) == Some(&0x9b)));
+        let boundary = (index..bytes.len()).find(|&at| matches!(bytes[at], b'\n' | 0x1b) || (bytes[at] == 0xc2 && bytes.get(at + 1) == Some(&0x9b)));
         let Some(at) = boundary else { break };
         index = at;
         if bytes[at] != b'\n' {
@@ -694,12 +683,7 @@ pub fn wrap_ansi(text: &str, columns: usize, options: WrapOptions) -> String {
 
 /// [`wrap_ansi`] at the width Node was given, which may be a fraction (see `exec`).
 fn wrap_ansi_measured(text: &str, columns: usize, measured: f64, options: WrapOptions) -> String {
-    normalize_text(text)
-        .replace("\r\n", "\n")
-        .split('\n')
-        .map(|line| exec(&expand_tabs(line), columns, measured, options))
-        .collect::<Vec<_>>()
-        .join("\n")
+    normalize_text(text).replace("\r\n", "\n").split('\n').map(|line| exec(&expand_tabs(line), columns, measured, options)).collect::<Vec<_>>().join("\n")
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -903,9 +887,7 @@ fn enforce_display_width(wrapped: String, max_width: usize, how: Enforce, wide: 
     let lines = wrapped.split('\n');
     match how {
         Enforce::Cut => lines.map(|line| hard_cut_to_display_width(line, max_width, wide)).collect::<Vec<_>>().join("\n"),
-        Enforce::Reflow => {
-            lines.flat_map(|line| reflow_to_display_width(line, max_width, wide)).collect::<Vec<_>>().join("\n")
-        }
+        Enforce::Reflow => lines.flat_map(|line| reflow_to_display_width(line, max_width, wide)).collect::<Vec<_>>().join("\n"),
     }
 }
 
@@ -966,8 +948,7 @@ fn wrap_cache() -> &'static WrapCache {
 /// Ink's `wrapText(text, maxWidth, wrapType)` under the policy of this process, cached by text, width and mode.
 pub fn wrap_text(text: &str, max_width: usize, mode: WrapMode) -> String {
     let key = (text.to_owned(), max_width, mode);
-    if let Some(hit) = wrap_cache().lock().unwrap_or_else(PoisonError::into_inner).get(&key).filter(|hit| !hit.is_empty())
-    {
+    if let Some(hit) = wrap_cache().lock().unwrap_or_else(PoisonError::into_inner).get(&key).filter(|hit| !hit.is_empty()) {
         return hit.clone();
     }
     let wrapped = wrap_text_with(text, max_width, mode, process_policy());
@@ -1190,10 +1171,7 @@ mod tests {
     #[test]
     fn hyperlinks_are_closed_and_reopened_across_rows() {
         let text = "\x1b]8;;http://u\x07abcdef\x1b]8;;\x07";
-        assert_eq!(
-            hard(text, 3),
-            "\x1b]8;;http://u\x07abc\x1b]8;;\x07\n\x1b]8;;http://u\x07def\x1b]8;;\x07"
-        );
+        assert_eq!(hard(text, 3), "\x1b]8;;http://u\x07abc\x1b]8;;\x07\n\x1b]8;;http://u\x07def\x1b]8;;\x07");
     }
 
     #[test]
@@ -1294,14 +1272,8 @@ mod tests {
     fn a_reflow_cut_closes_what_it_leaves_open_and_reopens_it() {
         let wrap_on = |text: &str, columns, mode| wrap_text_with(text, columns, mode, true);
         assert_eq!(wrap_on("\x1b[31m①②③\x1b[39m", 5, WrapMode::Wrap), "\x1b[31m①②\x1b[0m\n\x1b[31m③\x1b[39m");
-        assert_eq!(
-            wrap_on("\x1b]8;;http://u\x07①②③\x1b]8;;\x07", 5, WrapMode::Wrap),
-            "\x1b]8;;http://u\x07①②\x1b]8;;\x07\n\x1b]8;;http://u\x07③\x1b]8;;\x07"
-        );
-        assert_eq!(
-            wrap_on("\x1b[31;1m①②\x1b[0m③", 3, WrapMode::Hard),
-            "\x1b[31;1m①\x1b[0m\n\x1b[31;1m②\x1b[0m\n③"
-        );
+        assert_eq!(wrap_on("\x1b]8;;http://u\x07①②③\x1b]8;;\x07", 5, WrapMode::Wrap), "\x1b]8;;http://u\x07①②\x1b]8;;\x07\n\x1b]8;;http://u\x07③\x1b]8;;\x07");
+        assert_eq!(wrap_on("\x1b[31;1m①②\x1b[0m③", 3, WrapMode::Hard), "\x1b[31;1m①\x1b[0m\n\x1b[31;1m②\x1b[0m\n③");
     }
 
     #[test]

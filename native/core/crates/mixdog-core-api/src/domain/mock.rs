@@ -98,12 +98,12 @@ use super::provider::Exposure;
 use super::provider::HostedTool;
 use super::provider::ModelListing;
 use super::provider::ModelRecord;
-use super::provider::RosterIdentity;
 use super::provider::ModelRequest;
 use super::provider::ModelStream;
 use super::provider::ProviderAdapter;
 use super::provider::ProviderError;
 use super::provider::Role;
+use super::provider::RosterIdentity;
 use super::provider::StopReason;
 use super::provider::StreamEvent;
 use super::provider::TransportFault;
@@ -202,11 +202,7 @@ impl MockDecoder {
             StreamEvent::Completed {
                 pricing_model: None,
                 request_ms: None,
-                stop: Some(if line == "done" {
-                    StopReason::EndTurn
-                } else {
-                    StopReason::ContinueTurn
-                }),
+                stop: Some(if line == "done" { StopReason::EndTurn } else { StopReason::ContinueTurn }),
             }
         } else if line.is_empty() {
             return Ok(None);
@@ -235,12 +231,7 @@ fn parse_usage(text: &str) -> Option<Usage> {
         Some(ticks) => Some(UsdTicks(ticks.parse().ok()?)),
         None => None,
     };
-    Some(Usage {
-        input_tokens: input,
-        output_tokens: output,
-        cost,
-        ..Usage::default()
-    })
+    Some(Usage { input_tokens: input, output_tokens: output, cost, ..Usage::default() })
 }
 
 impl WireDecoder for MockDecoder {
@@ -260,10 +251,7 @@ impl WireDecoder for MockDecoder {
         let rest = std::mem::take(&mut self.buf);
         let out = self.line(&rest)?.into_iter().collect();
         if !self.terminal {
-            return Err(self.fail(ProviderError::transport(
-                TransportFault::TruncatedStream,
-                DeliveryState::Accepted,
-            )));
+            return Err(self.fail(ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted)));
         }
         Ok(out)
     }
@@ -293,13 +281,7 @@ impl WireCodec for MockCodec {
         for HostedTool::WebSearch(search) in &request.options.hosted_tools {
             body.extend_from_slice(format!("hosted:{}\n", search.tool_type).as_bytes());
         }
-        Ok(WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".into(),
-            url: format!("mock://{}/v1", request.model),
-            headers: Vec::new(),
-            body,
-        })
+        Ok(WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: format!("mock://{}/v1", request.model), headers: Vec::new(), body })
     }
 
     fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
@@ -355,10 +337,7 @@ pub enum MockAttempt {
     /// A non-success response, classified by [`MockCodec`].
     Rejected(ErrorResponse),
     /// The transport failed after the request got as far as `reached`.
-    Fault {
-        fault: TransportFault,
-        reached: DeliveryState,
-    },
+    Fault { fault: TransportFault, reached: DeliveryState },
 }
 
 /// Each attempt takes the next scripted [`MockAttempt`]; an empty script
@@ -427,18 +406,11 @@ impl ProviderAdapter for MockProvider {
         &self.keepalive
     }
 
-    async fn attempt(
-        &self,
-        request: Arc<ModelRequest>,
-    ) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.attempts.fetch_add(1, Ordering::Relaxed);
         self.codec.encode(&request)?;
-        let next = lock(&self.script)
-            .pop_front()
-            .unwrap_or(MockAttempt::Fault {
-                fault: TransportFault::Connect { os_code: None },
-                reached: DeliveryState::NotSent,
-            });
+        let next =
+            lock(&self.script).pop_front().unwrap_or(MockAttempt::Fault { fault: TransportFault::Connect { os_code: None }, reached: DeliveryState::NotSent });
         let wire = match next {
             MockAttempt::Body(wire) => wire,
             MockAttempt::Rejected(response) => return Err(self.codec.classify(&response)),
@@ -475,28 +447,14 @@ impl ProviderAdapter for MockProvider {
 pub struct MockRetryDecider;
 
 impl RetryDecider for MockRetryDecider {
-    fn verdict(
-        &self,
-        error: &ProviderError,
-        state: &RetryState,
-        policy: &RetryPolicy,
-        samples: JitterSamples,
-    ) -> Decision {
-        let stop = |verdict| Decision {
-            verdict,
-            next: state.after_failure(error.kind),
-        };
+    fn verdict(&self, error: &ProviderError, state: &RetryState, policy: &RetryPolicy, samples: JitterSamples) -> Decision {
+        let stop = |verdict| Decision { verdict, next: state.after_failure(error.kind) };
         let retry = |delay, under| Decision {
-            verdict: Verdict::Retry {
-                delay,
-                reason: reason_of(error),
-                delivery: error.delivery,
-            },
+            verdict: Verdict::Retry { delay, reason: reason_of(error), delivery: error.delivery },
             next: state.after_retry(error.kind, under, delay),
         };
         let e = error.exposure;
-        if e.text_emitted || e.tool_dispatched || e.tool_input_cut || error.kind.is_deterministic()
-        {
+        if e.text_emitted || e.tool_dispatched || e.tool_input_cut || error.kind.is_deterministic() {
             return stop(Verdict::Surface);
         }
         let Some(row) = policy.row(state.class()) else {
@@ -510,28 +468,16 @@ impl RetryDecider for MockRetryDecider {
             ErrorKind::Transient => true,
             _ => false,
         };
-        if let Some(delay) = row_retries
-            .then(|| scheduled_wait(error, &row.schedule, state.count(None), samples))
-            .flatten()
-        {
+        if let Some(delay) = row_retries.then(|| scheduled_wait(error, &row.schedule, state.count(None), samples)).flatten() {
             return retry(delay, None);
         }
         if let Some(entry) = row.kind_schedule(error.kind) {
-            return match scheduled_wait(
-                error,
-                &entry.schedule,
-                state.count(Some(entry.kind)),
-                samples,
-            ) {
+            return match scheduled_wait(error, &entry.schedule, state.count(Some(entry.kind)), samples) {
                 Some(delay) => retry(delay, Some(entry)),
                 None => stop(Verdict::Exhausted),
             };
         }
-        stop(if row_retries {
-            Verdict::Exhausted
-        } else {
-            Verdict::Surface
-        })
+        stop(if row_retries { Verdict::Exhausted } else { Verdict::Surface })
     }
 }
 
@@ -547,21 +493,13 @@ fn reason_of(error: &ProviderError) -> RetryReason {
 
 /// The wait of the next retry under `schedule`, or `None` when its count is
 /// spent or the advice is beyond its ceiling or budget.
-fn scheduled_wait(
-    error: &ProviderError,
-    schedule: &RetrySchedule,
-    count: ScheduleCount,
-    samples: JitterSamples,
-) -> Option<Duration> {
+fn scheduled_wait(error: &ProviderError, schedule: &RetrySchedule, count: ScheduleCount, samples: JitterSamples) -> Option<Duration> {
     if count.retries >= schedule.max_retries {
         return None;
     }
     let n = count.retries + 1;
     let step = match &schedule.backoff {
-        Backoff::Ladder(steps) => steps
-            .get((n as usize).min(steps.len()).saturating_sub(1))
-            .copied()
-            .unwrap_or_default(),
+        Backoff::Ladder(steps) => steps.get((n as usize).min(steps.len()).saturating_sub(1)).copied().unwrap_or_default(),
         Backoff::Exponential { base } => *base * 2u32.saturating_pow(n - 1),
     };
     let step = schedule.jitter.apply(step, samples.step);
@@ -569,23 +507,13 @@ fn scheduled_wait(
     let delay = match error.retry_after {
         None => step,
         Some(advice) if rule.ceiling.is_some_and(|ceiling| advice > ceiling) => return None,
-        Some(advice)
-            if rule
-                .budget
-                .is_some_and(|budget| count.waited + advice > budget) =>
-        {
+        Some(advice) if rule.budget.is_some_and(|budget| count.waited + advice > budget) => {
             return None;
         }
         Some(advice) => {
-            let raw = error
-                .status
-                .is_some_and(|status| rule.raw_statuses.contains(&status));
+            let raw = error.status.is_some_and(|status| rule.raw_statuses.contains(&status));
             let jitter_at = |stage, wait| {
-                if raw || rule.jitter_stage != stage {
-                    wait
-                } else {
-                    rule.jitter.apply(wait, samples.advice)
-                }
+                if raw || rule.jitter_stage != stage { wait } else { rule.jitter.apply(wait, samples.advice) }
             };
             let advice = match (raw, rule.clamp) {
                 (false, Some(clamp)) => advice.min(clamp),
@@ -613,20 +541,13 @@ pub struct MockKeepalive {
 
 impl MockKeepalive {
     pub fn new(kind: TransportKind) -> Self {
-        Self {
-            kind,
-            armed: Mutex::new(None),
-            dead: Mutex::new(None),
-            age: Mutex::new(Duration::ZERO),
-        }
+        Self { kind, armed: Mutex::new(None), dead: Mutex::new(None), age: Mutex::new(Duration::ZERO) }
     }
 
     /// The peer stops answering; the next probe round fails.
     pub fn go_half_open(&self) {
         if lock(&self.armed).is_some() {
-            *lock(&self.dead) = Some(TransportFault::KeepaliveExpired {
-                transport: self.kind,
-            });
+            *lock(&self.dead) = Some(TransportFault::KeepaliveExpired { transport: self.kind });
         }
     }
 
@@ -687,9 +608,7 @@ pub struct MockApprovalGate {
 impl ApprovalGate for MockApprovalGate {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
         lock(&self.asks).push(ask);
-        lock(&self.script)
-            .pop_front()
-            .unwrap_or(ApprovalResolution::Interrupted { at: 0 })
+        lock(&self.script).pop_front().unwrap_or(ApprovalResolution::Interrupted { at: 0 })
     }
 }
 
@@ -709,10 +628,7 @@ impl Default for EchoTool {
                 aliases: Vec::new(),
                 description: "Returns its arguments.".into(),
                 input_schema: serde_json::json!({"type": "object"}),
-                annotations: ToolAnnotations {
-                    read_only_hint: Some(true),
-                    ..ToolAnnotations::default()
-                },
+                annotations: ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() },
                 parallel_safe: true,
                 exclusive_with: Vec::new(),
             },
@@ -731,10 +647,7 @@ impl Tool for EchoTool {
             return Err(ToolError::new(ToolErrorCode::Cancelled, "cancelled"));
         }
         ctx.progress.progress(ToolProgress::Stage("echo".into()));
-        Ok(ToolOutput {
-            parts: vec![ToolPart::Json(args)],
-            ..ToolOutput::default()
-        })
+        Ok(ToolOutput { parts: vec![ToolPart::Json(args)], ..ToolOutput::default() })
     }
 }
 
@@ -771,11 +684,7 @@ impl Tool for FailingMcpTool {
 
     async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         Err(ToolError::new(
-            ToolErrorCode::McpError {
-                server: "mock".into(),
-                rpc_code: None,
-                data: Some(Box::new(args)),
-            },
+            ToolErrorCode::McpError { server: "mock".into(), rpc_code: None, data: Some(Box::new(args)) },
             "Error: the server reported a failure",
         ))
     }
@@ -814,12 +723,7 @@ impl Tool for FailingTool {
 
     async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let reason = format!("Error: {}", args["why"].as_str().unwrap_or("failed"));
-        Err(ToolError::new(
-            ToolErrorCode::Failed {
-                reason: reason.clone(),
-            },
-            reason,
-        ))
+        Err(ToolError::new(ToolErrorCode::Failed { reason: reason.clone() }, reason))
     }
 }
 
@@ -839,61 +743,31 @@ fn not_found(path: &AbsPath) -> FsError {
 }
 
 fn file_stat(len: usize) -> FileStat {
-    FileStat {
-        kind: EntryKind::File,
-        len: len as u64,
-        modified: None,
-        ctime: None,
-        inode: 0,
-        device: 0,
-        readonly: false,
-    }
+    FileStat { kind: EntryKind::File, len: len as u64, modified: None, ctime: None, inode: 0, device: 0, readonly: false }
 }
 
 impl MockFileService {
-    #[allow(clippy::result_large_err, reason = "The mock returns the canonical by-value FsError contract; boxing this bounded inline error would add allocation and change its API solely for the size heuristic")]
+    #[allow(
+        clippy::result_large_err,
+        reason = "The mock returns the canonical by-value FsError contract; boxing this bounded inline error would add allocation and change its API solely for the size heuristic"
+    )]
     fn check(files: &BTreeMap<AbsPath, Vec<u8>>, request: &WriteRequest) -> Result<(), FsError> {
         let current = files.get(&request.path);
         let ok = match &request.precondition {
             WritePrecondition::Unconditional => true,
             WritePrecondition::Absent => current.is_none(),
             WritePrecondition::ContentEquals(expected) => current == Some(expected),
-            WritePrecondition::FileEquals { stat, bytes } => {
-                current.is_some_and(|current| current == bytes && file_stat(current.len()) == *stat)
-            }
+            WritePrecondition::FileEquals { stat, bytes } => current.is_some_and(|current| current == bytes && file_stat(current.len()) == *stat),
         };
-        if ok {
-            Ok(())
-        } else {
-            Err(FsError::new(
-                FsErrorKind::PreconditionFailed {
-                    actual: current.cloned(),
-                },
-                Some(request.path.clone()),
-            ))
-        }
+        if ok { Ok(()) } else { Err(FsError::new(FsErrorKind::PreconditionFailed { actual: current.cloned() }, Some(request.path.clone()))) }
     }
 
     fn under(&self, root: &AbsPath, recursive: bool) -> Vec<DirEntry> {
         let files = lock(&self.files);
         let dirs = lock(&self.dirs);
-        let keep = |p: &AbsPath| {
-            p != root
-                && p.as_path().starts_with(root.as_path())
-                && (recursive || p.as_path().parent() == Some(root.as_path()))
-        };
-        let mut out: Vec<DirEntry> = dirs
-            .iter()
-            .filter(|p| keep(p))
-            .map(|p| DirEntry {
-                path: p.clone(),
-                kind: EntryKind::Dir,
-            })
-            .collect();
-        out.extend(files.keys().filter(|p| keep(p)).map(|p| DirEntry {
-            path: p.clone(),
-            kind: EntryKind::File,
-        }));
+        let keep = |p: &AbsPath| p != root && p.as_path().starts_with(root.as_path()) && (recursive || p.as_path().parent() == Some(root.as_path()));
+        let mut out: Vec<DirEntry> = dirs.iter().filter(|p| keep(p)).map(|p| DirEntry { path: p.clone(), kind: EntryKind::Dir }).collect();
+        out.extend(files.keys().filter(|p| keep(p)).map(|p| DirEntry { path: p.clone(), kind: EntryKind::File }));
         out
     }
 }
@@ -905,43 +779,20 @@ impl FileService for MockFileService {
             return Ok(file_stat(bytes.len()));
         }
         if lock(&self.dirs).contains(&path) {
-            return Ok(FileStat {
-                kind: EntryKind::Dir,
-                len: 0,
-                modified: None,
-                ctime: None,
-                inode: 0,
-                device: 0,
-                readonly: false,
-            });
+            return Ok(FileStat { kind: EntryKind::Dir, len: 0, modified: None, ctime: None, inode: 0, device: 0, readonly: false });
         }
         Err(not_found(&path))
     }
 
-    async fn read(
-        &self,
-        _lane: InteractiveIo,
-        path: AbsPath,
-        range: ReadRange,
-    ) -> Result<FileBytes, FsError> {
+    async fn read(&self, _lane: InteractiveIo, path: AbsPath, range: ReadRange) -> Result<FileBytes, FsError> {
         let files = lock(&self.files);
         let bytes = files.get(&path).ok_or_else(|| not_found(&path))?;
         let start = (range.offset as usize).min(bytes.len());
-        let end = range.max_len.map_or(bytes.len(), |n| {
-            start.saturating_add(n as usize).min(bytes.len())
-        });
-        Ok(FileBytes {
-            offset: start as u64,
-            bytes: bytes[start..end].to_vec(),
-            total_len: bytes.len() as u64,
-        })
+        let end = range.max_len.map_or(bytes.len(), |n| start.saturating_add(n as usize).min(bytes.len()));
+        Ok(FileBytes { offset: start as u64, bytes: bytes[start..end].to_vec(), total_len: bytes.len() as u64 })
     }
 
-    async fn list_dir(
-        &self,
-        _lane: InteractiveIo,
-        path: AbsPath,
-    ) -> Result<Vec<DirEntry>, FsError> {
+    async fn list_dir(&self, _lane: InteractiveIo, path: AbsPath) -> Result<Vec<DirEntry>, FsError> {
         if lock(&self.files).contains_key(&path) {
             return Err(FsError::new(FsErrorKind::NotADirectory, Some(path)));
         }
@@ -959,11 +810,7 @@ impl FileService for MockFileService {
         Ok(file_stat(len))
     }
 
-    async fn write_batch(
-        &self,
-        _lane: DurabilityIo,
-        requests: Vec<WriteRequest>,
-    ) -> Result<Vec<FileStat>, FsError> {
+    async fn write_batch(&self, _lane: DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<FileStat>, FsError> {
         let mut files = lock(&self.files);
         for request in &requests {
             Self::check(&files, request)?;
@@ -978,12 +825,7 @@ impl FileService for MockFileService {
             .collect())
     }
 
-    async fn create_dir(
-        &self,
-        _lane: DurabilityIo,
-        path: AbsPath,
-        recursive: bool,
-    ) -> Result<(), FsError> {
+    async fn create_dir(&self, _lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError> {
         let mut dirs = lock(&self.dirs);
         if recursive {
             let mut cur = Some(path.as_path());
@@ -999,13 +841,7 @@ impl FileService for MockFileService {
         Ok(())
     }
 
-    async fn rename(
-        &self,
-        _lane: DurabilityIo,
-        from: AbsPath,
-        to: AbsPath,
-        overwrite: bool,
-    ) -> Result<(), FsError> {
+    async fn rename(&self, _lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError> {
         let mut files = lock(&self.files);
         if !overwrite && files.contains_key(&to) {
             return Err(FsError::new(FsErrorKind::AlreadyExists, Some(to)));
@@ -1015,13 +851,7 @@ impl FileService for MockFileService {
         Ok(())
     }
 
-    async fn copy(
-        &self,
-        _lane: DurabilityIo,
-        from: AbsPath,
-        to: AbsPath,
-        overwrite: bool,
-    ) -> Result<(), FsError> {
+    async fn copy(&self, _lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError> {
         let mut files = lock(&self.files);
         if !overwrite && files.contains_key(&to) {
             return Err(FsError::new(FsErrorKind::AlreadyExists, Some(to)));
@@ -1031,12 +861,7 @@ impl FileService for MockFileService {
         Ok(())
     }
 
-    async fn remove(
-        &self,
-        _lane: DurabilityIo,
-        path: AbsPath,
-        recursive: bool,
-    ) -> Result<(), FsError> {
+    async fn remove(&self, _lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError> {
         if lock(&self.files).remove(&path).is_some() {
             return Ok(());
         }
@@ -1057,11 +882,7 @@ impl FileService for MockFileService {
         Ok(())
     }
 
-    fn walk(
-        &self,
-        _lane: MaintenanceIo,
-        request: WalkRequest,
-    ) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
+    fn walk(&self, _lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
         let entries = self
             .under(&request.root, request.recursive)
             .into_iter()
@@ -1071,42 +892,23 @@ impl FileService for MockFileService {
         Box::new(VecSource::new(entries))
     }
 
-    fn search_text(
-        &self,
-        _lane: MaintenanceIo,
-        request: SearchRequest,
-    ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    fn search_text(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         // The mock has no regex engine; it rejects only an unclosed group,
         // with the parser's wording, so callers can exercise the error path.
         if request.regex && request.pattern.matches('(').count() > request.pattern.matches(')').count() {
             return Box::new(VecSource::new(vec![Err(FsError::new(
-                FsErrorKind::InvalidPattern {
-                    message: "regex parse error: unclosed group".into(),
-                },
+                FsErrorKind::InvalidPattern { message: "regex parse error: unclosed group".into() },
                 None,
             ))]));
         }
         let files = lock(&self.files);
         let mut matches = Vec::new();
-        for (path, bytes) in files
-            .iter()
-            .filter(|(p, _)| p.as_path().starts_with(request.root.as_path()))
-        {
+        for (path, bytes) in files.iter().filter(|(p, _)| p.as_path().starts_with(request.root.as_path())) {
             let text = String::from_utf8_lossy(bytes);
             for (i, line) in text.lines().enumerate() {
-                let found = if request.case_sensitive {
-                    line.find(&request.pattern)
-                } else {
-                    line.to_lowercase().find(&request.pattern.to_lowercase())
-                };
+                let found = if request.case_sensitive { line.find(&request.pattern) } else { line.to_lowercase().find(&request.pattern.to_lowercase()) };
                 if let Some(col) = found {
-                    matches.push(Ok(SearchMatch {
-                        path: path.clone(),
-                        line: i as u64 + 1,
-                        column: col as u64 + 1,
-                        text: line.to_owned(),
-                        count: 1,
-                    }));
+                    matches.push(Ok(SearchMatch { path: path.clone(), line: i as u64 + 1, column: col as u64 + 1, text: line.to_owned(), count: 1 }));
                 }
             }
         }
@@ -1128,8 +930,7 @@ struct MockProc {
 impl MockProc {
     fn push_output(&mut self, stream: OutputStream, bytes: Vec<u8>) {
         let seq = self.events.len() as u64;
-        self.events
-            .push(ProcessEvent::Output { seq, stream, bytes });
+        self.events.push(ProcessEvent::Output { seq, stream, bytes });
     }
 
     fn exit(&mut self, status: ExitStatus, killed: Option<KillReason>) {
@@ -1167,15 +968,10 @@ impl MockProcessManager {
 impl ProcessManager for MockProcessManager {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
         if self.spawn_full.load(Ordering::Relaxed) {
-            return Err(ProcessError::Overloaded {
-                queue: ProcessQueue::Spawn,
-            });
+            return Err(ProcessError::Overloaded { queue: ProcessQueue::Spawn });
         }
         let mut procs = lock(&self.procs);
-        if procs
-            .get(&request.handle)
-            .is_some_and(|p| p.info.exit.is_none())
-        {
+        if procs.get(&request.handle).is_some_and(|p| p.info.exit.is_none()) {
             return Err(ProcessError::HandleInUse);
         }
         let (program, args) = match &request.command {
@@ -1187,65 +983,36 @@ impl ProcessManager for MockProcessManager {
         }
         let pid = 1000 + self.next_pid.fetch_add(1, Ordering::Relaxed);
         let mut proc = MockProc {
-            info: ProcessInfo {
-                handle: request.handle.clone(),
-                pid,
-                owner: request.owner,
-                pty: request.pty,
-                exit: None,
-            },
+            info: ProcessInfo { handle: request.handle.clone(), pid, owner: request.owner, pty: request.pty, exit: None },
             events: Vec::new(),
             stdin_open: request.stdin_piped,
         };
-        let stream = if request.pty.is_some() {
-            OutputStream::Pty
-        } else {
-            OutputStream::Stdout
-        };
+        let stream = if request.pty.is_some() { OutputStream::Pty } else { OutputStream::Stdout };
         if program == "echo" {
             proc.push_output(stream, format!("{}\n", args.join(" ")).into_bytes());
             proc.exit(ExitStatus::Code(0), None);
         }
         procs.insert(request.handle.clone(), proc);
-        Ok(SpawnedProcess {
-            handle: request.handle,
-            pid,
-        })
+        Ok(SpawnedProcess { handle: request.handle, pid })
     }
 
-    fn subscribe(
-        &self,
-        handle: &ProcessHandle,
-        from_seq: Option<u64>,
-    ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let procs = lock(&self.procs);
         let proc = procs.get(handle).ok_or(ProcessError::UnknownHandle)?;
         let from = from_seq.unwrap_or(0) as usize;
-        Ok(Box::new(VecSource::new(
-            proc.events.iter().skip(from).cloned(),
-        )))
+        Ok(Box::new(VecSource::new(proc.events.iter().skip(from).cloned())))
     }
 
-    async fn write_stdin(
-        &self,
-        handle: &ProcessHandle,
-        bytes: Vec<u8>,
-    ) -> Result<(), ProcessError> {
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let mut procs = lock(&self.procs);
         let proc = procs.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         if !proc.stdin_open {
             return Err(ProcessError::StdinClosed);
         }
         if self.input_full.load(Ordering::Relaxed) {
-            return Err(ProcessError::Overloaded {
-                queue: ProcessQueue::Input,
-            });
+            return Err(ProcessError::Overloaded { queue: ProcessQueue::Input });
         }
-        let stream = if proc.info.pty.is_some() {
-            OutputStream::Pty
-        } else {
-            OutputStream::Stdout
-        };
+        let stream = if proc.info.pty.is_some() { OutputStream::Pty } else { OutputStream::Stdout };
         proc.push_output(stream, bytes);
         Ok(())
     }
@@ -1300,21 +1067,13 @@ pub struct MockRepoInspector {
 
 impl Default for MockRepoInspector {
     fn default() -> Self {
-        Self {
-            generation: AtomicU64::new(1),
-            refs: Mutex::new(HashMap::new()),
-            summaries: Mutex::new(HashMap::new()),
-        }
+        Self { generation: AtomicU64::new(1), refs: Mutex::new(HashMap::new()), summaries: Mutex::new(HashMap::new()) }
     }
 }
 
 impl MockRepoInspector {
     fn current_key(&self) -> InspectorKey {
-        InspectorKey {
-            head: Some(ObjectId("0".repeat(40))),
-            index_checksum: None,
-            worktree_token: self.generation.load(Ordering::Relaxed).to_string(),
-        }
+        InspectorKey { head: Some(ObjectId("0".repeat(40))), index_checksum: None, worktree_token: self.generation.load(Ordering::Relaxed).to_string() }
     }
 }
 
@@ -1324,58 +1083,25 @@ impl RepoInspector for MockRepoInspector {
         Ok(self.current_key())
     }
 
-    async fn status(
-        &self,
-        _lane: MaintenanceIo,
-        _repo: RepoRef,
-    ) -> Result<Arc<RepoStatus>, ScmError> {
+    async fn status(&self, _lane: MaintenanceIo, _repo: RepoRef) -> Result<Arc<RepoStatus>, ScmError> {
         let key = self.current_key();
-        Ok(Arc::new(RepoStatus {
-            head: key.head.clone(),
-            key,
-            branch: Some("main".into()),
-            upstream: None,
-            operation: None,
-            entries: Vec::new(),
-        }))
+        Ok(Arc::new(RepoStatus { head: key.head.clone(), key, branch: Some("main".into()), upstream: None, operation: None, entries: Vec::new() }))
     }
 
-    async fn review_summary(
-        &self,
-        _lane: MaintenanceIo,
-        _request: ReviewRequest,
-    ) -> Result<Arc<ReviewSummary>, ScmError> {
-        let summary = ReviewSummary {
-            key: self.current_key(),
-            files: Vec::new(),
-            omitted: 0,
-        };
+    async fn review_summary(&self, _lane: MaintenanceIo, _request: ReviewRequest) -> Result<Arc<ReviewSummary>, ScmError> {
+        let summary = ReviewSummary { key: self.current_key(), files: Vec::new(), omitted: 0 };
         lock(&self.summaries).insert(summary.key.worktree_token.clone(), summary.clone());
         Ok(Arc::new(summary))
     }
 
-    fn review_page(
-        &self,
-        key: &InspectorKey,
-        _path: Option<&str>,
-        _cursor: Option<&str>,
-    ) -> Result<Cached<ReviewPage>, ScmError> {
+    fn review_page(&self, key: &InspectorKey, _path: Option<&str>, _cursor: Option<&str>) -> Result<Cached<ReviewPage>, ScmError> {
         Ok(match lock(&self.summaries).get(&key.worktree_token) {
-            Some(_) => Cached::Ready(ReviewPage {
-                key: key.clone(),
-                patch: String::new(),
-                next_cursor: None,
-            }),
+            Some(_) => Cached::Ready(ReviewPage { key: key.clone(), patch: String::new(), next_cursor: None }),
             None => Cached::Pending { key: key.clone() },
         })
     }
 
-    async fn resolve_refs(
-        &self,
-        _lane: MaintenanceIo,
-        _repo: RepoRef,
-        refs: Vec<String>,
-    ) -> Result<Vec<Option<ObjectId>>, ScmError> {
+    async fn resolve_refs(&self, _lane: MaintenanceIo, _repo: RepoRef, refs: Vec<String>) -> Result<Vec<Option<ObjectId>>, ScmError> {
         let known = lock(&self.refs);
         Ok(refs.iter().map(|r| known.get(r).cloned()).collect())
     }
@@ -1416,10 +1142,7 @@ pub struct MockExtPool {
 
 impl MockExtPool {
     pub fn new(max_pending: usize) -> Self {
-        Self {
-            max_pending,
-            pending: Arc::new(AtomicUsize::new(0)),
-        }
+        Self { max_pending, pending: Arc::new(AtomicUsize::new(0)) }
     }
 }
 
@@ -1430,27 +1153,17 @@ impl ExtPool for MockExtPool {
             return Err(ExtError::Overloaded);
         }
         Ok(Box::new(ExtCallSource {
-            frames: VecDeque::from([
-                ExtFrame::Chunk(b"chunk".to_vec()),
-                ExtFrame::Done(Ok(call.params)),
-            ]),
+            frames: VecDeque::from([ExtFrame::Chunk(b"chunk".to_vec()), ExtFrame::Done(Ok(call.params))]),
             pending: self.pending.clone(),
         }))
     }
 
     fn status(&self) -> Vec<ExtWorkerStatus> {
-        vec![ExtWorkerStatus {
-            id: ExtWorkerId(0),
-            state: ExtWorkerState::Idle,
-        }]
+        vec![ExtWorkerStatus { id: ExtWorkerId(0), state: ExtWorkerState::Idle }]
     }
 
     fn stop_worker(&self, worker: ExtWorkerId) -> Result<(), ExtError> {
-        if worker == ExtWorkerId(0) {
-            Ok(())
-        } else {
-            Err(ExtError::UnknownWorker)
-        }
+        if worker == ExtWorkerId(0) { Ok(()) } else { Err(ExtError::UnknownWorker) }
     }
 }
 
@@ -1467,11 +1180,7 @@ pub struct MockFrameSource {
 
 impl MockFrameSource {
     pub fn new(kind: FrameSourceKind, frames: u64) -> Self {
-        Self {
-            kind,
-            remaining: frames,
-            seq: 0,
-        }
+        Self { kind, remaining: frames, seq: 0 }
     }
 }
 
@@ -1521,11 +1230,7 @@ pub struct MockComputerBackend {
 
 #[async_trait]
 impl ComputerBackend for MockComputerBackend {
-    async fn run(
-        &self,
-        request: ComputerRequest,
-        cancel: CancellationToken,
-    ) -> Result<Vec<ToolPart>, ComputerError> {
+    async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         if cancel.is_cancelled() {
             return Err(ComputerError::Cancelled);
         }
@@ -1535,12 +1240,8 @@ impl ComputerBackend for MockComputerBackend {
     fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
         let mut held = lock(&self.held);
         match input {
-            ScreenInput::Button { down: true, .. } | ScreenInput::Key { down: true, .. } => {
-                *held += 1
-            }
-            ScreenInput::Button { down: false, .. } | ScreenInput::Key { down: false, .. } => {
-                *held = held.saturating_sub(1)
-            }
+            ScreenInput::Button { down: true, .. } | ScreenInput::Key { down: true, .. } => *held += 1,
+            ScreenInput::Button { down: false, .. } | ScreenInput::Key { down: false, .. } => *held = held.saturating_sub(1),
             _ => {}
         }
         Ok(InputOutcome::Applied)
@@ -1551,36 +1252,18 @@ impl ComputerBackend for MockComputerBackend {
     }
 
     fn input_desktop(&self) -> Option<DesktopIdentity> {
-        Some(DesktopIdentity {
-            session: 1,
-            desktop: "default".into(),
-        })
+        Some(DesktopIdentity { session: 1, desktop: "default".into() })
     }
 
     fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
-        Ok(vec![DisplayInfo {
-            id: DisplayId(0),
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-            scale_percent: 100,
-        }])
+        Ok(vec![DisplayInfo { id: DisplayId(0), x: 0, y: 0, width: 1920, height: 1080, scale_percent: 100 }])
     }
 
-    fn screen_source(
-        &self,
-        display: DisplayId,
-    ) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+    fn screen_source(&self, display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
         if display != DisplayId(0) {
-            return Err(ComputerError::InvalidInput {
-                reason: "unknown display".into(),
-            });
+            return Err(ComputerError::InvalidInput { reason: "unknown display".into() });
         }
-        Ok(Box::new(MockFrameSource::new(
-            FrameSourceKind::Screen { display: 0 },
-            3,
-        )))
+        Ok(Box::new(MockFrameSource::new(FrameSourceKind::Screen { display: 0 }, 3)))
     }
 
     fn status(&self) -> ComputerStatus {
@@ -1597,12 +1280,7 @@ pub struct MockVideoTrack {
 
 impl Default for MockVideoTrack {
     fn default() -> Self {
-        Self {
-            params: Mutex::new(EncodingParams::SCREEN_DEFAULT),
-            keyframes: AtomicU32::new(0),
-            stopped: Mutex::new(false),
-            source: Mutex::new(None),
-        }
+        Self { params: Mutex::new(EncodingParams::SCREEN_DEFAULT), keyframes: AtomicU32::new(0), stopped: Mutex::new(false), source: Mutex::new(None) }
     }
 }
 
@@ -1623,9 +1301,7 @@ impl VideoTrack for MockVideoTrack {
 
     fn set_encoding(&self, params: EncodingParams) -> Result<(), MediaError> {
         if params.max_bitrate_bps == Some(0) || params.max_framerate == Some(0) {
-            return Err(MediaError::Encoder {
-                detail: "zero bitrate or framerate".into(),
-            });
+            return Err(MediaError::Encoder { detail: "zero bitrate or framerate".into() });
         }
         *lock(&self.params) = params;
         Ok(())
@@ -1682,9 +1358,7 @@ impl LoginSession for MockLoginSession {
         }
         match (&inner.current, input) {
             (LoginState::Authorize { .. }, LoginInput::AuthorizationCode(_)) => {
-                inner.queue = VecDeque::from([LoginState::Done {
-                    account: Some("mock".into()),
-                }]);
+                inner.queue = VecDeque::from([LoginState::Done { account: Some("mock".into()) }]);
                 Ok(())
             }
             _ => Err(LoginError::InputNotExpected),
@@ -1799,11 +1473,7 @@ impl LoginFlow for MockLoginFlow {
 
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
         Ok(Box::new(MockLoginSession {
-            inner: Mutex::new(LoginInner {
-                queue: self.script.iter().cloned().collect(),
-                current: LoginState::Starting,
-                finished: false,
-            }),
+            inner: Mutex::new(LoginInner { queue: self.script.iter().cloned().collect(), current: LoginState::Starting, finished: false }),
         }))
     }
 }
@@ -1816,10 +1486,7 @@ pub struct MockOwnership {
 
 impl Default for MockOwnership {
     fn default() -> Self {
-        Self {
-            fenced: Mutex::new(None),
-            next_failure: Mutex::new(None),
-        }
+        Self { fenced: Mutex::new(None), next_failure: Mutex::new(None) }
     }
 }
 

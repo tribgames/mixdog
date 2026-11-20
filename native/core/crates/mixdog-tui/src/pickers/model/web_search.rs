@@ -28,9 +28,7 @@ pub fn open_web_search_picker(host: &mut dyn PickerHost, options: WebSearchOptio
     // Surface claim taken on this keypress: the route read below is a daemon round-trip, so Esc can land before anything
     // paints.
     let own = Own::new(host.claim_surface(SurfaceKind::Picker));
-    let current = options.route_override.clone().filter(truthy).or_else(|| {
-        host.store_call("getWebSearchRoute", json!([])).ok().filter(truthy)
-    });
+    let current = options.route_override.clone().filter(truthy).or_else(|| host.store_call("getWebSearchRoute", json!([])).ok().filter(truthy));
     if !own.owns(host) {
         return;
     }

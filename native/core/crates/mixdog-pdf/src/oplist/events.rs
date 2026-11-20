@@ -37,26 +37,13 @@ impl PaintOp {
     pub fn strokes(self) -> bool {
         matches!(
             self,
-            PaintOp::Stroke
-                | PaintOp::CloseStroke
-                | PaintOp::FillStroke
-                | PaintOp::EoFillStroke
-                | PaintOp::CloseFillStroke
-                | PaintOp::CloseEoFillStroke
+            PaintOp::Stroke | PaintOp::CloseStroke | PaintOp::FillStroke | PaintOp::EoFillStroke | PaintOp::CloseFillStroke | PaintOp::CloseEoFillStroke
         )
     }
 
     /// The operator paints the path's inside (`fill`, `eoFill` and the four fill-and-stroke ones).
     pub fn fills(self) -> bool {
-        matches!(
-            self,
-            PaintOp::Fill
-                | PaintOp::EoFill
-                | PaintOp::FillStroke
-                | PaintOp::EoFillStroke
-                | PaintOp::CloseFillStroke
-                | PaintOp::CloseEoFillStroke
-        )
+        matches!(self, PaintOp::Fill | PaintOp::EoFill | PaintOp::FillStroke | PaintOp::EoFillStroke | PaintOp::CloseFillStroke | PaintOp::CloseEoFillStroke)
     }
 }
 
@@ -86,10 +73,7 @@ impl PathData {
             let code = data[k];
             k += 1;
             if code == DRAW_MOVE_TO {
-                subpaths.push(Subpath {
-                    points: vec![(at(k), at(k + 1))],
-                    curved: false,
-                });
+                subpaths.push(Subpath { points: vec![(at(k), at(k + 1))], curved: false });
                 k += 2;
             } else if code == DRAW_LINE_TO {
                 if let Some(last) = subpaths.last_mut() {
@@ -399,25 +383,7 @@ mod tests {
     #[test]
     fn subpaths_follow_the_analysis_reading() {
         let path = PathData {
-            data: vec![
-                DRAW_MOVE_TO,
-                1.0,
-                2.0,
-                DRAW_CURVE_TO,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                5.0,
-                6.0,
-                DRAW_CLOSE_PATH,
-                DRAW_MOVE_TO,
-                7.0,
-                8.0,
-                DRAW_LINE_TO,
-                9.0,
-                8.0,
-            ],
+            data: vec![DRAW_MOVE_TO, 1.0, 2.0, DRAW_CURVE_TO, 0.0, 0.0, 0.0, 0.0, 5.0, 6.0, DRAW_CLOSE_PATH, DRAW_MOVE_TO, 7.0, 8.0, DRAW_LINE_TO, 9.0, 8.0],
             min_max: [0.0; 4],
         };
         let subpaths = path.subpaths();
@@ -431,14 +397,8 @@ mod tests {
     fn transforms_accumulate_through_form_boundaries() {
         let mut list = OperatorList::new();
         list.add_op(Op::Transform([2.0, 0.0, 0.0, 2.0, 0.0, 0.0]));
-        list.add_op(Op::FormBegin {
-            matrix: Some([1.0, 0.0, 0.0, 1.0, 5.0, 0.0]),
-            bbox: None,
-        });
-        list.add_op(Op::ConstructPath {
-            paint: PaintOp::Fill,
-            path: None,
-        });
+        list.add_op(Op::FormBegin { matrix: Some([1.0, 0.0, 0.0, 1.0, 5.0, 0.0]), bbox: None });
+        list.add_op(Op::ConstructPath { paint: PaintOp::Fill, path: None });
         list.add_op(Op::FormEnd);
         let walked = list.with_transforms();
         assert_eq!(walked[2].0, [2.0, 0.0, 0.0, 2.0, 10.0, 0.0]);

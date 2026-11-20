@@ -167,7 +167,11 @@ fn dir_group(file: &str, scopes: &[String]) -> String {
 /// Summarizes the full selection, never the page or trimmed sample. `byRule` holds every row (a
 /// row without a rule under `""`), so its counts sum to the row count.
 fn summarize_diagnostics(rows: &[Value], include_rules: bool, scopes: &[String]) -> Value {
-    let rank = |s: &str| match s { "error" => 3, "warning" => 2, _ => 1 };
+    let rank = |s: &str| match s {
+        "error" => 3,
+        "warning" => 2,
+        _ => 1,
+    };
     let mut by_rule: Vec<(String, Map<String, Value>)> = Vec::new();
     let mut by_dir: BTreeMap<String, i64> = BTreeMap::new();
     let mut dir_order: Vec<String> = Vec::new();
@@ -382,10 +386,30 @@ pub struct ReportInput {
 impl Default for ReportInput {
     fn default() -> Self {
         Self {
-            action: String::new(), ok: true, languages: Vec::new(), language_source: String::new(), engines: Vec::new(), results: None, structural: Value::Null,
-            function_length: Value::Null, needs_approval: Value::Null, installed: Value::Null, errors: Vec::new(), notes: Vec::new(), policy: Value::Null, rules: Value::Null,
-            scope: Value::Null, shadows: None, working_tree: Value::Null, ran: Vec::new(), unprocessed: Vec::new(), empty_paths: Vec::new(), elapsed_ms: 0, offset: 0,
-            limit: DIAGNOSTIC_CAP, max_bytes: TOOL_OUTPUT_MAX_BYTES,
+            action: String::new(),
+            ok: true,
+            languages: Vec::new(),
+            language_source: String::new(),
+            engines: Vec::new(),
+            results: None,
+            structural: Value::Null,
+            function_length: Value::Null,
+            needs_approval: Value::Null,
+            installed: Value::Null,
+            errors: Vec::new(),
+            notes: Vec::new(),
+            policy: Value::Null,
+            rules: Value::Null,
+            scope: Value::Null,
+            shadows: None,
+            working_tree: Value::Null,
+            ran: Vec::new(),
+            unprocessed: Vec::new(),
+            empty_paths: Vec::new(),
+            elapsed_ms: 0,
+            offset: 0,
+            limit: DIAGNOSTIC_CAP,
+            max_bytes: TOOL_OUTPUT_MAX_BYTES,
         }
     }
 }
@@ -431,15 +455,37 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
     let truncation_notes: Vec<String> = results
         .iter()
         .filter(|r| r["truncated"] == true)
-        .map(|r| r["note"].as_str().filter(|n| !n.is_empty()).map_or_else(|| format!("{} output was truncated; split the scope and re-run", r["id"].as_str().unwrap_or("")), str::to_owned))
+        .map(|r| {
+            r["note"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .map_or_else(|| format!("{} output was truncated; split the scope and re-run", r["id"].as_str().unwrap_or("")), str::to_owned)
+        })
         .collect();
-    let ignored_notes: Vec<String> = results.iter().filter(|r| !arr(&r["ignored"]).is_empty()).map(|r| format!("{} did not process {} file(s): its configuration ignores them; see ignored", r["id"].as_str().unwrap_or(""), arr(&r["ignored"]).len())).collect();
+    let ignored_notes: Vec<String> = results
+        .iter()
+        .filter(|r| !arr(&r["ignored"]).is_empty())
+        .map(|r| {
+            format!("{} did not process {} file(s): its configuration ignores them; see ignored", r["id"].as_str().unwrap_or(""), arr(&r["ignored"]).len())
+        })
+        .collect();
     let engine_truncated = results.iter().any(|r| r["truncated"] == true);
     let start_cap = input.limit.min(RESULTS_PAGE_MAX);
     let pass_errors = structural_errors(&input.structural);
-    let succeeded = input.ok && arr(&input.structural["rejected"]).is_empty() && !engine_truncated && input.errors.is_empty() && !results.iter().any(|r| r.get("error").is_some_and(|e| !e.is_null() && *e != ""));
-    let changed = !arr(&input.structural["applied"]).is_empty() || results.iter().any(|r| r["dryRun"] != true && !arr(&r["filesChanged"]).is_empty() && input.action == "fix");
-    let status = if succeeded { if pass_errors.is_empty() { "complete" } else { "partial" } } else if changed { "partial" } else { "failed" };
+    let succeeded = input.ok
+        && arr(&input.structural["rejected"]).is_empty()
+        && !engine_truncated
+        && input.errors.is_empty()
+        && !results.iter().any(|r| r.get("error").is_some_and(|e| !e.is_null() && *e != ""));
+    let changed = !arr(&input.structural["applied"]).is_empty()
+        || results.iter().any(|r| r["dryRun"] != true && !arr(&r["filesChanged"]).is_empty() && input.action == "fix");
+    let status = if succeeded {
+        if pass_errors.is_empty() { "complete" } else { "partial" }
+    } else if changed {
+        "partial"
+    } else {
+        "failed"
+    };
     let run = is_run_action(&input.action);
     let mut notes = input.notes.clone();
     notes.extend(truncation_notes);
@@ -464,7 +510,10 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
     if unprocessed_files > 0 {
         let languages: std::collections::BTreeSet<&str> = input.unprocessed.iter().filter_map(|u| u["language"].as_str()).collect();
         let what = if input.action == "scan" { "no formatter or linter engine will process" } else { "no formatter or linter engine processed" };
-        notes.push(format!("{what} {unprocessed_files} file(s) of {}; see unprocessed: they are unchecked, not clean", languages.into_iter().collect::<Vec<_>>().join(", ")));
+        notes.push(format!(
+            "{what} {unprocessed_files} file(s) of {}; see unprocessed: they are unchecked, not clean",
+            languages.into_iter().collect::<Vec<_>>().join(", ")
+        ));
     }
     let scopes: Vec<String> = arr(&input.scope).iter().filter_map(Value::as_str).map(str::to_owned).collect();
     let summaries = results
@@ -591,11 +640,19 @@ fn compose(parts: &Parts, cap: usize) -> Value {
     }
     put_if(&mut m, !parts.shadows.is_empty(), "shadows", || json!(parts.shadows));
     if let Some(rs) = results {
-        put(&mut m, "results", json!(rs.iter().enumerate().map(|(i, r)| shape_engine_result(r, &parts.result_summaries[i], cap, parts.page_offset, file_paging)).collect::<Vec<_>>()));
+        put(
+            &mut m,
+            "results",
+            json!(
+                rs.iter().enumerate().map(|(i, r)| shape_engine_result(r, &parts.result_summaries[i], cap, parts.page_offset, file_paging)).collect::<Vec<_>>()
+            ),
+        );
     }
     put_if(&mut m, totals.is_some(), "counts", || totals.clone().unwrap_or(Value::Null));
     put_if(&mut m, !parts.unprocessed.is_empty(), "unprocessed", || json!(shape_unprocessed(&parts.unprocessed, file_paging)));
-    put_if(&mut m, !parts.structural.is_null(), "structural", || shape_structural(&parts.structural, &parts.structural_summary, &parts.pass_errors, cap, parts.page_offset));
+    put_if(&mut m, !parts.structural.is_null(), "structural", || {
+        shape_structural(&parts.structural, &parts.structural_summary, &parts.pass_errors, cap, parts.page_offset)
+    });
     if let Some(w) = working_tree.filter(|w| w.as_object().is_some_and(|o| !o.is_empty())) {
         put(&mut m, "workingTree", w);
     }
@@ -619,11 +676,26 @@ mod tests {
     }
 
     fn engine(id: &str, kind: &[&str], langs: &[&str], missing: bool) -> Resolved {
-        Resolved { id: id.into(), kind: kind.iter().map(|s| (*s).into()).collect(), languages: langs.iter().map(|s| (*s).into()).collect(), source: if missing { "missing" } else { "path" }.into(), missing, install_hint: "hint".into(), ..Default::default() }
+        Resolved {
+            id: id.into(),
+            kind: kind.iter().map(|s| (*s).into()).collect(),
+            languages: langs.iter().map(|s| (*s).into()).collect(),
+            source: if missing { "missing" } else { "path" }.into(),
+            missing,
+            install_hint: "hint".into(),
+            ..Default::default()
+        }
     }
 
     fn run_input(results: Vec<Value>, limit: usize) -> ReportInput {
-        ReportInput { action: "check".into(), engines: vec![engine("biome", &["format", "lint"], &["typescript"], false)], results: Some(results), limit, ran: vec!["biome".into()], ..Default::default() }
+        ReportInput {
+            action: "check".into(),
+            engines: vec![engine("biome", &["format", "lint"], &["typescript"], false)],
+            results: Some(results),
+            limit,
+            ran: vec!["biome".into()],
+            ..Default::default()
+        }
     }
 
     /// The check/fix header names the engines that ran, not every engine that resolved.
@@ -686,7 +758,10 @@ mod tests {
     #[test]
     fn failures_and_partial_writes_set_the_status() {
         let mut input = run_input(vec![json!({"id": "biome", "filesChecked": 1, "error": "boom"})], 20);
-        assert_eq!(build_tidy_report(ReportInput { results: input.results.clone(), engines: vec![], action: "check".into(), ..Default::default() })["status"], "failed");
+        assert_eq!(
+            build_tidy_report(ReportInput { results: input.results.clone(), engines: vec![], action: "check".into(), ..Default::default() })["status"],
+            "failed"
+        );
         input.action = "fix".into();
         input.results = Some(vec![json!({"id": "biome", "filesChecked": 1, "error": "boom", "filesChanged": ["a.ts"], "applied": false})]);
         assert_eq!(build_tidy_report(input)["status"], "partial", "an engine that wrote before failing is partial");
@@ -705,7 +780,9 @@ mod tests {
             languages: vec![json!({"id": "typescript", "files": 3})],
             language_source: "git".into(),
             engines: vec![engine("biome", &["lint"], &["typescript"], false), engine("ruff", &["lint"], &["python"], true)],
-            shadows: Some(vec![json!({"id": "biome", "bin": "biome", "via": "path", "shadow": {"path": "/x/biome", "version": "1.0"}, "engine": {"source": "managed", "path": "/m/biome"}})]),
+            shadows: Some(vec![
+                json!({"id": "biome", "bin": "biome", "via": "path", "shadow": {"path": "/x/biome", "version": "1.0"}, "engine": {"source": "managed", "path": "/m/biome"}}),
+            ]),
             ..Default::default()
         };
         let r = build_tidy_report(input);
@@ -718,7 +795,13 @@ mod tests {
 
     #[test]
     fn run_headers_name_uncovered_languages_only_and_totals_need_two_engines() {
-        let mut input = run_input(vec![json!({"id": "biome", "filesChecked": 1, "counts": {"diagnostics": 2}}), json!({"id": "ruff", "filesChecked": 1, "counts": {"diagnostics": 3, "filesToFormat": 0}})], 20);
+        let mut input = run_input(
+            vec![
+                json!({"id": "biome", "filesChecked": 1, "counts": {"diagnostics": 2}}),
+                json!({"id": "ruff", "filesChecked": 1, "counts": {"diagnostics": 3, "filesToFormat": 0}}),
+            ],
+            20,
+        );
         input.engines.push(engine("ruff", &["lint"], &["python"], true));
         input.languages = vec![json!({"id": "typescript", "files": 1}), json!({"id": "python", "files": 1})];
         let r = build_tidy_report(input);

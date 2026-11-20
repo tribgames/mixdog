@@ -27,9 +27,7 @@ use crate::memory::clean::clean_memory_text;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
 use crate::memory::ingest::ordinals::{OrdinalStore, PriorMatcher, SessionState, identity_hash};
-use crate::memory::ingest_shape::{
-    normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref,
-};
+use crate::memory::ingest_shape::{normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref};
 use crate::memory::pg::db::Db;
 use crate::memory::project::resolve_project_scope;
 
@@ -169,7 +167,6 @@ fn assign_occurrences(session_id: &str, messages: &[Value], start: f64, state: &
     (prepared, considered)
 }
 
-
 /// `parseTsToMs`: seconds or milliseconds as a number, or a date string; the
 /// collection time when it cannot be read.
 fn parse_ts_to_ms(value: Option<&Value>, fallback_ms: i64) -> i64 {
@@ -219,10 +216,7 @@ impl SessionIngest {
 
     pub(crate) async fn ingest_session_cancellable(&self, args: &Value, request: &CancellationToken) -> Result<String> {
         let named = |key: &str| args.get(key).filter(|v| truthy(v)).map(value_to_string);
-        let session_id = js_trim(
-            &named("sessionId").or_else(|| named("session_id")).unwrap_or_else(|| format!("session-{}", (self.0.now)())),
-        )
-        .to_owned();
+        let session_id = js_trim(&named("sessionId").or_else(|| named("session_id")).unwrap_or_else(|| format!("session-{}", (self.0.now)()))).to_owned();
         let _turn = tokio::select! {
             biased;
             () = request.cancelled() => return Err(crate::memory::recall::aborted()),
@@ -286,21 +280,14 @@ impl SessionIngest {
     ) -> Result<(usize, Vec<i64>)> {
         let client = self.0.db.client().await?;
         self.observe(MAX_TURN_SQL, serde_json::json!([session_id]));
-        let mut turn: i32 = client
-            .query_opt(MAX_TURN_SQL, &[&session_id])
-            .await
-            .ok()
-            .flatten()
-            .map_or(0, |row| row.get::<_, i32>(0))
-            .max(0);
+        let mut turn: i32 = client.query_opt(MAX_TURN_SQL, &[&session_id]).await.ok().flatten().map_or(0, |row| row.get::<_, i32>(0)).max(0);
         let now = (self.0.now)();
         let (mut inserted, mut ids) = (0usize, Vec::new());
         let mut writing = false;
         for row in prepared {
             let message = &messages[row.index];
             let fallback = now - (messages.len() - row.index) as i64;
-            let (ts_ms, time_source) =
-                if row.untimestamped { (fallback, "collected") } else { (parse_ts_to_ms(raw_ts(message), now), "recorded") };
+            let (ts_ms, time_source) = if row.untimestamped { (fallback, "collected") } else { (parse_ts_to_ms(raw_ts(message), now), "recorded") };
             // The transcript watcher stores every session's own file: an occurrence it holds is not stored a second time.
             let held: i64 = client.query_one(TRANSCRIPT_HELD_SQL, &[&session_id, &row.role, &row.raw_content]).await?.get(0);
             if held > row.occurrence as i64 {
@@ -314,13 +301,9 @@ impl SessionIngest {
                 }
                 writing = true;
             }
-            self.observe(
-                INSERT_SQL,
-                serde_json::json!([ts_ms, row.role, row.raw_content, source_ref, session_id, assigned, project_id, time_source]),
-            );
-            let stored = client
-                .query(INSERT_SQL, &[&ts_ms, &row.role, &row.raw_content, &source_ref, &session_id, &assigned, &project_id, &time_source])
-                .await?;
+            self.observe(INSERT_SQL, serde_json::json!([ts_ms, row.role, row.raw_content, source_ref, session_id, assigned, project_id, time_source]));
+            let stored =
+                client.query(INSERT_SQL, &[&ts_ms, &row.role, &row.raw_content, &source_ref, &session_id, &assigned, &project_id, &time_source]).await?;
             if let Some(first) = stored.first() {
                 inserted += stored.len();
                 ids.push(first.get::<_, i64>(0));
@@ -348,9 +331,7 @@ impl SessionIngest {
                     this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await;
                 });
             } else {
-                let own = self.0.db.scope().spawn("services.memory.ingest-embed", async move {
-                    this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await
-                });
+                let own = self.0.db.scope().spawn("services.memory.ingest-embed", async move { this.0.flush.flush(FLUSH_LIMIT, Some(&ids)).await });
                 if let Some(own) = own
                     && let Some(outcome) = own.await
                     && outcome.attempted > 0
@@ -372,7 +353,6 @@ impl SessionIngest {
         #[cfg(test)]
         self.0.statements.lock().expect("statements").push((_sql, _params));
     }
-
 
     /// Queues `work` after the flushes queued before it. It is registered in the database's scope before it is published as the tail, so the queue
     /// never holds work nobody owns; a refused registration (the scope sealed) leaves the tail as it was.
@@ -397,11 +377,7 @@ mod cancellation_tests {
 
     #[tokio::test]
     async fn a_cancelled_ingest_leaves_the_queue_behind_a_busy_session_without_opening_the_database() {
-        let db = Db::deferred(
-            crate::memory::pg::db::Schema::Memory,
-            Arc::new(|| panic!("a cancelled ingest must not open the database")),
-            Arc::new(|| None),
-        );
+        let db = Db::deferred(crate::memory::pg::db::Schema::Memory, Arc::new(|| panic!("a cancelled ingest must not open the database")), Arc::new(|| None));
         let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db, None)), None, Arc::new(|| 0), mixdog_rt::testing::tokens().durability_io);
         let _held = ingest.0.chains.enter("session-test", &ingest.0.cancel).await.unwrap();
         let request = CancellationToken::new();

@@ -93,8 +93,7 @@ async fn a_read_before_open_is_followed_by_a_ready_publication_without_another_r
     runtime.list_if_unanswered().await;
     assert_eq!(runtime.section_value().info["connected"], json!(false));
     open.send(()).unwrap();
-    let request = mixdog_rt::time::timeout(WAIT, asked.recv())
-        .await.expect("the open leg must list without a second read").expect("relay ended");
+    let request = mixdog_rt::time::timeout(WAIT, asked.recv()).await.expect("the open leg must list without a second read").expect("relay ended");
     assert_eq!(runtime.section_value().info["connected"], json!(false), "only a successful listing makes the QR ready");
     let paired = json!({ "id": "0123456789abcdef0123456789abcdef", "name": "Pixel 9 · Mixdog App", "browser": "Mixdog App", "createdAt": 5, "online": true });
     answer.send(json!({ "type": "clients-list", "requestId": request["requestId"], "clients": [paired] })).unwrap();
@@ -108,7 +107,9 @@ async fn a_read_before_open_is_followed_by_a_ready_publication_without_another_r
             }
             wake.0.notified().await;
         }
-    }).await.expect("a successful listing must publish the ready descriptor and roster");
+    })
+    .await
+    .expect("a successful listing must publish the ready descriptor and roster");
     runtime.close().await;
 }
 
@@ -119,16 +120,14 @@ async fn a_state_read_can_retry_an_unanswered_listing() {
     let runtime = runtime(dir.path(), port, Arc::new(Wake::default()));
     runtime.start(true).await.unwrap();
     open.send(()).unwrap();
-    let first = mixdog_rt::time::timeout(WAIT, asked.recv())
-        .await.expect("the initial listing").expect("relay ended");
+    let first = mixdog_rt::time::timeout(WAIT, asked.recv()).await.expect("the initial listing").expect("relay ended");
     answer.send(json!({ "type": "clients-list", "requestId": first["requestId"], "ok": false })).unwrap();
     assert_eq!(runtime.section_value().info["connected"], json!(false));
     let asking = tokio::spawn({
         let runtime = runtime.clone();
         async move { runtime.list_if_unanswered().await }
     });
-    let second = mixdog_rt::time::timeout(WAIT, asked.recv())
-        .await.expect("the next ask lists again").expect("relay ended");
+    let second = mixdog_rt::time::timeout(WAIT, asked.recv()).await.expect("the next ask lists again").expect("relay ended");
     assert_ne!(second["requestId"], first["requestId"]);
     answer.send(json!({ "type": "clients-list", "requestId": second["requestId"], "clients": [] })).unwrap();
     asking.await.unwrap();

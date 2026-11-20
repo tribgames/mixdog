@@ -221,7 +221,8 @@ impl RoomAsk for RoomAsks {
         if text.is_empty() && upload.is_none() {
             return Err("Write a message to send.".into());
         }
-        let from_name = if ask.from_agent.is_empty() { "Lead".to_owned() } else { room.display_name(&ask.from_agent).await.unwrap_or_else(|| ask.from_agent.clone()) };
+        let from_name =
+            if ask.from_agent.is_empty() { "Lead".to_owned() } else { room.display_name(&ask.from_agent).await.unwrap_or_else(|| ask.from_agent.clone()) };
         let at = room.now();
         let mut row = Map::new();
         row.insert("id".into(), json!(format!("ask_{}", room.new_id())));

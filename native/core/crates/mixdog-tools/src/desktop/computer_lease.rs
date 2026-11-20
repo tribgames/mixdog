@@ -276,7 +276,6 @@ mod tests {
         assert!(!owner_available(None));
     }
 
-
     async fn next<T>(channel: &mut mpsc::UnboundedReceiver<T>) -> T {
         mixdog_rt::time::timeout(Duration::from_secs(5), channel.recv()).await.expect("in time").expect("sent")
     }
@@ -373,7 +372,6 @@ mod tests {
         assert!(silent.asked.try_recv().is_err());
     }
 }
-
 
 impl Relay {
     /// The relay of the helper `handle` runs under `manager`, whose requests in flight are `pending`.

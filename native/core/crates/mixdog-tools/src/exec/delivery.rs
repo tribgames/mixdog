@@ -41,12 +41,7 @@ pub struct Omitted<'a> {
 
 /// The omission marker, identical on every delivery path, the log path last.
 pub fn omission_marker(omitted: &Omitted<'_>) -> String {
-    format!(
-        "[… {} lines, {} omitted — read with offset/limit or grep, full log: {}]",
-        omitted.lines,
-        format_kb(omitted.bytes as u64),
-        omitted.path
-    )
+    format!("[… {} lines, {} omitted — read with offset/limit or grep, full log: {}]", omitted.lines, format_kb(omitted.bytes as u64), omitted.path)
 }
 
 /// Step 1 for one chunk: ANSI stripped, then `\r` frames folded.
@@ -55,11 +50,7 @@ pub fn prepare_shell_text(text: &str, fold: &mut CarriageReturnFolder) -> String
 }
 
 pub(super) fn ansi_stripped(text: &str) -> Cow<'_, str> {
-    if text.contains(['\u{1b}', '\u{9b}']) {
-        Cow::Owned(strip_ansi(text))
-    } else {
-        Cow::Borrowed(text)
-    }
+    if text.contains(['\u{1b}', '\u{9b}']) { Cow::Owned(strip_ansi(text)) } else { Cow::Borrowed(text) }
 }
 
 /// A UTF-16 cut in UTF-8 text. When it divides a surrogate pair, `byte` points at
@@ -265,7 +256,6 @@ mod tests {
         assert_eq!(parse_int_prefix("abc"), None);
     }
 
-
     #[test]
     fn short_text_is_delivered_whole_and_long_text_keeps_both_ends() {
         let piece = shell_text_piece("hello\n", "/log");
@@ -295,22 +285,14 @@ mod tests {
         let delivered = fit_pieces_at(&[shell_text_piece(&body, "/l")], 6000.0, 6000.0).remove(0);
         // Each cut leaves half an emoji in the omitted middle. Each half weighs three
         // UTF-8 bytes there and is a replacement character on the visible side as well.
-        assert_eq!(
-            delivered,
-            format!("{head}�\n[… 4 lines, 4.0 KB omitted — read with offset/limit or grep, full log: /l]\n�{tail}"),
-        );
+        assert_eq!(delivered, format!("{head}�\n[… 4 lines, 4.0 KB omitted — read with offset/limit or grep, full log: /l]\n�{tail}"),);
     }
 }
-
 
 /// `MIXDOG_SHELL_DELIVERY_MAX_CHARS`: the whole-delivery cap (a positive integer, else 6000).
 pub fn delivery_full_chars() -> f64 {
     static FULL: LazyLock<f64> = LazyLock::new(|| {
-        std::env::var("MIXDOG_SHELL_DELIVERY_MAX_CHARS")
-            .ok()
-            .and_then(|raw| parse_int_prefix(&raw))
-            .filter(|n| *n > 0)
-            .map_or(6_000.0, |n| n as f64)
+        std::env::var("MIXDOG_SHELL_DELIVERY_MAX_CHARS").ok().and_then(|raw| parse_int_prefix(&raw)).filter(|n| *n > 0).map_or(6_000.0, |n| n as f64)
     });
     *FULL
 }
@@ -375,11 +357,7 @@ fn shaped_piece<'a>(shown: Cow<'a, str>, cut: usize, path: &str) -> Piece<'a> {
                 let partial = usize::from(head.split) + usize::from(tail.split);
                 (count_newlines(middle), middle.len() + partial * '\u{fffd}'.len_utf8())
             };
-            join_head_tail(
-                &head.head(&shown),
-                &tail.tail(&shown),
-                &Omitted { lines, bytes, path: &path },
-            )
+            join_head_tail(&head.head(&shown), &tail.tail(&shown), &Omitted { lines, bytes, path: &path })
         }),
     }
 }

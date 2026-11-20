@@ -60,7 +60,4 @@ pub fn bind_agent_docs(docs: Vec<Value>, agent: &HashMap<String, Value>) -> Vec<
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
+mod tests {}

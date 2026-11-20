@@ -194,11 +194,8 @@ impl ConsoleLedger {
             Some(limit) => limit.trunc().clamp(1.0, 200.0) as usize,
             None => 50,
         };
-        let matching: Vec<&ConsoleEntry> = self
-            .entries
-            .iter()
-            .filter(|entry| entry.level.rank() >= minimum && (query.is_empty() || entry.text.to_lowercase().contains(&query)))
-            .collect();
+        let matching: Vec<&ConsoleEntry> =
+            self.entries.iter().filter(|entry| entry.level.rank() >= minimum && (query.is_empty() || entry.text.to_lowercase().contains(&query))).collect();
         let mut selected: Vec<&ConsoleEntry> = Vec::new();
         let mut report_chars = 0;
         for entry in matching.iter().rev().take(limit).copied() {
@@ -349,6 +346,5 @@ mod tests {
         assert_eq!(ledger.since_last_report(1), ["again"]);
     }
 }
-
 
 impl std::error::Error for ConsoleLevelError {}

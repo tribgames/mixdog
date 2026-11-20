@@ -19,16 +19,13 @@ const DAY: i64 = 86_400;
 const MAX_MS: f64 = 8.64e15;
 static DATA: LazyLock<Value> = LazyLock::new(|| {
     let mut json = String::new();
-    flate2::read::GzDecoder::new(&include_bytes!("date_string/data/icu77-date-names.json.gz")[..])
-        .read_to_string(&mut json)
-        .expect("pinned ICU data");
+    flate2::read::GzDecoder::new(&include_bytes!("date_string/data/icu77-date-names.json.gz")[..]).read_to_string(&mut json).expect("pinned ICU data");
     let data: Value = serde_json::from_str(&json).expect("generated ICU schema");
     assert_eq!(data["tz"], "2025b");
     data
 });
 type NameKey = (String, String, bool);
-static NAMES: LazyLock<Mutex<HashMap<NameKey, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NAMES: LazyLock<Mutex<HashMap<NameKey, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn int(v: &Value) -> i64 {
     v.as_i64().expect("generated integer")
@@ -37,9 +34,7 @@ fn string(v: &Value) -> &str {
     v.as_str().expect("generated string")
 }
 fn clock_seconds() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
 // Gregorian arithmetic also covers the valid JS dates beyond chrono's calendar.
@@ -82,9 +77,7 @@ fn weekday(days: i64) -> i64 {
 }
 
 fn zone(name: &str) -> (&'static Value, &'static str) {
-    let descriptor = DATA["zoneNames"]
-        .get(name)
-        .unwrap_or(&DATA["zoneNames"]["Etc/Unknown"]);
+    let descriptor = DATA["zoneNames"].get(name).unwrap_or(&DATA["zoneNames"]["Etc/Unknown"]);
     let mut index = int(&descriptor[0]) as usize;
     loop {
         let z = &DATA["zones"][index];
@@ -104,22 +97,15 @@ fn transition(year: i64, rule: &[Value], raw: i64, before_dst: i64) -> i64 {
     let mut dom = day.abs().min(month_length(year, month));
     if dow > 0 {
         if day > 0 {
-            dom = 1
-                + (dow - 1 - weekday(days_from_civil(year, month, 1))).rem_euclid(7)
-                + (day - 1) * 7
+            dom = 1 + (dow - 1 - weekday(days_from_civil(year, month, 1))).rem_euclid(7) + (day - 1) * 7
         } else {
             let last = month_length(year, month);
-            dom = last - (weekday(days_from_civil(year, month, last)) - (dow - 1)).rem_euclid(7)
-                + (day + 1) * 7
+            dom = last - (weekday(days_from_civil(year, month, last)) - (dow - 1)).rem_euclid(7) + (day + 1) * 7
         }
     } else if dow < 0 {
         let desired = -dow - 1;
         let wd = weekday(days_from_civil(year, month, dom));
-        if day > 0 {
-            dom += (desired - wd).rem_euclid(7)
-        } else {
-            dom -= (wd - desired).rem_euclid(7)
-        }
+        if day > 0 { dom += (desired - wd).rem_euclid(7) } else { dom -= (wd - desired).rem_euclid(7) }
     }
     let local = days_from_civil(year, month, dom) * DAY + int(&rule[3]);
     local
@@ -146,10 +132,7 @@ fn offsets(z: &Value, time: i64) -> (i64, i64) {
             let mut last = i64::MIN;
             let mut daylight = false;
             for y in year - 1..=year + 1 {
-                for (at, on) in [
-                    (transition(y, &rule[..5], raw, 0), true),
-                    (transition(y, &rule[5..10], raw, savings), false),
-                ] {
+                for (at, on) in [(transition(y, &rule[..5], raw, 0), true), (transition(y, &rule[5..10], raw, savings), false)] {
                     if at <= time && at > last {
                         last = at;
                         daylight = on
@@ -161,11 +144,7 @@ fn offsets(z: &Value, time: i64) -> (i64, i64) {
     }
     let transitions = z["t"].as_array().expect("transitions");
     let at = transitions.partition_point(|row| int(&row[0]) <= time);
-    if at == 0 {
-        (int(&z["i"][0]), int(&z["i"][1]))
-    } else {
-        (int(&transitions[at - 1][1]), int(&transitions[at - 1][2]))
-    }
+    if at == 0 { (int(&z["i"][0]), int(&z["i"][1])) } else { (int(&transitions[at - 1][1]), int(&transitions[at - 1][2])) }
 }
 
 fn equivalent_time(time: i64, outside_epoch: bool) -> i64 {
@@ -182,7 +161,8 @@ fn equivalent_time(time: i64, outside_epoch: bool) -> i64 {
 
 fn daylight_in_current_year(z: &Value, now: i64) -> bool {
     if let Some(f) = z.get("f")
-        && now >= days_from_civil(int(&f[0]), 1, 1) * DAY {
+        && now >= days_from_civil(int(&f[0]), 1, 1) * DAY
+    {
         return int(&f[2][1]) != 0 && int(&f[2][6]) != 0;
     }
     let year = civil(now.div_euclid(DAY)).0;
@@ -211,14 +191,7 @@ fn normalize_locale(locale: &str) -> (String, Option<String>) {
             numbers = Some(n.to_owned())
         }
     }
-    let mut parts: Vec<String> = base
-        .split('.')
-        .next()
-        .unwrap_or(base)
-        .split(['-', '_'])
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect();
+    let mut parts: Vec<String> = base.split('.').next().unwrap_or(base).split(['-', '_']).filter(|s| !s.is_empty()).map(str::to_owned).collect();
     if let Some(extension) = parts.iter().position(|p| p.len() == 1) {
         for pair in parts[extension + 1..].windows(2) {
             if pair[0] == "nu" {
@@ -237,8 +210,7 @@ fn normalize_locale(locale: &str) -> (String, Option<String>) {
     for p in &mut parts[1..] {
         if p.len() == 4 {
             let mut chars = p.chars();
-            *p = chars.next().unwrap().to_uppercase().collect::<String>()
-                + &chars.as_str().to_lowercase()
+            *p = chars.next().unwrap().to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
         } else {
             *p = p.to_uppercase()
         }
@@ -275,27 +247,17 @@ fn locale_chain(section: &str, locale: &str) -> Vec<String> {
             .get("p")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .unwrap_or_else(|| {
-                current
-                    .rsplit_once('_')
-                    .map_or_else(|| "root".into(), |(parent, _)| parent.into())
-            });
+            .unwrap_or_else(|| current.rsplit_once('_').map_or_else(|| "root".into(), |(parent, _)| parent.into()));
     }
     out
 }
 fn locale_property<'a>(section: &str, chain: &[String], property: &str) -> Option<&'a str> {
-    chain
-        .iter()
-        .find_map(|loc| DATA[section][loc].get(property).and_then(Value::as_str))
+    chain.iter().find_map(|loc| DATA[section][loc].get(property).and_then(Value::as_str))
 }
 fn named(chain: &[String], key: &str, daylight: bool) -> Option<String> {
     for locale in chain {
         if let Some(name) = DATA["locales"][locale]["n"][key][usize::from(daylight)].as_str() {
-            return if name.is_empty() || name == "∅∅∅" {
-                None
-            } else {
-                Some(name.to_owned())
-            };
+            return if name.is_empty() || name == "∅∅∅" { None } else { Some(name.to_owned()) };
         }
     }
     None
@@ -311,12 +273,7 @@ fn digits(locale: &str, keyword: Option<&str>) -> Option<String> {
         if !["default", "native", "traditional", "finance"].contains(&wanted.as_str()) {
             // Valid algorithmic systems use Latin GMT digits. An unsupported
             // keyword leaves U_UNSUPPORTED_ERROR in ICU, clearing the name.
-            return DATA["numberingSystems"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|v| v.as_str() == Some(wanted.as_str()))
-                .then(|| "0123456789".into());
+            return DATA["numberingSystems"].as_array().unwrap().iter().any(|v| v.as_str() == Some(wanted.as_str())).then(|| "0123456789".into());
         }
         if let Some(resolved) = locale_property("numbers", &chain, &wanted) {
             wanted = resolved.into()
@@ -353,9 +310,7 @@ fn gmt(locale: &str, keyword: Option<&str>, chain: &[String], offset: i64) -> St
         return String::new();
     }
     if offset == 0 {
-        return locale_property("locales", chain, "gmtZeroFormat")
-            .unwrap_or("GMT")
-            .into();
+        return locale_property("locales", chain, "gmtZeroFormat").unwrap_or("GMT").into();
     }
     let pattern = locale_property("locales", chain, "gmtFormat").unwrap_or("GMT{0}");
     let formats = locale_property("locales", chain, "hourFormat").unwrap_or("+HH:mm;-HH:mm");
@@ -365,20 +320,14 @@ fn gmt(locale: &str, keyword: Option<&str>, chain: &[String], offset: i64) -> St
     let h = absolute / 3600;
     let m = (absolute % 3600) / 60;
     let s = absolute % 60;
-    if s != 0 && let Some(minute) = hour_pattern.find("mm") {
-        let separator = hour_pattern[..minute]
-            .rfind('H')
-            .map(|at| hour_pattern[at + 1..minute].to_owned())
-            .unwrap_or_default();
+    if s != 0
+        && let Some(minute) = hour_pattern.find("mm")
+    {
+        let separator = hour_pattern[..minute].rfind('H').map(|at| hour_pattern[at + 1..minute].to_owned()).unwrap_or_default();
         hour_pattern.insert_str(minute + 2, &(separator + "ss"));
     }
     let digit_chars: Vec<char> = digits.chars().collect();
-    let render = |n: i64| {
-        format!("{n:02}")
-            .chars()
-            .map(|c| digit_chars[c.to_digit(10).unwrap() as usize])
-            .collect::<String>()
-    };
+    let render = |n: i64| format!("{n:02}").chars().map(|c| digit_chars[c.to_digit(10).unwrap() as usize]).collect::<String>();
     let mut out = String::new();
     let mut quoted = false;
     let mut chars = hour_pattern.chars().peekable();
@@ -417,8 +366,7 @@ fn display_name(z: &Value, canonical: &str, locale: &str, daylight: bool, now: i
     if let Some(periods) = DATA["meta"].get(canonical).and_then(Value::as_array) {
         for period in periods {
             if int(&period[1]) <= now && now < int(&period[2]) {
-                if let Some(name) = named(&chain, &format!("meta:{}", string(&period[0])), daylight)
-                {
+                if let Some(name) = named(&chain, &format!("meta:{}", string(&period[0])), daylight) {
                     return name;
                 }
                 break;
@@ -426,11 +374,7 @@ fn display_name(z: &Value, canonical: &str, locale: &str, daylight: bool, now: i
         }
     }
     let raw = offsets(z, now).0;
-    let savings = if daylight && daylight_in_current_year(z, now) {
-        z.get("f").map_or(3600, |f| int(&f[2][10]))
-    } else {
-        0
-    };
+    let savings = if daylight && daylight_in_current_year(z, now) { z.get("f").map_or(3600, |f| int(&f[2][10])) } else { 0 };
     gmt(&locale, keyword.as_deref(), &chain, raw + savings)
 }
 
@@ -443,20 +387,11 @@ fn format_date(time: f64, zone_name: &str, locale: &str, now: i64, cached: bool)
     let (z, canonical) = zone(zone_name);
     let (raw, dst) = offsets(z, seconds);
     let offset = raw + dst;
-    let daylight = offsets(
-        z,
-        equivalent_time(seconds, millis < 0 || millis > i64::from(i32::MAX) * 1000),
-    )
-    .1 != 0;
+    let daylight = offsets(z, equivalent_time(seconds, millis < 0 || millis > i64::from(i32::MAX) * 1000)).1 != 0;
     let name = if cached {
         let key = (zone_name.to_owned(), locale.to_owned(), daylight);
-        let mut names = NAMES
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        names
-            .entry(key)
-            .or_insert_with(|| display_name(z, canonical, locale, daylight, now))
-            .clone()
+        let mut names = NAMES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        names.entry(key).or_insert_with(|| display_name(z, canonical, locale, daylight, now)).clone()
     } else {
         display_name(z, canonical, locale, daylight, now)
     };
@@ -466,17 +401,11 @@ fn format_date(time: f64, zone_name: &str, locale: &str, now: i64, cached: bool)
     let days = local.div_euclid(DAY);
     let (y, m, d) = civil(days);
     let clock = local.rem_euclid(DAY);
-    let (mut year, mut month, mut day, mut wd, mut hour, mut minute, mut second) = (
-        y,
-        m,
-        d,
-        weekday(days),
-        clock / 3600,
-        clock % 3600 / 60,
-        clock % 60,
-    );
-    if cached && crate::time::local_offset_ms(millis as f64) == offset * 1000
-        && let Some(fields) = crate::time::local_fields(millis as f64) {
+    let (mut year, mut month, mut day, mut wd, mut hour, mut minute, mut second) = (y, m, d, weekday(days), clock / 3600, clock % 3600 / 60, clock % 60);
+    if cached
+        && crate::time::local_offset_ms(millis as f64) == offset * 1000
+        && let Some(fields) = crate::time::local_fields(millis as f64)
+    {
         year = fields.year as i64;
         month = fields.month as i64;
         day = fields.day as i64;
@@ -486,14 +415,8 @@ fn format_date(time: f64, zone_name: &str, locale: &str, now: i64, cached: bool)
         second = fields.second as i64;
     }
     const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let year = if year < 0 {
-        format!("-{:04}", -year)
-    } else {
-        format!("{year:04}")
-    };
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let year = if year < 0 { format!("-{:04}", -year) } else { format!("{year:04}") };
     let minutes = offset / 60;
     format!(
         "{} {} {day:02} {year} {hour:02}:{minute:02}:{second:02} GMT{}{:02}{:02} ({name})",
@@ -511,13 +434,7 @@ pub fn date_to_string(time: f64) -> String {
     if !time.is_finite() || time.abs() > MAX_MS {
         return "Invalid Date".into();
     }
-    format_date(
-        time,
-        crate::time::local_zone().name(),
-        crate::default_locale::default_locale_id(),
-        clock_seconds(),
-        true,
-    )
+    format_date(time, crate::time::local_zone().name(), crate::default_locale::default_locale_id(), clock_seconds(), true)
 }
 
 #[cfg(test)]

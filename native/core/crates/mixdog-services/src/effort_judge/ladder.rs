@@ -137,13 +137,7 @@ impl StepLadder for CustomLadder {
     fn resolve(&self, probs: &[f64]) -> Option<StepResult> {
         let options = self.row.effort_levels().unwrap_or_default();
         let resolved = resolve_auto_effort(&self.base, &options, probs)?;
-        let level = mixdog_ai::providers::custom::reasoning::resolve(
-            &self.protocol,
-            &self.row,
-            Some(resolved.effort),
-            &self.base_url,
-        )
-        .level?;
+        let level = mixdog_ai::providers::custom::reasoning::resolve(&self.protocol, &self.row, Some(resolved.effort), &self.base_url).level?;
         Some(StepResult { level: Some(level.to_owned()), effort: Some(level.to_owned()) })
     }
 }

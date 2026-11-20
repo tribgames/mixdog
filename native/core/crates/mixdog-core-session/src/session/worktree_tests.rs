@@ -1,7 +1,6 @@
 //! The workspace transitions against real temporary git repositories: the registry, git and
 //! the managed store are the real ones; only the session runtime is a scripted host.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "tests drive git and the disk directly")]
-
 // Compiled into a test-support build too (its helpers serve mixdog-core-session-replays); its tests run only in the library's own test build.
 #![cfg_attr(not(test), allow(dead_code, unused_imports))]
 
@@ -128,7 +127,10 @@ struct DirtiesBeforeRestore {
 
 #[async_trait::async_trait]
 impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
-    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+    async fn spawn(
+        &self,
+        request: mixdog_core_api::domain::process::SpawnRequest,
+    ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
         if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
             && args.iter().any(|a| a == "rev-parse")
             && args.last().is_some_and(|a| a.starts_with("refs/mixdog/") && a.ends_with("^1"))
@@ -142,7 +144,10 @@ impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
         &self,
         handle: &mixdog_protocol::ProcessHandle,
         from_seq: Option<u64>,
-    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
         self.inner.subscribe(handle, from_seq)
     }
     async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -151,7 +156,11 @@ impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
     fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.close_stdin(handle)
     }
-    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+    fn resize_pty(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        size: mixdog_core_api::domain::process::PtySize,
+    ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.resize_pty(handle, size)
     }
     fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -180,7 +189,6 @@ impl SettingsSource for OverThreshold {
         WorktreeSettings { size_warn_bytes: 1, ..WorktreeSettings::default() }
     }
 }
-
 
 #[derive(Default)]
 pub struct HostState {
@@ -364,17 +372,12 @@ async fn a_session_enters_returns_merges_and_removes_its_worktree() {
     assert_eq!(returned["revision"], 2);
     assert_eq!(returned["workspace"]["worktreeId"], Value::Null);
     assert_eq!(returned["workspace"]["branch"], "main");
-    assert_eq!(
-        rig.state.lock().unwrap().cwd.replace('\\', "/"),
-        rig.repo.to_string_lossy().replace('\\', "/")
-    );
+    assert_eq!(rig.state.lock().unwrap().cwd.replace('\\', "/"), rig.repo.to_string_lossy().replace('\\', "/"));
     assert_eq!(rig.ws.gate().workspace_cwd_lock(&["lead"]), None);
     let again = run(&rig, SessionOp::Return { session_id: None, tx_id: "c3b:return".into() }).await.unwrap();
     assert_eq!(again["unchanged"], true);
 
-    let removed = run(&rig, SessionOp::Remove { session_id: None, branch: None, force: false, tx_id: "c4:remove".into() })
-        .await
-        .unwrap();
+    let removed = run(&rig, SessionOp::Remove { session_id: None, branch: None, force: false, tx_id: "c4:remove".into() }).await.unwrap();
     assert_eq!(removed["removed"]["removed"], true);
     assert!(!cwd.exists());
     let rows = rig.worktrees.list(None, &KeepAll, &CancellationToken::new()).await.unwrap();
@@ -399,27 +402,17 @@ async fn a_row_listed_while_the_marks_are_unavailable_carries_no_archive_state_o
 async fn a_stale_revision_and_a_running_turn_refuse_and_leave_the_session_alone() {
     let rig = rig();
     let cancel = CancellationToken::new();
-    let stale = rig
-        .ws
-        .select_branch("lead", SelectBranch { branch: "x".into(), expected_revision: Some(5), ..SelectBranch::default() }, true, &cancel)
-        .await;
+    let stale = rig.ws.select_branch("lead", SelectBranch { branch: "x".into(), expected_revision: Some(5), ..SelectBranch::default() }, true, &cancel).await;
     assert_eq!(stale.err().and_then(|e| e.code()), Some("WORKTREE_REVISION_CONFLICT"));
 
     rig.state.lock().unwrap().turn_running = true;
-    let busy = rig
-        .ws
-        .select_branch("lead", SelectBranch { branch: "x".into(), create: true, ..SelectBranch::default() }, false, &cancel)
-        .await;
+    let busy = rig.ws.select_branch("lead", SelectBranch { branch: "x".into(), create: true, ..SelectBranch::default() }, false, &cancel).await;
     assert_eq!(busy.err().and_then(|e| e.code()), Some("WORKTREE_BUSY_JOBS"));
     // The in-flight marker is gone and nothing was created.
     assert!(rig.state.lock().unwrap().workspace.is_none());
     assert!(git(&rig.repo, &["branch", "--list", "x"]).is_empty());
     // The Lead's own tool call tolerates its calling turn.
-    let own = rig
-        .ws
-        .select_branch("lead", SelectBranch { branch: "x".into(), create: true, ..SelectBranch::default() }, true, &cancel)
-        .await
-        .unwrap();
+    let own = rig.ws.select_branch("lead", SelectBranch { branch: "x".into(), create: true, ..SelectBranch::default() }, true, &cancel).await.unwrap();
     assert_eq!(own["workspace"]["branch"], "x");
     assert!(own["workspace"]["worktreeId"].is_string());
 }
@@ -449,23 +442,21 @@ async fn uncommitted_changes_must_be_decided_before_a_worktree_is_made() {
     assert_eq!(code(&asked), Some("WORKTREE_DIRTY_CHOICE"));
     assert!(rig.worktrees.list(None, &KeepAll, &CancellationToken::new()).await.unwrap().is_empty());
     let SessionOp::Enter { session_id, name, branch, create, confirm_large, tx_id, .. } = enter("feat", "c2") else { unreachable!() };
-    let left = run(
-        &rig,
-        SessionOp::Enter { session_id, name, branch, create, carry: Some("leave".into()), confirm_large, tx_id },
-    )
-    .await
-    .unwrap();
+    let left = run(&rig, SessionOp::Enter { session_id, name, branch, create, carry: Some("leave".into()), confirm_large, tx_id }).await.unwrap();
     assert_eq!(left["changes"], json!({"mode": "left", "count": 1}));
     assert_eq!(std::fs::read_to_string(rig.repo.join("f.txt")).unwrap(), "changed\n");
-    let carry = run(&rig, SessionOp::Enter {
-        session_id: None,
-        name: Some("other".into()),
-        branch: None,
-        create: false,
-        carry: Some("carry".into()),
-        confirm_large: false,
-        tx_id: "c3:enter".into(),
-    })
+    let carry = run(
+        &rig,
+        SessionOp::Enter {
+            session_id: None,
+            name: Some("other".into()),
+            branch: None,
+            create: false,
+            carry: Some("carry".into()),
+            confirm_large: false,
+            tx_id: "c3:enter".into(),
+        },
+    )
     .await;
     // Already bound: the request returns the current workspace without examining changes.
     assert_eq!(carry.unwrap()["pending"], false);
@@ -539,12 +530,8 @@ async fn project_branch_admission_refuses_folders_other_sessions_use() {
     // While held, a turn in the folder waits and another holder is refused.
     assert!(rig.ws.gate().hold_checkout_folder("x", &rig.repo.to_string_lossy(), true).is_err());
     drop(admitted);
-    rig.state.lock().unwrap().live = vec![LiveSession {
-        id: "other".into(),
-        cwd: Some(rig.repo.join("sub").to_string_lossy().into_owned()),
-        active: true,
-        ..LiveSession::default()
-    }];
+    rig.state.lock().unwrap().live =
+        vec![LiveSession { id: "other".into(), cwd: Some(rig.repo.join("sub").to_string_lossy().into_owned()), active: true, ..LiveSession::default() }];
     let refused = admission.admit(&folders, false).await.err().unwrap();
     assert_eq!(refused.code(), Some("WORKTREE_BUSY_JOBS"));
     // An idle session only blocks a removal.
@@ -590,10 +577,7 @@ async fn claim_fails_after_a_carry(dirty: bool) -> (tempfile::TempDir, Result<()
     let root = mixdog_scm::worktree::names::managed_root(&data, &project.common_dir);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join(".owners"), "in the way").unwrap();
-    let result = ops
-        .create_for_session(&project, TxScope { session: "s1", tx_id: "tx1" }, "feat", Some("carry"), false, &cancel)
-        .await
-        .map(drop);
+    let result = ops.create_for_session(&project, TxScope { session: "s1", tx_id: "tx1" }, "feat", Some("carry"), false, &cancel).await.map(drop);
     let rows = worktrees.list(None, &KeepAll, &cancel).await.unwrap();
     let carry_refs = git(&repo, &["for-each-ref", "refs/mixdog/carry"]);
     let folder = std::fs::read_to_string(repo.join("f.txt")).unwrap();
@@ -634,9 +618,7 @@ async fn a_carry_refuses_while_another_session_works_in_the_project_folder() {
         confirm_large: false,
         tx_id: format!("{call}:enter"),
     };
-    let other = |active: bool| {
-        vec![LiveSession { id: "other".into(), cwd: Some(rig.repo.to_string_lossy().into_owned()), active, ..LiveSession::default() }]
-    };
+    let other = |active: bool| vec![LiveSession { id: "other".into(), cwd: Some(rig.repo.to_string_lossy().into_owned()), active, ..LiveSession::default() }];
     rig.state.lock().unwrap().live = other(true);
     assert_eq!(busy_reason(&run(&rig, carry("c1")).await), "folder-in-use");
     {
@@ -701,9 +683,7 @@ async fn a_partly_removed_worktree_reports_what_is_left() {
     run(&rig, SessionOp::Return { session_id: None, tx_id: "c2:return".into() }).await.unwrap();
     let failure = run(&rig, SessionOp::Remove { session_id: None, branch: None, force: false, tx_id: "c3:remove".into() }).await.unwrap_err();
     assert_eq!(failure.code(), Some("WORKTREE_REMOVAL_INCOMPLETE"));
-    let Some(mixdog_protocol::DomainErrorDetail::WorktreeRemovalIncomplete { remaining, retryable, .. }) = failure.detail() else {
-        panic!("{failure:?}")
-    };
+    let Some(mixdog_protocol::DomainErrorDetail::WorktreeRemovalIncomplete { remaining, retryable, .. }) = failure.detail() else { panic!("{failure:?}") };
     assert!(*retryable);
     assert_eq!(remaining.len(), 1);
     assert_eq!((remaining[0].kind.as_str(), remaining[0].name.as_deref(), remaining[0].error.as_deref()), ("cleanup", Some("terminal"), Some("still open")));

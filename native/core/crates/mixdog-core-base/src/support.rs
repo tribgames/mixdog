@@ -32,17 +32,11 @@ use crate::ops::ThreadOpGates;
 const STORED_RESULT_MAX: usize = 16 * 1024;
 
 pub fn decode<T: DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
-    serde_json::from_value(req.params.clone()).map_err(|error| CoreError::InvalidParams {
-        path: "params".into(),
-        expected: error.to_string().into(),
-    })
+    serde_json::from_value(req.params.clone()).map_err(|error| CoreError::InvalidParams { path: "params".into(), expected: error.to_string().into() })
 }
 
 pub fn invalid(path: &str, expected: &str) -> CoreError {
-    CoreError::InvalidParams {
-        path: path.into(),
-        expected: expected.into(),
-    }
+    CoreError::InvalidParams { path: path.into(), expected: expected.into() }
 }
 
 /// The method does not belong to the service it reached.
@@ -54,22 +48,12 @@ pub fn wrong_method(namespace: &str, method: &str) -> CoreError {
 /// and no `code` (`call-route.mjs` adds one only when the error has it), so the sentence is the
 /// whole answer.
 pub fn failed(domain: &'static str, message: impl Into<String>) -> CoreError {
-    CoreError::DomainError {
-        domain: domain.into(),
-        code: None,
-        message: Some(Into::<String>::into(message).into()),
-        detail: None,
-    }
+    CoreError::DomainError { domain: domain.into(), code: None, message: Some(Into::<String>::into(message).into()), detail: None }
 }
 
 /// A failure whose `Error` carried `code` (`INSTRUCTION_FILE_CONFLICT`, a Node errno).
 pub fn coded(domain: &'static str, code: &str, message: impl Into<String>) -> CoreError {
-    CoreError::DomainError {
-        domain: domain.into(),
-        code: Some(code.into()),
-        message: Some(Into::<String>::into(message).into()),
-        detail: None,
-    }
+    CoreError::DomainError { domain: domain.into(), code: Some(code.into()), message: Some(Into::<String>::into(message).into()), detail: None }
 }
 
 /// The `fs` call of Node's code path that failed (`atomic-file.mjs` `publishFileSync`,
@@ -109,7 +93,6 @@ pub struct FsFailure {
     pub error: std::io::Error,
     pub step: FsStep,
 }
-
 
 /// libuv's name and description of every errno a file operation of the publication path (open,
 /// write, fsync, rename, unlink) can fail with: `uv_err_name` and `uv_strerror`, which are what
@@ -175,106 +158,106 @@ const ERRNOS: &[(&str, &str)] = &[
 /// pinned to the source by `errno-win32-twin.json` (`record-errno-win32.mjs`).
 #[cfg(windows)]
 const OS_ERRORS: &[(i32, &str)] = &[
-    (10013, "EACCES"), // WSAEACCES
-    (740, "EACCES"), // ERROR_ELEVATION_REQUIRED
-    (1920, "EACCES"), // ERROR_CANT_ACCESS_FILE
-    (1227, "EADDRINUSE"), // ERROR_ADDRESS_ALREADY_ASSOCIATED
-    (10048, "EADDRINUSE"), // WSAEADDRINUSE
-    (10049, "EADDRNOTAVAIL"), // WSAEADDRNOTAVAIL
-    (10047, "EAFNOSUPPORT"), // WSAEAFNOSUPPORT
-    (10035, "EAGAIN"), // WSAEWOULDBLOCK
-    (232, "EAGAIN"), // ERROR_NO_DATA
-    (10037, "EALREADY"), // WSAEALREADY
-    (1004, "EBADF"), // ERROR_INVALID_FLAGS
-    (6, "EBADF"), // ERROR_INVALID_HANDLE
-    (33, "EBUSY"), // ERROR_LOCK_VIOLATION
-    (231, "EBUSY"), // ERROR_PIPE_BUSY
-    (32, "EBUSY"), // ERROR_SHARING_VIOLATION
-    (995, "ECANCELED"), // ERROR_OPERATION_ABORTED
-    (10004, "ECANCELED"), // WSAEINTR
-    (1113, "ECHARSET"), // ERROR_NO_UNICODE_TRANSLATION
-    (1236, "ECONNABORTED"), // ERROR_CONNECTION_ABORTED
-    (10053, "ECONNABORTED"), // WSAECONNABORTED
-    (1225, "ECONNREFUSED"), // ERROR_CONNECTION_REFUSED
-    (10061, "ECONNREFUSED"), // WSAECONNREFUSED
-    (64, "ECONNRESET"), // ERROR_NETNAME_DELETED
-    (10054, "ECONNRESET"), // WSAECONNRESET
-    (183, "EEXIST"), // ERROR_ALREADY_EXISTS
-    (80, "EEXIST"), // ERROR_FILE_EXISTS
-    (998, "EFAULT"), // ERROR_NOACCESS
-    (10014, "EFAULT"), // WSAEFAULT
-    (1232, "EHOSTUNREACH"), // ERROR_HOST_UNREACHABLE
-    (10065, "EHOSTUNREACH"), // WSAEHOSTUNREACH
-    (122, "EINVAL"), // ERROR_INSUFFICIENT_BUFFER
-    (13, "EINVAL"), // ERROR_INVALID_DATA
-    (87, "EINVAL"), // ERROR_INVALID_PARAMETER
-    (1464, "EINVAL"), // ERROR_SYMLINK_NOT_SUPPORTED
-    (10022, "EINVAL"), // WSAEINVAL
-    (10046, "EINVAL"), // WSAEPFNOSUPPORT
-    (1102, "EIO"), // ERROR_BEGINNING_OF_MEDIA
-    (1111, "EIO"), // ERROR_BUS_RESET
-    (23, "EIO"), // ERROR_CRC
-    (1166, "EIO"), // ERROR_DEVICE_DOOR_OPEN
-    (1165, "EIO"), // ERROR_DEVICE_REQUIRES_CLEANING
-    (1393, "EIO"), // ERROR_DISK_CORRUPT
-    (1129, "EIO"), // ERROR_EOM_OVERFLOW
-    (1101, "EIO"), // ERROR_FILEMARK_DETECTED
-    (31, "EIO"), // ERROR_GEN_FAILURE
-    (1106, "EIO"), // ERROR_INVALID_BLOCK_LENGTH
-    (1117, "EIO"), // ERROR_IO_DEVICE
-    (1104, "EIO"), // ERROR_NO_DATA_DETECTED
-    (205, "EIO"), // ERROR_NO_SIGNAL_SENT
-    (110, "EIO"), // ERROR_OPEN_FAILED
-    (1103, "EIO"), // ERROR_SETMARK_DETECTED
-    (156, "EIO"), // ERROR_SIGNAL_REFUSED
-    (10056, "EISCONN"), // WSAEISCONN
-    (1921, "ELOOP"), // ERROR_CANT_RESOLVE_FILENAME
-    (4, "EMFILE"), // ERROR_TOO_MANY_OPEN_FILES
-    (10024, "EMFILE"), // WSAEMFILE
-    (10040, "EMSGSIZE"), // WSAEMSGSIZE
-    (111, "ENAMETOOLONG"), // ERROR_BUFFER_OVERFLOW
-    (206, "ENAMETOOLONG"), // ERROR_FILENAME_EXCED_RANGE
-    (1231, "ENETUNREACH"), // ERROR_NETWORK_UNREACHABLE
-    (10051, "ENETUNREACH"), // WSAENETUNREACH
-    (10055, "ENOBUFS"), // WSAENOBUFS
-    (161, "ENOENT"), // ERROR_BAD_PATHNAME
-    (267, "ENOENT"), // ERROR_DIRECTORY
-    (203, "ENOENT"), // ERROR_ENVVAR_NOT_FOUND
-    (2, "ENOENT"), // ERROR_FILE_NOT_FOUND
-    (123, "ENOENT"), // ERROR_INVALID_NAME
-    (15, "ENOENT"), // ERROR_INVALID_DRIVE
-    (4392, "ENOENT"), // ERROR_INVALID_REPARSE_DATA
-    (126, "ENOENT"), // ERROR_MOD_NOT_FOUND
-    (3, "ENOENT"), // ERROR_PATH_NOT_FOUND
-    (11001, "ENOENT"), // WSAHOST_NOT_FOUND
-    (11004, "ENOENT"), // WSANO_DATA
-    (8, "ENOMEM"), // ERROR_NOT_ENOUGH_MEMORY
-    (14, "ENOMEM"), // ERROR_OUTOFMEMORY
-    (82, "ENOSPC"), // ERROR_CANNOT_MAKE
-    (112, "ENOSPC"), // ERROR_DISK_FULL
-    (277, "ENOSPC"), // ERROR_EA_TABLE_FULL
-    (1100, "ENOSPC"), // ERROR_END_OF_MEDIA
-    (39, "ENOSPC"), // ERROR_HANDLE_DISK_FULL
-    (2250, "ENOTCONN"), // ERROR_NOT_CONNECTED
-    (10057, "ENOTCONN"), // WSAENOTCONN
-    (145, "ENOTEMPTY"), // ERROR_DIR_NOT_EMPTY
-    (10038, "ENOTSOCK"), // WSAENOTSOCK
-    (50, "ENOTSUP"), // ERROR_NOT_SUPPORTED
-    (109, "EOF"), // ERROR_BROKEN_PIPE
-    (5, "EPERM"), // ERROR_ACCESS_DENIED
-    (1314, "EPERM"), // ERROR_PRIVILEGE_NOT_HELD
-    (230, "EPIPE"), // ERROR_BAD_PIPE
-    (233, "EPIPE"), // ERROR_PIPE_NOT_CONNECTED
-    (10058, "EPIPE"), // WSAESHUTDOWN
+    (10013, "EACCES"),          // WSAEACCES
+    (740, "EACCES"),            // ERROR_ELEVATION_REQUIRED
+    (1920, "EACCES"),           // ERROR_CANT_ACCESS_FILE
+    (1227, "EADDRINUSE"),       // ERROR_ADDRESS_ALREADY_ASSOCIATED
+    (10048, "EADDRINUSE"),      // WSAEADDRINUSE
+    (10049, "EADDRNOTAVAIL"),   // WSAEADDRNOTAVAIL
+    (10047, "EAFNOSUPPORT"),    // WSAEAFNOSUPPORT
+    (10035, "EAGAIN"),          // WSAEWOULDBLOCK
+    (232, "EAGAIN"),            // ERROR_NO_DATA
+    (10037, "EALREADY"),        // WSAEALREADY
+    (1004, "EBADF"),            // ERROR_INVALID_FLAGS
+    (6, "EBADF"),               // ERROR_INVALID_HANDLE
+    (33, "EBUSY"),              // ERROR_LOCK_VIOLATION
+    (231, "EBUSY"),             // ERROR_PIPE_BUSY
+    (32, "EBUSY"),              // ERROR_SHARING_VIOLATION
+    (995, "ECANCELED"),         // ERROR_OPERATION_ABORTED
+    (10004, "ECANCELED"),       // WSAEINTR
+    (1113, "ECHARSET"),         // ERROR_NO_UNICODE_TRANSLATION
+    (1236, "ECONNABORTED"),     // ERROR_CONNECTION_ABORTED
+    (10053, "ECONNABORTED"),    // WSAECONNABORTED
+    (1225, "ECONNREFUSED"),     // ERROR_CONNECTION_REFUSED
+    (10061, "ECONNREFUSED"),    // WSAECONNREFUSED
+    (64, "ECONNRESET"),         // ERROR_NETNAME_DELETED
+    (10054, "ECONNRESET"),      // WSAECONNRESET
+    (183, "EEXIST"),            // ERROR_ALREADY_EXISTS
+    (80, "EEXIST"),             // ERROR_FILE_EXISTS
+    (998, "EFAULT"),            // ERROR_NOACCESS
+    (10014, "EFAULT"),          // WSAEFAULT
+    (1232, "EHOSTUNREACH"),     // ERROR_HOST_UNREACHABLE
+    (10065, "EHOSTUNREACH"),    // WSAEHOSTUNREACH
+    (122, "EINVAL"),            // ERROR_INSUFFICIENT_BUFFER
+    (13, "EINVAL"),             // ERROR_INVALID_DATA
+    (87, "EINVAL"),             // ERROR_INVALID_PARAMETER
+    (1464, "EINVAL"),           // ERROR_SYMLINK_NOT_SUPPORTED
+    (10022, "EINVAL"),          // WSAEINVAL
+    (10046, "EINVAL"),          // WSAEPFNOSUPPORT
+    (1102, "EIO"),              // ERROR_BEGINNING_OF_MEDIA
+    (1111, "EIO"),              // ERROR_BUS_RESET
+    (23, "EIO"),                // ERROR_CRC
+    (1166, "EIO"),              // ERROR_DEVICE_DOOR_OPEN
+    (1165, "EIO"),              // ERROR_DEVICE_REQUIRES_CLEANING
+    (1393, "EIO"),              // ERROR_DISK_CORRUPT
+    (1129, "EIO"),              // ERROR_EOM_OVERFLOW
+    (1101, "EIO"),              // ERROR_FILEMARK_DETECTED
+    (31, "EIO"),                // ERROR_GEN_FAILURE
+    (1106, "EIO"),              // ERROR_INVALID_BLOCK_LENGTH
+    (1117, "EIO"),              // ERROR_IO_DEVICE
+    (1104, "EIO"),              // ERROR_NO_DATA_DETECTED
+    (205, "EIO"),               // ERROR_NO_SIGNAL_SENT
+    (110, "EIO"),               // ERROR_OPEN_FAILED
+    (1103, "EIO"),              // ERROR_SETMARK_DETECTED
+    (156, "EIO"),               // ERROR_SIGNAL_REFUSED
+    (10056, "EISCONN"),         // WSAEISCONN
+    (1921, "ELOOP"),            // ERROR_CANT_RESOLVE_FILENAME
+    (4, "EMFILE"),              // ERROR_TOO_MANY_OPEN_FILES
+    (10024, "EMFILE"),          // WSAEMFILE
+    (10040, "EMSGSIZE"),        // WSAEMSGSIZE
+    (111, "ENAMETOOLONG"),      // ERROR_BUFFER_OVERFLOW
+    (206, "ENAMETOOLONG"),      // ERROR_FILENAME_EXCED_RANGE
+    (1231, "ENETUNREACH"),      // ERROR_NETWORK_UNREACHABLE
+    (10051, "ENETUNREACH"),     // WSAENETUNREACH
+    (10055, "ENOBUFS"),         // WSAENOBUFS
+    (161, "ENOENT"),            // ERROR_BAD_PATHNAME
+    (267, "ENOENT"),            // ERROR_DIRECTORY
+    (203, "ENOENT"),            // ERROR_ENVVAR_NOT_FOUND
+    (2, "ENOENT"),              // ERROR_FILE_NOT_FOUND
+    (123, "ENOENT"),            // ERROR_INVALID_NAME
+    (15, "ENOENT"),             // ERROR_INVALID_DRIVE
+    (4392, "ENOENT"),           // ERROR_INVALID_REPARSE_DATA
+    (126, "ENOENT"),            // ERROR_MOD_NOT_FOUND
+    (3, "ENOENT"),              // ERROR_PATH_NOT_FOUND
+    (11001, "ENOENT"),          // WSAHOST_NOT_FOUND
+    (11004, "ENOENT"),          // WSANO_DATA
+    (8, "ENOMEM"),              // ERROR_NOT_ENOUGH_MEMORY
+    (14, "ENOMEM"),             // ERROR_OUTOFMEMORY
+    (82, "ENOSPC"),             // ERROR_CANNOT_MAKE
+    (112, "ENOSPC"),            // ERROR_DISK_FULL
+    (277, "ENOSPC"),            // ERROR_EA_TABLE_FULL
+    (1100, "ENOSPC"),           // ERROR_END_OF_MEDIA
+    (39, "ENOSPC"),             // ERROR_HANDLE_DISK_FULL
+    (2250, "ENOTCONN"),         // ERROR_NOT_CONNECTED
+    (10057, "ENOTCONN"),        // WSAENOTCONN
+    (145, "ENOTEMPTY"),         // ERROR_DIR_NOT_EMPTY
+    (10038, "ENOTSOCK"),        // WSAENOTSOCK
+    (50, "ENOTSUP"),            // ERROR_NOT_SUPPORTED
+    (109, "EOF"),               // ERROR_BROKEN_PIPE
+    (5, "EPERM"),               // ERROR_ACCESS_DENIED
+    (1314, "EPERM"),            // ERROR_PRIVILEGE_NOT_HELD
+    (230, "EPIPE"),             // ERROR_BAD_PIPE
+    (233, "EPIPE"),             // ERROR_PIPE_NOT_CONNECTED
+    (10058, "EPIPE"),           // WSAESHUTDOWN
     (10043, "EPROTONOSUPPORT"), // WSAEPROTONOSUPPORT
-    (19, "EROFS"), // ERROR_WRITE_PROTECT
-    (121, "ETIMEDOUT"), // ERROR_SEM_TIMEOUT
-    (10060, "ETIMEDOUT"), // WSAETIMEDOUT
-    (17, "EXDEV"), // ERROR_NOT_SAME_DEVICE
-    (1, "EISDIR"), // ERROR_INVALID_FUNCTION
-    (208, "E2BIG"), // ERROR_META_EXPANSION_TOO_LONG
+    (19, "EROFS"),              // ERROR_WRITE_PROTECT
+    (121, "ETIMEDOUT"),         // ERROR_SEM_TIMEOUT
+    (10060, "ETIMEDOUT"),       // WSAETIMEDOUT
+    (17, "EXDEV"),              // ERROR_NOT_SAME_DEVICE
+    (1, "EISDIR"),              // ERROR_INVALID_FUNCTION
+    (208, "E2BIG"),             // ERROR_META_EXPANSION_TOO_LONG
     (10044, "ESOCKTNOSUPPORT"), // WSAESOCKTNOSUPPORT
-    (193, "EFTYPE"), // ERROR_BAD_EXE_FORMAT
+    (193, "EFTYPE"),            // ERROR_BAD_EXE_FORMAT
 ];
 
 /// The errno of a Unix failure: what the system call returned.
@@ -343,14 +326,7 @@ fn errno_of(error: &std::io::Error) -> Option<(&'static str, &'static str)> {
 #[allow(clippy::disallowed_methods, reason = "a stat of the failed path, on the lane job's thread that reports the failure")]
 pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
     if let FsStep::RemoveDirectory(path) = &failure.step {
-        return coded(
-            domain,
-            "ERR_FS_EISDIR",
-            format!(
-                "Path is a directory: rm returned EISDIR (is a directory) {}",
-                path.display()
-            ),
-        );
+        return coded(domain, "ERR_FS_EISDIR", format!("Path is a directory: rm returned EISDIR (is a directory) {}", path.display()));
     }
     // libuv's `scandir` looks at the path's attributes first: a path that is not a directory is
     // `ENOTDIR` whatever the system's own listing error says (Windows says `ENOENT`).
@@ -380,16 +356,10 @@ pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
 #[allow(clippy::disallowed_methods, reason = "file-system body of the lane jobs that call it")]
 pub fn remove_file_forced(path: &Path) -> Result<(), FsFailure> {
     if path.is_dir() {
-        return Err(FsFailure {
-            error: std::io::ErrorKind::IsADirectory.into(),
-            step: FsStep::RemoveDirectory(path.to_owned()),
-        });
+        return Err(FsFailure { error: std::io::ErrorKind::IsADirectory.into(), step: FsStep::RemoveDirectory(path.to_owned()) });
     }
     match std::fs::remove_file(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(FsFailure {
-            error,
-            step: FsStep::Unlink(path.to_owned()),
-        }),
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(FsFailure { error, step: FsStep::Unlink(path.to_owned()) }),
         _ => Ok(()),
     }
 }
@@ -399,38 +369,25 @@ pub fn remove_file_forced(path: &Path) -> Result<(), FsFailure> {
 #[allow(clippy::disallowed_methods, reason = "file-system body of the lane jobs that call it")]
 pub fn remove_dir_all_forced(path: &Path) -> Result<(), FsFailure> {
     match std::fs::remove_dir_all(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(FsFailure {
-            error,
-            step: FsStep::Rmdir(path.to_owned()),
-        }),
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(FsFailure { error, step: FsStep::Rmdir(path.to_owned()) }),
         _ => Ok(()),
     }
 }
 
 /// Runs `job` on `lane`. A full queue answers `queueFull` at once; a cancelled caller drops
 /// a job that has not started.
-pub async fn on_lane<L, R, F>(
-    lane: L,
-    cancel: &CancellationToken,
-    job: F,
-) -> Result<R, CoreError>
+pub async fn on_lane<L, R, F>(lane: L, cancel: &CancellationToken, job: F) -> Result<R, CoreError>
 where
     L: LaneToken,
     R: Send + 'static,
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
 {
-    lane.submit(cancel, job)?
-        .await
-        .map_err(|_| CoreError::Cancelled {
-            by: "caller".into(),
-        })
+    lane.submit(cancel, job)?.await.map_err(|_| CoreError::Cancelled { by: "caller".into() })
 }
 
 /// Why a job [`on_lane_wait`] or [`lane_job`] queued never ran, named after its lane.
 fn unrun(lane: mixdog_rt::LaneKind, why: &str) -> CoreError {
-    CoreError::Internal {
-        incident_id: format!("{}-{why}", lane.name()).into(),
-    }
+    CoreError::Internal { incident_id: format!("{}-{why}", lane.name()).into() }
 }
 
 fn not_queued(error: mixdog_rt::SubmitWaitError) -> CoreError {
@@ -544,13 +501,7 @@ impl OpScopes {
     /// without executing. `external` brackets an action that leaves the process
     /// (`effect`, `target`), so a crash in between reads as `externalOutcomeUnknown`.
     /// `reproduce` rebuilds the result of a duplicate whose result was too large to store.
-    pub async fn run<E, EF, R, RF>(
-        &self,
-        req: &CoreRequest,
-        external: Option<(&'static str, String)>,
-        execute: E,
-        reproduce: R,
-    ) -> Result<Reply, CoreError>
+    pub async fn run<E, EF, R, RF>(&self, req: &CoreRequest, external: Option<(&'static str, String)>, execute: E, reproduce: R) -> Result<Reply, CoreError>
     where
         E: FnOnce() -> EF,
         EF: Future<Output = Result<Value, CoreError>>,
@@ -558,11 +509,7 @@ impl OpScopes {
         RF: Future<Output = Result<Value, CoreError>>,
     {
         let id = req.op.clone().ok_or(CoreError::OpIdRequired)?;
-        let thread = req
-            .params
-            .get("threadId")
-            .and_then(Value::as_str)
-            .map(ThreadId::from);
+        let thread = req.params.get("threadId").and_then(Value::as_str).map(ThreadId::from);
         let gate = match thread {
             Some(thread) => self.threads.gate(&thread, &req.ctx).await?,
             None => self.domain.clone(),
@@ -579,19 +526,12 @@ impl OpScopes {
             Begin::Execute(ticket) => ticket,
         };
         if let Some((effect, target)) = external {
-            ticket
-                .external_pending(effect.into(), target.into())
-                .await?;
+            ticket.external_pending(effect.into(), target.into()).await?;
         }
         match execute().await {
             Ok(value) => {
                 let stored = (value.to_string().len() <= STORED_RESULT_MAX).then(|| value.clone());
-                ticket
-                    .finish(OpOutcome::Applied(AppliedOp {
-                        seq: None,
-                        result: stored,
-                    }))
-                    .await?;
+                ticket.finish(OpOutcome::Applied(AppliedOp { seq: None, result: stored })).await?;
                 Ok(Reply::Value(value))
             }
             Err(error) => {
@@ -615,10 +555,7 @@ pub use mixdog_statefile::holds_no_data;
 static PATH_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
 
 pub fn path_lock(path: &Path) -> Arc<Mutex<()>> {
-    let mut locks = PATH_LOCKS
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut locks = PATH_LOCKS.get_or_init(Default::default).lock().unwrap_or_else(PoisonError::into_inner);
     // A lock only the table holds is taken by no one: it goes, so the table holds the files in use, not every file ever
     // written. Swept only when a new path finds the table grown, so an ordinary call costs no sweep.
     if locks.len() >= 64 && !locks.contains_key(path) {
@@ -630,27 +567,20 @@ pub fn path_lock(path: &Path) -> Arc<Mutex<()>> {
 /// `writeFileAtomicSync(path, bytes, { backup })`: the bytes go to a uniquely named sibling
 /// that is synced and renamed over `path`, so a reader sees the old file or the new one. With
 /// `backup`, the replaced version stays as `<path>.bak` unless it held no data.
-pub fn write_atomic<L: mixdog_statefile::WriteLane>(
-    lane: &InLane<L>,
-    path: &Path,
-    bytes: &[u8],
-    backup: bool,
-) -> Result<(), FsFailure> {
+pub fn write_atomic<L: mixdog_statefile::WriteLane>(lane: &InLane<L>, path: &Path, bytes: &[u8], backup: bool) -> Result<(), FsFailure> {
     use mixdog_statefile::Step;
     let opts = mixdog_statefile::Opts { backup, ..mixdog_statefile::Opts::default() };
-    mixdog_statefile::write_file_stepped(lane, path, bytes, &opts)
-        .map(drop)
-        .map_err(|failure| FsFailure {
-            error: failure.error,
-            step: match failure.step {
-                Step::Mkdir(dir) => FsStep::Mkdir(dir),
-                Step::Open(file) => FsStep::Open(file),
-                Step::Read => FsStep::Read,
-                Step::Write | Step::Other => FsStep::Write,
-                Step::Fsync => FsStep::Fsync,
-                Step::Rename(from, to) => FsStep::Rename(from, to),
-            },
-        })
+    mixdog_statefile::write_file_stepped(lane, path, bytes, &opts).map(drop).map_err(|failure| FsFailure {
+        error: failure.error,
+        step: match failure.step {
+            Step::Mkdir(dir) => FsStep::Mkdir(dir),
+            Step::Open(file) => FsStep::Open(file),
+            Step::Read => FsStep::Read,
+            Step::Write | Step::Other => FsStep::Write,
+            Step::Fsync => FsStep::Fsync,
+            Step::Rename(from, to) => FsStep::Rename(from, to),
+        },
+    })
 }
 
 /// Fixtures the tests of every domain service share.
@@ -684,14 +614,9 @@ mod errno_tests {
     fn open_rename_and_unlink_failures_name_their_paths() {
         let missing = || std::io::Error::from(std::io::ErrorKind::NotFound);
         assert_eq!(text(missing(), FsStep::Open("/d/a.json".into())), "ENOENT: no such file or directory, open '/d/a.json'");
-        assert_eq!(
-            text(missing(), FsStep::Rename("/d/a".into(), "/d/b".into())),
-            "ENOENT: no such file or directory, rename '/d/a' -> '/d/b'"
-        );
+        assert_eq!(text(missing(), FsStep::Rename("/d/a".into(), "/d/b".into())), "ENOENT: no such file or directory, rename '/d/a' -> '/d/b'");
         assert_eq!(text(missing(), FsStep::Unlink("/d/a".into())), "ENOENT: no such file or directory, unlink '/d/a'");
     }
-
-
 }
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing {
@@ -724,9 +649,7 @@ pub mod testing {
     /// The op scopes of domain `name` over `state`.
     pub async fn scopes_over(state: CoreState, name: &str) -> OpScopes {
         let store = Arc::new(StateOpStore::new(state, name.into()));
-        let gate = OpGate::domain(OpScope::Domain(name.into()), store)
-            .await
-            .unwrap();
+        let gate = OpGate::domain(OpScope::Domain(name.into()), store).await.unwrap();
         OpScopes::new(gate.clone(), Arc::new(SharedGate(gate)))
     }
 
@@ -736,12 +659,7 @@ pub mod testing {
 
     /// A request of `method` with `params`, as a connection would send it.
     pub fn request(method: &'static str, params: Value, op_n: Option<u64>) -> CoreRequest {
-        CoreRequest {
-            method: mixdog_core_api::ids::Method(method),
-            params,
-            op: op_n.map(op),
-            ctx: CallContext::internal("test"),
-        }
+        CoreRequest { method: mixdog_core_api::ids::Method(method), params, op: op_n.map(op), ctx: CallContext::internal("test") }
     }
 
     /// `params` with the op id the mutation carries.
@@ -750,16 +668,12 @@ pub mod testing {
         params
     }
 
-    pub async fn value(
-        service: &dyn DomainService,
-        req: CoreRequest,
-    ) -> Result<Value, CoreError> {
+    pub async fn value(service: &dyn DomainService, req: CoreRequest) -> Result<Value, CoreError> {
         match service.call(req).await? {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => panic!("never subscribes"),
         }
     }
-
 
     /// The op scopes of domain `name` over a `state/core.sqlite` in `dir`.
     pub async fn scopes(dir: &std::path::Path, name: &str) -> OpScopes {
@@ -791,7 +705,6 @@ mod forced_removal_tests {
     }
 }
 
-
 #[cfg(test)]
 mod path_lock_tests {
     use super::*;
@@ -809,4 +722,3 @@ mod path_lock_tests {
         assert!(mine < 100, "{mine} of the 501 locks are still in the table");
     }
 }
-

@@ -32,12 +32,12 @@ use crate::plugin_admin::PluginAdmin;
 use crate::plugin_admin::clean;
 use crate::plugin_admin::truthy;
 use crate::plugin_servers::Catalog;
-use crate::plugin_status::plugins_status;
 use crate::plugin_servers::declarations_of;
 use crate::plugin_servers::resolve_mcp_server_catalog;
 use crate::plugin_servers::with_adopted_copies;
 use crate::plugin_servers::with_pinned_collision_names;
 use crate::plugin_servers::without_plugin_intents;
+use crate::plugin_status::plugins_status;
 use crate::scopes::ExtensionScopes;
 use crate::scopes::ScopeKind;
 use crate::scopes::plan_extension_scope;
@@ -133,7 +133,13 @@ fn plugin_key(plugin: &Value) -> Result<String, String> {
     }
     let first = field(plugin, "id");
     let second = field(plugin, "name");
-    Ok(clean(if truthy(first) { first } else if truthy(second) { second } else { plugin }))
+    Ok(clean(if truthy(first) {
+        first
+    } else if truthy(second) {
+        second
+    } else {
+        plugin
+    }))
 }
 
 /// The registered status row a caller means by `plugin` (row, id, name, or title), if any.

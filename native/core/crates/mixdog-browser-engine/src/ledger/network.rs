@@ -187,7 +187,13 @@ impl Default for NetworkLedger {
 
 impl NetworkLedger {
     pub fn new(max_requests: usize) -> Self {
-        Self { requests: Vec::new(), inflight: Vec::new(), sequence: 0, max_requests: if max_requests == 0 { DEFAULT_MAX_REQUESTS } else { max_requests }, refused: VecDeque::new() }
+        Self {
+            requests: Vec::new(),
+            inflight: Vec::new(),
+            sequence: 0,
+            max_requests: if max_requests == 0 { DEFAULT_MAX_REQUESTS } else { max_requests },
+            refused: VecDeque::new(),
+        }
     }
 
     /// The request policy's reason for refusing a URL this page asked for (`Mixdog.requestRefused`).
@@ -393,8 +399,11 @@ impl NetworkLedger {
         // Only the page's own target: a viewer frame in a child target loads the same address again as its own document.
         self.requests.iter().rev().find_map(|request| {
             let status = request.status?;
-            (request.session_id.is_none() && request.resource_type == "document" && without_fragment(&request.url) == wanted)
-                .then(|| DocumentStatus { status, status_text: request.status_text.clone(), mime_type: request.mime_type.clone() })
+            (request.session_id.is_none() && request.resource_type == "document" && without_fragment(&request.url) == wanted).then(|| DocumentStatus {
+                status,
+                status_text: request.status_text.clone(),
+                mime_type: request.mime_type.clone(),
+            })
         })
     }
 
@@ -429,9 +438,16 @@ impl NetworkLedger {
                     _ if request.finished_at.is_some() => "finished".to_owned(),
                     _ => "pending".to_owned(),
                 };
-                [request.id.as_str(), request.method.as_str(), request.url.as_str(), request.resource_type.as_str(), request.mime_type.as_deref().unwrap_or_default(), status.as_str()]
-                    .iter()
-                    .any(|value| value.to_lowercase().contains(&query))
+                [
+                    request.id.as_str(),
+                    request.method.as_str(),
+                    request.url.as_str(),
+                    request.resource_type.as_str(),
+                    request.mime_type.as_deref().unwrap_or_default(),
+                    status.as_str(),
+                ]
+                .iter()
+                .any(|value| value.to_lowercase().contains(&query))
             })
             .collect();
         let limit = match options.limit {
@@ -527,8 +543,15 @@ mod tests {
     #[test]
     fn a_request_reports_the_headers_actually_sent_not_only_the_provisional_ones() {
         let mut ledger = NetworkLedger::default();
-        ledger.request_will_be_sent(&json!({"requestId": "11.1", "type": "Document", "request": {"method": "GET", "url": "https://example.test/", "headers": {"User-Agent": "probe"}}}), None, 1_000);
-        ledger.request_will_be_sent_extra_info(&json!({"requestId": "11.1", "headers": {"Accept-Language": "ko-KR,ko;q=0.9", "Cookie": "session=secret-value"}}), None);
+        ledger.request_will_be_sent(
+            &json!({"requestId": "11.1", "type": "Document", "request": {"method": "GET", "url": "https://example.test/", "headers": {"User-Agent": "probe"}}}),
+            None,
+            1_000,
+        );
+        ledger.request_will_be_sent_extra_info(
+            &json!({"requestId": "11.1", "headers": {"Accept-Language": "ko-KR,ko;q=0.9", "Cookie": "session=secret-value"}}),
+            None,
+        );
         let entry = ledger.get("r1").unwrap();
         assert_eq!(header(&entry.request_headers, "Accept-Language"), Some("ko-KR,ko;q=0.9"));
         assert_eq!(header(&entry.request_headers, "User-Agent"), Some("probe"));
@@ -543,7 +566,10 @@ mod tests {
             None,
             1_000,
         );
-        ledger.request_will_be_sent_extra_info(&json!({"requestId": "12.1", "headers": {"user-agent": "sent", "upgrade-insecure-requests": "1", "accept-language": "ko"}}), None);
+        ledger.request_will_be_sent_extra_info(
+            &json!({"requestId": "12.1", "headers": {"user-agent": "sent", "upgrade-insecure-requests": "1", "accept-language": "ko"}}),
+            None,
+        );
         let entry = ledger.get("r1").unwrap();
         let mut names: Vec<&str> = entry.request_headers.iter().map(|(name, _)| name.as_str()).collect();
         names.sort_unstable();
@@ -555,15 +581,24 @@ mod tests {
     fn a_web_socket_reports_the_upgrade_it_sent_handshake_and_frames() {
         let mut ledger = NetworkLedger::default();
         ledger.web_socket_created(&json!({"requestId": "30.1", "url": "wss://example.test/socket"}), None, 3_000);
-        ledger.web_socket_will_send_handshake_request(&json!({"requestId": "30.1", "request": {"headers": {"Origin": "https://example.test", "Cookie": "session=secret-value"}}}), None);
-        ledger.web_socket_handshake_response(&json!({"requestId": "30.1", "response": {"status": 101, "statusText": "Switching Protocols", "headers": {}}}), None);
+        ledger.web_socket_will_send_handshake_request(
+            &json!({"requestId": "30.1", "request": {"headers": {"Origin": "https://example.test", "Cookie": "session=secret-value"}}}),
+            None,
+        );
+        ledger.web_socket_handshake_response(
+            &json!({"requestId": "30.1", "response": {"status": 101, "statusText": "Switching Protocols", "headers": {}}}),
+            None,
+        );
         ledger.web_socket_frame(&json!({"requestId": "30.1", "response": {"opcode": 1, "payloadData": "hello"}}), FrameDirection::Sent, None, 3_010);
         ledger.web_socket_frame(&json!({"requestId": "30.1", "response": {"opcode": 2, "payloadData": "AAEC"}}), FrameDirection::Received, None, 3_020);
         ledger.web_socket_closed(&json!({"requestId": "30.1"}), None, 3_030);
         let socket = ledger.get("r1").unwrap();
         assert_eq!((socket.resource_type.as_str(), socket.status, socket.finished_at), ("websocket", Some(101.0), Some(3_030)));
         assert_eq!(header(&socket.request_headers, "Origin"), Some("https://example.test"));
-        assert_eq!(socket.web_socket_frames.iter().map(|frame| (frame.direction, frame.opcode, frame.data.as_str())).collect::<Vec<_>>(), vec![(FrameDirection::Sent, 1, "hello"), (FrameDirection::Received, 2, "AAEC")]);
+        assert_eq!(
+            socket.web_socket_frames.iter().map(|frame| (frame.direction, frame.opcode, frame.data.as_str())).collect::<Vec<_>>(),
+            vec![(FrameDirection::Sent, 1, "hello"), (FrameDirection::Received, 2, "AAEC")]
+        );
         assert_eq!(ledger.pending_count(), 0);
     }
 
@@ -620,7 +655,10 @@ mod tests {
         let mut ledger = NetworkLedger::default();
         for (id, status) in [("22.1", 200), ("22.2", 404)] {
             send(&mut ledger, id, "Document", "https://example.test/missing", 1_000);
-            ledger.response_received(&json!({"requestId": id, "type": "Document", "response": {"status": status, "statusText": "x", "mimeType": "text/html"}}), None);
+            ledger.response_received(
+                &json!({"requestId": id, "type": "Document", "response": {"status": status, "statusText": "x", "mimeType": "text/html"}}),
+                None,
+            );
             ledger.loading_finished(&json!({"requestId": id}), None, 1_100);
         }
         let status = ledger.document_status("https://example.test/missing#section").unwrap();

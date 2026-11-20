@@ -51,9 +51,15 @@ fn a_spent_budget_gives_the_whole_replacement_hunk_and_says_it_is_not_exact() {
     let mut budget = LineDiffBudget::new(0.0);
     let set = differ.hunks("a\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nX\ne\nf\ng\n", &mut budget, [None, None]);
     assert!(!set.exact);
-    assert_eq!(set.hunks.iter().map(hunk_json).collect::<Vec<_>>(), [json!({ "oldStart": 1, "oldLines": 7, "newStart": 1, "newLines": 7, "lines": [" a", " b", " c", "-d", "+X", " e", " f", " g"] })]);
+    assert_eq!(
+        set.hunks.iter().map(hunk_json).collect::<Vec<_>>(),
+        [json!({ "oldStart": 1, "oldLines": 7, "newStart": 1, "newLines": 7, "lines": [" a", " b", " c", "-d", "+X", " e", " f", " g"] })]
+    );
     let created = differ.hunks("", "new\n", &mut budget, [None, None]);
-    assert_eq!((created.exact, created.hunks.iter().map(hunk_json).collect::<Vec<_>>()), (false, vec![json!({ "oldStart": 1, "oldLines": 0, "newStart": 1, "newLines": 1, "lines": ["+new"] })]));
+    assert_eq!(
+        (created.exact, created.hunks.iter().map(hunk_json).collect::<Vec<_>>()),
+        (false, vec![json!({ "oldStart": 1, "oldLines": 0, "newStart": 1, "newLines": 1, "lines": ["+new"] })])
+    );
 }
 
 #[test]
@@ -67,7 +73,11 @@ fn a_patch_header_quotes_a_name_git_would_quote_and_leaves_a_plain_one() {
         ("a/with \"quote\".txt", "b/with \"quote\".txt", "--- \"a/with \\\"quote\\\".txt\"\n+++ \"b/with \\\"quote\\\".txt\"\n"),
         ("a/back\\slash.txt", "b/back\\slash.txt", "--- \"a/back\\\\slash.txt\"\n+++ \"b/back\\\\slash.txt\"\n"),
         ("a/tab\tname.txt", "b/tab\tname.txt", "--- \"a/tab\\tname.txt\"\n+++ \"b/tab\\tname.txt\"\n"),
-        ("a/日本語/emoji😀.txt", "b/日本語/emoji😀.txt", "--- \"a/\\346\\227\\245\\346\\234\\254\\350\\252\\236/emoji\\360\\237\\230\\200.txt\"\n+++ \"b/\\346\\227\\245\\346\\234\\254\\350\\252\\236/emoji\\360\\237\\230\\200.txt\"\n"),
+        (
+            "a/日本語/emoji😀.txt",
+            "b/日本語/emoji😀.txt",
+            "--- \"a/\\346\\227\\245\\346\\234\\254\\350\\252\\236/emoji\\360\\237\\230\\200.txt\"\n+++ \"b/\\346\\227\\245\\346\\234\\254\\350\\252\\236/emoji\\360\\237\\230\\200.txt\"\n",
+        ),
     ] {
         assert_eq!(unified_hunks_body(old, new, &hunks), format!("{head}{tail}"), "{old}");
     }
@@ -91,7 +101,9 @@ fn a_patch_that_fits_is_kept_and_one_that_does_not_is_cut_at_a_section_with_a_ma
 #[test]
 fn the_patch_budget_admits_what_fits_in_what_remains() {
     let mut budget = review_diff::ReviewPatchBudget::new(2_000_000);
-    for (bytes, admitted, remaining) in [(1_000_000, true, 1_000_000), (1_000_001, false, 1_000_000), (900_000, true, 100_000), (1_000_000, false, 100_000), (100_000, true, 0)] {
+    for (bytes, admitted, remaining) in
+        [(1_000_000, true, 1_000_000), (1_000_001, false, 1_000_000), (900_000, true, 100_000), (1_000_000, false, 100_000), (100_000, true, 0)]
+    {
         assert_eq!(budget.admit(bytes), admitted, "{bytes}");
         assert_eq!(budget.remaining(), remaining);
     }
@@ -112,7 +124,16 @@ fn content(text: Option<&str>) -> ReviewContent {
 }
 
 fn change(display: &str, before: ReviewContent, after: ReviewContent) -> TrackedChange {
-    TrackedChange { path: format!("/virtual/{display}"), display_path: display.to_owned(), new_path: None, new_display_path: None, before, after, additions: None, deletions: None }
+    TrackedChange {
+        path: format!("/virtual/{display}"),
+        display_path: display.to_owned(),
+        new_path: None,
+        new_display_path: None,
+        before,
+        after,
+        additions: None,
+        deletions: None,
+    }
 }
 
 fn measured(changes: Vec<TrackedChange>) -> (String, Vec<(u64, u64)>) {
@@ -127,10 +148,23 @@ fn a_calls_changes_become_one_git_style_diff_with_their_line_counts() {
         measured(vec![change("src/a.txt", content(Some("a\nb\nc\n")), content(Some("a\nB\nc\n")))]),
         ("diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n".to_owned(), vec![(1, 1)])
     );
-    assert_eq!(measured(vec![change("new.txt", content(None), content(Some("hi\n")))]), ("diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+hi\n".to_owned(), vec![(1, 0)]));
-    assert_eq!(measured(vec![change("old.txt", content(Some("bye\n")), content(None))]), ("diff --git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-bye\n".to_owned(), vec![(0, 1)]));
-    assert_eq!(measured(vec![change("empty.txt", content(None), content(Some("")))]), ("diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n".to_owned(), vec![(0, 0)]));
-    assert_eq!(measured(vec![change("same.txt", content(Some("x\n")), content(Some("x\n")))]), (String::new(), vec![(0, 0)]), "an unchanged file shows nothing");
+    assert_eq!(
+        measured(vec![change("new.txt", content(None), content(Some("hi\n")))]),
+        ("diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+hi\n".to_owned(), vec![(1, 0)])
+    );
+    assert_eq!(
+        measured(vec![change("old.txt", content(Some("bye\n")), content(None))]),
+        ("diff --git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-bye\n".to_owned(), vec![(0, 1)])
+    );
+    assert_eq!(
+        measured(vec![change("empty.txt", content(None), content(Some("")))]),
+        ("diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n".to_owned(), vec![(0, 0)])
+    );
+    assert_eq!(
+        measured(vec![change("same.txt", content(Some("x\n")), content(Some("x\n")))]),
+        (String::new(), vec![(0, 0)]),
+        "an unchanged file shows nothing"
+    );
 }
 
 #[test]
@@ -140,7 +174,10 @@ fn a_rename_shows_its_similarity_and_a_binary_or_omitted_file_shows_no_lines() {
     rename.new_display_path = Some("b.txt".into());
     assert_eq!(measured(vec![rename]).0, "diff --git a/a.txt b/b.txt\nsimilarity index 100%\nrename from a.txt\nrename to b.txt\n");
     let binary = measured(vec![change("bin.dat", ReviewContent::bytes(vec![1, 0, 2]), ReviewContent::bytes(vec![1, 0, 3]))]);
-    assert_eq!((binary.0.as_str(), binary.1.as_slice()), ("diff --git a/bin.dat b/bin.dat\nBinary files a/bin.dat and b/bin.dat differ\n", [(0, 0)].as_slice()));
+    assert_eq!(
+        (binary.0.as_str(), binary.1.as_slice()),
+        ("diff --git a/bin.dat b/bin.dat\nBinary files a/bin.dat and b/bin.dat differ\n", [(0, 0)].as_slice())
+    );
     let invalid = measured(vec![change("bad.txt", content(Some("ok\n")), ReviewContent::bytes(vec![0xff, 0xfe, 0x41]))]);
     assert_eq!(invalid.0, "diff --git a/bad.txt b/bad.txt\nBinary files a/bad.txt and b/bad.txt differ\n", "invalid UTF-8 is binary");
     let omitted = measured(vec![change("big.bin", ReviewContent::Omitted { size: 70_000_000, reason: Some("oversized".into()) }, content(Some("small\n")))]);
@@ -149,9 +186,18 @@ fn a_rename_shows_its_similarity_and_a_binary_or_omitted_file_shows_no_lines() {
 
 #[test]
 fn display_names_are_slashed_trimmed_defaulted_and_quoted_by_the_header_rule() {
-    assert_eq!(measured(vec![change("", content(None), content(Some("x\n")))]).0, "diff --git a/unknown file b/unknown file\nnew file mode 100644\n--- /dev/null\n+++ b/unknown file\n@@ -0,0 +1,1 @@\n+x\n");
-    assert_eq!(measured(vec![change("  dir\\sub\\f.txt ", content(Some("a\n")), content(Some("b\n")))]).0, "diff --git a/dir/sub/f.txt b/dir/sub/f.txt\n--- a/dir/sub/f.txt\n+++ b/dir/sub/f.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n");
-    assert_eq!(measured(vec![change("w.txt", content(Some("a\r\nb")), content(Some("a\r\nc")))]).0, "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,2 +1,2 @@\n a\r\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n");
+    assert_eq!(
+        measured(vec![change("", content(None), content(Some("x\n")))]).0,
+        "diff --git a/unknown file b/unknown file\nnew file mode 100644\n--- /dev/null\n+++ b/unknown file\n@@ -0,0 +1,1 @@\n+x\n"
+    );
+    assert_eq!(
+        measured(vec![change("  dir\\sub\\f.txt ", content(Some("a\n")), content(Some("b\n")))]).0,
+        "diff --git a/dir/sub/f.txt b/dir/sub/f.txt\n--- a/dir/sub/f.txt\n+++ b/dir/sub/f.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n"
+    );
+    assert_eq!(
+        measured(vec![change("w.txt", content(Some("a\r\nb")), content(Some("a\r\nc")))]).0,
+        "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,2 +1,2 @@\n a\r\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"
+    );
     assert_eq!(
         measured(vec![change("café/日本.txt", content(Some("a\n")), content(Some("b\n")))]).0,
         "diff --git a/café/日本.txt b/café/日本.txt\n--- \"a/caf\\303\\251/\\346\\227\\245\\346\\234\\254.txt\"\n+++ \"b/caf\\303\\251/\\346\\227\\245\\346\\234\\254.txt\"\n@@ -1,1 +1,1 @@\n-a\n+b\n"
@@ -160,7 +206,8 @@ fn display_names_are_slashed_trimmed_defaulted_and_quoted_by_the_header_rule() {
 
 #[test]
 fn two_files_in_one_call_are_two_sections_with_their_own_counts() {
-    let (diff, counts) = measured(vec![change("one.txt", content(Some("1\n")), content(Some("2\n"))), change("two.txt", content(None), content(Some("new\n")))]);
+    let (diff, counts) =
+        measured(vec![change("one.txt", content(Some("1\n")), content(Some("2\n"))), change("two.txt", content(None), content(Some("new\n")))]);
     assert_eq!(
         diff,
         "diff --git a/one.txt b/one.txt\n--- a/one.txt\n+++ b/one.txt\n@@ -1,1 +1,1 @@\n-1\n+2\ndiff --git a/two.txt b/two.txt\nnew file mode 100644\n--- /dev/null\n+++ b/two.txt\n@@ -0,0 +1,1 @@\n+new\n"

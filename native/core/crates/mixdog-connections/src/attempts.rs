@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{SshAskpass, SshAskpassKind, SshProgress};
 use mixdog_core_api::ids::ConnectionId;
-use mixdog_ssh::askpass::{AskpassKind, AskpassPrompter, AskpassQuestion, ASKPASS_TIMEOUT_MS};
+use mixdog_ssh::askpass::{ASKPASS_TIMEOUT_MS, AskpassKind, AskpassPrompter, AskpassQuestion};
 use mixdog_ssh::command::SshTarget;
 use mixdog_ssh::connect_failure::ConnectError;
 use mixdog_ssh::context::AttemptContext;
@@ -67,7 +67,13 @@ pub trait ServerLinks: Send + Sync {
     /// The link of this saved server is attached.
     fn is_open(&self, id: &str) -> bool;
     /// Connects when needed (see [`LinkPool::open`]).
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError>;
+    async fn open(
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        progress: Option<Progress>,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<LinkOpen, ConnectError>;
     /// Rolls back a newly owned attachment.
     async fn rollback(&self, id: &str, _token: u64) {
         self.close(id).await;
@@ -82,7 +88,13 @@ impl ServerLinks for LinkPool {
         self.get(id).is_some_and(|link| !link.stopped())
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+    async fn open(
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        progress: Option<Progress>,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<LinkOpen, ConnectError> {
         self.open_scoped(spec, context, progress, cancel).await.map(|(_, ownership)| ownership)
     }
 
@@ -219,9 +231,10 @@ impl Attempts {
             return Err(AttemptError::new("This connection is closed."));
         }
         while state.attempts.iter().filter(|attempt| attempt.caller == caller).count() >= MAX_ATTEMPTS_PER_CALLER {
-            let idle = state.attempts.iter().position(|attempt| {
-                attempt.caller == caller && matches!(attempt.run().state, AttemptState::Inspected | AttemptState::Restartable)
-            });
+            let idle = state
+                .attempts
+                .iter()
+                .position(|attempt| attempt.caller == caller && matches!(attempt.run().state, AttemptState::Inspected | AttemptState::Restartable));
             match idle {
                 Some(at) => {
                     state.attempts.remove(at);
@@ -243,12 +256,7 @@ impl Attempts {
 
     /// The attempt the connection named; refused the same way when it is gone and when another connection minted it.
     pub fn owned(&self, caller: ConnectionId, attempt_id: &str) -> Result<Arc<Attempt>, AttemptError> {
-        locked(&self.state)
-            .attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id && attempt.caller == caller)
-            .cloned()
-            .ok_or_else(gone)
+        locked(&self.state).attempts.iter().find(|attempt| attempt.id == attempt_id && attempt.caller == caller).cloned().ok_or_else(gone)
     }
 
     /// Refused unless `attempt` is still registered: a forget of its server since it was named retired it.

@@ -79,11 +79,8 @@ pub(super) fn touch_directory<P: WriteProof>(proof: &P, directory: &Path) {
 /// `pruneCache(root)`: the directories past [`MAX_CACHED_DOCUMENTS`], least recently used first.
 pub(super) fn prune_cache<P: WriteProof>(proof: &P, root: &Path) {
     let Ok(entries) = mixdog_fsio::read_dir(proof, root) else { return };
-    let directories: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|entry| entry.file_type(proof).is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path())
-        .collect();
+    let directories: Vec<PathBuf> =
+        entries.flatten().filter(|entry| entry.file_type(proof).is_ok_and(|kind| kind.is_dir())).map(|entry| entry.path()).collect();
     if directories.len() <= MAX_CACHED_DOCUMENTS {
         return;
     }
@@ -353,7 +350,8 @@ mod tests {
 
     fn folder(test: &str) -> PathBuf {
         static NUMBER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!("office-pdf-cache-{test}-{}-{}", std::process::id(), NUMBER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+        let dir =
+            std::env::temp_dir().join(format!("office-pdf-cache-{test}-{}-{}", std::process::id(), NUMBER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
         mixdog_testkit::create_dir_all(&dir);
         dir
     }
@@ -384,7 +382,14 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("runtime");
         runtime.block_on(async {
             let found = conversions
-                .run(&output, || async { Ok(Some(preview(&output, true))) }, || async { runs.fetch_add(1, Ordering::SeqCst); Ok(preview(&output, false)) })
+                .run(
+                    &output,
+                    || async { Ok(Some(preview(&output, true))) },
+                    || async {
+                        runs.fetch_add(1, Ordering::SeqCst);
+                        Ok(preview(&output, false))
+                    },
+                )
                 .await
                 .expect("a result");
             assert!(found.cached);

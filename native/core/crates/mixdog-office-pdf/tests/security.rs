@@ -4,9 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use mixdog_office_pdf::security::{
-    PASSWORD_LINE_BREAK, QPDF_INSTALL_HINT, SecureRequest, check_passwords, plan_secure, response_text,
-};
+use mixdog_office_pdf::security::{PASSWORD_LINE_BREAK, QPDF_INSTALL_HINT, SecureRequest, check_passwords, plan_secure, response_text};
 
 fn request<'a>(mode: &'a str, input: &'a str, output: &'a str, password: &'a str, owner: &'a str) -> SecureRequest<'a> {
     SecureRequest { input, output, mode, password, owner_password: owner }

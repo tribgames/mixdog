@@ -26,10 +26,7 @@ fn scripted_server() {
 }
 
 fn text_of(parts: &[ToolPart]) -> String {
-    parts
-        .iter()
-        .filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None })
-        .collect()
+    parts.iter().filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect()
 }
 
 fn starts(file: &std::path::Path) -> usize {
@@ -37,13 +34,7 @@ fn starts(file: &std::path::Path) -> usize {
 }
 
 fn hook_handler(raw: Value) -> mixdog_mcp::hooks::HookHandler {
-    mixdog_mcp::hooks::HookHandler {
-        raw,
-        source: std::path::PathBuf::new(),
-        plugin_root: None,
-        plugin_data: None,
-        untrusted: false,
-    }
+    mixdog_mcp::hooks::HookHandler { raw, source: std::path::PathBuf::new(), plugin_root: None, plugin_data: None, untrusted: false }
 }
 
 const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
@@ -106,10 +97,7 @@ async fn lists_every_page_and_calls_a_tool() {
     assert_eq!(catalog.entries[0].qualified, "mcp__mock__echo");
     assert_eq!(catalog.entries[0].annotations.read_only_hint, Some(true));
     assert_eq!(call(&server, "echo", json!({"text": "hi"})).await.unwrap(), "hi");
-    assert!(matches!(
-        call(&server, "nope", json!({})).await,
-        Err(CallError::UnknownTool { .. })
-    ));
+    assert!(matches!(call(&server, "nope", json!({})).await, Err(CallError::UnknownTool { .. })));
     server.close().await;
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -289,9 +277,7 @@ async fn a_scope_following_server_is_advertised_the_scopes_folder_and_told_when_
     let (first, second) = (dir.path().join("first"), dir.path().join("second"));
     std::fs::create_dir_all(&first).unwrap();
     std::fs::create_dir_all(&second).unwrap();
-    let listed = |root: &std::path::Path| {
-        json!({"result": {"roots": [{"uri": url::Url::from_file_path(root).unwrap().as_str(), "name": root.file_name().unwrap().to_str().unwrap()}]}, "error": null})
-    };
+    let listed = |root: &std::path::Path| json!({"result": {"roots": [{"uri": url::Url::from_file_path(root).unwrap().as_str(), "name": root.file_name().unwrap().to_str().unwrap()}]}, "error": null});
     let server = server(json!({"_mixdogRootsFollowScope": true}), dir.path());
     server.set_scope_root(first.to_str().unwrap());
     server.connect().await.unwrap();
@@ -667,11 +653,7 @@ async fn a_live_registry_is_filtered_per_cwd_with_the_owning_plugins_scope() {
     let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
     hub.apply_in(
         "scope-test",
-        vec![
-            config("UnityMCP", json!({})),
-            config("plugin-unity-tools", json!({"_mixdogPlugin": {"id": "unity", "key": "tools"}})),
-            config("demo", json!({})),
-        ],
+        vec![config("UnityMCP", json!({})), config("plugin-unity-tools", json!({"_mixdogPlugin": {"id": "unity", "key": "tools"}})), config("demo", json!({}))],
     );
     for name in ["UnityMCP", "plugin-unity-tools", "demo"] {
         until(&hub.server_in("scope-test", name).unwrap(), |s| matches!(s, ServerState::Ready(_))).await;
@@ -694,7 +676,6 @@ async fn a_live_registry_is_filtered_per_cwd_with_the_owning_plugins_scope() {
     hub.close_all().await;
 }
 
-
 /// An `mcp_tool` hook of a session whose cwd is outside a plugin's scope still runs the plugin's tool: the tool is resolved in the
 /// session's MCP scope only, with no session catalog. The servers are real stdio servers (`mixdog_testkit::mcp_server`: each lists
 /// its tools, answers `ran <server> <tool>` and logs what reaches it).
@@ -713,6 +694,9 @@ async fn an_mcp_tool_hook_outside_the_plugins_scope_still_runs_the_plugins_tool(
     let ran = run_mcp_tool_handler(&hub, Some("session-b"), &hook, json!({"k": 1}), "PreToolUse", &CancellationToken::new()).await;
     assert_eq!((ran.exit_code, ran.stdout.as_str()), (0, "ran plugin-tools act"), "the hook's result");
     let reached = json!(mixdog_testkit::mcp_server::reached(&reach)).to_string();
-    assert!(reached.contains("plugin-tools") && reached.contains("act") && reached.contains("\"k\":1"), "the call reached the live server with its arguments: {reached}");
+    assert!(
+        reached.contains("plugin-tools") && reached.contains("act") && reached.contains("\"k\":1"),
+        "the call reached the live server with its arguments: {reached}"
+    );
     hub.close_all().await;
 }

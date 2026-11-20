@@ -7,9 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use mixdog_services::channels::running::RunningWork;
-use mixdog_services::scheduler::{
-    Clock, MemoryScheduleStore, RunOutcome, Schedule, ScheduleError, ScheduleRecords, ScheduleRunner, Scheduler,
-};
+use mixdog_services::scheduler::{Clock, MemoryScheduleStore, RunOutcome, Schedule, ScheduleError, ScheduleRecords, ScheduleRunner, Scheduler};
 
 const START: &str = "2030-01-01T00:00:00Z";
 
@@ -74,10 +72,15 @@ async fn a_renamed_one_shot_fires_once_at_its_own_time_under_the_new_name() {
     let moved = one_shot("new", 60);
     let saved = w
         .sched
-        .rename_locked("old", "new", || async { ScheduleRecords::rename(&*w.store, "old", &moved, false).await }, || async {
-            w.sched.reload_config(vec![moved.clone()], true);
-            Ok(())
-        })
+        .rename_locked(
+            "old",
+            "new",
+            || async { ScheduleRecords::rename(&*w.store, "old", &moved, false).await },
+            || async {
+                w.sched.reload_config(vec![moved.clone()], true);
+                Ok(())
+            },
+        )
         .await
         .unwrap();
     assert_eq!(saved.map(|s| s.name), Some("new".to_owned()));
@@ -93,7 +96,8 @@ async fn a_renamed_one_shot_fires_once_at_its_own_time_under_the_new_name() {
 async fn a_rename_onto_a_taken_name_changes_nothing_and_the_old_timer_still_fires() {
     let w = world(vec![one_shot("old", 60), one_shot("taken", 3_600)]);
     let target = one_shot("taken", 60);
-    let refused = w.sched.rename_locked("old", "taken", || async { ScheduleRecords::rename(&*w.store, "old", &target, false).await }, || async { Ok(()) }).await;
+    let refused =
+        w.sched.rename_locked("old", "taken", || async { ScheduleRecords::rename(&*w.store, "old", &target, false).await }, || async { Ok(()) }).await;
     assert!(matches!(refused, Err(ScheduleError::NameTaken { .. })), "{refused:?}");
     advance(60).await;
     assert_eq!(ran(&w), vec![("old".to_owned(), 60)]);

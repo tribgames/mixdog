@@ -29,13 +29,13 @@ use crate::env::DrainRequest;
 use crate::env::JitterSource;
 use crate::env::NoGuards;
 use crate::env::Retracted;
-use crate::env::RunEvent;
-use crate::env::RunObserver;
-use crate::env::TextRetraction;
 use crate::env::RetryWait;
 use crate::env::RunEnv;
+use crate::env::RunEvent;
+use crate::env::RunObserver;
 use crate::env::SteerEntry;
 use crate::env::SteerSource;
+use crate::env::TextRetraction;
 use crate::env::Ticket;
 use crate::env::TranscriptSink;
 use crate::message::AgentMessage;
@@ -93,12 +93,7 @@ pub(crate) fn isolated_env(host: &RunEnv) -> RunEnv {
 }
 
 /// The run environment of a call outside any run: only what the retry path needs.
-pub(crate) fn isolated(
-    clock: Arc<dyn Clock>,
-    jitter: Arc<dyn JitterSource>,
-    waiter: Arc<dyn RetryWait>,
-    decider: Arc<dyn RetryDecider>,
-) -> RunEnv {
+pub(crate) fn isolated(clock: Arc<dyn Clock>, jitter: Arc<dyn JitterSource>, waiter: Arc<dyn RetryWait>, decider: Arc<dyn RetryDecider>) -> RunEnv {
     RunEnv {
         clock,
         jitter,
@@ -177,10 +172,7 @@ fn without_prompt_cache(parameters: Option<serde_json::Value>) -> Option<serde_j
         Some(serde_json::Value::Object(map)) => map,
         _ => serde_json::Map::new(),
     };
-    parameters.insert(
-        "cacheStrategy".to_owned(),
-        serde_json::json!({ "tools": "none", "system": "none", "tier3": "none", "messages": "none" }),
-    );
+    parameters.insert("cacheStrategy".to_owned(), serde_json::json!({ "tools": "none", "system": "none", "tier3": "none", "messages": "none" }));
     Some(serde_json::Value::Object(parameters))
 }
 
@@ -359,9 +351,17 @@ impl SummarySender for OneShot {
             .map_err(summary_failure)?;
         if out.cut {
             // Reached only when the retraction was refused; a summary the stream broke in is never an answer.
-            return Err(SummaryFailure::Failed("compact summary rejected: the answer was cut by a broken stream; the conversation and the previous summary are kept".into()));
+            return Err(SummaryFailure::Failed(
+                "compact summary rejected: the answer was cut by a broken stream; the conversation and the previous summary are kept".into(),
+            ));
         }
         let reported = out.usage != Usage::default();
-        Ok(SummaryResponse { text: out.text, tool_call: out.tool_call, stop: out.stop, usage: reported.then_some(out.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
+        Ok(SummaryResponse {
+            text: out.text,
+            tool_call: out.tool_call,
+            stop: out.stop,
+            usage: reported.then_some(out.usage),
+            input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider),
+        })
     }
 }

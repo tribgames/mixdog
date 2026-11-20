@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use bytes::Bytes;
-use mixdog_relay::close_codes::{
-    DESKTOP_HANDSHAKE_STALLED, DESKTOP_OFFLINE, DESKTOP_REJECTED_CLIENT, RELAY_BUSY, REVOKED, SLOW_PEER, SUPERSEDED,
-};
+use mixdog_relay::close_codes::{DESKTOP_HANDSHAKE_STALLED, DESKTOP_OFFLINE, DESKTOP_REJECTED_CLIENT, RELAY_BUSY, REVOKED, SLOW_PEER, SUPERSEDED};
 use mixdog_relay::legs::desktop::{BUILT_IN_TYPES, DesktopHandle};
 use mixdog_relay::legs::dispatch::{CapabilityOffer, Handler, HandlerFuture, LegCall, Rejected, RevokeHook};
 use mixdog_relay::legs::envelope::{self, decode_frame, encode_frame};
@@ -398,7 +396,6 @@ fn recording_handler(seen: &Arc<Mutex<Vec<Value>>>) -> Handler {
         })
     })
 }
-
 
 fn io() -> mixdog_rt::DurabilityIo {
     mixdog_rt::testing::tokens().durability_io
@@ -1044,7 +1041,8 @@ async fn the_frame_types_the_legs_do_not_answer_go_to_the_area_that_registered_t
     send(&handle, &json!({ "type": 5 })).await;
     handle.frame(Bytes::from_static(b"not json"), false).await;
     handle.frame(Bytes::from_static(b"null"), false).await;
-    let kinds: Vec<String> = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|m| m["type"].as_str().unwrap_or("").to_owned()).collect();
+    let kinds: Vec<String> =
+        seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|m| m["type"].as_str().unwrap_or("").to_owned()).collect();
     assert_eq!(kinds, ["claim-approve", "media-head"]);
 }
 #[tokio::test]

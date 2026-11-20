@@ -81,9 +81,7 @@ macro_rules! custom_lang {
                 self.get_ts_language().id_for_node_kind(kind, true)
             }
             fn field_to_id(&self, field: &str) -> Option<u16> {
-                self.get_ts_language()
-                    .field_id_for_name(field)
-                    .map(|f| f.get())
+                self.get_ts_language().field_id_for_name(field).map(|f| f.get())
             }
             fn expando_char(&self) -> char {
                 $expando
@@ -199,9 +197,7 @@ impl FromStr for ScanLang {
                 return Ok(*lang);
             }
         }
-        SupportLang::from_str(s)
-            .map(ScanLang::Builtin)
-            .map_err(|_| format!("unsupported language `{s}`"))
+        SupportLang::from_str(s).map(ScanLang::Builtin).map_err(|_| format!("unsupported language `{s}`"))
     }
 }
 
@@ -224,13 +220,8 @@ impl<'de> Deserialize<'de> for ScanLang {
     }
 }
 
-const CUSTOM_ALIASES: &[(&str, ScanLang)] = &[
-    ("objc", ScanLang::ObjC),
-    ("objectivec", ScanLang::ObjC),
-    ("objective-c", ScanLang::ObjC),
-    ("zig", ScanLang::Zig),
-    ("r", ScanLang::R),
-];
+const CUSTOM_ALIASES: &[(&str, ScanLang)] =
+    &[("objc", ScanLang::ObjC), ("objectivec", ScanLang::ObjC), ("objective-c", ScanLang::ObjC), ("zig", ScanLang::Zig), ("r", ScanLang::R)];
 
 fn support_lang_id(lang: SupportLang) -> &'static str {
     use SupportLang as S;
@@ -287,8 +278,7 @@ pub fn scan_lang_for_ext(ext: &str) -> Option<ScanLang> {
         "c" | "h" => S::C,
         "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" | "c++" | "cu" | "ino" => S::Cpp,
         "scala" | "sc" | "sbt" => S::Scala,
-        "sh" | "bash" | "zsh" | "bats" | "cgi" | "command" | "env" | "fcgi" | "ksh" | "tmux"
-        | "tool" => S::Bash,
+        "sh" | "bash" | "zsh" | "bats" | "cgi" | "command" | "env" | "fcgi" | "ksh" | "tmux" | "tool" => S::Bash,
         "lua" => S::Lua,
         "dart" => S::Dart,
         "ex" | "exs" => S::Elixir,
@@ -312,12 +302,7 @@ pub fn scan_lang_for_ext(ext: &str) -> Option<ScanLang> {
 /// The per-grammar value in `cache`, built by `build` on first use and shared
 /// after. Built outside the lock, so two first callers may both build; the
 /// later insert wins. `what` names the cache in the poisoned-lock panic.
-pub(crate) fn cached_for_lang<T>(
-    cache: &RwLock<HashMap<ScanLang, Arc<T>>>,
-    lang: ScanLang,
-    what: &str,
-    build: impl FnOnce() -> T,
-) -> Arc<T> {
+pub(crate) fn cached_for_lang<T>(cache: &RwLock<HashMap<ScanLang, Arc<T>>>, lang: ScanLang, what: &str, build: impl FnOnce() -> T) -> Arc<T> {
     if let Some(found) = cache.read().expect(what).get(&lang) {
         return Arc::clone(found);
     }
@@ -327,9 +312,7 @@ pub(crate) fn cached_for_lang<T>(
 }
 
 pub fn scan_lang_for_path(path: &Path) -> Option<ScanLang> {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .and_then(scan_lang_for_ext)
+    path.extension().and_then(|ext| ext.to_str()).and_then(scan_lang_for_ext)
 }
 
 /// One row of the registry (and of `--langs`). `extensions` is every
@@ -352,229 +335,70 @@ impl LangInfo {
 /// The merged registry: the graph languages first, then the scan-only ones.
 /// Every entry is scannable today.
 pub const LANG_INFOS: &[LangInfo] = &[
-    LangInfo {
-        id: "javascript",
-        extensions: &["js", "mjs", "cjs", "jsx"],
-        extract_extensions: &["js", "mjs", "cjs", "jsx"],
-        scan: true,
-    },
-    LangInfo {
-        id: "typescript",
-        extensions: &["ts", "tsx", "mts", "cts"],
-        extract_extensions: &["ts", "tsx", "mts", "cts"],
-        scan: true,
-    },
-    LangInfo {
-        id: "python",
-        extensions: &["py", "pyi", "py3", "bzl", "bazel"],
-        extract_extensions: &["py", "pyi"],
-        scan: true,
-    },
-    LangInfo {
-        id: "go",
-        extensions: &["go"],
-        extract_extensions: &["go"],
-        scan: true,
-    },
-    LangInfo {
-        id: "rust",
-        extensions: &["rs"],
-        extract_extensions: &["rs"],
-        scan: true,
-    },
-    LangInfo {
-        id: "java",
-        extensions: &["java"],
-        extract_extensions: &["java"],
-        scan: true,
-    },
-    LangInfo {
-        id: "kotlin",
-        extensions: &["kt", "kts", "ktm"],
-        extract_extensions: &["kt", "kts"],
-        scan: true,
-    },
-    LangInfo {
-        id: "csharp",
-        extensions: &["cs"],
-        extract_extensions: &["cs"],
-        scan: true,
-    },
-    LangInfo {
-        id: "ruby",
-        extensions: &["rb", "rbw", "gemspec"],
-        extract_extensions: &["rb"],
-        scan: true,
-    },
-    LangInfo {
-        id: "php",
-        extensions: &["php"],
-        extract_extensions: &["php"],
-        scan: true,
-    },
-    LangInfo {
-        id: "swift",
-        extensions: &["swift"],
-        extract_extensions: &["swift"],
-        scan: true,
-    },
-    LangInfo {
-        id: "c",
-        extensions: &["c", "h"],
-        extract_extensions: &["c", "h"],
-        scan: true,
-    },
+    LangInfo { id: "javascript", extensions: &["js", "mjs", "cjs", "jsx"], extract_extensions: &["js", "mjs", "cjs", "jsx"], scan: true },
+    LangInfo { id: "typescript", extensions: &["ts", "tsx", "mts", "cts"], extract_extensions: &["ts", "tsx", "mts", "cts"], scan: true },
+    LangInfo { id: "python", extensions: &["py", "pyi", "py3", "bzl", "bazel"], extract_extensions: &["py", "pyi"], scan: true },
+    LangInfo { id: "go", extensions: &["go"], extract_extensions: &["go"], scan: true },
+    LangInfo { id: "rust", extensions: &["rs"], extract_extensions: &["rs"], scan: true },
+    LangInfo { id: "java", extensions: &["java"], extract_extensions: &["java"], scan: true },
+    LangInfo { id: "kotlin", extensions: &["kt", "kts", "ktm"], extract_extensions: &["kt", "kts"], scan: true },
+    LangInfo { id: "csharp", extensions: &["cs"], extract_extensions: &["cs"], scan: true },
+    LangInfo { id: "ruby", extensions: &["rb", "rbw", "gemspec"], extract_extensions: &["rb"], scan: true },
+    LangInfo { id: "php", extensions: &["php"], extract_extensions: &["php"], scan: true },
+    LangInfo { id: "swift", extensions: &["swift"], extract_extensions: &["swift"], scan: true },
+    LangInfo { id: "c", extensions: &["c", "h"], extract_extensions: &["c", "h"], scan: true },
     LangInfo {
         id: "cpp",
         extensions: &["cpp", "cc", "cxx", "hpp", "hxx", "hh", "c++", "cu", "ino"],
         extract_extensions: &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
         scan: true,
     },
-    LangInfo {
-        id: "scala",
-        extensions: &["scala", "sc", "sbt"],
-        extract_extensions: &["scala", "sc"],
-        scan: true,
-    },
+    LangInfo { id: "scala", extensions: &["scala", "sc", "sbt"], extract_extensions: &["scala", "sc"], scan: true },
     LangInfo {
         id: "bash",
-        extensions: &[
-            "sh", "bash", "zsh", "bats", "cgi", "command", "env", "fcgi", "ksh", "tmux", "tool",
-        ],
+        extensions: &["sh", "bash", "zsh", "bats", "cgi", "command", "env", "fcgi", "ksh", "tmux", "tool"],
         extract_extensions: &["sh", "bash", "zsh"],
         scan: true,
     },
-    LangInfo {
-        id: "lua",
-        extensions: &["lua"],
-        extract_extensions: &["lua"],
-        scan: true,
-    },
-    LangInfo {
-        id: "dart",
-        extensions: &["dart"],
-        extract_extensions: &["dart"],
-        scan: true,
-    },
-    LangInfo {
-        id: "objc",
-        extensions: &["m", "mm"],
-        extract_extensions: &["m", "mm"],
-        scan: true,
-    },
-    LangInfo {
-        id: "elixir",
-        extensions: &["ex", "exs"],
-        extract_extensions: &["ex", "exs"],
-        scan: true,
-    },
-    LangInfo {
-        id: "zig",
-        extensions: &["zig"],
-        extract_extensions: &["zig"],
-        scan: true,
-    },
-    LangInfo {
-        id: "r",
-        extensions: &["r", "R"],
-        extract_extensions: &["r", "R"],
-        scan: true,
-    },
-    LangInfo {
-        id: "solidity",
-        extensions: &["sol"],
-        extract_extensions: &["sol"],
-        scan: true,
-    },
-    LangInfo {
-        id: "haskell",
-        extensions: &["hs"],
-        extract_extensions: &["hs"],
-        scan: true,
-    },
-    LangInfo {
-        id: "hcl",
-        extensions: &["hcl", "nomad", "tf", "tfvars", "workflow"],
-        extract_extensions: &["hcl", "tf", "tfvars"],
-        scan: true,
-    },
+    LangInfo { id: "lua", extensions: &["lua"], extract_extensions: &["lua"], scan: true },
+    LangInfo { id: "dart", extensions: &["dart"], extract_extensions: &["dart"], scan: true },
+    LangInfo { id: "objc", extensions: &["m", "mm"], extract_extensions: &["m", "mm"], scan: true },
+    LangInfo { id: "elixir", extensions: &["ex", "exs"], extract_extensions: &["ex", "exs"], scan: true },
+    LangInfo { id: "zig", extensions: &["zig"], extract_extensions: &["zig"], scan: true },
+    LangInfo { id: "r", extensions: &["r", "R"], extract_extensions: &["r", "R"], scan: true },
+    LangInfo { id: "solidity", extensions: &["sol"], extract_extensions: &["sol"], scan: true },
+    LangInfo { id: "haskell", extensions: &["hs"], extract_extensions: &["hs"], scan: true },
+    LangInfo { id: "hcl", extensions: &["hcl", "nomad", "tf", "tfvars", "workflow"], extract_extensions: &["hcl", "tf", "tfvars"], scan: true },
     // Never graph source files: a data/markup language has no symbol or
     // import contract here, and markdown is excluded on purpose even though
     // ast-grep ships a default outline rule for it.
-    LangInfo {
-        id: "css",
-        extensions: &["css", "scss"],
-        extract_extensions: &[],
-        scan: true,
-    },
-    LangInfo {
-        id: "html",
-        extensions: &["html", "htm", "xhtml"],
-        extract_extensions: &[],
-        scan: true,
-    },
-    LangInfo {
-        id: "json",
-        extensions: &["json"],
-        extract_extensions: &[],
-        scan: true,
-    },
-    LangInfo {
-        id: "markdown",
-        extensions: &["markdown", "md"],
-        extract_extensions: &[],
-        scan: true,
-    },
-    LangInfo {
-        id: "nix",
-        extensions: &["nix"],
-        extract_extensions: &[],
-        scan: true,
-    },
-    LangInfo {
-        id: "tsx",
-        extensions: &["tsx"],
-        extract_extensions: &[],
-        scan: true,
-    },
-    LangInfo {
-        id: "yaml",
-        extensions: &["yaml", "yml"],
-        extract_extensions: &[],
-        scan: true,
-    },
+    LangInfo { id: "css", extensions: &["css", "scss"], extract_extensions: &[], scan: true },
+    LangInfo { id: "html", extensions: &["html", "htm", "xhtml"], extract_extensions: &[], scan: true },
+    LangInfo { id: "json", extensions: &["json"], extract_extensions: &[], scan: true },
+    LangInfo { id: "markdown", extensions: &["markdown", "md"], extract_extensions: &[], scan: true },
+    LangInfo { id: "nix", extensions: &["nix"], extract_extensions: &[], scan: true },
+    LangInfo { id: "tsx", extensions: &["tsx"], extract_extensions: &[], scan: true },
+    LangInfo { id: "yaml", extensions: &["yaml", "yml"], extract_extensions: &[], scan: true },
 ];
 
 /// Every `(extension, graph language id)` pair that makes a file a graph
 /// source file, in registry order: one definition for the lookup map and the
 /// classifier pattern below.
 fn graph_source_extensions() -> impl Iterator<Item = (&'static str, &'static str)> {
-    LANG_INFOS
-        .iter()
-        .filter(|info| info.extract())
-        .flat_map(|info| {
-            info.extract_extensions
-                .iter()
-                .map(move |extension| (*extension, info.id))
-        })
+    LANG_INFOS.iter().filter(|info| info.extract()).flat_map(|info| info.extract_extensions.iter().map(move |extension| (*extension, info.id)))
 }
 
 /// Graph language id for a source extension, or `None` when the extension is
 /// not a graph source file. Case-sensitive, like the extension table.
 pub fn graph_lang_for_ext(ext: &str) -> Option<&'static str> {
-    static BY_EXT: LazyLock<HashMap<&'static str, &'static str>> =
-        LazyLock::new(|| graph_source_extensions().collect());
+    static BY_EXT: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| graph_source_extensions().collect());
     BY_EXT.get(ext).copied()
 }
 
 /// Interned graph language id, or `""` when the name is not a graph language
 /// (a scan-only language, or one whose outline rules are gone).
 pub fn graph_lang_id(name: &str) -> &'static str {
-    LANG_INFOS
-        .iter()
-        .find(|info| info.id == name && info.extract())
-        .map(|info| info.id)
-        .unwrap_or("")
+    LANG_INFOS.iter().find(|info| info.id == name && info.extract()).map(|info| info.id).unwrap_or("")
 }
 
 /// Every grammar a graph language is parsed with. `typescript` has two (a
@@ -651,37 +475,25 @@ mod tests {
             "zig",
             "r",
         ] {
-            assert!(
-                extract_languages().contains(&lang),
-                "{lang} must stay a graph language"
-            );
+            assert!(extract_languages().contains(&lang), "{lang} must stay a graph language");
         }
         // Data/markup languages never become graph source files, markdown
         // included (ast-grep ships a default outline rule for it).
         for lang in ["markdown", "json", "yaml", "css", "html", "nix", "tsx"] {
-            assert!(
-                !extract_languages().contains(&lang),
-                "{lang} must stay scan-only"
-            );
+            assert!(!extract_languages().contains(&lang), "{lang} must stay scan-only");
             for info in LANG_INFOS.iter().filter(|info| info.id == lang) {
                 assert!(info.extract_extensions.is_empty());
             }
         }
         // every extraction language id is present and flagged
         for lang in extract_languages() {
-            let info = LANG_INFOS
-                .iter()
-                .find(|l| l.id == lang)
-                .unwrap_or_else(|| panic!("missing registry entry for {lang}"));
+            let info = LANG_INFOS.iter().find(|l| l.id == lang).unwrap_or_else(|| panic!("missing registry entry for {lang}"));
             assert!(info.extract(), "{lang} must be flagged extract");
         }
         // every ast-grep builtin id is present
         for lang in SupportLang::all_langs() {
             let id = support_lang_id(*lang);
-            assert!(
-                LANG_INFOS.iter().any(|l| l.id == id),
-                "missing registry entry for {id}"
-            );
+            assert!(LANG_INFOS.iter().any(|l| l.id == id), "missing registry entry for {id}");
         }
     }
 
@@ -689,8 +501,7 @@ mod tests {
     fn every_registry_extension_resolves_to_its_language() {
         for info in LANG_INFOS {
             for ext in info.extensions {
-                let lang =
-                    scan_lang_for_ext(ext).unwrap_or_else(|| panic!("{ext} has no scan language"));
+                let lang = scan_lang_for_ext(ext).unwrap_or_else(|| panic!("{ext} has no scan language"));
                 // `.tsx` is the one documented divergence: extraction calls it
                 // typescript, scan parses it with the tsx grammar.
                 let expected = if *ext == "tsx" { "tsx" } else { info.id };
@@ -701,14 +512,8 @@ mod tests {
 
     #[test]
     fn language_aliases_parse() {
-        assert_eq!(
-            ScanLang::from_str("typescript").unwrap(),
-            ScanLang::Builtin(SupportLang::TypeScript)
-        );
-        assert_eq!(
-            ScanLang::from_str("TSX").unwrap(),
-            ScanLang::Builtin(SupportLang::Tsx)
-        );
+        assert_eq!(ScanLang::from_str("typescript").unwrap(), ScanLang::Builtin(SupportLang::TypeScript));
+        assert_eq!(ScanLang::from_str("TSX").unwrap(), ScanLang::Builtin(SupportLang::Tsx));
         assert_eq!(ScanLang::from_str("objective-c").unwrap(), ScanLang::ObjC);
         assert_eq!(ScanLang::from_str("Zig").unwrap(), ScanLang::Zig);
         assert_eq!(ScanLang::from_str("R").unwrap(), ScanLang::R);

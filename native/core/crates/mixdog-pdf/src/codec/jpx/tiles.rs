@@ -4,9 +4,7 @@
 use std::ops::Range;
 
 use super::JpxError;
-use super::markers::{
-    self, CompParams, EOC, MainHeader, ParamBuilder, SOD, SOT, Siz, TileParams, parse_plt, read_segment,
-};
+use super::markers::{self, CompParams, EOC, MainHeader, ParamBuilder, SOD, SOT, Siz, TileParams, parse_plt, read_segment};
 use super::packets::TagTree;
 
 /// Most precincts and code-blocks one tile may hold; a header that asks for more is refused instead of allocated.
@@ -287,26 +285,10 @@ pub(super) fn build_tile(siz: &Siz, index: u32, params: &TileParams) -> Result<T
         let numres = cp.coding.levels as u32 + 1;
         let mut resolutions = Vec::with_capacity(numres as usize);
         for r in 0..numres {
-            let res = build_resolution(
-                cs.precision,
-                cp,
-                r,
-                numres,
-                (cx0, cy0, cx1, cy1),
-                &mut precinct_total,
-                &mut block_total,
-            )?;
+            let res = build_resolution(cs.precision, cp, r, numres, (cx0, cy0, cx1, cy1), &mut precinct_total, &mut block_total)?;
             resolutions.push(res);
         }
-        components.push(TileComponent {
-            dx: cs.dx,
-            dy: cs.dy,
-            x0: cx0 as u32,
-            y0: cy0 as u32,
-            x1: cx1 as u32,
-            y1: cy1 as u32,
-            resolutions,
-        });
+        components.push(TileComponent { dx: cs.dx, dy: cs.dy, x0: cx0 as u32, y0: cy0 as u32, x1: cx1 as u32, y1: cy1 as u32, resolutions });
     }
     Ok(TileStructure {
         index,
@@ -375,8 +357,7 @@ fn build_resolution(
         let numbps = step.expn as i32 + cp.quant.guard as i32 - 1;
 
         let (cbg_w, cbg_h) = if r == 0 { (ppx32, ppy32) } else { (ppx32 - 1, ppy32 - 1) };
-        let (tl_cbg_x, tl_cbg_y) =
-            if r == 0 { (tlx, tly) } else { (ceil_div_pow2(tlx, 1), ceil_div_pow2(tly, 1)) };
+        let (tl_cbg_x, tl_cbg_y) = if r == 0 { (tlx, tly) } else { (ceil_div_pow2(tlx, 1), ceil_div_pow2(tly, 1)) };
         let cbw = (cp.coding.cbw as u32).min(cbg_w);
         let cbh = (cp.coding.cbh as u32).min(cbg_h);
         let mut precincts = Vec::with_capacity((pw * ph) as usize);
@@ -442,15 +423,5 @@ fn build_resolution(
             precincts,
         });
     }
-    Ok(Resolution {
-        x0: rx0 as u32,
-        y0: ry0 as u32,
-        x1: rx1 as u32,
-        y1: ry1 as u32,
-        ppx,
-        ppy,
-        pw: pw as u32,
-        ph: ph as u32,
-        bands,
-    })
+    Ok(Resolution { x0: rx0 as u32, y0: ry0 as u32, x1: rx1 as u32, y1: ry1 as u32, ppx, ppy, pw: pw as u32, ph: ph as u32, bands })
 }

@@ -99,7 +99,12 @@ fn assistant(account: &str) -> Message {
 fn history() -> Arc<ModelRequest> {
     Arc::new(ModelRequest {
         model: "m".into(),
-        messages: vec![Message::new(Role::User, Content::Text("u".into())), assistant("one"), Message::new(Role::User, Content::Text("u2".into())), assistant("two")],
+        messages: vec![
+            Message::new(Role::User, Content::Text("u".into())),
+            assistant("one"),
+            Message::new(Role::User, Content::Text("u2".into())),
+            assistant("two"),
+        ],
         tools: Vec::new(),
         options: Default::default(),
     })
@@ -148,7 +153,14 @@ async fn an_api_key_can_be_mirrored_as_a_bearer_right_after_it() {
     let http = GatewayHttp::new(replay.clone()).mirroring_key_as_bearer();
     http.send(post("https://gw.test/v1/messages", &[("x-api-key", "K"), ("content-type", "application/json")], "{}"), TOKEN_GROK).await.unwrap();
     let request = sent(&replay);
-    assert_eq!(request.headers[..3], [("x-api-key".to_owned(), "K".to_owned()), ("authorization".to_owned(), "Bearer K".to_owned()), ("content-type".to_owned(), "application/json".to_owned())]);
+    assert_eq!(
+        request.headers[..3],
+        [
+            ("x-api-key".to_owned(), "K".to_owned()),
+            ("authorization".to_owned(), "Bearer K".to_owned()),
+            ("content-type".to_owned(), "application/json".to_owned())
+        ]
+    );
 }
 
 #[tokio::test]

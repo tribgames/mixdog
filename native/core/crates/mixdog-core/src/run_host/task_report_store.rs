@@ -107,6 +107,9 @@ impl AgentRegistry for DaemonReportAgents {
 
     async fn settle_restart_failures(&self) -> Result<(), String> {
         let stamp = mixdog_agent::agent_tool::stamp::iso_from_ms((self.now_ms)());
-        mixdog_core_session::session::agent_registry::restart::notify_restart_failures(&self.workers, &*self.directory, &self.board, &stamp).await.map(|_| ()).map_err(|error| error.to_string())
+        mixdog_core_session::session::agent_registry::restart::notify_restart_failures(&self.workers, &*self.directory, &self.board, &stamp)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
 }

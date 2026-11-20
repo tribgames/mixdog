@@ -232,11 +232,8 @@ async fn studio_started(http: Arc<Script>, dir: &std::path::Path) -> Studio {
 impl Studio {
     async fn send(&self, method: &str, target: &str, origin: Option<&str>, body: &str) -> Answer {
         let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
-        let request = format!(
-            "{method} {target} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n{origin}Content-Length: {}\r\n\r\n{body}",
-            self.port,
-            body.len()
-        );
+        let request =
+            format!("{method} {target} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n{origin}Content-Length: {}\r\n\r\n{body}", self.port, body.len());
         exchange(self.port, &request).await
     }
 
@@ -296,7 +293,12 @@ async fn the_command_code_callback_refuses_each_wrong_request_in_nodes_words_and
     let other_state = studio.send("POST", "/callback", Some(STUDIO), &json!({"state": "other", "apiKey": "key-1"}).to_string()).await;
     assert_json(&other_state, "HTTP/1.1 400 Bad Request", &wrong("callback state mismatch"), "state");
     let missing = json!({"state": studio.state, "apiKey": "key-1", "userId": "x", "userName": "  ", "keyName": "k"}).to_string();
-    assert_json(&studio.send("POST", "/callback", Some(STUDIO), &missing).await, "HTTP/1.1 400 Bad Request", &wrong("callback is missing userName"), "blank field");
+    assert_json(
+        &studio.send("POST", "/callback", Some(STUDIO), &missing).await,
+        "HTTP/1.1 400 Bad Request",
+        &wrong("callback is missing userName"),
+        "blank field",
+    );
     let malformed = studio.send("POST", "/callback", Some(STUDIO), &studio.callback("has space")).await;
     assert_json(&malformed, "HTTP/1.1 400 Bad Request", &wrong("callback carried a malformed API key"), "key");
 

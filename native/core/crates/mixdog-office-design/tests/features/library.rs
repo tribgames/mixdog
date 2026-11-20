@@ -1,6 +1,4 @@
-use mixdog_office_design::library::core::{
-    canonical_office_design_pack, compare_office_design_versions, is_format, safe_id_text, template_format,
-};
+use mixdog_office_design::library::core::{canonical_office_design_pack, compare_office_design_versions, is_format, safe_id_text, template_format};
 use serde_json::json;
 
 #[test]
@@ -22,10 +20,7 @@ fn versions_order_by_number_and_a_prerelease_sorts_before_its_release() {
     assert_eq!(compare_office_design_versions("2.0.0-rc.1", "2.0.0"), Ok(-1));
     assert_eq!(compare_office_design_versions("2.0.0", "2.0.0-rc.1"), Ok(1));
     assert_eq!(compare_office_design_versions("2.0.0-beta", "2.0.0-alpha"), Ok(1));
-    assert_eq!(
-        compare_office_design_versions("1.2", "1.2.3"),
-        Err("Office design pack versions must be semantic versions: 1.2, 1.2.3".to_owned())
-    );
+    assert_eq!(compare_office_design_versions("1.2", "1.2.3"), Err("Office design pack versions must be semantic versions: 1.2, 1.2.3".to_owned()));
     assert!(compare_office_design_versions("1.2.3-", "1.2.3").is_err());
 }
 

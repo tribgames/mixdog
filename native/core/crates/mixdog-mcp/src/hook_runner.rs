@@ -21,11 +21,7 @@ use crate::server::CallError;
 fn target_name(handler: &Value) -> String {
     let text = |key: &str| handler.get(key).and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned();
     let (server, tool) = (text("server"), text("tool"));
-    if !server.is_empty() && !tool.is_empty() && !tool.starts_with("mcp__") {
-        qualified_tool_name(&server, &tool, PROVIDER_TOOL_NAME_MAX)
-    } else {
-        tool
-    }
+    if !server.is_empty() && !tool.is_empty() && !tool.starts_with("mcp__") { qualified_tool_name(&server, &tool, PROVIDER_TOOL_NAME_MAX) } else { tool }
 }
 
 /// Runs one `mcp_tool` handler with the hook `payload` as the tool's arguments. `scope` is the MCP
@@ -55,7 +51,9 @@ pub async fn run_mcp_tool_handler(
     let owner = format!("hook:{name}");
     // Admitted by the gate of the session's scope, as Node's call is by its scope's registered server.
     let call = async {
-        let account = hub.resolve_tool_account_in(&scope, &name, &payload, &owner).await
+        let account = hub
+            .resolve_tool_account_in(&scope, &name, &payload, &owner)
+            .await
             .map_err(|error| CallError::Recovery { message: error.to_string(), outcome_unknown: false })?
             .map(|account| mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id });
         server.call_tool_bound_in(Some(&scope), &owner, &entry.tool, payload, &call_cancel, None, account.as_ref()).await
@@ -81,8 +79,7 @@ pub async fn run_mcp_tool_handler(
             HandlerRun::failed(message, timed_out)
         }
         Ok(Ok(output)) => {
-            let text: Vec<&str> =
-                output.parts.iter().filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect();
+            let text: Vec<&str> = output.parts.iter().filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect();
             HandlerRun { exit_code: 0, stdout: limit_text(text.join("\n")), ..HandlerRun::default() }
         }
     }

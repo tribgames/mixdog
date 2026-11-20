@@ -1,10 +1,7 @@
 //! Hand-authored unit examples: each request row
 //! is one turn with its uncached input, the legacy day is one disjoint historical route, and a
 //! cost the provider reported stands where the catalog's price would have been used otherwise.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "test fixture: originals written into a temporary data directory"
-)]
+#![allow(clippy::disallowed_methods, reason = "test fixture: originals written into a temporary data directory")]
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -37,17 +34,11 @@ impl Pricer for Prices {
     }
 
     fn price(&self, _: &PriceRequest) -> crate::Result<Priced> {
-        Ok(Priced {
-            cost_usd: Some(0.5),
-            rates: Some(r#"{"requestedModel":null,"pricingModel":"m"}"#.into()),
-        })
+        Ok(Priced { cost_usd: Some(0.5), rates: Some(r#"{"requestedModel":null,"pricingModel":"m"}"#.into()) })
     }
 
     fn price_aggregate(&self, _: &PriceRequest) -> crate::Result<Priced> {
-        Ok(Priced {
-            cost_usd: Some(0.25),
-            rates: None,
-        })
+        Ok(Priced { cost_usd: Some(0.25), rates: None })
     }
 }
 
@@ -105,10 +96,7 @@ fn a_row_becomes_the_record_the_earlier_importer_made() {
                      "input_tokens":100,"output_tokens":10,"cached_tokens":40,"cache_write_tokens":10,"duration_ms":7,
                      "payload":{"provider":"openai","requested_model":"gpt-y","response_id":"resp-1","sourceType":"user"}});
     let made = row_record(&row).unwrap();
-    assert_eq!(
-        (made.provider.as_str(), made.input, made.output, made.cache_read, made.cache_write),
-        ("openai", 50.0, 10.0, 40.0, 10.0)
-    );
+    assert_eq!((made.provider.as_str(), made.input, made.output, made.cache_read, made.cache_write), ("openai", 50.0, 10.0, 40.0, 10.0));
     assert_eq!((made.session_id.as_str(), made.source_type.as_str(), made.origin.as_str()), ("", "user", "trace"));
     assert_eq!((made.requested_model.as_str(), made.kind.as_str(), made.cost_source.as_str()), ("gpt-y", "api", "catalog"));
     assert_eq!(made.cost_usd, Some(0.5));
@@ -136,10 +124,7 @@ fn a_row_becomes_the_record_the_earlier_importer_made() {
     let reported = json!({"kind":"usage","ts":5,"provider":"openai","model":"m","inputTokens":3,"outputTokens":1,"costUsd":"0.75"});
     let reported = row_record(&reported).unwrap();
     assert_eq!((reported.cost_usd, reported.cost_source.as_str()), (Some(0.75), "provider"));
-    assert_eq!(
-        reported.rates.as_deref(),
-        Some(r#"{"requestedModel":null,"pricingModel":"m","pricingProvider":"openai","pricingSource":"provider"}"#)
-    );
+    assert_eq!(reported.rates.as_deref(), Some(r#"{"requestedModel":null,"pricingModel":"m","pricingProvider":"openai","pricingSource":"provider"}"#));
     let raw_cost = json!({"kind":"usage_raw","ts":5,"provider":"openai","model":"m","input_tokens":3,"output_tokens":1,"costUsd":9});
     assert_eq!(row_record(&raw_cost).unwrap().cost_source, "catalog");
 }
@@ -148,11 +133,7 @@ fn a_row_becomes_the_record_the_earlier_importer_made() {
 fn a_row_with_a_missing_figure_is_not_recorded_as_zero() {
     let base = json!({"kind":"usage_raw","ts":5,"provider":"openai","model":"m","input_tokens":3,"output_tokens":1});
     assert!(row_record(&base).is_some());
-    for (key, value) in [
-        ("input_tokens", Value::Null),
-        ("output_tokens", Value::Null),
-        ("model", json!("")),
-    ] {
+    for (key, value) in [("input_tokens", Value::Null), ("output_tokens", Value::Null), ("model", json!(""))] {
         let mut row = base.clone();
         row[key] = value.clone();
         assert!(row_record(&row).is_none(), "{key} {value}");
@@ -196,8 +177,6 @@ fn a_restored_day_is_priced_again_from_its_sums() {
     assert_eq!(got["2025-01-03"], days["2025-01-03"]);
 }
 
-
-
 fn rig(trace: Vec<Value>) -> Rig {
     rig_reading(Arc::new(Canned(trace)))
 }
@@ -211,12 +190,7 @@ fn rig_reading(trace: Arc<dyn OriginalTrace>) -> Rig {
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
     let refresher = UsageRefresher::new(Arc::new(Prices), tokens.cpu_bulk);
     refresher.enable_history_from(data.clone(), tokens.maintenance_io, trace);
-    Rig {
-        _dir: dir,
-        data,
-        ledger: UsageLedger { writer, reader, refresher },
-        path,
-    }
+    Rig { _dir: dir, data, ledger: UsageLedger { writer, reader, refresher }, path }
 }
 fn put(rig: &Rig, rel: &str, text: &str) {
     let path = rig.data.join(rel);
@@ -261,12 +235,8 @@ async fn legacy_originals_enter_the_statistics_once_with_the_old_totals() {
 
     assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM usage_events"), 4);
     assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM legacy_days"), 1);
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        NOW.to_string()
-    );
-    let receipt: Value =
-        serde_json::from_str(&query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importReceipt'")).unwrap();
+    assert_eq!(query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"), NOW.to_string());
+    let receipt: Value = serde_json::from_str(&query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importReceipt'")).unwrap();
     assert_eq!(receipt["inserted"], 4, "{receipt}");
     assert_eq!(receipt["sourceRows"], 6, "{receipt}");
     assert_eq!(receipt["unrecordableRows"], 1, "{receipt}");
@@ -288,19 +258,12 @@ async fn a_damaged_legacy_rollup_is_skipped_with_a_warning_and_retried_after_rep
     for damaged in ["{broken", "", "[]", "{\"days\":null}", "{}"] {
         put(&rig, "usage-rollup.local.json", damaged);
         assert_eq!(totals(&rig).await["turns"], 0);
-        assert_eq!(
-            query::<i64>(&rig.path, "SELECT COUNT(*) FROM metadata WHERE key='importedThrough'"),
-            0,
-            "left unset so a repair is retried: {damaged:?}"
-        );
+        assert_eq!(query::<i64>(&rig.path, "SELECT COUNT(*) FROM metadata WHERE key='importedThrough'"), 0, "left unset so a repair is retried: {damaged:?}");
     }
     assert!(written.lock().unwrap().iter().any(|(_, _, line)| line.contains("usage-rollup.local.json")));
     put(&rig, "usage-rollup.local.json", "{\"days\":{}}");
     totals(&rig).await;
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        NOW.to_string()
-    );
+    assert_eq!(query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"), NOW.to_string());
 }
 #[tokio::test]
 async fn nothing_from_the_live_period_is_imported() {
@@ -319,10 +282,7 @@ async fn nothing_from_the_live_period_is_imported() {
     put(&rig, "history/agent-trace.jsonl", &lines(&[before, after]));
 
     assert_eq!(totals(&rig).await["turns"], 2);
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        "1788000150000"
-    );
+    assert_eq!(query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"), "1788000150000");
     // The history is complete up to the cutover: a later original is not looked at.
     let older = json!({"kind":"usage_raw","ts":1_787_000_000_000_i64,"provider":"openai","model":"gpt-x","session_id":"s1",
                        "input_tokens":10,"output_tokens":1,"cached_tokens":0,"cache_write_tokens":0});
@@ -500,10 +460,7 @@ async fn an_import_up_to_the_cutover_is_marked_with_it_and_a_repeat_adds_nothing
     drop(conn);
     put(&rig, "history/agent-trace.jsonl", &format!("{GOOD_ROW}\n"));
     assert_eq!(totals(&rig).await["turns"], 1);
-    assert_eq!(
-        query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"),
-        "1788000000001"
-    );
+    assert_eq!(query::<String>(&rig.path, "SELECT value FROM metadata WHERE key='importedThrough'"), "1788000000001");
     assert_eq!(totals(&rig).await["turns"], 1);
     assert_eq!(events(&rig), 1);
 }

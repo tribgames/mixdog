@@ -45,10 +45,7 @@ pub(crate) enum QueueKey {
 }
 
 impl QueueKey {
-    pub(crate) fn resolve(
-        scope: SerializationScope,
-        client_name: impl FnOnce() -> String,
-    ) -> (Self, Access) {
+    pub(crate) fn resolve(scope: SerializationScope, client_name: impl FnOnce() -> String) -> (Self, Access) {
         match scope {
             SerializationScope::Global(key) => (Self::Global(key), Access::Exclusive),
             SerializationScope::GlobalSharedRead(key) => (Self::Global(key), Access::SharedRead),
@@ -128,43 +125,27 @@ pub(crate) struct KeyedQueues {
 
 impl KeyedQueues {
     pub(crate) fn new() -> Self {
-        Self {
-            keys: Arc::new(Sharded::new()),
-        }
+        Self { keys: Arc::new(Sharded::new()) }
     }
 
     /// A map with `shards` shards: with one, every key collides with every other.
     #[cfg(test)]
     pub(crate) fn with_shards(shards: usize) -> Self {
-        Self {
-            keys: Arc::new(Sharded::with_shards(shards)),
-        }
+        Self { keys: Arc::new(Sharded::with_shards(shards)) }
     }
 
     /// Queues `run` under `key`. `cancel` is the owning connection's token: a job whose token
     /// is cancelled before it starts is dropped unrun.
-    pub(crate) fn enqueue(
-        &self,
-        key: QueueKey,
-        access: Access,
-        cancel: CancellationToken,
-        run: BoxFuture,
-    ) {
+    pub(crate) fn enqueue(&self, key: QueueKey, access: Access, cancel: CancellationToken, run: BoxFuture) {
         let key = Arc::new(key);
-        let mut job = Some(Job {
-            access,
-            cancel,
-            run,
-        });
+        let mut job = Some(Job { access, cancel, run });
         let (cell, step) = loop {
             let cell = self.cell(&key);
             let mut state = lock(&cell.state);
             if state.retired {
                 continue;
             }
-            state
-                .waiting
-                .push_back(job.take().expect("a job is queued once"));
+            state.waiting.push_back(job.take().expect("a job is queued once"));
             let step = self.advance(&key, &mut state);
             drop(state);
             break (cell, step);
@@ -196,12 +177,7 @@ impl KeyedQueues {
     fn act(&self, key: &Arc<QueueKey>, cell: &Arc<KeyCell>, step: Step) {
         drop(step.cancelled);
         for job in step.ready {
-            let finished = Finished {
-                queues: self.clone(),
-                key: Arc::clone(key),
-                cell: Arc::clone(cell),
-                access: job.access,
-            };
+            let finished = Finished { queues: self.clone(), key: Arc::clone(key), cell: Arc::clone(cell), access: job.access };
             mixdog_rt::spawn("serialized_request", TaskClass::Work, async move {
                 let _finished = finished;
                 if !job.cancel.is_cancelled() {

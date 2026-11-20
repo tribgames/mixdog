@@ -55,7 +55,6 @@ mod tests {
     }
 }
 
-
 impl Server {
     /// Binds `0.0.0.0:port` and serves every connection with `handler`. `tls` makes the server speak TLS.
     pub async fn start(port: u16, tls: Option<Arc<ServerConfig>>, handler: Arc<dyn Handler>, limits: Limits) -> io::Result<Self> {

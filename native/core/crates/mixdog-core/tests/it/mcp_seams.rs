@@ -22,8 +22,16 @@ use mixdog_agent::tools::ToolEnv;
 use mixdog_core::run_host::hooks::PostToolAnswer;
 use mixdog_core::run_host::hooks::PostToolDispatch;
 use mixdog_core::run_host::hooks::PostToolEvent;
+use mixdog_core::run_host::mcp_seams::AllowAllActions;
 use mixdog_core::run_host::mcp_seams::BusPostToolDispatch;
+use mixdog_core::run_host::mcp_seams::CatalogSkillsListed;
+use mixdog_core::run_host::mcp_seams::ConfigAllowAll;
+use mixdog_core::run_host::mcp_seams::ContactBots;
 use mixdog_core::run_host::mcp_seams::ExplicitSkillSelector;
+use mixdog_core::run_host::mcp_seams::HostGateEnv;
+use mixdog_core::run_host::mcp_seams::McpAwareResolver;
+use mixdog_core::run_host::mcp_seams::UnattendedRuns;
+use mixdog_core::run_host::session_tools::SkillsListed;
 use mixdog_core_api::domain::mock::MockApprovalGate;
 use mixdog_core_api::domain::mock::MockFileService;
 use mixdog_core_api::domain::mock::MockProcessManager;
@@ -44,27 +52,19 @@ use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_core_ports::ports::gate::GateEnv;
 use mixdog_core_ports::ports::gate::GateRun;
-use mixdog_core::run_host::mcp_seams::AllowAllActions;
-use mixdog_core::run_host::mcp_seams::CatalogSkillsListed;
-use mixdog_core::run_host::mcp_seams::ConfigAllowAll;
-use mixdog_core::run_host::mcp_seams::ContactBots;
-use mixdog_core::run_host::mcp_seams::HostGateEnv;
-use mixdog_core::run_host::mcp_seams::McpAwareResolver;
-use mixdog_core::run_host::mcp_seams::UnattendedRuns;
-use mixdog_core::run_host::session_tools::SkillsListed;
 use mixdog_mcp::McpHub;
 use mixdog_mcp::McpIo;
-use mixdog_mcp::result::OutputPolicy;
-use mixdog_mcp::skill_catalog::SkillCatalog;
-use mixdog_store::schema::record::Header;
-use mixdog_tools::policy::RunKind;
-use mixdog_tools::policy::ToolResolver;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::hook_bus::HookCommon;
+use mixdog_mcp::result::OutputPolicy;
+use mixdog_mcp::skill_catalog::SkillCatalog;
 use mixdog_mcp::skill_select::SkillNames;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::TurnId;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::policy::RunKind;
+use mixdog_tools::policy::ToolResolver;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -188,7 +188,11 @@ fn named_tool(name: &str, aliases: &[&str]) -> Arc<dyn Tool> {
 
 fn empty_hub() -> Arc<McpHub> {
     let tokens = mixdog_rt::testing::tokens();
-    McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }, std::env::temp_dir().join("mcp-seams-artifacts"), OutputPolicy::default())
+    McpHub::new(
+        McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
+        std::env::temp_dir().join("mcp-seams-artifacts"),
+        OutputPolicy::default(),
+    )
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -291,9 +295,7 @@ async fn write_file(path: &Path, body: &[u8]) {
     let (path, body) = (path.to_owned(), body.to_vec());
     mixdog_rt::testing::tokens()
         .durability_io
-        .submit(&tokio_util::sync::CancellationToken::new(), move |lane| {
-            mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default())
-        })
+        .submit(&tokio_util::sync::CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default()))
         .unwrap()
         .await
         .unwrap()
@@ -315,9 +317,9 @@ async fn remove_dir_all(path: &Path) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn allow_all_actions_is_on_only_for_a_stored_true() {
+    use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_config::config::Config;
     use mixdog_core_config::config::ConfigLanes;
-    use mixdog_core_api::mock::MockStatePublisher;
 
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
@@ -344,9 +346,9 @@ async fn allow_all_actions_is_on_only_for_a_stored_true() {
 #[tokio::test(flavor = "multi_thread")]
 #[allow(clippy::disallowed_methods, reason = "test setup: removes the file the gate reads")]
 async fn allow_all_actions_fails_closed_on_what_the_file_holds_now() {
+    use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_config::config::Config;
     use mixdog_core_config::config::ConfigLanes;
-    use mixdog_core_api::mock::MockStatePublisher;
 
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
@@ -429,7 +431,14 @@ async fn the_post_tool_dispatch_asks_the_bus_with_the_sessions_common_fields() {
             HookCommon::default()
         }),
     );
-    let event = PostToolEvent { call_id: "c1".to_owned(), name: "edit".to_owned(), args: json!({"file_path": "a"}), cwd: dir.path().to_string_lossy().into_owned(), session_id: "s1".to_owned(), result: "ok".to_owned() };
+    let event = PostToolEvent {
+        call_id: "c1".to_owned(),
+        name: "edit".to_owned(),
+        args: json!({"file_path": "a"}),
+        cwd: dir.path().to_string_lossy().into_owned(),
+        session_id: "s1".to_owned(),
+        result: "ok".to_owned(),
+    };
     // No hooks are configured: nothing replaces the result and nothing blocks.
     assert_eq!(dispatch.post_tool(&event).await, PostToolAnswer::default());
     dispatch.post_failure(&event).await;
@@ -458,7 +467,6 @@ fn the_env_reads_the_live_settings_gates_at_each_use() {
     gates.0.lock().unwrap().push("git".to_owned());
     assert_eq!(env.live_setting_denied(), ["git"]);
 }
-
 
 /// The skills installed and what the `Skill` tool answers for the ones a test loads.
 fn golden() -> Value {
@@ -504,7 +512,8 @@ fn selector(golden: &Value, deny: Option<&str>, fail: bool) -> (ExplicitSkillSel
 #[tokio::test(flavor = "multi_thread")]
 async fn explicit_selection_loads_each_mentioned_skill_and_adds_its_result_and_body_to_the_transcript() {
     let golden = golden();
-    let skill_context = |result: &str| (format!("<system-reminder>\nExplicit skill selection result:\n{result}\n</system-reminder>"), json!({ "source": "skill-context" }));
+    let skill_context =
+        |result: &str| (format!("<system-reminder>\nExplicit skill selection result:\n{result}\n</system-reminder>"), json!({ "source": "skill-context" }));
     let body = |name: &str| (format!("<skill>\n<name>{name}</name>\nBody of {name}\n</skill>"), json!("skill"));
     let second = || ("second".to_owned(), json!("skill"));
     let cases: Vec<(Value, Vec<&str>, Vec<&str>, Vec<(String, Value)>)> = vec![
@@ -574,10 +583,13 @@ async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
     assert_eq!(transcript.len(), 3);
     assert_eq!(
         transcript[2].message.content,
-        Content::Text("<system-reminder>
+        Content::Text(
+            "<system-reminder>
 Explicit skill selection result:
 Loaded skill: alpha
-</system-reminder>".to_owned())
+</system-reminder>"
+                .to_owned()
+        )
     );
 }
 /// `selection`, when given (even empty), is read instead of the prompt (`prepareExplicitSkills`).
@@ -638,7 +650,13 @@ async fn a_loaded_skills_changes_are_announced_from_the_catalog() {
     let file = dir.path().join("skills").join("alpha").join("SKILL.md");
     write_file(&file, V1).await;
     let skill_root = SkillRoot { dir: dir.path().join("skills"), source: SkillSource::Global, plugin: None };
-    let catalog = SkillCatalog::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(move |_lane| vec![skill_root.clone()]), Arc::new(NoSettings), &SkillsWatch::new());
+    let catalog = SkillCatalog::new(
+        dir.path().to_path_buf(),
+        tokens.maintenance_io,
+        Arc::new(move |_lane| vec![skill_root.clone()]),
+        Arc::new(NoSettings),
+        &SkillsWatch::new(),
+    );
     let env = tool_env();
     let cwd = env.cwd.as_path().to_path_buf();
     let (selector, _tool) = selector(&golden(), None, false);
@@ -660,7 +678,10 @@ async fn a_loaded_skills_changes_are_announced_from_the_catalog() {
     catalog.invalidate();
     let told = told_in(&selector, &mut transcript).await;
     assert_eq!(told.len(), 1, "{told:?}");
-    assert_eq!(told[0]["content"], json!("[mixdog-runtime] Skill \"alpha\" was updated since it was loaded. Reload it with the Skill tool before relying on it."));
+    assert_eq!(
+        told[0]["content"],
+        json!("[mixdog-runtime] Skill \"alpha\" was updated since it was loaded. Reload it with the Skill tool before relying on it.")
+    );
     assert_eq!(told[0]["meta"]["source"], json!("skill-update-notice"));
     assert_eq!(told[0]["meta"]["skill"], json!("alpha"));
     assert_eq!(told[0]["meta"]["version"].as_str().map(str::len), Some(16), "{told:?}");

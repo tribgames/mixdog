@@ -64,7 +64,8 @@ fn parse_list(list: &str) -> Vec<Mailbox> {
         .map(|piece| match (piece.rfind('<'), piece.rfind('>')) {
             (Some(open), Some(close)) if open < close => {
                 let name = mixdog_js::js_trim(&piece[..open]);
-                let name = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')).map_or_else(|| name.to_owned(), |n| n.replace("\\\"", "\"").replace("\\\\", "\\"));
+                let name =
+                    name.strip_prefix('"').and_then(|n| n.strip_suffix('"')).map_or_else(|| name.to_owned(), |n| n.replace("\\\"", "\"").replace("\\\\", "\\"));
                 Mailbox { name, address: mixdog_js::js_trim(&piece[open + 1..close]).to_owned() }
             }
             _ => Mailbox { name: String::new(), address: piece.to_owned() },
@@ -163,7 +164,6 @@ mod tests {
         assert_eq!(format_list(&list), "a@x.org, \"Last, First\" <b@y.org>, Name <c@z.org>");
     }
 
-
     #[test]
     fn the_envelope_lists_to_cc_and_bcc_once_each_and_bcc_is_not_a_header() {
         let mut message = outgoing("a@x.org, b@x.org", "Hi", "text");
@@ -205,7 +205,6 @@ mod tests {
     }
 }
 
-
 /// `Date:` as RFC 5322 spells it, in UTC.
 fn date_header(now_ms: f64) -> String {
     let Some(f) = mixdog_js::time::local_fields_in(Tz::UTC, now_ms) else { return String::new() };
@@ -233,10 +232,7 @@ pub(super) fn build(message: &Outgoing<'_>, now_ms: f64, unique: &str) -> Built 
     }
     let domain = message.from.rsplit_once('@').map_or("localhost", |(_, domain)| domain);
     let message_id = format!("<{unique}@{domain}>");
-    let mut headers = vec![
-        format!("From: {}", message.from),
-        format!("To: {}", format_list(&to)),
-    ];
+    let mut headers = vec![format!("From: {}", message.from), format!("To: {}", format_list(&to))];
     if !cc.is_empty() {
         headers.push(format!("Cc: {}", format_list(&cc)));
     }

@@ -50,8 +50,8 @@ pub use outgoing::Outgoing;
 pub use server::AppServer;
 pub use server::ConnectionHandle;
 pub use server::Inbound;
-pub use server::is_control;
 pub use server::OriginOf;
-pub use server::WindowOf;
 #[cfg(feature = "replay-controls")]
 pub use server::REPLAY_STORES_SETTLED;
+pub use server::WindowOf;
+pub use server::is_control;

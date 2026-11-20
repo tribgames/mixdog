@@ -25,7 +25,6 @@ pub mod run_policy;
 pub mod session_grants;
 pub mod surface;
 
-pub use surface::SessionSurface;
 pub use action::GrantKey;
 pub use card::CardEnricher;
 pub use card::OutboundCard;
@@ -56,3 +55,4 @@ pub use pipeline::Withdrawal;
 pub use run_policy::RunKind;
 pub use session_grants::SessionGrantRegistry;
 pub use session_grants::SessionGrants;
+pub use surface::SessionSurface;

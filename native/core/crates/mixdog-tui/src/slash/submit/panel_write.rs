@@ -43,15 +43,7 @@ pub fn finish(host: &mut dyn SlashHost, surface: PromptSurface, token: u64, afte
 
 /// `fail(target, value, message, token, tone)`: a rejected write keeps the prompt open with the typed value restored (the
 /// epoch remounts the editor, so an identical retry value still re-seeds it) instead of closing and losing the entry.
-pub fn fail(
-    host: &mut dyn SlashHost,
-    surface: PromptSurface,
-    target: &TextPrompt,
-    value: &str,
-    message: &str,
-    token: u64,
-    tone: Tone,
-) {
+pub fn fail(host: &mut dyn SlashHost, surface: PromptSurface, target: &TextPrompt, value: &str, message: &str, token: u64, tone: Tone) {
     end(host, surface, token);
     host.push_notice(message, tone);
     if !host.is_panel_epoch_current(token) {

@@ -93,9 +93,9 @@ impl HostCallError {
                 Some(data) => Self::DialogBlocking { dialog: Box::new(data.dialog) },
                 None => failed(),
             },
-            Ok(BROWSER_ENGINE_ERR_REFUSED) => Self::Refused {
-                reason: data_as::<BrowserRefusedErrorData>(data).map_or_else(|| message.to_string(), |data| data.reason),
-            },
+            Ok(BROWSER_ENGINE_ERR_REFUSED) => {
+                Self::Refused { reason: data_as::<BrowserRefusedErrorData>(data).map_or_else(|| message.to_string(), |data| data.reason) }
+            }
             _ => failed(),
         }
     }
@@ -111,18 +111,16 @@ impl HostCallError {
                 value(serde_json::to_value(BrowserPreconditionFailedData { reason: *reason, facts: (**facts).clone() })),
             )),
             Self::PageGone => Some((BROWSER_ENGINE_ERR_PAGE_GONE, String::new(), None)),
-            Self::UserInput { until } => Some((BROWSER_ENGINE_ERR_USER_INPUT, String::new(), value(serde_json::to_value(BrowserUserInputErrorData { until: *until })))),
+            Self::UserInput { until } => {
+                Some((BROWSER_ENGINE_ERR_USER_INPUT, String::new(), value(serde_json::to_value(BrowserUserInputErrorData { until: *until }))))
+            }
             Self::StaleSnapshot => Some((BROWSER_ENGINE_ERR_STALE_SNAPSHOT, String::new(), None)),
-            Self::DialogBlocking { dialog } => Some((
-                BROWSER_ENGINE_ERR_DIALOG_BLOCKING,
-                String::new(),
-                value(serde_json::to_value(BrowserDialogBlockingData { dialog: (**dialog).clone() })),
-            )),
-            Self::Refused { reason } => Some((
-                BROWSER_ENGINE_ERR_REFUSED,
-                reason.clone(),
-                value(serde_json::to_value(BrowserRefusedErrorData { reason: reason.clone() })),
-            )),
+            Self::DialogBlocking { dialog } => {
+                Some((BROWSER_ENGINE_ERR_DIALOG_BLOCKING, String::new(), value(serde_json::to_value(BrowserDialogBlockingData { dialog: (**dialog).clone() }))))
+            }
+            Self::Refused { reason } => {
+                Some((BROWSER_ENGINE_ERR_REFUSED, reason.clone(), value(serde_json::to_value(BrowserRefusedErrorData { reason: reason.clone() }))))
+            }
             Self::Failed { message } => Some((BROWSER_ENGINE_ERR_FAILED, message.clone(), None)),
             Self::Cancelled | Self::Unavailable { .. } | Self::ConnectionLost => None,
         }
@@ -170,7 +168,10 @@ mod tests {
         assert_eq!(HostCallError::from_rpc(-32013, "", None), HostCallError::StaleSnapshot);
         assert_eq!(HostCallError::from_rpc(-32012, "", Some(&json!({"until": 99}))), HostCallError::UserInput { until: Some(99) });
         assert_eq!(HostCallError::from_rpc(-32012, "", None), HostCallError::UserInput { until: None });
-        assert_eq!(HostCallError::from_rpc(-32015, "m", Some(&json!({"reason": "blocked scheme"}))), HostCallError::Refused { reason: "blocked scheme".into() });
+        assert_eq!(
+            HostCallError::from_rpc(-32015, "m", Some(&json!({"reason": "blocked scheme"}))),
+            HostCallError::Refused { reason: "blocked scheme".into() }
+        );
         assert_eq!(HostCallError::from_rpc(-32015, "m", None), HostCallError::Refused { reason: "m".into() });
         assert_eq!(HostCallError::from_rpc(-32000, "boom", None), HostCallError::Failed { message: "boom".into() });
         assert_eq!(HostCallError::from_rpc(-1, "odd", None), HostCallError::Failed { message: "odd".into() });
@@ -201,7 +202,10 @@ mod tests {
             HostCallError::Refused { reason: "r".into() },
             HostCallError::Failed { message: "f".into() },
             HostCallError::DialogBlocking { dialog: Box::new(dialog) },
-            HostCallError::PreconditionFailed { reason: BrowserPreconditionReason::Url, facts: Box::new(serde_json::from_value(page_facts("p2", 1)).expect("facts")) },
+            HostCallError::PreconditionFailed {
+                reason: BrowserPreconditionReason::Url,
+                facts: Box::new(serde_json::from_value(page_facts("p2", 1)).expect("facts")),
+            },
         ] {
             let (code, message, data) = error.to_rpc().expect("answered by a host");
             assert_eq!(HostCallError::from_rpc(i64::from(code), &message, data.as_ref()), error);
@@ -242,6 +246,5 @@ mod tests {
         assert_ne!(thrown, HostCallError::ConnectionLost);
     }
 }
-
 
 impl std::error::Error for HostCallError {}

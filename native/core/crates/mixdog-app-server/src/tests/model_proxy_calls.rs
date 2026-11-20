@@ -69,7 +69,8 @@ impl p::ProviderAdapter for Answering {
             self.release.notified().await;
         }
         Ok(Box::new(Events(
-            [p::StreamEvent::TextDelta("ok".into()), p::StreamEvent::Completed { stop: Some(p::StopReason::EndTurn), pricing_model: None, request_ms: None }].into(),
+            [p::StreamEvent::TextDelta("ok".into()), p::StreamEvent::Completed { stop: Some(p::StopReason::EndTurn), pricing_model: None, request_ms: None }]
+                .into(),
         )))
     }
 }
@@ -123,7 +124,8 @@ async fn rig(provider: Arc<Answering>, inflight: Option<usize>) -> Rig {
     let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), std::env::temp_dir().join("mixdog-model-proxy-wire-unused"), io);
     let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
     let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
-    let runner = ProxyRunner { providers: Arc::new(Lookup(provider)), broker, quota: Arc::new(Unused), wire: Arc::new(Unused), config: Arc::new(Unused), catalog };
+    let runner =
+        ProxyRunner { providers: Arc::new(Lookup(provider)), broker, quota: Arc::new(Unused), wire: Arc::new(Unused), config: Arc::new(Unused), catalog };
     let rig = Rig::gated(&[]);
     let mut service = ModelProxyService::new(Arc::new(runner), Arc::new(MockHostChannel::default()), rig.outgoing.clone());
     if let Some(bytes) = inflight {
@@ -134,7 +136,12 @@ async fn rig(provider: Arc<Answering>, inflight: Option<usize>) -> Rig {
 }
 
 fn answering(holds_first: bool) -> Arc<Answering> {
-    Arc::new(Answering { inner: MockProvider::new(Vec::<MockAttempt>::new()), entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), holds_first: holds_first.into() })
+    Arc::new(Answering {
+        inner: MockProvider::new(Vec::<MockAttempt>::new()),
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+        holds_first: holds_first.into(),
+    })
 }
 
 /// The `modelProxy/run` frame of a send of `messages` to "openai".

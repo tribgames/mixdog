@@ -294,15 +294,27 @@ pub enum ImageData {
 pub enum ToolPart {
     Text(String),
     /// `width`/`height`: the frame's pixel size where the producing tool reports it (the computer tool's capture), else `None`.
-    Image { mime: String, data: ImageData, width: Option<u32>, height: Option<u32> },
+    Image {
+        mime: String,
+        data: ImageData,
+        width: Option<u32>,
+        height: Option<u32>,
+    },
     Json(JsonValue),
     /// A document the model reads whole (Node's `{ type: 'document', source: { type: 'base64', media_type, data } }`
     /// block: `read`'s answer for a short PDF when the model takes PDFs natively).
-    Document { mime: String, data: Vec<u8> },
+    Document {
+        mime: String,
+        data: Vec<u8>,
+    },
     /// A file the tool hands over whole, as an attached file is (Node's `{ type: 'file', data, mimeType, filename }` block: a
     /// downloaded text or Office file of the `browser` tool). It renders as the same inline file content part an attachment is, so
     /// the media lowering turns it into the file's text or its Office extraction, by the one classifier (`inline_file_kind`).
-    File { mime: String, data: Vec<u8>, filename: Option<String> },
+    File {
+        mime: String,
+        data: Vec<u8>,
+        filename: Option<String>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -439,23 +451,51 @@ pub struct ToolOutput {
 /// Closed error-code set (T §1.9). Each renders to today's model text.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ToolErrorCode {
-    InvalidArgs { field: String, reason: String },
-    NotFound { target: String },
-    NotText { reason: String },
-    TooLarge { limit: u64, actual: u64 },
+    InvalidArgs {
+        field: String,
+        reason: String,
+    },
+    NotFound {
+        target: String,
+    },
+    NotText {
+        reason: String,
+    },
+    TooLarge {
+        limit: u64,
+        actual: u64,
+    },
     PermissionDenied,
-    ApprovalRequired { approval_id: u64 },
-    DeniedByPolicy { rule: String },
+    ApprovalRequired {
+        approval_id: u64,
+    },
+    DeniedByPolicy {
+        rule: String,
+    },
     DeniedByHook,
-    Stale { expected: String, actual: String },
-    Conflict { matches: u32 },
+    Stale {
+        expected: String,
+        actual: String,
+    },
+    Conflict {
+        matches: u32,
+    },
     Cancelled,
-    DeadlineExceeded { partial: bool },
-    Unavailable { capability: String, reason: String },
+    DeadlineExceeded {
+        partial: bool,
+    },
+    Unavailable {
+        capability: String,
+        reason: String,
+    },
     UnknownTool,
     OutcomeUnknown,
-    Io { os_code: Option<i32> },
-    Internal { incident_id: String },
+    Io {
+        os_code: Option<i32>,
+    },
+    Internal {
+        incident_id: String,
+    },
     /// `mcp_error` (T §4.5): the MCP server itself reported the failure, either as a JSON-RPC
     /// error (`rpc_code` is its code) or as a result with `isError: true` (`rpc_code` is
     /// `None`). `data` is what the server sent with it (the error's `data`, or the result's
@@ -468,7 +508,9 @@ pub enum ToolErrorCode {
     /// The operation ran and failed (a command, request or action the tool performed). `reason`
     /// is the failure text exactly as today's model text shows it; the model text renders it
     /// verbatim. Not for a capability that is missing (`Unavailable`).
-    Failed { reason: String },
+    Failed {
+        reason: String,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -484,12 +526,7 @@ pub struct ToolError {
 
 impl ToolError {
     pub fn new(code: ToolErrorCode, message_for_model: impl Into<String>) -> Self {
-        Self {
-            code,
-            message_for_model: message_for_model.into(),
-            outcome_unknown: false,
-            partial: None,
-        }
+        Self { code, message_for_model: message_for_model.into(), outcome_unknown: false, partial: None }
     }
 }
 

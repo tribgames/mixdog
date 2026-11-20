@@ -36,7 +36,14 @@ fn failing_from_the_answer(failing: Arc<Mutex<Option<Arc<str>>>>, arm: Arc<Mutex
                 mixdog_protocol::PromptContent::Text(text) => text.clone(),
                 mixdog_protocol::PromptContent::Parts(_) => String::new(),
             };
-            let item = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": format!("re: {text}") }), prompt: None };
+            let item = ItemCommit {
+                iid: ItemId::from(format!("a-{}", run.turn)),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": format!("re: {text}") }),
+                prompt: None,
+            };
             run.port.commit_item(item).await.expect("the answer is kept");
             RunOutcome::Completed(Default::default())
         })
@@ -74,15 +81,20 @@ async fn a_completion_receipt_ack_requires_the_terminal_result_to_be_durable() {
             run.port.input_durable().await.expect("input durable");
             *failing.lock().unwrap() = Some("EIO: terminal result".into());
             for (iid, role, body) in [
-                ("terminal-read", "tool", json!({
-                    "role": "tool", "content": "finished output",
-                    "toolMeta": { "code": "task-completion", "executionId": "shell-receipt", "status": "completed" }
-                })),
+                (
+                    "terminal-read",
+                    "tool",
+                    json!({
+                        "role": "tool", "content": "finished output",
+                        "toolMeta": { "code": "task-completion", "executionId": "shell-receipt", "status": "completed" }
+                    }),
+                ),
                 ("kept-reply", "assistant", json!({ "role": "assistant", "text": "kept reply" })),
             ] {
-                run.port.commit_item(ItemCommit {
-                    iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None,
-                }).await.expect("the failed write is kept in memory");
+                run.port
+                    .commit_item(ItemCommit { iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None })
+                    .await
+                    .expect("the failed write is kept in memory");
             }
             RunOutcome::Completed(Default::default())
         })
@@ -196,7 +208,6 @@ async fn a_failed_save_keeps_the_turn_and_holds_the_next_until_it_lands() {
     assert_eq!(texts, ["first task", "re: first task", "second task", "re: second task"]);
 }
 
-
 impl super::seams::RecordCodec for HeldEncode {
     fn encode(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, record: &Record) -> Result<super::seams::EncodedRecord, CoreError> {
         if let Record::Item(item) = record
@@ -251,7 +262,12 @@ async fn a_manual_compaction_whose_save_fails_is_refused_and_never_written() {
     turn(&handle, "first", "op-1").await;
     crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
     let snapshot = directory.model_context(&handle.id).read().await.expect("context").into_iter().map(|(iid, _)| iid).collect();
-    let compaction = Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 1, dropped: None };
+    let compaction = Compaction {
+        replacement: vec![(ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "summary" }))],
+        at: 5,
+        dropped_count: 1,
+        dropped: None,
+    };
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
     let header: super::turn_ops::CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new() });
@@ -264,7 +280,6 @@ async fn a_manual_compaction_whose_save_fails_is_refused_and_never_written() {
     assert!(!records.iter().any(|(_, record)| matches!(record, Record::Compacted(_))), "the refused compaction is not written");
     assert!(rig.store.stored_header(&handle.id).expect("the header").get("compaction").is_none(), "nor its count");
 }
-
 
 /// A barrier fails while a later record of the turn is still encoding: that record is written with the held ones once the
 /// disk takes writes, and the turn goes on (it was dropped as stale, and nothing ever passed it).
@@ -299,7 +314,14 @@ async fn a_record_still_encoding_when_a_barrier_fails_is_written_with_the_held_o
                 // handed, so the actor is not blocked in B's encode before it hands A.
                 *commit_gate.lock().unwrap() = Some(gate);
                 *failing.lock().unwrap() = Some("EIO: injected".into());
-                let row = |iid: String, text: &str| ItemCommit { iid: ItemId::from(iid), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": text }), prompt: None };
+                let row = |iid: String, text: &str| ItemCommit {
+                    iid: ItemId::from(iid),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": text }),
+                    prompt: None,
+                };
                 let (a, b) = tokio::join!(run.port.commit_item(row(format!("a-{}", run.turn), "A")), async {
                     send_b.notified().await;
                     run.port.commit_item(row(format!("b-{}", run.turn), "B")).await
@@ -347,7 +369,9 @@ async fn a_recovery_that_cannot_read_the_context_leaves_the_run_for_the_next_ope
     let handle = start_thread(&first).await;
     turn(&handle, "first task", "op-1").await;
     crate::session::testing::awaiting(|| "the run's start".to_owned(), started.notified()).await;
-    let ended = |rig: &Rig| rig.store.records(&handle.id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase != RunPhase::Started)).count();
+    let ended = |rig: &Rig| {
+        rig.store.records(&handle.id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase != RunPhase::Started)).count()
+    };
 
     rig.store.fail_context.store(true, std::sync::atomic::Ordering::SeqCst);
     let second = SessionDirectory::new(rig.deps());
@@ -412,7 +436,14 @@ async fn held_row_then_kept_post() -> (Rig, Arc<SessionDirectory>, Arc<SessionHa
             if first.swap(false, SeqCst) {
                 signal.notify_one();
                 proceed.notified().await;
-                let row = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "A" }), prompt: None };
+                let row = ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "A" }),
+                    prompt: None,
+                };
                 run.port.commit_item(row).await.expect("A is kept");
                 *failing.lock().unwrap() = Some("EIO: injected".into());
             }
@@ -443,7 +474,11 @@ async fn held_row_then_kept_post() -> (Rig, Arc<SessionDirectory>, Arc<SessionHa
     crate::eventually_on!(&[&handle.cell.stepped], || (handed() == (title_records + 1, title_records + 1)).then_some(())).await;
     let post = {
         let (directory, id) = (directory.clone(), handle.id.as_str().to_owned());
-        tokio::spawn(async move { super::room_log::SessionRoomLog::new(directory).append_rows(&id, ["b0", "b1"].map(|text| json!({ "role": "user", "content": text, "meta": { "transcript": { "messageId": text } } })).to_vec()).await })
+        tokio::spawn(async move {
+            super::room_log::SessionRoomLog::new(directory)
+                .append_rows(&id, ["b0", "b1"].map(|text| json!({ "role": "user", "content": text, "meta": { "transcript": { "messageId": text } } })).to_vec())
+                .await
+        })
     };
     // The post's rows (and the stamp after them) are handed whole, behind `A`.
     crate::eventually_on!(&[&handle.cell.stepped], || {
@@ -469,7 +504,9 @@ async fn a_held_turn_row_and_a_kept_post_land_in_accept_order() {
     let (rig, _directory, handle) = held_row_then_kept_post().await;
     *rig.store.failing.lock().unwrap() = None;
     turn(&handle, "second task", "op-2").await;
-    crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy() && texts(&rig, &handle.id).contains(&"second task".to_owned())).then_some(())).await;
+    crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy() && texts(&rig, &handle.id).contains(&"second task".to_owned()))
+        .then_some(()))
+    .await;
     assert_eq!(texts(&rig, &handle.id), ["first task", "A", "b0", "b1", "second task"]);
 }
 /// A closing thread writes what it holds and keeps in the order it was accepted.
@@ -497,7 +534,8 @@ async fn a_recovery_whose_save_fails_opens_without_it_and_the_next_open_recovers
         let told = told.clone();
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let call =
+                json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
             let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
             run.port.commit_item(item).await.expect("commit");
             told.notify_one();
@@ -515,7 +553,9 @@ async fn a_recovery_whose_save_fails_opens_without_it_and_the_next_open_recovers
     let reference = SessionDirectory::new(rig.deps());
     let as_stored = shown(&reference.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open"));
     rig.store.fail_context.store(false, std::sync::atomic::Ordering::SeqCst);
-    let ended =|rig: &Rig| rig.store.records(&handle.id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase != RunPhase::Started)).count();
+    let ended = |rig: &Rig| {
+        rig.store.records(&handle.id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase != RunPhase::Started)).count()
+    };
 
     *rig.store.failing.lock().unwrap() = Some("EIO: injected".into());
     let second = SessionDirectory::new(rig.deps());
@@ -550,13 +590,19 @@ async fn the_next_events_save_lands_a_failed_batch_and_withdraws_its_warning() {
     let handle = start_thread(&directory).await;
     *arm.lock().unwrap() = Some("EIO: injected".into());
     turn(&handle, "first task", "op-1").await;
-    crate::eventually_on!(&[&handle.cell.stepped, &rig.notices.1], || (idle(&handle) && rows(&handle).len() == 2 && warning_stands(&rig, handle.id.as_str())).then_some(())).await;
+    crate::eventually_on!(&[&handle.cell.stepped, &rig.notices.1], || (idle(&handle) && rows(&handle).len() == 2 && warning_stands(&rig, handle.id.as_str()))
+        .then_some(()))
+    .await;
     assert!(!stored(&rig, &handle.id).contains(&"re: first task".to_owned()), "the answer is not on disk yet");
 
     // The disk takes writes again; the next turn's start attempt saves what is held first.
     *rig.store.failing.lock().unwrap() = None;
     turn(&handle, "second task", "op-2").await;
-    crate::eventually_on!(&[&handle.cell.stepped, &rig.notices.1], || (idle(&handle) && texts(&rig, &handle.id).len() == 4 && !warning_stands(&rig, handle.id.as_str())).then_some(())).await;
+    crate::eventually_on!(&[&handle.cell.stepped, &rig.notices.1], || (idle(&handle)
+        && texts(&rig, &handle.id).len() == 4
+        && !warning_stands(&rig, handle.id.as_str()))
+    .then_some(()))
+    .await;
     assert_eq!(texts(&rig, &handle.id), ["first task", "re: first task", "second task", "re: second task"], "each row is on disk once");
 
     // A remount reads the standing notice; the failed session's last event is now a withdrawal.
@@ -572,18 +618,19 @@ async fn one_sessions_success_does_not_clear_anothers_warning() {
     rig.set_script(failing_from_the_answer(rig.store.failing.clone(), arm.clone()));
     let directory = SessionDirectory::new(rig.deps());
     let failed = start_thread(&directory).await;
-    let reply = directory.request(request(
-        "thread/start",
-        json!({ "opId": "op-start-healthy", "kind": "task", "projectPath": "/ws" }),
-        "op-start-healthy",
-    )).await.expect("start the healthy thread");
+    let reply = directory
+        .request(request("thread/start", json!({ "opId": "op-start-healthy", "kind": "task", "projectPath": "/ws" }), "op-start-healthy"))
+        .await
+        .expect("start the healthy thread");
     let mixdog_core_api::Reply::Subscribe(opened) = reply else { panic!("thread/start subscribes") };
     let healthy_id = mixdog_core_api::ids::ThreadId::from(opened.result["thread"]["id"].as_str().expect("thread id"));
     let healthy = directory.handle(&healthy_id).expect("healthy thread is loaded");
     assert_ne!(failed.id, healthy.id);
     *arm.lock().unwrap() = Some("EIO: injected".into());
     turn(&failed, "first task", "op-1").await;
-    crate::eventually_on!(&[&failed.cell.stepped, &rig.notices.1], || (idle(&failed) && rows(&failed).len() == 2 && warning_stands(&rig, failed.id.as_str())).then_some(())).await;
+    crate::eventually_on!(&[&failed.cell.stepped, &rig.notices.1], || (idle(&failed) && rows(&failed).len() == 2 && warning_stands(&rig, failed.id.as_str()))
+        .then_some(()))
+    .await;
     *rig.store.failing.lock().unwrap() = None;
     turn(&healthy, "other task", "op-2").await;
     crate::eventually_on!(&[&healthy.cell.stepped], || (idle(&healthy) && texts(&rig, &healthy.id).len() == 2).then_some(())).await;
@@ -597,20 +644,25 @@ async fn a_retained_approval_request_warns_until_the_next_save_acknowledges_it()
     use mixdog_store::schema::record::ApprovalPhase;
 
     let rig = Rig::new();
-    rig.set_script(Arc::new(|run| Box::pin(async move {
-        run.port.input_durable().await.expect("input durable");
-        let _ = run.port.request(ApprovalAsk {
-            kind: ApprovalKind::Tool,
-            call_id: None,
-            tool: Some("shell".into()),
-            action_kind: None,
-            reason: None,
-            payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
-            remember: Vec::new(),
-            expires_after: None,
-        }).await;
-        RunOutcome::Interrupted
-    })));
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: None,
+                    payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            RunOutcome::Interrupted
+        })
+    }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     let requested = |record: &Record| matches!(record, Record::Approval(approval) if approval.phase == ApprovalPhase::Requested);
@@ -618,7 +670,8 @@ async fn a_retained_approval_request_warns_until_the_next_save_acknowledges_it()
     turn(&handle, "approval job", "op-approval").await;
     crate::eventually_on!(&[&handle.cell.stepped, &rig.notices.1], || {
         (!handle.cell.approvals.load().is_empty() && warning_stands(&rig, handle.id.as_str())).then_some(())
-    }).await;
+    })
+    .await;
     assert!(!rig.store.records(&handle.id).iter().any(|(_, record)| requested(record)), "the request is displayed but not stored");
 
     handle.request(internal_title(&handle, "next")).await.expect("the next save lands");
@@ -646,7 +699,9 @@ impl std::io::Write for Logged {
 async fn a_failed_commit_and_its_resolution_are_logged_without_bodies() {
     let log = Logged::default();
     let writer = log.clone();
-    let _logging = tracing::subscriber::set_default(tracing_subscriber::fmt().with_ansi(false).with_max_level(tracing::Level::INFO).with_writer(move || writer.clone()).finish());
+    let _logging = tracing::subscriber::set_default(
+        tracing_subscriber::fmt().with_ansi(false).with_max_level(tracing::Level::INFO).with_writer(move || writer.clone()).finish(),
+    );
     let rig = Rig::new();
     let arm: Arc<Mutex<Option<Arc<str>>>> = Arc::default();
     rig.set_script(failing_from_the_answer(rig.store.failing.clone(), arm.clone()));

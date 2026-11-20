@@ -14,13 +14,13 @@
 //! decoder is not bound by that.
 
 pub mod boxes;
-pub mod markers;
-pub mod packets;
-pub mod tiles;
 pub mod dwt;
+pub mod markers;
 pub mod mct;
 pub mod output;
+pub mod packets;
 pub mod t1;
+pub mod tiles;
 
 use std::fmt;
 
@@ -171,6 +171,5 @@ impl Codestream {
         Ok(Some(tile))
     }
 }
-
 
 impl std::error::Error for JpxError {}

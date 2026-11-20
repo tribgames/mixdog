@@ -12,24 +12,22 @@ use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value, json};
 
 use crate::opc::{
-    add_package_relationship, clone_owned_slide_parts, ensure_content_type_override, next_relationship_id, part_relationship_path,
-    posix, provenance_citation, relationship_target_by_type,
+    add_package_relationship, clone_owned_slide_parts, ensure_content_type_override, next_relationship_id, part_relationship_path, posix, provenance_citation,
+    relationship_target_by_type,
 };
 use crate::package::os_message;
 use crate::pptx_core::{next_shape_id, presentation_slide_size, resolve_slide_background, set_slide_background};
 use crate::pptx_package::{
-    SLIDE_CONTENT_TYPE, SlideRef, add_presentation_slide, copy_slide_notes, delete_presentation_slide, ensure_comment_author,
-    ensure_slide_comments, import_slides_into_presentation, move_presentation_slide, presentation_slides, read_slide_notes,
-    select_slide_layout, set_slide_notes, slide_at, slide_id_entries, slide_layout_parts, write_slide_id_list,
+    SLIDE_CONTENT_TYPE, SlideRef, add_presentation_slide, copy_slide_notes, delete_presentation_slide, ensure_comment_author, ensure_slide_comments,
+    import_slides_into_presentation, move_presentation_slide, presentation_slides, read_slide_notes, select_slide_layout, set_slide_notes, slide_at,
+    slide_id_entries, slide_layout_parts, write_slide_id_list,
 };
-use crate::slide_shapes::{
-    SLIDE_SHAPE_TAGS, replace_first_text, text_body_xml, text_if_truthy, text_of, text_or_empty, to_emu,
-};
+use crate::slide_shapes::{SLIDE_SHAPE_TAGS, replace_first_text, text_body_xml, text_if_truthy, text_of, text_or_empty, to_emu};
 use crate::template_tokens::{FillTemplate, fill_template_parts};
 use crate::text_metrics::{contrast_ratio, relative_luminance};
 use crate::xml::{
-    OFFICE_RELATIONSHIP_BASE, ParagraphTags, compiled, container_inner, replace_across_runs, replace_in_paragraphs,
-    top_level_elements, xml_attribute, xml_encode,
+    OFFICE_RELATIONSHIP_BASE, ParagraphTags, compiled, container_inner, replace_across_runs, replace_in_paragraphs, top_level_elements, xml_attribute,
+    xml_encode,
 };
 use crate::zipio::{Package, utc_now};
 
@@ -155,10 +153,8 @@ pub fn handle_add_comment_or_delete_comment(zip: &mut Package, slides: &[SlideRe
     let author_id = ensure_comment_author(zip, &or_default("author", "Mixdog"), &or_default("initials", "MD"));
     let part = ensure_slide_comments(zip, slide);
     let xml = zip.text(&part);
-    let highest = compiled(r#"<p:cm\b[^>]*\bidx="(\d+)""#, "g")
-        .captures_iter(&xml)
-        .map(|found| string_to_number(found.get(1).unwrap_or("")))
-        .fold(0.0, math::max);
+    let highest =
+        compiled(r#"<p:cm\b[^>]*\bidx="(\d+)""#, "g").captures_iter(&xml).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(0.0, math::max);
     let index = highest + 1.0;
     let now = utc_now();
     // `op.left ?? 12`: only an absent or null position takes the default.
@@ -200,10 +196,7 @@ pub fn handle_add_provenance(zip: &mut Package, slides: &[SlideRef], op: &Value)
     } else {
         format!("/slide[{slide_number}]")
     };
-    Ok(answer(
-        op,
-        vec![("changed", json!(true)), ("slide", number_field(op, "slide")), ("target", json!(target)), ("citation", json!(citation))],
-    ))
+    Ok(answer(op, vec![("changed", json!(true)), ("slide", number_field(op, "slide")), ("target", json!(target)), ("citation", json!(citation))]))
 }
 
 /// `handleDuplicateSlide`: a copy of a slide with the parts it owns (charts, diagrams, notes), listed after the original or
@@ -220,8 +213,7 @@ pub fn handle_duplicate_slide(zip: &mut Package, slides: &mut Vec<SlideRef>, op:
     let source_relationships = zip.text(&part_relationship_path(&source.path));
     let mut copied_parts = Vec::new();
     if !source_relationships.is_empty() {
-        let stripped =
-            compiled(r#"<Relationship\b[^>]*\bType="[^"]*/notesSlide"[^>]*/>"#, "g").replace_all_with(&source_relationships, |_| String::new());
+        let stripped = compiled(r#"<Relationship\b[^>]*\bType="[^"]*/notesSlide"[^>]*/>"#, "g").replace_all_with(&source_relationships, |_| String::new());
         zip.set(&part_relationship_path(&duplicated), stripped);
         // A copy that still pointed at the source's chart or diagram turned one edit into two changed pages, with nothing in
         // the result saying so.
@@ -263,8 +255,7 @@ pub fn handle_set_notes(zip: &mut Package, slides: &[SlideRef], op: &Value) -> H
 pub fn handle_fill_template(zip: &mut Package, op: &Value) -> Handled {
     let parts = slide_part_names(zip);
     let fill = FillTemplate { tokens: field(op, "tokens"), strict: op.get("strict").is_some_and(truthy) };
-    fill_template_parts(zip, &parts, "a:t", &fill, &replace_across_runs)
-        .map(|done| done.to_value())
+    fill_template_parts(zip, &parts, "a:t", &fill, &replace_across_runs).map(|done| done.to_value())
 }
 
 /// `handleReplaceText`: text replaced paragraph by paragraph in every slide and notes part, or in one slide and its notes.
@@ -340,10 +331,7 @@ fn quiet_ink(background: &str) -> &'static str {
     }
     let light = relative_luminance(&field).unwrap_or(1.0) >= 0.4;
     let ladder = if light { QUIET_INK_ON_LIGHT } else { QUIET_INK_ON_DARK };
-    ladder
-        .into_iter()
-        .find(|candidate| contrast_ratio(candidate, &field).unwrap_or(0.0) >= 4.5)
-        .unwrap_or(if light { "1F2429" } else { "FFFFFF" })
+    ladder.into_iter().find(|candidate| contrast_ratio(candidate, &field).unwrap_or(0.0) >= 4.5).unwrap_or(if light { "1F2429" } else { "FFFFFF" })
 }
 
 /// `handleSetFooterOrSetSlideNumber` (`set_footer`, `set_slide_number`): the slide's footer or page-number placeholder

@@ -40,8 +40,7 @@ use js::truthy;
 use user_text::UserText;
 use user_text::tool_result_text;
 
-static COMPLETION_ERROR_LABEL: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^(failed|error|timeout|killed|cancelled)$", "i"));
+static COMPLETION_ERROR_LABEL: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(failed|error|timeout|killed|cancelled)$", "i"));
 static SYNTHETIC_ERROR_LABEL: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(failed|error|killed|cancelled)$", "i"));
 
 /// What Node's restore shows for one user-role message.
@@ -68,8 +67,7 @@ fn source(message: &Value) -> Option<&str> {
 
 /// `isRoomRowMessage(message)`.
 pub fn is_room_row(message: &Value) -> bool {
-    source(message) == Some("agent-room")
-        && truthy(message.get("meta").and_then(|m| m.get("room")).and_then(|r| r.get("kind")))
+    source(message) == Some("agent-room") && truthy(message.get("meta").and_then(|m| m.get("room")).and_then(|r| r.get("kind")))
 }
 
 /// `restoredUserTranscriptItems(message, …, userText)`.
@@ -81,8 +79,7 @@ pub fn user_row(message: &Value, text: &mut UserText<'_>) -> Shown {
         return Shown::Nothing;
     }
     let source = source(message);
-    let held = source == Some("held-request")
-        && truthy(meta.and_then(|m| m.get("heldRequest")).and_then(|h| h.get("id")));
+    let held = source == Some("held-request") && truthy(meta.and_then(|m| m.get("heldRequest")).and_then(|h| h.get("id")));
     if source == Some("schedule-result") || held {
         return Shown::Notice;
     }

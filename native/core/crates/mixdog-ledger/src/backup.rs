@@ -27,18 +27,13 @@ pub fn vacuum_into(conn: &Connection, dest: &Path) -> Result<()> {
 
 /// A fresh `pricing-backup-*` directory beside the ledger holding `ledger.sqlite`, the layout
 /// repairs have always used. Returns the backup file's path.
-#[allow(
-    clippy::disallowed_methods,
-    reason = "maintenance job body: runs on the ledger writer's lane, not an async task"
-)]
+#[allow(clippy::disallowed_methods, reason = "maintenance job body: runs on the ledger writer's lane, not an async task")]
 pub fn backup_beside(conn: &Connection) -> Result<PathBuf> {
     let source = database_path(conn)?.ok_or(LedgerError::Invalid("a file-backed ledger"))?;
     let parent = source.parent().unwrap_or(Path::new("."));
     let mut attempt = 0u32;
     let directory = loop {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         let candidate = parent.join(format!("pricing-backup-{nanos:x}-{attempt}"));
         match std::fs::create_dir(&candidate) {
             Ok(()) => break candidate,

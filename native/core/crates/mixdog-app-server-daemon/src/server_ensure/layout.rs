@@ -46,13 +46,8 @@ impl RemotePaths {
 
     pub fn version_dir(&self, install_id: &str) -> Result<PathBuf, EnsureError> {
         let mut chars = install_id.chars();
-        let safe = chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '_' | '-'));
-        if safe {
-            Ok(self.versions.join(install_id))
-        } else {
-            Err(EnsureError::UnsafeInstallId(install_id.to_owned()))
-        }
+        let safe = chars.next().is_some_and(|c| c.is_ascii_alphanumeric()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '_' | '-'));
+        if safe { Ok(self.versions.join(install_id)) } else { Err(EnsureError::UnsafeInstallId(install_id.to_owned())) }
     }
 }
 

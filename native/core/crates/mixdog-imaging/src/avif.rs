@@ -68,7 +68,8 @@ fn broken(detail: &str) -> ImagingError {
 }
 
 /// libheif's sentence for an HEVC picture: the prebuilt libheif of sharp carries no HEVC decoder.
-const HEVC_UNSUPPORTED: &str = "heif: Error while loading plugin: Support for this compression format has not been built in: HEVC (a suitable decoder plugin is libde265) (11.6003)";
+const HEVC_UNSUPPORTED: &str =
+    "heif: Error while loading plugin: Support for this compression format has not been built in: HEVC (a suitable decoder plugin is libde265) (11.6003)";
 
 /// libheif's sentences for a container it cannot read, by how far it got.
 fn unreadable(bytes: &[u8]) -> ImagingError {
@@ -382,11 +383,7 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
             let (x, y) = (index % out_width, index / out_width);
             let a = samples[(y * alpha_height / out_height) * alpha_width + x * alpha_width / out_width];
             let straight = |channel: u8| {
-                if parsed.premultiplied_alpha && a != 0 && a != 255 {
-                    (u32::from(channel) * 255 / u32::from(a)).min(255) as u8
-                } else {
-                    channel
-                }
+                if parsed.premultiplied_alpha && a != 0 && a != 255 { (u32::from(channel) * 255 / u32::from(a)).min(255) as u8 } else { channel }
             };
             rgba.extend_from_slice(&[straight(pixel[0]), straight(pixel[1]), straight(pixel[2]), a]);
         }

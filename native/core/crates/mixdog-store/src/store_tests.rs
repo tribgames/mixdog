@@ -1,10 +1,6 @@
 //! Store behaviour (SM §11.8): writer transitions with fault injection, projection,
 //! rewind and lineage paging, catalog upsert, folds and refold.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "tests inspect log files and the index directly"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "tests inspect log files and the index directly")]
 
 use std::io;
 use std::path::Path;
@@ -48,12 +44,7 @@ fn item(iid: &str) -> Encoded {
 }
 
 async fn on_lane<R: Send + 'static>(f: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
-    tokens()
-        .durability_io
-        .submit(&CancellationToken::new(), f)
-        .expect("lane")
-        .await
-        .expect("job ran")
+    tokens().durability_io.submit(&CancellationToken::new(), f).expect("lane").await.expect("job ran")
 }
 
 #[derive(Default)]
@@ -189,12 +180,7 @@ fn head(id: &str, classification: &str, title: &str) -> CatalogHead {
         "updatedAt": 1,
         "desktopSession": {"classification": classification, "projectPath": "/p"},
     });
-    CatalogHead {
-        session: id.into(),
-        log_id: LOG_ID.into(),
-        base_session: None,
-        header: header.as_object().unwrap().clone(),
-    }
+    CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header: header.as_object().unwrap().clone() }
 }
 
 fn lineage(levels: &[(&str, Option<u64>)]) -> Vec<LineageLevel> {
@@ -347,10 +333,7 @@ async fn rewind_supersedes_rows_and_stales_cursors() {
     assert_eq!((w.fold().rows, w.fold().history_rev), (2, 1));
     let (rows, _) = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
     assert_eq!(iids(&rows), ["d", "a"]);
-    assert!(matches!(
-        env.store.history_page(lineage(&[("s1", None)]), None, cursor, 10).await,
-        Err(DbError::CursorStale)
-    ));
+    assert!(matches!(env.store.history_page(lineage(&[("s1", None)]), None, cursor, 10).await, Err(DbError::CursorStale)));
     assert_eq!(env.store.live_rows("s1", 0, 6).unwrap(), (2, 2));
 }
 
@@ -424,12 +407,8 @@ fn big_item(iid: &str) -> Encoded {
 /// (every frame but the anchors), and how it ended.
 fn scanned_from(bytes: &[u8], ordinal: u64) -> (Vec<(u64, Vec<u8>)>, crate::schema::frame::ScanEnd) {
     let scan = crate::framing::scan(bytes, 0, 0, ordinal);
-    let records = scan
-        .frames
-        .iter()
-        .filter(|frame| !is_anchor_payload(frame.payload(bytes)))
-        .map(|frame| (frame.ordinal, frame.payload(bytes).to_vec()))
-        .collect();
+    let records =
+        scan.frames.iter().filter(|frame| !is_anchor_payload(frame.payload(bytes))).map(|frame| (frame.ordinal, frame.payload(bytes).to_vec())).collect();
     (records, scan.end)
 }
 
@@ -480,7 +459,13 @@ impl Written {
     /// The recovered records of `bytes` are exactly those before the group or those after it, never between: which.
     fn before_or_after(&self, what: &str, bytes: &[u8]) -> bool {
         let (records, end) = scanned_from(bytes, self.ordinal);
-        assert!(records == self.before || records == self.after, "{what}: recovered {} records ({end:?}), before {} after {}", records.len(), self.before.len(), self.after.len());
+        assert!(
+            records == self.before || records == self.after,
+            "{what}: recovered {} records ({end:?}), before {} after {}",
+            records.len(),
+            self.before.len(),
+            self.after.len()
+        );
         records == self.after
     }
 
@@ -695,9 +680,7 @@ fn o1_opens(bytes: &[u8]) -> bool {
     let first = std::str::from_utf8(bytes.get(..16).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok()).unwrap_or(0);
     let anchor = crate::framing_o1::reverse_scan(bytes, true).unwrap_or(crate::framing_o1::Anchor { start: 0, ordinal: first });
     let scan = crate::framing_o1::scan(bytes, 0, anchor.start, anchor.ordinal);
-    scan.frames
-        .first()
-        .is_some_and(|f| matches!(serde_json::from_slice::<Record>(f.payload(bytes)), Ok(Record::Checkpoint(_) | Record::Session(_))))
+    scan.frames.first().is_some_and(|f| matches!(serde_json::from_slice::<Record>(f.payload(bytes)), Ok(Record::Checkpoint(_) | Record::Session(_))))
 }
 
 impl Env {
@@ -1112,7 +1095,11 @@ async fn an_old_reader_never_misreads_a_log_with_groups() {
         ("a group first", vec![vec![item("a"), item("b")]], &[0]),
         ("a group between single records", vec![vec![item("a")], vec![item("b"), item("c"), item("d")], vec![item("e")]], &[0]),
         ("two groups back to back", vec![vec![item("a"), item("b")], vec![item("c"), item("d")]], &[0]),
-        ("a group, a large in-place group with a leading checkpoint, a group", vec![vec![item("a"), item("b")], big(6), vec![item("c"), item("d")], vec![item("e"), item("f")]], &[0]),
+        (
+            "a group, a large in-place group with a leading checkpoint, a group",
+            vec![vec![item("a"), item("b")], big(6), vec![item("c"), item("d")], vec![item("e"), item("f")]],
+            &[0],
+        ),
         ("a group file last", vec![vec![item("a")], big(11)], &[0, 2]),
         ("a group file, then a segment with an in-place group", vec![vec![item("a")], big(11), vec![item("c"), item("d")], vec![item("e")]], &[0, 2, 3]),
         ("two group files back to back", vec![big(11), big(11)], &[0, 2, 4]),
@@ -1152,15 +1139,26 @@ async fn an_old_reader_never_misreads_a_log_with_groups() {
                             met += 1;
                             assert_eq!(at, old.frames.len() - 1, "{what}: the old reader stops at its first marker");
                             assert_eq!(old_frames[..at], new_from[..at], "{what}: the same frames before it");
-                            assert!(matches!(old.end, ScanEnd::Corrupt { cause: CorruptCause::Ordinal, .. }), "{what}: damage, nothing to truncate: {:?}", old.end);
-                            assert!(serde_json::from_slice::<crate::schema::record::Record>(old.frames[at].payload(&bytes)).is_err(), "{what}: the marker is no record");
+                            assert!(
+                                matches!(old.end, ScanEnd::Corrupt { cause: CorruptCause::Ordinal, .. }),
+                                "{what}: damage, nothing to truncate: {:?}",
+                                old.end
+                            );
+                            assert!(
+                                serde_json::from_slice::<crate::schema::record::Record>(old.frames[at].payload(&bytes)).is_err(),
+                                "{what}: the marker is no record"
+                            );
                         }
                     }
                 }
             }
             for frame in &new.frames {
                 let line = &bytes[frame.start..frame.end()];
-                assert_eq!(crate::framing_o1::check_frame(line, frame.ordinal).ok(), crate::framing::check_frame(line, frame.ordinal).ok(), "{what}: a positioned read");
+                assert_eq!(
+                    crate::framing_o1::check_frame(line, frame.ordinal).ok(),
+                    crate::framing::check_frame(line, frame.ordinal).ok(),
+                    "{what}: a positioned read"
+                );
             }
         }
         assert!(met > 0, "{layout}: the old reader met a group");
@@ -1183,17 +1181,12 @@ async fn migration_projection_matches_the_logs() {
     assert!(!env.data.join("migrated.sqlite-wal").exists());
     let conn = rusqlite::Connection::open(&db).unwrap();
     for (id, rows) in [("b0", 2), ("c0", 1)] {
-        let (count, offset, dirty): (i64, i64, i64) = conn
-            .query_row("SELECT row_count, projected_offset, dirty FROM sessions WHERE id = ?1", [id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .unwrap();
+        let (count, offset, dirty): (i64, i64, i64) =
+            conn.query_row("SELECT row_count, projected_offset, dirty FROM sessions WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
         let size = std::fs::metadata(env.dir(id).join(log_name(0))).unwrap().len() as i64;
         assert_eq!((count, offset, dirty), (rows, size, 0), "{id}");
     }
-    let live: i64 = conn
-        .query_row("SELECT count(*) FROM history WHERE session = 'b0' AND superseded_rev IS NULL", [], |r| r.get(0))
-        .unwrap();
+    let live: i64 = conn.query_row("SELECT count(*) FROM history WHERE session = 'b0' AND superseded_rev IS NULL", [], |r| r.get(0)).unwrap();
     assert_eq!(live, 2);
 }
 
@@ -1222,21 +1215,14 @@ async fn prompts(env: &Env, session: &str) -> Vec<String> {
 
 async fn lineage_prompts(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>) -> Vec<String> {
     let store = env.store.clone();
-    tokens()
-        .interactive_io
-        .submit(&CancellationToken::new(), move |l| store.prompts_on_lane(l, &levels, cut).unwrap())
-        .unwrap()
-        .await
-        .unwrap()
+    tokens().interactive_io.submit(&CancellationToken::new(), move |l| store.prompts_on_lane(l, &levels, cut).unwrap()).unwrap().await.unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prompt_history_is_deduped_newest_first_and_follows_rewinds() {
     let env = Env::new();
     let w = env.create("s1", None).await;
-    let (w, ords) = env
-        .commit(w, vec![user("u1", "first"), user("u2", " second  prompt "), answer("a"), user("u3", "first\n")])
-        .await;
+    let (w, ords) = env.commit(w, vec![user("u1", "first"), user("u2", " second  prompt "), answer("a"), user("u3", "first\n")]).await;
     assert_eq!(prompts(&env, "s1").await, ["first", "second  prompt"]);
     // Rewinding past the newest "first" falls back to its older occurrence.
     let rewind = rec(json!({"k":"rewind","to_ordinal":ords[3],"reason":"edit"}));
@@ -1281,10 +1267,7 @@ fn every_interactive_query_is_index_backed() {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let n = stmt.parameter_count();
         let args: Vec<rusqlite::types::Value> = (0..n).map(|_| rusqlite::types::Value::Integer(1)).collect();
-        stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
+        stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap()
     };
     let check = |name: &str, sql: &str, allow_sort: bool| {
         let steps = plan(sql);
@@ -1463,9 +1446,7 @@ async fn catalog_upsert_keeps_sid_and_searches_folds() {
     let mut h = head("s_A", "task", "Ünïcode Spec Review");
     h.header.insert("cwd".into(), "C:\\Work\\Repo".into());
     env.store.upsert(h.clone(), DirtyMark::Set).await.unwrap();
-    let sid = |db: &Path| -> i64 {
-        rusqlite::Connection::open(db).unwrap().query_row("SELECT sid FROM sessions WHERE id='s_A'", [], |r| r.get(0)).unwrap()
-    };
+    let sid = |db: &Path| -> i64 { rusqlite::Connection::open(db).unwrap().query_row("SELECT sid FROM sessions WHERE id='s_A'", [], |r| r.get(0)).unwrap() };
     let first = sid(&db);
     let summary = |env: &Env| {
         let store = env.store.clone();
@@ -1501,13 +1482,10 @@ async fn placeholder_titles_refold_on_language_change() {
     // next append transaction is ordered after it.
     env.store.mark_dirty("s1").await.unwrap();
     assert_eq!(env.store.search("영상", 50, None).await.unwrap(), [summary]);
-    let title_fold: String = rusqlite::Connection::open(env.data.join(INDEX_FILE))
-        .unwrap()
-        .query_row("SELECT title_fold FROM sessions WHERE id = 's1'", [], |r| r.get(0))
-        .unwrap();
+    let title_fold: String =
+        rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap().query_row("SELECT title_fold FROM sessions WHERE id = 's1'", [], |r| r.get(0)).unwrap();
     assert_eq!(title_fold, "영상");
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
@@ -1528,12 +1506,8 @@ async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
     };
     let rows = page(&env).await;
     let marks: Vec<(String, bool)> = rows.iter().map(|r| (r.iid.clone(), r.archived)).collect();
-    assert_eq!(
-        marks,
-        [("e".into(), false), ("d".into(), false), ("c".into(), false), ("b".into(), true), ("a".into(), true)]
-    );
-    let copies: Vec<Vec<(u64, u32)>> =
-        rows.iter().map(|r| r.kept.iter().map(|k| (k.compaction.ordinal, k.idx)).collect()).collect();
+    assert_eq!(marks, [("e".into(), false), ("d".into(), false), ("c".into(), false), ("b".into(), true), ("a".into(), true)]);
+    let copies: Vec<Vec<(u64, u32)>> = rows.iter().map(|r| r.kept.iter().map(|k| (k.compaction.ordinal, k.idx)).collect()).collect();
     assert_eq!(copies, [vec![], vec![(5, 2)], vec![(5, 1)], vec![], vec![]], "the rewritten copies of d and c");
     let dividers = env.store.dividers(lineage(&[("s1", None)]), None, 0, 0, u64::MAX).await.unwrap();
     // The divider is where the compaction happened (its own record), not before the oldest row it kept.
@@ -1621,10 +1595,7 @@ async fn a_forks_compaction_archives_the_rows_it_inherited() {
     let (child, _) = env.commit(child, vec![compacted, user("c1", "after")]).await;
     let levels = lineage(&[("c0", None), ("b0", Some(4))]);
     let (rows, _) = env.store.history_page(levels.clone(), child.fold().base_cut, None, 10).await.unwrap();
-    assert_eq!(
-        rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(),
-        [("c1", false), ("b3", true), ("b2", true), ("b1", true)]
-    );
+    assert_eq!(rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(), [("c1", false), ("b3", true), ("b2", true), ("b1", true)]);
     // The base alone keeps showing its own rows live.
     assert!(archive_marks(&env, lineage(&[("b0", None)])).await.iter().all(|m| !m.1));
 }
@@ -1638,9 +1609,7 @@ async fn a_silent_compaction_restarts_the_context_and_lists_no_divider() {
     let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two")]).await;
     let dividers = |env: &Env| {
         let store = env.store.clone();
-        async move {
-            store.dividers(lineage(&[("s1", None)]), None, 0, 0, u64::MAX).await.unwrap().into_iter().map(|d| d.cid).collect::<Vec<_>>()
-        }
+        async move { store.dividers(lineage(&[("s1", None)]), None, 0, 0, u64::MAX).await.unwrap().into_iter().map(|d| d.cid).collect::<Vec<_>>() }
     };
     let silent = rec(json!({"k":"compacted","cid":"k1","dropped_count":0,"silent":true,
         "replacement":{"inline":[{"iid":"b","body":{"role":"user","content":"two"}}]}}));
@@ -1674,19 +1643,14 @@ async fn a_forks_divider_is_at_its_own_compaction_and_the_inherited_rows_it_kept
     let levels = lineage(&[("c0", None), ("b0", Some(4))]);
     let at = |level| {
         let (store, levels) = (env.store.clone(), levels.clone());
-        async move {
-            store.dividers(levels, None, level, 0, u64::MAX).await.unwrap().iter().map(|d| (d.cid.clone(), d.level, d.boundary)).collect::<Vec<_>>()
-        }
+        async move { store.dividers(levels, None, level, 0, u64::MAX).await.unwrap().iter().map(|d| (d.cid.clone(), d.level, d.boundary)).collect::<Vec<_>>() }
     };
     assert_eq!(at(0).await, [("k1".to_owned(), 0, kept_at[0])]);
     assert!(at(1).await.is_empty());
     // `droppedMessages: 1` without identities archives the rows before the compaction that its
     // replacement did not keep: b1 left, the kept b2 and b3 stay live.
     let (rows, _) = env.store.history_page(levels.clone(), None, None, 10).await.unwrap();
-    assert_eq!(
-        rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(),
-        [("c1", false), ("b3", false), ("b2", false), ("b1", true)]
-    );
+    assert_eq!(rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(), [("c1", false), ("b3", false), ("b2", false), ("b1", true)]);
     // A fork that keeps nothing it inherited puts its divider after them, in its own rows.
     let drops = env.create("c1", Some(("b0", 4))).await;
     let gone = rec(json!({"k":"compacted","cid":"k2","dropped_count":3,"replacement":{"inline":[
@@ -1698,10 +1662,7 @@ async fn a_forks_divider_is_at_its_own_compaction_and_the_inherited_rows_it_kept
     assert!(env.store.dividers(levels.clone(), None, 1, 0, u64::MAX).await.unwrap().is_empty());
     // Nothing kept: every inherited row is before the divider, so all are archived.
     let (rows, _) = env.store.history_page(levels, None, None, 10).await.unwrap();
-    assert_eq!(
-        rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(),
-        [("b3", true), ("b2", true), ("b1", true)]
-    );
+    assert_eq!(rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(), [("b3", true), ("b2", true), ("b1", true)]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1822,10 +1783,8 @@ async fn a_deep_fork_chain_costs_the_same_as_a_shallow_one() {
         (crate::message_index::INCOMING_SQL, "message_rows_incoming"),
     ] {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
-        let args: Vec<rusqlite::types::Value> =
-            (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
-        let plan: Vec<String> =
-            stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+        let args: Vec<rusqlite::types::Value> = (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
+        let plan: Vec<String> = stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
         assert!(plan.iter().any(|s| s.contains(index)), "{index}: {plan:?}");
         assert!(plan.iter().all(|s| !s.starts_with("SCAN") && !s.contains("TEMP B-TREE")), "{plan:?}");
     }
@@ -1880,24 +1839,15 @@ async fn model_context(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, l
 
 /// The whole model context of `levels`, read in pages of `limit` rows through the four
 /// lane steps.
-async fn context_bodies(
-    env: &Env,
-    levels: Vec<LineageLevel>,
-    cut: Option<u64>,
-    limit: usize,
-) -> Vec<(String, serde_json::Value)> {
+async fn context_bodies(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, limit: usize) -> Vec<(String, serde_json::Value)> {
     use crate::context::*;
     let (io, cpu) = (tokens().interactive_io, tokens().cpu_interactive);
     let mut out = Vec::new();
     let mut cursor = None;
     loop {
         let (store, sessions, lv) = (env.store.clone(), env.data.join("sessions"), levels.clone());
-        let page = io
-            .submit(&CancellationToken::new(), move |l| store.context_page_on_lane(l, &sessions, &lv, cut, cursor, limit))
-            .unwrap()
-            .await
-            .unwrap()
-            .unwrap();
+        let page =
+            io.submit(&CancellationToken::new(), move |l| store.context_page_on_lane(l, &sessions, &lv, cut, cursor, limit)).unwrap().await.unwrap().unwrap();
         let decoded = cpu.submit(&CancellationToken::new(), move |l| decode_context(l, page)).unwrap().await.unwrap().unwrap();
         let next = decoded.next;
         let (decoded, blobs) = if decoded.needs_blobs() {
@@ -1988,10 +1938,7 @@ async fn opening_the_store_removes_what_a_crash_left_before_any_thread_opens() {
     std::fs::create_dir_all(env.dir("t0")).unwrap();
     std::fs::write(crate::fsio::tmp_path(&env.dir("t0").join(log_name(0))), b"half").unwrap();
     let folders = |data: &Path| -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(data.join("sessions"))
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
+        let mut names: Vec<String> = std::fs::read_dir(data.join("sessions")).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
         names.sort();
         names
     };
@@ -2059,9 +2006,7 @@ async fn a_context_cursor_goes_stale_when_the_history_changes() {
     let (store, sessions) = (env.store.clone(), env.data.join("sessions"));
     let page = tokens()
         .interactive_io
-        .submit(&CancellationToken::new(), move |l| {
-            store.context_page_on_lane(l, &sessions, &lineage(&[("s1", None)]), None, None, 1).unwrap()
-        })
+        .submit(&CancellationToken::new(), move |l| store.context_page_on_lane(l, &sessions, &lineage(&[("s1", None)]), None, None, 1).unwrap())
         .unwrap()
         .await
         .unwrap();
@@ -2070,9 +2015,7 @@ async fn a_context_cursor_goes_stale_when_the_history_changes() {
     let (store, sessions) = (env.store.clone(), env.data.join("sessions"));
     let again = tokens()
         .interactive_io
-        .submit(&CancellationToken::new(), move |l| {
-            store.context_page_on_lane(l, &sessions, &lineage(&[("s1", None)]), None, Some(cursor), 1)
-        })
+        .submit(&CancellationToken::new(), move |l| store.context_page_on_lane(l, &sessions, &lineage(&[("s1", None)]), None, Some(cursor), 1))
         .unwrap()
         .await
         .unwrap();
@@ -2103,9 +2046,7 @@ fn dump(db: &Path) -> Vec<(String, Vec<String>)> {
             let mut stmt = conn.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
             let width = stmt.column_count();
             let mut rows: Vec<String> = stmt
-                .query_map([], |r| {
-                    (0..width).map(|i| r.get::<_, rusqlite::types::Value>(i)).collect::<Result<Vec<_>, _>>()
-                })
+                .query_map([], |r| (0..width).map(|i| r.get::<_, rusqlite::types::Value>(i)).collect::<Result<Vec<_>, _>>())
                 .unwrap()
                 .map(|row| format!("{:?}", row.unwrap()))
                 .collect();
@@ -2263,9 +2204,7 @@ async fn a_rebuilt_index_is_a_new_generation_whatever_its_counter() {
 /// numbered afresh, never 0 (the migrated one's) and never the one it replaces.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_projected_index_has_a_fixed_generation_and_a_runtime_built_one_a_fresh_one() {
-    let generation = |db: &Path| -> i64 {
-        rusqlite::Connection::open(db).unwrap().query_row("SELECT gen FROM worker_revision", [], |r| r.get(0)).unwrap()
-    };
+    let generation = |db: &Path| -> i64 { rusqlite::Connection::open(db).unwrap().query_row("SELECT gen FROM worker_revision", [], |r| r.get(0)).unwrap() };
     let tmp = tempfile::tempdir().unwrap();
     let (a, b) = (tmp.path().join("a.sqlite"), tmp.path().join("b.sqlite"));
     project_index(tmp.path(), &a, &[]).unwrap();
@@ -2299,10 +2238,8 @@ async fn a_reader_older_than_the_removal_history_is_handed_the_whole_index() {
     bump_elsewhere(&env.data, "busy", 4200);
     env.store.mark_deleted("other").await.unwrap();
     purge_all(&env).await;
-    let removals: i64 = rusqlite::Connection::open(env.data.join(INDEX_FILE))
-        .unwrap()
-        .query_row("SELECT count(*) FROM worker_removed", [], |r| r.get(0))
-        .unwrap();
+    let removals: i64 =
+        rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap().query_row("SELECT count(*) FROM worker_removed", [], |r| r.get(0)).unwrap();
     assert_eq!(removals, 1, "the removal older than the bound was dropped");
     reader.read(&env.store).await;
     assert_eq!(reader.listed, IndexReader::whole(&env.store).await);
@@ -2427,10 +2364,8 @@ async fn worker_rows_are_indexed_by_tag_owner_and_host_pid() {
     let sqls = crate::worker::ROWS_SQL.iter().flatten().copied().chain([AGENT_ONLY_SQL, crate::worker::NEWEST_TAG_SQL]);
     for sql in sqls {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
-        let args: Vec<rusqlite::types::Value> =
-            (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
-        let plan: Vec<String> =
-            stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+        let args: Vec<rusqlite::types::Value> = (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
+        let plan: Vec<String> = stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
         // The withheld state is a subquery seeking its table's key.
         assert!(
             plan.iter().all(|p| p.contains("USING INDEX") || p.contains("TEMP B-TREE") || p.contains("USING PRIMARY KEY") || p.contains("SUBQUERY")),
@@ -2741,10 +2676,7 @@ async fn an_index_of_the_previous_shape_is_rebuilt_from_the_logs() {
     drop(old);
 
     let store = open_index(other.path()).unwrap();
-    let version: i32 = rusqlite::Connection::open(&db)
-        .unwrap()
-        .pragma_query_value(None, "user_version", |r| r.get(0))
-        .unwrap();
+    let version: i32 = rusqlite::Connection::open(&db).unwrap().pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
     assert_eq!(version, crate::schema::sql::INDEX_USER_VERSION);
     let rebuilt = dump(&db);
     assert!(rebuilt.iter().any(|(t, rows)| t == "sessions" && rows.len() == 2));
@@ -2828,9 +2760,7 @@ async fn divider_switches(store: &SqliteStore, levels: Vec<LineageLevel>) -> Vec
 
 /// Each page row with the model ids of its boundaries.
 fn switched(rows: &[HistoryRow]) -> Vec<(String, Vec<String>)> {
-    rows.iter()
-        .map(|r| (r.iid.clone(), r.model_switches.iter().map(|m| m.model_id.as_str().to_owned()).collect()))
-        .collect()
+    rows.iter().map(|r| (r.iid.clone(), r.model_switches.iter().map(|m| m.model_id.as_str().to_owned()).collect())).collect()
 }
 /// `thread/list`'s `archived` and `cwd` filters apply before the page is cut.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2894,12 +2824,7 @@ async fn the_context_length_is_the_length_of_the_context_read() {
     let env = Env::new();
     async fn same(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>) -> usize {
         let (store, lv) = (env.store.clone(), levels.clone());
-        let len = tokens()
-            .interactive_io
-            .submit(&CancellationToken::new(), move |l| store.context_len_on_lane(l, &lv, cut).unwrap())
-            .unwrap()
-            .await
-            .unwrap();
+        let len = tokens().interactive_io.submit(&CancellationToken::new(), move |l| store.context_len_on_lane(l, &lv, cut).unwrap()).unwrap().await.unwrap();
         assert_eq!(len, context_bodies(env, levels, cut, 500).await.len());
         len
     }
@@ -2932,21 +2857,14 @@ async fn a_context_read_from_a_row_is_the_tail_of_the_whole_read() {
     async fn from(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, skip: usize) -> (usize, Vec<(String, serde_json::Value)>) {
         let (io, cpu) = (tokens().interactive_io, tokens().cpu_interactive);
         let (store, sessions) = (env.store.clone(), env.data.join("sessions"));
-        let page = io
-            .submit(&CancellationToken::new(), move |l| store.context_page_from_on_lane(l, &sessions, &levels, cut, skip))
-            .unwrap()
-            .await
-            .unwrap()
-            .unwrap();
+        let page =
+            io.submit(&CancellationToken::new(), move |l| store.context_page_from_on_lane(l, &sessions, &levels, cut, skip)).unwrap().await.unwrap().unwrap();
         let rows = page.rows.len();
         let decoded = cpu.submit(&CancellationToken::new(), move |l| decode_context(l, page)).unwrap().await.unwrap().unwrap();
         assert!(decoded.next.is_none());
         let blobs = if decoded.needs_blobs() {
             let store = BlobStore::new(&env.data);
-            io.submit(&CancellationToken::new(), move |l| read_context_blobs(l, &store, &decoded).map(|b| (decoded, b)).unwrap())
-                .unwrap()
-                .await
-                .unwrap()
+            io.submit(&CancellationToken::new(), move |l| read_context_blobs(l, &store, &decoded).map(|b| (decoded, b)).unwrap()).unwrap().await.unwrap()
         } else {
             (decoded, ContextBlobs::default())
         };
@@ -3024,12 +2942,7 @@ async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
     // The rotated file starts with a checkpoint frame (its header names the ordinal).
     let bytes = std::fs::read(env.dir("s1").join(log_name(1))).unwrap();
     let ordinal = u64::from_str_radix(std::str::from_utf8(&bytes[..ORDINAL_DIGITS]).unwrap(), 16).unwrap();
-    let first = read_forward_unlaned(
-        &env.dir("s1"),
-        crate::schema::checkpoint::FramePos { ordinal, file_no: 1, offset: 0 },
-        1,
-    )
-    .unwrap();
+    let first = read_forward_unlaned(&env.dir("s1"), crate::schema::checkpoint::FramePos { ordinal, file_no: 1, offset: 0 }, 1).unwrap();
     assert!(matches!(first.frames[0].0, crate::schema::record::Record::Checkpoint(_)));
 
     let at = std::time::Instant::now();
@@ -3116,15 +3029,13 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
     crate::sqlite::reconcile_seam::arm(&env.data);
     let ended = open_index(&env.data).unwrap();
-    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
-        .await
-        .expect("the reconcile the seam ended answered within 60 s");
+    let outcome =
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), ended.reconciled()).await.expect("the reconcile the seam ended answered within 60 s");
     assert!(matches!(outcome, Err(DbError::Stopped)));
     drop(ended);
     let reopened = open_index(&env.data).unwrap();
-    let projected = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
-        .await
-        .expect("the reconciled cursor answered within 60 s");
+    let projected =
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1")).await.expect("the reconciled cursor answered within 60 s");
     assert_eq!(projected.unwrap().unwrap().ordinal, end);
     drop(reopened);
     let rebuilt = tempfile::tempdir().unwrap();
@@ -3194,9 +3105,9 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tmp.path().to_path_buf();
     let open = |data: PathBuf| {
-        let job = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| {
-            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
-        });
+        let job = tokens
+            .maintenance_io
+            .submit(&CancellationToken::new(), move |lane| SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data));
         async move { job.expect("lane").await.expect("job ran") }
     };
     let durable = |f: Box<dyn FnOnce(&InLane<DurabilityIo>) + Send>| {
@@ -3205,12 +3116,7 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     };
     let store = open(data.clone()).await.unwrap();
     store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
-    let deps = WriterDeps {
-        io: Arc::new(OsIo),
-        blobs: BlobStore::new(&data),
-        ownership: Arc::new(MockOwnership::default()),
-        index: Arc::new(store.clone()),
-    };
+    let deps = WriterDeps { io: Arc::new(OsIo), blobs: BlobStore::new(&data), ownership: Arc::new(MockOwnership::default()), index: Arc::new(store.clone()) };
     let (dir, (tx, rx)) = (data.join("sessions").join("s1"), std::sync::mpsc::channel());
     durable(Box::new(move |lane| {
         let (mut w, created) = LogWriter::create(lane, &dir, session("s1", None), deps).unwrap();
@@ -3225,10 +3131,7 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     store.project(first).await.unwrap();
     drop(store);
     let release = crate::sqlite::reconcile_seam::hold(&data);
-    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone()))
-        .await
-        .expect("the open returned within 60 s while its reconcile was held")
-        .unwrap();
+    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone())).await.expect("the open returned within 60 s while its reconcile was held").unwrap();
     let events = Arc::new(Mutex::new(Vec::<&str>::new()));
     let note = |event: &'static str| {
         let events = events.clone();
@@ -3336,9 +3239,7 @@ async fn the_model_context_starts_at_the_newest_compaction_with_amends_applied()
         {"iid":"sum","body":{"role":"user","content":"summary"}},
         {"iid":"b","body":{"role":"assistant","content":"b kept"}}]}}));
     let (w, _) = env.commit(w, vec![compacted, user("c", "two")]).await;
-    let amend = |iid: &str, text: &str| {
-        rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":{"role":"user","content":text}}}))
-    };
+    let amend = |iid: &str, text: &str| rec(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":{"role":"user","content":text}}}));
     let (w, _) = env.commit(w, vec![amend("sum", "summary 2"), amend("c", "two 2")]).await;
     let want = pairs(&[("sum", "summary 2"), ("b", "b kept"), ("c", "two 2")]);
     for limit in [1, 2, 10] {
@@ -3390,7 +3291,16 @@ async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs()
     let (w, _) = env
         .commit(
             w,
-            vec![named("amend", "u1", "S2"), named("amend", "u2", "S3"), named("amend", "ghost", "G"), compacted, model_switch("a1", o[4], "m1", 5), run("completed"), approval("decided"), meta],
+            vec![
+                named("amend", "u1", "S2"),
+                named("amend", "u2", "S3"),
+                named("amend", "ghost", "G"),
+                compacted,
+                model_switch("a1", o[4], "m1", 5),
+                run("completed"),
+                approval("decided"),
+                meta,
+            ],
         )
         .await;
     // The amends are over the rewind's reach; new rows reuse the ids they named.
@@ -3408,8 +3318,17 @@ async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs()
     // Not vacuous: each row is reachable by every id its bodies name, the amended ones included.
     let has = |session: &str, alias: &str, ordinal: u64| live.contains(&(session.to_owned(), alias.to_owned(), ordinal as i64));
     for (session, alias, ordinal) in [
-        ("s1", "S1", o[0]), ("s1", "S2", o[0]), ("s1", "S4", o[0]), ("s1", "S1", o[5]), ("s1", "S3", o[5]), ("s1", "S2", after[0]),
-        ("s1", "S5", after[0]), ("s1", "bid", o[1]), ("s1", "cs", o[1]), ("s1", "bid", after[1]), ("c1", "S6", after[3] + 2),
+        ("s1", "S1", o[0]),
+        ("s1", "S2", o[0]),
+        ("s1", "S4", o[0]),
+        ("s1", "S1", o[5]),
+        ("s1", "S3", o[5]),
+        ("s1", "S2", after[0]),
+        ("s1", "S5", after[0]),
+        ("s1", "bid", o[1]),
+        ("s1", "cs", o[1]),
+        ("s1", "bid", after[1]),
+        ("c1", "S6", after[3] + 2),
     ] {
         assert!(has(session, alias, ordinal), "{session} {alias} {ordinal}: {live:?}");
     }
@@ -3444,17 +3363,18 @@ async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
     let huge = "h".repeat(300 << 10);
     let big = model_switch("ack", 3, &huge, 80);
     assert_eq!(big.blobs().len(), 1, "a 300 KiB entry is a blob");
-    let (w, _) = env.commit(
-        w,
-        vec![
-            model_switch("ack", 3, "m1", 40),
-            model_switch("sum", 3, "m2", 50),
-            model_switch("zz", 3, "never", 60),
-            model_switch("ack", 3, &long, 70),
-            big,
-        ],
-    )
-    .await;
+    let (w, _) = env
+        .commit(
+            w,
+            vec![
+                model_switch("ack", 3, "m1", 40),
+                model_switch("sum", 3, "m2", 50),
+                model_switch("zz", 3, "never", 60),
+                model_switch("ack", 3, &long, 70),
+                big,
+            ],
+        )
+        .await;
     let base = || lineage(&[("s1", None)]);
     // The anchor ordinal of a replacement entry is its frame's; a plain row has none.
     let entry = |levels: Vec<LineageLevel>, iid: &str| {
@@ -3550,10 +3470,8 @@ async fn model_switches_follow_their_anchor_row() {
     let other = tempfile::tempdir().unwrap();
     copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
     let rebuilt = open_index(other.path()).unwrap();
-    let pages = (
-        switched(&rebuilt.history_page(base(), None, None, 50).await.unwrap().0),
-        switched(&rebuilt.history_page(fork(), cut, None, 50).await.unwrap().0),
-    );
+    let pages =
+        (switched(&rebuilt.history_page(base(), None, None, 50).await.unwrap().0), switched(&rebuilt.history_page(fork(), cut, None, 50).await.unwrap().0));
     assert_eq!(pages, expected);
 }
 /// One query lists every session with the fields the idle sweep decides from (its owner, status,
@@ -3561,8 +3479,8 @@ async fn model_switches_follow_their_anchor_row() {
 /// catalog reads the same listing without the agent-only sessions, in pages.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
-    use crate::sqlite::listing::RecordStamp;
     use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
+    use crate::sqlite::listing::RecordStamp;
     let env = Env::new();
     let w = env.create("l1", None).await;
     let (w, _) = env.commit(w, vec![user("a", "one"), answer("b")]).await;
@@ -3571,7 +3489,10 @@ async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
     drop(env.create("l3", None).await);
     env.store
         .upsert(
-            listed_head("l1", json!({"owner": "cli", "status": "running", "createdAt": 100, "updatedAt": 200, "lastHeartbeatAt": 300, "sourceName": "agent:mixy@run"})),
+            listed_head(
+                "l1",
+                json!({"owner": "cli", "status": "running", "createdAt": 100, "updatedAt": 200, "lastHeartbeatAt": 300, "sourceName": "agent:mixy@run"}),
+            ),
             DirtyMark::Keep,
         )
         .await
@@ -3595,7 +3516,11 @@ async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
     );
     assert_eq!(by("l2").owner, "agent");
     let l3 = by("l3");
-    assert_eq!((l3.owner.as_str(), l3.status.as_str(), l3.closed, l3.record), ("user", "closed", true, RecordStamp::Absent), "no owner lists as the summary row's 'user'");
+    assert_eq!(
+        (l3.owner.as_str(), l3.status.as_str(), l3.closed, l3.record),
+        ("user", "closed", true, RecordStamp::Absent),
+        "no owner lists as the summary row's 'user'"
+    );
 
     let ids = |rows: Vec<crate::sqlite::listing::Listed>| rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
     let first = env.store.list_sessions(false, None, Some(1)).await.unwrap();
@@ -3606,7 +3531,6 @@ async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
     assert_eq!(ids(rest), ["l3"], "agent-only l2 is left out of the catalog");
     assert_eq!(ids(env.store.list_sessions(true, None, None).await.unwrap()), ["l1", "l2", "l3"]);
 }
-
 
 /// The pages `listStoredSessionSummaryPage` answers: order, the limit rules, `nextCursor`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3641,4 +3565,3 @@ async fn lead_pages_walk_by_activity_then_id_and_name_the_cursor_of_the_last_row
     }
     assert_eq!(pages, [vec!["e", "b"], vec!["c", "d"], vec!["a"]]);
 }
-

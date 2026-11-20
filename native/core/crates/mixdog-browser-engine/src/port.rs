@@ -5,7 +5,6 @@
 //! raw channel (`lane::host_lane` over `Arc<dyn HostChannel>`, and the fake host of the tests) only moves JSON, so the typing,
 //! the error mapping and the wire names live here and nowhere else.
 
-
 macro_rules! host_methods {
     ($($(#[$doc:meta])* $name:ident, $wire:literal, $params:ty, $result:ty;)*) => {
         /// The typed host lane. Every call is cancellable: a fired `cancel` abandons the request.
@@ -173,7 +172,6 @@ mod tests {
         assert_eq!(sorted.len(), HOST_METHODS.len(), "a wire name is listed twice");
     }
 }
-
 
 async fn typed<W, P, R>(wire: &W, method: &'static str, params: P, cancel: &CancellationToken) -> Result<R, HostCallError>
 where

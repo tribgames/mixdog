@@ -18,11 +18,11 @@ pub use ladder::{AutoLadder, CustomLadder, StepLadder};
 pub use model::ModelConfig;
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup")]
+pub(crate) mod host_tests;
+#[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 mod worker_tests;
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, reason = "test setup")]
-pub(crate) mod host_tests;

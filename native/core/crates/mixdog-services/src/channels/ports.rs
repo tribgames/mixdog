@@ -258,13 +258,7 @@ pub enum ProbeError {
 
 #[async_trait]
 pub trait WebhookProbe: Send + Sync {
-    async fn post(
-        &self,
-        url: &str,
-        headers: &[(String, String)],
-        body: String,
-        timeout: Duration,
-    ) -> Result<ProbeResponse, ProbeError>;
+    async fn post(&self, url: &str, headers: &[(String, String)], body: String, timeout: Duration) -> Result<ProbeResponse, ProbeError>;
 }
 
 /// `WebhookProbe` over HTTP.
@@ -280,13 +274,7 @@ impl ReqwestProbe {
 
 #[async_trait]
 impl WebhookProbe for ReqwestProbe {
-    async fn post(
-        &self,
-        url: &str,
-        headers: &[(String, String)],
-        body: String,
-        timeout: Duration,
-    ) -> Result<ProbeResponse, ProbeError> {
+    async fn post(&self, url: &str, headers: &[(String, String)], body: String, timeout: Duration) -> Result<ProbeResponse, ProbeError> {
         let mut request = self.client.post(url).timeout(timeout).body(body);
         for (name, value) in headers {
             request = request.header(name, value);
@@ -314,7 +302,9 @@ mod tests {
         assert_eq!(nothing, WebhookPatch::default());
         assert_eq!(WebhookPatch::from_params(&json!({"port": "abc"})).port, Some(json!(3333)));
         // Node keeps any number: `Number(patch.port) || 3333`.
-        for (given, kept) in [(json!(70000), json!(70000)), (json!("3.5"), json!(3.5)), (json!(-5), json!(-5)), (json!("1e3"), json!(1000)), (json!("Infinity"), Value::Null)] {
+        for (given, kept) in
+            [(json!(70000), json!(70000)), (json!("3.5"), json!(3.5)), (json!(-5), json!(-5)), (json!("1e3"), json!(1000)), (json!("Infinity"), Value::Null)]
+        {
             assert_eq!(WebhookPatch::from_params(&json!({ "port": given })).port, Some(kept), "{given}");
         }
         assert_eq!(WebhookSettings::default().enabled, None, "nothing stored is the automatic rule");

@@ -8,18 +8,18 @@ use std::sync::Arc;
 type QueryFuture = futures::future::BoxFuture<'static, Result<Option<Vec<f32>>, String>>;
 use std::time::Duration;
 
-use mixdog_js::{js_trim};
-use serde_json::{Value, json};
+use mixdog_js::js_trim;
 use mixdog_rt::Gate;
 use mixdog_rt::time::Instant;
+use serde_json::{Value, json};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::config::{self, InputType};
 use crate::memory::embed::engine::{EmbedConfig, VectorCache};
 use crate::memory::embed::host::{Embedder, Lifecycle};
-use crate::model_host::WaitError;
 use crate::memory::embed::{compress, install};
+use crate::model_host::WaitError;
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
@@ -197,7 +197,6 @@ mod install_tests {
         assert_eq!(*ticks.borrow_and_update(), before + 3, "a tick before and after the download, and one once the gate is free");
     }
 }
-
 
 impl EmbeddingProvider {
     pub fn new(config: EmbedConfig) -> Self {
@@ -407,10 +406,7 @@ impl EmbeddingProvider {
         self.admit_query(text).1.await
     }
 
-    pub(crate) fn admit_query(
-        self: &Arc<Self>,
-        text: &str,
-    ) -> (bool, QueryFuture) {
+    pub(crate) fn admit_query(self: &Arc<Self>, text: &str) -> (bool, QueryFuture) {
         let key = config::prepare_input(text, InputType::Query, self.model_id());
         if key.is_empty() {
             return (false, Box::pin(async { Ok(None) }));
@@ -429,10 +425,13 @@ impl EmbeddingProvider {
         };
         let cold = ready.is_none();
         let text = text.to_owned();
-        (cold, Box::pin(async move {
-            let vectors = Self::compute(demand, ready, vec![text], InputType::Query, Some(key)).await?;
-            Ok(vectors.into_iter().next().map(|v| v.to_vec()))
-        }))
+        (
+            cold,
+            Box::pin(async move {
+                let vectors = Self::compute(demand, ready, vec![text], InputType::Query, Some(key)).await?;
+                Ok(vectors.into_iter().next().map(|v| v.to_vec()))
+            }),
+        )
     }
 
     pub(in crate::memory) fn document_demand(self: &Arc<Self>) -> Demand {
@@ -447,7 +446,13 @@ impl EmbeddingProvider {
         Self::compute(self.document_demand(), None, texts, InputType::Document, None).await
     }
 
-    async fn compute(demand: Demand, ready: Option<Embedder>, texts: Vec<String>, kind: InputType, query_key: Option<String>) -> Result<Vec<Arc<Vec<f32>>>, String> {
+    async fn compute(
+        demand: Demand,
+        ready: Option<Embedder>,
+        texts: Vec<String>,
+        kind: InputType,
+        query_key: Option<String>,
+    ) -> Result<Vec<Arc<Vec<f32>>>, String> {
         // Admit before spawning so overlapping requests count even while queued. A caller
         // dropping its wait cannot retire a child with a pipe exchange still in flight.
         let result = mixdog_rt::spawn("embedding-demand", mixdog_rt::TaskClass::Work, async move {
@@ -470,7 +475,8 @@ impl EmbeddingProvider {
             // Explicit drop keeps the admission alive through the last exchange.
             drop(demand);
             Ok(vectors)
-        }).await;
+        })
+        .await;
         match result {
             Ok(outcome) => outcome,
             Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),

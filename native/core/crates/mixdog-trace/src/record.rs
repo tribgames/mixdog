@@ -59,11 +59,7 @@ pub fn build_row(record: &Map<String, Value>, now_ms: i64) -> Map<String, Value>
 }
 
 /// The record `logLlmCall(entry, { maintenance })` hands to `appendAgentTrace`.
-pub fn usage_record(
-    entry: &Map<String, Value>,
-    maintenance: bool,
-    now_ms: i64,
-) -> Map<String, Value> {
+pub fn usage_record(entry: &Map<String, Value>, maintenance: bool, now_ms: i64) -> Map<String, Value> {
     let mut record = Map::new();
     record.insert("ts".into(), or_now(entry.get("ts"), now_ms));
     record.insert("kind".into(), Value::String("usage".into()));
@@ -117,14 +113,8 @@ pub fn compact_meta_record(input: &Map<String, Value>) -> Map<String, Value> {
     for key in ["stage", "trigger"] {
         record.insert(key.into(), or_null(input.get(key)));
     }
-    record.insert(
-        "compact_changed".into(),
-        Value::Bool(input.get("compact_changed").is_some_and(truthy)),
-    );
-    record.insert(
-        "input_prefix_hash".into(),
-        or_null(input.get("input_prefix_hash")),
-    );
+    record.insert("compact_changed".into(), Value::Bool(input.get("compact_changed").is_some_and(truthy)));
+    record.insert("input_prefix_hash".into(), or_null(input.get("input_prefix_hash")));
     for key in [
         "before_count",
         "after_count",

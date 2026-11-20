@@ -38,11 +38,7 @@ const FOREVER: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
 pub enum RpcError {
     #[error("server error {code}: {message}")]
-    Server {
-        code: i64,
-        message: String,
-        data: Option<Value>,
-    },
+    Server { code: i64, message: String, data: Option<Value> },
     /// The connection ended; the payload is the server's stderr tail (empty when it has none). The
     /// text is the SDK's `McpError(ConnectionClosed)`: `MCP error -32000: Connection closed`.
     #[error("MCP error -32000: Connection closed")]
@@ -82,10 +78,7 @@ struct Notice {
 /// transport bounds each send by `NOTICE`.
 async fn write_notices(transport: Arc<dyn Transport>, mut queue: mpsc::Receiver<Notice>) {
     while let Some(notice) = queue.recv().await {
-        let outcome = transport
-            .send(notice.message, NOTICE)
-            .await
-            .map_err(|e| RpcError::Transport(e.to_string(), e.os_code()));
+        let outcome = transport.send(notice.message, NOTICE).await.map_err(|e| RpcError::Transport(e.to_string(), e.os_code()));
         if let Some(sent) = notice.sent {
             let _ = sent.send(outcome);
         }
@@ -124,11 +117,7 @@ impl RpcClient {
     pub fn start(transport: Arc<dyn Transport>, incoming: IncomingRx) -> Arc<Self> {
         let (closed, _) = watch::channel(None);
         let (notices, queue) = mpsc::channel(NOTICE_QUEUE);
-        mixdog_rt::spawn(
-            "mcp.rpc.notify",
-            TaskClass::Work,
-            write_notices(Arc::clone(&transport), queue),
-        );
+        mixdog_rt::spawn("mcp.rpc.notify", TaskClass::Work, write_notices(Arc::clone(&transport), queue));
         let client = Arc::new(Self {
             notices,
             transport,
@@ -166,10 +155,7 @@ impl RpcClient {
                 Some(Incoming::Message(message)) => self.handle(message),
                 Some(Incoming::Closed(cause)) => break cause,
                 None => {
-                    break CloseCause {
-                        reason: "transport dropped".to_owned(),
-                        stderr_tail: String::new(),
-                    };
+                    break CloseCause { reason: "transport dropped".to_owned(), stderr_tail: String::new() };
                 }
             }
         };
@@ -177,13 +163,7 @@ impl RpcClient {
         // The cause is published before pending is drained, so a request registered after
         // the drain sees `closed` when it re-checks.
         self.closed.send_replace(Some(cause));
-        let drained: Vec<Pending> = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain()
-            .map(|(_, p)| p)
-            .collect();
+        let drained: Vec<Pending> = self.pending.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, p)| p).collect();
         for pending in drained {
             let _ = pending.tx.send(Err(RpcError::Closed(tail.clone())));
         }
@@ -225,16 +205,9 @@ impl RpcClient {
     fn handle_notification(&self, method: &str, message: &Value) {
         match method {
             "notifications/progress" => {
-                let token = message
-                    .pointer("/params/progressToken")
-                    .and_then(Value::as_u64);
+                let token = message.pointer("/params/progressToken").and_then(Value::as_u64);
                 if let Some(token) = token {
-                    let progress = self
-                        .pending
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .get(&token)
-                        .map(|p| (Arc::clone(&p.progress), p.forward.clone()));
+                    let progress = self.pending.lock().unwrap_or_else(|e| e.into_inner()).get(&token).map(|p| (Arc::clone(&p.progress), p.forward.clone()));
                     if let Some((progress, forward)) = progress {
                         progress.notify_one();
                         if let Some(forward) = forward {
@@ -255,11 +228,7 @@ impl RpcClient {
         let outcome = match message.get("error") {
             Some(error) => Err(RpcError::Server {
                 code: error.get("code").and_then(Value::as_i64).unwrap_or(0),
-                message: error
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
+                message: error.get("message").and_then(Value::as_str).unwrap_or_default().to_owned(),
                 data: error.get("data").cloned(),
             }),
             None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
@@ -267,14 +236,8 @@ impl RpcClient {
         let _ = pending.tx.send(outcome);
     }
 
-    fn enqueue(
-        &self,
-        message: Value,
-        sent: Option<oneshot::Sender<Result<(), RpcError>>>,
-    ) -> Result<(), RpcError> {
-        self.notices
-            .try_send(Notice { message, sent })
-            .map_err(|_| RpcError::Transport("notification queue is full or closed".to_owned(), None))
+    fn enqueue(&self, message: Value, sent: Option<oneshot::Sender<Result<(), RpcError>>>) -> Result<(), RpcError> {
+        self.notices.try_send(Notice { message, sent }).map_err(|_| RpcError::Transport("notification queue is full or closed".to_owned(), None))
     }
 
     /// Queues a notification for the writer task and returns; it is never awaited.
@@ -284,22 +247,15 @@ impl RpcClient {
     }
 
     pub fn notify(&self, method: &str, params: Value) -> Result<(), RpcError> {
-        self.enqueue(
-            json!({"jsonrpc": "2.0", "method": method, "params": params}),
-            None,
-        )
+        self.enqueue(json!({"jsonrpc": "2.0", "method": method, "params": params}), None)
     }
 
     /// Queues a notification and waits until it was sent, for the one that must reach the peer
     /// before the next request (`notifications/initialized`). Bounded by the transport.
     pub async fn notify_and_wait(&self, method: &str, params: Value) -> Result<(), RpcError> {
         let (sent, done) = oneshot::channel();
-        self.enqueue(
-            json!({"jsonrpc": "2.0", "method": method, "params": params}),
-            Some(sent),
-        )?;
-        done.await
-            .unwrap_or_else(|_| Err(RpcError::Closed(String::new())))
+        self.enqueue(json!({"jsonrpc": "2.0", "method": method, "params": params}), Some(sent))?;
+        done.await.unwrap_or_else(|_| Err(RpcError::Closed(String::new())))
     }
 
     pub async fn request(&self, method: &str, params: Value, options: RequestOptions<'_>) -> Result<Value, RpcError> {
@@ -307,15 +263,16 @@ impl RpcClient {
     }
 
     pub(crate) async fn request_with_progress(
-        &self, method: &str, params: Value, options: RequestOptions<'_>, forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
+        &self,
+        method: &str,
+        params: Value,
+        options: RequestOptions<'_>,
+        forward: Option<Arc<dyn Fn(Value) + Send + Sync>>,
     ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, mut rx) = oneshot::channel();
         let progress = Arc::new(Notify::new());
-        self.pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, Pending { tx, progress: Arc::clone(&progress), forward });
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, Pending { tx, progress: Arc::clone(&progress), forward });
         if let Some(cause) = self.closed.borrow().as_ref() {
             self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
             return Err(RpcError::Closed(cause.stderr_tail.clone()));
@@ -337,10 +294,7 @@ impl RpcClient {
                 Err(RpcError::Cancelled) => "cancelled",
                 _ => "timed out",
             };
-            let _ = self.notify(
-                "notifications/cancelled",
-                json!({"requestId": id, "reason": reason}),
-            );
+            let _ = self.notify("notifications/cancelled", json!({"requestId": id, "reason": reason}));
         }
         outcome
     }
@@ -404,11 +358,7 @@ mod tests {
 
     impl Unresponsive {
         fn new() -> Arc<Self> {
-            Arc::new(Self {
-                cancel_reached_wire: Notify::new(),
-                cancel_class: Mutex::new(None),
-                cancel_send_dropped: Arc::new(AtomicBool::new(false)),
-            })
+            Arc::new(Self { cancel_reached_wire: Notify::new(), cancel_class: Mutex::new(None), cancel_send_dropped: Arc::new(AtomicBool::new(false)) })
         }
     }
 
@@ -445,31 +395,18 @@ mod tests {
         let client = RpcClient::start(wire.clone(), incoming);
         let cancel = CancellationToken::new();
         cancel.cancel();
-        let options = RequestOptions {
-            cancel: Some(&cancel),
-            ..RequestOptions::default()
-        };
+        let options = RequestOptions { cancel: Some(&cancel), ..RequestOptions::default() };
 
         // Before the queue, this waited for the unanswered cancel POST and never returned.
-        let outcome = mixdog_rt::time::timeout(
-            Duration::from_secs(1),
-            client.request("tools/call", json!({}), options),
-        )
-        .await;
+        let outcome = mixdog_rt::time::timeout(Duration::from_secs(1), client.request("tools/call", json!({}), options)).await;
         assert_eq!(outcome, Ok(Err(RpcError::Cancelled)));
 
         wire.cancel_reached_wire.notified().await;
         assert_eq!(*wire.cancel_class.lock().unwrap(), Some(NOTICE));
-        assert!(
-            !wire.cancel_send_dropped.load(Ordering::SeqCst),
-            "still waiting on the peer"
-        );
+        assert!(!wire.cancel_send_dropped.load(Ordering::SeqCst), "still waiting on the peer");
         tokio::time::advance(Duration::from_secs(30)).await;
         tokio::task::yield_now().await;
-        assert!(
-            wire.cancel_send_dropped.load(Ordering::SeqCst),
-            "the send ended at its notice deadline"
-        );
+        assert!(wire.cancel_send_dropped.load(Ordering::SeqCst), "the send ended at its notice deadline");
     }
 
     #[tokio::test(start_paused = true)]
@@ -478,13 +415,7 @@ mod tests {
         let (_incoming_tx, incoming) = tokio::sync::mpsc::unbounded_channel();
         let client = RpcClient::start(Unresponsive::new(), incoming);
         // Nothing drains while the caller runs, so the bounded queue fills.
-        let refused = (0..NOTICE_QUEUE + 2)
-            .map(|_| client.notify("notifications/cancelled", json!({"requestId": 1})))
-            .filter(Result::is_err)
-            .count();
-        assert_eq!(
-            refused, 2,
-            "the queue holds NOTICE_QUEUE and refuses the rest"
-        );
+        let refused = (0..NOTICE_QUEUE + 2).map(|_| client.notify("notifications/cancelled", json!({"requestId": 1}))).filter(Result::is_err).count();
+        assert_eq!(refused, 2, "the queue holds NOTICE_QUEUE and refuses the rest");
     }
 }

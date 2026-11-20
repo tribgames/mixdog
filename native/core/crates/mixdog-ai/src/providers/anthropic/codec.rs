@@ -27,14 +27,14 @@ use super::body::BodyConfig;
 use super::body::CacheStrategy;
 use super::body::build_body;
 use super::body::turn_scoped_model;
-use super::threads;
-use super::threads::Threads;
 use super::caps::CapsLookup;
 use super::decoder::AnthropicDecoder;
+use super::errors::classify_response;
 use super::fast_mode;
 use super::fast_mode::FastMode;
-use super::errors::classify_response;
 use super::reminders::split_tail_reminder;
+use super::threads;
+use super::threads::Threads;
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -176,12 +176,7 @@ pub struct AnthropicCodec {
 
 impl AnthropicCodec {
     pub fn new(flavor: Flavor, config: AnthropicConfig) -> Self {
-        Self {
-            flavor,
-            owner: ProviderId::from("anthropic"),
-            config,
-            cli_version: None,
-        }
+        Self { flavor, owner: ProviderId::from("anthropic"), config, cli_version: None }
     }
 
     pub(super) fn with_cli_version_source(mut self, version: Option<Arc<ClaudeClientVersion>>) -> Self {
@@ -251,7 +246,11 @@ impl WireCodec for AnthropicCodec {
 /// body defers a tool (the one request feature whose beta Vertex takes under its own name). `model` is the Vertex model
 /// id, which the catalog is asked about.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest, model: &str) -> Result<(serde_json::Map<String, Value>, bool), ProviderError> {
+pub(crate) fn vertex_body(
+    caps: &super::caps::CapsLookup,
+    request: &ModelRequest,
+    model: &str,
+) -> Result<(serde_json::Map<String, Value>, bool), ProviderError> {
     let mut sent = request.clone();
     model.clone_into(&mut sent.model);
     sent.options.fast = false;
@@ -317,8 +316,7 @@ impl AnthropicCodec {
         let first_party = self.config.first_party_route();
         // `carriesLegacyTailReminder`: a reminder with no text rides nothing, so it does not stop threading.
         let provider = self.flavor.provider_name();
-        let legacy_reminder =
-            !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(provider, &request.model));
+        let legacy_reminder = !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(provider, &request.model));
         (self.config.message_threads
             && options.model_parameters.as_ref().and_then(|p| p.get("messageThreads")).and_then(Value::as_bool) != Some(false)
             && first_party
@@ -373,11 +371,7 @@ impl AnthropicCodec {
             message_slots: std::env::var("ANTHROPIC_MSG_SLOTS").ok(),
         };
         let built = build_body(&cfg, request)?;
-        let beta = if self.config.custom_endpoint {
-            super::betas::custom_beta_header(built.betas)
-        } else {
-            beta_header(self.flavor, built.betas)
-        };
+        let beta = if self.config.custom_endpoint { super::betas::custom_beta_header(built.betas) } else { beta_header(self.flavor, built.betas) };
         let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
         // The API-key route with beta headers off sends none; the OAuth route
         // always does.
@@ -386,10 +380,7 @@ impl AnthropicCodec {
         }
         if self.flavor == Flavor::OAuth {
             headers.push(("anthropic-dangerous-direct-browser-access".to_owned(), "true".to_owned()));
-            headers.push((
-                "user-agent".to_owned(),
-                self.cli_user_agent(),
-            ));
+            headers.push(("user-agent".to_owned(), self.cli_user_agent()));
             headers.push(("x-app".to_owned(), "cli".to_owned()));
         }
         // The subscription route spells it as `postMessages` does (`gzip-post.mjs:25`), which undici keeps on the wire.
@@ -401,13 +392,7 @@ impl AnthropicCodec {
             layer_extra_headers(&mut headers, &self.config.extra_headers);
         }
         Ok(Plain {
-            wire: WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".to_owned(),
-                url: self.config.messages_url(),
-                headers,
-                body: built.bytes,
-            },
+            wire: WireRequest { transport: TransportKind::Http1, method: "POST".to_owned(), url: self.config.messages_url(), headers, body: built.bytes },
             prefix: built.prefix,
             manifest: None,
             layout: built.layout,

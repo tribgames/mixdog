@@ -31,9 +31,9 @@ use crate::netproxy::RoutedClients;
 use crate::netproxy::clients::ClientError;
 
 use super::deadlines::NODE_DISPATCHER;
-use super::guard::Guarded;
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
+use super::guard::Guarded;
 use super::http::client_builder;
 use super::node_http::NodeClient;
 #[cfg(any(test, feature = "test-support"))]
@@ -86,11 +86,7 @@ impl HttpResponse {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn read_all(mut self) -> Result<ErrorResponse, ProviderError> {
         let body = drain(&mut self.body).await?;
-        Ok(ErrorResponse {
-            status: Some(self.status),
-            headers: self.headers,
-            body,
-        })
+        Ok(ErrorResponse { status: Some(self.status), headers: self.headers, body })
     }
 
     /// [`Self::read_all`] with the connection kept out of the pool until the returned body is dropped
@@ -231,11 +227,7 @@ pub trait HttpSend: Send + Sync {
     /// ends within `total`, a `Stream` gets its head within `head` and its body
     /// has no timer. A failure before a status arrived carries the delivery
     /// state the connection reached (`NotSent` / `Ambiguous`).
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: Exchange,
-    ) -> Result<HttpResponse, ProviderError>;
+    async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError>;
 
     /// Whether this transport tells a model attempt when it has its connection
     /// (`model_driver::connected`), so connecting can be timed apart from the
@@ -256,12 +248,7 @@ pub trait BidiOpen: Send + Sync {
     /// Opens the exchange with `first` queued as the first body frame
     /// (`request.body` is ignored). Dropping the sink ends the request body;
     /// dropping the response aborts the exchange.
-    async fn open(
-        &self,
-        request: WireRequest,
-        first: Vec<u8>,
-        exchange: Exchange,
-    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError>;
+    async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError>;
 }
 
 /// The clients behind a [`ReqwestLink`]: one fixed client, or the clients of
@@ -313,9 +300,7 @@ impl ReqwestLink {
         if !http2_only {
             return Ok(Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None)) });
         }
-        Ok(Self {
-            clients: Clients::Fixed(link_builder(schedule, http2_only).build()?),
-        })
+        Ok(Self { clients: Clients::Fixed(link_builder(schedule, http2_only).build()?) })
     }
 
     /// The Node-equal client with every connect going to `addr` and trusting `tls` alone: what is written is unchanged.
@@ -415,16 +400,8 @@ impl BodyStream for ReqwestBody {
 }
 
 fn response_of(response: reqwest::Response) -> HttpResponse {
-    let headers = response
-        .headers()
-        .iter()
-        .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
-        .collect();
-    HttpResponse {
-        status: response.status().as_u16(),
-        headers,
-        body: replay_counted(&response.url().clone(), Box::new(ReqwestBody(response))),
-    }
+    let headers = response.headers().iter().filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned()))).collect();
+    HttpResponse { status: response.status().as_u16(), headers, body: replay_counted(&response.url().clone(), Box::new(ReqwestBody(response))) }
 }
 
 /// A response body as the transport hands it on: counted, under the origin of `url`, for a replay's barrier on the model's bytes
@@ -441,9 +418,7 @@ pub(crate) fn replay_counted(url: &url::Url, body: Box<dyn BodyStream>) -> Box<d
 /// `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`, both retried as transient).
 pub fn deadline_error(expired: Expired, delivery: DeliveryState, surface: Surface) -> ProviderError {
     let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, delivery);
-    error.message = surface
-        .timeout_text(expired.after)
-        .unwrap_or_else(|| format!("request timed out after {}ms", expired.after.as_millis()));
+    error.message = surface.timeout_text(expired.after).unwrap_or_else(|| format!("request timed out after {}ms", expired.after.as_millis()));
     // A timer the call armed itself: Node's `TimeoutError` (`AbortSignal.timeout`), `AbortError` (a bare
     // `controller.abort()`) or `ProviderTimeoutError` (`createTimeoutSignal`, which also carries
     // `code: 'EPROVIDERTIMEOUT'`, `stall-policy.mjs:380`).
@@ -467,10 +442,9 @@ fn is_redirect(status: reqwest::StatusCode) -> bool {
 /// The ports `fetch` refuses to connect to (the WHATWG "bad ports", as the Node runtime's `fetch` lists them:
 /// `golden/connect_errors.json` `badPorts`, found by asking it for every loopback port).
 const RESTRICTED_PORTS: [u16; 82] = [
-    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110,
-    111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
-    540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061,
-    6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+    139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723,
+    2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
 ];
 
 /// A request to a port `fetch` refuses fails before any connection, as a plain network error with no errno (the end
@@ -487,38 +461,24 @@ pub(crate) fn restricted_port(url: &str, surface: Surface) -> Option<ProviderErr
 
 /// `fetch` rejects a redirect under `redirect: 'error'` as a network error.
 fn redirect_refused(status: reqwest::StatusCode, surface: Surface) -> ProviderError {
-    let mut error = ProviderError::transport(
-        TransportFault::Io { os_code: None },
-        DeliveryState::Ambiguous,
-    );
+    let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous);
     error.message = surface.text(|| format!("unexpected redirect (HTTP {})", status.as_u16()));
     error
 }
 
 /// The request a followed redirect sends next, or `None` when the answer names no usable target.
-fn next_hop(
-    request: &WireRequest,
-    status: reqwest::StatusCode,
-    location: &str,
-) -> Option<WireRequest> {
+fn next_hop(request: &WireRequest, status: reqwest::StatusCode, location: &str) -> Option<WireRequest> {
     let from = reqwest::Url::parse(&request.url).ok()?;
     let to = from.join(location).ok()?;
     let mut next = request.clone();
     if from.origin() != to.origin() {
-        next.headers.retain(|(name, _)| {
-            !["authorization", "cookie", "proxy-authorization"]
-                .iter()
-                .any(|dropped| name.eq_ignore_ascii_case(dropped))
-        });
+        next.headers.retain(|(name, _)| !["authorization", "cookie", "proxy-authorization"].iter().any(|dropped| name.eq_ignore_ascii_case(dropped)));
     }
     let status = status.as_u16();
-    if (status == 303 && request.method != "HEAD")
-        || (matches!(status, 301 | 302) && request.method == "POST")
-    {
+    if (status == 303 && request.method != "HEAD") || (matches!(status, 301 | 302) && request.method == "POST") {
         next.method = "GET".to_owned();
         next.body.clear();
-        next.headers
-            .retain(|(name, _)| !name.to_ascii_lowercase().starts_with("content-"));
+        next.headers.retain(|(name, _)| !name.to_ascii_lowercase().starts_with("content-"));
     }
     next.url = to.into();
     Some(next)
@@ -529,11 +489,7 @@ struct Bare<'a, T>(&'a T);
 
 #[async_trait]
 impl HttpSend for ReqwestLink {
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
         Guarded(Bare(self)).send(request, exchange).await
     }
 
@@ -545,11 +501,7 @@ impl HttpSend for ReqwestLink {
 impl ReqwestLink {
     /// Sends `request` and applies the redirect policy to each answer.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn hops(
-        &self,
-        mut request: WireRequest,
-        exchange: Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn hops(&self, mut request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
         let Exchange { redirect, surface, writer, .. } = exchange;
         for _ in 0..=MAX_REDIRECTS {
             let raw = match &self.clients {
@@ -561,10 +513,7 @@ impl ReqwestLink {
                 }
                 _ => {
                     let builder = self.builder(&request, surface).await?.body(request.body.clone());
-                    let sent = builder
-                        .send()
-                        .await
-                        .map_err(|err| provider_error_from_reqwest(&err, surface))?;
+                    let sent = builder.send().await.map_err(|err| provider_error_from_reqwest(&err, surface))?;
                     response_of(sent)
                 }
             };
@@ -576,24 +525,16 @@ impl ReqwestLink {
                 Redirect::Manual => return Ok(raw),
                 Redirect::Error => return Err(redirect_refused(status, surface)),
                 Redirect::Follow => {
-                    let location = raw
-                        .headers
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case("location"))
-                        .map(|(_, value)| value.as_str());
+                    let location = raw.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("location")).map(|(_, value)| value.as_str());
                     // No usable `Location`: the answer is the response, as in fetch.
-                    let Some(next) = location.and_then(|l| next_hop(&request, status, l))
-                    else {
+                    let Some(next) = location.and_then(|l| next_hop(&request, status, l)) else {
                         return Ok(raw);
                     };
                     request = next;
                 }
             }
         }
-        let mut error = ProviderError::transport(
-            TransportFault::Io { os_code: None },
-            DeliveryState::Ambiguous,
-        );
+        let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous);
         error.message = surface.text(|| format!("more than {MAX_REDIRECTS} redirects"));
         Err(error)
     }
@@ -603,20 +544,13 @@ struct ChannelSink(mpsc::UnboundedSender<Bytes>);
 
 impl FrameSink for ChannelSink {
     fn send(&self, frame: Vec<u8>) -> Result<(), TransportFault> {
-        self.0
-            .send(Bytes::from(frame))
-            .map_err(|_| TransportFault::Closed)
+        self.0.send(Bytes::from(frame)).map_err(|_| TransportFault::Closed)
     }
 }
 
 #[async_trait]
 impl BidiOpen for ReqwestLink {
-    async fn open(
-        &self,
-        request: WireRequest,
-        first: Vec<u8>,
-        exchange: Exchange,
-    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         Guarded(Bare(self)).open(request, first, exchange).await
     }
 }
@@ -679,10 +613,7 @@ impl WsSocket for WsConnection {
 pub trait WsDial: Send + Sync {
     /// Connects and upgrades. The upgrade response carries the handshake
     /// headers the adapter may read.
-    async fn dial(
-        &self,
-        request: Request,
-    ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError>;
+    async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError>;
 }
 
 /// Dials with the keepalive schedule on the socket and the PING driver.
@@ -695,7 +626,12 @@ pub struct KeepaliveDialer {
 
 impl KeepaliveDialer {
     pub fn new(schedule: KeepaliveSchedule) -> Self {
-        Self { schedule, policy: None, #[cfg(any(test, feature = "test-support"))] pinned: None }
+        Self {
+            schedule,
+            policy: None,
+            #[cfg(any(test, feature = "test-support"))]
+            pinned: None,
+        }
     }
 
     /// Every dial goes to `addr` and trusts `tls` alone ([`ws::connect_pinned`]); what is written is unchanged.
@@ -706,26 +642,25 @@ impl KeepaliveDialer {
 
     /// Every dial follows the network proxy policy.
     pub fn routed(schedule: KeepaliveSchedule, policy: Arc<NetworkProxy>) -> Self {
-        Self { schedule, policy: Some(policy), #[cfg(any(test, feature = "test-support"))] pinned: None }
+        Self {
+            schedule,
+            policy: Some(policy),
+            #[cfg(any(test, feature = "test-support"))]
+            pinned: None,
+        }
     }
 }
 
 #[async_trait]
 impl WsDial for KeepaliveDialer {
-    async fn dial(
-        &self,
-        request: Request,
-    ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+    async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         Guarded(Bare(self)).dial(request).await
     }
 }
 
 #[async_trait]
 impl WsDial for Bare<'_, KeepaliveDialer> {
-    async fn dial(
-        &self,
-        request: Request,
-    ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+    async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         let this = self.0;
         #[cfg(any(test, feature = "test-support"))]
         if let Some((addr, tls)) = &this.pinned {
@@ -753,19 +688,12 @@ mod tests {
     }
 
     fn head_of(body: Box<dyn BodyStream>) -> HttpResponse {
-        HttpResponse {
-            status: 200,
-            headers: Vec::new(),
-            body,
-        }
+        HttpResponse { status: 200, headers: Vec::new(), body }
     }
 
     #[tokio::test(start_paused = true)]
     async fn the_error_body_of_a_stream_ends_at_the_dispatcher_ceiling() {
-        let error = head_of(Box::new(Silent))
-            .read_all()
-            .await
-            .expect_err("the error body never ends");
+        let error = head_of(Box::new(Silent)).read_all().await.expect_err("the error body never ends");
         assert_eq!(error.delivery, DeliveryState::Accepted);
         // The ceiling is the dispatcher's own: a raw `fetch`'s `fetch failed`.
         assert_eq!(error.message, "fetch failed");
@@ -774,29 +702,22 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_unary_body_that_never_ends_fails_at_its_total() {
         let total = Duration::from_secs(30);
-        let body = DeadlineBody {
-            inner: Box::new(Silent),
-            until: tokio::time::Instant::now() + total,
-        };
-        let error = head_of(Box::new(body))
-            .read_all()
-            .await
-            .expect_err("the peer never finishes the body");
+        let body = DeadlineBody { inner: Box::new(Silent), until: tokio::time::Instant::now() + total };
+        let error = head_of(Box::new(body)).read_all().await.expect_err("the peer never finishes the body");
         assert_eq!(error.delivery, DeliveryState::Accepted);
         assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
     }
 
     /// The ports `fetch` refuses to connect to (the fetch standard's "bad port" list).
     const BAD_PORTS: [u16; 82] = [
-        1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119,
-        123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990,
-        993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+        1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135,
+        137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720,
+        1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
     ];
 
     #[test]
     fn exactly_the_ports_the_fetch_standard_restricts_are_refused_before_connecting() {
-        let refused: Vec<u16> =
-            (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
+        let refused: Vec<u16> = (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
         assert_eq!(refused, BAD_PORTS);
     }
 
@@ -815,9 +736,7 @@ mod tests {
             assert!(restricted_port(url, Surface::Fetch).is_none(), "{url}");
         }
     }
-
 }
-
 
 impl Surface {
     /// Node's text for a connection failure, `None` where the link has none to give.
@@ -872,31 +791,18 @@ impl BodyStream for DeadlineBody {
 /// The one place a request meets its [`Exchange`]: the head is bounded for both liveness
 /// classes, and a `Unary` body shares the same total.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-async fn settle(
-    exchange: Exchange,
-    answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>,
-) -> Result<HttpResponse, ProviderError> {
+async fn settle(exchange: Exchange, answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>) -> Result<HttpResponse, ProviderError> {
     let liveness = exchange.liveness;
     let started = tokio::time::Instant::now();
-    let mut response = liveness
-        .bound_head(answer)
-        .await
-        .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
+    let mut response = liveness.bound_head(answer).await.map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
     if let Some(total) = liveness.total_deadline() {
-        response.body = Box::new(DeadlineBody {
-            inner: response.body,
-            until: started + total,
-        });
+        response.body = Box::new(DeadlineBody { inner: response.body, until: started + total });
     }
     Ok(response)
 }
 #[async_trait]
 impl HttpSend for Bare<'_, ReqwestLink> {
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
         let answered = settle(exchange, self.0.hops(request, exchange));
         // A turn waiting on the model's answer waits on a replay's input (feature `replay-bytes`).
         #[cfg(feature = "replay-bytes")]
@@ -906,12 +812,7 @@ impl HttpSend for Bare<'_, ReqwestLink> {
 }
 #[async_trait]
 impl BidiOpen for Bare<'_, ReqwestLink> {
-    async fn open(
-        &self,
-        request: WireRequest,
-        first: Vec<u8>,
-        exchange: Exchange,
-    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         // A streaming request body cannot be replayed, so a redirect is never followed.
         let redirect = exchange.redirect;
         if redirect == Redirect::Follow {
@@ -921,22 +822,11 @@ impl BidiOpen for Bare<'_, ReqwestLink> {
         }
         let (tx, rx) = mpsc::unbounded_channel::<Bytes>();
         let _ = tx.send(Bytes::from(first));
-        let stream = futures::stream::unfold(rx, |mut rx| async move {
-            rx.recv()
-                .await
-                .map(|bytes| (Ok::<_, std::io::Error>(bytes), rx))
-        });
+        let stream = futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|bytes| (Ok::<_, std::io::Error>(bytes), rx)) });
         let surface = exchange.surface;
-        let builder = self
-            .0
-            .builder(&request, surface)
-            .await?
-            .body(reqwest::Body::wrap_stream(stream));
+        let builder = self.0.builder(&request, surface).await?.body(reqwest::Body::wrap_stream(stream));
         let answer = async {
-            let raw = builder
-                .send()
-                .await
-                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
+            let raw = builder.send().await.map_err(|err| provider_error_from_reqwest(&err, surface))?;
             if redirect == Redirect::Error && is_redirect(raw.status()) {
                 return Err(redirect_refused(raw.status(), surface));
             }

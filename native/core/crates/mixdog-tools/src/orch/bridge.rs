@@ -17,8 +17,8 @@ use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
-use mixdog_protocol::JsonValue;
 use mixdog_js::token_estimate::estimate_tokens;
+use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use serde::Serialize;
 use serde_json::Value;
@@ -100,7 +100,10 @@ pub enum CallResolution {
     /// In the catalog but unavailable now.
     Unavailable(String),
     /// In the catalog, but the core cannot run it, with why (the reason discovery reports for it).
-    Unrunnable { name: String, reason: String },
+    Unrunnable {
+        name: String,
+        reason: String,
+    },
     Deferred(String),
 }
 
@@ -178,11 +181,7 @@ fn decode_continuation(token: &str) -> Option<Continuation> {
     let payload: Value = serde_json::from_slice(&bytes).ok()?;
     let indexes: Vec<usize> = payload.get("t")?.as_array()?.iter().map(|v| v.as_u64().map(|n| n as usize)).collect::<Option<_>>()?;
     let distinct: HashSet<&usize> = indexes.iter().collect();
-    if payload.get("v")?.as_u64()? != 2
-        || indexes.is_empty()
-        || indexes.len() > DESCRIBE_MAX_NAMES * 10
-        || distinct.len() != indexes.len()
-    {
+    if payload.get("v")?.as_u64()? != 2 || indexes.is_empty() || indexes.len() > DESCRIBE_MAX_NAMES * 10 || distinct.len() != indexes.len() {
         return None;
     }
     Some(Continuation { indexes, revision: payload.get("r")?.as_str()?.to_owned(), offset: payload.get("o")?.as_u64()? as usize })
@@ -299,7 +298,14 @@ pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) ->
     let page = describe(catalog, thread, args)?;
     let parsed: Value = serde_json::from_str(&page).expect("a described page is JSON");
     if parsed.get("mcpInstructions").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {
-        let names: Vec<String> = parsed["entries"].as_array().into_iter().flatten().filter_map(|e| e["name"].as_str()).map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty()).collect();
+        let names: Vec<String> = parsed["entries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e["name"].as_str())
+            .map(|n| n.js_trim().to_owned())
+            .filter(|n| !n.is_empty())
+            .collect();
         catalog.announce(thread, &names).await;
     }
     Ok(page)
@@ -343,12 +349,8 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
     } else {
         None
     };
-    let catalog_changed = || {
-        bridge_error(
-            "CATALOG_CHANGED",
-            "the described tools or their schemas changed since this continuation was issued; describe them again by name.",
-        )
-    };
+    let catalog_changed =
+        || bridge_error("CATALOG_CHANGED", "the described tools or their schemas changed since this continuation was issued; describe them again by name.");
 
     let mut targets: Vec<usize> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
@@ -386,11 +388,7 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
                 continue;
             }
             let aliased: Vec<usize> = catalog.alias_members(&requested.to_lowercase()).iter().filter_map(|m| lookup(m)).collect();
-            let members = if aliased.is_empty() {
-                catalog.mcp_server_members(thread, requested).iter().filter_map(|m| lookup(m)).collect()
-            } else {
-                aliased
-            };
+            let members = if aliased.is_empty() { catalog.mcp_server_members(thread, requested).iter().filter_map(|m| lookup(m)).collect() } else { aliased };
             if members.is_empty() {
                 missing.push(requested.clone());
             } else {
@@ -448,12 +446,24 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
     }
 
     let instructions_of = |entries: &[Entry]| -> String {
-        let names: Vec<String> = entries.iter().map(|e| match e { Entry::Whole { name, .. } | Entry::Chunk { name, .. } => name.clone() }).collect();
+        let names: Vec<String> = entries
+            .iter()
+            .map(|e| match e {
+                Entry::Whole { name, .. } | Entry::Chunk { name, .. } => name.clone(),
+            })
+            .collect();
         catalog.instructions_for(thread, &names)
     };
     let reserve = ContinueWith { names: encode_continuation(&vec![available.len(); docs.len()], &"f".repeat(16), 99_999_999) };
-    let build = |entries: &[Entry], missing: &[String], blocked: &[Blocked], matches: &[Match], omitted: &[String], instructions: &str, cont: Option<&ContinueWith>| {
-        serde_json::to_string(&Page { entries, missing, blocked, matches, omitted, mcp_instructions: instructions, note: DESCRIBE_NOTE, continue_with: cont }).expect("page serializes")
+    let build = |entries: &[Entry],
+                 missing: &[String],
+                 blocked: &[Blocked],
+                 matches: &[Match],
+                 omitted: &[String],
+                 instructions: &str,
+                 cont: Option<&ContinueWith>| {
+        serde_json::to_string(&Page { entries, missing, blocked, matches, omitted, mcp_instructions: instructions, note: DESCRIBE_NOTE, continue_with: cont })
+            .expect("page serializes")
     };
 
     let mut entries: Vec<Entry> = Vec::new();
@@ -466,7 +476,16 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
             let mut trial = std::mem::take(&mut entries);
             trial.push(whole());
             let instr = instructions_of(&trial);
-            let page = Page { entries: &trial, missing: &missing, blocked: &blocked, matches: &matches, omitted: &omitted, mcp_instructions: &instr, note: DESCRIBE_NOTE, continue_with: Some(&reserve) };
+            let page = Page {
+                entries: &trial,
+                missing: &missing,
+                blocked: &blocked,
+                matches: &matches,
+                omitted: &omitted,
+                mcp_instructions: &instr,
+                note: DESCRIBE_NOTE,
+                continue_with: Some(&reserve),
+            };
             if fits(&page) {
                 entries = trial;
                 entry_index += 1;
@@ -477,7 +496,16 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
             // A document that fits on a page of its own starts the next page whole.
             let alone = vec![whole()];
             let instr = instructions_of(&alone);
-            let page = Page { entries: &alone, missing: &missing, blocked: &blocked, matches: &matches, omitted: &omitted, mcp_instructions: &instr, note: DESCRIBE_NOTE, continue_with: Some(&reserve) };
+            let page = Page {
+                entries: &alone,
+                missing: &missing,
+                blocked: &blocked,
+                matches: &matches,
+                omitted: &omitted,
+                mcp_instructions: &instr,
+                note: DESCRIBE_NOTE,
+                continue_with: Some(&reserve),
+            };
             if !entries.is_empty() && fits(&page) {
                 next_position = Some((entry_index, 0));
                 break;
@@ -495,7 +523,16 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
             let mut trial = entries.to_vec();
             trial.push(chunk_entry(len));
             let instr = instructions_of(&trial);
-            fits(&Page { entries: &trial, missing: &missing, blocked: &blocked, matches: &matches, omitted: &omitted, mcp_instructions: &instr, note: DESCRIBE_NOTE, continue_with: Some(&reserve) })
+            fits(&Page {
+                entries: &trial,
+                missing: &missing,
+                blocked: &blocked,
+                matches: &matches,
+                omitted: &omitted,
+                mcp_instructions: &instr,
+                note: DESCRIBE_NOTE,
+                continue_with: Some(&reserve),
+            })
         };
         let (mut low, mut high) = (0usize, chars.len() - offset);
         while low < high {
@@ -797,7 +834,10 @@ mod tests {
             (json!({"name":"web_fetch","arguments":{},"extra":1}), "Error: INVALID_ARGUMENTS: call_tool does not accept: extra."),
             (json!({"name":"web_fetch"}), "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments."),
             (json!({"name":"load_tool","arguments":{}}), "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"load_tool\"; call it directly."),
-            (json!({"name":"web_fetch","arguments":{}}), "Error: TOOL_NOT_FOUND: no tool named \"web_fetch\" is available in this session; find tools with load_tool {names: keyword}."),
+            (
+                json!({"name":"web_fetch","arguments":{}}),
+                "Error: TOOL_NOT_FOUND: no tool named \"web_fetch\" is available in this session; find tools with load_tool {names: keyword}.",
+            ),
         ] {
             assert_eq!(tool.call(&ctx, args).await.unwrap_err().message_for_model, want);
         }

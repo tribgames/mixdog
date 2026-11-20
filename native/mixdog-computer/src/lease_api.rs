@@ -79,13 +79,7 @@ mod tests {
     #[test]
     fn answers_name_the_host_answer_fact() {
         assert_eq!(LeaseAnswer::Refused("refused".into()).as_str(), "refused");
-        assert_eq!(
-            LeaseAnswer::ExpiredOnArrival { lease: 1, deadline_at: 0.0 }.as_str(),
-            "expired_on_arrival"
-        );
-        assert_eq!(
-            LeaseAnswer::Locked { lease: 3, deadline_at: 1.5 }.as_str(),
-            "locked"
-        );
+        assert_eq!(LeaseAnswer::ExpiredOnArrival { lease: 1, deadline_at: 0.0 }.as_str(), "expired_on_arrival");
+        assert_eq!(LeaseAnswer::Locked { lease: 3, deadline_at: 1.5 }.as_str(), "locked");
     }
 }

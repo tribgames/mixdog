@@ -231,7 +231,8 @@ fn compact_lane(lane: &Value) -> Value {
     }
     for kind in MEDIA_KINDS {
         if truthy(lane.get(kind))
-            && let Some(model) = lane[kind].get("defaultModel") {
+            && let Some(model) = lane[kind].get("defaultModel")
+        {
             out.insert(kind.into(), model.clone());
         }
     }
@@ -280,11 +281,8 @@ fn list_media_catalog(lanes: &[Value], kind: &str, model: &str, remembered: Opti
     if !errors.is_empty() {
         diagnostics.insert("catalogErrors".into(), Value::Array(errors));
     }
-    let warnings: Vec<Value> = lanes
-        .iter()
-        .filter(|lane| truthy(lane.get("catalogWarning")))
-        .map(|lane| json!({ "lane": lane["id"], "warning": lane["catalogWarning"] }))
-        .collect();
+    let warnings: Vec<Value> =
+        lanes.iter().filter(|lane| truthy(lane.get("catalogWarning"))).map(|lane| json!({ "lane": lane["id"], "warning": lane["catalogWarning"] })).collect();
     if !warnings.is_empty() {
         diagnostics.insert("catalogWarnings".into(), Value::Array(warnings));
     }
@@ -315,7 +313,10 @@ fn list_media_catalog(lanes: &[Value], kind: &str, model: &str, remembered: Opti
         out.insert("lanes".into(), Value::Array(lanes_out));
         // What a generate without lane/model will run on.
         if let Some(chosen) = remembered.filter(|r| truthy(r.get("lane"))) {
-            out.insert("remembered".into(), json!({ "lane": chosen["lane"], "model": if truthy(chosen.get("model")) { chosen["model"].clone() } else { json!("") } }));
+            out.insert(
+                "remembered".into(),
+                json!({ "lane": chosen["lane"], "model": if truthy(chosen.get("model")) { chosen["model"].clone() } else { json!("") } }),
+            );
         }
         if !signed_out.is_empty() {
             out.insert("signedOut".into(), Value::Array(signed_out));
@@ -333,10 +334,8 @@ fn list_media_catalog(lanes: &[Value], kind: &str, model: &str, remembered: Opti
         }
     }
     if matches.is_empty() {
-        let available: Vec<Value> = rows
-            .iter()
-            .flat_map(|lane| models_of(lane, kind).iter().map(move |entry| json!(format!("{}/{}", text(lane, "id"), text(entry, "id")))))
-            .collect();
+        let available: Vec<Value> =
+            rows.iter().flat_map(|lane| models_of(lane, kind).iter().map(move |entry| json!(format!("{}/{}", text(lane, "id"), text(entry, "id"))))).collect();
         return Err(ToolFailure::new(format!("model \"{model}\" is not available for {kind} on a signed-in lane")).with("available", Value::Array(available)));
     }
     Ok(json!({ "kind": kind, "models": matches }))
@@ -362,11 +361,10 @@ fn pick_lane<'a>(lanes: &'a [Value], kind: &str, requested: &str, remembered: Op
         if !failures.is_empty() {
             return Err(ToolFailure::new(failures.join("\n")).with("lanes", json!([])));
         }
-        return Err(ToolFailure::new(format!("No signed-in lane generates {kind} (Settings → Providers). Use user-supplied files or continue without media.")).with("lanes", json!([])));
+        return Err(ToolFailure::new(format!("No signed-in lane generates {kind} (Settings → Providers). Use user-supplied files or continue without media."))
+            .with("lanes", json!([])));
     }
-    let remembered_lane = remembered
-        .filter(|r| truthy(r.get("lane")))
-        .and_then(|r| available.iter().copied().find(|entry| entry.get("id") == r.get("lane")));
+    let remembered_lane = remembered.filter(|r| truthy(r.get("lane"))).and_then(|r| available.iter().copied().find(|entry| entry.get("id") == r.get("lane")));
     if let Some(lane) = remembered_lane {
         return Ok((lane, "remembered"));
     }
@@ -453,11 +451,13 @@ fn build_options(lane_id: &str, kind: &str, controls: &Value, p: &Placement<'_>)
         }
     }
     if kind == "video"
-        && let Some(duration) = p.duration.filter(|d| !d.is_null()) {
+        && let Some(duration) = p.duration.filter(|d| !d.is_null())
+    {
         let seconds = to_number(duration);
         let shown = number_to_string(seconds);
         if let Some(durations) = allowed(controls, "durations")
-            && !durations.iter().any(|entry| to_number(entry) == seconds && entry.is_number()) {
+            && !durations.iter().any(|entry| to_number(entry) == seconds && entry.is_number())
+        {
             let list = durations.iter().map(value_to_string).collect::<Vec<_>>().join(", ");
             return Err(ToolFailure::new(format!("duration {shown}s is not supported; use one of {list}")));
         }
@@ -480,7 +480,17 @@ fn job_view(job: &Value, now: i64) -> Map<String, Value> {
         if value == 0.0 || value.is_nan() { now as f64 } else { value }
     };
     let mut view = Map::new();
-    for (name, key) in [("job", "id"), ("status", "status"), ("kind", "kind"), ("lane", "lane"), ("model", "model"), ("options", "options"), ("progress", "progress"), ("assetId", "assetId"), ("error", "error")] {
+    for (name, key) in [
+        ("job", "id"),
+        ("status", "status"),
+        ("kind", "kind"),
+        ("lane", "lane"),
+        ("model", "model"),
+        ("options", "options"),
+        ("progress", "progress"),
+        ("assetId", "assetId"),
+        ("error", "error"),
+    ] {
         if let Some(value) = job.get(key) {
             view.insert(name.into(), value.clone());
         }
@@ -516,7 +526,8 @@ async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io
         let read = file.clone();
         // Node's `fs` on Windows reports the namespaced path, i.e. `path.resolve`d: `\` separators.
         let reported = mixdog_workspace::pathguard::lexical(&file);
-        let bytes = io_in_lane(io, move |lane| read_file(lane, &read)).await.map_err(|e| io_tool_failure(&FsFailure { error: e, step: FsStep::Open(reported) }))?;
+        let bytes =
+            io_in_lane(io, move |lane| read_file(lane, &read)).await.map_err(|e| io_tool_failure(&FsFailure { error: e, step: FsStep::Open(reported) }))?;
         if bytes.len() > MAX_REFERENCE_BYTES {
             return Err(ToolFailure::new(format!("reference \"{entry}\" exceeds {} MB", MAX_REFERENCE_BYTES / 1024 / 1024)));
         }
@@ -531,7 +542,9 @@ async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io
 /// from the shared translation.
 fn io_tool_failure(failure: &FsFailure) -> ToolFailure {
     match io_failure("media", failure) {
-        CoreError::DomainError { message: Some(message), code, .. } => ToolFailure { message: message.to_string(), code: code.map(|c| c.to_string()), extra: Map::new() },
+        CoreError::DomainError { message: Some(message), code, .. } => {
+            ToolFailure { message: message.to_string(), code: code.map(|c| c.to_string()), extra: Map::new() }
+        }
         other => ToolFailure::new(other.to_string()),
     }
 }
@@ -539,12 +552,13 @@ async fn copy_asset(graph: &dyn MediaGraph, asset_id: &str, target: PathBuf, io:
     let Some(source) = graph.original_path(asset_id).await else {
         return Err(ToolFailure::new("the generated asset is not readable from the media store"));
     };
-    let output = if extname(&target.to_string_lossy()).is_empty() { PathBuf::from(format!("{}{}", target.display(), extname(&source.to_string_lossy()))) } else { target };
+    let output = if extname(&target.to_string_lossy()).is_empty() {
+        PathBuf::from(format!("{}{}", target.display(), extname(&source.to_string_lossy())))
+    } else {
+        target
+    };
     let (from, to) = (source, output.clone());
-    on_lane(io, move || copy_file(&from, &to))
-        .await
-        .map_err(|e| ToolFailure::new(e.to_string()))?
-        .map_err(|failure| io_tool_failure(&failure))?;
+    on_lane(io, move || copy_file(&from, &to)).await.map_err(|e| ToolFailure::new(e.to_string()))?.map_err(|failure| io_tool_failure(&failure))?;
     Ok(output)
 }
 
@@ -688,11 +702,26 @@ impl MediaToolService {
             return Err(ToolFailure::new(format!("model \"{model_id}\" is not available on {lane_id} for {kind}")).with("available", Value::Array(available)));
         };
         let controls = model.get("controls").cloned().unwrap_or(Value::Null);
-        let (aspect, resolution, quality, background) = (clean(args.get("aspect")), clean(args.get("resolution")), clean(args.get("quality")), clean(args.get("background")));
-        let options = build_options(&lane_id, &kind, &controls, &Placement { aspect: &aspect, resolution: &resolution, duration: args.get("duration"), quality: &quality, background: &background })?;
+        let (aspect, resolution, quality, background) =
+            (clean(args.get("aspect")), clean(args.get("resolution")), clean(args.get("quality")), clean(args.get("background")));
+        let options = build_options(
+            &lane_id,
+            &kind,
+            &controls,
+            &Placement { aspect: &aspect, resolution: &resolution, duration: args.get("duration"), quality: &quality, background: &background },
+        )?;
         let references = read_references(args.get("references"), cwd, &controls, self.io).await?;
         let mut input = Map::new();
-        for (key, value) in [("lane", json!(lane_id)), ("kind", json!(kind)), ("model", json!(model_id)), ("prompt", json!(prompt)), ("options", options.clone()), ("references", json!(references)), ("sessionId", json!(session_id)), ("sourceType", json!((self.source_type)(session_id)))] {
+        for (key, value) in [
+            ("lane", json!(lane_id)),
+            ("kind", json!(kind)),
+            ("model", json!(model_id)),
+            ("prompt", json!(prompt)),
+            ("options", options.clone()),
+            ("references", json!(references)),
+            ("sessionId", json!(session_id)),
+            ("sourceType", json!((self.source_type)(session_id))),
+        ] {
             input.insert(key.into(), value);
         }
         if let (Some(account), false) = (&pin_account, account_provider.is_empty()) {
@@ -700,7 +729,14 @@ impl MediaToolService {
         }
         let started = self.graph.start(&Value::Object(input)).await?;
         let mut base = Map::new();
-        for (key, value) in [("lane", json!(lane_id)), ("model", json!(model_id)), ("laneSource", json!(lane_source)), ("options", options), ("referenceCount", json!(references.len())), ("prompt", json!(prompt))] {
+        for (key, value) in [
+            ("lane", json!(lane_id)),
+            ("model", json!(model_id)),
+            ("laneSource", json!(lane_source)),
+            ("options", options),
+            ("referenceCount", json!(references.len())),
+            ("prompt", json!(prompt)),
+        ] {
             base.insert(key.into(), value);
         }
         if args.get("wait") == Some(&Value::Bool(false)) {
@@ -708,7 +744,10 @@ impl MediaToolService {
             out.insert("ok".into(), json!(true));
             out.extend(job_view(&started, self.now()));
             out.extend(base);
-            out.insert("nextAction".into(), json!(format!("Poll media status job:{} path:{requested_path}; the file is written when status is done.", text(&started, "id"))));
+            out.insert(
+                "nextAction".into(),
+                json!(format!("Poll media status job:{} path:{requested_path}; the file is written when status is done.", text(&started, "id"))),
+            );
             return Ok(Value::Object(out));
         }
         let timeout_ms: i64 = if kind == "video" { 900_000 } else { 180_000 };
@@ -721,7 +760,8 @@ impl MediaToolService {
                 return Err(ToolFailure::new("generation canceled"));
             }
             if self.now() > deadline {
-                return Err(ToolFailure::new(format!("generation is still running after {}s on {lane_id}; poll media status job:{job_id}", timeout_ms / 1000)).with("job", json!(job_id)));
+                return Err(ToolFailure::new(format!("generation is still running after {}s on {lane_id}; poll media status job:{job_id}", timeout_ms / 1000))
+                    .with("job", json!(job_id)));
             }
             mixdog_rt::time::sleep(self.poll).await;
             job = self.graph.get(&job_id).unwrap_or(job);

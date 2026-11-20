@@ -47,12 +47,7 @@ pub struct ItemProgress {
 
 impl ItemProgress {
     fn planned() -> Self {
-        Self {
-            state: ItemState::Planned,
-            staged: None,
-            digest: None,
-            quarantined: None,
-        }
+        Self { state: ItemState::Planned, staged: None, digest: None, quarantined: None }
     }
 }
 
@@ -94,8 +89,7 @@ impl Journal {
     pub fn create(path: &Path, plan: PlanEntry, manifest: &Manifest) -> Result<Self> {
         let record = JournalRecord::Plan(plan);
         durable::publish_file(path, &frame::encode(0, &payload(&record)))?;
-        Self::open(path, manifest)?
-            .ok_or_else(|| Blocked::journal("journal vanished after creation"))
+        Self::open(path, manifest)?.ok_or_else(|| Blocked::journal("journal vanished after creation"))
     }
 
     /// Replays an existing journal against its manifest; `None` when there is none.
@@ -108,37 +102,24 @@ impl Journal {
             ScanEnd::Clean => {}
             ScanEnd::Torn { offset } => {
                 durable::step(durable::Step::Truncate, path, &[]);
-                let file = OpenOptions::new()
-                    .write(true)
-                    .open(path)
-                    .map_err(|e| Blocked::io("open", path, e))?;
-                file.set_len(offset)
-                    .map_err(|e| Blocked::io("truncate", path, e))?;
+                let file = OpenOptions::new().write(true).open(path).map_err(|e| Blocked::io("open", path, e))?;
+                file.set_len(offset).map_err(|e| Blocked::io("truncate", path, e))?;
                 fsio::flush(&file).map_err(|e| Blocked::io("sync", path, e))?;
             }
             ScanEnd::Corrupt { offset, cause, .. } => {
-                return Err(Blocked::journal(format!(
-                    "journal damaged at byte {offset} ({cause:?})"
-                )));
+                return Err(Blocked::journal(format!("journal damaged at byte {offset} ({cause:?})")));
             }
         }
         let mut journal = Self {
             path: path.to_path_buf(),
-            file: OpenOptions::new()
-                .append(true)
-                .open(path)
-                .map_err(|e| Blocked::io("open", path, e))?,
+            file: OpenOptions::new().append(true).open(path).map_err(|e| Blocked::io("open", path, e))?,
             next_ordinal: 0,
-            items: manifest
-                .items
-                .iter()
-                .map(|i| (i.key.as_str().to_string(), ItemProgress::planned()))
-                .collect(),
+            items: manifest.items.iter().map(|i| (i.key.as_str().to_string(), ItemProgress::planned())).collect(),
             verified_all: false,
         };
         for committed in &frames {
-            let record: JournalRecord = serde_json::from_slice(&bytes[committed.payload.clone()])
-                .map_err(|e| Blocked::journal(format!("journal frame {}: {e}", committed.ordinal)))?;
+            let record: JournalRecord =
+                serde_json::from_slice(&bytes[committed.payload.clone()]).map_err(|e| Blocked::journal(format!("journal frame {}: {e}", committed.ordinal)))?;
             if committed.ordinal == 0 {
                 match &record {
                     JournalRecord::Plan(plan) if plan.items == manifest.items.len() as u64 => {}
@@ -174,9 +155,7 @@ impl Journal {
         if let JournalRecord::Phase(phase) = record {
             match phase.phase {
                 Phase::VerifiedAll => {
-                    if let Some((key, _)) = self.items.iter().find(|(_, p)| {
-                        !matches!(p.state, ItemState::Verified | ItemState::Quarantined)
-                    }) {
+                    if let Some((key, _)) = self.items.iter().find(|(_, p)| !matches!(p.state, ItemState::Verified | ItemState::Quarantined)) {
                         return Err(Blocked::journal(format!("verified_all before {key}")));
                     }
                     self.verified_all = true;
@@ -187,15 +166,9 @@ impl Journal {
         let (Some(key), Some(to)) = (key_of(record), target_state(record)) else {
             return Err(Blocked::journal("a second plan frame"));
         };
-        let progress = self
-            .items
-            .get_mut(key)
-            .ok_or_else(|| Blocked::journal(format!("journal names unknown item {key}")))?;
+        let progress = self.items.get_mut(key).ok_or_else(|| Blocked::journal(format!("journal names unknown item {key}")))?;
         if !progress.state.can_advance(to) {
-            return Err(Blocked::journal(format!(
-                "{key}: {:?} → {to:?} is not a transition",
-                progress.state
-            )));
+            return Err(Blocked::journal(format!("{key}: {:?} → {to:?} is not a transition", progress.state)));
         }
         progress.state = to;
         match record {
@@ -211,34 +184,22 @@ impl Journal {
     pub fn append(&mut self, record: JournalRecord) -> Result<()> {
         match (key_of(&record), target_state(&record)) {
             (Some(key), Some(to)) => {
-                let from = self
-                    .items
-                    .get(key)
-                    .ok_or_else(|| Blocked::journal(format!("unknown item {key}")))?
-                    .state;
+                let from = self.items.get(key).ok_or_else(|| Blocked::journal(format!("unknown item {key}")))?.state;
                 if !from.can_advance(to) {
-                    return Err(Blocked::journal(format!(
-                        "{key}: {from:?} → {to:?} is not a transition"
-                    )));
+                    return Err(Blocked::journal(format!("{key}: {from:?} → {to:?} is not a transition")));
                 }
             }
             _ => {
-                if let Some((key, _)) = self.items.iter().find(|(_, p)| {
-                    !matches!(p.state, ItemState::Verified | ItemState::Quarantined)
-                }) {
+                if let Some((key, _)) = self.items.iter().find(|(_, p)| !matches!(p.state, ItemState::Verified | ItemState::Quarantined)) {
                     return Err(Blocked::journal(format!("verified_all before {key}")));
                 }
             }
         }
         let bytes = frame::encode(self.next_ordinal, &payload(&record));
         let (first, second) = bytes.split_at(bytes.len() / 2);
-        self.file
-            .write_all(first)
-            .map_err(|e| Blocked::io("append", &self.path, e))?;
+        self.file.write_all(first).map_err(|e| Blocked::io("append", &self.path, e))?;
         durable::step(durable::Step::Append, &self.path, &bytes);
-        self.file
-            .write_all(second)
-            .map_err(|e| Blocked::io("append", &self.path, e))?;
+        self.file.write_all(second).map_err(|e| Blocked::io("append", &self.path, e))?;
         fsio::flush_data(&self.file).map_err(|e| Blocked::io("sync", &self.path, e))?;
         self.next_ordinal += 1;
         self.apply(&record)

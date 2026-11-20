@@ -11,7 +11,6 @@
 //! priorities, queue caps, histograms) and the composition root calls [`install`] once at boot,
 //! which mints the only [`LaneTokens`] of the process. Tokens cannot be constructed elsewhere.
 
-
 /// Splits a recorded replay into tests nextest runs in parallel. `replay_chunks!(REGISTERED, #[tokio::test] async run;
 /// [name_00 = 0, name_01 = 1])` emits `async fn name_00() { run(0).await }` per entry (without `async`, a plain call)
 /// and `REGISTERED`, the chunk indices of the very tests it emitted, for the family's guard
@@ -75,7 +74,6 @@ pub fn replay_event(name: &str) {
 }
 
 pub use cancel::CancelSource;
-pub use write_marks::WriteMarks;
 pub use cancel::CancelView;
 pub use gate::Gate;
 pub use gate::GateCancelled;
@@ -91,10 +89,10 @@ pub use serial::SerialChain;
 pub use ticker::Ticker;
 pub use ticker::TimerHandle;
 pub use ticker::ticker;
+pub use write_marks::WriteMarks;
 
 pub use exec::job_progress;
-pub use lanes::in_tool_call;
-pub use lanes::tool_label;
+pub use lanes::Entered;
 pub use lanes::JobDropped;
 pub use lanes::JobHandle;
 pub use lanes::JobRun;
@@ -102,10 +100,11 @@ pub use lanes::LaneFull;
 pub use lanes::LaneKind;
 pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
-pub use lanes::Entered;
 pub use lanes::SubmitWaitError;
-pub use lanes::Ticket;
 pub use lanes::ThreadKind;
+pub use lanes::Ticket;
+pub use lanes::in_tool_call;
+pub use lanes::tool_label;
 pub use liveness::Deadline;
 pub use liveness::Expired;
 pub use liveness::Liveness;
@@ -252,11 +251,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    let spawned = backend().handle(class).spawn(Instrumented {
-        name,
-        class,
-        inner: Box::pin(fut),
-    });
+    let spawned = backend().handle(class).spawn(Instrumented { name, class, inner: Box::pin(fut) });
     // Row 14 of the replay's clock: the task is queued while its spawner still counts.
     #[cfg(feature = "virtual-clock")]
     virtual_clock::pause::point(|| format!("spawned {name}"));
@@ -414,11 +409,7 @@ pub mod testing {
                 static OFF_THREAD: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
                 OFF_THREAD
                     .get_or_init(|| {
-                        tokio::runtime::Builder::new_multi_thread()
-                            .worker_threads(1)
-                            .enable_all()
-                            .build()
-                            .expect("the test runtime for threads without one")
+                        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().expect("the test runtime for threads without one")
                     })
                     .handle()
                     .clone()
@@ -455,9 +446,7 @@ pub mod testing {
     /// installed first.
     pub fn tokens() -> LaneTokens {
         static TOKENS: OnceLock<LaneTokens> = OnceLock::new();
-        *TOKENS.get_or_init(|| {
-            install(Arc::new(InlineBackend)).expect("a non-test backend is installed")
-        })
+        *TOKENS.get_or_init(|| install(Arc::new(InlineBackend)).expect("a non-test backend is installed"))
     }
 
     /// The recorded cases of chunk `index` when a replay of `recorded` cases is split into chunks of `per`.

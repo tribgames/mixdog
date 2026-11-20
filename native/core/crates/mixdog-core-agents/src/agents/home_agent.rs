@@ -89,7 +89,9 @@ impl AgentDefinitions {
         let wanted = id.to_owned();
         match self.job(move |folders, lane| decide(folders, lane, &wanted)).await? {
             Decided::Final(kind) => Ok(kind),
-            Decided::ByDefinitionKind => Ok(if self.definition_kind(id).await?.as_deref() == Some("bot") { HomeAgentKind::Bot } else { HomeAgentKind::Unknown }),
+            Decided::ByDefinitionKind => {
+                Ok(if self.definition_kind(id).await?.as_deref() == Some("bot") { HomeAgentKind::Bot } else { HomeAgentKind::Unknown })
+            }
         }
     }
 }

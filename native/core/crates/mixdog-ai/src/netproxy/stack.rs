@@ -127,12 +127,7 @@ mod tests {
 
     #[async_trait]
     impl HostChannel for Desk {
-        async fn request(
-            &self,
-            capability: HostCapability,
-            method: Method,
-            params: Value,
-        ) -> Result<Value, mixdog_core_api::HostError> {
+        async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
             assert_eq!(capability, HostCapability::SystemProxy);
             assert_eq!(method, Method("host/systemProxy/resolve"));
             assert_eq!(params, json!({ "url": "https://api.example.com" }));
@@ -151,7 +146,6 @@ mod tests {
         let bad = HostResolver::new(Arc::new(Desk(json!({ "other": 1 }))));
         assert!(bad.resolve("https://api.example.com").await.is_err());
     }
-
 
     #[tokio::test(start_paused = true)]
     async fn a_config_change_reaches_the_policy_and_a_changed_setting_moves_its_epoch() {

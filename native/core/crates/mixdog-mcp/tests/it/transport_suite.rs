@@ -52,10 +52,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> (String, String, Ve
     let mut lines = head.lines();
     let mut first = lines.next().unwrap().split(' ');
     let (method, path) = (first.next().unwrap().to_owned(), first.next().unwrap().to_owned());
-    let headers: Vec<(String, String)> = lines
-        .filter_map(|l| l.split_once(':'))
-        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned()))
-        .collect();
+    let headers: Vec<(String, String)> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned())).collect();
     let length: usize = headers.iter().find(|(k, _)| k == "content-length").map_or(0, |(_, v)| v.parse().unwrap());
     while buf.len() < header_end + length {
         let n = stream.read(&mut chunk).await.unwrap();
@@ -65,10 +62,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> (String, String, Ve
 }
 
 async fn status(stream: &mut tokio::net::TcpStream, line: &str) {
-    stream
-        .write_all(format!("HTTP/1.1 {line}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").as_bytes())
-        .await
-        .unwrap();
+    stream.write_all(format!("HTTP/1.1 {line}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").as_bytes()).await.unwrap();
 }
 
 struct Renewing {
@@ -144,10 +138,7 @@ async fn sse_posts_to_the_announced_endpoint_and_renews_a_refused_token() {
     server.connect().await.unwrap();
     assert_eq!(auth.renewed.load(Ordering::SeqCst), 1, "the refused token was renewed once");
     assert_eq!(server.catalog().unwrap().entries[0].qualified, "mcp__legacy__echo");
-    let out = server
-        .call_tool("t", "echo", json!({"text": "over sse"}), &CancellationToken::new(), None)
-        .await
-        .unwrap();
+    let out = server.call_tool("t", "echo", json!({"text": "over sse"}), &CancellationToken::new(), None).await.unwrap();
     assert_eq!(out.parts, vec![ToolPart::Text("over sse".to_owned())]);
     let seen = bearers.lock().unwrap().clone();
     assert_eq!(seen[0].as_deref(), Some("Bearer old"));
@@ -186,10 +177,7 @@ async fn websocket_carries_messages_with_the_mcp_subprotocol_and_headers() {
     let entry = json!({"type": "ws", "url": format!("ws://127.0.0.1:{port}/mcp"), "headers": {"X-Key": "k-value"}});
     let server = server_for(&entry, None, dir.path());
     server.connect().await.unwrap();
-    let out = server
-        .call_tool("t", "echo", json!({"text": "over ws"}), &CancellationToken::new(), None)
-        .await
-        .unwrap();
+    let out = server.call_tool("t", "echo", json!({"text": "over ws"}), &CancellationToken::new(), None).await.unwrap();
     assert_eq!(out.parts, vec![ToolPart::Text("over ws".to_owned())]);
     assert_eq!(seen.lock().unwrap()[0], (Some("mcp".to_owned()), Some("k-value".to_owned())));
     server.close().await;

@@ -75,8 +75,8 @@ pub use self::text::TextBaseline;
 pub use tiny_skia::FillRule;
 
 use self::image_data::premultiply;
-use self::path::finite;
 use self::image_data::unpremultiply;
+use self::path::finite;
 use crate::Image;
 use crate::RasterError;
 
@@ -151,7 +151,13 @@ fn build_paint<'a>(state: &State, style: &'a Style) -> Option<Paint<'a>> {
         Style::Pattern(pattern) => {
             // `repeat-x` and `repeat-y` repeat both ways and are cut to their band by the draw mask.
             let mode = if pattern.repetition == Repetition::NoRepeat { SpreadMode::Pad } else { SpreadMode::Repeat };
-            Pattern::new(Pixmap::as_ref(&pattern.pixmap), mode, if pattern.cubic && state.smoothing { FilterQuality::Bicubic } else { state.quality.filter(state.smoothing) }, state.global_alpha, pattern.transform)
+            Pattern::new(
+                Pixmap::as_ref(&pattern.pixmap),
+                mode,
+                if pattern.cubic && state.smoothing { FilterQuality::Bicubic } else { state.quality.filter(state.smoothing) },
+                state.global_alpha,
+                pattern.transform,
+            )
         }
     };
     Some(paint)
@@ -306,7 +312,9 @@ fn fill_analytic(pixmap: &mut Pixmap, paint: &Paint, path: &Path, rule: FillRule
     }
     let (width, height) = (pixmap.width(), pixmap.height());
     let Some(raster) = analytic::coverage(path, rule, width as usize, height as usize) else { return };
-    let Some(area) = Rect::from_ltrb(raster.left as f32, raster.top as f32, (raster.left + raster.width) as f32, (raster.top + raster.height) as f32) else { return };
+    let Some(area) = Rect::from_ltrb(raster.left as f32, raster.top as f32, (raster.left + raster.width) as f32, (raster.top + raster.height) as f32) else {
+        return;
+    };
     COVERAGE.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.as_ref().is_none_or(|mask| mask.width() != width || mask.height() != height) {
@@ -354,7 +362,11 @@ fn fill_glyphs(pixmap: &mut Pixmap, state: &State, ink: Ink, paths: &text::Devic
     };
     let sampled = paths.sampled.as_ref().and_then(|path| clamp(path.bounds()));
     let exact = paths.exact.as_ref().and_then(|path| clamp(path.bounds()));
-    let Some((left, top, right, bottom)) = [sampled, exact].into_iter().flatten().reduce(|(l, t, r, b), (l2, t2, r2, b2)| (l.min(l2), t.min(t2), r.max(r2), b.max(b2))) else { return };
+    let Some((left, top, right, bottom)) =
+        [sampled, exact].into_iter().flatten().reduce(|(l, t, r, b), (l2, t2, r2, b2)| (l.min(l2), t.min(t2), r.max(r2), b.max(b2)))
+    else {
+        return;
+    };
     let (area_width, area_height) = (right - left, bottom - top);
     let Some(mut coverage) = Mask::new(area_width as u32, area_height as u32) else { return };
     let to_area = Transform::from_translate(-(left as f32), -(top as f32));
@@ -438,7 +450,10 @@ fn stroke_user(pixmap: &mut Pixmap, state: &State, path: &Path) {
     // The stroke reaches at most half the width times the miter limit past the path, in user units, and a pixel for the edge.
     let reach = state.line_width * state.miter_limit.max(1.0).max(std::f32::consts::SQRT_2);
     let scale = state.transform.sx.abs().max(state.transform.sy.abs()).max(state.transform.kx.abs()).max(state.transform.ky.abs()).max(1.0);
-    let layer = path.bounds().transform(state.transform).and_then(|device| straight_layer(state, style, (pixmap.width(), pixmap.height()), device, reach * scale + 2.0));
+    let layer = path
+        .bounds()
+        .transform(state.transform)
+        .and_then(|device| straight_layer(state, style, (pixmap.width(), pixmap.height()), device, reach * scale + 2.0));
     if let Some((layer, left, top)) = &layer {
         paint.shader = layer_shader(layer, *left, *top, state.global_alpha, state.transform);
     }
@@ -1087,7 +1102,15 @@ impl Canvas {
     /// The line of `text` laid out for a draw at `(x, y)`, and the matrix from its own space (the pen at the origin of the
     /// baseline) to user space: aligned, on the chosen baseline and squeezed to `max_width`. `None` when there is nothing
     /// to draw (a maximum width that is not above zero, or a position that is not finite).
-    fn text_layout<P: ReadProof>(&self, proof: &P, registry: &Registry, text: &str, x: f32, y: f32, max_width: Option<f32>) -> Result<Option<(text::Laid, Transform)>, RasterError> {
+    fn text_layout<P: ReadProof>(
+        &self,
+        proof: &P,
+        registry: &Registry,
+        text: &str,
+        x: f32,
+        y: f32,
+        max_width: Option<f32>,
+    ) -> Result<Option<(text::Laid, Transform)>, RasterError> {
         if !finite(&[x, y]) || max_width.is_some_and(|limit| limit.is_nan() || limit <= 0.0) {
             return Ok(None);
         }
@@ -1602,7 +1625,6 @@ mod tests {
         assert_eq!(canvas.get_transform(), [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
         assert_eq!(canvas.into_pixmap().width(), 3);
     }
-
 
     fn lisu() -> Registry {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts/LiberationSans-Regular.ttf");

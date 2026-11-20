@@ -284,7 +284,9 @@ impl ShellStreamDecoder {
             return out;
         };
         out.push_str(&self.commit(label));
-        if take < rest.len() && let State::Committed(decoder) = &mut self.state {
+        if take < rest.len()
+            && let State::Committed(decoder) = &mut self.state
+        {
             out.push_str(&run(decoder, &rest[take..], false));
         }
         out

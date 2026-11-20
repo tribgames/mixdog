@@ -11,16 +11,14 @@ const CODE_LEN_CODE_MAP: [usize; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4,
 
 /// `(extra bits << 16) | base` for the length codes 257..=287.
 const LENGTH_DECODE: [u32; 31] = [
-    0x00003, 0x00004, 0x00005, 0x00006, 0x00007, 0x00008, 0x00009, 0x0000a, 0x1000b, 0x1000d, 0x1000f, 0x10011,
-    0x20013, 0x20017, 0x2001b, 0x2001f, 0x30023, 0x3002b, 0x30033, 0x3003b, 0x40043, 0x40053, 0x40063, 0x40073,
-    0x50083, 0x500a3, 0x500c3, 0x500e3, 0x00102, 0x00102, 0x00102,
+    0x00003, 0x00004, 0x00005, 0x00006, 0x00007, 0x00008, 0x00009, 0x0000a, 0x1000b, 0x1000d, 0x1000f, 0x10011, 0x20013, 0x20017, 0x2001b, 0x2001f, 0x30023,
+    0x3002b, 0x30033, 0x3003b, 0x40043, 0x40053, 0x40063, 0x40073, 0x50083, 0x500a3, 0x500c3, 0x500e3, 0x00102, 0x00102, 0x00102,
 ];
 
 /// `(extra bits << 16) | base` for the distance codes 0..=29.
 const DIST_DECODE: [u32; 30] = [
-    0x00001, 0x00002, 0x00003, 0x00004, 0x10005, 0x10007, 0x20009, 0x2000d, 0x30011, 0x30019, 0x40021, 0x40031,
-    0x50041, 0x50061, 0x60081, 0x600c1, 0x70101, 0x70181, 0x80201, 0x80301, 0x90401, 0x90601, 0xa0801, 0xa0c01,
-    0xb1001, 0xb1801, 0xc2001, 0xc3001, 0xd4001, 0xd6001,
+    0x00001, 0x00002, 0x00003, 0x00004, 0x10005, 0x10007, 0x20009, 0x2000d, 0x30011, 0x30019, 0x40021, 0x40031, 0x50041, 0x50061, 0x60081, 0x600c1, 0x70101,
+    0x70181, 0x80201, 0x80301, 0x90401, 0x90601, 0xa0801, 0xa0c01, 0xb1001, 0xb1801, 0xc2001, 0xc3001, 0xd4001, 0xd6001,
 ];
 
 /// A Huffman lookup table: `(code length << 16) | value`, indexed by the next `max_len` bits (first bit lowest).
@@ -140,12 +138,7 @@ fn inflate_prefix(input: &[u8], limit: usize) -> Result<Vec<u8>, CodecError> {
     Ok(out)
 }
 
-fn read_blocks(
-    bits: &mut Bits<'_>,
-    out: &mut Vec<u8>,
-    fixed: &mut Option<(Table, Table)>,
-    limit: usize,
-) -> Result<(), Damaged> {
+fn read_blocks(bits: &mut Bits<'_>, out: &mut Vec<u8>, fixed: &mut Option<(Table, Table)>, limit: usize) -> Result<(), Damaged> {
     loop {
         let hdr = bits.get_bits(3)?;
         let last = hdr & 1 != 0;
@@ -245,13 +238,7 @@ fn dynamic_tables(bits: &mut Bits<'_>) -> Result<(Table, Table), Damaged> {
     Ok((generate_table(&lengths[..num_lit]), generate_table(&lengths[num_lit..total])))
 }
 
-fn huffman_block(
-    bits: &mut Bits<'_>,
-    out: &mut Vec<u8>,
-    lit: &Table,
-    dist: &Table,
-    limit: usize,
-) -> Result<(), Damaged> {
+fn huffman_block(bits: &mut Bits<'_>, out: &mut Vec<u8>, lit: &Table, dist: &Table, limit: usize) -> Result<(), Damaged> {
     loop {
         if out.len() >= limit {
             return Ok(());

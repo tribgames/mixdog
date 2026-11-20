@@ -33,8 +33,7 @@ pub type Route = Map<String, Value>;
 pub const PRE_SWITCH_COMPACTION: &str = "preSwitchCompaction";
 
 /// `AGENT_ROUTE_KEYS` of `agent-profile-changes.mjs`.
-pub const AGENT_ROUTE_KEYS: [&str; 8] =
-    ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+pub const AGENT_ROUTE_KEYS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
 
 /// `TUNED_PARAMETERS`: `serviceTier` and the OpenRouter sort parameter.
 const TUNED_PARAMETERS: [&str; 2] = ["serviceTier", "providerSort"];
@@ -154,8 +153,7 @@ pub fn header_names_session(header: &Header) -> bool {
 }
 
 pub fn is_summary_anchor(message: &Value) -> bool {
-    message.get("role").and_then(Value::as_str) == Some("user")
-        && message.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(SUMMARY_PREFIX))
+    message.get("role").and_then(Value::as_str) == Some("user") && message.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(SUMMARY_PREFIX))
 }
 
 /// The effort a route is on, as clients read it (the runtime facade's `effort` getter, `runtime-facade.mjs:74`): the effective
@@ -218,12 +216,7 @@ pub fn model_switch_anchor_index(messages: &[Value]) -> Option<usize> {
 /// `recordTranscriptBoundary`: appends `boundary` to `meta[field]` of the switch anchor
 /// message unless `same` finds it recorded; the anchor is replaced, not edited in place (the
 /// session log diffs messages by identity). `false` when there is no anchor.
-pub fn record_transcript_boundary(
-    messages: &mut [Value],
-    field: &str,
-    boundary: Value,
-    same: impl Fn(&Value) -> bool,
-) -> bool {
+pub fn record_transcript_boundary(messages: &mut [Value], field: &str, boundary: Value, same: impl Fn(&Value) -> bool) -> bool {
     let Some(index) = model_switch_anchor_index(messages) else { return false };
     let anchor = &messages[index];
     let mut switches: Vec<Value> = anchor.pointer(&format!("/meta/{field}")).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -261,12 +254,7 @@ pub struct ThreadRouteView {
 }
 
 impl SessionRoutes {
-    pub fn new(
-        threads: Arc<dyn ThreadState>,
-        messages: Arc<dyn ThreadMessages>,
-        session: Arc<dyn RouteSession>,
-        live: Arc<dyn LiveRoute>,
-    ) -> Self {
+    pub fn new(threads: Arc<dyn ThreadState>, messages: Arc<dyn ThreadMessages>, session: Arc<dyn RouteSession>, live: Arc<dyn LiveRoute>) -> Self {
         Self { threads, messages, session, live, pending: Mutex::new(HashMap::new()) }
     }
 
@@ -333,10 +321,8 @@ impl SessionRoutes {
         fields.insert("autoEffort".into(), Value::Bool(route.get("autoEffort") != Some(&Value::Bool(false))));
         let or_null = |key: &str| if truthy(route.get(key)) { route[key].clone() } else { Value::Null };
         fields.insert("effort".into(), or_null("effectiveEffort"));
-        fields.insert(
-            "modelParameters".into(),
-            if truthy(route.get("modelParameters")) { route["modelParameters"].clone() } else { Value::Object(Map::new()) },
-        );
+        fields
+            .insert("modelParameters".into(), if truthy(route.get("modelParameters")) { route["modelParameters"].clone() } else { Value::Object(Map::new()) });
         if let Some(percent) = route.get("contextPercent") {
             fields.insert("contextPercent".into(), percent.clone());
         }
@@ -686,10 +672,7 @@ impl AgentRouteFollow {
         });
         let failures = futures_lite_join(queued).await.into_iter().filter(Result::is_err).count();
         if failures > 0 {
-            return Err(PortError::Failed {
-                capability: "agent route".into(),
-                message: format!("{failures} chat(s) of {agent_id} did not take the route"),
-            });
+            return Err(PortError::Failed { capability: "agent route".into(), message: format!("{failures} chat(s) of {agent_id} did not take the route") });
         }
         Ok(())
     }
@@ -774,13 +757,24 @@ mod tests {
             }
             Ok(())
         }
-        async fn patch_header_if(&self, thread: &ThreadId, expect: Map<String, Value>, set: Map<String, Value>, unset: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            thread: &ThreadId,
+            expect: Map<String, Value>,
+            set: Map<String, Value>,
+            unset: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             let header = self.header(thread).await?;
             if expect.iter().any(|(key, value)| header.get(key).unwrap_or(&Value::Null) != value) {
-                return Ok(Some(expect.into_iter().map(|(key, _)| {
-                    let current = header.get(&key).cloned().unwrap_or(Value::Null);
-                    (key, current)
-                }).collect()));
+                return Ok(Some(
+                    expect
+                        .into_iter()
+                        .map(|(key, _)| {
+                            let current = header.get(&key).cloned().unwrap_or(Value::Null);
+                            (key, current)
+                        })
+                        .collect(),
+                ));
             }
             self.patch_header(thread, set, unset).await.map(|()| None)
         }
@@ -868,11 +862,7 @@ mod tests {
     async fn an_admitted_turn_applies_its_own_pick_and_leaves_the_later_pick_pending() {
         let admitted = json!({ "provider": "p", "model": "first" });
         let later = json!({ "provider": "q", "model": "later" });
-        let (routes, calls) = routes(
-            json!({ "provider": "p", "model": "old", "pendingRoute": later }),
-            established(),
-            later.clone(),
-        );
+        let (routes, calls) = routes(json!({ "provider": "p", "model": "old", "pendingRoute": later }), established(), later.clone());
         routes.apply_admitted(&thread(), None).await.unwrap();
         assert!(calls.0.lock().unwrap().is_empty(), "a turn admitted without a pick never uses a late one");
         routes.apply_admitted(&thread(), Some(&admitted)).await.unwrap();
@@ -915,7 +905,12 @@ mod tests {
         // Deleted: the apply finds no thread, and the pick is gone with it.
         let calls = Arc::new(Calls::default());
         let threads = Arc::new(Threads::new(header.clone(), calls.clone()));
-        let routes = SessionRoutes::new(threads.clone(), Arc::new(Messages(established())), Arc::new(Session::new(calls.clone(), None)), Arc::new(Live(obj(live.clone()))));
+        let routes = SessionRoutes::new(
+            threads.clone(),
+            Arc::new(Messages(established())),
+            Arc::new(Session::new(calls.clone(), None)),
+            Arc::new(Live(obj(live.clone()))),
+        );
         routes.follow(&thread(), &defer).await.unwrap();
         threads.gone.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(matches!(routes.apply_pending(&thread()).await, Err(PortError::NotFound { .. })));
@@ -925,7 +920,12 @@ mod tests {
         let calls = Arc::new(Calls::default());
         let refused = PortError::Invalid { field: "model".into(), reason: "unknown model".into() };
         let session = Session::new(calls.clone(), Some(refused.clone()));
-        let routes = SessionRoutes::new(Arc::new(Threads::new(header.clone(), calls.clone())), Arc::new(Messages(established())), Arc::new(session), Arc::new(Live(obj(live.clone()))));
+        let routes = SessionRoutes::new(
+            Arc::new(Threads::new(header.clone(), calls.clone())),
+            Arc::new(Messages(established())),
+            Arc::new(session),
+            Arc::new(Live(obj(live.clone()))),
+        );
         routes.follow(&thread(), &defer).await.unwrap();
         assert_eq!(routes.apply_pending(&thread()).await, Err(refused));
         assert_eq!(held(&routes), HashSet::new());
@@ -935,7 +935,8 @@ mod tests {
         // Bounded: holding a pick lets the picks of threads no longer loaded go.
         let calls = Arc::new(Calls::default());
         let session = Arc::new(Session::new(calls.clone(), None));
-        let routes = SessionRoutes::new(Arc::new(Threads::new(header, calls.clone())), Arc::new(Messages(established())), session.clone(), Arc::new(Live(obj(live))));
+        let routes =
+            SessionRoutes::new(Arc::new(Threads::new(header, calls.clone())), Arc::new(Messages(established())), session.clone(), Arc::new(Live(obj(live))));
         for id in ["t1", "t2", "t3"] {
             routes.follow(&ThreadId::from(id), &defer).await.unwrap();
         }

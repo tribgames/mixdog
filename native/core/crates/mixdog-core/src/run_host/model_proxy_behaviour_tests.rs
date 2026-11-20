@@ -86,7 +86,11 @@ impl p::ProviderAdapter for Script {
         self.inner.keepalive()
     }
     async fn attempt(&self, request: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
-        Ok(Box::new(Stream { events: self.events.iter().cloned().collect(), reports: self.reports.iter().cloned().collect(), sink: request.options.on_tool_excluded.clone() }))
+        Ok(Box::new(Stream {
+            events: self.events.iter().cloned().collect(),
+            reports: self.reports.iter().cloned().collect(),
+            sink: request.options.on_tool_excluded.clone(),
+        }))
     }
 }
 
@@ -163,13 +167,25 @@ async fn service(script: Arc<Script>) -> (ModelProxyService, Arc<Notes>) {
     let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
     let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
     let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
-    let runner = ProxyRunner { providers: Arc::new(Lookup(script)), broker, quota: Arc::new(NoQuota), wire: Arc::new(PcWireRouter), config: Arc::new(NoConfig), catalog };
+    let runner = ProxyRunner {
+        providers: Arc::new(Lookup(script)),
+        broker,
+        quota: Arc::new(NoQuota),
+        wire: Arc::new(PcWireRouter),
+        config: Arc::new(NoConfig),
+        catalog,
+    };
     let notes = Arc::new(Notes::default());
     (ModelProxyService::new(Arc::new(runner), Arc::new(MockHostChannel::default()), notes.clone()), notes)
 }
 
 fn hi() -> p::ModelRequest {
-    p::ModelRequest { model: "gpt".into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))], tools: Vec::new(), options: p::RequestOptions::default() }
+    p::ModelRequest {
+        model: "gpt".into(),
+        messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))],
+        tools: Vec::new(),
+        options: p::RequestOptions::default(),
+    }
 }
 
 fn run(run_id: &str) -> CoreRequest {
@@ -206,7 +222,13 @@ async fn a_burst_of_runs_all_answer_with_no_rate_or_concurrency_refusal_and_none
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_the_provider_reports_reaches_the_server_projected_with_the_account_id_and_credential_text_kept_home() {
     let secret_text = "sk-DUMMYSECRET123456789";
-    let excluded = p::ToolExclusionReport { name: "lookup".into(), index: 2, pointer: "/tools/2".into(), reason: "schema".into(), message: format!("cannot take the key {secret_text} here") };
+    let excluded = p::ToolExclusionReport {
+        name: "lookup".into(),
+        index: 2,
+        pointer: "/tools/2".into(),
+        reason: "schema".into(),
+        message: format!("cannot take the key {secret_text} here"),
+    };
     let mut events = vec![
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: format!("switching away from Bearer abcdefghijkl1234") }),
         p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "openai".into(), account_id: "acct-private-42".into(), at: 1_700_000_000_000 }),
@@ -215,7 +237,16 @@ async fn what_the_provider_reports_reaches_the_server_projected_with_the_account
     let (service, notes) = service(script(vec![excluded], events)).await;
     assert_eq!(answered(&service, run("r1")).await["result"], "sent");
     let got = notes.events("r1");
-    assert_eq!(got[0], w::ProxyEvent::ToolExcluded { name: "lookup".into(), index: 2, pointer: "/tools/2".into(), reason: "schema".into(), message: "cannot take the key [redacted] here".into() });
+    assert_eq!(
+        got[0],
+        w::ProxyEvent::ToolExcluded {
+            name: "lookup".into(),
+            index: 2,
+            pointer: "/tools/2".into(),
+            reason: "schema".into(),
+            message: "cannot take the key [redacted] here".into()
+        }
+    );
     assert_eq!(got[1], w::ProxyEvent::AccountSwitching { message: "switching away from [redacted]".into() });
     assert_eq!(got[2], w::ProxyEvent::AccountChanged { provider: "openai".into(), at: 1_700_000_000_000 });
     assert_eq!(text_of(&got), "ok");
@@ -253,7 +284,11 @@ fn a_server_learns_of_a_provider_only_its_enabled_flag_auth_state_and_traits() {
         info(&public, "openai"),
         json!({ "enabled": true, "authState": "present", "modelProxy": { "inputExcludesCache": true, "nativePdf": false, "consumesReadWindows": true, "takesImages": false, "firstResponseBudget": { "transportMs": 100, "semanticMs": 200 } } })
     );
-    assert_eq!(info(&public, "off"), json!({ "enabled": false, "modelProxy": {} }), "only `enabled: true` enables; an unknown auth state, a zero budget and default traits say nothing");
+    assert_eq!(
+        info(&public, "off"),
+        json!({ "enabled": false, "modelProxy": {} }),
+        "only `enabled: true` enables; an unknown auth state, a zero budget and default traits say nothing"
+    );
     assert!(!public.to_string().contains("secret"));
 }
 
@@ -302,7 +337,12 @@ impl PcRegistry for Registry {
         Ok(())
     }
     fn live(&self) -> Vec<(String, Arc<dyn p::ProviderAdapter>)> {
-        self.live.lock().unwrap().iter().map(|name| (name.clone(), Arc::new(MockProvider::new(Vec::<MockAttempt>::new())) as Arc<dyn p::ProviderAdapter>)).collect()
+        self.live
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|name| (name.clone(), Arc::new(MockProvider::new(Vec::<MockAttempt>::new())) as Arc<dyn p::ProviderAdapter>))
+            .collect()
     }
     async fn get(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
         self.live.lock().unwrap().iter().any(|live| live == name).then(|| Arc::new(MockProvider::new(Vec::<MockAttempt>::new())) as Arc<dyn p::ProviderAdapter>)
@@ -353,7 +393,11 @@ async fn a_pc_with_nothing_enabled_still_answers_and_a_cold_one_loads_its_regist
     assert_eq!(none.advertised().await["openai"]["enabled"], false);
     let cold = pc(json!({ "openai": { "enabled": true }, "gemini": { "enabled": false } }), "present");
     let answer = cold.advertised().await;
-    assert_eq!((&answer["openai"]["enabled"], &answer["gemini"]["enabled"]), (&json!(true), &json!(false)), "the first read applied the config before answering");
+    assert_eq!(
+        (&answer["openai"]["enabled"], &answer["gemini"]["enabled"]),
+        (&json!(true), &json!(false)),
+        "the first read applied the config before answering"
+    );
 }
 
 #[tokio::test]

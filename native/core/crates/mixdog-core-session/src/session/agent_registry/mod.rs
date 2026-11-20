@@ -20,34 +20,34 @@
 //! the index as last loaded, with this process's writes applied), as Node's do from its
 //! files; `refresh_tags_from_sessions` reloads the index.
 
-mod rows;
 pub mod flow;
 mod lead_row;
-pub mod sessions;
-pub mod workers;
-mod worker_view;
 mod pool_docs;
-mod world_rows;
 pub mod restart;
+mod rows;
+pub mod sessions;
 pub mod signals;
 pub mod status_rows;
-mod views;
 #[cfg(test)]
 mod tests;
+mod views;
+mod worker_view;
+pub mod workers;
+mod world_rows;
 #[cfg(test)]
 mod write_marks_tests;
 
-pub use self::sessions::AgentOwnerTeardown;
-pub use self::sessions::AgentSessions;
-pub use self::sessions::CloseAllReport;
-pub use self::sessions::AgentStatusline;
 pub use self::flow::AgentTaskStarts;
 pub use self::flow::RuntimeRelease;
-pub use self::flow::SessionTurns;
 pub use self::flow::SessionCompletions;
+pub use self::flow::SessionTurns;
+pub use self::lead_row::LeadTurn;
+pub use self::sessions::AgentOwnerTeardown;
+pub use self::sessions::AgentSessions;
+pub use self::sessions::AgentStatusline;
+pub use self::sessions::CloseAllReport;
 pub use self::workers::AgentWorkers;
 pub use self::world_rows::CancelScope;
-pub use self::lead_row::LeadTurn;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -79,9 +79,9 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 pub use self::rows::Row;
-pub use self::views::Place;
 use self::rows::*;
 use self::views::Maps;
+pub use self::views::Place;
 use self::views::Tags;
 use self::views::Views;
 use super::Clock;
@@ -493,7 +493,19 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default(), parked: Mutex::default(), cancelled: Mutex::default(), sweeper: std::sync::OnceLock::new() }
+        Self {
+            store,
+            live,
+            reap,
+            clock,
+            state: Mutex::new(State::default()),
+            rearm: Arc::default(),
+            loads: Mutex::default(),
+            restart_notices: Mutex::default(),
+            parked: Mutex::default(),
+            cancelled: Mutex::default(),
+            sweeper: std::sync::OnceLock::new(),
+        }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
@@ -773,7 +785,8 @@ impl AgentRegistry {
             let old = std::mem::replace(&mut st.sessions, next);
             st.session_at = sessions_by_id(&st.sessions);
             // A tag's session read from the stored rows is read again when its row changed.
-            let mut changed: HashSet<&String> = st.session_at.iter().filter(|(id, at)| before.get(*id).map(|was| &old[was]) != Some(&st.sessions[*at])).map(|(id, _)| id).collect();
+            let mut changed: HashSet<&String> =
+                st.session_at.iter().filter(|(id, at)| before.get(*id).map(|was| &old[was]) != Some(&st.sessions[*at])).map(|(id, _)| id).collect();
             changed.extend(before.keys().filter(|id| !st.session_at.contains_key(*id)));
             let views = st.views.get_mut();
             for id in changed {
@@ -899,8 +912,8 @@ impl AgentRegistry {
             let row = described(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, Self::indexed_session(st, id)?);
             return (row.get("closed") != Some(&Value::Bool(true))).then(|| SessionRead { row: Arc::new(row), published: None });
         };
-        let overlay = header.get("id").and_then(Value::as_str) != Some(id)
-            || marks_cancelled(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, &header);
+        let overlay =
+            header.get("id").and_then(Value::as_str) != Some(id) || marks_cancelled(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, &header);
         let row = if overlay { Arc::new(self.overlaid(st, id, &header)) } else { header.clone() };
         let published = Some(Published { header: Arc::downgrade(&header), overlay });
         (row.get("closed") != Some(&Value::Bool(true))).then_some(SessionRead { row, published })
@@ -968,7 +981,9 @@ impl AgentRegistry {
         let mut guard = self.lock();
         let st = &mut *guard;
         let kept = st.map(session).is_some_and(|map| map.contains_key(CANCELLED_KEY));
-        if kept != on && let Some(mut map) = st.map(session).cloned() {
+        if kept != on
+            && let Some(mut map) = st.map(session).cloned()
+        {
             if on {
                 map.insert(CANCELLED_KEY.into(), Value::from(self.clock.now_ms()));
             } else {
@@ -1054,9 +1069,7 @@ impl AgentRegistry {
         let hits: Vec<(String, Row)> = st
             .maps
             .iter()
-            .filter(|(id, map)| {
-                map.get("tombstone").and_then(Value::as_object).and_then(|t| normalize_tombstone(t, id, now)).is_some_and(|t| pick(id, &t))
-            })
+            .filter(|(id, map)| map.get("tombstone").and_then(Value::as_object).and_then(|t| normalize_tombstone(t, id, now)).is_some_and(|t| pick(id, &t)))
             .map(|(id, map)| (id.clone(), map.clone()))
             .collect();
         for (id, map) in hits {
@@ -1219,8 +1232,7 @@ impl AgentRegistry {
         let now = self.now();
         let reap = self.reap_ms();
         // Only a row not settled, or settled a day ago, can be stale (`pastSettledRetention`).
-        st
-            .stale_candidates(scope, now)
+        st.stale_candidates(scope, now)
             .into_iter()
             .filter(|row| {
                 #[cfg(any(test, feature = "test-support"))]
@@ -1230,9 +1242,7 @@ impl AgentRegistry {
                 }
                 let id = clean(row.get("sessionId"));
                 if is_terminal_row(row) {
-                    return !is_unnotified_restart_failure(row)
-                        && past_settled_retention(&reap, row, now)
-                        && !self.session_has_live_work(&id);
+                    return !is_unnotified_restart_failure(row) && past_settled_retention(&reap, row, now) && !self.session_has_live_work(&id);
                 }
                 if self.live_session_row(st, &id).is_some() {
                     return false;
@@ -1275,12 +1285,8 @@ impl AgentRegistry {
     /// (`worker-rows.mjs:7`, `:96-102`).
     fn drop_expired_kept(&self, st: &mut State) {
         let now = self.now();
-        let candidates: Vec<String> = self
-            .kept_maps(st)
-            .into_iter()
-            .filter(|(_, map)| clean(map.get("sessionId")).is_empty() && !released_at(map, now))
-            .map(|(id, _)| id)
-            .collect();
+        let candidates: Vec<String> =
+            self.kept_maps(st).into_iter().filter(|(_, map)| clean(map.get("sessionId")).is_empty() && !released_at(map, now)).map(|(id, _)| id).collect();
         if candidates.is_empty() {
             return;
         }
@@ -1513,10 +1519,7 @@ impl AgentRegistry {
 
     /// `ownedTagSession`.
     fn owned_tag_session(session: &Row, tag: &str, scope: &Scope) -> bool {
-        !clean(session.get("id")).is_empty()
-            && agent_tag_of(session) == tag
-            && !is_lead_pool_agent(session.get("agent"))
-            && matches_scope(session, scope)
+        !clean(session.get("id")).is_empty() && agent_tag_of(session) == tag && !is_lead_pool_agent(session.get("agent")) && matches_scope(session, scope)
     }
 
     /// `agentDescendantSessionIds`: every agent session below `session`, depth first, each
@@ -1563,7 +1566,9 @@ impl AgentRegistry {
 /// session-owned one is never the same owner as one only a host process owns.
 fn same_owner(a: &Row, b: &Row) -> bool {
     let (a, b) = (owner_of(a), owner_of(b));
-    let held = |o: &mixdog_agent::agent_tool::scope::Owner| clean_str(if clean_str(&o.parent_session_id).is_empty() { &o.owner_session_id } else { &o.parent_session_id });
+    let held = |o: &mixdog_agent::agent_tool::scope::Owner| {
+        clean_str(if clean_str(&o.parent_session_id).is_empty() { &o.owner_session_id } else { &o.parent_session_id })
+    };
     let (held_a, held_b) = (held(&a), held(&b));
     if !held_a.is_empty() || !held_b.is_empty() {
         return held_a == held_b;
@@ -1699,10 +1704,7 @@ impl Registry for AgentRegistry {
             return None;
         }
         let st = self.lock();
-        st.tombstones(self.now())
-            .iter()
-            .find(|row| matches_scope(row, scope) && clean(row.get("tag")) == value)
-            .map(|row| tag_record(row, "tag", "sessionId"))
+        st.tombstones(self.now()).iter().find(|row| matches_scope(row, scope) && clean(row.get("tag")) == value).map(|row| tag_record(row, "tag", "sessionId"))
     }
 
     /// `consumeTagTombstone`: the tombstone of the record's key goes, and an owner-less twin of
@@ -2031,9 +2033,9 @@ impl KeptRows {
         let rows = self.rows();
         let memory = rows.as_ref().expect("loaded above");
         let answer = match since {
-            Some(since) if since <= memory.revision => KeptSince::Changed(
-                memory.changed.range(since + 1..).map(|(_, id)| (id.clone(), memory.maps.get(id).cloned())).collect(),
-            ),
+            Some(since) if since <= memory.revision => {
+                KeptSince::Changed(memory.changed.range(since + 1..).map(|(_, id)| (id.clone(), memory.maps.get(id).cloned())).collect())
+            }
             _ => KeptSince::All(memory.all()),
         };
         Ok((memory.revision, answer))
@@ -2206,9 +2208,7 @@ impl WorkerStore for StoreWorkers {
             return false;
         }
         let path = path.to_owned();
-        mixdog_core_base::support::on_lane(self.io, &mixdog_rt::CancellationToken::new(), move |lane| is_dir(lane, &path))
-            .await
-            .unwrap_or(false)
+        mixdog_core_base::support::on_lane(self.io, &mixdog_rt::CancellationToken::new(), move |lane| is_dir(lane, &path)).await.unwrap_or(false)
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
@@ -2242,11 +2242,8 @@ impl StoreWorkers {
     /// Queues one session's map for the writer task, numbered in [`Self::marks`].
     fn queue_write(&self, session: &str, worker: Option<Row>) {
         let mark = self.marks.accept();
-        let op = if self.kept.holds(session) {
-            WriteOp::Keep(session.to_owned(), worker, Some(mark))
-        } else {
-            WriteOp::Write(session.to_owned(), worker, mark)
-        };
+        let op =
+            if self.kept.holds(session) { WriteOp::Keep(session.to_owned(), worker, Some(mark)) } else { WriteOp::Write(session.to_owned(), worker, mark) };
         if self.writes.send(op).is_err() {
             self.marks.withdrawn(mark);
         }
@@ -2310,16 +2307,22 @@ impl LiveSessions for super::SessionDirectory {
     }
 }
 
-
 /// Node's `RETRY_AFTER_FAILURE_MS`: how long a failed batch waits for a retry when nothing else writes.
 const KEPT_RETRY_AFTER: std::time::Duration = std::time::Duration::from_millis(15_000);
 /// Node's `RETRY_DELAYS_MS`: a persist is tried again after each of these, so four attempts in all.
-const RETRY_DELAYS: [std::time::Duration; 3] = [std::time::Duration::from_millis(50), std::time::Duration::from_millis(250), std::time::Duration::from_millis(1000)];
+const RETRY_DELAYS: [std::time::Duration; 3] =
+    [std::time::Duration::from_millis(50), std::time::Duration::from_millis(250), std::time::Duration::from_millis(1000)];
 /// Node's `persist`: tries every owed write, in order, and again after each of [`RETRY_DELAYS`] while some are refused; stops at
 /// the first attempt that puts them all. Those still refused after the fourth attempt stay owed (Node requeues the failed batch)
 /// and their numbers fail; the last refusal is returned. A write that is put reports its numbers written, which also clears a
 /// failure an earlier round left on them.
-async fn persist_owed(patcher: &dyn ThreadState, keeper: &KeptRows, leads: &LeadRows, reported: &mixdog_rt::WriteMarks, owed: &mut Vec<Owed>) -> Option<String> {
+async fn persist_owed(
+    patcher: &dyn ThreadState,
+    keeper: &KeptRows,
+    leads: &LeadRows,
+    reported: &mixdog_rt::WriteMarks,
+    owed: &mut Vec<Owed>,
+) -> Option<String> {
     let mut last = None;
     for attempt in 0..=RETRY_DELAYS.len() {
         for item in std::mem::take(owed) {

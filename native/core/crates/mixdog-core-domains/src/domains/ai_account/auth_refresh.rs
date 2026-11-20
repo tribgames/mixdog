@@ -14,8 +14,8 @@ use mixdog_core_config::config::Config;
 use mixdog_rt::TaskClass;
 
 use super::collaborators::AuthRefresh;
-use crate::domains::ai_admin::model_warmup::ModelWarmup;
 use super::dashboards::Dashboards;
+use crate::domains::ai_admin::model_warmup::ModelWarmup;
 
 /// The dependencies `createAuthRefresh` takes, plus `reloadFullConfig` for the account switch.
 pub trait RefreshEffects: Send + Sync + 'static {
@@ -107,7 +107,13 @@ pub struct ProviderEffects {
 }
 
 impl ProviderEffects {
-    pub fn new(config: Config, readiness: Arc<ProviderReadiness>, admission: Arc<Admission>, dashboards: Arc<Dashboards>, models: Arc<ModelWarmup>) -> Arc<Self> {
+    pub fn new(
+        config: Config,
+        readiness: Arc<ProviderReadiness>,
+        admission: Arc<Admission>,
+        dashboards: Arc<Dashboards>,
+        models: Arc<ModelWarmup>,
+    ) -> Arc<Self> {
         Arc::new(Self { config, readiness, admission, dashboards, models })
     }
 
@@ -167,8 +173,8 @@ impl RefreshEffects for ProviderEffects {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
     use super::*;
+    use std::sync::Mutex;
 
     /// A recording stand-in for the runtime: the calls in order, and the lane's cooldown, which
     /// a release clears.
@@ -235,7 +241,6 @@ mod tests {
         assert_eq!(*effects.calls.lock().unwrap(), ["reloadFullConfig", "invalidateProviderCaches", "warmProviderModelCache"]);
     }
 
-
     const REFRESH: &str = "refreshProviderCatalogs:{\"force\":true}";
 
     /// What each entry point does, in order, once its refresh has settled, and whether the lane's cooldown is still held:
@@ -247,7 +252,11 @@ mod tests {
         let (apply, inv, warm) = ("applyConfigChange", "invalidateProviderCaches", "warmProviderModelCache");
         let entries: [(&str, [Vec<&str>; 4], bool); 4] = [
             // refresh: resolves, rejects, throws, absent
-            ("afterCredentialChange", [vec![apply, inv, REFRESH, warm, inv, warm], vec![apply, inv, REFRESH, warm], vec![apply, inv, REFRESH, warm], vec![apply, inv, warm]], false),
+            (
+                "afterCredentialChange",
+                [vec![apply, inv, REFRESH, warm, inv, warm], vec![apply, inv, REFRESH, warm], vec![apply, inv, REFRESH, warm], vec![apply, inv, warm]],
+                false,
+            ),
             ("adoptCredentials", [vec![inv, REFRESH, warm, inv, warm], vec![inv, REFRESH, warm], vec![inv, REFRESH, warm], vec![inv, warm]], false),
             ("afterUsageAuthChange", [vec![apply, inv], vec![apply, inv], vec![apply, inv], vec![apply, inv]], true),
             ("releaseAdmissionCooldowns", [vec![], vec![], vec![], vec![]], false),

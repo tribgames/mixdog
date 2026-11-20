@@ -194,7 +194,13 @@ mod tests {
         let (q, counter) = queue(0, None);
         let running = {
             let q = q.clone();
-            tokio::spawn(async move { q.run(None, |token| async move { token.cancelled().await; "interrupted" }).await })
+            tokio::spawn(async move {
+                q.run(None, |token| async move {
+                    token.cancelled().await;
+                    "interrupted"
+                })
+                .await
+            })
         };
         tokio::task::yield_now().await;
         q.stop().await;
@@ -202,7 +208,6 @@ mod tests {
         assert_eq!(counter.0.load(Ordering::SeqCst), 1);
         assert_eq!(q.run(None, |_| async { 1 }).await, Ok(1));
     }
-
 
     #[tokio::test(start_paused = true)]
     async fn requests_run_one_at_a_time_in_arrival_order() {
@@ -244,7 +249,6 @@ mod tests {
         assert_eq!(counter.0.load(Ordering::SeqCst), 1);
     }
 }
-
 
 impl RequestQueue {
     pub fn new(unloader: Arc<dyn Unload>, idle_ttl_seconds: u64, max_queue: Option<usize>) -> Self {
@@ -368,7 +372,8 @@ impl RequestQueue {
                 this.0.state.lock().unwrap().last_unload_error = Some(message);
             }
             drop(stopping);
-        }).await;
+        })
+        .await;
         if let Err(error) = done {
             self.0.state.lock().unwrap().last_unload_error = Some(error.to_string());
             self.0.signal.notify();

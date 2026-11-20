@@ -1,9 +1,6 @@
 //! Token accounting of one exec (`createSessionStats` / `applyUsageDelta`) and the per-run usage
 //! document (`writeUsageDocument`, schema v1), rewritten after every model response.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "the exec process owns its usage file; it writes it on its own thread, outside the core's lanes"
-)]
+#![allow(clippy::disallowed_methods, reason = "the exec process owns its usage file; it writes it on its own thread, outside the core's lanes")]
 
 use std::path::Path;
 
@@ -142,14 +139,18 @@ mod tests {
         assert_eq!(js_number(2.5), json!(2.5));
     }
 
-
     #[test]
     fn the_document_has_one_trimmed_session_with_its_models_and_totals_in_a_fixed_key_order() {
         let mut stats = SessionStats::default();
         stats.apply(&UsageDelta { model: Some("gpt-fallback".into()), input: 11.0, cached_read: 7.0, cache_write: 3.0, output: 5.0 });
         let document = usage_document(
             &stats,
-            &UsageSession { session_id: " sess_exec_test ", model: "gpt-test", observed_models: &["gpt-fallback".into(), "gpt-test".into(), " ".into()], tool_calls: 0.0 },
+            &UsageSession {
+                session_id: " sess_exec_test ",
+                model: "gpt-test",
+                observed_models: &["gpt-fallback".into(), "gpt-test".into(), " ".into()],
+                tool_calls: 0.0,
+            },
         );
         // The route's model comes first, the observed ones follow without repeats or blanks; the id is trimmed.
         // Key order is part of the file the harnesses read.

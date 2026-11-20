@@ -195,7 +195,9 @@ async fn request(desktop: &dyn HostChannel, method: &'static str, params: Value,
         Err(HostError::Rpc { code: -32602, .. }) if method == INPUT_METHOD => Err(failed(NOT_OWNED.into())),
         Err(HostError::Rpc { code: -32601, .. }) => Err(failed(format!("{method} {NOT_SERVED_SUFFIX}"))),
         Err(HostError::Rpc { message, .. }) => Err(failed(message)),
-        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == "timedOut" => Err(failed("Error: computer bridge timed out".into())),
+        Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == "timedOut" => {
+            Err(failed("Error: computer bridge timed out".into()))
+        }
         Err(HostError::Core(_)) => Err(failed("Error: computer bridge is not available".into())),
     }
 }
@@ -229,7 +231,10 @@ fn unmapped_key_name(grammar: &str) -> Option<String> {
                 _ => inside.as_str(),
             };
             let upper = name.to_uppercase();
-            let function = upper.strip_prefix('F').and_then(|number| number.parse::<u8>().ok()).is_some_and(|number| (1..=24).contains(&number) && !upper.starts_with("F0") && !upper.contains('+'));
+            let function = upper
+                .strip_prefix('F')
+                .and_then(|number| number.parse::<u8>().ok())
+                .is_some_and(|number| (1..=24).contains(&number) && !upper.starts_with("F0") && !upper.contains('+'));
             if !MAPPED_KEY_NAMES.contains(&upper.as_str()) && !function {
                 return Some(name.to_owned());
             }
@@ -245,11 +250,21 @@ fn unmapped_key_name(grammar: &str) -> Option<String> {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum AppInputOp {
     /// The keys in the helper's grammar, as `normalizeComputerKeySequence` wrote them.
-    Key { keys: String },
-    Type { text: String, point: Option<(f64, f64)> },
+    Key {
+        keys: String,
+    },
+    Type {
+        text: String,
+        point: Option<(f64, f64)>,
+    },
     /// Signed wheel deltas in CSS pixels (`WHEEL_NOTCH` a notch), at a point or the middle of the window, with the step's
     /// `modifiers` text (`ctrl+shift`) held.
-    Wheel { point: Option<(f64, f64)>, dx: f64, dy: f64, modifiers: Option<String> },
+    Wheel {
+        point: Option<(f64, f64)>,
+        dx: f64,
+        dy: f64,
+        modifiers: Option<String>,
+    },
 }
 
 impl AppInputOp {
@@ -345,7 +360,13 @@ impl AppInputOp {
 
 /// `host/computer/appInput`: one input into the app-owned window, answered as the result of an `act` step. A desktop that does
 /// not serve the method, or that does not own the window, is an error `falls_back` names: the step then goes to the helper.
-pub(super) async fn app_input(desktop: &dyn HostChannel, session: &str, window_id: &str, op: AppInputOp, cancel: &CancellationToken) -> Result<Value, ComputerError> {
+pub(super) async fn app_input(
+    desktop: &dyn HostChannel,
+    session: &str,
+    window_id: &str,
+    op: AppInputOp,
+    cancel: &CancellationToken,
+) -> Result<Value, ComputerError> {
     let answer = match request(desktop, INPUT_METHOD, op.params(session, window_id), cancel).await {
         Ok(answer) => answer,
         Err(error) => {
@@ -383,7 +404,8 @@ pub(super) async fn app_input(desktop: &dyn HostChannel, session: &str, window_i
         // click's own code and words ride along; a click that may have landed leaves `delivery_accepted` unknown (null).
         "click_unconfirmed" => {
             let said = |key: &str| answer.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
-            let may_have_executed = answer.get("inputMayHaveExecuted").and_then(Value::as_bool) == Some(true) || answer.get("deliveryAccepted").and_then(Value::as_bool) != Some(false);
+            let may_have_executed = answer.get("inputMayHaveExecuted").and_then(Value::as_bool) == Some(true)
+                || answer.get("deliveryAccepted").and_then(Value::as_bool) != Some(false);
             result.insert("action".into(), json!("type"));
             result.insert("code".into(), json!(said("code").unwrap_or("typing_target_unconfirmed")));
             result.insert("text".into(), json!(said("text").unwrap_or("The preparatory click was not confirmed; no text was sent.")));
@@ -503,8 +525,14 @@ mod tests {
         for action in ["click", "double_click", "right_click", "middle_click", "triple_click", "mouse_move"] {
             assert_eq!(op(json!({ "action": action, "x": 130, "y": 90 })), None, "{action}");
         }
-        assert_eq!(op(json!({ "action": "scroll", "direction": "up", "amount": 500 })), Some(AppInputOp::Wheel { point: None, dx: 0.0, dy: -10_000.0, modifiers: None }));
-        assert_eq!(op(json!({ "action": "scroll", "direction": "left", "x": 110, "y": 60 })), Some(AppInputOp::Wheel { point: Some((10.0, 10.0)), dx: -300.0, dy: 0.0, modifiers: None }));
+        assert_eq!(
+            op(json!({ "action": "scroll", "direction": "up", "amount": 500 })),
+            Some(AppInputOp::Wheel { point: None, dx: 0.0, dy: -10_000.0, modifiers: None })
+        );
+        assert_eq!(
+            op(json!({ "action": "scroll", "direction": "left", "x": 110, "y": 60 })),
+            Some(AppInputOp::Wheel { point: Some((10.0, 10.0)), dx: -300.0, dy: 0.0, modifiers: None })
+        );
         // No direction: `dy` gives the amount and the sign; the modifiers ride along.
         assert_eq!(
             op(json!({ "action": "scroll", "dy": -2, "modifiers": "ctrl" })),
@@ -530,7 +558,9 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_window_the_desktop_does_not_own_goes_to_the_helper() {
         let desk = Desk::new(Err((-32602, "invalid params")));
-        let error = app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Wheel { point: None, dx: 0.0, dy: 100.0, modifiers: None }, &CancellationToken::new()).await.expect_err("not owned");
+        let error = app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Wheel { point: None, dx: 0.0, dy: 100.0, modifiers: None }, &CancellationToken::new())
+            .await
+            .expect_err("not owned");
         assert!(falls_back(&error));
         assert!(!not_served(&error));
     }
@@ -554,7 +584,11 @@ mod tests {
     async fn an_unconfirmed_preparatory_click_is_a_row_with_the_clicks_code() {
         let ask = |answer: Value| {
             let desk = Desk::new(Ok(answer));
-            async move { app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Type { text: "x".into(), point: Some((1.0, 1.0)) }, &CancellationToken::new()).await.expect("a row") }
+            async move {
+                app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Type { text: "x".into(), point: Some((1.0, 1.0)) }, &CancellationToken::new())
+                    .await
+                    .expect("a row")
+            }
         };
         let refused = ask(json!({ "delivered": false, "effect": "click_unconfirmed", "code": "user_input_active", "text": "the person is using the mouse", "deliveryAccepted": false })).await;
         assert_eq!(refused["code"], "user_input_active");
@@ -592,7 +626,9 @@ mod tests {
         let owned = AppOwnedWindows::new();
         *owned.slot() = Read::Windows(Instant::now(), HashMap::from([("hwnd:0x1".to_string(), window)]));
         let refused = owned.unmapped_key(&object(json!({ "action": "key", "keys": "^{INSERT}" })), "hwnd:0x1").expect("refused");
-        assert!(matches!(&refused, ComputerError::Failed { message, .. } if message == "background_unsupported: key {INSERT} has no Electron input mapping; no input was sent"));
+        assert!(
+            matches!(&refused, ComputerError::Failed { message, .. } if message == "background_unsupported: key {INSERT} has no Electron input mapping; no input was sent")
+        );
         for keys in ["^a", "%{F4}", "{ENTER 3}", "+{left}", "{F24}", "{", "^{PGDN}{DELETE 2}", "+", "#{PLUS}"] {
             assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": keys })), "hwnd:0x1").is_none(), "{keys}");
         }
@@ -604,7 +640,6 @@ mod tests {
         assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": "{INSERT}", "delivery": "foreground" })), "hwnd:0x1").is_none());
         assert!(owned.unmapped_key(&object(json!({ "action": "type", "text": "{INSERT}" })), "hwnd:0x1").is_none());
     }
-
 
     #[tokio::test(start_paused = true)]
     async fn the_desktops_effects_are_the_steps_outcomes() {
@@ -623,7 +658,9 @@ mod tests {
         assert!(!falls_back(&gone));
         assert!(ask(json!({ "delivered": false, "effect": "refused" })).await.is_err());
         let unmappable = ask(json!({ "delivered": false, "effect": "refused", "code": "background_unsupported", "text": "background_unsupported: key {Zork} has no Electron input mapping; no input was sent" })).await.expect_err("refused");
-        assert!(matches!(&unmappable, ComputerError::Failed { message, .. } if crate::desktop::computer_recovery::lead_code(message) == "background_unsupported"));
+        assert!(
+            matches!(&unmappable, ComputerError::Failed { message, .. } if crate::desktop::computer_recovery::lead_code(message) == "background_unsupported")
+        );
         assert!(!falls_back(&unmappable), "the helper is not tried after a refusal");
     }
 }

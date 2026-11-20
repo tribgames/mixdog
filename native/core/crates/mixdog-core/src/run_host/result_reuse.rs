@@ -15,8 +15,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mixdog_agent::env::Clock;
-use mixdog_agent::env::{ResultReuse, ReuseKind, ReuseWrite};
 use mixdog_agent::env::Reused;
+use mixdog_agent::env::{ResultReuse, ReuseKind, ReuseWrite};
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::domain::tool::ToolOutput;
@@ -340,7 +340,6 @@ mod tests {
         assert_eq!(normalize("/a/b/../c/./d"), "/a/c/d");
     }
 
-
     fn io() -> ToolIo {
         let tokens = mixdog_rt::testing::tokens();
         ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }
@@ -639,11 +638,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.rs"), "x").unwrap();
         let cache = reuse(dir.path(), 0);
-        for request in [
-            call("glob", json!({"pattern": "*.rs"})),
-            call("grep", json!({"pattern": "x"})),
-            call("code_graph", json!({"mode": "overview"})),
-        ] {
+        for request in [call("glob", json!({"pattern": "*.rs"})), call("grep", json!({"pattern": "x"})), call("code_graph", json!({"mode": "overview"}))] {
             assert!(cache.prepare(&request, "uncovered").await.is_none());
         }
         let glob = call("glob", json!({"pattern": "*.rs", "include_noise": true}));
@@ -658,10 +653,7 @@ mod tests {
     async fn only_static_find_windows_can_be_reused() {
         let dir = tempfile::tempdir().unwrap();
         let cache = reuse(dir.path(), 0);
-        for args in [
-            json!({"mode": "find", "modified_after": "90m"}),
-            json!({"path": "*.rs", "modified_before": "12h"}),
-        ] {
+        for args in [json!({"mode": "find", "modified_after": "90m"}), json!({"path": "*.rs", "modified_before": "12h"})] {
             assert!(cache.prepare(&call("list", args), "relative").await.is_none());
         }
         let absolute = call("list", json!({"mode": "find", "modified_after": "2026-01-01T00:00:00Z"}));
@@ -683,16 +675,11 @@ mod tests {
     }
 }
 
-
 pub(crate) fn resolve(base: &str, path: &str) -> String {
     if is_abs(path) {
         return normalize(path);
     }
-    let base = if base.is_empty() {
-        std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
-    } else {
-        base.to_owned()
-    };
+    let base = if base.is_empty() { std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() } else { base.to_owned() };
     normalize(&format!("{base}/{path}"))
 }
 fn normalize_abs(path: &str, cwd: &str) -> Option<String> {
@@ -702,14 +689,13 @@ fn normalize_abs(path: &str, cwd: &str) -> Option<String> {
 /// The sha256 of the file's bytes, `None` when it is unreadable or past the budget.
 #[allow(clippy::disallowed_methods, reason = "runs inside a lane job body")]
 fn digest_of(lane: &InLane<InteractiveIo>, abs: &str) -> Option<String> {
-    use std::io::Read;
     use sha2::Digest;
+    use std::io::Read;
     let mut bytes = Vec::new();
     mixdog_fsio::File::open(lane, abs).ok()?.take(READ_PREFIX_HASH_BYTES + 1).read_to_end(&mut bytes).ok()?;
     // A text-only PDF result on one route does not prove that another route
     // would return text rather than pages or a native attachment.
-    (!bytes.starts_with(b"%PDF-") && bytes.len() as u64 <= READ_PREFIX_HASH_BYTES)
-        .then(|| format!("{:x}", sha2::Sha256::digest(&bytes)))
+    (!bytes.starts_with(b"%PDF-") && bytes.len() as u64 <= READ_PREFIX_HASH_BYTES).then(|| format!("{:x}", sha2::Sha256::digest(&bytes)))
 }
 /// Node's `statSync`: one metadata call per path argument, taken inside an io-interactive lane job.
 #[allow(clippy::disallowed_methods, reason = "takes the lane's proof: it runs inside a lane job body")]
@@ -775,9 +761,9 @@ fn dependency_roots(tool: &str, args: &JsonValue, cwd: &Path) -> Option<Vec<Path
             None | Some(JsonValue::Null) => vec![".".to_owned()],
             Some(JsonValue::String(s)) if mixdog_js::js_trim(s).is_empty() => vec![".".to_owned()],
             Some(JsonValue::String(s)) => vec![s.clone()],
-            Some(JsonValue::Array(paths)) if (1..=10).contains(&paths.len()) => paths.iter()
-                .map(|p| p.as_str().map(mixdog_js::js_trim).filter(|s| !s.is_empty()).map(str::to_owned))
-                .collect::<Option<_>>()?,
+            Some(JsonValue::Array(paths)) if (1..=10).contains(&paths.len()) => {
+                paths.iter().map(|p| p.as_str().map(mixdog_js::js_trim).filter(|s| !s.is_empty()).map(str::to_owned)).collect::<Option<_>>()?
+            }
             _ => return None,
         },
         _ => return None,
@@ -873,31 +859,38 @@ impl ToolResultReuse {
         if roots.is_empty() {
             return None;
         }
-        let job = self.io.interactive.submit(&CancellationToken::new(), move |lane| {
-            roots.into_iter().map(|(root, file_only)| {
-                let raw = root.to_str()?;
-                if device_paths::is_unc_path(raw) || device_paths::is_windows_device_path(raw)
-                    || device_paths::has_unsafe_win32_component(raw) || device_paths::is_blocked_device_path(raw)
-                {
-                    return None;
-                }
-                let real = pathguard::canonical(&root).ok()?;
-                if pathguard::comparable(&real) != pathguard::comparable(&root) {
-                    return None;
-                }
-                if file_only && !mixdog_fsio::metadata(lane, &real).ok()?.is_file() {
-                    return None;
-                }
-                Some(Coverage { revision: revision(&real)?, root: real, file_only })
-            }).collect::<Option<Vec<_>>>()
-        }).ok()?;
+        let job = self
+            .io
+            .interactive
+            .submit(&CancellationToken::new(), move |lane| {
+                roots
+                    .into_iter()
+                    .map(|(root, file_only)| {
+                        let raw = root.to_str()?;
+                        if device_paths::is_unc_path(raw)
+                            || device_paths::is_windows_device_path(raw)
+                            || device_paths::has_unsafe_win32_component(raw)
+                            || device_paths::is_blocked_device_path(raw)
+                        {
+                            return None;
+                        }
+                        let real = pathguard::canonical(&root).ok()?;
+                        if pathguard::comparable(&real) != pathguard::comparable(&root) {
+                            return None;
+                        }
+                        if file_only && !mixdog_fsio::metadata(lane, &real).ok()?.is_file() {
+                            return None;
+                        }
+                        Some(Coverage { revision: revision(&real)?, root: real, file_only })
+                    })
+                    .collect::<Option<Vec<_>>>()
+            })
+            .ok()?;
         job.await.ok().flatten()
     }
 
     fn revisions_match(&self, coverage: &[Coverage]) -> bool {
-        self.revision.as_ref().is_some_and(|revision| coverage.iter().all(|proof| {
-            revision(&proof.root).is_some_and(|now| Arc::ptr_eq(&now, &proof.revision))
-        }))
+        self.revision.as_ref().is_some_and(|revision| coverage.iter().all(|proof| revision(&proof.root).is_some_and(|now| Arc::ptr_eq(&now, &proof.revision))))
     }
 
     async fn lookup_read(&self, call: &ToolCall, cwd: &str, touch: bool) -> Option<Reused> {
@@ -912,12 +905,22 @@ impl ToolResultReuse {
             let entry = &inner.read.entries[index];
             // The bytes are the same, or the body is not reused, whatever the timestamps say.
             let fresh = entry.meta.stats.len() == current.len()
-                && entry.meta.stats.iter().zip(&current).all(|((_, stored), now)| cacheable(stored) && cacheable(now) && stored.as_ref().map(|s| &s.digest) == now.as_ref().map(|s| &s.digest));
+                && entry
+                    .meta
+                    .stats
+                    .iter()
+                    .zip(&current)
+                    .all(|((_, stored), now)| cacheable(stored) && cacheable(now) && stored.as_ref().map(|s| &s.digest) == now.as_ref().map(|s| &s.digest));
             if !fresh {
                 inner.read.entries.remove(index);
                 return None;
             }
-            let reused = Reused { content: entry.content.clone(), first_tool_use_id: entry.first.clone().unwrap_or_default(), kind: ReuseKind::Read, explicit_success: entry.meta.explicit_success };
+            let reused = Reused {
+                content: entry.content.clone(),
+                first_tool_use_id: entry.first.clone().unwrap_or_default(),
+                kind: ReuseKind::Read,
+                explicit_success: entry.meta.explicit_success,
+            };
             if touch {
                 let entry = inner.read.entries.remove(index);
                 inner.read.entries.push(entry);
@@ -929,10 +932,12 @@ impl ToolResultReuse {
 
     async fn lookup_scoped(&self, tool: &str, call: &ToolCall, cwd: &str, touch: bool) -> Option<Reused> {
         let key = scoped_key(tool, &call.arguments, cwd);
-        let (epoch, coverage) = self.with(|inner| {
-            let row = &inner.scoped.entries[inner.scoped.position(&key)?];
-            Some((inner.scoped_epoch.clone(), row.meta.coverage.clone()))
-        }).flatten()?;
+        let (epoch, coverage) = self
+            .with(|inner| {
+                let row = &inner.scoped.entries[inner.scoped.position(&key)?];
+                Some((inner.scoped_epoch.clone(), row.meta.coverage.clone()))
+            })
+            .flatten()?;
         let verified = self.cover(coverage.iter().map(|proof| (proof.root.clone(), proof.file_only)).collect()).await;
         let valid = verified.is_some_and(|verified| verified.iter().zip(&coverage).all(|(now, then)| Arc::ptr_eq(&now.revision, &then.revision)));
         let now = self.clock.now_ms();
@@ -955,7 +960,12 @@ impl ToolResultReuse {
                 return None;
             }
             let entry = &inner.scoped.entries[index];
-            let reused = Reused { content: entry.content.clone(), first_tool_use_id: entry.first.clone().unwrap_or_default(), kind: ReuseKind::Scoped, explicit_success: entry.meta.explicit_success };
+            let reused = Reused {
+                content: entry.content.clone(),
+                first_tool_use_id: entry.first.clone().unwrap_or_default(),
+                kind: ReuseKind::Scoped,
+                explicit_success: entry.meta.explicit_success,
+            };
             if touch {
                 let entry = inner.scoped.entries.remove(index);
                 inner.scoped.entries.push(entry);
@@ -991,7 +1001,8 @@ impl ResultReuse for ToolResultReuse {
             "read" => inner.read.position(&key).is_some(),
             "glob" | "list" | "grep" => inner.scoped.position(&key).is_some(),
             _ => false,
-        }).unwrap_or(false)
+        })
+        .unwrap_or(false)
     }
 
     async fn lookup(&self, call: &ToolCall, cwd: &Path, touch: bool) -> Option<Reused> {
@@ -1079,8 +1090,10 @@ impl ResultReuse for ToolResultReuse {
                 for path in paths {
                     let lexical = mixdog_tools::fs::result_root(&base, &path)?;
                     let text = lexical.to_str()?;
-                    if device_paths::is_unc_path(text) || device_paths::is_windows_device_path(text)
-                        || device_paths::has_unsafe_win32_component(text) || device_paths::is_blocked_device_path(text)
+                    if device_paths::is_unc_path(text)
+                        || device_paths::is_windows_device_path(text)
+                        || device_paths::has_unsafe_win32_component(text)
+                        || device_paths::is_blocked_device_path(text)
                     {
                         return None;
                     }
@@ -1133,15 +1146,19 @@ impl ReuseWrite for Write {
                 }
                 cache.with(|inner| {
                     if Arc::ptr_eq(&inner.read_epoch, &epoch) {
-                        inner.read.set(Entry { key, content: content.to_owned(), ts, first, meta: ReadMeta { stats, explicit_success: output.explicit_success } });
+                        inner.read.set(Entry {
+                            key,
+                            content: content.to_owned(),
+                            ts,
+                            first,
+                            meta: ReadMeta { stats, explicit_success: output.explicit_success },
+                        });
                     }
                 });
             }
             WriteTarget::Scoped(coverage) => {
                 let Some(meta) = output.meta.as_ref() else { return };
-                if meta.get("complete").and_then(JsonValue::as_bool) != Some(true)
-                    || meta.get("cacheSafe").is_some_and(|safe| safe.as_bool() != Some(true))
-                {
+                if meta.get("complete").and_then(JsonValue::as_bool) != Some(true) || meta.get("cacheSafe").is_some_and(|safe| safe.as_bool() != Some(true)) {
                     return;
                 }
                 let Some(after) = cache.cover(coverage.iter().map(|proof| (proof.root.clone(), proof.file_only)).collect()).await else { return };
@@ -1150,7 +1167,13 @@ impl ReuseWrite for Write {
                 }
                 cache.with(|inner| {
                     if Arc::ptr_eq(&inner.scoped_epoch, &epoch) && cache.revisions_match(&coverage) {
-                        inner.scoped.set(Entry { key, content: content.to_owned(), ts, first, meta: ScopedMeta { coverage, explicit_success: output.explicit_success } });
+                        inner.scoped.set(Entry {
+                            key,
+                            content: content.to_owned(),
+                            ts,
+                            first,
+                            meta: ScopedMeta { coverage, explicit_success: output.explicit_success },
+                        });
                     }
                 });
             }
@@ -1176,7 +1199,15 @@ impl LiveReuses {
 
     /// A run's view of its session's cache; it finds the cache by the session id at every use.
     pub fn run(&self, io: ToolIo, session_id: &str, clock: Arc<dyn Clock>) -> Arc<ToolResultReuse> {
-        Arc::new(ToolResultReuse { io, session_id: session_id.to_owned(), clock, sessions: self.sessions.clone(), mutations: self.mutations.clone(), snapshots: self.snapshots.get().cloned(), revision: self.revision.get().cloned() })
+        Arc::new(ToolResultReuse {
+            io,
+            session_id: session_id.to_owned(),
+            clock,
+            sessions: self.sessions.clone(),
+            mutations: self.mutations.clone(),
+            snapshots: self.snapshots.get().cloned(),
+            revision: self.revision.get().cloned(),
+        })
     }
 
     /// `clearReadDedupSession(session_id)`: the read and scoped caches of the id are dropped.

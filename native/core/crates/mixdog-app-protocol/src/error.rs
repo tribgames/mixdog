@@ -284,9 +284,7 @@ impl ErrorData {
             | Self::ProviderError { .. }
             | Self::Cancelled { .. }
             | Self::BlobCorrupt { .. } => INTERNAL_ERROR,
-            Self::InflightLimit { .. } | Self::WindowFull { .. } | Self::QueueFull { .. } => {
-                OVERLOADED
-            }
+            Self::InflightLimit { .. } | Self::WindowFull { .. } | Self::QueueFull { .. } => OVERLOADED,
         }
     }
 
@@ -303,17 +301,11 @@ impl ErrorData {
 
     /// The JSON-RPC error body; `message` is English for logs only.
     pub fn into_body(self, message: impl Into<String>) -> JsonRpcErrorBody {
-        JsonRpcErrorBody {
-            code: self.code(),
-            data: Some(serde_json::to_value(&self).expect("ErrorData serializes")),
-            message: message.into(),
-        }
+        JsonRpcErrorBody { code: self.code(), data: Some(serde_json::to_value(&self).expect("ErrorData serializes")), message: message.into() }
     }
 
     /// Decodes `data` of a received error body.
     pub fn from_body(body: &JsonRpcErrorBody) -> Option<Self> {
-        body.data
-            .clone()
-            .and_then(|data| serde_json::from_value(data).ok())
+        body.data.clone().and_then(|data| serde_json::from_value(data).ok())
     }
 }

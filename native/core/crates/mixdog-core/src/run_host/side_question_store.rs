@@ -16,7 +16,7 @@ use mixdog_agent::fork::{forked_request_stubbed, send_forked};
 use mixdog_agent::response::ModelResponse;
 use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter};
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_session::session::turn_ops::{SideFailure, SideQuestions, SideReply, SideRun, SIDE_QUESTION_NO_REQUEST};
+use mixdog_core_session::session::turn_ops::{SIDE_QUESTION_NO_REQUEST, SideFailure, SideQuestions, SideReply, SideRun};
 use mixdog_rt::CancellationToken;
 
 use super::summary_routes::{ForkSender, SavedRequest};
@@ -88,10 +88,7 @@ impl ForkSender for CompactionFork {
         let sender = {
             let requests = self.store.requests();
             let entry = lock(&self.slot);
-            if requests.get(self.thread.as_str()).is_none_or(|current| !Arc::ptr_eq(current, &self.slot))
-                || !entry.request.settled
-                || entry.request.compacted
-            {
+            if requests.get(self.thread.as_str()).is_none_or(|current| !Arc::ptr_eq(current, &self.slot)) || !entry.request.settled || entry.request.compacted {
                 return Err(SummaryFailure::Failed("saved compaction request is no longer current".to_owned()));
             }
             entry.sender.clone()
@@ -406,7 +403,7 @@ mod tests {
     use mixdog_core_api::domain::mock::{MockAttempt, MockProvider};
     use mixdog_core_api::domain::provider::{Content, Message, ModelStream, ProviderError, RequestOptions, Role, ToolCall, WireCodec};
     use mixdog_core_api::domain::retry::RetryPolicy;
-    use mixdog_core_session::session::turn_ops::{ask_side_question, SIDE_QUESTION_TOOL_STUB};
+    use mixdog_core_session::session::turn_ops::{SIDE_QUESTION_TOOL_STUB, ask_side_question};
     use mixdog_protocol::ProviderId;
 
     use super::*;
@@ -496,7 +493,9 @@ mod tests {
         }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
             if self.cold.swap(false, Ordering::SeqCst) {
-                return Err(ProviderError::tail_refused(mixdog_core_api::domain::cache_tail::TailRefusal::Skip(mixdog_core_api::domain::cache_tail::Cold::Expired)));
+                return Err(ProviderError::tail_refused(mixdog_core_api::domain::cache_tail::TailRefusal::Skip(
+                    mixdog_core_api::domain::cache_tail::Cold::Expired,
+                )));
             }
             self.inner.attempt(request).await
         }

@@ -37,9 +37,7 @@ fn fires_in_deadline_order_at_or_after_the_deadline() {
             tx.send((name, start.elapsed())).unwrap();
         });
     }
-    let got: Vec<_> = (0..3)
-        .map(|_| rx.recv().unwrap())
-        .collect();
+    let got: Vec<_> = (0..3).map(|_| rx.recv().unwrap()).collect();
     assert_eq!(got.iter().map(|g| g.0).collect::<Vec<_>>(), ["a", "b", "c"]);
     assert!(got[0].1 >= ms(30) && got[2].1 >= ms(90));
 }

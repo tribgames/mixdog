@@ -15,11 +15,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::login::LoginError;
-use mixdog_core_api::feed_publisher::LoginFeeds;
 use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::login::LoginInput;
 use mixdog_core_api::domain::login::LoginSession;
 use mixdog_core_api::domain::login::LoginState;
+use mixdog_core_api::feed_publisher::LoginFeeds;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
@@ -413,7 +413,11 @@ impl Driver {
         let (backend, name) = (Arc::clone(&self.backend), flow.name.clone());
         // The follow-up is spawned, and task-locals do not follow a spawn: it carries the request scope by hand.
         let scope = crate::scope_runtime::request_scope();
-        mixdog_rt::spawn("mcp.login.completed", mixdog_rt::TaskClass::Work, crate::scope_runtime::with_request_scope(scope, async move { backend.completed(&name).await }));
+        mixdog_rt::spawn(
+            "mcp.login.completed",
+            mixdog_rt::TaskClass::Work,
+            crate::scope_runtime::with_request_scope(scope, async move { backend.completed(&name).await }),
+        );
     }
 
     async fn drive(&self, url_tx: oneshot::Sender<String>) {

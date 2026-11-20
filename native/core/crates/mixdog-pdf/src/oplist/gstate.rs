@@ -14,12 +14,7 @@ pub type Matrix = [f64; 6];
 pub const IDENTITY: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
 /// `F32_BBOX_INIT` / `BBOX_INIT`: an empty box.
-pub const BBOX_INIT: [f32; 4] = [
-    f32::INFINITY,
-    f32::INFINITY,
-    f32::NEG_INFINITY,
-    f32::NEG_INFINITY,
-];
+pub const BBOX_INIT: [f32; 4] = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
 
 /// `Util.transform`: `m1` applied after `m2`.
 pub fn transform(m1: &[f64], m2: &[f64]) -> Matrix {
@@ -40,20 +35,12 @@ pub fn apply_point(x: f64, y: f64, m: &[f64]) -> (f64, f64) {
 
 /// `Math.min` of JavaScript: NaN wins.
 fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.min(b)
-    }
+    if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) }
 }
 
 /// `Math.max` of JavaScript: NaN wins.
 fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.max(b)
-    }
+    if a.is_nan() || b.is_nan() { f64::NAN } else { a.max(b) }
 }
 
 /// `Util.pointBoundingBox`; the box is a `Float32Array`.
@@ -106,54 +93,20 @@ fn extremum(p: [f64; 8], a: f64, b: f64, c: f64, min_max: &mut [f32; 4]) {
 
 /// `Util.bezierBoundingBox` of the curve from `(x0, y0)` through the control points to `(x3, y3)`.
 #[allow(clippy::too_many_arguments)]
-pub fn bezier_bounding_box(
-    x0: f64,
-    y0: f64,
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
-    x3: f64,
-    y3: f64,
-    min_max: &mut [f32; 4],
-) {
+pub fn bezier_bounding_box(x0: f64, y0: f64, x1: f64, y1: f64, x2: f64, y2: f64, x3: f64, y3: f64, min_max: &mut [f32; 4]) {
     min_max[0] = js_min(js_min(f64::from(min_max[0]), x0), x3) as f32;
     min_max[1] = js_min(js_min(f64::from(min_max[1]), y0), y3) as f32;
     min_max[2] = js_max(js_max(f64::from(min_max[2]), x0), x3) as f32;
     min_max[3] = js_max(js_max(f64::from(min_max[3]), y0), y3) as f32;
     let p = [x0, x1, x2, x3, y0, y1, y2, y3];
-    extremum(
-        p,
-        3.0 * (-x0 + 3.0 * (x1 - x2) + x3),
-        6.0 * (x0 - 2.0 * x1 + x2),
-        3.0 * (x1 - x0),
-        min_max,
-    );
-    extremum(
-        p,
-        3.0 * (-y0 + 3.0 * (y1 - y2) + y3),
-        6.0 * (y0 - 2.0 * y1 + y2),
-        3.0 * (y1 - y0),
-        min_max,
-    );
+    extremum(p, 3.0 * (-x0 + 3.0 * (x1 - x2) + x3), 6.0 * (x0 - 2.0 * x1 + x2), 3.0 * (x1 - x0), min_max);
+    extremum(p, 3.0 * (-y0 + 3.0 * (y1 - y2) + y3), 6.0 * (y0 - 2.0 * y1 + y2), 3.0 * (y1 - y0), min_max);
 }
 
 /// `Util.axialAlignedBoundingBox`: the box of `rect` under `transform`, joined into `output`.
 pub fn axial_aligned_bounding_box(rect: &[f32; 4], transform: &[f64], output: &mut [f32; 4]) {
-    let (m0, m1, m2, m3, m4, m5) = (
-        transform[0],
-        transform[1],
-        transform[2],
-        transform[3],
-        transform[4],
-        transform[5],
-    );
-    let (r0, r1, r2, r3) = (
-        f64::from(rect[0]),
-        f64::from(rect[1]),
-        f64::from(rect[2]),
-        f64::from(rect[3]),
-    );
+    let (m0, m1, m2, m3, m4, m5) = (transform[0], transform[1], transform[2], transform[3], transform[4], transform[5]);
+    let (r0, r1, r2, r3) = (f64::from(rect[0]), f64::from(rect[1]), f64::from(rect[2]), f64::from(rect[3]));
     let mut a0 = m0 * r0 + m4;
     let mut a2 = a0;
     let mut a1 = m0 * r2 + m4;
@@ -268,10 +221,7 @@ pub struct StateManager {
 
 impl StateManager {
     pub fn new(initial: EvalState) -> Self {
-        StateManager {
-            state: initial,
-            stack: Vec::new(),
-        }
+        StateManager { state: initial, stack: Vec::new() }
     }
 
     pub fn save(&mut self) {
@@ -302,10 +252,7 @@ mod tests {
 
     #[test]
     fn transform_composes_like_util_transform() {
-        let m = transform(
-            &[2.0, 0.0, 0.0, 2.0, 1.0, 1.0],
-            &[1.0, 0.0, 0.0, 1.0, 3.0, 4.0],
-        );
+        let m = transform(&[2.0, 0.0, 0.0, 2.0, 1.0, 1.0], &[1.0, 0.0, 0.0, 1.0, 3.0, 4.0]);
         assert_eq!(m, [2.0, 0.0, 0.0, 2.0, 7.0, 9.0]);
     }
 

@@ -14,15 +14,15 @@
 
 use std::sync::Arc;
 
-use mixdog_agent::effort::{model_key, EffortMode, EffortRoute, EffortSnapshot, EffortWiring, ProjectingAdapter, WireEffort};
+use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot, EffortWiring, ProjectingAdapter, WireEffort, model_key};
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::text_only::{MediaText, TextOnlyInput, TextOnlyModel};
 use mixdog_ai::providers::anthropic::ModelCaps;
-use mixdog_ai::providers::custom::reasoning::{is_custom_provider_name, EFFORT_LEVELS as CUSTOM_EFFORT_LEVELS};
+use mixdog_ai::providers::custom::reasoning::{EFFORT_LEVELS as CUSTOM_EFFORT_LEVELS, is_custom_provider_name};
 use mixdog_ai::providers::local::PROVIDER_ID as LOCAL_PROVIDER;
-use mixdog_ai::service::effort_configuration::{custom_auto_effort_capable, effort_configuration_mode, UnsupportedEfforts, UpdateMode};
+use mixdog_ai::service::effort_configuration::{UnsupportedEfforts, UpdateMode, custom_auto_effort_capable, effort_configuration_mode};
 use mixdog_core_api::domain::provider::ProviderAdapter;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use super::hop_host::HopWiring;
 
@@ -48,7 +48,7 @@ pub struct AnthropicEffortGates {
     pub max: bool,
 }
 
-pub use mixdog_ai::claude_floors::{claude_generation, ADAPTIVE_FLOOR, MANUAL_REJECTED_FLOOR, MAX_FLOOR, XHIGH_FLOOR};
+pub use mixdog_ai::claude_floors::{ADAPTIVE_FLOOR, MANUAL_REJECTED_FLOOR, MAX_FLOOR, XHIGH_FLOOR, claude_generation};
 
 impl AnthropicEffortGates {
     /// The gates a catalog row's caps give: the advertised ladder decides, and `xhigh` implies `max`.
@@ -131,11 +131,7 @@ pub fn turn_effort_configuration_mode(
 }
 
 fn efforts_for(mode: EffortMode, provider: &str) -> &'static [&'static str] {
-    if mode == EffortMode::Custom || is_custom_provider_name(provider) {
-        &CUSTOM_EFFORT_LEVELS
-    } else {
-        &EFFORTS
-    }
+    if mode == EffortMode::Custom || is_custom_provider_name(provider) { &CUSTOM_EFFORT_LEVELS } else { &EFFORTS }
 }
 
 /// `normalizedEffort(provider, model, effort)`; `None` is Node's `null`.
@@ -224,12 +220,7 @@ pub struct Wired {
 
 /// The effort wiring of `route` over `adapter`: the projection inputs and the one
 /// [`ProjectingAdapter`] that hands each request's projection to the provider.
-pub fn wire_effort(
-    route: &TurnRoute<'_>,
-    facts: &ProviderFacts,
-    snapshot: &EffortSnapshot,
-    adapter: &Arc<dyn ProviderAdapter>,
-) -> Option<EffortWiring> {
+pub fn wire_effort(route: &TurnRoute<'_>, facts: &ProviderFacts, snapshot: &EffortSnapshot, adapter: &Arc<dyn ProviderAdapter>) -> Option<EffortWiring> {
     (snapshot.mode != EffortMode::Custom).then(|| EffortWiring {
         route: EffortRoute {
             provider: route.provider.to_owned(),
@@ -304,14 +295,14 @@ impl HopWiring for RouteWirer {
         let (name, model) = (text("provider"), text("model"));
         let messages = messages_of(updated);
         let parameters = updated.get("modelParameters").filter(|p| !p.is_null()).cloned().unwrap_or_else(|| json!({}));
-        let route = TurnRoute { provider: name, model, effort: updated.get("effort").and_then(Value::as_str), model_parameters: &parameters, messages: &messages };
+        let route =
+            TurnRoute { provider: name, model, effort: updated.get("effort").and_then(Value::as_str), model_parameters: &parameters, messages: &messages };
         let facts = self.source.facts(name, model, provider);
         let text_only = text_only_input(name, model, self.source.local_entry(model).as_ref(), self.source.runtime_tools(model), self.source.media(updated));
         let wired = wire_route(&route, &facts, None, provider, &self.unsupported, &*self.codex_declared, text_only);
         (wired.effort, wired.text_only)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -372,6 +363,4 @@ mod tests {
         let snapshot = prepare_turn_effort_configuration(&route, &facts, None, &UnsupportedEfforts::default(), &|_| None).unwrap();
         assert_eq!((snapshot.mode, snapshot.effort.as_str()), (EffortMode::Custom, "high"));
     }
-
-
 }

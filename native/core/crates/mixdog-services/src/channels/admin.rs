@@ -17,9 +17,7 @@ use super::runtime::ChannelRuntime;
 use crate::bots::attachments::normalize_attachments;
 use crate::bots::ids::{MIXY_AGENT_ID, agent_home_session_id};
 use crate::bots::owned::never_cancelled;
-use crate::bots::{
-    OwnedOutcome, OwnerProblem, RoutineKind, RoutineRuntime, ScheduleRunOpts, Skip, WebhookRun,
-};
+use crate::bots::{OwnedOutcome, OwnerProblem, RoutineKind, RoutineRuntime, ScheduleRunOpts, Skip, WebhookRun};
 use crate::scheduler::cron::CronExpr;
 use crate::scheduler::{Clock, Schedule, ScheduleError, ScheduleRecords};
 use crate::webhooks::prompt::{webhook_event_summary, webhook_run_prompt};
@@ -213,17 +211,14 @@ fn parse_at_datetime(at: &str, local: Tz) -> Done<DateTime<Utc>> {
         return Err("at must be a datetime".into());
     }
     let ms = mixdog_js::time::date_parse_in(local, raw);
-    DateTime::from_timestamp_millis(ms as i64)
-        .filter(|_| ms.is_finite())
-        .ok_or_else(|| AdminError::from(format!("at \"{at}\" is not a valid datetime")))
+    DateTime::from_timestamp_millis(ms as i64).filter(|_| ms.is_finite()).ok_or_else(|| AdminError::from(format!("at \"{at}\" is not a valid datetime")))
 }
 
 /// Failures in a row and the results of finished runs still not queued for the owner.
 fn routine_health(consecutive_failures: u32, result_delivery: Option<&Value>) -> Map<String, Value> {
     let mut out = Map::new();
     out.insert("consecutiveFailures".into(), consecutive_failures.into());
-    let entries: Vec<&Value> =
-        result_delivery.and_then(Value::as_object).map(|m| m.values().filter(|v| !v.is_null()).collect()).unwrap_or_default();
+    let entries: Vec<&Value> = result_delivery.and_then(Value::as_object).map(|m| m.values().filter(|v| !v.is_null()).collect()).unwrap_or_default();
     if !entries.is_empty() {
         let refused = entries.iter().rev().find(|e| e["state"] == "failed");
         let mut undelivered = json!({"count": entries.len(), "failed": refused.is_some()});
@@ -508,12 +503,7 @@ impl ChannelAdmin {
     /// reserved against this process's runs; while the runtime is up the scheduler's owner
     /// performs the run check and the move in one step.
     async fn rename_schedule_row(&self, old: &str, def: &Schedule, timing_changed: bool) -> Done<Option<Schedule>> {
-        let _reserved = self
-            .d
-            .routines
-            .runs()
-            .begin(RoutineKind::Schedule, old)
-            .ok_or_else(|| ScheduleError::RenameRunning { name: old.to_string() })?;
+        let _reserved = self.d.routines.runs().begin(RoutineKind::Schedule, old).ok_or_else(|| ScheduleError::RenameRunning { name: old.to_string() })?;
         if !self.d.runtime.automation_running() {
             return Ok(self.d.schedules.rename(old, def, timing_changed).await?);
         }
@@ -563,11 +553,7 @@ impl ChannelAdmin {
 
     async fn save_schedule_row(&self, entry: &Value) -> Done {
         let id = assert_schedule_name(entry.get("name"))?;
-        let rename_to = if !trimmed(entry.get("newName")).is_empty() {
-            assert_schedule_name(entry.get("newName"))?
-        } else {
-            id.clone()
-        };
+        let rename_to = if !trimmed(entry.get("newName")).is_empty() { assert_schedule_name(entry.get("newName"))? } else { id.clone() };
         let renaming = rename_to != id;
         let body = trimmed(entry.get("instructions"));
         if body.is_empty() {
@@ -591,11 +577,8 @@ impl ChannelAdmin {
         let owner = Self::schedule_owner(entry.get("owner"), existing.as_ref().map(|e| e.owner_agent_id.as_str()))?;
         self.assert_owner(&owner).await?;
         let executor = self.routine_executor(entry.get("executorAgentId"), existing.as_ref().and_then(|e| e.executor_agent_id.as_deref())).await?;
-        let when_cron = if has_time {
-            Some(validate_schedule_cron(&fold_days_into_cron(&normalize_cron(entry.get("time"))?, entry.get("days"))?)?)
-        } else {
-            None
-        };
+        let when_cron =
+            if has_time { Some(validate_schedule_cron(&fold_days_into_cron(&normalize_cron(entry.get("time"))?, entry.get("days"))?)?) } else { None };
         let when_at = if has_at { Some(parse_at_datetime(&js_text(entry.get("at")), self.d.local_tz)?) } else { None };
         let timezone = if has_time { Some(resolve_schedule_timezone(entry.get("timezone"), self.d.local_tz)?) } else { None };
         let def = Schedule {
@@ -681,7 +664,8 @@ impl ChannelAdmin {
         let secret = if !explicit.is_empty() {
             explicit
         } else {
-            let stored = if overwrite { mixdog_js::js_trim(existing.as_ref().and_then(|e| e.secret.as_deref()).unwrap_or_default()).to_string() } else { String::new() };
+            let stored =
+                if overwrite { mixdog_js::js_trim(existing.as_ref().and_then(|e| e.secret.as_deref()).unwrap_or_default()).to_string() } else { String::new() };
             if stored.is_empty() { random_secret() } else { stored }
         };
         let def = EndpointRecord {
@@ -835,16 +819,9 @@ impl ChannelAdmin {
     pub async fn run_webhook_now(&self, name: &str) -> Done {
         let id = mixdog_js::js_trim(name).to_string();
         let endpoint = self.d.webhooks.load(&id).await?.ok_or_else(|| format!("webhook \"{id}\" does not exist"))?;
-        let payload = self
-            .d
-            .webhooks
-            .last_payload(&id)
-            .await?
-            .ok_or_else(|| format!("webhook \"{id}\" has not received a payload yet"))?;
-        let headers: indexmap::IndexMap<String, String> = payload["headers"]
-            .as_object()
-            .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect())
-            .unwrap_or_default();
+        let payload = self.d.webhooks.last_payload(&id).await?.ok_or_else(|| format!("webhook \"{id}\" has not received a payload yet"))?;
+        let headers: indexmap::IndexMap<String, String> =
+            payload["headers"].as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect()).unwrap_or_default();
         let body = if payload["body"].is_null() { json!({}) } else { payload["body"].clone() };
         let run = webhook_run_prompt(&endpoint.instructions, &body, &headers);
         let outcome = self
@@ -886,7 +863,13 @@ fn random_secret() -> String {
 /// `encodeURIComponent` for a name already limited to `[a-z0-9-]`.
 fn percent_encode(name: &str) -> String {
     name.bytes()
-        .map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')') { (b as char).to_string() } else { format!("%{b:02X}") })
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')') {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
         .collect()
 }
 

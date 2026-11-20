@@ -67,7 +67,6 @@ pub struct Machine<'a, P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine
     pub reads: &'a dyn AuthorReads,
 }
 
-
 impl<'a, P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'a, P, H, C, R, B> {
     pub(crate) fn inspect(&self) -> &'a InspectContext<'a, P, H> {
         self.author.inspect

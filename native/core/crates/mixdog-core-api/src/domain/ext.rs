@@ -116,7 +116,9 @@ pub trait DocumentText: Send + Sync {
         let _ = (thread, filename, data_base64);
         Err(ExtError::Failed {
             code: "unavailable".to_owned(),
-            message: format!("converting a legacy Office file to .{kind} needs the document engine, which is not available here. Open it in Microsoft Office and save it as .{kind}, then attach that copy."),
+            message: format!(
+                "converting a legacy Office file to .{kind} needs the document engine, which is not available here. Open it in Microsoft Office and save it as .{kind}, then attach that copy."
+            ),
         })
     }
 }
@@ -181,13 +183,7 @@ pub enum ProfiledResizeError {
 /// `imageAttachmentFromBuffer`). `Ok(None)` is Node's `null`: no resizer.
 #[async_trait::async_trait]
 pub trait ProfiledImageResizer: Send + Sync {
-    async fn resize_profiled(
-        &self,
-        thread: &ThreadId,
-        bytes: &[u8],
-        ext: &str,
-        profile: ImageProfile,
-    ) -> Result<Option<ResizedImage>, ProfiledResizeError>;
+    async fn resize_profiled(&self, thread: &ThreadId, bytes: &[u8], ext: &str, profile: ImageProfile) -> Result<Option<ResizedImage>, ProfiledResizeError>;
 }
 
 /// What Node's PDF intake made of the bytes.

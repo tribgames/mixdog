@@ -42,9 +42,10 @@ pub fn safe_change_path(value: &str) -> Option<String> {
     }
     let mut chars = text.chars();
     if let (Some(first), Some(':')) = (chars.next(), chars.next())
-        && first.is_ascii_alphabetic() {
-            return None;
-        }
+        && first.is_ascii_alphabetic()
+    {
+        return None;
+    }
     if text.chars().any(unsafe_path_character) {
         return None;
     }
@@ -210,9 +211,10 @@ fn patch_section_paths(section: &[u8]) -> (Option<String>, Option<String>) {
     let mut end = section.len();
     for marker in [&b"\n@@ "[..], &b"\nGIT binary patch"[..], &b"\nBinary files "[..]] {
         if let Some(index) = find(section, marker, 0)
-            && index < end {
-                end = index;
-            }
+            && index < end
+        {
+            end = index;
+        }
     }
     let head = String::from_utf8_lossy(&section[..end.min(65_536)]).into_owned();
     let lines: Vec<&str> = head.split('\n').collect();
@@ -249,10 +251,7 @@ fn patch_section_paths(section: &[u8]) -> (Option<String>, Option<String>) {
             assign_if_undefined(&mut new_path, b);
         }
     }
-    (
-        if created { None } else { old_path.flatten() },
-        if deleted { None } else { new_path.flatten() },
-    )
+    (if created { None } else { old_path.flatten() }, if deleted { None } else { new_path.flatten() })
 }
 
 fn assign_if_undefined(slot: &mut Option<Option<String>>, value: Option<String>) {
@@ -352,11 +351,7 @@ fn binary_patch_body(before: Option<&[u8]>, after: Option<&[u8]>, status: char, 
     let old_id = before.map_or_else(|| zero.clone(), |b| blob_id(b, object_format));
     let new_id = after.map_or(zero, |b| blob_id(b, object_format));
     let mode = if status == 'M' { " 100644" } else { "" };
-    format!(
-        "index {old_id}..{new_id}{mode}\nGIT binary patch\n{}{}",
-        binary_literal(after.unwrap_or(&[])),
-        binary_literal(before.unwrap_or(&[]))
-    )
+    format!("index {old_id}..{new_id}{mode}\nGIT binary patch\n{}{}", binary_literal(after.unwrap_or(&[])), binary_literal(before.unwrap_or(&[])))
 }
 
 fn header_tab(path: &str) -> &'static str {
@@ -501,10 +496,7 @@ pub fn stored_change_file(file: RawFile) -> Obj {
         _ => {
             meta.insert("revertable".into(), Value::Bool(false));
             let reason = meta.get("reason").and_then(Value::as_str).filter(|r| !r.is_empty()).map(str::to_owned);
-            meta.insert(
-                "reason".into(),
-                Value::String(reason.unwrap_or_else(|| "no replayable patch was recorded".into())),
-            );
+            meta.insert("reason".into(), Value::String(reason.unwrap_or_else(|| "no replayable patch was recorded".into())));
             meta.insert("patch".into(), Value::Null);
             meta
         }
@@ -637,11 +629,7 @@ pub fn is_truthy(value: &Value) -> bool {
 }
 
 fn record_files<'a>(record: Option<&'a Obj>, key: &str) -> Vec<&'a Obj> {
-    record
-        .and_then(|r| r.get(key))
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_object).collect())
-        .unwrap_or_default()
+    record.and_then(|r| r.get(key)).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).collect()).unwrap_or_default()
 }
 
 /// Why a whole-turn Undo is unavailable, or `""`.
@@ -660,13 +648,7 @@ fn undo_blocker(files: &[&Obj]) -> String {
 }
 
 /// The fixed TurnChangesReply contract.
-pub fn turn_changes_reply(
-    status: &str,
-    checkpoint_id: &str,
-    record: Option<&Obj>,
-    patch: bool,
-    file: Option<&str>,
-) -> Result<Obj, ReviewError> {
+pub fn turn_changes_reply(status: &str, checkpoint_id: &str, record: Option<&Obj>, patch: bool, file: Option<&str>) -> Result<Obj, ReviewError> {
     let files = record_files(record, "files");
     // Edits outside a Git turn's root are listed beside its files but are view-only: Undo, Reapply
     // and the blocker never see them.
@@ -695,10 +677,7 @@ pub fn turn_changes_reply(
     reply.insert("root".into(), Value::String(record.map_or("", |r| clean(obj_str(r, "root"))).to_owned()));
     reply.insert("files".into(), Value::Array(listed.into_iter().map(Value::Object).collect()));
     reply.insert("canUndo".into(), Value::Bool(ready && blocker.is_empty()));
-    reply.insert(
-        "canReapply".into(),
-        Value::Bool(ready && files.iter().any(|entry| obj_str(entry, "state") == "reverted" && obj_true(entry, "revertable"))),
-    );
+    reply.insert("canReapply".into(), Value::Bool(ready && files.iter().any(|entry| obj_str(entry, "state") == "reverted" && obj_true(entry, "revertable"))));
     if !reason.is_empty() {
         reply.insert("reason".into(), Value::String(reason));
     }
@@ -748,9 +727,10 @@ fn strip_index_line(head: &str) -> String {
         if head[starts..].starts_with("index ") {
             let line_end = head[starts..].find(['\n', '\r', '\u{2028}', '\u{2029}']);
             if let Some(rel) = line_end
-                && head[starts + rel..].starts_with('\n') {
-                    return format!("{}{}", &head[..starts], &head[starts + rel + 1..]);
-                }
+                && head[starts + rel..].starts_with('\n')
+            {
+                return format!("{}{}", &head[..starts], &head[starts + rel + 1..]);
+            }
         }
     }
     head.to_owned()

@@ -101,26 +101,14 @@ pub(crate) fn generic_region(width: u32, height: u32, x: u32, y: u32, flags: u8,
 
 /// The PDF form of a decoded page: rows of packed bits, 0 for black; the unused bits at the end of a row are white.
 pub(crate) fn packed(black: &[Vec<u8>]) -> Vec<u8> {
-    black
-        .iter()
-        .flat_map(|row| {
-            row.chunks(8).map(|bits| (0..8).fold(0u8, |acc, i| (acc << 1) | bits.get(i).map_or(1, |&b| 1 - b)))
-        })
-        .collect()
+    black.iter().flat_map(|row| row.chunks(8).map(|bits| (0..8).fold(0u8, |acc, i| (acc << 1) | bits.get(i).map_or(1, |&b| 1 - b)))).collect()
 }
 
 pub(crate) fn bitmap() -> Vec<Vec<u8>> {
-    [
-        "0000000000000000",
-        "0111100000011000",
-        "0100100000011000",
-        "0111100110000001",
-        "0000000110000011",
-        "1010101010101010",
-    ]
-    .iter()
-    .map(|row| row.bytes().map(|b| b - b'0').collect())
-    .collect()
+    ["0000000000000000", "0111100000011000", "0100100000011000", "0111100110000001", "0000000110000011", "1010101010101010"]
+        .iter()
+        .map(|row| row.bytes().map(|b| b - b'0').collect())
+        .collect()
 }
 
 /// The pixels a template looks at (as offsets from the pixel being coded) with the default adaptive pixels, and the
@@ -129,26 +117,28 @@ pub(crate) fn template(number: u8) -> (Vec<(i32, i32)>, Vec<u8>) {
     match number {
         0 => (
             vec![
-                (-1, -2), (0, -2), (1, -2), (-2, -2), (2, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1),
-                (-3, -1), (3, -1), (-1, 0), (-2, 0), (-3, 0), (-4, 0),
+                (-1, -2),
+                (0, -2),
+                (1, -2),
+                (-2, -2),
+                (2, -2),
+                (-2, -1),
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (2, -1),
+                (-3, -1),
+                (3, -1),
+                (-1, 0),
+                (-2, 0),
+                (-3, 0),
+                (-4, 0),
             ],
             vec![3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE],
         ),
-        1 => (
-            vec![
-                (-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (3, -1),
-                (-1, 0), (-2, 0), (-3, 0),
-            ],
-            vec![3, 0xFF],
-        ),
-        2 => (
-            vec![(-1, -2), (0, -2), (1, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (-1, 0), (-2, 0)],
-            vec![2, 0xFF],
-        ),
-        _ => (
-            vec![(-3, -1), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (-4, 0), (-3, 0), (-2, 0), (-1, 0)],
-            vec![2, 0xFF],
-        ),
+        1 => (vec![(-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (3, -1), (-1, 0), (-2, 0), (-3, 0)], vec![3, 0xFF]),
+        2 => (vec![(-1, -2), (0, -2), (1, -2), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (-1, 0), (-2, 0)], vec![2, 0xFF]),
+        _ => (vec![(-3, -1), (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (-4, 0), (-3, 0), (-2, 0), (-1, 0)], vec![2, 0xFF]),
     }
 }
 
@@ -156,11 +146,7 @@ pub(crate) fn template(number: u8) -> (Vec<(i32, i32)>, Vec<u8>) {
 /// pixels of its template (outside the bitmap they are white).
 pub(crate) fn encode_generic(black: &[Vec<u8>], offsets: &[(i32, i32)]) -> Vec<u8> {
     let pixel = |x: i32, y: i32| -> usize {
-        if x < 0 || y < 0 || y as usize >= black.len() || x as usize >= black[0].len() {
-            0
-        } else {
-            usize::from(black[y as usize][x as usize])
-        }
+        if x < 0 || y < 0 || y as usize >= black.len() || x as usize >= black[0].len() { 0 } else { usize::from(black[y as usize][x as usize]) }
     };
     let mut coder = MqEncoder::new(1 << offsets.len(), &[]);
     for y in 0..black.len() as i32 {
@@ -232,11 +218,7 @@ pub(crate) fn region_info(width: usize, height: usize, x: usize, y: usize, opera
 }
 
 pub(crate) fn pixel(black: &[Vec<u8>], x: i32, y: i32) -> usize {
-    if x < 0 || y < 0 || y as usize >= black.len() || x as usize >= black[0].len() {
-        0
-    } else {
-        usize::from(black[y as usize][x as usize])
-    }
+    if x < 0 || y < 0 || y as usize >= black.len() || x as usize >= black[0].len() { 0 } else { usize::from(black[y as usize][x as usize]) }
 }
 
 pub(crate) fn rows(text: &[&str]) -> Vec<Vec<u8>> {
@@ -280,8 +262,7 @@ pub(crate) fn typical_prediction_repeats_rows_for_every_template() {
                 continue;
             }
             for x in 0..black[0].len() {
-                let context =
-                    offsets.iter().fold(0, |acc, &(dx, dy)| (acc << 1) | pixel(&black, x as i32 + dx, y as i32 + dy));
+                let context = offsets.iter().fold(0, |acc, &(dx, dy)| (acc << 1) | pixel(&black, x as i32 + dx, y as i32 + dy));
                 coder.encode(context, black[y][x]);
             }
         }
@@ -308,22 +289,8 @@ pub(crate) fn encode_refinement(target: &[Vec<u8>], reference: &[Vec<u8>], codin
 
 #[test]
 pub(crate) fn a_refinement_region_replaces_the_page_it_refines_with_the_corrected_bitmap() {
-    let before = rows(&[
-        "0000000000000000",
-        "0111111111100000",
-        "0100000000100000",
-        "0100000000100000",
-        "0111111111100000",
-        "0000000000000000",
-    ]);
-    let after = rows(&[
-        "0000000000000000",
-        "0111111111110000",
-        "0110000000110000",
-        "0100000000100000",
-        "0111101111100000",
-        "0000000000000000",
-    ]);
+    let before = rows(&["0000000000000000", "0111111111100000", "0100000000100000", "0100000000100000", "0111111111100000", "0000000000000000"]);
+    let after = rows(&["0000000000000000", "0111111111110000", "0110000000110000", "0100000000100000", "0111101111100000", "0000000000000000"]);
     for number in 0..2u8 {
         let (coding, refer, at) = refinement_template(number);
         let (offsets, generic_at) = template(0);
@@ -376,11 +343,7 @@ pub(crate) fn encode_integer(coder: &mut MqEncoder, base: usize, value: Option<i
 
 /// The symbols' bitmaps for the dictionary and text tests: two of height 4 and one of height 6.
 pub(crate) fn symbols() -> Vec<Vec<Vec<u8>>> {
-    vec![
-        rows(&["010", "111", "101", "101"]),
-        rows(&["11111", "10001", "10001", "11111"]),
-        rows(&["1001", "1001", "1111", "1001", "1001", "1001"]),
-    ]
+    vec![rows(&["010", "111", "101", "101"]), rows(&["11111", "10001", "10001", "11111"]), rows(&["1001", "1001", "1111", "1001", "1001", "1001"])]
 }
 
 pub(crate) const GENERIC_CONTEXTS: usize = 1 << 16;
@@ -508,17 +471,59 @@ pub(crate) type Lines = &'static [(u32, u32, i32)];
 
 /// Table B.6 (first symbol positions), B.8 (position steps, with out-of-band) and B.11 (strip steps).
 pub(crate) const B6: Lines = &[
-    (5, 10, -2048), (4, 9, -1024), (4, 8, -512), (4, 7, -256), (5, 6, -128), (5, 5, -64), (4, 5, -32), (2, 7, 0),
-    (3, 7, 128), (3, 8, 256), (4, 9, 512), (4, 10, 1024), (6, 32, -2049), (6, 32, 2048),
+    (5, 10, -2048),
+    (4, 9, -1024),
+    (4, 8, -512),
+    (4, 7, -256),
+    (5, 6, -128),
+    (5, 5, -64),
+    (4, 5, -32),
+    (2, 7, 0),
+    (3, 7, 128),
+    (3, 8, 256),
+    (4, 9, 512),
+    (4, 10, 1024),
+    (6, 32, -2049),
+    (6, 32, 2048),
 ];
 pub(crate) const B8: Lines = &[
-    (8, 3, -15), (9, 1, -7), (8, 1, -5), (9, 0, -3), (7, 0, -2), (4, 0, -1), (2, 1, 0), (5, 0, 2), (6, 0, 3),
-    (3, 4, 4), (6, 1, 20), (4, 4, 22), (4, 5, 38), (5, 6, 70), (5, 7, 134), (6, 7, 262), (7, 8, 390), (6, 10, 646),
-    (9, 32, -16), (9, 32, 1670), (2, 0, 0),
+    (8, 3, -15),
+    (9, 1, -7),
+    (8, 1, -5),
+    (9, 0, -3),
+    (7, 0, -2),
+    (4, 0, -1),
+    (2, 1, 0),
+    (5, 0, 2),
+    (6, 0, 3),
+    (3, 4, 4),
+    (6, 1, 20),
+    (4, 4, 22),
+    (4, 5, 38),
+    (5, 6, 70),
+    (5, 7, 134),
+    (6, 7, 262),
+    (7, 8, 390),
+    (6, 10, 646),
+    (9, 32, -16),
+    (9, 32, 1670),
+    (2, 0, 0),
 ];
 pub(crate) const B11: Lines = &[
-    (1, 0, 1), (2, 1, 2), (4, 0, 4), (4, 1, 5), (5, 1, 7), (5, 2, 9), (6, 2, 13), (7, 2, 17), (7, 3, 21),
-    (7, 4, 29), (7, 5, 45), (7, 6, 77), (0, 32, 0), (7, 32, 141),
+    (1, 0, 1),
+    (2, 1, 2),
+    (4, 0, 4),
+    (4, 1, 5),
+    (5, 1, 7),
+    (5, 2, 9),
+    (6, 2, 13),
+    (7, 2, 17),
+    (7, 3, 21),
+    (7, 4, 29),
+    (7, 5, 45),
+    (7, 6, 77),
+    (0, 32, 0),
+    (7, 32, 141),
 ];
 
 /// The prefix codes of a table (B.3): by increasing length, and in the order of the lines within a length.
@@ -605,8 +610,6 @@ pub(crate) fn a_huffman_text_region_with_the_standard_tables_places_the_symbols(
     assert_eq!(decoded, packed(&page_of_text(&symbols, &strips())));
 }
 
-
-
 /// The pixels a refinement template looks at, in the order of its context bits: those of the new bitmap, then those of
 /// the reference (the adaptive pixels last in each, at their nominal places), and the bytes of the adaptive pixels.
 pub(crate) type RefinementTemplate = (Vec<(i32, i32)>, Vec<(i32, i32)>, Vec<u8>);
@@ -619,31 +622,13 @@ pub(crate) fn refinement_template(number: u8) -> RefinementTemplate {
             vec![0xFF, 0xFF, 0xFF, 0xFF],
         )
     } else {
-        (
-            vec![(-1, -1), (0, -1), (1, -1), (-1, 0)],
-            vec![(0, -1), (-1, 0), (0, 0), (1, 0), (0, 1), (1, 1)],
-            vec![],
-        )
+        (vec![(-1, -1), (0, -1), (1, -1), (-1, 0)], vec![(0, -1), (-1, 0), (0, 0), (1, 0), (0, 1), (1, 1)], vec![])
     }
 }
 
 pub(crate) fn refinement_pair() -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
-    let before = rows(&[
-        "0000000000000000",
-        "0111111111100000",
-        "0100000000100000",
-        "0100000000100000",
-        "0111111111100000",
-        "0000000000000000",
-    ]);
-    let after = rows(&[
-        "0000000000000000",
-        "0111111111110000",
-        "0110000000110000",
-        "0100000000100000",
-        "0111101111100000",
-        "0000000000000010",
-    ]);
+    let before = rows(&["0000000000000000", "0111111111100000", "0100000000100000", "0100000000100000", "0111111111100000", "0000000000000000"]);
+    let after = rows(&["0000000000000000", "0111111111110000", "0110000000110000", "0100000000100000", "0111101111100000", "0000000000000010"]);
     (before, after)
 }
 
@@ -941,4 +926,3 @@ pub(crate) fn a_halftone_region_draws_a_pattern_for_each_gray_value_of_its_grid(
         assert_eq!(decoded, packed(&expected), "mmr {mmr}");
     }
 }
-

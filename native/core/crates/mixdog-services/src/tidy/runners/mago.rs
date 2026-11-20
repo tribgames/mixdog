@@ -16,7 +16,9 @@ use crate::tidy::process::ProcessResult;
 /// `mago format --stdin-input`: exit 2 for text it cannot parse and for a `mago.toml` it cannot
 /// read. Named with `--stdin-filepath`, a file that configuration excludes comes back unchanged.
 async fn format(req: &RunRequest, write: bool) -> RunnerResult {
-    let plan = |index: usize| -> Result<Vec<String>, String> { Ok(["format", "--stdin-input", "--stdin-filepath", req.files[index].as_str()].map(String::from).to_vec()) };
+    let plan = |index: usize| -> Result<Vec<String>, String> {
+        Ok(["format", "--stdin-input", "--stdin-filepath", req.files[index].as_str()].map(String::from).to_vec())
+    };
     let mut result = format_each(req, "mago", write, &plan).await;
     for finding in &mut result.diagnostics {
         finding.code = "mago/format".to_owned();
@@ -128,7 +130,15 @@ impl Runner for Mago {
         if formatted.error.is_some() {
             return formatted;
         }
-        let linted = run_batches(req, "mago", &req.files, req.files_per_spawn, &|files| Invocation::over(req, &["lint", "--reporting-format", "json", "--reporting-target", "stdout"], files), &lint).await;
+        let linted = run_batches(
+            req,
+            "mago",
+            &req.files,
+            req.files_per_spawn,
+            &|files| Invocation::over(req, &["lint", "--reporting-format", "json", "--reporting-target", "stdout"], files),
+            &lint,
+        )
+        .await;
         both(req, formatted, linted.into_result())
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
@@ -150,8 +160,13 @@ mod tests {
 
     #[test]
     fn lint_issues_are_fixable_only_when_every_edit_is_safe() {
-        let issue = |safety: &str| format!(r#"{{"level":"Warning","code":"x","message":"m","annotations":[{{"span":{{"file_id":{{"name":"a.php","path":"\\\\?\\C:\\r\\a.php"}},"start":{{"line":4}}}}}}],"edits":[[{{"name":"a.php"}},[{{"range":{{"start":5,"end":5}},"new_text":[10],"safety":"{safety}"}}]]]}}"#);
-        let json = format!(r#"{{"issues":[{},{},{{"level":"Error","code":"parse","message":"p","annotations":[]}}]}}"#, issue("safe"), issue("potentiallyunsafe"));
+        let issue = |safety: &str| {
+            format!(
+                r#"{{"level":"Warning","code":"x","message":"m","annotations":[{{"span":{{"file_id":{{"name":"a.php","path":"\\\\?\\C:\\r\\a.php"}},"start":{{"line":4}}}}}}],"edits":[[{{"name":"a.php"}},[{{"range":{{"start":5,"end":5}},"new_text":[10],"safety":"{safety}"}}]]]}}"#
+            )
+        };
+        let json =
+            format!(r#"{{"issues":[{},{},{{"level":"Error","code":"parse","message":"p","annotations":[]}}]}}"#, issue("safe"), issue("potentiallyunsafe"));
         let rows = parse_mago_lint_json(&json, Path::new(CWD)).unwrap();
         assert_eq!(rows.iter().map(|d| d.fixable).collect::<Vec<_>>(), [true, false, false]);
         assert_eq!((rows[0].file.as_str(), rows[0].line, rows[0].severity.as_str(), rows[2].severity.as_str()), ("a.php", 5, "warning", "error"));
@@ -168,7 +183,11 @@ mod tests {
                 clean => ProcessResult { stdout: clean.to_owned(), ..Default::default() },
             };
         }
-        let stderr = if args.iter().any(|a| a == "bad.php") { "\u{1b}[31mERROR\u{1b}[0m Failed to parse file 'bad.php': Expected one of `Variable`".to_owned() } else { String::new() };
+        let stderr = if args.iter().any(|a| a == "bad.php") {
+            "\u{1b}[31mERROR\u{1b}[0m Failed to parse file 'bad.php': Expected one of `Variable`".to_owned()
+        } else {
+            String::new()
+        };
         ProcessResult { stdout: r#"{"issues":[]}"#.into(), stderr, ..Default::default() }
     }
 
@@ -189,9 +208,16 @@ mod tests {
         let (dir, spawn, req) = project(&[("a.php", "messy")], &["a.php"], mago);
         let out = Mago.fix(&req).await;
         assert_eq!((out.error, out.files_checked, out.unprocessed.len()), (None, Some(1), 0));
-        assert_eq!(spawn.0.lock().unwrap().iter().map(|(args, _, _)| args.join(" ")).collect::<Vec<_>>(), ["lint --fix a.php", "format --stdin-input --stdin-filepath a.php"]);
+        assert_eq!(
+            spawn.0.lock().unwrap().iter().map(|(args, _, _)| args.join(" ")).collect::<Vec<_>>(),
+            ["lint --fix a.php", "format --stdin-input --stdin-filepath a.php"]
+        );
         assert_eq!(std::fs::read_to_string(dir.path().join("a.php")).unwrap(), "formatted");
-        let (_dir, _spawn, req) = project(&[("a.php", "x")], &["a.php"], |_, _| ProcessResult { code: 2, stderr: "error: the argument '--fix' cannot be used with: --reporting-format".into(), ..Default::default() });
+        let (_dir, _spawn, req) = project(&[("a.php", "x")], &["a.php"], |_, _| ProcessResult {
+            code: 2,
+            stderr: "error: the argument '--fix' cannot be used with: --reporting-format".into(),
+            ..Default::default()
+        });
         let refused = Mago.fix(&req).await;
         assert!(refused.unprocessed[0].1.contains("cannot be used with"), "{:?}", refused.unprocessed);
     }

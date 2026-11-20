@@ -7,7 +7,7 @@
 //! `buffered_amount` is what the queue still holds. The reader reads one chunk at a time, only while no holder gates
 //! it, hands the chunk to the tap and then to the frame parser, and turns what the parser finds into events.
 
-use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -17,10 +17,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::codec::{
-    FrameError, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, Receiver, ReceiverError, ReceiverEvent, close_payload,
-    frame_header,
-};
+use super::codec::{FrameError, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, Receiver, ReceiverError, ReceiverEvent, close_payload, frame_header};
 
 /// The size of one read from the transport (Node reads sockets in chunks of up to 64 KiB).
 const READ_CHUNK: usize = 64 * 1024;
@@ -425,12 +422,7 @@ async fn write_frame<W: AsyncWrite + Unpin>(write: &mut W, head: &[u8], payload:
     write.flush().await
 }
 
-async fn run_writer<W: AsyncWrite + Unpin>(
-    mut write: W,
-    mut queue: mpsc::UnboundedReceiver<Out>,
-    inner: Arc<Inner>,
-    done: watch::Sender<bool>,
-) {
+async fn run_writer<W: AsyncWrite + Unpin>(mut write: W, mut queue: mpsc::UnboundedReceiver<Out>, inner: Arc<Inner>, done: watch::Sender<bool>) {
     let mut destroyed = inner.destroy.subscribe();
     loop {
         let item = tokio::select! {
@@ -573,12 +565,7 @@ pub(super) struct SocketConfig {
 }
 
 /// Start the tasks of a connection whose 101 answer was written. `head` is what the HTTP layer had read past the request.
-pub(super) fn spawn<S: Transport>(
-    io: S,
-    head: Bytes,
-    config: &SocketConfig,
-    on_close: Box<dyn FnOnce() + Send>,
-) -> (WebSocket, WsEvents) {
+pub(super) fn spawn<S: Transport>(io: S, head: Bytes, config: &SocketConfig, on_close: Box<dyn FnOnce() + Send>) -> (WebSocket, WsEvents) {
     io.set_no_delay();
     let (read, write) = tokio::io::split(io);
     let (out, queue) = mpsc::unbounded_channel();

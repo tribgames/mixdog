@@ -34,7 +34,8 @@ fn build(sheets: Vec<Value>) -> Result<Package, String> {
 
 #[test]
 fn every_measured_sheet_is_a_worksheet_with_its_name_and_its_text() {
-    let package = build(vec![sheet("보고", vec![text("제목", 0.0, 0.0), text("합계", 0.0, 40.0)]), sheet("Ops", vec![text("second sheet", 0.0, 0.0)])]).expect("built");
+    let package =
+        build(vec![sheet("보고", vec![text("제목", 0.0, 0.0), text("합계", 0.0, 40.0)]), sheet("Ops", vec![text("second sheet", 0.0, 0.0)])]).expect("built");
     let workbook = package.text("xl/workbook.xml");
     assert!(workbook.contains("name=\"보고\"") && workbook.contains("name=\"Ops\""), "{workbook}");
     // The builder writes every text as a set_range operation, and the portable writer keeps a text in its cell as an inline string.

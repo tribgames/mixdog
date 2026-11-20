@@ -28,8 +28,7 @@ pub const ANY_AGENT: &str = "*";
 pub(super) const FIELD_LIMIT: usize = 200;
 
 /// Text of the refusal when a remote client would widen a permission.
-pub const NO_WIDEN_MESSAGE: &str =
-    "This change would widen what the bot may do without asking; make it on the desktop.";
+pub const NO_WIDEN_MESSAGE: &str = "This change would widen what the bot may do without asking; make it on the desktop.";
 
 /// Audit decisions the gate writes besides `approve`/`deny`/`timeout`.
 pub const DEV_ALLOW_ALL_DECISION: &str = "dev-allow-all";
@@ -61,9 +60,7 @@ impl PermissionMode {
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Ask, Self::Allow, Self::Block]
-            .into_iter()
-            .find(|mode| mode.as_str() == text)
+        [Self::Ask, Self::Allow, Self::Block].into_iter().find(|mode| mode.as_str() == text)
     }
 }
 
@@ -127,9 +124,7 @@ pub struct GrantTable {
 impl GrantTable {
     /// Rows read from storage; a row that cannot exist is dropped.
     pub fn from_rows(rows: impl IntoIterator<Item = Grant>) -> Self {
-        Self {
-            grants: rows.into_iter().filter(valid).collect(),
-        }
+        Self { grants: rows.into_iter().filter(valid).collect() }
     }
 
     pub fn rows(&self) -> &[Grant] {
@@ -137,17 +132,11 @@ impl GrantTable {
     }
 
     fn deciding(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Option<&Grant> {
-        let shared = self
-            .grants
-            .iter()
-            .find(|g| &g.action == action && g.agent_id == ANY_AGENT);
+        let shared = self.grants.iter().find(|g| &g.action == action && g.agent_id == ANY_AGENT);
         if shared_only {
             return shared;
         }
-        self.grants
-            .iter()
-            .find(|g| &g.action == action && g.agent_id == agent_id)
-            .or(shared)
+        self.grants.iter().find(|g| &g.action == action && g.agent_id == agent_id).or(shared)
     }
 
     /// The mode in force for `agent_id` + `action`; `shared_only` reads only
@@ -193,16 +182,8 @@ impl GrantTable {
         let drops_shared = mode == PermissionMode::Ask
             && owner != ANY_AGENT
             && !self.grants.iter().any(|g| g.id == id)
-            && self
-                .grants
-                .iter()
-                .any(|g| g.id == shared_id && g.mode == PermissionMode::Allow);
-        let mut next: Vec<Grant> = self
-            .grants
-            .iter()
-            .filter(|g| g.id != id && !(drops_shared && g.id == shared_id))
-            .cloned()
-            .collect();
+            && self.grants.iter().any(|g| g.id == shared_id && g.mode == PermissionMode::Allow);
+        let mut next: Vec<Grant> = self.grants.iter().filter(|g| g.id != id && !(drops_shared && g.id == shared_id)).cloned().collect();
         next.extend(grant.clone());
         if no_widen {
             let after = Self { grants: next.clone() }.mode_for(&owner, action, false);
@@ -216,22 +197,13 @@ impl GrantTable {
 
     /// Stores an `allow` for scope `agent` (this agent) or `always` (every
     /// agent); `once` and `session` store nothing.
-    pub fn grant(
-        &mut self,
-        agent_id: &str,
-        action: &GrantKey,
-        scope: ApprovalRemember,
-        device: &str,
-        at_ms: i64,
-    ) -> Option<Grant> {
+    pub fn grant(&mut self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str, at_ms: i64) -> Option<Grant> {
         let owner = match scope {
             ApprovalRemember::Agent => agent_id,
             ApprovalRemember::Always => ANY_AGENT,
             ApprovalRemember::Once | ApprovalRemember::Session => return None,
         };
-        self.set_mode(owner, action, PermissionMode::Allow, device, at_ms, false)
-            .ok()
-            .flatten()
+        self.set_mode(owner, action, PermissionMode::Allow, device, at_ms, false).ok().flatten()
     }
 
     /// The profile's permission table for `agent_id`: every action kind with
@@ -242,16 +214,8 @@ impl GrantTable {
             .map(|kind| {
                 let action = GrantKey::Kind(kind);
                 let mode = self.mode_for(agent_id, &action, false);
-                let shared = mode == PermissionMode::Allow
-                    && self
-                        .deciding(agent_id, &action, false)
-                        .is_some_and(|g| g.agent_id == ANY_AGENT);
-                PermissionRow {
-                    rememberable: action.may_be_allowed(),
-                    action,
-                    mode,
-                    shared,
-                }
+                let shared = mode == PermissionMode::Allow && self.deciding(agent_id, &action, false).is_some_and(|g| g.agent_id == ANY_AGENT);
+                PermissionRow { rememberable: action.may_be_allowed(), action, mode, shared }
             })
             .collect();
         let applying = self.applying_to(agent_id);
@@ -259,27 +223,15 @@ impl GrantTable {
             applying
                 .iter()
                 .filter(|g| g.action.is_tool())
-                .filter(|g| {
-                    g.agent_id != ANY_AGENT
-                        || !applying.iter().any(|own| own.action == g.action && own.agent_id != ANY_AGENT)
-                })
-                .map(|g| PermissionRow {
-                    action: g.action.clone(),
-                    mode: PermissionMode::Allow,
-                    rememberable: true,
-                    shared: g.agent_id == ANY_AGENT,
-                }),
+                .filter(|g| g.agent_id != ANY_AGENT || !applying.iter().any(|own| own.action == g.action && own.agent_id != ANY_AGENT))
+                .map(|g| PermissionRow { action: g.action.clone(), mode: PermissionMode::Allow, rememberable: true, shared: g.agent_id == ANY_AGENT }),
         );
         rows
     }
 
     /// Grants that apply to `agent_id` (its own and every-agent ones).
     pub fn applying_to(&self, agent_id: &str) -> Vec<Grant> {
-        self.grants
-            .iter()
-            .filter(|g| g.agent_id == agent_id || g.agent_id == ANY_AGENT)
-            .cloned()
-            .collect()
+        self.grants.iter().filter(|g| g.agent_id == agent_id || g.agent_id == ANY_AGENT).cloned().collect()
     }
 
     pub fn revoke(&mut self, id: &str) -> bool {
@@ -331,22 +283,11 @@ impl fmt::Display for StoreError {
 /// grant": the gate fails closed.
 #[async_trait]
 pub trait GrantStore: Send + Sync {
-    async fn mode_for(
-        &self,
-        agent_id: &str,
-        action: &GrantKey,
-        shared_only: bool,
-    ) -> Result<PermissionMode, StoreError>;
+    async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<PermissionMode, StoreError>;
 
     /// Stores an `allow` for `agent` / `always` scope; returns whether one was
     /// stored.
-    async fn grant(
-        &self,
-        agent_id: &str,
-        action: &GrantKey,
-        scope: ApprovalRemember,
-        device: &str,
-    ) -> Result<bool, StoreError>;
+    async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, StoreError>;
 
     async fn record_audit(&self, entry: AuditEntry) -> Result<(), StoreError>;
 }
@@ -360,10 +301,7 @@ pub struct MemoryGrantStore {
 
 impl MemoryGrantStore {
     pub fn with_table(table: GrantTable) -> Self {
-        Self {
-            table: Mutex::new(table),
-            audit: Mutex::default(),
-        }
+        Self { table: Mutex::new(table), audit: Mutex::default() }
     }
 
     pub fn set_mode(&self, agent_id: &str, action: &GrantKey, mode: PermissionMode) {
@@ -378,32 +316,12 @@ impl MemoryGrantStore {
 
 #[async_trait]
 impl GrantStore for MemoryGrantStore {
-    async fn mode_for(
-        &self,
-        agent_id: &str,
-        action: &GrantKey,
-        shared_only: bool,
-    ) -> Result<PermissionMode, StoreError> {
-        Ok(self
-            .table
-            .lock()
-            .expect("grant table")
-            .mode_for(agent_id, action, shared_only))
+    async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<PermissionMode, StoreError> {
+        Ok(self.table.lock().expect("grant table").mode_for(agent_id, action, shared_only))
     }
 
-    async fn grant(
-        &self,
-        agent_id: &str,
-        action: &GrantKey,
-        scope: ApprovalRemember,
-        device: &str,
-    ) -> Result<bool, StoreError> {
-        Ok(self
-            .table
-            .lock()
-            .expect("grant table")
-            .grant(agent_id, action, scope, device, 0)
-            .is_some())
+    async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, StoreError> {
+        Ok(self.table.lock().expect("grant table").grant(agent_id, action, scope, device, 0).is_some())
     }
 
     async fn record_audit(&self, entry: AuditEntry) -> Result<(), StoreError> {
@@ -444,13 +362,9 @@ mod tests {
     fn an_agents_own_grant_wins_over_the_every_agent_one() {
         let mut table = GrantTable::default();
         let submit = kind(ActionKind::BrowserSubmit);
-        table
-            .grant("a", &submit, ApprovalRemember::Always, "", 1)
-            .expect("shared allow");
+        table.grant("a", &submit, ApprovalRemember::Always, "", 1).expect("shared allow");
         assert_eq!(table.mode_for("b", &submit, false), PermissionMode::Allow);
-        table
-            .set_mode("b", &submit, PermissionMode::Block, "", 2, false)
-            .expect("set");
+        table.set_mode("b", &submit, PermissionMode::Block, "", 2, false).expect("set");
         assert_eq!(table.mode_for("b", &submit, false), PermissionMode::Block);
         assert_eq!(table.mode_for("b", &submit, true), PermissionMode::Allow);
     }
@@ -458,19 +372,11 @@ mod tests {
     fn payments_and_deletes_can_never_be_allowed() {
         let mut table = GrantTable::default();
         for k in [ActionKind::Payment, ActionKind::Delete] {
-            assert_eq!(
-                table.set_mode("a", &kind(k), PermissionMode::Allow, "", 0, false),
-                Ok(None)
-            );
+            assert_eq!(table.set_mode("a", &kind(k), PermissionMode::Allow, "", 0, false), Ok(None));
             assert_eq!(table.mode_for("a", &kind(k), false), PermissionMode::Ask);
         }
         // A block is still storable.
-        assert!(
-            table
-                .set_mode("a", &kind(ActionKind::Payment), PermissionMode::Block, "", 0, false)
-                .expect("set")
-                .is_some()
-        );
+        assert!(table.set_mode("a", &kind(ActionKind::Payment), PermissionMode::Block, "", 0, false).expect("set").is_some());
     }
 
     #[test]
@@ -486,10 +392,7 @@ mod tests {
     fn a_tool_is_allowed_for_one_agent_or_every_agent_and_never_blocked() {
         let mut table = GrantTable::default();
         let shell = GrantKey::tool("shell").expect("key");
-        assert_eq!(
-            table.set_mode("*", &shell, PermissionMode::Block, "", 0, false),
-            Ok(None)
-        );
+        assert_eq!(table.set_mode("*", &shell, PermissionMode::Block, "", 0, false), Ok(None));
         assert!(table.grant("a", &shell, ApprovalRemember::Agent, "", 0).is_some());
         assert_eq!(table.mode_for("a", &shell, false), PermissionMode::Allow);
         assert_eq!(table.mode_for("z", &shell, false), PermissionMode::Ask, "another agent is asked");
@@ -497,9 +400,7 @@ mod tests {
         assert!(table.grant("a", &shell, ApprovalRemember::Always, "", 0).is_some());
         assert_eq!(table.mode_for("z", &shell, false), PermissionMode::Allow);
         // The same revoke ("ask") by any agent turns the shared row back to asking.
-        table
-            .set_mode("z", &shell, PermissionMode::Ask, "", 1, false)
-            .expect("ask");
+        table.set_mode("z", &shell, PermissionMode::Ask, "", 1, false).expect("ask");
         assert_eq!(table.mode_for("z", &shell, false), PermissionMode::Ask);
     }
 
@@ -516,25 +417,13 @@ mod tests {
     #[test]
     fn no_widen_refuses_lifting_a_block_and_leaves_the_table_unchanged() {
         let mut table = GrantTable::default();
-        table
-            .set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Block, "", 0, false)
-            .expect("block");
+        table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Block, "", 0, false).expect("block");
         let before = table.clone();
-        assert_eq!(
-            table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Allow, "", 1, true),
-            Err(WouldWiden)
-        );
+        assert_eq!(table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Allow, "", 1, true), Err(WouldWiden));
         assert_eq!(table, before);
         // Back to asking also lifts the block; keeping it is allowed.
-        assert_eq!(
-            table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Ask, "", 2, true),
-            Err(WouldWiden)
-        );
-        assert!(
-            table
-                .set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Block, "", 3, true)
-                .is_ok()
-        );
+        assert_eq!(table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Ask, "", 2, true), Err(WouldWiden));
+        assert!(table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Block, "", 3, true).is_ok());
     }
 
     #[test]
@@ -567,14 +456,8 @@ mod tests {
     }
     #[test]
     fn rows_that_cannot_exist_are_dropped_on_load() {
-        let row = |action: GrantKey, mode: PermissionMode| Grant {
-            id: grant_id("a", &action),
-            agent_id: "a".into(),
-            action,
-            mode,
-            device: String::new(),
-            at_ms: 0,
-        };
+        let row =
+            |action: GrantKey, mode: PermissionMode| Grant { id: grant_id("a", &action), agent_id: "a".into(), action, mode, device: String::new(), at_ms: 0 };
         let kept = GrantTable::from_rows([
             row(GrantKey::Tool("shell".into()), PermissionMode::Allow),
             row(GrantKey::Kind(ActionKind::Email), PermissionMode::Block),
@@ -594,7 +477,14 @@ mod tests {
     #[test]
     fn a_row_whose_id_is_not_its_owner_and_action_grants_nothing() {
         let shell = GrantKey::tool("shell").expect("key");
-        let edited = |id: String, agent: &str, action: GrantKey| Grant { id, agent_id: agent.into(), action, mode: PermissionMode::Allow, device: String::new(), at_ms: 0 };
+        let edited = |id: String, agent: &str, action: GrantKey| Grant {
+            id,
+            agent_id: agent.into(),
+            action,
+            mode: PermissionMode::Allow,
+            device: String::new(),
+            at_ms: 0,
+        };
         let table = GrantTable::from_rows([
             // Another agent's row with its owner changed to every agent.
             edited(grant_id("mailer", &shell), ANY_AGENT, shell.clone()),

@@ -92,9 +92,7 @@ pub fn parse(line: &str) -> Result<Command, String> {
         }
         "t" => {
             use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(at(2).unwrap_or_default())
-                .map_err(|_| protocol("bad text"))?;
+            let bytes = base64::engine::general_purpose::STANDARD.decode(at(2).unwrap_or_default()).map_err(|_| protocol("bad text"))?;
             let text = String::from_utf8(bytes).map_err(|_| protocol("bad text"))?;
             if text.encode_utf16().count() > MAX_TEXT {
                 return Err(protocol("text too long"));

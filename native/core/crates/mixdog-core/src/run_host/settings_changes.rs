@@ -54,11 +54,11 @@ type Followers = Arc<std::sync::Mutex<Vec<(String, watch::Receiver<u64>)>>>;
 
 #[cfg(test)]
 mod tests {
-    use mixdog_core_api::call::CallContext;
     use mixdog_core_api::CoreRequest;
     use mixdog_core_api::Reply;
     use mixdog_core_api::ThreadDirectory;
     use mixdog_core_api::ThreadHandle;
+    use mixdog_core_api::call::CallContext;
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::ids::Method;
     use mixdog_core_api::ids::OpId;
@@ -79,7 +79,10 @@ mod tests {
             (root, reported)
         };
         assert_eq!(removed(serde_json::json!({ "agents": { "greeted": [] } }), "agents.greeted"), (serde_json::json!({}), true));
-        assert_eq!(removed(serde_json::json!({ "agents": { "greeted": [], "other": 1 } }), "agents.greeted"), (serde_json::json!({ "agents": { "other": 1 } }), true));
+        assert_eq!(
+            removed(serde_json::json!({ "agents": { "greeted": [], "other": 1 } }), "agents.greeted"),
+            (serde_json::json!({ "agents": { "other": 1 } }), true)
+        );
         assert_eq!(removed(serde_json::json!({ "agents": {} }), "agents.greeted"), (serde_json::json!({ "agents": {} }), false));
         assert_eq!(removed(serde_json::json!({ "notifications": { "migratedAt": 1 } }), "notifications"), (serde_json::json!({}), true));
     }
@@ -93,7 +96,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
         let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
         config
             .update(|doc| {
@@ -139,7 +143,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
         let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
         let changes = SettingsChanges::start(config.clone(), secrets);
         let counted = changes.subscribe();
@@ -158,7 +163,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
         let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
         let changes = SettingsChanges::start(config.clone(), secrets);
         let (follower, gone) = (changes.feed(&ThreadId::from("open")), changes.feed(&ThreadId::from("closed")));
@@ -183,7 +189,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
         let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
         let changes = SettingsChanges::start(config.clone(), secrets);
         let _wedged = changes.feed(&ThreadId::from("wedged"));
@@ -224,7 +231,10 @@ mod tests {
             op: Some(OpId::from(op)),
             ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
         };
-        let reply = directory.request(request("thread/start", serde_json::json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", serde_json::json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -238,12 +248,14 @@ mod tests {
         .await
         .expect("the turn runs");
         announced.send_replace(1);
-        tokio::time::timeout(std::time::Duration::from_secs(10), seen.wait_for(|count| *count >= 1)).await.expect("shown while the turn is held").expect("open");
+        tokio::time::timeout(std::time::Duration::from_secs(10), seen.wait_for(|count| *count >= 1))
+            .await
+            .expect("shown while the turn is held")
+            .expect("open");
         assert!(handle.turn_busy(), "the turn is still held");
         gate.notify_one();
     }
 }
-
 
 /// `CONFIG_CHANGE_DEBOUNCE_MS` (config.mjs:652).
 const CONFIG_CHANGE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
@@ -263,7 +275,7 @@ async fn all_shown(announced: watch::Receiver<u64>, shown: &std::sync::Mutex<Vec
     };
     let deadline = tokio::time::Instant::now() + SHOWN_DEADLINE;
     for (thread, mut follower) in followers {
-        if mixdog_rt::time::timeout_at(deadline,follower.wait_for(|count| *count >= target)).await.is_err() {
+        if mixdog_rt::time::timeout_at(deadline, follower.wait_for(|count| *count >= target)).await.is_err() {
             tracing::warn!("thread {thread} did not show settings change {target} within {}s; the settings call answers without it", SHOWN_DEADLINE.as_secs());
         }
     }

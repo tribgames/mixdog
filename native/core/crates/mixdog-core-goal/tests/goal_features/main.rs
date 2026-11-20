@@ -1,9 +1,6 @@
 //! What a user of the Goal runtime observes: the `/goal` command, the duration rules, the time cap,
 //! the turn lifecycle, the continuation decision and what survives a restart.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "test harness: it lays out and reads back the temp record files outside any lane"
-)]
+#![allow(clippy::disallowed_methods, reason = "test harness: it lays out and reads back the temp record files outside any lane")]
 
 use std::sync::{Arc, Mutex};
 

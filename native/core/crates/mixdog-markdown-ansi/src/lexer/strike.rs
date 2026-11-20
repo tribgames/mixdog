@@ -3,8 +3,8 @@
 //! the desktop's remark-gfm `singleTilde: false`). The replacement returns `undefined` when it does not match, which
 //! marked reads as "no token": there is no fall back to the original rule.
 
-use super::token::{Token, TokenKind};
 use super::Lexer;
+use super::token::{Token, TokenKind};
 
 lazy_re!(DEL, r"^~~(?=[^\s~])([\s\S]*?[^\s~])~~(?!~)");
 

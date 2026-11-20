@@ -1,6 +1,5 @@
 //! The canonical document: the retired discord channel key is dropped.
 
-
 use serde_json::Value;
 
 use super::super::Doc;
@@ -24,5 +23,3 @@ fn the_retired_discord_channel_key_is_dropped() {
     let raw = serde_json::json!({ "channels": { "discord": { "token": "x" }, "webhook": { "port": 3333 } } });
     assert_eq!(read_config(&raw), serde_json::json!({ "channels": { "webhook": { "port": 3333 } } }));
 }
-
-

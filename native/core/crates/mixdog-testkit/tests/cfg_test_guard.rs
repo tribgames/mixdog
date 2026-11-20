@@ -175,16 +175,8 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "pub(super) fn hold_after_marks_snapshot(",
         "a hook between a marks read's snapshot and its check, for the inline tests alone",
     ),
-    (
-        "mixdog-core-session/src/session/store.rs",
-        "pub(super) fn refuse_next_projection(",
-        "a fault injection into the projector, for the inline tests alone",
-    ),
-    (
-        "mixdog-core-session/src/session/store.rs",
-        "pub(super) fn projections_sent(",
-        "a count of the projector's registered writes, for the inline tests alone",
-    ),
+    ("mixdog-core-session/src/session/store.rs", "pub(super) fn refuse_next_projection(", "a fault injection into the projector, for the inline tests alone"),
+    ("mixdog-core-session/src/session/store.rs", "pub(super) fn projections_sent(", "a count of the projector's registered writes, for the inline tests alone"),
     (
         "mixdog-core-session/src/session/actor.rs",
         "pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;",
@@ -241,9 +233,7 @@ fn bare_sites(text: &str) -> Vec<(usize, String)> {
             let end = if text[end..].starts_with(']') { end + 1 } else { end };
             let site = one_line(&text[begin..end]);
             let unwrapped = site.replace(r#"any(test, feature = "test-support")"#, "");
-            let names_test = unwrapped
-                .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-' || c == '"'))
-                .any(|word| word == "test");
+            let names_test = unwrapped.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-' || c == '"')).any(|word| word == "test");
             // `cfg_attr(not(test), allow(..))` only silences lints of the test-support build.
             let lint_only = site.starts_with("#![cfg_attr(not(test), allow(") || site.starts_with("#[cfg_attr(not(test), allow(");
             if names_test && !lint_only {

@@ -40,11 +40,8 @@ const FIXED_AGENT_IDS: [&str; 2] = ["maintainer", "explore"];
 fn stored_starter_guide(value: Option<&Value>) -> Value {
     let Some(map) = value.and_then(Value::as_object) else { return Value::Null };
     let visited = map.get("visited").and_then(Value::as_array);
-    let kept: Vec<&str> = STARTER_GUIDE_STEPS
-        .iter()
-        .copied()
-        .filter(|step| visited.is_some_and(|list| list.iter().any(|entry| entry.as_str() == Some(step))))
-        .collect();
+    let kept: Vec<&str> =
+        STARTER_GUIDE_STEPS.iter().copied().filter(|step| visited.is_some_and(|list| list.iter().any(|entry| entry.as_str() == Some(step)))).collect();
     json!({
         "closed": map.get("closed") == Some(&Value::Bool(true)),
         "welcomed": map.get("welcomed") == Some(&Value::Bool(true)),
@@ -82,11 +79,7 @@ pub(crate) async fn bot_routes(routes: &AgentRoutes) -> Result<BotRoutes, Config
 pub(crate) fn adopted_status(before: &Doc, adopted: &Doc, bots: &BotRoutes) -> Result<Value, String> {
     let list = |doc: &Doc| doc.get("presets").and_then(Value::as_array).cloned().unwrap_or_default();
     let old = list(before);
-    let written: Vec<String> = list(adopted)
-        .iter()
-        .filter(|preset| !old.contains(preset))
-        .map(|preset| clean(preset.get("id")))
-        .collect();
+    let written: Vec<String> = list(adopted).iter().filter(|preset| !old.contains(preset)).map(|preset| clean(preset.get("id"))).collect();
     status_of(effective_keeping(adopted, &written).with_bot_routes(bots))
 }
 
@@ -135,13 +128,7 @@ pub(crate) fn object_payload(payload: &Value, key: &str) -> Option<Value> {
 
 /// `completeOnboarding(payload)`. `main` is the live Main route, the fallback of a sent
 /// `defaultRoute`; `custom_agents` the ids of the custom agents; `now` the completion time.
-pub(crate) fn completed(
-    agent: &Doc,
-    payload: &Value,
-    main: &Value,
-    custom_agents: &[String],
-    now: &str,
-) -> Result<Completion, String> {
+pub(crate) fn completed(agent: &Doc, payload: &Value, main: &Value, custom_agents: &[String], now: &str) -> Result<Completion, String> {
     if payload.is_null() {
         return Err("Cannot convert undefined or null to object".into());
     }

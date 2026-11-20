@@ -21,8 +21,8 @@ use super::reconcile::JobHandle;
 use super::reconcile::TerminalHook;
 use super::reconcile::reconcile_cancelled;
 use super::reconcile::reconcile_failed;
-use super::reconcile::reconcile_watchdog_partial;
 use super::reconcile::reconcile_finally;
+use super::reconcile::reconcile_watchdog_partial;
 use super::result::WorkerResult;
 use super::result::completion_value;
 use super::result::turn_partial_handoff;
@@ -195,11 +195,12 @@ impl TurnRunner {
         let context = context.unwrap_or_default();
         // The sessions the turn's report and handoffs reach (the review's owners) and whose text its prompt carries:
         // each one's sensitive values follow the text both ways, and the prompt leaves its owners with theirs as the marker.
-        let owners: Vec<String> = [context.caller_session_id.as_deref(), plan.parent_session_id.as_deref(), context.owner_session_id.as_deref(), plan.session_owner_id.as_deref()]
-            .into_iter()
-            .flatten()
-            .map(str::to_owned)
-            .collect();
+        let owners: Vec<String> =
+            [context.caller_session_id.as_deref(), plan.parent_session_id.as_deref(), context.owner_session_id.as_deref(), plan.session_owner_id.as_deref()]
+                .into_iter()
+                .flatten()
+                .map(str::to_owned)
+                .collect();
         for owner in &owners {
             self.sessions.carry_marks(&plan.session_id, owner);
             self.sessions.carry_marks(owner, &plan.session_id);

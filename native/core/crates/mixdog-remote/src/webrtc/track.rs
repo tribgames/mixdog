@@ -107,9 +107,7 @@ impl Vp8Track {
     /// Starts this viewer's encoder thread on the shared `source`. The first subscription gets a
     /// keyframe.
     pub fn start(token: MediaThread, source: Arc<SharedSource>) -> io::Result<Arc<Self>> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()?;
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build()?;
         let (out, _) = broadcast::channel(RING);
         let shared = Arc::new(Shared {
             control: Mutex::new(Control {
@@ -142,12 +140,7 @@ impl Vp8Track {
             id
         };
         self.shared.wake.notify_one();
-        Subscription {
-            id,
-            rx: self.shared.out.subscribe(),
-            shared: Arc::clone(&self.shared),
-            need_keyframe: true,
-        }
+        Subscription { id, rx: self.shared.out.subscribe(), shared: Arc::clone(&self.shared), need_keyframe: true }
     }
 
     pub fn stats(&self) -> TrackStats {
@@ -175,9 +168,7 @@ impl VideoTrack for Vp8Track {
 
     fn set_encoding(&self, params: EncodingParams) -> Result<(), MediaError> {
         if params.max_bitrate_bps == Some(0) || params.max_framerate == Some(0) {
-            return Err(MediaError::Encoder {
-                detail: "zero bitrate or framerate".into(),
-            });
+            return Err(MediaError::Encoder { detail: "zero bitrate or framerate".into() });
         }
         lock(&self.shared.control).params = params;
         self.shared.wake.notify_one();
@@ -260,18 +251,8 @@ struct Round {
 fn read_control(shared: &Shared) -> Round {
     let control = lock(&shared.control);
     let ceiling = control.params.max_bitrate_bps.unwrap_or(DEFAULT_BITRATE_BPS);
-    let target_bps = control
-        .estimates
-        .values()
-        .copied()
-        .min()
-        .map_or(ceiling, |estimate| estimate.min(ceiling));
-    Round {
-        stopped: control.stopped,
-        params: control.params,
-        keyframe_pending: control.keyframe,
-        target_bps,
-    }
+    let target_bps = control.estimates.values().copied().min().map_or(ceiling, |estimate| estimate.min(ceiling));
+    Round { stopped: control.stopped, params: control.params, keyframe_pending: control.keyframe, target_bps }
 }
 
 struct Pipeline {
@@ -329,9 +310,7 @@ impl Pipeline {
         };
         let elapsed = started.elapsed();
         let duration = match (frame, self.last_encoded) {
-            (Some(_), Some(previous)) => captured_at
-                .saturating_sub(previous)
-                .clamp(Duration::from_millis(1), MAX_DURATION),
+            (Some(_), Some(previous)) => captured_at.saturating_sub(previous).clamp(Duration::from_millis(1), MAX_DURATION),
             _ => FIRST_DURATION,
         };
         if frame.is_some() {
@@ -372,20 +351,12 @@ impl Pipeline {
 }
 
 fn min_interval(params: &EncodingParams) -> Option<Duration> {
-    params
-        .max_framerate
-        .map(|fps| Duration::from_secs(1) / fps.max(1))
+    params.max_framerate.map(|fps| Duration::from_secs(1) / fps.max(1))
 }
 
 async fn media_loop(shared: Arc<Shared>, mut frames: watch::Receiver<Option<Shot>>) {
-    let mut pipeline = Pipeline {
-        shared: Arc::clone(&shared),
-        picture: I420Buf::new(),
-        encoder: None,
-        last_encoded: None,
-        last_encode_at: None,
-        picture_captured_at: None,
-    };
+    let mut pipeline =
+        Pipeline { shared: Arc::clone(&shared), picture: I420Buf::new(), encoder: None, last_encoded: None, last_encode_at: None, picture_captured_at: None };
     // The picture already on the source when this viewer joined is its first.
     frames.mark_changed();
     let mut source_open = true;

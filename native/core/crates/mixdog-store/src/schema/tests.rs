@@ -84,10 +84,7 @@ fn records_doc() -> RecordsDoc {
 }
 
 fn unhex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex"))
-        .collect()
+    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex")).collect()
 }
 
 fn crc32c(data: &[u8]) -> u32 {
@@ -95,22 +92,14 @@ fn crc32c(data: &[u8]) -> u32 {
     for &byte in data {
         crc ^= u32::from(byte);
         for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ CRC32C_POLY_REFLECTED
-            } else {
-                crc >> 1
-            };
+            crc = if crc & 1 == 1 { (crc >> 1) ^ CRC32C_POLY_REFLECTED } else { crc >> 1 };
         }
     }
     !crc
 }
 
 fn encode(ordinal: u64, payload: &[u8]) -> Vec<u8> {
-    let covered = format!(
-        "{ordinal:016x} {:08x} {:08x} ",
-        payload.len(),
-        crc32c(payload)
-    );
+    let covered = format!("{ordinal:016x} {:08x} {:08x} ", payload.len(), crc32c(payload));
     let mut out = format!("{covered}{:08x} ", crc32c(covered.as_bytes())).into_bytes();
     out.extend_from_slice(payload);
     out.push(TERMINATOR);
@@ -135,17 +124,11 @@ fn check_header(h: &[u8], expected: u64) -> Result<Option<usize>, CorruptCause> 
         return Err(CorruptCause::Header);
     }
     // 2. ordinal.
-    if !prefix_of(
-        field(ORDINAL_AT, ORDINAL_DIGITS),
-        format!("{expected:016x}").as_bytes(),
-    ) {
+    if !prefix_of(field(ORDINAL_AT, ORDINAL_DIGITS), format!("{expected:016x}").as_bytes()) {
         return Err(CorruptCause::Ordinal);
     }
     // 3. separators 16, 25, 34 (43 belongs to step 1).
-    if SEPARATORS[..3]
-        .iter()
-        .any(|&at| h.get(at).is_some_and(|&b| b != SEPARATOR))
-    {
+    if SEPARATORS[..3].iter().any(|&at| h.get(at).is_some_and(|&b| b != SEPARATOR)) {
         return Err(CorruptCause::Header);
     }
     // 4. len: hex digits whose smallest completion (trailing `0`s) is in range.
@@ -157,9 +140,7 @@ fn check_header(h: &[u8], expected: u64) -> Result<Option<usize>, CorruptCause> 
         .iter()
         .chain(std::iter::repeat(&b'0'))
         .take(LEN_DIGITS)
-        .fold(0usize, |value, &b| {
-            value * 16 + (b as char).to_digit(16).expect("hex") as usize
-        });
+        .fold(0usize, |value, &b| value * 16 + (b as char).to_digit(16).expect("hex") as usize);
     if smallest > MAX_FRAME_PAYLOAD {
         return Err(CorruptCause::Length);
     }
@@ -181,11 +162,7 @@ fn scan(buf: &[u8], start_ordinal: u64) -> (Vec<Range<usize>>, ScanEnd) {
     let mut expected = start_ordinal;
     loop {
         let torn = ScanEnd::Torn { offset: p as u64 };
-        let corrupt = |cause| ScanEnd::Corrupt {
-            offset: p as u64,
-            ordinal: expected,
-            cause,
-        };
+        let corrupt = |cause| ScanEnd::Corrupt { offset: p as u64, ordinal: expected, cause };
         // 1–2: end, zeros only.
         if p == buf.len() {
             return (committed, ScanEnd::Clean);
@@ -206,9 +183,7 @@ fn scan(buf: &[u8], start_ordinal: u64) -> (Vec<Range<usize>>, ScanEnd) {
             return (committed, torn);
         }
         // 6: payload CRC.
-        if &h[CRC_AT..CRC_AT + CRC_DIGITS]
-            != format!("{:08x}", crc32c(&buf[p + HEADER_LEN..payload_end])).as_bytes()
-        {
+        if &h[CRC_AT..CRC_AT + CRC_DIGITS] != format!("{:08x}", crc32c(&buf[p + HEADER_LEN..payload_end])).as_bytes() {
             return (committed, corrupt(CorruptCause::Crc));
         }
         // 7–8: terminator.
@@ -231,11 +206,7 @@ where
     T: serde::de::DeserializeOwned + serde::Serialize,
 {
     let value: T = serde_json::from_str(text).unwrap_or_else(|e| panic!("{name}: {e}"));
-    assert_eq!(
-        serde_json::to_string(&value).expect("encode"),
-        text,
-        "{name}"
-    );
+    assert_eq!(serde_json::to_string(&value).expect("encode"), text, "{name}");
     value
 }
 
@@ -252,10 +223,7 @@ fn every_header_prefix_is_a_prefix() {
     for n in 1..HEADER_LEN {
         assert_eq!(check_header(&frame[..n], 7), Ok(None), "{n} bytes");
     }
-    assert_eq!(
-        check_header(&frame[..HEADER_LEN], 7),
-        Ok(Some(frame.len() - FRAME_OVERHEAD))
-    );
+    assert_eq!(check_header(&frame[..HEADER_LEN], 7), Ok(Some(frame.len() - FRAME_OVERHEAD)));
 }
 
 #[test]
@@ -268,25 +236,11 @@ fn every_record_kind_parses_and_encodes_to_its_vector() {
         assert!(!named.payload.contains('\n'), "{}", named.name);
         kinds.insert(kind_of(&named.payload));
     }
-    let expected: BTreeSet<String> = [
-        "session",
-        "meta",
-        "item",
-        "amend",
-        "rewind",
-        "compacted",
-        "run",
-        "approval",
-        "queue",
-        "op",
-        "checkpoint",
-        "model_switch",
-        "draft",
-        "work_stop",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let expected: BTreeSet<String> =
+        ["session", "meta", "item", "amend", "rewind", "compacted", "run", "approval", "queue", "op", "checkpoint", "model_switch", "draft", "work_stop"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
     assert_eq!(kinds, expected);
 }
 
@@ -300,10 +254,7 @@ fn migration_files_parse_and_encode_to_their_vectors() {
     }
     assert_eq!(kinds.len(), 7, "every journal kind has a vector");
     let manifest: Manifest = round_trip("manifest", &doc.manifest);
-    assert!(
-        manifest.items.windows(2).all(|w| w[0].key < w[1].key),
-        "items sorted by key"
-    );
+    assert!(manifest.items.windows(2).all(|w| w[0].key < w[1].key), "items sorted by key");
     let complete: Complete = round_trip("complete", &doc.complete);
     assert_eq!(complete.kinds.desktop_profile.quarantined_unexpected, 0);
     let reason: QuarantineReason = round_trip("reason", &doc.reason);
@@ -314,10 +265,7 @@ fn migration_files_parse_and_encode_to_their_vectors() {
 fn invalid_payloads_are_refused() {
     let digest = format!("sha256:{}", "a".repeat(64));
     let long_id = "x".repeat(ID_MAX + 1);
-    let refs = format!(
-        "[{}]",
-        vec![format!("\"{digest}\""); MAX_REFS + 1].join(",")
-    );
+    let refs = format!("[{}]", vec![format!("\"{digest}\""); MAX_REFS + 1].join(","));
     for text in [
         // unknown field
         r#"{"k":"rewind","to_ordinal":1,"reason":"edit","extra":1}"#.to_string(),
@@ -326,9 +274,7 @@ fn invalid_payloads_are_refused() {
         // slot without its tag
         r#"{"k":"amend","iid":"a","refs":[],"body":{"content":"x"}}"#.to_string(),
         // checkpoint carries no op
-        format!(
-            r#"{{"k":"checkpoint","op":{{"id":"a","method":"m","digest":"{digest}"}},"state":{{"inline":{{}}}}}}"#
-        ),
+        format!(r#"{{"k":"checkpoint","op":{{"id":"a","method":"m","digest":"{digest}"}},"state":{{"inline":{{}}}}}}"#),
         // unknown kind
         r#"{"k":"segment"}"#.to_string(),
         // id over its bound
@@ -338,24 +284,16 @@ fn invalid_payloads_are_refused() {
         // malformed digest
         r#"{"k":"amend","iid":"a","refs":["sha256:AB"],"body":{"inline":1}}"#.to_string(),
         // body blob of another media type
-        format!(
-            r#"{{"k":"amend","iid":"a","refs":[],"body":{{"blob":{{"digest":"{digest}","bytes":1,"mediaType":"text/plain"}}}}}}"#
-        ),
+        format!(r#"{{"k":"amend","iid":"a","refs":[],"body":{{"blob":{{"digest":"{digest}","bytes":1,"mediaType":"text/plain"}}}}}}"#),
         // unknown field inside the blob descriptor
-        format!(
-            r#"{{"k":"amend","iid":"a","refs":[],"body":{{"blob":{{"digest":"{digest}","bytes":1,"mediaType":"application/json","x":1}}}}}}"#
-        ),
+        format!(r#"{{"k":"amend","iid":"a","refs":[],"body":{{"blob":{{"digest":"{digest}","bytes":1,"mediaType":"application/json","x":1}}}}}}"#),
         // op result over its bound
         format!(
             r#"{{"k":"rewind","to_ordinal":1,"reason":"edit","op":{{"id":"a","method":"m","digest":"{digest}","result":"{}"}}}}"#,
             "r".repeat(OP_RESULT_MAX)
         ),
     ] {
-        assert!(
-            serde_json::from_str::<Record>(&text).is_err(),
-            "{}",
-            &text[..text.len().min(120)]
-        );
+        assert!(serde_json::from_str::<Record>(&text).is_err(), "{}", &text[..text.len().min(120)]);
     }
 }
 
@@ -363,8 +301,8 @@ fn invalid_payloads_are_refused() {
 /// form, `sha256:` and 64 lowercase hex, and refuses every other with the digest error.
 #[test]
 fn a_body_blob_admits_only_a_well_formed_digest() {
-    use super::blob::Slot;
     use super::blob::BODY_MEDIA_TYPE;
+    use super::blob::Slot;
     let slot = |digest: &str| {
         serde_json::from_value::<Slot<serde_json::Value>>(serde_json::json!(
             {"blob": {"digest": digest, "bytes": 1, "mediaType": BODY_MEDIA_TYPE}}
@@ -442,8 +380,7 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
     let mut largest = 0;
     for value in records {
         let encoded = serde_json::to_string(&value).expect("encode");
-        let record: Record =
-            serde_json::from_str(&encoded).unwrap_or_else(|e| panic!("{}: {e}", value["k"]));
+        let record: Record = serde_json::from_str(&encoded).unwrap_or_else(|e| panic!("{}: {e}", value["k"]));
         let len = encoded_len(&record);
         assert!(len <= MAX_FRAME_PAYLOAD, "{}: {len}", value["k"]);
         largest = largest.max(len);
@@ -465,12 +402,7 @@ fn item_state_machine() {
     for path in paths {
         assert!(path.windows(2).all(|w| w[0].can_advance(w[1])), "{path:?}");
     }
-    for (from, to) in [
-        (Published, Staged),
-        (Verified, Quarantined),
-        (Disposed, Planned),
-        (Planned, Disposed),
-    ] {
+    for (from, to) in [(Published, Staged), (Verified, Quarantined), (Disposed, Planned), (Planned, Disposed)] {
         assert!(!from.can_advance(to), "{from:?} -> {to:?}");
     }
     assert!(QuarantineCode::CarriedSetAside.expected());
@@ -478,20 +410,12 @@ fn item_state_machine() {
 }
 
 fn objects(conn: &Connection) -> Vec<(String, String, String)> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name",
-        )
-        .expect("prepare");
-    stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .expect("query")
-        .map(|row| row.expect("row"))
-        .collect()
+    let mut stmt = conn.prepare("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name").expect("prepare");
+    stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).expect("query").map(|row| row.expect("row")).collect()
 }
 
 fn pragma(conn: &Connection, name: &str) -> i64 {
-    conn.query_row(&format!("PRAGMA {name}"), [], |row| row.get(0))
-        .expect(name)
+    conn.query_row(&format!("PRAGMA {name}"), [], |row| row.get(0)).expect(name)
 }
 
 fn count(objects: &[(String, String, String)], kind: &str) -> usize {
@@ -499,27 +423,14 @@ fn count(objects: &[(String, String, String)], kind: &str) -> usize {
 }
 
 fn plan(conn: &Connection, sql: &str) -> String {
-    let mut stmt = conn
-        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
-        .expect(sql);
-    let rows: Vec<String> = stmt
-        .query_map([], |row| row.get::<_, String>(3))
-        .expect("plan")
-        .map(|row| row.expect("row"))
-        .collect();
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).expect(sql);
+    let rows: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(3)).expect("plan").map(|row| row.expect("row")).collect();
     rows.join(" | ")
 }
 
 #[test]
 fn ddl_has_no_carriage_returns() {
-    for ddl in [
-        INDEX_DDL,
-        STATE_DDL,
-        LEDGER_V2_BASE,
-        LEDGER_V2_DEV,
-        LEDGER_DROP_DEV,
-        LEDGER_V3_DELTA,
-    ] {
+    for ddl in [INDEX_DDL, STATE_DDL, LEDGER_V2_BASE, LEDGER_V2_DEV, LEDGER_DROP_DEV, LEDGER_V3_DELTA] {
         assert!(!ddl.contains('\r'));
     }
 }
@@ -528,16 +439,9 @@ fn ddl_has_no_carriage_returns() {
 fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
     let conn = Connection::open_in_memory().expect("open");
     conn.execute_batch(INDEX_DDL).expect("index ddl");
-    assert_eq!(
-        pragma(&conn, "application_id"),
-        i64::from(INDEX_APPLICATION_ID)
-    );
+    assert_eq!(pragma(&conn, "application_id"), i64::from(INDEX_APPLICATION_ID));
     assert_eq!(pragma(&conn, "user_version"), i64::from(INDEX_USER_VERSION));
-    let tables: Vec<String> = objects(&conn)
-        .into_iter()
-        .filter(|(t, _, _)| t == "table")
-        .map(|(_, name, _)| name)
-        .collect();
+    let tables: Vec<String> = objects(&conn).into_iter().filter(|(t, _, _)| t == "table").map(|(_, name, _)| name).collect();
     assert_eq!(
         tables,
         [
@@ -593,16 +497,10 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
         // Allowed scans: the partial indexes of dirty rows and placeholder titles, and the
         // trigram index MATCH.
         let full_scan = plan.split(" | ").any(|step| {
-            step.starts_with("SCAN")
-                && !step.contains("sessions_dirty")
-                && !step.contains("sessions_title_kind")
-                && !step.contains("VIRTUAL TABLE INDEX 0:M")
+            step.starts_with("SCAN") && !step.contains("sessions_dirty") && !step.contains("sessions_title_kind") && !step.contains("VIRTUAL TABLE INDEX 0:M")
         });
         assert!(!full_scan, "{query}: {plan}");
-        assert!(
-            !plan.contains("TEMP B-TREE") || query == SEARCH_TRIGRAM,
-            "{query}: {plan}"
-        );
+        assert!(!plan.contains("TEMP B-TREE") || query == SEARCH_TRIGRAM, "{query}: {plan}");
     }
 }
 
@@ -638,69 +536,15 @@ fn session_search_matches_the_desktop_contract() {
         ON CONFLICT(id) DO UPDATE SET activity = excluded.activity, archived = excluded.archived,
             title_fold = excluded.title_fold, preview_fold = excluded.preview_fold";
     let rows = [
-        (
-            "sess_A",
-            5.0_f64,
-            "task",
-            0,
-            "store format spec",
-            "last answer",
-            "c:/project/sample",
-            "claude-opus",
-        ),
-        (
-            "sess_b",
-            2.0,
-            "project",
-            0,
-            "시험 세션",
-            "the spec review",
-            "c:/work",
-            "gpt-5",
-        ),
-        (
-            "sess_c",
-            9.0,
-            "task",
-            1,
-            "archived spec notes",
-            "",
-            "c:/x",
-            "gpt-5",
-        ),
-        (
-            "sess_d",
-            7.0,
-            "chat",
-            0,
-            "spec in a chat",
-            "",
-            "c:/x",
-            "gpt-5",
-        ),
-        (
-            "sess_e", 5.0, "task", 0, "other", "nothing", "c:/specs", "gpt-5",
-        ),
-        (
-            "Sess_e", 5.0, "task", 0, "other", "nothing", "c:/y", "gpt-5",
-        ),
+        ("sess_A", 5.0_f64, "task", 0, "store format spec", "last answer", "c:/project/sample", "claude-opus"),
+        ("sess_b", 2.0, "project", 0, "시험 세션", "the spec review", "c:/work", "gpt-5"),
+        ("sess_c", 9.0, "task", 1, "archived spec notes", "", "c:/x", "gpt-5"),
+        ("sess_d", 7.0, "chat", 0, "spec in a chat", "", "c:/x", "gpt-5"),
+        ("sess_e", 5.0, "task", 0, "other", "nothing", "c:/specs", "gpt-5"),
+        ("Sess_e", 5.0, "task", 0, "other", "nothing", "c:/y", "gpt-5"),
     ];
     for (id, activity, class, archived, title, preview, cwd, model) in rows {
-        conn.execute(
-            upsert,
-            rusqlite::params![
-                id,
-                activity,
-                class,
-                archived,
-                session_id_key(id),
-                title,
-                preview,
-                cwd,
-                model
-            ],
-        )
-        .expect("row");
+        conn.execute(upsert, rusqlite::params![id, activity, class, archived, session_id_key(id), title, preview, cwd, model]).expect("row");
     }
     let search = |needle: &str| -> Vec<String> {
         let phrase = format!("\"{}\"", needle.replace('"', "\"\""));
@@ -709,10 +553,7 @@ fn session_search_matches_the_desktop_contract() {
              WHERE session_search MATCH ?1 AND {SEARCHABLE} {SEARCH_ORDER} LIMIT 50"
         );
         let mut stmt = conn.prepare(&sql).expect("prepare");
-        stmt.query_map([phrase], |row| row.get(0))
-            .expect("query")
-            .map(|row| row.expect("row"))
-            .collect()
+        stmt.query_map([phrase], |row| row.get(0)).expect("query").map(|row| row.expect("row")).collect()
     };
     // Title, preview and cwd hits; not the `chat` row; the archived match ranks last even
     // though it is newest; equal activity breaks ties in localeCompare order.
@@ -721,35 +562,12 @@ fn session_search_matches_the_desktop_contract() {
     assert_eq!(search("sess_e"), ["sess_e", "Sess_e"], "id, folded");
     assert_eq!(search("험 세"), ["sess_b"]);
     assert_eq!(search("spec n"), ["sess_c"]);
-    assert_eq!(
-        search("specc:"),
-        Vec::<String>::new(),
-        "a needle never spans two fields"
-    );
-    assert_eq!(
-        search("SPEC"),
-        Vec::<String>::new(),
-        "the writer folds; the index does not"
-    );
+    assert_eq!(search("specc:"), Vec::<String>::new(), "a needle never spans two fields");
+    assert_eq!(search("SPEC"), Vec::<String>::new(), "the writer folds; the index does not");
     // A turn updates the preview: the next search sees it.
-    conn.execute(
-        upsert,
-        rusqlite::params![
-            "sess_b",
-            2.0,
-            "project",
-            0,
-            session_id_key("sess_b"),
-            "시험 세션",
-            "new reply",
-            "c:/work",
-            "gpt-5"
-        ],
-    )
-    .expect("turn");
+    conn.execute(upsert, rusqlite::params!["sess_b", 2.0, "project", 0, session_id_key("sess_b"), "시험 세션", "new reply", "c:/work", "gpt-5"]).expect("turn");
     assert_eq!(search("spec"), ["sess_A", "sess_e", "sess_c"]);
-    conn.execute("DELETE FROM sessions WHERE id = 'sess_A'", [])
-        .expect("delete");
+    conn.execute("DELETE FROM sessions WHERE id = 'sess_A'", []).expect("delete");
     assert_eq!(search("spec"), ["sess_e", "sess_c"]);
 }
 
@@ -757,20 +575,10 @@ fn session_search_matches_the_desktop_contract() {
 fn state_ddl_creates_the_core_state() {
     let conn = Connection::open_in_memory().expect("open");
     conn.execute_batch(STATE_DDL).expect("state ddl");
-    assert_eq!(
-        pragma(&conn, "application_id"),
-        i64::from(STATE_APPLICATION_ID)
-    );
+    assert_eq!(pragma(&conn, "application_id"), i64::from(STATE_APPLICATION_ID));
     assert_eq!(pragma(&conn, "user_version"), i64::from(STATE_USER_VERSION));
-    let tables: Vec<String> = objects(&conn)
-        .into_iter()
-        .filter(|(t, _, _)| t == "table")
-        .map(|(_, name, _)| name)
-        .collect();
-    assert_eq!(
-        tables,
-        ["meta", "op_watermarks", "ops", "projects", "rooms"]
-    );
+    let tables: Vec<String> = objects(&conn).into_iter().filter(|(t, _, _)| t == "table").map(|(_, name, _)| name).collect();
+    assert_eq!(tables, ["meta", "op_watermarks", "ops", "projects", "rooms"]);
 }
 
 /// A `user_version` 1 core state file (the frozen v1 DDL, a row written) opens as version 2 with its rows intact and the new
@@ -782,8 +590,7 @@ fn state_v1_file_upgrades_to_v2_keeping_its_rows() {
     {
         let conn = Connection::open(&path).expect("open");
         conn.execute_batch(include_str!("sql/state_v1.sql")).expect("v1 ddl");
-        conn.execute("INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES ('/p', 'Alias', 1, 0, 7)", [])
-            .expect("row");
+        conn.execute("INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES ('/p', 'Alias', 1, 0, 7)", []).expect("row");
     }
     assert_eq!(pragma(&Connection::open(&path).unwrap(), "user_version"), 1);
     for _ in 0..2 {
@@ -812,29 +619,13 @@ fn new_ledger_has_the_v3_object_set() {
     let conn = new_ledger();
     let objs = objects(&conn);
     let (tables, indexes, views, triggers) = LEDGER_V3_OBJECTS;
-    assert_eq!(
-        (
-            count(&objs, "table"),
-            count(&objs, "index"),
-            count(&objs, "view"),
-            count(&objs, "trigger")
-        ),
-        (tables, indexes, views, triggers)
-    );
-    assert_eq!(
-        pragma(&conn, "user_version"),
-        i64::from(LEDGER_USER_VERSION)
-    );
-    assert_eq!(
-        pragma(&conn, "application_id"),
-        i64::from(LEDGER_APPLICATION_ID)
-    );
+    assert_eq!((count(&objs, "table"), count(&objs, "index"), count(&objs, "view"), count(&objs, "trigger")), (tables, indexes, views, triggers));
+    assert_eq!(pragma(&conn, "user_version"), i64::from(LEDGER_USER_VERSION));
+    assert_eq!(pragma(&conn, "application_id"), i64::from(LEDGER_APPLICATION_ID));
     let seeds: (i64, i64, i64) = conn
-        .query_row(
-            "SELECT s.complete, s.next, m.rev FROM usage_session_days_state s, usage_membership_revision m",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+        .query_row("SELECT s.complete, s.next, m.rev FROM usage_session_days_state s, usage_membership_revision m", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .expect("seeds");
     assert_eq!(seeds, (1, 0, 0));
 }
@@ -852,15 +643,7 @@ fn both_v2_ledger_shapes_upgrade_to_the_new_schema() {
         conn.execute_batch("PRAGMA user_version = 2").expect("v2");
         let v2 = objects(&conn);
         let expected = if dev { (18, 7, 1, 32) } else { (13, 7, 1, 16) };
-        assert_eq!(
-            (
-                count(&v2, "table"),
-                count(&v2, "index"),
-                count(&v2, "view"),
-                count(&v2, "trigger")
-            ),
-            expected
-        );
+        assert_eq!((count(&v2, "table"), count(&v2, "index"), count(&v2, "view"), count(&v2, "trigger")), expected);
         conn.execute_batch(&format!(
             "INSERT INTO usage_routes VALUES (1, {ROUTE_OPENAI});
              INSERT INTO usage_sessions VALUES (1, 'sess_a');
@@ -874,25 +657,15 @@ fn both_v2_ledger_shapes_upgrade_to_the_new_schema() {
         conn.execute_batch(LEDGER_V3_DELTA).expect("v3");
         conn.execute_batch("COMMIT").expect("commit");
         assert_eq!(objects(&conn), objects(&new_ledger()), "dev={dev}");
-        assert_eq!(
-            pragma(&conn, "user_version"),
-            i64::from(LEDGER_USER_VERSION)
-        );
+        assert_eq!(pragma(&conn, "user_version"), i64::from(LEDGER_USER_VERSION));
         // Either way the per-session sums are then built by the resumable step (cursor 0).
-        let state: (i64, i64) = conn
-            .query_row(
-                "SELECT complete, next FROM usage_session_days_state",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("state");
+        let state: (i64, i64) = conn.query_row("SELECT complete, next FROM usage_session_days_state", [], |row| Ok((row.get(0)?, row.get(1)?))).expect("state");
         assert_eq!(state, (0, 0), "dev={dev}");
     }
 }
 
 fn total_changes(conn: &Connection) -> i64 {
-    conn.query_row("SELECT total_changes()", [], |row| row.get(0))
-        .expect("total_changes")
+    conn.query_row("SELECT total_changes()", [], |row| row.get(0)).expect("total_changes")
 }
 
 /// The group token's route-key term (`readUsageToken`), with provider and model read
@@ -905,50 +678,25 @@ const KEY_TOKEN: &str = "SELECT COALESCE(SUM(k.rev),0) FROM usage_key_revisions 
 #[test]
 fn a_route_rewrite_touches_no_session_day_rows() {
     let conn = new_ledger();
-    conn.execute_batch(&format!(
-        "INSERT INTO usage_routes VALUES (1, {ROUTE_OPENAI})"
-    ))
-    .expect("route");
+    conn.execute_batch(&format!("INSERT INTO usage_routes VALUES (1, {ROUTE_OPENAI})")).expect("route");
     for session in 1..=600 {
-        conn.execute(
-            "INSERT INTO usage_sessions VALUES (?1, 'sess_' || ?1)",
-            [session],
-        )
-        .expect("session");
-        conn.execute(
-            "INSERT INTO usage_events VALUES (randomblob(16), 1, 20260101, 1, ?1, 10, 20, 0, 0, 0.1, 2000)",
-            [session],
-        )
-        .expect("event");
+        conn.execute("INSERT INTO usage_sessions VALUES (?1, 'sess_' || ?1)", [session]).expect("session");
+        conn.execute("INSERT INTO usage_events VALUES (randomblob(16), 1, 20260101, 1, ?1, 10, 20, 0, 0, 0.1, 2000)", [session]).expect("event");
     }
-    let rows: i64 = conn
-        .query_row("SELECT COUNT(*) FROM usage_session_days", [], |row| {
-            row.get(0)
-        })
-        .expect("rows");
+    let rows: i64 = conn.query_row("SELECT COUNT(*) FROM usage_session_days", [], |row| row.get(0)).expect("rows");
     assert_eq!(rows, 600);
-    conn.execute_batch("INSERT INTO usage_key_revisions VALUES (20260101,'anthropic','claude',1)")
-        .expect("key rev");
+    conn.execute_batch("INSERT INTO usage_key_revisions VALUES (20260101,'anthropic','claude',1)").expect("key rev");
     let before = total_changes(&conn);
-    conn.execute_batch(
-        r#"UPDATE usage_routes SET signature = '["anthropic","claude","api","lead","catalog",null,"live",0]' WHERE id = 1"#,
-    )
-    .expect("rewrite");
+    conn.execute_batch(r#"UPDATE usage_routes SET signature = '["anthropic","claude","api","lead","catalog",null,"live",0]' WHERE id = 1"#).expect("rewrite");
     // The route row, the global day revision and the membership revision.
     assert_eq!(total_changes(&conn) - before, 3);
     // Read time sees the new provider/model through the route id.
-    let token: i64 = conn
-        .query_row(KEY_TOKEN, ["[1,2]"], |row| row.get(0))
-        .expect("token");
+    let token: i64 = conn.query_row(KEY_TOKEN, ["[1,2]"], |row| row.get(0)).expect("token");
     assert_eq!(token, 1);
     let plan = plan(&conn, &KEY_TOKEN.replace("?1", "'[1]'"));
     assert!(plan.contains("SEARCH d USING PRIMARY KEY"), "{plan}");
-    assert!(
-        plan.contains("SEARCH r USING INTEGER PRIMARY KEY"),
-        "{plan}"
-    );
+    assert!(plan.contains("SEARCH r USING INTEGER PRIMARY KEY"), "{plan}");
 }
-
 
 const FRAMES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/schema/vectors/frames.json");
 fn frames_doc() -> FramesDoc {
@@ -964,20 +712,9 @@ fn constants_match_the_independent_generator() {
     assert_eq!(c.max_frame_payload, MAX_FRAME_PAYLOAD);
     assert_eq!(c.crc32c_check, format!("{CRC32C_CHECK:08x}"));
     assert_eq!(crc32c(c.crc32c_check_input.as_bytes()), CRC32C_CHECK);
-    assert_eq!(
-        SEPARATORS,
-        [
-            ORDINAL_DIGITS,
-            LEN_AT + LEN_DIGITS,
-            CRC_AT + CRC_DIGITS,
-            HCRC_AT + HCRC_DIGITS
-        ]
-    );
+    assert_eq!(SEPARATORS, [ORDINAL_DIGITS, LEN_AT + LEN_DIGITS, CRC_AT + CRC_DIGITS, HCRC_AT + HCRC_DIGITS]);
     assert_eq!(SEPARATORS.map(|at| at + 1)[..3], [LEN_AT, CRC_AT, HCRC_AT]);
-    assert_eq!(
-        (HCRC_COVERED, HCRC_AT + HCRC_DIGITS + 1),
-        (HCRC_AT, HEADER_LEN)
-    );
+    assert_eq!((HCRC_COVERED, HCRC_AT + HCRC_DIGITS + 1), (HCRC_AT, HEADER_LEN));
     assert_eq!(REVERSE_SCAN_MAX, 9 * 1024 * 1024);
 }
 #[test]
@@ -996,18 +733,8 @@ fn classification_table_matches_every_vector() {
     for case in &doc.classification {
         let bytes = unhex(&case.hex);
         let (committed, end) = scan(&bytes, case.start_ordinal);
-        assert_eq!(
-            (committed.len(), end),
-            (case.expect.committed, case.expect.end),
-            "{} (rule {})",
-            case.name,
-            case.rule
-        );
-        assert!(
-            (1..=9).map(|n| n.to_string()).any(|n| n == case.rule),
-            "{}",
-            case.name
-        );
+        assert_eq!((committed.len(), end), (case.expect.committed, case.expect.end), "{} (rule {})", case.name, case.rule);
+        assert!((1..=9).map(|n| n.to_string()).any(|n| n == case.rule), "{}", case.name);
         if case.record_layer {
             for range in committed {
                 let payload = std::str::from_utf8(&bytes[range]).expect("utf-8 payload");
@@ -1020,11 +747,6 @@ fn classification_table_matches_every_vector() {
             ScanEnd::Corrupt { cause, .. } => format!("{cause:?}"),
         });
     }
-    let all: BTreeSet<String> = [
-        "clean", "torn", "Header", "Length", "Framing", "Crc", "Ordinal",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let all: BTreeSet<String> = ["clean", "torn", "Header", "Length", "Framing", "Crc", "Ordinal"].iter().map(|s| s.to_string()).collect();
     assert_eq!(seen, all, "every scan outcome has a vector");
 }

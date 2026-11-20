@@ -48,7 +48,9 @@ pub fn room_usage_limit(done: &Value, route: &Value) -> Option<UsageLimit> {
     if kind.is_empty() {
         return None;
     }
-    let pick = |field: &str| truthy(quota.and_then(|quota| quota.get(field))).or_else(|| truthy(done.get(field))).or_else(|| truthy(route.get(field))).unwrap_or_default();
+    let pick = |field: &str| {
+        truthy(quota.and_then(|quota| quota.get(field))).or_else(|| truthy(done.get(field))).or_else(|| truthy(route.get(field))).unwrap_or_default()
+    };
     Some(UsageLimit {
         kind: kind.to_owned(),
         provider: pick("provider"),

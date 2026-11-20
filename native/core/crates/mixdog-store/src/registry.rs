@@ -73,8 +73,7 @@ fn is_absolute_text(text: &str) -> bool {
         return text.starts_with('/');
     }
     let bytes = text.as_bytes();
-    matches!(bytes.first(), Some(b'/' | b'\\'))
-        || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'))
+    matches!(bytes.first(), Some(b'/' | b'\\')) || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'))
 }
 
 /// `path.resolve(cwd, text)`: lexical, no filesystem access.
@@ -262,11 +261,7 @@ impl Registry {
 
     /// `mutateStore`: read (recovering a damaged file), mutate, and write only when changed. The
     /// replaced version is kept as `.bak` when it still parses.
-    fn mutate<L: WriteLane, T>(
-        &self,
-        lane: &InLane<L>,
-        mutator: impl FnOnce(&mut Vec<ProjectEntry>) -> (T, bool),
-    ) -> io::Result<T> {
+    fn mutate<L: WriteLane, T>(&self, lane: &InLane<L>, mutator: impl FnOnce(&mut Vec<ProjectEntry>) -> (T, bool)) -> io::Result<T> {
         let _held = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut outcome = None;
         let opts = Opts { backup: true, ..Opts::default() };
@@ -395,10 +390,7 @@ impl Registry {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 /// `ensureProjectIdMarker`: `<project>/.mixdog/project.id` holds the project's id so the registry
@@ -453,12 +445,7 @@ mod tests {
     fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
         use mixdog_rt::LaneToken;
         tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-            mixdog_rt::testing::tokens()
-                .durability_io
-                .submit(&mixdog_rt::CancellationToken::new(), job)
-                .expect("lane")
-                .await
-                .expect("job ran")
+            mixdog_rt::testing::tokens().durability_io.submit(&mixdog_rt::CancellationToken::new(), job).expect("lane").await.expect("job ran")
         })
     }
 
@@ -578,11 +565,4 @@ mod tests {
         let aside = fs::read_dir(&work).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-")).count();
         assert_eq!(aside, 1);
     }
-
-
-
-
-
 }
-
-

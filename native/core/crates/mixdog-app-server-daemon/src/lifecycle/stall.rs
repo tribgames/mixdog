@@ -108,7 +108,8 @@ impl SlowSpans {
     /// `spans: <label> <ms>ms; ...` for the completed spans that overlapped `[from, to]`, the longest overlap first (empty for none).
     pub fn describe(&self, from: f64, to: f64) -> String {
         let ring = self.ring.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut rows: Vec<(f64, &Span)> = ring.iter().map(|span| (span.end.min(to) - span.start.max(from), span)).filter(|(overlap, _)| *overlap > 0.0).collect();
+        let mut rows: Vec<(f64, &Span)> =
+            ring.iter().map(|span| (span.end.min(to) - span.start.max(from), span)).filter(|(overlap, _)| *overlap > 0.0).collect();
         rows.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.end.total_cmp(&a.1.end)));
         if rows.is_empty() {
             return String::new();
@@ -274,11 +275,7 @@ impl StallReporter {
         use std::io::Write;
         let at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
         let line = format!("{{{fields},\"atMs\":{at_ms}}}\n");
-        let written = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.diagnostics)
-            .and_then(|mut file| file.write_all(line.as_bytes()));
+        let written = std::fs::OpenOptions::new().create(true).append(true).open(&self.diagnostics).and_then(|mut file| file.write_all(line.as_bytes()));
         if let Err(error) = written {
             tracing::error!(%error, "stall diagnostics were not written");
         }
@@ -291,12 +288,7 @@ pub struct StallMonitor {
 }
 
 impl StallMonitor {
-    pub fn spawn(
-        config: StallConfig,
-        post: Post,
-        lifecycle: Arc<Lifecycle>,
-        reporter: StallReporter,
-    ) -> Self {
+    pub fn spawn(config: StallConfig, post: Post, lifecycle: Arc<Lifecycle>, reporter: StallReporter) -> Self {
         let (stop, wake) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
             .name("mixdog-stall-monitor".into())
@@ -315,13 +307,7 @@ impl Drop for StallMonitor {
     }
 }
 
-fn watch(
-    config: StallConfig,
-    post: Post,
-    lifecycle: &Lifecycle,
-    reporter: &StallReporter,
-    wake: &mpsc::Receiver<()>,
-) {
+fn watch(config: StallConfig, post: Post, lifecycle: &Lifecycle, reporter: &StallReporter, wake: &mpsc::Receiver<()>) {
     let origin = Instant::now();
     // Milliseconds since `origin` plus one at which the outstanding probe was posted; 0 = none.
     let outstanding = Arc::new(AtomicU64::new(0));
@@ -439,11 +425,11 @@ mod tests {
         assert!(!fx.recorder.has_exited(), "an answering runtime is not ended");
     }
 
-
     fn reporter_with(fx: &super::super::testing::Fixture, work: WorkCounts) -> (StallReporter, PathBuf, Arc<SlowSpans>) {
         let (spans, _) = spans();
         let path = fx.runtime_root.path().join("stall.jsonl");
-        let reporter = StallReporter::new(fx.recorder.clone(), path.clone()).describing(StallDescription { work: Arc::new(move || work), spans: Arc::clone(&spans) });
+        let reporter =
+            StallReporter::new(fx.recorder.clone(), path.clone()).describing(StallDescription { work: Arc::new(move || work), spans: Arc::clone(&spans) });
         (reporter, path, spans)
     }
     #[test]

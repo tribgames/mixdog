@@ -25,23 +25,14 @@ pub struct Jitter {
 }
 
 impl Jitter {
-    pub const NONE: Self = Self {
-        ratio: 0.0,
-        mode: JitterMode::Symmetric,
-    };
+    pub const NONE: Self = Self { ratio: 0.0, mode: JitterMode::Symmetric };
     pub const fn symmetric(ratio: f64) -> Self {
-        Self {
-            ratio,
-            mode: JitterMode::Symmetric,
-        }
+        Self { ratio, mode: JitterMode::Symmetric }
     }
 
     /// [`Jitter::symmetric`] with the wait cut down to whole milliseconds.
     pub const fn symmetric_floored(ratio: f64) -> Self {
-        Self {
-            ratio,
-            mode: JitterMode::SymmetricFloored,
-        }
+        Self { ratio, mode: JitterMode::SymmetricFloored }
     }
 
     /// `wait` jittered by one draw `sample` in `0.0..=1.0`, exactly as
@@ -122,10 +113,7 @@ pub struct RetryRow {
 impl RetryRow {
     /// A row with one schedule for every kind.
     pub fn single(schedule: RetrySchedule) -> Self {
-        Self {
-            schedule,
-            by_kind: Vec::new(),
-        }
+        Self { schedule, by_kind: Vec::new() }
     }
 
     pub fn kind_schedule(&self, kind: ErrorKind) -> Option<&KindSchedule> {
@@ -280,12 +268,7 @@ const fn secs(s: u64) -> Duration {
 
 fn recovery_steps_from(raw: Option<&str>) -> Vec<Duration> {
     let given: Vec<Duration> = raw
-        .map(|raw| {
-            raw.split(',')
-                .filter_map(|step| step.trim().parse::<f64>().ok())
-                .filter_map(|ms| Duration::try_from_secs_f64(ms / 1000.0).ok())
-                .collect()
-        })
+        .map(|raw| raw.split(',').filter_map(|step| step.trim().parse::<f64>().ok()).filter_map(|ms| Duration::try_from_secs_f64(ms / 1000.0).ok()).collect())
         .unwrap_or_default();
     if given.is_empty() { vec![secs(15), secs(30), secs(60)] } else { given }
 }
@@ -314,14 +297,7 @@ pub struct RetryState {
 
 impl RetryState {
     pub fn new(class: RetryClass, model: impl Into<String>) -> Self {
-        Self {
-            class,
-            model: model.into(),
-            base: ScheduleCount::default(),
-            by_kind: Vec::new(),
-            elapsed: Duration::ZERO,
-            consecutive_overloads: 0,
-        }
+        Self { class, model: model.into(), base: ScheduleCount::default(), by_kind: Vec::new(), elapsed: Duration::ZERO, consecutive_overloads: 0 }
     }
 
     pub fn class(&self) -> RetryClass {
@@ -350,12 +326,7 @@ impl RetryState {
     pub fn count(&self, kind_schedule: Option<ErrorKind>) -> ScheduleCount {
         match kind_schedule {
             None => self.base,
-            Some(kind) => self
-                .by_kind
-                .iter()
-                .find(|(k, _)| *k == kind)
-                .map(|(_, count)| *count)
-                .unwrap_or_default(),
+            Some(kind) => self.by_kind.iter().find(|(k, _)| *k == kind).map(|(_, count)| *count).unwrap_or_default(),
         }
     }
 
@@ -370,12 +341,7 @@ impl RetryState {
 
     /// The state after a failure of `kind` retried after `delay`, under the
     /// row's schedule (`under = None`) or under a kind's schedule.
-    pub fn after_retry(
-        &self,
-        kind: ErrorKind,
-        under: Option<&KindSchedule>,
-        delay: Duration,
-    ) -> Self {
+    pub fn after_retry(&self, kind: ErrorKind, under: Option<&KindSchedule>, delay: Duration) -> Self {
         let mut next = self.after_failure(kind);
         let bump = |count: &mut ScheduleCount| {
             count.retries += 1;
@@ -386,13 +352,7 @@ impl RetryState {
             Some(entry) => {
                 match next.by_kind.iter_mut().find(|(k, _)| *k == entry.kind) {
                     Some((_, count)) => bump(count),
-                    None => next.by_kind.push((
-                        entry.kind,
-                        ScheduleCount {
-                            retries: 1,
-                            waited: delay,
-                        },
-                    )),
+                    None => next.by_kind.push((entry.kind, ScheduleCount { retries: 1, waited: delay })),
                 }
                 if entry.resets_base {
                     next.base = ScheduleCount::default();
@@ -441,13 +401,7 @@ pub trait RetryDecider: Send + Sync {
     /// Jitter is applied with [`Jitter::apply`] on the draws in `samples`.
     /// The returned state is built with [`RetryState::after_retry`] or
     /// [`RetryState::after_failure`]; the caller stores it as is.
-    fn verdict(
-        &self,
-        error: &ProviderError,
-        state: &RetryState,
-        policy: &RetryPolicy,
-        samples: JitterSamples,
-    ) -> Decision;
+    fn verdict(&self, error: &ProviderError, state: &RetryState, policy: &RetryPolicy, samples: JitterSamples) -> Decision;
 }
 
 #[cfg(test)]
@@ -460,13 +414,9 @@ mod recovery_ladder_tests {
         assert_eq!(recovery_steps_from(None), default);
         assert_eq!(recovery_steps_from(Some("  ")), default);
         assert_eq!(recovery_steps_from(Some("x,-5")), default);
-        assert_eq!(
-            recovery_steps_from(Some("0, 1000,x,-5,2500")),
-            vec![Duration::ZERO, secs(1), Duration::from_millis(2500)]
-        );
+        assert_eq!(recovery_steps_from(Some("0, 1000,x,-5,2500")), vec![Duration::ZERO, secs(1), Duration::from_millis(2500)]);
     }
 }
-
 
 /// The recovery ladder: 15, 30 and 60 s, or the steps of `MIXDOG_RECOVERY_RETRY_BACKOFF_MS` (comma-separated
 /// milliseconds, Node's `retryLadderFromEnv`: a step that is no non-negative number is dropped, and a value with no
@@ -483,9 +433,7 @@ impl RetryPolicy {
         let exp = |max_retries| {
             RetryRow::single(RetrySchedule {
                 max_retries,
-                backoff: Backoff::Exponential {
-                    base: Duration::from_millis(200),
-                },
+                backoff: Backoff::Exponential { base: Duration::from_millis(200) },
                 jitter: Jitter::symmetric(0.1),
                 advice: AdviceRule::honored_in_full(),
             })
@@ -506,11 +454,7 @@ impl RetryPolicy {
             transport: ladder(vec![secs(5), secs(15), secs(30)]),
             connection: ladder(connection),
             recovery: Some(ladder(recovery_steps())),
-            status: StatusRules {
-                retry_429: true,
-                retry_529: true,
-                ..StatusRules::default()
-            },
+            status: StatusRules { retry_429: true, retry_529: true, ..StatusRules::default() },
             overload: OverloadRule::default(),
             honor_should_retry_true: false,
             final_on_exhaust: false,

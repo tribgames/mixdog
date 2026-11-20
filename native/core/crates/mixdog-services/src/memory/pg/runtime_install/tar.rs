@@ -153,12 +153,8 @@ pub async fn extract(lane: DurabilityIo, archive: &Path, dest: &Path) -> Result<
     let cwd: PathBuf = archive.parent().map(Path::to_owned).unwrap_or_default();
     let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let listed = tar_ok(&["-tzf", &name], &cwd).await.map_err(|e| format!("[runtime-fetcher] tar list failed: {}", or(e, "unknown")))?;
-    let detailed =
-        tar_ok(&["-tvzf", &name], &cwd).await.map_err(|e| format!("[runtime-fetcher] tar detail list failed: {}", or(e, "unknown")))?;
+    let detailed = tar_ok(&["-tvzf", &name], &cwd).await.map_err(|e| format!("[runtime-fetcher] tar detail list failed: {}", or(e, "unknown")))?;
     validate_entries(&lines(&listed), &lines(&detailed), dest)?;
     let relative = format!("../{name}");
-    tar_ok(&["-xzf", &relative], dest)
-        .await
-        .map(drop)
-        .map_err(|e| format!("[runtime-fetcher] tar extraction failed: {}", or(e, "unknown error")))
+    tar_ok(&["-xzf", &relative], dest).await.map(drop).map_err(|e| format!("[runtime-fetcher] tar extraction failed: {}", or(e, "unknown error")))
 }

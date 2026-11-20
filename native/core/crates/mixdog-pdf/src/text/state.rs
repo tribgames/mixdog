@@ -72,10 +72,7 @@ impl TextState {
 
     /// The font's `vertical` (`undefined`, so false, for a font that could not be made).
     pub fn font_is_vertical(&self) -> bool {
-        self.font
-            .as_ref()
-            .and_then(|font| font.font())
-            .is_some_and(|font| font.vertical)
+        self.font.as_ref().and_then(|font| font.font()).is_some_and(|font| font.vertical)
     }
 }
 
@@ -93,10 +90,7 @@ pub struct StateManager {
 
 impl StateManager {
     pub fn new(initial: TextState) -> Self {
-        StateManager {
-            state: initial,
-            stack: Vec::new(),
-        }
+        StateManager { state: initial, stack: Vec::new() }
     }
 
     pub fn save(&mut self) {

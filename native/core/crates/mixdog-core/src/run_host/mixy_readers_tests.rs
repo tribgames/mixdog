@@ -90,11 +90,7 @@ async fn an_unreadable_rule_never_drops_a_heartbeat_report() {
 
 #[tokio::test]
 async fn a_new_routine_needs_mixy_to_exist_by_the_one_rule() {
-    let cases = [
-        (Some(r#"{"created":false}"#), false),
-        (Some(r#"{"name":"Mixy"}"#), true),
-        (None, false),
-    ];
+    let cases = [(Some(r#"{"created":false}"#), false), (Some(r#"{"name":"Mixy"}"#), true), (None, false)];
     for (manifest, expected) in cases {
         let (_dir, definitions) = definitions(manifest, quiet()).await;
         assert_eq!(DefinitionAgents::new(definitions).mixy_exists(false).await, Ok(expected), "{manifest:?}");

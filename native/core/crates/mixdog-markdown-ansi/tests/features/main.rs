@@ -6,8 +6,8 @@ use mixdog_markdown_ansi::render::render_markdown_ansi;
 use mixdog_markdown_ansi::repl_render::render_repl_markdown_with;
 use mixdog_markdown_ansi::stream::{build_stream_final_patch, resolve_streaming_markdown_parts, window_plain_streaming_text};
 use mixdog_termtext::string_width;
-use mixdog_termtext::width::StringWidthOptions;
 use mixdog_termtext::strip_ansi;
+use mixdog_termtext::width::StringWidthOptions;
 use mixdog_tui_style::color::Styler;
 
 fn plain_rows(text: &str, columns: usize) -> Vec<String> {
@@ -54,10 +54,8 @@ fn paragraphs_are_left_to_the_terminal_to_wrap_while_tables_and_rules_fit_the_wi
 #[test]
 fn the_rows_measured_are_the_rows_painted() {
     for columns in [20_usize, 33, 40, 80, 120] {
-        let painted: usize = render_markdown_ansi(DOCUMENT, columns)
-            .iter()
-            .map(|block| block.split('\n').map(|line| wrapped_line_rows(line, columns)).sum::<usize>())
-            .sum();
+        let painted: usize =
+            render_markdown_ansi(DOCUMENT, columns).iter().map(|block| block.split('\n').map(|line| wrapped_line_rows(line, columns)).sum::<usize>()).sum();
         let measured = measure_markdown_rendered_rows(DOCUMENT, columns, false);
         let blocks = DOCUMENT.matches("\n\n").count();
         assert!(measured >= painted && measured <= painted + blocks + 1, "{measured} measured vs {painted} painted at {columns}");

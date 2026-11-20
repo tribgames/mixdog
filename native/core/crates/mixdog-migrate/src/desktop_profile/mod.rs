@@ -12,11 +12,7 @@
 
 // The migration is a sanctioned blocking-I/O home (RL §13): it runs once, before the runtime,
 // on its own thread, reading the Electron profile and the state database directly.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "one-time migration: blocking std::fs and rusqlite on the migration thread"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one-time migration: blocking std::fs and rusqlite on the migration thread")]
 
 mod config_values;
 pub mod connection_adoption;
@@ -57,8 +53,6 @@ pub use session_metadata::SessionMetadata;
 pub use state_tables::ProjectRow;
 pub use state_tables::RoomRow;
 
-use error::ApplyError;
-use error::Step;
 use crate::error::Blocked;
 use crate::error::Result;
 use crate::framework::ItemContext;
@@ -69,6 +63,8 @@ use crate::framework::Staged as Stage;
 use crate::framework::Verdict;
 use crate::framework::Wave;
 use crate::plan::PlanSink;
+use error::ApplyError;
+use error::Step;
 
 /// What a staged item will publish: the journal's `staged` entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,28 +74,19 @@ pub(crate) struct Staged {
 }
 
 fn unhandled(item: &ManifestItem) -> ApplyError {
-    ApplyError::quarantine(
-        QuarantineCode::SchemaViolation,
-        format!("{} has no conversion step", item.key.as_str()),
-    )
+    ApplyError::quarantine(QuarantineCode::SchemaViolation, format!("{} has no conversion step", item.key.as_str()))
 }
 
 /// The one source file of a single-file item.
 fn single_source(item: &ManifestItem) -> Step<&mixdog_store::schema::migration::SourceFile> {
     match item.sources.as_slice() {
         [file] => Ok(file),
-        _ => Err(ApplyError::quarantine(
-            QuarantineCode::SchemaViolation,
-            format!("{} does not have exactly one source", item.key.as_str()),
-        )),
+        _ => Err(ApplyError::quarantine(QuarantineCode::SchemaViolation, format!("{} does not have exactly one source", item.key.as_str()))),
     }
 }
 
 fn profile_dir<'a>(cx: &'a ItemContext<'_>) -> Step<&'a std::path::Path> {
-    cx.roots
-        .profile
-        .as_deref()
-        .ok_or_else(|| Blocked::journal("a desktopProfile item without a profile root").into())
+    cx.roots.profile.as_deref().ok_or_else(|| Blocked::journal("a desktopProfile item without a profile root").into())
 }
 
 fn state_table(item: &ManifestItem) -> Step<StateTable> {
@@ -163,10 +150,9 @@ impl DesktopProfileDriver {
             Family::Config => config_values::stage(cx, item),
             Family::Preserve => preserve::stage(cx, item),
             Family::SessionMetadata => session_metadata::stage(cx, &self.metadata, item),
-            Family::SetAside => Err(ApplyError::quarantine(
-                QuarantineCode::CarriedSetAside,
-                "damaged; the desktop reads the last good .bak instead and sets this file aside",
-            )),
+            Family::SetAside => {
+                Err(ApplyError::quarantine(QuarantineCode::CarriedSetAside, "damaged; the desktop reads the last good .bak instead and sets this file aside"))
+            }
         }
     }
 
@@ -202,7 +188,6 @@ impl SessionMetaSource for DesktopProfileDriver {
     }
 }
 
-
 impl ItemDriver for DesktopProfileDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         match roots.profile.as_deref() {
@@ -232,14 +217,8 @@ impl ItemDriver for DesktopProfileDriver {
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Stage> {
         debug_assert_ne!(item.contract, Contract::Retire);
         match self.stage_step(cx, item) {
-            Ok(staged) => Ok(Stage::Output {
-                output_sha256: staged.output_sha256,
-                replaced_surrogates: staged.replaced_surrogates,
-            }),
-            Err(ApplyError::Quarantine(failure)) => Ok(Stage::Quarantine {
-                code: failure.code,
-                detail: failure.detail,
-            }),
+            Ok(staged) => Ok(Stage::Output { output_sha256: staged.output_sha256, replaced_surrogates: staged.replaced_surrogates }),
+            Err(ApplyError::Quarantine(failure)) => Ok(Stage::Quarantine { code: failure.code, detail: failure.detail }),
             Err(ApplyError::Blocked(blocked)) => Err(blocked),
         }
     }
@@ -260,10 +239,7 @@ impl ItemDriver for DesktopProfileDriver {
         }
         match self.verify_step(cx, item) {
             Ok(digest) => Ok(Verdict::Verified { digest: Some(digest) }),
-            Err(ApplyError::Quarantine(failure)) => Ok(Verdict::Quarantine {
-                code: failure.code,
-                detail: failure.detail,
-            }),
+            Err(ApplyError::Quarantine(failure)) => Ok(Verdict::Quarantine { code: failure.code, detail: failure.detail }),
             Err(ApplyError::Blocked(blocked)) => Err(blocked),
         }
     }

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, GWL_EXSTYLE};
+use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongW};
 
 pub(super) const WS_EX_NOACTIVATE: i32 = 0x0800_0000;
 
@@ -53,9 +53,7 @@ fn append_kind(path: &Path, kind: char, root: Wid, pid: u32, class: &str) -> std
 /// it is cleared). False when the desktop gave no ledger or it cannot be
 /// written: nothing could then clear a killed host's bit.
 pub(super) fn record(added: bool, root: Wid) -> bool {
-    crate::config::inactive_ledger().is_some_and(|path| {
-        append(&path, added, root, native::pid_of(root), &native::class_name(root)).is_ok()
-    })
+    crate::config::inactive_ledger().is_some_and(|path| append(&path, added, root, native::pid_of(root), &native::class_name(root)).is_ok())
 }
 
 /// Records that `root` is about to be disabled (before) or was enabled again
@@ -63,9 +61,7 @@ pub(super) fn record(added: bool, root: Wid) -> bool {
 /// disabled, since nothing could re-enable it after a kill.
 pub(super) fn record_shield(disabled: bool, root: Wid) -> bool {
     let kind = if disabled { SHIELD_ADDED } else { SHIELD_CLEARED };
-    crate::config::inactive_ledger().is_some_and(|path| {
-        append_kind(&path, kind, root, native::pid_of(root), &native::class_name(root)).is_ok()
-    })
+    crate::config::inactive_ledger().is_some_and(|path| append_kind(&path, kind, root, native::pid_of(root), &native::class_name(root)).is_ok())
 }
 
 /// The roots a ledger still records as held, each with the process id and
@@ -207,12 +203,7 @@ fn adopt_with(worker: &Path, parent: Option<&Path>, roots: &dyn Roots) -> bool {
     }
     let Ok(text) = std::fs::read(worker) else { return false };
     let handed = parent.is_some_and(|parent| {
-        std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(parent)
-            .and_then(|mut file| file.write_all(&text).and_then(|()| file.sync_data()))
-            .is_ok()
+        std::fs::OpenOptions::new().append(true).create(true).open(parent).and_then(|mut file| file.write_all(&text).and_then(|()| file.sync_data())).is_ok()
     });
     if handed {
         let _ = std::fs::remove_file(worker);
@@ -225,22 +216,13 @@ fn adopt_with(worker: &Path, parent: Option<&Path>, roots: &dyn Roots) -> bool {
 /// the stopped host's own.
 fn paths() -> Vec<PathBuf> {
     let listed = std::env::var_os("MIXDOG_ABORT_LEDGERS").unwrap_or_default();
-    listed
-        .to_string_lossy()
-        .split('|')
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .chain(crate::config::inactive_ledger())
-        .collect()
+    listed.to_string_lossy().split('|').filter(|path| !path.is_empty()).map(PathBuf::from).chain(crate::config::inactive_ledger()).collect()
 }
 
 /// Clears the no-activate bit on every root the ledgers still hold; every
 /// ledger is replayed even when another fails.
 pub fn replay() -> Result<(), String> {
-    let kept = paths()
-        .iter()
-        .filter(|path| !replay_file(path, &Live))
-        .count();
+    let kept = paths().iter().filter(|path| !replay_file(path, &Live)).count();
     if kept > 0 {
         return Err("inactive_ledger_unrecovered".into());
     }
@@ -264,12 +246,7 @@ mod tests {
     impl Fake {
         fn with(windows: &[(Wid, u32, &str, i32)]) -> Fake {
             Fake {
-                windows: RefCell::new(
-                    windows
-                        .iter()
-                        .map(|(root, pid, class, style)| (*root, (*pid, class.to_string(), *style)))
-                        .collect(),
-                ),
+                windows: RefCell::new(windows.iter().map(|(root, pid, class, style)| (*root, (*pid, class.to_string(), *style))).collect()),
                 stuck: Vec::new(),
                 disabled: RefCell::new(Vec::new()),
             }
@@ -318,13 +295,7 @@ mod tests {
         let text = "+\t1a2b\t10\tNotepad\n+\tff\t11\tEdit\n-\t1a2b\t10\tNotepad\n\
                     +\tzz\t1\tBad handle\n+\t5\t12\n?\t6\t13\tOther\n+\t7\t14\tMy  class\n";
         let held = recorded(text);
-        assert_eq!(
-            held.into_iter().collect::<Vec<_>>(),
-            [
-                (0x7, ("14".to_string(), "My  class".to_string())),
-                (0xff, ("11".to_string(), "Edit".to_string())),
-            ]
-        );
+        assert_eq!(held.into_iter().collect::<Vec<_>>(), [(0x7, ("14".to_string(), "My  class".to_string())), (0xff, ("11".to_string(), "Edit".to_string())),]);
         assert!(recorded("").is_empty());
     }
 
@@ -336,10 +307,7 @@ mod tests {
         append(&path, false, 0x2b, 78, "Edit").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert_eq!(text, "+\t2a\t77\tOdd class  name\n+\t2b\t78\tEdit\n-\t2b\t78\tEdit\n");
-        assert_eq!(
-            recorded(&text).into_iter().collect::<Vec<_>>(),
-            [(0x2a, ("77".to_string(), "Odd class  name".to_string()))]
-        );
+        assert_eq!(recorded(&text).into_iter().collect::<Vec<_>>(), [(0x2a, ("77".to_string(), "Odd class  name".to_string()))]);
         std::fs::remove_file(&path).unwrap();
         // A ledger whose folder is missing cannot be written.
         assert!(append(&path.join("missing").join("ledger.txt"), true, 1, 1, "x").is_err());
@@ -385,12 +353,7 @@ mod tests {
 
     #[test]
     fn a_replay_enables_shielded_windows_that_still_match() {
-        let roots = Fake::with(&[
-            (1, 10, "Settings", 0),
-            (2, 99, "Settings", 0),
-            (3, 10, "Settings", 0),
-            (4, 10, "Settings", 0),
-        ]);
+        let roots = Fake::with(&[(1, 10, "Settings", 0), (2, 99, "Settings", 0), (3, 10, "Settings", 0), (4, 10, "Settings", 0)]);
         roots.disabled.borrow_mut().extend([1, 2, 3, 4]);
         let text = "d\t1\t10\tSettings\nd\t2\t10\tSettings\nd\t3\t10\tSettings\n\
                     e\t3\t10\tSettings\nd\t4\t10\tSettings\n+\t4\t10\tSettings\n";

@@ -7,8 +7,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_js::js_trim;
 use mixdog_js::js_object_keys as ordered_keys;
+use mixdog_js::js_trim;
 use mixdog_rt::InLane;
 use mixdog_rt::MaintenanceIo;
 use serde_json::Map;
@@ -75,7 +75,8 @@ fn unreadable(lane: &InLane<MaintenanceIo>, path: &Path, error: &std::io::Error)
 /// engine's message may quote the offending source text, which can hold credentials. The location is
 /// read out of V8's message, so the text must be the message V8 raises.
 fn json_error_message(message: &str) -> String {
-    static LINE_COLUMN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"line (\d+) column (\d+)").expect("a fixed pattern"));
+    static LINE_COLUMN: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"line (\d+) column (\d+)").expect("a fixed pattern"));
     static POSITION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"position (\d+)").expect("a fixed pattern"));
     static END: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)end of (JSON|data) input").expect("a fixed pattern"));
     if let Some(found) = LINE_COLUMN.captures(message) {
@@ -160,11 +161,7 @@ pub fn read_registry(lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Vec<Regis
             if !root.exists() {
                 return None;
             }
-            let id = ["id", "name"]
-                .iter()
-                .find_map(|k| entry.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()))
-                .unwrap_or_default()
-                .to_owned();
+            let id = ["id", "name"].iter().find_map(|k| entry.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty())).unwrap_or_default().to_owned();
             Some(RegisteredPlugin { id, root, enabled: entry.get("enabled").and_then(Value::as_bool) != Some(false) })
         })
         .collect()
@@ -212,11 +209,7 @@ struct Collector {
 
 impl Collector {
     fn error(&mut self, source: &Path, key: Option<&str>, message: impl Into<String>) {
-        self.errors.push(DeclarationError {
-            source: source.to_path_buf(),
-            key: key.map(str::to_owned),
-            message: message.into(),
-        });
+        self.errors.push(DeclarationError { source: source.to_path_buf(), key: key.map(str::to_owned), message: message.into() });
     }
 
     /// A `{ mcpServers: {...} }` wrapper or a bare server map -> the server map.
@@ -262,10 +255,7 @@ impl Collector {
         }
     }
 
-    fn load_declared_path(
-        &mut self, root: &Path, relative: &Value, manifest: &Path, where_: &str,
-        read: &mut impl FnMut(&Path) -> Arc<DeclarationFile>,
-    ) {
+    fn load_declared_path(&mut self, root: &Path, relative: &Value, manifest: &Path, where_: &str, read: &mut impl FnMut(&Path) -> Arc<DeclarationFile>) {
         let Some(text) = relative.as_str().filter(|s| !js_trim(s).is_empty()) else {
             self.error(manifest, None, format!("{where_}MCP path must be a non-empty string"));
             return;
@@ -408,11 +398,7 @@ fn normalize_intent(value: &Value) -> Option<Value> {
     }
     for field in INTENT_MAP_FIELDS {
         let Some(map) = object.get(field).and_then(Value::as_object) else { continue };
-        let kept: Map<String, Value> = ordered_keys(map)
-            .into_iter()
-            .filter(|key| !map[*key].is_null())
-            .map(|key| (key.clone(), map[key].clone()))
-            .collect();
+        let kept: Map<String, Value> = ordered_keys(map).into_iter().filter(|key| !map[*key].is_null()).map(|key| (key.clone(), map[key].clone())).collect();
         if !kept.is_empty() {
             out.insert(field.to_owned(), Value::Object(kept));
         }
@@ -433,11 +419,8 @@ pub fn normalize_intents(value: &Value) -> Map<String, Value> {
     for plugin in ordered_keys(plugins) {
         let id = js_trim(plugin);
         let Some(servers) = plugins[plugin].as_object().filter(|_| !id.is_empty()) else { continue };
-        let kept: Map<String, Value> = ordered_keys(servers)
-            .into_iter()
-            .filter(|key| !key.is_empty())
-            .filter_map(|key| Some((key.clone(), normalize_intent(&servers[key])?)))
-            .collect();
+        let kept: Map<String, Value> =
+            ordered_keys(servers).into_iter().filter(|key| !key.is_empty()).filter_map(|key| Some((key.clone(), normalize_intent(&servers[key])?))).collect();
         if !kept.is_empty() {
             out.insert(id.to_owned(), Value::Object(kept));
         }
@@ -469,7 +452,6 @@ mod tests {
         assert_eq!(intents.len(), 1);
         assert_eq!(intents["p"], json!({"s": {"enabled": false, "env": {"A": "2"}, "url": "https://x"}}));
     }
-
 
     /// The hook bus reads the registry as the admin path does (`loadRegistry`): a damaged `registry.json` is set aside and
     /// `registry.json.bak` restored, instead of reading as no plugins.

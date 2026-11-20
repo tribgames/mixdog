@@ -288,7 +288,8 @@ fn bot_state(bot: &Bot, ctx: &Ctx, approval: &dyn Fn(&str) -> bool) -> State {
     let home = home_id.as_ref().and_then(|id| ctx.rows.get(id)).cloned();
     // Work this bot sent that is running now (`handedBy`); a turn the user typed is the user's.
     let sent_work = |row: Option<&Row>| {
-        is_working(row) && row.and_then(|row| row.get("handedBy")).and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(&bot.id)))
+        is_working(row)
+            && row.and_then(|row| row.get("handedBy")).and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(&bot.id)))
     };
     let mut tasks: Vec<Task> = Vec::new();
     let mut add_task = |id: String, title: Option<Value>, at: f64| match tasks.iter_mut().find(|task| task.id == id) {
@@ -441,12 +442,7 @@ async fn gather(sources: &dyn BotSources, listing: &dyn SessionListing, own: &st
     let bots: Vec<Bot> = all
         .iter()
         .filter(|bot| own.is_empty() || str_of(bot, "id") == Some(own))
-        .map(|bot| Bot {
-            id: text_of(bot.get("id")),
-            name: text_of(bot.get("name")),
-            disabled: truthy(bot.get("disabled")),
-            is_self: false,
-        })
+        .map(|bot| Bot { id: text_of(bot.get("id")), name: text_of(bot.get("name")), disabled: truthy(bot.get("disabled")), is_self: false })
         .collect();
     let mut ids: HashSet<String> = bots.iter().map(|bot| bot.id.clone()).collect();
     ids.insert(if own.is_empty() { MIXY_AGENT_ID.to_owned() } else { own.to_owned() });
@@ -566,7 +562,8 @@ async fn detail(sources: &dyn BotSources, listing: &dyn SessionListing, target: 
         .map(|entry| {
             let run = entry.get("run");
             let run_name = run.and_then(|run| run.get("name"));
-            let run = if truthy(run_name) { format!(" in {} {}", text_of_kind(run.and_then(|run| run.get("kind"))), quoted(run_name, 40)) } else { String::new() };
+            let run =
+                if truthy(run_name) { format!(" in {} {}", text_of_kind(run.and_then(|run| run.get("kind"))), quoted(run_name, 40)) } else { String::new() };
             let expires = epoch(entry.get("expiresAt"));
             let expires = if expires != 0.0 { format!(", expires {}", until(expires, ctx.at)) } else { String::new() };
             json!(cut(&format!("{} {}{run}{expires}", quoted(entry.get("kind"), 20), quoted(entry.get("tool"), 60)), 160))
@@ -599,7 +596,10 @@ async fn detail(sources: &dyn BotSources, listing: &dyn SessionListing, target: 
     }
     result.insert("note".into(), json!(UNTRUSTED_NOTE));
     result.insert("read".into(), json!(READ_HINT));
-    fit_page(result, &[("sessions", "moreSessions", known.len(), 1), ("held", "moreHeld", state.held.len(), 0), ("routines", "moreRoutines", state.routines.len(), 0)])
+    fit_page(
+        result,
+        &[("sessions", "moreSessions", known.len(), 1), ("held", "moreHeld", state.held.len(), 0), ("routines", "moreRoutines", state.routines.len(), 0)],
+    )
 }
 
 /// `botStatus(args, { callerScope })`: `own` is the caller's `scopedBot` (`None`: a background run).
@@ -609,7 +609,10 @@ pub async fn status(sources: &dyn BotSources, listing: &dyn SessionListing, args
     };
     let limit = match args.get("limit") {
         None | Some(Value::Null) => DEFAULT_SESSIONS,
-        Some(value) => value.as_f64().filter(|n| n.is_finite() && n.fract() == 0.0 && (1.0..=100.0).contains(n)).ok_or("session: limit must be an integer from 1 to 100")?,
+        Some(value) => value
+            .as_f64()
+            .filter(|n| n.is_finite() && n.fract() == 0.0 && (1.0..=100.0).contains(n))
+            .ok_or("session: limit must be an integer from 1 to 100")?,
     };
     let target = args.get("session_id").and_then(Value::as_str).map(|s| mixdog_js::js_trim(s).to_owned()).unwrap_or_default();
     if target.is_empty() { overview(sources, listing, &own).await } else { detail(sources, listing, &target, &own, limit as usize).await }
@@ -745,7 +748,8 @@ mod tests {
 
     const NOW: i64 = 100_000_000;
     const MINUTE: i64 = 60_000;
-    const OVERVIEW_NEXT: &str = "session action=bots session_id=<bot id or chat id>: its routines and recent sessions; session action=read session_id=<id> reads one.";
+    const OVERVIEW_NEXT: &str =
+        "session action=bots session_id=<bot id or chat id>: its routines and recent sessions; session action=read session_id=<id> reads one.";
 
     #[derive(Default)]
     struct Sources {
@@ -785,7 +789,10 @@ mod tests {
     #[async_trait]
     impl SessionListing for Catalog {
         async fn page(&self, _: usize, _: Option<&str>) -> Result<ListingPage, String> {
-            Ok(ListingPage { rows: self.0.iter().map(|row| ListedRow { row: row.as_object().expect("row").clone(), archived: false }).collect(), next_cursor: None })
+            Ok(ListingPage {
+                rows: self.0.iter().map(|row| ListedRow { row: row.as_object().expect("row").clone(), archived: false }).collect(),
+                next_cursor: None,
+            })
         }
         async fn row(&self, _: &str) -> Result<Option<ListedRow>, String> {
             Ok(None)
@@ -843,7 +850,10 @@ mod tests {
         };
         let lines = ask(&sources, json!({}), Some("")).await.expect("an overview")["bots"].clone();
         let lines: Vec<&str> = lines.as_array().expect("lines").iter().map(|l| l.as_str().expect("text")).collect();
-        assert!(lines.iter().any(|l| l.starts_with("Bob (bob)") && l.contains("attention: nightly failed 3x; disabled") && l.contains("1 routine")), "{lines:?}");
+        assert!(
+            lines.iter().any(|l| l.starts_with("Bob (bob)") && l.contains("attention: nightly failed 3x; disabled") && l.contains("1 routine")),
+            "{lines:?}"
+        );
         assert!(lines.iter().any(|l| l.starts_with("Alice (alice)") && l.contains("attention: 1 approval waiting")), "{lines:?}");
     }
 
@@ -851,8 +861,12 @@ mod tests {
     async fn a_bots_detail_lists_its_sessions_routines_and_held_requests() {
         let sources = Sources {
             bots: bots(),
-            routines: vec![json!({ "kind": "schedule", "name": "daily", "owner": "alice", "enabled": true, "time": "09:00", "nextFireAt": NOW + 120 * MINUTE, "lastSuccessAt": NOW - 300 * MINUTE })],
-            held: vec![json!({ "agentId": "alice", "kind": "tool", "tool": "bash", "run": { "kind": "schedule", "name": "daily" }, "expiresAt": NOW + 30 * MINUTE })],
+            routines: vec![
+                json!({ "kind": "schedule", "name": "daily", "owner": "alice", "enabled": true, "time": "09:00", "nextFireAt": NOW + 120 * MINUTE, "lastSuccessAt": NOW - 300 * MINUTE }),
+            ],
+            held: vec![
+                json!({ "agentId": "alice", "kind": "tool", "tool": "bash", "run": { "kind": "schedule", "name": "daily" }, "expiresAt": NOW + 30 * MINUTE }),
+            ],
             awaiting: vec!["sess_home_alice".into()],
         };
         let answer = ask(&sources, json!({ "session_id": "sess_home_alice" }), Some("")).await.expect("the detail");
@@ -877,7 +891,10 @@ mod tests {
     #[tokio::test]
     async fn a_bot_nobody_defined_is_named_in_the_refusal() {
         let sources = Sources { bots: bots(), ..Sources::default() };
-        assert_eq!(ask(&sources, json!({ "session_id": "ghost" }), Some("")).await, Err("session: no bot \"ghost\"; session action=bots lists them".to_owned()));
+        assert_eq!(
+            ask(&sources, json!({ "session_id": "ghost" }), Some("")).await,
+            Err("session: no bot \"ghost\"; session action=bots lists them".to_owned())
+        );
     }
 
     #[tokio::test]

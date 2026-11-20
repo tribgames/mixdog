@@ -35,10 +35,7 @@ async fn entries_survive_a_restart() {
     let path = dir.path().join("core.sqlite");
     let state = open_state(&path);
     let states = ArchiveStates::open(state.clone()).await.unwrap();
-    states
-        .commit(|_, _| Ok(((), vec![("root".to_owned(), ArchiveEntry::Restored(9.0)), ("child".to_owned(), ArchiveEntry::Archived(3.0))])))
-        .await
-        .unwrap();
+    states.commit(|_, _| Ok(((), vec![("root".to_owned(), ArchiveEntry::Restored(9.0)), ("child".to_owned(), ArchiveEntry::Archived(3.0))]))).await.unwrap();
     state.close();
     let again = ArchiveStates::open(open_state(&path)).await.unwrap();
     let stamp = json!(2);
@@ -54,7 +51,14 @@ async fn a_failed_commit_changes_no_member() {
     let dir = tempfile::tempdir().unwrap();
     let state = open_state(&dir.path().join("core.sqlite"));
     let states = ArchiveStates::open(state.clone()).await.unwrap();
-    let row = OpRow { method: "session/autoArchive".into(), payload_digest: "root".into(), state: OpRowState::Applied, outcome: None, created_at: 1, completed_at: Some(1) };
+    let row = OpRow {
+        method: "session/autoArchive".into(),
+        payload_digest: "root".into(),
+        state: OpRowState::Applied,
+        outcome: None,
+        created_at: 1,
+        completed_at: Some(1),
+    };
     let failed = states
         .commit(move |_, tx| {
             tx.put_op(OP_SCOPE, "op-1", &row)?;

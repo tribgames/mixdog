@@ -84,10 +84,18 @@ fn the_row_says_auto_exactly_when_the_judge_judges() {
     let no_ladder = json!({ "id": "gpt-6-x", "provider": "openai-oauth", "reasoningLevels": ["max", "ultra"] });
     let refused = |levels: &[&str]| {
         let entry = RejectionEntry { rejected: levels.iter().map(|l| (*l).to_owned()).collect(), allowed: Vec::new() };
-        Real { unsupported: UnsupportedEfforts::default(), rejections: HashMap::from([(rejection_key("openai-oauth", "gpt-6-astra"), entry)]), anthropic_levels: Vec::new() }
+        Real {
+            unsupported: UnsupportedEfforts::default(),
+            rejections: HashMap::from([(rejection_key("openai-oauth", "gpt-6-astra"), entry)]),
+            anthropic_levels: Vec::new(),
+        }
     };
     let plain = Real { unsupported: UnsupportedEfforts::default(), rejections: HashMap::new(), anthropic_levels: Vec::new() };
-    let adaptive = |levels: &[&str]| Real { unsupported: UnsupportedEfforts::default(), rejections: HashMap::new(), anthropic_levels: levels.iter().map(|l| (*l).to_owned()).collect() };
+    let adaptive = |levels: &[&str]| Real {
+        unsupported: UnsupportedEfforts::default(),
+        rejections: HashMap::new(),
+        anthropic_levels: levels.iter().map(|l| (*l).to_owned()).collect(),
+    };
     let opus = json!({ "id": "claude-opus-5-5", "provider": "anthropic-oauth" });
     let off = json!(false);
     let (with_levels, without_levels) = (adaptive(&["low", "medium", "high", "xhigh"]), adaptive(&[]));

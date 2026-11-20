@@ -43,7 +43,8 @@ fn cells_keep_their_types_and_a_formula_is_stored_with_its_text() {
 fn recalculating_fills_the_cached_value_of_a_formula() {
     let doc = ledger();
     assert_eq!(cell(&doc.snapshot(), "Plan", "B4").expect("B4")["cacheState"], json!("missing"));
-    mixdog_ooxml::portable::recalculate_with_formula_engine(&mixdog_fsio::Unlaned, &mixdog_office_base::write_note::NoWriteNote, &doc.path).expect("a recalculation");
+    mixdog_ooxml::portable::recalculate_with_formula_engine(&mixdog_fsio::Unlaned, &mixdog_office_base::write_note::NoWriteNote, &doc.path)
+        .expect("a recalculation");
     let entry = cell(&doc.snapshot(), "Plan", "B4").expect("B4");
     assert_eq!(entry["cachedValue"], json!(7));
     assert_eq!(entry["formula"], json!("SUM(B2:B3)"));
@@ -106,7 +107,9 @@ fn sheets_are_added_renamed_copied_and_deleted_and_formulas_follow_a_rename() {
 #[test]
 fn a_style_gives_a_cell_its_number_format_font_and_fill() {
     let doc = ledger();
-    doc.apply(json!([{ "op": "set_style", "sheet": "Plan", "range": "B2:B3", "properties": { "numberFormat": "#,##0.00", "bold": true, "fillColor": "FFEEAA" } }]));
+    doc.apply(
+        json!([{ "op": "set_style", "sheet": "Plan", "range": "B2:B3", "properties": { "numberFormat": "#,##0.00", "bold": true, "fillColor": "FFEEAA" } }]),
+    );
     let styles = doc.part("xl/styles.xml");
     assert!(styles.contains("formatCode=\"#,##0.00\""), "{styles}");
     assert!(styles.contains("FFEEAA"));
@@ -156,7 +159,9 @@ fn visibility_names_protection_hyperlinks_validation_and_conditional_formats_are
     let workbook = doc.part("xl/workbook.xml");
     assert!(workbook.contains("state=\"hidden\"") && workbook.contains("<definedName name=\"Tax\"") && workbook.contains("Plan!$B$4"), "{workbook}");
     let sheet = doc.part("xl/worksheets/sheet1.xml");
-    assert!(sheet.contains("<sheetProtection") && sheet.contains("<hyperlink ") && sheet.contains("<dataValidation ") && sheet.contains("<conditionalFormatting"));
+    assert!(
+        sheet.contains("<sheetProtection") && sheet.contains("<hyperlink ") && sheet.contains("<dataValidation ") && sheet.contains("<conditionalFormatting")
+    );
     assert!(sheet.contains("hidden=\"1\""));
     assert!(doc.part("xl/worksheets/_rels/sheet1.xml.rels").contains("https://example.com/a?b=1&amp;c=2"));
     let entry = doc.snapshot()["sheets"][0].clone();

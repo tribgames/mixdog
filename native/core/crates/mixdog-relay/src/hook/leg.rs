@@ -42,11 +42,7 @@ fn is_strict_base64(text: &[u8]) -> bool {
     if text.len() % 4 != 0 {
         return false;
     }
-    let padding = if text.ends_with(b"==") {
-        2
-    } else {
-        usize::from(text.ends_with(b"="))
-    };
+    let padding = if text.ends_with(b"==") { 2 } else { usize::from(text.ends_with(b"=")) };
     text[..text.len() - padding].iter().all(|byte| alphabet_value(*byte).is_some())
 }
 
@@ -100,11 +96,7 @@ fn upstream_status(value: Option<&Value>) -> u16 {
 /// `hookContentType`: the agent's `content-type` when it is printable ASCII of 1 to 200 characters, else `application/json`.
 fn content_type(headers: Option<&Value>) -> String {
     let raw = headers.and_then(|headers| headers.get("content-type")).and_then(Value::as_str).unwrap_or("");
-    if (1..=200).contains(&raw.len()) && raw.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) {
-        raw.to_owned()
-    } else {
-        "application/json".to_owned()
-    }
+    if (1..=200).contains(&raw.len()) && raw.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) { raw.to_owned() } else { "application/json".to_owned() }
 }
 
 /// `answerHookFrame`: one `http-response` frame from the agent settles its parked inbound request.
@@ -135,12 +127,7 @@ impl HookHub {
         // `{ ...ingress, limit: MAX_HOOK_BODY_BYTES }`: whatever numbers the server gives, a hook leg's own limit is 1 MiB.
         let limits = IngressLimits { limit: MAX_HOOK_BODY_BYTES, ..self.options.ingress };
         let ingress = IngressLeg::install(&self.pool, &socket, LegKind::Hook, limits);
-        let entry = Arc::new(HookEntry {
-            socket,
-            state: std::sync::Mutex::new(EntryState::default()),
-            alive: AtomicBool::new(true),
-            ingress: ingress.clone(),
-        });
+        let entry = Arc::new(HookEntry { socket, state: std::sync::Mutex::new(EntryState::default()), alive: AtomicBool::new(true), ingress: ingress.clone() });
         let previous = super::lock(&self.legs).insert(device_id.to_owned(), Arc::clone(&entry));
         if let Some(previous) = previous {
             // Already gone is not an error here.
@@ -217,7 +204,18 @@ mod tests {
 
     #[test]
     fn the_status_is_an_integer_from_100_to_599_else_502() {
-        for (value, expected) in [(json!(200), 200), (json!(100), 100), (json!(599), 599), (json!(200.0), 200), (json!(99), 502), (json!(600), 502), (json!(200.5), 502), (json!("200"), 502), (json!(null), 502), (json!(true), 502)] {
+        for (value, expected) in [
+            (json!(200), 200),
+            (json!(100), 100),
+            (json!(599), 599),
+            (json!(200.0), 200),
+            (json!(99), 502),
+            (json!(600), 502),
+            (json!(200.5), 502),
+            (json!("200"), 502),
+            (json!(null), 502),
+            (json!(true), 502),
+        ] {
             assert_eq!(upstream_status(Some(&value)), expected, "{value}");
         }
         assert_eq!(upstream_status(None), 502);

@@ -15,9 +15,7 @@ fn pages_tree(objects: &[(u32, &str)]) -> Vec<u8> {
 
 #[test]
 fn text_that_is_not_a_document_is_an_invalid_structure() {
-    let error = Document::open(b"just some text, not a document".to_vec(), &OpenOptions::default())
-        .err()
-        .expect("text is no PDF");
+    let error = Document::open(b"just some text, not a document".to_vec(), &OpenOptions::default()).err().expect("text is no PDF");
     let exception = wrap_reason(&error);
     assert_eq!(exception.name, "InvalidPDFException");
     assert_eq!(exception.message, "Invalid PDF structure.");
@@ -28,11 +26,7 @@ fn an_empty_file_says_its_size_is_zero() {
     let error = Document::open(Vec::new(), &OpenOptions::default()).err().expect("empty");
     assert_eq!(
         wrap_reason(&error),
-        Exception {
-            name: "InvalidPDFException",
-            code: None,
-            message: "The PDF file is empty, i.e. its size is zero bytes.".to_owned(),
-        }
+        Exception { name: "InvalidPDFException", code: None, message: "The PDF file is empty, i.e. its size is zero bytes.".to_owned() }
     );
 }
 

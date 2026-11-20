@@ -13,8 +13,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
-use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
@@ -32,15 +32,15 @@ use tokio_util::sync::CancellationToken;
 
 use self::listing::InstalledModels;
 use self::listing::LocalListing;
-use crate::transport::http::HttpSend;
-use crate::providers::connect::rewrite::HttpAdapter;
-use crate::providers::connect::rewrite::RewriteCodec;
-use crate::providers::connect::rewrite::Rewriter;
-use crate::providers::connect::rewrite::StaticCredential;
 use crate::providers::compat::CompatChatCodec;
 use crate::providers::compat::CompatConfig;
 use crate::providers::compat::CompatProfile;
 use crate::providers::compat::profile::CredentialKind;
+use crate::providers::connect::rewrite::HttpAdapter;
+use crate::providers::connect::rewrite::RewriteCodec;
+use crate::providers::connect::rewrite::Rewriter;
+use crate::providers::connect::rewrite::StaticCredential;
+use crate::transport::http::HttpSend;
 
 pub const PROVIDER_ID: &str = "mixdog-local";
 
@@ -110,11 +110,7 @@ pub fn codec(base_url: &str) -> Arc<dyn WireCodec> {
 /// [`codec`] carrying the provider's configured `extraHeaders` (the inner provider takes `...this.config`).
 pub fn codec_with(base_url: &str, extra_headers: Vec<(String, String)>) -> Arc<dyn WireCodec> {
     let profile = CompatProfile::plain(PROVIDER_ID, "http://127.0.0.1/v1", CredentialKind::Keyless);
-    let config = CompatConfig {
-        base_url: Some(base_url.to_owned()),
-        extra_headers,
-        ..CompatConfig::for_profile(&profile)
-    };
+    let config = CompatConfig { base_url: Some(base_url.to_owned()), extra_headers, ..CompatConfig::for_profile(&profile) };
     Arc::new(CompatChatCodec::new(profile, config))
 }
 
@@ -216,7 +212,14 @@ impl RegisteredAdapter {
         {
             return adapter.clone();
         }
-        let built = Arc::new(adapter(self.http.clone(), endpoint.base_url.clone(), &endpoint.api_key, self.policy.clone(), self.runtime.clone(), self.extra_headers.clone()));
+        let built = Arc::new(adapter(
+            self.http.clone(),
+            endpoint.base_url.clone(),
+            &endpoint.api_key,
+            self.policy.clone(),
+            self.runtime.clone(),
+            self.extra_headers.clone(),
+        ));
         *current = Some((endpoint, built.clone()));
         built
     }
@@ -243,7 +246,12 @@ impl ProviderAdapter for RegisteredAdapter {
     /// The managed local runtime is text-only (1.4.5 `MixdogLocalProvider.takesImages = false`): it declares no vision, so no
     /// image is sent to it.
     async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
-        mixdog_image_egress::route::RouteFacts::declared(self.id.as_str(), &request.model, mixdog_image_egress::route::WireBranch::Local, mixdog_image_egress::route::Vision::No)
+        mixdog_image_egress::route::RouteFacts::declared(
+            self.id.as_str(),
+            &request.model,
+            mixdog_image_egress::route::WireBranch::Local,
+            mixdog_image_egress::route::Vision::No,
+        )
     }
 
     /// `MixdogLocalProvider.send`: the request takes its turn in the runtime's queue (`runLocalProviderRequest`), starts its
@@ -285,11 +293,12 @@ impl ProviderAdapter for RegisteredAdapter {
         };
         if !request.tools.is_empty() && self.runtime.supports_tools(&request.model) == Some(false) {
             let row = self.runtime.installed_now();
-            let name = row.as_ref().and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(request.model.as_str())))
-                .and_then(|row| row["name"].as_str()).unwrap_or(&request.model);
-            let error = refusal(&format!(
-                "[local-provider] {name} does not support the requested tool interface. Choose a tool-capable model.",
-            ));
+            let name = row
+                .as_ref()
+                .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(request.model.as_str())))
+                .and_then(|row| row["name"].as_str())
+                .unwrap_or(&request.model);
+            let error = refusal(&format!("[local-provider] {name} does not support the requested tool interface. Choose a tool-capable model.",));
             state.failed(&error.message);
             return Err(error);
         }
@@ -304,10 +313,8 @@ impl ProviderAdapter for RegisteredAdapter {
         };
         match opened {
             Ok(stream) => {
-                let measured = Measured {
-                    inner: stream, state, group: group.map(|id| (id, self.groups.clone())),
-                    usage: None, ended: false, _cleanup: cleanup,
-                };
+                let measured =
+                    Measured { inner: stream, state, group: group.map(|id| (id, self.groups.clone())), usage: None, ended: false, _cleanup: cleanup };
                 match stop {
                     Some(stop) => Ok(Box::new(Interruptible::new(measured, stop))),
                     None => Ok(Box::new(measured)),
@@ -589,15 +596,24 @@ mod tests {
             async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
                 std::future::pending().await
             }
-            fn delivery(&self) -> DeliveryState { DeliveryState::Accepted }
+            fn delivery(&self) -> DeliveryState {
+                DeliveryState::Accepted
+            }
             fn on_wire_left(&mut self, _: Arc<dyn Fn() + Send + Sync>) {}
         }
         let (dropped, released) = tokio::sync::oneshot::channel();
         let stop = CancellationToken::new();
-        let mut stream = Interruptible::new(Measured {
-            inner: Box::new(Held(Some(dropped))), state: Arc::new(SendState::new(Box::new(NoInference), false)),
-            group: None, usage: None, ended: false, _cleanup: None,
-        }, stop.clone());
+        let mut stream = Interruptible::new(
+            Measured {
+                inner: Box::new(Held(Some(dropped))),
+                state: Arc::new(SendState::new(Box::new(NoInference), false)),
+                group: None,
+                usage: None,
+                ended: false,
+                _cleanup: None,
+            },
+            stop.clone(),
+        );
         stop.cancel();
         released.await.unwrap();
         assert_eq!(stream.next().await.unwrap().unwrap_err().message, "aborted");
@@ -622,16 +638,24 @@ mod tests {
                 self.resume.notified().await;
                 Some(Ok(StreamEvent::TextDelta("still here".into())))
             }
-            fn delivery(&self) -> DeliveryState { DeliveryState::Accepted }
+            fn delivery(&self) -> DeliveryState {
+                DeliveryState::Accepted
+            }
             fn on_wire_left(&mut self, _: Arc<dyn Fn() + Send + Sync>) {}
         }
         let entered = Arc::new(tokio::sync::Notify::new());
         let resume = Arc::new(tokio::sync::Notify::new());
-        let mut stream = Interruptible::new(Measured {
-            inner: Box::new(PausedRead { entered: entered.clone(), resume: resume.clone() }),
-            state: Arc::new(SendState::new(Box::new(NoInference), false)),
-            group: None, usage: None, ended: false, _cleanup: None,
-        }, CancellationToken::new());
+        let mut stream = Interruptible::new(
+            Measured {
+                inner: Box::new(PausedRead { entered: entered.clone(), resume: resume.clone() }),
+                state: Arc::new(SendState::new(Box::new(NoInference), false)),
+                group: None,
+                usage: None,
+                ended: false,
+                _cleanup: None,
+            },
+            CancellationToken::new(),
+        );
         let mut read = Box::pin(stream.next());
         tokio::select! {
             biased;
@@ -651,10 +675,7 @@ mod tests {
             {"role": "developer", "content": [{"type": "text", "text": "b"}, {"type": "text", "text": "c"}]},
         ]});
         merge_instructions(&mut body).unwrap();
-        assert_eq!(
-            body["messages"],
-            json!([{"role": "system", "content": "a\n\nb\n\nc"}, {"role": "user", "content": "hi"}])
-        );
+        assert_eq!(body["messages"], json!([{"role": "system", "content": "a\n\nb\n\nc"}, {"role": "user", "content": "hi"}]));
     }
 
     #[test]
@@ -709,8 +730,11 @@ mod tests {
             model: "cold".into(),
             messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
             tools: vec![ToolDefinition {
-                name: "read".into(), description: "Read".into(), input_schema: json!({"type":"object","properties":{}}),
-                defer_loading: false, freeform: None,
+                name: "read".into(),
+                description: "Read".into(),
+                input_schema: json!({"type":"object","properties":{}}),
+                defer_loading: false,
+                freeform: None,
             }],
             options: Default::default(),
         };
@@ -731,7 +755,6 @@ mod tests {
         assert!(sent.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("x-team") && value == "blue"), "{:?}", sent.headers);
     }
 }
-
 
 /// `getCachedModelInfo`: `installedLocalProviderModels().find(entry => entry.id === model) || null`.
 impl crate::catalog::CachedModelInfo for RegisteredAdapter {

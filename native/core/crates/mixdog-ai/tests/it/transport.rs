@@ -19,35 +19,16 @@ use tokio::net::TcpListener;
 
 /// The spec schedule scaled to test time; the shape is unchanged.
 fn fast() -> KeepaliveSchedule {
-    let ping = PingKeepalive {
-        interval: Duration::from_millis(150),
-        timeout: Duration::from_millis(100),
-        while_idle: true,
-    };
-    KeepaliveSchedule {
-        tcp: TcpKeepalive {
-            idle: Duration::from_secs(60),
-            interval: Duration::from_secs(60),
-            count: 5,
-        },
-        h2: ping,
-        ws: ping,
-        ws_max_age: None,
-    }
+    let ping = PingKeepalive { interval: Duration::from_millis(150), timeout: Duration::from_millis(100), while_idle: true };
+    KeepaliveSchedule { tcp: TcpKeepalive { idle: Duration::from_secs(60), interval: Duration::from_secs(60), count: 5 }, h2: ping, ws: ping, ws_max_age: None }
 }
 
 #[test]
 fn spec_schedule_is_the_documented_one() {
     let s = KeepaliveSchedule::SPEC;
-    assert_eq!(
-        (s.tcp.idle, s.tcp.interval, s.tcp.count),
-        (Duration::from_secs(60), Duration::from_secs(60), 5)
-    );
+    assert_eq!((s.tcp.idle, s.tcp.interval, s.tcp.count), (Duration::from_secs(60), Duration::from_secs(60), 5));
     for ping in [s.h2, s.ws] {
-        assert_eq!(
-            (ping.interval, ping.timeout, ping.while_idle),
-            (Duration::from_secs(30), Duration::from_secs(10), true)
-        );
+        assert_eq!((ping.interval, ping.timeout, ping.while_idle), (Duration::from_secs(30), Duration::from_secs(10), true));
     }
     mixdog_core_api::domain::conformance::check_keepalive_schedule(&s);
 }
@@ -79,10 +60,7 @@ async fn shared_http_link_returns_status_headers_and_a_streaming_body() {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut buf = [0u8; 2048];
         let _ = stream.read(&mut buf).await.unwrap();
-        stream
-            .write_all(b"HTTP/1.1 429 Too Many Requests\r\nretry-after: 3\r\ncontent-length: 2\r\n\r\nhi")
-            .await
-            .unwrap();
+        stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nretry-after: 3\r\ncontent-length: 2\r\n\r\nhi").await.unwrap();
     });
     let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap();
     let response = link
@@ -138,13 +116,7 @@ async fn get_through_redirect(
     let addr = redirecting_server().await;
     let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap();
     link.send(
-        WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".into(),
-            url: format!("http://{addr}/start"),
-            headers: Vec::new(),
-            body: Vec::new(),
-        },
+        WireRequest { transport: TransportKind::Http1, method: "GET".into(), url: format!("http://{addr}/start"), headers: Vec::new(), body: Vec::new() },
         exchange,
     )
     .await
@@ -153,9 +125,7 @@ async fn get_through_redirect(
 #[tokio::test]
 async fn a_follow_site_lands_on_the_redirect_target() {
     // Model calls, model lists and the updater: `fetch` follows by default.
-    let response = get_through_redirect(mixdog_ai::transport::deadlines::OPENAI_CATALOG)
-        .await
-        .unwrap();
+    let response = get_through_redirect(mixdog_ai::transport::deadlines::OPENAI_CATALOG).await.unwrap();
     assert_eq!(response.status, 200);
     assert_eq!(response.read_all().await.unwrap().body, b"land");
 }
@@ -163,31 +133,19 @@ async fn a_follow_site_lands_on_the_redirect_target() {
 #[tokio::test]
 async fn a_manual_site_gets_the_302_itself() {
     // The Cursor wire is raw HTTP/2 in Node: the answer is returned, never followed.
-    let response = get_through_redirect(mixdog_ai::transport::deadlines::CURSOR_MODELS)
-        .await
-        .unwrap();
+    let response = get_through_redirect(mixdog_ai::transport::deadlines::CURSOR_MODELS).await.unwrap();
     assert_eq!(response.status, 302);
-    assert!(
-        response
-            .headers
-            .iter()
-            .any(|(k, v)| k == "location" && v == "/final")
-    );
+    assert!(response.headers.iter().any(|(k, v)| k == "location" && v == "/final"));
 }
 
 #[tokio::test]
 async fn an_error_site_fails_on_the_302_as_a_network_error() {
     // Token exchange and every credential-bearing call: `redirect: 'error'`.
-    let error = get_through_redirect(mixdog_ai::transport::deadlines::TOKEN_EXCHANGE)
-        .await
-        .err()
-        .expect("a redirect is refused");
+    let error = get_through_redirect(mixdog_ai::transport::deadlines::TOKEN_EXCHANGE).await.err().expect("a redirect is refused");
     assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
     // A raw `fetch` call site: a refused redirect is `TypeError: fetch failed`.
     assert_eq!(error.message, "fetch failed");
 }
-
-
 
 #[tokio::test]
 async fn tcp_connect_sets_the_os_keepalive_before_use() {
@@ -203,26 +161,15 @@ async fn silent_websocket_peer_ends_as_keepalive_expired_within_the_schedule() {
     mixdog_rt::testing::tokens();
     let (addr, server) = silent_ws_server().await;
     let schedule = fast();
-    let (mut conn, _) = ws::connect(format!("ws://{addr}/"), &schedule)
-        .await
-        .unwrap();
+    let (mut conn, _) = ws::connect(format!("ws://{addr}/"), &schedule).await.unwrap();
     let link = conn.link();
     assert_eq!(link.liveness(), LinkLiveness::Alive);
     let started = Instant::now();
     let fault = conn.recv().await.expect("a fault is delivered").unwrap_err();
     let bound = schedule.ws.interval + schedule.ws.timeout;
-    assert_eq!(
-        fault,
-        TransportFault::KeepaliveExpired {
-            transport: TransportKind::WebSocket
-        }
-    );
+    assert_eq!(fault, TransportFault::KeepaliveExpired { transport: TransportKind::WebSocket });
     assert!(started.elapsed() >= bound, "not before the probe timeout");
-    assert!(
-        started.elapsed() < bound * 3,
-        "within the schedule, took {:?}",
-        started.elapsed()
-    );
+    assert!(started.elapsed() < bound * 3, "within the schedule, took {:?}", started.elapsed());
     assert_eq!(link.liveness(), LinkLiveness::Dead(fault));
     assert!(conn.recv().await.is_none(), "one fault, then the end");
     server.abort();
@@ -245,17 +192,12 @@ async fn answering_websocket_peer_stays_alive_and_delivers_frames() {
         }
     });
     let schedule = fast().with_ws_max_age(Duration::from_millis(400));
-    let (mut conn, _) = ws::connect(format!("ws://{addr}/"), &schedule)
-        .await
-        .unwrap();
+    let (mut conn, _) = ws::connect(format!("ws://{addr}/"), &schedule).await.unwrap();
     assert!(conn.link().may_start_response());
     // Several probe rounds pass with no data in flight.
     mixdog_rt::time::sleep(schedule.ws.interval * 4).await;
     assert_eq!(conn.link().liveness(), LinkLiveness::Alive);
-    assert!(
-        !conn.link().may_start_response(),
-        "a connection at the provider's age limit takes no new response"
-    );
+    assert!(!conn.link().may_start_response(), "a connection at the provider's age limit takes no new response");
     conn.send(ws::Message::text("hello")).await.unwrap();
     let echoed = conn.recv().await.unwrap().unwrap();
     assert_eq!(echoed.into_text().unwrap().as_str(), "hello");
@@ -282,10 +224,7 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
         }
     });
     let schedule = fast();
-    let client = http::client_builder(&schedule)
-        .http2_prior_knowledge()
-        .build()
-        .unwrap();
+    let client = http::client_builder(&schedule).http2_prior_knowledge().build().unwrap();
     let url = format!("http://{addr}/");
     let request = tokio::spawn(async move { client.get(url).send().await });
     // Real I/O first (connect, preface); no virtual time has to pass for it.
@@ -302,5 +241,3 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     assert!(started.elapsed() < bound, "within the schedule, took {:?} ({fault:?})", started.elapsed());
     server.abort();
 }
-
-

@@ -295,12 +295,7 @@ fn paint_usage_view(painter: &mut Painter, x: i32, y: i32, props: &ContextPanelP
         _ => None,
     };
     let used_pct = percent(used_tokens, window_tokens);
-    let summary_text = format!(
-        "{} / {} \u{b7} {} free",
-        format_tokens(used_tokens),
-        format_tokens(Some(window_tokens)),
-        format_tokens(free_tokens)
-    );
+    let summary_text = format!("{} / {} \u{b7} {} free", format_tokens(used_tokens), format_tokens(Some(window_tokens)), format_tokens(free_tokens));
     let pct_text = if used_tokens.is_none() { "\u{2014}".to_owned() } else { format!("{} used", percent_label(used_tokens, window_tokens)) };
     let bar_width = 12.max(34.min(inner as i64 - cells(&summary_text) as i64 - cells(&pct_text) as i64 - 5)) as usize;
     let system_prompt_tokens = bucket_tokens(semantic, &["system", "workflow", "workspace", "environment", "other"]);
@@ -550,7 +545,6 @@ mod tests {
         assert_eq!(paint_progress_bar(&mut painter, 0, 0, Some(50.0), 100.0, 0), 0);
         assert!(paint_progress_bar(&mut painter, 0, 0, Some(50.0), 100.0, 4) >= 1);
     }
-
 
     #[test]
     fn an_inspection_mounts_the_inspector_and_a_new_revision_starts_it_over() {

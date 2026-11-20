@@ -10,21 +10,19 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::connections::{
-    SshAgentState, SshAgentStatus, SshAskpass, SshAskpassKind, SshConnectSettings, SshHopKey, SshHopRole,
-};
+use mixdog_app_protocol::v2::connections::{SshAgentState, SshAgentStatus, SshAskpass, SshAskpassKind, SshConnectSettings, SshHopKey, SshHopRole};
 use mixdog_ssh::askpass::{AskpassKind, AskpassPrompter, AskpassQuestion};
 use mixdog_ssh::command::FailureClass;
 use mixdog_ssh::connect_failure::ConnectError;
 use mixdog_ssh::context::AskpassEnv;
 use mixdog_ssh::host_key::{Pin, Replace};
-use mixdog_ssh::pins::Claim;
 use mixdog_ssh::install_wire::RemoteBootstrapError;
-use tokio::sync::{mpsc, Notify};
+use mixdog_ssh::pins::Claim;
+use tokio::sync::{Notify, mpsc};
 
 use super::*;
-use crate::attempts::{ConnectionsPush, ServerLinks, MAX_ATTEMPTS_PER_CALLER, MAX_SECRET_LENGTH};
-use crate::host_list_ops::{forget_saved, LocalForget};
+use crate::attempts::{ConnectionsPush, MAX_ATTEMPTS_PER_CALLER, MAX_SECRET_LENGTH, ServerLinks};
+use crate::host_list_ops::{LocalForget, forget_saved};
 use crate::login::{AskpassControl, StartedAskpass};
 use crate::paths::ConnectionsPaths;
 
@@ -37,14 +35,25 @@ async fn within<T>(work: impl Future<Output = T>) -> T {
 }
 
 fn trusted() -> HostKeyInspection {
-    HostKeyInspection { hops: Vec::new(), check: SshHostKeyCheck::Trusted { authority: None, hops: None }, pin: None, replace: None, summary: None, reviewed: None }
+    HostKeyInspection {
+        hops: Vec::new(),
+        check: SshHostKeyCheck::Trusted { authority: None, hops: None },
+        pin: None,
+        replace: None,
+        summary: None,
+        reviewed: None,
+    }
 }
 
 async fn unknown(line: &str) -> HostKeyInspection {
     HostKeyInspection {
         hops: Vec::new(),
         check: SshHostKeyCheck::Unknown { fingerprint: format!("SHA256:{line}"), key_type: "ED25519".into(), hops: None },
-        pin: Some(Pin::new(PathBuf::from("known_hosts"), vec![Claim::new("owner".into(), "build.example".into(), "ssh-ed25519".into(), line.to_owned())], Vec::new())),
+        pin: Some(Pin::new(
+            PathBuf::from("known_hosts"),
+            vec![Claim::new("owner".into(), "build.example".into(), "ssh-ed25519".into(), line.to_owned())],
+            Vec::new(),
+        )),
         replace: None,
         summary: None,
         reviewed: None,
@@ -143,12 +152,18 @@ impl SshMachine for FakeMachine {
         if let Some(refusal) = self.pin_refusal.lock().unwrap_or_else(PoisonError::into_inner).take() {
             return Err(refusal);
         }
-        self.pinned.lock().unwrap_or_else(PoisonError::into_inner).push(inspection.pin.as_ref().and_then(|pin| pin.claims.first()).map(|claim| claim.key.clone()).unwrap_or_default());
+        self.pinned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(inspection.pin.as_ref().and_then(|pin| pin.claims.first()).map(|claim| claim.key.clone()).unwrap_or_default());
         Ok(())
     }
 
     async fn replace(&self, inspection: &HostKeyInspection) -> Result<(), SshError> {
-        self.replaced.lock().unwrap_or_else(PoisonError::into_inner).push(inspection.replace.as_ref().map(|replace| format!("{} {}", replace.spec, replace.claim.key)).unwrap_or_default());
+        self.replaced
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(inspection.replace.as_ref().map(|replace| format!("{} {}", replace.spec, replace.claim.key)).unwrap_or_default());
         Ok(())
     }
 
@@ -188,7 +203,13 @@ impl ServerLinks for FakeLinks {
         !self.needs_replacement.load(Ordering::SeqCst) && self.open.lock().unwrap_or_else(PoisonError::into_inner).contains(id)
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, _progress: Option<Progress>, cancel: Option<&tokio_util::sync::CancellationToken>) -> Result<LinkOpen, ConnectError> {
+    async fn open(
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        _progress: Option<Progress>,
+        cancel: Option<&tokio_util::sync::CancellationToken>,
+    ) -> Result<LinkOpen, ConnectError> {
         let reused = self.is_open(&spec.id);
         self.opened.lock().unwrap_or_else(PoisonError::into_inner).push((spec.id.clone(), context.askpass.is_some(), context.force_restart));
         if self.hold.load(Ordering::SeqCst) {
@@ -586,7 +607,9 @@ async fn changed_key_is_replaced_only_by_the_typed_name() {
     let mut wrong = request(&first);
     wrong.replace_host_key = Some("other.example".into());
     let result = rig.connect.connect(ONE, &first, wrong).await.unwrap();
-    assert!(matches!(failure(&result), SshFailureKind::HostKeyChanged { previous: Some(old), current: Some(new) } if old == "SHA256:old" && new == "SHA256:new"));
+    assert!(
+        matches!(failure(&result), SshFailureKind::HostKeyChanged { previous: Some(old), current: Some(new) } if old == "SHA256:old" && new == "SHA256:new")
+    );
     // A refusal ends the attempt.
     assert!(rig.connect.attempts().owned(ONE, &first).is_err());
     let second = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
@@ -605,7 +628,11 @@ async fn changed_key_is_replaced_only_by_the_typed_name() {
 async fn unreachable_key_check_is_refused_with_its_reason() {
     let rig = rig().await;
     queue(&rig, SshHostKeyCheck::Unreachable { message: "Connection timed out".into(), notice: None, ssh_missing: None }.into_inspection());
-    queue(&rig, SshHostKeyCheck::Unreachable { message: "ssh not found".into(), notice: None, ssh_missing: Some(SshMissing { command: Some("install ssh".into()) }) }.into_inspection());
+    queue(
+        &rig,
+        SshHostKeyCheck::Unreachable { message: "ssh not found".into(), notice: None, ssh_missing: Some(SshMissing { command: Some("install ssh".into()) }) }
+            .into_inspection(),
+    );
     let first = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
     let result = rig.connect.connect(ONE, &first, request(&first)).await.unwrap();
     assert!(matches!(failure(&result), SshFailureKind::Failed { message } if message == "Connection timed out"));
@@ -758,7 +785,8 @@ async fn a_withdrawn_question_is_closed_in_the_dialog() {
     let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
     let attempt = rig.connect.attempts().owned(ONE, &id).unwrap();
     let prompter = rig.connect.attempts().prompter(attempt, "build.example".into());
-    let asked = tokio::spawn(async move { prompter.ask(AskpassQuestion { kind: AskpassKind::Passphrase, prompt: "Enter passphrase".into(), retry: true }).await });
+    let asked =
+        tokio::spawn(async move { prompter.ask(AskpassQuestion { kind: AskpassKind::Passphrase, prompt: "Enter passphrase".into(), retry: true }).await });
     let (_, question) = within(rig.askpass.recv()).await.unwrap();
     assert_eq!(question.kind, SshAskpassKind::Passphrase);
     assert_eq!(question.host.as_deref(), Some("build.example"));
@@ -808,10 +836,7 @@ async fn open_focuses_only_a_connected_saved_server() {
     let id = rig.connect.inspect(ONE, TARGET).await.unwrap().attempt_id;
     let host = connected(&rig.connect.connect(ONE, &id, request(&id)).await.unwrap()).clone();
     rig.links.open.lock().unwrap().remove(&host.id);
-    assert_eq!(
-        rig.connect.open(&host.id).await.unwrap_err().to_string(),
-        "This SSH server is not connected. Connect it from the SSH server dialog."
-    );
+    assert_eq!(rig.connect.open(&host.id).await.unwrap_err().to_string(), "This SSH server is not connected. Connect it from the SSH server dialog.");
     rig.links.open.lock().unwrap().insert(host.id.clone());
     connected(&rig.connect.open(&host.id).await.unwrap());
     assert_eq!(rig.windows.opened.lock().unwrap().len(), 2);

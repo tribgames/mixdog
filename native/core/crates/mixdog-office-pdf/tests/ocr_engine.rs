@@ -12,9 +12,7 @@ use std::time::Duration;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use mixdog_office_pdf::ocr::engine::{
-    AcquireOptions, BoxFuture, EngineConfig, EngineProcess, EngineStarter, Image, OcrEngines, Recognition, UNAVAILABLE,
-};
+use mixdog_office_pdf::ocr::engine::{AcquireOptions, BoxFuture, EngineConfig, EngineProcess, EngineStarter, Image, OcrEngines, Recognition, UNAVAILABLE};
 use mixdog_office_pdf::ocr::install::{self, ArchiveFormat, EngineAsset};
 use mixdog_rt::time;
 use mixdog_rt::{CancellationToken, LaneTokens};
@@ -210,7 +208,6 @@ fn engine_asset(url: String, sha256: String, format: ArchiveFormat, executable: 
     Box::leak(Box::new([EngineAsset { platform: "test-x64", url: leak(url), sha256: leak(sha256), format, executable }]))
 }
 
-
 fn lanes() -> LaneTokens {
     mixdog_rt::testing::tokens()
 }
@@ -370,7 +367,8 @@ fn a_language_the_server_does_not_have_fails_with_the_response_code() {
 fn a_language_name_that_is_a_path_is_refused_before_anything_is_fetched() {
     run(async {
         let cache = scratch("bad-language").join("languages");
-        let error = install::ensure_languages(&lanes(), "../evil", &cache, Some("http://127.0.0.1:9/lang"), &CancellationToken::new()).await.expect_err("refused");
+        let error =
+            install::ensure_languages(&lanes(), "../evil", &cache, Some("http://127.0.0.1:9/lang"), &CancellationToken::new()).await.expect_err("refused");
         assert_eq!(error, "Invalid OCR language: ../evil");
     });
 }

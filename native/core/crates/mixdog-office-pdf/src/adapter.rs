@@ -13,12 +13,12 @@ use std::path::Path;
 
 use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::{json_number, to_number, value_to_string};
-use mixdog_ooxml::placeholder_scan::placeholder_text_issues;
 use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::WriteNote;
+use mixdog_ooxml::placeholder_scan::placeholder_text_issues;
+use mixdog_pdf::Obj;
 use mixdog_pdf::inspect::{Detail, InspectError, InspectOptions, PageRange, inspect_pdf_buffer};
 use mixdog_pdf::write::{PdfDocument, SaveOptions};
-use mixdog_pdf::Obj;
 use serde_json::{Map, Value, json};
 
 use crate::analysis::outline::extract_pdf_outline;
@@ -68,15 +68,7 @@ pub struct SnapshotOptions {
 
 impl Default for SnapshotOptions {
     fn default() -> Self {
-        SnapshotOptions {
-            max_chars: f64::NAN,
-            paged: false,
-            offset: f64::NAN,
-            limit: f64::NAN,
-            pages: None,
-            password: String::new(),
-            outline: true,
-        }
+        SnapshotOptions { max_chars: f64::NAN, paged: false, offset: f64::NAN, limit: f64::NAN, pages: None, password: String::new(), outline: true }
     }
 }
 
@@ -122,15 +114,8 @@ fn inspection_error(error: InspectError) -> AnalysisError {
 /// The page count of a document whose page tree can be read: a file that keeps it in ciphered object streams has none.
 fn structure_pages(document: &PdfDocument) -> Result<usize, AnalysisError> {
     let store = document.store();
-    let has_tree = document
-        .catalog_ref()
-        .and_then(|root| store.dict(root))
-        .is_some_and(|catalog| matches!(store.lookup(catalog, "Pages"), Some(Obj::Dict(_))));
-    if has_tree {
-        Ok(document.page_count())
-    } else {
-        Err(AnalysisError::plain("Expected instance of PDFDict, but got instance of undefined"))
-    }
+    let has_tree = document.catalog_ref().and_then(|root| store.dict(root)).is_some_and(|catalog| matches!(store.lookup(catalog, "Pages"), Some(Obj::Dict(_))));
+    if has_tree { Ok(document.page_count()) } else { Err(AnalysisError::plain("Expected instance of PDFDict, but got instance of undefined")) }
 }
 
 /// `structurePageCount(structure)`: pdf-lib cannot decrypt. An encrypted file that keeps its page tree in ciphered
@@ -157,10 +142,7 @@ fn decrypted_page_count(buffer: &[u8], password: &str) -> Result<Option<u64>, An
 /// `pageGeometry(structure, index)`: the size of the page's media box, its turn, and, when its crop box does not start
 /// at 0,0, the origin that bottom-left coordinates need added.
 fn page_geometry(document: &PdfDocument, index: usize) -> Result<Map<String, Value>, AnalysisError> {
-    let page = *document
-        .pages()
-        .get(index - 1)
-        .ok_or_else(|| AnalysisError::plain(format!("PDF page out of range: {index}")))?;
+    let page = *document.pages().get(index - 1).ok_or_else(|| AnalysisError::plain(format!("PDF page out of range: {index}")))?;
     let media = document.media_box(page).map_err(edit_error)?;
     let crop = document.crop_box(page).map_err(edit_error)?;
     let mut geometry = Map::new();
@@ -168,10 +150,7 @@ fn page_geometry(document: &PdfDocument, index: usize) -> Result<Map<String, Val
     geometry.insert("height".to_owned(), json_number(round2(media.height)));
     geometry.insert("rotation".to_owned(), json_number(document.rotation(page).map_err(edit_error)?));
     if crop.x != 0.0 || crop.y != 0.0 {
-        geometry.insert(
-            "origin".to_owned(),
-            json!({ "x": json_number(round2(crop.x)), "y": json_number(round2(crop.y)) }),
-        );
+        geometry.insert("origin".to_owned(), json!({ "x": json_number(round2(crop.x)), "y": json_number(round2(crop.y)) }));
     }
     Ok(geometry)
 }
@@ -244,12 +223,7 @@ fn collapse_spaces(text: &str) -> String {
 }
 
 /// `snapshotPdf(path, options)`.
-pub fn snapshot_pdf<P: ReadProof>(
-    proof: &P,
-    path: &Path,
-    options: &SnapshotOptions,
-    forms: &dyn FormView,
-) -> Result<Value, AnalysisError> {
+pub fn snapshot_pdf<P: ReadProof>(proof: &P, path: &Path, options: &SnapshotOptions, forms: &dyn FormView) -> Result<Value, AnalysisError> {
     let max_chars = number_or(options.max_chars, 30_000.0).max(1_000.0);
     let buffer = read_file(proof, path)?;
     let structure = load_pdf(&buffer, true)?;
@@ -274,10 +248,7 @@ pub fn snapshot_pdf<P: ReadProof>(
     }
     for index in &selected {
         if index.fract() != 0.0 || !index.is_finite() || *index < 1.0 || *index > known_pages {
-            return Err(AnalysisError::plain(format!(
-                "PDF page out of range: {}",
-                mixdog_js::number_to_string(*index)
-            )));
+            return Err(AnalysisError::plain(format!("PDF page out of range: {}", mixdog_js::number_to_string(*index))));
         }
     }
     let from = selected.iter().copied().reduce(f64::min).unwrap_or(1.0);
@@ -316,10 +287,7 @@ pub fn snapshot_pdf<P: ReadProof>(
         let mut page = Map::new();
         page.insert("path".to_owned(), json!(format!("/page[{number}]")));
         page.insert("index".to_owned(), json!(number));
-        page.insert(
-            "text".to_owned(),
-            json!(collapse_spaces(texts.get(&number).map_or("", String::as_str))),
-        );
+        page.insert("text".to_owned(), json!(collapse_spaces(texts.get(&number).map_or("", String::as_str))));
         // A ciphered page tree has no page boxes to read.
         if structure_count.is_some() {
             page.extend(page_geometry(&structure, number as usize)?);
@@ -354,11 +322,7 @@ pub fn snapshot_pdf<P: ReadProof>(
     let likely_scanned: Vec<Value> = if password_required {
         Vec::new()
     } else {
-        pages
-            .iter()
-            .filter(|page| page["text"].as_str().is_some_and(|text| text.contains(NO_TEXT_MARKER)))
-            .map(|page| page["index"].clone())
-            .collect()
+        pages.iter().filter(|page| page["text"].as_str().is_some_and(|text| text.contains(NO_TEXT_MARKER))).map(|page| page["index"].clone()).collect()
     };
     let returned = pages.len();
     let mut result = Map::new();
@@ -373,14 +337,7 @@ pub fn snapshot_pdf<P: ReadProof>(
     result.insert("attachments".to_owned(), Value::Array(attachments));
     result.insert("outlineCount".to_owned(), json!(outline.len()));
     result.insert("outline".to_owned(), Value::Array(outline));
-    result.insert(
-        "metadata".to_owned(),
-        if encrypted {
-            json!({ "title": "", "author": "", "subject": "", "keywords": "" })
-        } else {
-            metadata_of(&structure)
-        },
-    );
+    result.insert("metadata".to_owned(), if encrypted { json!({ "title": "", "author": "", "subject": "", "keywords": "" }) } else { metadata_of(&structure) });
     let ocr_required = !likely_scanned.is_empty();
     result.insert("likelyScannedPages".to_owned(), Value::Array(likely_scanned));
     result.insert("ocrRequired".to_owned(), json!(ocr_required));
@@ -391,11 +348,7 @@ pub fn snapshot_pdf<P: ReadProof>(
     }
     if options.paged {
         // A page range asked for by number has no next page to offer.
-        let next_offset = if options.pages.is_none() && offset + (returned as f64) < known_pages {
-            json_number(offset + returned as f64)
-        } else {
-            Value::Null
-        };
+        let next_offset = if options.pages.is_none() && offset + (returned as f64) < known_pages { json_number(offset + returned as f64) } else { Value::Null };
         result.insert(
             "pagination".to_owned(),
             json!({
@@ -439,12 +392,7 @@ fn issue(severity: &str, code: &str, path: &str, message: String) -> Value {
 /// `issuesPdf(path, options)`: the audit reads the whole document, not the readable excerpt a snapshot shows: bounded
 /// to 30K the text stopped a few pages in, and a scanned page past that boundary went unreported under "ok, nothing
 /// found".
-pub fn issues_pdf<P: ReadProof>(
-    proof: &P,
-    path: &Path,
-    options: &SnapshotOptions,
-    forms: &dyn FormView,
-) -> Result<Value, AnalysisError> {
+pub fn issues_pdf<P: ReadProof>(proof: &P, path: &Path, options: &SnapshotOptions, forms: &dyn FormView) -> Result<Value, AnalysisError> {
     let audit = SnapshotOptions {
         max_chars: if options.max_chars.is_nan() || options.max_chars == 0.0 { PDF_AUDIT_MAX_CHARS } else { options.max_chars },
         outline: false,
@@ -463,10 +411,7 @@ pub fn issues_pdf<P: ReadProof>(
             "info",
             "audit_scope_limited",
             "/",
-            format!(
-                "Only {} of {total} pages were read for this audit; audit the rest with issues pages:[…].",
-                page_entries.len()
-            ),
+            format!("Only {} of {total} pages were read for this audit; audit the rest with issues pages:[…].", page_entries.len()),
         ));
     }
     if encrypted {
@@ -481,8 +426,7 @@ pub fn issues_pdf<P: ReadProof>(
             "warning",
             "ocr_required",
             &format!("/page[{}]", value_to_string(page)),
-            "Page has no text layer. Run ocr_pages or render it and read the image instead of treating it as empty."
-                .to_owned(),
+            "Page has no text layer. Run ocr_pages or render it and read the image instead of treating it as empty.".to_owned(),
         ));
     }
     for page in &page_entries {
@@ -505,18 +449,15 @@ fn form_field_issues(fields: &[Value], forms: &dyn FormView) -> Vec<Value> {
         let name = field.get("name").filter(|name| truthy(name));
         let path = field["path"].as_str().unwrap_or_default();
         if name.is_none() {
-            issues.push(issue(
-                "warning",
-                "unnamed_form_field",
-                path,
-                "Form field has no name, so fill_form cannot address it.".to_owned(),
-            ));
+            issues.push(issue("warning", "unnamed_form_field", path, "Form field has no name, so fill_form cannot address it.".to_owned()));
         }
         let field_type = field["type"].as_str().unwrap_or_default();
         let (min_width, min_height) = forms.minimum_size(field_type);
-        let small = field["widgets"].as_array().into_iter().flatten().find(|widget| {
-            field_number(widget, "width") < min_width || field_number(widget, "height") < min_height
-        });
+        let small = field["widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|widget| field_number(widget, "width") < min_width || field_number(widget, "height") < min_height);
         if let Some(widget) = small {
             let label = name.map_or_else(|| value_to_string(&field["index"]), value_to_string);
             issues.push(issue(
@@ -545,9 +486,7 @@ fn form_field_issues(fields: &[Value], forms: &dyn FormView) -> Vec<Value> {
     }
     for left in 0..widgets.len() {
         for right in left + 1..widgets.len() {
-            if widgets[left].0["page"] == widgets[right].0["page"]
-                && forms.rectangles_overlap(&widgets[left].0, &widgets[right].0)
-            {
+            if widgets[left].0["page"] == widgets[right].0["page"] && forms.rectangles_overlap(&widgets[left].0, &widgets[right].0) {
                 issues.push(issue(
                     "warning",
                     "overlapping_form_fields",
@@ -625,8 +564,7 @@ pub fn apply_pdf_batch<P: WriteProof>(
     // Object streams can cost more than they save on a file that is already compact. When compression was the only
     // thing asked for and the rewrite came back larger, the file it started with is the better answer: keeping it and
     // reporting no change beats reporting growth as a successful compression.
-    let compression_only =
-        !operations.is_empty() && operations.iter().all(|operation| js_string(operation.get("op")) == "compress");
+    let compression_only = !operations.is_empty() && operations.iter().all(|operation| js_string(operation.get("op")) == "compress");
     let grew = bytes.len() > source.len();
     if compression_only && grew {
         bytes = source.clone();
@@ -748,10 +686,7 @@ mod tests {
         let issues = form_field_issues(&fields, &NoForms);
         let codes: Vec<&str> = issues.iter().map(|issue| issue["code"].as_str().expect("code")).collect();
         assert_eq!(codes, ["unnamed_form_field", "field_too_small", "overlapping_form_fields"]);
-        assert_eq!(
-            issues[1]["message"],
-            "Form field tiny has a 5 x 8 pt box on page 1; a checkbox field needs at least 8 x 8."
-        );
+        assert_eq!(issues[1]["message"], "Form field tiny has a 5 x 8 pt box on page 1; a checkbox field needs at least 8 x 8.");
         assert_eq!(issues[2]["message"], "Form fields a and b overlap.");
     }
 }

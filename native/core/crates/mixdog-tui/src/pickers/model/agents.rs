@@ -11,9 +11,7 @@ use serde_json::{Value, json};
 use super::catalog::CatalogKind;
 use super::options::{agent_model_parts, agent_model_profile, text_of};
 use super::picker::{ModelPickerOptions, open_model_picker};
-use crate::pickers::common::{
-    Own, PanelItem, PickerHandler, PickerHost, PickerPanel, check_row, reset_surfaces, run_deferred,
-};
+use crate::pickers::common::{Own, PanelItem, PickerHandler, PickerHost, PickerPanel, check_row, reset_surfaces, run_deferred};
 use crate::slash::host::Tone;
 use crate::slash::notices::truthy;
 use crate::surface::SurfaceKind;
@@ -30,11 +28,7 @@ pub struct AgentsOptions {
 }
 
 fn not_used_meta() -> Vec<MetaPart> {
-    vec![
-        MetaPart { text: "(not used)".to_owned(), width: 17 },
-        MetaPart { text: String::new(), width: 6 },
-        MetaPart { text: String::new(), width: 4 },
-    ]
+    vec![MetaPart { text: "(not used)".to_owned(), width: 17 }, MetaPart { text: String::new(), width: 6 }, MetaPart { text: String::new(), width: 4 }]
 }
 
 fn is_disabled(agent: &Value) -> bool {

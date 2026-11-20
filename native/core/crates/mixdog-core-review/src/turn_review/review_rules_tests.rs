@@ -99,7 +99,10 @@ fn a_file_patch_read_returns_the_patch_or_says_it_is_too_large() {
     let small = review_diff::file_patch_reply("a.txt", "PATCH", 10);
     assert_eq!(serde_json::Value::Object(small), serde_json::json!({ "supported": true, "path": "a.txt", "patch": "PATCH" }));
     let large = review_diff::file_patch_reply("a.txt", "PATCH-TOO-LONG", 10);
-    assert_eq!(serde_json::Value::Object(large), serde_json::json!({ "supported": true, "path": "a.txt", "patch": "", "patchOmitted": true, "reason": "too_large" }));
+    assert_eq!(
+        serde_json::Value::Object(large),
+        serde_json::json!({ "supported": true, "path": "a.txt", "patch": "", "patchOmitted": true, "reason": "too_large" })
+    );
 }
 
 fn change(name: &str, before: ReviewContent, after: ReviewContent) -> TrackedChange {

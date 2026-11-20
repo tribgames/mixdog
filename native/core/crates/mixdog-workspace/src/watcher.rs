@@ -209,7 +209,8 @@ pub fn git_dirs_of(dir: &Path) -> Vec<PathBuf> {
     if dot_git.is_dir() {
         dirs.push(dot_git);
     } else if let Ok(text) = std::fs::read_to_string(&dot_git)
-        && let Some(target) = text.trim().strip_prefix("gitdir:") {
+        && let Some(target) = text.trim().strip_prefix("gitdir:")
+    {
         let git_dir = checkout.join(target.trim());
         if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
             dirs.push(crate::pathguard::lexical(&git_dir.join(common.trim())));
@@ -319,10 +320,15 @@ impl State {
         let entry = self.os.entry(comparable(path)).or_insert_with(|| OsPath { path: path.to_path_buf(), ..OsPath::default() });
         let before = (entry.recursive_refs > 0, entry.direct_refs + entry.recursive_refs > 0);
         let uncovered = entry.coverage.is_none();
-        if recursive { entry.recursive_refs += 1 } else { entry.direct_refs += 1 }
+        if recursive {
+            entry.recursive_refs += 1
+        } else {
+            entry.direct_refs += 1
+        }
         let after = (entry.recursive_refs > 0, true);
         if (before != after || uncovered)
-            && let Err(error) = self.apply(path) {
+            && let Err(error) = self.apply(path)
+        {
             self.remove_os(path, recursive);
             return Err(error);
         }
@@ -334,7 +340,11 @@ impl State {
         let Some(entry) = self.os.get_mut(&key) else { return };
         let registered = entry.path.clone();
         let was_recursive = entry.recursive_refs > 0;
-        if recursive { entry.recursive_refs = entry.recursive_refs.saturating_sub(1) } else { entry.direct_refs = entry.direct_refs.saturating_sub(1) }
+        if recursive {
+            entry.recursive_refs = entry.recursive_refs.saturating_sub(1)
+        } else {
+            entry.direct_refs = entry.direct_refs.saturating_sub(1)
+        }
         let empty = entry.recursive_refs + entry.direct_refs == 0;
         let still_recursive = entry.recursive_refs > 0;
         if empty {
@@ -430,13 +440,17 @@ impl FolderWatcher {
         if self.pending.load(Ordering::SeqCst) != 0 {
             return None;
         }
-        state.subs.values()
+        state
+            .subs
+            .values()
             .filter(|sub| sub.recursive && is_within(&sub.path, path))
             .filter_map(|sub| {
                 let revision = state.os.get(&comparable(&sub.path))?.coverage.as_ref()?;
-                let git_covered = sub.git_dirs.iter().filter(|dir| !is_within(&sub.path, dir)).all(|dir| {
-                    state.os.get(&comparable(dir)).is_some_and(|watch| watch.recursive_refs > 0 && watch.coverage.is_some())
-                });
+                let git_covered = sub
+                    .git_dirs
+                    .iter()
+                    .filter(|dir| !is_within(&sub.path, dir))
+                    .all(|dir| state.os.get(&comparable(dir)).is_some_and(|watch| watch.recursive_refs > 0 && watch.coverage.is_some()));
                 git_covered.then_some((sub.path.components().count(), revision))
             })
             .min_by_key(|(depth, _)| *depth)
@@ -769,10 +783,7 @@ mod tests {
         assert!(watcher.coverage("one").is_none());
         assert!(watcher.coverage("two").is_none());
         let batch = batcher.flush(start + Duration::from_millis(BATCH_WINDOW_MS));
-        assert_eq!(batch, [
-            (("one".into(), ChangeKind::Overflow), BTreeSet::new()),
-            (("two".into(), ChangeKind::Overflow), BTreeSet::new()),
-        ]);
+        assert_eq!(batch, [(("one".into(), ChangeKind::Overflow), BTreeSet::new()), (("two".into(), ChangeKind::Overflow), BTreeSet::new()),]);
         watcher.watch("reopened", &root, true).unwrap();
         let after = watcher.coverage("one").expect("rearmed coverage");
         assert!(!Arc::ptr_eq(&before, &after));

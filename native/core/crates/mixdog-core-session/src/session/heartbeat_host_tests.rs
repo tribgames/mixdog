@@ -28,11 +28,11 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::*;
+use crate::eventually_on;
 use crate::session::Clock;
 use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
 use crate::session::testing::lock;
-use crate::eventually_on;
 use crate::session::tests::idle;
 use crate::session::tests::turn;
 
@@ -298,8 +298,5 @@ async fn a_reply_reaches_the_delivery_queue() {
         (items[0]["runId"].clone(), items[0]["kind"].clone(), items[0]["text"].clone()),
         (json!("heartbeat_sess_open"), json!("agent-message"), json!("Two builds are red."))
     );
-    assert_eq!(
-        wake.deliver("lead", "heartbeat_sess_open", "  ").await,
-        Err("agent message: runId and text required".to_owned())
-    );
+    assert_eq!(wake.deliver("lead", "heartbeat_sess_open", "  ").await, Err("agent message: runId and text required".to_owned()));
 }

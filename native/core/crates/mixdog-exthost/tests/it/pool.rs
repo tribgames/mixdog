@@ -1,10 +1,7 @@
 //! Pool behaviour against scripted workers and browsers (`src/bin/ext_fake_worker.rs`, `src/bin/ext_fake_browser.rs`).
 //! Waits are on facts (a frame, a status change); the only timeouts are test watchdogs.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "a test driver: it reads and removes the pid file its scripted worker wrote"
-)]
+#![allow(clippy::disallowed_methods, reason = "a test driver: it reads and removes the pid file its scripted worker wrote")]
 
 use std::future::Future;
 use std::path::Path;
@@ -33,12 +30,7 @@ use serde_json::json;
 type Stream = Box<dyn EventSource<ExtFrame>>;
 
 fn call(thread: &str, method: &str, params: Value) -> ExtCall {
-    ExtCall {
-        thread: ThreadId::from(thread),
-        method: method.into(),
-        params,
-        paths: Vec::new(),
-    }
+    ExtCall { thread: ThreadId::from(thread), method: method.into(), params, paths: Vec::new() }
 }
 
 async fn within<T>(fut: impl Future<Output = T>) -> T {
@@ -65,10 +57,7 @@ async fn run(pool: &ExtHostPool, call: ExtCall) -> Value {
 }
 
 fn busy(status: &[mixdog_core_api::domain::ext::ExtWorkerStatus]) -> usize {
-    status
-        .iter()
-        .filter(|s| matches!(s.state, ExtWorkerState::Busy { .. }))
-        .count()
+    status.iter().filter(|s| matches!(s.state, ExtWorkerState::Busy { .. })).count()
 }
 
 /// Whether `pid` is a live process.
@@ -108,7 +97,6 @@ fn process_exists(pid: u32) -> bool {
         queried == 0 || code == STILL_ACTIVE
     }
 }
-
 
 #[test]
 fn worker_count_follows_the_cores_and_the_setting() {
@@ -163,10 +151,7 @@ async fn echoes_params_and_approved_paths() {
     let dir = AbsPath::new(std::env::temp_dir()).unwrap();
     let mut with_paths = call("t", "approved", json!(null));
     with_paths.paths = vec![dir.clone()];
-    assert_eq!(
-        run(&pool, with_paths).await,
-        json!([dir.as_path().to_string_lossy()])
-    );
+    assert_eq!(run(&pool, with_paths).await, json!([dir.as_path().to_string_lossy()]));
     let mut unknown = pool.call(call("t", "no-such-method", json!(null))).unwrap();
     let (_, outcome) = finish(&mut unknown).await;
     assert!(matches!(outcome, Err(ExtError::Failed { code, .. }) if code == "unknown_method"));
@@ -194,10 +179,7 @@ async fn one_thread_cannot_take_more_than_its_share_and_cancel_releases_the_work
     let mut second = pool.call(call("a", "echo", json!("second"))).unwrap();
     // Thread b is served meanwhile.
     assert_eq!(run(&pool, call("b", "echo", json!("b"))).await, json!("b"));
-    assert!(
-        mixdog_rt::time::timeout(Duration::from_millis(200), second.next()).await.is_err(),
-        "a's second call waits behind its first"
-    );
+    assert!(mixdog_rt::time::timeout(Duration::from_millis(200), second.next()).await.is_err(), "a's second call waits behind its first");
     drop(first); // cancel: the worker answers, its slot frees
     let (_, outcome) = finish(&mut second).await;
     assert_eq!(outcome.unwrap(), json!("second"));
@@ -297,9 +279,7 @@ fn pid_file(label: &str) -> PathBuf {
 async fn a_crashed_worker_takes_its_helper_processes_with_it() {
     let pool = ExtHostPool::new(config(1, &[])).unwrap();
     let pid_file = pid_file("crash");
-    let mut crashing = pool
-        .call(call("a", "crashWithHelper", json!({"pidFile": pid_file})))
-        .unwrap();
+    let mut crashing = pool.call(call("a", "crashWithHelper", json!({"pidFile": pid_file}))).unwrap();
     let (_, outcome) = finish(&mut crashing).await;
     assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Code(3) })), "{outcome:?}");
     helper_is_gone(&pid_file).await;
@@ -485,6 +465,3 @@ async fn the_public_render_browser_is_the_one_the_workers_use() {
     within(pool.close()).await;
     assert!(handle.endpoint().await.is_err(), "after close no browser is launched");
 }
-
-
-

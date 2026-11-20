@@ -91,10 +91,7 @@ fn a_custom_range_is_whole_days_narrowed_by_clock_times() {
 fn a_range_that_cannot_be_served_is_refused_with_its_reason() {
     assert_eq!(refused(&request("fortnight")), (false, "Unknown usage statistics view"));
     assert_eq!(refused(&PeriodRequest { start_day: Some("2026-03-01".into()), ..request("custom") }), (false, "Usage range requires a start and end date"));
-    assert_eq!(
-        refused(&PeriodRequest { anchor: Some("March 3".into()), ..request("day") }),
-        (false, "Usage period anchor must be a calendar date")
-    );
+    assert_eq!(refused(&PeriodRequest { anchor: Some("March 3".into()), ..request("day") }), (false, "Usage period anchor must be a calendar date"));
     assert_eq!(
         refused(&PeriodRequest { anchor: Some("2026-02-30".into()), ..request("day") }),
         (false, "Usage period anchor must be a valid calendar date from 1970 onward")

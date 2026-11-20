@@ -112,14 +112,22 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str
     let had_conversation = message_count >= 2 && row.get("detachedReason").and_then(Value::as_str) != Some("cli-resume") && real_turns.is_none_or(|n| n >= 1.0);
     let agent_home = !mixdog_store::agent_mode::agent_id_of_home_session(&text("id")).is_empty();
     let manual = name.is_some_and(|name| !mixdog_store::title::normalize_session_title(name, "", 100).is_empty());
-    !mixdog_store::title::roster_preview_title(&text("preview")).is_empty() || manual || !title(&text("title"), 32).is_empty() || had_conversation || (agent_home && message_count > 0)
+    !mixdog_store::title::roster_preview_title(&text("preview")).is_empty()
+        || manual
+        || !title(&text("title"), 32).is_empty()
+        || had_conversation
+        || (agent_home && message_count > 0)
 }
 
 /// The fields of the row `desktopSessionSummaries` (`desktop-state.ts:180-208, 244`) derives, which the list row leaves as the index
 /// stored them: the classification (stored, else a legacy row with a folder outside the host's task workspace is a project), the
 /// project path (workspace record, then folder, then stored path; none for a task), the activity time (`lastUsedAt`, else
 /// `updatedAt`) and the creation time when positive.
-pub(super) fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<String, Value>, task_workspace: &str) -> mixdog_protocol::ThreadSummary {
+pub(super) fn on_roster(
+    mut thread: mixdog_protocol::ThreadSummary,
+    row: &serde_json::Map<String, Value>,
+    task_workspace: &str,
+) -> mixdog_protocol::ThreadSummary {
     let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n != 0.0);
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).unwrap_or_default().to_owned();
     let meta = row.get("desktopSession").and_then(Value::as_object);
@@ -129,7 +137,9 @@ pub(super) fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_
     let workspace = row.get("workspace").and_then(Value::as_object).filter(|w| valid(w.get("projectPath")).is_some() && valid(w.get("cwd")).is_some());
     thread.classification = Value::String(if project { "project" } else { "task" }.into());
     thread.project_path = project.then(|| {
-        workspace.and_then(|w| valid(w.get("projectPath"))).unwrap_or_else(|| if cwd.is_empty() { text(meta.and_then(|meta| meta.get("projectPath"))) } else { cwd })
+        workspace
+            .and_then(|w| valid(w.get("projectPath")))
+            .unwrap_or_else(|| if cwd.is_empty() { text(meta.and_then(|meta| meta.get("projectPath"))) } else { cwd })
     });
     thread.activity_at = number("lastUsedAt").or_else(|| number("updatedAt")).map(|at| at as i64);
     let word = |key: &str| text(row.get(key));
@@ -181,7 +191,10 @@ impl ThreadDeletions {
     }
 
     /// Connects what is told a conversation that left the catalog. Set once; `Err` when it was set already.
-    #[allow(clippy::result_unit_err, reason = "The existing registration API reports only whether the one-shot hook was already set; preserve its opaque status contract")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "The existing registration API reports only whether the one-shot hook was already set; preserve its opaque status contract"
+    )]
     pub fn on_gone(&self, hook: Arc<ThreadGoneHook>) -> Result<(), ()> {
         self.gone.set(hook).map_err(|_| ())
     }
@@ -263,7 +276,10 @@ impl ThreadEdgePublisher {
         match (was, now) {
             (None, Some(now)) => self.send(&id, &now, workspace, true).await,
             (Some(was), Some(now)) => {
-                let (was, shown) = (on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row, workspace), on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row, workspace));
+                let (was, shown) = (
+                    on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row, workspace),
+                    on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row, workspace),
+                );
                 if was != shown {
                     self.send(&id, &now, workspace, false).await;
                 }
@@ -309,7 +325,9 @@ impl LiveRows {
         #[cfg(feature = "replay-settled")]
         {
             let in_flight = in_flight.clone();
-            super::replay_settled::watch(move || (in_flight.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("a live roster row not yet on the app feed"));
+            super::replay_settled::watch(move || {
+                (in_flight.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("a live roster row not yet on the app feed")
+            });
         }
         Arc::new(Self { list, app, edges, in_flight })
     }

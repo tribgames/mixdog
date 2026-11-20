@@ -68,22 +68,10 @@ pub fn if_value(a: &[Value]) -> Result<Value, Failure> {
         return Ok(test);
     }
     let blank = |v| {
-        if matches!(v, Value::Null | Value::Undefined) {
-            Value::Number(0.0)
-        } else {
-            v
-        }
+        if matches!(v, Value::Null | Value::Undefined) { Value::Number(0.0) } else { v }
     };
-    let yes = blank(if a.len() >= 2 {
-        arg(a, 1)
-    } else {
-        Value::Bool(true)
-    });
-    let no = blank(if a.len() == 3 {
-        arg(a, 2)
-    } else {
-        Value::Bool(false)
-    });
+    let yes = blank(if a.len() >= 2 { arg(a, 1) } else { Value::Bool(true) });
+    let no = blank(if a.len() == 3 { arg(a, 2) } else { Value::Bool(false) });
     Ok(if is_truthy(&test) { yes } else { no })
 }
 pub fn ifs(a: &[Value]) -> Result<Value, Failure> {
@@ -100,11 +88,7 @@ pub fn iferror(a: &[Value]) -> Result<Value, Failure> {
 }
 pub fn ifna(a: &[Value]) -> Result<Value, Failure> {
     let v = arg(a, 0);
-    Ok(if matches!(v, Value::Error(E::Na)) {
-        arg(a, 1)
-    } else {
-        v
-    })
+    Ok(if matches!(v, Value::Error(E::Na)) { arg(a, 1) } else { v })
 }
 pub fn not(a: &[Value]) -> Result<Value, Failure> {
     let v = arg(a, 0);
@@ -123,11 +107,7 @@ pub fn switch(a: &[Value]) -> Result<Value, Failure> {
             return Ok(pair[1].clone());
         }
     }
-    Ok(if !(a.len() - 1).is_multiple_of(2) {
-        a.last().unwrap().clone()
-    } else {
-        Value::Error(E::Na)
-    })
+    Ok(if !(a.len() - 1).is_multiple_of(2) { a.last().unwrap().clone() } else { Value::Error(E::Na) })
 }
 pub const FUNCTIONS: Table = &[
     ("AND", and),

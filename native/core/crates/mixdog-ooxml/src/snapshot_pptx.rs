@@ -336,13 +336,7 @@ fn shape_snapshot<P: ReadProof>(
     Ok(Value::Object(entries))
 }
 
-fn snapshot_slide<P: ReadProof>(
-    measurer: &TextMeasurer<'_, P>,
-    zip: &Package,
-    path: &str,
-    index: usize,
-    slide_id: f64,
-) -> Result<Value, FontError> {
+fn snapshot_slide<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package, path: &str, index: usize, slide_id: f64) -> Result<Value, FontError> {
     let xml = zip.text(path);
     let tree = container_inner(&xml, "p:spTree", 0);
     let shape_blocks = tree.map(|tree| top_level_elements(&tree.inner, &SLIDE_SHAPE_TAGS)).unwrap_or_default();
@@ -382,9 +376,7 @@ pub fn snapshot_pptx<P: ReadProof>(zip: &Package, options: &Value, measurer: &Te
     let layouts: Vec<Value> = slide_layout_parts(zip)
         .iter()
         .enumerate()
-        .map(|(index, layout)| {
-            json!({ "path": format!("/layout[{}]", index + 1), "index": index + 1, "name": layout.name, "packagePart": layout.path })
-        })
+        .map(|(index, layout)| json!({ "path": format!("/layout[{}]", index + 1), "index": index + 1, "name": layout.name, "packagePart": layout.path }))
         .collect();
     let presentation = zip.text("ppt/presentation.xml");
     let size = compiled(r#"<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""#, "i").captures(&presentation);

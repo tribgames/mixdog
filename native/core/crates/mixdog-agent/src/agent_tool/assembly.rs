@@ -17,8 +17,8 @@ use super::dispatch::{AgentDeps, AgentRuntime};
 use super::error_text::ErrorText;
 use super::flow::early::EarlyNotice;
 use super::flow::job_starter::JobStarter;
-use super::flow::send::{SendFlowDeps, SendFlowImpl};
 use super::flow::seams::{Admission, OwnerNotify, SubagentEvents, TaskStarts, TurnReviews, TurnSessions, WorkerInbox};
+use super::flow::send::{SendFlowDeps, SendFlowImpl};
 use super::flow::spawn::{SpawnFlowDeps, SpawnFlowImpl};
 use super::flow::turn::TurnRunner;
 use super::flow::worker_turns::TurnOwner;
@@ -129,16 +129,19 @@ pub fn assemble(parts: AgentParts) -> Assembled {
         default_cwd: default_cwd.clone(),
         mcp_scope_id,
     }));
-    let send = Arc::new(SendFlowImpl::new(SendFlowDeps {
-        world: send_world,
-        registry: registry.clone(),
-        env: env.clone(),
-        views: views.clone(),
-        starter,
-        runner,
-        turns,
-        default_cwd: default_cwd.clone(),
-    }).with_sessions(sessions.clone()));
+    let send = Arc::new(
+        SendFlowImpl::new(SendFlowDeps {
+            world: send_world,
+            registry: registry.clone(),
+            env: env.clone(),
+            views: views.clone(),
+            starter,
+            runner,
+            turns,
+            default_cwd: default_cwd.clone(),
+        })
+        .with_sessions(sessions.clone()),
+    );
     let runtime = Arc::new(AgentRuntime::new(AgentDeps {
         registry,
         send_flow: Arc::new(send.clone()),

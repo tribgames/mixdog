@@ -27,16 +27,12 @@ pub(super) fn compute_column_widths(token: &Token, width: usize) -> ColumnWidths
     let min_widths: Vec<usize> = header
         .iter()
         .enumerate()
-        .map(|(column, head)| {
-            rows.iter().map(|row| cell_min_width(tokens_at(row, column))).fold(cell_min_width(&head.tokens), usize::max)
-        })
+        .map(|(column, head)| rows.iter().map(|row| cell_min_width(tokens_at(row, column))).fold(cell_min_width(&head.tokens), usize::max))
         .collect();
     let ideal_widths: Vec<usize> = header
         .iter()
         .enumerate()
-        .map(|(column, head)| {
-            rows.iter().map(|row| cell_ideal_width(tokens_at(row, column))).fold(cell_ideal_width(&head.tokens), usize::max)
-        })
+        .map(|(column, head)| rows.iter().map(|row| cell_ideal_width(tokens_at(row, column))).fold(cell_ideal_width(&head.tokens), usize::max))
         .collect();
 
     // Step 2: the available space.
@@ -52,8 +48,7 @@ pub(super) fn compute_column_widths(token: &Token, width: usize) -> ColumnWidths
     }
     if total_min <= available {
         let extra_space = (available - total_min) as f64;
-        let overflows: Vec<i64> =
-            ideal_widths.iter().zip(&min_widths).map(|(ideal, min)| *ideal as i64 - *min as i64).collect();
+        let overflows: Vec<i64> = ideal_widths.iter().zip(&min_widths).map(|(ideal, min)| *ideal as i64 - *min as i64).collect();
         let total_overflow: i64 = overflows.iter().sum();
         let column_widths = min_widths
             .iter()
@@ -70,10 +65,7 @@ pub(super) fn compute_column_widths(token: &Token, width: usize) -> ColumnWidths
     }
     let scale_factor = available as f64 / total_min as f64;
     ColumnWidths {
-        column_widths: min_widths
-            .iter()
-            .map(|w| ((*w as f64 * scale_factor).floor() as usize).max(MIN_COLUMN_WIDTH))
-            .collect(),
+        column_widths: min_widths.iter().map(|w| ((*w as f64 * scale_factor).floor() as usize).max(MIN_COLUMN_WIDTH)).collect(),
         needs_hard_wrap: true,
     }
 }

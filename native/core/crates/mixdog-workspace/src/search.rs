@@ -101,13 +101,7 @@ pub fn index_watch_id(session: &str, root: usize) -> String {
 
 impl SearchSessions {
     pub fn new(lanes: Lanes, feeds: Arc<dyn ScopedFeeds>, watcher: Arc<FolderWatcher>) -> Arc<Self> {
-        Arc::new(Self {
-            lanes,
-            feeds,
-            watcher,
-            sessions: Mutex::default(),
-            indexes: Mutex::default(),
-        })
+        Arc::new(Self { lanes, feeds, watcher, sessions: Mutex::default(), indexes: Mutex::default() })
     }
 
     pub fn start(&self, session_id: &str, config: SessionConfig) -> WsResult<Arc<Publisher>> {
@@ -129,11 +123,7 @@ impl SearchSessions {
                 return Err(error);
             }
         }
-        let publisher = Arc::new(Publisher::create(
-            self.feeds.as_ref(),
-            &format!("search:{session_id}"),
-            json!({ "query": "", "files": [] }),
-        ));
+        let publisher = Arc::new(Publisher::create(self.feeds.as_ref(), &format!("search:{session_id}"), json!({ "query": "", "files": [] })));
         sessions.insert(
             session_id.to_owned(),
             Arc::new(Session {
@@ -150,13 +140,7 @@ impl SearchSessions {
     /// `lone`: the query held an unpaired surrogate escape on the wire (now U+FFFD). Node's needle keeps the lone unit, which no
     /// path read from disk holds (shared/file-match.ts:34-55): the query matches nothing, where U+FFFD would match real ones.
     pub fn update(self: &Arc<Self>, session_id: &str, query: String, lone: bool) -> WsResult<()> {
-        let session = self
-            .sessions
-            .lock()
-            .expect("search sessions")
-            .get(session_id)
-            .cloned()
-            .ok_or_else(|| WsError::invalid("Search session is not open."))?;
+        let session = self.sessions.lock().expect("search sessions").get(session_id).cloned().ok_or_else(|| WsError::invalid("Search session is not open."))?;
         let generation = session.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let this = self.clone();
         tokio::spawn(async move {
@@ -171,9 +155,7 @@ impl SearchSessions {
             let Some(session) = sessions.remove(session_id) else { return };
             session.generation.fetch_add(1, Ordering::SeqCst);
             session.cancel.cancel();
-            let live: HashSet<_> = sessions.values()
-                .flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config)))
-                .collect();
+            let live: HashSet<_> = sessions.values().flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config))).collect();
             self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
             session
         };
@@ -192,10 +174,9 @@ impl SearchSessions {
         let walk_root = root.to_path_buf();
         let watch = SessionStop { generation, session_generation: session.generation.clone() };
         self.index_with(session, generation, root_no, root, |include_ignored, scan_cap| async move {
-            run(self.lanes.maintenance, &session.cancel, move || {
-                index_paths(&walk_root, include_ignored, scan_cap, &|| watch.superseded())
-            }).await
-        }).await
+            run(self.lanes.maintenance, &session.cancel, move || index_paths(&walk_root, include_ignored, scan_cap, &|| watch.superseded())).await
+        })
+        .await
     }
 
     async fn index_with<F>(
@@ -253,14 +234,17 @@ impl SearchSessions {
     async fn beyond(&self, session: &Session, generation: u64, root: &Path, index: &Arc<Index>, query: &str) -> WsResult<Vec<String>> {
         let needle = normalize_query(query);
         if let Some((cached, matches)) = &*index.beyond.lock().expect("beyond cache")
-            && needle.contains(cached.as_str()) {
+            && needle.contains(cached.as_str())
+        {
             return Ok(matches.iter().filter(|p| match_file(p, query).is_some()).cloned().collect());
         }
         let (walk_root, pending, include_ignored, q) = (root.to_path_buf(), index.pending.clone(), session.config.include_ignored, query.to_owned());
         let watch = SessionStop { generation, session_generation: session.generation.clone() };
         let deadline = std::time::Instant::now() + session.config.beyond_budget.unwrap_or(BEYOND_BUDGET);
         let (found, finished) = run(self.lanes.maintenance, &session.cancel, move || {
-            matches_beyond(&walk_root, &pending, include_ignored, &|| watch.superseded() || std::time::Instant::now() > deadline, &|p| match_file(p, &q).is_some())
+            matches_beyond(&walk_root, &pending, include_ignored, &|| watch.superseded() || std::time::Instant::now() > deadline, &|p| {
+                match_file(p, &q).is_some()
+            })
         })
         .await?;
         // A walk the budget cut short answers with what it found and keeps nothing.
@@ -288,17 +272,12 @@ impl SearchSessions {
         let limit = session.config.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
         let include_directories = session.config.include_directories;
         let q = query.clone();
-        let files = run(self.lanes.cpu_bulk, &session.cancel, move || rank_roots(&scored_roots, &q, limit, include_directories))
-            .await?;
+        let files = run(self.lanes.cpu_bulk, &session.cancel, move || rank_roots(&scored_roots, &q, limit, include_directories)).await?;
         if session.generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
         let state = json!({ "query": query, "files": files });
-        session.publisher.publish(
-            "search/updated",
-            json!({ "sessionId": session.id, "query": query, "files": files }),
-            Some(state),
-        );
+        session.publisher.publish("search/updated", json!({ "sessionId": session.id, "query": query, "files": files }), Some(state));
         session.publisher.publish("search/completed", json!({ "sessionId": session.id, "query": query }), None);
         Ok(())
     }
@@ -331,12 +310,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_scan_cap_leaves_folders_to_the_per_query_walk() {
         let tokens = mixdog_rt::testing::tokens();
-        let lanes = Lanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        };
+        let lanes =
+            Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         for d in ["a", "b", "c", "d"] {
@@ -379,12 +354,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_walk_the_budget_cut_short_answers_with_the_index_and_keeps_nothing() {
         let tokens = mixdog_rt::testing::tokens();
-        let lanes = Lanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        };
+        let lanes =
+            Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         for d in ["a", "b", "c", "d"] {
@@ -423,18 +394,22 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_query_that_held_a_lone_surrogate_matches_no_path() {
         let tokens = mixdog_rt::testing::tokens();
-        let lanes = Lanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        };
+        let lanes =
+            Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         std::fs::write(root.join("a\u{fffd}.txt"), "").unwrap();
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
         let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
-        let config = SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None };
+        let config = SessionConfig {
+            roots: vec![root.clone()],
+            limit: None,
+            include_ignored: false,
+            include_directories: false,
+            consumer: None,
+            scan_cap: None,
+            beyond_budget: None,
+        };
         let publisher = sessions.start("s", config).unwrap();
         let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
         sessions.search(&session, 0, "\u{fffd}".into(), true).await.unwrap();
@@ -446,18 +421,22 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn overlapping_searches_share_the_walk_and_a_reopen_sees_invalidated_files() {
         let tokens = mixdog_rt::testing::tokens();
-        let lanes = Lanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        };
+        let lanes =
+            Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         std::fs::write(root.join("before.txt"), "").unwrap();
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
         let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
-        let config = SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None };
+        let config = SessionConfig {
+            roots: vec![root.clone()],
+            limit: None,
+            include_ignored: false,
+            include_directories: false,
+            consumer: None,
+            scan_cap: None,
+            beyond_budget: None,
+        };
         let session = |id: &str| sessions.sessions.lock().unwrap().get(id).cloned().unwrap();
         sessions.start("first", config.clone()).unwrap();
         sessions.start("peer", config.clone()).unwrap();
@@ -484,11 +463,15 @@ mod tests {
         assert_eq!(publisher.state()["files"], json!([]));
 
         crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
-        let built_during_changes = sessions.index_with(&changed, 0, 0, &root, |_, _| async {
-            crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
-            crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
-            Ok((vec!["during.txt".to_owned()], Vec::new()))
-        }).await.unwrap().unwrap();
+        let built_during_changes = sessions
+            .index_with(&changed, 0, 0, &root, |_, _| async {
+                crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
+                crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
+                Ok((vec!["during.txt".to_owned()], Vec::new()))
+            })
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(built_during_changes.files, ["during.txt"], "the query gets an answer without retrying");
         let next = sessions.index_for(&changed, 0, 0, &root).await.unwrap().unwrap();
         assert!(next.files.iter().any(|f| f == "after.txt"), "the invalidated walk was not cached");
@@ -509,12 +492,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn thirty_updates_end_with_the_last_query_and_stop_frees_the_index() {
         let tokens = mixdog_rt::testing::tokens();
-        let lanes = Lanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        };
+        let lanes =
+            Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
@@ -523,7 +502,18 @@ mod tests {
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
         let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
         let publisher = sessions
-            .start("s1", SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None })
+            .start(
+                "s1",
+                SessionConfig {
+                    roots: vec![root.clone()],
+                    limit: None,
+                    include_ignored: false,
+                    include_directories: false,
+                    consumer: None,
+                    scan_cap: None,
+                    beyond_budget: None,
+                },
+            )
             .unwrap();
         for i in 0..29 {
             sessions.update("s1", format!("q{i}"), false).unwrap();
@@ -581,10 +571,7 @@ fn rank_roots(roots: &[(PathBuf, Arc<Index>, Vec<String>)], query: &str, limit: 
     }
     if root_only {
         hits.sort_by(|a, b| {
-            b.directory
-                .cmp(&a.directory)
-                .then_with(|| mixdog_js::locale_compare(a.name, b.name))
-                .then_with(|| mixdog_js::locale_compare(a.path, b.path))
+            b.directory.cmp(&a.directory).then_with(|| mixdog_js::locale_compare(a.name, b.name)).then_with(|| mixdog_js::locale_compare(a.path, b.path))
         });
     } else {
         hits.sort_by(|a, b| compare((a.path, &a.matched), (b.path, &b.matched)));

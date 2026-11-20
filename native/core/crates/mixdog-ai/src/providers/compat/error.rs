@@ -52,10 +52,7 @@ fn reset_at(detail: &JsonValue, now: SystemTime) -> Option<SystemTime> {
     if let Some(relative) = advice::resets_in(detail) {
         return Some(now + relative);
     }
-    let raw = detail
-        .get("resets_at")
-        .or_else(|| detail.get("reset_at"))
-        .or_else(|| detail.get("metadata").and_then(|m| m.get("resets_at")))?;
+    let raw = detail.get("resets_at").or_else(|| detail.get("reset_at")).or_else(|| detail.get("metadata").and_then(|m| m.get("resets_at")))?;
     if let Some(n) = raw.as_f64().or_else(|| raw.as_str().and_then(|s| s.parse().ok())) {
         if n <= 0.0 {
             return None;
@@ -76,10 +73,7 @@ fn detail_of(body: &JsonValue) -> Option<&JsonValue> {
     match body.get("error") {
         Some(inner) if inner.is_object() => Some(inner),
         Some(_) => Some(body),
-        None => body
-            .as_object()
-            .filter(|o| o.contains_key("code") || o.contains_key("message") || o.contains_key("type"))
-            .map(|_| body),
+        None => body.as_object().filter(|o| o.contains_key("code") || o.contains_key("message") || o.contains_key("type")).map(|_| body),
     }
 }
 
@@ -100,15 +94,12 @@ fn typed_status(detail: Option<&JsonValue>) -> Option<u16> {
 }
 
 fn openrouter_budget(body: &JsonValue) -> bool {
-    let marker = |value: Option<&JsonValue>| {
-        value.and_then(JsonValue::as_str).is_some_and(|value| value.trim().eq_ignore_ascii_case(OPENROUTER_IN_FLIGHT_BUDGET))
-    };
+    let marker =
+        |value: Option<&JsonValue>| value.and_then(JsonValue::as_str).is_some_and(|value| value.trim().eq_ignore_ascii_case(OPENROUTER_IN_FLIGHT_BUDGET));
     let mut current = Some(body);
     while let Some(detail) = current {
         if ["code", "type"].iter().any(|name| marker(detail.get(*name)))
-            || detail.get("metadata").is_some_and(|metadata| {
-                ["code", "type", "reason", "limit_source"].iter().any(|name| marker(metadata.get(*name)))
-            })
+            || detail.get("metadata").is_some_and(|metadata| ["code", "type", "reason", "limit_source"].iter().any(|name| marker(metadata.get(*name))))
         {
             return true;
         }
@@ -119,46 +110,30 @@ fn openrouter_budget(body: &JsonValue) -> bool {
 
 /// Classifies a failed response or in-band error payload. The delivery state
 /// is `Accepted`: a status or an event arrived.
-pub fn classify_parts(
-    profile: &CompatProfile,
-    status: Option<u16>,
-    headers: &[(String, String)],
-    body: &JsonValue,
-    now: SystemTime,
-) -> ProviderError {
+pub fn classify_parts(profile: &CompatProfile, status: Option<u16>, headers: &[(String, String)], body: &JsonValue, now: SystemTime) -> ProviderError {
     let detail = detail_of(body);
     let status = status.or_else(|| typed_status(detail));
     let code = lowered(detail.and_then(|d| d.get("code")));
     let kind_type = lowered(detail.and_then(|d| d.get("type")));
     // The specific `code` outranks the envelope `type` beside it.
-    let typed = [code.as_deref(), kind_type.as_deref()]
-        .into_iter()
-        .flatten()
-        .find(|c| kind_from_code(c).is_some());
+    let typed = [code.as_deref(), kind_type.as_deref()].into_iter().flatten().find(|c| kind_from_code(c).is_some());
     let gateway = detail
         .and_then(|d| d.get("error_type").or_else(|| d.get("metadata").and_then(|m| m.get("error_type"))))
         .or_else(|| body.get("error_type"))
         .and_then(|v| lowered(Some(v)))
-        .and_then(|key| {
-            GATEWAY_ERROR_TYPES
-                .iter()
-                .find(|(k, _)| *k == key)
-                .map(|(_, mapped)| *mapped)
-        });
+        .and_then(|key| GATEWAY_ERROR_TYPES.iter().find(|(k, _)| *k == key).map(|(_, mapped)| *mapped));
     let budget = profile.id == "openrouter" && status == Some(402) && openrouter_budget(body);
     let retry_after = advice::from_headers(headers, now).or_else(|| {
         // Zero is explicit advice for this refusal, not an absent header.
-        (budget && ["retry-after-ms", "retry-after"].into_iter().any(|name| {
-            advice::header(headers, name).is_some_and(|value| !value.is_empty() && mixdog_js::string_to_number(value) == 0.0)
-        }))
+        (budget
+            && ["retry-after-ms", "retry-after"]
+                .into_iter()
+                .any(|name| advice::header(headers, name).is_some_and(|value| !value.is_empty() && mixdog_js::string_to_number(value) == 0.0)))
         .then_some(Duration::ZERO)
     });
     let facts_code = if budget { Some(OPENROUTER_IN_FLIGHT_BUDGET) } else { typed };
-    let message = detail
-        .and_then(|d| d.get("message"))
-        .and_then(JsonValue::as_str)
-        .or_else(|| body.get("error").and_then(JsonValue::as_str))
-        .unwrap_or_default();
+    let message =
+        detail.and_then(|d| d.get("message")).and_then(JsonValue::as_str).or_else(|| body.get("error").and_then(JsonValue::as_str)).unwrap_or_default();
     let kind = kind_of(&Facts {
         status,
         code: facts_code,
@@ -174,15 +149,8 @@ pub fn classify_parts(
     err.code = code.or(kind_type);
     err.retry_after = retry_after;
     err.reset_at = detail.and_then(|d| reset_at(d, now));
-    let rejected_key = status == Some(401)
-        && matches!(
-            profile.credential,
-            CredentialKind::StaticKey {
-                reauth_on_401: true
-            }
-        );
-    let signed_out = status == Some(401) && profile.chat.reauth == ReauthText::SignInExpired
-        && !super::login::opencode_go::gateway_owns_auth_recovery();
+    let rejected_key = status == Some(401) && matches!(profile.credential, CredentialKind::StaticKey { reauth_on_401: true });
+    let signed_out = status == Some(401) && profile.chat.reauth == ReauthText::SignInExpired && !super::login::opencode_go::gateway_owns_auth_recovery();
     err.reauth_required = rejected_key || signed_out;
     let mut text = friendly_message(profile, detail, message);
     // The OpenAI SDK words an HTTP refusal `<status> <message>`.
@@ -236,17 +204,7 @@ fn reauth_message(profile: &CompatProfile, refusal: &str) -> String {
 /// `param` follows when it carries the real reason.
 fn friendly_message(profile: &CompatProfile, detail: Option<&JsonValue>, message: &str) -> String {
     let code = detail.and_then(|d| lowered(d.get("code")));
-    let base = code
-        .as_deref()
-        .and_then(|code| {
-            profile
-                .chat
-                .friendly_codes
-                .iter()
-                .find(|(c, _)| *c == code)
-                .map(|(_, text)| *text)
-        })
-        .unwrap_or(message);
+    let base = code.as_deref().and_then(|code| profile.chat.friendly_codes.iter().find(|(c, _)| *c == code).map(|(_, text)| *text)).unwrap_or(message);
     match detail.and_then(|d| d.get("param")).and_then(JsonValue::as_str) {
         Some(param) if !param.is_empty() && param != base && !base.is_empty() => {
             format!("{base}: {param}")
@@ -269,10 +227,7 @@ mod tests {
     use serde_json::json;
 
     fn run(profile: &CompatProfile, status: u16, headers: &[(&str, &str)], body: JsonValue) -> ProviderError {
-        let headers: Vec<(String, String)> = headers
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect();
+        let headers: Vec<(String, String)> = headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
         classify_parts(profile, Some(status), &headers, &body, UNIX_EPOCH + Duration::from_secs(1_000))
     }
 

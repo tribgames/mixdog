@@ -122,11 +122,7 @@ impl ReadWindows {
         if from > read.total {
             return Err(WsError::invalid("fromChar is past the end of the text."));
         }
-        let start_byte = if from == read.cursor.0 {
-            read.cursor.1
-        } else {
-            read.content.char_indices().nth(from).map_or(read.content.len(), |(byte, _)| byte)
-        };
+        let start_byte = if from == read.cursor.0 { read.cursor.1 } else { read.content.char_indices().nth(from).map_or(read.content.len(), |(byte, _)| byte) };
         let (piece, next_byte) = window(&read.content, start_byte, max);
         let mut answer = read.meta.clone();
         answer["content"] = json!(piece);

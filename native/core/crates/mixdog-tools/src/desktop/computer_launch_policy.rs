@@ -374,11 +374,7 @@ impl AuthorizationSettings {
     }
 
     pub fn read(&self) -> AuthorizationStatus {
-        AuthorizationStatus {
-            policy: self.narrowing().raw.clone(),
-            externally_restricted: self.base.is_some(),
-            updating: self.updating.load(Ordering::SeqCst),
-        }
+        AuthorizationStatus { policy: self.narrowing().raw.clone(), externally_restricted: self.base.is_some(), updating: self.updating.load(Ordering::SeqCst) }
     }
 
     /// Replaces the narrowing. The value must be a valid policy that ends within 24 hours; running work is stopped first, and every
@@ -651,13 +647,27 @@ mod tests {
             policy(json!({"launchTargets": (0..128).map(|i| format!("C:\\{i}{}", "x".repeat(1000))).collect::<Vec<_>>()})),
         ] {
             let result = settings
-                .update(&bad, || NOW, || async { stops.fetch_add(1, Ordering::SeqCst); }, || async { Ok(vec![target()]) })
+                .update(
+                    &bad,
+                    || NOW,
+                    || async {
+                        stops.fetch_add(1, Ordering::SeqCst);
+                    },
+                    || async { Ok(vec![target()]) },
+                )
                 .await;
             denied(result.map(|_| ()), "computer_policy_invalid");
         }
         assert_eq!(stops.load(Ordering::SeqCst), 0);
         let saved = settings
-            .update(&json!({"version": 1, "expiresAt": expires(60_000.0)}), || NOW, || async { stops.fetch_add(1, Ordering::SeqCst); }, || async { Ok(Vec::new()) })
+            .update(
+                &json!({"version": 1, "expiresAt": expires(60_000.0)}),
+                || NOW,
+                || async {
+                    stops.fetch_add(1, Ordering::SeqCst);
+                },
+                || async { Ok(Vec::new()) },
+            )
             .await
             .unwrap();
         assert_eq!(stops.load(Ordering::SeqCst), 1);
@@ -667,7 +677,6 @@ mod tests {
         assert!(settings.restricted());
         denied(settings.admit("capture", Some(&on("hwnd:0x1", None)), None, NOW), "computer_policy_denied");
     }
-
 
     #[test]
     fn a_policy_file_is_read_and_a_broken_one_admits_nothing() {

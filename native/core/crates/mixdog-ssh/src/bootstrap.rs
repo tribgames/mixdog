@@ -17,12 +17,11 @@ use crate::command::SshTarget;
 use crate::connect_failure::ConnectError;
 use crate::context::{AttemptContext, ModelLogin, SshEnv};
 use crate::install_payload::InstallPayload;
-use crate::install_wire::{
-    BootstrapCode, Mode, ProgramArgs, RemoteBootstrapError, RemoteDrain, ServerManifest, ServerPlatform, classify_platform,
-    is_windows_shell_failure, parse_platform_line, remote_program_script, remote_shell_command, windows_server_error,
-    REMOTE_INSTALL_LOCK_STALE_MS, REMOTE_INSTALL_LOCK_WAIT_MS,
-};
 use crate::install_wire::ModelLogin as WireModelLogin;
+use crate::install_wire::{
+    BootstrapCode, Mode, ProgramArgs, REMOTE_INSTALL_LOCK_STALE_MS, REMOTE_INSTALL_LOCK_WAIT_MS, RemoteBootstrapError, RemoteDrain, ServerManifest,
+    ServerPlatform, classify_platform, is_windows_shell_failure, parse_platform_line, remote_program_script, remote_shell_command, windows_server_error,
+};
 use crate::spawn::{ExecOptions, ssh_exec};
 
 #[cfg(test)]
@@ -291,10 +290,7 @@ pub struct StagedPayloads<'a, P: mixdog_fsio::ReadProof> {
 impl<'a, P: mixdog_fsio::ReadProof> StagedPayloads<'a, P> {
     /// Reads and checks the release manifest; a malformed or missing one is `local-payload`.
     pub fn open(proof: &'a P, env: &SshEnv) -> Result<Self, RemoteBootstrapError> {
-        let dir = env
-            .server_cores_dir
-            .clone()
-            .ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::LocalPayload, crate::said::APP_LACKS_FILES.plain()))?;
+        let dir = env.server_cores_dir.clone().ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::LocalPayload, crate::said::APP_LACKS_FILES.plain()))?;
         let manifest = ServerManifest::load(proof, &dir)?;
         let identity = ServerIdentity { version: manifest.version.clone(), build: manifest.build.clone() };
         Ok(Self { proof, dir, manifest, identity })
@@ -341,12 +337,7 @@ impl Remote<'_> {
     }
 
     /// One server program run over ssh: its raw `MIXDOG_RESULT` object and the server's platform.
-    pub(crate) async fn run(
-        self,
-        args: &ProgramArgs,
-        timeout: Duration,
-        input: Option<Vec<u8>>,
-    ) -> Result<(Map<String, Value>, ServerPlatform), ConnectError> {
+    pub(crate) async fn run(self, args: &ProgramArgs, timeout: Duration, input: Option<Vec<u8>>) -> Result<(Map<String, Value>, ServerPlatform), ConnectError> {
         let command = remote_shell_command(&remote_program_script(args)?);
         let options = ExecOptions { target: self.target.clone(), command, input, timeout, context: Some(self.context.clone()) };
         let run = ssh_exec(self.env, options).await?;
@@ -367,8 +358,7 @@ impl Remote<'_> {
             return Err(error.into());
         }
         let ParsedOutput { value, platform } = parse_remote_output(&run.stdout)?;
-        let platform =
-            platform.ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::Protocol, crate::said::NO_PLATFORM.plain()))?;
+        let platform = platform.ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::Protocol, crate::said::NO_PLATFORM.plain()))?;
         Ok((value, platform))
     }
 
@@ -427,7 +417,9 @@ pub(crate) fn base_args(identity: &ServerIdentity, mode: Mode) -> ProgramArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BootstrapPhase {
     /// The probe answered: `detail` is the server's platform (`linux-x64`).
-    Check { detail: String },
+    Check {
+        detail: String,
+    },
     Install,
     Start,
 }
@@ -466,12 +458,7 @@ fn ready(report: RemoteReport) -> Result<RemoteReport, ConnectError> {
 /// Probes the server, uploads this desktop's runtime when its version directory is missing, and makes sure the core
 /// there serves this desktop's version. `context.force_restart` is the user's confirmation of the last
 /// `daemon-busy-other-version` listing. The returned discovery (and its token) only lives in memory.
-pub async fn bootstrap(
-    env: &SshEnv,
-    context: &AttemptContext,
-    target: &SshTarget,
-    options: BootstrapOptions<'_>,
-) -> Result<RemoteReport, ConnectError> {
+pub async fn bootstrap(env: &SshEnv, context: &AttemptContext, target: &SshTarget, options: BootstrapOptions<'_>) -> Result<RemoteReport, ConnectError> {
     let remote = Remote { env, context, target };
     let identity = options.payloads.identity();
     let mut base = base_args(identity, Mode::Probe);

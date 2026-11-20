@@ -140,7 +140,8 @@ fn only_a_session_request_of_an_explicit_breakpoint_provider_with_an_expiring_ta
     assert_eq!(reason(Req { effort: true, levels_empty: false, ..Req::default() }), None);
     // The tail of the messages must be a tier that expires: none, or an unknown tier, has nothing to keep warm.
     assert_eq!(reason(Req { strategy: None, ..Req::default() }), Some("no expiring message-tail cache"));
-    let tier = |messages: Option<&str>| Req { strategy: Some(CacheStrategy { messages: messages.map(str::to_owned), ..CacheStrategy::default() }), ..Req::default() };
+    let tier =
+        |messages: Option<&str>| Req { strategy: Some(CacheStrategy { messages: messages.map(str::to_owned), ..CacheStrategy::default() }), ..Req::default() };
     assert_eq!(reason(tier(Some("5m"))), None);
     assert_eq!(reason(tier(Some("forever"))), Some("no expiring message-tail cache"));
 }
@@ -359,7 +360,8 @@ impl Fixture {
         loop {
             let due = {
                 let mut timers = lock(&self.world.timers);
-                let first = timers.iter().enumerate().filter(|(_, t)| t.at <= to).min_by(|a, b| a.1.at.total_cmp(&b.1.at).then(a.1.id.cmp(&b.1.id))).map(|(i, _)| i);
+                let first =
+                    timers.iter().enumerate().filter(|(_, t)| t.at <= to).min_by(|a, b| a.1.at.total_cmp(&b.1.at).then(a.1.id.cmp(&b.1.id))).map(|(i, _)| i);
                 first.map(|i| timers.remove(i))
             };
             let Some(mut due) = due else { break };
@@ -421,7 +423,8 @@ async fn the_prompt_size_is_the_responses_own_when_it_reports_one() {
 #[tokio::test]
 async fn a_five_minute_write_arms_a_chain_that_warms_after_four_minutes() {
     let f = fixture().await;
-    let response = ArmResponse { input: 10.0, cached: 0.0, cache_write: 5000.0, tail_ttl_ms: Some(5.0 * MINUTE), prompt_tokens: None, account_id: Some("a".into()) };
+    let response =
+        ArmResponse { input: 10.0, cached: 0.0, cache_write: 5000.0, tail_ttl_ms: Some(5.0 * MINUTE), prompt_tokens: None, account_id: Some("a".into()) };
     f.arm(Req { strategy: Some(CacheStrategy { messages: Some("5m".into()), ..CacheStrategy::default() }), ..Req::default() }, &response);
     let chain = f.warmer.chain_state("s1").unwrap();
     assert_eq!((chain.ttl_ms, chain.refresh_at), (5.0 * MINUTE, T0 + 4.0 * MINUTE));
@@ -478,7 +481,10 @@ async fn warms_follow_the_sessions_history_of_returns_and_stop_when_none_that_lo
     f.advance(f.at(10.0 * HOUR)).await;
     // The session came back after 2.5 h each time: a warm at 59 min and one at 118 min bridge the wait; at 177 min no
     // return that long is known, so the chain ends.
-    assert_eq!(f.sends(), [(REFRESH as i64, "anthropic-oauth:claude-opus-4-7:acct-1".to_owned()), (2 * REFRESH as i64, "anthropic-oauth:claude-opus-4-7:acct-1".to_owned())]);
+    assert_eq!(
+        f.sends(),
+        [(REFRESH as i64, "anthropic-oauth:claude-opus-4-7:acct-1".to_owned()), (2 * REFRESH as i64, "anthropic-oauth:claude-opus-4-7:acct-1".to_owned())]
+    );
     assert_eq!(f.billed().len(), 2);
     assert!(f.warmer.chain_state("s1").is_none());
     assert!(f.logged("s1: stopped (no idle history this long)"), "{:?}", lock(&f.world.log));
@@ -495,7 +501,10 @@ async fn each_successful_warm_moves_the_touch_and_is_the_sessions_latest_cache_u
     assert_eq!(chain.refresh_at, T0 + 2.0 * REFRESH);
     assert_eq!(f.touches.get("s1").unwrap().touch_at, T0 + REFRESH);
     let used = f.touches.warm_use("s1").expect("a read without a write is cache use");
-    assert_eq!((used.at, used.provider.as_str(), used.model.as_str(), used.account_id.as_str()), ((T0 + REFRESH) as u64, "anthropic-oauth", "claude-opus-4-7", "acct-1"));
+    assert_eq!(
+        (used.at, used.provider.as_str(), used.model.as_str(), used.account_id.as_str()),
+        ((T0 + REFRESH) as u64, "anthropic-oauth", "claude-opus-4-7", "acct-1")
+    );
 }
 
 #[tokio::test]

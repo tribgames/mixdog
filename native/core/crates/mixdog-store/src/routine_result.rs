@@ -17,8 +17,7 @@ fn role(message: &Value) -> Option<&str> {
 }
 
 pub fn is_routine_result_message(message: &Value) -> bool {
-    role(message) == Some("user")
-        && message.get("meta").and_then(|m| m.get("source")).and_then(Value::as_str) == Some(ROUTINE_RESULT_SOURCE)
+    role(message) == Some("user") && message.get("meta").and_then(|m| m.get("source")).and_then(Value::as_str) == Some(ROUTINE_RESULT_SOURCE)
 }
 
 /// `String(value || '')`.
@@ -104,21 +103,13 @@ pub fn routine_result_notice_text(message: &Value) -> String {
         };
         let summary = routine.get("summary");
         let tail = if truthy(summary) { format!(" — {}", template(summary)) } else { String::new() };
-        return format!(
-            "🛠 {} {what} · {}{tail}",
-            if session { "Session" } else { "Agent task" },
-            template(routine.get("name"))
-        );
+        return format!("🛠 {} {what} · {}{tail}", if session { "Session" } else { "Agent task" }, template(routine.get("name")));
     }
     let webhook = routine.get("kind").and_then(Value::as_str) == Some("webhook");
     let name = text_or_empty(routine.get("name"));
     let failed = routine.get("status").and_then(Value::as_str) == Some("failed");
     let summary = text_or_empty(routine.get("summary"));
-    let detail = if failed {
-        if summary.is_empty() { "Failed".to_owned() } else { format!("Failed: {summary}") }
-    } else {
-        summary
-    };
+    let detail = if failed { if summary.is_empty() { "Failed".to_owned() } else { format!("Failed: {summary}") } } else { summary };
     let tail = if detail.is_empty() { String::new() } else { format!(" — {detail}") };
     format!("{} · {name}{tail}", if webhook { "🔗 Webhook" } else { "⏱ Schedule" })
 }

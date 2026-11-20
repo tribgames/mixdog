@@ -144,10 +144,7 @@ impl Compiler {
     /// `inherit(original, ...objects)`: a new unfrozen object with the fields of `original`, each overridden by
     /// the later objects' fields.
     fn inherit(&mut self, original: usize, overlays: &[&[(String, Raw)]]) -> usize {
-        let mut result = RawObject {
-            frozen: false,
-            fields: self.nodes[original].fields.clone(),
-        };
+        let mut result = RawObject { frozen: false, fields: self.nodes[original].fields.clone() };
         for overlay in overlays {
             for (key, value) in *overlay {
                 result.set(key, value.clone());
@@ -212,9 +209,7 @@ impl Compiler {
 
     fn hook_of(&self, id: usize, key: &str) -> Result<Option<Hook>, String> {
         match self.nodes[id].get(key) {
-            Some(Raw::Cb(name)) => callbacks::hook(name)
-                .map(Some)
-                .ok_or_else(|| format!("unknown callback {name}")),
+            Some(Raw::Cb(name)) => callbacks::hook(name).map(Some).ok_or_else(|| format!("unknown callback {name}")),
             _ => Ok(None),
         }
     }
@@ -246,16 +241,10 @@ impl Compiler {
         if parent.is_some()
             && let Some(Raw::Str(words)) = self.nodes[id].truthy("beginKeywords").cloned()
         {
-            let begin = format!(
-                "\\b({})(?!\\.)(?=\\b|\\s)",
-                words.split(' ').collect::<Vec<_>>().join("|")
-            );
+            let begin = format!("\\b({})(?!\\.)(?=\\b|\\s)", words.split(' ').collect::<Vec<_>>().join("|"));
             let node = &mut self.nodes[id];
             node.set("begin", Raw::Str(begin));
-            node.set(
-                "__beforeBegin",
-                Raw::Cb("skipIfHasPrecedingDot".to_string()),
-            );
+            node.set("__beforeBegin", Raw::Cb("skipIfHasPrecedingDot".to_string()));
             if !node.flag("keywords") {
                 node.set("keywords", Raw::Str(words));
             }
@@ -287,13 +276,7 @@ impl Compiler {
         let keywords = match self.nodes[id].truthy("keywords").cloned() {
             Some(raw) => {
                 let mut table = KeywordTable::new();
-                compile_keywords(
-                    &raw,
-                    &self.nodes,
-                    self.case_insensitive,
-                    DEFAULT_KEYWORD_CLASSNAME,
-                    &mut table,
-                );
+                compile_keywords(&raw, &self.nodes, self.case_insensitive, DEFAULT_KEYWORD_CLASSNAME, &mut table);
                 Some(table)
             }
             None => None,
@@ -301,16 +284,9 @@ impl Compiler {
         let lexemes = self.nodes[id].truthy("lexemes").cloned();
         let pattern = keyword_pattern.filter(Raw::truthy);
         if lexemes.is_some() && pattern.is_some() {
-            return Err(
-                "ERR: Prefer `keywords.$pattern` to `mode.lexemes`, BOTH are not allowed. (see mode reference) ".to_string(),
-            );
+            return Err("ERR: Prefer `keywords.$pattern` to `mode.lexemes`, BOTH are not allowed. (see mode reference) ".to_string());
         }
-        let pattern_source = pattern
-            .as_ref()
-            .or(lexemes.as_ref())
-            .and_then(Raw::source)
-            .unwrap_or("\\w+")
-            .to_string();
+        let pattern_source = pattern.as_ref().or(lexemes.as_ref()).and_then(Raw::source).unwrap_or("\\w+").to_string();
         let keyword_pattern = Rc::new(LazyRegex::new(pattern_source, self.case_insensitive));
 
         let mut terminator_end = String::new();
@@ -326,15 +302,9 @@ impl Compiler {
             if !self.nodes[id].flag("end") && !self.nodes[id].flag("endsWithParent") {
                 self.nodes[id].set("end", Raw::Re("\\B|\\b".to_string()));
             }
-            let end_source = self.nodes[id]
-                .truthy("end")
-                .and_then(Raw::source)
-                .map(str::to_string);
+            let end_source = self.nodes[id].truthy("end").and_then(Raw::source).map(str::to_string);
             if let Some(source) = &end_source {
-                end_re = Some(Rc::new(LazyRegex::new(
-                    source.clone(),
-                    self.case_insensitive,
-                )));
+                end_re = Some(Rc::new(LazyRegex::new(source.clone(), self.case_insensitive)));
             }
             terminator_end = end_source.clone().unwrap_or_default();
             let parent_terminator = self.modes[parent].terminator_end.clone();
@@ -431,10 +401,7 @@ impl Compiler {
             };
             expanded.extend(self.expand_or_clone(target));
         }
-        self.nodes[id].set(
-            "contains",
-            Raw::Arr(expanded.iter().map(|c| Raw::Obj(*c)).collect()),
-        );
+        self.nodes[id].set("contains", Raw::Arr(expanded.iter().map(|c| Raw::Obj(*c)).collect()));
         for child in &expanded {
             self.compile_mode(*child, Some(id))?;
         }
@@ -446,10 +413,7 @@ impl Compiler {
         // buildModeRegex
         let mut rules: Vec<(String, RuleKind)> = Vec::new();
         for child in &expanded {
-            let begin = self.nodes[*child]
-                .get("begin")
-                .and_then(Raw::source)
-                .ok_or_else(|| "a contained mode has no begin".to_string())?;
+            let begin = self.nodes[*child].get("begin").and_then(Raw::source).ok_or_else(|| "a contained mode has no begin".to_string())?;
             rules.push((begin.to_string(), RuleKind::Begin(*child)));
         }
         if !terminator_end.is_empty() {
@@ -468,9 +432,7 @@ pub(crate) fn compile_language(raw: &RawLanguage) -> Result<CompiledLanguage, St
     let root = &raw.objects[raw.root];
     let case_insensitive = root.flag("case_insensitive");
     if let Some(Raw::Arr(contains)) = root.get("contains")
-        && contains
-            .iter()
-            .any(|c| matches!(c, Raw::Str(s) if s == "self"))
+        && contains.iter().any(|c| matches!(c, Raw::Str(s) if s == "self"))
     {
         return Err("ERR: contains `self` is not supported at the top-level of a language.  See documentation.".to_string());
     }
@@ -478,10 +440,7 @@ pub(crate) fn compile_language(raw: &RawLanguage) -> Result<CompiledLanguage, St
     if let Some(Raw::Arr(list)) = root.get("compilerExtensions") {
         for item in list {
             if let Raw::Cb(name) = item {
-                extensions.push(
-                    callbacks::extension(name)
-                        .ok_or_else(|| format!("unknown compiler extension {name}"))?,
-                );
+                extensions.push(callbacks::extension(name).ok_or_else(|| format!("unknown compiler extension {name}"))?);
             }
         }
     }
@@ -493,21 +452,8 @@ pub(crate) fn compile_language(raw: &RawLanguage) -> Result<CompiledLanguage, St
             }
         }
     }
-    let mut compiler = Compiler {
-        nodes: raw.objects.clone(),
-        modes: raw
-            .objects
-            .iter()
-            .map(|_| CMode::blank(case_insensitive))
-            .collect(),
-        case_insensitive,
-        extensions,
-    };
+    let mut compiler =
+        Compiler { nodes: raw.objects.clone(), modes: raw.objects.iter().map(|_| CMode::blank(case_insensitive)).collect(), case_insensitive, extensions };
     compiler.compile_mode(raw.root, None)?;
-    Ok(CompiledLanguage {
-        case_insensitive,
-        root: raw.root,
-        modes: compiler.modes,
-        class_aliases,
-    })
+    Ok(CompiledLanguage { case_insensitive, root: raw.root, modes: compiler.modes, class_aliases })
 }

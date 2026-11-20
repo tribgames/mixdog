@@ -22,7 +22,8 @@ const MAX_MESSAGE_DEPTH: usize = 128;
 
 #[allow(clippy::unwrap_used, reason = "constant pattern")]
 static CREDENTIAL_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?-u:\b)(?:sk|pk|rk|xai|gsk|sess)-[A-Za-z0-9_-]{12,}(?-u:\b)|(?-u:\b)Bearer\s+[A-Za-z0-9._~+/=-]{8,}|(?-u:\b)AIza[0-9A-Za-z_-]{20,}(?-u:\b)").unwrap()
+    Regex::new(r"(?-u:\b)(?:sk|pk|rk|xai|gsk|sess)-[A-Za-z0-9_-]{12,}(?-u:\b)|(?-u:\b)Bearer\s+[A-Za-z0-9._~+/=-]{8,}|(?-u:\b)AIza[0-9A-Za-z_-]{20,}(?-u:\b)")
+        .unwrap()
 });
 #[allow(clippy::unwrap_used, reason = "constant pattern")]
 static CONTROL_RUN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\x00-\x1f\]]+").unwrap());
@@ -55,11 +56,7 @@ fn record(value: Option<&Value>) -> Obj {
 
 /// `unavailableAttachment(part)`.
 fn unavailable_attachment(part: &Obj) -> Value {
-    let name = part
-        .get("filename")
-        .and_then(Value::as_str)
-        .map(|f| f.rsplit(['/', '\\']).next().unwrap_or("").to_owned())
-        .unwrap_or_default();
+    let name = part.get("filename").and_then(Value::as_str).map(|f| f.rsplit(['/', '\\']).next().unwrap_or("").to_owned()).unwrap_or_default();
     let text = |key: &str| part.get(key).and_then(Value::as_str).map(str::to_owned);
     let label = [Some(name), text("mimeType"), text("mediaType"), text("type")]
         .into_iter()

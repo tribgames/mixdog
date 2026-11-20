@@ -29,8 +29,7 @@ fn is_room_id(id: &str) -> bool {
 
 /// The home session id of `agent_id`, or `None` when it is not a normalized id.
 pub fn agent_home_session_id(agent_id: &str) -> Option<String> {
-    (agent_id.len() <= MAX_AGENT_ID_LENGTH && is_agent_id(agent_id))
-        .then(|| format!("{HOME_PREFIX}{}", agent_id.replace('.', "_")))
+    (agent_id.len() <= MAX_AGENT_ID_LENGTH && is_agent_id(agent_id)).then(|| format!("{HOME_PREFIX}{}", agent_id.replace('.', "_")))
 }
 
 /// The agent id a home session belongs to, `None` for any other session.
@@ -65,8 +64,7 @@ pub fn room_member_of_session(session_id: &str) -> Option<RoomMember> {
     let rest = session_id.strip_prefix(MEMBER_PREFIX)?;
     let (room_id, tail) = rest.split_once('_')?;
     let agent_id = tail.replace('_', ".");
-    (room_member_session_id(room_id, &agent_id).as_deref() == Some(session_id))
-        .then(|| RoomMember { room_id: room_id.to_owned(), agent_id })
+    (room_member_session_id(room_id, &agent_id).as_deref() == Some(session_id)).then(|| RoomMember { room_id: room_id.to_owned(), agent_id })
 }
 
 /// A room's log or one of its member sessions: permanent, never scratch.
@@ -115,10 +113,7 @@ mod tests {
         assert_eq!(room_id_of_session("sess_room_abc123").as_deref(), Some("abc123"));
         let member = room_member_session_id("abc123", "gh.bot").unwrap();
         assert_eq!(member, "sess_rmem_abc123_gh_bot");
-        assert_eq!(
-            room_member_of_session(&member),
-            Some(RoomMember { room_id: "abc123".into(), agent_id: "gh.bot".into() })
-        );
+        assert_eq!(room_member_of_session(&member), Some(RoomMember { room_id: "abc123".into(), agent_id: "gh.bot".into() }));
         assert!(is_room_thread_session_id(&member));
         assert!(is_room_thread_session_id("sess_room_abc123"));
         assert!(!is_room_thread_session_id("sess_home_x"));

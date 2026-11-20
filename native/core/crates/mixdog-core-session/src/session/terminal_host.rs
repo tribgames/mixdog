@@ -109,18 +109,18 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::ids::FeedEpoch;
     use mixdog_core_api::ids::FeedId;
-    use mixdog_core_base::state::empty_view;
-    use mixdog_store::schema::record::Header;
-    use mixdog_tools::desktop::pending::PendingWaits;
-    use mixdog_tools::desktop::reveal::RevealingTerminalHost;
-    use mixdog_core_api::service::DomainService;
-    use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::ids::Method;
+    use mixdog_core_api::service::DomainService;
+    use mixdog_core_base::state::empty_view;
     use mixdog_rt::Ticker;
     use mixdog_spawn::terminal::SessionTab;
     use mixdog_spawn::terminal::TerminalBridgeHost;
+    use mixdog_store::schema::record::Header;
+    use mixdog_tools::desktop::pending::PendingWaits;
+    use mixdog_tools::desktop::reveal::RevealingTerminalHost;
     use serde_json::json;
 
     use super::super::FeedFactory;
@@ -226,7 +226,6 @@ mod tests {
         assert_eq!(sent.0.lock().unwrap().len(), 1, "the phone is still told");
     }
 
-
     #[test]
     fn paired_phones_get_the_reveal_without_any_path_or_ack_id_while_the_window_keeps_the_full_request() {
         let sent = Arc::new(Sent::default());
@@ -239,7 +238,6 @@ mod tests {
         assert_eq!(*sent, vec![(1, full.clone()), (2, relay.clone()), (3, full)]);
         assert!(!sent[1].1.to_string().contains("secret") && sent[1].1.get("requestId").is_none());
     }
-
 
     /// The whole reveal: the host sends the request to the connections of the app feed, a window's
     /// `ui/terminalRun/claimed` reaches the one `PendingWaits`, and the run is shown.
@@ -272,25 +270,23 @@ mod tests {
         // A window that claims what it was asked to show.
         let reveal = host.reveal("s1", &target, targets);
         let claim = async {
-            let params = crate::session::testing::awaiting(
-                || "the request to reach the window".to_owned(),
-                async {
-                    loop {
-                        if let Some((_, params)) = sent.0.lock().unwrap().get(3).cloned() {
-                            return params;
-                        }
-                        // Not a timer: `awaiting` holds the paused clock while its deadline runs, so a sleep here never ends.
-                        tokio::task::yield_now().await;
+            let params = crate::session::testing::awaiting(|| "the request to reach the window".to_owned(), async {
+                loop {
+                    if let Some((_, params)) = sent.0.lock().unwrap().get(3).cloned() {
+                        return params;
                     }
-                },
-            )
+                    // Not a timer: `awaiting` holds the paused clock while its deadline runs, so a sleep here never ends.
+                    tokio::task::yield_now().await;
+                }
+            })
             .await;
             let request = params["requestId"].as_str().unwrap().to_owned();
             assert_eq!(params["kind"], "terminal");
             assert_eq!(params["terminalId"], "session-terminal:s1");
             waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
         };
-        let ((), shown) = crate::session::testing::awaiting(|| "the reveal to end once its request is claimed".to_owned(), async { tokio::join!(claim, reveal) }).await;
+        let ((), shown) =
+            crate::session::testing::awaiting(|| "the reveal to end once its request is claimed".to_owned(), async { tokio::join!(claim, reveal) }).await;
         assert!(shown, "a claimed request is shown");
     }
 }

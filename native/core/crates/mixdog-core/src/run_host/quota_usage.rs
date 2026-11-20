@@ -121,12 +121,7 @@ pub struct ProviderQuotaUsable {
 }
 
 impl ProviderQuotaUsable {
-    pub fn new(
-        env: Arc<dyn Environment>,
-        channel: Arc<dyn QuotaChannel>,
-        readings: Arc<dyn QuotaReadings>,
-        now: Arc<dyn Fn() -> i64 + Send + Sync>,
-    ) -> Self {
+    pub fn new(env: Arc<dyn Environment>, channel: Arc<dyn QuotaChannel>, readings: Arc<dyn QuotaReadings>, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
         Self { env, channel, readings, now }
     }
 }
@@ -148,7 +143,4 @@ impl QuotaUsage for ProviderQuotaUsable {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
+mod tests {}

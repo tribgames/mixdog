@@ -18,10 +18,10 @@ use crate::excel::numfmt::color_names;
 use crate::ps::Value;
 use crate::ps::convert;
 
+use super::array_items;
 use super::cached;
 use super::cell_at;
 use super::com_text;
-use super::array_items;
 use super::int_of_com;
 use super::is_match;
 use super::prop;
@@ -94,9 +94,7 @@ fn text_may_become_value(entered: &str) -> Result<bool> {
     if is_match(trimmed, r"^[+-]?(?:(?:0|[1-9]\d*)(?:\.\d+)?|\.\d+|[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?)%?$")? {
         return Ok(false);
     }
-    Ok(is_match(trimmed, r"\d")?
-        || is_match(trimmed, r"^(?:true|false)$")?
-        || is_match(trimmed, r"^#(?:N/A|DIV/0!|VALUE!|REF!|NAME\?|NUM!|NULL!)$")?)
+    Ok(is_match(trimmed, r"\d")? || is_match(trimmed, r"^(?:true|false)$")? || is_match(trimmed, r"^#(?:N/A|DIV/0!|VALUE!|REF!|NAME\?|NUM!|NULL!)$")?)
 }
 
 /// A 1 x 1 `object[,]` holding `value`: the binder then always sees the same type.
@@ -270,11 +268,7 @@ fn set_whole_block(target: &Com, rows: &[Value], row_count: usize, column_count:
     }
     let cells = row_count * column_count;
     if cells > 500 {
-        return Ok(record_of(
-            "set_range",
-            true,
-            vec![("bulk", Value::Bool(true)), ("cells", Value::Int(i32::try_from(cells).unwrap_or(i32::MAX)))],
-        ));
+        return Ok(record_of("set_range", true, vec![("bulk", Value::Bool(true)), ("cells", Value::Int(i32::try_from(cells).unwrap_or(i32::MAX)))]));
     }
     Ok(record_of("set_range", true, Vec::new()))
 }

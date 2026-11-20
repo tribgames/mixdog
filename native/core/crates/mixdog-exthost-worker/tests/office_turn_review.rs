@@ -143,12 +143,17 @@ async fn office_written_files_are_the_calls_own_changes_a_sibling_is_not_and_und
     put(&root.join("report-notes.txt"), "notes beside the report\n");
 
     // Written before the turn, by no turn: the original.
-    let (made, _) = turn.run(json!({"action": "create", "path": "report.docx", "mode": "portable", "operations": [{"op": "append_text", "text": "First paragraph."}]})).await;
+    let (made, _) = turn
+        .run(json!({"action": "create", "path": "report.docx", "mode": "portable", "operations": [{"op": "append_text", "text": "First paragraph."}]}))
+        .await;
     let session = session_of(&made);
     let original = read(&root.join("report.docx"));
 
     // The turn: an edit of the document, with a sibling named after it changing while the edit runs.
-    let edit = turn.pool.call(turn.call(json!({"action": "batch", "session": session, "save": true, "operations": [{"op": "append_text", "text": "Second paragraph."}]}))).expect("accepted");
+    let edit = turn
+        .pool
+        .call(turn.call(json!({"action": "batch", "session": session, "save": true, "operations": [{"op": "append_text", "text": "Second paragraph."}]})))
+        .expect("accepted");
     put(&root.join("report-notes.txt"), "concurrent edit\n");
     let (_, edited) = Turn::finish(edit).await;
     let (_, created) = turn

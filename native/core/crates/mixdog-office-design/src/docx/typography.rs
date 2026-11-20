@@ -11,20 +11,10 @@ use mixdog_office_base::values::truthy;
 use crate::{first_truthy, opt_prop, prop, text};
 
 /// The serif Latin faces the presets set their display role in (`SERIF_FACE`, read case-insensitively).
-const SERIF_FACES: [&str; 8] = [
-    "cambria",
-    "georgia",
-    "bookman old style",
-    "times new roman",
-    "garamond",
-    "book antiqua",
-    "palatino linotype",
-    "constantia",
-];
+const SERIF_FACES: [&str; 8] = ["cambria", "georgia", "bookman old style", "times new roman", "garamond", "book antiqua", "palatino linotype", "constantia"];
 
 /// The Latin faces the presets assign that carry no Hangul (`LATIN_OFFICE_FACE`).
-const LATIN_OFFICE_FACES: [&str; 9] =
-    ["calibri", "arial", "cambria", "bookman old style", "courier new", "times new roman", "georgia", "segoe ui", "aptos"];
+const LATIN_OFFICE_FACES: [&str; 9] = ["calibri", "arial", "cambria", "bookman old style", "courier new", "times new roman", "georgia", "segoe ui", "aptos"];
 
 /// `SERIF_FACE.test(face)`: the whole text is one of the serif faces, whatever its case. The names are ASCII, so the
 /// comparison is ASCII-insensitive (the `i` flag does not fold the Kelvin sign onto `k`).
@@ -117,9 +107,7 @@ impl DocumentTypography {
 /// `documentTypography(operation, typography)`: Font coverage is script-specific, not a choice of document genre.
 /// Callers can name the recipient's East Asian font independently of the Latin face.
 pub fn document_typography(operation: &Value, typography: Option<&Value>) -> DocumentTypography {
-    let listed = Value::Array(
-        ["title", "subtitle", "summary", "sections"].iter().map(|key| prop(operation, key).cloned().unwrap_or(Value::Null)).collect(),
-    );
+    let listed = Value::Array(["title", "subtitle", "summary", "sections"].iter().map(|key| prop(operation, key).cloned().unwrap_or(Value::Null)).collect());
     let language = text(prop(operation, "language"));
     let korean = KOREAN_LANGUAGE.is_match(&language) || has_hangul(&json_stringify(&listed));
     let named = first_truthy(&[prop(operation, "nameEastAsia")]).cloned();

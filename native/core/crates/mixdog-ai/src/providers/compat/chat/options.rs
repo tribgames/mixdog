@@ -68,26 +68,15 @@ fn deepseek_thinking(request: &ModelRequest) -> Option<ThinkingMode> {
         Some(JsonValue::Bool(b)) => Some(b.to_string()),
         Some(_) | None => effort.map(lower),
     };
-    let disabled = thinking == Some(&JsonValue::Bool(false))
-        || matches!(mode.as_deref(), Some("disabled" | "none"));
-    Some(if disabled {
-        ThinkingMode::Disabled
-    } else {
-        ThinkingMode::Enabled
-    })
+    let disabled = thinking == Some(&JsonValue::Bool(false)) || matches!(mode.as_deref(), Some("disabled" | "none"));
+    Some(if disabled { ThinkingMode::Disabled } else { ThinkingMode::Enabled })
 }
 
 use mixdog_js::json_number as number_value;
 
 /// `late` selects the effort fields that follow the sampling and output-limit
 /// fields (MiMo's), keeping the body's key order that clients record.
-fn apply_effort(
-    dialect: &ChatDialect,
-    request: &ModelRequest,
-    info: Option<&CompatModelInfo>,
-    body: &mut JsonObject,
-    late: bool,
-) {
+fn apply_effort(dialect: &ChatDialect, request: &ModelRequest, info: Option<&CompatModelInfo>, body: &mut JsonObject, late: bool) {
     if (dialect.effort == EffortDialect::Mimo) != late {
         return;
     }
@@ -108,11 +97,7 @@ fn apply_effort(
             let Some(mode) = deepseek_thinking(request) else {
                 return;
             };
-            let kind = if mode == ThinkingMode::Enabled {
-                "enabled"
-            } else {
-                "disabled"
-            };
+            let kind = if mode == ThinkingMode::Enabled { "enabled" } else { "disabled" };
             body.insert("thinking".into(), json!({ "type": kind }));
             if mode == ThinkingMode::Enabled {
                 // `ultra` is DeepSeek's alias for max; `minimal` for low;
@@ -141,9 +126,7 @@ fn apply_effort(
             let level = if !levels.is_empty() {
                 requested.and_then(|e| fold_declared_effort(e, levels))
             } else if dialect.effort == EffortDialect::DeclaredOrBasic {
-                requested
-                    .map(lower)
-                    .filter(|e| matches!(e.as_str(), "low" | "medium" | "high"))
+                requested.map(lower).filter(|e| matches!(e.as_str(), "low" | "medium" | "high"))
             } else {
                 None
             };
@@ -159,9 +142,7 @@ fn apply_effort(
                 Some(JsonValue::String(s)) => Some(lower(s)),
                 _ => None,
             };
-            let disabled = thinking == Some(&JsonValue::Bool(false))
-                || matches!(mode.as_deref(), Some("disabled" | "off" | "none"))
-                || level == "none";
+            let disabled = thinking == Some(&JsonValue::Bool(false)) || matches!(mode.as_deref(), Some("disabled" | "off" | "none")) || level == "none";
             if disabled {
                 body.insert("thinking".into(), json!({ "type": "disabled" }));
             } else if thinking.is_some() || !level.is_empty() {
@@ -185,11 +166,7 @@ fn apply_sampling(dialect: &ChatDialect, request: &ModelRequest, body: &mut Json
     let Some(default) = dialect.temperature else {
         return;
     };
-    let number = |key: &str| {
-        parameter(request, key)
-            .and_then(JsonValue::as_f64)
-            .filter(|n| n.is_finite() && *n >= 0.0)
-    };
+    let number = |key: &str| parameter(request, key).and_then(JsonValue::as_f64).filter(|n| n.is_finite() && *n >= 0.0);
     let temperature = request.options.temperature.map_or(default, |t| t.get());
     body.insert("temperature".into(), number_value(temperature));
     for (key, wire) in [("topP", "top_p"), ("topK", "top_k")] {
@@ -209,21 +186,13 @@ pub fn apply_max_tokens(dialect: &ChatDialect, request: &ModelRequest, body: &mu
     }
 }
 
-fn apply_completion_limit(
-    dialect: &ChatDialect,
-    request: &ModelRequest,
-    info: Option<&CompatModelInfo>,
-    body: &mut JsonObject,
-) {
+fn apply_completion_limit(dialect: &ChatDialect, request: &ModelRequest, info: Option<&CompatModelInfo>, body: &mut JsonObject) {
     let requested = request.options.max_output_tokens_override.filter(|n| *n > 0);
     match dialect.output_limit {
         OutputLimit::MaxTokens => {}
         OutputLimit::MaxCompletionTokens { default, cap } => {
             let wanted = requested.unwrap_or(default).min(cap);
-            let ceiling = info
-                .and_then(|i| i.output_tokens)
-                .or(request.options.model_max_output_tokens)
-                .filter(|n| *n > 0);
+            let ceiling = info.and_then(|i| i.output_tokens).or(request.options.model_max_output_tokens).filter(|n| *n > 0);
             let limit = ceiling.map_or(wanted, |c| wanted.min(c));
             body.insert("max_completion_tokens".into(), limit.into());
         }
@@ -277,12 +246,7 @@ fn apply_tool_choice(dialect: &ChatDialect, request: &ModelRequest, body: &mut J
 }
 
 /// Applies every provider-specific field that follows the tools.
-pub fn apply(
-    dialect: &ChatDialect,
-    request: &ModelRequest,
-    info: Option<&CompatModelInfo>,
-    body: &mut JsonObject,
-) {
+pub fn apply(dialect: &ChatDialect, request: &ModelRequest, info: Option<&CompatModelInfo>, body: &mut JsonObject) {
     apply_tool_choice(dialect, request, body);
     apply_effort(dialect, request, info, body, false);
     apply_sampling(dialect, request, body);

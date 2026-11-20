@@ -152,19 +152,14 @@ pub(crate) fn replace_image(presentation: &Com, op: &Value) -> Result<Value> {
     let width = single_value(&old.member("Width")?)?;
     let height = single_value(&old.member("Height")?)?;
     old.call_member("Delete", &[])?;
-    let shape = slide.member("Shapes")?.call_member(
-        "AddPicture",
-        &[bstr(&text_of(&prop(op, "path"))), boolean(false), boolean(true), r4(left), r4(top), r4(width), r4(height)],
-    )?;
+    let shape = slide
+        .member("Shapes")?
+        .call_member("AddPicture", &[bstr(&text_of(&prop(op, "path"))), boolean(false), boolean(true), r4(left), r4(top), r4(width), r4(height)])?;
     let alt_text = prop(op, "altText");
     if truthy(&alt_text) {
         shape.set_member("AlternativeText", bstr(&text_of(&alt_text)))?;
     }
-    Ok(record(vec![
-        ("op", Value::string("replace_image")),
-        ("changed", Value::Bool(true)),
-        ("shape", Value::String(string_value(&shape.member("Name")?))),
-    ]))
+    Ok(record(vec![("op", Value::string("replace_image")), ("changed", Value::Bool(true)), ("shape", Value::String(string_value(&shape.member("Name")?)))]))
 }
 
 /// `crop_image`: the edges named, in points.
@@ -177,11 +172,7 @@ pub(crate) fn crop_image(presentation: &Com, op: &Value) -> Result<Value> {
             walk(&shape, &["PictureFormat"])?.set_member(member, r4(single(&edge)?))?;
         }
     }
-    Ok(record(vec![
-        ("op", Value::string("crop_image")),
-        ("changed", Value::Bool(true)),
-        ("shape", Value::Int(int(&prop(op, "shape"))?)),
-    ]))
+    Ok(record(vec![("op", Value::string("crop_image")), ("changed", Value::Bool(true)), ("shape", Value::Int(int(&prop(op, "shape"))?))]))
 }
 
 /// `add_media`: a sound or a video, embedded unless it is linked.

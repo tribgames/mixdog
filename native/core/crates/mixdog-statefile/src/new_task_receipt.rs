@@ -108,7 +108,16 @@ mod tests {
         assert_eq!((receipt.phase(), receipt.refused()), (Phase::Configured, true));
         assert_eq!(receipt.to_bytes(), text.as_bytes());
         assert_eq!(receipt.with_phase(Phase::Accepted).to_bytes(), text.replace("configured", "accepted").as_bytes());
-        for bytes in [&b""[..], &[0u8; 40][..], br#"{"signature":"s","sessionId":"x y","phase":"reserved"}"#, br#"{"signature":1,"sessionId":"x","phase":"reserved"}"#, br#"{"signature":"s","sessionId":"x","phase":"done"}"#, b"[]", b"null", br#"{"signature":"s""#] {
+        for bytes in [
+            &b""[..],
+            &[0u8; 40][..],
+            br#"{"signature":"s","sessionId":"x y","phase":"reserved"}"#,
+            br#"{"signature":1,"sessionId":"x","phase":"reserved"}"#,
+            br#"{"signature":"s","sessionId":"x","phase":"done"}"#,
+            b"[]",
+            b"null",
+            br#"{"signature":"s""#,
+        ] {
             assert_eq!(Receipt::parse(bytes), None, "{}", String::from_utf8_lossy(bytes));
         }
         let padded = format!(r#"{{"signature":"s","sessionId":"x","phase":"reserved","pad":"{}"}}"#, "p".repeat(4096));

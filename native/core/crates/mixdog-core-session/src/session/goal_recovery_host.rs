@@ -44,11 +44,7 @@ impl RecoverySource for SessionGoalRecovery {
     /// Node's `SessionClosedError` is.
     async fn materialize_session(&self, session_id: &str) -> GoalResult<()> {
         let ctx = CallContext::internal("goal-recovery");
-        self.directory
-            .open_admitted(&ThreadId::from(session_id), &ctx)
-            .await
-            .map(drop)
-            .map_err(|error| GoalError::new(failure_text(&error)))
+        self.directory.open_admitted(&ThreadId::from(session_id), &ctx).await.map(drop).map_err(|error| GoalError::new(failure_text(&error)))
     }
 
     fn log(&self, line: &str) {

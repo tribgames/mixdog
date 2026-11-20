@@ -76,9 +76,7 @@ impl ClaimLock {
     pub fn read(dir: &DataDir) -> io::Result<Self> {
         Ok(match dir.kind(CLAIM_LOCK_FILE)? {
             None => Self::Absent,
-            Some(EntryKind::Dir) => Self::Dir {
-                empty: dir.is_empty_dir(CLAIM_LOCK_FILE)?,
-            },
+            Some(EntryKind::Dir) => Self::Dir { empty: dir.is_empty_dir(CLAIM_LOCK_FILE)? },
             Some(EntryKind::Other) => Self::Other,
             Some(EntryKind::File) => match dir.read(CLAIM_LOCK_FILE)? {
                 None => Self::Absent,
@@ -91,11 +89,7 @@ impl ClaimLock {
         let owner = LockOwner::parse(bytes);
         let text = String::from_utf8_lossy(&owner.bytes);
         let parts: Vec<&str> = text.split_whitespace().collect();
-        if parts.first() == Some(&BARRIER_PID)
-            && parts
-                .get(2)
-                .is_some_and(|token| token.starts_with(BARRIER_TOKEN_PREFIX))
-        {
+        if parts.first() == Some(&BARRIER_PID) && parts.get(2).is_some_and(|token| token.starts_with(BARRIER_TOKEN_PREFIX)) {
             return Self::Barrier;
         }
         Self::Held(owner)
@@ -117,11 +111,7 @@ impl LockOwner {
             let pid = parts.next().and_then(js_parse_int);
             (pid, parts.next().and_then(|ms| ms.parse().ok()))
         };
-        Self {
-            pid,
-            acquired_ms,
-            bytes,
-        }
+        Self { pid, acquired_ms, bytes }
     }
 }
 
@@ -133,16 +123,11 @@ fn js_parse_int(token: &str) -> Option<u64> {
         Some(b'+') => (false, &token[1..]),
         _ => (false, token),
     };
-    let end = digits
-        .bytes()
-        .position(|b| !b.is_ascii_digit())
-        .unwrap_or(digits.len());
+    let end = digits.bytes().position(|b| !b.is_ascii_digit()).unwrap_or(digits.len());
     if end == 0 {
         return None;
     }
-    let value = digits[..end].bytes().fold(0u64, |acc, b| {
-        acc.saturating_mul(10).saturating_add(u64::from(b - b'0'))
-    });
+    let value = digits[..end].bytes().fold(0u64, |acc, b| acc.saturating_mul(10).saturating_add(u64::from(b - b'0')));
     (!negative && value > 0).then_some(value)
 }
 
@@ -164,12 +149,7 @@ impl BarrierRecord {
             protocol: u32,
             version: &'a str,
         }
-        let record = Record {
-            kind: "mixdog-daemon",
-            pid: &self.update_text,
-            protocol: 2,
-            version: &self.version,
-        };
+        let record = Record { kind: "mixdog-daemon", pid: &self.update_text, protocol: 2, version: &self.version };
         let mut bytes = serde_json::to_vec(&record).expect("record serializes");
         bytes.push(b'\n');
         bytes
@@ -263,33 +243,16 @@ impl HeldClaim {
 
     /// LR §3.2 steps 2–3: the barrier record, then `B` becomes the barrier by
     /// atomic rename-replace, so it never disappears.
-    pub(crate) fn install<L: WriteLane>(
-        self,
-        lane: &InLane<L>,
-        record: &BarrierRecord,
-        displaced: Option<&[u8]>,
-    ) -> io::Result<()> {
+    pub(crate) fn install<L: WriteLane>(self, lane: &InLane<L>, record: &BarrierRecord, displaced: Option<&[u8]>) -> io::Result<()> {
         let dir = self.own.data_dir();
         if let Some(displaced) = displaced {
             // A cut between the two publications must not turn a manual
             // release into permanent permission to ignore a live owner.
             publish_durable(lane, dir, PRIOR_RECORD_STAGING_FILE, PRIOR_RECORD_FILE, displaced)?;
         }
-        publish_durable(
-            lane,
-            dir,
-            RECORD_STAGING_FILE,
-            RECORD_FILE,
-            &record.to_bytes(),
-        )?;
+        publish_durable(lane, dir, RECORD_STAGING_FILE, RECORD_FILE, &record.to_bytes())?;
         hook(Step::RecordWritten);
-        publish_durable(
-            lane,
-            dir,
-            BARRIER_STAGING_FILE,
-            CLAIM_LOCK_FILE,
-            &barrier_bytes(self.own.instance_id()),
-        )?;
+        publish_durable(lane, dir, BARRIER_STAGING_FILE, CLAIM_LOCK_FILE, &barrier_bytes(self.own.instance_id()))?;
         self.own.pin_barrier()?;
         hook(Step::BarrierInstalled);
         // The drop's release finds the barrier, not this content, and keeps it.
@@ -306,9 +269,7 @@ impl Drop for HeldClaim {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 fn hex16() -> String {
@@ -357,11 +318,7 @@ fn take_guard(dir: &DataDir, procs: &dyn ProcessTable) -> io::Result<Guard> {
         {
             return Ok(Guard::Busy(pid));
         }
-        let tomb = format!(
-            "{RECLAIM_GUARD_FILE}.{}.{}.revoked",
-            std::process::id(),
-            hex16()
-        );
+        let tomb = format!("{RECLAIM_GUARD_FILE}.{}.{}.revoked", std::process::id(), hex16());
         match dir.rename(RECLAIM_GUARD_FILE, &tomb) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -424,13 +381,7 @@ fn reclaim<L: WriteLane>(
 }
 
 /// Replaces `target` with `content` durably: staged, synced, renamed, directory synced.
-pub(crate) fn publish_durable<L: WriteLane>(
-    lane: &InLane<L>,
-    dir: &DataDir,
-    staging: &str,
-    target: &str,
-    content: &[u8],
-) -> io::Result<()> {
+pub(crate) fn publish_durable<L: WriteLane>(lane: &InLane<L>, dir: &DataDir, staging: &str, target: &str, content: &[u8]) -> io::Result<()> {
     dir.remove_if_exists(staging)?;
     dir.create_new(staging, content)?;
     replace_durable(lane, dir, staging, target)
@@ -439,47 +390,27 @@ pub(crate) fn publish_durable<L: WriteLane>(
 /// Unix: `renameat` on the data-dir handle, like every access there
 /// ([`DataDir`]); no refusal of a rename-replace over a file clears by waiting.
 #[cfg(unix)]
-fn replace_durable<L: WriteLane>(
-    lane: &InLane<L>,
-    dir: &DataDir,
-    staging: &str,
-    target: &str,
-) -> io::Result<()> {
+fn replace_durable<L: WriteLane>(lane: &InLane<L>, dir: &DataDir, staging: &str, target: &str) -> io::Result<()> {
     rename_replace(lane, dir, staging, target)?;
     dir.sync()
 }
 
 /// Windows: that rename is not write-through, so the directory is flushed after it.
 #[cfg(windows)]
-fn replace_durable<L: WriteLane>(
-    lane: &InLane<L>,
-    dir: &DataDir,
-    staging: &str,
-    target: &str,
-) -> io::Result<()> {
+fn replace_durable<L: WriteLane>(lane: &InLane<L>, dir: &DataDir, staging: &str, target: &str) -> io::Result<()> {
     rename_replace(lane, dir, staging, target)?;
     mixdog_statefile::sync_dir(lane, dir.path())
 }
 
 #[cfg(unix)]
-fn rename_replace<L: WriteLane>(
-    _lane: &InLane<L>,
-    dir: &DataDir,
-    staging: &str,
-    target: &str,
-) -> io::Result<()> {
+fn rename_replace<L: WriteLane>(_lane: &InLane<L>, dir: &DataDir, staging: &str, target: &str) -> io::Result<()> {
     dir.rename(staging, target)
 }
 
 /// Windows: an antivirus or indexer handle on the target refuses the rename for
 /// moments; 1.4.5's `renameWithRetrySync` waits that out, and so does this.
 #[cfg(windows)]
-fn rename_replace<L: WriteLane>(
-    lane: &InLane<L>,
-    dir: &DataDir,
-    staging: &str,
-    target: &str,
-) -> io::Result<()> {
+fn rename_replace<L: WriteLane>(lane: &InLane<L>, dir: &DataDir, staging: &str, target: &str) -> io::Result<()> {
     let path = dir.path();
     mixdog_statefile::rename_with_retry(lane, &path.join(staging), &path.join(target))
 }
@@ -497,13 +428,7 @@ pub(crate) fn take<L: WriteLane>(
     procs: &dyn ProcessTable,
 ) -> io::Result<Taken> {
     let dir = own.data_dir();
-    let content = format!(
-        "{} {} {CORE_TOKEN_PREFIX}{}\n",
-        std::process::id(),
-        now_ms(),
-        own.instance_id()
-    )
-    .into_bytes();
+    let content = format!("{} {} {CORE_TOKEN_PREFIX}{}\n", std::process::id(), now_ms(), own.instance_id()).into_bytes();
     let linked = match take {
         Take::Absent => publish_linked(dir, CLAIM_LOCK_FILE, &content)?,
         Take::EmptyDir => match dir.rmdir(CLAIM_LOCK_FILE) {
@@ -511,29 +436,21 @@ pub(crate) fn take<L: WriteLane>(
             Err(error) if error.kind() == io::ErrorKind::NotFound => false,
             Err(error) => return Err(error),
         },
-        Take::DeadHolder(judged) => {
-            match reclaim(lane, dir, &judged, judged_record, &content, procs)? {
-                Reclaim::Replaced => {
-                    hook(Step::ClaimLockTaken);
-                    return Ok(Taken::Held(HeldClaim {
-                        own: own.clone(),
-                        content,
-                    }));
-                }
-                Reclaim::Changed => false,
-                Reclaim::RecordChanged => return Ok(Taken::RecordChanged),
-                Reclaim::GuardHeld(pid) => return Ok(Taken::GuardHeld(pid)),
+        Take::DeadHolder(judged) => match reclaim(lane, dir, &judged, judged_record, &content, procs)? {
+            Reclaim::Replaced => {
+                hook(Step::ClaimLockTaken);
+                return Ok(Taken::Held(HeldClaim { own: own.clone(), content }));
             }
-        }
+            Reclaim::Changed => false,
+            Reclaim::RecordChanged => return Ok(Taken::RecordChanged),
+            Reclaim::GuardHeld(pid) => return Ok(Taken::GuardHeld(pid)),
+        },
     };
     if !linked {
         return Ok(Taken::Raced);
     }
     // Dropped on any error below, which gives B back.
-    let held = HeldClaim {
-        own: own.clone(),
-        content,
-    };
+    let held = HeldClaim { own: own.clone(), content };
     hook(Step::Held);
     if dir.read(RECORD_FILE)?.as_deref() != judged_record {
         hook(Step::Conflict);

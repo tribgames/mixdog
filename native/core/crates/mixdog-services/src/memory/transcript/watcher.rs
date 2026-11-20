@@ -14,9 +14,9 @@ use mixdog_statefile::metadata;
 use mixdog_workspace::watcher::{ChangeKind, ChangeSink, FolderWatcher};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
+use super::TranscriptIngest;
 use super::discovery::{discover_active_transcripts, is_watchable, mtime_ms};
 use super::rows::cwd_from_transcript_path;
-use super::TranscriptIngest;
 use crate::bots::delivery::env::RetryTimer;
 use crate::memory::cycles::requests::wait;
 use crate::memory::error::Result;
@@ -156,7 +156,13 @@ pub struct TranscriptWatcher {
 }
 
 /// `startTranscriptWatcher`: resolves after the first active-transcript sweep.
-pub async fn start_transcript_watcher(root: PathBuf, ingest: Arc<TranscriptIngest>, folders: Arc<FolderWatcher>, sink: &TranscriptSink, timer: Arc<dyn RetryTimer>) -> TranscriptWatcher {
+pub async fn start_transcript_watcher(
+    root: PathBuf,
+    ingest: Arc<TranscriptIngest>,
+    folders: Arc<FolderWatcher>,
+    sink: &TranscriptSink,
+    timer: Arc<dyn RetryTimer>,
+) -> TranscriptWatcher {
     let watcher = TranscriptWatcher::new(root, ingest, folders, timer);
     watcher.start(sink).await;
     watcher

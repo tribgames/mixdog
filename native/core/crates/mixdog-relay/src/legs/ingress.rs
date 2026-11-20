@@ -35,12 +35,10 @@ use std::time::Duration;
 use mixdog_rt::time::Instant;
 
 use self::meter::{MeterEvents, WireMeter};
-pub use self::pool::{Admit, AdmitQuery, IngressPool, admit_ingress};
 #[cfg(any(test, feature = "test-support"))]
 pub use self::pool::IngressStats;
-use super::policy::{
-    self, INGRESS_FREE_WINDOW_BYTES, INGRESS_RESERVATION_BYTES, MAX_FRAME_BYTES, MAX_INGRESS_BYTES, MAX_WS_PAYLOAD_BYTES,
-};
+pub use self::pool::{Admit, AdmitQuery, IngressPool, admit_ingress};
+use super::policy::{self, INGRESS_FREE_WINDOW_BYTES, INGRESS_RESERVATION_BYTES, MAX_FRAME_BYTES, MAX_INGRESS_BYTES, MAX_WS_PAYLOAD_BYTES};
 use crate::close_codes::{RELAY_BUSY, RELAY_BUSY_REASON, SLOW_PEER, SLOW_PRODUCER_REASON};
 use crate::ws::{Gate, Holder, RawTap, WebSocket};
 
@@ -95,13 +93,7 @@ impl Default for IngressLimits {
 impl IngressLimits {
     /// The defaults of the relay, with the application ceiling of this leg.
     pub fn with_limit(limit: usize) -> Self {
-        Self {
-            ceiling: MAX_INGRESS_BYTES,
-            reservation: INGRESS_RESERVATION_BYTES,
-            window: INGRESS_FREE_WINDOW_BYTES,
-            limit,
-            transport: MAX_WS_PAYLOAD_BYTES,
-        }
+        Self { ceiling: MAX_INGRESS_BYTES, reservation: INGRESS_RESERVATION_BYTES, window: INGRESS_FREE_WINDOW_BYTES, limit, transport: MAX_WS_PAYLOAD_BYTES }
     }
 
     /// A hook leg's: its 1 MiB limit, through the same pool.
@@ -293,8 +285,7 @@ impl IngressLeg {
     pub fn sweep(&self, now: Instant) -> Sweep {
         let shared = &self.shared;
         let now_ms = shared.pool.ms_at(now);
-        let stalled = shared.holding.load(Ordering::SeqCst)
-            && now_ms.saturating_sub(shared.progress_ms.load(Ordering::SeqCst)) > millis(INGRESS_STALL_TIMEOUT);
+        let stalled = shared.holding.load(Ordering::SeqCst) && now_ms.saturating_sub(shared.progress_ms.load(Ordering::SeqCst)) > millis(INGRESS_STALL_TIMEOUT);
         if stalled {
             self.cut(SLOW_PEER, SLOW_PRODUCER_REASON);
             return Sweep::Closed;

@@ -249,7 +249,8 @@ fn induce_group_roles(roles: &mut Roles, shapes: &[&Drawn], title: Option<&Drawn
 // a slot to be written or emptied through.
 fn induced_frame(shapes: &[&Drawn], title: Option<&Drawn>, taken: &HashSet<u64>) -> Roles {
     let mut roles = Roles::new();
-    let free: Vec<&Drawn> = shapes.iter().copied().filter(|shape| shape.kind == "text" && !trimmed(shape).is_empty() && !taken.contains(&role_key(shape.shape))).collect();
+    let free: Vec<&Drawn> =
+        shapes.iter().copied().filter(|shape| shape.kind == "text" && !trimmed(shape).is_empty() && !taken.contains(&role_key(shape.shape))).collect();
     for shape in &free {
         if compiled(SOURCE_TEXT, "i").is_match(trimmed(shape)) {
             roles.insert(role_key(shape.shape), "source".to_owned());
@@ -258,9 +259,15 @@ fn induced_frame(shapes: &[&Drawn], title: Option<&Drawn>, taken: &HashSet<u64>)
     let quieter = |shape: &Drawn| title.is_none_or(|head| !(shape.font_size >= head.font_size));
     if let Some(head) = title {
         let bottom = |shape: &Drawn| shape.top + shape.height;
-        let open: Vec<&Drawn> =
-            free.iter().copied().filter(|shape| !roles.contains_key(&role_key(shape.shape)) && quieter(shape) && (shape.left - head.left).abs() <= head.width * COLUMN_ALIGN_TOLERANCE).collect();
-        let mut above: Vec<&Drawn> = open.iter().copied().filter(|shape| bottom(shape) <= head.top + head.height * 0.1 && head.top - bottom(shape) <= head.height).collect();
+        let open: Vec<&Drawn> = free
+            .iter()
+            .copied()
+            .filter(|shape| {
+                !roles.contains_key(&role_key(shape.shape)) && quieter(shape) && (shape.left - head.left).abs() <= head.width * COLUMN_ALIGN_TOLERANCE
+            })
+            .collect();
+        let mut above: Vec<&Drawn> =
+            open.iter().copied().filter(|shape| bottom(shape) <= head.top + head.height * 0.1 && head.top - bottom(shape) <= head.height).collect();
         above.sort_by(|left, right| compare(bottom(right), bottom(left)));
         if let Some(above) = above.first().filter(|shape| utf16_len(trimmed(shape)) <= EYEBROW_MAX_CHARS) {
             roles.insert(role_key(above.shape), "eyebrow".to_owned());
@@ -268,7 +275,9 @@ fn induced_frame(shapes: &[&Drawn], title: Option<&Drawn>, taken: &HashSet<u64>)
         let mut below: Vec<&Drawn> = open
             .iter()
             .copied()
-            .filter(|shape| !roles.contains_key(&role_key(shape.shape)) && shape.top >= bottom(head) - head.height * 0.1 && shape.top - bottom(head) <= head.height)
+            .filter(|shape| {
+                !roles.contains_key(&role_key(shape.shape)) && shape.top >= bottom(head) - head.height * 0.1 && shape.top - bottom(head) <= head.height
+            })
             .collect();
         below.sort_by(|left, right| compare(left.top, right.top));
         if let Some(below) = below.first() {
@@ -384,7 +393,11 @@ pub fn annotate_pptx_snapshot_roles(document: &mut Value) {
             }
         }
         let shapes: Vec<Value> = prop(slide, "shapes").and_then(Value::as_array).cloned().unwrap_or_default();
-        let title = shapes.iter().find(|shape| prop(shape, "slot") == Some(&Value::String("title".to_owned()))).map(|shape| text(prop(shape, "text"))).unwrap_or_default();
+        let title = shapes
+            .iter()
+            .find(|shape| prop(shape, "slot") == Some(&Value::String("title".to_owned())))
+            .map(|shape| text(prop(shape, "text")))
+            .unwrap_or_default();
         let text_chars: usize = shapes.iter().map(|shape| utf16_len(&text(prop(shape, "text")))).sum();
         let sample = json!({
             "slide": number_or_zero(prop(slide, "index")),
@@ -436,7 +449,8 @@ mod tests {
 
     #[test]
     fn a_full_bleed_rectangle_is_not_an_object_of_the_page() {
-        let boxes = [text_box(1.0, "Surface", 0.0, 0.0, 12_192_000.0, 6_858_000.0, 60.0), text_box(2.0, "Title", 500_000.0, 300_000.0, 5_000_000.0, 800_000.0, 36.0)];
+        let boxes =
+            [text_box(1.0, "Surface", 0.0, 0.0, 12_192_000.0, 6_858_000.0, 60.0), text_box(2.0, "Title", 500_000.0, 300_000.0, 5_000_000.0, 800_000.0, 36.0)];
         let roles = induce_roles(&boxes, WIDE_CANVAS);
         assert_eq!(roles.get(&role_key(1.0)), None);
         assert_eq!(roles.get(&role_key(2.0)).map(String::as_str), Some("title"));

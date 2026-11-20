@@ -61,14 +61,26 @@ pub(super) fn normalized(row: &Row, id: &str) -> Row {
     let status = text("status");
     let stage = text("stage");
     out.insert("status".into(), Value::String(if status.is_empty() { "idle".into() } else { status.clone() }));
-    out.insert("stage".into(), Value::String(if !stage.is_empty() { stage } else if !status.is_empty() { status } else { "idle".into() }));
+    out.insert(
+        "stage".into(),
+        Value::String(if !stage.is_empty() {
+            stage
+        } else if !status.is_empty() {
+            status
+        } else {
+            "idle".into()
+        }),
+    );
     out.insert("updatedAt".into(), or_null(text("updatedAt")));
     out.insert("reapAt".into(), or_null(text("reapAt")));
     out
 }
 
 /// Key order counts: the row is compared as it is written.
-#[allow(clippy::cmp_owned, reason = "Serialized equality intentionally includes nested JSON key order; Value equality would change the persisted-row comparison")]
+#[allow(
+    clippy::cmp_owned,
+    reason = "Serialized equality intentionally includes nested JSON key order; Value equality would change the persisted-row comparison"
+)]
 fn same(a: &Row, b: &Row) -> bool {
     Value::Object(a.clone()).to_string() == Value::Object(b.clone()).to_string()
 }

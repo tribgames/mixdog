@@ -172,9 +172,7 @@ pub struct SetupReport {
 }
 
 fn command_value(command: &SetupCommand) -> Value {
-    let env = command.env.as_ref().map(|pairs| {
-        Value::Object(pairs.iter().map(|(name, value)| (name.clone(), json!(value))).collect())
-    });
+    let env = command.env.as_ref().map(|pairs| Value::Object(pairs.iter().map(|(name, value)| (name.clone(), json!(value))).collect()));
     json!({
         "command": command.command,
         "file": command.file,
@@ -286,7 +284,6 @@ fn spawn_message(error: &ProcessError, file: &str) -> String {
         other => format!("spawn {file} failed: {other:?}\n"),
     }
 }
-
 
 /// The variables `overrides` set (`Some`) or remove (`None`) on top of the inherited
 /// environment; on Windows names are case-insensitive, so every spelling of a name goes first.

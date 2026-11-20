@@ -33,7 +33,17 @@ fn the_highest_valid_version_wins_by_number_not_by_text_and_the_invalid_are_igno
 fn npms_latest_is_the_registry_documents_version_when_it_is_a_plain_version() {
     assert_eq!(parse_npm_latest(r#"{"name": "x", "version": "2.1.5"}"#).as_deref(), Some("2.1.5"));
     assert_eq!(parse_npm_latest(r#"{"version": " 2.1.5 "}"#).as_deref(), Some("2.1.5"));
-    for body in [r#"{"version": "2.1"}"#, r#"{"version": "2.1.5-rc.1"}"#, r#"{"version": 215}"#, r#"{"version": null}"#, r#"{"version": ""}"#, r#"{"name": "x"}"#, "not json", "", "[]"] {
+    for body in [
+        r#"{"version": "2.1"}"#,
+        r#"{"version": "2.1.5-rc.1"}"#,
+        r#"{"version": 215}"#,
+        r#"{"version": null}"#,
+        r#"{"version": ""}"#,
+        r#"{"name": "x"}"#,
+        "not json",
+        "",
+        "[]",
+    ] {
         assert_eq!(parse_npm_latest(body), None, "{body}");
     }
 }
@@ -71,7 +81,11 @@ fn a_cursor_build_replaces_another_only_when_both_are_builds_and_it_is_not_dated
 #[test]
 fn antigravitys_manifest_gives_the_version_of_its_first_version_line() {
     assert_eq!(parse_antigravity_manifest_version("version: 1.2.3\npath: Antigravity.exe\n").as_deref(), Some("1.2.3"));
-    assert_eq!(parse_antigravity_manifest_version("files:\n  - url: a.exe\nversion: 2.0.0\n").as_deref(), Some("2.0.0"), "a list entry is not the version line");
+    assert_eq!(
+        parse_antigravity_manifest_version("files:\n  - url: a.exe\nversion: 2.0.0\n").as_deref(),
+        Some("2.0.0"),
+        "a list entry is not the version line"
+    );
     assert_eq!(parse_antigravity_manifest_version("  version : \"1.4.0\"  \n").as_deref(), Some("1.4.0"));
     assert_eq!(parse_antigravity_manifest_version("version: '1.4.1'\n").as_deref(), Some("1.4.1"));
     assert_eq!(parse_antigravity_manifest_version("version: 1.4.2 # latest\n").as_deref(), Some("1.4.2"));

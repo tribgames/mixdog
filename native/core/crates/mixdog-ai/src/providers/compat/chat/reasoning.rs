@@ -47,14 +47,9 @@ pub fn content_pieces(content: &JsonValue) -> Option<Vec<ContentPiece>> {
 fn thinking_text(thinking: Option<&JsonValue>) -> String {
     match thinking {
         Some(JsonValue::String(s)) => s.clone(),
-        Some(JsonValue::Array(inner)) => inner
-            .iter()
-            .map(|part| {
-                part.as_str()
-                    .or_else(|| part.get("text").and_then(JsonValue::as_str))
-                    .unwrap_or_default()
-            })
-            .collect(),
+        Some(JsonValue::Array(inner)) => {
+            inner.iter().map(|part| part.as_str().or_else(|| part.get("text").and_then(JsonValue::as_str)).unwrap_or_default()).collect()
+        }
         _ => String::new(),
     }
 }
@@ -62,19 +57,13 @@ fn thinking_text(thinking: Option<&JsonValue>) -> String {
 fn shape_captures(shape: Option<ReasoningShape>, source: Source) -> bool {
     match shape {
         None => source == Source::ContentChunks,
-        Some(shape) => {
-            source == Source::ContentChunks
-                || source == Source::ReasoningContent
-                || (shape.reads_reasoning_alias() && source == Source::Reasoning)
-        }
+        Some(shape) => source == Source::ContentChunks || source == Source::ReasoningContent || (shape.reads_reasoning_alias() && source == Source::Reasoning),
     }
 }
 
 /// Whether a reply's reasoning is kept for replay.
 pub fn captures(dialect: &ChatDialect, source: Source) -> bool {
-    dialect.capture_reasoning
-        || dialect.replay_reasoning
-        || shape_captures(dialect.reasoning_shape, source)
+    dialect.capture_reasoning || dialect.replay_reasoning || shape_captures(dialect.reasoning_shape, source)
 }
 
 /// The receive key worth recording: `reasoning` (non-default key) or
@@ -88,13 +77,7 @@ fn replay_field(shape: Option<ReasoningShape>, source: Source) -> Option<&'stati
 }
 
 /// The envelope a finished reply leaves for the next request.
-pub fn envelope(
-    owner: &ProviderId,
-    dialect: &ChatDialect,
-    text: &str,
-    source: Source,
-    details: &[JsonValue],
-) -> ProviderReplay {
+pub fn envelope(owner: &ProviderId, dialect: &ChatDialect, text: &str, source: Source, details: &[JsonValue]) -> ProviderReplay {
     let mut items = json!({ "reasoningContent": text });
     if let Some(field) = replay_field(dialect.reasoning_shape, source) {
         items["reasoningField"] = field.into();
@@ -102,10 +85,7 @@ pub fn envelope(
     if !details.is_empty() {
         items["reasoningDetails"] = JsonValue::Array(details.to_vec());
     }
-    ProviderReplay {
-        owner: owner.clone(),
-        items,
-    }
+    ProviderReplay { owner: owner.clone(), items }
 }
 
 /// What an assistant message's own envelope says.
@@ -120,11 +100,7 @@ pub fn replayed(replay: &ProviderReplay) -> Option<Replayed<'_>> {
     Some(Replayed {
         text,
         field: replay.items.get("reasoningField").and_then(JsonValue::as_str),
-        details: replay
-            .items
-            .get("reasoningDetails")
-            .and_then(JsonValue::as_array)
-            .filter(|d| !d.is_empty()),
+        details: replay.items.get("reasoningDetails").and_then(JsonValue::as_array).filter(|d| !d.is_empty()),
     })
 }
 

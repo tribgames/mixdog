@@ -23,9 +23,9 @@ use serde_json::Value;
 
 use super::computer_recovery::format_tool_error;
 use crate::orch::util::JsStr;
+use crate::orch::util::action_failed;
 use crate::orch::util::cancelled;
 use crate::orch::util::denied;
-use crate::orch::util::action_failed;
 use crate::orch::util::invalid;
 use crate::orch::util::spec_from_def;
 use crate::orch::util::unavailable;
@@ -93,7 +93,6 @@ impl ComputerTool {
         Self { spec: spec_from_def(include_str!("defs/computer.json"), false, &["computer"]), sessions }
     }
 }
-
 
 #[async_trait]
 impl Tool for ComputerTool {
@@ -204,7 +203,10 @@ mod failure_tests {
         let args = json!({ "action": "act", "input": { "app": "Notepad" } });
         let failed = |message: &str| ComputerError::Failed { code: "computer_failed".into(), message: message.into() };
         let stale = map_error(failed("stale_frame: unknown frame_id frame-1"), &args);
-        assert_eq!(stale.message_for_model, "Error: stale_frame: unknown frame_id frame-1\nRecovery: Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id.");
+        assert_eq!(
+            stale.message_for_model,
+            "Error: stale_frame: unknown frame_id frame-1\nRecovery: Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+        );
         assert_eq!(map_error(failed("something broke"), &args).message_for_model, "Error: something broke");
         assert_eq!(map_error(ComputerError::Cancelled, &args).message_for_model, "cancelled");
     }

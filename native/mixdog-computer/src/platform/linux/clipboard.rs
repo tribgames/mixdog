@@ -4,13 +4,13 @@
 //! after Off it serves nothing more, whether or not the caller is still waiting. Its readiness wait only bounds how long the
 //! caller waits for the answer; it plays no part in the admission.
 
-use super::x11::{connect, Atoms};
-use crate::port::linux::{selection, Selection};
+use super::x11::{Atoms, connect};
+use crate::port::linux::{Selection, selection};
 use std::sync::mpsc;
 use std::time::Duration;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, SelectionNotifyEvent, WindowClass, SELECTION_NOTIFY_EVENT};
 use x11rb::protocol::Event;
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, SELECTION_NOTIFY_EVENT, SelectionNotifyEvent, WindowClass};
 
 pub fn own(text: String) -> Result<(), String> {
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
@@ -22,15 +22,9 @@ pub fn own(text: String) -> Result<(), String> {
                 let atoms = Atoms::intern(&conn)?;
                 // This process's own window: no other application sees it until it owns the selection.
                 let window = conn.generate_id().map_err(|error| error.to_string())?;
-                conn.create_window(0, window, root, -1, -1, 1, 1, 0, WindowClass::INPUT_ONLY, 0, &Default::default())
-                    .map_err(|error| error.to_string())?;
+                conn.create_window(0, window, root, -1, -1, 1, 1, 0, WindowClass::INPUT_ONLY, 0, &Default::default()).map_err(|error| error.to_string())?;
                 selection(&conn, Selection::Own { window, selection: atoms.CLIPBOARD })?;
-                let owner = conn
-                    .get_selection_owner(atoms.CLIPBOARD)
-                    .map_err(|error| error.to_string())?
-                    .reply()
-                    .map_err(|error| error.to_string())?
-                    .owner;
+                let owner = conn.get_selection_owner(atoms.CLIPBOARD).map_err(|error| error.to_string())?.reply().map_err(|error| error.to_string())?.owner;
                 if owner != window {
                     return Err("clipboard_unavailable: another client kept the clipboard".into());
                 }
@@ -63,10 +57,7 @@ pub fn own(text: String) -> Result<(), String> {
                             let targets = [atoms.TARGETS, atoms.UTF8_STRING, AtomEnum::STRING.into(), atoms.TEXT];
                             selection(&conn, Selection::Atoms { requestor: request.requestor, property, atoms: &targets })
                         } else if [atoms.UTF8_STRING, u32::from(AtomEnum::STRING), atoms.TEXT].contains(&request.target) {
-                            selection(
-                                &conn,
-                                Selection::Text { requestor: request.requestor, property, target: request.target, bytes: &bytes },
-                            )
+                            selection(&conn, Selection::Text { requestor: request.requestor, property, target: request.target, bytes: &bytes })
                         } else {
                             Err(String::new())
                         };

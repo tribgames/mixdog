@@ -37,16 +37,8 @@ const BODY_MAX: usize = 1500;
 const MAX_VIEW_DEPTH: usize = 4;
 
 const KEPT_URL_KEYS: [&str; 4] = ["html_url", "browser_download_url", "target_url", "details_url"];
-const DROPPED_KEYS: [&str; 8] = [
-    "url",
-    "node_id",
-    "_links",
-    "gravatar_id",
-    "performed_via_github_app",
-    "author_association",
-    "sub_issues_summary",
-    "issue_dependencies_summary",
-];
+const DROPPED_KEYS: [&str; 8] =
+    ["url", "node_id", "_links", "gravatar_id", "performed_via_github_app", "author_association", "sub_issues_summary", "issue_dependencies_summary"];
 const USER_KEYS: [&str; 11] = ["user", "owner", "assignee", "merged_by", "actor", "triggering_actor", "author", "uploader", "sender", "closed_by", "creator"];
 const USER_LIST_KEYS: [&str; 2] = ["assignees", "requested_reviewers"];
 
@@ -171,9 +163,8 @@ pub fn reduce(value: &Value, key: Option<&str>, parent: Option<&str>) -> Value {
             let mut reduced = Map::new();
             for name in mixdog_js::js_object_keys(object) {
                 let item = &object[name];
-                let dropped = DROPPED_KEYS.contains(&name.as_str())
-                    || name.ends_with("node_id")
-                    || (name.ends_with("_url") && !KEPT_URL_KEYS.contains(&name.as_str()));
+                let dropped =
+                    DROPPED_KEYS.contains(&name.as_str()) || name.ends_with("node_id") || (name.ends_with("_url") && !KEPT_URL_KEYS.contains(&name.as_str()));
                 // Numbered objects (issues, PRs, milestones) are addressed by number; their id is noise.
                 if dropped || (name == "id" && numbered) || (name == "reactions" && is_empty_reactions(item)) {
                     continue;
@@ -516,7 +507,6 @@ mod tests {
         assert_eq!(read(Some(&"9".repeat(400))), 10 * 1024, "Infinity is not finite");
     }
 }
-
 
 /// `GITHUB_OUTPUT_MAX_BYTES` (`shared/tool-output-limit.mjs`): `positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024)`,
 /// read once as Node reads it when the module loads.

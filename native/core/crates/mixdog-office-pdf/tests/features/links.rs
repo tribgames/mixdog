@@ -40,13 +40,5 @@ fn a_link_is_listed_unless_it_is_set_not_to_be_viewed() {
     let bytes = file(&["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", &page]);
     let layout = extract_pdf_text_layout(&Unlaned, PdfSource::Bytes(&bytes), &LayoutOptions::default()).expect("a layout");
     let urls: Vec<&str> = layout.pages[0].links.iter().filter_map(|l| l.url.as_deref()).collect();
-    assert_eq!(
-        urls,
-        [
-            "https://example.com/plain",
-            "https://example.com/hidden",
-            "https://example.com/invisible",
-            "https://example.com/print"
-        ]
-    );
+    assert_eq!(urls, ["https://example.com/plain", "https://example.com/hidden", "https://example.com/invisible", "https://example.com/print"]);
 }

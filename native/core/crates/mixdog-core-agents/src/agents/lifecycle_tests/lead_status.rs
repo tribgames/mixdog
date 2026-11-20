@@ -72,8 +72,16 @@ async fn window(manifest: Option<&str>, facts: Facts, home_thread: bool) -> Wind
         std::fs::write(data.join("agents/lead/agent.json"), manifest).unwrap();
     }
     let agents = Arc::new(
-        AgentDefinitions::new(dir.path().join("shipped"), &data, tokens.interactive_io, AgentRoutes::new(config.clone(), &data), Arc::new(facts), Arc::new(|| Value::Null), state.join("task"))
-            .with_writes(tokens.durability_io, Arc::new(NoEffects), Arc::new(String::new)),
+        AgentDefinitions::new(
+            dir.path().join("shipped"),
+            &data,
+            tokens.interactive_io,
+            AgentRoutes::new(config.clone(), &data),
+            Arc::new(facts),
+            Arc::new(|| Value::Null),
+            state.join("task"),
+        )
+        .with_writes(tokens.durability_io, Arc::new(NoEffects), Arc::new(String::new)),
     );
     let (_, homes) = world_of(|world| {
         if home_thread {

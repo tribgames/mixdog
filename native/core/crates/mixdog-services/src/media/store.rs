@@ -131,19 +131,13 @@ fn extension_for(mime: &str) -> &'static str {
 
 fn folder_segment(value: &str, fallback: &str) -> String {
     let normalized: String = value.nfkc().collect();
-    let replaced: String = normalized
-        .chars()
-        .map(|c| if "<>:\"/\\|?*".contains(c) || (c as u32) < 0x20 { '-' } else { c })
-        .collect();
+    let replaced: String = normalized.chars().map(|c| if "<>:\"/\\|?*".contains(c) || (c as u32) < 0x20 { '-' } else { c }).collect();
     let collapsed = mixdog_js::js_words(&replaced).collect::<Vec<_>>().join(" ");
     let trimmed = collapsed.trim_end_matches(['.', ' ']);
     let cut = mixdog_js::slice_utf16(trimmed, 80);
     let lower = cut.to_lowercase();
     let reserved = matches!(lower.as_str(), "con" | "prn" | "aux" | "nul")
-        || ((lower.starts_with("com") || lower.starts_with("lpt"))
-            && lower.len() == 4
-            && lower.as_bytes()[3].is_ascii_digit()
-            && lower.as_bytes()[3] != b'0');
+        || ((lower.starts_with("com") || lower.starts_with("lpt")) && lower.len() == 4 && lower.as_bytes()[3].is_ascii_digit() && lower.as_bytes()[3] != b'0');
     if cut.is_empty() || reserved { fallback.to_owned() } else { cut }
 }
 
@@ -161,8 +155,7 @@ fn organized_asset_file(entry: &Value, now: i64) -> String {
     let kind = if str_field(entry, "kind") == "video" { "videos" } else { "images" };
     let created = mixdog_js::to_number_of(entry.get("createdAt"));
     let created = if created.is_nan() || created == 0.0 { now as f64 } else { created };
-    let date = mixdog_js::time::local_fields(created)
-        .map_or_else(|| "NaN-NaN-NaN".to_owned(), |d| format!("{}-{:02}-{:02}", d.year, d.month, d.day));
+    let date = mixdog_js::time::local_fields(created).map_or_else(|| "NaN-NaN-NaN".to_owned(), |d| format!("{}-{:02}-{:02}", d.year, d.month, d.day));
     format!(
         "{kind}/{}/{}/{date}/{}.{}",
         folder_segment(str_field(entry, "lane"), "unknown-provider"),
@@ -430,7 +423,6 @@ impl MediaStore {
         Ok(assets)
     }
 
-
     fn write_assets(&self, assets: &[Value]) -> Result<(), MediaError> {
         write_atomic_stepped(&self.index_path(), &serde_json::to_vec(&json!({"version": 2, "assets": assets}))?, true).map_err(MediaError::Fs)
     }
@@ -480,7 +472,17 @@ impl MediaStore {
 
     /// Persists one generated artifact and returns its index entry.
     #[allow(clippy::too_many_arguments, reason = "preserve the public media-store publication API and its ordered artifact metadata inputs")]
-    pub fn save_asset(&self, kind: &str, lane: &str, model: &str, prompt: &str, options: Value, mime: &str, bytes: &[u8], meta: Map<String, Value>) -> Result<Value, MediaError> {
+    pub fn save_asset(
+        &self,
+        kind: &str,
+        lane: &str,
+        model: &str,
+        prompt: &str,
+        options: Value,
+        mime: &str,
+        bytes: &[u8],
+        meta: Map<String, Value>,
+    ) -> Result<Value, MediaError> {
         self.ensure_dirs()?;
         self.migrate_asset_layout()?;
         let now = self.now();
@@ -628,7 +630,8 @@ impl MediaStore {
     /// so an empty request can never wipe the gallery. `dry_run` answers the matching ids.
     #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn delete_assets(&self, p: &Value) -> Result<Value, MediaError> {
-        let ids: Option<Vec<String>> = p.get("ids").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect());
+        let ids: Option<Vec<String>> =
+            p.get("ids").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect());
         // `Number(before)`: a numeric string is a cutoff too.
         let before = match p.get("before") {
             Some(Value::Number(n)) => n.as_f64(),
@@ -674,7 +677,9 @@ impl MediaStore {
         self.ensure_dirs()?;
         let assets = self.read_index()?;
         let mut boards = self.read_boards()?;
-        boards.sort_by(|a, b| b.get("createdAt").and_then(Value::as_f64).partial_cmp(&a.get("createdAt").and_then(Value::as_f64)).unwrap_or(std::cmp::Ordering::Equal));
+        boards.sort_by(|a, b| {
+            b.get("createdAt").and_then(Value::as_f64).partial_cmp(&a.get("createdAt").and_then(Value::as_f64)).unwrap_or(std::cmp::Ordering::Equal)
+        });
         let rows: Vec<Value> = boards
             .iter()
             .map(|b| {
@@ -753,7 +758,10 @@ impl MediaStore {
     /// Moves results into a board; `null` takes them out of any board.
     pub fn set_asset_board(&self, ids: &Value, board: &Value) -> Result<Value, MediaError> {
         let list: Vec<String> = match ids {
-            Value::Array(a) => a.iter().map(|v| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned).ok_or_else(|| invalid("asset ids must be strings"))).collect::<Result<_, _>>()?,
+            Value::Array(a) => a
+                .iter()
+                .map(|v| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned).ok_or_else(|| invalid("asset ids must be strings")))
+                .collect::<Result<_, _>>()?,
             Value::String(s) if !s.is_empty() => vec![s.clone()],
             _ => return Err(invalid("asset ids must be strings")),
         };
@@ -1097,9 +1105,10 @@ mod tests {
         let output = child("media::store::tests::save_child", &env);
         let stdout = String::from_utf8_lossy(&output.stdout);
         // libtest prints the test's name and then, on the same line, what the test printed.
-        let line = stdout.lines().find_map(|line| line.split_once("save-result ").map(|(_, result)| result)).unwrap_or_else(|| {
-            panic!("the child printed no save-result (status {:?}):\n{stdout}\n{}", output.status, String::from_utf8_lossy(&output.stderr))
-        });
+        let line = stdout
+            .lines()
+            .find_map(|line| line.split_once("save-result ").map(|(_, result)| result))
+            .unwrap_or_else(|| panic!("the child printed no save-result (status {:?}):\n{stdout}\n{}", output.status, String::from_utf8_lossy(&output.stderr)));
         serde_json::from_str(line).unwrap()
     }
 
@@ -1191,6 +1200,4 @@ mod tests {
         assert!(s.stored_asset_path("/a.png").is_none());
         assert_eq!(s.stored_asset_path(""), Some(s.assets_dir()), "an empty name is the root, as Node's `resolve(root, '')`");
     }
-
-
 }

@@ -66,9 +66,7 @@ impl<T> Slot<T> {
                 let settled = receiver.wait_for(Option::is_some).await;
                 match settled {
                     Ok(value) => value.clone().expect("wait_for returned a settled value"),
-                    Err(_) => Err(ScmError::Corrupt {
-                        detail: "inspection task ended without a result".into(),
-                    }),
+                    Err(_) => Err(ScmError::Corrupt { detail: "inspection task ended without a result".into() }),
                 }
             }
         }
@@ -81,13 +79,11 @@ type StatusCell = Arc<Mutex<Option<(InspectorKey, Slot<StatusScan>)>>>;
 /// The slot of `key`: the running or finished one, or a new running one whose sender the
 /// caller must resolve. Check and claim are one critical section, so concurrent callers of
 /// one key start one computation.
-fn claim_status(
-    cell: &StatusCell,
-    key: &InspectorKey,
-) -> (Slot<StatusScan>, Option<Sender<StatusScan>>) {
+fn claim_status(cell: &StatusCell, key: &InspectorKey) -> (Slot<StatusScan>, Option<Sender<StatusScan>>) {
     let mut guard = cell.lock().expect("status lock");
     if let Some((cached, slot)) = guard.as_ref()
-        && cached == key {
+        && cached == key
+    {
         return (slot.clone(), None);
     }
     let (sender, receiver) = watch::channel(None);
@@ -145,13 +141,7 @@ pub struct GitInspector {
 
 impl GitInspector {
     pub fn new(git: Git, scratch: std::path::PathBuf) -> Self {
-        Self {
-            scratch,
-            git,
-            cells: Mutex::new(HashMap::new()),
-            reviews: Arc::new(Mutex::new(Reviews::default())),
-            flights: AtomicU64::new(0),
-        }
+        Self { scratch, git, cells: Mutex::new(HashMap::new()), reviews: Arc::new(Mutex::new(Reviews::default())), flights: AtomicU64::new(0) }
     }
 
     /// How many inspections were started; two callers sharing one flight count once.
@@ -175,92 +165,51 @@ impl GitInspector {
                     hasher.update(tree.as_path().to_string_lossy().as_bytes());
                 }
                 let id = repo::hex(&hasher.finalize()[..8]);
-                Arc::new(RepoCell {
-                    identity: Mutex::new(None),
-                    generation: AtomicU64::new(0),
-                    id,
-                    status: Arc::new(Mutex::new(None)),
-                })
+                Arc::new(RepoCell { identity: Mutex::new(None), generation: AtomicU64::new(0), id, status: Arc::new(Mutex::new(None)) })
             })
             .clone()
     }
 
-    async fn identity(
-        &self,
-        lane: MaintenanceIo,
-        cell: &RepoCell,
-        repo: &RepoRef,
-    ) -> Result<RepoIdentity, ScmFailure> {
+    async fn identity(&self, lane: MaintenanceIo, cell: &RepoCell, repo: &RepoRef) -> Result<RepoIdentity, ScmFailure> {
         if let Some(identity) = cell.identity.lock().expect("identity lock").clone() {
             return Ok(identity);
         }
-        let start = repo
-            .work_tree
-            .as_ref()
-            .unwrap_or(&repo.common_dir)
-            .as_path()
-            .to_path_buf();
+        let start = repo.work_tree.as_ref().unwrap_or(&repo.common_dir).as_path().to_path_buf();
         let found = on_lane(lane, &CancellationToken::new(), move || repo::discover(&start)).await??;
         *cell.identity.lock().expect("identity lock") = Some(found.clone());
         Ok(found)
     }
 
-    async fn current_key(
-        &self,
-        lane: MaintenanceIo,
-        cell: &RepoCell,
-        identity: &RepoIdentity,
-    ) -> Result<InspectorKey, ScmFailure> {
+    async fn current_key(&self, lane: MaintenanceIo, cell: &RepoCell, identity: &RepoIdentity) -> Result<InspectorKey, ScmFailure> {
         let identity = identity.clone();
         let generation = cell.generation.load(Ordering::Acquire);
         let id = cell.id.clone();
-        let mut key = on_lane(lane, &CancellationToken::new(), move || {
-            repo::key(&identity, generation)
-        })
-        .await??;
+        let mut key = on_lane(lane, &CancellationToken::new(), move || repo::key(&identity, generation)).await??;
         key.worktree_token = format!("{id}.{}", key.worktree_token);
         Ok(key)
     }
 
     /// The scan behind both the desktop `GitStatusResult` and the inspector's `RepoStatus`.
-    pub async fn scan(
-        &self,
-        lane: MaintenanceIo,
-        repo: RepoRef,
-    ) -> Result<Arc<StatusScan>, ScmError> {
+    pub async fn scan(&self, lane: MaintenanceIo, repo: RepoRef) -> Result<Arc<StatusScan>, ScmError> {
         let cell = self.cell(&repo);
         let identity = self.identity(lane, &cell, &repo).await.map_err(ScmError::from)?;
-        let key = self
-            .current_key(lane, &cell, &identity)
-            .await
-            .map_err(ScmError::from)?;
+        let key = self.current_key(lane, &cell, &identity).await.map_err(ScmError::from)?;
         let (slot, sender) = claim_status(&cell.status, &key);
         if let Some(sender) = sender {
             self.flights.fetch_add(1, Ordering::Relaxed);
             let git = self.git.clone();
             let head = key.head.clone();
-            run_status(cell.status.clone(), key, sender, async move {
-                scan(&git, lane, &CancellationToken::new(), &identity, head, true).await
-            });
+            run_status(cell.status.clone(), key, sender, async move { scan(&git, lane, &CancellationToken::new(), &identity, head, true).await });
         }
         slot.wait().await
     }
 
     /// The scan without add/delete counts: never shared with, or kept for, the counted scan.
-    pub async fn scan_without_line_stats(
-        &self,
-        lane: MaintenanceIo,
-        repo: RepoRef,
-    ) -> Result<Arc<StatusScan>, ScmError> {
+    pub async fn scan_without_line_stats(&self, lane: MaintenanceIo, repo: RepoRef) -> Result<Arc<StatusScan>, ScmError> {
         let cell = self.cell(&repo);
         let identity = self.identity(lane, &cell, &repo).await.map_err(ScmError::from)?;
-        let key = self
-            .current_key(lane, &cell, &identity)
-            .await
-            .map_err(ScmError::from)?;
-        let scanned = scan(&self.git, lane, &CancellationToken::new(), &identity, key.head, false)
-            .await
-            .map_err(ScmError::from)?;
+        let key = self.current_key(lane, &cell, &identity).await.map_err(ScmError::from)?;
+        let scanned = scan(&self.git, lane, &CancellationToken::new(), &identity, key.head, false).await.map_err(ScmError::from)?;
         Ok(Arc::new(scanned))
     }
 
@@ -269,10 +218,7 @@ impl GitInspector {
     }
 
     /// The slot of review `key`, claiming it when absent (check and claim in one section).
-    fn claim_review(
-        &self,
-        key: &InspectorKey,
-    ) -> (Slot<ReviewEntry>, Option<Sender<ReviewEntry>>) {
+    fn claim_review(&self, key: &InspectorKey) -> (Slot<ReviewEntry>, Option<Sender<ReviewEntry>>) {
         let mut guard = self.reviews.lock().expect("reviews lock");
         if let Some(slot) = guard.slots.get(key) {
             return (slot.clone(), None);
@@ -303,8 +249,7 @@ fn abs(path: &std::path::Path) -> Option<AbsPath> {
 /// The `RepoRef` of the repository containing `cwd`.
 pub fn repo_ref(identity: &RepoIdentity) -> Result<RepoRef, ScmFailure> {
     Ok(RepoRef {
-        common_dir: abs(&identity.common_dir)
-            .ok_or_else(|| ScmFailure::invalid("commonDir", "an absolute path"))?,
+        common_dir: abs(&identity.common_dir).ok_or_else(|| ScmFailure::invalid("commonDir", "an absolute path"))?,
         work_tree: identity.work_tree.as_deref().and_then(abs),
     })
 }
@@ -328,21 +273,13 @@ impl RepoInspector for GitInspector {
         Ok(self.current_key(lane, &cell, &identity).await?)
     }
 
-    async fn status(
-        &self,
-        lane: MaintenanceIo,
-        repo: RepoRef,
-    ) -> Result<Arc<RepoStatus>, ScmError> {
+    async fn status(&self, lane: MaintenanceIo, repo: RepoRef) -> Result<Arc<RepoStatus>, ScmError> {
         let key = self.key(lane, repo.clone()).await?;
         let scan = self.scan(lane, repo).await?;
         Ok(Arc::new(project_status(&scan, key)))
     }
 
-    async fn review_summary(
-        &self,
-        lane: MaintenanceIo,
-        request: ReviewRequest,
-    ) -> Result<Arc<ReviewSummary>, ScmError> {
+    async fn review_summary(&self, lane: MaintenanceIo, request: ReviewRequest) -> Result<Arc<ReviewSummary>, ScmError> {
         let status_key = self.key(lane, request.repo.clone()).await?;
         let key = Self::review_key(&status_key, &request.base);
         let cell = self.cell(&request.repo);
@@ -356,18 +293,10 @@ impl RepoInspector for GitInspector {
             let reviews = self.reviews.clone();
             let scratch = self.scratch.clone();
             mixdog_rt::spawn("scm-review", TaskClass::Work, async move {
-                let outcome = review::compute(
-                    &git,
-                    lane,
-                    &CancellationToken::new(),
-                    &identity,
-                    compute_key.clone(),
-                    &base,
-                    &scratch,
-                )
-                .await
-                .map(Arc::new)
-                .map_err(ScmError::from);
+                let outcome = review::compute(&git, lane, &CancellationToken::new(), &identity, compute_key.clone(), &base, &scratch)
+                    .await
+                    .map(Arc::new)
+                    .map_err(ScmError::from);
                 {
                     let mut guard = reviews.lock().expect("reviews lock");
                     match &outcome {
@@ -389,30 +318,17 @@ impl RepoInspector for GitInspector {
         Ok(Arc::new(entry.summary.clone()))
     }
 
-    fn review_page(
-        &self,
-        key: &InspectorKey,
-        path: Option<&str>,
-        cursor: Option<&str>,
-    ) -> Result<Cached<ReviewPage>, ScmError> {
+    fn review_page(&self, key: &InspectorKey, path: Option<&str>, cursor: Option<&str>) -> Result<Cached<ReviewPage>, ScmError> {
         match self.review_slot(key) {
             Some(Slot::Ready(entry)) => Ok(Cached::Ready(entry.page(path, cursor))),
             _ => Ok(Cached::Pending { key: key.clone() }),
         }
     }
 
-    async fn resolve_refs(
-        &self,
-        lane: MaintenanceIo,
-        repo: RepoRef,
-        refs: Vec<String>,
-    ) -> Result<Vec<Option<ObjectId>>, ScmError> {
+    async fn resolve_refs(&self, lane: MaintenanceIo, repo: RepoRef, refs: Vec<String>) -> Result<Vec<Option<ObjectId>>, ScmError> {
         let cell = self.cell(&repo);
         let identity = self.identity(lane, &cell, &repo).await?;
-        Ok(on_lane(lane, &CancellationToken::new(), move || {
-            repo::resolve_refs(&identity, &refs)
-        })
-        .await??)
+        Ok(on_lane(lane, &CancellationToken::new(), move || repo::resolve_refs(&identity, &refs)).await??)
     }
 
     fn evidence(&self, repo: &RepoRef, _evidence: RepoEvidence) {

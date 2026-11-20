@@ -222,9 +222,7 @@ impl DomainService for RouteSetService {
         match req.method.as_str() {
             ROUTE_SET => self.ops.run(&req, None, || self.route_set(&req), || async { Ok(Value::Object(self.live(&thread))) }).await,
             FAST_SET => {
-                self.ops
-                    .run(&req, None, || self.fast_set(&req), || async { Ok(Value::Bool(self.live(&thread).get("fast") == Some(&Value::Bool(true)))) })
-                    .await
+                self.ops.run(&req, None, || self.fast_set(&req), || async { Ok(Value::Bool(self.live(&thread).get("fast") == Some(&Value::Bool(true)))) }).await
             }
             other => Err(wrong_method("route", other)),
         }

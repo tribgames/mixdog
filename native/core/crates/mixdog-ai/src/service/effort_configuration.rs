@@ -15,8 +15,7 @@ use crate::providers::custom::reasoning::is_custom_provider_name;
 /// A family not measured yet starts at the earliest checked major.
 const ANTHROPIC_FIRST_MAJOR: u32 = 5;
 /// `ANTHROPIC_MIN_VERSION`: each family's first version checked on the wire.
-const ANTHROPIC_MIN_VERSION: [(&str, (u32, u32)); 5] =
-    [("opus", (5, 0)), ("sonnet", (5, 5)), ("haiku", (5, 5)), ("fable", (5, 1)), ("mythos", (5, 1))];
+const ANTHROPIC_MIN_VERSION: [(&str, (u32, u32)); 5] = [("opus", (5, 0)), ("sonnet", (5, 5)), ("haiku", (5, 5)), ("fable", (5, 1)), ("mythos", (5, 1))];
 /// GPT-6 and later, standard single-agent mode.
 const OPENAI_MIN_MAJOR: f64 = 6.0;
 
@@ -105,9 +104,7 @@ pub fn effort_configuration_mode(
     if opt("thinkingBudgetTokens").map_or(f64::NAN, to_number) > 0.0 {
         return None;
     }
-    if unsupported.contains(provider, &id)
-        || (is_custom_provider_name(provider) && crate::providers::custom::responses::history_rejected(provider, &id))
-    {
+    if unsupported.contains(provider, &id) || (is_custom_provider_name(provider) && crate::providers::custom::responses::history_rejected(provider, &id)) {
         return None;
     }
     let openai = (provider == "openai" || provider == "openai-oauth") && {

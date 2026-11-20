@@ -20,12 +20,7 @@ pub struct TurnLimits {
 }
 
 /// How many calls of the next batch may run.
-pub fn calls_allowed(
-    limits: Option<&TurnLimits>,
-    noticed: bool,
-    tool_calls_total: u64,
-    now_ms: i64,
-) -> u64 {
+pub fn calls_allowed(limits: Option<&TurnLimits>, noticed: bool, tool_calls_total: u64, now_ms: i64) -> u64 {
     let Some(limits) = limits else {
         return u64::MAX;
     };
@@ -45,12 +40,7 @@ pub fn refusal(call_id: &str) -> AgentMessage {
 
 /// After a tool batch, once a cap is reached: the one-time notice. `None`
 /// while the turn is within its caps.
-pub fn notice_if_reached(
-    limits: Option<&TurnLimits>,
-    tool_calls_total: u64,
-    iterations: u64,
-    now_ms: i64,
-) -> Option<AgentMessage> {
+pub fn notice_if_reached(limits: Option<&TurnLimits>, tool_calls_total: u64, iterations: u64, now_ms: i64) -> Option<AgentMessage> {
     let limits = limits?;
     let within_calls = limits.max_tool_calls.is_none_or(|max| tool_calls_total < max);
     let within_time = limits.wrap_up_at_ms.is_none_or(|at| now_ms < at);
@@ -67,20 +57,14 @@ mod tests {
 
     #[test]
     fn caps_answer_calls_unrun_and_notice_once_reached() {
-        let limits = TurnLimits {
-            max_tool_calls: Some(3),
-            ..TurnLimits::default()
-        };
+        let limits = TurnLimits { max_tool_calls: Some(3), ..TurnLimits::default() };
         assert_eq!(calls_allowed(Some(&limits), false, 1, 0), 2);
         assert_eq!(calls_allowed(Some(&limits), true, 1, 0), 0);
         assert_eq!(calls_allowed(None, false, 9, 0), u64::MAX);
         assert!(notice_if_reached(Some(&limits), 2, 1, 0).is_none());
         let notice = notice_if_reached(Some(&limits), 3, 1, 0).unwrap();
         assert_eq!(notice.source, Some(Source::TurnLimit));
-        let timed = TurnLimits {
-            wrap_up_at_ms: Some(10),
-            ..TurnLimits::default()
-        };
+        let timed = TurnLimits { wrap_up_at_ms: Some(10), ..TurnLimits::default() };
         assert_eq!(calls_allowed(Some(&timed), false, 0, 10), 0);
     }
 }

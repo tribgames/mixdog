@@ -39,11 +39,7 @@ impl ErrorText for PlainErrorText {
         let text = JsRegex::new_static(r"\brun_[A-Za-z0-9_-]{16,}\b", "g").replace_all_with(&text, |_| "run".into());
         let text = JsRegex::new_static(r"\s+", "g").replace_all_with(&text, |_| " ".into());
         let text = mixdog_js::js_trim(&text);
-        if mixdog_js::utf16_len(text) > MAX {
-            format!("{}...", mixdog_js::slice_utf16(text, MAX - 3))
-        } else {
-            text.to_owned()
-        }
+        if mixdog_js::utf16_len(text) > MAX { format!("{}...", mixdog_js::slice_utf16(text, MAX - 3)) } else { text.to_owned() }
     }
 }
 
@@ -66,7 +62,6 @@ mod tests {
         assert_eq!(PresentedErrorText.present("terminated"), "Connection to the provider was lost.");
         assert_eq!(PlainErrorText.present("terminated"), "terminated");
     }
-
 
     /// An accepted stream cut by a connection-level error has no message: the agent task's failure text is the same sentence the
     /// user sees, and the board keeps it as it is, never `Unknown error`.

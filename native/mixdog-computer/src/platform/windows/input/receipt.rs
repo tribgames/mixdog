@@ -14,8 +14,8 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT_KEYBOARD, INPUT_MOUSE, KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    INPUT_KEYBOARD, INPUT_MOUSE, KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
 };
 
 pub const SIZE: usize = 8192;
@@ -38,21 +38,15 @@ const KEY: u32 = INPUT_KEYBOARD.0;
 const MOUSE: u32 = INPUT_MOUSE.0;
 pub(crate) const KEY_UP: u32 = KEYEVENTF_KEYUP.0;
 /// Each button's up flag is its down flag shifted left once.
-const BUTTON_DOWNS: [u32; 3] = [
-    MOUSEEVENTF_LEFTDOWN.0,
-    MOUSEEVENTF_RIGHTDOWN.0,
-    MOUSEEVENTF_MIDDLEDOWN.0,
-];
+const BUTTON_DOWNS: [u32; 3] = [MOUSEEVENTF_LEFTDOWN.0, MOUSEEVENTF_RIGHTDOWN.0, MOUSEEVENTF_MIDDLEDOWN.0];
 const BUTTON_UPS: u32 = MOUSEEVENTF_LEFTUP.0 | MOUSEEVENTF_RIGHTUP.0 | MOUSEEVENTF_MIDDLEUP.0;
 
 /// How long held keys may keep an uncertain receipt from settling (HeldKeyReleaseWaitMs).
 const SETTLE: Duration = Duration::from_millis(2000);
 const SETTLE_POLL: Duration = Duration::from_millis(50);
 
-pub const DELIVERY_FAILED: &str =
-    "input_delivery_failed: native input was not fully delivered; completed input was not replayed";
-pub const RELEASE_REJECTED: &str =
-    "input_cleanup_unconfirmed: native input release was not accepted";
+pub const DELIVERY_FAILED: &str = "input_delivery_failed: native input was not fully delivered; completed input was not replayed";
+pub const RELEASE_REJECTED: &str = "input_cleanup_unconfirmed: native input release was not accepted";
 pub const BUSY: &str = "input_cleanup_unconfirmed: input ownership is busy";
 const INVALID_DELIVERY: &str = "input_cleanup_unconfirmed: invalid native delivery receipt";
 const UNCERTAIN: &str = "input_cleanup_unconfirmed: native delivery receipt is uncertain";
@@ -67,12 +61,7 @@ pub enum Event {
     /// and `KEYEVENTF_*` flags.
     Key { vk: u16, scan: u16, flags: u32 },
     /// `MOUSEEVENTF_*` flags, position and wheel data.
-    Mouse {
-        flags: u32,
-        dx: i32,
-        dy: i32,
-        data: i32,
-    },
+    Mouse { flags: u32, dx: i32, dy: i32, data: i32 },
 }
 
 impl Event {
@@ -81,12 +70,7 @@ impl Event {
     }
 
     pub fn mouse(flags: u32) -> Event {
-        Event::Mouse {
-            flags,
-            dx: 0,
-            dy: 0,
-            data: 0,
-        }
+        Event::Mouse { flags, dx: 0, dy: 0, data: 0 }
     }
 
     /// IsRelease: a key up, or a mouse event made only of button ups.
@@ -194,11 +178,7 @@ pub fn release_each(releases: &[Event], transmit: &mut Transmit<'_>) -> Result<(
             failed = true;
         }
     }
-    if failed {
-        Err(RELEASE_REJECTED.into())
-    } else {
-        Ok(())
-    }
+    if failed { Err(RELEASE_REJECTED.into()) } else { Ok(()) }
 }
 
 /// A left or right modifier: the generic modifier it drives and the pair's
@@ -251,9 +231,7 @@ impl<'a, L: Lock> Receipt<'a, L> {
     }
 
     fn word(&self, at: usize, width: usize) -> u32 {
-        (0..width).fold(0, |value, i| {
-            value | (self.bytes[at + i].load(Ordering::Relaxed) as u32) << (8 * i)
-        })
+        (0..width).fold(0, |value, i| value | (self.bytes[at + i].load(Ordering::Relaxed) as u32) << (8 * i))
     }
 
     fn set_word(&self, at: usize, width: usize, value: u32) {
@@ -281,20 +259,8 @@ impl<'a, L: Lock> Receipt<'a, L> {
             .map(|index| {
                 let at = RECORDS + index * RECORD;
                 let (kind, flags) = (self.word(at, 4), self.word(at + 8, 4));
-                let release = if kind == KEY {
-                    Event::key(
-                        self.word(at + 4, 2) as u16,
-                        self.word(at + 6, 2) as u16,
-                        flags,
-                    )
-                } else {
-                    Event::mouse(flags)
-                };
-                if (kind == KEY || kind == MOUSE) && release.is_release() {
-                    Ok(release)
-                } else {
-                    Err(INVALID_RELEASE.to_string())
-                }
+                let release = if kind == KEY { Event::key(self.word(at + 4, 2) as u16, self.word(at + 6, 2) as u16, flags) } else { Event::mouse(flags) };
+                if (kind == KEY || kind == MOUSE) && release.is_release() { Ok(release) } else { Err(INVALID_RELEASE.to_string()) }
             })
             .collect()
     }
@@ -332,27 +298,14 @@ impl<'a, L: Lock> Receipt<'a, L> {
 
     /// DeliverTracked: sends `events` and records what they leave held. A
     /// release of a key the person holds is refused with nothing sent.
-    pub fn deliver_tracked(
-        &self,
-        events: &[Event],
-        transmit: &mut Transmit<'_>,
-        keys: &KeyState<'_>,
-    ) -> Result<u32, String> {
+    pub fn deliver_tracked(&self, events: &[Event], transmit: &mut Transmit<'_>, keys: &KeyState<'_>) -> Result<u32, String> {
         let _locked = self.locked()?;
         self.track(events, transmit, keys)
     }
 
-    fn track(
-        &self,
-        events: &[Event],
-        transmit: &mut Transmit<'_>,
-        keys: &KeyState<'_>,
-    ) -> Result<u32, String> {
+    fn track(&self, events: &[Event], transmit: &mut Transmit<'_>, keys: &KeyState<'_>) -> Result<u32, String> {
         let previous = self.read_owned(keys)?;
-        if events
-            .iter()
-            .any(|event| self.person_holds(event.released_key()))
-        {
+        if events.iter().any(|event| self.person_holds(event.released_key())) {
             return Ok(0);
         }
         // In flight before the system call: a process killed inside SendInput
@@ -371,27 +324,17 @@ impl<'a, L: Lock> Receipt<'a, L> {
         if sent as usize > events.len() {
             return Err(INVALID_DELIVERY.into());
         }
-        let history: Vec<Event> = previous
-            .into_iter()
-            .map(Event::pressed)
-            .chain(events[..sent as usize].iter().copied())
-            .collect();
+        let history: Vec<Event> = previous.into_iter().map(Event::pressed).chain(events[..sent as usize].iter().copied()).collect();
         self.write_owned(&outstanding(&history))?;
         Ok(sent)
     }
 
     /// ReleaseOwned: lets go of every key and button this receipt says the
     /// host still holds, each through the tracked path.
-    pub fn release_owned(
-        &self,
-        transmit: &mut Transmit<'_>,
-        keys: &KeyState<'_>,
-    ) -> Result<(), String> {
+    pub fn release_owned(&self, transmit: &mut Transmit<'_>, keys: &KeyState<'_>) -> Result<(), String> {
         let _locked = self.locked()?;
         let releases = self.read_owned(keys)?;
-        let released = release_each(&releases, &mut |batch| {
-            self.track(batch, &mut *transmit, keys)
-        });
+        let released = release_each(&releases, &mut |batch| self.track(batch, &mut *transmit, keys));
         if released.is_err() {
             // Another cleanup caller must not retry an uncertain or failed release.
             self.set_word(STATE, 4, FAILED);
@@ -420,11 +363,8 @@ impl<'a, L: Lock> Receipt<'a, L> {
     pub fn begin_observation(&self, keys: &KeyState<'_>) {
         // A receipt that cannot be read names nothing as this host's, so
         // whatever is down stays the person's and is never released for them.
-        let owned: Vec<u16> = self
-            .locked()
-            .and_then(|_locked| self.read_owned(keys))
-            .map(|releases| releases.iter().map(Event::released_key).collect())
-            .unwrap_or_default();
+        let owned: Vec<u16> =
+            self.locked().and_then(|_locked| self.read_owned(keys)).map(|releases| releases.iter().map(Event::released_key).collect()).unwrap_or_default();
         for vk in 1..256 {
             let ours = owned.iter().any(|&key| accounts_for(key, vk));
             self.set_person_holds(vk, !ours && keys(vk));
@@ -470,27 +410,18 @@ mod tests {
 
     impl Fixture {
         fn new() -> Fixture {
-            Fixture {
-                bytes: Box::new(std::array::from_fn(|_| AtomicU8::new(0))),
-                lock: FakeLock::default(),
-            }
+            Fixture { bytes: Box::new(std::array::from_fn(|_| AtomicU8::new(0))), lock: FakeLock::default() }
         }
         fn receipt(&self) -> Receipt<'_, FakeLock> {
             Receipt::new(&self.bytes, &self.lock)
         }
         /// Sends every batch whole, as an idle desktop does.
         fn press(&self, events: &[Event]) {
-            let sent = self.receipt().deliver_tracked(
-                events,
-                &mut |batch| Ok(batch.len() as u32),
-                &|_| false,
-            );
+            let sent = self.receipt().deliver_tracked(events, &mut |batch| Ok(batch.len() as u32), &|_| false);
             assert_eq!(sent, Ok(events.len() as u32));
         }
         fn owned(&self) -> Vec<Event> {
-            self.receipt()
-                .read_owned(&|_| false)
-                .expect("readable receipt")
+            self.receipt().read_owned(&|_| false).expect("readable receipt")
         }
     }
 
@@ -527,22 +458,9 @@ mod tests {
             down(0x41),
             down(0x41),
         ];
-        assert_eq!(
-            outstanding(&events),
-            vec![
-                Event::mouse(MOUSEEVENTF_RIGHTUP.0),
-                Event::key(0, 0x263A, UNICODE | KEY_UP),
-                up(0x41),
-            ]
-        );
-        assert_eq!(
-            outstanding(&[Event::mouse(MOUSEEVENTF_MIDDLEDOWN.0)]),
-            vec![Event::mouse(MOUSEEVENTF_MIDDLEUP.0)]
-        );
-        assert!(
-            outstanding(&[Event::mouse(0x800)]).is_empty(),
-            "a wheel holds nothing"
-        );
+        assert_eq!(outstanding(&events), vec![Event::mouse(MOUSEEVENTF_RIGHTUP.0), Event::key(0, 0x263A, UNICODE | KEY_UP), up(0x41),]);
+        assert_eq!(outstanding(&[Event::mouse(MOUSEEVENTF_MIDDLEDOWN.0)]), vec![Event::mouse(MOUSEEVENTF_MIDDLEUP.0)]);
+        assert!(outstanding(&[Event::mouse(0x800)]).is_empty(), "a wheel holds nothing");
     }
 
     // input-transport.test.mjs: the tracked receipt end to end.
@@ -550,12 +468,7 @@ mod tests {
     fn the_receipt_releases_exactly_what_this_host_holds() {
         let fixture = Fixture::new();
         let receipt = fixture.receipt();
-        fixture.press(&[
-            down(13),
-            Event::key(0xA3, 0, EXTENDED),
-            Event::mouse(MOUSEEVENTF_LEFTDOWN.0),
-            down(0x41),
-        ]);
+        fixture.press(&[down(13), Event::key(0xA3, 0, EXTENDED), Event::mouse(MOUSEEVENTF_LEFTDOWN.0), down(0x41)]);
         receipt.note_person(0x10, true);
         receipt.note_person(0xA3, true);
         let mut conflicting = 0;
@@ -567,11 +480,7 @@ mod tests {
             },
             NOTHING_HELD,
         );
-        assert_eq!(
-            (sent, conflicting),
-            (Ok(0), 0),
-            "released a key now held by the person"
-        );
+        assert_eq!((sent, conflicting), (Ok(0), 0), "released a key now held by the person");
         // Everything this host holds reads as down when observation begins,
         // and the person holds Shift: each held input stays this host's.
         receipt.note_person(0x41, true);
@@ -585,11 +494,7 @@ mod tests {
             },
             NOTHING_HELD,
         );
-        assert_eq!(
-            (sent, released),
-            (Ok(1), 1),
-            "refused the release of a key this host holds"
-        );
+        assert_eq!((sent, released), (Ok(1), 1), "refused the release of a key this host holds");
         receipt.note_person(0xA3, true);
         receipt.note_person(0xA3, false);
         let (mut attempts, mut enter, mut right_control_extended) = (0, false, false);
@@ -606,11 +511,7 @@ mod tests {
                         }
                     }
                     Event::Mouse { flags, .. } => {
-                        assert_eq!(
-                            flags & !BUTTON_UPS,
-                            0,
-                            "cleanup moved or pressed the pointer"
-                        )
+                        assert_eq!(flags & !BUTTON_UPS, 0, "cleanup moved or pressed the pointer")
                     }
                 }
                 Ok(if attempts == 1 { 0 } else { 1 })
@@ -618,10 +519,7 @@ mod tests {
             NOTHING_HELD,
         );
         assert_eq!(outcome, Err(RELEASE_REJECTED.to_string()));
-        assert!(
-            attempts == 3 && enter && right_control_extended,
-            "cleanup did not release exactly the owned inputs"
-        );
+        assert!(attempts == 3 && enter && right_control_extended, "cleanup did not release exactly the owned inputs");
         // The failed release is latched: while anything is down it is not retried.
         let outcome = receipt.release_owned(
             &mut |_| {
@@ -631,10 +529,7 @@ mod tests {
             ALL_HELD,
         );
         assert_eq!(outcome, Err(UNCERTAIN.to_string()));
-        assert_eq!(
-            attempts, 3,
-            "a failed release was retried while a key is held"
-        );
+        assert_eq!(attempts, 3, "a failed release was retried while a key is held");
         // Once nothing is down the receipt resets to empty, without replaying.
         assert_eq!(
             receipt.release_owned(
@@ -670,11 +565,7 @@ mod tests {
             },
             NOTHING_HELD,
         );
-        assert_eq!(
-            (sent, person_button),
-            (Ok(0), 0),
-            "released a button the person holds"
-        );
+        assert_eq!((sent, person_button), (Ok(0), 0), "released a button the person holds");
         let mut pointer = Vec::new();
         let outcome = receipt.release_owned(
             &mut |events| {
@@ -705,30 +596,14 @@ mod tests {
         );
         assert_eq!(outcome, Ok(()));
         assert_eq!(released, vec![up(0x11), Event::mouse(MOUSEEVENTF_LEFTUP.0)]);
-        assert_eq!(
-            receipt.release_owned(
-                &mut |_| panic!("completed releases were repeated"),
-                NOTHING_HELD
-            ),
-            Ok(())
-        );
+        assert_eq!(receipt.release_owned(&mut |_| panic!("completed releases were repeated"), NOTHING_HELD), Ok(()));
         // The system call never answers (the writer died inside SendInput).
-        let lost = receipt.deliver_tracked(
-            &[down(13)],
-            &mut |_| Err("lost delivery receipt".into()),
-            NOTHING_HELD,
-        );
+        let lost = receipt.deliver_tracked(&[down(13)], &mut |_| Err("lost delivery receipt".into()), NOTHING_HELD);
         assert!(lost.is_err());
         assert_eq!(fixture.receipt().word(STATE, 4), IN_FLIGHT);
-        let outcome = receipt.release_owned(
-            &mut |_| panic!("guessed an unacknowledged prefix"),
-            ALL_HELD,
-        );
+        let outcome = receipt.release_owned(&mut |_| panic!("guessed an unacknowledged prefix"), ALL_HELD);
         assert_eq!(outcome, Err(UNCERTAIN.to_string()));
-        let outcome = receipt.release_owned(
-            &mut |_| panic!("replayed after the receipt reset"),
-            NOTHING_HELD,
-        );
+        let outcome = receipt.release_owned(&mut |_| panic!("replayed after the receipt reset"), NOTHING_HELD);
         assert_eq!(outcome, Ok(()));
         assert_eq!(fixture.receipt().word(STATE, 4), CLEAN);
     }
@@ -754,14 +629,9 @@ mod tests {
         // The press went out unrecorded, so the receipt is uncertain until
         // nothing is down.
         assert_eq!(receipt.word(STATE, 4), IN_FLIGHT);
-        assert_eq!(
-            receipt.release_owned(&mut |_| panic!("released a guessed record"), NOTHING_HELD),
-            Ok(())
-        );
+        assert_eq!(receipt.release_owned(&mut |_| panic!("released a guessed record"), NOTHING_HELD), Ok(()));
         assert!(fixture.owned().is_empty());
-        let releases: Vec<Event> = (1..=256)
-            .map(|unit| Event::key(0, unit, UNICODE | KEY_UP))
-            .collect();
+        let releases: Vec<Event> = (1..=256).map(|unit| Event::key(0, unit, UNICODE | KEY_UP)).collect();
         assert_eq!(receipt.write_owned(&releases), Ok(()));
         let mut released = 0;
         let outcome = receipt.release_owned(
@@ -773,43 +643,27 @@ mod tests {
             NOTHING_HELD,
         );
         assert_eq!((outcome, released), (Ok(()), 256));
-        let too_many: Vec<Event> = (0..=256)
-            .map(|unit| Event::key(0, unit, UNICODE | KEY_UP))
-            .collect();
-        assert_eq!(
-            receipt.write_owned(&too_many),
-            Err(CAPACITY_EXCEEDED.to_string())
-        );
+        let too_many: Vec<Event> = (0..=256).map(|unit| Event::key(0, unit, UNICODE | KEY_UP)).collect();
+        assert_eq!(receipt.write_owned(&too_many), Err(CAPACITY_EXCEEDED.to_string()));
     }
 
     #[test]
     fn an_invalid_receipt_is_refused_without_input() {
         let fixture = Fixture::new();
         let receipt = fixture.receipt();
-        let never = &mut |_: &[Event]| -> Result<u32, String> {
-            panic!("sent input from an invalid receipt")
-        };
+        let never = &mut |_: &[Event]| -> Result<u32, String> { panic!("sent input from an invalid receipt") };
         // A press stored as a release.
         receipt.set_word(RECORDS, 4, KEY);
         receipt.set_word(RECORDS + 4, 2, 0x41);
         receipt.set_word(COUNT, 4, 1);
-        assert_eq!(
-            receipt.release_owned(never, NOTHING_HELD),
-            Err(INVALID_RELEASE.to_string())
-        );
+        assert_eq!(receipt.release_owned(never, NOTHING_HELD), Err(INVALID_RELEASE.to_string()));
         // An unknown input type.
         receipt.set_word(RECORDS, 4, 2);
         receipt.set_word(RECORDS + 8, 4, KEY_UP);
-        assert_eq!(
-            receipt.release_owned(never, NOTHING_HELD),
-            Err(INVALID_RELEASE.to_string())
-        );
+        assert_eq!(receipt.release_owned(never, NOTHING_HELD), Err(INVALID_RELEASE.to_string()));
         for count in [257, u32::MAX] {
             receipt.set_word(COUNT, 4, count);
-            assert_eq!(
-                receipt.release_owned(never, NOTHING_HELD),
-                Err(INVALID_RECEIPT.to_string())
-            );
+            assert_eq!(receipt.release_owned(never, NOTHING_HELD), Err(INVALID_RECEIPT.to_string()));
         }
         let mut sent = 0;
         let outcome = receipt.deliver_tracked(
@@ -829,16 +683,9 @@ mod tests {
         let receipt = fixture.receipt();
         fixture.press(&[down(0x41)]);
         fixture.lock.busy.set(true);
-        let never =
-            &mut |_: &[Event]| -> Result<u32, String> { panic!("sent input without the lock") };
-        assert_eq!(
-            receipt.deliver_tracked(&[up(0x41)], never, NOTHING_HELD),
-            Err(BUSY.to_string())
-        );
-        assert_eq!(
-            receipt.release_owned(never, NOTHING_HELD),
-            Err(BUSY.to_string())
-        );
+        let never = &mut |_: &[Event]| -> Result<u32, String> { panic!("sent input without the lock") };
+        assert_eq!(receipt.deliver_tracked(&[up(0x41)], never, NOTHING_HELD), Err(BUSY.to_string()));
+        assert_eq!(receipt.release_owned(never, NOTHING_HELD), Err(BUSY.to_string()));
         // The input hook records the person without the lock.
         receipt.note_person(0x41, true);
         assert!(receipt.person_holds(0x41));
@@ -863,11 +710,7 @@ mod tests {
             receipt.note_person(left as u32 + 1, false);
         }
         receipt.note_person(0x41, true);
-        assert!(
-            !receipt.person_holds(0x10)
-                && !receipt.person_holds(0x11)
-                && !receipt.person_holds(0x12)
-        );
+        assert!(!receipt.person_holds(0x10) && !receipt.person_holds(0x11) && !receipt.person_holds(0x12));
         receipt.note_person(0, true);
         receipt.note_person(256, true);
         assert!(!receipt.person_holds(0));
@@ -899,10 +742,7 @@ mod tests {
         );
         assert_eq!(outcome, Err(RELEASE_REJECTED.to_string()));
         assert_eq!(released, vec![up(0x41)]);
-        assert_eq!(
-            (receipt.word(STATE, 4), receipt.word(COUNT, 4)),
-            (FAILED, 1)
-        );
+        assert_eq!((receipt.word(STATE, 4), receipt.word(COUNT, 4)), (FAILED, 1));
         // Once the person lets go nothing is down, so the latched receipt
         // settles empty and the next release goes out.
         receipt.note_person(0xA0, false);

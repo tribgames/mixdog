@@ -69,9 +69,7 @@ async fn text_frames_decode_in_arrival_order() {
     let hub = hub();
     let mut peer = connect(&hub, ConnectionOrigin::Loopback, true);
     peer.send.send(Incoming::Text(REQUEST.into())).unwrap();
-    peer.send
-        .send(Incoming::Text(r#"{"method":"initialized"}"#.into()))
-        .unwrap();
+    peer.send.send(Incoming::Text(r#"{"method":"initialized"}"#.into())).unwrap();
     let first = peer.connection.inbound.recv().await.unwrap();
     assert!(matches!(first, JsonRpcMessage::Request(r) if r.method == "initialize"));
     let second = peer.connection.inbound.recv().await.unwrap();
@@ -83,21 +81,12 @@ async fn bad_json_closes_with_1007_and_oversized_text_with_1009() {
     let hub = hub();
     let mut bad = connect(&hub, ConnectionOrigin::Loopback, true);
     bad.send.send(Incoming::Text("{not json".into())).unwrap();
-    assert_eq!(
-        bad.until_closed().await,
-        [Wire::Close(CloseCode::InvalidFrame)]
-    );
+    assert_eq!(bad.until_closed().await, [Wire::Close(CloseCode::InvalidFrame)]);
 
     let mut big = connect(&hub, ConnectionOrigin::Loopback, true);
-    let oversized = format!(
-        r#"{{"id":1,"method":"x","params":"{}"}}"#,
-        "a".repeat(hub.limits().max_inbound_frame_bytes as usize)
-    );
+    let oversized = format!(r#"{{"id":1,"method":"x","params":"{}"}}"#, "a".repeat(hub.limits().max_inbound_frame_bytes as usize));
     big.send.send(Incoming::Text(oversized)).unwrap();
-    assert_eq!(
-        big.until_closed().await,
-        [Wire::Close(CloseCode::FrameTooBig)]
-    );
+    assert_eq!(big.until_closed().await, [Wire::Close(CloseCode::FrameTooBig)]);
     // The closed connections ended their inbound stream.
     assert!(bad.connection.inbound.recv().await.is_none());
 }
@@ -106,14 +95,8 @@ async fn bad_json_closes_with_1007_and_oversized_text_with_1009() {
 async fn binary_frames_need_the_host_media_role() {
     let hub = hub();
     let mut plain = connect(&hub, ConnectionOrigin::Loopback, true);
-    plain
-        .send
-        .send(Incoming::Binary(media_frame(b"jpeg")))
-        .unwrap();
-    assert_eq!(
-        plain.until_closed().await,
-        [Wire::Close(CloseCode::UnsupportedData)]
-    );
+    plain.send.send(Incoming::Binary(media_frame(b"jpeg"))).unwrap();
+    assert_eq!(plain.until_closed().await, [Wire::Close(CloseCode::UnsupportedData)]);
 
     let media = Arc::new(Media::default());
     let host = connect(&hub, ConnectionOrigin::Loopback, true);
@@ -126,20 +109,13 @@ async fn binary_frames_need_the_host_media_role() {
     host.send.send(Incoming::Text(REQUEST.into())).unwrap();
     let mut host = host;
     host.connection.inbound.recv().await.unwrap();
-    assert_eq!(
-        *media.0.lock().unwrap(),
-        [(host.connection.id, frame)],
-        "media frames bypass the request queue"
-    );
+    assert_eq!(*media.0.lock().unwrap(), [(host.connection.id, frame)], "media frames bypass the request queue");
 }
 
 #[tokio::test]
 async fn host_media_frames_are_validated() {
     install_rt();
-    let limits = Limits {
-        max_media_frame_bytes: 8,
-        ..small_limits()
-    };
+    let limits = Limits { max_media_frame_bytes: 8, ..small_limits() };
     let hub = ConnectionHub::new(limits).unwrap();
     for (frame, expected) in [
         (media_frame(&[0; 9]), CloseCode::FrameTooBig),
@@ -147,9 +123,7 @@ async fn host_media_frames_are_validated() {
         (Bytes::from(vec![0xFF; 16]), CloseCode::InvalidFrame),
     ] {
         let mut host = connect(&hub, ConnectionOrigin::Loopback, true);
-        host.connection
-            .sink
-            .grant_host_media(Arc::new(Media::default()));
+        host.connection.sink.grant_host_media(Arc::new(Media::default()));
         host.send.send(Incoming::Binary(frame)).unwrap();
         assert_eq!(host.until_closed().await, [Wire::Close(expected)]);
     }
@@ -165,14 +139,7 @@ async fn close_writes_queued_control_frames_first_and_refuses_new_ones() {
     sink.close(CloseCode::Normal);
     assert!(sink.send_control(Bytes::from_static(b"late")).is_err());
     assert!(sink.closed().is_cancelled());
-    assert_eq!(
-        peer.until_closed().await,
-        [
-            Wire::Text("error".into()),
-            Wire::Close(CloseCode::VersionRefused)
-        ],
-        "the first close code wins"
-    );
+    assert_eq!(peer.until_closed().await, [Wire::Text("error".into()), Wire::Close(CloseCode::VersionRefused)], "the first close code wins");
 }
 
 #[tokio::test]
@@ -202,29 +169,16 @@ async fn drain_closes_every_connection_with_going_away() {
     let hub = hub();
     let mut one = connect(&hub, ConnectionOrigin::Loopback, true);
     let mut two = connect(&hub, ConnectionOrigin::SshTunnel, true);
-    one.connection
-        .sink
-        .send_control(Bytes::from_static(b"last"))
-        .unwrap();
+    one.connection.sink.send_control(Bytes::from_static(b"last")).unwrap();
     hub.close_all();
-    assert_eq!(
-        one.until_closed().await,
-        [Wire::Text("last".into()), Wire::Close(CloseCode::GoingAway)]
-    );
-    assert_eq!(
-        two.until_closed().await,
-        [Wire::Close(CloseCode::GoingAway)]
-    );
+    assert_eq!(one.until_closed().await, [Wire::Text("last".into()), Wire::Close(CloseCode::GoingAway)]);
+    assert_eq!(two.until_closed().await, [Wire::Close(CloseCode::GoingAway)]);
 }
 
 #[tokio::test]
 async fn connections_past_the_limit_are_refused_and_slots_are_reused() {
     install_rt();
-    let hub = ConnectionHub::new(Limits {
-        max_connections: 2,
-        ..small_limits()
-    })
-    .unwrap();
+    let hub = ConnectionHub::new(Limits { max_connections: 2, ..small_limits() }).unwrap();
     let origin = || ConnectionOrigin::Loopback;
     let first = connect(&hub, origin(), true);
     let _second = connect(&hub, origin(), true);
@@ -258,14 +212,8 @@ async fn silent_peer_is_pinged_then_closed_after_two_more_ticks() {
     hub.heartbeat_tick();
     assert!(!peer.connection.sink.is_closed());
     hub.heartbeat_tick();
-    assert_eq!(
-        peer.until_closed().await,
-        [Wire::Close(CloseCode::PeerUnresponsive)]
-    );
-    assert_eq!(
-        peer.connection.sink.close_code(),
-        Some(CloseCode::PeerUnresponsive)
-    );
+    assert_eq!(peer.until_closed().await, [Wire::Close(CloseCode::PeerUnresponsive)]);
+    assert_eq!(peer.connection.sink.close_code(), Some(CloseCode::PeerUnresponsive));
     // The peer never completed the close: two more ticks abandon the socket.
     hub.heartbeat_tick();
     hub.heartbeat_tick();
@@ -308,10 +256,7 @@ async fn the_hub_answers_each_connections_origin_until_it_closes() {
     assert_eq!(hub.origin_of(local.connection.id), Some(mixdog_protocol::Origin::Local));
     assert_eq!(hub.origin_of(phone.connection.id), Some(mixdog_protocol::Origin::Relay));
     assert_eq!(hub.origin_of(ssh.connection.id), Some(mixdog_protocol::Origin::Ssh));
-    assert_eq!(
-        hub.connection_origin(phone.connection.id),
-        Some(ConnectionOrigin::Relay { peer_id: "p1".into() })
-    );
+    assert_eq!(hub.connection_origin(phone.connection.id), Some(ConnectionOrigin::Relay { peer_id: "p1".into() }));
     assert_eq!(hub.origin_of(ConnectionId(9_999)), None);
 
     let gone = phone.connection.id;
@@ -342,11 +287,7 @@ async fn a_closed_connection_has_no_origin_right_after_close() {
 #[tokio::test(start_paused = true)]
 async fn one_heartbeat_task_serves_every_connection() {
     install_rt();
-    let hub = ConnectionHub::new(Limits {
-        heartbeat_tick_ms: 100,
-        ..small_limits()
-    })
-    .unwrap();
+    let hub = ConnectionHub::new(Limits { heartbeat_tick_ms: 100, ..small_limits() }).unwrap();
     let heartbeat = hub.spawn_heartbeat();
     let mut silent = connect(&hub, ConnectionOrigin::Loopback, true);
     let mut quiet_too = connect(&hub, ConnectionOrigin::SshTunnel, true);
@@ -363,14 +304,8 @@ async fn one_heartbeat_task_serves_every_connection() {
         }
     };
     let (silent_wire, quiet_wire, ()) = tokio::join!(silent_wire, quiet_wire, keep_alive);
-    assert_eq!(
-        silent_wire,
-        [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]
-    );
-    assert_eq!(
-        quiet_wire,
-        [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]
-    );
+    assert_eq!(silent_wire, [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]);
+    assert_eq!(quiet_wire, [Wire::Ping, Wire::Close(CloseCode::PeerUnresponsive)]);
     assert!(!live.connection.sink.is_closed());
     heartbeat.abort();
 }

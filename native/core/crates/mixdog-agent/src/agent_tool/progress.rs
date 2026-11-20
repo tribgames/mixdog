@@ -10,8 +10,7 @@ use mixdog_js::js_trim;
 use mixdog_tools::exec::most_significant_duration;
 
 /// The stages a worker is doing model or tool work in.
-const ACTIVE_RUNTIME_STAGES: [&str; 7] =
-    ["connecting", "requesting", "streaming", "tool_running", "resource_wait", "running", "cancelling"];
+const ACTIVE_RUNTIME_STAGES: [&str; 7] = ["connecting", "requesting", "streaming", "tool_running", "resource_wait", "running", "cancelling"];
 
 /// How far keepalives may extend liveness past the last real progress, as a multiple of the
 /// idle budget (`KEEPALIVE_MAX_IDLE_MULTIPLIER`).
@@ -231,9 +230,7 @@ pub fn stale_report(snapshot: &Snapshot, now: i64, policy: &WatchdogPolicy) -> O
     let last = if snapshot.last_progress_at != 0 { snapshot.last_progress_at } else { snapshot.first_activity_at };
     if policy.idle_stale_ms > 0 && last != 0 && now - last > policy.idle_stale_ms {
         let keepalive = snapshot.last_keepalive_at;
-        let holds = keepalive > last
-            && now - keepalive <= policy.idle_stale_ms
-            && now - last <= policy.idle_stale_ms * KEEPALIVE_MAX_IDLE_MULTIPLIER;
+        let holds = keepalive > last && now - keepalive <= policy.idle_stale_ms && now - last <= policy.idle_stale_ms * KEEPALIVE_MAX_IDLE_MULTIPLIER;
         if holds {
             return None;
         }
@@ -332,29 +329,17 @@ fn describe_diagnostic(stage: &str, input: &ProgressInput<'_>, silent: Option<u6
         "cancelled" | "canceled" => return "task cancelled".to_owned(),
         "failed" | "error" => return "task failed".to_owned(),
         "completed" => {
-            return if input.session_status == Some("error") {
-                "task completed (worker error)".to_owned()
-            } else {
-                "task completed; worker idle".to_owned()
-            };
+            return if input.session_status == Some("error") { "task completed (worker error)".to_owned() } else { "task completed; worker idle".to_owned() };
         }
         _ => {}
     }
     // Reported to the owner, never acted on: a quiet job can be a legitimate build.
     if let Some(quiet) = input.tool_silence.filter(|q| q.hung && stage == "tool_running") {
-        return format!(
-            "tool possibly hung: shell job {} no output for {}; inspect or cancel it",
-            quiet.task_id,
-            format_tool_silence(quiet.silent_ms)
-        );
+        return format!("tool possibly hung: shell job {} no output for {}; inspect or cancel it", quiet.task_id, format_tool_silence(quiet.silent_ms));
     }
     if let Some(queued) = queued {
         let plural = if queued == 1 { "" } else { "s" };
-        return if is_active_stage(stage) {
-            format!("{stage}, {queued} follow-up{plural} queued")
-        } else {
-            format!("idle, {queued} follow-up{plural} queued")
-        };
+        return if is_active_stage(stage) { format!("{stage}, {queued} follow-up{plural} queued") } else { format!("idle, {queued} follow-up{plural} queued") };
     }
     if let Some(secs) = retry_in(input.snapshot, input.now) {
         return format!("provider retry scheduled in {secs}s");
@@ -429,17 +414,14 @@ fn describe_diagnostic(stage: &str, input: &ProgressInput<'_>, silent: Option<u6
 /// `buildAgentTaskProgressFields`.
 pub fn progress_fields(input: &ProgressInput<'_>) -> Progress {
     // `runtimeStage || snapshot?.stage || sessionStatus || 'unknown'`: an empty string is skipped.
-    let stage = clean_stage(
-        [input.runtime_stage, input.snapshot.and_then(|s| s.stage.as_deref()), input.session_status].into_iter().flatten().find(|s| !s.is_empty()),
-    );
+    let stage =
+        clean_stage([input.runtime_stage, input.snapshot.and_then(|s| s.stage.as_deref()), input.session_status].into_iter().flatten().find(|s| !s.is_empty()));
     let silent = silent_for(input.now, input.snapshot, input.runtime);
     let watchdog = watchdog_summary(input.policy, input.snapshot, input.watchdog_state);
     let queued = input.queued_followups.filter(|n| *n > 0);
     let last_tool_call = input.last_tool_call.or(input.runtime.and_then(|r| r.last_tool_call.as_deref()));
-    let tool_silent_for = input
-        .tool_silence
-        .filter(|_| stage == "tool_running")
-        .map(|q| format!("{} (shell job {} no output)", format_tool_silence(q.silent_ms), q.task_id));
+    let tool_silent_for =
+        input.tool_silence.filter(|_| stage == "tool_running").map(|q| format!("{} (shell job {} no output)", format_tool_silence(q.silent_ms), q.task_id));
     Progress {
         last_progress: describe_last_progress(&stage, input, silent, last_tool_call),
         diagnostic: describe_diagnostic(&stage, input, silent, queued),

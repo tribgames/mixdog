@@ -41,15 +41,15 @@ use crate::fsio::IoError;
 use crate::fsio::IoLane;
 use crate::fsio::IoOp;
 use crate::fsio::err;
-use crate::projection::Projection;
 use crate::projection::ProjectedFrame;
+use crate::projection::Projection;
 use crate::projection::project;
-use crate::summary::CatalogHead;
 use crate::schema::checkpoint::FramePos;
 use crate::schema::frame::*;
 use crate::schema::record::CheckpointRecord;
 use crate::schema::record::Header;
 use crate::schema::record::Record;
+use crate::summary::CatalogHead;
 
 /// `log.<nnnnnn>`.
 pub fn log_name(file_no: u32) -> String {
@@ -58,9 +58,7 @@ pub fn log_name(file_no: u32) -> String {
 
 fn parse_log_name(name: &str) -> Option<u32> {
     let digits = name.strip_prefix(LOG_FILE_PREFIX)?;
-    (digits.len() == LOG_FILE_DIGITS && digits.bytes().all(|b| b.is_ascii_digit()))
-        .then(|| digits.parse().ok())
-        .flatten()
+    (digits.len() == LOG_FILE_DIGITS && digits.bytes().all(|b| b.is_ascii_digit())).then(|| digits.parse().ok()).flatten()
 }
 
 /// The log files of a session directory, ascending. Tmp files of `publish_file` and run drafts (`draft_file`) are
@@ -106,7 +104,9 @@ pub enum OpenError {
 pub enum LogStatus {
     Clean,
     /// Unacknowledged bytes from `offset`; the first open-for-append truncates them.
-    Torn { offset: u64 },
+    Torn {
+        offset: u64,
+    },
     /// Read-only until `session.repair`.
     Damaged(Damage),
 }
@@ -156,12 +156,7 @@ fn parse_record(payload: &[u8]) -> Result<Record, String> {
 /// Bounded open of `dir` (FORMAT.md §6.3) in one call: `read_head`, `read_tail`,
 /// `decode_tail`. The writer's reopen and tests use it; the session open runs the three
 /// steps as separate lane jobs (J1, J2, decode).
-pub fn open_log<L: IoLane>(
-    lane: &InLane<L>,
-    dir: &Path,
-    blobs: &BlobStore,
-    index: &dyn LineageIndex,
-) -> Result<OpenedLog, OpenError> {
+pub fn open_log<L: IoLane>(lane: &InLane<L>, dir: &Path, blobs: &BlobStore, index: &dyn LineageIndex) -> Result<OpenedLog, OpenError> {
     let head = read_head(lane, dir)?;
     let tail = read_tail(lane, head, blobs, index)?;
     Ok(decode_tail_unlaned(tail))
@@ -232,7 +227,19 @@ fn read_head_of(dir: &Path, files: Vec<u32>) -> Result<HeadRead, OpenError> {
         let (buf, anchor_ordinal) = GroupFileHead::read(&mut file, &path, size)?.map_or((Vec::new(), 0), |head| (head.frame, head.ordinal));
         bytes_read += buf.len() as u64;
         let scan = framing::Scan { frames: Vec::new(), end: ScanEnd::Clean };
-        return Ok(HeadRead { dir: dir.to_path_buf(), files, newest, size, buf, window_start: 0, scan, anchor_start: 0, anchor_ordinal, bytes_read, group_file });
+        return Ok(HeadRead {
+            dir: dir.to_path_buf(),
+            files,
+            newest,
+            size,
+            buf,
+            window_start: 0,
+            scan,
+            anchor_start: 0,
+            anchor_ordinal,
+            bytes_read,
+            group_file,
+        });
     }
 
     // Reverse scan: the clean-close case needs the last frame and the `GROUP_LOOKBACK` bytes
@@ -270,27 +277,12 @@ fn read_head_of(dir: &Path, files: Vec<u32>) -> Result<HeadRead, OpenError> {
             bytes_read += window_start;
             buf = all;
             window_start = 0;
-            let ordinal = std::str::from_utf8(buf.get(..ORDINAL_DIGITS).unwrap_or_default())
-                .ok()
-                .and_then(|t| u64::from_str_radix(t, 16).ok())
-                .unwrap_or(0);
+            let ordinal = std::str::from_utf8(buf.get(..ORDINAL_DIGITS).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok()).unwrap_or(0);
             (0, ordinal)
         }
     };
     let scan = framing::scan(&buf, window_start, anchor_start, anchor_ordinal);
-    Ok(HeadRead {
-        dir: dir.to_path_buf(),
-        files,
-        newest,
-        size,
-        buf,
-        window_start,
-        scan,
-        anchor_start,
-        anchor_ordinal,
-        bytes_read,
-        group_file,
-    })
+    Ok(HeadRead { dir: dir.to_path_buf(), files, newest, size, buf, window_start, scan, anchor_start, anchor_ordinal, bytes_read, group_file })
 }
 
 /// The newest anchor of the newest log file, the fold right after it and the position of the frame that follows it: what
@@ -505,23 +497,14 @@ fn read_group_file(mut head: HeadRead, blobs: &BlobStore, index: &dyn LineageInd
 
 /// J2's tail part: parses the anchor and the tail, reads the anchor state's blob, and runs
 /// the fold's index lookups (a tail rewind below the checkpoint).
-pub fn read_tail<L: IoLane>(
-    _lane: &InLane<L>,
-    head: HeadRead,
-    blobs: &BlobStore,
-    index: &dyn LineageIndex,
-) -> Result<TailRead, OpenError> {
+pub fn read_tail<L: IoLane>(_lane: &InLane<L>, head: HeadRead, blobs: &BlobStore, index: &dyn LineageIndex) -> Result<TailRead, OpenError> {
     if head.group_file {
         return read_group_file(head, blobs, index);
     }
     let HeadRead { ref dir, newest, ref buf, window_start, ref scan, anchor_start, anchor_ordinal, .. } = head;
     let mut bytes_read = head.bytes_read;
     let path = dir.join(log_name(newest));
-    let damaged = |offset: u64, ordinal: u64| LogStatus::Damaged(Damage {
-        file_no: newest,
-        offset,
-        ordinal,
-    });
+    let damaged = |offset: u64, ordinal: u64| LogStatus::Damaged(Damage { file_no: newest, offset, ordinal });
     let Some((anchor, tail)) = scan.frames.split_first() else {
         let status = match scan.end {
             ScanEnd::Corrupt { offset, ordinal, .. } => damaged(offset, ordinal),
@@ -529,15 +512,8 @@ pub fn read_tail<L: IoLane>(
         };
         return Err(OpenError::Format(format!("{}: no committed anchor frame ({status:?})", path.display())));
     };
-    let anchor_pos = FramePos {
-        ordinal: anchor.ordinal,
-        file_no: newest,
-        offset: window_start + anchor.start as u64,
-    };
-    let session_name = dir
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let anchor_pos = FramePos { ordinal: anchor.ordinal, file_no: newest, offset: window_start + anchor.start as u64 };
+    let session_name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let gone = RefCell::new(Vec::new());
     let mut resolve = |b: &crate::schema::blob::BodyBlob| {
         let digest = &b.descriptor().digest;
@@ -584,11 +560,7 @@ pub fn read_tail<L: IoLane>(
     let positions: Vec<(FramePos, u64)> = records
         .iter()
         .map(|(_, frame)| {
-            let pos = FramePos {
-                ordinal: frame.ordinal,
-                file_no: newest,
-                offset: window_start + frame.start as u64,
-            };
+            let pos = FramePos { ordinal: frame.ordinal, file_no: newest, offset: window_start + frame.start as u64 };
             (pos, window_start + frame.end() as u64)
         })
         .collect();
@@ -668,22 +640,13 @@ pub enum ReadError {
 }
 
 /// One positioned read of a committed frame, checked (header, CRC, terminator) and parsed.
-pub fn read_frame<L: IoLane>(
-    _lane: &InLane<L>,
-    dir: &Path,
-    pos: FramePos,
-    frame_len: u64,
-) -> Result<Record, ReadError> {
+pub fn read_frame<L: IoLane>(_lane: &InLane<L>, dir: &Path, pos: FramePos, frame_len: u64) -> Result<Record, ReadError> {
     read_frame_unlaned(dir, pos, frame_len)
 }
 
 pub(crate) fn read_frame_unlaned(dir: &Path, pos: FramePos, frame_len: u64) -> Result<Record, ReadError> {
     let path = dir.join(log_name(pos.file_no));
-    let damaged = || ReadError::Damaged(Damage {
-        file_no: pos.file_no,
-        offset: pos.offset,
-        ordinal: pos.ordinal,
-    });
+    let damaged = || ReadError::Damaged(Damage { file_no: pos.file_no, offset: pos.offset, ordinal: pos.ordinal });
     if frame_len as usize > MAX_FRAME_LEN {
         return Err(damaged());
     }
@@ -713,11 +676,7 @@ pub(crate) fn first_ordinal_unlaned(dir: &Path) -> Result<u64, OpenError> {
 /// entries carry `FramePos`): the header names the length.
 pub fn read_frame_at<L: IoLane>(lane: &InLane<L>, dir: &Path, pos: FramePos) -> Result<Record, ReadError> {
     let path = dir.join(log_name(pos.file_no));
-    let damaged = || ReadError::Damaged(Damage {
-        file_no: pos.file_no,
-        offset: pos.offset,
-        ordinal: pos.ordinal,
-    });
+    let damaged = || ReadError::Damaged(Damage { file_no: pos.file_no, offset: pos.offset, ordinal: pos.ordinal });
     let mut file = File::open(&path).map_err(err(IoOp::Open, &path))?;
     let header = match read_range(&mut file, &path, pos.offset, HEADER_LEN) {
         Ok(h) => h,
@@ -744,16 +703,15 @@ pub struct ForwardRead {
 pub enum ForwardEnd {
     More(FramePos),
     /// End of the newest file: everything committed was read. `end` is the committed end.
-    Done { file_no: u32, end: u64, torn: bool },
+    Done {
+        file_no: u32,
+        end: u64,
+        torn: bool,
+    },
     Damaged(Damage),
 }
 
-pub fn read_forward<L: IoLane>(
-    _lane: &InLane<L>,
-    dir: &Path,
-    from: FramePos,
-    max_bytes: u64,
-) -> Result<ForwardRead, OpenError> {
+pub fn read_forward<L: IoLane>(_lane: &InLane<L>, dir: &Path, from: FramePos, max_bytes: u64) -> Result<ForwardRead, OpenError> {
     read_forward_unlaned(dir, from, max_bytes)
 }
 
@@ -775,11 +733,7 @@ pub(crate) fn read_forward_unlaned(dir: &Path, from: FramePos, max_bytes: u64) -
         let mut frames = Vec::with_capacity(scan.frames.len());
         let mut damage = None;
         for f in &scan.frames {
-            let pos = FramePos {
-                ordinal: f.ordinal,
-                file_no: from.file_no,
-                offset: from.offset + f.start as u64,
-            };
+            let pos = FramePos { ordinal: f.ordinal, file_no: from.file_no, offset: from.offset + f.start as u64 };
             match parse_record(f.payload(&buf)) {
                 Ok(r) => frames.push((r, pos, f.frame_len() as u64)),
                 Err(_) => {
@@ -788,9 +742,7 @@ pub(crate) fn read_forward_unlaned(dir: &Path, from: FramePos, max_bytes: u64) -
                 }
             }
         }
-        let after = frames
-            .last()
-            .map_or(from, |(_, p, l)| FramePos { ordinal: p.ordinal + 1, file_no: p.file_no, offset: p.offset + l });
+        let after = frames.last().map_or(from, |(_, p, l)| FramePos { ordinal: p.ordinal + 1, file_no: p.file_no, offset: p.offset + l });
         let next = if let Some(d) = damage {
             ForwardEnd::Damaged(d)
         } else {
@@ -800,11 +752,9 @@ pub(crate) fn read_forward_unlaned(dir: &Path, from: FramePos, max_bytes: u64) -
                     let next_no = files.iter().copied().find(|&n| n > from.file_no).expect("newer file");
                     ForwardEnd::More(FramePos { ordinal: after.ordinal, file_no: next_no, offset: 0 })
                 }
-                ScanEnd::Clean | ScanEnd::Torn { .. } if final_window => ForwardEnd::Done {
-                    file_no: from.file_no,
-                    end: after.offset,
-                    torn: matches!(scan.end, ScanEnd::Torn { .. }),
-                },
+                ScanEnd::Clean | ScanEnd::Torn { .. } if final_window => {
+                    ForwardEnd::Done { file_no: from.file_no, end: after.offset, torn: matches!(scan.end, ScanEnd::Torn { .. }) }
+                }
                 // A non-final window ended inside a frame or zeros: read on from there.
                 _ if after.offset > from.offset => ForwardEnd::More(after),
                 _ => {
@@ -960,11 +910,22 @@ pub struct WriterDeps {
 /// SM §8 states. `Dirty` and `RollingBack` exist only inside one `append_barrier` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriterState {
-    Clean { end: u64 },
-    Dirty { acked: u64, written: u64 },
-    RollingBack { target: u64 },
+    Clean {
+        end: u64,
+    },
+    Dirty {
+        acked: u64,
+        written: u64,
+    },
+    RollingBack {
+        target: u64,
+    },
     /// Persistent in memory until a rollback succeeds; no timer (SM §8 rule 2).
-    PendingRollback { target: u64, cause: String, second: bool },
+    PendingRollback {
+        target: u64,
+        cause: String,
+        second: bool,
+    },
     /// Ownership revalidation failed; the writer never touches the files again.
     Fenced(FenceReason),
 }
@@ -1056,23 +1017,14 @@ pub struct LogWriter {
 
 impl std::fmt::Debug for LogWriter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LogWriter")
-            .field("dir", &self.dir)
-            .field("file_no", &self.file_no)
-            .field("state", &self.state)
-            .finish()
+        f.debug_struct("LogWriter").field("dir", &self.dir).field("file_no", &self.file_no).field("state", &self.state).finish()
     }
 }
 
 impl LogWriter {
     /// Creates `dir` with `log.000000` holding the `session` frame (published whole). The
     /// catalog row (`dirty = 1`) is committed by the caller before this (RL §9.2 rule 4).
-    pub fn create(
-        _lane: &InLane<DurabilityIo>,
-        dir: &Path,
-        session: Encoded,
-        deps: WriterDeps,
-    ) -> Result<(LogWriter, BatchAck), AppendError> {
+    pub fn create(_lane: &InLane<DurabilityIo>, dir: &Path, session: Encoded, deps: WriterDeps) -> Result<(LogWriter, BatchAck), AppendError> {
         let Record::Session(record) = &session.record else {
             return Err(FoldError::Unexpected("first record must be a session").into());
         };
@@ -1095,16 +1047,7 @@ impl LogWriter {
         let projection = Projection {
             session: fold.session.clone(),
             head: std::sync::Arc::new(CatalogHead::of(&fold)),
-            frames: vec![ProjectedFrame {
-                pos,
-                frame_len: buf.len() as u64,
-                kind,
-                op,
-                receipt: None,
-                history_rev: 0,
-                rows: 0,
-                visible_rows: 0,
-            }],
+            frames: vec![ProjectedFrame { pos, frame_len: buf.len() as u64, kind, op, receipt: None, history_rev: 0, rows: 0, visible_rows: 0 }],
         };
         let writer = LogWriter {
             dir: dir.to_path_buf(),
@@ -1121,11 +1064,7 @@ impl LogWriter {
     }
 
     /// Open-for-append (SM §8 `Opening`): sweep tmp files, truncate a torn tail.
-    pub fn open(
-        _lane: &InLane<DurabilityIo>,
-        opened: OpenedLog,
-        deps: WriterDeps,
-    ) -> Result<LogWriter, OpenAppendError> {
+    pub fn open(_lane: &InLane<DurabilityIo>, opened: OpenedLog, deps: WriterDeps) -> Result<LogWriter, OpenAppendError> {
         if let LogStatus::Damaged(d) = opened.status {
             return Err(OpenAppendError::StoreDamaged(d));
         }
@@ -1140,11 +1079,7 @@ impl LogWriter {
         let state = match opened.status {
             LogStatus::Torn { offset } => match file.truncate(offset).and_then(|()| file.sync()) {
                 Ok(()) => WriterState::Clean { end: offset },
-                Err(e) => WriterState::PendingRollback {
-                    target: offset,
-                    cause: e.to_string(),
-                    second: false,
-                },
+                Err(e) => WriterState::PendingRollback { target: offset, cause: e.to_string(), second: false },
             },
             _ => WriterState::Clean { end: opened.file_len },
         };
@@ -1184,11 +1119,7 @@ impl LogWriter {
     /// `sync_file`). Its blobs are published first. A checkpoint leads the batch once
     /// `CHECKPOINT_EVERY` bytes were written since the last one; a batch that would pass
     /// `ROTATE_AT` goes to a new file published whole, starting with a checkpoint.
-    pub fn append_barrier(
-        &mut self,
-        _lane: &InLane<DurabilityIo>,
-        batch: Vec<Encoded>,
-    ) -> Result<BatchAck, AppendError> {
+    pub fn append_barrier(&mut self, _lane: &InLane<DurabilityIo>, batch: Vec<Encoded>) -> Result<BatchAck, AppendError> {
         self.append(batch, false)
     }
 
@@ -1214,10 +1145,7 @@ impl LogWriter {
                     Err(e) => Err(AppendError::Refused(self.io_err(IoOp::Truncate, e))),
                 }
             }
-            WriterState::Fenced(reason) => Err(AppendError::Fenced {
-                reason,
-                outcome: Outcome::NotApplied,
-            }),
+            WriterState::Fenced(reason) => Err(AppendError::Fenced { reason, outcome: Outcome::NotApplied }),
             WriterState::Dirty { .. } | WriterState::RollingBack { .. } => {
                 unreachable!("transient writer state outside a barrier")
             }
@@ -1246,11 +1174,7 @@ impl LogWriter {
     }
 
     fn io_err(&self, op: IoOp, source: io::Error) -> IoError {
-        IoError {
-            op,
-            path: self.path(self.file_no),
-            source,
-        }
+        IoError { op, path: self.path(self.file_no), source }
     }
 
     fn file_handle(&mut self) -> Result<&mut Box<dyn LogFile>, IoError> {
@@ -1274,14 +1198,10 @@ impl LogWriter {
 
         // Phase 1 of the fold: may fail; nothing is written then.
         let mut lookup = blob_lookup_many(batch.iter().flat_map(|e| &e.blobs), &deps.blobs);
-        let effects = self
-            .fold
-            .prepare(batch.iter().map(|e| &e.record), &*deps.index, &mut lookup)?;
+        let effects = self.fold.prepare(batch.iter().map(|e| &e.record), &*deps.index, &mut lookup)?;
         if effects.iter().any(crate::fold::Effect::reshapes) {
             writing.reshape();
         }
-
-
 
         let batch_len: u64 = batch.iter().map(|e| e.frame_len() as u64).sum();
         // A group larger than an in-place group is a group file (FORMAT.md §1, §6.1): its head
@@ -1289,11 +1209,7 @@ impl LogWriter {
         // is ever appended to a group file: the batch after it starts the next file.
         let group_file = batch.len() > 1 && batch_len > GROUP_IN_PLACE_MAX;
         let due = force_checkpoint || group_file || self.sealed || self.since_anchor >= CHECKPOINT_EVERY;
-        let mut checkpoint = if due || end + batch_len > ROTATE_AT {
-            Some(self.encode_checkpoint()?)
-        } else {
-            None
-        };
+        let mut checkpoint = if due || end + batch_len > ROTATE_AT { Some(self.encode_checkpoint()?) } else { None };
         let cp_len = checkpoint.as_ref().map_or(0, |c| c.frame_len() as u64);
         let rotate = group_file || self.sealed || end + cp_len + batch_len > ROTATE_AT;
         if !rotate && !due {
@@ -1403,9 +1319,7 @@ impl LogWriter {
         let mut effects = effects.into_iter();
         for (i, (&pos, &frame_len)) in positions.iter().zip(&lens).enumerate() {
             let (effect, kind, op, receipt) = match &checkpoint {
-                Some(cp) if i == 0 => {
-                    (crate::fold::Effect::None, crate::projection::FrameKind::Other, None, None)
-                }
+                Some(cp) if i == 0 => (crate::fold::Effect::None, crate::projection::FrameKind::Other, None, None),
                 _ => {
                     let record = &records.next().expect("one record per frame").record;
                     // The bodies are in the batch (or already stored): the fold read them too.
@@ -1436,20 +1350,13 @@ impl LogWriter {
         let skip = usize::from(checkpoint.is_some());
         Ok(BatchAck {
             positions: positions[skip..].to_vec(),
-            projection: Projection {
-                session: self.fold.session.clone(),
-                frames,
-                head: std::sync::Arc::new(CatalogHead::of(&self.fold)),
-            },
+            projection: Projection { session: self.fold.session.clone(), frames, head: std::sync::Arc::new(CatalogHead::of(&self.fold)) },
         })
     }
 
     fn encode_checkpoint(&self) -> Result<Encoded, AppendError> {
         let (state, blob) = body_slot(self.fold.checkpoint_state())?;
-        Ok(Encoded::new(
-            Record::Checkpoint(CheckpointRecord { state }),
-            blob.into_iter().collect(),
-        )?)
+        Ok(Encoded::new(Record::Checkpoint(CheckpointRecord { state }), blob.into_iter().collect())?)
     }
 
     /// `Dirty → RollingBack → Clean{acked}` (not applied) or `PendingRollback` (unknown).
@@ -1463,11 +1370,7 @@ impl LogWriter {
                 AppendError::BarrierFailed(cause)
             }
             Err(second) => {
-                self.state = WriterState::PendingRollback {
-                    target,
-                    cause: format!("{cause}; rollback: {second}"),
-                    second: true,
-                };
+                self.state = WriterState::PendingRollback { target, cause: format!("{cause}; rollback: {second}"), second: true };
                 AppendError::Indeterminate(cause)
             }
         }
@@ -1483,10 +1386,7 @@ fn truncate_fault() -> io::Result<()> {
 }
 
 fn revalidate(deps: &WriterDeps) -> Result<(), AppendError> {
-    deps.ownership.revalidate().map_err(|reason| AppendError::Fenced {
-        reason,
-        outcome: Outcome::NotApplied,
-    })
+    deps.ownership.revalidate().map_err(|reason| AppendError::Fenced { reason, outcome: Outcome::NotApplied })
 }
 
 fn blob_lookup(blobs: &[PendingBlob]) -> impl FnMut(&crate::schema::blob::BodyBlob) -> Result<Vec<u8>, String> + '_ {
@@ -1503,9 +1403,7 @@ fn blob_lookup_many<'a>(
     pending: impl Iterator<Item = &'a PendingBlob>,
     store: &'a BlobStore,
 ) -> impl FnMut(&crate::schema::blob::BodyBlob) -> Result<Vec<u8>, String> + 'a {
-    let map: HashMap<String, &'a [u8]> = pending
-        .map(|p| (p.digest.as_str().to_owned(), p.bytes.as_slice()))
-        .collect();
+    let map: HashMap<String, &'a [u8]> = pending.map(|p| (p.digest.as_str().to_owned(), p.bytes.as_slice())).collect();
     move |b| match map.get(b.descriptor().digest.as_str()) {
         Some(bytes) => Ok(bytes.to_vec()),
         None => store.read_unlaned(&b.descriptor().digest).map_err(|e| e.to_string()),
@@ -1533,12 +1431,7 @@ pub fn escape_key(key: &str) -> String {
 /// the damage point and syncs. A damaged group file (§3.6) is used whole or not at all: it is
 /// moved whole, wherever in it the damage was found, and the file before it becomes the newest.
 /// The caller then opens the log and appends `meta{set:{repairedAt, repairCutOrdinal}}`.
-pub fn repair_damage(
-    _lane: &InLane<DurabilityIo>,
-    data_dir: &Path,
-    session: &str,
-    damage: Damage,
-) -> Result<PathBuf, IoError> {
+pub fn repair_damage(_lane: &InLane<DurabilityIo>, data_dir: &Path, session: &str, damage: Damage) -> Result<PathBuf, IoError> {
     use crate::schema::migration::*;
     let dir = data_dir.join("sessions").join(session);
     let _writing = crate::log_epoch::writing(session);
@@ -1557,22 +1450,14 @@ pub fn repair_damage(
         .expect("a place has a free quarantine key");
     let files = list_logs(&dir).map_err(|e| match e {
         OpenError::Io(e) => e,
-        other => IoError {
-            op: IoOp::List,
-            path: dir.clone(),
-            source: io::Error::other(other.to_string()),
-        },
+        other => IoError { op: IoOp::List, path: dir.clone(), source: io::Error::other(other.to_string()) },
     })?;
     let path = dir.join(log_name(damage.file_no));
     let whole = is_group_file(&files, damage.file_no);
     let mut sources = Vec::new();
     let mut cut_file = None;
     if !whole {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .map_err(err(IoOp::Open, &path))?;
+        let mut file = OpenOptions::new().read(true).write(true).open(&path).map_err(err(IoOp::Open, &path))?;
         let size = file.metadata().map_err(err(IoOp::Read, &path))?.len();
         let cut = read_range(&mut file, &path, damage.offset, (size - damage.offset.min(size)) as usize)?;
         sources.push(QuarantinedSource {

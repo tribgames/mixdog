@@ -206,11 +206,7 @@ fn is_valid_codepoint(cp: f64) -> bool {
 }
 
 fn safe_from_code_point(cp: f64) -> String {
-    if is_valid_codepoint(cp) {
-        char::from_u32(cp as u32).map_or_else(|| "?".to_string(), |c| c.to_string())
-    } else {
-        "?".to_string()
-    }
+    if is_valid_codepoint(cp) { char::from_u32(cp as u32).map_or_else(|| "?".to_string(), |c| c.to_string()) } else { "?".to_string() }
 }
 
 fn resolve_event_type(value: f64) -> KeyEventType {
@@ -255,12 +251,8 @@ pub(super) fn parse_kitty_keypress(s: &str) -> Option<Keypress> {
     }
     let cp = codepoint as u32;
     // Text-as-codepoints field: colon-separated Unicode codepoints.
-    let mut text = m.text.map(|field| {
-        field
-            .split(':')
-            .map(|part| safe_from_code_point(if part.is_empty() { f64::NAN } else { digits_value(part) }))
-            .collect::<String>()
-    });
+    let mut text =
+        m.text.map(|field| field.split(':').map(|part| safe_from_code_point(if part.is_empty() { f64::NAN } else { digits_value(part) })).collect::<String>());
 
     let (name, is_printable) = if cp == 32 {
         ("space".to_string(), true)
@@ -290,11 +282,7 @@ pub(super) fn parse_kitty_keypress(s: &str) -> Option<Keypress> {
 /// Kitty-enhanced legacy special keys (arrows, function keys): the legacy CSI format with an added `:eventType` field.
 pub(super) fn parse_kitty_special_key(s: &str) -> Option<Keypress> {
     let (number, mods, event_type, terminator) = match_kitty_special(s)?;
-    let name = if terminator == b'~' {
-        special_number_key(digits_value(number))
-    } else {
-        special_letter_key(terminator)
-    }?;
+    let name = if terminator == b'~' { special_number_key(digits_value(number)) } else { special_letter_key(terminator) }?;
     let bits = modifier_bits(Some(mods));
     let mut key = with_modifiers(bits, resolve_event_type(digits_value(event_type)), s);
     key.name = name.to_string();

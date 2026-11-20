@@ -6,25 +6,15 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use mixdog_fsio::Unlaned;
 use mixdog_relay::web::hashed::{is_hashed_asset, is_hashed_asset_name};
-use mixdog_relay::web::readiness::{
-    Readiness, RendererReadiness, StaticResolution, inspect_renderer, resolve_static_target,
-};
-use mixdog_relay::web::releases::{
-    Clock, DeviceReport, DeviceSeen, ReleaseEntry, ReleaseIndex, RendererCatalog, RetentionOptions,
-};
+use mixdog_relay::web::readiness::{Readiness, RendererReadiness, StaticResolution, inspect_renderer, resolve_static_target};
+use mixdog_relay::web::releases::{Clock, DeviceReport, DeviceSeen, ReleaseEntry, ReleaseIndex, RendererCatalog, RetentionOptions};
 use serde_json::{Value, json};
 
 const DAY: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
 const NOW: f64 = 1_767_225_600_000.0; // Date.UTC(2026, 0, 1)
 
 fn entry(id: &str, desktop_version: &str, added_at: f64, legacy: bool, shell_version: &str) -> ReleaseEntry {
-    ReleaseEntry {
-        id: id.to_owned(),
-        desktop_version: desktop_version.to_owned(),
-        shell_version: shell_version.to_owned(),
-        added_at,
-        legacy,
-    }
+    ReleaseEntry { id: id.to_owned(), desktop_version: desktop_version.to_owned(), shell_version: shell_version.to_owned(), added_at, legacy }
 }
 
 fn release(id: &str, desktop_version: &str, added_at: f64) -> ReleaseEntry {
@@ -122,7 +112,8 @@ fn retention_keeps_legacy_the_newest_n_and_releases_recently_seen_devices_still_
 #[test]
 fn an_invalid_registry_is_rejected() {
     let doc = |releases: Vec<Value>| json!({ "schemaVersion": 1, "releases": releases });
-    let raw = |id: &str, desktop: &str, added_at: Value| json!({ "id": id, "desktopVersion": desktop, "shellVersion": "", "addedAt": added_at, "legacy": false });
+    let raw =
+        |id: &str, desktop: &str, added_at: Value| json!({ "id": id, "desktopVersion": desktop, "shellVersion": "", "addedAt": added_at, "legacy": false });
     assert!(parse_error(&doc(vec![raw("../x", "1.0.0", json!(1))])).contains("id"));
     assert!(parse_error(&doc(vec![raw("a", "", json!(1))])).contains("desktop version"));
     assert!(parse_error(&doc(vec![raw("a", "1.0.0", json!(1)), raw("a", "1.0.1", json!(2))])).contains("id"));
@@ -217,10 +208,7 @@ fn release_fixture() -> Fixture {
     write_release(&releases_dir.join("legacy"), "legacy", &legacy_shell);
     write_release(&releases_dir.join("2.0.0-new"), "new", &new_shell);
     write_release(&root.join("renderer"), "new", &new_shell);
-    write_registry(
-        &releases_dir,
-        &[entry("legacy", "", 1.0, true, &legacy_shell), entry("2.0.0-new", "2.0.0", 2.0, false, &new_shell)],
-    );
+    write_registry(&releases_dir, &[entry("legacy", "", 1.0, true, &legacy_shell), entry("2.0.0-new", "2.0.0", 2.0, false, &new_shell)]);
     Fixture { releases_dir, renderer_dir: root.join("renderer"), _guard: guard }
 }
 
@@ -459,10 +447,7 @@ fn readiness_fails_when_any_retained_release_is_broken() {
     time.fetch_add(11, Ordering::SeqCst);
     assert_eq!(readiness.check().status_code(), 200);
     // A registry entry whose tree is a different build is not ready either.
-    write_registry(
-        &fixture.releases_dir,
-        &[entry("legacy", "", 1.0, true, &"d".repeat(64)), entry("2.0.0-new", "2.0.0", 2.0, false, &"c".repeat(64))],
-    );
+    write_registry(&fixture.releases_dir, &[entry("legacy", "", 1.0, true, &"d".repeat(64)), entry("2.0.0-new", "2.0.0", 2.0, false, &"c".repeat(64))]);
     time.fetch_add(11, Ordering::SeqCst);
     assert_eq!(readiness.check().status_code(), 503);
 }

@@ -23,8 +23,8 @@ use super::line_diff::LineDiffBudget;
 use super::line_diff::LineDiffer;
 use super::line_diff::unified_hunks_body;
 use super::nodepath;
-use super::patch::clean;
 use super::patch::change_path_key;
+use super::patch::clean;
 use super::ports::WorktreeBase;
 use super::review_diff::Obj;
 use super::review_diff::bound_review_patch;
@@ -417,9 +417,11 @@ pub fn with_own_counts(files: Vec<Obj>, find: impl Fn(&str) -> Option<OwnStat>) 
 /// bounds a render.
 pub fn tracker_view(differ: &LineDiffer, state: &mut TrackerState, root: &PatchRoot, budget: &mut LineDiffBudget) -> View {
     if let Some(view) = &state.view
-        && view.revision == state.revision && view.root == root.root {
-            return view.clone();
-        }
+        && view.revision == state.revision
+        && view.root == root.root
+    {
+        return view.clone();
+    }
     struct Row {
         obj: Obj,
         text: String,
@@ -539,9 +541,9 @@ pub fn redo_tracked_chains(state: &mut TrackerState, root: &str, files: &[(Strin
     for key in keys {
         let matches = {
             let undone = &state.undone_chains[&key];
-            files.iter().any(|(path, old)| {
-                chain_matches_path(&undone.chain, root, path) || old.as_deref().is_some_and(|p| chain_matches_path(&undone.chain, root, p))
-            })
+            files
+                .iter()
+                .any(|(path, old)| chain_matches_path(&undone.chain, root, path) || old.as_deref().is_some_and(|p| chain_matches_path(&undone.chain, root, p)))
         };
         if !matches {
             continue;
@@ -563,13 +565,7 @@ pub fn drop_undone_chains(state: &mut TrackerState, keys: &IndexSet<String>) {
     let drop: Vec<String> = state
         .undone_chains
         .iter()
-        .filter(|(_, undone)| {
-            undone
-                .chain
-                .segments
-                .iter()
-                .any(|s| keys.contains(&path_key(&s.before.path)) || keys.contains(&path_key(&s.after.path)))
-        })
+        .filter(|(_, undone)| undone.chain.segments.iter().any(|s| keys.contains(&path_key(&s.before.path)) || keys.contains(&path_key(&s.after.path))))
         .map(|(key, _)| key.clone())
         .collect();
     for key in drop {
@@ -640,12 +636,7 @@ fn bounded_baseline_content(content: &ReviewContent) -> ReviewContent {
 /// Fold exact before/after states into the tracker as own segments (see [`append_segment`]).
 /// `snapshot` (the owning Lead turn's Git baseline, when tools are writing) learns each written
 /// path's first-before bytes.
-pub fn fold_tracked_changes(
-    state: &mut TrackerState,
-    list: &[TrackedChange],
-    snapshot: Option<&Arc<dyn WorktreeBase>>,
-    next_seq: &mut dyn FnMut() -> u64,
-) {
+pub fn fold_tracked_changes(state: &mut TrackerState, list: &[TrackedChange], snapshot: Option<&Arc<dyn WorktreeBase>>, next_seq: &mut dyn FnMut() -> u64) {
     // The content ceiling is enforced BEFORE anything is stored: an over-budget batch invalidates
     // the tracker up front instead of retaining its buffers.
     let incoming: usize = list.iter().map(|raw| content_len(&raw.before) + content_len(&raw.after)).sum();
@@ -740,10 +731,7 @@ pub fn merge_tracked_content(target: &mut TrackerState, source: &TrackerState) {
         return;
     }
     let segments_of = |state: &TrackerState| -> Vec<Segment> { state.chains.values().flat_map(|c| c.segments.iter().cloned()).collect() };
-    let written: IndexSet<String> = segments_of(source)
-        .iter()
-        .flat_map(|s| [path_key(&s.before.path), path_key(&s.after.path)])
-        .collect();
+    let written: IndexSet<String> = segments_of(source).iter().flat_map(|s| [path_key(&s.before.path), path_key(&s.after.path)]).collect();
     let mut segments = segments_of(target);
     segments.extend(segments_of(source));
     segments.sort_by_key(|s| s.first_seq);

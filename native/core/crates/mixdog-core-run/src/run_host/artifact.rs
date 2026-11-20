@@ -7,10 +7,10 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use mixdog_core_api::domain::tool::ToolIo;
-use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
 use mixdog_agent::offload::Artifact;
 use mixdog_agent::offload::ArtifactStore;
+use mixdog_core_api::domain::tool::ToolIo;
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
 use mixdog_store::fsio::Access;
 use mixdog_store::fsio::publish_file_with;
 use sha2::Digest;
@@ -93,11 +93,7 @@ fn sidecar_names(text: &str) -> Vec<String> {
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
 fn listed_sidecars(_lane: &InLane<DurabilityIo>, dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    entries
-        .flatten()
-        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".txt"))
-        .map(|entry| entry.path())
-        .collect()
+    entries.flatten().filter(|entry| entry.file_name().to_string_lossy().ends_with(".txt")).map(|entry| entry.path()).collect()
 }
 
 /// Every archive a prune has read, in order (tests count them).
@@ -115,7 +111,6 @@ mod tests {
         assert_eq!(split_lines("a"), 1);
         assert_eq!(split_lines("a\n"), 2);
     }
-
 
     fn io() -> ToolIo {
         let tokens = mixdog_rt::testing::tokens();
@@ -187,7 +182,14 @@ mod tests {
         let (archive, young) = (name('a'), name('c'));
         std::fs::write(dir.join(&archive), "older output is elsewhere").unwrap();
         std::fs::write(dir.join(&young), "new").unwrap();
-        let aged = |file: &str| std::fs::File::options().write(true).open(dir.join(file)).unwrap().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60)).unwrap();
+        let aged = |file: &str| {
+            std::fs::File::options()
+                .write(true)
+                .open(dir.join(file))
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60))
+                .unwrap()
+        };
         aged(&archive);
         let haystack = serde_json::json!([{ "content": format!("the archive is at {}", display(&dir.join(&archive))) }]).to_string();
         let now_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
@@ -212,7 +214,14 @@ mod tests {
         let (named, young) = (name('a'), name('b'));
         std::fs::write(dir.join(&named), "named output").unwrap();
         std::fs::write(dir.join(&young), "young output").unwrap();
-        let aged = |file: &str| std::fs::File::options().write(true).open(dir.join(file)).unwrap().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60)).unwrap();
+        let aged = |file: &str| {
+            std::fs::File::options()
+                .write(true)
+                .open(dir.join(file))
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60))
+                .unwrap()
+        };
         aged(&named);
         let haystack = serde_json::json!([{ "content": format!("the result is at {}", display(&dir.join(&named))) }]).to_string();
         let now_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
@@ -237,7 +246,6 @@ mod tests {
         assert_eq!(state(), (3, true, false));
     }
 }
-
 
 pub struct ToolResultArtifacts {
     io: ToolIo,
@@ -345,7 +353,8 @@ impl ToolResultArtifacts {
             return;
         }
         let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| (unkept(lane, &dir, candidates, &transcripts, now_ms).0, transcripts)) else {
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| (unkept(lane, &dir, candidates, &transcripts, now_ms).0, transcripts))
+        else {
             return;
         };
         let Ok((unkept, transcripts)) = job.await else { return };
@@ -360,7 +369,6 @@ impl ToolResultArtifacts {
         };
         let _ = job.await;
     }
-
 }
 /// Whether the sidecar at `path` is old enough to be pruned at `now_ms` (inside a durability-lane job).
 #[allow(clippy::disallowed_methods, reason = "called inside durability-lane job bodies")]
@@ -372,10 +380,12 @@ fn old(path: &Path, now_ms: u64) -> bool {
 /// archive walk can still keep. Reads no archive; a sidecar's age only once nothing names it.
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
 fn unkept(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>, transcripts: &str, now_ms: u64) -> (Vec<(String, PathBuf)>, Vec<String>) {
-    let candidates = candidates.into_iter().filter(|path| path.parent() == Some(dir)).filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)));
+    let candidates =
+        candidates.into_iter().filter(|path| path.parent() == Some(dir)).filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)));
     let fold = |text: &str| if cfg!(windows) { text.to_lowercase() } else { text.to_owned() };
     let haystack = fold(transcripts);
-    let mut unreferenced: Vec<(String, PathBuf)> = candidates.filter(|(name, path)| ![display(path), name.clone()].iter().any(|needle| haystack.contains(&fold(needle)))).collect();
+    let mut unreferenced: Vec<(String, PathBuf)> =
+        candidates.filter(|(name, path)| ![display(path), name.clone()].iter().any(|needle| haystack.contains(&fold(needle)))).collect();
     let mut reachable: Vec<String> = Vec::new();
     for name in sidecar_names(&haystack) {
         if !reachable.contains(&name) {
@@ -444,8 +454,7 @@ impl ArtifactStore for ToolResultArtifacts {
                 }
                 State::Foreign => false,
                 State::Damaged | State::Absent => {
-                    publish_file_with(&path, text.as_bytes(), Access::OwnerOnly).is_ok()
-                        && matches!(existing_state(lane, &path, &sha, len), State::Intact)
+                    publish_file_with(&path, text.as_bytes(), Access::OwnerOnly).is_ok() && matches!(existing_state(lane, &path, &sha, len), State::Intact)
                 }
             }
         });

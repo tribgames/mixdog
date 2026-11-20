@@ -61,24 +61,14 @@ pub enum StencilMask {
 
 /// An image XObject, or an inline image the page does not paint as a small inline image
 /// (`buildPaintImageXObject`'s `PDFImage.buildImage` and `createImageData(false)`), with its `SMask` or `Mask`.
-pub fn decode_image(
-    xref: &Xref,
-    resources: Option<&Dict>,
-    image: &Arc<PdfStream>,
-    is_inline: bool,
-) -> Result<ImageData> {
+pub fn decode_image(xref: &Xref, resources: Option<&Dict>, image: &Arc<PdfStream>, is_inline: bool) -> Result<ImageData> {
     PdfImage::build(xref, resources, image, is_inline)?.create_image_data(xref, false)
 }
 
 /// A small inline image without a mask (`new PDFImage` and `createImageData(true)`): always RGBA, or the 1 bit and
 /// RGB layouts are widened to RGBA.
-pub fn decode_small_inline_image(
-    xref: &Xref,
-    resources: Option<&Dict>,
-    image: &Arc<PdfStream>,
-) -> Result<ImageData> {
-    PdfImage::new(xref, resources, image, true, None, None, false, None)?
-        .create_image_data(xref, true)
+pub fn decode_small_inline_image(xref: &Xref, resources: Option<&Dict>, image: &Arc<PdfStream>) -> Result<ImageData> {
+    PdfImage::new(xref, resources, image, true, None, None, false, None)?.create_image_data(xref, true)
 }
 
 /// An image mask (`PDFImage.createMask`).
@@ -94,30 +84,15 @@ pub fn decode_image_mask(xref: &Xref, image: &Arc<PdfStream>) -> Result<StencilM
         Obj::Null => None,
         other => Some(truthy(&other)),
     };
-    let decode = if dict.has("D") {
-        xref.get_array(dict, "D")?
-    } else {
-        xref.get_array(dict, "Decode")?
-    };
+    let decode = if dict.has("D") { xref.get_array(dict, "D")? } else { xref.get_array(dict, "Decode")? };
     let inverse_decode = matches!(&decode, Obj::Array(values) if values.first().and_then(Obj::as_num).is_some_and(|d| d > 0.0));
-    let js_int = |x: f64| {
-        i64::from(if x.is_finite() {
-            x.trunc() as i64 as i32
-        } else {
-            0
-        })
-    };
+    let js_int = |x: f64| i64::from(if x.is_finite() { x.trunc() as i64 as i32 } else { 0 });
     let row_bytes = (((js_int(width) + 7) as i32) >> 3).max(0) as usize;
-    let rows = if height.is_finite() && height > 0.0 {
-        height as usize
-    } else {
-        0
-    };
+    let rows = if height.is_finite() && height > 0.0 { height as usize } else { 0 };
     let computed_length = buffer_length(&[row_bytes, rows])?;
     let source = PdfImage::new(xref, None, image, false, None, None, false, None)?;
     let bytes = source.mask_bytes(xref, computed_length)?;
-    if width == 1.0 && height == 1.0 && inverse_decode == (bytes.is_empty() || bytes[0] & 128 != 0)
-    {
+    if width == 1.0 && height == 1.0 && inverse_decode == (bytes.is_empty() || bytes[0] & 128 != 0) {
         return Ok(StencilMask::SingleOpaquePixel);
     }
     let actual_length = bytes.len();
@@ -134,12 +109,7 @@ pub fn decode_image_mask(xref: &Xref, image: &Arc<PdfStream>) -> Result<StencilM
         }
         data
     };
-    Ok(StencilMask::Mask(ImageMask {
-        width: width as usize,
-        height: rows,
-        interpolate,
-        data,
-    }))
+    Ok(StencilMask::Mask(ImageMask { width: width as usize, height: rows, interpolate, data }))
 }
 
 impl ImageData {
@@ -188,13 +158,7 @@ mod tests {
     use super::*;
 
     fn rgba(kind: ImageKind, width: usize, height: usize, data: Vec<u8>) -> ImageData {
-        ImageData {
-            width,
-            height,
-            interpolate: None,
-            kind,
-            data,
-        }
+        ImageData { width, height, interpolate: None, kind, data }
     }
 
     #[test]
@@ -205,12 +169,7 @@ mod tests {
 
     #[test]
     fn one_bit_rows_are_padded_and_a_set_bit_is_white() {
-        let image = rgba(
-            ImageKind::Grayscale1bpp,
-            3,
-            2,
-            vec![0b1010_0000, 0b0100_0000],
-        );
+        let image = rgba(ImageKind::Grayscale1bpp, 3, 2, vec![0b1010_0000, 0b0100_0000]);
         let out = image.to_rgba();
         let levels: Vec<u8> = out.chunks(4).map(|p| p[0]).collect();
         assert_eq!(levels, vec![255, 0, 255, 0, 255, 0]);
@@ -218,21 +177,9 @@ mod tests {
 
     #[test]
     fn extraction_counts_whole_channels_only() {
-        assert_eq!(
-            rgba(ImageKind::Rgb24, 2, 2, vec![0; 12]).extraction_channels(),
-            Some(3)
-        );
-        assert_eq!(
-            rgba(ImageKind::Rgba32, 2, 2, vec![0; 16]).extraction_channels(),
-            Some(4)
-        );
-        assert_eq!(
-            rgba(ImageKind::Grayscale1bpp, 8, 2, vec![0; 2]).extraction_channels(),
-            None
-        );
-        assert_eq!(
-            rgba(ImageKind::Rgb24, 0, 2, vec![0; 2]).extraction_channels(),
-            None
-        );
+        assert_eq!(rgba(ImageKind::Rgb24, 2, 2, vec![0; 12]).extraction_channels(), Some(3));
+        assert_eq!(rgba(ImageKind::Rgba32, 2, 2, vec![0; 16]).extraction_channels(), Some(4));
+        assert_eq!(rgba(ImageKind::Grayscale1bpp, 8, 2, vec![0; 2]).extraction_channels(), None);
+        assert_eq!(rgba(ImageKind::Rgb24, 0, 2, vec![0; 2]).extraction_channels(), None);
     }
 }

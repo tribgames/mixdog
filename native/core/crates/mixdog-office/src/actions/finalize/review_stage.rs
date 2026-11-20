@@ -137,7 +137,15 @@ fn apply_document_acceptance(handle: &SessionHandle, args: &Value, review: &mut 
 
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `reviewForFinalize(session, args, cwd, { timedStep, failOn, authored })`.
-    pub(crate) async fn review_for_finalize(&self, handle: &SessionHandle, args: &Value, cwd: &str, metrics: &mut StepMetrics, fail_on: &str, authored: bool) -> Result<ReviewStage, TransactionError> {
+    pub(crate) async fn review_for_finalize(
+        &self,
+        handle: &SessionHandle,
+        args: &Value,
+        cwd: &str,
+        metrics: &mut StepMetrics,
+        fail_on: &str,
+        authored: bool,
+    ) -> Result<ReviewStage, TransactionError> {
         let reviewed = if args.get("review") == Some(&Value::Bool(false)) {
             None
         } else {
@@ -149,7 +157,9 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         // A reused preview is the render the caller already received with its token; only pixels this call produced are new evidence
         // worth sending again.
         let review_images: Vec<Value> = match &reviewed {
-            Some(reviewed) if reviewed.pointer("/preview/reused") != Some(&Value::Bool(true)) => reviewed.get("_images").and_then(Value::as_array).cloned().unwrap_or_default(),
+            Some(reviewed) if reviewed.pointer("/preview/reused") != Some(&Value::Bool(true)) => {
+                reviewed.get("_images").and_then(Value::as_array).cloned().unwrap_or_default()
+            }
             _ => Vec::new(),
         };
         let mut review = reviewed.clone();

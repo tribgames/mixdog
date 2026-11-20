@@ -25,11 +25,7 @@ pub fn voice_feature_status(status: &Value) -> Value {
 #[cfg(test)]
 mod tests {
 
-
     use super::*;
-
-
-
 
     #[test]
     fn feature_status_adds_installing_to_the_public_view() {
@@ -39,9 +35,6 @@ mod tests {
             json!({"enabled": true, "installed": false, "components": {"whisper": true, "model": false, "ffmpeg": true}, "installing": true})
         );
     }
-
-
-
 }
 
 /// `setVoice`: toggles voice and reports it only when it reached the requested state (enabling
@@ -52,10 +45,7 @@ pub async fn set_voice_enabled(setup: &VoiceSetup, enabled: bool) -> Result<Valu
     if (status["enabled"] == true) != enabled || (enabled && status["installed"] != true) {
         let state = if enabled { "installed and enabled" } else { "disabled" };
         let reason = result.notice_error().map(|e| format!(": {e}")).unwrap_or_default();
-        return Err(PortError::Failed {
-            capability: "voice".into(),
-            message: format!("Voice did not reach the requested {state} state{reason}"),
-        });
+        return Err(PortError::Failed { capability: "voice".into(), message: format!("Voice did not reach the requested {state} state{reason}") });
     }
     Ok(json!({"voice": public_voice(&status), "appliesTo": "channel voice transcription and Desktop dictation now"}))
 }

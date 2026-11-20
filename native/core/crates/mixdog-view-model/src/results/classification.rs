@@ -40,8 +40,7 @@ static BRACKET_ERROR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r
 static SHELL_TOOL_FAILED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^error:\s*\[shell-tool-failed\]", "i"));
 static SHELL_RUN_FAILED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^error:\s*\[shell-run-failed\]", "i"));
 static EXIT_CODE_MARK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[exit code:", "i"));
-static INTERRUPTED_MARK: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\[timeout:|\[signal:|timed out|aborted|interrupted", "i"));
+static INTERRUPTED_MARK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[timeout:|\[signal:|timed out|aborted|interrupted", "i"));
 static TIMEOUT_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[(?:timeout:|signal:)", "i"));
 
 /// What a result string says about itself.

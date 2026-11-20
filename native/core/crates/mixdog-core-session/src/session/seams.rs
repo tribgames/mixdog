@@ -15,6 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use mixdog_app_protocol::v2::thread::TurnInput;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Feed;
@@ -41,7 +42,6 @@ use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunRecord;
 use mixdog_store::sqlite::CompactionEntry;
 use mixdog_tools::policy::SessionSurface;
-use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -70,11 +70,7 @@ pub struct CommitRecord {
 /// FORMAT.md §5.1 record encoding with the §4.2 body-slot rule. Runs on cpu-interactive.
 pub trait RecordCodec: Send + Sync + 'static {
     /// Fails `itemTooLarge` for a body above `MAX_BLOB_BYTES`.
-    fn encode(
-        &self,
-        lane: &InLane<CpuInteractive>,
-        record: &Record,
-    ) -> Result<EncodedRecord, CoreError>;
+    fn encode(&self, lane: &InLane<CpuInteractive>, record: &Record) -> Result<EncodedRecord, CoreError>;
 }
 
 /// How a barrier failed (SM §8).
@@ -103,11 +99,7 @@ pub trait SessionLog: Send + 'static {
     /// `Ownership::revalidate`, SPEC R24). A writer in `PendingRollback` first retries its
     /// rollback and fails the batch `Indeterminate`, unwritten, if that fails again.
     /// Returns the ordinal of each record of `batch`, in order.
-    fn commit(
-        &mut self,
-        lane: &InLane<DurabilityIo>,
-        batch: &[CommitRecord],
-    ) -> Result<Vec<u64>, BarrierError>;
+    fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError>;
 
     /// The user's "Retry storage" (SM §8): the `PendingRollback` truncation alone. A writer in
     /// `Clean` answers `Ok`.
@@ -389,8 +381,7 @@ pub fn header_fields(header: &Header, fields: &[&str]) -> Option<Header> {
 /// The thread store's open and create paths (FORMAT.md §6.3, SPEC R28).
 pub trait ThreadStore: Send + Sync + 'static {
     /// J1. `threadNotFound` for an unknown id.
-    fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId)
-    -> Result<HeadRead, CoreError>;
+    fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError>;
 
     /// A stored session's whole header (its folded record), read without opening the thread:
     /// `threadNotFound` for an unknown or deleted one.
@@ -417,38 +408,19 @@ pub trait ThreadStore: Send + Sync + 'static {
     fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError>;
 
     /// J2.
-    fn read_window(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        head: &HeadRead,
-    ) -> Result<WindowRead, CoreError>;
+    fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &HeadRead) -> Result<WindowRead, CoreError>;
 
     /// Frame scan, CRC and record parse of both reads.
-    fn decode(
-        &self,
-        lane: &InLane<CpuInteractive>,
-        id: &ThreadId,
-        head: HeadRead,
-        window: WindowRead,
-    ) -> Result<OpenedLog, CoreError>;
+    fn decode(&self, lane: &InLane<CpuInteractive>, id: &ThreadId, head: HeadRead, window: WindowRead) -> Result<OpenedLog, CoreError>;
 
     /// The lineage's non-superseded `user` rows, oldest first: the whole transcript today's
     /// `recomputePromptHistory` scans (a thread's prompt-history session part).
-    fn user_rows(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-    ) -> Result<Vec<ItemRecord>, CoreError>;
+    fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<ItemRecord>, CoreError>;
 
     /// The lineage's whole history, oldest first, as the transcript pages it (archived rows
     /// included): the session's whole stored conversation (`readSessionHistory`), with the
     /// history revision it is read at (it moves on every rewind and clear).
-    fn history_rows(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-    ) -> Result<(u64, Vec<ItemRecord>), CoreError>;
+    fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<ItemRecord>), CoreError>;
 
     /// A bounded scan of the same records as [`Self::history_rows`], newest first. `None` means the store cannot
     /// provide one consistent scan; the caller discards any partial result and uses the whole-history read.
@@ -478,12 +450,7 @@ pub trait ThreadStore: Send + Sync + 'static {
 
     /// [`history_rows`](Self::history_rows) of the newest `rows` rows only (oldest first), with whether they are all of
     /// the history: a page of the transcript reads the rows it shows, not the whole conversation.
-    fn history_tail(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        rows: usize,
-    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
+    fn history_tail(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, rows: usize) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
         let (rev, mut all) = self.history_rows(lane, id)?;
         let complete = all.len() <= rows;
         all.drain(..all.len().saturating_sub(rows));
@@ -497,12 +464,7 @@ pub trait ThreadStore: Send + Sync + 'static {
     }
 
     /// [`history_tail`](Self::history_tail) with each record's [`RowDecor`] (one per record; empty for a store that marks none).
-    fn history_tail_decor(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        rows: usize,
-    ) -> Result<(u64, Vec<ItemRecord>, Vec<RowDecor>, bool), CoreError> {
+    fn history_tail_decor(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, rows: usize) -> Result<(u64, Vec<ItemRecord>, Vec<RowDecor>, bool), CoreError> {
         let (rev, records, complete) = self.history_tail(lane, id, rows)?;
         Ok((rev, records, Vec::new(), complete))
     }
@@ -530,32 +492,17 @@ pub trait ThreadStore: Send + Sync + 'static {
 
     /// The live history row `iid` of the lineage with its ordinal, as the transcript reads it;
     /// `None` when no live row has that id.
-    fn history_row(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        iid: &str,
-    ) -> Result<Option<(u64, ItemRecord)>, CoreError>;
+    fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError>;
 
     /// The live `compacted` frame of the lineage whose replacement holds the entry `iid` (a
     /// compaction summary has no history row), with its ordinal and `cid`: a `model_switch`
     /// anchor on it is `{iid, ordinal}`. The newest such frame; `None` when no live one
     /// holds it.
-    fn compaction_entry(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        iid: &str,
-    ) -> Result<Option<CompactionEntry>, CoreError>;
+    fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<CompactionEntry>, CoreError>;
 
     /// The io step of a model-context read (the lineage's model rows since its last
     /// compaction, as acked so far): `None` starts the read; a stale page restarts it.
-    fn context_io(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        read: Option<ContextRead>,
-    ) -> Result<ContextRead, CoreError>;
+    fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
 
     /// How many rows [`context_io`](Self::context_io) and [`context_cpu`](Self::context_cpu) would read: the length of the
     /// model context, answered without reading, decoding or returning a row.
@@ -611,29 +558,15 @@ pub trait ThreadStore: Send + Sync + 'static {
     }
 
     /// The cpu step of a model-context read.
-    fn context_cpu(
-        &self,
-        lane: &InLane<CpuInteractive>,
-        read: ContextRead,
-    ) -> Result<ContextStep, CoreError>;
+    fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
 
     /// Open for append under the writer claim (tmp sweep, torn-tail truncation, SM §8
     /// `Opening`), at the thread's first write.
-    fn open_log(
-        &self,
-        lane: &InLane<DurabilityIo>,
-        id: &ThreadId,
-        at: AppendPosition,
-    ) -> Result<Box<dyn SessionLog>, BarrierError>;
+    fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
 
     /// A new session: publishes `log.000000` whose first frame is `session` (`publish_file`).
     /// Returns the writer and the session frame's ordinal.
-    fn create_log(
-        &self,
-        lane: &InLane<DurabilityIo>,
-        id: &ThreadId,
-        session: &CommitRecord,
-    ) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
+    fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
 
     /// A write of a run's draft file beside the thread's log (`mixdog_store::draft_file`).
     fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
@@ -662,22 +595,7 @@ pub fn updates(existing: &ThreadItem, update: &ThreadItem) -> bool {
 /// every `ToolRun` fact the update sets; any other update replaces the item.
 pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
     match (existing, update) {
-        (
-            ThreadItem::ToolCall {
-                id,
-                name,
-                input,
-                output,
-                run,
-                meta,
-            },
-            ThreadItem::ToolCall {
-                output: new_output,
-                run: new_run,
-                meta: new_meta,
-                ..
-            },
-        ) => {
+        (ThreadItem::ToolCall { id, name, input, output, run, meta }, ThreadItem::ToolCall { output: new_output, run: new_run, meta: new_meta, .. }) => {
             // The result decides how the call ended (`Failed` for an error result), as a restore attaching it does
             // (`attachRestoredToolResult`); the rest of the call's meta stays.
             let mut meta = meta.clone();
@@ -697,14 +615,7 @@ pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
             overlay(&mut run.completed_count, &new_run.completed_count);
             overlay(&mut run.aggregate, &new_run.aggregate);
             overlay(&mut run.live, &new_run.live);
-            ThreadItem::ToolCall {
-                id: id.clone(),
-                name: name.clone(),
-                input: input.clone(),
-                output: new_output.clone().or_else(|| output.clone()),
-                run,
-                meta,
-            }
+            ThreadItem::ToolCall { id: id.clone(), name: name.clone(), input: input.clone(), output: new_output.clone().or_else(|| output.clone()), run, meta }
         }
         _ => update.clone(),
     }
@@ -898,13 +809,7 @@ pub trait NewThreadPlace: Send + Sync + 'static {
     /// `createNewTask`'s worktree step, before the first prompt (`session-host-lifecycle.ts:847-897`): the created
     /// `thread` enters the draft's `worktree` (`{branch?, create?, confirmLarge?, fromDefault?}`) through the workspace
     /// service. `input` is the start's `initialInput` (its prompt titles the worktree, its submission id keys it).
-    async fn enter_worktree(
-        &self,
-        thread: &ThreadId,
-        worktree: &Value,
-        input: Option<&Value>,
-        cancel: &CancellationToken,
-    ) -> Result<(), CoreError>;
+    async fn enter_worktree(&self, thread: &ThreadId, worktree: &Value, input: Option<&Value>, cancel: &CancellationToken) -> Result<(), CoreError>;
 }
 
 /// `refreshEmptySessionToolPolicy()` (`tool-policy-refresh.mjs`): an empty, idle Lead thread's tool surface and prompt are
@@ -1099,10 +1004,5 @@ pub trait RunFactory: Send + Sync + 'static {
 
 /// The thread feed of one actor instance (`feed.id = threadId`, a fresh epoch per load).
 pub trait FeedFactory: Send + Sync + 'static {
-    fn thread_feed(
-        &self,
-        id: FeedId,
-        epoch: FeedEpoch,
-        view: Arc<dyn FeedView>,
-    ) -> Arc<dyn Feed>;
+    fn thread_feed(&self, id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>) -> Arc<dyn Feed>;
 }

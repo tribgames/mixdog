@@ -65,14 +65,7 @@ fn as_active(wparam: usize) -> usize {
     (wparam & !0xffff) | 1
 }
 
-unsafe extern "system" fn keep_active(
-    hwnd: Hwnd,
-    message: u32,
-    wparam: usize,
-    lparam: isize,
-    _id: usize,
-    _data: usize,
-) -> isize {
+unsafe extern "system" fn keep_active(hwnd: Hwnd, message: u32, wparam: usize, lparam: isize, _id: usize, _data: usize) -> isize {
     match message {
         // A minimized window's activation change goes through unchanged.
         WM_NCACTIVATE if IsIconic(hwnd) == 0 => DefSubclassProc(hwnd, message, as_active(wparam), lparam),

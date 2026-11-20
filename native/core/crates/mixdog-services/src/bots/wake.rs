@@ -147,7 +147,10 @@ fn wake_prompt(w: &WakeItems) -> String {
         lines.extend(w.evidence.iter().map(|line| format!("- {line}")));
     }
     lines.push(String::new());
-    lines.push("Judge from these. Open a session by its id (session read) only when an item leaves it unclear; never search files or list sessions to rebuild them.".into());
+    lines.push(
+        "Judge from these. Open a session by its id (session read) only when an item leaves it unclear; never search files or list sessions to rebuild them."
+            .into(),
+    );
     if !w.last_report.is_empty() {
         lines.push(format!("Your last heartbeat message to the user (do not repeat it): \"{}\"", w.last_report));
     }

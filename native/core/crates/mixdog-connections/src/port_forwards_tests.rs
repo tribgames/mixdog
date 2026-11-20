@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 
-use mixdog_ssh::command::{FailureClass, SshError};
 use mixdog_rt::DurabilityIo;
+use mixdog_ssh::command::{FailureClass, SshError};
 
 use super::*;
 use crate::paths::ConnectionsPaths;

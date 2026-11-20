@@ -171,7 +171,6 @@ fn obj(v: &Value) -> Obj {
     v.as_object().cloned().unwrap_or_default()
 }
 
-
 pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<Log>>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
@@ -180,7 +179,8 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
     std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["config"] })).unwrap()).unwrap();
     let (config, _) = Config::open(&path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     // The model list reads the catalog the case recorded (`snapshot`), none when it records none.
-    let snapshot: CatalogSnapshot = if case["snapshot"].is_null() { CatalogSnapshot::default() } else { serde_json::from_value(case["snapshot"].clone()).unwrap() };
+    let snapshot: CatalogSnapshot =
+        if case["snapshot"].is_null() { CatalogSnapshot::default() } else { serde_json::from_value(case["snapshot"].clone()).unwrap() };
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let catalog = Arc::new(CatalogService::cold_start(snapshot, Vec::new(), ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
     let models = Arc::new(ModelListService {
@@ -188,7 +188,7 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
         config: config.clone(),
         primary_provider: Arc::new(String::new),
         unsupported: Arc::new(UnsupportedEfforts::default()),
-            host: None,
+        host: None,
     });
     if !case["fileOverride"].is_null() {
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["fileOverride"] })).unwrap()).unwrap();
@@ -205,7 +205,6 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
     };
     (service, writer, log, dir)
 }
-
 
 /// A provider listing held open by the test: it says it was asked, then answers nothing once released.
 struct Gated {
@@ -235,13 +234,15 @@ async fn a_model_chosen_while_the_catalog_is_read_is_taken_not_refused() {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let source = ModelSource::new(serde_json::from_value(json!("openai-oauth")).unwrap(), Arc::new(Gated { asked: asked.clone(), release: release.clone() }));
-    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), vec![source], ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
+    let catalog = Arc::new(
+        CatalogService::cold_start(CatalogSnapshot::default(), vec![source], ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await,
+    );
     service.models = Arc::new(ModelListService {
         catalog,
         config: service.config.clone(),
         primary_provider: Arc::new(String::new),
         unsupported: Arc::new(UnsupportedEfforts::default()),
-            host: None,
+        host: None,
     });
     let pick = async {
         asked.notified().await;
@@ -258,7 +259,6 @@ async fn a_model_chosen_while_the_catalog_is_read_is_taken_not_refused() {
     let refused = service.ready_default(&thread).await.expect_err("still no model");
     assert!(refused.starts_with("No provider models available"), "{refused}");
 }
-
 
 struct Lists(Vec<ModelRecord>);
 
@@ -280,7 +280,9 @@ async fn a_default_route_with_no_model_is_told_to_choose_one_when_the_catalog_li
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let record = mixdog_ai::providers::openai::models::codex_record(&json!({ "slug": "gpt-5-codex", "display_name": "GPT 5" })).unwrap();
     let source = ModelSource::new(serde_json::from_value(json!("openai-oauth")).unwrap(), Arc::new(Lists(vec![record])));
-    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), vec![source], ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
+    let catalog = Arc::new(
+        CatalogService::cold_start(CatalogSnapshot::default(), vec![source], ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await,
+    );
     service.models = Arc::new(ModelListService {
         catalog,
         config: service.config.clone(),

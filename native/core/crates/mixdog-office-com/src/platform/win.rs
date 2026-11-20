@@ -13,12 +13,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::FILETIME;
 use windows::Win32::Foundation::GENERIC_READ;
 use windows::Win32::Foundation::GENERIC_WRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Foundation::LPARAM;
-use windows::Win32::Foundation::FILETIME;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Foundation::WAIT_TIMEOUT;
 use windows::Win32::Storage::FileSystem::CreateFileW;
@@ -32,8 +32,8 @@ use windows::Win32::Storage::FileSystem::OPEN_EXISTING;
 use windows::Win32::Storage::FileSystem::ReadFile;
 use windows::Win32::Storage::FileSystem::SetFilePointerEx;
 use windows::Win32::Storage::FileSystem::WriteFile;
-use windows::Win32::System::Com::COWAIT_DISPATCH_WINDOW_MESSAGES;
 use windows::Win32::System::Com::CLSIDFromProgID;
+use windows::Win32::System::Com::COWAIT_DISPATCH_WINDOW_MESSAGES;
 use windows::Win32::System::Com::CoCreateGuid;
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::Com::CoWaitForMultipleHandles;
@@ -295,10 +295,7 @@ impl Platform for WindowsPlatform {
     }
 
     fn visible_window_descriptions_for_process(&self, process_id: i32) -> Vec<String> {
-        windows_of_process(process_id)
-            .into_iter()
-            .map(|hwnd| format!("{}|{}", class_name(hwnd, 128), window_text(hwnd, 1024)))
-            .collect()
+        windows_of_process(process_id).into_iter().map(|hwnd| format!("{}|{}", class_name(hwnd, 128), window_text(hwnd, 1024))).collect()
     }
 
     fn find_window_by_class_and_title(&self, class: &str, title_part: &str) -> i64 {
@@ -439,18 +436,9 @@ impl Platform for WindowsPlatform {
         let wide = wide_path(path);
         // SAFETY: `wide` is NUL-terminated and outlives the call. Share mode 0 is the point of the call: mixdog-fsio's
         // OpenOptions has no share mode and std::fs is banned.
-        let handle = unsafe {
-            CreateFileW(
-                PCWSTR(wide.as_ptr()),
-                GENERIC_READ.0 | GENERIC_WRITE.0,
-                FILE_SHARE_NONE,
-                None,
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                None,
-            )
-        }
-        .map_err(io::Error::other)?;
+        let handle =
+            unsafe { CreateFileW(PCWSTR(wide.as_ptr()), GENERIC_READ.0 | GENERIC_WRITE.0, FILE_SHARE_NONE, None, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None) }
+                .map_err(io::Error::other)?;
         Ok(Box::new(ExclusiveFile(OwnedHandle(handle))))
     }
 

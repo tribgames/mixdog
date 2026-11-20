@@ -9,12 +9,12 @@
 //! The relay tunnel that forwards a public URL to this port is not part of the listener.
 
 use std::convert::Infallible;
+use std::future::Future;
 use std::io::{self, ErrorKind};
 use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::future::Future;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -139,13 +139,10 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
             let (service, farewell, state) = (Arc::clone(&service), Arc::clone(&farewell), Arc::clone(&state));
             async move {
                 state.idle.store(false, Ordering::Release);
-                respond(request, &service)
-                    .await
-                    .map(|reply| reply.map(|body| Chunked { finished: Some(state), ..body }))
-                    .map_err(|Farewell(bytes)| {
-                        *farewell.lock().expect("the farewell slot is never held across a panic") = Some(bytes);
-                        Hung
-                    })
+                respond(request, &service).await.map(|reply| reply.map(|body| Chunked { finished: Some(state), ..body })).map_err(|Farewell(bytes)| {
+                    *farewell.lock().expect("the farewell slot is never held across a panic") = Some(bytes);
+                    Hung
+                })
             }
         })
     };
@@ -157,7 +154,10 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
         .header_read_timeout(HEADERS_TIMEOUT)
         .max_buf_size(MAX_HEAD_BYTES)
         .max_headers(MAX_HEADERS_COUNT)
-        .serve_connection(TokioIo::new(Lingering { stream: Some(stream), farewell: Arc::clone(&farewell), state: Arc::clone(&state), idle_timer: None }), handler);
+        .serve_connection(
+            TokioIo::new(Lingering { stream: Some(stream), farewell: Arc::clone(&farewell), state: Arc::clone(&state), idle_timer: None }),
+            handler,
+        );
     tokio::pin!(connection);
     tokio::select! {
         ended = connection.as_mut() => {
@@ -332,11 +332,8 @@ struct Peer {
 
 fn peer(parts: &hyper::http::request::Parts) -> Peer {
     let chunked = parts.version == hyper::Version::HTTP_11;
-    let closes = parts
-        .headers
-        .get_all(hyper::header::CONNECTION)
-        .iter()
-        .any(|v| v.to_str().is_ok_and(|s| s.split(',').any(|t| t.trim().eq_ignore_ascii_case("close"))));
+    let closes =
+        parts.headers.get_all(hyper::header::CONNECTION).iter().any(|v| v.to_str().is_ok_and(|s| s.split(',').any(|t| t.trim().eq_ignore_ascii_case("close"))));
     Peer { alive: chunked && !closes, chunked, head: parts.method == hyper::Method::HEAD }
 }
 

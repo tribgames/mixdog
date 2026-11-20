@@ -16,18 +16,18 @@ use super::CatalogTraits;
 use super::ListingLookup;
 use super::ModelSource;
 use super::ModelsDev;
+use super::ModelsDevSource;
+use super::ProviderCatalog;
+use super::RefreshOutcome;
 use super::lookup::Lookup;
 use super::record::Capability;
 use super::rosters::Rosters;
 use super::route_meta::RouteProvider;
 use super::route_meta::RouteProviders;
-use crate::oauth::CredentialIo;
-use crate::transport::http::HttpSend;
-use super::ModelsDevSource;
-use super::ProviderCatalog;
-use super::RefreshOutcome;
 use super::store::Ask;
 use super::store::CatalogSnapshot;
+use crate::oauth::CredentialIo;
+use crate::transport::http::HttpSend;
 
 /// `reg().getAllProviders()`: the registered providers by name, as they are when it is called.
 type RegisteredProviders = Box<dyn Fn() -> Vec<(ProviderId, Arc<dyn ProviderAdapter>)> + Send + Sync>;
@@ -76,11 +76,7 @@ impl CatalogService {
     /// Cold start: `initial` is the snapshot restored from disk (or empty).
     /// The cached models.dev file, however old, is applied at once so
     /// `catalog_wire` and `outputs_text` carry data before the first refresh.
-    pub async fn cold_start(
-        initial: CatalogSnapshot,
-        sources: Vec<ModelSource>,
-        metadata: Arc<ModelsDevSource>,
-    ) -> Self {
+    pub async fn cold_start(initial: CatalogSnapshot, sources: Vec<ModelSource>, metadata: Arc<ModelsDevSource>) -> Self {
         let catalog = Arc::new(ProviderCatalog::new(initial));
         metadata.warm_from_disk().await;
         let service = Self {
@@ -136,9 +132,7 @@ impl CatalogService {
     /// construction's list.
     pub fn sources(&self) -> Arc<Vec<ModelSource>> {
         match self.registered.load().as_ref() {
-            Some(registered) => Arc::new(
-                registered().into_iter().filter_map(|(provider, adapter)| self.model_source(provider, adapter)).collect(),
-            ),
+            Some(registered) => Arc::new(registered().into_iter().filter_map(|(provider, adapter)| self.model_source(provider, adapter)).collect()),
             None => self.sources.load_full(),
         }
     }
@@ -172,17 +166,10 @@ impl CatalogService {
         self.load_seq.load().as_ref().map_or(0, |seq| seq())
     }
 
-
     /// The catalog as the daemon composes it, the one place that decides which layers it has: cold-started
     /// from `initial`, with the models.dev table, the LiteLLM table (`litellm-catalog.json`, fetched and cached
     /// as models.dev is) and the roster files, all in the plugin data directory `data_dir`.
-    pub async fn composed(
-        initial: CatalogSnapshot,
-        sources: Vec<ModelSource>,
-        http: Arc<dyn HttpSend>,
-        data_dir: PathBuf,
-        io: CredentialIo,
-    ) -> Self {
+    pub async fn composed(initial: CatalogSnapshot, sources: Vec<ModelSource>, http: Arc<dyn HttpSend>, data_dir: PathBuf, io: CredentialIo) -> Self {
         let metadata = ModelsDevSource::new(http.clone(), data_dir.clone(), io);
         let litellm = ModelsDevSource::litellm(http, data_dir.clone(), io);
         Self::cold_start(initial, sources, metadata).await.with_litellm(litellm).await.with_rosters(data_dir)
@@ -194,12 +181,7 @@ impl CatalogService {
     }
 
     fn publish_listing(&self) {
-        self.listing.publish(
-            self.litellm.as_ref().and_then(|s| s.current()),
-            self.metadata.current(),
-            self.rosters.load_full(),
-            Some(self.metadata.clone()),
-        );
+        self.listing.publish(self.litellm.as_ref().and_then(|s| s.current()), self.metadata.current(), self.rosters.load_full(), Some(self.metadata.clone()));
     }
 
     /// Adds the LiteLLM price table (a [`ModelsDevSource::litellm`] source):
@@ -442,12 +424,7 @@ impl CatalogService {
                 source.load(false).await;
             }
         };
-        let (outcome, _, ()) = futures::future::join3(
-            self.catalog.refresh_whole(&sources, ask),
-            self.metadata.load(false),
-            litellm,
-        )
-        .await;
+        let (outcome, _, ()) = futures::future::join3(self.catalog.refresh_whole(&sources, ask), self.metadata.load(false), litellm).await;
         self.publish_listing();
         outcome
     }

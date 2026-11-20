@@ -17,10 +17,7 @@
 
 use std::time::Duration;
 
-use mixdog_core_api::domain::retry::{
-    AdviceCombine, AdviceRule, Backoff, Jitter, JitterStage, RetryPolicy, RetryRow, RetrySchedule,
-    StatusRules,
-};
+use mixdog_core_api::domain::retry::{AdviceCombine, AdviceRule, Backoff, Jitter, JitterStage, RetryPolicy, RetryRow, RetrySchedule, StatusRules};
 
 use crate::providers::first_byte::FirstByteSettings;
 
@@ -42,11 +39,7 @@ fn profiled(schedule: RetrySchedule, status: StatusRules, reasks: Option<u32>) -
     policy.request = RetryRow::single(schedule.clone());
     policy.midstream = RetryRow::single(schedule);
     policy.recovery = None;
-    policy.status = StatusRules {
-        retry_429: true,
-        retry_529: true,
-        ..status
-    };
+    policy.status = StatusRules { retry_429: true, retry_529: true, ..status };
     policy.final_on_exhaust = true;
     policy.empty_response_reasks = reasks;
     policy
@@ -54,10 +47,7 @@ fn profiled(schedule: RetrySchedule, status: StatusRules, reasks: Option<u32>) -
 
 /// Advice waited in full up to `ceiling`; a longer wait is not served.
 fn in_full_to(ceiling: Duration) -> AdviceRule {
-    AdviceRule {
-        ceiling: Some(ceiling),
-        ..AdviceRule::honored_in_full()
-    }
+    AdviceRule { ceiling: Some(ceiling), ..AdviceRule::honored_in_full() }
 }
 
 /// A provider without a profile (custom endpoints, gateways, local servers (without recovery: `providers/local`),
@@ -74,12 +64,7 @@ pub(crate) fn unprofiled_with(jitter: Jitter) -> RetryPolicy {
     // ms with ±20 % jitter. The first value is never read (retry n reads
     // index n), so the retries wait 1, 2, 4 and 8 s. One loop covers the
     // request and the stream, so both rows are the same schedule.
-    let schedule = RetrySchedule {
-        max_retries: 4,
-        backoff: ladder(&[1000, 2000, 4000, 8000]),
-        jitter,
-        advice: in_full_to(secs(60)),
-    };
+    let schedule = RetrySchedule { max_retries: 4, backoff: ladder(&[1000, 2000, 4000, 8000]), jitter, advice: in_full_to(secs(60)) };
     let mut policy = RetryPolicy::codex_default();
     policy.request = RetryRow::single(schedule.clone());
     policy.midstream = RetryRow::single(schedule);
@@ -102,11 +87,7 @@ pub fn xai() -> RetryPolicy {
                 ..AdviceRule::honored_in_full()
             },
         },
-        StatusRules {
-            terminal: vec![408, 409, 425],
-            caps: vec![(429, 1)],
-            ..StatusRules::default()
-        },
+        StatusRules { terminal: vec![408, 409, 425], caps: vec![(429, 1)], ..StatusRules::default() },
         // Unbounded today; the request row's retry count bounds it.
         Some(14),
     )
@@ -115,16 +96,8 @@ pub fn xai() -> RetryPolicy {
 /// 6 sends, 500 ms doubling to 8 s, ±10 %; advice beyond 10 s is not waited.
 pub fn deepseek() -> RetryPolicy {
     profiled(
-        RetrySchedule {
-            max_retries: 5,
-            backoff: ladder(&[500, 1000, 2000, 4000, 8000]),
-            jitter: Jitter::symmetric(0.1),
-            advice: in_full_to(secs(10)),
-        },
-        StatusRules {
-            terminal: vec![408, 409, 425],
-            ..StatusRules::default()
-        },
+        RetrySchedule { max_retries: 5, backoff: ladder(&[500, 1000, 2000, 4000, 8000]), jitter: Jitter::symmetric(0.1), advice: in_full_to(secs(10)) },
+        StatusRules { terminal: vec![408, 409, 425], ..StatusRules::default() },
         // Unbounded today; the request row's retry count bounds it.
         Some(5),
     )
@@ -134,16 +107,8 @@ pub fn deepseek() -> RetryPolicy {
 /// only 408, 429 and 5xx are transient, so 409 and 425 are terminal.
 pub fn muse_code() -> RetryPolicy {
     profiled(
-        RetrySchedule {
-            max_retries: 5,
-            backoff: ladder(&[500, 1000, 2000, 4000, 8000]),
-            jitter: Jitter::NONE,
-            advice: in_full_to(secs(60)),
-        },
-        StatusRules {
-            terminal: vec![409, 425],
-            ..StatusRules::default()
-        },
+        RetrySchedule { max_retries: 5, backoff: ladder(&[500, 1000, 2000, 4000, 8000]), jitter: Jitter::NONE, advice: in_full_to(secs(60)) },
+        StatusRules { terminal: vec![409, 425], ..StatusRules::default() },
         // A benign empty completion is re-asked at most twice.
         Some(2),
     )
@@ -153,17 +118,8 @@ pub fn muse_code() -> RetryPolicy {
 /// 409, 501 and 505 are terminal; advice beyond 300 s is not waited.
 pub fn mimo() -> RetryPolicy {
     profiled(
-        RetrySchedule {
-            max_retries: 8,
-            backoff: ladder(&[2000, 4000, 8000, 16000, 30000]),
-            jitter: Jitter::symmetric(0.1),
-            advice: in_full_to(secs(300)),
-        },
-        StatusRules {
-            terminal: vec![408, 409, 501, 505],
-            caps: vec![(429, 5)],
-            ..StatusRules::default()
-        },
+        RetrySchedule { max_retries: 8, backoff: ladder(&[2000, 4000, 8000, 16000, 30000]), jitter: Jitter::symmetric(0.1), advice: in_full_to(secs(300)) },
+        StatusRules { terminal: vec![408, 409, 501, 505], caps: vec![(429, 5)], ..StatusRules::default() },
         None,
     )
 }
@@ -183,16 +139,9 @@ pub(crate) fn command_code_with(jitter: Jitter) -> RetryPolicy {
             backoff: ladder(&[400, 800]),
             // The profile names no ratio, so the shared default applies.
             jitter,
-            advice: AdviceRule {
-                combine: AdviceCombine::Floor,
-                ceiling: Some(secs(60)),
-                ..AdviceRule::honored_in_full()
-            },
+            advice: AdviceRule { combine: AdviceCombine::Floor, ceiling: Some(secs(60)), ..AdviceRule::honored_in_full() },
         },
-        StatusRules {
-            retry_only: Some(vec![500, 502, 503, 504, 520, 521, 522]),
-            ..StatusRules::default()
-        },
+        StatusRules { retry_only: Some(vec![500, 502, 503, 504, 520, 521, 522]), ..StatusRules::default() },
         None,
     )
 }

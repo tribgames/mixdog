@@ -5,9 +5,7 @@ use mixdog_term::paint::Painter;
 use mixdog_tui_widgets::confirm_bar::{ConfirmButton, clamp_confirm_focus, confirm_bar_width, paint_confirm_bar};
 use mixdog_tui_widgets::palette::{PALETTE_ROWS, PaletteProps, SlashCommand, paint_palette};
 use mixdog_tui_widgets::picker::{PickerItem, PickerProps, paint_picker, picker_rows};
-use mixdog_tui_widgets::question::{
-    CUSTOM_LABEL, Question, QuestionState, initial_cursor, paint_question, question_view_rows, questions_of,
-};
+use mixdog_tui_widgets::question::{CUSTOM_LABEL, Question, QuestionState, initial_cursor, paint_question, question_view_rows, questions_of};
 use mixdog_tui_widgets::sign_in_url::{CopyStatus, SignInUrlLayout, paint_sign_in_url, sign_in_url_layout};
 use mixdog_tui_widgets::text_entry::{TextEntryDraft, TextEntryProps, paint_text_entry, text_entry_rows};
 use serde_json::json;

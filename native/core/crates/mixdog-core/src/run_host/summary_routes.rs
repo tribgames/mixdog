@@ -7,9 +7,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::compact::summary_run::{
-    ForkRequest, ForkSource, RouteResolver, RouteStep, SummaryFailure, SummaryResponse, SummaryRoute, SummarySender,
-};
+use mixdog_agent::compact::summary_run::{ForkRequest, ForkSource, RouteResolver, RouteStep, SummaryFailure, SummaryResponse, SummaryRoute, SummarySender};
 use mixdog_agent::env::Clock;
 use mixdog_ai::service::routes::{compaction_cache_warm, lighter_subscription_model, request_cache_lifetime};
 use serde_json::Value;
@@ -85,22 +83,11 @@ impl SummaryRoutes {
     /// `summaryRoute`: the provider, its model and the window the summary request must fit. Only
     /// the Maintainer's step initializes providers (`resolveMaintainerRoute`); the session and
     /// lighter steps run on the conversation's own provider, which is already there.
-    async fn route(
-        &self,
-        step: RouteStep,
-        provider: &str,
-        model: &str,
-        fast: bool,
-        effort: Option<String>,
-    ) -> Result<SummaryRoute, SummaryFailure> {
+    async fn route(&self, step: RouteStep, provider: &str, model: &str, fast: bool, effort: Option<String>) -> Result<SummaryRoute, SummaryFailure> {
         let ready = !provider.is_empty() && !model.is_empty() && self.host.provider_ready(provider, step == RouteStep::Maintainer).await?;
         if !ready {
             let shown = |text: &str| if text.is_empty() { "unknown".to_owned() } else { text.to_owned() };
-            return Err(SummaryFailure::Failed(format!(
-                "compact summary route unavailable: {}/{}",
-                shown(provider),
-                shown(model)
-            )));
+            return Err(SummaryFailure::Failed(format!("compact summary route unavailable: {}/{}", shown(provider), shown(model))));
         }
         let session = self.host.session();
         let same_model = provider == session.provider && model == session.model;
@@ -136,9 +123,7 @@ impl RouteResolver for SummaryRoutes {
             RouteStep::Session => self.session_route().await.map(Some),
             RouteStep::Maintainer => match self.host.maintainer_route() {
                 None => Ok(None),
-                Some(route) => {
-                    self.route(RouteStep::Maintainer, &route.provider, &route.model, route.fast, Some(route.effort)).await.map(Some)
-                }
+                Some(route) => self.route(RouteStep::Maintainer, &route.provider, &route.model, route.fast, Some(route.effort)).await.map(Some),
             },
             // The newest lighter model of a subscription provider's saved catalog; none on any
             // other provider, without a saved catalog, when none is listed, or when the
@@ -147,9 +132,7 @@ impl RouteResolver for SummaryRoutes {
                 let session = self.session_route().await?;
                 let catalog = self.host.saved_catalog(&session.provider_name).await.unwrap_or_default();
                 match lighter_subscription_model(&session.provider_name, &catalog) {
-                    Some(lighter) if lighter != session.model => {
-                        self.route(RouteStep::Lighter, &session.provider_name, &lighter, false, None).await.map(Some)
-                    }
+                    Some(lighter) if lighter != session.model => self.route(RouteStep::Lighter, &session.provider_name, &lighter, false, None).await.map(Some),
                     _ => Ok(None),
                 }
             }
@@ -206,9 +189,8 @@ impl SessionFork {
 #[async_trait]
 impl ForkSource for SessionFork {
     fn warm(&self) -> bool {
-        let request = self.forkable().map(|r| {
-            (request_cache_lifetime(&r.provider_name, r.messages_tier.as_deref(), r.catalog_supports_prompt_caching), r.sent_at)
-        });
+        let request =
+            self.forkable().map(|r| (request_cache_lifetime(&r.provider_name, r.messages_tier.as_deref(), r.catalog_supports_prompt_caching), r.sent_at));
         compaction_cache_warm(request, self.clock.now_ms().max(0) as u64)
     }
 
@@ -304,7 +286,10 @@ mod tests {
         h.catalog = Some(vec![serde_json::json!({ "id": "claude-haiku-4-5", "family": "haiku" })]);
         let routes = SummaryRoutes::new(Arc::new(h));
         let own = routes.resolve(RouteStep::Session).await.unwrap().unwrap();
-        assert_eq!((own.step, own.provider_name.as_str(), own.model.as_str(), own.context_window), (RouteStep::Session, "anthropic-oauth", "claude-haiku-4-5", 200_000));
+        assert_eq!(
+            (own.step, own.provider_name.as_str(), own.model.as_str(), own.context_window),
+            (RouteStep::Session, "anthropic-oauth", "claude-haiku-4-5", 200_000)
+        );
         assert!(routes.resolve(RouteStep::Lighter).await.unwrap().is_none(), "the summary already runs on the lighter model");
         // The conversation's own model named as the summary model keeps the conversation's window.
         let mut same = host("openai-oauth", "gpt-5");
@@ -346,18 +331,14 @@ mod tests {
         assert_eq!(text, "compact summary route unavailable: openai-oauth/gpt-5");
         let mut empty = host("", "");
         empty.session.context_window = None;
-        let Err(SummaryFailure::Failed(text)) = SummaryRoutes::new(Arc::new(empty)).resolve(RouteStep::Session).await else {
-            panic!("fails")
-        };
+        let Err(SummaryFailure::Failed(text)) = SummaryRoutes::new(Arc::new(empty)).resolve(RouteStep::Session).await else { panic!("fails") };
         assert_eq!(text, "compact summary route unavailable: unknown/unknown");
     }
 
     #[tokio::test]
     async fn the_lighter_step_needs_a_newer_catalog_model_than_the_conversations_own() {
-        let catalog = vec![
-            serde_json::json!({ "id": "claude-haiku-4-5", "family": "haiku" }),
-            serde_json::json!({ "id": "claude-opus-4-1", "family": "opus" }),
-        ];
+        let catalog =
+            vec![serde_json::json!({ "id": "claude-haiku-4-5", "family": "haiku" }), serde_json::json!({ "id": "claude-opus-4-1", "family": "opus" })];
         let mut h = host("anthropic-oauth", "claude-sonnet-4");
         h.catalog = Some(catalog.clone());
         let lighter = SummaryRoutes::new(Arc::new(h)).resolve(RouteStep::Lighter).await.unwrap().unwrap();

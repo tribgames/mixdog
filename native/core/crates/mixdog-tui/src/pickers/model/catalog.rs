@@ -150,11 +150,7 @@ fn list(host: &mut dyn PickerHost, kind: CatalogKind, params: Value) -> Result<O
 
 /// `loadCatalog(options, paintLoading)`: resolves the rows to paint. `paint_loading` runs when a load is needed. `None` after
 /// a reported load failure.
-pub fn load_catalog(
-    host: &mut dyn PickerHost,
-    options: &ModelPickerOptions,
-    paint_loading: &mut dyn FnMut(&mut dyn PickerHost),
-) -> Option<LoadedCatalog> {
+pub fn load_catalog(host: &mut dyn PickerHost, options: &ModelPickerOptions, paint_loading: &mut dyn FnMut(&mut dyn PickerHost)) -> Option<LoadedCatalog> {
     let kind = options.catalog;
     let mut models: Vec<Value> = host.model_caches().entry(kind).rows().to_vec();
     let mut rendered_quick = false;

@@ -15,9 +15,9 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{PortForward, PortForwardStatus, ServerPort, ServerPortsView};
 use mixdog_rt::time::timeout;
 use mixdog_ssh::command::{FailureClass, SshError, SshTarget};
-use mixdog_ssh::said;
 use mixdog_ssh::context::{AttemptContext, SshEnv};
-use mixdog_ssh::tunnel::{free_local_port, local_port_accepts, LocalForward, SshTunnel, TunnelSpec, TunnelState};
+use mixdog_ssh::said;
+use mixdog_ssh::tunnel::{LocalForward, SshTunnel, TunnelSpec, TunnelState, free_local_port, local_port_accepts};
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -397,7 +397,8 @@ impl ServerPortForwards {
 
     /// `http://127.0.0.1:<local>/` of an active forward.
     pub fn browser_url(&self, remote_port: u16) -> Result<String, PortError> {
-        let active = self.inner.lock().forwards.get(&remote_port).filter(|entry| tunnel_state(entry.tunnel.as_ref()) == TunnelState::Up).map(Forward::local_port);
+        let active =
+            self.inner.lock().forwards.get(&remote_port).filter(|entry| tunnel_state(entry.tunnel.as_ref()) == TunnelState::Up).map(Forward::local_port);
         match active {
             Some(port) if port != 0 => Ok(format!("http://{LOOPBACK}:{port}/")),
             _ => Err(PortError::new(PortErrorCode::PortNotActive, format!("Port {remote_port} is not forwarded to this PC right now."))),
@@ -463,10 +464,7 @@ impl Inner {
     async fn choose_local_port(&self, remote: u16, requested: Option<u16>, strict: bool) -> Result<u16, PortError> {
         if let (Some(port), true) = (requested, strict) {
             if port < LOWEST_LOCAL_PORT {
-                return Err(PortError::new(
-                    PortErrorCode::PortPrivileged,
-                    format!("Ports below {LOWEST_LOCAL_PORT} on this PC are not used for forwarding."),
-                ));
+                return Err(PortError::new(PortErrorCode::PortPrivileged, format!("Ports below {LOWEST_LOCAL_PORT} on this PC are not used for forwarding.")));
             }
             if !self.local.is_free(port).await {
                 return Err(PortError::new(PortErrorCode::PortBusy, format!("Port {port} on this PC is already in use.")));

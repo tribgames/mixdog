@@ -26,14 +26,14 @@ use tokio_util::sync::CancellationToken;
 use crate::compose::ComposedCore;
 use crate::compose::drain_feed;
 use crate::control::ControlConfig;
+use crate::control::ControlListener;
 use crate::control::ControlServer;
 use crate::control::Legacy;
-use crate::lifecycle::Exiter;
 use crate::control::new_token;
-use crate::control::ControlListener;
 use crate::discovery;
 use crate::lifecycle::CoreWiring;
 use crate::lifecycle::DiscoveryPublication;
+use crate::lifecycle::Exiter;
 use crate::lifecycle::Lifecycle;
 use crate::lifecycle::LifecycleConfig;
 use crate::lifecycle::Ports;
@@ -114,22 +114,14 @@ const STALL_FILE: &str = "stall.jsonl";
 
 /// A blocking call as a durability-lane job.
 async fn blocking<T: Send + 'static>(tokens: &LaneTokens, f: impl FnOnce() -> T + Send + 'static) -> std::io::Result<T> {
-    let job = tokens
-        .durability_io
-        .submit(&CancellationToken::new(), move |_lane| f())
-        .map_err(|_| std::io::Error::other("the durability lane is full"))?;
+    let job = tokens.durability_io.submit(&CancellationToken::new(), move |_lane| f()).map_err(|_| std::io::Error::other("the durability lane is full"))?;
     job.await.map_err(std::io::Error::other)
 }
 
 /// The lifecycle's wiring over the composed core and the server's connection table. The final
 /// barriers and the stop steps are what the core registered (`ComposedCore::on_final_barrier`,
 /// `on_stop`); both run on the release thread, which is not a runtime worker.
-fn core_wiring(
-    core: &Arc<ComposedCore>,
-    running: &Running,
-    sections: &Arc<SectionFeedState>,
-    release: &Arc<ReleaseSlot>,
-) -> CoreWiring {
+fn core_wiring(core: &Arc<ComposedCore>, running: &Running, sections: &Arc<SectionFeedState>, release: &Arc<ReleaseSlot>) -> CoreWiring {
     let runtime = tokio::runtime::Handle::current();
     CoreWiring {
         state: sections.clone(),
@@ -306,10 +298,7 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
     let build = crate::server_ensure::running_build();
     let base = discovery::Discovery {
         pid,
-        endpoints: discovery::Endpoints {
-            session: discovery::SessionEndpoint { port: control.port(), token: token.clone() },
-            model_proxy: None,
-        },
+        endpoints: discovery::Endpoints { session: discovery::SessionEndpoint { port: control.port(), token: token.clone() }, model_proxy: None },
         core: discovery::CoreSection {
             version: version.to_owned(),
             build: build.to_owned(),
@@ -345,16 +334,7 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
     leave.set(Arc::downgrade(&lifecycle)).unwrap_or_else(|_| unreachable!("the cell is set once, here"));
     let control = ControlServer::serve(
         control,
-        ControlConfig {
-            token: token.clone(),
-            legacy: Legacy {
-                pid,
-                version: version.to_owned(),
-                instance_id,
-                build: build.to_owned(),
-                update_text,
-            },
-        },
+        ControlConfig { token: token.clone(), legacy: Legacy { pid, version: version.to_owned(), instance_id, build: build.to_owned(), update_text } },
         lifecycle.clone(),
     )
     .map_err(ServingError::Control)?;
@@ -363,42 +343,24 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
 
 /// LR §3 step 6: the core is composed, so its lifecycle port is bound, the cells only the server can bind are bound and verified, and the RPC listener opens. The
 /// discovery document names the RPC port from here on; the caller sets the lifecycle `serving`.
-pub async fn attach(
-    booting: Booting,
-    core: Arc<ComposedCore>,
-    outgoing: Arc<mixdog_app_server::Outgoing>,
-) -> Result<Serving, ServingError> {
+pub async fn attach(booting: Booting, core: Arc<ComposedCore>, outgoing: Arc<mixdog_app_server::Outgoing>) -> Result<Serving, ServingError> {
     let Booting { lifecycle, release, discovery, core_port, runtime_root, token, control } = booting;
     let running = Running::build(core.clone(), outgoing).map_err(ServingError::Limits)?;
     // The local dialer of a phone served by this core: the connection hub and the hand-off to the server's drive loop exist only now.
     {
         let server = running.server.clone();
         core.local_dialer()
-            .bind(
-                running.hub.clone(),
-                Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)),
-                core.remote().registry.clone(),
-            )
+            .bind(running.hub.clone(), Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)), core.remote().registry.clone())
             .map_err(ServingError::Bound)?;
     }
     let sections = core.sections().clone();
-    let rpc = WebSocketListener::bind(
-        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-        running.hub.clone(),
-        BearerAuth::new(&token),
-        ListenerOrigin::Loopback,
-    )
-    .await?;
+    let rpc =
+        WebSocketListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), running.hub.clone(), BearerAuth::new(&token), ListenerOrigin::Loopback).await?;
     // The listener an ssh forward targets: the same bearer, hub and limits, but what it accepts is `Origin::Ssh`, so the core knows a
     // connection came by the ssh designated endpoint (the client's own kind stays `desktop`). Bound for every serving core, before
     // either port is published.
-    let ssh_rpc = WebSocketListener::bind(
-        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-        running.hub.clone(),
-        BearerAuth::new(&token),
-        ListenerOrigin::SshTunnel,
-    )
-    .await?;
+    let ssh_rpc =
+        WebSocketListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), running.hub.clone(), BearerAuth::new(&token), ListenerOrigin::SshTunnel).await?;
     discovery.set_rpc_port(rpc.local_addr().port());
     discovery.set_ssh_rpc_port(ssh_rpc.local_addr().port());
     discovery.set_model_proxy(mixdog_ai::service::admin_models::model_proxy_client_mode(&|name| std::env::var(name).ok()));
@@ -421,21 +383,16 @@ pub async fn attach(
 }
 
 /// `begin`, then `attach`: the whole of serving for a caller whose core is composed already (the tests).
-pub async fn start(
-    tokens: &LaneTokens,
-    core: Arc<ComposedCore>,
-    outgoing: Arc<mixdog_app_server::Outgoing>,
-    given: StartIn,
-) -> Result<Serving, ServingError> {
+pub async fn start(tokens: &LaneTokens, core: Arc<ComposedCore>, outgoing: Arc<mixdog_app_server::Outgoing>, given: StartIn) -> Result<Serving, ServingError> {
     attach(begin(tokens, given).await?, core, outgoing).await
 }
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test fixture reads files and flushes the writer directly")]
 mod tests {
+    use std::sync::Mutex;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
-    use std::sync::Mutex;
 
     use mixdog_core_api::CoreState;
     use tokio::io::AsyncReadExt;
@@ -477,29 +434,17 @@ mod tests {
         let tokens = mixdog_rt::testing::tokens();
         let (exited, _exit) = oneshot::channel();
         let root = dir.path().join("runtime");
-        let booting = begin(
-            &tokens,
-            StartIn {
-                runtime_root: root.clone(),
-                exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))),
-                update_text: "Update.".into(),
-            },
-        )
-        .await
-        .unwrap();
+        let booting =
+            begin(&tokens, StartIn { runtime_root: root.clone(), exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))), update_text: "Update.".into() })
+                .await
+                .unwrap();
         booting.lifecycle.set_serving().unwrap();
         let writer = booting.discovery.clone();
         tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
 
-        let document: serde_json::Value =
-            serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
+        let document: serde_json::Value = serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
         let control = document["core"]["control"]["port"].as_u64().unwrap();
-        let health: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{control}/health"))
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let health: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{control}/health")).await.unwrap().json().await.unwrap();
         assert_eq!(health["pid"], document["pid"]);
         assert_eq!(health["version"], document["core"]["version"]);
         assert_eq!(health["instanceId"], document["core"]["instanceId"]);
@@ -508,85 +453,83 @@ mod tests {
         assert!(health.get("buildHash").is_none());
     }
 
-
-
-
-
     /// `start` against a temp runtime root: discovery is written and names both listeners, the
     /// control and RPC listeners answer (and refuse a wrong token), and a stop takes the lifecycle
     /// through the release procedure: barriers once, `last-exit.json`, discovery withdrawn, `Stopped`.
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     fn start_serves_both_listeners_and_a_stop_releases_once() {
-        crate::compose_test_support::in_child(module_path!(), "start_serves_both_listeners_and_a_stop_releases_once", tokio::runtime::Builder::new_multi_thread(), |dir| async move {
-            let tokens = mixdog_rt::testing::tokens();
-            let outgoing = mixdog_app_server::Outgoing::new();
-            let core = Arc::new(
-                crate::compose::compose(
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "start_serves_both_listeners_and_a_stop_releases_once",
+            tokio::runtime::Builder::new_multi_thread(),
+            |dir| async move {
+                let tokens = mixdog_rt::testing::tokens();
+                let outgoing = mixdog_app_server::Outgoing::new();
+                let core = Arc::new(
+                    crate::compose::compose(
+                        &tokens,
+                        ComposeConfig {
+                            rebuild: Default::default(),
+                            data_dir: crate::compose_test_support::data_in(&dir),
+                            user_data_dir: dir.join("userdata"),
+                            runtime_root: dir.join("runtime"),
+                            js_runtime: crate::js_runtime::fixture(&dir),
+                            ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+                            outgoing: outgoing.clone(),
+                            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                            log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                            stop: mixdog_rt::CancellationToken::new(),
+                            catalog_http: crate::compose_test_support::offline_http(),
+                            pg_install: None,
+                        },
+                    )
+                    .await
+                    .unwrap(),
+                );
+                let barriers = Arc::new(AtomicUsize::new(0));
+                let counted = barriers.clone();
+                core.on_final_barrier(
+                    "count",
+                    Arc::new(move || {
+                        counted.fetch_add(1, Ordering::SeqCst);
+                    }),
+                );
+                let (exited, exit) = oneshot::channel();
+                let root = dir.join("runtime");
+                let serving = start(
                     &tokens,
-                    ComposeConfig { rebuild: Default::default(),
-                        data_dir: crate::compose_test_support::data_in(&dir),
-                        user_data_dir: dir.join("userdata"),
-                        runtime_root: dir.join("runtime"),
-                        js_runtime: crate::js_runtime::fixture(&dir),
-                        ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
-                        outgoing: outgoing.clone(),
-                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                        log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
-                        stop: mixdog_rt::CancellationToken::new(),
-                        catalog_http: crate::compose_test_support::offline_http(),
-                        pg_install: None,
-                    },
+                    core,
+                    outgoing,
+                    StartIn { runtime_root: root.clone(), exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))), update_text: "Update.".into() },
                 )
                 .await
-                .unwrap(),
-            );
-            let barriers = Arc::new(AtomicUsize::new(0));
-            let counted = barriers.clone();
-            core.on_final_barrier("count", Arc::new(move || {
-                counted.fetch_add(1, Ordering::SeqCst);
-            }));
-            let (exited, exit) = oneshot::channel();
-            let root = dir.join("runtime");
-            let serving = start(
-                &tokens,
-                core,
-                outgoing,
-                StartIn {
-                    runtime_root: root.clone(),
-                    exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))),
-                    update_text: "Update.".into(),
-                },
-            )
-            .await
-            .unwrap();
-            serving.lifecycle.set_serving().unwrap();
-            let writer = serving.discovery.clone();
-            tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
+                .unwrap();
+                serving.lifecycle.set_serving().unwrap();
+                let writer = serving.discovery.clone();
+                tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
 
-            let document: serde_json::Value =
-                serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
-            assert_eq!(document["core"]["state"], "serving");
-            let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
-            let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
-            let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
+                let document: serde_json::Value = serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
+                assert_eq!(document["core"]["state"], "serving");
+                let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
+                let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
+                let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
 
-            let client = reqwest::Client::new();
-            let status = format!("http://127.0.0.1:{control}/mgmt/status");
-            let answered = client.get(&status).bearer_auth(&token).send().await.unwrap();
-            assert_eq!(answered.status(), 200);
-            assert_eq!(client.get(&status).bearer_auth("wrong").send().await.unwrap().status(), 401);
-            assert!(upgrade(rpc, Some(&token)).await.contains("101"));
-            assert!(upgrade(rpc, Some("wrong")).await.contains("401"));
+                let client = reqwest::Client::new();
+                let status = format!("http://127.0.0.1:{control}/mgmt/status");
+                let answered = client.get(&status).bearer_auth(&token).send().await.unwrap();
+                assert_eq!(answered.status(), 200);
+                assert_eq!(client.get(&status).bearer_auth("wrong").send().await.unwrap().status(), 401);
+                assert!(upgrade(rpc, Some(&token)).await.contains("101"));
+                assert!(upgrade(rpc, Some("wrong")).await.contains("401"));
 
-            serving.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-            exit.await.unwrap();
-            assert!(matches!(*serving.lifecycle.state().borrow(), CoreState::Stopped));
-            assert_eq!(barriers.load(Ordering::SeqCst), 1);
-            assert!(tokio::fs::try_exists(root.join("last-exit.json")).await.unwrap());
-            assert!(!tokio::fs::try_exists(discovery::path(&root)).await.unwrap());
-        });
+                serving.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+                exit.await.unwrap();
+                assert!(matches!(*serving.lifecycle.state().borrow(), CoreState::Stopped));
+                assert_eq!(barriers.load(Ordering::SeqCst), 1);
+                assert!(tokio::fs::try_exists(root.join("last-exit.json")).await.unwrap());
+                assert!(!tokio::fs::try_exists(discovery::path(&root)).await.unwrap());
+            },
+        );
     }
-
-
 }

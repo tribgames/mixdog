@@ -9,15 +9,15 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use super::ClientGrace;
-use super::ReleaseBudgets;
-use super::ports::GraceTimer;
 use super::DiscoveryState;
 use super::DrainNotice;
 use super::Lifecycle;
 use super::LifecycleConfig;
+use super::ReleaseBudgets;
 use super::Running;
 use super::ports::CorePort;
 use super::ports::Exiter;
+use super::ports::GraceTimer;
 use super::ports::Ports;
 use super::ports::Publication;
 
@@ -84,10 +84,7 @@ impl Recorder {
     /// Waits for the process-exit call; the bound only keeps a failing test from hanging.
     pub fn wait_exit(&self) {
         let guard = lock(&self.exited);
-        let _exited = self
-            .exit_signal
-            .wait_while(guard, |exited| !*exited)
-            .unwrap_or_else(PoisonError::into_inner);
+        let _exited = self.exit_signal.wait_while(guard, |exited| !*exited).unwrap_or_else(PoisonError::into_inner);
     }
 }
 
@@ -176,16 +173,8 @@ pub fn fixture_with_grace(grace: ClientGrace, timer: Arc<ManualTimer>) -> Fixtur
     let recorder = Arc::new(Recorder::default());
     let runtime_root = tempfile::tempdir().unwrap();
     let lifecycle = Lifecycle::with_grace(
-        LifecycleConfig {
-            instance_id: "instance-1".into(),
-            version: "1.4.6".into(),
-            runtime_root: runtime_root.path().to_owned(),
-        },
-        Ports {
-            core: recorder.clone(),
-            discovery: recorder.clone(),
-            exiter: recorder.clone(),
-        },
+        LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: runtime_root.path().to_owned() },
+        Ports { core: recorder.clone(), discovery: recorder.clone(), exiter: recorder.clone() },
         ReleaseBudgets::default(),
         grace,
         timer,

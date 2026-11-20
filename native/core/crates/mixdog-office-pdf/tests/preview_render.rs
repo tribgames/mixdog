@@ -10,8 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mixdog_office_pdf::preview::{
-    BoxFuture, DocumentPreview, OfficeAnswer, PageRenderer, PagesOptions, PdfPreview, PreviewEngines, PreviewError, PreviewOptions, RawImage,
-    RawPages,
+    BoxFuture, DocumentPreview, OfficeAnswer, PageRenderer, PagesOptions, PdfPreview, PreviewEngines, PreviewError, PreviewOptions, RawImage, RawPages,
 };
 use mixdog_rt::CancellationToken;
 use serde_json::{Value, json};
@@ -205,7 +204,13 @@ impl PageRenderer for Pixels {
             let call = calls.len();
             let images = pages
                 .iter()
-                .map(|page| RawImage { page: *page, width: u64::from(max_width), height: 10, mime_type: Some("image/png".to_owned()), data: format!("px-{call}-{page}") })
+                .map(|page| RawImage {
+                    page: *page,
+                    width: u64::from(max_width),
+                    height: 10,
+                    mime_type: Some("image/png".to_owned()),
+                    data: format!("px-{call}-{page}"),
+                })
                 .collect();
             Ok(RawPages { page_count: 5, images })
         })
@@ -364,7 +369,6 @@ fn the_disk_cache_serves_a_fresh_process_level_memory_miss() {
     assert_eq!(again, first);
 }
 
-
 /// A compound file ([MS-CFB]) holding `streams` under the root, each padded to the mini-stream cutoff so that none needs
 /// the mini FAT: header, one FAT sector, one directory sector, then the streams in whole sectors.
 fn compound_file(streams: &[(&str, Vec<u8>)]) -> Vec<u8> {
@@ -455,16 +459,13 @@ fn document(name: &str) -> Vec<u8> {
             bytes[100..104].copy_from_slice(&ENCRYPTED_TOKEN.to_le_bytes());
             bytes
         }
-        "ppt-stray-stream" => {
-            compound_file(&[("Current User", current_user(PLAIN_TOKEN)), ("PowerPoint Document", ENCRYPTED_TOKEN.to_le_bytes().to_vec())])
-        }
+        "ppt-stray-stream" => compound_file(&[("Current User", current_user(PLAIN_TOKEN)), ("PowerPoint Document", ENCRYPTED_TOKEN.to_le_bytes().to_vec())]),
         // An EncryptionInfo version no password route opens (neither standard nor agile).
-        "ooxml-unsupported" => {
-            compound_file(&[("EncryptionInfo", vec![5, 0, 5, 0, 0, 0, 0, 0]), ("EncryptedPackage", vec![0u8; 16])])
-        }
+        "ooxml-unsupported" => compound_file(&[("EncryptionInfo", vec![5, 0, 5, 0, 0, 0, 0, 0]), ("EncryptedPackage", vec![0u8; 16])]),
         other => panic!("no document {other}"),
     }
-}fn cached_documents(f: &Fixture) -> Vec<std::ffi::OsString> {
+}
+fn cached_documents(f: &Fixture) -> Vec<std::ffi::OsString> {
     let root = Path::new(&f.cache_root).join("document-previews");
     if mixdog_testkit::exists(&root) { mixdog_testkit::entry_names(&root) } else { Vec::new() }
 }

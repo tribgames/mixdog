@@ -33,10 +33,7 @@ fn js_word(b: u8) -> bool {
 
 /// `\b` at `at` of `data`.
 fn boundary(data: &[u8], at: usize) -> bool {
-    let before = at
-        .checked_sub(1)
-        .and_then(|i| data.get(i))
-        .is_some_and(|b| js_word(*b));
+    let before = at.checked_sub(1).and_then(|i| data.get(i)).is_some_and(|b| js_word(*b));
     let after = data.get(at).is_some_and(|b| js_word(*b));
     before != after
 }
@@ -55,12 +52,7 @@ fn digits_to_int32(digits: &[u8]) -> i64 {
 
 /// `\d+\s+\d+\s+obj` at the start of `data`: the end of the match and the two numbers.
 fn match_obj(data: &[u8]) -> Option<(usize, i64, i64)> {
-    let digits = |from: usize| {
-        data[from..]
-            .iter()
-            .take_while(|b| b.is_ascii_digit())
-            .count()
-    };
+    let digits = |from: usize| data[from..].iter().take_while(|b| b.is_ascii_digit()).count();
     let spaces = |from: usize| data[from..].iter().take_while(|b| js_space(**b)).count();
     let d1 = digits(0);
     if d1 == 0 {
@@ -83,11 +75,7 @@ fn match_obj(data: &[u8]) -> Option<(usize, i64, i64)> {
     if data.get(p2 + d2 + s2..end)? != b"obj" {
         return None;
     }
-    Some((
-        end,
-        digits_to_int32(&data[..d1]),
-        digits_to_int32(&data[p2..p2 + d2]),
-    ))
+    Some((end, digits_to_int32(&data[..d1]), digits_to_int32(&data[p2..p2 + d2])))
 }
 
 /// `objRegExp` (`^(\d+)\s+(\d+)\s+obj\b`) on a token.
@@ -95,11 +83,7 @@ fn match_obj_token(token: &[u8]) -> Option<(i64, i64)> {
     let (end, num, generation) = match_obj(token)?;
     let next_is_word = token.get(end).is_some_and(|b| js_word(*b));
     // `\b` after the `j`: it ends the token or is followed by a non-word character.
-    if next_is_word {
-        None
-    } else {
-        Some((num, generation))
-    }
+    if next_is_word { None } else { Some((num, generation)) }
 }
 
 /// What one of the two scanning expressions found.
@@ -115,12 +99,7 @@ fn scan(data: &[u8], from: usize, for_obj_end: bool) -> Option<Found> {
     let mut p = from;
     while p < data.len() {
         let b = data[p];
-        let candidate = b.is_ascii_digit()
-            || if for_obj_end {
-                matches!(b, b'e' | b'x' | b't')
-            } else {
-                b == b's'
-            };
+        let candidate = b.is_ascii_digit() || if for_obj_end { matches!(b, b'e' | b'x' | b't') } else { b == b's' };
         if candidate && boundary(data, p) {
             let rest = &data[p..];
             let mut hit: Option<(usize, &'static str)> = None;
@@ -141,11 +120,7 @@ fn scan(data: &[u8], from: usize, for_obj_end: bool) -> Option<Found> {
             if let Some((len, text_is)) = hit
                 && boundary(data, p + len)
             {
-                return Some(Found {
-                    start: p,
-                    end: p + len,
-                    text_is,
-                });
+                return Some(Found { start: p, end: p + len, text_is });
             }
         }
         p += 1;
@@ -156,10 +131,7 @@ fn scan(data: &[u8], from: usize, for_obj_end: bool) -> Option<Found> {
 /// `skipUntil`: how many bytes from `offset` pass before `what` starts (to the end when it does not).
 fn skip_until(data: &[u8], offset: usize, what: &[u8]) -> usize {
     match data.get(offset..) {
-        Some(tail) if !what.is_empty() => tail
-            .windows(what.len())
-            .position(|w| w == what)
-            .unwrap_or(tail.len()),
+        Some(tail) if !what.is_empty() => tail.windows(what.len()).position(|w| w == what).unwrap_or(tail.len()),
         _ => 0,
     }
 }
@@ -232,16 +204,11 @@ impl Xref {
                     None => true,
                     Some(e) if e.generation == generation => {
                         let sub = self.stream.make_sub_stream(start_pos, None);
-                        let checked =
-                            Parser::new(Lexer::new(sub, guard.clone()), None, false, false)
-                                .and_then(|mut parser| parser.get_obj(None));
+                        let checked = Parser::new(Lexer::new(sub, guard.clone()), None, false, false).and_then(|mut parser| parser.get_obj(None));
                         match checked {
                             Ok(_) => true,
                             Err(PdfError::ParserEof(message)) => {
-                                tracing::warn!(
-                                    "indexObjects -- checking object ({}): \"ParserEOFException: {message}\".",
-                                    String::from_utf8_lossy(token)
-                                );
+                                tracing::warn!("indexObjects -- checking object ({}): \"ParserEOFException: {message}\".", String::from_utf8_lossy(token));
                                 false
                             }
                             Err(e) if e.is_fatal() => return Err(e),
@@ -251,15 +218,7 @@ impl Xref {
                     Some(_) => false,
                 };
                 if update_entries {
-                    self.add_entry_replacing(
-                        num,
-                        Entry {
-                            offset: (position - start) as i64,
-                            generation,
-                            free: false,
-                            uncompressed: true,
-                        },
-                    )?;
+                    self.add_entry_replacing(num, Entry { offset: (position - start) as i64, generation, free: false, uncompressed: true })?;
                 }
                 let content_length = match scan(buffer, start_pos, true) {
                     Some(found) => {
@@ -278,9 +237,7 @@ impl Xref {
                 };
                 let content = &buffer[position..length.min(position + content_length)];
                 let xref_tag_offset = skip_until(content, 0, b"/XRef");
-                if xref_tag_offset < content_length
-                    && content.get(xref_tag_offset + 5).is_some_and(|b| *b < 64)
-                {
+                if xref_tag_offset < content_length && content.get(xref_tag_offset + 5).is_some_and(|b| *b < 64) {
                     let at = (position - start) as i64;
                     xref_stms.push(at);
                     self.state.borrow_mut().xref_stms.insert(at);
@@ -318,8 +275,7 @@ impl Xref {
         for trailer in trailers {
             let mut stream = self.stream.clone();
             stream.pos = trailer;
-            let mut parser =
-                Parser::new(Lexer::new(stream, guard.clone()), Some(self), true, true)?;
+            let mut parser = Parser::new(Lexer::new(stream, guard.clone()), Some(self), true, true)?;
             if !parser.get_obj(None)?.is_cmd("trailer") {
                 continue;
             }
@@ -364,13 +320,7 @@ impl Xref {
             return Ok(top);
         }
         if trailer_dicts.is_empty() {
-            let numbered: Vec<(i64, i64)> = self
-                .state
-                .borrow()
-                .entries
-                .iter()
-                .map(|(num, e)| (*num, e.generation))
-                .collect();
+            let numbered: Vec<(i64, i64)> = self.state.borrow().entries.iter().map(|(num, e)| (*num, e.generation)).collect();
             for (num, generation) in numbered {
                 guard.tick()?;
                 let obj = match self.fetch(Ref::new(num, generation), false) {
@@ -403,13 +353,8 @@ impl Xref {
     /// `this.#entries[num] = {...}` of `indexObjects`: replaces whatever entry the object had.
     fn add_entry_replacing(&self, num: i64, entry: Entry) -> Result<()> {
         let mut state = self.state.borrow_mut();
-        if !state.entries.contains_key(&num)
-            && state.entries.len() >= self.opts.guard.budget().max_objects
-        {
-            return Err(PdfError::ResourceLimit(format!(
-                "more than {} cross-reference entries",
-                self.opts.guard.budget().max_objects
-            )));
+        if !state.entries.contains_key(&num) && state.entries.len() >= self.opts.guard.budget().max_objects {
+            return Err(PdfError::ResourceLimit(format!("more than {} cross-reference entries", self.opts.guard.budget().max_objects)));
         }
         state.entries.insert(num, entry);
         Ok(())

@@ -25,15 +25,15 @@ use super::auth::now_ms;
 use crate::oauth::CredentialFile;
 use crate::oauth::FlowGuard;
 use crate::oauth::Pace;
+use crate::oauth::Pkce;
 use crate::oauth::Poll;
 use crate::oauth::Schedule;
 use crate::oauth::device;
-use crate::oauth::Pkce;
 use crate::oauth::http::call_under;
-use crate::transport::deadlines::NODE_DISPATCHER;
 use crate::oauth::http::failed;
 use crate::oauth::start_session;
 use crate::providers::connect::random_uuid;
+use crate::transport::deadlines::NODE_DISPATCHER;
 use crate::transport::http::HttpSend;
 
 pub const LOGIN_URL: &str = "https://cursor.com/loginDeepControl";
@@ -50,10 +50,7 @@ pub fn login_url(challenge: &str, uuid: &str) -> String {
 }
 
 fn poll_url(uuid: &str, verifier: &str) -> String {
-    let query = url::form_urlencoded::Serializer::new(String::new())
-        .append_pair("uuid", uuid)
-        .append_pair("verifier", verifier)
-        .finish();
+    let query = url::form_urlencoded::Serializer::new(String::new()).append_pair("uuid", uuid).append_pair("verifier", verifier).finish();
     format!("{POLL_URL}?{query}")
 }
 
@@ -61,20 +58,12 @@ fn poll_url(uuid: &str, verifier: &str) -> String {
 fn account_label(access_token: &str) -> Option<String> {
     let payload = access_token.split('.').nth(1)?;
     let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
-    ["email", "sub"]
-        .iter()
-        .find_map(|k| claims.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()))
-        .map(str::to_owned)
+    ["email", "sub"].iter().find_map(|k| claims.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty())).map(str::to_owned)
 }
 
 /// Polls until the approval lands, the endpoint fails three times in a row,
 /// or the attempts run out.
-pub async fn poll_tokens(
-    http: &dyn HttpSend,
-    pace: &dyn Pace,
-    uuid: &str,
-    verifier: &str,
-) -> Result<StoredTokens, LoginFailure> {
+pub async fn poll_tokens(http: &dyn HttpSend, pace: &dyn Pace, uuid: &str, verifier: &str) -> Result<StoredTokens, LoginFailure> {
     let url = poll_url(uuid, verifier);
     let poll = || async {
         // Node's poll is a bare `fetch` with no timer of its own (`cursor-auth.mjs:276`).
@@ -82,32 +71,16 @@ pub async fn poll_tokens(
             Ok(reply) if reply.status == 404 => Poll::Pending,
             Ok(reply) if reply.ok() => {
                 let tokens = reply.json();
-                let access = tokens
-                    .as_ref()
-                    .and_then(|v| v.get("accessToken"))
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty());
+                let access = tokens.as_ref().and_then(|v| v.get("accessToken")).and_then(Value::as_str).filter(|s| !s.is_empty());
                 match access {
                     Some(access) => {
-                        let refresh = tokens
-                            .as_ref()
-                            .and_then(|v| v.get("refreshToken"))
-                            .and_then(Value::as_str)
-                            .filter(|s| !s.is_empty());
-                        Poll::Granted(StoredTokens::from_exchange(
-                            access.to_owned(),
-                            refresh.map(str::to_owned),
-                            now_ms(),
-                        ))
+                        let refresh = tokens.as_ref().and_then(|v| v.get("refreshToken")).and_then(Value::as_str).filter(|s| !s.is_empty());
+                        Poll::Granted(StoredTokens::from_exchange(access.to_owned(), refresh.map(str::to_owned), now_ms()))
                     }
-                    None => Poll::Network {
-                        fault: failed("poll", "Cursor OAuth returned no access token"),
-                    },
+                    None => Poll::Network { fault: failed("poll", "Cursor OAuth returned no access token") },
                 }
             }
-            Ok(reply) => Poll::Network {
-                fault: failed("poll", format!("Cursor OAuth failed ({})", reply.status)),
-            },
+            Ok(reply) => Poll::Network { fault: failed("poll", format!("Cursor OAuth failed ({})", reply.status)) },
             Err(fault) => Poll::Network { fault },
         }
     };
@@ -127,13 +100,7 @@ pub struct CursorLogin {
 
 impl CursorLogin {
     pub fn new(http: Arc<dyn HttpSend>, file: CredentialFile, pace: Arc<dyn Pace>) -> Self {
-        Self {
-            target: LoginTarget::Provider(ProviderId::from("cursor-oauth")),
-            http,
-            file,
-            pace,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target: LoginTarget::Provider(ProviderId::from("cursor-oauth")), http, file, pace, running: Arc::new(AtomicBool::new(false)) }
     }
 }
 
@@ -149,18 +116,13 @@ impl LoginFlow for CursorLogin {
         };
         let pkce = Pkce::generate(32);
         let uuid = random_uuid();
-        let first = LoginState::Authorize {
-            url: login_url(&pkce.challenge, &uuid),
-            manual_url: None,
-        };
+        let first = LoginState::Authorize { url: login_url(&pkce.challenge, &uuid), manual_url: None };
         let (http, file, pace) = (self.http.clone(), self.file.clone(), self.pace.clone());
         Ok(start_session(guard, first, false, move |ctx, _cancel| async move {
             ctx.set(LoginState::Waiting);
             let tokens = poll_tokens(http.as_ref(), pace.as_ref(), &uuid, &pkce.verifier).await?;
             file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
-            file.save(&tokens)
-                .await
-                .map_err(|_| failed("storage", "the tokens could not be stored"))?;
+            file.save(&tokens).await.map_err(|_| failed("storage", "the tokens could not be stored"))?;
             Ok(account_label(&tokens.access_token))
         }))
     }
@@ -218,7 +180,6 @@ mod tests {
         let failure = poll_tokens(http.as_ref(), &pace, "u", "v").await.unwrap_err();
         assert_eq!(failure, failed("poll", "Cursor OAuth failed (500)"));
     }
-
 
     /// A poll nothing answers arms no timer: it ends at the dispatcher, and the third failure in a row ends the login with
     /// the last one's text (`sites.cursorPoll`).

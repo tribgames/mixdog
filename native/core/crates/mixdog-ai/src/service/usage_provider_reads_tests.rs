@@ -111,11 +111,17 @@ async fn command_code_reads_its_credits_with_the_key_and_reports_a_window_per_li
     assert_eq!(exchange.redirect, Redirect::Error, "a redirect is a network error");
     assert_eq!(exchange.liveness.total_deadline(), Some(Duration::from_secs(15)));
 
-    assert_eq!((snapshot["provider"].as_str(), snapshot["accountId"].as_str(), snapshot["source"].as_str()), (Some("command-code-oauth"), Some("user-7"), Some("command-code-credits")));
+    assert_eq!(
+        (snapshot["provider"].as_str(), snapshot["accountId"].as_str(), snapshot["source"].as_str()),
+        (Some("command-code-oauth"), Some("user-7"), Some("command-code-credits"))
+    );
     let windows = snapshot["quotaWindows"].as_array().unwrap();
     assert_eq!(windows.len(), 2);
     let five = &windows[0];
-    assert_eq!((five["id"].as_str(), five["label"].as_str(), five["longLabel"].as_str(), five["status"].as_str()), (Some("5h"), Some("5H"), Some("5 Hours"), Some("ok")));
+    assert_eq!(
+        (five["id"].as_str(), five["label"].as_str(), five["longLabel"].as_str(), five["status"].as_str()),
+        (Some("5h"), Some("5H"), Some("5 Hours"), Some("ok"))
+    );
     assert_eq!((num(five, "usedPct"), num(five, "remainingFraction"), num(five, "durationMs")), (25.0, 0.75, 18_000_000.0));
     assert_eq!(num(five, "resetAt"), 1_900_000_000_000.0, "a reset in epoch seconds is read as milliseconds");
     let week = &windows[1];
@@ -129,7 +135,9 @@ fn a_command_code_window_needs_a_positive_cap_and_a_non_negative_use_and_is_capp
     let windows = |body: Value| usage_command_code::quota_windows_from_credits(&body);
     let exhausted = windows(json!({ "windowLimits": { "fiveHour": { "cap": 10, "used": 25 } } }));
     assert_eq!((num(&exhausted[0], "usedPct"), exhausted[0]["status"].as_str()), (100.0, Some("exhausted")));
-    for bad in [json!({ "cap": 0, "used": 1 }), json!({ "cap": -5, "used": 1 }), json!({ "cap": 10, "used": -1 }), json!({ "cap": "x", "used": 1 }), json!("nope")] {
+    for bad in
+        [json!({ "cap": 0, "used": 1 }), json!({ "cap": -5, "used": 1 }), json!({ "cap": 10, "used": -1 }), json!({ "cap": "x", "used": 1 }), json!("nope")]
+    {
         assert!(windows(json!({ "windowLimits": { "fiveHour": bad } })).is_empty(), "{bad}");
     }
     // A numeric text counts; an unreadable reset is no reset.
@@ -145,7 +153,11 @@ async fn command_code_failures_read_as_their_status_with_the_key_scrubbed_from_t
     let unauthorized = command_code(json!([{ "url": CREDITS, "status": 401, "body": format!("bad key {CC_KEY}") }]));
     let error = unauthorized.source.provider_snapshot(usage_command_code::PROVIDER_ID, "default").await.unwrap_err();
     assert_eq!(error.status, Some(401));
-    assert!(error.message.starts_with("[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: bad key "), "{}", error.message);
+    assert!(
+        error.message.starts_with("[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: bad key "),
+        "{}",
+        error.message
+    );
     assert!(!error.message.contains(CC_KEY), "the credential never reaches the message: {}", error.message);
 
     let down = command_code(json!([{ "url": CREDITS, "status": 502, "body": "" }]));
@@ -223,7 +235,12 @@ fn antigravity_gemini_rows_cover_only_gemini_and_odd_buckets_are_skipped() {
     // A bucket under another window name, with no fraction, or out of range is not a reading / is clamped.
     assert!(rows(json!({ "groups": [{ "buckets": [bucket("gemini-5h", "weekly", 0.4, None)] }] })).is_empty());
     // A fraction that is present but not a number is malformed, even beside a reset time: only omission reads as empty.
-    assert!(rows(json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h", "remainingFraction": "n/a", "resetTime": "2030-01-01T00:00:00Z" }] }] })).is_empty());
+    assert!(
+        rows(
+            json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h", "remainingFraction": "n/a", "resetTime": "2030-01-01T00:00:00Z" }] }] })
+        )
+        .is_empty()
+    );
     assert!(rows(json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h" }] }] })).is_empty());
     let clamped = rows(json!({ "groups": [{ "buckets": [bucket("gemini-5h", "5h", 1.5, None), bucket("gemini-weekly", "weekly", -0.5, None)] }] }));
     assert_eq!(clamped.iter().map(|r| num(r, "usedPct")).collect::<Vec<_>>(), [0.0, 100.0]);
@@ -270,7 +287,10 @@ fn signed_in(expires_at: u64) -> Value {
 
 #[tokio::test]
 async fn antigravity_posts_the_project_with_the_stored_token_and_reads_the_rows() {
-    let world = antigravity(Some(signed_in(4_000_000_000_000)), json!([{ "url": QUOTA, "body": { "groups": [{ "buckets": [bucket("gemini-5h", "5h", 0.9, None)] }] } }]));
+    let world = antigravity(
+        Some(signed_in(4_000_000_000_000)),
+        json!([{ "url": QUOTA, "body": { "groups": [{ "buckets": [bucket("gemini-5h", "5h", 0.9, None)] }] } }]),
+    );
     let snapshot = world.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap().unwrap();
     assert_eq!(num(&snapshot["quotaWindows"][0], "usedPct"), 10.0);
     let (request, exchange) = only_request(&world);
@@ -299,14 +319,21 @@ async fn antigravity_exchanges_an_expiring_token_before_asking_for_the_quota_and
     assert_eq!(seen.iter().map(|r| r.url.as_str()).collect::<Vec<_>>(), [token_url, QUOTA], "the refresh comes first");
     assert!(seen[1].headers.iter().any(|(n, v)| n == "Authorization" && v == "Bearer ag-fresh"));
     drop(seen);
-    let stored = mixdog_statefile::read_content(AccountStore::new(world.dir.path().to_path_buf(), io()).credential_file(usage_antigravity::PROVIDER_ID, "default").unwrap().path()).unwrap().unwrap();
+    let stored = mixdog_statefile::read_content(
+        AccountStore::new(world.dir.path().to_path_buf(), io()).credential_file(usage_antigravity::PROVIDER_ID, "default").unwrap().path(),
+    )
+    .unwrap()
+    .unwrap();
     let stored: Value = serde_json::from_slice(&stored).unwrap();
     assert_eq!((stored["access_token"].as_str(), stored["refresh_token"].as_str()), (Some("ag-fresh"), Some("ag-refresh")));
 }
 
 #[tokio::test]
 async fn antigravity_failures_name_the_status_cut_the_detail_and_never_reflect_a_secret() {
-    let refused = antigravity(Some(signed_in(4_000_000_000_000)), json!([{ "url": QUOTA, "status": 403, "body": "denied eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl" }]));
+    let refused = antigravity(
+        Some(signed_in(4_000_000_000_000)),
+        json!([{ "url": QUOTA, "status": 403, "body": "denied eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl" }]),
+    );
     let error = refused.source.provider_snapshot(usage_antigravity::PROVIDER_ID, "default").await.unwrap_err();
     assert!(error.message.starts_with("[antigravity-oauth] retrieveUserQuotaSummary failed: 403 denied "), "{}", error.message);
     assert!(!error.message.contains("eyJhbGci"), "a token in the body is redacted: {}", error.message);
@@ -355,12 +382,23 @@ fn opencode_go_meters_are_micro_cents_turned_into_dollars_with_the_share_used() 
 
 #[test]
 fn opencode_go_reads_full_only_for_a_spend_that_reached_the_cap_and_never_for_unstated_data() {
-    let windows = |five: Value| usage_opencode_go::snapshot_from_status(&meters(five, Value::Null, meter("1200000000", "0", Value::Null))).unwrap()["quotaWindows"].as_array().unwrap().clone();
+    let windows = |five: Value| {
+        usage_opencode_go::snapshot_from_status(&meters(five, Value::Null, meter("1200000000", "0", Value::Null))).unwrap()["quotaWindows"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
     // One micro-cent short of the cap rounds to 100.00 but is not exhausted; at the cap it is.
     assert_eq!(num(&windows(meter("1200000000", "1199999999", Value::Null))[0], "usedPct"), 99.99);
     assert_eq!(num(&windows(meter("1200000000", "1200000000", Value::Null))[0], "usedPct"), 100.0);
     // Absent, null or empty amounts are unstated, not zero: the meter is dropped and only the other remains.
-    for unstated in [json!({ "limitMicroCents": "1200000000" }), json!({ "limitMicroCents": "1200000000", "usedMicroCents": null }), meter("1200000000", "", Value::Null), meter("", "5", Value::Null), meter("-1", "0", Value::Null)] {
+    for unstated in [
+        json!({ "limitMicroCents": "1200000000" }),
+        json!({ "limitMicroCents": "1200000000", "usedMicroCents": null }),
+        meter("1200000000", "", Value::Null),
+        meter("", "5", Value::Null),
+        meter("-1", "0", Value::Null),
+    ] {
         let left = windows(unstated.clone());
         assert_eq!(left.iter().map(|w| w["label"].as_str().unwrap()).collect::<Vec<_>>(), ["M"], "{unstated}");
     }
@@ -368,7 +406,8 @@ fn opencode_go_reads_full_only_for_a_spend_that_reached_the_cap_and_never_for_un
 
 #[test]
 fn opencode_go_skips_a_meter_it_cannot_read_and_has_no_snapshot_without_any() {
-    let one = usage_opencode_go::snapshot_from_status(&meters(Value::Null, meter("100000000", "50000000", Value::Null), json!({ "limitMicroCents": "x" }))).unwrap();
+    let one =
+        usage_opencode_go::snapshot_from_status(&meters(Value::Null, meter("100000000", "50000000", Value::Null), json!({ "limitMicroCents": "x" }))).unwrap();
     assert_eq!(one["quotaWindows"].as_array().unwrap().len(), 1);
     assert_eq!(one["quotaWindows"][0]["label"], "7D");
     assert!(usage_opencode_go::snapshot_from_status(&json!({ "access": {} })).is_none());
@@ -376,7 +415,9 @@ fn opencode_go_skips_a_meter_it_cannot_read_and_has_no_snapshot_without_any() {
     // Unreadable meters prove nothing: no snapshot. Meters the Console withdrew (absent, null, no cap) are a reading
     // of no limit: a snapshot without windows, which retires the earlier ones.
     assert!(usage_opencode_go::snapshot_from_status(&meters(json!(5), Value::Null, json!({}))).is_none());
-    for none in [meters(Value::Null, Value::Null, Value::Null), meters(meter("0", "5", Value::Null), Value::Null, Value::Null), json!({ "access": { "meters": {} } })] {
+    for none in
+        [meters(Value::Null, Value::Null, Value::Null), meters(meter("0", "5", Value::Null), Value::Null, Value::Null), json!({ "access": { "meters": {} } })]
+    {
         let snapshot = usage_opencode_go::snapshot_from_status(&none).unwrap_or_else(|| panic!("{none}"));
         assert_eq!(snapshot["quotaWindows"], json!([]), "{none}");
     }
@@ -402,7 +443,10 @@ async fn opencode_go_reads_the_status_for_the_organization_and_labels_the_accoun
     assert_eq!((header("Accept"), header("Authorization"), header("x-org-id")), (Some("application/json"), Some("Bearer oc-access"), Some("org-1")));
     assert!(header("User-Agent").is_some_and(|ua| ua.starts_with("Mozilla/5.0")), "the Console answers a browser's identity");
     assert_eq!((exchange.redirect, exchange.liveness.total_deadline()), (Redirect::Error, Some(Duration::from_millis(6_500))));
-    assert_eq!((snapshot["provider"].as_str(), snapshot["email"].as_str(), snapshot["accountId"].as_str()), (Some("opencode-go-oauth"), Some("me@example.com"), Some("acc-1")));
+    assert_eq!(
+        (snapshot["provider"].as_str(), snapshot["email"].as_str(), snapshot["accountId"].as_str()),
+        (Some("opencode-go-oauth"), Some("me@example.com"), Some("acc-1"))
+    );
     assert!(snapshot["model"].is_null());
 }
 
@@ -496,7 +540,10 @@ fn muse_code_windows_name_their_span_from_the_minutes_and_carry_the_tier() {
     let windows = usage_muse_code::quota_windows_from_subs_usage(subs_payload().get("subs_usage"), Some("Pro"));
     assert_eq!(windows.len(), 2);
     let rolling = &windows[0];
-    assert_eq!((rolling["id"].as_str(), rolling["label"].as_str(), rolling["longLabel"].as_str(), rolling["status"].as_str(), rolling["tier"].as_str()), (Some("300m"), Some("5H"), Some("5 Hours"), Some("ok"), Some("Pro")));
+    assert_eq!(
+        (rolling["id"].as_str(), rolling["label"].as_str(), rolling["longLabel"].as_str(), rolling["status"].as_str(), rolling["tier"].as_str()),
+        (Some("300m"), Some("5H"), Some("5 Hours"), Some("ok"), Some("Pro"))
+    );
     assert_eq!((num(rolling, "usedPct"), num(rolling, "durationMs"), num(rolling, "resetAt")), (40.0, 18_000_000.0, 1_900_000_000_000.0));
     let weekly = &windows[1];
     assert_eq!((weekly["id"].as_str(), weekly["label"].as_str(), weekly["status"].as_str()), (Some("1w"), Some("7D"), Some("warning")));
@@ -538,7 +585,10 @@ fn a_muse_code_key_answer_with_wrongly_typed_fields_is_rejected_not_stringified(
 #[test]
 fn the_muse_code_snapshot_never_carries_the_inference_key_and_prefers_the_answers_identity() {
     let snapshot = usage_muse_code::snapshot(&subs_payload(), "stored@x.com", "stored-acct", 42).unwrap();
-    assert_eq!((snapshot["email"].as_str(), snapshot["accountId"].as_str(), snapshot["tier"].as_str(), num(&snapshot, "fetchedAt")), (Some("a@b.com"), Some("u1"), Some("Pro"), 42.0));
+    assert_eq!(
+        (snapshot["email"].as_str(), snapshot["accountId"].as_str(), snapshot["tier"].as_str(), num(&snapshot, "fetchedAt")),
+        (Some("a@b.com"), Some("u1"), Some("Pro"), 42.0)
+    );
     assert!(snapshot["raw"].get("api_key").is_none());
     let keys: Vec<&str> = snapshot["rawKeys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
     assert!(!keys.contains(&"api_key") && keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
@@ -550,7 +600,11 @@ fn the_muse_code_snapshot_never_carries_the_inference_key_and_prefers_the_answer
 }
 
 fn muse(replies: Value) -> World {
-    world(usage_muse_code::PROVIDER_ID, Some(json!({ "accessToken": "meta-token", "apiKey": "inference-key", "accountId": "acct", "email": "me@x.com" })), replies)
+    world(
+        usage_muse_code::PROVIDER_ID,
+        Some(json!({ "accessToken": "meta-token", "apiKey": "inference-key", "accountId": "acct", "email": "me@x.com" })),
+        replies,
+    )
 }
 
 const KEY: &str = usage_muse_code::KEY_URL;
@@ -562,7 +616,10 @@ async fn muse_code_posts_to_the_key_endpoint_with_the_account_token_never_the_in
     let (request, exchange) = only_request(&world);
     assert_eq!((request.method.as_str(), request.url.as_str(), request.body.as_slice()), ("POST", KEY, b"{}".as_slice()));
     let header = |name: &str| request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
-    assert_eq!((header("Authorization"), header("x-api-version"), header("Accept"), header("Content-Type")), (Some("Bearer meta-token"), Some("1.0.0"), Some("application/json"), Some("application/json")));
+    assert_eq!(
+        (header("Authorization"), header("x-api-version"), header("Accept"), header("Content-Type")),
+        (Some("Bearer meta-token"), Some("1.0.0"), Some("application/json"), Some("application/json"))
+    );
     assert!(request.headers.iter().all(|(_, v)| !v.contains("inference-key")));
     assert_eq!((exchange.redirect, exchange.liveness.total_deadline()), (Redirect::Error, Some(Duration::from_secs(20))));
     assert_eq!((num(&snapshot, "fetchedAt"), snapshot["quotaWindows"].as_array().unwrap().len()), (1_000_000.0, 2));
@@ -592,7 +649,10 @@ async fn a_rejected_muse_code_session_is_an_error_that_is_not_retried_during_the
     read().await.unwrap();
     world.pace.now.fetch_add(1, Ordering::SeqCst);
     let error = read().await.unwrap_err();
-    assert_eq!((error.status, error.message.as_str()), (Some(401), "[muse-code-oauth] account session rejected (401) — open /providers in mixdog to sign in again"));
+    assert_eq!(
+        (error.status, error.message.as_str()),
+        (Some(401), "[muse-code-oauth] account session rejected (401) — open /providers in mixdog to sign in again")
+    );
     let again = read().await.unwrap_err();
     assert_eq!((again.status, again.message), (error.status, error.message), "the same error, with no new request, during the cooldown");
     assert_eq!(requests(&world), 2);
@@ -604,7 +664,10 @@ async fn an_inactive_muse_code_subscription_and_a_signed_out_account_are_reauth_
     inactive["is_subs_active"] = false.into();
     let world = muse(json!([{ "url": KEY, "body": inactive }]));
     let error = world.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap_err();
-    assert_eq!((error.status, error.message.as_str()), (Some(403), "[muse-code-oauth] Muse Code subscription is inactive — open /providers in mixdog to sign in again"));
+    assert_eq!(
+        (error.status, error.message.as_str()),
+        (Some(403), "[muse-code-oauth] Muse Code subscription is inactive — open /providers in mixdog to sign in again")
+    );
 
     let signed_out = world_without_muse_creds();
     let error = signed_out.source.provider_snapshot(usage_muse_code::PROVIDER_ID, "default").await.unwrap_err();
@@ -704,15 +767,27 @@ async fn cursor_reads_the_usage_and_plan_calls_and_reports_a_window_per_lane() {
         let seen = net.seen.lock().unwrap();
         let mut urls: Vec<&str> = seen.iter().map(|(r, _)| r.url.as_str()).collect();
         urls.sort_unstable();
-        assert_eq!(urls, [format!("{}{}", crate::providers::cursor::API_URL, usage_cursor::USAGE_PATH), format!("{}{}", crate::providers::cursor::API_URL, usage_cursor::PLAN_PATH)]);
+        assert_eq!(
+            urls,
+            [
+                format!("{}{}", crate::providers::cursor::API_URL, usage_cursor::USAGE_PATH),
+                format!("{}{}", crate::providers::cursor::API_URL, usage_cursor::PLAN_PATH)
+            ]
+        );
         for (request, exchange) in seen.iter() {
             assert_eq!(request.method, "POST");
             let header = |name: &str| request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
-            assert_eq!((header("content-type"), header("authorization"), header("x-cursor-client-version")), (Some("application/proto"), Some("Bearer cursor-token"), Some("9.9.9")));
+            assert_eq!(
+                (header("content-type"), header("authorization"), header("x-cursor-client-version")),
+                (Some("application/proto"), Some("Bearer cursor-token"), Some("9.9.9"))
+            );
             assert_eq!((exchange.redirect, exchange.liveness.total_deadline()), (Redirect::Manual, Some(Duration::from_secs(5))));
         }
     }
-    assert_eq!((snapshot["provider"].as_str(), snapshot["enabled"].as_bool(), snapshot["plan"]["name"].as_str(), snapshot["plan"]["price"].as_str()), (Some("cursor-oauth"), Some(true), Some("Pro"), Some("$20/mo")));
+    assert_eq!(
+        (snapshot["provider"].as_str(), snapshot["enabled"].as_bool(), snapshot["plan"]["name"].as_str(), snapshot["plan"]["price"].as_str()),
+        (Some("cursor-oauth"), Some(true), Some("Pro"), Some("$20/mo"))
+    );
     let windows = snapshot["quotaWindows"].as_array().unwrap();
     assert_eq!(windows.iter().map(|w| w["label"].as_str().unwrap()).collect::<Vec<_>>(), ["Basic", "API"]);
     assert_eq!((num(&windows[0], "usedPct"), num(&windows[1], "usedPct")), (12.5, 40.0));
@@ -766,7 +841,8 @@ fn without_lane_percentages_cursor_shows_one_included_dollar_window_named_for_th
 
 #[test]
 fn cursor_usage_based_spend_prefers_the_overall_figures_and_rounds_cents_to_the_nearest_cent() {
-    let snapshot = normalized(json!({ "spendLimitUsage": { "overallLimit": 5000, "individualLimit": 100, "overallUsed": 1234, "overallRemaining": 3766 } }), json!({}));
+    let snapshot =
+        normalized(json!({ "spendLimitUsage": { "overallLimit": 5000, "individualLimit": 100, "overallUsed": 1234, "overallRemaining": 3766 } }), json!({}));
     let spend = &snapshot["quotaWindows"][0];
     assert_eq!(spend["label"], "Usage-based spend");
     assert_eq!((num(spend, "limitUsd"), num(spend, "usedUsd"), num(spend, "remainingUsd")), (50.0, 12.34, 37.66));

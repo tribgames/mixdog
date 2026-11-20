@@ -18,9 +18,7 @@ use std::path::Path;
 
 use mixdog_fsio::{ReadProof, WriteProof};
 use mixdog_js::{js_to_lowercase, js_trim, json_number, string_to_number, to_number_of, value_to_string};
-use mixdog_office_base::a1::{
-    XLSX_MAX_COLUMNS, XLSX_MAX_RANGE_CELLS, XlsxCell, XlsxRange, column_label, parse_xlsx_cell, parse_xlsx_range,
-};
+use mixdog_office_base::a1::{XLSX_MAX_COLUMNS, XLSX_MAX_RANGE_CELLS, XlsxCell, XlsxRange, column_label, parse_xlsx_cell, parse_xlsx_range};
 use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::WriteNote;
 use serde_json::{Value, json};
@@ -146,11 +144,7 @@ fn parse_delimited(text: &str, delimiter: char) -> Rows {
 }
 
 fn serialize_field(value: &str, delimiter: char) -> String {
-    if value.contains(['"', '\r', '\n']) || value.contains(delimiter) {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_owned()
-    }
+    if value.contains(['"', '\r', '\n']) || value.contains(delimiter) { format!("\"{}\"", value.replace('"', "\"\"")) } else { value.to_owned() }
 }
 
 /// `serializeDelimited`: every row ends with `CRLF`; no rows is an empty text.
@@ -159,10 +153,7 @@ fn serialize_delimited(rows: &[Vec<String>], delimiter: char) -> String {
         return String::new();
     }
     let separator = delimiter.to_string();
-    let lines: Vec<String> = rows
-        .iter()
-        .map(|row| row.iter().map(|value| serialize_field(value, delimiter)).collect::<Vec<_>>().join(&separator))
-        .collect();
+    let lines: Vec<String> = rows.iter().map(|row| row.iter().map(|value| serialize_field(value, delimiter)).collect::<Vec<_>>().join(&separator)).collect();
     format!("{}\r\n", lines.join("\r\n"))
 }
 
@@ -199,11 +190,7 @@ struct Delimited {
 
 fn read_delimited<P: ReadProof>(proof: &P, path: &Path, format: Format) -> Result<Delimited, String> {
     let text = read_text(proof, path)?;
-    Ok(Delimited {
-        rows: parse_delimited(&text, format.delimiter()),
-        byte_order_mark: text.starts_with(BYTE_ORDER_MARK),
-        empty: text.is_empty(),
-    })
+    Ok(Delimited { rows: parse_delimited(&text, format.delimiter()), byte_order_mark: text.starts_with(BYTE_ORDER_MARK), empty: text.is_empty() })
 }
 
 /// A new file whose text leaves ASCII takes the mark; an all-ASCII one stays plain for the tools that trip on it.
@@ -211,14 +198,7 @@ fn leaves_ascii(rows: &[Vec<String>]) -> bool {
     rows.iter().any(|row| row.iter().any(|value| !value.is_ascii()))
 }
 
-fn save_rows<P: WriteProof>(
-    proof: &P,
-    note: &dyn WriteNote,
-    path: &Path,
-    format: Format,
-    rows: &[Vec<String>],
-    byte_order_mark: bool,
-) -> Result<(), String> {
+fn save_rows<P: WriteProof>(proof: &P, note: &dyn WriteNote, path: &Path, format: Format, rows: &[Vec<String>], byte_order_mark: bool) -> Result<(), String> {
     let body = serialize_delimited(rows, format.delimiter());
     let text = if byte_order_mark { format!("{BYTE_ORDER_MARK}{body}") } else { body };
     note.note_write(path);
@@ -260,9 +240,7 @@ fn index_of(target: Option<&Value>, index: usize) -> Result<Option<Value>, Strin
         None => Err(format!("Cannot read properties of undefined (reading '{index}')")),
         Some(Value::Null) => Err(format!("Cannot read properties of null (reading '{index}')")),
         Some(Value::Array(items)) => Ok(items.get(index).cloned()),
-        Some(Value::String(text)) => {
-            Ok(text.encode_utf16().nth(index).map(|unit| Value::String(String::from_utf16_lossy(&[unit]))))
-        }
+        Some(Value::String(text)) => Ok(text.encode_utf16().nth(index).map(|unit| Value::String(String::from_utf16_lossy(&[unit])))),
         Some(Value::Object(map)) => Ok(map.get(&index.to_string()).cloned()),
         Some(_) => Ok(None),
     }
@@ -271,16 +249,12 @@ fn index_of(target: Option<&Value>, index: usize) -> Result<Option<Value>, Strin
 /// `parseXlsxCell(reference)`; an absent or falsy reference is named as itself in the message.
 fn xlsx_cell(reference: Option<&Value>) -> Result<XlsxCell, String> {
     let text = truthy_text(reference);
-    parse_xlsx_cell(&text).map_err(|message| {
-        if text.is_empty() { format!("Invalid XLSX cell reference: {}", shown(reference)) } else { message }
-    })
+    parse_xlsx_cell(&text).map_err(|message| if text.is_empty() { format!("Invalid XLSX cell reference: {}", shown(reference)) } else { message })
 }
 
 fn xlsx_range(reference: Option<&Value>, max_cells: usize) -> Result<XlsxRange, String> {
     let text = truthy_text(reference);
-    parse_xlsx_range(&text, max_cells).map_err(|message| {
-        if text.is_empty() { format!("Invalid XLSX range: {}", shown(reference)) } else { message }
-    })
+    parse_xlsx_range(&text, max_cells).map_err(|message| if text.is_empty() { format!("Invalid XLSX range: {}", shown(reference)) } else { message })
 }
 
 /// `Number(value ?? default)`.
@@ -375,7 +349,9 @@ pub fn snapshot<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &
 
 fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> Result<Value, String> {
     let name = sheet_name(path, format);
-    if options.is_null() { return Err("Cannot read properties of null (reading 'sheet')".to_owned()); }
+    if options.is_null() {
+        return Err("Cannot read properties of null (reading 'sheet')".to_owned());
+    }
     if let Some(sheet) = options.get("sheet").filter(|sheet| truthy(sheet))
         && js_to_lowercase(&value_to_string(sheet)) != js_to_lowercase(&name)
     {
@@ -431,9 +407,7 @@ fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> R
         }],
     });
     if paged {
-        let suffix = range
-            .filter(|range| truthy(range))
-            .map_or_else(String::new, |range| format!("!{}", value_to_string(range)));
+        let suffix = range.filter(|range| truthy(range)).map_or_else(String::new, |range| format!("!{}", value_to_string(range)));
         let next = offset + returned as f64;
         snapshot["pagination"] = json!({
             "unit": "populated-cell",
@@ -452,13 +426,7 @@ fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> R
 
 /// `applyTabularBatch`: the operations in order on the file's rows, then one write. An operation that fails stops the
 /// batch before anything is written. Each operation's answer is in the result, in order.
-pub fn apply_batch<P: WriteProof>(
-    proof: &P,
-    note: &dyn WriteNote,
-    path: &Path,
-    format: Format,
-    operations: &[Value],
-) -> Result<Vec<Value>, String> {
+pub fn apply_batch<P: WriteProof>(proof: &P, note: &dyn WriteNote, path: &Path, format: Format, operations: &[Value]) -> Result<Vec<Value>, String> {
     let Delimited { mut rows, byte_order_mark, empty } = read_delimited(proof, path, format)?;
     let mut results = Vec::with_capacity(operations.len());
     for operation in operations {
@@ -574,13 +542,7 @@ fn delimited_structure(text: &str, rows: &Rows) -> Structure {
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
     let invalid_encoding = text.contains('\u{FFFD}');
     let nul_bytes = text.matches('\0').count();
-    Structure {
-        ok: !invalid_encoding && nul_bytes == 0 && columns <= MAX_COLUMNS,
-        rows: rows.len(),
-        columns,
-        invalid_encoding,
-        nul_bytes,
-    }
+    Structure { ok: !invalid_encoding && nul_bytes == 0 && columns <= MAX_COLUMNS, rows: rows.len(), columns, invalid_encoding, nul_bytes }
 }
 
 /// `validateTabular`: whether the file is valid UTF-8 without NUL characters and no wider than a sheet.
@@ -627,7 +589,9 @@ fn expected_columns(widths: &[usize]) -> usize {
 pub fn issues<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Value) -> Result<Value, String> {
     let text = read_text(proof, path)?;
     let rows = parse_delimited(&text, format.delimiter());
-    if options.is_null() { return Err("Cannot read properties of null (reading 'range')".to_owned()); }
+    if options.is_null() {
+        return Err("Cannot read properties of null (reading 'range')".to_owned());
+    }
     let bounds = bounds_of(options.get("range"))?;
     let widths: Vec<usize> = rows.iter().map(Vec::len).collect();
     // The file's shape is the width its rows agree on, not the widest row it holds: measured against the maximum, one
@@ -636,11 +600,7 @@ pub fn issues<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Va
     let mut found: Vec<Value> = Vec::new();
     for (row, values) in rows.iter().enumerate() {
         if values.len() != expected {
-            let extra = if values.len() > expected {
-                " An unquoted separator inside a value splits it into an extra column."
-            } else {
-                ""
-            };
+            let extra = if values.len() > expected { " An unquoted separator inside a value splits it into an extra column." } else { "" };
             found.push(json!({
                 "severity": "warning",
                 "code": "ragged_row",
@@ -851,11 +811,7 @@ mod tests {
     fn replace_text_counts_every_occurrence() {
         let dir = dir();
         let path = file(&dir, "a.csv", b"aaa,b\r\nca,d\r\n");
-        let results = apply(
-            &path,
-            json!([{ "op": "replace_text", "find": "a", "replace": "x" }, { "op": "replace_text", "find": "" }]),
-        )
-        .expect("applies");
+        let results = apply(&path, json!([{ "op": "replace_text", "find": "a", "replace": "x" }, { "op": "replace_text", "find": "" }])).expect("applies");
         assert_eq!(results[0], json!({ "op": "replace_text", "changed": true, "count": 4 }));
         assert_eq!(results[1], json!({ "op": "replace_text", "changed": false, "count": 0 }));
         assert_eq!(bytes(&path), b"xxx,b\r\ncx,d\r\n");
@@ -867,19 +823,10 @@ mod tests {
         let path = file(&dir, "a.csv", b"a,b\r\n");
         let before = bytes(&path);
         let message = |operations: Value| apply(&path, operations).expect_err("fails");
-        assert_eq!(
-            message(json!([{ "op": "set_cell", "cell": "A1", "value": "x" }, { "op": "merge" }])),
-            "CSV backend does not support operation: merge"
-        );
+        assert_eq!(message(json!([{ "op": "set_cell", "cell": "A1", "value": "x" }, { "op": "merge" }])), "CSV backend does not support operation: merge");
         assert_eq!(message(json!([{ "op": "set_cell", "value": "x" }])), "Invalid XLSX cell reference: undefined");
-        assert_eq!(
-            message(json!([{ "op": "set_range", "range": "A1:B2" }])),
-            "Cannot read properties of undefined (reading '0')"
-        );
-        assert_eq!(
-            message(json!([{ "op": "append_row", "values": "x" }])),
-            "(operation.values || []).map is not a function"
-        );
+        assert_eq!(message(json!([{ "op": "set_range", "range": "A1:B2" }])), "Cannot read properties of undefined (reading '0')");
+        assert_eq!(message(json!([{ "op": "append_row", "values": "x" }])), "(operation.values || []).map is not a function");
         assert_eq!(message(json!([null])), "Cannot read properties of null (reading 'op')");
         assert_eq!(bytes(&path), before);
     }
@@ -941,10 +888,7 @@ mod tests {
         let dir = dir();
         let path = file(&dir, "a.csv", b"a,\xFF\r\nb\0,c\r\n");
         let checked = validate(&Unlaned, &path, Format::Csv).expect("validate");
-        assert_eq!(
-            (checked["ok"].as_bool(), checked["invalidEncoding"].as_bool(), checked["nulBytes"].as_u64()),
-            (Some(false), Some(true), Some(1))
-        );
+        assert_eq!((checked["ok"].as_bool(), checked["invalidEncoding"].as_bool(), checked["nulBytes"].as_u64()), (Some(false), Some(true), Some(1)));
         let report = issues(&Unlaned, &path, Format::Csv, &json!({})).expect("issues");
         assert_eq!(report["ok"], false);
         assert_eq!(report["issues"][0]["code"], "invalid_utf8");
@@ -967,7 +911,7 @@ mod tests {
             apply_operation(&mut rows, Format::Csv, &json!({"op":"insert_columns","column":2,"count":count})).unwrap();
             assert_eq!(rows[0].len(), count + 2);
             assert_eq!(rows[0][0], "first");
-            assert_eq!(rows[0][count+1], "last");
+            assert_eq!(rows[0][count + 1], "last");
             assert!(rows[0][1..=count].iter().all(String::is_empty));
         }
     }
@@ -989,7 +933,9 @@ mod tests {
     fn bom_only_and_failed_batch_preserve_bytes_and_write_note_order() {
         struct Capture(std::sync::Mutex<Vec<Vec<u8>>>);
         impl WriteNote for Capture {
-            fn note_write(&self, path: &Path) { self.0.lock().unwrap().push(mixdog_fsio::read(&Unlaned, path).unwrap()); }
+            fn note_write(&self, path: &Path) {
+                self.0.lock().unwrap().push(mixdog_fsio::read(&Unlaned, path).unwrap());
+            }
         }
         let dir = dir();
         let path = file(&dir, "bom.csv", "\u{FEFF}".as_bytes());
@@ -1007,5 +953,4 @@ mod tests {
         assert_eq!(note.0.lock().unwrap().len(), 2);
         assert_eq!(note.0.lock().unwrap()[1], "\u{FEFF}가\r\n".as_bytes());
     }
-
 }

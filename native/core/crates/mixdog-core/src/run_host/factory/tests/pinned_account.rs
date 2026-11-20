@@ -124,7 +124,8 @@ async fn a_turns_continuation_stays_with_the_account_whose_credential_sent_it_wh
     for (turn, prompt) in [(1, "first"), (2, "next")] {
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
         let op = format!("op-{turn}");
-        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
+        let started =
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
         settled_turns(&world, &id, &handle, turn, covered_before).await;
     }

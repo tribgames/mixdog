@@ -15,10 +15,7 @@
 //! The inputs are small pseudo-random sequences (`lcg`) so the plain bytes need not be stored.
 
 use mixdog_pdf_codec::predictor::{self, PredictorParams};
-use mixdog_pdf_codec::security::{
-    CipherTransformFactory, CryptFilter, CryptFilterMethod, EncryptDict, INCORRECT_PASSWORD, NEED_PASSWORD,
-    SecurityError,
-};
+use mixdog_pdf_codec::security::{CipherTransformFactory, CryptFilter, CryptFilterMethod, EncryptDict, INCORRECT_PASSWORD, NEED_PASSWORD, SecurityError};
 use mixdog_pdf_codec::{Filter, ascii85, asciihex, decode_chain, flate, lzw, rc4, runlength};
 
 fn hex(text: &str) -> Vec<u8> {
@@ -51,7 +48,8 @@ const LZW_BIG_EARLY0: &str = "80184c4618140cc8633241208633118a0f0c84c26066188434
 const LZW_NO_EOD: &str = "80184c4638141207058440c0";
 const A85_PLAIN_HEX: &str = "48656c6c6f2c20576f726c6421200000000020616e64206d6f7265206279746573203132333435";
 const PNG_ENCODED: &str = "00bf36eda6f7bac2c81ff655ac0185d86b27c02b4b0e831b87c602c6a37e07a1dd36defa1cd83403ede0f257b0e3efb3dc03aa3604c6a37ee8a14735defad0d83304c6a37e28badd3600faedd833";
-const PNG_PLAIN: &str = "bf36eda6f7bac2c81ff655ac85d86bac9896f7a619122ddf4b7be9b339732d84132e0513121d66b9db4f62620d4bdd46d8c0e4c07c2b97400767b5799e6362c61d08cd1d01848dac";
+const PNG_PLAIN: &str =
+    "bf36eda6f7bac2c81ff655ac85d86bac9896f7a619122ddf4b7be9b339732d84132e0513121d66b9db4f62620d4bdd46d8c0e4c07c2b97400767b5799e6362c61d08cd1d01848dac";
 const PNG_ENCODED_ZLIB: &str = "78da63d86ff676d9f75d874ec87f0b5dc3d87a235bfd80b6375fb374fb31a6638bebd817de35bbf74be68609f3db079fc2373c7ebff90ef32a3316a0cc8b85eea6f77e5db8610ce268ecba6bc6f0ebed0d63005de72a1f";
 const TIFF8_ENCODED: &str = "3deac0eba731c58cb7401804038c3e2ba68ff4c9d527123dc92fbb6ba4ef2306f20f0b76";
 const TIFF8_PLAIN: &str = "3deac02891f1ed1da82d35ac038c3e2e32cd22fba2490ddfc92fbb34d3aa57d99c66e412";
@@ -175,14 +173,8 @@ fn flate_header_errors() {
 
 #[test]
 fn flate_output_limit() {
-    assert!(matches!(
-        flate::inflate(&hex(FLATE_DYNAMIC), 100),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 100 })
-    ));
-    assert!(matches!(
-        flate::inflate(&hex(FLATE_DYNAMIC), 0),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 0 })
-    ));
+    assert!(matches!(flate::inflate(&hex(FLATE_DYNAMIC), 100), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 100 })));
+    assert!(matches!(flate::inflate(&hex(FLATE_DYNAMIC), 0), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 0 })));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -227,10 +219,7 @@ fn lzw_without_end_of_data_reads_zeros_to_the_end_of_the_block() {
 
 #[test]
 fn lzw_output_limit_and_empty_input() {
-    assert!(matches!(
-        lzw::decode(&hex(LZW_BIG_EARLY1), 1, 1000),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 1000 })
-    ));
+    assert!(matches!(lzw::decode(&hex(LZW_BIG_EARLY1), 1, 1000), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 1000 })));
     assert!(lzw::decode(&[], 1, NO_LIMIT).unwrap().len() <= 512);
 }
 
@@ -261,10 +250,7 @@ fn ascii85_partial_final_group_and_missing_terminator() {
 
 #[test]
 fn ascii85_output_limit() {
-    assert!(matches!(
-        ascii85::decode(b"9jqo^BlbD-~>", 6),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 6 })
-    ));
+    assert!(matches!(ascii85::decode(b"9jqo^BlbD-~>", 6), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 6 })));
 }
 
 #[test]
@@ -277,10 +263,7 @@ fn asciihex_digits_case_whitespace_and_odd_count() {
     // A lone digit at the end of an input with no `>` is dropped.
     assert_eq!(asciihex::decode(b"48656", NO_LIMIT).unwrap(), b"He");
     assert_eq!(asciihex::decode(b">", NO_LIMIT).unwrap(), b"");
-    assert!(matches!(
-        asciihex::decode(b"48656C6C6F>", 3),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 3 })
-    ));
+    assert!(matches!(asciihex::decode(b"48656C6C6F>", 3), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 3 })));
 }
 
 #[test]
@@ -295,10 +278,7 @@ fn runlength_literal_and_repeat_runs() {
 fn runlength_copy_cut_short_is_padded_and_limit_applies() {
     assert_eq!(runlength::decode(&[4, b'a', b'b'], NO_LIMIT).unwrap(), [b'a', b'b', 0, 0, 0]);
     assert_eq!(runlength::decode(&[253, b'k'], NO_LIMIT).unwrap(), b"kkkk");
-    assert!(matches!(
-        runlength::decode(&[253, b'k', 253, b'j'], 6),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 6 })
-    ));
+    assert!(matches!(runlength::decode(&[253, b'k', 253, b'j'], 6), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 6 })));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -368,10 +348,7 @@ fn predictor_defaults_none_and_unsupported() {
 
 #[test]
 fn predictor_output_limit() {
-    assert!(matches!(
-        predictor::decode(&hex(PNG_ENCODED), &params(15, 3, 8, 4), 20),
-        Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 20 })
-    ));
+    assert!(matches!(predictor::decode(&hex(PNG_ENCODED), &params(15, 3, 8, 4), 20), Err(mixdog_pdf_codec::CodecError::ResourceLimit { limit: 20 })));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -509,8 +486,7 @@ impl Case {
     fn check_decrypts(&self, factory: &CipherTransformFactory) {
         let title = factory.create_cipher_transform(1, 0).decrypt_string(&hex(self.title_enc)).unwrap();
         assert_eq!(title, TITLE, "{}: string", self.name);
-        let stream =
-            factory.create_cipher_transform(5, 0).decrypt_stream(&hex(self.stream_enc), None, false, NO_LIMIT).unwrap();
+        let stream = factory.create_cipher_transform(5, 0).decrypt_stream(&hex(self.stream_enc), None, false, NO_LIMIT).unwrap();
         assert_eq!(stream, CONTENT, "{}: stream", self.name);
     }
 }
@@ -740,10 +716,7 @@ fn password_error_codes_and_messages() {
 fn set_password_reopens_the_document() {
     let case = &user_cases()[2];
     let mut factory = case.open(Some("user")).unwrap();
-    assert_eq!(
-        factory.set_password(Some("nope")),
-        Err(SecurityError::Password { code: 2, message: "Incorrect Password" })
-    );
+    assert_eq!(factory.set_password(Some("nope")), Err(SecurityError::Password { code: 2, message: "Incorrect Password" }));
     factory.set_password(Some("owner")).unwrap();
     case.check_decrypts(&factory);
 }
@@ -753,22 +726,13 @@ fn encrypt_dictionary_errors() {
     let case = &open_cases()[0];
     let mut dict = case.dict();
     dict.filter = Some("Adobe.PubSec".into());
-    assert_eq!(
-        CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap_err(),
-        SecurityError::Format("unknown encryption method".into())
-    );
+    assert_eq!(CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap_err(), SecurityError::Format("unknown encryption method".into()));
     let mut dict = case.dict();
     dict.v = Some(3);
-    assert_eq!(
-        CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap_err(),
-        SecurityError::Format("unsupported encryption algorithm".into())
-    );
+    assert_eq!(CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap_err(), SecurityError::Format("unsupported encryption algorithm".into()));
     let mut dict = case.dict();
     dict.length = Some(44);
-    assert_eq!(
-        CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap_err(),
-        SecurityError::Format("invalid key length".into())
-    );
+    assert_eq!(CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap_err(), SecurityError::Format("invalid key length".into()));
 }
 
 #[test]
@@ -795,10 +759,7 @@ fn key_longer_than_md5_hashes_zeros_past_the_digest() {
         ..Default::default()
     };
     let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
-    let title = factory
-        .create_cipher_transform(1, 0)
-        .decrypt_string(&hex("81faeb31063ebc4cd307e1cc692e80803c0be166264c26d9d483d71d"))
-        .unwrap();
+    let title = factory.create_cipher_transform(1, 0).decrypt_string(&hex("81faeb31063ebc4cd307e1cc692e80803c0be166264c26d9d483d71d")).unwrap();
     assert_eq!(title, TITLE);
 }
 
@@ -836,10 +797,7 @@ fn stream_decryption_in_chunks_matches_whole_decryption() {
     let encrypted = transform.decrypt_stream(&plain, None, false, NO_LIMIT).unwrap();
     assert_ne!(encrypted, plain);
     assert_eq!(transform.decrypt_stream(&encrypted, None, false, NO_LIMIT).unwrap(), plain);
-    assert!(matches!(
-        transform.decrypt_stream(&encrypted, None, false, 700),
-        Err(SecurityError::ResourceLimit { limit: 700 })
-    ));
+    assert!(matches!(transform.decrypt_stream(&encrypted, None, false, 700), Err(SecurityError::ResourceLimit { limit: 700 })));
 }
 
 #[test]
@@ -850,10 +808,7 @@ fn identity_crypt_filters_and_efopen() {
     dict.stm_f = None;
     dict.str_f = None;
     dict.eff = Some("StdCF".into());
-    dict.cf = Some(vec![(
-        "StdCF".into(),
-        CryptFilter { cfm: Some(CryptFilterMethod::AesV2), length: None, auth_event: Some("EFOpen".into()) },
-    )]);
+    dict.cf = Some(vec![("StdCF".into(), CryptFilter { cfm: Some(CryptFilterMethod::AesV2), length: None, auth_event: Some("EFOpen".into()) })]);
     let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
     let transform = factory.create_cipher_transform(5, 0);
     let clear = [1u8, 2, 3];
@@ -871,10 +826,7 @@ fn identity_crypt_filters_and_efopen() {
 fn unknown_crypt_filter_method_is_a_format_error() {
     let case = &open_cases()[2];
     let mut dict = case.dict();
-    dict.cf = Some(vec![(
-        "StdCF".into(),
-        CryptFilter { cfm: Some(CryptFilterMethod::Other("Foo".into())), ..Default::default() },
-    )]);
+    dict.cf = Some(vec![("StdCF".into(), CryptFilter { cfm: Some(CryptFilterMethod::Other("Foo".into())), ..Default::default() })]);
     // The key derivation does not read the method: the document opens, using the filter fails.
     let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
     let error = factory.create_cipher_transform(1, 0).decrypt_string(&[0; 32]).unwrap_err();
@@ -910,10 +862,7 @@ fn non_name_selector_errors_only_when_used_and_empty_name_is_an_override() {
     let transform = factory.create_cipher_transform(5, 0);
     assert_eq!(transform.decrypt_string(b"x").unwrap_err(), SecurityError::Format("Invalid crypt filter name.".into()));
     assert_eq!(transform.decrypt_stream(b"abc", Some(""), false, 3).unwrap(), b"abc");
-    assert!(matches!(
-        transform.decrypt_stream(b"abcd", Some(""), false, 3),
-        Err(SecurityError::ResourceLimit { limit: 3 })
-    ));
+    assert!(matches!(transform.decrypt_stream(b"abcd", Some(""), false, 3), Err(SecurityError::ResourceLimit { limit: 3 })));
     assert!(transform.validate_stream(None, false).is_ok());
 }
 
@@ -930,10 +879,7 @@ fn constructor_cache_precedes_selector_validation_and_never_reuses_cipher_state(
     assert_eq!(transform.decrypt_string(b"two").unwrap(), b"two");
     assert!(transform.validate_stream(None, false).is_ok(), "Name __default__ primed the non-Name slot");
     assert_eq!(transform.decrypt_stream(b"stream", None, false, 100).unwrap(), b"stream");
-    assert!(
-        factory.create_cipher_transform(4, 0).validate_stream(None, false).is_err(),
-        "a new transform has a new cache, even for the same object ID"
-    );
+    assert!(factory.create_cipher_transform(4, 0).validate_stream(None, false).is_err(), "a new transform has a new cache, even for the same object ID");
     let rc4 = open_cases()[1].open(None).unwrap().create_cipher_transform(5, 0);
     let expected = rc4.decrypt_string(b"repeated input").unwrap();
     assert_eq!(rc4.decrypt_string(b"repeated input").unwrap(), expected);

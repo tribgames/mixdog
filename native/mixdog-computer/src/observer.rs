@@ -130,13 +130,7 @@ impl InputLedger {
     /// ObserveQuiet: one recovery observation on a monotonic elapsed clock.
     /// True once the desktop was accessible, nothing was held and the system
     /// clock stood still for enough observations spanning enough time.
-    pub fn observe_quiet(
-        &mut self,
-        desktop_ready: bool,
-        held: bool,
-        system_tick: u32,
-        elapsed_ms: u64,
-    ) -> bool {
+    pub fn observe_quiet(&mut self, desktop_ready: bool, held: bool, system_tick: u32, elapsed_ms: u64) -> bool {
         if !self.gap {
             return false;
         }
@@ -152,8 +146,7 @@ impl InputLedger {
             return false;
         }
         self.quiet_count += 1;
-        self.quiet_confirmed = self.quiet_count >= Self::QUIET_OBSERVATIONS
-            && elapsed_ms.saturating_sub(self.quiet_start) >= Self::QUIET_MS;
+        self.quiet_confirmed = self.quiet_count >= Self::QUIET_OBSERVATIONS && elapsed_ms.saturating_sub(self.quiet_start) >= Self::QUIET_MS;
         self.quiet_confirmed
     }
 
@@ -207,10 +200,7 @@ pub struct Shared {
 
 impl Shared {
     fn new() -> Shared {
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or(0);
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_nanos()).unwrap_or(0);
         Shared {
             state: Mutex::default(),
             ready: AtomicBool::new(false),
@@ -222,9 +212,7 @@ impl Shared {
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// One input event: whose it was, when on the system's input clock,
@@ -281,10 +269,7 @@ impl Shared {
         let Some(monitor) = self.monitor.get() else {
             return self.snapshot(&self.state(), process, pointer, "");
         };
-        let _reads = self
-            .reads
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _reads = self.reads.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         for attempt in 1.. {
             if !monitor.drain() {
                 break;
@@ -355,11 +340,7 @@ pub struct Snapshot {
 
 /// " (<reason>)" for an error text, when the source named one.
 fn cause(reason: &str) -> String {
-    if reason.is_empty() {
-        String::new()
-    } else {
-        format!(" ({reason})")
-    }
+    if reason.is_empty() { String::new() } else { format!(" ({reason})") }
 }
 
 pub struct Observer {
@@ -368,9 +349,7 @@ pub struct Observer {
 
 impl Observer {
     pub fn new() -> Observer {
-        Observer {
-            shared: Arc::new(Shared::new()),
-        }
+        Observer { shared: Arc::new(Shared::new()) }
     }
 }
 
@@ -402,12 +381,7 @@ impl Scope {
 
     /// Begin(target, pointer): the action is interrupted only by input into
     /// `process`, and by any pointer input while it drives the pointer.
-    pub fn begin_for(
-        &mut self,
-        shared: &Shared,
-        process: u32,
-        pointer: bool,
-    ) -> Result<(), String> {
+    pub fn begin_for(&mut self, shared: &Shared, process: u32, pointer: bool) -> Result<(), String> {
         if self.depth > 0 {
             self.assert_continue(shared)?;
             self.depth += 1;
@@ -415,10 +389,7 @@ impl Scope {
         }
         let value = shared.read_for(process, false);
         if !value.ready {
-            return Err(format!(
-                "input_observation_unavailable: input origin cannot be observed{}",
-                cause(value.reason)
-            ));
+            return Err(format!("input_observation_unavailable: input origin cannot be observed{}", cause(value.reason)));
         }
         self.claim(value.sequence, process, pointer);
         Ok(())
@@ -427,24 +398,12 @@ impl Scope {
     /// BeginExpected(generation, sequence, target, pointer): input since the
     /// observation counts only when it went to `process`; the pointer joins
     /// the scope once the action itself drives it.
-    pub fn begin_expected_for(
-        &mut self,
-        shared: &Shared,
-        generation: &str,
-        sequence: i64,
-        process: u32,
-        pointer: bool,
-    ) -> Result<(), String> {
+    pub fn begin_expected_for(&mut self, shared: &Shared, generation: &str, sequence: i64, process: u32, pointer: bool) -> Result<(), String> {
         self.begin_observed(shared, generation, sequence, process, pointer, false)
     }
 
     /// BeginExpected with an unknown target.
-    pub fn begin_expected(
-        &mut self,
-        shared: &Shared,
-        generation: &str,
-        sequence: i64,
-    ) -> Result<(), String> {
+    pub fn begin_expected(&mut self, shared: &Shared, generation: &str, sequence: i64) -> Result<(), String> {
         self.begin_expected_for(shared, generation, sequence, 0, false)
     }
 
@@ -453,13 +412,7 @@ impl Scope {
     /// anywhere since may be the person choosing a window. Keys count when
     /// they reached `process`.
     #[cfg_attr(not(windows), allow(dead_code))]
-    pub fn begin_restore(
-        &mut self,
-        shared: &Shared,
-        generation: &str,
-        sequence: i64,
-        process: u32,
-    ) -> Result<(), String> {
+    pub fn begin_restore(&mut self, shared: &Shared, generation: &str, sequence: i64, process: u32) -> Result<(), String> {
         self.begin_observed(shared, generation, sequence, process, true, true)
     }
 
@@ -475,15 +428,8 @@ impl Scope {
         let value = shared.read_for(process, pointer_since_observation);
         // Another generation's observer is not this process's to read.
         if !value.ready || value.generation != generation {
-            let reason = if value.ready {
-                MONITOR_UNRESPONSIVE
-            } else {
-                value.reason
-            };
-            return Err(format!(
-                "input_observation_unavailable: original observation is unavailable{}",
-                cause(reason)
-            ));
+            let reason = if value.ready { MONITOR_UNRESPONSIVE } else { value.reason };
+            return Err(format!("input_observation_unavailable: original observation is unavailable{}", cause(reason)));
         }
         if sequence > value.sequence || value.relevant_sequence > sequence {
             return Err("user_input_active: observation was superseded by external input".into());
@@ -507,10 +453,7 @@ impl Scope {
     pub fn assert_continue(&self, shared: &Shared) -> Result<(), String> {
         let value = shared.read_for(self.process, self.pointer);
         if !value.ready {
-            return Err(format!(
-                "input_observation_unavailable: input observation lost{}",
-                cause(value.reason)
-            ));
+            return Err(format!("input_observation_unavailable: input observation lost{}", cause(value.reason)));
         }
         if let Some(sequence) = self.sequence {
             if value.sequence < sequence || value.relevant_sequence > sequence {
@@ -547,10 +490,7 @@ mod tests {
         observer.record(true);
         scope.assert_continue(&observer).unwrap();
         observer.record(false);
-        assert!(scope
-            .assert_continue(&observer)
-            .unwrap_err()
-            .starts_with("user_input_active"));
+        assert!(scope.assert_continue(&observer).unwrap_err().starts_with("user_input_active"));
         scope.end();
         observer.record(false);
         scope.assert_continue(&observer).unwrap();
@@ -560,10 +500,7 @@ mod tests {
     fn unready_observer_refuses_input() {
         let observer = Observer::new();
         let mut scope = Scope::default();
-        assert_eq!(
-            scope.begin(&observer).unwrap_err(),
-            "input_observation_unavailable: input origin cannot be observed"
-        );
+        assert_eq!(scope.begin(&observer).unwrap_err(), "input_observation_unavailable: input origin cannot be observed");
     }
 
     #[test]
@@ -673,20 +610,14 @@ mod tests {
         observer.record_event(false, 2, false, &[77]);
         scope.assert_continue(&observer).unwrap();
         observer.record_event(false, 3, false, &[55]);
-        assert!(scope
-            .assert_continue(&observer)
-            .unwrap_err()
-            .starts_with("user_input_active"));
+        assert!(scope.assert_continue(&observer).unwrap_err().starts_with("user_input_active"));
         scope.end();
         // Foreground input into the same window drives the shared pointer.
         scope.begin_for(&observer, 55, true).unwrap();
         observer.record_event(false, 4, false, &[77]);
         scope.assert_continue(&observer).unwrap();
         observer.record_event(false, 5, true, &[77]);
-        assert!(scope
-            .assert_continue(&observer)
-            .unwrap_err()
-            .starts_with("user_input_active"));
+        assert!(scope.assert_continue(&observer).unwrap_err().starts_with("user_input_active"));
     }
 
     #[test]
@@ -696,15 +627,11 @@ mod tests {
         observer.record_event(false, 1, true, &[77]);
         let mut scope = Scope::default();
         // The pointer joins once the action drives it, not since the observation.
-        scope
-            .begin_expected_for(&observer, &observed.generation, observed.sequence, 55, true)
-            .unwrap();
+        scope.begin_expected_for(&observer, &observed.generation, observed.sequence, 55, true).unwrap();
         scope.end();
         observer.record_event(false, 2, false, &[55]);
         assert_eq!(
-            scope
-                .begin_expected_for(&observer, &observed.generation, observed.sequence, 55, true)
-                .unwrap_err(),
+            scope.begin_expected_for(&observer, &observed.generation, observed.sequence, 55, true).unwrap_err(),
             "user_input_active: observation was superseded by external input"
         );
         assert_eq!(
@@ -712,10 +639,7 @@ mod tests {
             "input_observation_unavailable: original observation is unavailable (monitor_unresponsive)"
         );
         // A sequence this observer never reached is not its observation.
-        assert!(scope
-            .begin_expected(&observer, &observed.generation, 99)
-            .unwrap_err()
-            .starts_with("user_input_active"));
+        assert!(scope.begin_expected(&observer, &observed.generation, 99).unwrap_err().starts_with("user_input_active"));
     }
 
     #[test]
@@ -726,25 +650,17 @@ mod tests {
         // The person keeps typing into their own window (process 77).
         observer.record_event(false, 1, false, &[77]);
         assert_eq!(observer.read_for(55, true).relevant_sequence, observed.sequence);
-        scope
-            .begin_restore(&observer, &observed.generation, observed.sequence, 55)
-            .unwrap();
+        scope.begin_restore(&observer, &observed.generation, observed.sequence, 55).unwrap();
         scope.end();
         // Keys that reached the target (process 55) are the person using it.
         observer.record_event(false, 2, false, &[55]);
         assert_eq!(observer.read_for(55, true).relevant_sequence, 2);
-        assert!(scope
-            .begin_restore(&observer, &observed.generation, observed.sequence, 55)
-            .unwrap_err()
-            .starts_with("user_input_active"));
+        assert!(scope.begin_restore(&observer, &observed.generation, observed.sequence, 55).unwrap_err().starts_with("user_input_active"));
         // A click anywhere since the observation may be the person choosing a window.
         let observed = observer.read();
         observer.record_event(false, 3, true, &[77]);
         assert_eq!(observer.read_for(55, true).relevant_sequence, 3);
-        assert!(scope
-            .begin_restore(&observer, &observed.generation, observed.sequence, 55)
-            .unwrap_err()
-            .starts_with("user_input_active"));
+        assert!(scope.begin_restore(&observer, &observed.generation, observed.sequence, 55).unwrap_err().starts_with("user_input_active"));
     }
 
     /// A source whose thread answers or not, with a settable system clock.
@@ -767,17 +683,11 @@ mod tests {
         let observer = Observer::new();
         let answers = Arc::new(AtomicBool::new(true));
         let tick = Arc::new(AtomicU32::new(7));
-        observer.set_monitor(Box::new(FakeMonitor {
-            answers: answers.clone(),
-            tick: tick.clone(),
-        }));
+        observer.set_monitor(Box::new(FakeMonitor { answers: answers.clone(), tick: tick.clone() }));
         observer.with_ledger(|ledger| ledger.record_neutral(7));
         let mut scope = Scope::default();
         assert_eq!(observer.read().reason, HOOKS_UNAVAILABLE);
-        assert_eq!(
-            scope.begin(&observer).unwrap_err(),
-            "input_observation_unavailable: input origin cannot be observed (hooks_unavailable)"
-        );
+        assert_eq!(scope.begin(&observer).unwrap_err(), "input_observation_unavailable: input origin cannot be observed (hooks_unavailable)");
         observer.set_ready(true);
         let value = observer.read();
         assert!(value.ready && value.reason.is_empty());
@@ -787,17 +697,11 @@ mod tests {
         let value = observer.read();
         assert!(!value.ready);
         assert_eq!(value.reason, INPUT_GAP);
-        assert_eq!(
-            scope.assert_continue(&observer).unwrap_err(),
-            "input_observation_unavailable: input observation lost (input_gap)"
-        );
+        assert_eq!(scope.assert_continue(&observer).unwrap_err(), "input_observation_unavailable: input observation lost (input_gap)");
         // The source latched it: one foreign event that reaches every target.
         observer.with_ledger(|ledger| ledger.observe(8));
         let value = observer.read_for(55, false);
-        assert_eq!(
-            (value.reason, value.sequence, value.relevant_sequence),
-            (INPUT_GAP, 1, 1)
-        );
+        assert_eq!((value.reason, value.sequence, value.relevant_sequence), (INPUT_GAP, 1, 1));
         answers.store(false, Ordering::SeqCst);
         assert_eq!(observer.read().reason, MONITOR_UNRESPONSIVE);
     }

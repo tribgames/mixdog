@@ -101,11 +101,7 @@ fn choice_options(flow: &Flow, item: &Value, x: f64, y: f64, label_size: f64) ->
     for option in items_of(item.get("options")) {
         let by_value = |found: &Value| found.get("value").filter(|value| !value.is_null()).map(|value| text_of(Some(value)));
         let value = by_value(option).unwrap_or_else(|| text_of(Some(option)));
-        let label = option
-            .get("label")
-            .filter(|label| !label.is_null())
-            .map(|label| text_of(Some(label)))
-            .unwrap_or_else(|| value.clone());
+        let label = option.get("label").filter(|label| !label.is_null()).map(|label| text_of(Some(label))).unwrap_or_else(|| value.clone());
         let mut entry = Map::new();
         entry.insert("value".into(), Value::String(value));
         entry.insert("label".into(), Value::String(label.clone()));
@@ -272,7 +268,14 @@ pub fn draw_form_fields(flow: &mut Flow, fields: &[Value]) -> WriterResult<()> {
                 }
                 let option_y = num(option.get("y"));
                 let text = text_of(option.get("label"));
-                flow.pages[page].draw_text(&text, option_x + wide + 6.0, option_y + (tall - label_size * 0.72) / 2.0, label_size + 1.0, &font, parse_color("1F2937")?)?;
+                flow.pages[page].draw_text(
+                    &text,
+                    option_x + wide + 6.0,
+                    option_y + (tall - label_size * 0.72) / 2.0,
+                    label_size + 1.0,
+                    &font,
+                    parse_color("1F2937")?,
+                )?;
             }
         }
         let mut control = field.clone();

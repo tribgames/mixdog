@@ -19,7 +19,7 @@ use super::{edit, native_state};
 use crate::keys::Mod;
 use crate::observer::Shared;
 use crate::platform::{Background, Wid};
-use crate::port::windows::{read_message, Message, Pressed, ReadMessage, Refusal, WinPort};
+use crate::port::windows::{Message, Pressed, ReadMessage, Refusal, WinPort, read_message};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,15 +44,9 @@ fn refused(refusal: Refusal) -> MsgError {
     match refusal {
         Refusal::Revoked => MsgError::plain(crate::port::REVOKED),
         Refusal::Hung => MsgError::plain("background_target_hung|the target window does not answer; no message was queued"),
-        Refusal::Isolated => {
-            MsgError::plain("background_blocked_uipi|Windows integrity isolation blocked the native message")
-        }
-        Refusal::Gone => MsgError::plain(
-            "background_target_gone|the target window closed before it acknowledged a background input release",
-        ),
-        Refusal::Failed(code) => {
-            MsgError::plain(format!("background_message_rejected|native window message failed with Win32 error {code}"))
-        }
+        Refusal::Isolated => MsgError::plain("background_blocked_uipi|Windows integrity isolation blocked the native message"),
+        Refusal::Gone => MsgError::plain("background_target_gone|the target window closed before it acknowledged a background input release"),
+        Refusal::Failed(code) => MsgError::plain(format!("background_message_rejected|native window message failed with Win32 error {code}")),
     }
 }
 
@@ -60,8 +54,7 @@ fn refused(refusal: Refusal) -> MsgError {
 /// message is arbitrated again.
 fn send(port: &WinPort, top: Wid, target: Wid, message: Message) -> Msg<usize> {
     let reply = port.message(top, target, message).map_err(refused)?;
-    port.wait(&reply, REPLY_WAIT)
-        .ok_or_else(|| MsgError::plain("background_target_hung|native window message timed out"))
+    port.wait(&reply, REPLY_WAIT).ok_or_else(|| MsgError::plain("background_target_hung|native window message timed out"))
 }
 
 /// One read of a window's state: holds no permission and changes nothing.
@@ -93,13 +86,7 @@ fn confirm_release(port: &WinPort, top: Wid, target: Wid, pressed: Pressed) -> R
 /// A press and its release as one unit: once the port queued the press, its receipt holds the release, which goes out and is
 /// acknowledged whatever happens in between (a revocation, an error, a lost reply). A press refused before it was queued holds
 /// nothing.
-fn with_release(
-    port: &WinPort,
-    top: Wid,
-    target: Wid,
-    press: Message,
-    held: impl FnOnce() -> Msg,
-) -> Result<(), String> {
+fn with_release(port: &WinPort, top: Wid, target: Wid, press: Message, held: impl FnOnce() -> Msg) -> Result<(), String> {
     let pressed = match press {
         Message::KeyDown { vk, .. } => Pressed::Key(vk),
         Message::ButtonDown { button, .. } => Pressed::Button(button),
@@ -124,9 +111,7 @@ fn refuse_dropped(window: Wid, target: Wid, kind: drops::Kind) -> Result<(), Str
 
 pub(in crate::platform::windows) fn is_chromium(class: &str) -> bool {
     class.eq_ignore_ascii_case("Chrome_RenderWidgetHostHWND")
-        || class
-            .get(.."Chrome_WidgetWin".len())
-            .is_some_and(|head| head.eq_ignore_ascii_case("Chrome_WidgetWin"))
+        || class.get(.."Chrome_WidgetWin".len()).is_some_and(|head| head.eq_ignore_ascii_case("Chrome_WidgetWin"))
 }
 
 pub(in crate::platform::windows) fn belongs_to_top(top: Wid, candidate: Wid) -> bool {
@@ -180,13 +165,7 @@ impl Background for WinBackground {
     /// ValidateBackgroundInput (MixWin32Keyboard.cs:305-317): a key stream's
     /// grammar first, then, for a named child, the control that would take
     /// the keys; else the top window's class.
-    fn validate_target(
-        &self,
-        window: Wid,
-        preferred: Wid,
-        action: &str,
-        keys: Option<&str>,
-    ) -> Result<(), String> {
+    fn validate_target(&self, window: Wid, preferred: Wid, action: &str, keys: Option<&str>) -> Result<(), String> {
         if action == "key" {
             keyboard::parse_keys(keys.unwrap_or("")).map_err(|error| error.text)?;
         }
@@ -202,26 +181,11 @@ impl Background for WinBackground {
         self.validate(window, action)
     }
 
-    fn pointer(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        kind: &str,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    fn pointer(&self, window: Wid, x: i32, y: i32, kind: &str, modifiers: &[Mod]) -> Result<String, String> {
         self.send_pointer(window, x, y, kind, modifiers)
     }
 
-    fn wheel(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        clicks: i32,
-        horizontal: bool,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    fn wheel(&self, window: Wid, x: i32, y: i32, clicks: i32, horizontal: bool, modifiers: &[Mod]) -> Result<String, String> {
         self.send_wheel(window, x, y, clicks, horizontal, modifiers)
     }
 
@@ -281,13 +245,7 @@ impl Background for WinBackground {
         native_state::read(child, action)
     }
 
-    fn dialog_refusal(
-        &self,
-        top: Wid,
-        preferred: Wid,
-        action: &str,
-        keys: Option<&str>,
-    ) -> Option<String> {
+    fn dialog_refusal(&self, top: Wid, preferred: Wid, action: &str, keys: Option<&str>) -> Option<String> {
         dialog::refusal(top, preferred, action, keys)
     }
 }

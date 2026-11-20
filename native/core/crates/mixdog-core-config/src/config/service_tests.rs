@@ -12,9 +12,7 @@ use crate::config::SettingsEnv;
 fn a_setter_error_answers_its_message() {
     let type_error = "Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.";
     let error = "heartbeat interval must be one of 30, 60, 120, 240 minutes";
-    for (thrown, text) in
-        [(ToolModulesError::InvalidArgument(type_error.into()), type_error), (ToolModulesError::Failed(error.into()), error)]
-    {
+    for (thrown, text) in [(ToolModulesError::InvalidArgument(type_error.into()), type_error), (ToolModulesError::Failed(error.into()), error)] {
         match tool(Err(thrown)) {
             Err(CoreError::DomainError { code: None, message: Some(message), .. }) => assert_eq!(&*message, text),
             other => panic!("{other:?}"),
@@ -120,7 +118,6 @@ async fn a_relay_write_outside_nodes_relay_methods_changes_nothing() {
         value_write(&config, &params, true).await.unwrap_or_else(|error| panic!("{edit}: Node's relay wrote it: {error:?}"));
     }
 }
-
 
 /// `ui/providerModels/announce` tells every client the trimmed origin, once; an origin that is not a string, is blank or is longer than
 /// 128 UTF-16 units is refused and tells no one.

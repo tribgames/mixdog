@@ -11,9 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use mixdog_term::paste::{PastedImage, PromptContent, PromptPart};
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
-use mixdog_tui::slash::host::{
-    CommittedClear, Opener, PromptSurface, SlashHost, SlashState, SubmitOptions, TextPrompt, Tone,
-};
+use mixdog_tui::slash::host::{CommittedClear, Opener, PromptSurface, SlashHost, SlashState, SubmitOptions, TextPrompt, Tone};
 use mixdog_tui::slash::workflow_cycle::{CycleGuard, TabCycleOverlays, workflow_tab_cycle};
 use mixdog_tui::slash::{run_slash_command, stop_prompt_cancel, stop_prompt_select};
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
@@ -190,8 +188,7 @@ fn options_json(options: Option<&SubmitOptions>) -> Value {
         })
         .collect();
     map.insert("pastedImages".into(), Value::Object(images));
-    let texts: Map<String, Value> =
-        options.pasted_texts.iter().map(|(id, text)| (id.to_string(), json!(text))).collect();
+    let texts: Map<String, Value> = options.pasted_texts.iter().map(|(id, text)| (id.to_string(), json!(text))).collect();
     map.insert("pastedTexts".into(), Value::Object(texts));
     map.insert("committed".into(), json!(options.on_committed.is_some()));
     Value::Object(map)
@@ -223,9 +220,7 @@ impl Fake {
         self.log
             .iter()
             .filter(|entry| entry[0] == "notice")
-            .map(|entry| {
-                (entry[1].as_str().unwrap_or_default().to_owned(), entry[2].as_str().unwrap_or_default().to_owned())
-            })
+            .map(|entry| (entry[1].as_str().unwrap_or_default().to_owned(), entry[2].as_str().unwrap_or_default().to_owned()))
             .collect()
     }
 
@@ -242,11 +237,7 @@ impl Fake {
     }
 
     pub fn opened(&self) -> Vec<(String, Value)> {
-        self.log
-            .iter()
-            .filter(|entry| entry[0] == "open")
-            .map(|entry| (entry[1].as_str().unwrap_or_default().to_owned(), entry[2].clone()))
-            .collect()
+        self.log.iter().filter(|entry| entry[0] == "open").map(|entry| (entry[1].as_str().unwrap_or_default().to_owned(), entry[2].clone())).collect()
     }
 
     pub fn closed_prompts(&self, surface: &str) -> usize {
@@ -320,9 +311,7 @@ impl SlashHost for Fake {
     }
 
     fn has_store_method(&self, name: &str) -> bool {
-        self.store.contains_key(name)
-            || (name == "submit" && self.submit_sync)
-            || (name == "submitAsync" && !self.submit_sync)
+        self.store.contains_key(name) || (name == "submit" && self.submit_sync) || (name == "submitAsync" && !self.submit_sync)
     }
 
     fn clear_context_panel(&mut self) {
@@ -503,12 +492,7 @@ impl SlashHost for Fake {
         self.log.push(json!(["armFollow"]));
     }
 
-    fn store_submit(
-        &mut self,
-        method: &str,
-        content: &PromptContent,
-        options: Option<&SubmitOptions>,
-    ) -> Result<Value, String> {
+    fn store_submit(&mut self, method: &str, content: &PromptContent, options: Option<&SubmitOptions>) -> Result<Value, String> {
         self.committed = options.and_then(|options| options.on_committed.clone());
         let content = node_content(content, &self.untyped_images);
         self.log.push(json!(["submit", method, content_json(&content), options_json(options)]));
@@ -560,11 +544,8 @@ pub fn fake_from_spec(spec: &Value) -> Fake {
     for (id, text) in spec.get("pastedTexts").and_then(Value::as_object).into_iter().flatten() {
         fake.texts.insert(id.parse().unwrap_or(0), text.as_str().unwrap_or_default().to_owned());
     }
-    fake.open_fails = spec
-        .get("openFails")
-        .and_then(Value::as_array)
-        .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-        .unwrap_or_default();
+    fake.open_fails =
+        spec.get("openFails").and_then(Value::as_array).map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
     fake.doctor_fails = spec.get("doctorFails").and_then(Value::as_str).map(str::to_owned);
     fake.submit_result = spec.get("submitResult").cloned();
     fake.submit_sync = spec.get("submitSync").and_then(Value::as_bool).unwrap_or(false);
@@ -590,11 +571,7 @@ pub fn play(spec: &Value) -> Outcome {
         let (a, b) = (&step[1], &step[2]);
         let mut timed = false;
         match kind {
-            "run" => returns.push(json!(run_slash_command(
-                &mut fake,
-                a.as_str().unwrap_or_default(),
-                b.as_str().unwrap_or_default()
-            ))),
+            "run" => returns.push(json!(run_slash_command(&mut fake, a.as_str().unwrap_or_default(), b.as_str().unwrap_or_default()))),
             "submit" => returns.push(json!(mixdog_tui::slash::on_submit(&mut fake, a.as_str().unwrap_or_default()))),
             "select" => fake.select(a.as_str().unwrap_or_default()),
             "cancel" => fake.cancel(),
@@ -602,8 +579,7 @@ pub fn play(spec: &Value) -> Outcome {
             "tick" => fake.clock += a.as_u64().unwrap_or(0),
             "cycle" => {
                 timed = true;
-                returns
-                    .push(json!(mixdog_tui::slash::workflow_cycle::cycle_workflow_from_prompt(&mut fake, &mut guard)));
+                returns.push(json!(mixdog_tui::slash::workflow_cycle::cycle_workflow_from_prompt(&mut fake, &mut guard)));
             }
             "tab" => {
                 timed = true;

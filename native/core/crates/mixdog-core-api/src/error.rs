@@ -160,17 +160,11 @@ pub enum CoreError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Precondition {
     /// File content (`projectFs/writeText{expectedContent}`); `None` is an absent file.
-    Content {
-        expected: Option<Bytes>,
-        actual: Option<Bytes>,
-    },
+    Content { expected: Option<Bytes>, actual: Option<Bytes> },
     /// Idle delete (`thread/delete{ifIdle:{lastUsedAt}}`), milliseconds since the Unix epoch.
     LastUsedAt { expected: i64, actual: i64 },
     /// An opaque revision token (`indexRevision`, …).
-    Revision {
-        expected: Arc<str>,
-        actual: Arc<str>,
-    },
+    Revision { expected: Arc<str>, actual: Arc<str> },
 }
 
 /// For logs only; never parsed and never sent as error text.
@@ -184,8 +178,6 @@ impl std::error::Error for CoreError {}
 
 impl From<mixdog_rt::LaneFull> for CoreError {
     fn from(full: mixdog_rt::LaneFull) -> Self {
-        CoreError::QueueFull {
-            queue: full.lane.name().into(),
-        }
+        CoreError::QueueFull { queue: full.lane.name().into() }
     }
 }

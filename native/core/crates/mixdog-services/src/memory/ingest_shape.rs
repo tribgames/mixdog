@@ -4,19 +4,15 @@
 //! notifications. Every rule under-strips rather than delete a person's own
 //! words.
 
-use mixdog_js::{js_trim, JsRegex, value_to_string};
+use mixdog_js::{JsRegex, js_trim, value_to_string};
 use std::sync::LazyLock;
-
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-
 const LEADING_NAMED_SECTIONS: [&str; 3] = ["Project Instructions", "Additional context", "Prefetch"];
 
-static SESSION_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^# Session\n(?:(?:Cwd|Model|Workflow): [^\n]*\n)+(?:\n|$)", "")
-});
+static SESSION_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^# Session\n(?:(?:Cwd|Model|Workflow): [^\n]*\n)+(?:\n|$)", ""));
 
 /// `user` / `assistant` for the roles kept from a transcript; None for any other.
 pub fn normalize_ingest_role(role: Option<&Value>) -> Option<&'static str> {
@@ -38,9 +34,10 @@ fn first_text_content(content: Option<&Value>) -> String {
                     return text.to_owned();
                 }
                 if item.get("type").and_then(Value::as_str) == Some("text")
-                    && let Some(text) = item.get("text").and_then(Value::as_str) {
-                        return text.to_owned();
-                    }
+                    && let Some(text) = item.get("text").and_then(Value::as_str)
+                {
+                    return text.to_owned();
+                }
             }
             String::new()
         }
@@ -56,9 +53,7 @@ pub fn all_text_content(content: Option<&Value>) -> String {
             .iter()
             .map(|item| match item {
                 Value::String(text) => text.as_str(),
-                _ if item.get("type").and_then(Value::as_str) == Some("text") => {
-                    item.get("text").and_then(Value::as_str).unwrap_or_default()
-                }
+                _ if item.get("type").and_then(Value::as_str) == Some("text") => item.get("text").and_then(Value::as_str).unwrap_or_default(),
                 _ => "",
             })
             .filter(|text| !text.is_empty())
@@ -185,8 +180,7 @@ pub fn project_session_messages_for_ingest(messages: &Value) -> Vec<Value> {
             next.insert("toolCallId".into(), fields["toolCallId"].clone());
         }
         if let Some(calls) = fields.get("toolCalls").and_then(Value::as_array) {
-            let ids: Vec<Value> =
-                calls.iter().filter(|call| truthy(call.get("id"))).map(|call| serde_json::json!({ "id": call["id"] })).collect();
+            let ids: Vec<Value> = calls.iter().filter(|call| truthy(call.get("id"))).map(|call| serde_json::json!({ "id": call["id"] })).collect();
             if !ids.is_empty() {
                 next.insert("toolCalls".into(), Value::Array(ids));
             }
@@ -216,5 +210,3 @@ pub fn should_exclude_ingest_message(message: &Value) -> bool {
         has_tool_calls: message.get("toolCalls").is_some_and(Value::is_array),
     })
 }
-
-

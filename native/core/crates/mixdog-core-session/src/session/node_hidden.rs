@@ -74,10 +74,7 @@ fn unimported(_lane: &InLane<InteractiveIo>, data_dir: &Path) -> Option<Vec<Hidd
 fn parse_hidden(text: &str) -> Vec<HiddenSession> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) else { return Vec::new() };
     let Some(hidden) = value.get("hidden").and_then(serde_json::Value::as_object) else { return Vec::new() };
-    hidden
-        .iter()
-        .map(|(id, at)| HiddenSession { id: id.clone(), at_ms: at.as_f64().filter(|at| *at > 0.0).map(|at| at as i64) })
-        .collect()
+    hidden.iter().map(|(id, at)| HiddenSession { id: id.clone(), at_ms: at.as_f64().filter(|at| *at > 0.0).map(|at| at as i64) }).collect()
 }
 
 #[cfg(test)]
@@ -92,7 +89,6 @@ mod tests {
         assert!(parse_hidden("{\"hidden\":[1]}").is_empty());
         assert!(parse_hidden("{}").is_empty());
     }
-
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::disallowed_methods, reason = "test setup writes the file")]

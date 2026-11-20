@@ -3,6 +3,8 @@
 
 pub mod audience;
 pub mod decision;
+#[cfg(test)]
+mod decision_parity_tests;
 pub mod desktop_notice;
 pub mod engine;
 pub mod held;
@@ -11,5 +13,3 @@ pub mod preview;
 pub mod screen;
 pub mod service;
 pub mod timeline;
-#[cfg(test)]
-mod decision_parity_tests;

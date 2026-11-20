@@ -134,10 +134,7 @@ impl Preceding {
         }
         settled().await;
         (!failed.is_empty()).then(|| {
-            format!(
-                "[mutation-dependency-guard] `{name}` skipped because earlier mutation call(s) failed: {}; no verification ran.",
-                failed.join(", ")
-            )
+            format!("[mutation-dependency-guard] `{name}` skipped because earlier mutation call(s) failed: {}; no verification ran.", failed.join(", "))
         })
     }
 }

@@ -5,36 +5,42 @@
 
 use crate::registry::Table;
 
-mod statistical;
 mod certified;
 mod distributions;
 mod jstat;
 mod special;
+mod statistical;
 
 // Library modules, one line each: `mod math;`
 
+mod database;
+mod datetime;
+pub mod information;
+pub mod logical;
+mod lookup;
 /// The tables of the library modules, one line each: `math::FUNCTIONS,`
 pub mod math;
-pub mod logical;
-pub mod information;
 mod text;
-mod datetime;
-mod lookup;
-mod database;
 
-mod engineering;
-mod complex;
 mod bessel;
+mod complex;
+mod engineering;
 
 mod financial;
 
 pub const TABLES: &[Table] = &[
     financial::FUNCTIONS,
-    engineering::FUNCTIONS, complex::FUNCTIONS,
+    engineering::FUNCTIONS,
+    complex::FUNCTIONS,
     statistical::FUNCTIONS,
     distributions::FUNCTIONS,
-    math::FUNCTIONS, logical::FUNCTIONS, information::FUNCTIONS,
-    text::FUNCTIONS, datetime::FUNCTIONS, lookup::FUNCTIONS, database::FUNCTIONS,
+    math::FUNCTIONS,
+    logical::FUNCTIONS,
+    information::FUNCTIONS,
+    text::FUNCTIONS,
+    datetime::FUNCTIONS,
+    lookup::FUNCTIONS,
+    database::FUNCTIONS,
 ];
 
 /// Whether `name` is a distribution function: it reads its arguments left to right itself (Excel reports the first

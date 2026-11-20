@@ -30,8 +30,7 @@ use std::sync::Arc;
 use x11rb::protocol::xproto::ConnectionExt as _;
 
 pub fn wayland_session() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some()
-        && std::env::var("XDG_SESSION_TYPE").map_or(true, |kind| kind == "wayland")
+    std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var("XDG_SESSION_TYPE").map_or(true, |kind| kind == "wayland")
 }
 
 pub fn create(observer: Arc<Shared>, _marker: i64, scope: &crate::port::Scope) -> Box<dyn Desktop> {
@@ -45,9 +44,9 @@ pub fn create(observer: Arc<Shared>, _marker: i64, scope: &crate::port::Scope) -
             observe::start_x11(observer);
             Box::new(X11Desktop { x11, atspi: RefCell::new(None), mpx: mpx::Mpx })
         }
-        Err(error) => Box::new(Unsupported::new(format!(
-            "display_unavailable: no X11 display to drive ({error}); run inside a desktop session with DISPLAY set"
-        ))),
+        Err(error) => {
+            Box::new(Unsupported::new(format!("display_unavailable: no X11 display to drive ({error}); run inside a desktop session with DISPLAY set")))
+        }
     }
 }
 
@@ -60,28 +59,11 @@ pub fn release_owned_input() -> Result<(), String> {
     }
     let (conn, root) = x11::connect()?;
     mpx::remove_stale(&conn);
-    let pointer = conn
-        .query_pointer(root)
-        .map_err(|error| error.to_string())?
-        .reply()
-        .map_err(|error| error.to_string())?;
+    let pointer = conn.query_pointer(root).map_err(|error| error.to_string())?.reply().map_err(|error| error.to_string())?;
     let buttons = u16::from(pointer.mask) & 0x700 != 0;
-    let keymap = conn
-        .query_keymap()
-        .map_err(|error| error.to_string())?
-        .reply()
-        .map_err(|error| error.to_string())?;
-    let modifiers = conn
-        .get_modifier_mapping()
-        .map_err(|error| error.to_string())?
-        .reply()
-        .map_err(|error| error.to_string())?;
-    let keys = modifiers
-        .keycodes
-        .iter()
-        .copied()
-        .filter(|code| *code != 0)
-        .any(|code| keymap.keys[(code / 8) as usize] & (1 << (code % 8)) != 0);
+    let keymap = conn.query_keymap().map_err(|error| error.to_string())?.reply().map_err(|error| error.to_string())?;
+    let modifiers = conn.get_modifier_mapping().map_err(|error| error.to_string())?.reply().map_err(|error| error.to_string())?;
+    let keys = modifiers.keycodes.iter().copied().filter(|code| *code != 0).any(|code| keymap.keys[(code / 8) as usize] & (1 << (code % 8)) != 0);
     if buttons || keys {
         return Err("input_cleanup_unconfirmed: input is still down and no receipt names it as this helper's; nothing was released".into());
     }
@@ -111,10 +93,7 @@ impl X11Desktop {
     }
 
     fn background_route(&self) -> mpx::MpxRoute<'_> {
-        mpx::MpxRoute {
-            mpx: &self.mpx,
-            x11: &self.x11,
-        }
+        mpx::MpxRoute { mpx: &self.mpx, x11: &self.x11 }
     }
 }
 
@@ -125,12 +104,7 @@ impl Desktop for X11Desktop {
 
     fn windows(&self) -> Result<Vec<WindowInfo>, String> {
         let active = self.x11.active();
-        Ok(self
-            .x11
-            .clients()
-            .into_iter()
-            .filter_map(|window| self.x11.info(window, active))
-            .collect())
+        Ok(self.x11.clients().into_iter().filter_map(|window| self.x11.info(window, active)).collect())
     }
 
     fn info(&self, handle: Wid) -> Option<WindowInfo> {
@@ -154,19 +128,10 @@ impl Desktop for X11Desktop {
     }
 
     fn related_windows(&self, handle: Wid) -> Vec<Wid> {
-        let Some(pid) = self
-            .info(handle)
-            .map(|info| info.pid)
-            .filter(|pid| *pid > 0)
-        else {
+        let Some(pid) = self.info(handle).map(|info| info.pid).filter(|pid| *pid > 0) else {
             return Vec::new();
         };
-        self.x11
-            .clients()
-            .into_iter()
-            .filter(|window| *window as Wid != handle && self.x11.pid(*window) == pid)
-            .map(|window| window as Wid)
-            .collect()
+        self.x11.clients().into_iter().filter(|window| *window as Wid != handle && self.x11.pid(*window) == pid).map(|window| window as Wid).collect()
     }
 
     fn is_owned_by(&self, candidate: Wid, owner: Wid) -> bool {
@@ -174,21 +139,12 @@ impl Desktop for X11Desktop {
             return false;
         }
         match (self.info(candidate), self.info(owner)) {
-            (Some(candidate), Some(owner_info)) => {
-                candidate.owner == owner || (candidate.pid > 0 && candidate.pid == owner_info.pid)
-            }
+            (Some(candidate), Some(owner_info)) => candidate.owner == owner || (candidate.pid > 0 && candidate.pid == owner_info.pid),
             _ => false,
         }
     }
 
-    fn move_window(
-        &self,
-        handle: Wid,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-    ) -> Result<(), String> {
+    fn move_window(&self, handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
         self.x11.move_window(handle as u32, x, y, width, height)
     }
 
@@ -216,14 +172,7 @@ impl Desktop for X11Desktop {
         self.x11.motion(x, y)
     }
 
-    fn button(
-        &self,
-        button: Button,
-        down: bool,
-        x: i32,
-        y: i32,
-        _clicks: u32,
-    ) -> Result<(), String> {
+    fn button(&self, button: Button, down: bool, x: i32, y: i32, _clicks: u32) -> Result<(), String> {
         if self.x11.cursor() != (x, y) {
             self.x11.motion(x, y)?;
         }
@@ -314,35 +263,13 @@ impl Background for X11Desktop {
     fn validate(&self, window: Wid, action: &str) -> Result<(), String> {
         self.background_route().validate(window, action)
     }
-    fn pointer(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        kind: &str,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
-        self.background_route()
-            .pointer(window, x, y, kind, modifiers)
+    fn pointer(&self, window: Wid, x: i32, y: i32, kind: &str, modifiers: &[Mod]) -> Result<String, String> {
+        self.background_route().pointer(window, x, y, kind, modifiers)
     }
-    fn wheel(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        clicks: i32,
-        horizontal: bool,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
-        self.background_route()
-            .wheel(window, x, y, clicks, horizontal, modifiers)
+    fn wheel(&self, window: Wid, x: i32, y: i32, clicks: i32, horizontal: bool, modifiers: &[Mod]) -> Result<String, String> {
+        self.background_route().wheel(window, x, y, clicks, horizontal, modifiers)
     }
-    fn drag(
-        &self,
-        window: Wid,
-        points: &[(i32, i32)],
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    fn drag(&self, window: Wid, points: &[(i32, i32)], modifiers: &[Mod]) -> Result<String, String> {
         self.background_route().drag(window, points, modifiers)
     }
     fn keys(&self, window: Wid, keys: &str) -> Result<String, String> {
@@ -358,14 +285,8 @@ impl Accessibility for X11Desktop {
         self.atspi().map(|_| ())
     }
 
-    fn snapshot(
-        &self,
-        window: &WindowInfo,
-        include_noninteractive: bool,
-        limit: usize,
-    ) -> Result<Vec<Node>, String> {
-        self.atspi()?
-            .snapshot(window, include_noninteractive, limit)
+    fn snapshot(&self, window: &WindowInfo, include_noninteractive: bool, limit: usize) -> Result<Vec<Node>, String> {
+        self.atspi()?.snapshot(window, include_noninteractive, limit)
     }
 
     fn focused_masked(&self) -> bool {
@@ -379,12 +300,7 @@ impl Accessibility for X11Desktop {
         }
     }
 
-    fn invoke_menu(
-        &self,
-        window: &WindowInfo,
-        path: &[String],
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String> {
+    fn invoke_menu(&self, window: &WindowInfo, path: &[String], authorize: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
         self.atspi()?.invoke_menu(window, path, authorize)
     }
 }

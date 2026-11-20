@@ -13,7 +13,7 @@ use mixdog_ssh::context::AttemptContext;
 use mixdog_ssh::session::Progress;
 
 use crate::attempts::{Attempts, ConnectionsPush, ServerLinks};
-use crate::host_list_ops::{forget_saved, HostLinks, HostList, LocalForget};
+use crate::host_list_ops::{HostLinks, HostList, LocalForget, forget_saved};
 use crate::host_store::{SshHostRecord, SshHostStore};
 use crate::link::LinkSpec;
 use crate::link_machine::ModelLogin;
@@ -27,7 +27,13 @@ impl ServerLinks for NoLinks {
         false
     }
 
-    async fn open(&self, _spec: LinkSpec, _context: AttemptContext, _progress: Option<Progress>, _cancel: Option<&tokio_util::sync::CancellationToken>) -> Result<crate::link::LinkOpen, ConnectError> {
+    async fn open(
+        &self,
+        _spec: LinkSpec,
+        _context: AttemptContext,
+        _progress: Option<Progress>,
+        _cancel: Option<&tokio_util::sync::CancellationToken>,
+    ) -> Result<crate::link::LinkOpen, ConnectError> {
         unreachable!("a forget opens nothing")
     }
 

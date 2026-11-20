@@ -7,14 +7,10 @@ use std::cell::Cell;
 
 use mixdog_js::{JsRegex, js_trim};
 
-use crate::docx_revisions::{
-    ResolveOptions, rendered_word_text, resolve_docx_property_changes, resolve_docx_revisions, revision_owner,
-};
+use crate::docx_revisions::{ResolveOptions, rendered_word_text, resolve_docx_property_changes, resolve_docx_revisions, revision_owner};
 use crate::slide_shapes::remove_first;
 use crate::snapshot_docx::docx_body_model;
-use crate::xml::{
-    WORD_RUN_SOURCE, compiled, container_inner, word_run_open, word_run_properties, xml_encode,
-};
+use crate::xml::{WORD_RUN_SOURCE, compiled, container_inner, word_run_open, word_run_properties, xml_encode};
 
 const EMPTY_RUN_PROPERTIES: &str = r"^\s*(?:<w:rPr\/>|<w:rPr>\s*<\/w:rPr>)?\s*$";
 
@@ -144,12 +140,7 @@ fn paragraph_parts(paragraph_xml: &str) -> ParagraphParts {
     };
     let pattern = compiled(r"^\s*<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>", "");
     let properties = pattern.find(&inner.inner).map_or("", |range| &inner.inner[range]).to_owned();
-    ParagraphParts {
-        open: paragraph_xml[..inner.start].to_owned(),
-        content: inner.inner[properties.len()..].to_owned(),
-        properties,
-        empty: false,
-    }
+    ParagraphParts { open: paragraph_xml[..inner.start].to_owned(), content: inner.inner[properties.len()..].to_owned(), properties, empty: false }
 }
 
 /// The run properties of a paragraph mark (the `w:rPr` inside `w:pPr`).
@@ -203,10 +194,7 @@ fn element_extents(xml: &str, tag: &str) -> Vec<Extent> {
 }
 
 fn leftover_marks_source(author: &str) -> String {
-    format!(
-        r"(<w:rPr(?:\s[^>]*)?>(?:(?!<\/w:rPr>)[\s\S])*?)<w:(ins|del)\b{}[^>]*\/>",
-        revision_owner(author)
-    )
+    format!(r"(<w:rPr(?:\s[^>]*)?>(?:(?!<\/w:rPr>)[\s\S])*?)<w:(ins|del)\b{}[^>]*\/>", revision_owner(author))
 }
 
 /// What settling paragraph marks counted.
@@ -233,11 +221,8 @@ fn resolve_paragraph_marks(document_xml: &str, accept: bool, author: &str) -> Ma
     // Each cell without a nested table is a paragraph sequence like the body; the last cell goes first so earlier offsets
     // stay valid.
     let nested_table = compiled(r"<w:tbl\b", "");
-    let cells: Vec<Extent> = element_extents(&xml, "w:tc")
-        .into_iter()
-        .filter(|cell| !nested_table.is_match(&xml[cell.inner_start..cell.inner_end]))
-        .rev()
-        .collect();
+    let cells: Vec<Extent> =
+        element_extents(&xml, "w:tc").into_iter().filter(|cell| !nested_table.is_match(&xml[cell.inner_start..cell.inner_end])).rev().collect();
     for cell in cells {
         let inner = xml[cell.inner_start..cell.inner_end].to_owned();
         if !leftover.is_match(&inner) {
@@ -292,10 +277,7 @@ fn resolve_row_marks(document_xml: &str, accept: bool, author: &str) -> RowCount
     let mut xml = document_xml.to_owned();
     let (mut removed, mut cleared) = (0, 0);
     let nested_table = compiled(r"<w:tbl\b", "");
-    let row_properties = compiled(
-        r"^<w:tr(?:\s[^>]*)?>\s*(?:<w:tblPrEx(?:\s[^>]*)?>[\s\S]*?<\/w:tblPrEx>\s*)?(<w:trPr(?:\s[^>]*)?>[\s\S]*?<\/w:trPr>)",
-        "",
-    );
+    let row_properties = compiled(r"^<w:tr(?:\s[^>]*)?>\s*(?:<w:tblPrEx(?:\s[^>]*)?>[\s\S]*?<\/w:tblPrEx>\s*)?(<w:trPr(?:\s[^>]*)?>[\s\S]*?<\/w:trPr>)", "");
     for row in element_extents(&xml, "w:tr").into_iter().rev() {
         let row_xml = js_slice(&xml, row.start, row.end).to_owned();
         if nested_table.is_match(&row_xml) {
@@ -356,11 +338,7 @@ fn resolve_marks_in_body(document_xml: &str, accept: bool, author: &str) -> Mark
                 break;
             };
             let second = paragraph_parts(&next.xml);
-            replacement = Some((
-                block.start,
-                next.end,
-                format!("{}{}{}{}</w:p>", second.open, second.properties, own.content, second.content),
-            ));
+            replacement = Some((block.start, next.end, format!("{}{}{}{}</w:p>", second.open, second.properties, own.content, second.content)));
             merged += 1;
             break;
         }
@@ -433,21 +411,9 @@ pub struct SettledStory {
 pub fn settle_docx_story(xml: &str, options: &SettleOptions<'_>) -> SettledStory {
     let resolution = if options.resolution.is_empty() { "accept" } else { options.resolution };
     let accept = resolution == "accept";
-    let (wrappers_xml, resolved) = resolve_docx_revisions(
-        xml,
-        &ResolveOptions { resolution, target: options.target, id: options.id, author: options.author },
-    );
+    let (wrappers_xml, resolved) = resolve_docx_revisions(xml, &ResolveOptions { resolution, target: options.target, id: options.id, author: options.author });
     if options.target != 0 || !options.id.is_empty() {
-        return SettledStory {
-            xml: wrappers_xml,
-            resolved,
-            merged: 0,
-            cleared: 0,
-            unmerged: 0,
-            rows_removed: 0,
-            rows_cleared: 0,
-            property_changes: 0,
-        };
+        return SettledStory { xml: wrappers_xml, resolved, merged: 0, cleared: 0, unmerged: 0, rows_removed: 0, rows_cleared: 0, property_changes: 0 };
     }
     let marks = resolve_story_paragraph_marks(&wrappers_xml, accept, options.author);
     let rows = resolve_row_marks(&marks.xml, accept, options.author);
@@ -472,10 +438,7 @@ mod tests {
     fn adjacent_runs_of_one_format_become_one() {
         let xml = r#"<w:p><w:r w:rsidR="1"><w:rPr><w:b/></w:rPr><w:t>Hel</w:t></w:r><w:proofErr w:type="spellStart"/><w:r><w:rPr><w:b/></w:rPr><w:t>lo </w:t></w:r><w:r><w:t>x</w:t></w:r></w:p>"#;
         let done = normalize_docx_runs(xml);
-        assert_eq!(
-            done.xml,
-            r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Hello</w:t></w:r><w:r><w:t>x</w:t></w:r></w:p>"#
-        );
+        assert_eq!(done.xml, r#"<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Hello</w:t></w:r><w:r><w:t>x</w:t></w:r></w:p>"#);
         assert_eq!((done.merged, done.text_merged, done.proof_err_removed, done.rsid_stripped), (1, 1, 1, 1));
     }
 
@@ -484,10 +447,7 @@ mod tests {
         let xml = r#"<w:body><w:p><w:pPr><w:rPr><w:del w:id="1" w:author="A"/></w:rPr></w:pPr><w:r><w:t>a</w:t></w:r></w:p><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>b</w:t></w:r></w:p></w:body>"#;
         let accepted = settle_docx_story(xml, &SettleOptions::default());
         assert_eq!(accepted.merged, 1);
-        assert_eq!(
-            accepted.xml,
-            r#"<w:body><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>a</w:t></w:r><w:r><w:t>b</w:t></w:r></w:p></w:body>"#
-        );
+        assert_eq!(accepted.xml, r#"<w:body><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>a</w:t></w:r><w:r><w:t>b</w:t></w:r></w:p></w:body>"#);
         let rejected = settle_docx_story(xml, &SettleOptions { resolution: "reject", ..SettleOptions::default() });
         assert_eq!((rejected.merged, rejected.cleared), (0, 1));
     }

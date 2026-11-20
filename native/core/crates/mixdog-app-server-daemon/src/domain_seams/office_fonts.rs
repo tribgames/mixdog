@@ -90,7 +90,6 @@ mod tests {
         FontDef { id: leak(id), family: leak(family), file_name: leak(file_name), registry_name: "", path: leak(path), bytes, sha256: leak(sha256) }
     }
 
-
     #[test]
     fn a_buffer_is_verified_by_its_size_and_its_sha256() {
         let verify = json!([
@@ -131,7 +130,6 @@ mod tests {
         }
     }
 
-
     /// Every face of the `prepareOfficeFonts` scenario that ends without an OS font
     /// registration: a face already installed and the three that fail. The face that downloads
     /// would write the font into the OS registry, so it is not run here.
@@ -163,7 +161,9 @@ mod tests {
         let fetcher = Served(
             served
                 .iter()
-                .map(|(path, v)| (path.trim_start_matches('/').to_owned(), v["status"].as_u64().unwrap() as u16, v["body"].as_str().unwrap().as_bytes().to_vec()))
+                .map(|(path, v)| {
+                    (path.trim_start_matches('/').to_owned(), v["status"].as_u64().unwrap() as u16, v["body"].as_str().unwrap().as_bytes().to_vec())
+                })
                 .collect(),
         );
         let tokens = mixdog_rt::testing::tokens();
@@ -174,7 +174,16 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|t| def(t["id"].as_str().unwrap(), t["family"].as_str().unwrap(), t["fileName"].as_str().unwrap(), t["served"].as_str().unwrap().trim_start_matches('/'), t["bytes"].as_u64().unwrap() as usize, t["sha256"].as_str().unwrap()))
+            .map(|t| {
+                def(
+                    t["id"].as_str().unwrap(),
+                    t["family"].as_str().unwrap(),
+                    t["fileName"].as_str().unwrap(),
+                    t["served"].as_str().unwrap().trim_start_matches('/'),
+                    t["bytes"].as_u64().unwrap() as usize,
+                    t["sha256"].as_str().unwrap(),
+                )
+            })
             .collect();
         let mut results = serde_json::Map::new();
         for (id, installed) in fonts.prepare(&targets).await {

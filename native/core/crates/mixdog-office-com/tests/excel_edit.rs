@@ -59,13 +59,7 @@ impl ItemSource for Items {
 }
 
 fn failure(message: &str) -> ComError {
-    ComError {
-        hresult: -2_146_827_284,
-        inner_hresult: -2_146_827_284,
-        message: message.to_owned(),
-        inner_message: message.to_owned(),
-        unknown_member: false,
-    }
+    ComError { hresult: -2_146_827_284, inner_hresult: -2_146_827_284, message: message.to_owned(), inner_message: message.to_owned(), unknown_member: false }
 }
 
 fn child(shared: &Rc<Shared>, path: String) -> Com {
@@ -191,13 +185,51 @@ fn calls_with(log: &[String], needle: &str) -> Vec<String> {
 #[test]
 fn the_editor_serves_the_operations_of_the_registry_fixture() {
     let expected: Vec<String> = [
-        "add_chart", "add_conditional_format", "add_image", "add_note", "add_pivot_table", "add_provenance", "add_sheet",
-        "add_table", "add_validation", "append_row", "autofit_range", "clear_cell", "copy_sheet", "define_name",
-        "delete_columns", "delete_conditional_formats", "delete_drawing", "delete_name", "delete_note", "delete_rows",
-        "delete_sheet", "freeze_panes", "insert_columns", "insert_rows", "merge_cells", "protect_sheet", "rename_sheet",
-        "replace_text", "set_autofilter", "set_cell", "set_column_visibility", "set_column_width", "set_drawing",
-        "set_formula", "set_header_footer", "set_hyperlink", "set_page_setup", "set_range", "set_row_height",
-        "set_row_visibility", "set_sheet_view", "set_sheet_visibility", "set_style", "sort_range", "unmerge_cells",
+        "add_chart",
+        "add_conditional_format",
+        "add_image",
+        "add_note",
+        "add_pivot_table",
+        "add_provenance",
+        "add_sheet",
+        "add_table",
+        "add_validation",
+        "append_row",
+        "autofit_range",
+        "clear_cell",
+        "copy_sheet",
+        "define_name",
+        "delete_columns",
+        "delete_conditional_formats",
+        "delete_drawing",
+        "delete_name",
+        "delete_note",
+        "delete_rows",
+        "delete_sheet",
+        "freeze_panes",
+        "insert_columns",
+        "insert_rows",
+        "merge_cells",
+        "protect_sheet",
+        "rename_sheet",
+        "replace_text",
+        "set_autofilter",
+        "set_cell",
+        "set_column_visibility",
+        "set_column_width",
+        "set_drawing",
+        "set_formula",
+        "set_header_footer",
+        "set_hyperlink",
+        "set_page_setup",
+        "set_range",
+        "set_row_height",
+        "set_row_visibility",
+        "set_sheet_view",
+        "set_sheet_visibility",
+        "set_style",
+        "sort_range",
+        "unmerge_cells",
         "unprotect_sheet",
     ]
     .iter()
@@ -337,10 +369,7 @@ fn a_protected_sheet_keeps_what_it_still_allows() {
     book.run(r#"{"op":"protect_sheet","password":"pw","allowFormattingCells":true,"allowSorting":true}"#).expect("protected");
     assert_eq!(
         lines_with(&book.log(), ".Protect("),
-        vec![
-            "call Book.ActiveSheet.Protect(\"pw\", true, true, true, false, true, false, false, false, false, false, false, false, true, false)"
-                .to_owned()
-        ]
+        vec!["call Book.ActiveSheet.Protect(\"pw\", true, true, true, false, true, false, false, false, false, false, false, false, true, false)".to_owned()]
     );
 }
 
@@ -401,10 +430,7 @@ fn a_block_that_fills_its_range_goes_in_as_one_array() {
     });
     let record = book.run(r#"{"op":"set_range","range":"A1:B2","values":[["a",1],["b",2]]}"#).expect("the block goes in");
     assert_eq!(record, r#"{"op":"set_range","changed":true}"#);
-    assert_eq!(
-        lines_with(&book.log(), "Value2"),
-        vec!["put Book.ActiveSheet.Range(\"A1:B2\").Value2 = array[2x2]{\"a\"|r8:1;\"b\"|r8:2}".to_owned()]
-    );
+    assert_eq!(lines_with(&book.log(), "Value2"), vec!["put Book.ActiveSheet.Range(\"A1:B2\").Value2 = array[2x2]{\"a\"|r8:1;\"b\"|r8:2}".to_owned()]);
 }
 
 #[test]
@@ -456,10 +482,7 @@ fn a_row_appended_below_data_takes_the_row_above_as_its_format() {
     });
     assert_eq!(book.run(r#"{"op":"append_row","values":[1,2]}"#), Ok(r#"{"op":"append_row","changed":true,"row":5}"#.to_owned()));
     let log = book.log();
-    assert!(
-        log.contains(&"call Book.ActiveSheet.Rows.Item(i4:4).Copy(<Book.ActiveSheet.Rows.Item(i4:5)>)".to_owned()),
-        "{log:?}"
-    );
+    assert!(log.contains(&"call Book.ActiveSheet.Rows.Item(i4:4).Copy(<Book.ActiveSheet.Rows.Item(i4:5)>)".to_owned()), "{log:?}");
     assert!(log.contains(&"call Book.ActiveSheet.Rows.Item(i4:5).ClearContents()".to_owned()), "{log:?}");
 }
 
@@ -508,13 +531,8 @@ fn a_format_nobody_accepts_keeps_its_figures_without_the_colour() {
 
 #[test]
 fn a_format_refused_for_another_reason_is_the_failure() {
-    let book = Book::new(&[], |path, call| {
-        (call.kind == Kind::Put && path.ends_with(".NumberFormat")).then(|| Err(failure("The number format is invalid")))
-    });
-    assert_eq!(
-        book.run(r#"{"op":"set_style","cell":"A1","properties":{"numberFormat":"0.0"}}"#),
-        Err("The number format is invalid".to_owned())
-    );
+    let book = Book::new(&[], |path, call| (call.kind == Kind::Put && path.ends_with(".NumberFormat")).then(|| Err(failure("The number format is invalid"))));
+    assert_eq!(book.run(r#"{"op":"set_style","cell":"A1","properties":{"numberFormat":"0.0"}}"#), Err("The number format is invalid".to_owned()));
 }
 
 #[test]
@@ -545,10 +563,7 @@ fn style_properties_go_in_as_the_script_sets_them() {
 #[test]
 fn a_colour_that_is_not_six_digits_is_refused_with_the_scripts_text() {
     let book = plain();
-    assert_eq!(
-        book.run(r#"{"op":"set_style","cell":"A1","properties":{"color":"12"}}"#),
-        Err("Invalid color '12'; expected RRGGBB".to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"set_style","cell":"A1","properties":{"color":"12"}}"#), Err("Invalid color '12'; expected RRGGBB".to_owned()));
 }
 
 #[test]
@@ -607,10 +622,7 @@ fn rows_are_inserted_one_at_a_time_and_the_record_says_references_follow() {
         book.run(r#"{"op":"insert_rows","row":3,"count":2}"#),
         Ok(r#"{"op":"insert_rows","changed":true,"row":3,"count":2,"referenceAware":true}"#.to_owned())
     );
-    assert_eq!(
-        lines_with(&book.log(), ".Insert("),
-        vec!["call Book.ActiveSheet.Rows.Item(i4:3).Insert(i4:-4121)".to_owned(); 2]
-    );
+    assert_eq!(lines_with(&book.log(), ".Insert("), vec!["call Book.ActiveSheet.Rows.Item(i4:3).Insert(i4:-4121)".to_owned(); 2]);
     book.run(r#"{"op":"delete_columns","column":2}"#).expect("deleted");
     assert!(book.log().contains(&"call Book.ActiveSheet.Columns.Item(i4:2).Delete()".to_owned()));
 }
@@ -623,10 +635,7 @@ fn a_row_height_is_a_single_and_is_refused_outside_its_range() {
     assert_eq!(book.run(r#"{"op":"set_row_height","row":2}"#), Err("set_row_height requires height in points, 0-409".to_owned()));
     let record = book.run(r#"{"op":"set_row_height","row":2,"height":20,"count":2}"#).expect("set");
     assert_eq!(record, r#"{"op":"set_row_height","changed":true,"sheet":"Data","rows":[2,3],"height":20}"#);
-    assert_eq!(
-        lines_with(&book.log(), ".RowHeight"),
-        vec!["put Book.ActiveSheet.Rows(\"2:3\").RowHeight = r4:20".to_owned()]
-    );
+    assert_eq!(lines_with(&book.log(), ".RowHeight"), vec!["put Book.ActiveSheet.Rows(\"2:3\").RowHeight = r4:20".to_owned()]);
 }
 
 #[test]
@@ -636,10 +645,7 @@ fn a_column_width_names_its_column_by_letter_or_number_and_is_a_single() {
         "Book.ActiveSheet.Name" => Some(Ok(Com::Str("Data".to_owned()))),
         _ => None,
     });
-    assert_eq!(
-        book.run(r#"{"op":"set_column_width","column":"c","width":300}"#),
-        Err("set_column_width requires width in characters, 0-255".to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"set_column_width","column":"c","width":300}"#), Err("set_column_width requires width in characters, 0-255".to_owned()));
     assert_eq!(
         book.run(r#"{"op":"set_column_width","column":"c","width":12.5,"count":2}"#),
         Ok(r#"{"op":"set_column_width","changed":true,"sheet":"Data","columns":[3,4],"width":12.5}"#.to_owned())
@@ -656,19 +662,13 @@ fn a_column_width_names_its_column_by_letter_or_number_and_is_a_single() {
 fn visibility_needs_the_word_and_a_row_or_column() {
     let book = plain();
     assert_eq!(book.run(r#"{"op":"set_row_visibility","row":2}"#), Err("set_row_visibility requires visible: true or false".to_owned()));
-    assert_eq!(
-        book.run(r#"{"op":"set_row_visibility","row":0,"visible":true}"#),
-        Err("set_row_visibility requires row (1-based)".to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"set_row_visibility","row":0,"visible":true}"#), Err("set_row_visibility requires row (1-based)".to_owned()));
     assert_eq!(
         book.run(r#"{"op":"set_row_visibility","row":4,"visible":false,"count":3}"#),
         Ok(r#"{"op":"set_row_visibility","changed":true,"sheet":"Data","visible":false,"rows":[4,5,6]}"#.to_owned())
     );
     assert_eq!(lines_with(&book.log(), ".Hidden = "), vec!["put Book.ActiveSheet.Rows(\"4:6\").Hidden = true".to_owned()]);
-    assert_eq!(
-        book.run(r#"{"op":"set_column_visibility","column":"A"}"#),
-        Err("set_column_visibility requires visible: true or false".to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"set_column_visibility","column":"A"}"#), Err("set_column_visibility requires visible: true or false".to_owned()));
 }
 
 #[test]
@@ -681,15 +681,8 @@ fn a_citation_is_appended_to_the_note_and_a_blank_one_is_refused() {
     });
     let record = book.run(r#"{"op":"add_provenance","cell":"C3","citation":"10-K, p. 4"}"#).expect("a citation");
     assert_eq!(record, r#"{"op":"add_provenance","changed":true,"target":"/sheet[Data]/cell[C3]","citation":"10-K, p. 4"}"#);
-    assert!(
-        book.log().contains(&"call Book.ActiveSheet.Range(\"C3\").Comment.Text(\"first\n10-K, p. 4\")".to_owned()),
-        "{:?}",
-        book.log()
-    );
-    assert_eq!(
-        book.run(r#"{"op":"add_provenance","cell":"C3","citation":"  "}"#),
-        Err("add_provenance requires source with a document or label".to_owned())
-    );
+    assert!(book.log().contains(&"call Book.ActiveSheet.Range(\"C3\").Comment.Text(\"first\n10-K, p. 4\")".to_owned()), "{:?}", book.log());
+    assert_eq!(book.run(r#"{"op":"add_provenance","cell":"C3","citation":"  "}"#), Err("add_provenance requires source with a document or label".to_owned()));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -720,10 +713,7 @@ fn a_drawing_is_found_by_position_or_by_name_and_its_absence_names_what_is_there
         book.run(r#"{"op":"set_drawing"}"#),
         Err("set_drawing requires drawing: the name the snapshot reports, or its 1-based index on the sheet.".to_owned())
     );
-    assert_eq!(
-        book.run(r#"{"op":"set_drawing","drawing":2}"#),
-        Err("set_drawing needs left, top, width, or height".to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"set_drawing","drawing":2}"#), Err("set_drawing needs left, top, width, or height".to_owned()));
 }
 
 #[test]
@@ -765,10 +755,7 @@ fn a_bar_chart_is_drawn_top_down_with_its_title_and_the_codes_of_its_kind() {
     let record = book.run(r#"{"op":"add_chart","chartType":"bar","range":"A1:B4","title":"Sales","showValues":true}"#).expect("a chart");
     assert_eq!(record, r#"{"op":"add_chart","changed":true,"name":"Chart 1","series":1,"categories":3}"#);
     let log = book.log();
-    assert!(
-        log.contains(&"call Book.ActiveSheet.Shapes.AddChart2(i4:-1, i4:57, r4:300, r4:20, r4:480, r4:280)".to_owned()),
-        "{log:?}"
-    );
+    assert!(log.contains(&"call Book.ActiveSheet.Shapes.AddChart2(i4:-1, i4:57, r4:300, r4:20, r4:480, r4:280)".to_owned()), "{log:?}");
     assert!(log.iter().any(|line| line.contains(".SetSourceData(<Book.ActiveSheet.Range(\"A1:B4\")>, i4:2)")), "{log:?}");
     assert!(log.iter().any(|line| line.ends_with(".ChartTitle.Text = \"Sales\"")), "{log:?}");
     assert!(log.iter().any(|line| line.ends_with(".Axes(i4:1).ReversePlotOrder = true")), "{log:?}");
@@ -805,9 +792,7 @@ fn sortable(hidden_row: Option<i32>, merged: bool) -> Book {
             p if p == format!("{target}.Column") => Some(Ok(Com::I4(1))),
             "Book.ActiveSheet.Columns(\"Z\").Column" => Some(Ok(Com::I4(26))),
             p if p.ends_with(".Hidden") => Some(Ok(Com::Bool(hidden_row.is_some_and(|row| p.contains(&format!("Rows(i4:{row})")))))),
-            p if p.contains(".Rows(i4:") && p.ends_with(").Row") => {
-                Some(Ok(Com::I4(hidden_row.unwrap_or(0))))
-            }
+            p if p.contains(".Rows(i4:") && p.ends_with(").Row") => Some(Ok(Com::I4(hidden_row.unwrap_or(0)))),
             p if p == format!("{target}.MergeCells") => Some(Ok(Com::Bool(merged))),
             _ => None,
         }
@@ -955,8 +940,7 @@ fn visible_excel(split_row: i32) -> Book {
 fn panes_are_frozen_zoomed_out_and_the_zoom_comes_back() {
     let book = visible_excel(1);
     assert_eq!(book.run(r#"{"op":"freeze_panes","row":2}"#), Ok(r#"{"op":"freeze_panes","changed":true}"#.to_owned()));
-    let window: Vec<String> =
-        book.log().iter().filter_map(|line| line.strip_prefix("put Book.Windows.Item(i4:1).")).map(str::to_owned).collect();
+    let window: Vec<String> = book.log().iter().filter_map(|line| line.strip_prefix("put Book.Windows.Item(i4:1).")).map(str::to_owned).collect();
     assert_eq!(
         window,
         vec![
@@ -981,10 +965,7 @@ fn panes_are_frozen_zoomed_out_and_the_zoom_comes_back() {
 #[test]
 fn panes_that_froze_elsewhere_are_refused_with_where_they_froze() {
     let book = visible_excel(3);
-    assert_eq!(
-        book.run(r#"{"op":"freeze_panes","row":2}"#),
-        Err("Excel froze panes at row=3 column=0 instead of row=1 column=0".to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"freeze_panes","row":2}"#), Err("Excel froze panes at row=3 column=0 instead of row=1 column=0".to_owned()));
 }
 
 #[test]
@@ -1051,10 +1032,7 @@ fn headers_and_footers_become_field_codes_and_keep_the_callers_ampersand() {
         book.run(r#"{"op":"set_header_footer","kind":"Footer","alignment":"right","text":"A & B {Page} of {PAGES} {date} {time} {sheet} {file}"}"#),
         Ok(r#"{"op":"set_header_footer","changed":true,"sheet":"Data","kind":"footer","alignment":"right"}"#.to_owned())
     );
-    assert_eq!(
-        lines_with(&book.log(), "RightFooter"),
-        vec!["put Book.ActiveSheet.PageSetup.RightFooter = \"A && B &P of &N &D &T &A &F\"".to_owned()]
-    );
+    assert_eq!(lines_with(&book.log(), "RightFooter"), vec!["put Book.ActiveSheet.PageSetup.RightFooter = \"A && B &P of &N &D &T &A &F\"".to_owned()]);
     assert_eq!(book.run(r#"{"op":"set_header_footer","kind":"body"}"#), Err("set_header_footer kind must be header or footer".to_owned()));
     assert_eq!(
         book.run(r#"{"op":"set_header_footer","kind":"header","alignment":"top"}"#),
@@ -1065,10 +1043,7 @@ fn headers_and_footers_become_field_codes_and_keep_the_callers_ampersand() {
 #[test]
 fn a_row_fit_does_not_fit_columns() {
     let book = plain();
-    assert_eq!(
-        book.run(r#"{"op":"autofit_range","range":"1:3","rows":true}"#),
-        Ok(r#"{"op":"autofit_range","changed":true,"range":"1:3"}"#.to_owned())
-    );
+    assert_eq!(book.run(r#"{"op":"autofit_range","range":"1:3","rows":true}"#), Ok(r#"{"op":"autofit_range","changed":true,"range":"1:3"}"#.to_owned()));
     assert!(lines_with(&book.log(), "Columns.AutoFit").is_empty(), "{:?}", book.log());
 }
 

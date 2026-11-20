@@ -162,7 +162,8 @@ pub fn render_app(props: &AppViewProps<'_>, painter: &mut Painter) -> AppFrame {
     if layout.show_welcome_banner {
         paint_welcome_banner(painter, 0, frame_columns, props.cwd, props.version);
     }
-    let queued_lines = if layout.queued_visible && !layout.input_box_hidden { render_queued_commands(props.queued, frame_columns, layout.queued_compact) } else { Vec::new() };
+    let queued_lines =
+        if layout.queued_visible && !layout.input_box_hidden { render_queued_commands(props.queued, frame_columns, layout.queued_compact) } else { Vec::new() };
     let meta_rows = if layout.prompt_meta_visible { 2 } else { 0 };
     let prompt_cluster_rows = if layout.input_box_hidden { 0 } else { meta_rows + queued_lines.len() + layout.prompt_box_rows };
     let bottom_rows = layout.panel_transition_clear_rows + layout.floating_panel_rows + prompt_cluster_rows + usize::from(STATUSLINE_BAND_ROWS);
@@ -256,13 +257,31 @@ mod tests {
         assert_eq!(PanelSlots::default().showing(), None);
     }
 
-    fn frame_of(layout: &ShellLayout, panels: PanelSlots<'_>, items: &[Value], draft: &Draft, spinner: &[Line], rows: usize, columns: usize) -> (Grid, AppFrame) {
+    fn frame_of(
+        layout: &ShellLayout,
+        panels: PanelSlots<'_>,
+        items: &[Value],
+        draft: &Draft,
+        spinner: &[Line],
+        rows: usize,
+        columns: usize,
+    ) -> (Grid, AppFrame) {
         let list = Items::new(items, None);
-        let window = RenderWindow { start_index: 0, end_index: items.len(), bottom_spacer_rows: 0, total_rows: 0, max_scroll_rows: 0, effective_scroll_offset: 0 };
+        let window =
+            RenderWindow { start_index: 0, end_index: items.len(), bottom_spacer_rows: 0, total_rows: 0, max_scroll_rows: 0, effective_scroll_offset: 0 };
         let overlay = OverlayHint { attach_item_index: None, tail_pinned: true, on_last_item: false, fallback_row: false };
         let mounted = rows::mount_rows(
             &mut ItemHeights::default(),
-            &rows::MountInput { items: &list, window: &window, layout, frame_columns: columns - 1, tool_output_expanded: false, streaming_tail_id: None, overlay: &overlay, now_ms: 0.0 },
+            &rows::MountInput {
+                items: &list,
+                window: &window,
+                layout,
+                frame_columns: columns - 1,
+                tool_output_expanded: false,
+                streaming_tail_id: None,
+                overlay: &overlay,
+                now_ms: 0.0,
+            },
         );
         let props = AppViewProps {
             columns,
@@ -311,7 +330,8 @@ mod tests {
         let mut layout = base_layout();
         let draft = Draft::at_end("abc");
         let approval_request = json!({ "name": "bash" });
-        let panels = PanelSlots { tool_approval: Some(panel::ToolApprovalSlot { request: &approval_request, selected: 0, question: None }), ..PanelSlots::default() };
+        let panels =
+            PanelSlots { tool_approval: Some(panel::ToolApprovalSlot { request: &approval_request, selected: 0, question: None }), ..PanelSlots::default() };
         let (_, frame) = frame_of(&layout, panels, &[], &draft, &[], 14, 40);
         assert_eq!(frame.cursor, None);
         layout.input_box_hidden = true;
@@ -350,7 +370,16 @@ mod tests {
             let overlay = OverlayHint { attach_item_index: None, tail_pinned: true, on_last_item: false, fallback_row: false };
             let mounted = rows::mount_rows(
                 &mut ItemHeights::default(),
-                &rows::MountInput { items: &list, window: &window, layout, frame_columns: 39, tool_output_expanded: false, streaming_tail_id: None, overlay: &overlay, now_ms: 0.0 },
+                &rows::MountInput {
+                    items: &list,
+                    window: &window,
+                    layout,
+                    frame_columns: 39,
+                    tool_output_expanded: false,
+                    streaming_tail_id: None,
+                    overlay: &overlay,
+                    now_ms: 0.0,
+                },
             );
             let draft = Draft::empty();
             let props = AppViewProps {
@@ -384,7 +413,8 @@ mod tests {
 
     #[test]
     fn the_welcome_banner_sits_above_the_viewport_and_the_viewport_gives_back_rows_that_do_not_fit() {
-        let layout = ShellLayout { show_welcome_banner: true, viewport_height: 20, transcript_content_height: 20, prompt_box_rows: 3, ..ShellLayout::default() };
+        let layout =
+            ShellLayout { show_welcome_banner: true, viewport_height: 20, transcript_content_height: 20, prompt_box_rows: 3, ..ShellLayout::default() };
         let (grid, _) = frame_of(&layout, PanelSlots::default(), &[], &Draft::empty(), &[], 24, 60);
         assert!(grid.row_text(3).contains('\u{2588}'));
         // 24 rows: 11 banner, 3 prompt box, 2 statusline leave 8 for the viewport, so the box starts at row 19.

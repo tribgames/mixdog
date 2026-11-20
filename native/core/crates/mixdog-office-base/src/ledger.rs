@@ -27,7 +27,10 @@ pub enum ChangeSide {
     Bytes(Vec<u8>),
     /// The file changed but its bytes were not captured (oversized, over the budget): no undo. `reason` is Node's
     /// `'oversized'`, `'binary'` or `'budget'`.
-    Uncaptured { size: u64, reason: Option<String> },
+    Uncaptured {
+        size: u64,
+        reason: Option<String>,
+    },
 }
 
 impl From<ReviewContent> for ChangeSide {
@@ -236,7 +239,6 @@ mod tests {
         assert_eq!(changes[0].after, ChangeSide::Bytes(b"1234567".to_vec()));
     }
 
-
     #[test]
     fn paths_that_differ_only_in_case_are_one_file_where_the_file_system_ignores_case() {
         let w = world();
@@ -263,7 +265,6 @@ mod tests {
         assert!(!inside(Path::new(""), &root));
     }
 }
-
 
 impl CallLedger {
     /// A ledger for a call working in `cwd` (the process's working directory when empty) with `data_dir` as the Office

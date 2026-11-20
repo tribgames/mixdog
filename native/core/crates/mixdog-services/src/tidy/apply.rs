@@ -84,7 +84,12 @@ pub async fn escaping_write_targets(lane: DurabilityIo, cwd: &Path, files: &[Str
             .into_iter()
             .filter_map(|f| {
                 let parent = f.rsplit_once('/').map_or("", |(d, _)| d).to_owned();
-                let dir = dirs.entry(parent.clone()).or_insert_with(|| if parent.is_empty() { None } else { outside_project(&real, &root.join(&parent)).map(|why| format!("its directory {parent}: {why}")) }).clone();
+                let dir = dirs
+                    .entry(parent.clone())
+                    .or_insert_with(|| {
+                        if parent.is_empty() { None } else { outside_project(&real, &root.join(&parent)).map(|why| format!("its directory {parent}: {why}")) }
+                    })
+                    .clone();
                 let why = dir.or_else(|| if links.contains(&f) { outside_project(&real, &full_path_for(&root, &f)) } else { None });
                 why.map(|why| (f, why))
             })
@@ -197,7 +202,14 @@ fn read_write_target(root: &Path, path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// Applies structural byte-range fixes, grouped per file. `matches_by_file` maps a repo-relative
 /// path to its matches; only matches carrying a `fix` participate.
-pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cwd: &Path, matches_by_file: &[(String, Vec<Value>)], session_id: Option<&str>, cancel: Option<&CancellationToken>) -> StructuralResult {
+pub async fn apply_structural_fixes(
+    lane: DurabilityIo,
+    host: &dyn WriteHost,
+    cwd: &Path,
+    matches_by_file: &[(String, Vec<Value>)],
+    session_id: Option<&str>,
+    cancel: Option<&CancellationToken>,
+) -> StructuralResult {
     let (mut applied, mut rejected, mut written) = (Vec::new(), Vec::new(), Vec::new());
     for (file, matches) in matches_by_file {
         let fixes: Vec<Value> = matches
@@ -231,7 +243,9 @@ pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cw
             continue;
         }
         if let Some(why) = plan.unverifiable.first() {
-            rejected.push(json!({"file": file, "reason": format!("{} fix(es) cannot be checked against the file the scanner read: {why}", plan.unverifiable.len())}));
+            rejected.push(
+                json!({"file": file, "reason": format!("{} fix(es) cannot be checked against the file the scanner read: {why}", plan.unverifiable.len())}),
+            );
             continue;
         }
         let outcome = async {
@@ -313,11 +327,15 @@ pub(crate) mod tests {
     #[test]
     fn overlaps_and_unusable_ranges_are_detected() {
         let s = "0123456789";
-        let plan = plan_replacements(&[fix_in(s, 0, 4, "x", "a"), fix_in(s, 3, 6, "y", "b"), json!({"byteOffset": [5, 2], "text": "z"}), json!({"text": "no range"})]);
+        let plan =
+            plan_replacements(&[fix_in(s, 0, 4, "x", "a"), fix_in(s, 3, 6, "y", "b"), json!({"byteOffset": [5, 2], "text": "z"}), json!({"text": "no range"})]);
         assert_eq!((plan.overlaps.len(), plan.invalid), (1, 2));
         // Touching ranges are not overlaps.
         assert!(plan_replacements(&[fix_in(s, 0, 2, "x", ""), fix_in(s, 2, 4, "y", "")]).overlaps.is_empty());
-        let unverified = plan_replacements(&[json!({"byteOffset": [0, 1], "text": "x"}), json!({"byteOffset": [0, 1], "text": "x", "stale": "the file changed while it was scanned"})]);
+        let unverified = plan_replacements(&[
+            json!({"byteOffset": [0, 1], "text": "x"}),
+            json!({"byteOffset": [0, 1], "text": "x", "stale": "the file changed while it was scanned"}),
+        ]);
         assert_eq!(unverified.unverifiable.len(), 2);
         assert!(unverified.replacements.is_empty());
     }
@@ -385,7 +403,6 @@ pub(crate) mod tests {
         assert_eq!(full_path_for(Path::new("/r"), "a/b.ts"), Path::new("/r").join("a/b.ts"));
     }
 
-
     #[tokio::test]
     async fn structural_fixes_write_once_per_file_and_report_rejections() {
         let dir = tempfile::tempdir().unwrap();
@@ -394,7 +411,10 @@ pub(crate) mod tests {
         let host = Recording::default();
         let matches = vec![
             ("ok.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix_in("var a = 1;", 0, 3, "let", "")}), json!({"ruleId": "info"})]),
-            ("clash.ts".to_owned(), vec![json!({"ruleId": "r1", "fix": fix_in("0123456789", 0, 5, "x", "")}), json!({"ruleId": "r2", "fix": fix_in("0123456789", 3, 8, "y", "")})]),
+            (
+                "clash.ts".to_owned(),
+                vec![json!({"ruleId": "r1", "fix": fix_in("0123456789", 0, 5, "x", "")}), json!({"ruleId": "r2", "fix": fix_in("0123456789", 3, 8, "y", "")})],
+            ),
             ("missing.ts".to_owned(), vec![json!({"ruleId": "r", "fix": fix_in("z", 0, 1, "z", "")})]),
             ("none.ts".to_owned(), vec![json!({"ruleId": "r"})]),
         ];

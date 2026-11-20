@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
-use mixdog_js::JsRegex;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_js::JsRegex;
 use serde_json::Value as JsonValue;
 use sha2::Digest;
 use sha2::Sha256;
@@ -156,11 +156,8 @@ pub fn effective_budget(budget_tokens: u64, reserve_tokens: u64) -> Result<u64, 
 /// Dropped tool-result stubs that point at an id no longer in the transcript
 /// go back to the missing-result stub.
 pub fn reconcile_dedup_stubs(messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
-    let present: std::collections::HashSet<String> = messages
-        .iter()
-        .filter(|m| m.role() == Role::Tool)
-        .filter_map(|m| m.tool_call_id().map(str::to_owned))
-        .collect();
+    let present: std::collections::HashSet<String> =
+        messages.iter().filter(|m| m.role() == Role::Tool).filter_map(|m| m.tool_call_id().map(str::to_owned)).collect();
     messages
         .into_iter()
         .map(|mut m| {
@@ -200,10 +197,8 @@ pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[Agent
     // A recovery reminder right after the system prompt reads as protected
     // prefix and would outlive every pass; it belongs to the conversation.
     let is_recovery = |m: &AgentMessage| m.source == Some(Source::CompactExecutionRecovery);
-    let protected_prefix: Vec<AgentMessage> =
-        split.protected_prefix.iter().filter(|m| !is_recovery(m)).cloned().collect();
-    let mut conversation: Vec<AgentMessage> =
-        split.protected_prefix.iter().filter(|m| is_recovery(m)).cloned().collect();
+    let protected_prefix: Vec<AgentMessage> = split.protected_prefix.iter().filter(|m| !is_recovery(m)).cloned().collect();
+    let mut conversation: Vec<AgentMessage> = split.protected_prefix.iter().filter(|m| is_recovery(m)).cloned().collect();
     conversation.extend(split.conversation);
     let skill_window_start = window_start(&conversation);
     let mut previous_summary = None;
@@ -221,11 +216,7 @@ pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[Agent
     // Project older requests before budgeting; the shared user-message rules still decide tail retention.
     let mut live = Vec::with_capacity(conversation.len());
     for (index, m) in conversation.iter().enumerate() {
-        let kept = if Some(index) == latest_user {
-            m.clone()
-        } else {
-            ctx.attachments.reference_media(&strip_runtime_user_context(m)).await
-        };
+        let kept = if Some(index) == latest_user { m.clone() } else { ctx.attachments.reference_media(&strip_runtime_user_context(m)).await };
         if !is_summary_message(&kept) && kept.source != Some(Source::CompactSkillWindow) {
             live.push(kept);
         }
@@ -262,11 +253,7 @@ pub(super) fn compact_header(rows: &dyn MessageRows, old_history: &[AgentMessage
     }
     let roles = counts.iter().map(|(r, n)| format!("{r}:{n}")).collect::<Vec<_>>().join(", ");
     let roles = if roles.is_empty() { "none".to_owned() } else { roles };
-    format!(
-        "{SUMMARY_PREFIX}\nmessages={} sha256={} roles={roles}",
-        old_history.len(),
-        sha16(&mixdog_js::json_stringify(&JsonValue::Array(rows)))
-    )
+    format!("{SUMMARY_PREFIX}\nmessages={} sha256={} roles={roles}", old_history.len(), sha16(&mixdog_js::json_stringify(&JsonValue::Array(rows))))
 }
 
 pub fn make_summary_message(content: String) -> AgentMessage {
@@ -277,10 +264,7 @@ pub fn make_summary_message(content: String) -> AgentMessage {
 /// whole and joined by blank lines.
 fn split_memory_handoff_root_blocks(text: &str) -> (String, Vec<String>) {
     static HEADER: std::sync::LazyLock<mixdog_js::JsRegex> = std::sync::LazyLock::new(|| {
-        mixdog_js::JsRegex::new_static(
-            r"^# (?:chunk \d+ root=\d+(?: category=\S+)?|raw_pending \d+ id=\d+|raw_terminal \d+ id=\d+)[ \t]*$",
-            "m",
-        )
+        mixdog_js::JsRegex::new_static(r"^# (?:chunk \d+ root=\d+(?: category=\S+)?|raw_pending \d+ id=\d+|raw_terminal \d+ id=\d+)[ \t]*$", "m")
     });
     if mixdog_js::js_trim(text).is_empty() {
         return (String::new(), Vec::new());
@@ -311,11 +295,8 @@ fn fresh_context_summary_message(ctx: &FreshContext<'_>, old_history: &[AgentMes
         return make_summary_message(header);
     }
     let (preamble, blocks) = split_memory_handoff_root_blocks(handoff);
-    let body = if blocks.is_empty() {
-        handoff.to_owned()
-    } else {
-        std::iter::once(preamble).filter(|p| !p.is_empty()).chain(blocks).collect::<Vec<_>>().join("\n\n")
-    };
+    let body =
+        if blocks.is_empty() { handoff.to_owned() } else { std::iter::once(preamble).filter(|p| !p.is_empty()).chain(blocks).collect::<Vec<_>>().join("\n\n") };
     make_summary_message(format!("{header}\n\n{body}"))
 }
 
@@ -329,9 +310,7 @@ fn active_turn_continuation(messages: &[AgentMessage]) -> Option<AgentMessage> {
             && (m.source == Some(Source::ActiveTurnContinuation)
                 || matches!(&m.message.content, Content::Text(t) if t.contains(crate::project::ACTIVE_TURN_CONTINUATION_ANCHOR)))
     };
-    let activity = |m: &AgentMessage| {
-        m.role() == Role::Tool || (m.role() == Role::Assistant && !is_protected_context_ack(m))
-    };
+    let activity = |m: &AgentMessage| m.role() == Role::Tool || (m.role() == Role::Assistant && !is_protected_context_ack(m));
     if !after.iter().any(existing) && !after.iter().any(activity) {
         return None;
     }
@@ -367,10 +346,7 @@ async fn fresh_tail(
     let execution = build_execution_tail(
         &ctx.tail,
         &source.live,
-        &TailOptions {
-            context_window: if opts.context_window > 0 { opts.context_window } else { budget_tokens },
-            preserve_conversation,
-        },
+        &TailOptions { context_window: if opts.context_window > 0 { opts.context_window } else { budget_tokens }, preserve_conversation },
     )
     .await?;
     let latest_user = latest_actual_user_instruction_index(&source.live).map(|i| source.live[i].clone());
@@ -379,8 +355,7 @@ async fn fresh_tail(
     let mut volatile = execution.messages;
     skills.reconcile_tail(&mut volatile);
     if let Some(latest) = &latest_user
-        && let Some(index) =
-            volatile.iter().rposition(|m| m.role() == Role::User && m.message.content == latest.message.content)
+        && let Some(index) = volatile.iter().rposition(|m| m.role() == Role::User && m.message.content == latest.message.content)
     {
         volatile[index] = prepend_latest_user_context(&volatile[index], &opts.latest_user_prefix);
     }
@@ -394,12 +369,10 @@ async fn fresh_tail(
     Ok(Tail { latest_user, turn_input, volatile })
 }
 
-static GOAL_STATE_REMINDER: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*", "gi")
-});
-static TODO_STATE_REMINDER: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"<system-reminder>\s*<todo_state>[\s\S]*?<\/todo_state>\s*<\/system-reminder>\s*", "gi")
-});
+static GOAL_STATE_REMINDER: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*", "gi"));
+static TODO_STATE_REMINDER: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"<system-reminder>\s*<todo_state>[\s\S]*?<\/todo_state>\s*<\/system-reminder>\s*", "gi"));
 
 /// `withRuntimeUserContext`'s content: text gains `prefix` and `suffix`, parts gain them as text blocks.
 fn with_prefix(content: &Content, prefix: &str, suffix: &str) -> Content {
@@ -480,11 +453,7 @@ async fn fresh_layout(
     let handoff = mixdog_js::js_trim(&opts.handoff_text);
     // The preview carries the real summary envelope but no invented AI text.
     let replace_conversation = !handoff.is_empty() || (opts.preview && opts.preview_summary);
-    let summary = if replace_conversation {
-        Some(fresh_context_summary_message(ctx, &source.live, handoff))
-    } else {
-        source.previous_summary.clone()
-    };
+    let summary = if replace_conversation { Some(fresh_context_summary_message(ctx, &source.live, handoff)) } else { source.previous_summary.clone() };
     let tail = fresh_tail(ctx, source, skills, budget_tokens, !replace_conversation, opts).await?;
     // Every pass rebuilds the ack; it keeps the previous ack's id so the
     // archive does not count an unchanged ack as dropped.
@@ -511,18 +480,11 @@ async fn fresh_layout(
 
 /// The compact budget: the soft target, widened toward the model window when
 /// the mandatory context and the handoff need more.
-fn fresh_budget(
-    ctx: &FreshContext<'_>,
-    target: u64,
-    budget_tokens: u64,
-    layout: &Layout,
-    opts: &FreshOptions,
-) -> Result<u64, FreshError> {
+fn fresh_budget(ctx: &FreshContext<'_>, target: u64, budget_tokens: u64, layout: &Layout, opts: &FreshOptions) -> Result<u64, FreshError> {
     if opts.max_budget_tokens <= budget_tokens {
         return Ok(target);
     }
-    let required = layout.mandatory_cost
-        + layout.summary.as_ref().map_or(0, |s| ctx.tail.meter.message(s));
+    let required = layout.mandatory_cost + layout.summary.as_ref().map_or(0, |s| ctx.tail.meter.message(s));
     Ok(effective_budget(opts.max_budget_tokens, opts.reserve_tokens)?.min(target.max(required)))
 }
 
@@ -657,9 +619,7 @@ pub(super) async fn fresh_context_compact_messages_with_skills(
     let result = rebase_effort(&base, result);
     let final_tokens = meter.compact_messages(&result);
     if final_tokens > budget {
-        return Err(FreshError::Failed(format!(
-            "freshContextCompactMessages: compacted result exceeds budget={budget} (result={final_tokens})"
-        )));
+        return Err(FreshError::Failed(format!("freshContextCompactMessages: compacted result exceeds budget={budget} (result={final_tokens})")));
     }
     Ok(FreshResult { messages: result, fresh_context: true })
 }

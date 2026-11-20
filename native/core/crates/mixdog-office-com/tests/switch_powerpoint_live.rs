@@ -118,7 +118,8 @@ impl HelperApp {
     fn start(dir: &Path, names: &[&str]) -> Self {
         // The helper application that holds documents open is started by a script of its own (`tests/support/host-app.ps1`).
         let path = crate_dir().join("tests").join("support").join("host-app.ps1");
-        let powershell = Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot")).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
+        let powershell =
+            Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot")).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
         let mut child = Command::new(powershell)
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Sta", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&path)
@@ -226,7 +227,8 @@ async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run
             let host = kill["session"].as_str().expect("a session host");
             let id = hosts.get(host).and_then(|ids| ids.last()).unwrap_or_else(|| panic!("no session of host {host}"));
             let pid = office.session_identity(id).and_then(|identity| identity.app_pid).expect("the session's application process");
-            let status = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status().expect("taskkill");
+            let status =
+                Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status().expect("taskkill");
             assert!(status.success(), "the application process {pid} was not ended");
             None
         } else if let Some(host) = step.get("eof").and_then(Json::as_str) {
@@ -270,7 +272,8 @@ fn every_powerpoint_scenario_through_the_transport_meets_what_it_expects_and_lea
     let mut request_time = Duration::ZERO;
     let mut ran = 0;
     for area in AREAS {
-        let text = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("tests").join("scenarios").join(format!("{area}.json"))).expect("the scenarios");
+        let text = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("tests").join("scenarios").join(format!("{area}.json")))
+            .expect("the scenarios");
         let file: Json = serde_json::from_str(&text).expect("the scenarios are JSON");
         for scenario in file["scenarios"].as_array().expect("scenarios").iter().filter(|scenario| is_powerpoint_scenario(scenario)) {
             let id = scenario["id"].as_str().expect("an id");
@@ -295,14 +298,24 @@ async fn run_authoring_flow(office: &OfficeCom, work: &Path) -> Vec<Json> {
     let path = |name: &str| work.join(name).to_string_lossy().into_owned();
     let mut answers = Vec::new();
     // The deck authored elsewhere (what the authoring flow of the extension host builds outside the session).
-    let made = office.open_session(&json!({"action": "open_session", "session": "made", "format": "pptx", "path": path("src.pptx"), "mode": "background", "create": true}), options()).await;
+    let made = office
+        .open_session(
+            &json!({"action": "open_session", "session": "made", "format": "pptx", "path": path("src.pptx"), "mode": "background", "create": true}),
+            options(),
+        )
+        .await;
     assert_eq!(made["ok"], json!(true), "{made}");
     let slides = office.call(&json!({"action": "batch", "session": "made", "operations": [{"op": "add_slide"}, {"op": "add_slide"}]}), options()).await.value;
     assert_eq!(slides["ok"], json!(true), "{slides}");
     let saved = office.close_session("made", CloseOptions { save: true, timeout: Duration::from_secs(180), ..CloseOptions::default() }).await;
     assert_eq!(saved["ok"], json!(true), "{saved}");
 
-    let opened = office.open_session(&json!({"action": "open_session", "session": "author", "format": "pptx", "path": path("deck.pptx"), "mode": "background", "create": true}), options()).await;
+    let opened = office
+        .open_session(
+            &json!({"action": "open_session", "session": "author", "format": "pptx", "path": path("deck.pptx"), "mode": "background", "create": true}),
+            options(),
+        )
+        .await;
     assert_eq!(opened["ok"], json!(true), "{opened}");
     answers.push(opened);
     for request in [
@@ -321,10 +334,7 @@ async fn run_authoring_flow(office: &OfficeCom, work: &Path) -> Vec<Json> {
     let edited = office.call(&json!({"action": "batch", "session": "author", "operations": [{"op": "add_slide"}]}), options()).await.value;
     assert_eq!(edited["ok"], json!(true), "{edited}");
     std::thread::sleep(Duration::from_millis(1100));
-    for request in [
-        json!({"action": "render", "session": "author", "output": path("r1.pdf")}),
-        json!({"action": "post_save_validate", "session": "author"}),
-    ] {
+    for request in [json!({"action": "render", "session": "author", "output": path("r1.pdf")}), json!({"action": "post_save_validate", "session": "author"})] {
         let answer = office.call(&request, options()).await.value;
         assert_eq!(answer["ok"], json!(true), "{answer}");
         answers.push(answer);
@@ -391,12 +401,18 @@ fn the_read_only_preview_of_a_deck_with_a_password_given_renders_and_writes_noth
         let output = work.join("p.pdf").to_string_lossy().into_owned();
         let preview = runtime.block_on(async {
             let options = || CallOptions { timeout: Duration::from_secs(180), cancel: CancellationToken::new() };
-            let made = office.open_session(&json!({"action": "open_session", "session": "mk", "format": "pptx", "path": deck, "mode": "background", "create": true}), options()).await;
+            let made = office
+                .open_session(
+                    &json!({"action": "open_session", "session": "mk", "format": "pptx", "path": deck, "mode": "background", "create": true}),
+                    options(),
+                )
+                .await;
             assert_eq!(made["ok"], json!(true), "{made}");
             let closed = office.close_session("mk", CloseOptions { save: true, timeout: Duration::from_secs(180), ..CloseOptions::default() }).await;
             assert_eq!(closed["ok"], json!(true), "{closed}");
             let before_preview = mixdog_fsio::read(&mixdog_fsio::Unlaned, work.join("d.pptx")).expect("the saved deck");
-            let request = json!({"action": "render", "format": "pptx", "path": deck, "output": output, "readOnly": true, "password": "a password nobody needs"});
+            let request =
+                json!({"action": "render", "format": "pptx", "path": deck, "output": output, "readOnly": true, "password": "a password nobody needs"});
             let preview = office.call(&request, options()).await.value;
             office.shutdown().await;
             assert_eq!(mixdog_fsio::read(&mixdog_fsio::Unlaned, work.join("d.pptx")).expect("the deck"), before_preview, "the preview wrote to the deck");

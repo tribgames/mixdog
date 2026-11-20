@@ -27,9 +27,9 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Notify;
 
+use mixdog_core_session::session::Clock;
 use mixdog_core_session::session::gateway_usage::GatewayUsage;
 use mixdog_core_session::session::gateway_usage::Scheduler;
-use mixdog_core_session::session::Clock;
 
 struct TestClock(AtomicI64);
 
@@ -89,10 +89,6 @@ async fn pricing(modelsdev: &Value) -> Arc<CatalogPricing> {
     Arc::new(CatalogPricing(Arc::new(service)))
 }
 
-
-
-
-
 const HELD: std::time::Duration = std::time::Duration::from_secs(10);
 
 async fn writer_in(dir: &std::path::Path) -> GatewayUsage {
@@ -137,5 +133,3 @@ async fn a_failed_append_before_the_barrier_is_its_error() {
     let error = answer.expect_err("the failed append is the barrier's error");
     assert!(error.starts_with("the gateway usage events: write 1, accepted before the barrier, failed: "), "{error}");
 }
-
-

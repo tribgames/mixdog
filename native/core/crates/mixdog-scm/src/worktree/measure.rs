@@ -27,18 +27,15 @@ fn repo_cwd(record: &WorktreeRecord) -> PathBuf {
 impl Worktrees {
     pub(crate) async fn branch_commit(&self, cwd: &Path, branch: &str, cancel: &CancellationToken) -> Result<Option<String>, ScmFailure> {
         let spec = format!("refs/heads/{branch}^{{commit}}");
-        let out = self
-            .scm()
-            .git
-            .outcome(cancel, cwd, &["rev-parse", "--verify", "--quiet", &spec], &RunOptions::default())
-            .await?;
+        let out = self.scm().git.outcome(cancel, cwd, &["rev-parse", "--verify", "--quiet", &spec], &RunOptions::default()).await?;
         Ok(out.success().then(|| out.stdout_text().lines().next().unwrap_or("").trim().to_owned()))
     }
 
     /// The merge target's tip, else the base commit.
     async fn merge_reference(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<Option<String>, ScmFailure> {
         if let Some(target) = &record.merge_target
-            && let Some(tip) = self.branch_commit(&repo_cwd(record), target, cancel).await? {
+            && let Some(tip) = self.branch_commit(&repo_cwd(record), target, cancel).await?
+        {
             return Ok(Some(tip));
         }
         Ok(record.base_commit.clone())
@@ -52,16 +49,8 @@ impl Worktrees {
         };
         let path = PathBuf::from(&record.path);
         let tip = if path.exists() {
-            let head = self
-                .scm()
-                .git
-                .outcome(cancel, &path, &["rev-parse", "--verify", "-q", "HEAD"], &RunOptions::read())
-                .await?;
-            if head.success() {
-                Some(head.stdout_text().trim().to_owned())
-            } else {
-                self.branch_commit(&repo_cwd(record), branch, cancel).await?
-            }
+            let head = self.scm().git.outcome(cancel, &path, &["rev-parse", "--verify", "-q", "HEAD"], &RunOptions::read()).await?;
+            if head.success() { Some(head.stdout_text().trim().to_owned()) } else { self.branch_commit(&repo_cwd(record), branch, cancel).await? }
         } else {
             self.branch_commit(&repo_cwd(record), branch, cancel).await?
         };
@@ -91,22 +80,17 @@ impl Worktrees {
     /// commit is unmerged work, and anything git cannot decide counts as unmerged.
     async fn changes_contained_in(&self, cwd: &Path, tip: &str, reference: &str, cancel: &CancellationToken) -> Result<bool, ScmFailure> {
         let git = &self.scm().git;
-        let merges = git
-            .outcome(cancel, cwd, &["rev-list", "--count", "--merges", tip, "--not", reference], &RunOptions::read())
-            .await?;
+        let merges = git.outcome(cancel, cwd, &["rev-list", "--count", "--merges", tip, "--not", reference], &RunOptions::read()).await?;
         if !merges.success() || merges.stdout_text().trim().parse::<u64>().unwrap_or(1) != 0 {
             return Ok(false);
         }
-        let merged = git
-            .outcome(cancel, cwd, &["merge-tree", "--write-tree", reference, tip], &RunOptions::default())
-            .await?;
+        let merged = git.outcome(cancel, cwd, &["merge-tree", "--write-tree", reference, tip], &RunOptions::default()).await?;
         if !merged.success() {
             return Ok(false);
         }
         let spec = format!("{reference}^{{tree}}");
         let target = git.outcome(cancel, cwd, &["rev-parse", &spec], &RunOptions::read()).await?;
-        Ok(target.success()
-            && merged.stdout_text().lines().next().unwrap_or("").trim() == target.stdout_text().lines().next().unwrap_or("").trim())
+        Ok(target.success() && merged.stdout_text().lines().next().unwrap_or("").trim() == target.stdout_text().lines().next().unwrap_or("").trim())
     }
 
     pub(crate) fn identity_path(record: &WorktreeRecord) -> String {
@@ -123,11 +107,7 @@ impl Worktrees {
         if !path.exists() {
             return Ok(Vec::new());
         }
-        let status = self
-            .scm()
-            .git
-            .read(cancel, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])
-            .await?;
+        let status = self.scm().git.read(cancel, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all"]).await?;
         let identity = Self::identity_path(record);
         let includes = self.include_roots(record);
         let mut paths: Vec<String> = parse_status_entries(&status)

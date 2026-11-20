@@ -14,13 +14,16 @@ use tokio_util::sync::CancellationToken;
 use crate::effort_judge::install::{self, Manifest, ManifestFile};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::memory::embed::engine::EmbedConfig;
-use crate::model_install::{InstallError, Progress, ProgressSink, download_to_file, sha256_file, DownloadError, Spec};
+use crate::model_install::{DownloadError, InstallError, Progress, ProgressSink, Spec, download_to_file, sha256_file};
 
 #[derive(Clone)]
 pub(super) enum Route {
     Body(Vec<u8>),
     /// Advertises `advertised` bytes and sends only the body.
-    Truncated { body: Vec<u8>, advertised: usize },
+    Truncated {
+        body: Vec<u8>,
+        advertised: usize,
+    },
     /// Sends the headers, then nothing: only a cancel ends the download.
     Stall,
 }
@@ -96,12 +99,9 @@ pub(super) fn recorder() -> (ProgressSink, Arc<Mutex<Vec<Progress>>>) {
 pub(super) fn manifest(server: &Server, release: &str, files: &[(&str, &[u8])]) -> Manifest {
     Manifest::with_files(
         release,
-        files.iter().map(|(name, bytes)| {
-            (
-                (*name).to_owned(),
-                ManifestFile { url: format!("{}/{name}", server.base), sha256: sha(bytes), size: bytes.len() as u64 },
-            )
-        }),
+        files
+            .iter()
+            .map(|(name, bytes)| ((*name).to_owned(), ManifestFile { url: format!("{}/{name}", server.base), sha256: sha(bytes), size: bytes.len() as u64 })),
     )
 }
 
@@ -126,11 +126,8 @@ pub(super) fn lane() -> mixdog_rt::CpuBulk {
 #[tokio::test(flavor = "multi_thread")]
 async fn download_reports_bytes_checks_size_and_leaves_nothing_on_failure() {
     let body = big(1, 400_000);
-    let server = Server::start(vec![
-        ("/ok", Route::Body(body.clone())),
-        ("/short", Route::Truncated { body: body[..1000].to_vec(), advertised: body.len() }),
-    ])
-    .await;
+    let server =
+        Server::start(vec![("/ok", Route::Body(body.clone())), ("/short", Route::Truncated { body: body[..1000].to_vec(), advertised: body.len() })]).await;
     let dir = tempfile::tempdir().expect("dir");
     let cancel = CancellationToken::new();
     let (sink, log) = recorder();
@@ -273,5 +270,3 @@ async fn a_download_routed_by_the_network_proxy_policy_still_lands() {
     assert_eq!(download_to_file(&spec, None, &CancellationToken::new()).await.expect("downloads"), body.len() as u64);
     assert_eq!(std::fs::read(&dest).expect("file"), body);
 }
-
-

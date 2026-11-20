@@ -73,7 +73,15 @@ enum Ended {
 
 /// One conversion in a scratch folder of its own, which is removed on every path out: a busy folder is retried and a removal that
 /// keeps failing is logged, as `removeDirectoryWithRetry` does for `convertLegacyOfficeBuffer`; it never fails the conversion.
-fn convert(lane: &InLane<MaintenanceIo>, bytes: &[u8], safe: &str, kind: &str, legacy: &str, cancel: &AtomicBool, scratch: &ScratchHooks) -> Result<Vec<u8>, Ended> {
+fn convert(
+    lane: &InLane<MaintenanceIo>,
+    bytes: &[u8],
+    safe: &str,
+    kind: &str,
+    legacy: &str,
+    cancel: &AtomicBool,
+    scratch: &ScratchHooks,
+) -> Result<Vec<u8>, Ended> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
     let dir = std::env::temp_dir().join(format!("mixdog-attachment-{}-{nanos}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
@@ -175,7 +183,9 @@ mod tests {
             .submit_wait(&never, move |lane: &InLane<MaintenanceIo>| {
                 // Whatever the converter answers (this machine may or may not have LibreOffice), the folder is removed on the way
                 // out and the answer is the one an unobstructed removal gives: the first call is that baseline.
-                let answer = |hooks: &ScratchHooks| convert(lane, b"not a legacy file", "x", "docx", "doc", &AtomicBool::new(true), hooks).err().map(|ended| matches!(ended, Ended::Failed(_)));
+                let answer = |hooks: &ScratchHooks| {
+                    convert(lane, b"not a legacy file", "x", "docx", "doc", &AtomicBool::new(true), hooks).err().map(|ended| matches!(ended, Ended::Failed(_)))
+                };
                 let baseline = answer(&ScratchHooks::default());
                 (baseline, answer(&ScratchHooks { remove: Some(&busy), log: Some(&log) }))
             })
@@ -194,6 +204,9 @@ mod tests {
 
     #[test]
     fn a_kind_names_its_legacy_extension() {
-        assert_eq!((legacy_extension("docx"), legacy_extension("xlsx"), legacy_extension("pptx"), legacy_extension("odt")), (Some("doc"), Some("xls"), Some("ppt"), None));
+        assert_eq!(
+            (legacy_extension("docx"), legacy_extension("xlsx"), legacy_extension("pptx"), legacy_extension("odt")),
+            (Some("doc"), Some("xls"), Some("ppt"), None)
+        );
     }
 }

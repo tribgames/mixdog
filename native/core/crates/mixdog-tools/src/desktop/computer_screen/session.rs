@@ -39,6 +39,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
 
+use super::super::computer_screen_input::InputDesktop;
 use super::installer::Credential;
 use super::installer::HelperStatus;
 use super::installer::InstallOffer;
@@ -63,7 +64,6 @@ use super::router::ScreenInputRouter;
 use super::router::SendError;
 use super::router::SwitchHooks;
 use super::router::next_turn;
-use super::super::computer_screen_input::InputDesktop;
 use super::switch::HelperIssue;
 use super::switch::HelperOffer;
 use super::switch::HelperView;
@@ -98,11 +98,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A JSON number as JavaScript writes it: whole numbers without a fraction.
 pub(super) fn number(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
-        Value::from(value as i64)
-    } else {
-        Value::from(value)
-    }
+    if value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 { Value::from(value as i64) } else { Value::from(value) }
 }
 
 /// JavaScript's `Math.round`: halves go up.
@@ -169,7 +165,6 @@ pub(super) struct ScreenDisplay {
     /// The capture source whose display is this one.
     pub capture_source_id: String,
 }
-
 
 /// Video pixels → desktop pixels for one geometry generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -428,7 +423,6 @@ impl AbortSignal {
     pub(super) fn aborted(&self) -> bool {
         lock(&self.state).0
     }
-
 
     fn abort(&self) {
         let listeners = {
@@ -705,10 +699,8 @@ fn phone_outcome(outcome: &str) -> String {
 fn safe_detail(detail: Option<String>, credential: &SharedCredential) -> Option<String> {
     let detail = detail?;
     let credential = lock(credential);
-    let quoted = [Some(credential.password.as_str()), credential.user.as_deref()]
-        .into_iter()
-        .flatten()
-        .any(|secret| !secret.is_empty() && detail.contains(secret));
+    let quoted =
+        [Some(credential.password.as_str()), credential.user.as_deref()].into_iter().flatten().any(|secret| !secret.is_empty() && detail.contains(secret));
     Some(if quoted { DETAIL_HIDDEN.to_string() } else { detail })
 }
 
@@ -720,9 +712,7 @@ fn status_value(status: &super::switch::ScreenStatus) -> Value {
 /// fields are those of the new status).
 fn same_status(next: &Value, current: &Value) -> bool {
     ["state", "reason", "helper", "control"].iter().all(|field| next.get(field) == current.get(field))
-        && next["helperInfo"]
-            .as_object()
-            .is_some_and(|info| info.iter().all(|(field, value)| current["helperInfo"].get(field) == Some(value)))
+        && next["helperInfo"].as_object().is_some_and(|info| info.iter().all(|(field, value)| current["helperInfo"].get(field) == Some(value)))
 }
 
 impl Inner {
@@ -757,9 +747,7 @@ impl Inner {
             let state = self.state();
             (state.running, state.decision, state.helper_video, state.facts.clone())
         };
-        running
-            && self.paired()
-            && decision.is_some_and(|decision| screen_status_for(&decision, true, helper_video, &facts).control)
+        running && self.paired() && decision.is_some_and(|decision| screen_status_for(&decision, true, helper_video, &facts).control)
     }
 
     fn lock_geometry(&self, state: &mut State, display: &ScreenDisplay) -> Result<(), String> {
@@ -1282,9 +1270,7 @@ impl Inner {
         // Re-checked when the input's turn comes and between its commands.
         let me = self.me.clone();
         let allowed = Arc::new(move || {
-            me.upgrade().is_some_and(|inner| {
-                inner.control_now() && (!pointed || inner.state().mapping.is_some_and(|mapping| mapping.generation == generation))
-            })
+            me.upgrade().is_some_and(|inner| inner.control_now() && (!pointed || inner.state().mapping.is_some_and(|mapping| mapping.generation == generation)))
         });
         if input["type"] == "screen-keys" { self.router.dispatch_keys(commands, allowed) } else { self.router.dispatch(commands, allowed) }
     }
@@ -1353,9 +1339,7 @@ impl Inner {
                 let serving = state.decision.is_none_or(|decision| decision_uses_helper(&decision));
                 match (fields, state.mapping) {
                     (Ok(fields), Some(mapping)) if state.running && sample == state.cursor_sample && !serving => {
-                        let at = (fields.len() == 2)
-                            .then(|| screen_point_to_video(&mapping, js_number(&fields[0]), js_number(&fields[1])))
-                            .flatten();
+                        let at = (fields.len() == 2).then(|| screen_point_to_video(&mapping, js_number(&fields[0]), js_number(&fields[1]))).flatten();
                         at.map(|(x, y)| Cursor { x, y, generation: mapping.generation })
                             .filter(|next| state.cursor != Some(*next))
                             .inspect(|next| state.cursor = Some(*next))
@@ -1674,10 +1658,8 @@ impl ScreenSession {
         let inner = Arc::new_cyclic(|me: &Weak<Inner>| {
             let log_ids = (deps.client_id.clone(), deps.screen_id.clone());
             let dropped_log = me.clone();
-            let router = ScreenInputRouter::new(
-                Arc::new(DesktopBackend(me.clone())),
-                Arc::new(SecureBackend(deps.secure_desktop.clone())),
-                move |backend, count| {
+            let router =
+                ScreenInputRouter::new(Arc::new(DesktopBackend(me.clone())), Arc::new(SecureBackend(deps.secure_desktop.clone())), move |backend, count| {
                     if let Some(inner) = dropped_log.upgrade() {
                         let backend = match backend {
                             BackendId::Desktop => "desktop",
@@ -1691,8 +1673,7 @@ impl ScreenSession {
                             "count": count,
                         }));
                     }
-                },
-            );
+                });
             Inner {
                 deps,
                 router,
@@ -1745,7 +1726,6 @@ impl ScreenSession {
         Self { inner }
     }
 
-
     /// Admits the viewer and locks the geometry: `{plan, geometry, status}`. Refused when the viewer is not
     /// paired, the display is gone, the host cannot start, or the session stopped meanwhile. Single use.
     pub(super) fn start(&self) -> BoxFuture<Result<Value, String>> {
@@ -1771,7 +1751,6 @@ impl ScreenSession {
     pub(super) fn status(&self) -> Value {
         self.inner.entry(|| self.inner.state().status.clone())
     }
-
 
     /// The last sampled cursor for the current geometry; `None` before one, while the helper serves, or when
     /// not running.

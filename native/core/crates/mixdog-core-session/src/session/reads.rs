@@ -58,8 +58,8 @@ use super::Transcript;
 use super::directory::DirInner;
 use super::seams::check_turn_read_cancel;
 use super::seams::turn_read_cancelled;
-use super::transcript::position_of_id;
 use super::transcript::displayed_id;
+use super::transcript::position_of_id;
 use super::view::meta;
 
 pub(super) const HISTORY_POSITION: &str = "historyPosition";
@@ -83,11 +83,7 @@ fn exact_cursor(cursor: &Option<ItemsCursor>) -> bool {
 }
 
 fn anchor_position<'a>(mut items: impl Iterator<Item = &'a ThreadItem> + Clone, anchor: &str, exact: bool) -> Option<usize> {
-    if exact {
-        items.position(|item| history_position(item) == Some(anchor))
-    } else {
-        position_of_id(items, anchor)
-    }
+    if exact { items.position(|item| history_position(item) == Some(anchor)) } else { position_of_id(items, anchor) }
 }
 
 /// `PAGE_MIN_ROWS` (`store-transcript-projection.mjs`): a byte budget never cuts a page below
@@ -104,12 +100,7 @@ const MAX_SAFE: u64 = (1 << 53) - 1;
 pub(super) fn serves(method: &str) -> bool {
     matches!(
         method,
-        "thread/items/list"
-            | "thread/items/read"
-            | "thread/turns/list"
-            | "thread/attachment/list"
-            | "thread/modelMessages/list"
-            | "thread/finalAnswer/read"
+        "thread/items/list" | "thread/items/read" | "thread/turns/list" | "thread/attachment/list" | "thread/modelMessages/list" | "thread/finalAnswer/read"
     )
 }
 
@@ -140,7 +131,8 @@ pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History
     deps.store.unheld().await;
     let (store, thread) = (deps.store.clone(), id.clone());
     // The whole history is its newest rows without a bound, marked as every page of it is.
-    let (rev, records, decor, _) = deps.lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX))?.await.map_err(|_| dropped())??;
+    let (rev, records, decor, _) =
+        deps.lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX))?.await.map_err(|_| dropped())??;
     Ok(History { rev, rows: display_rows(deps, records, decor).await? })
 }
 
@@ -233,7 +225,8 @@ pub(super) async fn history_tail(
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     store.unheld().await;
     let (store, thread) = (store.clone(), id.clone());
-    let (rev, records, decor, complete) = lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, rows))?.await.map_err(|_| dropped())??;
+    let (rev, records, decor, complete) =
+        lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, rows))?.await.map_err(|_| dropped())??;
     let transcript = transcript.clone();
     let rows = lanes
         .cpu
@@ -248,12 +241,25 @@ pub(super) async fn history_tail(
 ///
 /// `rows` are the newest rows of the history, or all of it when `complete`. The page is one only the newest rows can decide
 /// (no cursor, and an older page that ends before the rows run out), or `None`: more rows are needed.
-pub(super) fn items_window(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
+pub(super) fn items_window(
+    id: &ThreadId,
+    rev: u64,
+    rows: &[(ThreadItem, usize)],
+    complete: bool,
+    p: &ThreadItemsListParams,
+) -> Result<Option<Reply>, CoreError> {
     items_window_in(id, rev, rows, complete, false, p)
 }
 
 /// [`items_window`]; with `anchored`, `rows` end with the cursor's row and run back from it, which is all an older page reads.
-fn items_window_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], complete: bool, anchored: bool, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
+fn items_window_in(
+    id: &ThreadId,
+    rev: u64,
+    rows: &[(ThreadItem, usize)],
+    complete: bool,
+    anchored: bool,
+    p: &ThreadItemsListParams,
+) -> Result<Option<Reply>, CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -294,9 +300,8 @@ fn items_window_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], comple
         return Ok(None);
     }
     let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|(item, _)| item.clone()).collect();
-    let edge = |row: Option<&ThreadItem>, wanted: bool| {
-        row.filter(|_| wanted).map(|item| history_position(item).unwrap_or_else(|| item.id().as_str()).to_owned())
-    };
+    let edge =
+        |row: Option<&ThreadItem>, wanted: bool| row.filter(|_| wanted).map(|item| history_position(item).unwrap_or_else(|| item.id().as_str()).to_owned());
     // The cursor onward in the page's own direction, and the one back.
     let (next, back) = if older {
         (edge(data.first(), page.has_older), edge(data.last(), page.has_newer))
@@ -363,7 +368,8 @@ where
 fn items_read(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
     let mut found = Vec::with_capacity(p.item_ids.len());
     for wanted in &p.item_ids {
-        let in_turn = items.iter().filter(|item| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())));
+        let in_turn =
+            items.iter().filter(|item| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())));
         let item = position_of_id(in_turn.clone(), wanted.as_str())
             .and_then(|at| in_turn.clone().nth(at))
             .ok_or_else(|| CoreError::ItemNotFound { thread_id: id.clone(), item_id: wanted.clone() })?;
@@ -771,12 +777,14 @@ impl TurnMetadata {
     fn finish(self, active: Option<&str>) -> Vec<Turn> {
         let mut seen: Vec<_> = self.turns.into_values().collect();
         seen.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.first));
-        seen.into_iter().map(|mut entry| {
-            if !entry.ended && active == Some(entry.turn.id.as_str()) {
-                entry.turn.status = TurnStatus::InProgress;
-            }
-            entry.turn
-        }).collect()
+        seen.into_iter()
+            .map(|mut entry| {
+                if !entry.ended && active == Some(entry.turn.id.as_str()) {
+                    entry.turn.status = TurnStatus::InProgress;
+                }
+                entry.turn
+            })
+            .collect()
     }
 }
 
@@ -801,7 +809,8 @@ async fn read_turn_metadata(deps: &SessionDeps, id: &ThreadId, cancel: &Cancella
                 }
             }
             Ok::<_, CoreError>(scan)
-        }).await??;
+        })
+        .await??;
         match next {
             Some(next) => after = Some(next),
             None => return Ok(Some(scan)),
@@ -827,7 +836,9 @@ pub(super) fn attachment_rows(rows: &[Value]) -> Vec<Value> {
         list.and_then(Value::as_array)
             .map(|list| {
                 list.iter()
-                    .map(|entry| Value::Object(keys.iter().filter_map(|key| entry.get(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v.clone()))).collect()))
+                    .map(|entry| {
+                        Value::Object(keys.iter().filter_map(|key| entry.get(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v.clone()))).collect())
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -890,10 +901,8 @@ mod tests {
             { "type": "turnEnd", "id": "e5", "status": "cancelled", "elapsedMs": 1, "meta": { "turnId": "t5", "at": 70 } },
         ]));
         let turns = turns_of(&history, Some("t4"));
-        let seen: Vec<(String, TurnStatus, Option<i64>, Option<i64>, usize)> = turns
-            .iter()
-            .map(|t| (t.id.as_str().to_owned(), t.status.clone(), t.started_at, t.completed_at, t.items.as_ref().map_or(0, Vec::len)))
-            .collect();
+        let seen: Vec<(String, TurnStatus, Option<i64>, Option<i64>, usize)> =
+            turns.iter().map(|t| (t.id.as_str().to_owned(), t.status.clone(), t.started_at, t.completed_at, t.items.as_ref().map_or(0, Vec::len))).collect();
         assert_eq!(
             seen,
             vec![
@@ -944,7 +953,9 @@ mod tests {
         sizes
             .iter()
             .enumerate()
-            .map(|(i, bytes)| (serde_json::from_value(json!({ "type": "agentMessage", "id": format!("r{i}"), "text": "x" })).expect("an agent message"), *bytes))
+            .map(|(i, bytes)| {
+                (serde_json::from_value(json!({ "type": "agentMessage", "id": format!("r{i}"), "text": "x" })).expect("an agent message"), *bytes)
+            })
             .collect()
     }
 
@@ -982,24 +993,36 @@ mod tests {
     #[test]
     fn continuation_names_the_exact_occurrence_of_a_repeated_display_id() {
         let id = ThreadId::from("t");
-        let mut rows: Vec<(ThreadItem, usize)> = ["earlier", "between", "later", "newest"].into_iter().enumerate().map(|(at, text)| {
-            let shown = if at == 0 || at == 2 { "repeat" } else { text };
-            let mut item = items(json!([{ "type": "agentMessage", "id": shown, "text": text }])).remove(0);
-            mark_history_position(&mut item, &format!("record-{at}"), 0);
-            (item, 10)
-        }).collect();
+        let mut rows: Vec<(ThreadItem, usize)> = ["earlier", "between", "later", "newest"]
+            .into_iter()
+            .enumerate()
+            .map(|(at, text)| {
+                let shown = if at == 0 || at == 2 { "repeat" } else { text };
+                let mut item = items(json!([{ "type": "agentMessage", "id": shown, "text": text }])).remove(0);
+                mark_history_position(&mut item, &format!("record-{at}"), 0);
+                (item, 10)
+            })
+            .collect();
         let first = page(&id, 0, &rows, json!({ "threadId": "t", "limit": 2 })).expect("newest page");
         let cursor = first["nextCursor"].as_str().expect("older page");
         let older = page(&id, 0, &rows, json!({ "threadId": "t", "cursor": cursor, "limit": 2 })).expect("older page");
         assert_eq!(older["data"][0]["text"], "earlier");
         assert_eq!(older["data"][1]["text"], "between");
-        let newer = page(&id, 0, &rows, json!({
-            "threadId": "t", "cursor": older["backwardsCursor"], "sortDirection": "asc", "limit": 2
-        })).expect("newer page");
+        let newer = page(
+            &id,
+            0,
+            &rows,
+            json!({
+                "threadId": "t", "cursor": older["backwardsCursor"], "sortDirection": "asc", "limit": 2
+            }),
+        )
+        .expect("newer page");
         assert_eq!(newer["data"][0]["text"], "later");
         rows.truncate(2);
-        assert!(matches!(page(&id, 1, &rows, json!({ "threadId": "t", "cursor": cursor })),
-            Err(CoreError::CursorInvalidated { .. })), "the earlier row with the same display id is not the cursor");
+        assert!(
+            matches!(page(&id, 1, &rows, json!({ "threadId": "t", "cursor": cursor })), Err(CoreError::CursorInvalidated { .. })),
+            "the earlier row with the same display id is not the cursor"
+        );
     }
 
     #[test]
@@ -1022,20 +1045,12 @@ mod tests {
         // A record that shows no row has none to carry them.
         assert!(decorated(Vec::new(), Some(&decor)).is_empty());
     }
-
-
 }
-
 
 impl DirInner {
     /// Answers one of the reads for the thread its params name, loaded or not.
     pub(super) async fn serve_read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
-        let id = req
-            .params
-            .get("threadId")
-            .and_then(Value::as_str)
-            .map(ThreadId::from)
-            .ok_or_else(|| invalid("threadId", "a thread id"))?;
+        let id = req.params.get("threadId").and_then(Value::as_str).map(ThreadId::from).ok_or_else(|| invalid("threadId", "a thread id"))?;
         if req.method.as_str() == "thread/items/list" {
             let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
             let deps = &self.deps;
@@ -1073,8 +1088,7 @@ impl DirInner {
         if req.method.as_str() == "thread/turns/list" {
             let p: ThreadTurnsListParams = params(req, "ThreadTurnsListParams")?;
             let cancel = &req.ctx.cancel;
-            let result = mixdog_rt::Scope::new().cancel(cancel).run(self.read_turns(&id, p, cancel))
-                .await.done().ok_or_else(turn_read_cancelled)?;
+            let result = mixdog_rt::Scope::new().cancel(cancel).run(self.read_turns(&id, p, cancel)).await.done().ok_or_else(turn_read_cancelled)?;
             // Grouping and serialization can finish in a single poll after cancellation.
             check_turn_read_cancel(cancel)?;
             return result;
@@ -1101,9 +1115,7 @@ impl DirInner {
         }
         check_turn_read_cancel(cancel)?;
         let (store, thread, io_cancel) = (self.deps.store.clone(), id.clone(), cancel.clone());
-        let (records, decor) = on_lane_wait(self.deps.lanes.io, cancel, move |lane| {
-            store.turn_history_full(lane, &thread, &io_cancel)
-        }).await??;
+        let (records, decor) = on_lane_wait(self.deps.lanes.io, cancel, move |lane| store.turn_history_full(lane, &thread, &io_cancel)).await??;
         let (transcript, cpu_cancel) = (self.deps.transcript.clone(), cancel.clone());
         let items = on_lane_wait(self.deps.lanes.cpu, cancel, move |lane| {
             let mut items = Vec::new();
@@ -1112,7 +1124,8 @@ impl DirInner {
                 items.extend(decorated(transcript.rows(lane, &record), decor.get(at)).into_iter().map(|(item, _)| item));
             }
             Ok::<_, CoreError>(items)
-        }).await??;
+        })
+        .await??;
         check_turn_read_cancel(cancel)?;
         turns_list(&items, p, self.active_turn(id))
     }
@@ -1135,10 +1148,15 @@ impl DirInner {
             thread: id.clone(),
             input: ItemId::from(String::new()),
         };
-        let messages: Vec<Value> = context.read().await?.into_iter().map(|(_, mut message)| {
-            mixdog_agent::interrupt::without_recovery_mark(&mut message);
-            message
-        }).collect();
+        let messages: Vec<Value> = context
+            .read()
+            .await?
+            .into_iter()
+            .map(|(_, mut message)| {
+                mixdog_agent::interrupt::without_recovery_mark(&mut message);
+                message
+            })
+            .collect();
         let start = usize::try_from(p.start).unwrap_or(usize::MAX);
         let rest = messages.get(start..).unwrap_or_default();
         let take = p.limit.map_or(rest.len(), |n| (n as usize).min(rest.len()));

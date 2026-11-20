@@ -48,8 +48,8 @@ impl TurnJudge for ModelTurnJudge {
 mod tests {
     use std::time::Duration;
 
-    use mixdog_services::effort_judge::model::OrtRuntime;
     use mixdog_services::effort_judge::ModelConfig;
+    use mixdog_services::effort_judge::model::OrtRuntime;
 
     use super::*;
 
@@ -60,7 +60,10 @@ mod tests {
     #[test]
     fn the_waits_are_nodes_and_the_env_raises_them_only_when_positive() {
         let none = JudgeTiming::from_env(&|_| None);
-        assert_eq!((none.warm, none.queue, none.cold, none.retry), (Duration::from_millis(500), Duration::from_secs(1), Duration::from_secs(3), Duration::from_secs(60)));
+        assert_eq!(
+            (none.warm, none.queue, none.cold, none.retry),
+            (Duration::from_millis(500), Duration::from_secs(1), Duration::from_secs(3), Duration::from_secs(60))
+        );
         let set = |timeout: &'static str, cold: &'static str| {
             JudgeTiming::from_env(&move |name| Some(if name == "MIXDOG_EFFORT_JUDGE_TIMEOUT_MS" { timeout } else { cold }.to_owned()))
         };
@@ -71,7 +74,6 @@ mod tests {
             assert_eq!((kept.warm, kept.cold), (Duration::from_millis(500), Duration::from_secs(3)), "{bad:?}");
         }
     }
-
 
     fn judge_over(dir: &std::path::Path, timing: JudgeTiming) -> ModelTurnJudge {
         let config = ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.join("no-ort")) };

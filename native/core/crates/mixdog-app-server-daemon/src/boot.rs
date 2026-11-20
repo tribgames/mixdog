@@ -137,7 +137,10 @@ pub struct Behind {
 }
 
 /// The pending row of a session the earlier version listed by `row`: its message fields are the row's own, the rest is the header the row is built from.
-fn pending_row(session: String, mut row: serde_json::Map<String, serde_json::Value>) -> (mixdog_store::summary::CatalogHead, mixdog_store::summary::MessageStats) {
+fn pending_row(
+    session: String,
+    mut row: serde_json::Map<String, serde_json::Value>,
+) -> (mixdog_store::summary::CatalogHead, mixdog_store::summary::MessageStats) {
     use serde_json::Value;
     let mut text = |key: &str| match row.shift_remove(key) {
         Some(Value::String(text)) => text,
@@ -188,15 +191,19 @@ pub struct Begun {
 /// The roots the serving core migrates. It names no desktop profile of its own: the launcher's `MIXDOG_DESKTOP_USER_DATA` in `env` is the only way one is migrated (D-profile-1).
 fn migration_roots(data_dir: &Path, env: &dyn Fn(&str) -> Option<std::ffi::OsString>, home: Option<std::path::PathBuf>) -> Result<MigrationRoots, String> {
     let args = MigrateArgs { data_dir: Some(data_dir.to_path_buf()), home: None, desktop_profile: None };
-    mixdog_migrate::run::cli::resolve_roots(&args, env, home)
-        .ok_or_else(|| "no home directory for the migration roots (set MIXDOG_HOME or HOME)".to_owned())
+    mixdog_migrate::run::cli::resolve_roots(&args, env, home).ok_or_else(|| "no home directory for the migration roots (set MIXDOG_HOME or HOME)".to_owned())
 }
 /// The sessions still to convert, as the directory asks for one that is opened.
 struct Converting(Arc<mixdog_migrate::run::Waiting>);
 impl mixdog_core_session::session::ArrivingThreads for Converting {
     fn arriving(&self, thread: &mixdog_protocol::ThreadId) -> Option<futures::future::BoxFuture<'static, ()>> {
         let (settled, there) = tokio::sync::oneshot::channel();
-        let asked = self.0.first(thread.as_str(), Box::new(move || { let _ = settled.send(()); }));
+        let asked = self.0.first(
+            thread.as_str(),
+            Box::new(move || {
+                let _ = settled.send(());
+            }),
+        );
         asked.then(|| -> futures::future::BoxFuture<'static, ()> {
             Box::pin(async move {
                 let _ = there.await;
@@ -232,8 +239,16 @@ impl Behind {
     }
 
     /// Converts the rest on a thread of its own, taking each session into `index`; returns at once. `stop` is the core's run token.
-    #[allow(clippy::disallowed_methods, reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take")]
-    pub fn run(self, index: Arc<mixdog_store::sqlite::SqliteStore>, stop: mixdog_rt::CancellationToken, report: impl Fn(&str) + Send + 'static) -> std::io::Result<()> {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take"
+    )]
+    pub fn run(
+        self,
+        index: Arc<mixdog_store::sqlite::SqliteStore>,
+        stop: mixdog_rt::CancellationToken,
+        report: impl Fn(&str) + Send + 'static,
+    ) -> std::io::Result<()> {
         let Behind { back, pool, runtime, projector, stopped, data, .. } = self;
         let _ = projector.index.set(index.clone());
         drop(mixdog_rt::spawn("migration-stop", mixdog_rt::TaskClass::Work, async move {
@@ -256,7 +271,9 @@ impl Behind {
                         Ok(read) => read.steps_line(),
                         Err(error) => format!("unreadable ({error})"),
                     };
-                    report(&format!("migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?}; post-upgrade steps: {after})"));
+                    report(&format!(
+                        "migration: complete, {sessions} sessions in {seconds}s (pending rows withdrawn: {unlisted:?}; post-upgrade steps: {after})"
+                    ));
                 }
                 Err(blocked) => report(&format!("migration: ended early after {seconds}s, the next start resumes it: {blocked}")),
             }
@@ -283,7 +300,9 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
                     workers: std::thread::available_parallelism().map_or(4, usize::from).div_ceil(2).clamp(4, 12),
                     fault: Some({
                         let stopped = stopped.clone();
-                        Arc::new(move |_| if stopped.load(Ordering::SeqCst) { Err(mixdog_migrate::error::Blocked::journal("the core is stopping")) } else { Ok(()) })
+                        Arc::new(
+                            move |_| if stopped.load(Ordering::SeqCst) { Err(mixdog_migrate::error::Blocked::journal("the core is stopping")) } else { Ok(()) },
+                        )
                     }),
                     verified: Some({
                         let (projector, data) = (projector.clone(), roots.data.clone());
@@ -437,7 +456,6 @@ mod tests {
         assert_eq!(durable::read_optional(&run.data().join("remote").join("device.json")).unwrap().as_deref(), Some(DEVICE));
         assert_eq!(durable::read_optional(&run.app_data_profile().join("relay-device.json")).unwrap(), None, "the source is moved");
     }
-
 
     impl Isolated {
         fn new() -> Self {

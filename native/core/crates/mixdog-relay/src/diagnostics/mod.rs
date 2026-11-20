@@ -10,6 +10,6 @@ pub mod report;
 
 pub use lag::{LagProbe, LagWindow};
 pub use report::{
-    DesktopSockets, LoopDelayProbe, PhoneSocket, SOCKET_REPORT_INTERVAL, Snapshot, SocketDiagnostics, collect_sockets,
-    start_socket_diagnostics, start_socket_diagnostics_with, watch_interval,
+    DesktopSockets, LoopDelayProbe, PhoneSocket, SOCKET_REPORT_INTERVAL, Snapshot, SocketDiagnostics, collect_sockets, start_socket_diagnostics,
+    start_socket_diagnostics_with, watch_interval,
 };

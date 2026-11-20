@@ -12,15 +12,15 @@ pub mod decoder;
 pub mod error;
 pub mod families;
 pub mod listing;
+#[cfg(test)]
+mod listing_tests;
 pub mod login;
+#[cfg(test)]
+mod login_tests;
 pub mod models;
 pub mod request;
 pub mod schema;
 pub mod session;
-#[cfg(test)]
-mod listing_tests;
-#[cfg(test)]
-mod login_tests;
 
 use crate::transport::deadlines::DEVIN_STREAM;
 use std::collections::HashMap;
@@ -58,9 +58,9 @@ use self::request::build_chat_request;
 use self::session::Client;
 use self::session::UserSession;
 use crate::providers::connect::frame;
+use crate::providers::connect::stream::DecodedStream;
 use crate::providers::listing_row;
 use crate::transport::http::HttpSend;
-use crate::providers::connect::stream::DecodedStream;
 
 pub const PROVIDER_ID: &str = "devin-oauth";
 /// The two-row fallback seed native discovery returns for seats it cannot serve.
@@ -98,10 +98,7 @@ pub struct DevinCodec {
 
 impl DevinCodec {
     pub fn new(target: DevinTarget) -> Self {
-        Self {
-            provider: ProviderId::from(PROVIDER_ID),
-            target,
-        }
+        Self { provider: ProviderId::from(PROVIDER_ID), target }
     }
 
     fn secrets(&self) -> Vec<String> {
@@ -129,11 +126,7 @@ struct Catalog {
 }
 
 fn account_key(session_token: &str) -> String {
-    Sha256::digest(session_token.as_bytes())
-        .iter()
-        .take(12)
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    Sha256::digest(session_token.as_bytes()).iter().take(12).map(|b| format!("{b:02x}")).collect()
 }
 
 /// `DevinOAuthProvider.send` runs no retry ladder (devin.mjs:383-431: no `withRetry`), so no row retries: every failure
@@ -153,7 +146,6 @@ fn random_uuid() -> String {
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }
-
 
 pub struct DevinAdapter {
     id: ProviderId,
@@ -179,11 +171,7 @@ impl DevinAdapter {
             placeholder: DevinCodec::new(DevinTarget {
                 base_url: base_url.clone(),
                 model: String::new(),
-                session: UserSession {
-                    jwt: String::new(),
-                    api_key: String::new(),
-                    api_host: None,
-                },
+                session: UserSession { jwt: String::new(), api_key: String::new(), api_host: None },
                 chat_model_uid: String::new(),
                 assignment_jwt: None,
                 row: None,
@@ -214,10 +202,7 @@ impl DevinAdapter {
         }
         let rows = self.fetch_rows(session_token).await?;
         if !rows.is_empty() {
-            self.catalog.store(Some(Arc::new(Catalog {
-                account,
-                rows: rows.iter().map(|r| (r.id.clone(), r.clone())).collect(),
-            })));
+            self.catalog.store(Some(Arc::new(Catalog { account, rows: rows.iter().map(|r| (r.id.clone(), r.clone())).collect() })));
         }
         Ok(rows)
     }
@@ -270,8 +255,7 @@ impl DevinAdapter {
                 return Err(error);
             }
         };
-        let configs = schema::decode_cli_model_configs(&bytes)
-            .map_err(|e| error::protocol_error(&format!("malformed GetCliModelConfigsResponse: {e}")))?;
+        let configs = schema::decode_cli_model_configs(&bytes).map_err(|e| error::protocol_error(&format!("malformed GetCliModelConfigsResponse: {e}")))?;
         Ok(models::normalize_models(&configs))
     }
 
@@ -290,20 +274,10 @@ impl DevinAdapter {
         let metadata = session::request_metadata(&session.api_key, "", Client::Cli);
         let prompt = request::router_prompt(&request.messages, vision)?;
         let body = schema::encode_assign_model(&metadata, router_uid, cascade_id, prompt.as_ref());
-        let bytes = session::unary(
-            self.http.as_ref(),
-            base,
-            session::ASSIGN_MODEL_PATH,
-            body,
-            &[session.api_key.clone(), session.jwt.clone()],
-        )
-        .await?;
-        let assignment = schema::decode_assign_model(&bytes)
-            .map_err(|e| error::protocol_error(&format!("malformed AssignModelResponse: {e}")))?;
+        let bytes = session::unary(self.http.as_ref(), base, session::ASSIGN_MODEL_PATH, body, &[session.api_key.clone(), session.jwt.clone()]).await?;
+        let assignment = schema::decode_assign_model(&bytes).map_err(|e| error::protocol_error(&format!("malformed AssignModelResponse: {e}")))?;
         if assignment.assignment_jwt.is_empty() || assignment.model_uid.is_empty() {
-            return Err(error::protocol_error(
-                "Devin AssignModel returned no assignment JWT and model uid",
-            ));
+            return Err(error::protocol_error("Devin AssignModel returned no assignment JWT and model uid"));
         }
         Ok(assignment)
     }
@@ -371,19 +345,11 @@ impl ProviderAdapter for DevinAdapter {
         let row = rows.into_iter().find(|r| r.id == model);
         let session = self.user_session(&token).await?;
         // The server threads turns that share one cascade id.
-        let cascade_id = request
-            .options
-            .transport_scope
-            .clone()
-            .or_else(|| request.options.session_id.clone())
-            .unwrap_or_else(random_uuid);
+        let cascade_id = request.options.transport_scope.clone().or_else(|| request.options.session_id.clone()).unwrap_or_else(random_uuid);
         let base = session.api_host.clone().unwrap_or_else(|| self.base_url.clone());
         let wire_uid = ModelRow::wire_uid(row.as_ref(), model, request.options.effort.as_deref());
         let assignment = match row.as_ref().filter(|r| r.router) {
-            Some(router) => Some(
-                self.assign_model(&session, &base, &wire_uid, &cascade_id, &request, router.supports_vision)
-                    .await?,
-            ),
+            Some(router) => Some(self.assign_model(&session, &base, &wire_uid, &cascade_id, &request, router.supports_vision).await?),
             None => None,
         };
         let codec = DevinCodec::new(DevinTarget {
@@ -410,10 +376,12 @@ impl ProviderAdapter for DevinAdapter {
             let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request))
-            .with_billed_usage(request.model.trim().to_owned())
-            .with_fault_code("unavailable")
-            .with_fault_prefix("Devin connection failed: ")))
+        Ok(Box::new(
+            DecodedStream::new(head.body, codec.decoder(&request))
+                .with_billed_usage(request.model.trim().to_owned())
+                .with_fault_code("unavailable")
+                .with_fault_prefix("Devin connection failed: "),
+        ))
     }
 }
 impl crate::catalog::CachedModelInfo for DevinAdapter {
@@ -458,16 +426,8 @@ impl WireCodec for DevinCodec {
     }
 
     fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
-        let decoder = DevinDecoder::new(
-            self.provider.clone(),
-            self.target.model.clone(),
-            self.secrets(),
-        );
-        Box::new(if self.target.assignment_jwt.is_some() {
-            decoder.with_assignment(&self.target.chat_model_uid)
-        } else {
-            decoder
-        })
+        let decoder = DevinDecoder::new(self.provider.clone(), self.target.model.clone(), self.secrets());
+        Box::new(if self.target.assignment_jwt.is_some() { decoder.with_assignment(&self.target.chat_model_uid) } else { decoder })
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {

@@ -14,9 +14,7 @@ use serde_json::Value;
 use super::env::WakeFollow;
 use super::home::{AgentHomeDelivery, lock};
 use super::queue::send_depth;
-use super::rows::{
-    agent_task_relay_failed_message, agent_task_wake_prompt, message_id_of, num_or_zero, posted_message, routine_result_notice, str_of,
-};
+use super::rows::{agent_task_relay_failed_message, agent_task_wake_prompt, message_id_of, num_or_zero, posted_message, routine_result_notice, str_of};
 use crate::bots::live::WakeOptions;
 
 /// How a relay turn of this process went.
@@ -158,7 +156,8 @@ impl AgentHomeDelivery {
     pub(super) async fn wake_owed(self: &Arc<Self>, home: &str) -> Result<(), String> {
         let Some(thread) = self.threads.load(home).await? else { return Ok(()) };
         let messages = thread.messages;
-        let by_id: HashMap<&str, &Value> = messages.iter().filter_map(|message| Some((message.pointer("/meta/transcript/messageId")?.as_str()?, message))).collect();
+        let by_id: HashMap<&str, &Value> =
+            messages.iter().filter_map(|message| Some((message.pointer("/meta/transcript/messageId")?.as_str()?, message))).collect();
         let taken: HashSet<String> = messages.iter().flat_map(submission_ids_of).map(String::from).collect();
         let (batch, woken, more) = loop {
             let batch = match self.queue.wakes(home).await?.batches.into_iter().next() {

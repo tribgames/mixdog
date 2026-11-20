@@ -255,55 +255,71 @@ pub fn node_args(method: &str, params: &Value) -> Option<Result<NodeArgs, ScmFai
     let cwd = || repository_cwd(arg("cwd")).map(|cwd| json!(cwd));
     let call = |operation: &'static str, args: Result<Vec<Value>, ScmFailure>| args.map(|args| NodeArgs { operation, args });
     Some(match method {
-        "git/status" => call("gitStatus", (|| Ok(vec![cwd()?, json!({ "reuseLineStats": flag(arg("reuseLineStats")), "skipLineStats": flag(arg("skipLineStats")) })]))()),
-        "git/diff" => call("gitDiff", (|| Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(flag(arg("staged"))), json!(flag(arg("worktreeOnly"))), json!(flag(arg("untracked")))]))()),
+        "git/status" => {
+            call("gitStatus", (|| Ok(vec![cwd()?, json!({ "reuseLineStats": flag(arg("reuseLineStats")), "skipLineStats": flag(arg("skipLineStats")) })]))())
+        }
+        "git/diff" => call(
+            "gitDiff",
+            (|| Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(flag(arg("staged"))), json!(flag(arg("worktreeOnly"))), json!(flag(arg("untracked")))]))(),
+        ),
         // The direction is checked before everything else (remote-methods.ts:417-419).
-        "git/applyPatch" => call("gitApplyPatch", (|| {
-            if !matches!(arg("reverse"), None | Some(Value::Bool(_))) {
-                return Err(refused("git patch direction is invalid."));
-            }
-            Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(git_patch(arg("patch"))?), json!(flag(arg("reverse")))])
-        })()),
+        "git/applyPatch" => call(
+            "gitApplyPatch",
+            (|| {
+                if !matches!(arg("reverse"), None | Some(Value::Bool(_))) {
+                    return Err(refused("git patch direction is invalid."));
+                }
+                Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(git_patch(arg("patch"))?), json!(flag(arg("reverse")))])
+            })(),
+        ),
         "git/stage" => call("gitStage", (|| Ok(vec![cwd()?, Value::Array(git_paths(arg("paths"))?)]))()),
         "git/unstage" => call("gitUnstage", (|| Ok(vec![cwd()?, Value::Array(git_paths(arg("paths"))?)]))()),
         "git/ignore" => call("gitIgnore", (|| Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(ignore_scope(arg("scope"))?)]))()),
         "git/commit" => call("gitCommit", (|| Ok(vec![cwd()?, json!(required_string(arg("message"), "commit message", 20_000)?)]))()),
-        "git/commitPaths" => call("gitCommitPaths", (|| {
-            Ok(vec![cwd()?, json!(required_string(input("message"), "commit message", 20_000)?), Value::Array(git_paths(input("paths"))?)])
-        })()),
+        "git/commitPaths" => call(
+            "gitCommitPaths",
+            (|| Ok(vec![cwd()?, json!(required_string(input("message"), "commit message", 20_000)?), Value::Array(git_paths(input("paths"))?)]))(),
+        ),
         "git/amend" => call("gitAmend", (|| Ok(vec![cwd()?, json!(optional_message(arg("message"))?)]))()),
         "git/stash" => call("gitStash", (|| Ok(vec![cwd()?, json!(optional_message(arg("message"))?)]))()),
-        "git/revertFile" => call("gitRevertFile", (|| {
-            Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(flag(arg("untracked"))), json!(discard_mode(arg("mode"))?)])
-        })()),
+        "git/revertFile" => {
+            call("gitRevertFile", (|| Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(flag(arg("untracked"))), json!(discard_mode(arg("mode"))?)]))())
+        }
         "git/stashApply" => call("gitStashApply", (|| Ok(vec![cwd()?, json!(required_string(arg("ref"), "stash ref", 64)?)]))()),
         "git/stashDrop" => call("gitStashDrop", (|| Ok(vec![cwd()?, json!(required_string(arg("ref"), "stash ref", 64)?)]))()),
         "git/renameBranch" => call("gitRenameBranch", (|| Ok(vec![cwd()?, json!(branch_name(input("branch"))?), json!(branch_name(input("nextBranch"))?)]))()),
         "git/deleteBranch" => call("gitDeleteBranch", (|| Ok(vec![cwd()?, json!(branch_name(input("branch"))?)]))()),
         "git/createTag" => call("gitCreateTag", (|| Ok(vec![cwd()?, json!(required_string(arg("value"), "git tag", 512)?), json!(commit_hash(arg("at"))?)]))()),
         "git/deleteTag" => call("gitDeleteTag", (|| Ok(vec![cwd()?, json!(required_string(arg("value"), "git tag", 512)?)]))()),
-        "git/log" => call("gitLog", (|| {
-            Ok(vec![
-                cwd()?,
-                json!(log_query(arg("query"))?),
-                json!(whole_number(arg("skip"), 0, 0..=1_000_000, "git history offset is invalid.")?),
-                json!(whole_number(arg("limit"), 40, 1..=100, "git history limit is invalid.")?),
-            ])
-        })()),
+        "git/log" => call(
+            "gitLog",
+            (|| {
+                Ok(vec![
+                    cwd()?,
+                    json!(log_query(arg("query"))?),
+                    json!(whole_number(arg("skip"), 0, 0..=1_000_000, "git history offset is invalid.")?),
+                    json!(whole_number(arg("limit"), 40, 1..=100, "git history limit is invalid.")?),
+                ])
+            })(),
+        ),
         "git/show" => call("gitShow", (|| Ok(vec![cwd()?, json!(commit_hash(arg("hash"))?)]))()),
         "git/showDiff" => call("gitShowDiff", (|| Ok(vec![cwd()?, json!(commit_hash(arg("hash"))?), json!(git_path(arg("path"))?)]))()),
         "git/requestContext" => call("gitRequestContext", (|| Ok(vec![cwd()?, request_context(arg("input"))?]))()),
-        "git/showFile" => call("gitShowFile", (|| {
-            let dir = cwd()?;
-            let rev = match arg("rev") {
-                Some(Value::String(rev)) => revision(rev)?,
-                _ => return Err(refused("A git revision is required.")),
-            };
-            Ok(vec![dir, json!(rev), json!(git_path(arg("path"))?)])
-        })()),
-        "git/resetToCommit" => call("gitResetToCommit", (|| {
-            Ok(vec![cwd()?, json!(commit_hash(arg("value"))?), json!(reset_mode(arg("mode"))?), json!(flag(arg("confirmedDirty")))])
-        })()),
+        "git/showFile" => call(
+            "gitShowFile",
+            (|| {
+                let dir = cwd()?;
+                let rev = match arg("rev") {
+                    Some(Value::String(rev)) => revision(rev)?,
+                    _ => return Err(refused("A git revision is required.")),
+                };
+                Ok(vec![dir, json!(rev), json!(git_path(arg("path"))?)])
+            })(),
+        ),
+        "git/resetToCommit" => call(
+            "gitResetToCommit",
+            (|| Ok(vec![cwd()?, json!(commit_hash(arg("value"))?), json!(reset_mode(arg("mode"))?), json!(flag(arg("confirmedDirty")))]))(),
+        ),
         "git/revertCommit" => call("gitRevertCommit", (|| Ok(vec![cwd()?, json!(commit_hash(arg("value"))?)]))()),
         "git/cherryPickCommit" => call("gitCherryPickCommit", (|| Ok(vec![cwd()?, json!(commit_hash(arg("value"))?)]))()),
         "git/branches" => call("gitBranches", cwd().map(|cwd| vec![cwd])),
@@ -317,44 +333,51 @@ pub fn node_args(method: &str, params: &Value) -> Option<Result<NodeArgs, ScmFai
         "git/continue" => call("gitContinue", cwd().map(|cwd| vec![cwd])),
         "git/abortOperation" => call("gitAbortOperation", cwd().map(|cwd| vec![cwd])),
         // The value is checked before the key (remote-methods.ts:529-532).
-        "git/globalConfig/write" => call("setGitGlobalConfig", (|| {
-            let value = match arg("value") {
-                Some(Value::String(value)) if utf16_len(value) <= 500 => value,
-                _ => return Err(refused("value must be a string of at most 500 characters.")),
-            };
-            let key = match arg("key").and_then(Value::as_str) {
-                Some(key @ ("user.name" | "user.email" | "init.defaultBranch")) => key,
-                _ => return Err(refused("key must be user.name, user.email, or init.defaultBranch.")),
-            };
-            Ok(vec![json!(key), json!(value)])
-        })()),
+        "git/globalConfig/write" => call(
+            "setGitGlobalConfig",
+            (|| {
+                let value = match arg("value") {
+                    Some(Value::String(value)) if utf16_len(value) <= 500 => value,
+                    _ => return Err(refused("value must be a string of at most 500 characters.")),
+                };
+                let key = match arg("key").and_then(Value::as_str) {
+                    Some(key @ ("user.name" | "user.email" | "init.defaultBranch")) => key,
+                    _ => return Err(refused("key must be user.name, user.email, or init.defaultBranch.")),
+                };
+                Ok(vec![json!(key), json!(value)])
+            })(),
+        ),
         "review/diff/get" if arg("scope") == Some(&json!("repo")) => {
             if params.get("files").is_some() {
                 call("gitReviewDiffs", (|| Ok(vec![cwd()?, review_files(arg("files"))?, json!(review_source(arg("source"))?)]))())
             } else if params.get("path").is_some() || flag(arg("patch")) {
-                call("gitReviewDiff", (|| {
-                    Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(flag(arg("untracked"))), json!(review_source(arg("source"))?)])
-                })())
+                call(
+                    "gitReviewDiff",
+                    (|| Ok(vec![cwd()?, json!(git_path(arg("path"))?), json!(flag(arg("untracked"))), json!(review_source(arg("source"))?)]))(),
+                )
             } else {
                 call("gitReview", (|| Ok(vec![cwd()?, json!(review_source(arg("source"))?)]))())
             }
         }
         // The request is checked here, before the Git & GitHub gate (remote-methods.ts:567-568, then github-service.ts:21-25).
-        "github/request" => call("githubRequest", (|| {
-            let dir = cwd()?;
-            let input = arg("input").cloned().unwrap_or(Value::Null);
-            crate::gh::contract::validate(&input)?;
-            Ok(vec![dir, input])
-        })()),
+        "github/request" => call(
+            "githubRequest",
+            (|| {
+                let dir = cwd()?;
+                let input = arg("input").cloned().unwrap_or(Value::Null);
+                crate::gh::contract::validate(&input)?;
+                Ok(vec![dir, input])
+            })(),
+        ),
         "github/pr/list" => call("ghPrList", cwd().map(|cwd| vec![cwd])),
         "github/pr/defaultBranch" => call("ghPrDefaultBranch", cwd().map(|cwd| vec![cwd])),
         "github/pr/create" => call("ghPrCreate", (|| Ok(vec![cwd()?, arg("value").cloned().unwrap_or(Value::Null)]))()),
         "github/pr/view" => call("ghPrView", (|| Ok(vec![cwd()?, arg("value").cloned().unwrap_or(Value::Null)]))()),
         "github/pr/diff" => call("ghPrDiff", (|| Ok(vec![cwd()?, arg("value").cloned().unwrap_or(Value::Null)]))()),
         "github/pr/checkout" => call("ghPrCheckout", (|| Ok(vec![cwd()?, arg("value").cloned().unwrap_or(Value::Null)]))()),
-        "github/pr/merge" => call("ghPrMerge", (|| {
-            Ok(vec![cwd()?, arg("value").cloned().unwrap_or(Value::Null), arg("method").cloned().unwrap_or(Value::Null)])
-        })()),
+        "github/pr/merge" => {
+            call("ghPrMerge", (|| Ok(vec![cwd()?, arg("value").cloned().unwrap_or(Value::Null), arg("method").cloned().unwrap_or(Value::Null)]))())
+        }
         "github/login/status" => call("githubCliLoginStatus", required_string(arg("flowId"), "flowId", 200).map(|id| vec![json!(id)])),
         "github/login/cancel" => call("cancelGithubCliLogin", required_string(arg("flowId"), "flowId", 200).map(|id| vec![json!(id)])),
         "github/login/openBrowser" => call("githubCliLoginOpenBrowser", required_string(arg("flowId"), "flowId", 200).map(|id| vec![json!(id)])),

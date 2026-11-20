@@ -9,9 +9,9 @@
 //! this type holds none of it (no field can): the caller owns the [`SavedLoginValue`], which wipes
 //! itself when dropped, and the registry keeps only the redaction spellings.
 
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
@@ -142,9 +142,15 @@ impl WindowPids for HelperWindowPids {
     async fn window_pid(&self, window_id: &str) -> Result<Option<String>, String> {
         let reply = self.commands.execute(&self.thread, json!({ "action": "list_windows", "session_id": self.thread.as_str() })).await?;
         let wanted = window_id.to_lowercase();
-        let owner = reply.get("windows").and_then(Value::as_array).and_then(|windows| windows.iter().find(|window| mixdog_js::value_to_string(window.get("id").unwrap_or(&Value::Null)).to_lowercase() == wanted));
+        let owner = reply
+            .get("windows")
+            .and_then(Value::as_array)
+            .and_then(|windows| windows.iter().find(|window| mixdog_js::value_to_string(window.get("id").unwrap_or(&Value::Null)).to_lowercase() == wanted));
         // `owner?.pid ? String(owner.pid) : undefined`
-        Ok(owner.and_then(|window| window.get("pid")).filter(|pid| !matches!(pid, Value::Null | Value::Bool(false)) && pid.as_f64() != Some(0.0) && pid.as_str() != Some("")).map(mixdog_js::value_to_string))
+        Ok(owner
+            .and_then(|window| window.get("pid"))
+            .filter(|pid| !matches!(pid, Value::Null | Value::Bool(false)) && pid.as_f64() != Some(0.0) && pid.as_str() != Some(""))
+            .map(mixdog_js::value_to_string))
     }
 }
 
@@ -317,7 +323,11 @@ mod tests {
     async fn a_desktop_that_is_gone_or_refuses_is_an_error_text_and_a_malformed_answer_keeps_nothing() {
         let gone = Arc::new(Desktop { calls: Mutex::new(Vec::new()), auto_login: Mutex::new(true), refuse: Some(HostCommandError::NoHost) });
         assert_eq!(HostSavedLogins::admit(gone, ThreadId::from(SESSION), 7).await.err().unwrap(), BROWSER_UNAVAILABLE);
-        let refusing = Arc::new(Desktop { calls: Mutex::new(Vec::new()), auto_login: Mutex::new(true), refuse: Some(HostCommandError::Rpc { code: -32000, message: "no saved login for this origin".into(), timing: None }) });
+        let refusing = Arc::new(Desktop {
+            calls: Mutex::new(Vec::new()),
+            auto_login: Mutex::new(true),
+            refuse: Some(HostCommandError::Rpc { code: -32000, message: "no saved login for this origin".into(), timing: None }),
+        });
         assert_eq!(HostSavedLogins::admit(refusing, ThreadId::from(SESSION), 7).await.err().unwrap(), "no saved login for this origin");
         // A lookup answer without the label and origin is no value.
         struct Odd;
@@ -370,7 +380,9 @@ mod tests {
         async fn execute(&self, _: &ThreadId, command: Value) -> Result<Value, String> {
             self.sent.lock().unwrap().push(command.clone());
             match command["action"].as_str() {
-                Some("saved_login_check") => Ok(json!({ "text": "saved login target checked; no input was sent", "saved_login_target": { "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com", "start_time": "1" } })),
+                Some("saved_login_check") => Ok(
+                    json!({ "text": "saved login target checked; no input was sent", "saved_login_target": { "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com", "start_time": "1" } }),
+                ),
                 _ => self.typed.clone(),
             }
         }
@@ -403,7 +415,10 @@ mod tests {
         let sent = helper.sent.lock().unwrap().clone();
         let target = json!({ "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com", "start_time": "1" });
         assert_eq!(sent[0], json!({ "action": "saved_login_check", "session_id": SESSION, "window_id": "hwnd:0x1", "field": "password" }));
-        assert_eq!(sent[1], json!({ "action": "saved_login_type", "session_id": SESSION, "window_id": "hwnd:0x1", "field": "password", "text": PASSWORD, "expected": target }));
+        assert_eq!(
+            sent[1],
+            json!({ "action": "saved_login_type", "session_id": SESSION, "window_id": "hwnd:0x1", "field": "password", "text": PASSWORD, "expected": target })
+        );
         let escaped = serde_json::to_string(PASSWORD).unwrap();
         let spelled = &escaped[1..escaped.len() - 1];
         let desktop_calls = desktop.calls.lock().unwrap().clone();
@@ -435,20 +450,44 @@ mod tests {
                 Err(self.0.to_owned())
             }
         }
-        let coded = HostSavedLoginWorker { commands: Arc::new(Refusing("saved_login_refused: the browser runs elevated; no input was sent")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
-        assert_eq!(coded.call(&request, None).await.unwrap(), json!({ "ok": false, "error": "saved_login_refused: the browser runs elevated; no input was sent" }));
-        let broken = HostSavedLoginWorker { commands: Arc::new(Refusing("computer_backend_unavailable: gone")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        let coded = HostSavedLoginWorker {
+            commands: Arc::new(Refusing("saved_login_refused: the browser runs elevated; no input was sent")),
+            thread: ThreadId::from(SESSION),
+            window_id: "w1".into(),
+        };
+        assert_eq!(
+            coded.call(&request, None).await.unwrap(),
+            json!({ "ok": false, "error": "saved_login_refused: the browser runs elevated; no input was sent" })
+        );
+        let broken = HostSavedLoginWorker {
+            commands: Arc::new(Refusing("computer_backend_unavailable: gone")),
+            thread: ThreadId::from(SESSION),
+            window_id: "w1".into(),
+        };
         assert_eq!(broken.call(&request, None).await.unwrap_err(), "computer_backend_unavailable: gone");
         // A definite refusal the helper answered before writing stays a refusal, never "may have been written".
-        let refused = HostSavedLoginWorker { commands: Arc::new(Refusing("foreground_changed: target lost foreground before input dispatch")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
-        assert_eq!(refused.call(&request, None).await.unwrap(), json!({ "ok": false, "error": "foreground_changed: target lost foreground before input dispatch" }));
-        let timed_out = HostSavedLoginWorker { commands: Arc::new(Refusing("computer_command_timeout: command exceeded 45000ms")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        let refused = HostSavedLoginWorker {
+            commands: Arc::new(Refusing("foreground_changed: target lost foreground before input dispatch")),
+            thread: ThreadId::from(SESSION),
+            window_id: "w1".into(),
+        };
+        assert_eq!(
+            refused.call(&request, None).await.unwrap(),
+            json!({ "ok": false, "error": "foreground_changed: target lost foreground before input dispatch" })
+        );
+        let timed_out = HostSavedLoginWorker {
+            commands: Arc::new(Refusing("computer_command_timeout: command exceeded 45000ms")),
+            thread: ThreadId::from(SESSION),
+            window_id: "w1".into(),
+        };
         assert!(timed_out.call(&request, None).await.is_err());
     }
 
     #[tokio::test]
     async fn a_windows_process_is_read_from_the_helpers_window_list() {
-        let helper = windows(json!([{ "id": "HWND:0x1", "pid": 4242 }, { "id": "hwnd:0x2", "pid": "77" }, { "id": "hwnd:0x3", "pid": 0 }, { "id": "hwnd:0x4", "pid": "" }, { "id": "hwnd:0x5" }]));
+        let helper = windows(
+            json!([{ "id": "HWND:0x1", "pid": 4242 }, { "id": "hwnd:0x2", "pid": "77" }, { "id": "hwnd:0x3", "pid": 0 }, { "id": "hwnd:0x4", "pid": "" }, { "id": "hwnd:0x5" }]),
+        );
         let pids = HelperWindowPids::new(helper.clone(), ThreadId::from(SESSION));
         assert_eq!(pids.window_pid("hwnd:0x1").await, Ok(Some("4242".to_owned())));
         assert_eq!(pids.window_pid("hwnd:0x2").await, Ok(Some("77".to_owned())));
@@ -459,7 +498,6 @@ mod tests {
         let failing = HelperWindowPids::new(Arc::new(Helper(Mutex::new(Vec::new()), Err("helper gone".to_owned()))), ThreadId::from(SESSION));
         assert_eq!(failing.window_pid("hwnd:0x1").await, Err("helper gone".to_owned()));
     }
-
 
     #[test]
     fn a_wiped_value_is_zeros_and_a_request_loses_every_string() {
@@ -474,8 +512,15 @@ mod tests {
     #[tokio::test]
     async fn the_capture_gate_reads_the_process_of_a_window_through_the_helper() {
         let registry = SavedLoginRegistry::new();
-        assert!(registry.arm_pixels(super::super::saved_login::PixelGuard { turn: SavedLoginTurn { session: SESSION.to_owned(), turn: 7 }, window_id: "hwnd:0x1".to_owned(), pid: "4242".to_owned() }));
-        let pids = HelperWindowPids::new(windows(json!([{ "id": "hwnd:0x1", "pid": 4242 }, { "id": "hwnd:0x2", "pid": 4242 }, { "id": "hwnd:0x3", "pid": 99 }])), ThreadId::from(SESSION));
+        assert!(registry.arm_pixels(super::super::saved_login::PixelGuard {
+            turn: SavedLoginTurn { session: SESSION.to_owned(), turn: 7 },
+            window_id: "hwnd:0x1".to_owned(),
+            pid: "4242".to_owned()
+        }));
+        let pids = HelperWindowPids::new(
+            windows(json!([{ "id": "hwnd:0x1", "pid": 4242 }, { "id": "hwnd:0x2", "pid": 4242 }, { "id": "hwnd:0x3", "pid": 99 }])),
+            ThreadId::from(SESSION),
+        );
         assert!(super::super::saved_login::pixels_allowed(&registry, "screen", "hwnd:0x2", &pids).await.unwrap_err().starts_with("capture_withheld"));
         assert!(super::super::saved_login::pixels_allowed(&registry, "screen", "hwnd:0x3", &pids).await.is_ok());
         assert!(super::super::saved_login::pixels_allowed(&registry, "ax", "hwnd:0x2", &pids).await.is_ok());

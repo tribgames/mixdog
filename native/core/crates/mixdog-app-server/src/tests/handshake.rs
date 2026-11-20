@@ -19,10 +19,7 @@ use crate::Inbound;
 async fn a_request_before_initialize_is_not_initialized() {
     let rig = Rig::new();
     let client = rig.connect(1, Origin::Local);
-    assert!(matches!(
-        client.request(1, "thread/list", json!({})),
-        Inbound::Continue
-    ));
+    assert!(matches!(client.request(1, "thread/list", json!({})), Inbound::Continue));
     let response = client.response(1).await;
     assert_eq!(reason(&response), "notInitialized");
     assert_eq!(response["error"]["code"], json!(-32600));
@@ -32,10 +29,7 @@ async fn a_request_before_initialize_is_not_initialized() {
 async fn initialize_reports_the_core_and_latches() {
     let rig = Rig::new();
     let client = rig.connect(1, Origin::Ssh);
-    assert!(matches!(
-        client.initialize(VERSION, json!({})),
-        Inbound::Continue
-    ));
+    assert!(matches!(client.initialize(VERSION, json!({})), Inbound::Continue));
     let response = client.response(0).await;
     let result = &response["result"];
     assert_eq!(result["serverVersion"], json!(VERSION));
@@ -78,10 +72,7 @@ async fn each_initialize_reports_native_push_as_offered_at_that_handshake() {
 async fn initialized_changes_nothing() {
     let rig = Rig::new();
     let client = rig.ready(1, json!({}));
-    assert!(matches!(
-        client.send(json!({ "method": "initialized" })),
-        Inbound::Continue
-    ));
+    assert!(matches!(client.send(json!({ "method": "initialized" })), Inbound::Continue));
     settle().await;
     assert!(client.drain().is_empty());
     client.request(1, "thread/list", json!({}));
@@ -101,10 +92,7 @@ async fn a_version_mismatch_is_refused_and_closes_with_4002() {
         let response = client.response(0).await;
         assert_eq!(reason(&response), expected);
         assert_eq!(response["error"]["code"], json!(-32600));
-        assert_eq!(
-            response["error"]["data"],
-            json!({ "reason": expected, "serverVersion": VERSION, "clientVersion": version })
-        );
+        assert_eq!(response["error"]["data"], json!({ "reason": expected, "serverVersion": VERSION, "clientVersion": version }));
         // The refused connection never initialized.
         client.request(1, "thread/list", json!({}));
         assert_eq!(reason(&client.response(1).await), "notInitialized");
@@ -130,28 +118,16 @@ async fn unknown_methods_and_bad_params_are_typed_errors() {
 async fn bad_frames_end_the_connection() {
     let rig = Rig::new();
     let client = rig.ready(1, json!({}));
-    assert!(matches!(
-        client.handle.on_text("this is not json"),
-        Inbound::Close(CloseCode::InvalidFrame)
-    ));
-    let huge = format!(
-        "{{\"id\":1,\"method\":\"thread/list\",\"params\":{{\"pad\":\"{}\"}}}}",
-        "x".repeat(300 * 1024)
-    );
-    assert!(matches!(
-        client.handle.on_text(&huge),
-        Inbound::Close(CloseCode::FrameTooBig)
-    ));
+    assert!(matches!(client.handle.on_text("this is not json"), Inbound::Close(CloseCode::InvalidFrame)));
+    let huge = format!("{{\"id\":1,\"method\":\"thread/list\",\"params\":{{\"pad\":\"{}\"}}}}", "x".repeat(300 * 1024));
+    assert!(matches!(client.handle.on_text(&huge), Inbound::Close(CloseCode::FrameTooBig)));
 }
 
 #[tokio::test(start_paused = true)]
 async fn binary_frames_need_the_host_media_role() {
     let rig = Rig::new();
     let plain = rig.ready(1, json!({}));
-    assert_eq!(
-        plain.handle.on_binary(Bytes::from_static(b"frame")),
-        Err(CloseCode::UnsupportedData)
-    );
+    assert_eq!(plain.handle.on_binary(Bytes::from_static(b"frame")), Err(CloseCode::UnsupportedData));
     let host = rig.ready(2, json!({ "host": { "media": true } }));
     assert_eq!(host.handle.on_binary(Bytes::from_static(b"frame")), Ok(()));
     let frames = rig.core.mock.media().frames();
@@ -162,10 +138,7 @@ async fn binary_frames_need_the_host_media_role() {
 #[tokio::test]
 async fn opt_out_is_exposed_to_the_transport() {
     let rig = Rig::new();
-    let client = rig.ready(
-        1,
-        json!({ "optOutNotificationMethods": ["thread/tokenUsage/updated"] }),
-    );
+    let client = rig.ready(1, json!({ "optOutNotificationMethods": ["thread/tokenUsage/updated"] }));
     assert!(client.handle.opted_out("thread/tokenUsage/updated"));
     assert!(!client.handle.opted_out("thread/started"));
 }

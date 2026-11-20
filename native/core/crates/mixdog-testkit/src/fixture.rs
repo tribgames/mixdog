@@ -2,7 +2,6 @@
 //! embedded recording is lexed, expanded, codegened and linked in every test build of its crate.
 //! Each file is read once per test process and kept for its lifetime.
 
-
 /// The text of a file relative to the calling crate's manifest directory: `fixture!("../../fixtures/x.json")`.
 #[macro_export]
 macro_rules! fixture {
@@ -106,10 +105,7 @@ mod tests {
         let built = Path::new("/built/checkout");
         let run = Path::new("/moved/checkout");
         let inside = Path::new("/built/checkout/native/core/crates/mixdog-ai/../../fixtures/a/golden.json");
-        assert_eq!(
-            relocated(inside, Some(built), Some(run)),
-            Path::new("/moved/checkout/native/core/crates/mixdog-ai/../../fixtures/a/golden.json")
-        );
+        assert_eq!(relocated(inside, Some(built), Some(run)), Path::new("/moved/checkout/native/core/crates/mixdog-ai/../../fixtures/a/golden.json"));
         // In place, outside the checkout, and started by hand: the path as written.
         assert_eq!(relocated(inside, Some(built), Some(built)), inside);
         let outside = Path::new("/elsewhere/golden.json");

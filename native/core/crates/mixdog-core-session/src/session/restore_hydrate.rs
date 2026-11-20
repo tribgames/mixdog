@@ -162,7 +162,11 @@ pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Opti
         let Some(part) = text_refs.get(next) else { break };
         let is_file = token.get(1) == Some("File");
         let part_kind = text_kind(part);
-        let same = if is_file { part_kind.as_deref() == Some("file") && token.get(3) == part.get("filename").and_then(Value::as_str) } else { part_kind.as_deref() == Some("paste") };
+        let same = if is_file {
+            part_kind.as_deref() == Some("file") && token.get(3) == part.get("filename").and_then(Value::as_str)
+        } else {
+            part_kind.as_deref() == Some("paste")
+        };
         if !same {
             continue;
         }
@@ -208,7 +212,10 @@ pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Opti
         let mut entry = Map::new();
         entry.insert("id".into(), Value::from(id));
         entry.insert("type".into(), Value::from("image"));
-        entry.insert("mediaType".into(), Value::from(truthy_text(part, "mimeType").or_else(|| truthy_text(part, "mediaType")).unwrap_or_else(|| "image/png".to_owned())));
+        entry.insert(
+            "mediaType".into(),
+            Value::from(truthy_text(part, "mimeType").or_else(|| truthy_text(part, "mediaType")).unwrap_or_else(|| "image/png".to_owned())),
+        );
         entry.insert("attachmentRef".into(), part["attachmentRef"].clone());
         if let Some(size) = part.get("sizeBytes") {
             entry.insert("sizeBytes".into(), size.clone());
@@ -218,7 +225,8 @@ pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Opti
         }
         images.insert(id, Value::Object(entry));
     }
-    let object = |entries: BTreeMap<u64, Value>| (!entries.is_empty()).then(|| Value::Object(entries.into_iter().map(|(id, entry)| (id.to_string(), entry)).collect()));
+    let object =
+        |entries: BTreeMap<u64, Value>| (!entries.is_empty()).then(|| Value::Object(entries.into_iter().map(|(id, entry)| (id.to_string(), entry)).collect()));
     (object(texts), object(images))
 }
 
@@ -228,7 +236,13 @@ pub(super) const REWIND_FILES_REFUSAL: &str = "this message has PDF/Office attac
 /// The restore payload of a rewind to the stored prompt `content` whose row shows `row_text` (`rewindToItem`,
 /// `rewind.mjs`): refused untouched when the composer cannot hold its file parts, else its pasted texts and images
 /// and its file parts with their bytes (`hydrateTolerantly`). `None` for a prompt that is plain text.
-pub(super) fn rewind_restore(store: &AttachmentStore, lane: &InLane<InteractiveIo>, content: &Value, row_text: &str, restore_files: bool) -> Result<Option<Value>, CoreError> {
+pub(super) fn rewind_restore(
+    store: &AttachmentStore,
+    lane: &InLane<InteractiveIo>,
+    content: &Value,
+    row_text: &str,
+    restore_files: bool,
+) -> Result<Option<Value>, CoreError> {
     let Some(parts) = content.as_array() else { return Ok(None) };
     if !restore_files && parts.iter().any(|part| part.get("type").and_then(Value::as_str) == Some("file")) {
         return Err(failed("thread", REWIND_FILES_REFUSAL));
@@ -296,4 +310,3 @@ mod rewind_tests {
         assert_eq!(restorable_attachments(&[json!({ "type": "text", "text": "plain" })], "plain"), (None, None));
     }
 }
-

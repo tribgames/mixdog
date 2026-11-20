@@ -12,19 +12,12 @@ const DEFAULT_PAGE: [f64; 2] = [595.28, 841.89];
 /// A box a person cannot hit or read: 8 pt squares for marks, 24 x 12 pt for anything typed. The comparison carries a
 /// hundredth of a point: a form's rectangle stored as 11.999 pt is the 12 pt box its author drew.
 pub fn minimum_field_size(field_type: &str) -> [f64; 2] {
-    if field_type == "checkbox" || field_type == "radio" {
-        [8.0 - 0.01, 8.0 - 0.01]
-    } else {
-        [24.0 - 0.01, 12.0 - 0.01]
-    }
+    if field_type == "checkbox" || field_type == "radio" { [8.0 - 0.01, 8.0 - 0.01] } else { [24.0 - 0.01, 12.0 - 0.01] }
 }
 
 /// Two rectangles (`x`, `y`, `width`, `height`) that share area.
 pub fn rectangles_overlap(left: [f64; 4], right: [f64; 4]) -> bool {
-    left[0] < right[0] + right[2]
-        && left[0] + left[2] > right[0]
-        && left[1] < right[1] + right[3]
-        && left[1] + left[3] > right[1]
+    left[0] < right[0] + right[2] && left[0] + left[2] > right[0] && left[1] < right[1] + right[3] && left[1] + left[3] > right[1]
 }
 
 /// JavaScript truthiness of an optional value.
@@ -144,12 +137,7 @@ pub fn lint_pdf_form_fields(fields: &mut [Value], pages: &[[f64; 2]]) -> Value {
             issues.push(issue("error", "missing_field_name", field.index, "Form field name is required.".to_owned()));
         }
         if names.contains(&field.name.as_str()) {
-            issues.push(issue(
-                "error",
-                "duplicate_field_name",
-                field.index,
-                format!("Duplicate form field name: {}", field.name),
-            ));
+            issues.push(issue("error", "duplicate_field_name", field.index, format!("Duplicate form field name: {}", field.name)));
         }
         names.push(&field.name);
         let finite = [field.x, field.y, field.width, field.height].iter().all(|value| value.is_finite());
@@ -163,17 +151,8 @@ pub fn lint_pdf_form_fields(fields: &mut [Value], pages: &[[f64; 2]]) -> Value {
                     field.label()
                 ),
             ));
-        } else if field.x < 0.0
-            || field.y < 0.0
-            || field.x + field.width > size[0]
-            || field.y + field.height > size[1]
-        {
-            issues.push(issue(
-                "error",
-                "field_outside_page",
-                field.index,
-                format!("Form field is outside page {}.", number_to_string(field.page)),
-            ));
+        } else if field.x < 0.0 || field.y < 0.0 || field.x + field.width > size[0] || field.y + field.height > size[1] {
+            issues.push(issue("error", "field_outside_page", field.index, format!("Form field is outside page {}.", number_to_string(field.page))));
         } else {
             let [min_width, min_height] = minimum_field_size(&field.field_type);
             if field.width < min_width || field.height < min_height {
@@ -198,20 +177,12 @@ pub fn lint_pdf_form_fields(fields: &mut [Value], pages: &[[f64; 2]]) -> Value {
         for right in left + 1..normalized.len() {
             let (a, b) = (&normalized[left], &normalized[right]);
             if a.page == b.page && rectangles_overlap(a.rect(), b.rect()) {
-                issues.push(issue(
-                    "warning",
-                    "overlapping_form_fields",
-                    a.index,
-                    format!("Form fields {} and {} overlap.", a.label(), b.label()),
-                ));
+                issues.push(issue("warning", "overlapping_form_fields", a.index, format!("Form fields {} and {} overlap.", a.label(), b.label())));
             }
         }
     }
     let mut result = Map::new();
-    result.insert(
-        "ok".into(),
-        Value::Bool(!issues.iter().any(|entry| entry["severity"] == "error")),
-    );
+    result.insert("ok".into(), Value::Bool(!issues.iter().any(|entry| entry["severity"] == "error")));
     result.insert("fields".into(), Value::Array(normalized.iter().map(Normalized::json).collect()));
     result.insert("issueCount".into(), Value::from(issues.len() as u64));
     result.insert("issues".into(), Value::Array(issues));

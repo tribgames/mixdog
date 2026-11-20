@@ -95,10 +95,7 @@ pub fn is_unsent_media_text(text: &str) -> bool {
 /// `degradeMediaParts`: the parts with every media part replaced by its text,
 /// `None` when nothing changed. (The Rust content model has no nested content
 /// and no audio or video parts.)
-pub fn degrade_media_parts(
-    parts: &[ContentPart],
-    media: &dyn MediaText,
-) -> Result<Option<Vec<ContentPart>>, Box<ProviderError>> {
+pub fn degrade_media_parts(parts: &[ContentPart], media: &dyn MediaText) -> Result<Option<Vec<ContentPart>>, Box<ProviderError>> {
     let mut changed = false;
     let mut next = Vec::with_capacity(parts.len());
     for part in parts {
@@ -113,9 +110,7 @@ pub fn degrade_media_parts(
                 None
             }
             ContentPart::File { .. } => Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("file"))),
-            ContentPart::Document { .. } => {
-                Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("document")))
-            }
+            ContentPart::Document { .. } => Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("document"))),
         };
         match text {
             Some(text) => {
@@ -171,15 +166,11 @@ pub fn assert_text_only_input(
         degraded.push(message);
     }
     if tools && model.supports_tools == Some(false) {
-        return Err(rejected(format!(
-            "[local-provider] {} does not support the requested tool interface. Choose a tool-capable model.",
-            model.name
-        )));
+        return Err(rejected(format!("[local-provider] {} does not support the requested tool interface. Choose a tool-capable model.", model.name)));
     }
     if effort {
         return Err(rejected(
-            "[local-provider] reasoning-level controls are not configured for this model; remove the setting or choose another provider."
-                .to_owned(),
+            "[local-provider] reasoning-level controls are not configured for this model; remove the setting or choose another provider.".to_owned(),
         ));
     }
     Ok(degraded)
@@ -187,18 +178,9 @@ pub fn assert_text_only_input(
 
 /// The request as a text-only model receives it: PDFs prepared, media
 /// degraded. A rejected request is a deterministic, unsent failure.
-pub async fn prepare_text_only_request(
-    text_only: &TextOnlyInput,
-    mut request: ModelRequest,
-) -> Result<ModelRequest, Box<ProviderError>> {
+pub async fn prepare_text_only_request(text_only: &TextOnlyInput, mut request: ModelRequest) -> Result<ModelRequest, Box<ProviderError>> {
     let prepared = text_only.media.prepare_pdf_text(std::mem::take(&mut request.messages)).await?;
     let effort = request.options.effort.as_deref().is_some_and(|e| !e.is_empty());
-    request.messages = assert_text_only_input(
-        &text_only.model,
-        text_only.media.as_ref(),
-        prepared,
-        !request.tools.is_empty(),
-        effort,
-    )?;
+    request.messages = assert_text_only_input(&text_only.model, text_only.media.as_ref(), prepared, !request.tools.is_empty(), effort)?;
     Ok(request)
 }

@@ -66,10 +66,8 @@ pub mod desktop_files {
     }
 
     pub const AGENT_GREETINGS: DesktopConfigFile = DesktopConfigFile { file: "agent-greetings.json", key: keys::AGENTS_GREETED };
-    pub const NOTIFICATION_PREFERENCES: DesktopConfigFile =
-        DesktopConfigFile { file: "notification-preferences.json", key: keys::NOTIFICATIONS };
-    pub const SESSION_AUTO_RETENTION: DesktopConfigFile =
-        DesktopConfigFile { file: "session-auto-retention.json", key: keys::DESKTOP_RETENTION_STATE };
+    pub const NOTIFICATION_PREFERENCES: DesktopConfigFile = DesktopConfigFile { file: "notification-preferences.json", key: keys::NOTIFICATIONS };
+    pub const SESSION_AUTO_RETENTION: DesktopConfigFile = DesktopConfigFile { file: "session-auto-retention.json", key: keys::DESKTOP_RETENTION_STATE };
     pub const REMOTE_ACTIVATED: DesktopConfigFile = DesktopConfigFile { file: "remote-activated.json", key: keys::REMOTE_ACTIVATED_AT };
 
     pub const ALL: [DesktopConfigFile; 4] = [AGENT_GREETINGS, NOTIFICATION_PREFERENCES, SESSION_AUTO_RETENTION, REMOTE_ACTIVATED];
@@ -109,12 +107,7 @@ pub struct NotificationEvents {
 
 impl Default for NotificationEvents {
     fn default() -> Self {
-        Self {
-            finished: true,
-            question: true,
-            approval: true,
-            error: false,
-        }
+        Self { finished: true, question: true, approval: true, error: false }
     }
 }
 
@@ -133,13 +126,7 @@ pub struct NotificationQuietHours {
 
 impl Default for NotificationQuietHours {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            start: "23:00".into(),
-            end: "08:00".into(),
-            days: NotificationQuietDays::Every,
-            allow_waiting: false,
-        }
+        Self { enabled: false, start: "23:00".into(), end: "08:00".into(), days: NotificationQuietDays::Every, allow_waiting: false }
     }
 }
 

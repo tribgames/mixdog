@@ -9,9 +9,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use mixdog_relay::web_push::WebPush;
 use mixdog_relay::web_push::endpoint::valid_endpoint;
 use mixdog_relay::web_push::registry::{Bind, Capable, Registry, SUBSCRIPTIONS_FILE, Sealed, Unbind};
-use mixdog_relay::web_push::send::{
-    Options, PushClient, PushFuture, PushRequest, SendRequest, Sender, web_push_body, web_push_options,
-};
+use mixdog_relay::web_push::send::{Options, PushClient, PushFuture, PushRequest, SendRequest, Sender, web_push_body, web_push_options};
 use mixdog_relay::web_push::vapid::{VAPID_FILE, VAPID_SUBJECT, VapidKeys, vapid_authorization};
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
@@ -304,7 +302,16 @@ async fn the_push_services_answer_is_read_by_its_status() {
     let dir = tempfile::tempdir().unwrap();
     let service = PushService::new();
     let sender = Sender::new(Arc::new(VapidKeys::load_or_create(dir.path()).unwrap()), service.clone());
-    for (status, ok, expired) in [(200, true, false), (201, true, false), (299, true, false), (400, false, false), (404, false, true), (410, false, true), (429, false, false), (500, false, false)] {
+    for (status, ok, expired) in [
+        (200, true, false),
+        (201, true, false),
+        (299, true, false),
+        (400, false, false),
+        (404, false, true),
+        (410, false, true),
+        (429, false, false),
+        (500, false, false),
+    ] {
         service.respond(status);
         let result = sender.send(SendRequest { endpoint: ENDPOINT.to_owned(), body: b"x".to_vec(), options: Options::default() }).await;
         assert_eq!((result.ok, result.status, result.expired), (ok, status, expired), "{status}");
@@ -335,7 +342,13 @@ fn a_sealed_box_is_checked_for_shape() {
     let mut broken = sealed_value("a");
     broken["version"] = json!(2);
     assert!(Sealed::from_value(&broken).is_none());
-    for (field, value) in [("ephemeralPublicKey", "B".repeat(86)), ("nonce", "n".repeat(15)), ("ciphertext", "a".repeat(21)), ("ciphertext", "a".repeat(513)), ("nonce", format!("{}+", "n".repeat(15)))] {
+    for (field, value) in [
+        ("ephemeralPublicKey", "B".repeat(86)),
+        ("nonce", "n".repeat(15)),
+        ("ciphertext", "a".repeat(21)),
+        ("ciphertext", "a".repeat(513)),
+        ("nonce", format!("{}+", "n".repeat(15))),
+    ] {
         let mut broken = sealed_value("a");
         broken[field] = json!(value);
         assert!(Sealed::from_value(&broken).is_none(), "{field}");
@@ -608,7 +621,10 @@ fn the_relay_key_is_the_one_in_the_identity_file_and_each_pc_sees_its_own_box() 
     assert!(webpush.registry().is_capable(PC_A));
     assert!(!webpush.registry().is_capable(PC_B));
     let frame = webpush.subscriptions_frame(PC_A, knows_every_client);
-    assert_eq!(frame, json!({ "type": "webpush-subscriptions", "subscriptions": [{ "endpoint": ENDPOINT, "clientId": "aaaaaaaa", "sealed": sealed_value("a") }] }));
+    assert_eq!(
+        frame,
+        json!({ "type": "webpush-subscriptions", "subscriptions": [{ "endpoint": ENDPOINT, "clientId": "aaaaaaaa", "sealed": sealed_value("a") }] })
+    );
     // A client the device store no longer knows is left out.
     let frame = webpush.subscriptions_frame(PC_B, |_, client| client != "bbbbbbbb");
     assert_eq!(frame, json!({ "type": "webpush-subscriptions", "subscriptions": [] }));
@@ -663,7 +679,8 @@ async fn a_send_that_is_not_well_formed_is_refused_before_anything_is_posted() {
         assert_eq!((result["ok"].clone(), result["error"].clone()), (json!(false), json!("invalid-message")), "{message}");
     }
     // The echoed endpoint and client id are clipped to the frame's limits.
-    let result = webpush.send_from_desktop(PC_A, &json!({ "endpoint": long_endpoint, "clientId": "c".repeat(300), "payload": good }), knows_every_client, |_| {}).await;
+    let result =
+        webpush.send_from_desktop(PC_A, &json!({ "endpoint": long_endpoint, "clientId": "c".repeat(300), "payload": good }), knows_every_client, |_| {}).await;
     assert_eq!(result["endpoint"].as_str().unwrap().len(), 2048);
     assert_eq!(result["clientId"].as_str().unwrap().len(), 128);
     assert!(service.posted().is_empty());

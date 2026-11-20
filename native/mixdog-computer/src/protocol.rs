@@ -21,9 +21,7 @@ static STDOUT: Mutex<()> = Mutex::new(());
 /// One whole line on stdout. Any thread may write: a lease request waiting
 /// for its answer and the request thread's replies never interleave.
 pub fn write_line(prefix: &str, value: &Value) {
-    let _guard = STDOUT
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = STDOUT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{prefix}{value}");
     let _ = out.flush();

@@ -32,7 +32,6 @@ mod tests {
         assert!((0..1000).map(|_| jitter.draw()).all(|d| (0.0..=1.0).contains(&d)));
     }
 
-
     #[tokio::test(start_paused = true)]
     async fn the_wait_lasts_the_given_delay() {
         let start = tokio::time::Instant::now();
@@ -40,7 +39,6 @@ mod tests {
         assert_eq!(start.elapsed(), Duration::from_millis(250));
     }
 }
-
 
 #[async_trait]
 impl RetryWait for TimerWait {

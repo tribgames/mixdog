@@ -14,7 +14,6 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessManager;
-use mixdog_protocol::ProcessHandle;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::mock::MockLimits;
@@ -24,6 +23,7 @@ use mixdog_core_api::service::DomainService;
 use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_protocol::Origin;
+use mixdog_protocol::ProcessHandle;
 use mixdog_protocol::SectionName;
 use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ports::ListeningPort;
@@ -41,12 +41,7 @@ fn request(method: &'static str, mut params: Value, connection: u64) -> CoreRequ
     if let Some(map) = params.as_object_mut().filter(|m| !m.is_empty()) {
         map.entry("opId").or_insert_with(|| json!(format!("op-{method}")));
     }
-    CoreRequest {
-        method: Method(method),
-        params,
-        op: None,
-        ctx: CallContext::connection(ConnectionId(connection), Origin::Local, CancellationToken::new()),
-    }
+    CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Local, CancellationToken::new()) }
 }
 
 fn scoped() -> Arc<MockScopedFeeds> {
@@ -142,10 +137,7 @@ async fn process_spawn_streams_on_a_feed_and_kill_ends_it() {
 
     // The process's end is its exit event, which the manager publishes once it has reaped the process.
     let mut events = manager.subscribe(&ProcessHandle::from(name.as_str()), None).expect("the running process has events");
-    service
-        .call(request("process/kill", json!({ "processHandle": name }), 1))
-        .await
-        .unwrap();
+    service.call(request("process/kill", json!({ "processHandle": name }), 1)).await.unwrap();
     tokio::time::timeout(EVENT_DEADLINE, async {
         while let Some(event) = events.next().await {
             if matches!(event, ProcessEvent::Exited { .. }) {
@@ -176,11 +168,7 @@ async fn process_stdin_input_and_pty_resize_reach_the_process() {
     let sorter = handle("svc-stdin");
     let params = json!({ "processHandle": sorter, "argv": ["sort"], "cwd": cwd, "owner": "internal" });
     service.call(request("process/spawn", params, 1)).await.unwrap();
-    service.notify(
-        Method("process/input"),
-        json!({ "processHandle": sorter, "bytesB64": STANDARD.encode("b\r\n") }),
-        ConnectionId(1),
-    );
+    service.notify(Method("process/input"), json!({ "processHandle": sorter, "bytesB64": STANDARD.encode("b\r\n") }), ConnectionId(1));
     let write = json!({ "processHandle": sorter, "bytesB64": STANDARD.encode("a\r\n"), "closeStdin": true });
     service.call(request("process/writeStdin", write, 1)).await.unwrap();
     let (output, _) = collect(&manager, &sorter).await;
@@ -207,11 +195,7 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
-    let Reply::Value(ensured) = service
-        .call(request("terminal/ensure", json!({ "tabId": "term_own", "options": { "cwd": cwd } }), 1))
-        .await
-        .unwrap()
-    else {
+    let Reply::Value(ensured) = service.call(request("terminal/ensure", json!({ "tabId": "term_own", "options": { "cwd": cwd } }), 1)).await.unwrap() else {
         panic!("terminal/ensure answers with a value");
     };
     let id = ensured["id"].as_str().unwrap().to_owned();
@@ -297,7 +281,9 @@ async fn a_claim_on_an_id_without_a_tab_is_published_and_a_dispose_of_it_forgets
         let service = Arc::clone(&service);
         let cwd = cwd.clone();
         async move {
-            let Reply::Value(ensured) = service.call(request("terminal/ensure", json!({ "tabId": "term_bystander", "options": { "cwd": cwd } }), connection)).await.unwrap() else {
+            let Reply::Value(ensured) =
+                service.call(request("terminal/ensure", json!({ "tabId": "term_bystander", "options": { "cwd": cwd } }), connection)).await.unwrap()
+            else {
                 panic!("terminal/ensure answers with a value");
             };
             ensured["client"].as_str().unwrap().to_owned()
@@ -317,7 +303,9 @@ async fn a_claim_on_an_id_without_a_tab_is_published_and_a_dispose_of_it_forgets
         let (cols, rows, own) = sizes[at];
         Some(Some((if own { phone.clone() } else { other.clone() }, cols, rows)))
     };
-    let claim = |connection: u64, cols: u64, rows: u64| service.notify(Method("terminal/resize"), json!({ "tabId": "term_ph2_none", "cols": cols, "rows": rows, "claim": true }), ConnectionId(connection));
+    let claim = |connection: u64, cols: u64, rows: u64| {
+        service.notify(Method("terminal/resize"), json!({ "tabId": "term_ph2_none", "cols": cols, "rows": rows, "claim": true }), ConnectionId(connection))
+    };
 
     claim(1, sizes[0].0, sizes[0].1);
     publisher.wait_for("the phone's claim on the id with no tab", |_| row() == expected(0)).await;
@@ -353,11 +341,7 @@ async fn integrated_profile(service: &TerminalService) -> String {
         let spawn = service.tabs().resolve_profile(&id).await.expect("a listed profile resolves");
         listed.push((id, spawn));
     }
-    listed
-        .into_iter()
-        .find(|(_, spawn)| reports_activity(spawn))
-        .expect("this machine has a shell with terminal integration (PowerShell, bash, zsh or cmd)")
-        .0
+    listed.into_iter().find(|(_, spawn)| reports_activity(spawn)).expect("this machine has a shell with terminal integration (PowerShell, bash, zsh or cmd)").0
 }
 
 /// One poll of a future, on the spot: what the future does before its first wait has been done when this returns.
@@ -384,7 +368,9 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
             .iter()
             .rev()
             .find_map(|(s, _, change)| match (s, change) {
-                (SectionName::TerminalActivity, SectionChange::Set(bytes)) => Some(serde_json::from_slice::<Value>(bytes).unwrap().as_object().unwrap().keys().cloned().collect()),
+                (SectionName::TerminalActivity, SectionChange::Set(bytes)) => {
+                    Some(serde_json::from_slice::<Value>(bytes).unwrap().as_object().unwrap().keys().cloned().collect())
+                }
                 _ => None,
             })
             .unwrap_or_default()
@@ -484,10 +470,7 @@ async fn terminal_activity_lists_tabs_in_creation_order() {
     let integrated = integrated_profile(&service).await;
     // Created in reverse id order: a section sorted by id would list `term_a` first.
     for id in ["term_b", "term_a"] {
-        service
-            .call(request("terminal/ensure", json!({ "tabId": id, "options": { "cwd": cwd, "profile": integrated } }), 1))
-            .await
-            .unwrap();
+        service.call(request("terminal/ensure", json!({ "tabId": id, "options": { "cwd": cwd, "profile": integrated } }), 1)).await.unwrap();
     }
     let keys = || -> Vec<String> {
         publisher
@@ -519,11 +502,7 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let tab = "term_feed";
-    let Reply::Value(ensured) = service
-        .call(request("terminal/ensure", json!({ "tabId": tab, "options": { "cwd": cwd } }), 1))
-        .await
-        .unwrap()
-    else {
+    let Reply::Value(ensured) = service.call(request("terminal/ensure", json!({ "tabId": tab, "options": { "cwd": cwd } }), 1)).await.unwrap() else {
         panic!("terminal/ensure answers with a value");
     };
     // Node answers an ensure with the id it was given (`termEnsure` of `term_ph2_l1`: `{ id: "term_ph2_l1" }`).
@@ -568,9 +547,8 @@ async fn a_phone_reading_the_lane_gets_the_first_output_of_a_tab_another_connect
     service.call(ensure).await.unwrap();
     let raw = FeedTap::attach(&made.find(&FeedId::from(format!("process:{tab}"))).expect("the raw feed exists"));
     after.release();
-    let taken = tokio::time::timeout(EVENT_DEADLINE, raw.notifications_until(|frames| !output_text(frames).is_empty()))
-        .await
-        .expect("the shell wrote no output");
+    let taken =
+        tokio::time::timeout(EVENT_DEADLINE, raw.notifications_until(|frames| !output_text(frames).is_empty())).await.expect("the shell wrote no output");
     let first = output_text(&taken);
     let mark = "mixdog_first_output_mark";
     let _ = service.notify(Method("terminal/input"), json!({ "tabId": tab, "data": format!("echo {mark}\r") }), ConnectionId(1));
@@ -711,9 +689,7 @@ async fn a_viewer_that_joins_late_gets_the_listening_ports_in_the_section_snapsh
 
     service.call(request("system/ports/subscribe", json!({}), 8)).await.unwrap();
     let late = mixdog_core_api::mock::FeedTap::attach_as(&feed, 8);
-    let frames = tokio::time::timeout(EVENT_DEADLINE, late.notifications_until(|frames| !frames.is_empty()))
-        .await
-        .expect("the late viewer never got a frame");
+    let frames = tokio::time::timeout(EVENT_DEADLINE, late.notifications_until(|frames| !frames.is_empty())).await.expect("the late viewer never got a frame");
     let ports = snapshot_ports(&frames[0]).expect("the late viewer's first frame is a snapshot with the ports section");
     assert_eq!(ports.iter().map(|port| port["port"].clone()).collect::<Vec<_>>(), [json!(8099)]);
 }
@@ -736,17 +712,11 @@ async fn terminal_service_ensures_publishes_tabs_and_disposes() {
     let id = ensured["id"].as_str().unwrap().to_owned();
     assert!(id.starts_with("term_"));
 
-    let Reply::Subscribe(sub) = service
-        .call(request("terminal/attach", json!({ "tabId": id }), 1))
-        .await
-        .unwrap()
-    else {
+    let Reply::Subscribe(sub) = service.call(request("terminal/attach", json!({ "tabId": id }), 1)).await.unwrap() else {
         panic!("terminal/attach answers with a subscription");
     };
     assert_eq!(sub.feed.feed_id().to_string(), format!("process:{id}"));
-    publisher
-        .wait_for("the tab list section", |sections| sections.iter().any(|(s, _, _)| *s == SectionName::TerminalTabs))
-        .await;
+    publisher.wait_for("the tab list section", |sections| sections.iter().any(|(s, _, _)| *s == SectionName::TerminalTabs)).await;
 
     service.call(request("terminal/dispose", json!({ "tabId": id }), 1)).await.unwrap();
     // A tab that is not running is Node's `null` (termAttach), not an error.

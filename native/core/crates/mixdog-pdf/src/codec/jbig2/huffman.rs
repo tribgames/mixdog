@@ -48,66 +48,15 @@ struct Standard {
 /// Tables B.1 to B.15. A table without a lower or an upper range has an unused line (prefix length 0) in its place.
 static STANDARD: [Standard; 15] = [
     // B.1
-    Standard {
-        oob: false,
-        lines: &[(1, 4, 0), (2, 8, 16), (3, 16, 272), (0, 32, -1), (3, 32, 65808)],
-    },
+    Standard { oob: false, lines: &[(1, 4, 0), (2, 8, 16), (3, 16, 272), (0, 32, -1), (3, 32, 65808)] },
     // B.2
-    Standard {
-        oob: true,
-        lines: &[
-            (1, 0, 0),
-            (2, 0, 1),
-            (3, 0, 2),
-            (4, 3, 3),
-            (5, 6, 11),
-            (0, 32, -1),
-            (6, 32, 75),
-            (6, 0, 0),
-        ],
-    },
+    Standard { oob: true, lines: &[(1, 0, 0), (2, 0, 1), (3, 0, 2), (4, 3, 3), (5, 6, 11), (0, 32, -1), (6, 32, 75), (6, 0, 0)] },
     // B.3
-    Standard {
-        oob: true,
-        lines: &[
-            (8, 8, -256),
-            (1, 0, 0),
-            (2, 0, 1),
-            (3, 0, 2),
-            (4, 3, 3),
-            (5, 6, 11),
-            (8, 32, -257),
-            (7, 32, 75),
-            (6, 0, 0),
-        ],
-    },
+    Standard { oob: true, lines: &[(8, 8, -256), (1, 0, 0), (2, 0, 1), (3, 0, 2), (4, 3, 3), (5, 6, 11), (8, 32, -257), (7, 32, 75), (6, 0, 0)] },
     // B.4
-    Standard {
-        oob: false,
-        lines: &[
-            (1, 0, 1),
-            (2, 0, 2),
-            (3, 0, 3),
-            (4, 3, 4),
-            (5, 6, 12),
-            (0, 32, 0),
-            (5, 32, 76),
-        ],
-    },
+    Standard { oob: false, lines: &[(1, 0, 1), (2, 0, 2), (3, 0, 3), (4, 3, 4), (5, 6, 12), (0, 32, 0), (5, 32, 76)] },
     // B.5
-    Standard {
-        oob: false,
-        lines: &[
-            (7, 8, -255),
-            (1, 0, 1),
-            (2, 0, 2),
-            (3, 0, 3),
-            (4, 3, 4),
-            (5, 6, 12),
-            (7, 32, -256),
-            (6, 32, 76),
-        ],
-    },
+    Standard { oob: false, lines: &[(7, 8, -255), (1, 0, 1), (2, 0, 2), (3, 0, 3), (4, 3, 4), (5, 6, 12), (7, 32, -256), (6, 32, 76)] },
     // B.6
     Standard {
         oob: false,
@@ -292,18 +241,7 @@ static STANDARD: [Standard; 15] = [
         ],
     },
     // B.14
-    Standard {
-        oob: false,
-        lines: &[
-            (3, 0, -2),
-            (3, 0, -1),
-            (1, 0, 0),
-            (3, 0, 1),
-            (3, 0, 2),
-            (0, 32, -3),
-            (0, 32, 3),
-        ],
-    },
+    Standard { oob: false, lines: &[(3, 0, -2), (3, 0, -1), (1, 0, 0), (3, 0, 1), (3, 0, 2), (0, 32, -3), (0, 32, 3)] },
     // B.15
     Standard {
         oob: false,
@@ -383,10 +321,7 @@ impl HuffmanTable {
         let mut range_low = Vec::new();
         let mut current = low;
         loop {
-            codes.push(Code {
-                len: stream.read_nbits(prefix_bits)?,
-                code: 0,
-            });
+            codes.push(Code { len: stream.read_nbits(prefix_bits)?, code: 0 });
             let len = stream.read_nbits(range_bits)?;
             range_len.push(len);
             range_low.push(current);
@@ -395,33 +330,19 @@ impl HuffmanTable {
                 break;
             }
         }
-        codes.push(Code {
-            len: stream.read_nbits(prefix_bits)?,
-            code: 0,
-        });
+        codes.push(Code { len: stream.read_nbits(prefix_bits)?, code: 0 });
         range_len.push(32);
         range_low.push(low.wrapping_sub(1));
-        codes.push(Code {
-            len: stream.read_nbits(prefix_bits)?,
-            code: 0,
-        });
+        codes.push(Code { len: stream.read_nbits(prefix_bits)?, code: 0 });
         range_len.push(32);
         range_low.push(high);
         if oob {
-            codes.push(Code {
-                len: stream.read_nbits(prefix_bits)?,
-                code: 0,
-            });
+            codes.push(Code { len: stream.read_nbits(prefix_bits)?, code: 0 });
             range_len.push(0);
             range_low.push(0);
         }
         assign_codes(&mut codes)?;
-        Some(HuffmanTable {
-            codes,
-            range_len,
-            range_low,
-            oob,
-        })
+        Some(HuffmanTable { codes, range_len, range_low, oob })
     }
 
     /// `DecodeAValue`: the next value from the bits of `stream`. `None` when the data ends before a code is complete.
@@ -441,11 +362,7 @@ impl HuffmanTable {
             let offset = stream.read_nbits(self.range_len[i])?;
             let lower_range = i == self.codes.len() - if self.oob { 3 } else { 2 };
             let low = self.range_low[i];
-            return Some(Coded::Value(if lower_range {
-                low.wrapping_sub(offset as i32)
-            } else {
-                low.wrapping_add(offset as i32)
-            }));
+            return Some(Coded::Value(if lower_range { low.wrapping_sub(offset as i32) } else { low.wrapping_add(offset as i32) }));
         }
         None
     }
@@ -509,12 +426,7 @@ mod tests {
     fn standard_tables_are_complete_prefix_codes() {
         for index in 1..=15 {
             let table = HuffmanTable::standard(index);
-            let kraft: f64 = table
-                .codes
-                .iter()
-                .filter(|c| c.len > 0)
-                .map(|c| 0.5f64.powi(c.len as i32))
-                .sum();
+            let kraft: f64 = table.codes.iter().filter(|c| c.len > 0).map(|c| 0.5f64.powi(c.len as i32)).sum();
             assert!((kraft - 1.0).abs() < 1e-12, "B.{index}");
         }
     }
@@ -566,10 +478,7 @@ mod tests {
         let table = HuffmanTable::parse(&mut stream).unwrap();
         assert!(table.oob);
         assert_eq!(table.range_low, [0, -1, 4, 0]);
-        assert_eq!(
-            table.codes.iter().map(|c| (c.len, c.code)).collect::<Vec<_>>(),
-            [(1, 0), (2, 2), (3, 6), (3, 7)]
-        );
+        assert_eq!(table.codes.iter().map(|c| (c.len, c.code)).collect::<Vec<_>>(), [(1, 0), (2, 2), (3, 6), (3, 7)]);
         let mut input = Bits::new();
         input.push(0, 1);
         input.push(3, 2);

@@ -49,10 +49,8 @@ fn is_incoming_kind(message: &Value) -> bool {
         Some(Value::String(s)) => !s.is_empty(),
         _ => false,
     };
-    let tool_use = message
-        .get("content")
-        .and_then(Value::as_array)
-        .is_some_and(|c| c.iter().any(|p| p.get("type").and_then(Value::as_str) == Some("tool_use")));
+    let tool_use =
+        message.get("content").and_then(Value::as_array).is_some_and(|c| c.iter().any(|p| p.get("type").and_then(Value::as_str) == Some("tool_use")));
     !has_calls && !tool_use
 }
 
@@ -68,11 +66,7 @@ impl MessageRow {
             if is_session_preview_noise(&raw) { String::new() } else { clean_summary_preview(&raw, 240) }
         };
         let line = if conversational {
-            let raw = if is_routine_result_message(message) {
-                routine_result_notice_text(message)
-            } else {
-                session_message_text(content)
-            };
+            let raw = if is_routine_result_message(message) { routine_result_notice_text(message) } else { session_message_text(content) };
             if is_session_preview_noise(&raw) { String::new() } else { clean_summary_preview(&raw, LAST_MESSAGE_PREVIEW_MAX) }
         } else {
             String::new()

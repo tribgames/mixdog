@@ -28,17 +28,8 @@ use super::settle;
 /// because the server resolves its `feedId` to a live scoped feed itself and answers
 /// `invalidParams{feedId}` for one nobody holds (the generic sample id names none); the
 /// subscribe tests cover it.
-const HANDLED_HERE: [&str; 9] = [
-    "initialize",
-    "app/subscribe",
-    "feed/subscribe",
-    "feed/unsubscribe",
-    "thread/unsubscribe",
-    "op/status",
-    "turn/interrupt",
-    "turn/steer",
-    "host/claim",
-];
+const HANDLED_HERE: [&str; 9] =
+    ["initialize", "app/subscribe", "feed/subscribe", "feed/unsubscribe", "thread/unsubscribe", "op/status", "turn/interrupt", "turn/steer", "host/claim"];
 
 #[tokio::test(start_paused = true)]
 async fn every_method_of_the_table_dispatches_to_the_mock_core() {
@@ -60,9 +51,7 @@ async fn every_method_of_the_table_dispatches_to_the_mock_core() {
             if reason(&response) != "permissionDenied" {
                 failures.push(format!("{}: expected permissionDenied: {response}", spec.method));
             }
-        } else if response["result"]["method"] != json!(spec.method)
-            || response["result"]["params"] != params
-        {
+        } else if response["result"]["method"] != json!(spec.method) || response["result"]["params"] != params {
             failures.push(format!("{}: {response}", spec.method));
         } else {
             dispatched += 1;
@@ -77,10 +66,7 @@ async fn a_request_naming_a_thread_goes_to_that_thread_and_others_to_the_directo
     let rig = Rig::new();
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
     thread.set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "thread" })))));
-    rig.core
-        .mock
-        .directory()
-        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    rig.core.mock.directory().set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
     let client = rig.ready(1, json!({}));
     client.request(1, "thread/read", json!({ "threadId": "t1" }));
     assert_eq!(client.response(1).await["result"], json!({ "via": "thread" }));
@@ -95,10 +81,7 @@ async fn a_request_naming_a_thread_goes_to_that_thread_and_others_to_the_directo
 #[tokio::test(start_paused = true)]
 async fn a_delete_of_a_thread_that_is_not_there_is_the_directorys_answer() {
     let rig = Rig::new();
-    rig.core
-        .mock
-        .directory()
-        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    rig.core.mock.directory().set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
     let client = rig.ready(1, json!({}));
     client.request(1, "thread/delete", json!({ "threadId": "missing", "opId": "op-1" }));
     assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
@@ -188,10 +171,7 @@ async fn an_inheritance_preflight_naming_a_thread_is_the_directorys_answer() {
     let rig = Rig::new();
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
     thread.set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "thread" })))));
-    rig.core
-        .mock
-        .directory()
-        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    rig.core.mock.directory().set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
     let client = rig.ready(1, json!({}));
     client.request(1, "thread/inheritancePreflight", json!({ "threadId": "t1", "sourceThreadId": "missing", "selection": {} }));
     assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
@@ -204,10 +184,7 @@ async fn mutations_carry_their_op_id_to_the_core() {
     let seen: Seen = Arc::default();
     let record = seen.clone();
     rig.core.mock.directory().set_handler(Arc::new(move |req| {
-        record
-            .lock()
-            .unwrap()
-            .push((req.method.to_string(), req.op.clone()));
+        record.lock().unwrap().push((req.method.to_string(), req.op.clone()));
         Ok(Reply::Value(json!({})))
     }));
     let client = rig.ready(1, json!({}));
@@ -217,13 +194,7 @@ async fn mutations_carry_their_op_id_to_the_core() {
     client.response(1).await;
     client.request(2, "thread/list", json!({}));
     client.response(2).await;
-    assert_eq!(
-        *seen.lock().unwrap(),
-        vec![
-            ("thread/start".to_owned(), Some(OpId::from("x"))),
-            ("thread/list".to_owned(), None)
-        ]
-    );
+    assert_eq!(*seen.lock().unwrap(), vec![("thread/start".to_owned(), Some(OpId::from("x"))), ("thread/list".to_owned(), None)]);
 }
 
 #[tokio::test(start_paused = true)]
@@ -265,10 +236,7 @@ async fn origin_rules_come_from_the_table() {
     phone.request(1, "config/read", json!({}));
     let denied = phone.response(1).await;
     assert_eq!(reason(&denied), "permissionDenied");
-    assert_eq!(
-        denied["error"]["data"],
-        json!({ "reason": "permissionDenied", "method": "config/read", "origin": "relay" })
-    );
+    assert_eq!(denied["error"]["data"], json!({ "reason": "permissionDenied", "method": "config/read", "origin": "relay" }));
     phone.request(2, "thread/list", json!({}));
     assert!(phone.response(2).await.get("result").is_some());
 }
@@ -284,10 +252,7 @@ async fn handoff_secrets_accept_local_and_ssh_desktops_but_refuse_relay() {
     assert_eq!(initialized["result"]["capabilities"]["remote"]["secretInput"], false);
     phone.request(1, method, params("secret-test-relay"));
     let denied = phone.response(1).await;
-    assert_eq!(
-        denied["error"]["data"],
-        json!({ "reason": "permissionDenied", "method": method, "origin": "relay" })
-    );
+    assert_eq!(denied["error"]["data"], json!({ "reason": "permissionDenied", "method": method, "origin": "relay" }));
 
     for (id, origin, op_id) in [(2, Origin::Local, "secret-test-local"), (3, Origin::Ssh, "secret-test-ssh")] {
         let desktop = rig.connect(id, origin);
@@ -356,30 +321,18 @@ async fn the_lifecycle_gates_new_work_but_not_controls() {
     let client = rig.ready(1, json!({}));
     let mock = &rig.core.mock;
 
-    mock.set_state(CoreState::Migrating(mixdog_core_api::handle::MigrationProgress {
-        kind: "sessions".into(),
-        done: 2,
-        total: 5,
-    }));
+    mock.set_state(CoreState::Migrating(mixdog_core_api::handle::MigrationProgress { kind: "sessions".into(), done: 2, total: 5 }));
     client.request(1, "thread/list", json!({}));
     let migrating = client.response(1).await;
-    assert_eq!(
-        migrating["error"]["data"],
-        json!({ "reason": "coreMigrating", "kind": "sessions", "done": 2, "total": 5 })
-    );
+    assert_eq!(migrating["error"]["data"], json!({ "reason": "coreMigrating", "kind": "sessions", "done": 2, "total": 5 }));
     client.request(2, "op/status", json!({ "scope": "config", "opIds": [], "fence": false }));
     assert!(client.response(2).await.get("result").is_some());
 
-    mock.set_state(CoreState::Draining {
-        reason: DrainReason::Update,
-    });
+    mock.set_state(CoreState::Draining { reason: DrainReason::Update });
     let touch = Samples::new().params("project/touch");
     client.request(3, "project/touch", touch);
     let draining = client.response(3).await;
-    assert_eq!(
-        draining["error"]["data"],
-        json!({ "reason": "serverShuttingDown", "drainReason": "update" })
-    );
+    assert_eq!(draining["error"]["data"], json!({ "reason": "serverShuttingDown", "drainReason": "update" }));
     client.request(4, "project/list", json!({}));
     assert!(client.response(4).await.get("result").is_some(), "reads continue");
 }
@@ -387,10 +340,7 @@ async fn the_lifecycle_gates_new_work_but_not_controls() {
 #[tokio::test(start_paused = true)]
 async fn an_answer_racing_the_connection_close_is_not_sent() {
     let rig = Rig::new();
-    rig.core
-        .mock
-        .directory()
-        .set_handler(Arc::new(|_| Err(CoreError::ConnectionClosed)));
+    rig.core.mock.directory().set_handler(Arc::new(|_| Err(CoreError::ConnectionClosed)));
     let client = rig.ready(1, json!({}));
     client.request(1, "thread/list", json!({}));
     settle().await;
@@ -401,29 +351,10 @@ async fn an_answer_racing_the_connection_close_is_not_sent() {
 async fn op_status_answers_from_the_op_index_per_scope() {
     let rig = Rig::new();
     let index = rig.core.mock.op_index();
-    index.set(
-        OpScope::Thread(ThreadId::from("t1")),
-        OpId::from("a"),
-        OpStatus::Applied {
-            seq: Some(7),
-            result: Some(json!({ "ok": true })),
-        },
-    );
-    index.set(
-        OpScope::Domain("config".into()),
-        OpId::from("b"),
-        OpStatus::Rejected {
-            error: CoreError::OpIdConflict {
-                op_id: OpId::from("b"),
-            },
-        },
-    );
+    index.set(OpScope::Thread(ThreadId::from("t1")), OpId::from("a"), OpStatus::Applied { seq: Some(7), result: Some(json!({ "ok": true })) });
+    index.set(OpScope::Domain("config".into()), OpId::from("b"), OpStatus::Rejected { error: CoreError::OpIdConflict { op_id: OpId::from("b") } });
     let client = rig.ready(1, json!({}));
-    client.request(
-        1,
-        "op/status",
-        json!({ "scope": "thread:t1", "opIds": ["a", "zz"], "fence": true }),
-    );
+    client.request(1, "op/status", json!({ "scope": "thread:t1", "opIds": ["a", "zz"], "fence": true }));
     let response = client.response(1).await;
     assert_eq!(
         response["result"],
@@ -432,11 +363,7 @@ async fn op_status_answers_from_the_op_index_per_scope() {
             { "opId": "zz", "state": "notApplied" },
         ]})
     );
-    client.request(
-        2,
-        "op/status",
-        json!({ "scope": "config", "opIds": ["b"], "fence": false }),
-    );
+    client.request(2, "op/status", json!({ "scope": "config", "opIds": ["b"], "fence": false }));
     let rejected = client.response(2).await;
     let state = &rejected["result"]["ops"][0];
     assert_eq!(state["state"], json!("rejected"));
@@ -469,18 +396,8 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
     gate.permits.add_permits(3);
     client.frames(3).await;
     let log = gate.log();
-    let a_ends = log
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| *l == "end terminal/focus:a")
-        .map(|(i, _)| i)
-        .collect::<Vec<_>>();
-    let a_starts = log
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| *l == "start terminal/focus:a")
-        .map(|(i, _)| i)
-        .collect::<Vec<_>>();
+    let a_ends = log.iter().enumerate().filter(|(_, l)| *l == "end terminal/focus:a").map(|(i, _)| i).collect::<Vec<_>>();
+    let a_starts = log.iter().enumerate().filter(|(_, l)| *l == "start terminal/focus:a").map(|(i, _)| i).collect::<Vec<_>>();
     assert_eq!((a_starts.len(), a_ends.len()), (2, 2));
     assert!(a_ends[0] < a_starts[1], "second `a` started before the first ended: {log:?}");
 }
@@ -499,14 +416,7 @@ async fn reads_share_a_domain_and_queue_behind_its_writes() {
     gate.permits.add_permits(1);
     settle().await;
     // The write ended; both reads started together.
-    assert_eq!(
-        gate.log()[1..],
-        [
-            "end project/touch:w1",
-            "start project/list:",
-            "start project/list:"
-        ]
-    );
+    assert_eq!(gate.log()[1..], ["end project/touch:w1", "start project/list:", "start project/list:"]);
     gate.permits.add_permits(2);
     client.frames(3).await;
 }
@@ -559,7 +469,6 @@ async fn queued_requests_of_a_closed_connection_never_run() {
     assert_eq!(gate.log()[2], "start project/touch:w3");
 }
 
-
 /// The lanes know nothing of a client's presence: a call queued for its turn is started when the turn comes, whatever became of its
 /// connection. Whether it then runs is the call's own queue's decision: a keyed call is discarded there (the test above), a call
 /// with no key (`thread/read`) reaches its handler and its answer has nowhere to go.
@@ -600,8 +509,7 @@ async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
     let gate = Arc::clone(rig.gate("terminal"));
     let watched = Arc::clone(&gate);
     // At each queued frame: whether any call's hold had ended by then.
-    let (client, mut arrivals) =
-        rig.connect_watched(1, move || watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled()));
+    let (client, mut arrivals) = rig.connect_watched(1, move || watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled()));
     client.initialize(super::VERSION, json!({}));
     let (initialized, _) = arrivals.next(DEADLINE, "the initialize response").await;
     assert_eq!(initialized["id"], json!(0), "{initialized}");
@@ -616,7 +524,5 @@ async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
         assert_eq!(holds.len(), 1, "one call");
         holds[0].clone()
     };
-    mixdog_rt::time::timeout(DEADLINE, hold.cancelled())
-        .await
-        .expect("the call's hold never ended after its response was queued");
+    mixdog_rt::time::timeout(DEADLINE, hold.cancelled()).await.expect("the call's hold never ended after its response was queued");
 }

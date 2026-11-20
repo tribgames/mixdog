@@ -15,11 +15,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use super::directory::SessionDirectory;
+use mixdog_app_protocol::boundary::validate::normalize;
+use mixdog_app_protocol::v2::thread::ThreadStartParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::call::CoreRequest;
-use mixdog_app_protocol::boundary::validate::normalize;
-use mixdog_app_protocol::v2::thread::ThreadStartParams;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::on_lane;
@@ -29,7 +30,6 @@ use mixdog_rt::TaskClass;
 use mixdog_statefile::new_task_receipt::Phase;
 use mixdog_statefile::new_task_receipt::Receipt;
 use serde_json::Value;
-use super::directory::SessionDirectory;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio::sync::watch;
@@ -324,10 +324,8 @@ mod normalised_request_tests {
 
     #[test]
     fn the_draft_workflow_and_worktree_branch_are_trimmed() {
-        let (_, params) = start(
-            json!({ "workflowId": "  review\u{a0}", "worktree": { "branch": " \tfeature/x \n", "create": true, "confirmLarge": false } }),
-            json!("hi"),
-        );
+        let (_, params) =
+            start(json!({ "workflowId": "  review\u{a0}", "worktree": { "branch": " \tfeature/x \n", "create": true, "confirmLarge": false } }), json!("hi"));
         let draft = normalised(params).draft.expect("the draft");
         assert_eq!(draft.workflow_id.as_deref(), Some("review"));
         assert_eq!(draft.worktree, Some(json!({ "branch": "feature/x", "create": true })));
@@ -340,10 +338,7 @@ mod normalised_request_tests {
         let (id, signed) = signed_request(&raw, &normalised(params));
         assert_eq!(id, "sub-1");
         assert_eq!(signed["draft"], json!({ "projectPath": "/p", "workflowId": "w" }));
-        assert_eq!(
-            signed["prompt"],
-            json!([{ "type": "file", "mimeType": "application/pdf", "data": "AAAA", "filename": "n".repeat(160) }])
-        );
+        assert_eq!(signed["prompt"], json!([{ "type": "file", "mimeType": "application/pdf", "data": "AAAA", "filename": "n".repeat(160) }]));
         assert_eq!(signed["options"], json!({ "id": "sub-1" }));
     }
 
@@ -354,7 +349,6 @@ mod normalised_request_tests {
         assert_eq!(signed["draft"], json!({ "worktree": {} }));
     }
 }
-
 
 /// A test-only end of the process at a named point of a request (`MIXDOG_NEW_TASK_CRASH_AT`): what a power cut between two
 /// phases leaves (a new task's phases, a restart notice's store, `agent_registry/restart.rs`). Compiled only into a build that
@@ -427,7 +421,10 @@ impl NewTaskReceipts {
 
     /// How many requests are in flight.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub(super) fn in_flight(&self) -> usize {
         lock(&self.active).len()
     }
@@ -644,9 +641,8 @@ impl SessionDirectory {
         let mut req = req;
         req.ctx.cancel = CancellationToken::new();
         let (directory, receipts) = (self.share(), self.deps().new_tasks.clone());
-        let started = receipts
-            .run(&submission.clone(), &input, move |request| async move { directory.new_task(&request, &req, params, &submission).await })
-            .await?;
+        let started =
+            receipts.run(&submission.clone(), &input, move |request| async move { directory.new_task(&request, &req, params, &submission).await }).await?;
         // Every caller of the request, the first or one that joined, takes its own subscription on the thread.
         let handle = self.open_handle(&started.thread, &ctx).await?;
         let mut result = serde_json::json!({ "thread": started.summary });
@@ -738,7 +734,15 @@ impl SessionDirectory {
     }
     /// `step` outlives the future: it is read when the attempt fails or is cut ([`Self::new_task`]). Once the stop request cut the
     /// attempt (`closing`), the call in flight ends and the attempt stops before its next call ([`cut`]), as Node's next call fails.
-    async fn new_task_phases(&self, request: &Request, req: &CoreRequest, mut params: ThreadStartParams, submission: &str, id: &ThreadId, step: &StepCell) -> Outcome {
+    async fn new_task_phases(
+        &self,
+        request: &Request,
+        req: &CoreRequest,
+        mut params: ThreadStartParams,
+        submission: &str,
+        id: &ThreadId,
+        step: &StepCell,
+    ) -> Outcome {
         let closing = &self.deps().new_tasks.closing();
         let go_on = || if closing.is_cancelled() { Err(cut()) } else { Ok(()) };
         // `client.create`: the reservation is made again at its address when the session is not there; a session that is there
@@ -771,12 +775,20 @@ impl SessionDirectory {
         // A prompt already in the thread was accepted by an earlier attempt that ended before it was recorded: what Node's
         // resend gets from the daemon's memory of the submission, the stored thread gives here. The submission is looked for in the
         // stored rows themselves: a turn the crash interrupted is no longer part of the model context, but its prompt is still there.
-        let turn = if self.holds_user_conversation(id).await? || self.holds_submission(id, submission).await? { None } else { self.first_turn(&handle, req, input).await? };
+        let turn = if self.holds_user_conversation(id).await? || self.holds_submission(id, submission).await? {
+            None
+        } else {
+            self.first_turn(&handle, req, input).await?
+        };
         crash_gate("submitted");
         request.commit(Phase::Accepted).await?;
         // Recency is advisory, also after the prompt is accepted: a failed write changes nothing of the task, its receipt or its
         // subscription (`touchProject` of `submitNewTask` swallows it).
-        let project = params.project_path.as_deref().or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_deref()).map(mixdog_js::js_trim)).filter(|path| !path.trim().is_empty());
+        let project = params
+            .project_path
+            .as_deref()
+            .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_deref()).map(mixdog_js::js_trim))
+            .filter(|path| !path.trim().is_empty());
         if let Some(path) = project
             && let Err(error) = self.deps().new_place.touch_project(path).await
         {

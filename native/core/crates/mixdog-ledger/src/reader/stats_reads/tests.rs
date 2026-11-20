@@ -1,7 +1,7 @@
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -36,20 +36,29 @@ impl Probe {
 
 struct NoPrices;
 impl Pricer for NoPrices {
-    fn ready(&self) -> bool { false }
-    fn revision(&self) -> String { String::new() }
-    fn price(&self, _: &PriceRequest) -> crate::Result<Priced> { unreachable!() }
+    fn ready(&self) -> bool {
+        false
+    }
+    fn revision(&self) -> String {
+        String::new()
+    }
+    fn price(&self, _: &PriceRequest) -> crate::Result<Priced> {
+        unreachable!()
+    }
 }
 
 fn ledger() -> (UsageLedger, tempfile::TempDir) {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    (UsageLedger {
-        writer: UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap(),
-        reader: UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io),
-        refresher: UsageRefresher::new(Arc::new(NoPrices), tokens.cpu_bulk),
-    }, dir)
+    (
+        UsageLedger {
+            writer: UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap(),
+            reader: UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io),
+            refresher: UsageRefresher::new(Arc::new(NoPrices), tokens.cpu_bulk),
+        },
+        dir,
+    )
 }
 
 async fn ask(ledger: &UsageLedger, view: &str, now: i64) -> Value {
@@ -62,11 +71,18 @@ async fn a_statistics_request_uses_its_own_clock_and_ledger_window() {
     let midnight = local_midnight_ms(parse_day("2026-06-10").unwrap());
     let before = midnight + 3_600_000;
     let event = before - 86_400_000;
-    ledger.writer.record_queued(serde_json::from_value(json!({
-        "id":"edge", "ts":event, "day":day_key(event), "provider":"p", "model":"m", "kind":"api",
-        "sessionId":"s", "sourceType":"user", "input":1, "output":1, "costUsd":0.1,
-        "costSource":"catalog", "origin":"live", "durationMs":1, "cacheRead":0, "cacheWrite":0
-    })).unwrap()).await.unwrap();
+    ledger
+        .writer
+        .record_queued(
+            serde_json::from_value(json!({
+                "id":"edge", "ts":event, "day":day_key(event), "provider":"p", "model":"m", "kind":"api",
+                "sessionId":"s", "sourceType":"user", "input":1, "output":1, "costUsd":0.1,
+                "costSource":"catalog", "origin":"live", "durationMs":1, "cacheRead":0, "cacheWrite":0
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
 
     let a = ask(&ledger, "hour", before).await;
     let b = ask(&ledger, "hour", before + 1).await;

@@ -221,7 +221,10 @@ impl ServerProcess {
         }
         let current = self.owner.lock().unwrap().current.clone();
         if let Some(c) = &current
-            && c.key == spec.key && c.inner.lock().unwrap().ready && !c.has_exited() {
+            && c.key == spec.key
+            && c.inner.lock().unwrap().ready
+            && !c.has_exited()
+        {
             return Ok(json!({"baseURL": c.base_url, "apiKey": c.api_key}));
         }
         self.stop_state(&current).await?;
@@ -298,11 +301,16 @@ impl ServerProcess {
                 let expected = inner.expected_exit;
                 let log = inner.log.replace(&state.api_key, "[redacted]");
                 drop(inner);
-                let info = json!({"at": now_iso(), "modelId": state.model_id, "exitCode": exit.exit_code, "signal": exit.signal, "expected": expected, "log": log});
+                let info =
+                    json!({"at": now_iso(), "modelId": state.model_id, "exitCode": exit.exit_code, "signal": exit.signal, "expected": expected, "log": log});
                 {
                     let mut o = owner.lock().unwrap();
                     if !expected {
-                        o.last_error = Some(format!("[local-provider] llama-server exited ({}): {}", exit.exit_code.map_or_else(|| exit.signal.clone().unwrap_or_else(|| "spawn error".into()), |c| c.to_string()), mixdog_js::js_trim(&log)));
+                        o.last_error = Some(format!(
+                            "[local-provider] llama-server exited ({}): {}",
+                            exit.exit_code.map_or_else(|| exit.signal.clone().unwrap_or_else(|| "spawn error".into()), |c| c.to_string()),
+                            mixdog_js::js_trim(&log)
+                        ));
                     }
                     if o.current.as_ref().is_some_and(|c| Arc::ptr_eq(c, &state)) {
                         o.current = None;
@@ -346,7 +354,13 @@ impl ServerProcess {
     }
 
     /// Polls `/health` until the server answers, the child exits, or the deadline/caller aborts.
-    async fn await_ready(&self, state: &Arc<ChildState>, on_ready: Box<dyn FnOnce(Ready, CancellationToken) -> BoxFut<()> + Send>, wait: &CancellationToken, log: &Arc<Mutex<String>>) -> Result<Value, String> {
+    async fn await_ready(
+        &self,
+        state: &Arc<ChildState>,
+        on_ready: Box<dyn FnOnce(Ready, CancellationToken) -> BoxFut<()> + Send>,
+        wait: &CancellationToken,
+        log: &Arc<Mutex<String>>,
+    ) -> Result<Value, String> {
         loop {
             if wait.is_cancelled() {
                 return Err("aborted".into());
@@ -405,14 +419,11 @@ impl ServerProcess {
                 _ = token.cancelled() => None,
                 lane = server.serial.acquire() => Some(lane),
             };
-            let result = if lane.is_some() {
-                server.start(spec, token).await
-            } else {
-                Err("aborted".into())
-            };
+            let result = if lane.is_some() { server.start(spec, token).await } else { Err("aborted".into()) };
             server.pending.lock().unwrap().1.retain(|(id, _)| *id != ticket);
             result
-        }).await;
+        })
+        .await;
         leaving.disarm();
         result.map_err(|e| format!("[local-provider] startup task failed: {e}"))?
     }
@@ -632,7 +643,13 @@ mod tests {
         async fn launch(&self, _: &str, args: &[String], _: &str, _: &[(String, String)], log: LogSink) -> Result<Arc<dyn RunningProcess>, String> {
             self.launched.fetch_add(1, Ordering::SeqCst);
             let (exit, rx) = tokio::sync::watch::channel(None);
-            let p = Arc::new(FakeProcess { killed: AtomicBool::new(false), ignore: AtomicUsize::new(self.ignore_kills.load(Ordering::SeqCst)), kills: Mutex::new(Vec::new()), exit, rx });
+            let p = Arc::new(FakeProcess {
+                killed: AtomicBool::new(false),
+                ignore: AtomicUsize::new(self.ignore_kills.load(Ordering::SeqCst)),
+                kills: Mutex::new(Vec::new()),
+                exit,
+                rx,
+            });
             // The api key travels in argv; a crash log that echoes it must be redacted.
             log(&format!("starting with {}", args.join(" ")));
             if self.crash_at_launch.load(Ordering::SeqCst) {
@@ -789,32 +806,39 @@ mod tests {
         let mut cold = spec("first", Arc::new(AtomicUsize::new(0)));
         cold.on_ready = Box::new({
             let started = started.clone();
-            move |_, cancel| Box::pin(async move {
-                started.notify_one();
-                cancel.cancelled().await;
-            })
+            move |_, cancel| {
+                Box::pin(async move {
+                    started.notify_one();
+                    cancel.cancelled().await;
+                })
+            }
         });
         let cancel = CancellationToken::new();
         let first = tokio::spawn({
             let (queue, server, cancel) = (queue.clone(), server.clone(), cancel.clone());
             async move {
-                queue.run(None, move |queue_cancel| async move {
-                    tokio::select! {
-                        _ = cancel.cancelled() => None,
-                        result = server.ensure(cold, Some(queue_cancel)) => Some(result),
-                    }
-                }).await.unwrap()
+                queue
+                    .run(None, move |queue_cancel| async move {
+                        tokio::select! {
+                            _ = cancel.cancelled() => None,
+                            result = server.ensure(cold, Some(queue_cancel)) => Some(result),
+                        }
+                    })
+                    .await
+                    .unwrap()
             }
         });
         started.notified().await;
         let child = launcher.last.lock().unwrap().clone().unwrap();
         cancel.cancel();
         assert!(first.await.unwrap().is_none());
-        mixdog_rt::time::timeout(Duration::from_secs(20), child.wait()).await
-            .expect("cancellation reaps the child without another request");
-        queue.run(None, |cancel| async {
-            server.ensure(spec("first", Arc::new(AtomicUsize::new(0))), Some(cancel)).await.unwrap();
-        }).await.unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(20), child.wait()).await.expect("cancellation reaps the child without another request");
+        queue
+            .run(None, |cancel| async {
+                server.ensure(spec("first", Arc::new(AtomicUsize::new(0))), Some(cancel)).await.unwrap();
+            })
+            .await
+            .unwrap();
         assert_eq!(launcher.launched.load(Ordering::SeqCst), 2);
         assert!(child.killed.load(Ordering::SeqCst));
         assert_eq!(server.status()["lastExit"]["expected"], true);

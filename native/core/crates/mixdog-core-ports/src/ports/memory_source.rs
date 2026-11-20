@@ -9,12 +9,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_js::js_trim;
 use mixdog_js::slice_utf16;
 use mixdog_js::value_to_string;
 use mixdog_services::memory::service::SessionData;
 use mixdog_services::memory::service::SessionSource;
-use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 
@@ -66,11 +66,7 @@ impl SessionRecallSource {
 /// `String(raw.title ?? raw.name ?? '').trim().slice(0, 64)` of `normalizeProfileConfig`.
 fn profile_title_of(profile: &Value) -> String {
     let Some(raw) = profile.as_object() else { return String::new() };
-    let text = ["title", "name"]
-        .iter()
-        .find_map(|key| raw.get(*key).filter(|v| !v.is_null()))
-        .map(value_to_string)
-        .unwrap_or_default();
+    let text = ["title", "name"].iter().find_map(|key| raw.get(*key).filter(|v| !v.is_null())).map(value_to_string).unwrap_or_default();
     js_trim(&slice_utf16(js_trim(&text), PROFILE_TITLE_MAX)).to_owned()
 }
 
@@ -92,18 +88,15 @@ impl SessionSource for SessionRecallSource {
 
     async fn profile_title(&self) -> String {
         let config = self.config.config();
-        let stored = config
-            .get("profile")
-            .filter(|v| !v.is_null())
-            .or_else(|| config.pointer("/agent/profile"));
+        let stored = config.get("profile").filter(|v| !v.is_null()).or_else(|| config.pointer("/agent/profile"));
         stored.map(profile_title_of).unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use mixdog_store::schema::record::Header;
     use crate::ports::threads::Section;
+    use mixdog_store::schema::record::Header;
     use serde_json::Map;
     use serde_json::json;
 
@@ -118,7 +111,13 @@ mod tests {
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             Ok(())
         }
-        async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            _: Map<String, Value>,
+            _: Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             Ok(None)
         }
         async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {

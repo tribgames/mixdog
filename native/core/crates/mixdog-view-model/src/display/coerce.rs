@@ -4,8 +4,8 @@ use mixdog_js::to_number_of;
 use serde_json::Value;
 
 // JavaScript truthiness (absent is falsy) and `String(value ?? '')` are the crate's own, in `tool_primitives`.
-pub(crate) use crate::tool_primitives::truthy;
 pub(crate) use crate::tool_primitives::text_of as text_nullish;
+pub(crate) use crate::tool_primitives::truthy;
 
 /// `value?.key`.
 pub(crate) fn field<'a>(value: Option<&'a Value>, key: &str) -> Option<&'a Value> {

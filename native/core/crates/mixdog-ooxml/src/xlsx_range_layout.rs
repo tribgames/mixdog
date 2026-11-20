@@ -13,7 +13,10 @@ use mixdog_js::{JsRegex, js_sort_by, js_to_lowercase, js_trim, json_number, math
 use mixdog_office_base::a1::{column_label, column_number, parse_cell_ref};
 use serde_json::{Map, Value, json};
 
-use crate::cells::{CellEntry, CellRecord, CellStyle, CellValue, RangeBounds, Sheet, cell_records, cell_style_indexes, expand_range, iterate_sheet_cells, set_cell_styles_in_sheet, set_cells_in_sheet, shared_strings};
+use crate::cells::{
+    CellEntry, CellRecord, CellStyle, CellValue, RangeBounds, Sheet, cell_records, cell_style_indexes, expand_range, iterate_sheet_cells,
+    set_cell_styles_in_sheet, set_cells_in_sheet, shared_strings,
+};
 use crate::shared_formulas::expand_shared_formulas;
 use crate::sheet_page::{column_file_width, maximum_digit_width, text_characters};
 use crate::sheet_styles::resolve_cell_styles;
@@ -313,7 +316,11 @@ fn write_sorted_rows(xml: &str, sorted: &[Vec<BodyCell>], area: &RangeBounds, fi
     let entries: Vec<CellEntry<'_>> = placed
         .iter()
         .zip(&values)
-        .map(|(entry, value)| CellEntry { reference: &entry.reference, value: if entry.formula.is_empty() { value } else { &NO_VALUE }, formula: &entry.formula })
+        .map(|(entry, value)| CellEntry {
+            reference: &entry.reference,
+            value: if entry.formula.is_empty() { value } else { &NO_VALUE },
+            formula: &entry.formula,
+        })
         .collect();
     let with_values = set_cells_in_sheet(xml, &entries)?;
     let digits: Vec<String> = placed.iter().map(|entry| entry.cell.style.to_string()).collect();
@@ -397,7 +404,10 @@ fn measured_column_widths<P: ReadProof>(
         if spilling.contains(&record.reference) {
             continue;
         }
-        if spans.iter().any(|span| span.start_col != span.end_col && span.start_col <= column && column <= span.end_col && span.start_row <= row && row <= span.end_row) {
+        if spans
+            .iter()
+            .any(|span| span.start_col != span.end_col && span.start_col <= column && column <= span.end_col && span.start_row <= row && row <= span.end_row)
+        {
             continue;
         }
         let text = shown_text(record);

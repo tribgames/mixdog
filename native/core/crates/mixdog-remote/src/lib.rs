@@ -10,6 +10,6 @@ pub mod media;
 pub mod pair_code;
 pub mod push;
 pub mod registry;
-pub mod transport;
 pub mod section;
+pub mod transport;
 pub mod webrtc;

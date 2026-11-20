@@ -31,17 +31,11 @@ pub struct RuntimeManifest {
 impl RuntimeManifest {
     /// `platform_key` is `<os>-<arch>` in the manifest's vocabulary (`win32-x64`, `linux-x64`).
     pub fn from_json(manifest: &Value, platform_key: &str, model: &str) -> Option<Self> {
-        let model_entry = manifest
-            .pointer(&format!("/models/{model}"))
-            .or_else(|| manifest.get("model"))?;
+        let model_entry = manifest.pointer(&format!("/models/{model}")).or_else(|| manifest.get("model"))?;
         let variants = manifest
             .pointer(&format!("/platforms/{platform_key}/variants"))
             .and_then(Value::as_array)
-            .map(|list| {
-                list.iter()
-                    .filter_map(|v| Some((v.get("id")?.as_str()?.to_owned(), v.get("executable")?.as_str()?.to_owned())))
-                    .collect()
-            })
+            .map(|list| list.iter().filter_map(|v| Some((v.get("id")?.as_str()?.to_owned(), v.get("executable")?.as_str()?.to_owned()))).collect())
             .unwrap_or_default();
         Some(Self {
             version: manifest.get("version")?.as_str()?.to_owned(),
@@ -50,10 +44,7 @@ impl RuntimeManifest {
             model_id: model_entry.get("id")?.as_str()?.to_owned(),
             model_filename: model_entry.get("filename")?.as_str()?.to_owned(),
             model_size: model_entry.get("size").and_then(Value::as_u64).unwrap_or(0),
-            ffmpeg_executable: manifest
-                .pointer(&format!("/ffmpeg/platforms/{platform_key}/executable"))
-                .and_then(Value::as_str)
-                .map(str::to_owned),
+            ffmpeg_executable: manifest.pointer(&format!("/ffmpeg/platforms/{platform_key}/executable")).and_then(Value::as_str).map(str::to_owned),
         })
     }
 }
@@ -123,28 +114,20 @@ pub fn resolve_voice_runtime(data_dir: &Path, manifest: &RuntimeManifest) -> Voi
         let path = whisper_root.join(name).join(executable);
         has_data(&path).then_some(path)
     });
-    let model_path = Some(data_dir.join("voice").join("models").join(&manifest.model_filename))
-        .filter(|path| has_data(path));
+    let model_path = Some(data_dir.join("voice").join("models").join(&manifest.model_filename)).filter(|path| has_data(path));
     let ffmpeg_root = data_dir.join("ffmpeg-runtime");
     let ffmpeg_path = active_name(&ffmpeg_root).and_then(|name| {
         let path = ffmpeg_root.join(name).join(manifest.ffmpeg_executable.as_deref()?);
         has_data(&path).then_some(path)
     });
-    let server_cmd = whisper_cmd
-        .as_ref()
-        .and_then(|cmd| cmd.parent().map(|dir| dir.join(SERVER_NAME)))
-        .filter(|path| has_data(path));
+    let server_cmd = whisper_cmd.as_ref().and_then(|cmd| cmd.parent().map(|dir| dir.join(SERVER_NAME))).filter(|path| has_data(path));
     VoiceRuntime {
         installed: whisper_cmd.is_some() && server_cmd.is_some() && model_path.is_some() && ffmpeg_path.is_some(),
         stale,
         binary: whisper_cmd.is_some(),
         model: model_path.is_some(),
         ffmpeg: ffmpeg_path.is_some(),
-        model_name: model_path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        model_name: model_path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
         whisper_cmd,
         server_cmd,
         model_path,

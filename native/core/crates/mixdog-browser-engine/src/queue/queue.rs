@@ -354,7 +354,6 @@ mod tests {
         assert_eq!(Deadline::command("click").ceiling, COMMAND_TIMEOUT);
     }
 
-
     #[tokio::test]
     async fn after_the_person_lets_go_the_page_is_open_again_once_quiet() {
         let queue = CommandQueue::new(Arc::new(UserHold::with_quiet(Duration::from_millis(40))));
@@ -387,6 +386,5 @@ mod tests {
         assert_eq!(asked, Ok("answered"));
     }
 }
-
 
 impl std::error::Error for QueueError {}

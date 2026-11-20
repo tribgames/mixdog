@@ -26,9 +26,9 @@ use serde_json::Map;
 use serde_json::Value;
 use tokio::sync::Notify;
 
-use crate::session::Clock;
 use super::event;
 use super::event::RouteSection;
+use crate::session::Clock;
 
 pub const STORE_FILE: &str = "gateway-usage.local.jsonl";
 pub const LEGACY_FILE: &str = "gateway-usage.local.json";

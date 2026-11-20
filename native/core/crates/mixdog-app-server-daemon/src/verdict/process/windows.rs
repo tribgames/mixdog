@@ -62,29 +62,14 @@ pub(crate) fn open(pid: u32, access: PROCESS_ACCESS_RIGHTS) -> io::Result<Opened
     if unsafe { GetExitCodeProcess(handle.as_raw_handle() as HANDLE, &mut code) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(if code == STILL_ACTIVE as u32 {
-        Opened::Running(handle)
-    } else {
-        Opened::Gone
-    })
+    Ok(if code == STILL_ACTIVE as u32 { Opened::Running(handle) } else { Opened::Gone })
 }
 
 pub(crate) fn start_ms(handle: &OwnedHandle) -> io::Result<u64> {
-    let zero = FILETIME {
-        dwLowDateTime: 0,
-        dwHighDateTime: 0,
-    };
+    let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
     // SAFETY: valid handle and out-pointers.
-    let ok = unsafe {
-        GetProcessTimes(
-            handle.as_raw_handle() as HANDLE,
-            &mut created,
-            &mut exited,
-            &mut kernel,
-            &mut user,
-        )
-    };
+    let ok = unsafe { GetProcessTimes(handle.as_raw_handle() as HANDLE, &mut created, &mut exited, &mut kernel, &mut user) };
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -96,14 +81,7 @@ fn image(handle: &OwnedHandle) -> Option<PathBuf> {
     let mut buffer = vec![0u16; 32_768];
     let mut len = buffer.len() as u32;
     // SAFETY: valid handle; `len` is the buffer capacity in characters.
-    let ok = unsafe {
-        QueryFullProcessImageNameW(
-            handle.as_raw_handle() as HANDLE,
-            PROCESS_NAME_WIN32,
-            buffer.as_mut_ptr(),
-            &mut len,
-        )
-    };
+    let ok = unsafe { QueryFullProcessImageNameW(handle.as_raw_handle() as HANDLE, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut len) };
     (ok != 0).then(|| PathBuf::from(String::from_utf16_lossy(&buffer[..len as usize])))
 }
 
@@ -114,13 +92,7 @@ fn command_line(handle: &OwnedHandle) -> Option<String> {
         let mut needed = 0u32;
         // SAFETY: valid handle; the buffer is `size` bytes, 8-byte aligned.
         let status = unsafe {
-            NtQueryInformationProcess(
-                handle.as_raw_handle() as HANDLE,
-                ProcessCommandLineInformation,
-                buffer.as_mut_ptr().cast(),
-                size,
-                &mut needed,
-            )
+            NtQueryInformationProcess(handle.as_raw_handle() as HANDLE, ProcessCommandLineInformation, buffer.as_mut_ptr().cast(), size, &mut needed)
         };
         if status >= 0 {
             break;
@@ -142,19 +114,10 @@ fn command_line(handle: &OwnedHandle) -> Option<String> {
 pub(super) fn query(pid: u32) -> io::Result<Option<ProcessInfo>> {
     Ok(match open(pid, 0)? {
         Opened::Gone => None,
-        Opened::Denied => Some(ProcessInfo {
-            identity: ProcessIdentity { pid, start_ms: 0 },
-            image: None,
-            command_line: None,
-        }),
-        Opened::Running(handle) => Some(ProcessInfo {
-            identity: ProcessIdentity {
-                pid,
-                start_ms: start_ms(&handle)?,
-            },
-            image: image(&handle),
-            command_line: command_line(&handle),
-        }),
+        Opened::Denied => Some(ProcessInfo { identity: ProcessIdentity { pid, start_ms: 0 }, image: None, command_line: None }),
+        Opened::Running(handle) => {
+            Some(ProcessInfo { identity: ProcessIdentity { pid, start_ms: start_ms(&handle)? }, image: image(&handle), command_line: command_line(&handle) })
+        }
     })
 }
 
@@ -163,16 +126,7 @@ pub(super) fn listens(pid: u32, port: u16) -> io::Result<bool> {
     loop {
         let mut size = (buffer.len() * 4) as u32;
         // SAFETY: the buffer is `size` bytes, 4-byte aligned.
-        let rc = unsafe {
-            GetExtendedTcpTable(
-                buffer.as_mut_ptr().cast(),
-                &mut size,
-                0,
-                u32::from(AF_INET),
-                TCP_TABLE_OWNER_PID_LISTENER,
-                0,
-            )
-        };
+        let rc = unsafe { GetExtendedTcpTable(buffer.as_mut_ptr().cast(), &mut size, 0, u32::from(AF_INET), TCP_TABLE_OWNER_PID_LISTENER, 0) };
         if rc == ERROR_INSUFFICIENT_BUFFER {
             buffer = vec![0u32; (size as usize).div_ceil(4)];
             continue;
@@ -186,10 +140,8 @@ pub(super) fn listens(pid: u32, port: u16) -> io::Result<bool> {
             let table = &*(buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
             std::slice::from_raw_parts(table.table.as_ptr(), table.dwNumEntries as usize)
         };
-        return Ok(rows.iter().any(|row| {
-            row.dwOwningPid == pid
-                && u16::from_be(row.dwLocalPort as u16) == port
-                && row.dwLocalAddr.to_ne_bytes() == [127, 0, 0, 1]
-        }));
+        return Ok(rows
+            .iter()
+            .any(|row| row.dwOwningPid == pid && u16::from_be(row.dwLocalPort as u16) == port && row.dwLocalAddr.to_ne_bytes() == [127, 0, 0, 1]));
     }
 }

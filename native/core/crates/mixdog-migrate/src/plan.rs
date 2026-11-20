@@ -53,23 +53,9 @@ pub fn retain_key(root: Root, rel: &str) -> String {
 }
 
 /// A manifest item; `sources` are sorted here.
-pub fn item(
-    key: &str,
-    group: KindGroup,
-    kind: ItemKind,
-    contract: Contract,
-    mut sources: Vec<SourceFile>,
-    target: Option<Target>,
-) -> Result<ManifestItem> {
+pub fn item(key: &str, group: KindGroup, kind: ItemKind, contract: Contract, mut sources: Vec<SourceFile>, target: Option<Target>) -> Result<ManifestItem> {
     sources.sort_by(|a, b| (a.root, &a.path).cmp(&(b.root, &b.path)));
-    Ok(ManifestItem {
-        key: ItemKey::try_from(key).map_err(Blocked::journal)?,
-        group,
-        kind,
-        contract,
-        sources,
-        target,
-    })
+    Ok(ManifestItem { key: ItemKey::try_from(key).map_err(Blocked::journal)?, group, kind, contract, sources, target })
 }
 
 /// Items and shared sources under construction.
@@ -83,12 +69,7 @@ pub struct PlanSink {
 
 impl PlanSink {
     pub fn new(roots: &MigrationRoots) -> Self {
-        Self {
-            roots: roots.clone(),
-            items: BTreeMap::new(),
-            shared: BTreeMap::new(),
-            hashed: BTreeMap::new(),
-        }
+        Self { roots: roots.clone(), items: BTreeMap::new(), shared: BTreeMap::new(), hashed: BTreeMap::new() }
     }
 
     /// Hashes the files `rels` of `root` on every core, for the [`Self::source`] calls that follow: a session's log is the
@@ -123,13 +104,7 @@ impl PlanSink {
             Some(hashed) => hashed.clone(),
             None => durable::hash_file(&path)?,
         };
-        Ok(SourceFile {
-            root,
-            path: rel.to_string(),
-            size,
-            sha256,
-            secret,
-        })
+        Ok(SourceFile { root, path: rel.to_string(), size, sha256, secret })
     }
 
     pub fn add_item(&mut self, item: ManifestItem) -> Result<()> {
@@ -142,11 +117,7 @@ impl PlanSink {
 
     /// Records that `consumer` reads the shared file `file`.
     pub fn add_shared(&mut self, file: SourceFile, consumer: &str) {
-        self.shared
-            .entry((file.root, file.path.clone()))
-            .or_insert_with(|| (file, BTreeSet::new()))
-            .1
-            .insert(consumer.to_string());
+        self.shared.entry((file.root, file.path.clone())).or_insert_with(|| (file, BTreeSet::new())).1.insert(consumer.to_string());
     }
 
     pub fn has_item(&self, key: &str) -> bool {
@@ -167,14 +138,7 @@ impl PlanSink {
             format: MANIFEST_FORMAT,
             roots: roots.to_schema(),
             items: self.items.into_values().collect(),
-            shared: self
-                .shared
-                .into_values()
-                .map(|(file, consumers)| SharedSource {
-                    file,
-                    consumers: consumers.into_iter().collect(),
-                })
-                .collect(),
+            shared: self.shared.into_values().map(|(file, consumers)| SharedSource { file, consumers: consumers.into_iter().collect() }).collect(),
         }
     }
 }
@@ -185,9 +149,6 @@ mod tests {
 
     #[test]
     fn keys_escape_every_other_byte() {
-        assert_eq!(
-            escape_key("retire/data/sessions/a b.json"),
-            "retire%2Fdata%2Fsessions%2Fa%20b.json"
-        );
+        assert_eq!(escape_key("retire/data/sessions/a b.json"), "retire%2Fdata%2Fsessions%2Fa%20b.json");
     }
 }

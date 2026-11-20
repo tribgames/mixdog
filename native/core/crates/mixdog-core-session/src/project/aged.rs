@@ -102,7 +102,6 @@ mod tests {
         assert_eq!(aged.get::<&str, _, _>("repo", || async { Ok(7) }).await, Ok(7));
     }
 
-
     async fn counted(aged: &Aged<&'static str, usize>, loads: &AtomicUsize, key: &'static str) -> usize {
         aged.get::<(), _, _>(key, || async {
             loads.fetch_add(1, Ordering::SeqCst);

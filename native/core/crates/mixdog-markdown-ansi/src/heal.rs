@@ -14,16 +14,13 @@ use crate::lexer::rules::Re;
 pub type PendingPath<'a> = Option<&'a dyn Fn(&str) -> bool>;
 
 static FENCE_LINE: LazyLock<Re> = LazyLock::new(|| Re::new(r"^ {0,3}(`{3,}|~{3,})(.*)$", ""));
-static FENCED_BLOCK: LazyLock<Re> =
-    LazyLock::new(|| Re::new(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$", "m"));
+static FENCED_BLOCK: LazyLock<Re> = LazyLock::new(|| Re::new(r"^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$", "m"));
 static INLINE_CODE_SPAN: LazyLock<Re> = LazyLock::new(|| Re::new(r"`+[^`\n]*`+", ""));
-static PENDING_BLOCK_MARKER_LINE: LazyLock<Re> =
-    LazyLock::new(|| Re::new(r"(?:^|\n)[ \t]*(?:[-+*=_#>~`]+|\d{1,9}[.)]?)[ \t]*$", ""));
+static PENDING_BLOCK_MARKER_LINE: LazyLock<Re> = LazyLock::new(|| Re::new(r"(?:^|\n)[ \t]*(?:[-+*=_#>~`]+|\d{1,9}[.)]?)[ \t]*$", ""));
 static PARTIAL_CLOSING_FENCE: LazyLock<Re> = LazyLock::new(|| Re::new(r"(?:^|\r?\n) {0,3}([`~]+)$", ""));
 static LINK_LIST_PREFIX: LazyLock<Re> = LazyLock::new(|| Re::new(r"^ {0,3}(?:[-+*]|\d+[.)])\s+$", ""));
 static PIPE_ROW: LazyLock<Re> = LazyLock::new(|| Re::new(r"^ {0,3}\|", ""));
-static DELIMITER_ROW: LazyLock<Re> =
-    LazyLock::new(|| Re::new(r"^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$", ""));
+static DELIMITER_ROW: LazyLock<Re> = LazyLock::new(|| Re::new(r"^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$", ""));
 static PARTIAL_DELIMITER_ROW: LazyLock<Re> = LazyLock::new(|| Re::new(r"^ {0,3}\|?[\s:|-]*$", ""));
 static BLANK_LINE: LazyLock<Re> = LazyLock::new(|| Re::new(r"\n[ \t]*\r?\n", ""));
 static LAST_WORD: LazyLock<Re> = LazyLock::new(|| Re::new(r"\S+$", ""));
@@ -151,9 +148,7 @@ fn close_inline_code(text: &str, pending: PendingPath<'_>) -> String {
 /// `maskCode`: fenced blocks and inline code spans written as spaces (newlines kept), byte for byte, so offsets found in
 /// the mask are offsets of the text.
 fn mask_code(text: &str) -> String {
-    let blanked = |code: &str| -> String {
-        code.chars().map(|c| if c == '\n' { "\n".to_owned() } else { " ".repeat(c.len_utf8()) }).collect()
-    };
+    let blanked = |code: &str| -> String { code.chars().map(|c| if c == '\n' { "\n".to_owned() } else { " ".repeat(c.len_utf8()) }).collect() };
     let without_blocks = FENCED_BLOCK.replace_all(text, |block| blanked(block.whole()));
     INLINE_CODE_SPAN.replace_all(&without_blocks, |span| " ".repeat(span.whole().len()))
 }
@@ -197,14 +192,7 @@ fn scan_emphasis_runs(masked: &str) -> Vec<EmphasisRun> {
         let right = !before_space && (!before_punctuation || after_space || after_punctuation);
         runs.push(match marker {
             // A single tilde is inert, but at the end it may be half of `~~`.
-            b'~' => EmphasisRun {
-                marker,
-                length: length.min(2),
-                can_open: left && length >= 2,
-                can_close: right && length >= 2,
-                at: index,
-                end,
-            },
+            b'~' => EmphasisRun { marker, length: length.min(2), can_open: left && length >= 2, can_close: right && length >= 2, at: index, end },
             b'_' => EmphasisRun {
                 marker,
                 length,
@@ -332,10 +320,7 @@ fn heal_incomplete_link(text: &str, pending: PendingPath<'_>) -> String {
     // Footnotes and task boxes are not unfinished inline links.
     let line_start = text[..open].rfind('\n').map_or(0, |at| at + 1);
     let line_prefix = &text[line_start..open];
-    if caption.starts_with('^')
-        || caption.contains("\n\n")
-        || (LINK_LIST_PREFIX.test(line_prefix) && matches!(caption, "" | " " | "x" | "X"))
-    {
+    if caption.starts_with('^') || caption.contains("\n\n") || (LINK_LIST_PREFIX.test(line_prefix) && matches!(caption, "" | " " | "x" | "X")) {
         return text.to_owned();
     }
     let image = open > 0 && bytes[open - 1] == b'!';
@@ -432,11 +417,7 @@ pub fn heal_streaming_markdown_tail_with(text: &str, pending: PendingPath<'_>) -
     if value.is_empty() || (!has_syntax && pending.is_none()) {
         return value.to_owned();
     }
-    let healed = if has_syntax {
-        close_emphasis(&heal_incomplete_link(&close_inline_code(value, pending), pending))
-    } else {
-        value.to_owned()
-    };
+    let healed = if has_syntax { close_emphasis(&heal_incomplete_link(&close_inline_code(value, pending), pending)) } else { value.to_owned() };
     // Only an unfinished final token can still grow into a compact file link; code and completed links stay intact.
     if let Some(is_pending) = pending
         && let Some(tail) = LAST_WORD.exec(&mask_code(&healed))

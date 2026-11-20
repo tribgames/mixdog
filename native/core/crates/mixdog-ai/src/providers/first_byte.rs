@@ -3,7 +3,6 @@
 //! may wait for its response headers and its first output across the provider's whole retry ladder, which the agent
 //! watchdog's first-response deadlines are floored above.
 
-
 use mixdog_core_api::domain::provider::FirstResponseBudget;
 use mixdog_core_api::domain::retry::Jitter;
 
@@ -144,7 +143,6 @@ mod tests {
         assert_eq!(FirstByteSettings::from_env(|_| None).jitter(), Jitter::symmetric(0.2));
     }
 }
-
 
 impl FirstByteSettings {
     /// The process environment as it was when this was first asked: Node reads every one of these variables once, as its

@@ -82,12 +82,7 @@ pub struct NoToolState {
 }
 
 pub(crate) fn join_reports<S: AsRef<str>>(parts: &[S]) -> String {
-    parts
-        .iter()
-        .map(|part| mixdog_js::js_trim(part.as_ref()))
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    parts.iter().map(|part| mixdog_js::js_trim(part.as_ref())).filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n")
 }
 
 impl NoToolState {
@@ -128,10 +123,7 @@ impl NoToolState {
     /// The text each tool boundary sealed, its runs joined as they were written; `reminded` keeps
     /// the runs a completion reminder cut short.
     fn carried(&self, reminded: bool) -> Vec<String> {
-        self.carried_answers
-            .iter()
-            .map(|runs| runs.iter().filter(|(_, cut)| reminded || !cut).map(|(text, _)| text.as_str()).collect())
-            .collect()
+        self.carried_answers.iter().map(|runs| runs.iter().filter(|(_, cut)| reminded || !cut).map(|(text, _)| text.as_str()).collect()).collect()
     }
 
     /// The turn's own segments before `upto`, without the answers a completion reminder cut short,
@@ -140,7 +132,8 @@ impl NoToolState {
         if self.reminded_parts.is_empty() {
             return None;
         }
-        let kept: String = self.parts[..upto].iter().enumerate().filter(|(index, _)| !self.reminded_parts.contains(index)).map(|(_, part)| part.as_str()).collect();
+        let kept: String =
+            self.parts[..upto].iter().enumerate().filter(|(index, _)| !self.reminded_parts.contains(index)).map(|(_, part)| part.as_str()).collect();
         Some(format!("{kept}{tail}"))
     }
 
@@ -158,10 +151,7 @@ impl NoToolState {
 
     /// `answered`: the response carries an answer of the agent's own, not only a runtime notice.
     fn finalize_as(&self, mut response: ModelResponse, answered: bool) -> ModelResponse {
-        let own = response
-            .report_content
-            .clone()
-            .unwrap_or_else(|| response.content.clone());
+        let own = response.report_content.clone().unwrap_or_else(|| response.content.clone());
         let earlier = join_reports(&self.carried(!answered));
         if earlier.is_empty() {
             return response;
@@ -188,15 +178,8 @@ impl Run {
     /// keeps the aggregate from running two messages together, whereas a part
     /// that was cut off resumes right where it stopped.
     fn record_segment(&mut self, text: &str, committed: bool) {
-        self.no_tool.parts.push(if committed {
-            format!("{}\n\n", mixdog_js::js_trim_end(text))
-        } else {
-            text.to_owned()
-        });
-        self.emit(RunEvent::AssistantText {
-            text: text.to_owned(),
-            committed,
-        });
+        self.no_tool.parts.push(if committed { format!("{}\n\n", mixdog_js::js_trim_end(text)) } else { text.to_owned() });
+        self.emit(RunEvent::AssistantText { text: text.to_owned(), committed });
     }
 
     /// An answer the turn goes on past (queued input or a todo reminder
@@ -233,10 +216,7 @@ impl Run {
         Outcome::Break(Box::new(self.no_tool.finalize(aggregated)))
     }
 
-    pub(crate) async fn resolve_no_tool(
-        &mut self,
-        response: ModelResponse,
-    ) -> Result<Outcome, AgentError> {
+    pub(crate) async fn resolve_no_tool(&mut self, response: ModelResponse) -> Result<Outcome, AgentError> {
         let has_content = response.has_content();
         let output_limit = is_output_limit(response.stop.as_ref());
         if output_limit || (has_content && response.stream_cut) {
@@ -246,20 +226,14 @@ impl Run {
             return self.resolve_refusal(response, has_content).await;
         }
         // Structural only: no lexical or progress-text heuristic is consulted.
-        if continuation_signal(response.stop.as_ref()).is_some()
-            && self.resume_continuation(&response, has_content).await?
-        {
+        if continuation_signal(response.stop.as_ref()).is_some() && self.resume_continuation(&response, has_content).await? {
             return Ok(Outcome::Continue);
         }
         // Hidden roles define a different output contract: a text-only or
         // empty terminal turn is the correct shape for them. Nor does a turn
         // whose kept answer only todo bookkeeping followed: that answer is its
         // reply.
-        if !has_content
-            && !self.config.hidden_agent
-            && !self.reaction_answers_latest()
-            && !self.no_tool.report_stands
-        {
+        if !has_content && !self.config.hidden_agent && !self.reaction_answers_latest() && !self.no_tool.report_stands {
             return self.nudge_empty_turn(response).await;
         }
         // Pending-input rule: queued user input is folded into the turn
@@ -272,12 +246,7 @@ impl Run {
             self.no_tool.reset_output_limit();
             return Ok(Outcome::Continue);
         }
-        let completion = or_cancelled(
-            &self.cancel,
-            self.env.guards.completion_reminder(self.turn_limit_noticed),
-        )
-        .await
-        .ok_or(AgentError::Aborted)?;
+        let completion = or_cancelled(&self.cancel, self.env.guards.completion_reminder(self.turn_limit_noticed)).await.ok_or(AgentError::Aborted)?;
         if let Some(reminder) = completion {
             // Every segment since the previous ended answer is this answer (an output cut splits one).
             let from = self.no_tool.ended_parts_end;
@@ -369,19 +338,11 @@ impl Run {
             self.push(prompt.with_attempt(attempt)).await?;
             return Ok(Outcome::Continue);
         }
-        let terminal = if has_content {
-            format!("{}\n\n{MAX_OUTPUT_EXHAUSTED_NOTICE}", response.content)
-        } else {
-            MAX_OUTPUT_EXHAUSTED_NOTICE.to_owned()
-        };
+        let terminal = if has_content { format!("{}\n\n{MAX_OUTPUT_EXHAUSTED_NOTICE}", response.content) } else { MAX_OUTPUT_EXHAUSTED_NOTICE.to_owned() };
         let parts = &self.no_tool.parts;
         let upto = parts.len() - usize::from(has_content);
         let earlier = parts[..upto].join("");
-        let gap = if !earlier.is_empty() && !has_content {
-            "\n\n"
-        } else {
-            ""
-        };
+        let gap = if !earlier.is_empty() && !has_content { "\n\n" } else { "" };
         let attempts = self.no_tool.max_output_recovery_count;
         // The notice is the runtime's, not an answer: it replaces a reminded answer only when text
         // of the agent's own followed that answer, in this cut or an earlier one.
@@ -406,11 +367,7 @@ impl Run {
         if chars == 0 {
             return true;
         }
-        self.env.observer.retract_text(TextRetraction {
-            chars,
-            reasoning: false,
-            reason: RetractReason::OutputLimitEscalation,
-        }) == Retracted::Withdrawn
+        self.env.observer.retract_text(TextRetraction { chars, reasoning: false, reason: RetractReason::OutputLimitEscalation }) == Retracted::Withdrawn
     }
 
     /// One context-changing retry after a safety-classifier stop.
@@ -432,8 +389,7 @@ impl Run {
     /// must not sustain an unbounded text-only loop. The text is mid-turn
     /// output: committed exactly once, sampling resumes in the same turn.
     async fn resume_continuation(&mut self, response: &ModelResponse, has_content: bool) -> Result<bool, AgentError> {
-        if self.no_tool.continuations_since_tool_batch >= self.config.continuation_no_tool_limit.max(1)
-        {
+        if self.no_tool.continuations_since_tool_batch >= self.config.continuation_no_tool_limit.max(1) {
             return Ok(false);
         }
         if !self.commit_intermediate(response).await? {
@@ -474,17 +430,11 @@ impl Run {
 
     /// A tool batch ran with `calls`; its result messages start at
     /// `results_from`.
-    pub(crate) async fn note_tool_batch_completed(
-        &mut self,
-        calls: &[ToolCall],
-        results_from: usize,
-    ) -> Result<(), AgentError> {
+    pub(crate) async fn note_tool_batch_completed(&mut self, calls: &[ToolCall], results_from: usize) -> Result<(), AgentError> {
         self.no_tool.continuations_since_tool_batch = 0;
         self.env.guards.note_progress();
         let results = self.messages[results_from..].to_vec();
-        let stale = or_cancelled(&self.cancel, self.env.guards.stale_reminder(calls, &results))
-            .await
-            .ok_or(AgentError::Aborted)?;
+        let stale = or_cancelled(&self.cancel, self.env.guards.stale_reminder(calls, &results)).await.ok_or(AgentError::Aborted)?;
         if let Some(stale) = stale {
             self.push(AgentMessage::sourced(Source::Hook, stale)).await?;
         }
@@ -515,26 +465,18 @@ impl Run {
 
     fn latest_input(&self) -> Option<&AgentMessage> {
         let reactions = self.env.reactions.as_ref()?;
-        self.messages
-            .iter()
-            .rev()
-            .find(|m| reactions.is_reactable(m) || reactions.room_row(m).is_some())
+        self.messages.iter().rev().find(|m| reactions.is_reactable(m) || reactions.room_row(m).is_some())
     }
 
     fn latest_input_id(&self) -> String {
-        self.latest_input()
-            .and_then(|m| m.message_id.clone())
-            .unwrap_or_default()
+        self.latest_input().and_then(|m| m.message_id.clone()).unwrap_or_default()
     }
 
     /// A reaction exempts the input only while no newer input arrived since it
     /// landed and it answered that input.
     pub(crate) fn reaction_answers_latest(&self) -> bool {
         let id = self.latest_input_id();
-        self.no_tool
-            .reactions
-            .iter()
-            .any(|(input, answered)| *answered && *input == id)
+        self.no_tool.reactions.iter().any(|(input, answered)| *answered && *input == id)
     }
 
     /// What this batch's react calls hit, from the target each recorded. Every
@@ -548,17 +490,12 @@ impl Run {
         let mut hits = Vec::new();
         for call in calls.iter().filter(|c| reactions.is_reaction_call(c)) {
             let target = reactions.take_target(&call.id);
-            let succeeded = self.messages[results_from..].iter().any(|m| {
-                m.tool_call_id() == Some(call.id.as_str()) && m.tool_kind == Some(ToolKind::Normal)
-            });
+            let succeeded = self.messages[results_from..].iter().any(|m| m.tool_call_id() == Some(call.id.as_str()) && m.tool_kind == Some(ToolKind::Normal));
             let Some(target) = target.filter(|_| succeeded) else {
                 continue;
             };
-            let answered = if target.room {
-                input_row.as_deref() == Some(target.message_id.as_str())
-            } else {
-                !input_id.is_empty() && target.message_id == input_id
-            };
+            let answered =
+                if target.room { input_row.as_deref() == Some(target.message_id.as_str()) } else { !input_id.is_empty() && target.message_id == input_id };
             hits.push((input_id.clone(), answered));
         }
         self.no_tool.reactions.extend(hits);

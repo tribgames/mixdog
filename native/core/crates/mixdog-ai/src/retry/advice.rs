@@ -10,10 +10,7 @@ use serde_json::Value;
 
 /// Case-insensitive header lookup.
 pub fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    headers
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.trim())
+    headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.trim())
 }
 
 fn positive(millis: f64) -> Option<Duration> {
@@ -43,10 +40,7 @@ pub fn google_retry_delay(delay: &Value) -> Option<Duration> {
 
 /// Typed JSON `resets_in_seconds` / `reset_in_seconds` of an error body.
 pub fn resets_in(error: &Value) -> Option<Duration> {
-    ["resets_in_seconds", "reset_in_seconds"]
-        .iter()
-        .find_map(|key| error.get(*key)?.as_f64())
-        .and_then(|seconds| positive(seconds * 1000.0))
+    ["resets_in_seconds", "reset_in_seconds"].iter().find_map(|key| error.get(*key)?.as_f64()).and_then(|seconds| positive(seconds * 1000.0))
 }
 
 #[cfg(test)]
@@ -55,50 +49,31 @@ mod tests {
     use serde_json::json;
 
     fn headers(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-        pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect()
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
     }
 
     #[test]
     fn google_retry_info_shapes() {
-        assert_eq!(
-            google_retry_delay(&json!("12.5s")),
-            Some(Duration::from_millis(12_500))
-        );
-        assert_eq!(
-            google_retry_delay(&json!({"seconds": "3", "nanos": 500_000_000})),
-            Some(Duration::from_millis(3_500))
-        );
+        assert_eq!(google_retry_delay(&json!("12.5s")), Some(Duration::from_millis(12_500)));
+        assert_eq!(google_retry_delay(&json!({"seconds": "3", "nanos": 500_000_000})), Some(Duration::from_millis(3_500)));
         assert_eq!(google_retry_delay(&json!("soon")), None);
     }
 
     #[test]
     fn typed_reset_seconds_only() {
-        assert_eq!(
-            resets_in(&json!({"resets_in_seconds": 30})),
-            Some(Duration::from_secs(30))
-        );
+        assert_eq!(resets_in(&json!({"resets_in_seconds": 30})), Some(Duration::from_secs(30)));
         assert_eq!(resets_in(&json!({"message": "try again in 30 seconds"})), None);
     }
-
 
     #[test]
     fn millisecond_header_wins_over_seconds() {
         let h = headers(&[("Retry-After", "9"), ("retry-after-ms", "1500.2")]);
-        assert_eq!(
-            from_headers(&h, SystemTime::UNIX_EPOCH),
-            Some(Duration::from_millis(1501))
-        );
+        assert_eq!(from_headers(&h, SystemTime::UNIX_EPOCH), Some(Duration::from_millis(1501)));
     }
     #[test]
     fn seconds_round_up_and_zero_is_no_advice() {
         let now = SystemTime::UNIX_EPOCH;
-        assert_eq!(
-            from_headers(&headers(&[("retry-after", "0.0011")]), now),
-            Some(Duration::from_millis(2))
-        );
+        assert_eq!(from_headers(&headers(&[("retry-after", "0.0011")]), now), Some(Duration::from_millis(2)));
         assert_eq!(from_headers(&headers(&[("retry-after", "0")]), now), None);
         assert_eq!(from_headers(&headers(&[("retry-after", "-3")]), now), None);
     }
@@ -107,11 +82,7 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_717);
         let h = headers(&[("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT")]);
         assert_eq!(from_headers(&h, now), Some(Duration::from_secs(60)));
-        assert_eq!(
-            from_headers(&h, now + Duration::from_secs(61)),
-            None,
-            "a date in the past is no advice"
-        );
+        assert_eq!(from_headers(&h, now + Duration::from_secs(61)), None, "a date in the past is no advice");
     }
 }
 

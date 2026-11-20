@@ -70,9 +70,7 @@ impl ProgramArgs {
     }
 
     pub fn decode(argument: &str) -> Result<Self, EnsureError> {
-        let bytes = STANDARD
-            .decode(argument.trim())
-            .map_err(|e| EnsureError::Arguments(format!("not base64: {e}")))?;
+        let bytes = STANDARD.decode(argument.trim()).map_err(|e| EnsureError::Arguments(format!("not base64: {e}")))?;
         serde_json::from_slice(&bytes).map_err(|e| EnsureError::Arguments(e.to_string()))
     }
 }
@@ -83,7 +81,8 @@ mod tests {
 
     #[test]
     fn decodes_what_the_desktop_encodes() {
-        let json = r#"{"mode":"ensure","installId":"1.4.6-abc","version":"1.4.6","build":"abc","upload":true,"sha256":"00","confirmToken":"t","modelLogin":"server"}"#;
+        let json =
+            r#"{"mode":"ensure","installId":"1.4.6-abc","version":"1.4.6","build":"abc","upload":true,"sha256":"00","confirmToken":"t","modelLogin":"server"}"#;
         let args = ProgramArgs::decode(&STANDARD.encode(json)).unwrap();
         assert_eq!(args.mode, Mode::Ensure);
         assert!(args.upload);

@@ -18,16 +18,16 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
-use mixdog_core_ports::ports::domain_sessions::CallerChain;
-use mixdog_core_ports::ports::domain_sessions::RouteSetupSessions;
-use mixdog_core_ports::ports::domain_sessions::SessionFacts;
-use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_agents::setup::LiveRoute;
 use mixdog_core_agents::setup::RoutePositions;
+use mixdog_core_base::rooms::ids::agent_home_session_id;
+use mixdog_core_ports::ports::domain_sessions::CallerChain;
+use mixdog_core_ports::ports::domain_sessions::Obj;
+use mixdog_core_ports::ports::domain_sessions::RouteSetupSessions;
+use mixdog_core_ports::ports::domain_sessions::SessionFacts;
 use mixdog_core_run::run_host::hop_host::ConfigSnapshot;
 use mixdog_core_run::run_host::route_chain::BotRoutes;
 use mixdog_core_run::run_host::route_chain::RouteReadUnavailable;
-use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_run::run_host::route_chain::primary_route;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 use mixdog_core_run::run_host::route_chain::route_fallback_hopped;
@@ -109,8 +109,7 @@ fn unavailable(error: RouteReadUnavailable) -> PortError {
 
 /// `ROUTE_FIELDS`, and `routeFields(input)`: only route fields cross, provider and model required.
 fn route_fields(input: Option<&Obj>) -> Result<Obj, PortError> {
-    const ROUTE_FIELDS: [&str; 8] =
-        ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+    const ROUTE_FIELDS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
     let mut route = Obj::new();
     for key in ROUTE_FIELDS {
         if let Some(value) = input.and_then(|i| i.get(key)).filter(|v| !v.is_null()) {
@@ -144,13 +143,8 @@ impl RouteSetupSessions for SessionRouteSetup {
 
     /// The agent's chats held here (home, room seats), then its home thread.
     async fn agent_sessions(&self, agent: &str, config: &Obj) -> Result<Vec<SessionFacts>, PortError> {
-        let mut sessions: Vec<Value> = self
-            .directory
-            .loaded_ids()
-            .iter()
-            .filter_map(|id| self.open(id.as_str()))
-            .filter(|session| resolve_session_mode(session).1 == agent)
-            .collect();
+        let mut sessions: Vec<Value> =
+            self.directory.loaded_ids().iter().filter_map(|id| self.open(id.as_str())).filter(|session| resolve_session_mode(session).1 == agent).collect();
         if let Some(home) = agent_home_session_id(agent)
             && !sessions.iter().any(|s| s["id"] == json!(home))
             && let Some(stored) = self.open(&home)
@@ -180,9 +174,7 @@ impl RouteSetupSessions for SessionRouteSetup {
                 route.insert("sessionOnly".into(), json!(true));
                 ("route/set", json!({ "opId": op, "threadId": id, "route": route }))
             }
-            "continueSessionInModel" => {
-                ("thread/continueInModel", json!({ "opId": op, "threadId": id, "route": route_fields(input)? }))
-            }
+            "continueSessionInModel" => ("thread/continueInModel", json!({ "opId": op, "threadId": id, "route": route_fields(input)? })),
             "scheduleQuotaResume" => ("thread/quotaResume/schedule", json!({ "opId": op, "threadId": id })),
             "cancelQuotaResume" => ("thread/quotaResume/cancel", json!({ "opId": op, "threadId": id })),
             other => return Err(session_error(format!("session: unsupported route method \"{other}\""))),
@@ -325,7 +317,8 @@ impl LiveRoute for SessionLiveRoute {
     /// the config's `presets` as they are.
     fn lead_fallbacks(&self) -> Value {
         let config = (self.positions.config)();
-        let lead = config.get("presets").and_then(Value::as_array).and_then(|presets| presets.iter().find(|preset| preset.get("id") == Some(&json!("workflow-lead"))));
+        let lead =
+            config.get("presets").and_then(Value::as_array).and_then(|presets| presets.iter().find(|preset| preset.get("id") == Some(&json!("workflow-lead"))));
         lead.and_then(|preset| preset.get("fallbacks")).cloned().unwrap_or(Value::Null)
     }
 
@@ -382,10 +375,7 @@ mod tests {
         let rig = Rig::new();
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let header = |value: Value| obj(value);
-        directory
-            .create_with_id(ThreadId::from("sess_home_scout"), header(json!({ "provider": "openai", "model": "gpt-a" })), json!({}))
-            .await
-            .expect("home");
+        directory.create_with_id(ThreadId::from("sess_home_scout"), header(json!({ "provider": "openai", "model": "gpt-a" })), json!({})).await.expect("home");
         directory
             .create_with_id(ThreadId::from("sess_w1"), header(json!({ "owner": "agent", "agent": " reviewer ", "closed": true })), json!({}))
             .await
@@ -411,7 +401,10 @@ mod tests {
         assert_eq!(
             calls.0.lock().unwrap().clone(),
             [
-                ("route/set".to_owned(), json!({ "threadId": "sess_home_scout", "route": { "provider": "anthropic", "model": "claude-x", "sessionOnly": true } })),
+                (
+                    "route/set".to_owned(),
+                    json!({ "threadId": "sess_home_scout", "route": { "provider": "anthropic", "model": "claude-x", "sessionOnly": true } })
+                ),
                 ("thread/continueInModel".to_owned(), json!({ "threadId": "sess_home_scout", "route": { "provider": "anthropic", "model": "claude-x" } })),
                 ("thread/quotaResume/cancel".to_owned(), json!({ "threadId": "sess_home_scout" })),
             ]
@@ -551,14 +544,44 @@ mod tests {
         const LEAD_B: (&str, &str, &str, u64, Option<&str>) = ("sess_lead_b", "lead", "settings", 0, Some("anthropic"));
         macro_rules! row {
             ($name:expr, $caller:expr, $config:expr, $empty_facts:expr, $held:expr, $fallbacks:expr, $session:expr, $sessions:expr, $agents:expr) => {
-                Row { name: $name, caller: $caller, config: $config, empty_facts: $empty_facts, held: $held, fallbacks: $fallbacks, session: $session, sessions: $sessions, agents: $agents }
+                Row {
+                    name: $name,
+                    caller: $caller,
+                    config: $config,
+                    empty_facts: $empty_facts,
+                    held: $held,
+                    fallbacks: $fallbacks,
+                    session: $session,
+                    sessions: $sessions,
+                    agents: $agents,
+                }
             };
         }
         let rows = [
             row!("a Lead caller with the Lead chain", "sess_lead_a", "chain", false, ALL, 2, Some(LEAD_A), &[("sess_lead_b", 0)], &[HELPER, WORKER]),
             row!("a fresh Lead caller", "sess_lead_b", "chain", false, ALL, 2, Some(LEAD_B), &[("sess_lead_a", 1)], &[HELPER, WORKER]),
-            row!("a bot caller", "sess_home_helper", "chain", false, ALL, 2, Some(("sess_home_helper", "bot", "settings", 1, Some("google"))), &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[WORKER]),
-            row!("a worker caller", "sess_worker_chain", "chain", false, ALL, 2, Some(("sess_worker_chain", "agent", "session", 0, Some("anthropic"))), &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER]),
+            row!(
+                "a bot caller",
+                "sess_home_helper",
+                "chain",
+                false,
+                ALL,
+                2,
+                Some(("sess_home_helper", "bot", "settings", 1, Some("google"))),
+                &[("sess_lead_a", 1), ("sess_lead_b", 0)],
+                &[WORKER]
+            ),
+            row!(
+                "a worker caller",
+                "sess_worker_chain",
+                "chain",
+                false,
+                ALL,
+                2,
+                Some(("sess_worker_chain", "agent", "session", 0, Some("anthropic"))),
+                &[("sess_lead_a", 1), ("sess_lead_b", 0)],
+                &[HELPER]
+            ),
             row!("a caller without an agent", "sess_noagent", "chain", false, ALL, 2, None, &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER, WORKER]),
             row!("a caller that is not held", "sess_other", "chain", false, ALL, 2, None, &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER, WORKER]),
             row!("no caller", "", "chain", false, ALL, 2, None, &[("sess_lead_a", 1), ("sess_lead_b", 0)], &[HELPER, WORKER]),
@@ -605,10 +628,18 @@ mod tests {
             preset
         };
         let configs = |kind: &str| match kind {
-            "chain" => json!({ "default": "workflow-lead", "presets": [preset(json!({ "fallbacks": chain }))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
-            "bare" => json!({ "default": "workflow-lead", "presets": [preset(json!({}))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
-            "empty" => json!({ "default": "workflow-lead", "presets": [preset(json!({ "fallbacks": [] }))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
-            _ => json!({ "default": "main", "presets": [{ "id": "main", "name": "Main", "provider": "openai", "model": "gpt" }], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } }),
+            "chain" => {
+                json!({ "default": "workflow-lead", "presets": [preset(json!({ "fallbacks": chain }))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } })
+            }
+            "bare" => {
+                json!({ "default": "workflow-lead", "presets": [preset(json!({}))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } })
+            }
+            "empty" => {
+                json!({ "default": "workflow-lead", "presets": [preset(json!({ "fallbacks": [] }))], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } })
+            }
+            _ => {
+                json!({ "default": "main", "presets": [{ "id": "main", "name": "Main", "provider": "openai", "model": "gpt" }], "agents": { "helper": { "provider": "openai", "model": "gpt", "fallbacks": chain } } })
+            }
         };
         let facts = json!({ "provider": "openai", "model": "gpt", "effort": "high", "fast": true, "fastCapable": true, "autoEffort": false, "modelParameters": { "tier": "x" },
             "contextPercent": 34, "contextTokens": 1200, "effortOptions": ["low", "high"] });
@@ -643,13 +674,20 @@ mod tests {
             let others: Vec<(String, u64)> = printed["sessions"].as_array().expect("sessions").iter().map(|entry| (place(entry).0, place(entry).3)).collect();
             assert_eq!(others, row.sessions.iter().map(|(id, at)| ((*id).to_owned(), *at)).collect::<Vec<_>>(), "{name}: the other Lead conversations");
             let agents = live.positions(&caller, false).await.expect("agents positions");
-            let listed: Vec<(String, String, String, u64)> = agents["sessions"].as_array().expect("agent sessions").iter().map(|entry| {
-                let (id, kind, from, at, _) = place(entry);
-                (id, kind, from, at)
-            }).collect();
-            assert_eq!(listed, row.agents.iter().map(|(id, kind, from, at)| ((*id).to_owned(), (*kind).to_owned(), (*from).to_owned(), *at)).collect::<Vec<_>>(), "{name}: the agents' sessions");
+            let listed: Vec<(String, String, String, u64)> = agents["sessions"]
+                .as_array()
+                .expect("agent sessions")
+                .iter()
+                .map(|entry| {
+                    let (id, kind, from, at, _) = place(entry);
+                    (id, kind, from, at)
+                })
+                .collect();
+            assert_eq!(
+                listed,
+                row.agents.iter().map(|(id, kind, from, at)| ((*id).to_owned(), (*kind).to_owned(), (*from).to_owned(), *at)).collect::<Vec<_>>(),
+                "{name}: the agents' sessions"
+            );
         }
     }
-
-
 }

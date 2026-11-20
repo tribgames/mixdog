@@ -9,8 +9,8 @@ use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
 use crate::policy::display_width;
 
-pub use crate::lone::utf16_len;
 use crate::lone::units_of;
+pub use crate::lone::utf16_len;
 
 /// A grapheme cluster of a text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,9 +24,7 @@ pub struct Grapheme<'a> {
 
 /// The clusters of `text`, in order, with their byte offsets and widths.
 pub fn graphemes_with_widths(text: &str) -> Vec<Grapheme<'_>> {
-    text.grapheme_indices(true)
-        .map(|(start, cluster)| Grapheme { text: cluster, start, width: display_width(cluster) })
-        .collect()
+    text.grapheme_indices(true).map(|(start, cluster)| Grapheme { text: cluster, start, width: display_width(cluster) }).collect()
 }
 
 /// The nearest char boundary at or before `at` (clamped to the length of `text`).

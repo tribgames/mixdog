@@ -12,7 +12,6 @@ use sha2::Sha256;
 
 use super::model::ActivityInfo;
 use super::model::BUSY_WORK_SETTLED;
-use super::model::SERVICE_CALLS_SETTLED;
 use super::model::Blocked;
 use super::model::BlockedStatus;
 use super::model::ClientGrace;
@@ -30,6 +29,7 @@ use super::model::MigrationStatus;
 use super::model::ReleaseCause;
 use super::model::Running;
 use super::model::RunningWork;
+use super::model::SERVICE_CALLS_SETTLED;
 use super::model::StateName;
 use super::model::StopMode;
 use super::model::StopReason;
@@ -172,16 +172,7 @@ impl Machine {
         let id = self.next_id;
         self.settle_texts.insert(id, settled);
         self.next_id += 1;
-        self.activities.insert(
-            id,
-            Running {
-                id,
-                kind: info.kind,
-                thread_id: info.thread_id,
-                turn_id: info.turn_id,
-                title: info.title,
-            },
-        );
+        self.activities.insert(id, Running { id, kind: info.kind, thread_id: info.thread_id, turn_id: info.turn_id, title: info.title });
         self.seq += 1;
         id
     }
@@ -313,28 +304,18 @@ impl Machine {
     // ---- boot transitions (LR §3) -----------------------------------------------------
 
     pub fn set_blocked(&mut self, blocked: Blocked) -> Result<(), CommandError> {
-        self.boot_step(Phase::Blocked(blocked), |phase| {
-            matches!(phase, Phase::Booting | Phase::Blocked(_))
-        })
+        self.boot_step(Phase::Blocked(blocked), |phase| matches!(phase, Phase::Booting | Phase::Blocked(_)))
     }
 
     pub fn set_migrating(&mut self, migration: Migration) -> Result<(), CommandError> {
-        self.boot_step(Phase::Migrating(migration), |phase| {
-            matches!(phase, Phase::Booting | Phase::Blocked(_) | Phase::Migrating(_))
-        })
+        self.boot_step(Phase::Migrating(migration), |phase| matches!(phase, Phase::Booting | Phase::Blocked(_) | Phase::Migrating(_)))
     }
 
     pub fn set_serving(&mut self) -> Result<(), CommandError> {
-        self.boot_step(Phase::Serving, |phase| {
-            matches!(phase, Phase::Booting | Phase::Blocked(_) | Phase::Migrating(_))
-        })
+        self.boot_step(Phase::Serving, |phase| matches!(phase, Phase::Booting | Phase::Blocked(_) | Phase::Migrating(_)))
     }
 
-    fn boot_step(
-        &mut self,
-        next: Phase,
-        allowed: impl FnOnce(&Phase) -> bool,
-    ) -> Result<(), CommandError> {
+    fn boot_step(&mut self, next: Phase, allowed: impl FnOnce(&Phase) -> bool) -> Result<(), CommandError> {
         if !allowed(&self.phase) {
             return Err(self.refusal());
         }
@@ -405,12 +386,7 @@ impl Machine {
     /// `stop{mode, reason, confirmToken?}`. `whenIdle` commits a drain (or, in a drain, only
     /// upgrades a `noClients` reason to the caller's); `abortConfirmed` cancels what runs and
     /// needs the token of the drain it is aimed at.
-    pub fn stop(
-        &mut self,
-        mode: StopMode,
-        reason: StopReason,
-        confirm_token: Option<&str>,
-    ) -> Result<(), CommandError> {
+    pub fn stop(&mut self, mode: StopMode, reason: StopReason, confirm_token: Option<&str>) -> Result<(), CommandError> {
         match &self.phase {
             Phase::Booting | Phase::Blocked(_) | Phase::Serving => match mode {
                 StopMode::WhenIdle => {
@@ -496,10 +472,7 @@ impl Machine {
     /// (`!replacing`, `:512`), nor is a signal, which does not come through here, nor a `UserStop`, which Node has no request for and
     /// which the user's own stop command waits on.
     pub fn defers_stop(&self, mode: StopMode, reason: StopReason) -> bool {
-        matches!(self.phase, Phase::Serving)
-            && matches!(mode, StopMode::WhenIdle)
-            && matches!(reason, StopReason::Quit)
-            && self.clients > 0
+        matches!(self.phase, Phase::Serving) && matches!(mode, StopMode::WhenIdle) && matches!(reason, StopReason::Quit) && self.clients > 0
     }
 
     pub fn cancel_drain(&mut self, drain_id: &str) -> Result<(), CommandError> {
@@ -535,11 +508,7 @@ impl Machine {
     }
 
     pub fn check_terminate(&self, confirm_token: &str) -> Result<(), CommandError> {
-        if ct_eq(confirm_token, &self.terminate_token()) {
-            Ok(())
-        } else {
-            Err(CommandError::ConfirmationInvalid)
-        }
+        if ct_eq(confirm_token, &self.terminate_token()) { Ok(()) } else { Err(CommandError::ConfirmationInvalid) }
     }
 
     // ---- views -----------------------------------------------------------------------
@@ -549,28 +518,17 @@ impl Machine {
             Phase::Blocked(blocked) => (
                 Some(BlockedStatus {
                     blocked: blocked.clone(),
-                    confirm_token: matches!(blocked, Blocked::Undecidable { .. })
-                        .then(|| self.release_token(blocked.pid())),
+                    confirm_token: matches!(blocked, Blocked::Undecidable { .. }).then(|| self.release_token(blocked.pid())),
                 }),
                 None,
                 None,
                 None,
             ),
-            Phase::Migrating(m) => (
-                None,
-                Some(MigrationStatus { kind: m.kind.clone(), done: m.done, total: m.total }),
-                None,
-                None,
-            ),
+            Phase::Migrating(m) => (None, Some(MigrationStatus { kind: m.kind.clone(), done: m.done, total: m.total }), None, None),
             Phase::Draining(d) => (
                 None,
                 None,
-                Some(DrainStatus {
-                    drain_id: d.drain_id.clone(),
-                    reason: d.reason,
-                    confirm_token: self.drain_token(d),
-                    releasing: d.releasing,
-                }),
+                Some(DrainStatus { drain_id: d.drain_id.clone(), reason: d.reason, confirm_token: self.drain_token(d), releasing: d.releasing }),
                 None,
             ),
             Phase::Fenced(reason) => (None, None, None, Some(*reason)),
@@ -595,11 +553,7 @@ impl Machine {
     pub fn core_state(&self) -> CoreState {
         match &self.phase {
             Phase::Booting | Phase::Blocked(_) => CoreState::Booting,
-            Phase::Migrating(m) => CoreState::Migrating(MigrationProgress {
-                kind: m.kind.as_str().into(),
-                done: m.done,
-                total: m.total,
-            }),
+            Phase::Migrating(m) => CoreState::Migrating(MigrationProgress { kind: m.kind.as_str().into(), done: m.done, total: m.total }),
             Phase::Serving => CoreState::Serving,
             Phase::Draining(d) => CoreState::Draining { reason: d.reason.drain_reason() },
             Phase::Stopped | Phase::Fenced(_) => CoreState::Stopped,
@@ -708,9 +662,7 @@ impl Machine {
                 }
                 self.begin_release(cause);
             }
-            Phase::Serving
-                if self.grace_fired && self.clients == 0 && self.activities.is_empty() && !calls =>
-            {
+            Phase::Serving if self.grace_fired && self.clients == 0 && self.activities.is_empty() && !calls => {
                 self.effects.push(Effect::NodeTrigger(trigger));
                 self.commit_drain(StopReason::NoClients);
             }
@@ -782,7 +734,6 @@ mod tests {
         assert!(ct_eq("", ""));
     }
 
-
     fn machine() -> Machine {
         let mut m = Machine::new("inst".into(), "1.4.6".into());
         m.set_serving().unwrap();
@@ -810,11 +761,9 @@ mod tests {
     }
     #[test]
     fn the_self_shutdown_names_the_registry_that_emptied_or_the_work_that_settled() {
-        for (kind, text) in [
-            (ClientKind::Session, "no live session clients"),
-            (ClientKind::Channel, "no live channel clients"),
-            (ClientKind::Remote, "remote clients changed"),
-        ] {
+        for (kind, text) in
+            [(ClientKind::Session, "no live session clients"), (ClientKind::Channel, "no live channel clients"), (ClientKind::Remote, "remote clients changed")]
+        {
             let mut m = machine();
             m.client_opened();
             m.client_closed(kind);
@@ -921,20 +870,11 @@ mod tests {
     fn abort_needs_the_drain_token_and_never_precedes_a_drain() {
         let mut m = machine();
         let _a = m.begin_activity(work(ActivityKind::Turn));
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("x")),
-            Err(CommandError::NotDraining)
-        );
+        assert_eq!(m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("x")), Err(CommandError::NotDraining));
         m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
         m.take_effects();
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, None),
-            Err(CommandError::ConfirmationInvalid)
-        );
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("nope")),
-            Err(CommandError::ConfirmationInvalid)
-        );
+        assert_eq!(m.stop(StopMode::AbortConfirmed, StopReason::Quit, None), Err(CommandError::ConfirmationInvalid));
+        assert_eq!(m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("nope")), Err(CommandError::ConfirmationInvalid));
         let token = drain_token(&m);
         m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
         let effects = m.take_effects();
@@ -975,10 +915,7 @@ mod tests {
         let id = m.status().drain.unwrap().drain_id;
         m.cancel_drain(&id).unwrap();
         m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        assert_eq!(
-            m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&first)),
-            Err(CommandError::ConfirmationInvalid)
-        );
+        assert_eq!(m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&first)), Err(CommandError::ConfirmationInvalid));
     }
     #[test]
     fn cancel_drain_restores_serving_only_while_idle_waiting() {
@@ -1111,13 +1048,7 @@ mod tests {
         assert_eq!(m.release_decision(5, "x"), Err(CommandError::NotBlocked));
         m.set_blocked(Blocked::WaitExit { pid: 5 }).unwrap();
         assert_eq!(m.release_decision(5, "x"), Err(CommandError::NotBlocked));
-        m.set_blocked(Blocked::Undecidable {
-            pid: 5,
-            image: "node".into(),
-            command_line: "node daemon.mjs".into(),
-            start_time: "t".into(),
-        })
-        .unwrap();
+        m.set_blocked(Blocked::Undecidable { pid: 5, image: "node".into(), command_line: "node daemon.mjs".into(), start_time: "t".into() }).unwrap();
         let token = m.status().blocked.unwrap().confirm_token.unwrap();
         assert_eq!(m.release_decision(6, &token), Err(CommandError::ConfirmationInvalid));
         assert_eq!(m.release_decision(5, "bad"), Err(CommandError::ConfirmationInvalid));

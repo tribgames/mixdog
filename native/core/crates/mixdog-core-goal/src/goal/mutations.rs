@@ -6,11 +6,11 @@ use serde_json::Value;
 use super::error::{GoalError, GoalResult};
 use super::js::{Goal, clean, put, put_num, string, truthy};
 use super::runtime::Tx;
-use super::state::{
-    NO_DEADLINE_WARNING_MS, assert_session_id, checkpoint_active_clock, clean_for_string, clear_turn_failures, parse_goal_duration,
-    public_goal, stop_active_clock, validate_goal_blocker, validate_objective,
-};
 use super::session_title::compact_session_title;
+use super::state::{
+    NO_DEADLINE_WARNING_MS, assert_session_id, checkpoint_active_clock, clean_for_string, clear_turn_failures, parse_goal_duration, public_goal,
+    stop_active_clock, validate_goal_blocker, validate_objective,
+};
 use super::storage::{history_path, write_history};
 
 /// A complete or stopped Goal: retired work a successor may replace.
@@ -52,11 +52,7 @@ impl Tx<'_> {
             return parse_goal_duration(duration);
         }
         let configured = self.inner.default_time_limit_ms;
-        if configured.is_finite() && configured > 0.0 {
-            parse_goal_duration(&mixdog_js::json_number(configured))
-        } else {
-            Ok(0.0)
-        }
+        if configured.is_finite() && configured > 0.0 { parse_goal_duration(&mixdog_js::json_number(configured)) } else { Ok(0.0) }
     }
 
     fn new_goal_record(&self, args: &CreateArgs, at: f64) -> GoalResult<Goal> {
@@ -113,8 +109,7 @@ impl Tx<'_> {
             let started = if record.is_some() { at } else { self.slot.mem().turn_started_at.filter(|t| *t != 0.0).unwrap_or(at) };
             put_num(&mut goal, "lastStartedAt", started);
         }
-        if replaced
-            && let Some(old) = record.as_mut() {
+        if replaced && let Some(old) = record.as_mut() {
             put(old, "status", "stopped");
             put_num(old, "stoppedAt", at);
             put_num(old, "archivedAt", at);

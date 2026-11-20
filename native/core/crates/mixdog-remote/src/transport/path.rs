@@ -2,9 +2,7 @@
 //! stall detection. Demotion is decided on PROGRESS, never on a record's age. Pure: time is
 //! passed in.
 
-use super::consts::{
-    GRANULARITY_MS, INITIAL_RTT_MS, MAX_ACK_DELAY_MS, MAX_IDLE_TIMEOUT_MS, TIME_THRESHOLD_DEN, TIME_THRESHOLD_NUM,
-};
+use super::consts::{GRANULARITY_MS, INITIAL_RTT_MS, MAX_ACK_DELAY_MS, MAX_IDLE_TIMEOUT_MS, TIME_THRESHOLD_DEN, TIME_THRESHOLD_NUM};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stall {

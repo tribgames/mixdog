@@ -5,15 +5,13 @@
 //! findable until the session itself is deleted. The one rewrite: a value
 //! marked sensitive replaces the rows that hold it (`replace_messages`).
 
-use mixdog_js::{js_trim, js_words, JsRegex, utf16_len};
+use mixdog_js::{JsRegex, js_trim, js_words, utf16_len};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde_json::Value;
 
 use crate::memory::error::Result;
-use crate::memory::ingest_shape::{
-    normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref,
-};
+use crate::memory::ingest_shape::{normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref};
 use crate::memory::pg::db::{Db, transaction};
 use crate::memory::query_terms::build_fts_prefix_query;
 
@@ -84,9 +82,7 @@ fn cap_content(text: &str) -> String {
 }
 
 fn strip_system_reminders(text: &str) -> String {
-    static REMINDER: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| {
-        JsRegex::new_static(r"<system-reminder>[\s\S]*?</system-reminder>", "gi")
-    });
+    static REMINDER: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"<system-reminder>[\s\S]*?</system-reminder>", "gi"));
     REMINDER.replace_all_with(text, |_| " ".into())
 }
 
@@ -285,54 +281,53 @@ impl SessionSearchDb {
         redact: &(dyn Fn(&str) -> String + Sync),
     ) -> Result<usize> {
         let rows = search_rows(session_id, redacted_messages);
-        let previous: HashSet<String> =
-            search_rows(session_id, plain_messages).into_iter().map(|row| row.source_ref).collect();
+        let previous: HashSet<String> = search_rows(session_id, plain_messages).into_iter().map(|row| row.source_ref).collect();
         transaction(&self.db, async |tx| {
-        // The cluster commits asynchronously (`synchronous_commit = off`): a kill could lose this
-        // commit, and with it the record of the owed scrub, while the plain rows stay.
-        // Another mark's scrub may hold the table (`waiting`).
-        tx.batch_execute("SET LOCAL synchronous_commit = on; SET LOCAL lock_timeout = 0").await?;
-        let stored = tx
-            .query(
-                "SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
+            // The cluster commits asynchronously (`synchronous_commit = off`): a kill could lose this
+            // commit, and with it the record of the owed scrub, while the plain rows stay.
+            // Another mark's scrub may hold the table (`waiting`).
+            tx.batch_execute("SET LOCAL synchronous_commit = on; SET LOCAL lock_timeout = 0").await?;
+            let stored = tx
+                .query(
+                    "SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
                   WHERE session_id = $1 FOR UPDATE",
-                &[&session_id],
-            )
-            .await?;
-        let mut changed = Vec::new();
-        for row in &stored {
-            let content: String = row.get(4);
-            let redacted = redact(&content);
-            if redacted != content {
-                changed.push((row, redacted));
+                    &[&session_id],
+                )
+                .await?;
+            let mut changed = Vec::new();
+            for row in &stored {
+                let content: String = row.get(4);
+                let redacted = redact(&content);
+                if redacted != content {
+                    changed.push((row, redacted));
+                }
             }
-        }
-        if !changed.is_empty() {
-            let refs: Vec<String> = changed.iter().map(|(row, _)| row.get::<_, String>(0)).collect();
-            tx.execute("DELETE FROM session_search.messages WHERE source_ref = ANY($1::text[])", &[&refs]).await?;
-        }
-        let mut all = rows;
-        for (row, content) in &changed {
-            let source_ref: String = row.get(0);
-            if previous.contains(&source_ref) {
-                continue;
+            if !changed.is_empty() {
+                let refs: Vec<String> = changed.iter().map(|(row, _)| row.get::<_, String>(0)).collect();
+                tx.execute("DELETE FROM session_search.messages WHERE source_ref = ANY($1::text[])", &[&refs]).await?;
             }
-            let role: String = row.get(2);
-            all.push(SearchRow {
-                source_ref: format!("session:{session_id}:{}", random_hex()),
-                session_id: session_id.to_owned(),
-                ordinal: row.get(1),
-                role: if role == "user" { "user" } else { "assistant" },
-                ts: row.get(3),
-                content: content.clone(),
-            });
-        }
-        insert_rows(&***tx, &all).await?;
-        let deleted = changed.len();
-        if deleted > 0 {
-            tx.execute("INSERT INTO session_search.scrub (id) VALUES (1) ON CONFLICT DO NOTHING", &[]).await?;
-        }
-        Ok(deleted)
+            let mut all = rows;
+            for (row, content) in &changed {
+                let source_ref: String = row.get(0);
+                if previous.contains(&source_ref) {
+                    continue;
+                }
+                let role: String = row.get(2);
+                all.push(SearchRow {
+                    source_ref: format!("session:{session_id}:{}", random_hex()),
+                    session_id: session_id.to_owned(),
+                    ordinal: row.get(1),
+                    role: if role == "user" { "user" } else { "assistant" },
+                    ts: row.get(3),
+                    content: content.clone(),
+                });
+            }
+            insert_rows(&***tx, &all).await?;
+            let deleted = changed.len();
+            if deleted > 0 {
+                tx.execute("INSERT INTO session_search.scrub (id) VALUES (1) ON CONFLICT DO NOTHING", &[]).await?;
+            }
+            Ok(deleted)
         })
         .await
     }
@@ -387,7 +382,8 @@ impl SessionSearchDb {
             insert_rows(&***tx, rows).await?;
             tx.execute(RECORD_STAMP, &[&session_id, &stamp]).await?;
             Ok(())
-        }).await
+        })
+        .await
     }
 
     #[cfg(test)]
@@ -436,11 +432,7 @@ impl SessionSearchDb {
             .map(|row| {
                 let snippet: Option<String> = row.get("snippet");
                 let cleaned: String = snippet.unwrap_or_default().replace([SNIPPET_START, SNIPPET_STOP], "");
-                SessionHit {
-                    session_id: row.get("session_id"),
-                    rank: row.get::<_, f64>("rank"),
-                    snippet: js_words(&cleaned).collect::<Vec<_>>().join(" "),
-                }
+                SessionHit { session_id: row.get("session_id"), rank: row.get::<_, f64>("rank"), snippet: js_words(&cleaned).collect::<Vec<_>>().join(" ") }
             })
             .collect())
     }

@@ -10,14 +10,14 @@ use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::estimate::MessageMeter;
 use mixdog_agent::compact::estimate::PartMeter;
 use mixdog_agent::compact::execution_tail::MessageRows;
+use mixdog_agent::compact::pressure::AttachmentBytes;
+use mixdog_agent::compact::pressure::BlobError;
 use mixdog_agent::compact::pressure::Header;
 use mixdog_agent::compact::pressure::ImageDescriptor;
 use mixdog_agent::compact::pressure::ImageIdentities;
 use mixdog_agent::compact::pressure::TranscriptSigner;
 use mixdog_agent::compact::pressure::invalidate_context_usage_snapshot;
 use mixdog_agent::compact::pressure::invalidate_provider_context_baseline;
-use mixdog_agent::compact::pressure::AttachmentBytes;
-use mixdog_agent::compact::pressure::BlobError;
 use mixdog_agent::compact::pressure::rows_exact_signature;
 use mixdog_agent::message::AgentMessage;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -34,8 +34,7 @@ impl MediaMeter for TextOnly {
 /// Node's image descriptors of the messages that carry images, by message id.
 struct GoldenImages(HashMap<String, Vec<ImageDescriptor>>);
 
-impl GoldenImages {
-}
+impl GoldenImages {}
 
 impl ImageIdentities for GoldenImages {
     fn images(&self, message: &AgentMessage) -> Vec<ImageDescriptor> {
@@ -62,8 +61,6 @@ fn header_of(value: &Value) -> Header {
     value.as_object().expect("header").clone()
 }
 
-
-
 #[test]
 fn cached_prompt_has_one_scale_in_live_reading_and_next_turn_pressure() {
     use mixdog_agent::boundary::{CompactPolicy, CompactSettings, ContextReading};
@@ -78,9 +75,7 @@ fn cached_prompt_has_one_scale_in_live_reading_and_next_turn_pressure() {
     let signer = TranscriptSigner { meter: &meter, images: &images, rows: &stored };
     let books = Books { signer: &signer, native: &[], agent_mode: false, env: &compact_support::NoVars };
     let messages = vec![AgentMessage::user("request")];
-    let policy = CompactPolicy::resolve(&CompactSettings {
-        auto: true, context_window: Some(500_000), ..Default::default()
-    }).unwrap();
+    let policy = CompactPolicy::resolve(&CompactSettings { auto: true, context_window: Some(500_000), ..Default::default() }).unwrap();
     // The reported session's last prompt: 2 fresh + 405,809 read + 1,943 written.
     for (excludes, input) in [(true, 2), (false, 407_754)] {
         let mut header = header_of(&json!({
@@ -121,12 +116,11 @@ fn a_transient_read_failure_propagates_and_a_missing_blob_does_not() {
     assert_eq!(rows_exact_signature(&[row], &Busy), Err("EBUSY"));
 }
 
-
-
-
 #[test]
 fn the_two_invalidations_clear_what_a_route_change_makes_stale() {
-    let mut header = header_of(&serde_json::json!({ "contextUsageSnapshot": { "usedTokens": 1 }, "contextPressureBaselineTokens": 5, "contextPressureUnanchoredAfterRestart": true }));
+    let mut header = header_of(
+        &serde_json::json!({ "contextUsageSnapshot": { "usedTokens": 1 }, "contextPressureBaselineTokens": 5, "contextPressureUnanchoredAfterRestart": true }),
+    );
     invalidate_context_usage_snapshot().apply(&mut header);
     invalidate_provider_context_baseline().apply(&mut header);
     assert!(!header.contains_key("contextUsageSnapshot"));
@@ -134,5 +128,3 @@ fn the_two_invalidations_clear_what_a_route_change_makes_stale() {
     assert_eq!(header["contextPressureBaselineTokens"], Value::Null);
     assert_eq!(header["lastContextTokensStaleAfterCompact"], Value::Bool(true));
 }
-
-

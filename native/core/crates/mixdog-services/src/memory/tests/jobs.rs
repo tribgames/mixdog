@@ -41,7 +41,8 @@ fn now_ms() -> i64 {
 }
 
 async fn stored_rows(db: &Db) -> Vec<Value> {
-    let rows = db.query("SELECT ts, role, content, source_ref, session_id, source_turn, project_id, time_source FROM entries ORDER BY id", &[]).await.expect("rows");
+    let rows =
+        db.query("SELECT ts, role, content, source_ref, session_id, source_turn, project_id, time_source FROM entries ORDER BY id", &[]).await.expect("rows");
     rows.iter()
         .map(|r| {
             json!({
@@ -56,11 +57,6 @@ async fn stored_rows(db: &Db) -> Vec<Value> {
 fn line(value: &Value) -> String {
     value.to_string()
 }
-
-
-
-
-
 
 struct Config {
     section: Mutex<Value>,
@@ -165,12 +161,18 @@ async fn cycle1_commits_a_chunk_and_coalesces_a_concurrent_request() {
     gate.notify_one();
     let first = first.await.unwrap().unwrap();
     assert_eq!((first.chunks, first.processed, first.skipped_in_flight), (1, 3, false), "{:?}", first.to_json());
-    let rows = db.query("SELECT id, chunk_root, is_root, category, summary, status, element, chunk_quality IS NOT NULL FROM entries ORDER BY ts, id", &[]).await.unwrap();
+    let rows = db
+        .query("SELECT id, chunk_root, is_root, category, summary, status, element, chunk_quality IS NOT NULL FROM entries ORDER BY ts, id", &[])
+        .await
+        .unwrap();
     let root: i64 = rows[0].get(0);
     for row in &rows {
         assert_eq!(row.get::<_, Option<i64>>(1), Some(root));
     }
-    assert_eq!((rows[0].get::<_, i16>(2), rows[0].get::<_, String>(3), rows[0].get::<_, String>(4), rows[0].get::<_, String>(6)), (1, "decision".into(), "Short summary".into(), "Topic".into()));
+    assert_eq!(
+        (rows[0].get::<_, i16>(2), rows[0].get::<_, String>(3), rows[0].get::<_, String>(4), rows[0].get::<_, String>(6)),
+        (1, "decision".into(), "Short summary".into(), "Topic".into())
+    );
     assert!(rows[0].get::<_, bool>(7) && rows[1].get::<_, i16>(2) == 0);
     assert_eq!(*embeddings.roots.lock().unwrap(), vec![root]);
     assert_eq!(*llm.calls.lock().unwrap(), 1);
@@ -211,7 +213,12 @@ async fn the_tick_runs_the_scheduled_cycle_and_shutdown_stops_it() {
     seed_session(&db, "sess-b", 3, THREE_HOURS).await;
     let state = pg.dir.path().join("memory-cycle-state.json");
     let config = Arc::new(Config { section: Mutex::new(json!({"cycle1": {"interval": "50ms", "min_batch": 1}})), enabled: AtomicBool::new(true) });
-    let llm = Arc::new(Llm { replies: Mutex::new(VecDeque::from(["1-3|Topic|task|Short summary".to_owned()])), gate: None, entered: Default::default(), calls: Mutex::new(0) });
+    let llm = Arc::new(Llm {
+        replies: Mutex::new(VecDeque::from(["1-3|Topic|task|Short summary".to_owned()])),
+        gate: None,
+        entered: Default::default(),
+        calls: Mutex::new(0),
+    });
     let timer = Arc::new(ManualTimer::default());
     // The scheduler reads the injected clock, as `periodicCycleDue` reads `Date.now()` in Node: the
     // first check is due only once the cycle interval has passed since `start_cycles`.
@@ -295,7 +302,11 @@ async fn the_watcher_ingests_appended_transcripts_and_stops() {
     let mut text = std::fs::read_to_string(&file).unwrap();
     text.push_str(&format!("{}\n", user("after the watcher stopped")));
     std::fs::write(&file, text).unwrap();
-    sink.change_sink().changed(super::super::transcript::watcher::WATCH_ID, vec![file.to_string_lossy().into_owned()], mixdog_workspace::watcher::ChangeKind::Modified);
+    sink.change_sink().changed(
+        super::super::transcript::watcher::WATCH_ID,
+        vec![file.to_string_lossy().into_owned()],
+        mixdog_workspace::watcher::ChangeKind::Modified,
+    );
     assert_eq!(watcher.timers_waiting(), 0, "no debounce timer is armed after stop");
     assert!(timer.armed.lock().unwrap().iter().all(|(d, _)| *d != debounce));
     assert_eq!(stored_rows(&db).await.len(), 2, "nothing is ingested after stop");
@@ -383,7 +394,11 @@ async fn shutdown_joins_the_ingestion_a_fired_timer_started() {
     assert_eq!(stored_rows(&db).await.len(), 2, "the ingestion in flight at stop finished before `finished` returned");
 
     // A change batch that arrives after stop arms no timer.
-    sink.change_sink().changed(super::super::transcript::watcher::WATCH_ID, vec![file.to_string_lossy().into_owned()], mixdog_workspace::watcher::ChangeKind::Modified);
+    sink.change_sink().changed(
+        super::super::transcript::watcher::WATCH_ID,
+        vec![file.to_string_lossy().into_owned()],
+        mixdog_workspace::watcher::ChangeKind::Modified,
+    );
     assert_eq!(watcher.timers_waiting(), 0);
     assert!(timer.armed.lock().unwrap().iter().all(|(d, _)| *d != debounce), "no debounce timer after stop");
 }
@@ -463,8 +478,6 @@ async fn a_session_in_both_the_session_ingest_and_the_transcript_is_stored_once(
     assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
     sessions.settle().await;
 }
-
-
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]

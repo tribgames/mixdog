@@ -5,24 +5,45 @@ use super::host::DrainReport;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnsureError {
-    InstallLocked { lock: String, owner: String },
+    InstallLocked {
+        lock: String,
+        owner: String,
+    },
     InstallFailed(String),
     InstallMissing(String),
-    ChecksumMismatch { expected: String, actual: String },
+    ChecksumMismatch {
+        expected: String,
+        actual: String,
+    },
     UnsafeInstallId(String),
     BadVersion(String),
-    CoreExited { status: String, log: String, tail: String },
+    CoreExited {
+        status: String,
+        log: String,
+        tail: String,
+    },
     /// 1.4.5's `daemon-timeout`: the launched core stayed in `state` past the ready bound.
-    CoreNotReady { seconds: u64, state: String, log: String, tail: String },
+    CoreNotReady {
+        seconds: u64,
+        state: String,
+        log: String,
+        tail: String,
+    },
     /// The ssh session that runs this program closed while it waited for the core.
     ControllerGone,
     Core(String),
     DaemonUnproven(String),
     /// Node's `terminateProcess` failure: the core outlived SIGKILL.
     DaemonStop(u32),
-    ClientOutdated { desktop_version: String, server_version: String },
+    ClientOutdated {
+        desktop_version: String,
+        server_version: String,
+    },
     /// The older core is still running work; the desktop shows the list and may confirm.
-    Busy { server_version: String, drain: DrainReport },
+    Busy {
+        server_version: String,
+        drain: DrainReport,
+    },
     Arguments(String),
 }
 

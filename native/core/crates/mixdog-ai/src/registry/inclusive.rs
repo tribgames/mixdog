@@ -82,7 +82,11 @@ mod tests {
     struct Subtracting;
     impl UsagePricing for Subtracting {
         fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
-            let input = if args.input_tokens_inclusive == Some(true) { (args.input_tokens - args.cache_read_tokens - args.cache_write_tokens).max(0.0) } else { args.input_tokens };
+            let input = if args.input_tokens_inclusive == Some(true) {
+                (args.input_tokens - args.cache_read_tokens - args.cache_write_tokens).max(0.0)
+            } else {
+                args.input_tokens
+            };
             PricedUsage { input, cost_usd: None, rates: Default::default() }
         }
     }

@@ -82,8 +82,7 @@ fn view() -> Option<Arc<dyn FeedView>> {
 
 fn publish(feed: &dyn Feed, seqs: std::ops::RangeInclusive<u64>) {
     let frames: Vec<_> = seqs.map(event).collect();
-    feed.publish(&frames, view())
-        .expect("contiguous frames publish");
+    feed.publish(&frames, view()).expect("contiguous frames publish");
 }
 
 fn sub(name: &str) -> SubscriptionId {
@@ -91,24 +90,14 @@ fn sub(name: &str) -> SubscriptionId {
 }
 
 /// Subscribes through [`subscribe`], so lag recovery re-enters the same `attach`.
-fn attach(
-    feed: &Arc<dyn Feed>,
-    conn: &MockConnection,
-    name: &str,
-    window: Window,
-    resume: Option<(FeedEpoch, u64, Window)>,
-) -> Attached {
-    let resume_from = resume.map(|(epoch, seq, window)| ResumeFrom {
-        position: FeedPosition { epoch, seq },
-        window,
-    });
+fn attach(feed: &Arc<dyn Feed>, conn: &MockConnection, name: &str, window: Window, resume: Option<(FeedEpoch, u64, Window)>) -> Attached {
+    let resume_from = resume.map(|(epoch, seq, window)| ResumeFrom { position: FeedPosition { epoch, seq }, window });
     let source: Arc<dyn FeedSource> = feed.clone();
     subscribe(&source, sub(name), window, resume_from, conn).expect("attach to an open connection")
 }
 
 fn respond(conn: &dyn ConnectionSink, attached: Attached, text: &str) {
-    conn.send_control_release(Bytes::from(text.to_owned()), attached.release)
-        .expect("connection open");
+    conn.send_control_release(Bytes::from(text.to_owned()), attached.release).expect("connection open");
 }
 
 fn epoch_of(feed: &dyn Feed) -> FeedEpoch {
@@ -118,10 +107,7 @@ fn epoch_of(feed: &dyn Feed) -> FeedEpoch {
 /// The frames of one lane, in socket order. Interleaving between lanes is the writer's.
 fn lane(written: &[String], name: &str) -> Vec<String> {
     let prefix = format!("{name}:");
-    written
-        .iter()
-        .filter_map(|w| w.strip_prefix(&prefix).map(str::to_owned))
-        .collect()
+    written.iter().filter_map(|w| w.strip_prefix(&prefix).map(str::to_owned)).collect()
 }
 
 /// Response first, then the snapshot at `S`, then every frame after `S`, including frames
@@ -137,23 +123,10 @@ pub fn snapshot_then_live(make: &FeedFactory) {
     assert_eq!(attached.decision.epoch, epoch_of(feed.as_ref()));
 
     publish(feed.as_ref(), 4..=5);
-    assert_eq!(
-        conn.drain(),
-        vec![],
-        "a lane is gated until its response is written"
-    );
+    assert_eq!(conn.drain(), vec![], "a lane is gated until its response is written");
     respond(&conn, attached, "resp");
     publish(feed.as_ref(), 6..=6);
-    assert_eq!(
-        conn.drain_text(),
-        [
-            "control:resp",
-            "a:snapshot@3",
-            "a:evt@4",
-            "a:evt@5",
-            "a:evt@6"
-        ]
-    );
+    assert_eq!(conn.drain_text(), ["control:resp", "a:snapshot@3", "a:evt@4", "a:evt@5", "a:evt@6"]);
 }
 
 /// The earlier visit of a client that later resumes: a position of this epoch is only ever handed out by an attach, so a
@@ -174,30 +147,15 @@ pub fn replay_then_live(make: &FeedFactory) {
     publish(feed.as_ref(), 1..=4);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let epoch = epoch_of(feed.as_ref());
-    let attached = attach(
-        &feed,
-        &conn,
-        "a",
-        Window::LastItems(50),
-        Some((epoch, 2, Window::LastItems(50))),
-    );
+    let attached = attach(&feed, &conn, "a", Window::LastItems(50), Some((epoch, 2, Window::LastItems(50))));
     assert_eq!(attached.decision.mode, AttachMode::Replay);
     assert_eq!(attached.decision.start_seq, 3);
     publish(feed.as_ref(), 5..=5);
     respond(&conn, attached, "resp");
-    assert_eq!(
-        conn.drain_text(),
-        ["control:resp", "a:evt@3", "a:evt@4", "a:evt@5"]
-    );
+    assert_eq!(conn.drain_text(), ["control:resp", "a:evt@3", "a:evt@4", "a:evt@5"]);
 
     // Resuming exactly at the head replays nothing.
-    let attached = attach(
-        &feed,
-        &conn,
-        "b",
-        Window::Fixed,
-        Some((epoch_of(feed.as_ref()), 5, Window::Fixed)),
-    );
+    let attached = attach(&feed, &conn, "b", Window::Fixed, Some((epoch_of(feed.as_ref()), 5, Window::Fixed)));
     assert_eq!(attached.decision.mode, AttachMode::Replay);
     assert_eq!(attached.decision.start_seq, 6);
     respond(&conn, attached, "resp-b");
@@ -215,13 +173,7 @@ pub fn changed_window_snapshots(make: &FeedFactory) {
     publish(feed.as_ref(), 1..=3);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let epoch = epoch_of(feed.as_ref());
-    let attached = attach(
-        &feed,
-        &conn,
-        "a",
-        Window::LastItems(100),
-        Some((epoch, 1, Window::LastItems(50))),
-    );
+    let attached = attach(&feed, &conn, "a", Window::LastItems(100), Some((epoch, 1, Window::LastItems(50))));
     assert_eq!(attached.decision.mode, AttachMode::Snapshot);
     assert_eq!(attached.decision.start_seq, 4);
     respond(&conn, attached, "resp");
@@ -235,13 +187,7 @@ pub fn other_epoch_snapshots(make: &FeedFactory) {
     publish(feed.as_ref(), 1..=3);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let other = FeedEpoch::from(format!("{}x", epoch_of(feed.as_ref())));
-    let attached = attach(
-        &feed,
-        &conn,
-        "a",
-        Window::Fixed,
-        Some((other, 1, Window::Fixed)),
-    );
+    let attached = attach(&feed, &conn, "a", Window::Fixed, Some((other, 1, Window::Fixed)));
     assert_eq!(attached.decision.mode, AttachMode::Snapshot);
     respond(&conn, attached, "resp");
     assert_eq!(conn.drain_text(), ["control:resp", "a:snapshot@3"]);
@@ -249,51 +195,23 @@ pub fn other_epoch_snapshots(make: &FeedFactory) {
 
 /// A position whose next frame left the ring, or beyond the head, snapshots.
 pub fn evicted_position_snapshots(make: &FeedFactory) {
-    let limits = MockLimits {
-        ring_bytes: 3 * event(1).bytes.len(),
-        ..MockLimits::default()
-    };
+    let limits = MockLimits { ring_bytes: 3 * event(1).bytes.len(), ..MockLimits::default() };
     let feed = make(limits);
     visited(&feed, limits);
     publish(feed.as_ref(), 1..=6);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let epoch = epoch_of(feed.as_ref());
-    let attached = attach(
-        &feed,
-        &conn,
-        "a",
-        Window::Fixed,
-        Some((epoch.clone(), 1, Window::Fixed)),
-    );
+    let attached = attach(&feed, &conn, "a", Window::Fixed, Some((epoch.clone(), 1, Window::Fixed)));
     assert_eq!(attached.decision.mode, AttachMode::Snapshot);
     respond(&conn, attached, "resp-a");
-    let attached = attach(
-        &feed,
-        &conn,
-        "b",
-        Window::Fixed,
-        Some((epoch.clone(), 7, Window::Fixed)),
-    );
+    let attached = attach(&feed, &conn, "b", Window::Fixed, Some((epoch.clone(), 7, Window::Fixed)));
     assert_eq!(attached.decision.mode, AttachMode::Snapshot);
     respond(&conn, attached, "resp-b");
-    let attached = attach(
-        &feed,
-        &conn,
-        "c",
-        Window::Fixed,
-        Some((epoch, 3, Window::Fixed)),
-    );
-    assert_eq!(
-        attached.decision.mode,
-        AttachMode::Replay,
-        "frames 4..=6 are still in the ring"
-    );
+    let attached = attach(&feed, &conn, "c", Window::Fixed, Some((epoch, 3, Window::Fixed)));
+    assert_eq!(attached.decision.mode, AttachMode::Replay, "frames 4..=6 are still in the ring");
     respond(&conn, attached, "resp-c");
     let written = conn.drain_text();
-    assert_eq!(
-        written[..3],
-        ["control:resp-a", "control:resp-b", "control:resp-c"]
-    );
+    assert_eq!(written[..3], ["control:resp-a", "control:resp-b", "control:resp-c"]);
     assert_eq!(lane(&written, "a"), ["snapshot@6"]);
     assert_eq!(lane(&written, "b"), ["snapshot@6"]);
     assert_eq!(lane(&written, "c"), ["evt@4", "evt@5", "evt@6"]);
@@ -301,12 +219,7 @@ pub fn evicted_position_snapshots(make: &FeedFactory) {
 
 /// Limits with a 96-byte event budget and a 48-byte snapshot reservation.
 fn small_limits() -> MockLimits {
-    MockLimits {
-        queue_bytes: 1024 + 96,
-        control_reserve_bytes: 1024,
-        max_snapshot_bytes: 48,
-        ring_bytes: 1 << 20,
-    }
+    MockLimits { queue_bytes: 1024 + 96, control_reserve_bytes: 1024, max_snapshot_bytes: 48, ring_bytes: 1 << 20 }
 }
 
 /// Replay frames that do not fit the free event budget turn the decision into a snapshot.
@@ -316,13 +229,7 @@ pub fn replay_beyond_budget_snapshots(make: &FeedFactory) {
     publish(feed.as_ref(), 1..=40);
     let conn = MockConnection::new(ConnectionId(1), limits);
     let epoch = epoch_of(feed.as_ref());
-    let attached = attach(
-        &feed,
-        &conn,
-        "a",
-        Window::Fixed,
-        Some((epoch, 1, Window::Fixed)),
-    );
+    let attached = attach(&feed, &conn, "a", Window::Fixed, Some((epoch, 1, Window::Fixed)));
     assert_eq!(attached.decision.mode, AttachMode::Snapshot);
     assert_eq!(attached.decision.start_seq, 41);
     respond(&conn, attached, "resp");
@@ -341,11 +248,7 @@ pub fn lag_then_recover(make: &FeedFactory) {
     assert_eq!(conn.drain_text(), ["control:resp", "a:snapshot@2"]);
 
     publish(feed.as_ref(), 3..=40);
-    assert_eq!(
-        conn.event_free(),
-        limits.event_budget_bytes(),
-        "a lagged lane holds no bytes"
-    );
+    assert_eq!(conn.event_free(), limits.event_budget_bytes(), "a lagged lane holds no bytes");
     assert_eq!(conn.drain_text(), ["a:snapshot@40"]);
     publish(feed.as_ref(), 41..=41);
     assert_eq!(conn.drain_text(), ["a:evt@41"]);
@@ -412,22 +315,13 @@ pub fn held_subscription_carries_on(make: &FeedFactory) {
     respond(&conn, attached, "resp");
     publish(feed.as_ref(), 3..=4);
     let epoch = epoch_of(feed.as_ref());
-    let resume = |epoch: &FeedEpoch, seq: u64, window: Window| ResumeFrom {
-        position: FeedPosition { epoch: epoch.clone(), seq },
-        window,
-    };
+    let resume = |epoch: &FeedEpoch, seq: u64, window: Window| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window };
     let fifty = Window::LastItems(50);
-    let carried = feed
-        .carries(&sub("a"), &fifty, &resume(&epoch, 2, fifty.clone()))
-        .expect("the held subscription carries on");
+    let carried = feed.carries(&sub("a"), &fifty, &resume(&epoch, 2, fifty.clone())).expect("the held subscription carries on");
     assert_eq!((carried.mode, carried.start_seq, carried.live_seq), (AttachMode::Replay, 3, 5));
     assert_eq!(carried.epoch, epoch);
     publish(feed.as_ref(), 5..=5);
-    assert_eq!(
-        conn.drain_text(),
-        ["control:resp", "a:snapshot@2", "a:evt@3", "a:evt@4", "a:evt@5"],
-        "each frame once"
-    );
+    assert_eq!(conn.drain_text(), ["control:resp", "a:snapshot@2", "a:evt@3", "a:evt@4", "a:evt@5"], "each frame once");
 
     let hundred = Window::LastItems(100);
     let other = FeedEpoch::from(format!("{epoch}x"));
@@ -482,11 +376,7 @@ pub fn concurrent_attach_is_gapless(make: &FeedFactory) {
     for (i, start_seq) in starts.into_iter().enumerate() {
         let mut expected = vec![format!("snapshot@{}", start_seq - 1)];
         expected.extend((start_seq..=LAST).map(|seq| format!("evt@{seq}")));
-        assert_eq!(
-            lane(&written, &format!("s{i}")),
-            expected,
-            "subscriber s{i}"
-        );
+        assert_eq!(lane(&written, &format!("s{i}")), expected, "subscriber s{i}");
     }
 }
 
@@ -497,8 +387,7 @@ pub type ScopedFeedsFactory = dyn Fn(MockLimits) -> Arc<dyn ScopedFeeds>;
 /// scoped scenarios.
 pub fn run_scoped(make: &ScopedFeedsFactory) {
     run_all(&|limits| {
-        let feed: Arc<dyn Feed> =
-            make(limits).create(FeedId::from("search:conformance"), Arc::new(EchoView));
+        let feed: Arc<dyn Feed> = make(limits).create(FeedId::from("search:conformance"), Arc::new(EchoView));
         feed
     });
     recreated_feed_snapshots(make);
@@ -507,17 +396,9 @@ pub fn run_scoped(make: &ScopedFeedsFactory) {
 }
 
 /// Subscribes to a scoped feed the way a subscribing method's `Reply::Subscribe` is served.
-fn scoped_attach(
-    feed: &Arc<dyn ScopedFeed>,
-    conn: &dyn ConnectionSink,
-    name: &str,
-    resume: Option<FeedPosition>,
-) -> Result<Attached, CoreError> {
+fn scoped_attach(feed: &Arc<dyn ScopedFeed>, conn: &dyn ConnectionSink, name: &str, resume: Option<FeedPosition>) -> Result<Attached, CoreError> {
     let source: Arc<dyn FeedSource> = feed.clone();
-    let resume_from = resume.map(|position| ResumeFrom {
-        position,
-        window: Window::Fixed,
-    });
+    let resume_from = resume.map(|position| ResumeFrom { position, window: Window::Fixed });
     subscribe(&source, sub(name), Window::Fixed, resume_from, conn)
 }
 
@@ -550,22 +431,15 @@ pub fn recreated_feed_snapshots(make: &ScopedFeedsFactory) {
 /// receives every frame.
 pub fn scoped_feeds_are_independent(make: &ScopedFeedsFactory) {
     let limits = small_limits();
-    let roomy = MockLimits {
-        queue_bytes: 1 << 20,
-        ..limits
-    };
+    let roomy = MockLimits { queue_bytes: 1 << 20, ..limits };
     let feeds = make(limits);
     let a = feeds.create(FeedId::from("search:a"), Arc::new(EchoView));
     let b = feeds.create(FeedId::from("search:b"), Arc::new(EchoView));
     let slow = MockConnection::new(ConnectionId(1), limits);
     let fast = Arc::new(MockConnection::new(ConnectionId(2), roomy));
     let probe = ProbeConnection::new(ConnectionId(3), roomy);
-    let subscriptions: [(&dyn ConnectionSink, &Arc<dyn ScopedFeed>, &str); 4] = [
-        (&slow, &a, "sa"),
-        (fast.as_ref(), &a, "fa"),
-        (fast.as_ref(), &b, "fb"),
-        (&probe, &a, "pa"),
-    ];
+    let subscriptions: [(&dyn ConnectionSink, &Arc<dyn ScopedFeed>, &str); 4] =
+        [(&slow, &a, "sa"), (fast.as_ref(), &a, "fa"), (fast.as_ref(), &b, "fb"), (&probe, &a, "pa")];
     for (conn, feed, name) in subscriptions {
         let attached = scoped_attach(feed, conn, name, None).expect("open feed attaches");
         respond(conn, attached, name);
@@ -581,17 +455,12 @@ pub fn scoped_feeds_are_independent(make: &ScopedFeedsFactory) {
         let late = late.clone();
         move || {
             publish(b.as_ref(), 1..=1);
-            let attached =
-                scoped_attach(&b, fast.as_ref(), "fb-late", None).expect("open feed attaches");
+            let attached = scoped_attach(&b, fast.as_ref(), "fb-late", None).expect("open feed attaches");
             *late.lock().unwrap_or_else(PoisonError::into_inner) = Some(attached);
         }
     });
     publish(a.as_ref(), 1..=40);
-    let attached = late
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take()
-        .expect("the probe ran inside a's publish");
+    let attached = late.lock().unwrap_or_else(PoisonError::into_inner).take().expect("the probe ran inside a's publish");
     respond(fast.as_ref(), attached, "resp-late");
 
     let all: Vec<String> = (1..=40).map(|seq| format!("evt@{seq}")).collect();
@@ -613,18 +482,11 @@ pub fn close_ends_every_subscription(make: &ScopedFeedsFactory) {
     let attached = scoped_attach(&feed, &conn, "a", None).expect("open feed attaches");
     respond(&conn, attached, "resp");
     publish(feed.as_ref(), 1..=1);
-    assert_eq!(
-        conn.drain_text(),
-        ["control:resp", "a:snapshot@0", "a:evt@1"]
-    );
+    assert_eq!(conn.drain_text(), ["control:resp", "a:snapshot@0", "a:evt@1"]);
 
     publish(feed.as_ref(), 2..=3);
     feed.close();
-    assert_eq!(
-        conn.event_free(),
-        limits.event_budget_bytes(),
-        "closed lanes hold no bytes"
-    );
+    assert_eq!(conn.event_free(), limits.event_budget_bytes(), "closed lanes hold no bytes");
     publish(feed.as_ref(), 4..=4);
     let error = scoped_attach(&feed, &conn, "b", None).expect_err("a closed feed registers nothing");
     assert_eq!(error, CoreError::ConnectionClosed);
@@ -644,10 +506,7 @@ struct ProbeConnection {
 
 impl ProbeConnection {
     fn new(id: ConnectionId, limits: MockLimits) -> Self {
-        Self {
-            inner: MockConnection::new(id, limits),
-            hook: Arc::new(Mutex::new(None)),
-        }
+        Self { inner: MockConnection::new(id, limits), hook: Arc::new(Mutex::new(None)) }
     }
 
     fn arm(&self, hook: impl FnOnce() + Send + 'static) {
@@ -668,16 +527,9 @@ impl ConnectionSink for ProbeConnection {
         self.inner.send_control_release(frame, release)
     }
 
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         let (inner, release) = self.inner.open_lane(sub, recovery)?;
-        let lane = ProbeLane {
-            inner,
-            hook: self.hook.clone(),
-        };
+        let lane = ProbeLane { inner, hook: self.hook.clone() };
         Ok((Arc::new(lane), release))
     }
 }
@@ -701,11 +553,7 @@ impl Lane for ProbeLane {
     }
 
     fn push(&self, reservation: Reservation, frame: Bytes) {
-        let hook = self
-            .hook
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let hook = self.hook.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(hook) = hook {
             hook();
         }

@@ -31,7 +31,16 @@ pub fn registration_id() -> String {
 /// The `ctx` of `abortAgentProgressWatchdog` for a stop judged at `now` on `snapshot` with `message`, armed at `anchor_ts`
 /// (the fields `mixdog_trace::watchdog_abort_records` reads).
 #[allow(clippy::too_many_arguments, reason = "Preserve the public watchdog-context API and its independent provenance, policy, timing and snapshot inputs")]
-pub fn stall_abort_ctx(session_id: &str, agent: Option<&str>, site: &StallSite, policy: &WatchdogPolicy, anchor_ts: i64, snapshot: &Snapshot, message: &str, now: i64) -> Map<String, Value> {
+pub fn stall_abort_ctx(
+    session_id: &str,
+    agent: Option<&str>,
+    site: &StallSite,
+    policy: &WatchdogPolicy,
+    anchor_ts: i64,
+    snapshot: &Snapshot,
+    message: &str,
+    now: i64,
+) -> Map<String, Value> {
     let mut ctx = Map::new();
     ctx.insert("sessionId".into(), json!(session_id));
     ctx.insert("agent".into(), json!(agent));
@@ -130,8 +139,8 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use mixdog_core_session::session::testing::eventually_on_awaiting;
     use mixdog_core_session::session::testing::HeldClock;
+    use mixdog_core_session::session::testing::eventually_on_awaiting;
 
     use super::*;
 
@@ -164,7 +173,6 @@ mod tests {
         fn seen(&self) -> u64 {
             self.seen.load(Ordering::SeqCst)
         }
-
     }
 
     /// Dropped with the sweep task's closure, which is when the task ends (it returns, panics or is aborted): wakes the waiter.
@@ -204,12 +212,16 @@ mod tests {
     /// Waits until `want` sweeps have run in all, after the clock was advanced by `by`; see `advance_until`.
     async fn reached(by: Duration, want: u64, sweeps: &Sweeps, dogs: &[(&Watchdog, &Cancel)]) {
         let wakes: [&tokio::sync::Notify; 1] = [&sweeps.woke];
-        eventually_on_awaiting(|| format!("{want} sweeps to have run after advancing {by:?} (the clock moves only by this advance)"), &wakes, || {
-            if let Some((dog, _)) = dogs.iter().find(|(dog, signal)| dog.0.is_finished() && !signal.is_aborted()) {
-                panic!("a sweep task ended without aborting its run, with {} of {want} sweeps seen (finished: {})", sweeps.seen(), dog.0.is_finished());
-            }
-            (sweeps.seen() >= want).then_some(())
-        })
+        eventually_on_awaiting(
+            || format!("{want} sweeps to have run after advancing {by:?} (the clock moves only by this advance)"),
+            &wakes,
+            || {
+                if let Some((dog, _)) = dogs.iter().find(|(dog, signal)| dog.0.is_finished() && !signal.is_aborted()) {
+                    panic!("a sweep task ended without aborting its run, with {} of {want} sweeps seen (finished: {})", sweeps.seen(), dog.0.is_finished());
+                }
+                (sweeps.seen() >= want).then_some(())
+            },
+        )
         .await;
     }
 
@@ -247,7 +259,13 @@ mod tests {
         let arm = |last: i64| {
             let (signal, reaped) = (Cancel::new(), reaped.clone());
             let clock = Arc::new(Virtual(tokio::time::Instant::now()));
-            let hook = { let (signal, reaped) = (signal.clone(), reaped.clone()); move |_: &Snapshot, _: &str, _: i64| { assert!(!signal.is_aborted(), "armed before the abort"); reaped.fetch_add(1, Ordering::SeqCst); } };
+            let hook = {
+                let (signal, reaped) = (signal.clone(), reaped.clone());
+                move |_: &Snapshot, _: &str, _: i64| {
+                    assert!(!signal.is_aborted(), "armed before the abort");
+                    reaped.fetch_add(1, Ordering::SeqCst);
+                }
+            };
             (Watchdog::arm(true, POLICY, signal.clone(), clock, counted(&sweeps, move |_| Some(streaming(last))), hook), signal)
         };
         let (live_dog, live) = arm(T0 + 3_600_000);

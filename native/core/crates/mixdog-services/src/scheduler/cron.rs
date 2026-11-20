@@ -460,12 +460,7 @@ pub struct BeatPlan {
 /// Port of node-cron's `planBeat`: walks from the expected slot; a slot more than the
 /// tolerance late (or at least a whole gap late) is missed, and the walk ends at the first
 /// slot still ahead or runnable.
-pub fn plan_beat(
-    expected: DateTime<Utc>,
-    now: DateTime<Utc>,
-    tolerance_ms: i64,
-    next_match: impl Fn(DateTime<Utc>) -> Option<DateTime<Utc>>,
-) -> BeatPlan {
+pub fn plan_beat(expected: DateTime<Utc>, now: DateTime<Utc>, tolerance_ms: i64, next_match: impl Fn(DateTime<Utc>) -> Option<DateTime<Utc>>) -> BeatPlan {
     let mut missed = Vec::new();
     let mut slot = expected;
     loop {
@@ -613,12 +608,38 @@ mod tests {
     /// Cases checked against node-cron 4.6.0's `validate` (valid = true).
     #[test]
     fn acceptance_follows_node_cron() {
-        for ok in ["0 9 * * FriL", "0 9 * * Monday#2", "0 9 * * 7L", "0 9 * * 7#1", "0 24-2 * * *", "0 9 ? * ?", "0 9 15w * *", "0 9 LW * *", "0 9 L-30 * *", "*/5 * * * * *", "0 9 * * 5-1"] {
+        for ok in [
+            "0 9 * * FriL",
+            "0 9 * * Monday#2",
+            "0 9 * * 7L",
+            "0 9 * * 7#1",
+            "0 24-2 * * *",
+            "0 9 ? * ?",
+            "0 9 15w * *",
+            "0 9 LW * *",
+            "0 9 L-30 * *",
+            "*/5 * * * * *",
+            "0 9 * * 5-1",
+        ] {
             assert!(CronExpr::parse(ok).is_ok(), "{ok}");
         }
         for bad in [
-            "0 9 L, * *", "0 9 * * 1#1,", "0 9 * * L", "0 9 * * 6#6", "0 9 * * 1#0", "0 9 L-31 * *", "0 9 0W * *", "0 9 5W/2 * *", "0 9 * * 5/2",
-            "0 99-2 * * *", "0 0 5-1 13 *", "0 0 31 2 *", "0 9 1,,2 * *", "0 25 * * *", "0\t9 * * *", "0 9 * * 9-1",
+            "0 9 L, * *",
+            "0 9 * * 1#1,",
+            "0 9 * * L",
+            "0 9 * * 6#6",
+            "0 9 * * 1#0",
+            "0 9 L-31 * *",
+            "0 9 0W * *",
+            "0 9 5W/2 * *",
+            "0 9 * * 5/2",
+            "0 99-2 * * *",
+            "0 0 5-1 13 *",
+            "0 0 31 2 *",
+            "0 9 1,,2 * *",
+            "0 25 * * *",
+            "0\t9 * * *",
+            "0 9 * * 9-1",
         ] {
             assert!(CronExpr::parse(bad).is_err(), "{bad}");
         }
@@ -665,6 +686,5 @@ mod tests {
         assert_eq!(c.next_after(utc("2025-01-01T00:00:00Z"), Tz::UTC), Some(utc("2028-02-29T00:00:00Z")));
     }
 }
-
 
 impl std::error::Error for CronError {}

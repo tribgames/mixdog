@@ -323,7 +323,8 @@ fn parse_duration_seconds(text: &str) -> i64 {
         if !digits(h) || !digits(m) || whole == 0 {
             continue;
         }
-        let seconds = h.parse::<f64>().unwrap_or(0.0) * 3600.0 + m.parse::<f64>().unwrap_or(0.0) * 60.0 + rest[..whole + fraction].parse::<f64>().unwrap_or(0.0);
+        let seconds =
+            h.parse::<f64>().unwrap_or(0.0) * 3600.0 + m.parse::<f64>().unwrap_or(0.0) * 60.0 + rest[..whole + fraction].parse::<f64>().unwrap_or(0.0);
         return if seconds.is_finite() { seconds.round() as i64 } else { 0 };
     }
     0
@@ -389,7 +390,12 @@ pub(super) mod tests {
         let host = Arc::new(Host { answer, calls: Mutex::new(Vec::new()), delay });
         let source = dir.path().join("a.png");
         std::fs::write(&source, b"source bytes").unwrap();
-        let renditions = StillRenditions::with_cooldown(Arc::new(ExtImageCodec::new(host.clone())), mixdog_rt::testing::tokens().durability_io, dir.path().join("renditions"), cooldown);
+        let renditions = StillRenditions::with_cooldown(
+            Arc::new(ExtImageCodec::new(host.clone())),
+            mixdog_rt::testing::tokens().durability_io,
+            dir.path().join("renditions"),
+            cooldown,
+        );
         (dir, host, renditions, source)
     }
 
@@ -407,7 +413,10 @@ pub(super) mod tests {
         assert_eq!(std::fs::read(&made.path).unwrap(), [1, 2, 3]);
         // The host was given the source file's bytes and the variant.
         let call = host.calls.lock().unwrap()[0].clone();
-        assert_eq!((call.method.as_str(), call.params["variant"].as_str(), call.params["data"].as_str()), ("image.still", Some("thumb"), Some("c291cmNlIGJ5dGVz")));
+        assert_eq!(
+            (call.method.as_str(), call.params["variant"].as_str(), call.params["data"].as_str()),
+            ("image.still", Some("thumb"), Some("c291cmNlIGJ5dGVz"))
+        );
         // The second ask is a cache hit: the host is not asked again, even with `generate` off.
         let again = renditions.ensure(&thread, "id-1", source, RenditionVariant::Thumb, false).await.unwrap();
         assert_eq!(again, Some(made));
@@ -601,13 +610,7 @@ pub(super) mod tests {
         let state = scheduler.0.state.lock().unwrap();
         assert_eq!((state.active, state.background_active), (0, 0));
     }
-
-
-
-
-
 }
-
 
 #[cfg(test)]
 mod poster_tests {
@@ -621,7 +624,6 @@ mod poster_tests {
         assert_eq!(parse_duration_seconds("no banner"), 0);
         assert_eq!(parse_duration_seconds("Duration: 00:00:"), 0);
     }
-
 
     #[test]
     fn the_poster_arguments_take_a_representative_early_tile_sized_frame() {
@@ -640,12 +642,19 @@ mod poster_tests {
             if enabled {
                 renditions.enable_video_posters(Processes::for_tests(), || Some(PathBuf::from("no-such-ffmpeg")));
             }
-            let request = Request { thread: ThreadId("t".into()), id: "v".into(), video: true, source: source.clone(), variant, priority: Priority::Foreground, generate: true };
+            let request = Request {
+                thread: ThreadId("t".into()),
+                id: "v".into(),
+                video: true,
+                source: source.clone(),
+                variant,
+                priority: Priority::Foreground,
+                generate: true,
+            };
             assert_eq!(renditions.ensure_request(request).await.unwrap(), None);
         }
     }
 }
-
 
 /// A rendition on disk: `{ path, mime, bytes }`.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -693,7 +702,8 @@ pub fn write_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str, ex
     let Some((_, mime)) = EXTENSION_MIME.iter().find(|(known, _)| *known == extension) else { return Ok(None) };
     let path = rendition_path(cache_dir, variant, id, extension);
     if let Err(error) = write_atomic(&path, bytes, false)
-        && !path.exists() {
+        && !path.exists()
+    {
         return Err(error);
     }
     let size = fs::metadata(&path).map_or(bytes.len() as u64, |m| m.len());
@@ -757,7 +767,15 @@ impl StillRenditions {
     }
 
     pub fn with_cooldown(codec: Arc<ExtImageCodec>, lane: DurabilityIo, cache_dir: PathBuf, cooldown: Duration) -> Self {
-        Self(Arc::new(Inner { codec, posters: OnceLock::new(), lane, cache_dir, cooldown, scheduler: Scheduler::new(SCHEDULER_LIMIT), state: Mutex::default() }))
+        Self(Arc::new(Inner {
+            codec,
+            posters: OnceLock::new(),
+            lane,
+            cache_dir,
+            cooldown,
+            scheduler: Scheduler::new(SCHEDULER_LIMIT),
+            state: Mutex::default(),
+        }))
     }
 
     /// Lets videos have a poster: `ffmpeg` answers where the ffmpeg binary is at the time (none while
@@ -776,7 +794,8 @@ impl StillRenditions {
 
     /// [`ensure_request`](Self::ensure_request) for a foreground still.
     pub async fn ensure(&self, thread: &ThreadId, id: &str, source: PathBuf, variant: RenditionVariant, generate: bool) -> Outcome {
-        self.ensure_request(Request { thread: thread.clone(), id: id.to_owned(), video: false, source, variant, priority: Priority::Foreground, generate }).await
+        self.ensure_request(Request { thread: thread.clone(), id: id.to_owned(), video: false, source, variant, priority: Priority::Foreground, generate })
+            .await
     }
 
     /// `ensureRendition`: the cached rendition, else (when `generate`, and not within the cooldown
@@ -834,7 +853,10 @@ impl Inner {
 /// The generation of one key, run under the scheduler; its answer goes to every waiter. A failure
 /// of the asset (no rendition, or the cache write) starts the cooldown; a host that could not
 /// answer says nothing about the asset, so it does not.
-#[allow(clippy::disallowed_methods, reason = "The existing rendition scheduler bounds this bridge; rustc cannot prove the poster lane future Send, and filesystem work still uses DurabilityIo")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "The existing rendition scheduler bounds this bridge; rustc cannot prove the poster lane future Send, and filesystem work still uses DurabilityIo"
+)]
 async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
     let permit = inner.scheduler.enqueue(request.priority).permit().await;
     // A video's poster takes owned values only (the future borrows nothing of `inner` or the request across an await).
@@ -844,7 +866,8 @@ async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
             Some((run, resolve)) => {
                 // Keep the existing bounded bridge: the poster's higher-ranked lane future cannot satisfy Send,
                 // even through an explicit boxed boundary. Its file operations remain separate durability-lane jobs.
-                let (runtime, lane, cache, variant, id, source) = (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
+                let (runtime, lane, cache, variant, id, source) =
+                    (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
                 let made = tokio::task::spawn_blocking(move || runtime.block_on(poster(run, resolve, lane, cache, variant, id, source)));
                 made.await.unwrap_or(Ok(None))
             }
@@ -907,7 +930,15 @@ fn poster_arguments(source: &Path, out: &Path) -> Vec<String> {
 /// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
 /// a frame over the cap is no rendition.
 #[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
-async fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
+async fn poster(
+    run: PosterRun,
+    resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>,
+    lane: DurabilityIo,
+    cache_root: PathBuf,
+    variant: RenditionVariant,
+    id: String,
+    source: PathBuf,
+) -> Outcome {
     if variant != RenditionVariant::Thumb {
         return Ok(None);
     }

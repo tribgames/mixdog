@@ -26,13 +26,13 @@ pub use record::build_row;
 pub use record::compact_meta_record;
 pub use record::truthy;
 pub use record::usage_record;
+pub use spool::Warning;
 #[cfg(feature = "flush-probe")]
 pub use spool::flush_probe;
-pub use spool::Warning;
-pub use tool::*;
-pub use watchdog::*;
 pub use text::slice_utf16;
 pub use text::stringify;
+pub use tool::*;
+pub use watchdog::*;
 
 use serde_json::Map;
 use serde_json::Value;
@@ -89,16 +89,7 @@ impl AgentTrace {
                     Kind::Trace,
                 )
             }),
-            failures: config.failure_path.as_ref().map(|path| {
-                Spool::new(
-                    path.clone(),
-                    50,
-                    config.rotate_keep,
-                    config.rotate_check_ms,
-                    true,
-                    Kind::Failures,
-                )
-            }),
+            failures: config.failure_path.as_ref().map(|path| Spool::new(path.clone(), 50, config.rotate_keep, config.rotate_check_ms, true, Kind::Failures)),
         }
     }
 
@@ -180,8 +171,7 @@ impl AgentTrace {
 
     /// Whether either spool has reached its line count or age.
     pub fn due(&self, now_ms: i64) -> bool {
-        self.local.as_ref().is_some_and(|s| s.due(now_ms))
-            || self.failures.as_ref().is_some_and(|s| s.due(now_ms))
+        self.local.as_ref().is_some_and(|s| s.due(now_ms)) || self.failures.as_ref().is_some_and(|s| s.due(now_ms))
     }
 
     /// Writes what both spools hold (Node's flush, `drainAgentTrace` and the exit hook). The

@@ -27,14 +27,8 @@ use serde_json::{Map, Value, json};
 use crate::agents::{AgentConnectors, AgentPermissions, AgentsError, NO_WIDEN, TOOL_ALREADY, TOOL_NARROWED};
 
 /// The action names this owner serves.
-pub const ACTIONS: &[&str] = &[
-    "read_agent_settings",
-    "read_project_connectors",
-    "set_agent_permission",
-    "set_agent_connector",
-    "set_agent_connector_tool",
-    "set_project_connector",
-];
+pub const ACTIONS: &[&str] =
+    &["read_agent_settings", "read_project_connectors", "set_agent_permission", "set_agent_connector", "set_agent_connector_tool", "set_project_connector"];
 
 /// A project's connector switches (`getProjectConnectors` / `setProjectConnectorEnabled`).
 #[async_trait]
@@ -163,7 +157,13 @@ impl GateWidenCards {
         match resolution {
             ApprovalResolution::Decided { decision, device, .. } => {
                 let response = decision.response.and_then(|response| serde_json::to_value(response).ok()).and_then(|name| name.as_str().map(str::to_owned));
-                CardOutcome::Settled(Some(CardAnswer { approved: decision.approved, scope: decision.scope, timed_out: false, response, device: Some(device).filter(|device| !device.is_empty()) }))
+                CardOutcome::Settled(Some(CardAnswer {
+                    approved: decision.approved,
+                    scope: decision.scope,
+                    timed_out: false,
+                    response,
+                    device: Some(device).filter(|device| !device.is_empty()),
+                }))
             }
             ApprovalResolution::TimedOut { .. } => CardOutcome::Settled(Some(CardAnswer { timed_out: true, ..CardAnswer::default() })),
             // The session has no approval surface: nobody was asked.
@@ -278,7 +278,9 @@ impl AgentSettingsSetup {
         let CardOutcome::Settled(answer) = self.cards.ask(call.thread, &card).await else { return Err(failed(NO_WIDEN)) };
         let decision = match &answer {
             Some(answer) if answer.timed_out => "timeout".to_owned(),
-            Some(answer) => answer.response.clone().filter(|response| !response.is_empty()).unwrap_or_else(|| if answer.approved { "approve" } else { "deny" }.to_owned()),
+            Some(answer) => {
+                answer.response.clone().filter(|response| !response.is_empty()).unwrap_or_else(|| if answer.approved { "approve" } else { "deny" }.to_owned())
+            }
             None => "deny".to_owned(),
         };
         // Only a card's own answer makes an approval, and the write spends it.
@@ -317,7 +319,8 @@ impl AgentSettingsSetup {
         }
         receipt.insert("permission".into(), now.name().into());
         let Some(level) = picked else {
-            let why = if answer.as_ref().is_some_and(|answer| answer.timed_out) { "The approval card timed out" } else { "The user did not approve this change" };
+            let why =
+                if answer.as_ref().is_some_and(|answer| answer.timed_out) { "The approval card timed out" } else { "The user did not approve this change" };
             receipt.insert("saved".into(), false.into());
             receipt.insert("approved".into(), false.into());
             receipt.insert("note".into(), format!("{why}; nothing changed.").into());
@@ -374,7 +377,12 @@ impl SetupActions for AgentSettingsSetup {
                 let agent = require_text(args, "agent", "agent")?;
                 let permissions = self
                     .permissions
-                    .set(&Value::String(agent.clone()), args.get("actionKind").unwrap_or(&Value::Null), args.get("permissionMode").unwrap_or(&Value::Null), true)
+                    .set(
+                        &Value::String(agent.clone()),
+                        args.get("actionKind").unwrap_or(&Value::Null),
+                        args.get("permissionMode").unwrap_or(&Value::Null),
+                        true,
+                    )
                     .await
                     .map_err(refused)?;
                 Ok(json!({ "agent": agent, "permissions": permissions }))
@@ -382,11 +390,8 @@ impl SetupActions for AgentSettingsSetup {
             "set_agent_connector" => {
                 let agent = require_text(args, "agent", "agent")?;
                 let name = require_text(args, "name", "name")?;
-                let connectors = self
-                    .connectors
-                    .set_enabled(&agent, &Value::String(name), args.get("enabled").unwrap_or(&Value::Null), true)
-                    .await
-                    .map_err(refused)?;
+                let connectors =
+                    self.connectors.set_enabled(&agent, &Value::String(name), args.get("enabled").unwrap_or(&Value::Null), true).await.map_err(refused)?;
                 Ok(json!({ "agent": agent, "connectors": connectors }))
             }
             "set_agent_connector_tool" => self.set_agent_connector_tool(call).await,

@@ -34,17 +34,9 @@ impl Dialer for WsDialer {
         }
         let mut request = self.url.as_str().into_client_request().map_err(|_| DialError)?;
         let headers = request.headers_mut();
-        headers.insert(
-            "Authorization",
-            HeaderValue::from_str(&format!("Bearer {}", self.token)).map_err(|_| DialError)?,
-        );
-        headers.insert(
-            RELAY_PEER_HEADER,
-            HeaderValue::from_str(peer_id).map_err(|_| DialError)?,
-        );
-        let (socket, _) = crate::dial::connect(request, None)
-            .await
-            .map_err(|_| DialError)?;
+        headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", self.token)).map_err(|_| DialError)?);
+        headers.insert(RELAY_PEER_HEADER, HeaderValue::from_str(peer_id).map_err(|_| DialError)?);
+        let (socket, _) = crate::dial::connect(request, None).await.map_err(|_| DialError)?;
         Ok(Box::new(WsUpstream { socket }))
     }
 }

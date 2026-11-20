@@ -86,27 +86,21 @@ async fn idle_run(idle: Duration) {
     service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();
     let conn = MockConnection::new(ConnectionId(1), limits);
 
-    let Reply::Subscribe(watch) = service
-        .call(request("fs/watch", json!({ "watchId": "w", "path": root.to_string_lossy(), "recursive": true })))
-        .await
-        .unwrap()
+    let Reply::Subscribe(watch) =
+        service.call(request("fs/watch", json!({ "watchId": "w", "path": root.to_string_lossy(), "recursive": true }))).await.unwrap()
     else {
         panic!("fs/watch subscribes")
     };
     let attached = subscribe(&watch.feed, SubscriptionId::from("s-fs"), watch.window, None, &conn).unwrap();
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-    let Reply::Subscribe(search) =
-        service.call(request("search/start", json!({ "sessionId": "q", "roots": [root.to_string_lossy()] }))).await.unwrap()
-    else {
+    let Reply::Subscribe(search) = service.call(request("search/start", json!({ "sessionId": "q", "roots": [root.to_string_lossy()] }))).await.unwrap() else {
         panic!("search/start subscribes")
     };
     let attached = subscribe(&search.feed, SubscriptionId::from("s-search"), search.window, None, &conn).unwrap();
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
     service.call(request("search/update", json!({ "sessionId": "q", "query": "main" }))).await.unwrap();
-    let Reply::Value(opened) = service
-        .call(request("transfer/beginRead", json!({ "source": { "kind": "file", "root": root.to_string_lossy(), "rel": "big.bin" } })))
-        .await
-        .unwrap()
+    let Reply::Value(opened) =
+        service.call(request("transfer/beginRead", json!({ "source": { "kind": "file", "root": root.to_string_lossy(), "rel": "big.bin" } }))).await.unwrap()
     else {
         panic!()
     };

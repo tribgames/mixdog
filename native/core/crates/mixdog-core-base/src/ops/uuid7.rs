@@ -20,10 +20,7 @@ pub(super) fn op_time_ms(id: &OpId, path: &str) -> Result<u64, CoreError> {
             _ => hex(b),
         });
     if !well_formed {
-        return Err(CoreError::InvalidParams {
-            path: path.into(),
-            expected: "a lowercase UUIDv7".into(),
-        });
+        return Err(CoreError::InvalidParams { path: path.into(), expected: "a lowercase UUIDv7".into() });
     }
     let digits = text[..8].iter().chain(&text[9..13]);
     Ok(digits.fold(0u64, |ms, &b| {
@@ -37,10 +34,5 @@ pub(super) fn op_time_ms(id: &OpId, path: &str) -> Result<u64, CoreError> {
 
 /// The watermark as the wire shows it: the smallest UUIDv7 of millisecond `ms`.
 pub(super) fn watermark_text(ms: u64) -> Arc<str> {
-    format!(
-        "{:08x}-{:04x}-7000-8000-000000000000",
-        ms >> 16,
-        ms & 0xffff
-    )
-    .into()
+    format!("{:08x}-{:04x}-7000-8000-000000000000", ms >> 16, ms & 0xffff).into()
 }

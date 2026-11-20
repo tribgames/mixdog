@@ -258,7 +258,12 @@ impl VisualizePanes {
     /// `visualizePaneInline`: the inline content of pane `index` (`kind`, `source`, `title` when it has one).
     pub fn inline(&self, session: &str, tab_id: &str, index: usize) -> Result<Value, String> {
         let tab = self.tab(session, tab_id)?;
-        let inline = tab.get("panes").and_then(Value::as_array).and_then(|panes| panes.get(index)).and_then(|pane| pane.get("inline")).filter(|inline| !inline.is_null());
+        let inline = tab
+            .get("panes")
+            .and_then(Value::as_array)
+            .and_then(|panes| panes.get(index))
+            .and_then(|pane| pane.get("inline"))
+            .filter(|inline| !inline.is_null());
         let Some(inline) = inline else { return Err("This visualize pane has no inline content.".to_owned()) };
         let mut answer = json!({ "kind": inline.get("kind").cloned().unwrap_or(Value::Null), "source": inline.get("source").cloned().unwrap_or(Value::Null) });
         if let Some(title) = text(inline, "title").filter(|title| !title.is_empty()) {

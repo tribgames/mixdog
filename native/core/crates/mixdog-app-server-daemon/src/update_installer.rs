@@ -101,7 +101,14 @@ impl StagedInstaller {
 
     /// `npm install mixdog@<version> --prefix <prefix>`; its exit code, `-1` when it did not run
     /// or ended by a signal.
-    async fn npm_install(&self, npm: &blocking::NpmCommand, version: &str, prefix: &Path, proxy_env: &[(&'static str, String)], cancel: &CancellationToken) -> i32 {
+    async fn npm_install(
+        &self,
+        npm: &blocking::NpmCommand,
+        version: &str,
+        prefix: &Path,
+        proxy_env: &[(&'static str, String)],
+        cancel: &CancellationToken,
+    ) -> i32 {
         let args: Vec<String> = [
             "install".to_owned(),
             format!("{}@{version}", blocking::PACKAGE_NAME),
@@ -177,14 +184,11 @@ impl UpdateInstaller for StagedInstaller {
         };
         // The lock is released whatever happened above.
         let lock_dir = verdir;
-        mixdog_core_base::support::on_lane(self.lane, &cancel, move |lane| blocking::release(lane, &lock_dir))
-            .await
-            .map_err(|error| error.to_string())?;
+        mixdog_core_base::support::on_lane(self.lane, &cancel, move |lane| blocking::release(lane, &lock_dir)).await.map_err(|error| error.to_string())?;
         outcome?;
         Ok(None)
     }
 }
-
 
 impl StagedInstaller {
     /// The install proper, with the lock held: npm into a private prefix, relocate, verify, mark.
@@ -241,10 +245,8 @@ mod tests {
             } else {
                 Vec::new()
             };
-            let version = version.map_or_else(
-                || "for /f \"tokens=2 delims=@\" %%v in (\"%SPEC%\") do set \"V=%%v\"".to_owned(),
-                |version| format!("set \"V={version}\""),
-            );
+            let version = version
+                .map_or_else(|| "for /f \"tokens=2 delims=@\" %%v in (\"%SPEC%\") do set \"V=%%v\"".to_owned(), |version| format!("set \"V={version}\""));
             let mut lines: Vec<String> = [
                 "@echo off",
                 "if \"%1\"==\"config\" (echo https://registry.example.test/& exit /b 0)",
@@ -310,12 +312,16 @@ mod tests {
 
     async fn present(path: &Path) -> bool {
         let path = path.to_owned();
-        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &path).is_ok()).await.unwrap()
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &path).is_ok())
+            .await
+            .unwrap()
     }
 
     async fn dev(path: &Path) -> bool {
         let path = path.to_owned();
-        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| StagedInstaller::probe_dev_install(lane, &path)).await.unwrap()
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| StagedInstaller::probe_dev_install(lane, &path))
+            .await
+            .unwrap()
     }
 
     async fn mkdir(path: &Path) {
@@ -417,7 +423,11 @@ mod tests {
         // A package that has the platform package of another host only is as incomplete.
         let pkg = ver_dir.join("mixdog");
         let (check_pkg, other) = (pkg.clone(), vec!["other-arch".to_owned()]);
-        let complete = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| blocking::package_complete_for(lane, &check_pkg, &other)).await.unwrap();
+        let complete = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
+            blocking::package_complete_for(lane, &check_pkg, &other)
+        })
+        .await
+        .unwrap();
         assert!(!complete);
         // The same install with its platform package is complete, and only for the keys that name it.
         let with = tempfile::tempdir().unwrap();
@@ -426,8 +436,14 @@ mod tests {
         let pkg = config.data_dir.join("staging").join("9.9.9").join("mixdog");
         let keys = blocking::host_keys();
         let (a, b) = (pkg.clone(), pkg);
-        let host = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| blocking::package_complete_for(lane, &a, &keys)).await.unwrap();
-        let elsewhere = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| blocking::package_complete_for(lane, &b, &["other-arch".to_owned()])).await.unwrap();
+        let host = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| blocking::package_complete_for(lane, &a, &keys))
+            .await
+            .unwrap();
+        let elsewhere = on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
+            blocking::package_complete_for(lane, &b, &["other-arch".to_owned()])
+        })
+        .await
+        .unwrap();
         assert!(host && !elsewhere);
     }
 
@@ -474,9 +490,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
         let _npm = fake_npm(dir.path()).await;
-        let installer = installer(config.clone())
-            .for_packaged_desktop(true)
-            .with_npm_env(blocking::NpmEnv { exec_path: None, path: dir.path().as_os_str().to_owned() });
+        let installer =
+            installer(config.clone()).for_packaged_desktop(true).with_npm_env(blocking::NpmEnv { exec_path: None, path: dir.path().as_os_str().to_owned() });
         assert!(installer.managed_by_desktop());
         assert_eq!(installer.stage("9.9.9").await.unwrap_err(), mixdog_core_domains::domains::update::MANAGED_BY_DESKTOP);
         assert!(!present(&config.data_dir.join("staging")).await, "no staging folder is made");
@@ -507,14 +522,10 @@ mod tests {
         put(&explicit, "").await;
         let mut supplied = env();
         supplied.exec_path = Some(explicit.clone());
-        assert_eq!(resolved(supplied).await, Some(blocking::NpmCommand {
-            program: node.clone(), lead: vec![explicit.to_string_lossy().into_owned()],
-        }));
+        assert_eq!(resolved(supplied).await, Some(blocking::NpmCommand { program: node.clone(), lead: vec![explicit.to_string_lossy().into_owned()] }));
         let mut missing = env();
         missing.exec_path = Some(dir.path().join("missing/npm-cli.js"));
-        assert_eq!(resolved(missing).await, Some(blocking::NpmCommand {
-            program: node, lead: vec![adjacent.to_string_lossy().into_owned()],
-        }));
+        assert_eq!(resolved(missing).await, Some(blocking::NpmCommand { program: node, lead: vec![adjacent.to_string_lossy().into_owned()] }));
     }
 
     /// With only a `node` on `PATH`, npm's `npm-cli.js` beside it is run by that node.
@@ -750,7 +761,10 @@ pub(crate) mod blocking {
                 let Some(bin) = real.parent() else { continue };
                 let npm = bin.parent();
                 let modules = npm.and_then(Path::parent);
-                if names(bin).as_deref() != Some("bin") || npm.and_then(names).as_deref() != Some("npm") || modules.and_then(names).as_deref() != Some("node_modules") {
+                if names(bin).as_deref() != Some("bin")
+                    || npm.and_then(names).as_deref() != Some("npm")
+                    || modules.and_then(names).as_deref() != Some("node_modules")
+                {
                     continue;
                 }
                 let cli = bin.join("npm-cli.js");
@@ -819,10 +833,8 @@ pub(crate) mod blocking {
         let installed_pkg = installed_modules.join(PACKAGE_NAME);
         let package_json = installed_pkg.join("package.json");
         let bytes = mixdog_statefile::read_content(&package_json).ok().flatten().ok_or_else(|| "staged package.json missing".to_owned())?;
-        let staged_version = serde_json::from_slice::<serde_json::Value>(&bytes)
-            .ok()
-            .and_then(|value| value["version"].as_str().map(str::to_owned))
-            .unwrap_or_default();
+        let staged_version =
+            serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|value| value["version"].as_str().map(str::to_owned)).unwrap_or_default();
         if staged_version != version {
             let shown = if staged_version.is_empty() { "?" } else { staged_version.as_str() };
             return Err(format!("staged version {shown} != {version}"));
@@ -834,7 +846,10 @@ pub(crate) mod blocking {
         rm(&prefix);
         // The marker is the swap's permission to replace a working install: never for a package that cannot run on this host.
         if !package_complete(lane, &pkg_dir) {
-            return Err(format!("staged package is incomplete: no launcher, or no program in {}", host_keys().iter().map(|key| format!("mixdog-{key}")).collect::<Vec<_>>().join(" or ")));
+            return Err(format!(
+                "staged package is incomplete: no launcher, or no program in {}",
+                host_keys().iter().map(|key| format!("mixdog-{key}")).collect::<Vec<_>>().join(" or ")
+            ));
         }
         // Written last: its presence is the completion signal for the swap.
         let value = json!({ "version": version, "pkgDir": pkg_dir.to_string_lossy(), "stagedAt": u64::try_from(now_ms()).unwrap_or(0) });

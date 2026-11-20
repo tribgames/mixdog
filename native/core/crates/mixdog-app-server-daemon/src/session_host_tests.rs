@@ -41,7 +41,6 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-
 /// A session of 300 assistant rows `c0`..`c299`, each `row <id> ` fifty
 /// times, stored as the thread's conversation.
 async fn paged_session(directory: &SessionDirectory, extra: &[&str]) {
@@ -49,8 +48,13 @@ async fn paged_session(directory: &SessionDirectory, extra: &[&str]) {
     directory.create_with_id(id.clone(), Header::new(), json!({})).await.expect("created");
     let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     let text = |row: &str| format!("row {row} ").repeat(50);
-    let messages: Vec<Value> = (0..300).map(|n| format!("c{n}")).chain(extra.iter().map(|row| (*row).to_owned())).map(|row| json!({ "role": "assistant", "content": text(&row) })).collect();
-    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
+    let messages: Vec<Value> = (0..300)
+        .map(|n| format!("c{n}"))
+        .chain(extra.iter().map(|row| (*row).to_owned()))
+        .map(|row| json!({ "role": "assistant", "content": text(&row) }))
+        .collect();
+    let append =
+        CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
     handle.request(append).await.expect("the conversation is stored");
 }
 
@@ -85,7 +89,6 @@ async fn counted_paged_directory(extra: &[&str]) -> (tempfile::TempDir, Arc<Sess
     (dir, directory, store)
 }
 
-
 struct NoEvidence;
 
 #[async_trait]
@@ -105,8 +108,17 @@ impl AgentEvidence for NoEvidence {
 async fn run_seams(dir: &std::path::Path) -> Arc<ConfigRunSeams> {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(dir.join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
-    let agents = AgentDefinitions::new(dir, dir, tokens.interactive_io, AgentRoutes::new(config.clone(), dir), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.join("workspace"));
+    let (config, _) =
+        Config::open(dir.join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+    let agents = AgentDefinitions::new(
+        dir,
+        dir,
+        tokens.interactive_io,
+        AgentRoutes::new(config.clone(), dir),
+        Arc::new(NoEvidence),
+        Arc::new(|| Value::Null),
+        dir.join("workspace"),
+    );
     Arc::new(ConfigRunSeams::new(config, Arc::new(agents), dir.to_path_buf(), dir.to_path_buf(), Arc::new(|_| None)))
 }
 
@@ -196,7 +208,8 @@ async fn stored_session(directory: &SessionDirectory, session: &Value) {
     let rows: Vec<Value> = session["messages"].as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect();
     if !rows.is_empty() {
         let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-        let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": rows }), op: None, ctx: CallContext::internal("test") };
+        let append =
+            CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": rows }), op: None, ctx: CallContext::internal("test") };
         handle.request(append).await.expect("the conversation is stored");
     }
 }
@@ -311,7 +324,8 @@ async fn a_session_that_grew_between_reads_answers_the_window_in_full_with_the_n
     let (_, _) = page(&directory, 32, None).await;
     let handle = directory.open_handle(&ThreadId::from("sess_page_host"), &CallContext::internal("test")).await.expect("open");
     let messages = vec![json!({ "role": "assistant", "content": "row n0 ".repeat(50) }), json!({ "role": "assistant", "content": "row n1 ".repeat(50) })];
-    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
+    let append =
+        CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
     handle.request(append).await.expect("the rows are stored");
     let (window, answer) = page(&directory, 96, None).await;
     let mut want = labels(206..300);
@@ -362,7 +376,11 @@ async fn a_thread_inherits_a_conversation_into_an_existing_one_and_keeps_it_afte
     assert_eq!(pairs(&model_messages(&directory, "heir").await), pairs(&messages), "the heir holds the source's conversation");
     let live = rows(&directory, "heir", None).await;
     let boundary = live.last().expect("rows");
-    assert_eq!((boundary["kind"].clone(), boundary["label"].clone()), (json!("statusdone"), json!("Session inherited")), "the inheritance is shown as a boundary row last");
+    assert_eq!(
+        (boundary["kind"].clone(), boundary["label"].clone()),
+        (json!("statusdone"), json!("Session inherited")),
+        "the inheritance is shown as a boundary row last"
+    );
     assert_eq!(texts_of_kind(&live), ["Continue my work.", "Previous answer."]);
     let reopened = inheriting_directory(&rig, store, seams).await;
     assert_eq!(rows(&reopened, "heir", None).await, live, "a restarted core shows the same rows");
@@ -386,7 +404,10 @@ async fn a_conversation_the_heir_cannot_hold_is_refused_and_leaves_the_heir_empt
     let refused = call(&directory, "thread/fork", json!({ "threadId": "source", "intoThreadId": "heir", "opId": "op-inherit" })).await;
     let Err(CoreError::DomainError { message, .. }) = refused else { panic!("the inheritance is refused: {refused:?}") };
     let message = message.map(|m| m.to_string()).unwrap_or_default();
-    assert!(message.starts_with("inheritFrom: the full conversation needs ") && message.ends_with(" tokens but openai/small allows 1000 before compaction"), "{message}");
+    assert!(
+        message.starts_with("inheritFrom: the full conversation needs ") && message.ends_with(" tokens but openai/small allows 1000 before compaction"),
+        "{message}"
+    );
     assert_eq!(model_messages(&directory, "heir").await, json!([]), "the heir holds no message");
     assert!(rows(&directory, "heir", None).await.is_empty(), "and shows no row");
     let stored = directory.stored_header(&ThreadId::from("heir")).await.expect("the heir");

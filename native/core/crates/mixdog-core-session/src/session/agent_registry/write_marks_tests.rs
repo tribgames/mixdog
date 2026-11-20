@@ -4,9 +4,9 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_ports::ports::threads::ThreadState;
-use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Map;
 use serde_json::Value;
@@ -47,7 +47,13 @@ impl ThreadState for GatedHeaders {
         }
         Ok(())
     }
-    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+    async fn patch_header_if(
+        &self,
+        _: &ThreadId,
+        _: Map<String, Value>,
+        _: Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
         Ok(None)
     }
     async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
@@ -66,7 +72,8 @@ async fn workers(headers: Arc<impl ThreadState + 'static>) -> (tempfile::TempDir
     .await
     .expect("job ran")
     .expect("index");
-    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).expect("core state");
+    let (state, _) =
+        mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).expect("core state");
     (dir, StoreWorkers::new(index, headers, tokens.interactive_io, Arc::new(super::KeptRows::new(state))))
 }
 
@@ -92,13 +99,6 @@ async fn the_barrier_waits_for_the_writes_before_it_and_not_the_later_ones() {
     assert_eq!(workers.marks().committed(), mark, "the later write was still open when the barrier answered");
 }
 
-
-
-
-
-
-
-
 #[tokio::test(start_paused = true)]
 async fn a_failed_write_before_the_barrier_is_its_error() {
     let (_dir, workers) = workers(Arc::new(GatedHeaders::default())).await;
@@ -107,5 +107,3 @@ async fn a_failed_write_before_the_barrier_is_its_error() {
     let error = answer.expect_err("the failed patch is the barrier's error");
     assert!(error.starts_with("the agent index: write 1, accepted before the barrier, failed: the worker row of bad"), "{error}");
 }
-
-

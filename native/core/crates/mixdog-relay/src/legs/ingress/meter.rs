@@ -130,8 +130,7 @@ impl WireMeter {
             }
             short => (u64::from(short), 2),
         };
-        self.mask =
-            (header[1] & 0x80 == 0x80).then(|| [header[cursor], header[cursor + 1], header[cursor + 2], header[cursor + 3]]);
+        self.mask = (header[1] & 0x80 == 0x80).then(|| [header[cursor], header[cursor + 1], header[cursor + 2], header[cursor + 3]]);
         self.control = opcode >= 0x8;
         self.fin = header[0] & 0x80 == 0x80;
         self.payload_remaining = length;

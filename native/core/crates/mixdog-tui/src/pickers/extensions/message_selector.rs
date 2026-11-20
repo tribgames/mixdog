@@ -80,13 +80,8 @@ pub fn open_message_selector(host: &mut dyn ExtensionsHost) -> bool {
     }
     let mut own = claim(host);
     let items = rows.iter().map(|row| ExtItem::new(&row.id, &message_selector_label(&row.text, LABEL_WIDTH), "", Action::Noop)).collect();
-    let mut panel = ExtPanel::new(
-        "Jump back to a message",
-        "Rewind the conversation to a previous prompt and edit it.",
-        items,
-        Handler::MessageSelector,
-    )
-    .with_kind("message-selector");
+    let mut panel = ExtPanel::new("Jump back to a message", "Rewind the conversation to a previous prompt and edit it.", items, Handler::MessageSelector)
+        .with_kind("message-selector");
     panel.initial_index = rows.len() - 1;
     host.paint(&mut own, Some(panel));
     true

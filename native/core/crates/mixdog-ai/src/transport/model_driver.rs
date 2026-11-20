@@ -204,7 +204,10 @@ impl ModelDriver {
         };
         attempt.head_received();
         let handle = attempt.handle.clone();
-        Ok((HttpResponse { body: Box::new(DrivenBody { inner: response.body, attempt, expiry: None, failure: OnceLock::new(), done: false }), ..response }, handle))
+        Ok((
+            HttpResponse { body: Box::new(DrivenBody { inner: response.body, attempt, expiry: None, failure: OnceLock::new(), done: false }), ..response },
+            handle,
+        ))
     }
 }
 

@@ -188,12 +188,7 @@ fn report_damaged(path: &Path, reason: &str, outcome: &str) {
 /// meanwhile is kept. `keep_without_backup` leaves a damaged file in place when there is no
 /// good copy: for a file other readers treat "missing" as permissive (a deny list), moving it
 /// would fail open. `restore_backup` false never restores `.bak`.
-fn recover<P: WriteProof>(
-    lane: &P,
-    path: &Path,
-    validate: Option<Validate>,
-    opts: &Opts,
-) -> io::Result<Option<Value>> {
+fn recover<P: WriteProof>(lane: &P, path: &Path, validate: Option<Validate>, opts: &Opts) -> io::Result<Option<Value>> {
     let reason = match parse(read_or_null(lane, path)?, validate) {
         Parsed::Ok { value, .. } => return Ok(Some(value)),
         Parsed::Absent | Parsed::Unsupported => return Ok(None),
@@ -233,12 +228,7 @@ pub fn peek<P: ReadProof>(lane: &P, path: &Path, validate: Option<Validate>) -> 
 /// missing, a newer build's, or damaged with no good backup. A damaged file is recovered under
 /// its lock; while another holder keeps the lock for the whole wait the file is left in place.
 /// Other failures, an unreadable file among them, are errors.
-pub fn read_json<P: WriteProof>(
-    lane: &P,
-    path: &Path,
-    validate: Option<Validate>,
-    opts: &Opts,
-) -> io::Result<Option<Value>> {
+pub fn read_json<P: WriteProof>(lane: &P, path: &Path, validate: Option<Validate>, opts: &Opts) -> io::Result<Option<Value>> {
     let reason = match parse(read_or_null(lane, path)?, validate) {
         Parsed::Ok { value, .. } => return Ok(Some(value)),
         Parsed::Absent | Parsed::Unsupported => return Ok(None),
@@ -255,35 +245,24 @@ pub fn read_json<P: WriteProof>(
 }
 
 /// `writeFileAtomicSync`. Create-only answers [`Published::Exists`] when the target exists.
-pub fn write_file<P: WriteProof>(
-    lane: &P,
-    path: &Path,
-    data: &[u8],
-    opts: &Opts,
-) -> Result<Published, StateError> {
+pub fn write_file<P: WriteProof>(lane: &P, path: &Path, data: &[u8], opts: &Opts) -> Result<Published, StateError> {
     write_file_stepped(lane, path, data, opts).map_err(|failure| StateError::Io(failure.error))
 }
 
 /// [`write_file`] that names the call that failed, for a caller that words the error as Node
 /// does (`<errno>: <description>, rename '<from>' -> '<to>'`). A lock that stays busy is a
 /// failure at no particular step.
-pub fn write_file_stepped<P: WriteProof>(
-    lane: &P,
-    path: &Path,
-    data: &[u8],
-    opts: &Opts,
-) -> Result<Published, PublishFailure> {
+pub fn write_file_stepped<P: WriteProof>(lane: &P, path: &Path, data: &[u8], opts: &Opts) -> Result<Published, PublishFailure> {
     if !opts.lock {
         return publish(lane, path, data, opts);
     }
-    locked(lane, &lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts))
-        .map_err(|error| PublishFailure {
-            step: Step::Other,
-            error: match error {
-                LockError::Io(error) => error,
-                busy => io::Error::new(io::ErrorKind::TimedOut, busy.to_string()),
-            },
-        })?
+    locked(lane, &lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts)).map_err(|error| PublishFailure {
+        step: Step::Other,
+        error: match error {
+            LockError::Io(error) => error,
+            busy => io::Error::new(io::ErrorKind::TimedOut, busy.to_string()),
+        },
+    })?
 }
 
 /// `JSON.stringify(value, null, 2)` and a newline (compact: no indentation), written as a parsed
@@ -304,12 +283,7 @@ fn publish_json<P: WriteProof>(lane: &P, path: &Path, value: &Value, opts: &Opts
 }
 
 /// `writeJsonAtomicSync`: `JSON.stringify(value, null, 2)` and a newline.
-pub fn write_json<P: WriteProof>(
-    lane: &P,
-    path: &Path,
-    value: &Value,
-    opts: &Opts,
-) -> Result<Published, StateError> {
+pub fn write_json<P: WriteProof>(lane: &P, path: &Path, value: &Value, opts: &Opts) -> Result<Published, StateError> {
     if opts.lock {
         return Ok(locked(lane, &lock_path(path), &opts.lock_opts(), || publish_json(lane, path, value, opts))??);
     }
@@ -351,11 +325,6 @@ pub fn rename_with_retry<P: WriteProof>(lane: &P, src: &Path, dst: &Path) -> io:
 }
 
 /// `withFileLockSync` over `<file>.lock`.
-pub fn with_lock<P: WriteProof, R>(
-    lane: &P,
-    path: &Path,
-    opts: &LockOpts,
-    body: impl FnOnce() -> R,
-) -> Result<R, LockError> {
+pub fn with_lock<P: WriteProof, R>(lane: &P, path: &Path, opts: &LockOpts, body: impl FnOnce() -> R) -> Result<R, LockError> {
     locked(lane, &lock_path(path), opts, body)
 }

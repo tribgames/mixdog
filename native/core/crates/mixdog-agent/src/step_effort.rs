@@ -151,11 +151,7 @@ impl Run {
     /// Records `result` on the tool result `target` and, for a custom route,
     /// as the per-request effort; false when `target` is not in the transcript.
     fn apply_result(&mut self, target: &str, result: &StepResult) -> bool {
-        let Some(index) = self
-            .messages
-            .iter()
-            .position(|m| m.role() == Role::Tool && m.tool_call_id() == Some(target))
-        else {
+        let Some(index) = self.messages.iter().position(|m| m.role() == Role::Tool && m.tool_call_id() == Some(target)) else {
             return false;
         };
         if let Some(level) = &result.level {
@@ -182,13 +178,10 @@ impl Run {
 
     /// After a tool batch: starts judging the next step (not awaited here).
     pub(crate) fn mark_step_effort(&mut self, calls: &[ToolCall], results_from: usize) {
-        let (Some(auto), Some(judge)) = (self.config.step_auto_effort.clone(), self.env.step_judge.clone())
-        else {
+        let (Some(auto), Some(judge)) = (self.config.step_auto_effort.clone(), self.env.step_judge.clone()) else {
             return;
         };
-        if self.config.effort.as_ref().and_then(|w| w.route.seed.as_ref()).is_none()
-            || self.cancel.is_cancelled()
-        {
+        if self.config.effort.as_ref().and_then(|w| w.route.seed.as_ref()).is_none() || self.cancel.is_cancelled() {
             return;
         }
         let results: Vec<(String, String)> = self.messages[results_from..]
@@ -233,11 +226,7 @@ impl Run {
                 .map(|call| StepCall {
                     name: call.name.clone(),
                     args: args_text(call),
-                    result: results
-                        .iter()
-                        .find(|(id, _)| id == &call.id)
-                        .map(|(_, text)| text.clone())
-                        .unwrap_or_default(),
+                    result: results.iter().find(|(id, _)| id == &call.id).map(|(_, text)| text.clone()).unwrap_or_default(),
                 })
                 .collect(),
         };
@@ -255,7 +244,6 @@ impl Run {
             let judged = judge.judge(input).await;
             *writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = judged;
         });
-        self.step_effort =
-            Some(PendingStep { target: last, slot, task: Judging(handle), superseded, sent: false, applied: false });
+        self.step_effort = Some(PendingStep { target: last, slot, task: Judging(handle), superseded, sent: false, applied: false });
     }
 }

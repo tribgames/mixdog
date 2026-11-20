@@ -300,13 +300,20 @@ async fn a_drained_prompt_whose_start_is_refused_leaves_the_queue_on_its_own() {
     };
     *crate::session::testing::lock(&rig.store.fail_when) = Some((Box::new(second), false));
     hold.send_replace(StartHold::Open);
-    eventually_on!(&[&handle.cell.stepped], || (settled(&handle) && crate::session::testing::lock(&rig.store.fail_when).is_none() && !queued_in_snapshot(&handle, "second")).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (settled(&handle)
+        && crate::session::testing::lock(&rig.store.fail_when).is_none()
+        && !queued_in_snapshot(&handle, "second"))
+    .then_some(()))
+    .await;
     caught_up(&handle).await;
     assert!(!told_row(&rig, &handle, "second"), "the refused start's row is never told");
     assert_eq!(snapshot(&handle, "second"), (false, false));
     assert_eq!(rig.feeds.frames(handle.id.as_str()).iter().filter(|(_, method, _)| method == "turn/started").count(), 1, "only the first turn started");
     assert!(
-        !queues(&rig.feeds.frames(handle.id.as_str()).iter().rev().find(|(_, method, _)| method == "thread/queue/changed").expect("the dequeue is told").2["queued"], "second"),
+        !queues(
+            &rig.feeds.frames(handle.id.as_str()).iter().rev().find(|(_, method, _)| method == "thread/queue/changed").expect("the dequeue is told").2["queued"],
+            "second"
+        ),
         "the client's queue let the prompt go"
     );
 
@@ -378,7 +385,8 @@ async fn controls_during_a_drained_starts_read_are_handled_and_shown_in_order() 
     let row = nth(&rig, &handle, 0, |method, params| method.starts_with("item/") && is_row(params, "second"));
     let start = nth(&rig, &handle, 1, |method, _| method == "turn/started");
     let queued_third = nth(&rig, &handle, 0, |method, params| method == "thread/queue/changed" && queues(&params["queued"], "third"));
-    let dequeued = nth(&rig, &handle, 0, |method, params| method == "thread/queue/changed" && !queues(&params["queued"], "second") && !queues(&params["queued"], "third"));
+    let dequeued =
+        nth(&rig, &handle, 0, |method, params| method == "thread/queue/changed" && !queues(&params["queued"], "second") && !queues(&params["queued"], "third"));
     assert!(dequeued < queued_third && queued_third < row && row < start, "dequeue {dequeued}, the new prompt {queued_third}, row {row}, start {start}");
     let feed = rig.feeds.frames(handle.id.as_str());
     assert!(feed[dequeued..start].iter().all(|(_, method, _)| method != "thread/frame"), "one publication: {:?}", &feed[dequeued..=start]);

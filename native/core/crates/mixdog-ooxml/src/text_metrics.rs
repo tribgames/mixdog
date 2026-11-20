@@ -28,8 +28,7 @@ use crate::relations::{RelationBox, by_slide, rectangle_gap, review_declared_rel
 /// PowerPoint's single line spacing, in em, for every face.
 const LINE_HEIGHT_RATIO: f64 = 1.2;
 
-static WEIGHT_SUFFIX: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\s+(semilight|light|semibold|medium|black|thin|extrabold)$", "iu"));
+static WEIGHT_SUFFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\s+(semilight|light|semibold|medium|black|thin|extrabold)$", "iu"));
 /// Families that carry their own Hangul / CJK glyphs; any other face hands CJK runs to the East Asian fallback.
 static CJK_FAMILY: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(
@@ -70,14 +69,11 @@ const METRIC_EQUIVALENTS: [(&str, &[&str]); 7] = [
 ];
 
 /// Width calibration per script class, measured against PowerPoint's own bound width: `(family, cjk, latin)`.
-const WIDTH_CALIBRATION: [(&str, f64, f64); 3] =
-    [("noto sans kr", 1.027, 1.082), ("noto serif kr", 1.028, 1.042), ("malgun gothic", 1.039, 1.032)];
+const WIDTH_CALIBRATION: [(&str, f64, f64); 3] = [("noto sans kr", 1.027, 1.082), ("noto serif kr", 1.028, 1.042), ("malgun gothic", 1.039, 1.032)];
 
 /// The sizes a shrinking box may land on.
-const TYPE_LADDER: [f64; 26] = [
-    96.0, 80.0, 72.0, 66.0, 60.0, 54.0, 48.0, 44.0, 40.0, 36.0, 32.0, 28.0, 26.0, 24.0, 22.0, 20.0, 18.0, 16.0, 15.0, 14.0, 13.0, 12.0,
-    11.0, 10.0, 9.0, 8.0,
-];
+const TYPE_LADDER: [f64; 26] =
+    [96.0, 80.0, 72.0, 66.0, 60.0, 54.0, 48.0, 44.0, 40.0, 36.0, 32.0, 28.0, 26.0, 24.0, 22.0, 20.0, 18.0, 16.0, 15.0, 14.0, 13.0, 12.0, 11.0, 10.0, 9.0, 8.0];
 
 /// A short label sits by design next to its neighbour; the block gap applies between blocks of copy.
 const LABEL_MAX_CHARS: usize = 16;
@@ -108,7 +104,34 @@ fn no_line_start(part: &str) -> bool {
     let mut characters = part.chars();
     matches!(
         (characters.next(), characters.next()),
-        (Some(',' | '.' | '、' | '。' | '，' | '．' | ':' | ';' | '!' | '?' | '%' | ')' | ']' | '}' | '」' | '』' | '〉' | '》' | '】' | '〕' | '’' | '”' | '…' | '·'), None)
+        (
+            Some(
+                ',' | '.'
+                    | '、'
+                    | '。'
+                    | '，'
+                    | '．'
+                    | ':'
+                    | ';'
+                    | '!'
+                    | '?'
+                    | '%'
+                    | ')'
+                    | ']'
+                    | '}'
+                    | '」'
+                    | '』'
+                    | '〉'
+                    | '》'
+                    | '】'
+                    | '〕'
+                    | '’'
+                    | '”'
+                    | '…'
+                    | '·'
+            ),
+            None
+        )
     )
 }
 
@@ -306,15 +329,10 @@ pub struct TextMeasurer<'a, P: ReadProof> {
 impl<'a, P: ReadProof> TextMeasurer<'a, P> {
     /// A measurer over the faces registered in `registry` (the provisioned Office faces included, registered by the caller).
     pub fn new(proof: &'a P, registry: &'a Registry) -> Self {
-        let installed: HashMap<String, String> = registry
-            .family_names()
-            .map(js_trim)
-            .filter(|family| !family.is_empty())
-            .map(|family| (js_to_lowercase(family), family.to_owned()))
-            .collect();
+        let installed: HashMap<String, String> =
+            registry.family_names().map(js_trim).filter(|family| !family.is_empty()).map(|family| (js_to_lowercase(family), family.to_owned())).collect();
         // PowerPoint's East Asian fallback for a Latin face: Malgun Gothic, else the provisioned Noto Sans KR.
-        let cjk_fallback =
-            if !installed.contains_key("malgun gothic") && installed.contains_key("noto sans kr") { "Noto Sans KR" } else { "Malgun Gothic" };
+        let cjk_fallback = if !installed.contains_key("malgun gothic") && installed.contains_key("noto sans kr") { "Noto Sans KR" } else { "Malgun Gothic" };
         Self { proof, registry, installed, cjk_fallback, widths: RefCell::new(HashMap::new()) }
     }
 
@@ -541,10 +559,8 @@ impl<'a, P: ReadProof> TextMeasurer<'a, P> {
         let path = shape_path(&text_box.frame);
         let usable_width = math::max(1.0, text_box.frame.width - text_box.inset_left - text_box.inset_right);
         let usable_height = math::max(1.0, text_box.frame.height - text_box.inset_top - text_box.inset_bottom);
-        let measured = self.measure_text_block(
-            &text_box.paragraphs,
-            &BlockOptions { width: if text_box.wrap { usable_width } else { 0.0 }, ..BlockOptions::default() },
-        )?;
+        let measured =
+            self.measure_text_block(&text_box.paragraphs, &BlockOptions { width: if text_box.wrap { usable_width } else { 0.0 }, ..BlockOptions::default() })?;
         let available = |name: &str| options.is_font_available.map_or_else(|| self.font_available(name), |check| check(name));
         let mut fonts: Vec<String> = Vec::new();
         for paragraph in &text_box.paragraphs {
@@ -624,10 +640,7 @@ impl<'a, P: ReadProof> TextMeasurer<'a, P> {
             let scaled: Vec<Paragraph> = paragraphs
                 .iter()
                 .zip(&sizes)
-                .map(|(paragraph, size)| Paragraph {
-                    font_size: Some(math::max(floor, math::round(size * factor * 2.0) / 2.0)),
-                    ..paragraph.clone()
-                })
+                .map(|(paragraph, size)| Paragraph { font_size: Some(math::max(floor, math::round(size * factor * 2.0) / 2.0)), ..paragraph.clone() })
                 .collect();
             let measured = self.measure_text_block(&scaled, &BlockOptions { width: options.width, ..BlockOptions::default() })?;
             if measured.height <= options.height {
@@ -1035,10 +1048,8 @@ pub fn review_vertical_balance(bounds: &[Bound], slide_width: f64, slide_height:
     let mut issues = Vec::new();
     let statements = statement_slides(boxes);
     for (slide, shapes) in by_slide(bounds, |bound| bound.slide) {
-        let content: Vec<&Bound> = shapes
-            .into_iter()
-            .filter(|shape| math::max(0.0, shape.width) * math::max(0.0, shape.height) < slide_width * slide_height * 0.8)
-            .collect();
+        let content: Vec<&Bound> =
+            shapes.into_iter().filter(|shape| math::max(0.0, shape.width) * math::max(0.0, shape.height) < slide_width * slide_height * 0.8).collect();
         if content.is_empty() {
             continue;
         }
@@ -1322,7 +1333,6 @@ mod tests {
         assert!(lines.iter().all(|line| line.runs.is_none()));
     }
 
-
     fn faces() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts")
     }
@@ -1337,7 +1347,8 @@ mod tests {
     }
     #[test]
     fn an_installed_family_keeps_its_weight_suffix_and_a_missing_one_takes_its_metric_twin() {
-        let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu"), ("MiriamLibre-Regular.otf", "Carlito"), ("NotoSansHebrew-Regular.ttf", "Twin Lisu Light")]);
+        let registered =
+            registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu"), ("MiriamLibre-Regular.otf", "Carlito"), ("NotoSansHebrew-Regular.ttf", "Twin Lisu Light")]);
         let measurer = TextMeasurer::new(&Unlaned, &registered);
         assert_eq!(measurer.resolve_font(Some("Twin Lisu Light")), ("Twin Lisu Light".to_owned(), 0));
         assert_eq!(measurer.resolve_font(Some("Twin Lisu Semibold")), ("Twin Lisu".to_owned(), 600));
@@ -1399,9 +1410,8 @@ mod tests {
         let block = measurer.measure_text_block(&[paragraph.clone()], &BlockOptions { width: 1000.0, ..BlockOptions::default() }).expect("measures");
         assert_eq!(block.lines, 2);
         assert!((block.height - (2.0 * 20.0 * 1.2 + 3.0 + 5.0)).abs() < 1e-9);
-        let spaced = measurer
-            .measure_text_block(&[paragraph], &BlockOptions { width: 1000.0, line_spacing: 1.5, ..BlockOptions::default() })
-            .expect("measures");
+        let spaced =
+            measurer.measure_text_block(&[paragraph], &BlockOptions { width: 1000.0, line_spacing: 1.5, ..BlockOptions::default() }).expect("measures");
         assert!((spaced.height - (2.0 * 20.0 * 1.2 * 1.5 + 3.0 + 5.0)).abs() < 1e-9);
     }
     #[test]
@@ -1444,9 +1454,7 @@ mod tests {
             .shrink_font_size_to_fit(&[paragraph.clone()], &ShrinkOptions { width: 2000.0, height: 20.0, ..ShrinkOptions::default() })
             .expect("shrinks");
         assert!(tight.scale > 0.0 && tight.scale < 1.0 && tight.sizes[0] < 30.0);
-        let none = measurer
-            .shrink_font_size_to_fit(&[paragraph], &ShrinkOptions { width: 2000.0, height: 1.0, ..ShrinkOptions::default() })
-            .expect("shrinks");
+        let none = measurer.shrink_font_size_to_fit(&[paragraph], &ShrinkOptions { width: 2000.0, height: 1.0, ..ShrinkOptions::default() }).expect("shrinks");
         assert_eq!(none, Shrunk { scale: 0.0, sizes: Vec::new() });
     }
 }

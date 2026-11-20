@@ -56,14 +56,7 @@ fn sign(value: f64) -> f64 {
 /// more than 1 (or whose bounding box came from its glyphs) and whose matrix is not the usual one scales the height
 /// by its glyph box.
 pub fn current_text_transform(state: &TextState) -> Matrix {
-    let mut tsm = [
-        state.font_size * state.text_h_scale,
-        0.0,
-        0.0,
-        state.font_size,
-        0.0,
-        state.text_rise,
-    ];
+    let mut tsm = [state.font_size * state.text_h_scale, 0.0, 0.0, state.font_size, 0.0, state.text_rise];
     if let Some(font) = state.font.as_ref().and_then(|font| font.font())
         && font.is_type3_font
         && (state.font_size <= 1.0 || font.is_char_bbox)
@@ -81,10 +74,7 @@ pub fn current_text_transform(state: &TextState) -> Matrix {
 /// `applyInverseRotation`.
 fn apply_inverse_rotation(x: f64, y: f64, matrix: &Matrix) -> (f64, f64) {
     let scale = hypot(&[matrix[0], matrix[1]]);
-    (
-        (matrix[0] * x + matrix[1] * y) / scale,
-        (matrix[2] * x + matrix[3] * y) / scale,
-    )
+    ((matrix[0] * x + matrix[1] * y) / scale, (matrix[2] * x + matrix[3] * y) / scale)
 }
 
 /// The category of a glyph's text; a printable ASCII character is none of the three.
@@ -92,11 +82,7 @@ fn category_of(glyph: &Glyph) -> CharCategory {
     if let [unit] = glyph.unicode.as_slice()
         && (0x21..0x7f).contains(unit)
     {
-        return CharCategory {
-            is_whitespace: false,
-            is_zero_width_diacritic: false,
-            is_invisible_format_mark: false,
-        };
+        return CharCategory { is_whitespace: false, is_zero_width_diacritic: false, is_invisible_format_mark: false };
     }
     glyph.category()
 }
@@ -187,14 +173,7 @@ pub struct Builder<'a> {
 
 impl<'a> Builder<'a> {
     pub fn new(sink: &'a mut TextContent, view_box: [f64; 4]) -> Self {
-        Builder {
-            sink,
-            view_box,
-            item: Chunk::new(),
-            two_last: [true, true],
-            two_last_pos: 0,
-            current: None,
-        }
+        Builder { sink, view_box, item: Chunk::new(), two_last: [true, true], two_last_pos: 0, current: None }
     }
 
     /// `currentTextState ||= textState.clone()`.
@@ -221,24 +200,10 @@ impl<'a> Builder<'a> {
         self.two_last_pos = 0;
     }
 
-    fn push_whitespace(
-        &mut self,
-        width: f64,
-        height: f64,
-        transform: Option<Matrix>,
-        font_name: Option<String>,
-    ) {
+    fn push_whitespace(&mut self, width: f64, height: f64, transform: Option<Matrix>, font_name: Option<String>) {
         let transform = transform.or(self.item.prev_transform).unwrap_or(IDENTITY);
         let font_name = font_name.or_else(|| self.item.font_name.clone());
-        self.sink.items.push(TextItem {
-            units: vec![0x20],
-            dir: BidiDir::Ltr,
-            width,
-            height,
-            transform,
-            font_name,
-            has_eol: false,
-        });
+        self.sink.items.push(TextItem { units: vec![0x20], dir: BidiDir::Ltr, width, height, transform, font_name, has_eol: false });
     }
 
     /// `ensureTextContentItem`: starts an item at the current position (and records the font's style).
@@ -246,19 +211,12 @@ impl<'a> Builder<'a> {
         if self.item.initialized {
             return;
         }
-        if let (Some(loaded), Some(font)) = (
-            &state.loaded_name,
-            state.font.as_ref().and_then(|font| font.font()),
-        ) && !self.sink.styles.iter().any(|(name, _)| name == loaded)
+        if let (Some(loaded), Some(font)) = (&state.loaded_name, state.font.as_ref().and_then(|font| font.font()))
+            && !self.sink.styles.iter().any(|(name, _)| name == loaded)
         {
             self.sink.styles.push((
                 loaded.clone(),
-                TextStyle {
-                    font_family: font.fallback_name.clone(),
-                    ascent: font.ascent,
-                    descent: font.descent,
-                    vertical: font.vertical,
-                },
+                TextStyle { font_family: font.fallback_name.clone(), ascent: font.ascent, descent: font.descent, vertical: font.vertical },
             ));
         }
         self.item.font_name = state.loaded_name.clone();
@@ -359,16 +317,8 @@ impl<'a> Builder<'a> {
 
     /// `addFakeSpaces`: a gap that is the width of a space inside the flow becomes a space in the item (`false`), a
     /// wider one ends the item and becomes an item of its own (`true`).
-    fn add_fake_spaces(
-        &mut self,
-        state: &TextState,
-        width: f64,
-        transform: Option<Matrix>,
-        text_orientation: f64,
-    ) -> bool {
-        if text_orientation * self.item.space_in_flow_min <= width
-            && width <= text_orientation * self.item.space_in_flow_max
-        {
+    fn add_fake_spaces(&mut self, state: &TextState, width: f64, transform: Option<Matrix>, text_orientation: f64) -> bool {
+        if text_orientation * self.item.space_in_flow_min <= width && width <= text_orientation * self.item.space_in_flow_max {
             if self.item.initialized {
                 self.reset_last_chars();
                 self.item.units.push(0x20);
@@ -397,15 +347,10 @@ impl<'a> Builder<'a> {
         let mut pos_y = current[5];
         let view = self.view_box;
         if state.font_is_vertical() {
-            if pos_x < view[0] || pos_x > view[2] || pos_y + glyph_width < view[1] || pos_y > view[3]
-            {
+            if pos_x < view[0] || pos_x > view[2] || pos_y + glyph_width < view[1] || pos_y > view[3] {
                 return false;
             }
-        } else if pos_x + glyph_width < view[0]
-            || pos_x > view[2]
-            || pos_y < view[1]
-            || pos_y > view[3]
-        {
+        } else if pos_x + glyph_width < view[0] || pos_x > view[2] || pos_y < view[1] || pos_y > view[3] {
             return false;
         }
         let Some(prev) = self.item.prev_transform.filter(|_| state.font.is_some()) else {
@@ -468,8 +413,7 @@ impl<'a> Builder<'a> {
                 } else {
                     self.item.height += advance_y;
                 }
-            } else if !self.add_fake_spaces(state, advance_y, self.item.prev_transform, text_orientation)
-            {
+            } else if !self.add_fake_spaces(state, advance_y, self.item.prev_transform, text_orientation) {
                 if self.item.pieces == 0 {
                     self.reset_last_chars();
                     self.push_whitespace(0.0, advance_y.abs(), None, None);
@@ -495,11 +439,7 @@ impl<'a> Builder<'a> {
             return true;
         }
         let text_rise_delta = state.text_rise - self.item.prev_text_rise;
-        let advance_y_corrected = if text_rise_delta == 0.0 {
-            advance_y
-        } else {
-            advance_y - current[3] / state.font_size * text_rise_delta
-        };
+        let advance_y_corrected = if text_rise_delta == 0.0 { advance_y } else { advance_y - current[3] / state.font_size * text_rise_delta };
         if advance_y_corrected.abs() > self.item.height {
             self.append_eol(state);
             return true;
@@ -515,8 +455,7 @@ impl<'a> Builder<'a> {
             } else {
                 self.item.width += advance_x;
             }
-        } else if !self.add_fake_spaces(state, advance_x, self.item.prev_transform, text_orientation)
-        {
+        } else if !self.add_fake_spaces(state, advance_x, self.item.prev_transform, text_orientation) {
             if self.item.pieces == 0 {
                 self.reset_last_chars();
                 self.push_whitespace(advance_x.abs(), 0.0, None, None);
@@ -532,17 +471,9 @@ impl<'a> Builder<'a> {
 
     /// `buildTextContentItem`: shows `chars` with `extra_spacing` added after the last glyph (the number of a `TJ`
     /// array, in text space units). The text state moves past what was shown.
-    pub fn build_text_content_item(
-        &mut self,
-        state: &mut TextState,
-        chars: Chars<'_>,
-        extra_spacing: f64,
-    ) -> Result<()> {
+    pub fn build_text_content_item(&mut self, state: &mut TextState, chars: Chars<'_>, extra_spacing: f64) -> Result<()> {
         let font_changed = match &self.current {
-            Some(current) => {
-                current.font_size != state.font_size
-                    || (current.font_name != state.font_name && Self::fonts_differ(current, state)?)
-            }
+            Some(current) => current.font_size != state.font_size || (current.font_name != state.font_name && Self::fonts_differ(current, state)?),
             None => false,
         };
         if font_changed {
@@ -550,16 +481,10 @@ impl<'a> Builder<'a> {
             self.current = Some(state.clone());
         }
         let Some(font) = state.font.clone() else {
-            return Err(PdfError::Unknown(
-                "Cannot read properties of null (reading 'vertical')".to_owned(),
-            ));
+            return Err(PdfError::Unknown("Cannot read properties of null (reading 'vertical')".to_owned()));
         };
         let vertical = state.font_is_vertical();
-        let base_char_spacing = if vertical {
-            -state.char_spacing
-        } else {
-            state.char_spacing
-        };
+        let base_char_spacing = if vertical { -state.char_spacing } else { state.char_spacing };
         let bytes = match chars {
             Chars::Empty => {
                 let char_spacing = base_char_spacing + extra_spacing;
@@ -588,9 +513,7 @@ impl<'a> Builder<'a> {
                 match glyph.vmetric {
                     Some(vmetric) => vmetric[0],
                     None => {
-                        return Err(PdfError::Unknown(
-                            "Cannot read properties of undefined (reading '0')".to_owned(),
-                        ));
+                        return Err(PdfError::Unknown("Cannot read properties of undefined (reading '0')".to_owned()));
                     }
                 }
             } else {
@@ -611,8 +534,7 @@ impl<'a> Builder<'a> {
                 self.save_last_char(true);
                 continue;
             }
-            if !category.is_zero_width_diacritic && !self.compare_with_last_position(state, scaled_dim)
-            {
+            if !category.is_zero_width_diacritic && !self.compare_with_last_position(state, scaled_dim) {
                 if !vertical {
                     state.translate_text_matrix(scaled_dim * state.text_h_scale, 0.0);
                 } else {
@@ -658,14 +580,11 @@ impl<'a> Builder<'a> {
     /// textState.font.vertical`: a font that could not be made has neither.
     fn fonts_differ(current: &TextState, state: &TextState) -> Result<bool> {
         let (Some(before), Some(now)) = (&current.font, &state.font) else {
-            return Err(PdfError::Unknown(
-                "Cannot read properties of null (reading 'name')".to_owned(),
-            ));
+            return Err(PdfError::Unknown("Cannot read properties of null (reading 'name')".to_owned()));
         };
         let name = |font: &crate::fonts::font::TranslatedFont| font.font().map(|f| f.name.clone());
         let vertical = |font: &crate::fonts::font::TranslatedFont| font.font().map(|f| f.vertical);
-        Ok(name(before.as_ref()) != name(now.as_ref())
-            || vertical(before.as_ref()) != vertical(now.as_ref()))
+        Ok(name(before.as_ref()) != name(now.as_ref()) || vertical(before.as_ref()) != vertical(now.as_ref()))
     }
 }
 

@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! A paired device's file previews (Node `remote-file-preview.ts`): what a file is for a preview (`previewProjectFile`), one bounded
 //! window of its bytes (`previewProjectFileRange`). A paired device's call for an image, audio or video also gets a media lease
 //! ([`crate::media_lease`]) the relay media lane streams by ranged requests; a device without the lane reads ranges. Every read

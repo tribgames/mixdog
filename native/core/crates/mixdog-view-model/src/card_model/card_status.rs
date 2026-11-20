@@ -87,8 +87,7 @@ pub fn derive_card_status(base: &CardBase, surface: &CardSurface, display: &Disp
         if call_failed && status == "completed" { "" } else { status }
     };
     let failed_or_completed = if call_failed { "failed" } else { "completed" };
-    let envelope_status =
-        if ENVELOPE_STATUS_TOOLS.contains(&normalized_name.as_str()) { result_envelope_status(&display.displayed_result_text) } else { "" };
+    let envelope_status = if ENVELOPE_STATUS_TOOLS.contains(&normalized_name.as_str()) { result_envelope_status(&display.displayed_result_text) } else { "" };
     let terminal_status = if base.pending {
         "running"
     } else {
@@ -109,7 +108,11 @@ pub fn derive_card_status(base: &CardBase, surface: &CardSurface, display: &Disp
         shell_status,
         shell_elapsed,
         background_elapsed,
-        header_failure_text: if background_metadata_header_failure.is_empty() { agent_header_failure.clone() } else { background_metadata_header_failure.clone() },
+        header_failure_text: if background_metadata_header_failure.is_empty() {
+            agent_header_failure.clone()
+        } else {
+            background_metadata_header_failure.clone()
+        },
         agent_detail: if !base.pending && is_agent_tool(normalized_name) && !display.has_display_result {
             agent_completion_detail.clone()
         } else {

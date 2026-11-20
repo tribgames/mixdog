@@ -38,7 +38,15 @@ async fn directory(dir: &std::path::Path) -> DefinitionsDirectory {
     mixdog_core::run_host::fixture_fs::write(&config_path, serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&json!({}))).unwrap());
     let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let (shipped, data) = (dir.join("shipped"), dir.join("data"));
-    let agents = AgentDefinitions::new(&shipped, &data, tokens.interactive_io, AgentRoutes::new(config, &data), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.join("task"));
+    let agents = AgentDefinitions::new(
+        &shipped,
+        &data,
+        tokens.interactive_io,
+        AgentRoutes::new(config, &data),
+        Arc::new(NoEvidence),
+        Arc::new(|| Value::Null),
+        dir.join("task"),
+    );
     DefinitionsDirectory::new(Arc::new(agents))
 }
 

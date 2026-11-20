@@ -45,14 +45,7 @@ const BUILT_IN: [(&str, f64); 10] = [
 pub const SUMMARY_MODES: [&str; 3] = ["smart", "maintainer", "self"];
 
 /// Every spelling of the main-context buffer budget; a new representation replaces the old.
-pub const MAIN_BUFFER_KEYS: [&str; 6] = [
-    "mainBufferTokens",
-    "mainBuffer",
-    "mainBufferPercent",
-    "mainBufferPct",
-    "mainBufferRatio",
-    "mainBufferFraction",
-];
+pub const MAIN_BUFFER_KEYS: [&str; 6] = ["mainBufferTokens", "mainBuffer", "mainBufferPercent", "mainBufferPct", "mainBufferRatio", "mainBufferFraction"];
 
 /// `RETIRED_COMPACTION_FIELDS` (config-storage.mjs).
 const RETIRED_FIELDS: [&str; 16] = [
@@ -321,9 +314,7 @@ pub fn agent_terminal_reap_ms(auto_clear: Option<&Value>, provider: &str) -> f64
     let overrides = provider_idle(auto_clear.and_then(|section| section.get("providerIdleMs")));
     let finite = |provider: &str| override_of(&overrides, provider).filter(|ms| *ms > 0.0);
     match built_in(&key) {
-        Some(built) if !key.is_empty() && key != "default" => {
-            finite(&key).or_else(|| terminal_reap(&key)).unwrap_or(built)
-        }
+        Some(built) if !key.is_empty() && key != "default" => finite(&key).or_else(|| terminal_reap(&key)).unwrap_or(built),
         _ => finite("default").unwrap_or(DEFAULT_IDLE_MS),
     }
 }
@@ -516,11 +507,7 @@ fn provider_idle_section(mut next: Doc, key: &str, input: &Doc) -> Result<Doc, S
         if unlimited {
             windows.insert(key.into(), num(0.0));
         } else {
-            let idle = if has_duration {
-                parse_duration_ms(input.get("duration")).unwrap_or(0.0)
-            } else {
-                number_field(input, "idleMs")
-            };
+            let idle = if has_duration { parse_duration_ms(input.get("duration")).unwrap_or(0.0) } else { number_field(input, "idleMs") };
             if idle == 0.0 || !idle.is_finite() || idle <= 0.0 {
                 return Err(SettingsError(PROVIDER_USAGE.into()));
             }

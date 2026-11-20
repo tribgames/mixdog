@@ -12,6 +12,7 @@ use super::com_text;
 use super::flag;
 use super::is_blank;
 use super::present;
+use super::print::set_one_page_wide;
 use super::prop;
 use super::range_of;
 use super::record_of;
@@ -19,7 +20,6 @@ use super::sheets::excel_sheet;
 use super::single_cast;
 use super::string_of_com;
 use super::text_of;
-use super::print::set_one_page_wide;
 
 /// `Excel-Drawing`: a chart or picture already on the sheet, addressed by the name the snapshot reports or by its 1-based position,
 /// so one address works on both backends.
@@ -27,10 +27,7 @@ fn excel_drawing(sheet: &Com, op: &Value) -> Result<Com> {
     let wanted = if present(op, "drawing") { prop(op, "drawing") } else { prop(op, "name") };
     let wanted_text = convert::to_ps_string(&wanted);
     if wanted.is_null() || is_blank(&wanted_text) {
-        return Err(Error::host(format!(
-            "{} requires drawing: the name the snapshot reports, or its 1-based index on the sheet.",
-            text_of(op, "op")
-        )));
+        return Err(Error::host(format!("{} requires drawing: the name the snapshot reports, or its 1-based index on the sheet.", text_of(op, "op"))));
     }
     let shapes = items_of(&sheet.member("Shapes")?)?;
     if let Some(ordinal) = convert::try_parse_int(&wanted_text) {
@@ -70,15 +67,7 @@ pub(super) fn add_image(book: &Com, op: &Value) -> Result<Value> {
     let height = if flag(op, "height") { single_cast(&prop(op, "height"))? } else { 240.0 };
     let picture = sheet.member("Shapes")?.call_member(
         "AddPicture",
-        &[
-            com_text(text_of(op, "path")),
-            Com::Bool(false),
-            Com::Bool(true),
-            Com::R4(left),
-            Com::R4(top),
-            Com::R4(width),
-            Com::R4(height),
-        ],
+        &[com_text(text_of(op, "path")), Com::Bool(false), Com::Bool(true), Com::R4(left), Com::R4(top), Com::R4(width), Com::R4(height)],
     )?;
     if flag(op, "altText") {
         picture.set_member("AlternativeText", com_text(text_of(op, "altText")))?;
@@ -107,10 +96,7 @@ pub(super) fn set_drawing(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "set_drawing",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("drawing", Value::String(string_of_com(&shape.member("Name")?))),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("drawing", Value::String(string_of_com(&shape.member("Name")?)))],
     ))
 }
 
@@ -120,9 +106,5 @@ pub(super) fn delete_drawing(book: &Com, op: &Value) -> Result<Value> {
     let shape = excel_drawing(&sheet, op)?;
     let name = string_of_com(&shape.member("Name")?);
     shape.call_member("Delete", &[])?;
-    Ok(record_of(
-        "delete_drawing",
-        true,
-        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("drawing", Value::String(name))],
-    ))
+    Ok(record_of("delete_drawing", true, vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("drawing", Value::String(name))]))
 }

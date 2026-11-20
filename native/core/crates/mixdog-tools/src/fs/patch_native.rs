@@ -73,12 +73,7 @@ pub(super) async fn run_engine(
 ) -> Result<Result<ApplyStats, String>, ToolError> {
     let base = base.as_path().to_path_buf();
     let opts = ApplyOptions { fuzz_factor: fuzz, reject_partial };
-    let job = ctx
-        .io
-        .durability
-        .submit_wait(&ctx.cancel, move |_| apply_patch_to_base(&base, &patch, dry, &opts))
-        .await
-        .map_err(|_| cancelled())?;
+    let job = ctx.io.durability.submit_wait(&ctx.cancel, move |_| apply_patch_to_base(&base, &patch, dry, &opts)).await.map_err(|_| cancelled())?;
     job.await.map_err(|_| cancelled())
 }
 
@@ -326,9 +321,7 @@ pub(super) async fn failure_context(ctx: &ToolContext, entries: &[NativeEntry], 
     };
     let failing = source.as_ref().and_then(|s| first_failing_hunk_of(entry, s, fuzz));
     let detail = failing.and_then(|h| source.as_ref().and_then(|s| first_failing_detail(&s.text, h)));
-    let expected = detail
-        .or_else(|| failing.and_then(first_meaningful))
-        .or_else(|| entry.hunks.iter().find_map(first_meaningful));
+    let expected = detail.or_else(|| failing.and_then(first_meaningful)).or_else(|| entry.hunks.iter().find_map(first_meaningful));
     let Some((line, preferred)) = expected else { return String::new() };
     let expected_text = js_string(&compact_preview(&line, 140));
     let mut nearest = String::new();
@@ -344,7 +337,8 @@ pub(super) async fn failure_context(ctx: &ToolContext, entries: &[NativeEntry], 
                     break;
                 }
                 if js_trim(src) != js_trim(&line) && normalize_typographic(src) == want {
-                    normalize_hint = format!("context matches after Unicode normalization at line {} — source may contain typographic dashes/quotes/NBSP", i + 1);
+                    normalize_hint =
+                        format!("context matches after Unicode normalization at line {} — source may contain typographic dashes/quotes/NBSP", i + 1);
                     break;
                 }
             }
@@ -397,11 +391,7 @@ fn probe_route(base: &std::path::Path, full: &std::path::Path) -> (bool, bool) {
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn uses_js_writer(ctx: &ToolContext, base: &AbsPath, abs: &AbsPath, delete: bool) -> Result<bool, ToolError> {
     let (base, full) = (base.as_path().to_path_buf(), abs.as_path().to_path_buf());
-    let job = ctx
-        .io
-        .interactive
-        .submit(&ctx.cancel, move |_| probe_route(&base, &full))
-        .map_err(|_| cancelled())?;
+    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| probe_route(&base, &full)).map_err(|_| cancelled())?;
     let (outside, symlink) = job.await.map_err(|_| cancelled())?;
     Ok(outside || (symlink && !delete))
 }

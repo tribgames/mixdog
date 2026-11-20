@@ -31,47 +31,28 @@ impl UsageLedger {
     /// ledger yet, refresh unpriced records, then read.
     /// `clock` is `Date.now()`: read before the refresh and again for the statistics, so
     /// records the refresh touched are not beyond the read's clock.
-    pub async fn get_usage_stats(
-        &self,
-        options: UsageStatsOptions,
-        clock: impl Fn() -> i64,
-    ) -> Result<Value> {
+    pub async fn get_usage_stats(&self, options: UsageStatsOptions, clock: impl Fn() -> i64) -> Result<Value> {
         self.writer.settle_writes().await?;
         self.refresher.import_history(&self.writer, clock()).await?;
-        self.refresher
-            .refresh(&self.writer, &self.reader, clock())
-            .await?;
+        self.refresher.refresh(&self.writer, &self.reader, clock()).await?;
         let stamp = self.writer.commit_stamp().await?;
         self.reader.stamped_stats(stamp, options, clock()).await
     }
 
     /// `getUsageRequests`: settle, then read one page.
-    pub async fn get_usage_requests(
-        &self,
-        options: UsageRequestsOptions,
-        real_now: i64,
-    ) -> Result<Value> {
+    pub async fn get_usage_requests(&self, options: UsageRequestsOptions, real_now: i64) -> Result<Value> {
         self.writer.settle_writes().await?;
         self.reader.usage_requests(options, real_now).await
     }
 
     /// `getQuotaHistory` (before the account service adds its labels): settle, then read.
-    pub async fn get_quota_history(
-        &self,
-        options: QuotaHistoryOptions,
-        in_use: BTreeMap<String, String>,
-        now: i64,
-    ) -> Result<Value> {
+    pub async fn get_quota_history(&self, options: QuotaHistoryOptions, in_use: BTreeMap<String, String>, now: i64) -> Result<Value> {
         self.writer.settle_writes().await?;
         self.reader.quota_history(options, in_use, now).await
     }
 
     /// The totals of the sessions named, after the queued writes settle (`readSessionUsage`).
-    pub async fn session_usage(
-        &self,
-        session_ids: Vec<String>,
-        owner_ids: Vec<String>,
-    ) -> Result<Value> {
+    pub async fn session_usage(&self, session_ids: Vec<String>, owner_ids: Vec<String>) -> Result<Value> {
         self.writer.settle_writes().await?;
         self.reader.session_usage(session_ids, owner_ids).await
     }

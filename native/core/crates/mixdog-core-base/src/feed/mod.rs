@@ -138,35 +138,16 @@ struct Encode {
 impl CoreFeed {
     /// An empty feed (seq 0) of producer instance `epoch`, whose read model is `view`.
     /// `cpu` runs its snapshot encodes.
-    pub fn new(
-        id: FeedId,
-        epoch: FeedEpoch,
-        view: Arc<dyn FeedView>,
-        limits: FeedLimits,
-        cpu: CpuInteractive,
-    ) -> Self {
+    pub fn new(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: FeedLimits, cpu: CpuInteractive) -> Self {
         Self::with_class(id, epoch, view, limits, cpu, false)
     }
 
     /// [`Self::new`] for a feed of the ordered class: its subscribers' lanes never drop an event.
-    pub fn new_ordered(
-        id: FeedId,
-        epoch: FeedEpoch,
-        view: Arc<dyn FeedView>,
-        limits: FeedLimits,
-        cpu: CpuInteractive,
-    ) -> Self {
+    pub fn new_ordered(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: FeedLimits, cpu: CpuInteractive) -> Self {
         Self::with_class(id, epoch, view, limits, cpu, true)
     }
 
-    fn with_class(
-        id: FeedId,
-        epoch: FeedEpoch,
-        view: Arc<dyn FeedView>,
-        limits: FeedLimits,
-        cpu: CpuInteractive,
-        ordered: bool,
-    ) -> Self {
+    fn with_class(id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>, limits: FeedLimits, cpu: CpuInteractive, ordered: bool) -> Self {
         Self {
             shared: Arc::new(Shared {
                 id,
@@ -214,9 +195,7 @@ impl CoreFeed {
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Replays `(resume.seq, S]` into `lane` when P §6.3 conditions 1–3 hold and the frames'
@@ -232,9 +211,7 @@ impl Shared {
             return false;
         };
         for frame in replay {
-            let part = reservation
-                .split(frame.bytes.len())
-                .expect("the reservation holds the replay's byte sum");
+            let part = reservation.split(frame.bytes.len()).expect("the reservation holds the replay's byte sum");
             lane.push(part, frame.bytes.clone());
         }
         true
@@ -278,18 +255,9 @@ impl FeedSource for CoreFeed {
         let shared = &self.shared;
         let mut state = shared.lock();
         let seq = state.seq;
-        let mut decision = AttachDecision {
-            mode: AttachMode::Snapshot,
-            epoch: shared.epoch.clone(),
-            start_seq: seq + 1,
-            live_seq: seq + 1,
-        };
+        let mut decision = AttachDecision { mode: AttachMode::Snapshot, epoch: shared.epoch.clone(), start_seq: seq + 1, live_seq: seq + 1 };
         let (lane, window, reservation) = match req.start {
-            AttachStart::Open {
-                lane,
-                window,
-                resume_from,
-            } => {
+            AttachStart::Open { lane, window, resume_from } => {
                 if let Some(reason) = &state.closed {
                     return Err(reason.clone());
                 }
@@ -305,11 +273,7 @@ impl FeedSource for CoreFeed {
                 let Some(subscriber) = state.subs.get(&req.sub) else {
                     return Err(CoreError::ConnectionClosed);
                 };
-                (
-                    subscriber.lane.clone(),
-                    subscriber.window.clone(),
-                    Some(reservation),
-                )
+                (subscriber.lane.clone(), subscriber.window.clone(), Some(reservation))
             }
         };
         let mut pending = None;
@@ -320,11 +284,8 @@ impl FeedSource for CoreFeed {
             let at = state.view_seq;
             let catch_up = if at < seq { state.ring.after(at, seq) } else { None };
             decision.start_seq = at + 1;
-            let reservation = if at < seq && catch_up.is_none() {
-                None
-            } else {
-                reservation.or_else(|| lane.try_reserve_snapshot(shared.max_snapshot_bytes).ok())
-            };
+            let reservation =
+                if at < seq && catch_up.is_none() { None } else { reservation.or_else(|| lane.try_reserve_snapshot(shared.max_snapshot_bytes).ok()) };
             match reservation {
                 Some(reservation) => {
                     let slot = SnapshotSlot::new(Box::new(Delivered { slot: lane.push_slot(reservation), view: state.view.clone() }));
@@ -342,19 +303,9 @@ impl FeedSource for CoreFeed {
                         }
                     }
                     let (flight, leads) = state.snapshots.flight(at, &window);
-                    let encode = leads.then(|| Encode {
-                        view: state.view.clone(),
-                        at: FeedPosition {
-                            epoch: shared.epoch.clone(),
-                            seq: at,
-                        },
-                        window: window.clone(),
-                    });
-                    pending = Some(PendingSnapshot {
-                        slot,
-                        flight,
-                        encode,
-                    });
+                    let encode =
+                        leads.then(|| Encode { view: state.view.clone(), at: FeedPosition { epoch: shared.epoch.clone(), seq: at }, window: window.clone() });
+                    pending = Some(PendingSnapshot { slot, flight, encode });
                 }
                 None => {
                     lane.lag();
@@ -365,12 +316,7 @@ impl FeedSource for CoreFeed {
         state.watched = true;
         drop(state);
 
-        if let Some(PendingSnapshot {
-            slot,
-            flight,
-            encode,
-        }) = pending
-        {
+        if let Some(PendingSnapshot { slot, flight, encode }) = pending {
             flight.join(slot);
             if let Some(job) = encode {
                 shared.encode(flight, job);
@@ -384,10 +330,7 @@ impl FeedSource for CoreFeed {
         let state = shared.lock();
         let held = state.subs.get(sub)?;
         // A lagged lane carries on too: its recovery snapshot is what the connection is owed next.
-        (held.window == *window
-            && resume.window == *window
-            && resume.position.epoch == shared.epoch
-            && (held.since..=state.seq).contains(&resume.position.seq))
+        (held.window == *window && resume.window == *window && resume.position.epoch == shared.epoch && (held.since..=state.seq).contains(&resume.position.seq))
             .then(|| AttachDecision::carried(FeedPosition { epoch: shared.epoch.clone(), seq: state.seq }, resume))
     }
 
@@ -404,11 +347,7 @@ impl FeedSource for CoreFeed {
 }
 
 impl Feed for CoreFeed {
-    fn publish(
-        &self,
-        frames: &[FeedFrame],
-        view: Option<Arc<dyn FeedView>>,
-    ) -> Result<(), PublishError> {
+    fn publish(&self, frames: &[FeedFrame], view: Option<Arc<dyn FeedView>>) -> Result<(), PublishError> {
         // A no-op publish does not make a deferred view current.
         if frames.is_empty() && view.is_none() {
             return Ok(());
@@ -445,10 +384,7 @@ impl Shared {
         for (offset, frame) in frames.iter().enumerate() {
             let expected = state.seq + 1 + offset as u64;
             if frame.seq != expected {
-                return Err(PublishError::SeqGap {
-                    expected,
-                    got: frame.seq,
-                });
+                return Err(PublishError::SeqGap { expected, got: frame.seq });
             }
         }
         for frame in frames {

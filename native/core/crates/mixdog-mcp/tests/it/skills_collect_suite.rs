@@ -8,11 +8,11 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use mixdog_mcp::skills::SkillGate;
-use mixdog_rt::LaneToken;
 use mixdog_mcp::skills::SkillRefusal;
 use mixdog_mcp::skills::SkillRoot;
 use mixdog_mcp::skills::SkillSource;
 use mixdog_mcp::skills::collect_skills;
+use mixdog_rt::LaneToken;
 use tokio_util::sync::CancellationToken;
 
 fn write(root: &Path, relative: &str, text: &str) {
@@ -46,7 +46,9 @@ async fn the_first_root_to_hold_a_name_wins_and_every_skill_carries_its_source_a
         SkillRoot { dir: bundled, source: SkillSource::Builtin, plugin: None },
     ];
     let skills = collected(dir.path().join("data"), roots).await;
-    let row = |name: &str| skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("{name} missing from {:?}", skills.iter().map(|s| &s.name).collect::<Vec<_>>()));
+    let row = |name: &str| {
+        skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("{name} missing from {:?}", skills.iter().map(|s| &s.name).collect::<Vec<_>>()))
+    };
     assert_eq!(skills.len(), 4);
     assert_eq!((row("shared").description.as_str(), row("shared").source, row("shared").plugin.clone()), ("From the user.", SkillSource::Global, None));
     assert_eq!((row("mine").when_to_use.as_str(), row("mine").source), ("on request", SkillSource::Global));

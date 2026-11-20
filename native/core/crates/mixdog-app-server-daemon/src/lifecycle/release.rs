@@ -1,10 +1,6 @@
 //! `runtime/last-exit.json` (LR §5.3 step 4, §6.1 terminate).
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the release record is written once, by the exiting thread, with no runtime left"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the release record is written once, by the exiting thread, with no runtime left")]
 
 use std::io::Write;
 use std::path::Path;
@@ -48,12 +44,7 @@ mod tests {
     #[test]
     fn writes_and_replaces() {
         let dir = tempfile::tempdir().unwrap();
-        let record = |reason: &str, stalled| LastExit {
-            reason: reason.into(),
-            instance_id: "i".into(),
-            stalled_ms: stalled,
-            stuck_step: None,
-        };
+        let record = |reason: &str, stalled| LastExit { reason: reason.into(), instance_id: "i".into(), stalled_ms: stalled, stuck_step: None };
         write_last_exit(dir.path(), &record("update", None)).unwrap();
         write_last_exit(dir.path(), &record("userTerminated", Some(7))).unwrap();
         let text = std::fs::read_to_string(dir.path().join(LAST_EXIT_FILE)).unwrap();

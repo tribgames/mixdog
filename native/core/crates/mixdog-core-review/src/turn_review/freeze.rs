@@ -64,7 +64,13 @@ pub fn edit_change_file(differ: &LineDiffer, edit: &Edit, root: &str, object_for
         .map(|step| {
             tracked_change_file(
                 differ,
-                &TrackedFileInput { old_path: &step.old_path, new_path: &step.new_path, before: &step.before.content, after: &step.after.content, object_format },
+                &TrackedFileInput {
+                    old_path: &step.old_path,
+                    new_path: &step.new_path,
+                    before: &step.before.content,
+                    after: &step.after.content,
+                    object_format,
+                },
                 budget,
             )
         })
@@ -136,4 +142,3 @@ pub fn invalid_tracker_files(state: &TrackerState, root: &str) -> Vec<RawFile> {
 pub fn needs_object_format(edits: &[Edit]) -> bool {
     edits.iter().any(|edit| edit.binary && edit.inside && !edit.omitted)
 }
-

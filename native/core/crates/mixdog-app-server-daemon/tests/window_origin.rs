@@ -217,13 +217,10 @@ impl Harness {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         let publisher = Arc::new(MockStatePublisher::default());
-        let (config, _) = Config::open(
-            root.join("mixdog-config.json"),
-            publisher.clone(),
-            ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
-        )
-        .await
-        .unwrap();
+        let (config, _) =
+            Config::open(root.join("mixdog-config.json"), publisher.clone(), ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io })
+                .await
+                .unwrap();
         let tool_modules = ToolModules::new(config.clone(), Arc::new(NoHost(watch::channel(0).0)), publisher, mixdog_rt::CancellationToken::new());
         let env: SettingsEnv = Arc::new(|_| None);
         let settings = Settings::new(config.clone(), Arc::new(NoEffects), env);
@@ -281,10 +278,7 @@ impl Harness {
         let mut request = format!("ws://{}/rpc", self.addr).into_client_request().unwrap();
         request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
         for (name, value) in headers {
-            request.headers_mut().append(
-                tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                value.parse().unwrap(),
-            );
+            request.headers_mut().append(tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(), value.parse().unwrap());
         }
         let (socket, _) = tokio_tungstenite::client_async(request, tcp).await.unwrap();
         Client { socket, next: 1 }
@@ -464,7 +458,9 @@ async fn a_window_with_the_approvals_inbox_gets_any_threads_approval_and_answers
     assert_eq!(decided, vec![("ap1".to_owned(), Origin::Local, json!({ "approved": true }))]);
     assert_eq!(decisions(&second), Vec::new(), "the other thread decided nothing");
 
-    harness.outgoing.resolved(&ServerRequestId("ap1".to_owned()), Bytes::from(json!({ "method": "serverRequest/resolved", "params": { "requestId": "ap1" } }).to_string()));
+    harness
+        .outgoing
+        .resolved(&ServerRequestId("ap1".to_owned()), Bytes::from(json!({ "method": "serverRequest/resolved", "params": { "requestId": "ap1" } }).to_string()));
     window.frame_where(|frame| frame["method"] == json!("serverRequest/resolved")).await;
     window.send(json!({ "id": "ap1", "result": { "approved": true } })).await;
     // The server handles one connection's frames in order: the answer to this call is behind the second answer.

@@ -8,9 +8,9 @@
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
+use mixdog_js::is_js_space;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
-use mixdog_js::is_js_space;
 use mixdog_js::json_number;
 use mixdog_js::json_parse;
 use mixdog_js::number_to_string;
@@ -26,10 +26,10 @@ use crate::results::git_media::git_result_error;
 use crate::results::git_media::git_result_exit_code;
 use crate::results::git_media::media_result_summary;
 use crate::tool_primitives::AGENT_SURFACE_BRIEF_MAX;
+use crate::tool_primitives::coalesce;
 use crate::tool_primitives::compact_parts;
 use crate::tool_primitives::display_path_of;
 use crate::tool_primitives::display_tool_path;
-use crate::tool_primitives::coalesce;
 use crate::tool_primitives::field;
 use crate::tool_primitives::first_text;
 use crate::tool_primitives::is_mcp_tool_name;
@@ -59,8 +59,23 @@ macro_rules! regex {
 
 /// The nouns a count label can carry, each with its catalog key `{{count}} <noun>`.
 const COUNT_NOUNS: [&str; 17] = [
-    "lines", "matches", "files", "entries", "candidates", "results", "skills", "items", "memories", "messages", "agents", "tasks",
-    "references", "definitions", "symbols", "callers", "callees",
+    "lines",
+    "matches",
+    "files",
+    "entries",
+    "candidates",
+    "results",
+    "skills",
+    "items",
+    "memories",
+    "messages",
+    "agents",
+    "tasks",
+    "references",
+    "definitions",
+    "symbols",
+    "callers",
+    "callees",
 ];
 const STATUS_WORDS: [&str; 8] = ["Completed", "Failed", "Cancelled", "Finished", "Running", "Queued", "Pending", "Timed out"];
 
@@ -106,17 +121,17 @@ regex!(STATUS_WORD, r"^(?:ok|done|success|saved|sent|updated|reloaded|connected|
 regex!(ZERO_COUNT, r"^\(?\s*(?:no|0)\s+(?:fuzzy\s+)?(?:match(?:es)?|results?|files?|entries|candidates?|hits?)\b", "i");
 regex!(ZERO_EMPTY, r"^\(?\s*(?:empty|none)\s*\)?$", "i");
 regex!(ZERO_NO_FOUND, r"^no\s+\S+\s+(?:found|matched)\b", "i");
-regex!(
-    DELTA_FIELD,
-    r"^\s*[+-]\s*\d+(?:\s*lines?)?(?:(?:\s*/\s*|\s+)[+-]\s*\d+(?:\s*lines?)?)*\s*$",
-    "i"
-);
+regex!(DELTA_FIELD, r"^\s*[+-]\s*\d+(?:\s*lines?)?(?:(?:\s*/\s*|\s+)[+-]\s*\d+(?:\s*lines?)?)*\s*$", "i");
 regex!(DELTA_PART, r"([+-])\s*(\d+)", "");
 regex!(UPDATE_SUMMARY, r"^(Updated|Created|Deleted|Checked)\s+(.+?)(?:\s+·\s+|$)", "i");
 regex!(FILE_COUNT, r"^(\d+)\s+Files?$", "i");
 regex!(OK_LINE, r"^\s*OK\s+(modify|add|delete|create)\s+(.+?)\s*$", "i");
 regex!(EDITED_LINE, r"^\s*(Edited|Created|Updated|Wrote):\s+(.+?)(?:\s+\(([^)]+)\))?\s*$", "i");
-regex!(ERRORISH, r"\b(error|failed|failure|denied|refused|timed?\s*out|timeout|not\s+found|missing|invalid|cannot|can't|exception|exit\s+(?:code\s+)?[1-9])\b", "i");
+regex!(
+    ERRORISH,
+    r"\b(error|failed|failure|denied|refused|timed?\s*out|timeout|not\s+found|missing|invalid|cannot|can't|exception|exit\s+(?:code\s+)?[1-9])\b",
+    "i"
+);
 regex!(ERROR_LEAD, r"^error\s*:\s*", "i");
 regex!(BLOCK_LEAD, r"^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)", "");
 regex!(BOLD_STAR, r"\*\*([^*]+)\*\*", "");
@@ -139,11 +154,7 @@ regex!(STREAM_LABEL, r"^\[(?:stdout|stderr)(?: preview)?\]$", "");
 regex!(GIT_HEADER_LINE, r"^## .*git(?:\.exe)?(?:\s|$)", "i");
 regex!(CODE_GRAPH_COUNT, r"(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)", "i");
 regex!(HTTP_STATUS, r"(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b", "i");
-regex!(
-    STATUS_REASON,
-    r"\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)",
-    ""
-);
+regex!(STATUS_REASON, r"\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)", "");
 regex!(BYTE_SIZE, r"\b(\d+(?:\.\d+)?\s?(?:[KMGT]?B|bytes))\b", "i");
 regex!(RESULT_COUNT, r"(\d+)\s+results?", "i");
 regex!(MEMORY_ID_LINE, r"#\d+\s*$", "");
@@ -582,8 +593,7 @@ fn summarize_grep_result(input: &ResultInput<'_>) -> Option<String> {
     }
     let parsed = parse_tool_args(input.args);
     let mode = js_to_lowercase(&text_of(coalesce(&parsed, &["output_mode", "mode"])));
-    let rows: Vec<&str> =
-        input.text.split('\n').map(js_trim).filter(|line| !line.is_empty() && !line.starts_with('[') && !line.starts_with('…')).collect();
+    let rows: Vec<&str> = input.text.split('\n').map(js_trim).filter(|line| !line.is_empty() && !line.starts_with('[') && !line.starts_with('…')).collect();
     if mode == "count" {
         let (mut matches, mut files) = (0.0, 0.0);
         for row in &rows {
@@ -714,10 +724,7 @@ fn summarize_code_graph_result(input: &ResultInput<'_>) -> Option<String> {
 
 fn summarize_fetch_result(input: &ResultInput<'_>) -> Option<String> {
     // A status needs a status-like context (`HTTP NNN`, `Status: NNN`, `NNN OK`), not any bare 3-digit number.
-    let status = HTTP_STATUS
-        .captures(input.text)
-        .and_then(|found| found.get(1))
-        .or_else(|| STATUS_REASON.captures(input.text).and_then(|found| found.get(1)));
+    let status = HTTP_STATUS.captures(input.text).and_then(|found| found.get(1)).or_else(|| STATUS_REASON.captures(input.text).and_then(|found| found.get(1)));
     let size = BYTE_SIZE.captures(input.text).and_then(|found| found.get(1));
     match (size, status) {
         (Some(size), Some(status)) => Some(format!("{size} · HTTP {status}")),
@@ -839,7 +846,9 @@ fn summarize_agent_result(input: &ResultInput<'_>) -> Option<String> {
         return Some(translate("Running", "Running", &Value::Object(Map::new())));
     }
     // An agent or task result card shows only a one-liner; the full report is behind the expand key.
-    Some(first_agent_result_line(input.text)).filter(|line| !line.is_empty()).map(|line| truncate_single_line(&strip_inline_markdown(&line), AGENT_SURFACE_BRIEF_MAX))
+    Some(first_agent_result_line(input.text))
+        .filter(|line| !line.is_empty())
+        .map(|line| truncate_single_line(&strip_inline_markdown(&line), AGENT_SURFACE_BRIEF_MAX))
 }
 
 fn summarize_ask_user_result(input: &ResultInput<'_>) -> Option<String> {
@@ -896,7 +905,14 @@ fn summarizer_for(normalized: &str) -> Option<fn(&ResultInput<'_>) -> Option<Str
         "web_fetch" | "fetch" => summarize_fetch_result,
         "search_query" | "image_query" | "web_search" | "web_search_call" => summarize_search_result,
         "recall" | "search_memories" | "memory" => summarize_memory_result,
-        "remember" | "save_memory" | "update_memory" | "request_user_input" | "update_plan" | "cwd" | "session" | "list_mcp_resources"
+        "remember"
+        | "save_memory"
+        | "update_memory"
+        | "request_user_input"
+        | "update_plan"
+        | "cwd"
+        | "session"
+        | "list_mcp_resources"
         | "list_mcp_resource_templates" => summarize_generic_input,
         "skill" | "skill_execute" | "skill_view" | "skills_list" | "use_skill" => summarize_skill_result,
         "agent" | "task" => summarize_agent_result,
@@ -1105,11 +1121,11 @@ mod tests {
     fn the_agent_brief() {
         let args = json!({ "action": "spawn", "prompt": "do   the thing" });
         assert_eq!(summarize_agent_surface_brief("agent", &args, "", AgentBriefOptions::default()), "do the thing");
+        assert_eq!(summarize_agent_surface_brief("agent", &json!({}), "Error: boom", AgentBriefOptions { is_error: true, is_response: false }), "boom");
         assert_eq!(
-            summarize_agent_surface_brief("agent", &json!({}), "Error: boom", AgentBriefOptions { is_error: true, is_response: false }),
-            "boom"
+            summarize_agent_surface_brief("agent", &json!({}), "status: done\n**All** good", AgentBriefOptions { is_error: false, is_response: true }),
+            "All good"
         );
-        assert_eq!(summarize_agent_surface_brief("agent", &json!({}), "status: done\n**All** good", AgentBriefOptions { is_error: false, is_response: true }), "All good");
         assert!(is_memory_surface("Memory"));
     }
 }

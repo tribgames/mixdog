@@ -318,10 +318,7 @@ impl ScopeRuntime {
         }
         let mut pending = cell.pending.subscribe();
         let count = *pending.borrow_and_update();
-        if follow_current && count == 0
-            && self.hub.pending_starts(&cell.scope).is_empty()
-            && !pending.has_changed().unwrap_or(false)
-        {
+        if follow_current && count == 0 && self.hub.pending_starts(&cell.scope).is_empty() && !pending.has_changed().unwrap_or(false) {
             return;
         }
         let wait = async {

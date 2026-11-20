@@ -7,7 +7,6 @@ use mixdog_core_config::workflow::WorkflowPaths;
 
 use mixdog_core::run_host::workflow_surface::context::WorkflowPacks;
 
-
 /// A lane that cannot run the pack read is a typed failure, not the row of a missing pack.
 #[tokio::test]
 async fn a_refused_lane_read_is_a_typed_failure() {
@@ -31,7 +30,9 @@ async fn the_shipped_default_pack_is_read_from_the_src_folder() {
         got.summary.to_string(),
         r#"{"id":"default","name":"Default","description":"Handle tasks as requested.","source":"built-in","delegatesAgents":true}"#
     );
-    assert!(got.pack_context.starts_with("# Active Workflow: Default \u{2014} Handle tasks as requested.\n\nAn explicit request is the approval within its scope"), "{}", got.pack_context);
+    assert!(
+        got.pack_context.starts_with("# Active Workflow: Default \u{2014} Handle tasks as requested.\n\nAn explicit request is the approval within its scope"),
+        "{}",
+        got.pack_context
+    );
 }
-
-

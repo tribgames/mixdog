@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::{CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::catalog::CatalogService;
+use mixdog_ai::catalog::{CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
@@ -27,18 +27,10 @@ pub(super) struct Offline;
 
 #[async_trait]
 impl HttpSend for Offline {
-    async fn send(
-        &self,
-        _: WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
-        Err(ProviderError::new(
-            ErrorKind::Transient,
-            DeliveryState::NotSent,
-        ))
+    async fn send(&self, _: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
     }
 }
-
 
 struct Listed(Vec<mixdog_core_api::domain::provider::ModelRecord>);
 
@@ -74,7 +66,7 @@ async fn a_snapshot_the_provider_listing_produced_reaches_the_rows() {
         config,
         primary_provider: Arc::new(|| "openai-oauth".to_owned()),
         unsupported: Arc::new(UnsupportedEfforts::default()),
-            host: None,
+        host: None,
     };
     let rows = service.rows(false, false).await.unwrap();
     let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id} in {rows:?}"));
@@ -89,7 +81,6 @@ async fn a_snapshot_the_provider_listing_produced_reaches_the_rows() {
     // Auto-capable (`hydrate_provider_model_row`).
     assert_eq!(silent["autoEffortCapable"], json!(false));
 }
-
 
 struct NeverListed;
 
@@ -121,12 +112,6 @@ impl mixdog_core_api::domain::provider::ModelListing for LoadListing {
             .collect())
     }
 }
-
-
-
-
-
-
 
 /// A builder whose providers are mocks: the registry prepares them as production does.
 struct BuildsMock;
@@ -213,7 +198,8 @@ async fn a_cold_placeholder_schedules_the_load_that_replaces_it() {
         host: Some(host),
     };
     let service = Arc::new(service);
-    let warmup = super::model_warmup::ModelWarmup::new(super::model_warmup::WarmupConfig { enabled: true, delay: std::time::Duration::ZERO, before_first_turn: false });
+    let warmup =
+        super::model_warmup::ModelWarmup::new(super::model_warmup::WarmupConfig { enabled: true, delay: std::time::Duration::ZERO, before_first_turn: false });
     warmup.bind(service.clone(), Arc::new(IdleGates)).unwrap();
     assert!(service.warm_needed(), "nothing is loaded or loading yet");
     assert_eq!(catalog.model_meta("p", "mock-model"), json!({ "id": "mock-model", "provider": "p" }), "the cold placeholder");
@@ -222,5 +208,3 @@ async fn a_cold_placeholder_schedules_the_load_that_replaces_it() {
     assert!(!service.warm_needed(), "the miss scheduled the warm-up, which loaded the catalog");
     assert_eq!(row["display"], "mock-model", "the load's row replaced the placeholder: {row}");
 }
-
-

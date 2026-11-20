@@ -27,8 +27,8 @@ use crate::ps::text;
 use super::as_value;
 use super::count_of;
 use super::double_of;
-use super::int_of;
 use super::ink::color_contrast_ratio;
+use super::int_of;
 use super::long_cast;
 use super::single_of;
 use super::snapshot::notes_text;
@@ -71,10 +71,7 @@ struct Chains {
 }
 
 fn read_chains(shape: &Com) -> Chains {
-    let frame = (|| -> Result<Com> {
-        if truth(&shape.member("HasTextFrame")?) { shape.member("TextFrame") } else { Ok(Com::Null) }
-    })()
-    .unwrap_or(Com::Null);
+    let frame = (|| -> Result<Com> { if truth(&shape.member("HasTextFrame")?) { shape.member("TextFrame") } else { Ok(Com::Null) } })().unwrap_or(Com::Null);
     let range = (|| -> Result<Com> { if truth(&frame) { frame.member("TextRange") } else { Ok(Com::Null) } })().unwrap_or(Com::Null);
     let font = (|| -> Result<Com> { if truth(&range) { range.member("Font") } else { Ok(Com::Null) } })().unwrap_or(Com::Null);
     let bounds = (|| -> Result<Com> { if truth(&frame) { shape.member("TextFrame2")?.member("TextRange") } else { Ok(Com::Null) } })().unwrap_or(Com::Null);

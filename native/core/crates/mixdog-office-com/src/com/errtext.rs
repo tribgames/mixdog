@@ -178,13 +178,7 @@ pub fn com_error(access: Access<'_>, raw: &Raw, system_text: &dyn Fn(i32) -> Opt
         Access::Get { name } => format!("Exception getting \"{name}\": \"{inner}\""),
         Access::Set { name } => format!("Exception setting \"{name}\": \"{inner}\""),
     };
-    ComError {
-        hresult: WRAPPED_HRESULT,
-        inner_hresult: raw.hresult,
-        message,
-        inner_message: inner,
-        unknown_member: false,
-    }
+    ComError { hresult: WRAPPED_HRESULT, inner_hresult: raw.hresult, message, inner_message: inner, unknown_member: false }
 }
 
 /// The failure of a member the object does not have (`GetIDsOfNames` answered `DISP_E_UNKNOWNNAME`, or `Invoke`

@@ -40,11 +40,11 @@ use super::continuation::with_slot;
 use super::error::Failure;
 use super::error::classify;
 use super::tool_flight::Collector;
+use super::tool_flight::ToolFlight;
 use crate::providers::leak;
 use crate::providers::leak::Dedupe;
 use crate::providers::leak::LeakGuard;
 use crate::providers::leak::Recovered;
-use super::tool_flight::ToolFlight;
 
 /// How transport units become events.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -103,12 +103,7 @@ impl Refusals {
     }
 
     fn text(&self) -> String {
-        self.parts
-            .iter()
-            .map(|(_, t)| t.as_str())
-            .filter(|t| !t.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n")
+        self.parts.iter().map(|(_, t)| t.as_str()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n")
     }
 }
 
@@ -208,11 +203,7 @@ fn u64_at(value: &Value, path: &[&str]) -> u64 {
 }
 
 fn first_nonzero(value: &Value, paths: &[&[&str]]) -> u64 {
-    paths
-        .iter()
-        .map(|p| first_finite(value, &[*p]))
-        .find(|n| *n > 0)
-        .unwrap_or(0)
+    paths.iter().map(|p| first_finite(value, &[*p])).find(|n| *n > 0).unwrap_or(0)
 }
 
 /// `firstFiniteNumberOrZero`: the first path holding a value `Number()` makes finite (`null` is 0, an absent one is
@@ -271,20 +262,18 @@ fn usage_from(usage: &Value, service_tier: Option<&str>, compat: bool) -> Usage 
             )
         },
         cache_write_tokens: first_finite(
-                usage,
-                &[
-                    &["input_tokens_details", "cache_write_tokens"],
-                    &["prompt_tokens_details", "cache_write_tokens"],
-                    &["inputTokensDetails", "cacheWriteTokens"],
-                    &["promptTokensDetails", "cacheWriteTokens"],
-                    &["cache_write_tokens"],
-                    &["cacheWriteTokens"],
-                ],
-            ),
+            usage,
+            &[
+                &["input_tokens_details", "cache_write_tokens"],
+                &["prompt_tokens_details", "cache_write_tokens"],
+                &["inputTokensDetails", "cacheWriteTokens"],
+                &["promptTokensDetails", "cacheWriteTokens"],
+                &["cache_write_tokens"],
+                &["cacheWriteTokens"],
+            ],
+        ),
         cache_write_1h_tokens: 0,
-        reasoning_tokens: usage
-            .pointer("/output_tokens_details/reasoning_tokens")
-            .and_then(Value::as_u64),
+        reasoning_tokens: usage.pointer("/output_tokens_details/reasoning_tokens").and_then(Value::as_u64),
         reasoning_incomplete: false,
         cost: billed_cost(usage),
         raw: Some(raw),
@@ -297,10 +286,7 @@ fn billed_cost(usage: &Value) -> Option<UsdTicks> {
     if let Some(ticks) = usage.get("cost_in_usd_ticks").and_then(Value::as_u64) {
         return Some(UsdTicks(ticks));
     }
-    usage
-        .get("cost")
-        .and_then(Value::as_f64)
-        .and_then(UsdTicks::from_usd)
+    usage.get("cost").and_then(Value::as_f64).and_then(UsdTicks::from_usd)
 }
 
 /// Completed-but-malformed arguments ride as data so the model can re-issue
@@ -321,25 +307,21 @@ fn parse_call_arguments(text: &str) -> Value {
 fn parse_search_arguments(value: Option<&Value>) -> Value {
     match value {
         Some(Value::Object(map)) => Value::Object(map.clone()),
-        Some(Value::String(text)) if !text.trim().is_empty() => {
-            match mixdog_js::json_parse(text) {
-                Ok(Value::Object(map)) => Value::Object(map),
-                Ok(_) => json!({}),
-                Err(err) => json!({
-                    "__invalidToolArgs": true,
-                    "__rawArguments": text,
-                    "__parseError": mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| err.to_string()),
-                }),
-            }
-        }
+        Some(Value::String(text)) if !text.trim().is_empty() => match mixdog_js::json_parse(text) {
+            Ok(Value::Object(map)) => Value::Object(map),
+            Ok(_) => json!({}),
+            Err(err) => json!({
+                "__invalidToolArgs": true,
+                "__rawArguments": text,
+                "__parseError": mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| err.to_string()),
+            }),
+        },
         _ => json!({}),
     }
 }
 
 fn is_max_output_reason(reason: &str) -> bool {
-    ["max_output_tokens", "max_tokens", "length", "output_token_limit"]
-        .iter()
-        .any(|r| reason.trim().eq_ignore_ascii_case(r))
+    ["max_output_tokens", "max_tokens", "length", "output_token_limit"].iter().any(|r| reason.trim().eq_ignore_ascii_case(r))
 }
 
 fn incomplete_reason(event: &Value) -> String {
@@ -451,11 +433,7 @@ fn is_tool_item(item: &Value) -> bool {
 }
 
 fn is_incomplete_tool_item(item: &Value) -> bool {
-    str_of(item, "status") == "incomplete"
-        && matches!(
-            str_of(item, "type"),
-            "function_call" | "custom_tool_call" | "tool_search_call"
-        )
+    str_of(item, "status") == "incomplete" && matches!(str_of(item, "type"), "function_call" | "custom_tool_call" | "tool_search_call")
 }
 
 impl ResponsesDecoder {
@@ -561,10 +539,8 @@ impl ResponsesDecoder {
                 err.partial_model = self.model.as_deref().map(Box::from);
             }
             if err.partial_replay.is_none() && !self.outcome.output_items.is_empty() {
-                err.partial_replay = Some(Box::new(ProviderReplay {
-                    owner: self.replay_owner.clone(),
-                    items: Value::Array(self.outcome.output_items.clone()),
-                }));
+                err.partial_replay =
+                    Some(Box::new(ProviderReplay { owner: self.replay_owner.clone(), items: Value::Array(self.outcome.output_items.clone()) }));
             }
         }
         err
@@ -618,10 +594,10 @@ impl ResponsesDecoder {
         };
         // A hosted call can have run without a client dispatch event. Do not
         // emit one; latch the same replay veto seen by the outer retry owners.
-        self.exposure.tool_dispatched = str_of(event, "type").strip_prefix("response.")
-                .and_then(|name| name.split_once('.')).is_some_and(|(kind, _)| Self::hosted_call(kind))
-            || event.get("item").is_some_and(server_item)
-            || event.pointer("/response/output").and_then(Value::as_array).is_some_and(|items| items.iter().any(server_item));
+        self.exposure.tool_dispatched =
+            str_of(event, "type").strip_prefix("response.").and_then(|name| name.split_once('.')).is_some_and(|(kind, _)| Self::hosted_call(kind))
+                || event.get("item").is_some_and(server_item)
+                || event.pointer("/response/output").and_then(Value::as_array).is_some_and(|items| items.iter().any(server_item));
     }
 
     // -- framing ------------------------------------------------------------
@@ -727,10 +703,7 @@ impl ResponsesDecoder {
                 let delta = str_of(event, "delta");
                 if !delta.is_empty() {
                     self.semantic_seen = true;
-                    self.texts
-                        .entry(str_of(event, "item_id").to_owned())
-                        .or_default()
-                        .push_str(delta);
+                    self.texts.entry(str_of(event, "item_id").to_owned()).or_default().push_str(delta);
                     if self.leak.enabled() {
                         let scanned = self.leak.push(delta, false);
                         self.relay_leak(scanned, true, out);
@@ -772,16 +745,8 @@ impl ResponsesDecoder {
                 if !delta.is_empty() {
                     self.semantic_seen = true;
                     out.push(StreamEvent::Progress(ProgressKind::Tool));
-                    let id = self
-                        .tools
-                        .get(item_id)
-                        .map(|t| t.call_id.clone())
-                        .filter(|c| !c.is_empty())
-                        .unwrap_or_else(|| item_id.to_owned());
-                    out.push(StreamEvent::ToolCallArgsDelta {
-                        id,
-                        delta: delta.to_owned(),
-                    });
+                    let id = self.tools.get(item_id).map(|t| t.call_id.clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| item_id.to_owned());
+                    out.push(StreamEvent::ToolCallArgsDelta { id, delta: delta.to_owned() });
                 }
             }
             "response.function_call_arguments.done" => {
@@ -803,10 +768,7 @@ impl ResponsesDecoder {
             "response.incomplete" => return self.incomplete(event, out, "response.incomplete"),
             "response.failed" => {
                 self.terminal = true;
-                let error = event
-                    .get("response")
-                    .and_then(|r| r.get("error"))
-                    .or_else(|| event.get("error"));
+                let error = event.get("response").and_then(|r| r.get("error")).or_else(|| event.get("error"));
                 return Err(self.wire_error(event, error, "response.failed"));
             }
             "error" => {
@@ -898,9 +860,7 @@ impl ResponsesDecoder {
                 self.bundle_text(item, out);
             }
         }
-        let mut reported = out[start..]
-            .iter()
-            .any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Tool)));
+        let mut reported = out[start..].iter().any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Tool)));
         // The items are collected in the bundle's order: the replay the turn returns keeps it.
         for item in output {
             self.item_done(item, out);
@@ -941,12 +901,13 @@ impl ResponsesDecoder {
         }
         match kind {
             "message" => {
-                let mut reported = out[start..].iter().any(|event| {
-                    matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Text | ProgressKind::Tool))
-                });
-                let refusal = item.get("content").and_then(Value::as_array).is_some_and(|parts| {
-                    parts.iter().any(|part| str_of(part, "type") == "refusal" && part.get("refusal").is_some_and(Value::is_string))
-                });
+                let mut reported = out[start..]
+                    .iter()
+                    .any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Text | ProgressKind::Tool)));
+                let refusal = item
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .is_some_and(|parts| parts.iter().any(|part| str_of(part, "type") == "refusal" && part.get("refusal").is_some_and(Value::is_string)));
                 if refusal {
                     out.push(StreamEvent::Progress(ProgressKind::Semantic));
                     reported = true;
@@ -969,10 +930,7 @@ impl ResponsesDecoder {
         match str_of(item, "type") {
             "message" => {
                 if let Some(phase) = phase_of(item) {
-                    out.push(StreamEvent::ItemStart {
-                        kind: ItemKind::Text,
-                        phase: Some(phase),
-                    });
+                    out.push(StreamEvent::ItemStart { kind: ItemKind::Text, phase: Some(phase) });
                 }
             }
             kind @ ("function_call" | "custom_tool_call" | "tool_search_call") => {
@@ -983,27 +941,12 @@ impl ResponsesDecoder {
                 };
                 let call_id = Self::call_id_of(item);
                 let name = Self::tool_name_of(flavor, item);
-                out.push(StreamEvent::ItemStart {
-                    kind: ItemKind::Tool,
-                    phase: None,
-                });
+                out.push(StreamEvent::ItemStart { kind: ItemKind::Tool, phase: None });
                 if !call_id.is_empty() && !name.is_empty() {
-                    out.push(StreamEvent::ToolCallStart {
-                        id: call_id.clone(),
-                        name: name.clone(),
-                    });
+                    out.push(StreamEvent::ToolCallStart { id: call_id.clone(), name: name.clone() });
                 }
-                self.tools.insert(
-                    item_id,
-                    ToolItem {
-                        flavor,
-                        call_id,
-                        name,
-                        namespace: str_of(item, "namespace").to_owned(),
-                        deferred_args: None,
-                        done: false,
-                    },
-                );
+                self.tools
+                    .insert(item_id, ToolItem { flavor, call_id, name, namespace: str_of(item, "namespace").to_owned(), deferred_args: None, done: false });
             }
             _ => {}
         }
@@ -1011,11 +954,7 @@ impl ResponsesDecoder {
 
     fn call_id_of(item: &Value) -> String {
         let call_id = str_of(item, "call_id");
-        if call_id.is_empty() {
-            str_of(item, "id").to_owned()
-        } else {
-            call_id.to_owned()
-        }
+        if call_id.is_empty() { str_of(item, "id").to_owned() } else { call_id.to_owned() }
     }
 
     fn tool_name_of(flavor: ToolFlavor, item: &Value) -> String {
@@ -1032,11 +971,7 @@ impl ResponsesDecoder {
         // A text-leaked call of the same name and arguments already ran: this one is skipped. The WebSocket and
         // HTTP/SSE collectors' identity is the namespace-qualified name (`qualifiedToolCallName`), so a tool of a
         // declared namespace is never conflated with a same-named top-level one.
-        let qualified = if self.collector() != Collector::Compat && !namespace.is_empty() {
-            format!("{namespace}.{name}")
-        } else {
-            name.to_owned()
-        };
+        let qualified = if self.collector() != Collector::Compat && !namespace.is_empty() { format!("{namespace}.{name}") } else { name.to_owned() };
         let call = ToolCall { id: id.to_owned(), name: name.to_owned(), arguments, native_type: None };
         // The call is in the returned list whether or not it is dispatched.
         self.listed.push(Listed { call: call.clone(), leaked: false });
@@ -1121,11 +1056,7 @@ impl ResponsesDecoder {
         if is_incomplete_tool_item(item) && self.collector() != Collector::Compat {
             return;
         }
-        let mut dedupe_key = if item_id.is_empty() {
-            Self::call_id_of(item)
-        } else {
-            item_id.clone()
-        };
+        let mut dedupe_key = if item_id.is_empty() { Self::call_id_of(item) } else { item_id.clone() };
         if dedupe_key.is_empty() {
             dedupe_key = item.to_string();
         }
@@ -1167,11 +1098,7 @@ impl ResponsesDecoder {
             }
             ToolFlavor::Custom => {
                 let input = str_of(item, "input");
-                if name == "apply_patch" {
-                    json!({"patch": input})
-                } else {
-                    json!({"input": input})
-                }
+                if name == "apply_patch" { json!({"patch": input}) } else { json!({"input": input}) }
             }
             ToolFlavor::Search => parse_search_arguments(item.get("arguments")),
         };
@@ -1186,9 +1113,7 @@ impl ResponsesDecoder {
     // -- terminal frames ----------------------------------------------------
 
     fn unresolved_call(&self) -> bool {
-        self.tools
-            .values()
-            .any(|t| t.deferred_args.is_some() && (t.call_id.is_empty() || t.name.is_empty()) && !t.done)
+        self.tools.values().any(|t| t.deferred_args.is_some() && (t.call_id.is_empty() || t.name.is_empty()) && !t.done)
     }
 
     fn completed(&mut self, event: &Value, out: &mut Vec<StreamEvent>, report: bool) -> Result<(), ProviderError> {
@@ -1257,10 +1182,7 @@ impl ResponsesDecoder {
         // verbatim (ids, summaries, encrypted content): the one envelope the
         // next request replays (Node `createProviderReplay(owner, responseItems)`).
         if !self.outcome.output_items.is_empty() {
-            out.push(StreamEvent::ReasoningReplay(ProviderReplay {
-                owner: self.replay_owner.clone(),
-                items: Value::Array(self.outcome.output_items.clone()),
-            }));
+            out.push(StreamEvent::ReasoningReplay(ProviderReplay { owner: self.replay_owner.clone(), items: Value::Array(self.outcome.output_items.clone()) }));
         }
         if let Some(usage) = response.get("usage").filter(|u| u.is_object()) {
             out.push(StreamEvent::Usage(usage_from(usage, service_tier, self.collector() == Collector::Compat)));
@@ -1372,17 +1294,11 @@ impl ResponsesDecoder {
     }
 
     fn response_done(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
-        let status = event
-            .get("response")
-            .map(|r| str_of(r, "status"))
-            .unwrap_or("");
+        let status = event.get("response").map(|r| str_of(r, "status")).unwrap_or("");
         match status {
             "failed" => {
                 self.terminal = true;
-                let error = event
-                    .get("response")
-                    .and_then(|r| r.get("error"))
-                    .or_else(|| event.get("error"));
+                let error = event.get("response").and_then(|r| r.get("error")).or_else(|| event.get("error"));
                 Err(self.wire_error(event, error, "response.done failed"))
             }
             "incomplete" => self.incomplete(event, out, "response.done incomplete"),
@@ -1401,9 +1317,10 @@ impl ResponsesDecoder {
     /// A failure of an incomplete response still carries the usage it was billed and, but for the WebSocket
     /// collector's plain failure, the model that reported it.
     fn reported_tier<'a>(&self, response: &'a Value) -> Option<&'a str> {
-        response.get("service_tier").and_then(Value::as_str).or_else(|| {
-            (self.collector() != Collector::Compat).then(|| response.get("serviceTier").and_then(Value::as_str)).flatten()
-        })
+        response
+            .get("service_tier")
+            .and_then(Value::as_str)
+            .or_else(|| (self.collector() != Collector::Compat).then(|| response.get("serviceTier").and_then(Value::as_str)).flatten())
     }
 
     fn billed(&self, mut err: ProviderError, response: &Value, with_model: bool) -> ProviderError {
@@ -1450,10 +1367,8 @@ impl ResponsesDecoder {
                 err.exposure.tool_input_cut = true;
                 // Only the WebSocket collector keeps the replay of what it had finished (`partialState`).
                 if collector == Collector::WebSocket && !self.outcome.output_items.is_empty() {
-                    err.partial_replay = Some(Box::new(ProviderReplay {
-                        owner: self.replay_owner.clone(),
-                        items: Value::Array(self.outcome.output_items.clone()),
-                    }));
+                    err.partial_replay =
+                        Some(Box::new(ProviderReplay { owner: self.replay_owner.clone(), items: Value::Array(self.outcome.output_items.clone()) }));
                 }
                 return Err(err);
             }
@@ -1461,11 +1376,7 @@ impl ResponsesDecoder {
             return Ok(());
         }
         self.terminal = true;
-        let kind = if reason.eq_ignore_ascii_case("content_filter") {
-            ErrorKind::Policy
-        } else {
-            ErrorKind::Unknown
-        };
+        let kind = if reason.eq_ignore_ascii_case("content_filter") { ErrorKind::Policy } else { ErrorKind::Unknown };
         let mut err = ProviderError::new(kind, DeliveryState::Accepted);
         err.message = self.labelled(if collector == Collector::Compat { format!("stream {frame}: {reason}") } else { format!("{frame}: {reason}") });
         err.code = Some(reason.to_ascii_lowercase());
@@ -1612,11 +1523,7 @@ mod reasoning_tests {
 }
 
 #[cfg(test)]
-mod arguments_tests {
-
-}
-
-
+mod arguments_tests {}
 
 #[cfg(test)]
 mod progress_tests {
@@ -1642,8 +1549,10 @@ mod progress_tests {
     fn an_empty_argument_delta_is_no_progress_and_a_call_in_flight_labels_nothing() {
         let mut decoder = ResponsesDecoder::new(Framing::WebSocket, Arc::new(Ctx), ProviderId::from("openai"));
         let mut feed = |wire: serde_json::Value| decoder.feed(wire.to_string().as_bytes()).expect("a valid frame");
-        let progress = |events: &[StreamEvent]| events.iter().filter_map(|e| if let StreamEvent::Progress(kind) = e { Some(*kind) } else { None }).collect::<Vec<_>>();
-        let call = serde_json::json!({ "type": "response.output_item.added", "item": { "type": "function_call", "id": "fc", "call_id": "c", "name": "write" } });
+        let progress =
+            |events: &[StreamEvent]| events.iter().filter_map(|e| if let StreamEvent::Progress(kind) = e { Some(*kind) } else { None }).collect::<Vec<_>>();
+        let call =
+            serde_json::json!({ "type": "response.output_item.added", "item": { "type": "function_call", "id": "fc", "call_id": "c", "name": "write" } });
         assert_eq!(progress(&feed(call)), vec![ProgressKind::Tool], "a call opening is a lifecycle transition");
         let delta = |text: &str| serde_json::json!({ "type": "response.function_call_arguments.delta", "item_id": "fc", "delta": text });
         assert!(progress(&feed(delta(""))).is_empty(), "an empty delta advances nothing");
@@ -1651,7 +1560,6 @@ mod progress_tests {
         let message = serde_json::json!({ "type": "response.output_item.added", "item": { "type": "message", "id": "m" } });
         assert_eq!(progress(&feed(message)), vec![ProgressKind::Semantic], "an item is named by its type, not by the call in flight");
     }
-
 }
 
 #[cfg(test)]

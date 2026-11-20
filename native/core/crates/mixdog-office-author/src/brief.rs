@@ -63,7 +63,8 @@ pattern!(LINE_LEAD, r"^\s*(?:\/\/\s*)?", "");
 
 /// `facts: sample` declares every figure illustrative: no fact sheet exists, the author gate lets the deck land, and
 /// the delivery says the numbers are examples.
-pub const FACTS_SAMPLE_DISCLOSURE: &str = "The brief declares facts: sample — every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.";
+pub const FACTS_SAMPLE_DISCLOSURE: &str =
+    "The brief declares facts: sample — every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.";
 
 /// `text.split(separator)` for a separator that never matches the empty text.
 fn split_by<'a>(separator: &JsRegex, text: &'a str) -> Vec<&'a str> {
@@ -243,12 +244,9 @@ pub fn parse_authoring_brief(script: &str) -> Value {
     }
     // `reading mode: presentation | balanced | text · argument mode: …`; the style line's `MODE <mode>` is the fallback.
     let mode_line = brief_line(script, "reading mode");
-    let reading_mode =
-        js_to_lowercase(&first_group(&READING_MODE_WORD, &mode_line).or_else(|| first_group(&STYLE_MODE, &style_line)).unwrap_or_default());
+    let reading_mode = js_to_lowercase(&first_group(&READING_MODE_WORD, &mode_line).or_else(|| first_group(&STYLE_MODE, &style_line)).unwrap_or_default());
     let argument_mode = js_to_lowercase(
-        &first_group(&ARGUMENT_MODE_IN_LINE, &mode_line)
-            .or_else(|| first_group(&READING_MODE_WORD, &brief_line(script, "argument mode")))
-            .unwrap_or_default(),
+        &first_group(&ARGUMENT_MODE_IN_LINE, &mode_line).or_else(|| first_group(&READING_MODE_WORD, &brief_line(script, "argument mode"))).unwrap_or_default(),
     );
     json!({
         "present": present,
@@ -409,9 +407,10 @@ pub fn review_brief_promises(document: &Value, brief: &Value) -> Vec<Value> {
         return issues;
     }
     // `Math.max(...)`: any NaN makes the whole maximum NaN.
-    let planned = plan.iter().map(|entry| to_number_of(field(entry, "slide"))).fold(f64::NEG_INFINITY, |most, number| {
-        if most.is_nan() || number.is_nan() { f64::NAN } else { most.max(number) }
-    });
+    let planned = plan
+        .iter()
+        .map(|entry| to_number_of(field(entry, "slide")))
+        .fold(f64::NEG_INFINITY, |most, number| if most.is_nan() || number.is_nan() { f64::NAN } else { most.max(number) });
     if slides.len() as f64 != planned {
         issues.push(issue(
             "plan_count_mismatch",
@@ -769,7 +768,10 @@ const x = 1;
             ])),
             &brief,
         );
-        assert_eq!(with_geometry.iter().map(|entry| (entry["code"].as_str().unwrap(), entry["severity"].as_str().unwrap())).collect::<Vec<_>>(), [("plan_promise_missing", "warning")]);
+        assert_eq!(
+            with_geometry.iter().map(|entry| (entry["code"].as_str().unwrap(), entry["severity"].as_str().unwrap())).collect::<Vec<_>>(),
+            [("plan_promise_missing", "warning")]
+        );
         // The Office COM snapshot reports shape kinds without preset geometry: a diagram cannot be seen there, a chart can.
         let slides: Vec<Value> = (1..=4).map(|index| json!({ "index": index, "shapes": [{ "type": 1, "text": "x", "font": { "size": 14 } }] })).collect();
         let com = review_brief_promises(&deck_of(Value::Array(slides)), &brief);
@@ -877,9 +879,15 @@ const x = 1;
         let dated = deck_of(json!([{ "index": 1, "shapes": [{ "text": "2026.09 · 운영 보고" }, { "text": "2026.09.12 기준 · 2026-09" }] }]));
         assert_eq!(facts_gate(&dated, &sourced), json!({ "blocked": false }));
         let decimal = deck_of(json!([{ "index": 1, "shapes": [{ "text": "2026.5 배" }] }]));
-        assert_eq!(facts_gate(&decimal, &sourced), json!({ "blocked": true, "code": "number_without_fact", "slides": [{ "slide": 1, "figures": ["2026.5"] }] }));
+        assert_eq!(
+            facts_gate(&decimal, &sourced),
+            json!({ "blocked": true, "code": "number_without_fact", "slides": [{ "slide": 1, "figures": ["2026.5"] }] })
+        );
         let illustrative = review_fact_coverage(&document, &sample);
-        assert_eq!(illustrative.iter().map(|entry| (entry["code"].as_str().unwrap(), entry["severity"].as_str().unwrap())).collect::<Vec<_>>(), [("facts_illustrative", "info")]);
+        assert_eq!(
+            illustrative.iter().map(|entry| (entry["code"].as_str().unwrap(), entry["severity"].as_str().unwrap())).collect::<Vec<_>>(),
+            [("facts_illustrative", "info")]
+        );
 
         // The gate compares figures, not strings: 42 is not covered by 84,200, nor 96 by 96.1%.
         let table = deck_of(json!([{ "index": 1, "shapes": [{ "text": "대전 128,400 92.8% 96 · 광주 84,200 96.1% 42" }] }]));
@@ -907,7 +915,10 @@ const x = 1;
         assert_eq!(plan_gate(&document, &partial), json!({ "blocked": true, "code": "plan_slide_unplanned", "slides": [{ "slide": 2 }] }));
 
         let no_carriers = parse_authoring_brief("// BRIEF\n// slide plan: 1 job: cover · carriers: statement\n//   2 job: evidence · move: 규모를 본다\n");
-        assert_eq!(plan_gate(&document, &no_carriers), json!({ "blocked": true, "code": "plan_incomplete", "slides": [{ "slide": 2, "missing": ["carriers"] }] }));
+        assert_eq!(
+            plan_gate(&document, &no_carriers),
+            json!({ "blocked": true, "code": "plan_incomplete", "slides": [{ "slide": 2, "missing": ["carriers"] }] })
+        );
 
         let promised = parse_authoring_brief("// BRIEF\n// slide plan: 1 job: cover · carriers: statement\n//   2 job: evidence · carriers: chart\n");
         assert_eq!(

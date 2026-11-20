@@ -88,10 +88,8 @@ pub(super) fn per_file_review(files: Vec<Obj>, patch: &str) -> (Vec<Obj>, String
             omitted.insert(key.clone());
         }
     }
-    let shaped: Vec<Obj> = files
-        .into_iter()
-        .map(|file| if omitted.contains(&path_key(obj_str(&file, "path"))) { patch_omitted_file(file) } else { file })
-        .collect();
+    let shaped: Vec<Obj> =
+        files.into_iter().map(|file| if omitted.contains(&path_key(obj_str(&file, "path"))) { patch_omitted_file(file) } else { file }).collect();
     let text = String::from_utf8_lossy(&kept).into_owned();
     let too_large = review_diff_too_large(&shaped, &text);
     (shaped, text, too_large)
@@ -298,9 +296,10 @@ impl Inner {
     async fn read_turn_review(&self, owner: &str, summary: bool) -> Obj {
         let tracker = self.tracker_of(owner);
         if tracker.is_none()
-            && let Some(recorded) = self.recorded_turn_review(owner, summary).await {
-                return recorded;
-            }
+            && let Some(recorded) = self.recorded_turn_review(owner, summary).await
+        {
+            return recorded;
+        }
         let (turn_generation, turn_checkpoint) = {
             let reg = self.reg();
             match reg.turns.get(owner) {
@@ -320,7 +319,8 @@ impl Inner {
         } else if tracker.as_ref().is_some_and(|t| t.lock().valid) && view.as_ref().is_some_and(|v| !v.files.is_empty()) {
             revert_mode = "tracked";
         }
-        let (files, patch, too_large) = per_file_review(view.as_ref().map(|v| v.files.clone()).unwrap_or_default(), view.as_ref().map_or("", |v| v.patch.as_str()));
+        let (files, patch, too_large) =
+            per_file_review(view.as_ref().map(|v| v.files.clone()).unwrap_or_default(), view.as_ref().map_or("", |v| v.patch.as_str()));
         let checkpoint = match turn_checkpoint.as_deref().filter(|c| !c.is_empty()) {
             Some(c) => clean(c).to_owned(),
             None => tracker.as_ref().map(|t| clean(&t.meta.checkpoint_id).to_owned()).unwrap_or_default(),
@@ -353,11 +353,14 @@ impl Inner {
         // the bar is opened.
         let kind = review.get("snapshotKind").and_then(Value::as_str).unwrap_or("").to_owned();
         let has_patch = review.get("patch").and_then(Value::as_str).is_some_and(|p| !p.is_empty());
-        if read.summary && SUMMARY_KINDS.contains(&kind.as_str()) && has_patch
-            && let Some(map) = review.as_object_mut() {
-                map.insert("patch".into(), Value::String(String::new()));
-                map.insert("patchOmitted".into(), Value::Bool(true));
-            }
+        if read.summary
+            && SUMMARY_KINDS.contains(&kind.as_str())
+            && has_patch
+            && let Some(map) = review.as_object_mut()
+        {
+            map.insert("patch".into(), Value::String(String::new()));
+            map.insert("patchOmitted".into(), Value::Bool(true));
+        }
         // The tag covers everything sent (`historyTurns` included), so a summary and a full review
         // never share one.
         let digest = Sha256::digest(json_stringify(&review).as_bytes());
@@ -444,7 +447,8 @@ impl Inner {
             if has_files {
                 let mut budget = LineDiffBudget::default();
                 let root = obj_str(rec, "root").to_owned();
-                let files: Vec<Obj> = rec.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).cloned().collect()).unwrap_or_default();
+                let files: Vec<Obj> =
+                    rec.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).cloned().collect()).unwrap_or_default();
                 let mut measured = Vec::with_capacity(files.len());
                 for file in files {
                     measured.push(Value::Object(self.measure_legacy_change_file(file, &root, &mut budget).await));
@@ -486,9 +490,10 @@ impl Inner {
         input.push(0);
         // 0: some are ignored, 1: none; anything else (no repository) flags none.
         if let Ok(result) = self.git.run_with(root, &args, input, &GitOptions::timeout(IGNORED_PATHS_TIMEOUT)).await
-            && result.code == 0 {
-                ignored = String::from_utf8_lossy(&result.stdout).split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
-            }
+            && result.code == 0
+        {
+            ignored = String::from_utf8_lossy(&result.stdout).split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
+        }
         let mut cache = self.ignored.lock().unwrap_or_else(|e| e.into_inner());
         cache.insert(key.to_owned(), ignored.clone());
         while cache.len() > IGNORED_CHANGE_CACHE_LIMIT {
@@ -498,12 +503,9 @@ impl Inner {
     }
 
     pub(super) async fn with_ignored_change_files(&self, owner: &str, mut reply: Obj) -> Obj {
-        let files: Vec<Obj> = reply.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).cloned().collect()).unwrap_or_default();
-        let paths: Vec<String> = files
-            .iter()
-            .map(|f| obj_str(f, "path").to_owned())
-            .filter(|p| !p.is_empty() && !nodepath::is_absolute_host(p))
-            .collect();
+        let files: Vec<Obj> =
+            reply.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).cloned().collect()).unwrap_or_default();
+        let paths: Vec<String> = files.iter().map(|f| obj_str(f, "path").to_owned()).filter(|p| !p.is_empty() && !nodepath::is_absolute_host(p)).collect();
         let root = obj_str(&reply, "root").to_owned();
         if root.is_empty() || paths.is_empty() {
             return reply;

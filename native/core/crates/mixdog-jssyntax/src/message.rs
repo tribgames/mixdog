@@ -27,8 +27,7 @@ pub const MISSING_CONST_INIT: &str = "Missing initializer in const declaration";
 pub const MISSING_DESTRUCTURING_INIT: &str = "Missing initializer in destructuring declaration";
 pub const DUPLICATE_PARAM: &str = "Duplicate parameter name not allowed in this context";
 pub const USE_STRICT_NON_SIMPLE: &str = "Illegal 'use strict' directive in function with non-simple parameter list";
-pub const ARGUMENTS_IN_INITIALIZER: &str =
-    "'arguments' is not allowed in class field initializer or static initialization block";
+pub const ARGUMENTS_IN_INITIALIZER: &str = "'arguments' is not allowed in class field initializer or static initialization block";
 pub const SINGLE_STATEMENT_DECLARATION: &str = "Lexical declaration cannot appear in a single-statement context";
 pub const DUPLICATE_CONSTRUCTOR: &str = "A class may only have one constructor";
 pub const SPECIAL_CONSTRUCTOR: &str = "Class constructor may not be an accessor, a generator or async";
@@ -39,7 +38,8 @@ pub const SETTER_PARAMETERS: &str = "Setter must have exactly one formal paramet
 pub const NEWLINE_AFTER_THROW: &str = "Illegal newline after throw";
 pub const OPTIONAL_CHAIN_TEMPLATE: &str = "Invalid tagged template on optional chain";
 pub const OPTIONAL_CHAIN_NEW: &str = "Invalid optional chain from new expression";
-pub const EXPONENT_UNARY: &str = "Unary operator used immediately before exponentiation expression. Parenthesis must be used to disambiguate operator precedence";
+pub const EXPONENT_UNARY: &str =
+    "Unary operator used immediately before exponentiation expression. Parenthesis must be used to disambiguate operator precedence";
 pub const IMPORT_CALL: &str = "Dynamic import must have exactly one argument";
 pub const MISSING_CATCH: &str = "Missing catch or finally after try";
 pub const MULTIPLE_DEFAULTS: &str = "More than one default clause in switch statement";
@@ -70,9 +70,7 @@ impl Reason {
     pub fn text(&self) -> String {
         match self {
             Self::ImportOutsideModule => "Cannot use import statement outside a module".to_owned(),
-            Self::AwaitOutsideAsync => {
-                "await is only valid in async functions and the top level bodies of modules".to_owned()
-            }
+            Self::AwaitOutsideAsync => "await is only valid in async functions and the top level bodies of modules".to_owned(),
             Self::ImportMeta => "Cannot use 'import.meta' outside a module".to_owned(),
             Self::IllegalReturn => "Illegal return statement".to_owned(),
             Self::UnexpectedEnd => "Unexpected end of input".to_owned(),

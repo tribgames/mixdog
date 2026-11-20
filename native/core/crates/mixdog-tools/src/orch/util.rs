@@ -15,11 +15,7 @@ use serde_json::Value;
 /// Builds a [`ToolSpec`] from an embedded definition document (`defs/<tool>.json`: name, title,
 /// trigger, description, annotations, inputSchema), generated from the live tool-definition
 /// modules. Every hint is the definition's own: a hint it does not state stays unset.
-pub(crate) fn spec_from_def(
-    def: &'static str,
-    parallel_safe: bool,
-    exclusive_with: &[&str],
-) -> ToolSpec {
+pub(crate) fn spec_from_def(def: &'static str, parallel_safe: bool, exclusive_with: &[&str]) -> ToolSpec {
     let doc: Value = serde_json::from_str(def).expect("embedded tool definition is valid JSON");
     let hints = &doc["annotations"];
     let flag = |key: &str| hints.get(key).and_then(Value::as_bool);
@@ -42,10 +38,7 @@ pub(crate) fn spec_from_def(
             agent_hidden: flag("agentHidden"),
         },
         parallel_safe,
-        exclusive_with: exclusive_with
-            .iter()
-            .map(|group| ToolGroup((*group).to_owned()))
-            .collect(),
+        exclusive_with: exclusive_with.iter().map(|group| ToolGroup((*group).to_owned())).collect(),
     }
 }
 
@@ -55,14 +48,28 @@ mod tests {
     #[test]
     fn the_hints_the_sandbox_reads_are_the_definitions_own() {
         let defs: [&'static str; 22] = [
-            include_str!("defs/memory.json"), include_str!("defs/recall.json"),
-            include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
-            include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
-            include_str!("defs/session.json"), include_str!("defs/setup.json"), include_str!("defs/Skill.json"),
-            include_str!("defs/tidy.json"), include_str!("../state/defs/ask_user.json"), include_str!("../state/defs/goal.json"),
-            include_str!("../state/defs/handoff_user.json"), include_str!("../state/defs/react.json"), include_str!("../state/defs/todo.json"),
-            include_str!("../desktop/defs/browser.json"), include_str!("../desktop/defs/browser_devtools.json"),
-            include_str!("../desktop/defs/computer.json"), include_str!("../desktop/defs/terminal.json"), include_str!("../desktop/defs/visualize.json"),
+            include_str!("defs/memory.json"),
+            include_str!("defs/recall.json"),
+            include_str!("defs/agent.json"),
+            include_str!("defs/call_tool.json"),
+            include_str!("defs/explore.json"),
+            include_str!("defs/load_tool.json"),
+            include_str!("defs/media.json"),
+            include_str!("defs/office.json"),
+            include_str!("defs/session.json"),
+            include_str!("defs/setup.json"),
+            include_str!("defs/Skill.json"),
+            include_str!("defs/tidy.json"),
+            include_str!("../state/defs/ask_user.json"),
+            include_str!("../state/defs/goal.json"),
+            include_str!("../state/defs/handoff_user.json"),
+            include_str!("../state/defs/react.json"),
+            include_str!("../state/defs/todo.json"),
+            include_str!("../desktop/defs/browser.json"),
+            include_str!("../desktop/defs/browser_devtools.json"),
+            include_str!("../desktop/defs/computer.json"),
+            include_str!("../desktop/defs/terminal.json"),
+            include_str!("../desktop/defs/visualize.json"),
         ];
         for def in defs {
             let spec = super::spec_from_def(def, false, &[]);
@@ -84,30 +91,43 @@ mod tests {
         }
     }
 
-
     /// `ask_user` reads read-only but not idempotent, and is hidden from the agent.
     #[test]
     fn ask_user_is_read_only_not_idempotent_and_hidden_from_agents() {
         let ask = super::spec_from_def(include_str!("../state/defs/ask_user.json"), false, &[]);
         assert_eq!((ask.annotations.read_only_hint, ask.annotations.idempotent_hint, ask.annotations.agent_hidden), (Some(true), Some(false), Some(true)));
     }
-
 }
 /// A failure reported by a port (the session, agent, catalog, host and service seams a tool
 /// front end sits on). Mapped to a typed [`ToolError`] in exactly one place.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PortError {
     /// The request itself is malformed for the owner of the operation.
-    Invalid { field: String, reason: String },
+    Invalid {
+        field: String,
+        reason: String,
+    },
     /// The caller is not allowed to do this from here (surface, ownership).
     Denied(String),
     /// A rule refuses it.
-    Refused { rule: String, message: String },
+    Refused {
+        rule: String,
+        message: String,
+    },
     /// A capability is missing on this machine or in this session.
-    Unavailable { capability: String, message: String },
-    NotFound { target: String, message: String },
+    Unavailable {
+        capability: String,
+        message: String,
+    },
+    NotFound {
+        target: String,
+        message: String,
+    },
     /// The operation ran and failed; `capability` names what could not complete it.
-    Failed { capability: String, message: String },
+    Failed {
+        capability: String,
+        message: String,
+    },
     Cancelled,
 }
 
@@ -117,10 +137,7 @@ impl From<PortError> for ToolError {
             PortError::Invalid { field, reason } => invalid(&field, reason),
             PortError::Denied(message) => denied(message),
             PortError::Refused { rule, message } => refused(rule, message),
-            PortError::Unavailable {
-                capability,
-                message,
-            } => unavailable(capability, message),
+            PortError::Unavailable { capability, message } => unavailable(capability, message),
             PortError::NotFound { target, message } => ToolError::new(ToolErrorCode::NotFound { target }, message),
             PortError::Failed { capability, message } => action_failed(capability, message),
             PortError::Cancelled => ToolError::new(ToolErrorCode::Cancelled, "cancelled"),
@@ -133,13 +150,7 @@ impl From<PortError> for ToolError {
 
 pub(crate) fn invalid(field: &str, reason: impl Into<String>) -> ToolError {
     let reason = reason.into();
-    ToolError::new(
-        ToolErrorCode::InvalidArgs {
-            field: field.to_owned(),
-            reason: reason.clone(),
-        },
-        reason,
-    )
+    ToolError::new(ToolErrorCode::InvalidArgs { field: field.to_owned(), reason: reason.clone() }, reason)
 }
 
 pub(crate) fn denied(message: impl Into<String>) -> ToolError {
@@ -152,13 +163,7 @@ pub(crate) fn refused(rule: impl Into<String>, message: impl Into<String>) -> To
 
 pub(crate) fn unavailable(capability: impl Into<String>, message: impl Into<String>) -> ToolError {
     let message = message.into();
-    ToolError::new(
-        ToolErrorCode::Unavailable {
-            capability: capability.into(),
-            reason: message.clone(),
-        },
-        message,
-    )
+    ToolError::new(ToolErrorCode::Unavailable { capability: capability.into(), reason: message.clone() }, message)
 }
 
 /// An operation that ran and failed for a reason of its own (not a core defect, not a missing
@@ -177,10 +182,7 @@ pub(crate) fn cancelled() -> ToolError {
 }
 
 pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
-    ToolOutput {
-        parts: vec![ToolPart::Text(text.into())],
-        ..ToolOutput::default()
-    }
+    ToolOutput { parts: vec![ToolPart::Text(text.into())], ..ToolOutput::default() }
 }
 
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
@@ -226,11 +228,7 @@ pub(crate) fn field(args: &Value, key: &str) -> String {
 
 /// Whitespace runs collapsed to one space and trimmed (JS `\s+` → ' ').
 pub(crate) fn one_line(value: &str) -> String {
-    value
-        .split(mixdog_js::is_js_space)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    value.split(mixdog_js::is_js_space).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 /// Pretty JSON with two-space indent, as `JSON.stringify(value, null, 2)`.

@@ -217,7 +217,11 @@ impl CompatAdapter {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn compat_listing(&self, rules: &ListingRules, decorate: Option<(&[&str], bool)>) -> Result<(Vec<ModelRecord>, bool, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
+    async fn compat_listing(
+        &self,
+        rules: &ListingRules,
+        decorate: Option<(&[&str], bool)>,
+    ) -> Result<(Vec<ModelRecord>, bool, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let (fetched, key) = match self.roster_items().await {
             Ok((items, key)) => (parse_models(&Value::Array(items)).into_iter().filter(|info| self.lists(rules, info)).collect(), key),
             // A rejected key is the caller's to hear; another failure shows the seed roster.
@@ -260,7 +264,11 @@ impl CompatAdapter {
 
     /// Muse Code: the roster alone, enriched, named and given its default ladder.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn roster_listing(&self, rules: &ListingRules, default_levels: &[&str]) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
+    async fn roster_listing(
+        &self,
+        rules: &ListingRules,
+        default_levels: &[&str],
+    ) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let provider = self.codec.profile().id;
         let (items, key) = self.roster_items().await?;
         let mut kept = Vec::new();
@@ -279,7 +287,8 @@ impl CompatAdapter {
                 .map(js_trim)
                 .find(|name| !name.is_empty())
                 .map(str::to_owned);
-            record.context_window = stated_limit(&[item.get("context_window"), item.get("max_context_window"), item.get("context_length"), Some(&json!(0))]).map(u64::from);
+            record.context_window =
+                stated_limit(&[item.get("context_window"), item.get("max_context_window"), item.get("context_length"), Some(&json!(0))]).map(u64::from);
             record.max_output_tokens = stated_limit(&[item.get("max_output_tokens"), item.get("output_tokens"), Some(&json!(0))]).map(u64::from);
             record.created = item.get("created").filter(|v| v.is_number()).and_then(Value::as_i64);
             native.push(record);
@@ -304,8 +313,7 @@ impl CompatAdapter {
                 restate_row(row, "reasoningOptions", Some(json!(row.picker.reasoning_options)));
             }
             if row.reasoning_levels.is_empty() {
-                row.reasoning_levels =
-                    row.picker.reasoning_options.iter().find(|o| o.kind == "effort").map(|o| o.values.clone()).unwrap_or_default();
+                row.reasoning_levels = row.picker.reasoning_options.iter().find(|o| o.kind == "effort").map(|o| o.values.clone()).unwrap_or_default();
                 restate_row(row, "reasoningLevels", Some(json!(row.reasoning_levels)));
             }
         }
@@ -314,14 +322,15 @@ impl CompatAdapter {
 
     /// OpenCode Go: the organization's console config is the roster.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn console_listing(&self, url: &str, provider_key: &str) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
+    async fn console_listing(
+        &self,
+        url: &str,
+        provider_key: &str,
+    ) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let provider = self.codec.profile().id;
         let (config, key) = self.get_json(url.to_owned(), true).await?;
         let entry = config.get("providers").and_then(|p| p.get(provider_key));
-        let configured = entry
-            .and_then(|e| e.get("models"))
-            .and_then(Value::as_object)
-            .filter(|models| !models.is_empty());
+        let configured = entry.and_then(|e| e.get("models")).and_then(Value::as_object).filter(|models| !models.is_empty());
         // A config that lists no models takes the models.dev catalog of the
         // same provider, which must be loaded.
         // Awaited first (`loadModelsDevGoModels`, opencode-go-oauth.mjs:118): the resident read is empty on a cold cache.
@@ -398,10 +407,7 @@ fn set_costs(record: &mut ModelRecord, cost: Option<&Value>) {
         Some(other) => vec![other],
         None => return,
     };
-    let base = list
-        .iter()
-        .find(|e| e.is_object() && e.get("tier").is_none_or(|t| !js_truthy(t)))
-        .or_else(|| list.iter().find(|e| e.is_object()));
+    let base = list.iter().find(|e| e.is_object() && e.get("tier").is_none_or(|t| !js_truthy(t))).or_else(|| list.iter().find(|e| e.is_object()));
     let Some(base) = base else { return };
     let finite = |value: Option<&Value>| {
         let value = value.filter(|v| !v.is_null() && v.as_str() != Some(""))?;
@@ -500,9 +506,7 @@ impl CompatAdapter {
         let rules = self.codec.profile().listing;
         let (rows, seeded, key) = match rules.shape {
             ListingShape::Compat => self.compat_listing(&rules, None).await?,
-            ListingShape::Decorated { default_levels, seed_when_empty } => {
-                self.compat_listing(&rules, Some((default_levels, seed_when_empty))).await?
-            }
+            ListingShape::Decorated { default_levels, seed_when_empty } => self.compat_listing(&rules, Some((default_levels, seed_when_empty))).await?,
             ListingShape::Roster { default_levels } => {
                 let (rows, key) = self.roster_listing(&rules, default_levels).await?;
                 (rows, false, key)

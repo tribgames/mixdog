@@ -72,7 +72,8 @@ fn means_no_provider(error: &secret_service::Error) -> bool {
 }
 
 const LOCKED: &str = "the keyring is locked or the unlock prompt was declined. Unlock your keyring and retry.";
-const HINT: &str = "run a Secret Service provider such as gnome-keyring or KeePassXC, or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead";
+const HINT: &str =
+    "run a Secret Service provider such as gnome-keyring or KeePassXC, or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead";
 
 fn failure(action: &str, error: &secret_service::Error) -> SecretError {
     let no_provider = means_no_provider(error);
@@ -121,7 +122,6 @@ mod tests {
         assert!(!no_session_bus(None, None, true));
     }
 }
-
 
 #[allow(clippy::disallowed_methods, reason = "a bounded stat of the user's runtime bus socket")]
 fn session_bus_missing() -> bool {
@@ -188,9 +188,9 @@ impl SecretStore for SecretServiceStore {
         if interactive {
             bounded("unlock", check).await
         } else {
-            mixdog_rt::time::timeout(keychain_timeout(), check).await.unwrap_or_else(|_| {
-                Err(SecretError::new("[keychain] secret service health check did not respond"))
-            })
+            mixdog_rt::time::timeout(keychain_timeout(), check)
+                .await
+                .unwrap_or_else(|_| Err(SecretError::new("[keychain] secret service health check did not respond")))
         }
     }
 

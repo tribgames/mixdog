@@ -24,11 +24,8 @@ pub(crate) async fn forward(
         // No claimant, or it closed first: the channel's own `capabilityUnavailable`.
         Err(HostError::Core(error)) => Err(error),
         // The host's redacted message is what the user reads; `data.timing` is for logs only.
-        Err(HostError::Rpc { message, .. }) => Err(CoreError::DomainError {
-            domain: domain.into(),
-            code: Some(HOST_COMMAND_FAILED.into()),
-            message: Some(message.into()),
-            detail: None,
-        }),
+        Err(HostError::Rpc { message, .. }) => {
+            Err(CoreError::DomainError { domain: domain.into(), code: Some(HOST_COMMAND_FAILED.into()), message: Some(message.into()), detail: None })
+        }
     }
 }

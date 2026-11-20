@@ -8,18 +8,18 @@ use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use mixdog_protocol::OrchestrationMode;
+use mixdog_app_protocol::v2::thread::StorageState;
 use mixdog_app_protocol::v2::thread::ThreadContext;
 use mixdog_app_protocol::v2::thread::ThreadRoute;
-use mixdog_app_protocol::v2::thread::ThreadWorkflow;
 use mixdog_app_protocol::v2::thread::ThreadRuntime;
 use mixdog_app_protocol::v2::thread::ThreadState;
-use mixdog_app_protocol::v2::thread::StorageState;
+use mixdog_app_protocol::v2::thread::ThreadWorkflow;
 use mixdog_core_api::ids::ItemId;
-use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_api::ids::TurnId;
+use mixdog_core_ports::ports::threads::Section;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::MaybeBlob;
+use mixdog_protocol::OrchestrationMode;
 use mixdog_protocol::ThreadItem;
 use mixdog_protocol::ToolApprovalResult;
 use mixdog_store::schema::blob::Slot;
@@ -51,17 +51,29 @@ pub(crate) enum Display {
 /// One state change: a durable record, or a view-only change published in order with them.
 #[derive(Clone, Debug)]
 pub(crate) enum Change {
-    Record { record: Arc<Record>, display: Display },
+    Record {
+        record: Arc<Record>,
+        display: Display,
+    },
     Section(Section),
     /// `item/started`: an in-progress item (not persisted; deltas extend it).
-    ItemStarted { turn: TurnId, item: ThreadItem },
+    ItemStarted {
+        turn: TurnId,
+        item: ThreadItem,
+    },
     /// An `item/agentMessage/delta` (not persisted).
-    Delta { item: ItemId, text: String },
+    Delta {
+        item: ItemId,
+        text: String,
+    },
     /// The session part of the prompt history, recomputed over the remaining lineage after a
     /// history mutation. `publish: false` (rewind) keeps the published list: today's rewind
     /// only drops the restored prompt from it (`replaceItems(.., {preserveSpill})`), and the
     /// next merge sees the remaining rows.
-    PromptSession { session: Vec<String>, publish: bool },
+    PromptSession {
+        session: Vec<String>,
+        publish: bool,
+    },
     /// The persisted prompt history of the thread's cwd (oldest → newest).
     PromptPersisted(Vec<String>),
     /// A prompt handed back to the composer leaves the published list.
@@ -76,18 +88,30 @@ pub(crate) enum Change {
     Card(ThreadItem),
     /// The detail of a row in view (a compaction divider's figures, which its pass's event delivers after the record):
     /// nothing when the row is gone, never a new row. Not persisted.
-    Detail { item: ItemId, detail: String },
+    Detail {
+        item: ItemId,
+        detail: String,
+    },
     /// A call's result before its row is committed (`onToolResult`, not persisted): `update` closes the call's card. The actor
     /// resolves it at its show against what is shown then (the card shown, not yet, or already given its committed result), so
     /// the fold itself changes nothing.
-    EarlyResult { row: Box<mixdog_store::schema::record::ItemRecord>, update: ThreadItem },
+    EarlyResult {
+        row: Box<mixdog_store::schema::record::ItemRecord>,
+        update: ThreadItem,
+    },
     /// A run's live-only row (not persisted): before the row `before` when it is in view,
     /// else at the end.
-    Shown { item: ThreadItem, before: Option<ItemId> },
+    Shown {
+        item: ThreadItem,
+        before: Option<ItemId>,
+    },
     /// A streamed text segment settled (a tool call began after it): shown as a live-only row at the end, unless a row of the
     /// same item is in view when it is shown (its reply's committed row, shown first). Decided at its show, in accept order, so a
     /// settle accepted behind its reply's commit waits for that commit's row or its failure. `turn` names the turn its note tells.
-    Settled { turn: mixdog_core_api::ids::TurnId, item: ThreadItem },
+    Settled {
+        turn: mixdog_core_api::ids::TurnId,
+        item: ThreadItem,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -204,10 +228,7 @@ pub(crate) fn title_of(header: &Header) -> Option<String> {
     if header.get("titleLocked") != Some(&Value::Bool(true)) || header.get("titleSource").and_then(Value::as_str) == Some("ai") {
         return None;
     }
-    header
-        .get("title")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+    header.get("title").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// Today's `toolApprovalResult` for a resolution.
@@ -223,12 +244,7 @@ pub(crate) fn approval_result(aid: &str, resolution: &ApprovalResolution) -> Too
         interrupted: None,
     };
     match resolution {
-        ApprovalResolution::Decided {
-            decision,
-            device,
-            at,
-            ..
-        } => {
+        ApprovalResolution::Decided { decision, device, at, .. } => {
             result.approved = decision.approved;
             result.device = device.clone();
             result.at = *at;
@@ -403,13 +419,9 @@ mod tests {
     }
 }
 
-
 impl SessionState {
     pub fn new(view_items: usize) -> Self {
-        Self {
-            view_items,
-            ..Self::default()
-        }
+        Self { view_items, ..Self::default() }
     }
 
     /// A shown row of no record of its own (a restored compaction divider and its boundaries),
@@ -429,10 +441,7 @@ impl SessionState {
             Change::Section(section) => self.apply_section(section.clone()),
             Change::ItemStarted { turn, item } => {
                 self.live.retain(|live| live.item.id() != item.id());
-                self.live.push(LiveItem {
-                    turn: turn.clone(),
-                    item: item.clone(),
-                });
+                self.live.push(LiveItem { turn: turn.clone(), item: item.clone() });
             }
             Change::Delta { item, text } => match self.live.iter_mut().find(|live| live.item.id() == item).map(|live| &mut live.item) {
                 Some(ThreadItem::AgentMessage { text: MaybeBlob::Inline(body), .. }) => body.push_str(text),
@@ -465,10 +474,7 @@ impl SessionState {
             Change::Shown { item, before } => {
                 // A live item shown complete (a finished `Reasoning` item) becomes its row.
                 self.live.retain(|live| live.item.id() != item.id());
-                let at = before
-                    .as_ref()
-                    .and_then(|before| self.window.iter().position(|row| row.item.id() == before))
-                    .unwrap_or(self.window.len());
+                let at = before.as_ref().and_then(|before| self.window.iter().position(|row| row.item.id() == before)).unwrap_or(self.window.len());
                 self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), prompt: None, messages: 0 });
                 while self.window.len() > self.view_items {
                     self.window.pop_front();
@@ -501,11 +507,7 @@ impl SessionState {
 
     /// Applies an update to the item in view with its id (`merge_update`).
     fn merge(&mut self, update: &ThreadItem) {
-        if let Some(row) = self
-            .window
-            .iter_mut()
-            .find(|row| updates(&row.item, update))
-        {
+        if let Some(row) = self.window.iter_mut().find(|row| updates(&row.item, update)) {
             row.item = Arc::new(merge_update(&row.item, update));
         }
     }
@@ -605,7 +607,8 @@ impl SessionState {
                     self.remerge_prompts();
                 }
                 let mut messages = u32::from(item.model);
-                if item.role.as_ref().is_some_and(|role| role.as_str() == "user") &&(!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_)))))
+                if item.role.as_ref().is_some_and(|role| role.as_str() == "user")
+                    && (!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_)))))
                     && let Some(ordinal) = ordinal
                 {
                     self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
@@ -630,15 +633,8 @@ impl SessionState {
                                 continue;
                             }
                             // The prompt fact belongs to the row's user item, its first.
-                            let prompt = matches!(new, ThreadItem::UserMessage { .. })
-                                .then(|| item.prompt_text().map(str::to_owned))
-                                .flatten();
-                            let row = WindowItem {
-                                ordinal,
-                                item: Arc::new(new.clone()),
-                                prompt,
-                                messages: std::mem::take(&mut messages),
-                            };
+                            let prompt = matches!(new, ThreadItem::UserMessage { .. }).then(|| item.prompt_text().map(str::to_owned)).flatten();
+                            let row = WindowItem { ordinal, item: Arc::new(new.clone()), prompt, messages: std::mem::take(&mut messages) };
                             // A live-only row of the same item (the text settled before a tool call) becomes the record's row,
                             // where it was shown.
                             if let Some(shown) = self.window.iter_mut().find(|shown| shown.ordinal.is_none() && shown.item.id() == new.id()) {
@@ -695,27 +691,26 @@ impl SessionState {
                     self.live.retain(|live| live.turn.as_str() != run.rid.as_str());
                     // Runtime hints belong to the run that set them; the toast queue and `setupChanged` are the session's own (a toast
                     // expires on its own timer, `pushToast`; the settings announcement is not a run's).
-                    self.sections.runtime = self.sections.runtime.take().map(|held| ThreadRuntime { toasts: held.toasts, setup_changed: held.setup_changed, command_busy: held.command_busy, command_status: held.command_status, ..Default::default() });
+                    self.sections.runtime = self.sections.runtime.take().map(|held| ThreadRuntime {
+                        toasts: held.toasts,
+                        setup_changed: held.setup_changed,
+                        command_busy: held.command_busy,
+                        command_status: held.command_status,
+                        ..Default::default()
+                    });
                 }
             },
             Record::Approval(approval) => match approval.phase {
                 ApprovalPhase::Requested => {
-                    self.approvals.insert(
-                        approval.aid.as_str().to_owned(),
-                        PendingApprovalRow {
-                            rid: approval.rid.as_str().to_owned(),
-                        },
-                    );
+                    self.approvals.insert(approval.aid.as_str().to_owned(), PendingApprovalRow { rid: approval.rid.as_str().to_owned() });
                 }
                 ApprovalPhase::Decided | ApprovalPhase::Expired => {
                     self.approvals.remove(approval.aid.as_str());
                     if let Some(Slot::Inline(body)) = &approval.body
-                        && let Ok(resolution) =
-                            serde_json::from_value::<ApprovalResolution>(body.clone())
+                        && let Ok(resolution) = serde_json::from_value::<ApprovalResolution>(body.clone())
                     {
                         let approvals = self.sections.approvals.get_or_insert_with(Default::default);
-                        approvals.tool_approval_result =
-                            Some(approval_result(approval.aid.as_str(), &resolution));
+                        approvals.tool_approval_result = Some(approval_result(approval.aid.as_str(), &resolution));
                     }
                 }
             },
@@ -729,23 +724,15 @@ impl SessionState {
                         Display::Queued(row) => row.clone(),
                         _ => Value::Null,
                     };
-                    self.queue.push(Queued {
-                        qid: queue.qid.as_str().to_owned(),
-                        entry,
-                        display,
-                    });
+                    self.queue.push(Queued { qid: queue.qid.as_str().to_owned(), entry, display });
                 }
                 QueueAction::Update => {
-                    if let (Some(queued), Some(Slot::Inline(entry))) =
-                        (self.queue.iter_mut().find(|q| q.qid == queue.qid.as_str()), &queue.entry)
-                    {
+                    if let (Some(queued), Some(Slot::Inline(entry))) = (self.queue.iter_mut().find(|q| q.qid == queue.qid.as_str()), &queue.entry) {
                         queued.entry = entry.clone();
                     }
                 }
                 QueueAction::Prioritize => {
-                    if let (Some(at), Some(Slot::Inline(entry))) =
-                        (self.queue.iter().position(|q| q.qid == queue.qid.as_str()), &queue.entry)
-                    {
+                    if let (Some(at), Some(Slot::Inline(entry))) = (self.queue.iter().position(|q| q.qid == queue.qid.as_str()), &queue.entry) {
                         let mut queued = self.queue.remove(at);
                         queued.entry = entry.clone();
                         self.queue.insert(0, queued);
@@ -983,10 +970,7 @@ impl SessionState {
         state.queued = Some(self.queued_rows());
         state.prompt_history_list = Some(self.prompt_history.to_vec());
         if storage != StorageState::Ok {
-            state
-                .runtime
-                .get_or_insert_with(ThreadRuntime::default)
-                .storage = Some(storage);
+            state.runtime.get_or_insert_with(ThreadRuntime::default).storage = Some(storage);
         }
         state
     }

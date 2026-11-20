@@ -4,12 +4,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use bytes::Bytes;
-use mixdog_relay::legs::ingress::{
-    Admit, AdmitQuery, HOOK_FRAME_LIMIT_BYTES, IngressLeg, IngressLimits, IngressPool, LegKind, Sweep, admit_ingress,
-};
-use mixdog_relay::legs::policy::{
-    INGRESS_FREE_WINDOW_BYTES, INGRESS_RESERVATION_BYTES, MAX_INGRESS_BYTES, MAX_WS_PAYLOAD_BYTES, Oversize, check_oversize,
-};
+use mixdog_relay::legs::ingress::{Admit, AdmitQuery, HOOK_FRAME_LIMIT_BYTES, IngressLeg, IngressLimits, IngressPool, LegKind, Sweep, admit_ingress};
+use mixdog_relay::legs::policy::{INGRESS_FREE_WINDOW_BYTES, INGRESS_RESERVATION_BYTES, MAX_INGRESS_BYTES, MAX_WS_PAYLOAD_BYTES, Oversize, check_oversize};
 use mixdog_relay::ws::{HandshakeRequest, ServerOptions, WebSocket, WebSocketServer, WsEvent};
 use mixdog_rt::time::{Instant, sleep};
 use serde_json::Value;
@@ -30,10 +26,8 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 // ---- wire helpers ----
 
 fn upgrade() -> Vec<u8> {
-    format!(
-        "GET /ws HTTP/1.1\r\nHost: relay\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {KEY}\r\nSec-WebSocket-Version: 13\r\n\r\n"
-    )
-    .into_bytes()
+    format!("GET /ws HTTP/1.1\r\nHost: relay\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {KEY}\r\nSec-WebSocket-Version: 13\r\n\r\n")
+        .into_bytes()
 }
 
 fn masked(payload: &[u8]) -> impl Iterator<Item = u8> + '_ {
@@ -173,11 +167,7 @@ impl Harness {
             if let httparse::Status::Complete(end) = parsed.parse(&buffer).expect("a request head") {
                 let request = HandshakeRequest {
                     method: parsed.method.expect("a method").to_string(),
-                    headers: parsed
-                        .headers
-                        .iter()
-                        .map(|header| (header.name.to_string(), String::from_utf8_lossy(header.value).into_owned()))
-                        .collect(),
+                    headers: parsed.headers.iter().map(|header| (header.name.to_string(), String::from_utf8_lossy(header.value).into_owned())).collect(),
                 };
                 break (request, end);
             }
@@ -250,16 +240,14 @@ impl Peer {
     }
 
     fn close_code(&self) -> Option<u16> {
-        locked(&self.frames)
-            .iter()
-            .find(|(opcode, _)| *opcode == 8)
-            .map(|(_, payload)| u16::from_be_bytes([payload[0], payload[1]]))
+        locked(&self.frames).iter().find(|(opcode, _)| *opcode == 8).map(|(_, payload)| u16::from_be_bytes([payload[0], payload[1]]))
     }
 
     fn close_frame(&self) -> Option<(u16, String)> {
-        locked(&self.frames).iter().find(|(opcode, _)| *opcode == 8).map(|(_, payload)| {
-            (u16::from_be_bytes([payload[0], payload[1]]), String::from_utf8_lossy(&payload[2..]).into_owned())
-        })
+        locked(&self.frames)
+            .iter()
+            .find(|(opcode, _)| *opcode == 8)
+            .map(|(_, payload)| (u16::from_be_bytes([payload[0], payload[1]]), String::from_utf8_lossy(&payload[2..]).into_owned()))
     }
 
     fn delivered_count(&self) -> usize {
@@ -450,17 +438,10 @@ async fn ingress_admission_bounds_the_box_not_the_leg_count() {
     assert_eq!(admit_ingress(&AdmitQuery { pending: 1024, ..AdmitQuery::default() }), Admit::Read);
     assert_eq!(admit_ingress(&AdmitQuery { pending: 512 * 1024, ..AdmitQuery::default() }), Admit::Reserve);
     assert_eq!(
-        admit_ingress(&AdmitQuery {
-            pending: 512 * 1024,
-            reserved: MAX_INGRESS_BYTES - INGRESS_RESERVATION_BYTES,
-            ..AdmitQuery::default()
-        }),
+        admit_ingress(&AdmitQuery { pending: 512 * 1024, reserved: MAX_INGRESS_BYTES - INGRESS_RESERVATION_BYTES, ..AdmitQuery::default() }),
         Admit::Reserve
     );
-    assert_eq!(
-        admit_ingress(&AdmitQuery { pending: 512 * 1024, reserved: MAX_INGRESS_BYTES, ..AdmitQuery::default() }),
-        Admit::Wait
-    );
+    assert_eq!(admit_ingress(&AdmitQuery { pending: 512 * 1024, reserved: MAX_INGRESS_BYTES, ..AdmitQuery::default() }), Admit::Wait);
 
     let harness = Harness::new(MAX_WS_PAYLOAD_BYTES as u64);
     let ceiling = 512 * 1024;

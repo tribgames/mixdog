@@ -76,7 +76,8 @@ impl Segments {
         let first = all.first()?.0.clone();
         let mut named = serde_json::Map::new();
         if all.len() > 1 || all[0].2 > 0 {
-            named.insert("segments".into(), Value::Array(all.iter().map(|(id, len, after)| json!({ "id": id.as_str(), "len": len, "after": after })).collect()));
+            named
+                .insert("segments".into(), Value::Array(all.iter().map(|(id, len, after)| json!({ "id": id.as_str(), "len": len, "after": after })).collect()));
         }
         if updates {
             named.insert("shownText".into(), Value::String(shown));
@@ -96,20 +97,20 @@ fn with_shown(row: &mut Value, named: serde_json::Map<String, Value>) {
 }
 type SinkServices = (Arc<dyn Clock>, Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>);
 
-use std::collections::HashMap;
 use super::failed_turn_rewind;
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_agent::env::{
-    Clock, Compactor, Reactions, ResultReuse, RouteFallback, RunEnv, RunEvent, RunObserver, SkillSelector, Stage, TailReminder, TextRetraction, Retracted, Ticket, ToolGate,
-    ToolHooks, TranscriptSink, TurnGuards,
-};
 use mixdog_agent::compact::blob_reads::with_blobs;
 use mixdog_agent::env::CommitError;
+use mixdog_agent::env::{
+    Clock, Compactor, Reactions, ResultReuse, Retracted, RouteFallback, RunEnv, RunEvent, RunObserver, SkillSelector, Stage, TailReminder, TextRetraction,
+    Ticket, ToolGate, ToolHooks, TranscriptSink, TurnGuards,
+};
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
@@ -121,30 +122,30 @@ use mixdog_protocol::message_class::user_text::UserText;
 use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem, TurnError};
 use mixdog_rt::TaskClass;
 use mixdog_tools::policy::SessionSurface;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
-use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
-use mixdog_agent::agent_tool::progress::Snapshot;
-use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
-use mixdog_core_run::run_host::progress::ProgressPublisher;
-use mixdog_core_run::run_host::progress::StreamKind;
+use super::quiet_watch::QuietWatch;
 use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
-use super::quiet_watch::QuietWatch;
 use super::tool_progress::{RunToolProgress, ToolHints};
-use mixdog_core_session::session::turn_snapshot::ReviewGate;
-use mixdog_core_session::session::failure_record::provider_turn_error;
+use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
+use mixdog_agent::agent_tool::progress::Snapshot;
+use mixdog_agent::agent_tool::watchdog::{AgentKind, Overrides, is_watchdog_abort, resolve_policy};
+use mixdog_core_run::run_host::progress::ProgressPublisher;
+use mixdog_core_run::run_host::progress::StreamKind;
 use mixdog_core_session::session::ItemCommit;
 use mixdog_core_session::session::RunFactory;
 use mixdog_core_session::session::RunOutcome;
 use mixdog_core_session::session::RunPort;
 use mixdog_core_session::session::RunStart;
+use mixdog_core_session::session::StoredRows;
+use mixdog_core_session::session::failure_record::provider_turn_error;
 use mixdog_core_session::session::run::Queued;
 use mixdog_core_session::session::run::RunError;
-use mixdog_core_session::session::StoredRows;
+use mixdog_core_session::session::turn_snapshot::ReviewGate;
 
 /// What the policy gate needs from the run it gates, which exists only after assembly.
 pub struct GateContext {
@@ -221,7 +222,7 @@ fn setup_end(failed: bool, asked: bool, cancelled: bool, abort_reason: Option<&s
 /// the stop's reason: whether the prompt's row leaves (a user's stop that hands it back), and the rows that follow it
 /// when it stays (the interruption line of a stop that keeps the prompt).
 fn stopped_prompt(input: &AgentMessage, reason: mixdog_agent::interrupt::AbortReason) -> (bool, Vec<AgentMessage>) {
-    use mixdog_agent::interrupt::{finalize_interrupted_turn, Interrupted, Phase};
+    use mixdog_agent::interrupt::{Interrupted, Phase, finalize_interrupted_turn};
     let finalized = finalize_interrupted_turn(Interrupted {
         transcript: vec![input.clone()],
         current_user_text: input.text(),
@@ -267,7 +268,8 @@ impl BeforeLoop {
                         }
                     }
                     for message in &following {
-                        let item = ItemCommit { iid: new_item_id(), role: Some("user".to_owned()), model: true, visible: false, body: row_of(message), prompt: None };
+                        let item =
+                            ItemCommit { iid: new_item_id(), role: Some("user".to_owned()), model: true, visible: false, body: row_of(message), prompt: None };
                         if let Err(error) = port.commit_item(item).await {
                             tracing::warn!("[session] interrupted turn row save failed: {error:?}");
                         }
@@ -583,10 +585,7 @@ fn provider_timeout_or_stall(error: &mixdog_core_api::domain::provider::Provider
 #[cfg(test)]
 mod tests {
 
-    // `include!` resolves from this file's directory; `#[path]` here would walk through the absent `factory/tests/`.
-    mod pinned_account {
-        include!("factory_pinned_account_tests.rs");
-    }
+    mod pinned_account;
 
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, AtomicI64};
@@ -606,15 +605,19 @@ mod tests {
     use mixdog_store::schema::record::Record;
 
     use super::*;
-    use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
+    use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
 
     /// A system row an earlier build stored at the head of the context is not read back: the header's prompt is the request's
     /// system set, so the next rewrite leaves the request's lead as it was.
     #[test]
     fn a_stored_leading_system_row_is_not_part_of_the_loaded_context() {
         let header = mixdog_store::schema::record::Header::new();
-        let rows = [json!({ "role": "system", "content": "old prompt" }), json!({ "role": "user", "content": "hello" }), json!({ "role": "system", "content": "later" })];
+        let rows = [
+            json!({ "role": "system", "content": "old prompt" }),
+            json!({ "role": "user", "content": "hello" }),
+            json!({ "role": "system", "content": "later" }),
+        ];
         let loaded = session_messages(&header, &rows).expect("messages");
         let roles: Vec<Role> = loaded.iter().skip(system_messages(&header).len()).map(|m| m.role()).collect();
         assert_eq!(roles, [Role::User, Role::System]);
@@ -783,7 +786,11 @@ mod tests {
     struct EffortScripted(Arc<dyn ProviderAdapter>);
     #[async_trait]
     impl mixdog_agent::effort::EffortAdapter for EffortScripted {
-        async fn attempt_with(&self, request: Arc<ModelRequest>, _: Option<mixdog_agent::effort::EffortProjection>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        async fn attempt_with(
+            &self,
+            request: Arc<ModelRequest>,
+            _: Option<mixdog_agent::effort::EffortProjection>,
+        ) -> Result<Box<dyn ModelStream>, ProviderError> {
             self.0.attempt(request).await
         }
     }
@@ -917,7 +924,12 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_session::session::lifecycle_hooks::LifecycleHooks for HeldPrompt {
-        async fn prompt_submit(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: &Value) -> mixdog_core_session::session::lifecycle_hooks::PromptVerdict {
+        async fn prompt_submit(
+            &self,
+            _: &ThreadId,
+            _: &mixdog_store::schema::record::Header,
+            _: &Value,
+        ) -> mixdog_core_session::session::lifecycle_hooks::PromptVerdict {
             self.reached.notify_one();
             std::future::pending().await
         }
@@ -932,7 +944,12 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_session::session::lifecycle_hooks::LifecycleHooks for TurnHooks {
-        async fn prompt_submit(&self, _: &ThreadId, header: &mixdog_store::schema::record::Header, prompt: &Value) -> mixdog_core_session::session::lifecycle_hooks::PromptVerdict {
+        async fn prompt_submit(
+            &self,
+            _: &ThreadId,
+            header: &mixdog_store::schema::record::Header,
+            prompt: &Value,
+        ) -> mixdog_core_session::session::lifecycle_hooks::PromptVerdict {
             lock(&self.calls).push(format!("UserPromptSubmit:{}:{prompt}", header["cwd"].as_str().unwrap_or_default()));
             lock(&self.verdict).clone()
         }
@@ -962,7 +979,17 @@ mod tests {
             let mut messages: Vec<AgentMessage> = request.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
             messages.push(AgentMessage::user("[summary]"));
             messages.extend(request.messages.last().cloned());
-            Ok(CompactOutput { messages, usage: None, input_excludes_cache: false, dropped_count: 0, dropped: None, skipped: false, pipeline_ms: 0.0, summary_ms: None, summary_route: None })
+            Ok(CompactOutput {
+                messages,
+                usage: None,
+                input_excludes_cache: false,
+                dropped_count: 0,
+                dropped: None,
+                skipped: false,
+                pipeline_ms: 0.0,
+                summary_ms: None,
+                summary_route: None,
+            })
         }
     }
 
@@ -1074,7 +1101,6 @@ mod tests {
             Ok(false)
         }
     }
-
 
     /// The session catalog `call_tool` resolves its target in, bound once the directory exists (the composition's
     /// `LateCatalog`).
@@ -1323,10 +1349,7 @@ mod tests {
             _: mixdog_core_api::domain::provider::WireRequest,
             _exchange: mixdog_ai::transport::Exchange,
         ) -> Result<mixdog_ai::transport::http::HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                mixdog_core_api::domain::provider::ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
+            Err(ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, DeliveryState::NotSent))
         }
     }
 
@@ -1354,7 +1377,11 @@ mod tests {
     #[derive(Default)]
     struct AskedFor(Mutex<Vec<String>>);
     impl crate::run_host::run_approvals::RunApprovals for AskedFor {
-        fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
+        fn gate_for(
+            &self,
+            thread: &ThreadId,
+            own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>,
+        ) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
             lock(&self.0).push(thread.as_str().to_owned());
             own
         }
@@ -1400,7 +1427,10 @@ mod tests {
     }
     #[async_trait]
     impl mixdog_core_session::session::thread_context::ContextWorld for ManualWorld {
-        async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<mixdog_core_session::session::thread_context::ContextSnapshot>, mixdog_core_api::CoreError> {
+        async fn snapshot(
+            &self,
+            thread: Option<&ThreadId>,
+        ) -> Result<Option<mixdog_core_session::session::thread_context::ContextSnapshot>, mixdog_core_api::CoreError> {
             let header = self.threads.header(thread.expect("a thread")).await.expect("the thread's header");
             let text = |key: &str| header.get(key).and_then(Value::as_str).expect("a route").to_owned();
             let (provider, model) = (text("provider"), text("model"));
@@ -1424,7 +1454,11 @@ mod tests {
                 rows: Arc::new(super::super::context_world::StoredBodies),
             }))
         }
-        fn lowering(&self, _: &ThreadId, _: &str) -> (Arc<dyn mixdog_agent::compact::estimate::MediaMeter>, Arc<dyn mixdog_agent::compact::pressure::ImageIdentities>) {
+        fn lowering(
+            &self,
+            _: &ThreadId,
+            _: &str,
+        ) -> (Arc<dyn mixdog_agent::compact::estimate::MediaMeter>, Arc<dyn mixdog_agent::compact::pressure::ImageIdentities>) {
             (Arc::new(ManualMeters), Arc::new(ManualMeters))
         }
     }
@@ -1472,9 +1506,10 @@ mod tests {
         }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
             self.sent.send(request).expect("the test is listening");
-            Ok(Box::new(Steps(
-                VecDeque::from([StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]),
-            )))
+            Ok(Box::new(Steps(VecDeque::from([
+                StreamEvent::TextDelta("ok".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]))))
         }
     }
 
@@ -1484,7 +1519,13 @@ mod tests {
 
     fn handing() -> (Arc<Handing>, tokio::sync::mpsc::UnboundedReceiver<Arc<ModelRequest>>) {
         let (sent, heard) = tokio::sync::mpsc::unbounded_channel();
-        let provider = Arc::new(Handing { id: ProviderId::from("scripted"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: mixdog_ai::providers::grok::codec("1.0.70"), sent });
+        let provider = Arc::new(Handing {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: mixdog_ai::providers::grok::codec("1.0.70"),
+            sent,
+        });
         (provider, heard)
     }
 
@@ -1498,9 +1539,17 @@ mod tests {
         let mut requests = Vec::new();
         for (n, op) in ["first", "second"].into_iter().enumerate() {
             if n == 1 {
-                handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": {
-                    "model": "selected", "effort": "high", "autoEffort": false, "fast": true, "modelParameters": { "serviceTier": "ultrafast" }
-                }}), op: None, ctx: CallContext::internal("test") }).await.unwrap();
+                handle
+                    .request(CoreRequest {
+                        method: Method("thread/header/patch"),
+                        params: json!({ "threadId": id, "set": {
+                            "model": "selected", "effort": "high", "autoEffort": false, "fast": true, "modelParameters": { "serviceTier": "ultrafast" }
+                        }}),
+                        op: None,
+                        ctx: CallContext::internal("test"),
+                    })
+                    .await
+                    .unwrap();
             }
             let before = handle.header_snapshot().get("turnCoverage").cloned();
             handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": op } }), op)).await.unwrap();
@@ -1531,13 +1580,22 @@ mod tests {
     }
 
     impl mixdog_core_run::run_host::hop_host::HopWiring for NoWiring {
-        fn wiring(&self, _: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
+        fn wiring(
+            &self,
+            _: &Value,
+            _: &Arc<dyn ProviderAdapter>,
+        ) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
             (None, None)
         }
     }
     async fn snapshot_call(service: &mixdog_tools::orch::status::ToolsService, thread: &ThreadId, message: &str) -> Value {
         use mixdog_core_api::DomainService;
-        let call = CoreRequest { method: Method("tools/toolsStatus"), params: json!({ "threadId": thread, "snapshot": true, "snapshotUserMessage": message }), op: None, ctx: CallContext::internal("test") };
+        let call = CoreRequest {
+            method: Method("tools/toolsStatus"),
+            params: json!({ "threadId": thread, "snapshot": true, "snapshotUserMessage": message }),
+            op: None,
+            ctx: CallContext::internal("test"),
+        };
         let Ok(Reply::Value(status)) = service.call(call).await else { panic!("tools/toolsStatus answers a value") };
         status
     }
@@ -1554,7 +1612,14 @@ mod tests {
         *lock(&jobs.taken) = Some(Box::new(move || {
             let free = jobs_free(&committer);
             let commit = move || {
-                let item = ItemCommit { iid: ItemId::from("row"), role: Some("assistant".into()), model: true, visible: true, body: json!({ "content": "reading" }), prompt: None };
+                let item = ItemCommit {
+                    iid: ItemId::from("row"),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "content": "reading" }),
+                    prompt: None,
+                };
                 committer.row(true, None, item);
             };
             if free {
@@ -1636,7 +1701,12 @@ mod tests {
     }
     #[async_trait]
     impl RunParts for Parts {
-        async fn reconcile_turn(&self, _: &ThreadId, mut header: mixdog_store::schema::record::Header, _: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+        async fn reconcile_turn(
+            &self,
+            _: &ThreadId,
+            mut header: mixdog_store::schema::record::Header,
+            _: bool,
+        ) -> Result<mixdog_store::schema::record::Header, TurnError> {
             if let Some(settle) = &self.settle {
                 header.insert(settle.add.0.to_owned(), settle.add.1.clone());
             }
@@ -1663,7 +1733,8 @@ mod tests {
             let mut config = RunConfig::new(input.thread.clone(), input.turn.clone(), "m");
             if let Some(effort) = &self.effort {
                 config.options.effort = effort.effort.clone();
-                config.effort = Some(mixdog_agent::effort::EffortWiring { route: effort.route.clone(), adapter: Arc::new(EffortScripted(self.provider.clone())) });
+                config.effort =
+                    Some(mixdog_agent::effort::EffortWiring { route: effort.route.clone(), adapter: Arc::new(EffortScripted(self.provider.clone())) });
                 config.step_auto_effort = effort.step_auto.clone();
             }
             Ok(Assembled {
@@ -1710,7 +1781,12 @@ mod tests {
     }
     #[async_trait]
     impl RunParts for Compacting {
-        async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+        async fn reconcile_turn(
+            &self,
+            thread: &ThreadId,
+            header: mixdog_store::schema::record::Header,
+            conversation: bool,
+        ) -> Result<mixdog_store::schema::record::Header, TurnError> {
             self.inner.reconcile_turn(thread, header, conversation).await
         }
 
@@ -1723,7 +1799,12 @@ mod tests {
     }
     #[async_trait]
     impl RunParts for Reaping {
-        async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+        async fn reconcile_turn(
+            &self,
+            thread: &ThreadId,
+            header: mixdog_store::schema::record::Header,
+            conversation: bool,
+        ) -> Result<mixdog_store::schema::record::Header, TurnError> {
             self.inner.reconcile_turn(thread, header, conversation).await
         }
 
@@ -1800,7 +1881,10 @@ mod tests {
     fn a_draftless_crash_is_finalized_as_the_reconnect_recovery_finalizes_it() {
         let context = vec![
             (ItemId::from("in"), json!({ "role": "user", "content": "read a" })),
-            (ItemId::from("call"), json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] })),
+            (
+                ItemId::from("call"),
+                json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] }),
+            ),
         ];
         let bodies: Vec<Value> = context.iter().map(|(_, body)| body.clone()).collect();
         let reconnect: Vec<(String, Value)> = mixdog_agent::interrupt::recover_after_restart(&bodies)
@@ -1816,7 +1900,8 @@ mod tests {
         let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
         assert!(!left.sealed);
         let added: Vec<(String, Value)> = left.rows.into_iter().map(|row| (row.role.unwrap_or_default(), row.body)).collect();
-        let shape = |rows: &[(String, Value)]| rows.iter().map(|(role, body)| (role.clone(), body["content"].clone(), body["toolCallId"].clone())).collect::<Vec<_>>();
+        let shape =
+            |rows: &[(String, Value)]| rows.iter().map(|(role, body)| (role.clone(), body["content"].clone(), body["toolCallId"].clone())).collect::<Vec<_>>();
         assert_eq!(shape(&added), shape(&reconnect));
     }
     impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
@@ -1839,7 +1924,11 @@ mod tests {
         fn header(&self) -> Option<Arc<mixdog_store::schema::record::Header>> {
             None
         }
-        async fn write_hop(&self, _: mixdog_core_ports::ports::domain_sessions::Obj, _: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_tools::orch::util::PortError> {
+        async fn write_hop(
+            &self,
+            _: mixdog_core_ports::ports::domain_sessions::Obj,
+            _: &mixdog_core_run::run_host::route_fallback::HopWrite,
+        ) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_tools::orch::util::PortError> {
             unreachable!("no hop in this test")
         }
         async fn write_wire_pin(&self, _: Value) -> Result<(), mixdog_tools::orch::util::PortError> {
@@ -1875,7 +1964,10 @@ mod tests {
                     StreamEvent::TextDelta("after".into()),
                     StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
-                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![
+                    StreamEvent::TextDelta("all done".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
             ])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
@@ -1884,30 +1976,54 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.transcript = Arc::new(mixdog_core_session::session::testing::RecordTranscript::new());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: scripted.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: scripted.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the turn's end".to_owned(), &[handle.stepped()], || {
-            rig.feeds.frames(id.as_str()).iter().any(|(_, method, params)| method == "item/agentMessage/delta" && params["delta"] == "all done").then_some(())
-        })
+        eventually_on_awaiting(
+            || "the turn's end".to_owned(),
+            &[handle.stepped()],
+            || {
+                rig.feeds
+                    .frames(id.as_str())
+                    .iter()
+                    .any(|(_, method, params)| method == "item/agentMessage/delta" && params["delta"] == "all done")
+                    .then_some(())
+            },
+        )
         .await;
         eventually_on_awaiting(|| "the turn settled".to_owned(), &[handle.stepped()], || (!handle.turn_busy()).then_some(())).await;
 
         let frames = rig.feeds.frames(id.as_str());
         let delta_item = |text: &str| {
-            frames.iter().find(|(_, method, params)| method == "item/agentMessage/delta" && params["delta"] == text).map(|(_, _, params)| params["itemId"].as_str().unwrap_or_default().to_owned()).expect("the delta")
+            frames
+                .iter()
+                .find(|(_, method, params)| method == "item/agentMessage/delta" && params["delta"] == text)
+                .map(|(_, _, params)| params["itemId"].as_str().unwrap_or_default().to_owned())
+                .expect("the delta")
         };
         let (before, after) = (delta_item("before"), delta_item("after"));
         assert_ne!(before, after, "the text after the tool block is an item of its own");
         let position = |found: &dyn Fn(&str, &Value) -> bool| frames.iter().position(|(_, method, params)| found(method, params)).expect("the frame");
-        let before_final = position(&|method, params| method == "item/completed" && params["item"]["id"] == before.as_str() && params["item"]["text"] == "before");
+        let before_final =
+            position(&|method, params| method == "item/completed" && params["item"]["id"] == before.as_str() && params["item"]["text"] == "before");
         let after_starts = position(&|method, params| method == "item/agentMessage/delta" && params["delta"] == "after");
         assert!(before_final < after_starts, "the text before the block is final before the text after it streams");
-        let started: Vec<&Value> = frames.iter().filter(|(_, method, params)| method == "item/started" && params["item"]["type"] == "agentMessage").map(|(_, _, params)| &params["item"]["id"]).collect();
+        let started: Vec<&Value> = frames
+            .iter()
+            .filter(|(_, method, params)| method == "item/started" && params["item"]["type"] == "agentMessage")
+            .map(|(_, _, params)| &params["item"]["id"])
+            .collect();
         assert_eq!(started.len(), 3, "one item per segment and the answer, none for an empty delta: {started:?}");
 
         let rows = |items: &[Arc<ThreadItem>]| -> Vec<(String, String)> {
@@ -1955,9 +2071,16 @@ mod tests {
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.lifecycle = hooks.clone();
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -1973,12 +2096,19 @@ mod tests {
         };
 
         handle
-            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "give it back", "options": { "clientSubmissionId": "sub-1" } } }), "op-1"))
+            .request(request(
+                "turn/start",
+                json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "give it back", "options": { "clientSubmissionId": "sub-1" } } }),
+                "op-1",
+            ))
             .await
             .expect("turn/start");
         mixdog_core_session::session::testing::awaiting(|| "the turn to reach its UserPromptSubmit hook".to_owned(), hooks.reached.notified()).await;
         let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
-        let stopped = handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(true), submission_id: Some("sub-1".to_owned()), ctx }).await.expect("stop");
+        let stopped = handle
+            .stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(true), submission_id: Some("sub-1".to_owned()), ctx })
+            .await
+            .expect("stop");
         assert_eq!(stopped["restoreText"], json!("give it back"), "the stop hands the prompt back: {stopped}");
         eventually_on_awaiting(|| "the stopped turn's end record".to_owned(), &[handle.stepped()], || (!ended().is_empty()).then_some(())).await;
         assert_eq!(ended(), ["Interrupted"], "a stop during the setup is a stopped turn, not a failed one");
@@ -2027,16 +2157,20 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
-        handle
-            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1"))
-            .await
-            .expect("turn/start");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
 
         let hints = || -> Vec<Value> {
             rig.feeds
@@ -2047,9 +2181,19 @@ mod tests {
                 .collect()
         };
         mixdog_core_session::session::testing::awaiting(|| "the report tool to be called".to_owned(), reported.notified()).await;
-        eventually_on_awaiting(|| "the tool-output hint with outputTail \"compiling\" published to the thread's clients".to_owned(), &[&rig.feeds.published], || hints().contains(&json!({ "outputTail": "compiling" })).then_some(())).await;
+        eventually_on_awaiting(
+            || "the tool-output hint with outputTail \"compiling\" published to the thread's clients".to_owned(),
+            &[&rig.feeds.published],
+            || hints().contains(&json!({ "outputTail": "compiling" })).then_some(()),
+        )
+        .await;
         release.notify_one();
-        eventually_on_awaiting(|| "the tool-output hint withdrawn (a null hint published last) after the tool ends".to_owned(), &[&rig.feeds.published], || (hints().last() == Some(&Value::Null)).then_some(())).await;
+        eventually_on_awaiting(
+            || "the tool-output hint withdrawn (a null hint published last) after the tool ends".to_owned(),
+            &[&rig.feeds.published],
+            || (hints().last() == Some(&Value::Null)).then_some(()),
+        )
+        .await;
     }
 
     /// One real turn: the session actor starts it, the factory builds the run, the loop asks the
@@ -2067,7 +2211,10 @@ mod tests {
                     StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "a": 1 }), native_type: None }),
                     StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
-                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![
+                    StreamEvent::TextDelta("all done".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
             ])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
@@ -2075,16 +2222,21 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
-        let started = handle
-            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1"))
-            .await
-            .expect("turn/start");
+        let started =
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         let Reply::Value(started) = started else { panic!("turn/start answers a value") };
         assert_eq!(started["kind"], "started");
 
@@ -2102,7 +2254,12 @@ mod tests {
                 .collect()
         };
         // Woken by each step of the thread's actor, which acknowledges each row after the store holds it.
-        eventually_on_awaiting(|| "the four-role transcript (user, assistant, tool, assistant) in the store".to_owned(), &[handle.stepped()], || (roles().len() >= 4).then_some(())).await;
+        eventually_on_awaiting(
+            || "the four-role transcript (user, assistant, tool, assistant) in the store".to_owned(),
+            &[handle.stepped()],
+            || (roles().len() >= 4).then_some(()),
+        )
+        .await;
         let rows = roles();
         assert_eq!(rows.iter().map(|(role, _)| role.as_str()).collect::<Vec<_>>(), ["user", "assistant", "tool", "assistant"]);
         assert_eq!(rows[1].1["content"], "looking");
@@ -2134,7 +2291,10 @@ mod tests {
                     StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "a": 1 }), native_type: None }),
                     StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
-                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![
+                    StreamEvent::TextDelta("all done".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
             ])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
@@ -2151,9 +2311,16 @@ mod tests {
         let provider = Arc::new(ArmedOnSend { inner: scripted.clone(), arm: Mutex::new(Some(arm)) });
         let workspace = tempfile::tempdir().unwrap();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2191,7 +2358,12 @@ mod tests {
             }
             out
         };
-        eventually_on_awaiting(|| format!("the tool's result shown with the disk held: {:?}", shown()), &[handle.stepped()], || shown().contains(&"result").then_some(())).await;
+        eventually_on_awaiting(
+            || format!("the tool's result shown with the disk held: {:?}", shown()),
+            &[handle.stepped()],
+            || shown().contains(&"result").then_some(()),
+        )
+        .await;
         assert_eq!(shown(), ["text", "card", "tool started", "result"], "shown as produced, the answer after the tool not yet");
         assert_eq!(roles(), ["user"], "none of the turn's rows is stored");
         assert_eq!(lock(&scripted.requests).len(), 1, "the next request waits for the tool's row");
@@ -2225,7 +2397,8 @@ mod tests {
         let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
         turn.handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: Some(false), submission_id: None, ctx }).await.expect("stop");
         // The hold is never let go: nothing of the stopped run waits for it.
-        eventually_on_awaiting(|| format!("the stopped run ended: {:?}", turn.stored()), &[turn.handle.stepped()], || (!turn.handle.turn_busy()).then_some(())).await;
+        eventually_on_awaiting(|| format!("the stopped run ended: {:?}", turn.stored()), &[turn.handle.stepped()], || (!turn.handle.turn_busy()).then_some(()))
+            .await;
         assert!(
             turn.stored().iter().any(|body| body["role"] == "assistant" && body["toolCalls"][0]["name"] == "probe"),
             "the row that waited for its place is saved: {:?}",
@@ -2239,7 +2412,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_turn_fires_its_prompt_and_stop_hooks_and_a_blocked_prompt_asks_no_model() {
         use mixdog_core_session::session::lifecycle_hooks::PromptVerdict;
-        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let done = |text: &str| {
+            vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+        };
         let provider = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
@@ -2255,9 +2430,16 @@ mod tests {
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.lifecycle = hooks.clone();
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2281,7 +2463,12 @@ mod tests {
 
         *lock(&hooks.verdict) = PromptVerdict { blocked: true, reason: Some("not now".to_owned()), context: vec!["never read".to_owned()] };
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the refused turn's end record and its StopFailure".to_owned(), &[handle.stepped()], || (ended() >= 2 && calls().len() >= 3).then_some(())).await;
+        eventually_on_awaiting(
+            || "the refused turn's end record and its StopFailure".to_owned(),
+            &[handle.stepped()],
+            || (ended() >= 2 && calls().len() >= 3).then_some(()),
+        )
+        .await;
         assert_eq!(calls()[1..], ["UserPromptSubmit:/ws:\"again\"", "StopFailure:unknown"]);
         assert_eq!(lock(&provider.requests).len(), 1, "a blocked prompt asks no model");
         let stored = format!("{:?}", rig.store.records(&id));
@@ -2301,7 +2488,9 @@ mod tests {
         for (_, record) in rig.store.records(&id) {
             match record {
                 Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Started) => started += 1,
-                Record::Meta(meta) if started >= 2 && matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("transcriptEpoch")) => epochs_after_refusal += 1,
+                Record::Meta(meta) if started >= 2 && matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("transcriptEpoch")) => {
+                    epochs_after_refusal += 1
+                }
                 _ => {}
             }
         }
@@ -2310,10 +2499,12 @@ mod tests {
     /// The rewrite keeps one copy of the system prompt but retires the old provider continuation.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_automatic_compaction_sends_a_full_request_without_the_retired_continuation() {
-        use mixdog_ai::providers::compat::{CompatConfig, CompatProfile};
         use mixdog_ai::providers::compat::responses::CompatResponsesCodec;
+        use mixdog_ai::providers::compat::{CompatConfig, CompatProfile};
         use mixdog_core_api::domain::keepalive::TransportKind;
-        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let done = |text: &str| {
+            vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+        };
         let provider = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
@@ -2331,15 +2522,25 @@ mod tests {
             compactor: Arc::new(CompactsOnce::default()),
             settings: mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(1_000), token_calibration: 1.0, ..Default::default() },
         };
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(parts),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         let continuation = json!({ "compatResponses": { "previousResponseId": "resp_retired", "store": true, "seenMessageCount": 1 } });
         let patch = json!({ "threadId": id, "set": { "promptBase": "rules", "providerState": continuation }, "unset": [] });
-        handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("the system prompt and saved continuation");
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("the system prompt and saved continuation");
         let ended = || {
             rig.store
                 .records(&id)
@@ -2370,16 +2571,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_large_scanned_pdf_goes_by_reference_before_send_even_with_auto_compaction_off() {
-        use mixdog_agent::boundary::CompactSettings;
-        use mixdog_agent::offload::{Artifact, ArtifactStore};
-        use mixdog_core_api::domain::provider::ContentPart;
-        use mixdog_store::blobs::{BlobStore, digest_of, hex};
         use super::super::assemble::CompactorInput;
         use super::super::attachment_store::StoreFiles;
         use super::super::compaction_world::{ProcessCompactionWorld, tests::services};
         use super::super::compactors::SessionCompactors;
         use super::super::host_seams::CompactorSource;
         use super::super::media::{AttachmentFacts, StoredFacts};
+        use mixdog_agent::boundary::CompactSettings;
+        use mixdog_agent::offload::{Artifact, ArtifactStore};
+        use mixdog_core_api::domain::provider::ContentPart;
+        use mixdog_store::blobs::{BlobStore, digest_of, hex};
 
         struct ScannedPdf(String);
         #[async_trait]
@@ -2428,7 +2629,11 @@ mod tests {
                 compactor,
                 settings,
             };
-            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+            deps.runs = Arc::new(RunHostFactory::new(
+                mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+                mixdog_tools::web::NativeSearchUsageSinks::new(),
+                Arc::new(parts),
+            ));
             let directory = SessionDirectory::new(Arc::new(deps));
             directory.create_with_id(id.clone(), header, json!({})).await.expect("the session");
             let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
@@ -2436,7 +2641,10 @@ mod tests {
                 { "type": "text", "text": "Review this scan." },
                 { "type": "file", "attachmentRef": reference, "filename": "scan.pdf", "mimeType": "application/pdf" }
             ]);
-            let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": prompt } }), "op-1")).await.expect("turn/start");
+            let started = handle
+                .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": prompt } }), "op-1"))
+                .await
+                .expect("turn/start");
             assert!(matches!(started, Reply::Value(_)), "the turn starts");
             eventually_on_awaiting(|| format!("the turn's end record (auto={auto})"), &[handle.stepped()], || (ended_runs(&rig, &id) == 1).then_some(())).await;
 
@@ -2447,11 +2655,18 @@ mod tests {
                 Content::Text(text) => text.contains("Review this scan."),
                 Content::Parts(parts) => parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if text.contains("Review this scan."))),
             };
-            let user = requests[0].messages.iter().filter(|message| message.role == Role::User).rfind(prompt_of).unwrap_or_else(|| panic!("the user prompt (auto={auto}) in {:?}", requests[0].messages.iter().map(|m| (m.role, format!("{:?}", m.content))).collect::<Vec<_>>()));
+            let user = requests[0].messages.iter().filter(|message| message.role == Role::User).rfind(prompt_of).unwrap_or_else(|| {
+                panic!("the user prompt (auto={auto}) in {:?}", requests[0].messages.iter().map(|m| (m.role, format!("{:?}", m.content))).collect::<Vec<_>>())
+            });
             let Content::Parts(parts) = &user.content else { panic!("expected prompt and PDF reference (auto={auto})") };
             let copy = workspace.path().join("prompt-attachments").join("files").join(reference).join("scan.pdf");
             assert!(parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if text.contains("Review this scan."))));
-            assert!(parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if text.contains("no text layer (scanned pages)") && text.contains(copy.to_str().unwrap()))), "the first send points to the scan (auto={auto})");
+            assert!(
+                parts.iter().any(
+                    |part| matches!(part, ContentPart::Text(text, _) if text.contains("no text layer (scanned pages)") && text.contains(copy.to_str().unwrap()))
+                ),
+                "the first send points to the scan (auto={auto})"
+            );
             assert!(parts.iter().all(|part| matches!(part, ContentPart::Text(..))), "no PDF sent inline (auto={auto})");
             assert_eq!(std::fs::read(copy).unwrap(), bytes);
         }
@@ -2464,7 +2679,11 @@ mod tests {
     fn restartable_with(rig: &Rig, provider: &Arc<dyn ProviderAdapter>, workspace: &std::path::Path, more: Vec<Arc<dyn Tool>>) -> SessionDirectory {
         let mut deps = rig.deps_parts(rig.store.clone());
         let parts = Parts { provider: provider.clone(), workspace: workspace.to_path_buf(), more, settle: None, effort: None };
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(parts),
+        ));
         SessionDirectory::new(Arc::new(deps))
     }
     /// [`Parts`] whose first assembly, when asked to, fails: the turn ends after the settings reconcile and before its rows are written.
@@ -2474,7 +2693,12 @@ mod tests {
     }
     #[async_trait]
     impl RunParts for FailsAssembly {
-        async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+        async fn reconcile_turn(
+            &self,
+            thread: &ThreadId,
+            header: mixdog_store::schema::record::Header,
+            conversation: bool,
+        ) -> Result<mixdog_store::schema::record::Header, TurnError> {
             self.inner.reconcile_turn(thread, header, conversation).await
         }
 
@@ -2487,8 +2711,15 @@ mod tests {
     }
     fn restartable_failing(rig: &Rig, provider: &Arc<dyn ProviderAdapter>, workspace: &std::path::Path, fail: bool) -> SessionDirectory {
         let mut deps = rig.deps_parts(rig.store.clone());
-        let parts = FailsAssembly { inner: Parts { provider: provider.clone(), workspace: workspace.to_path_buf(), more: Vec::new(), settle: None, effort: None }, fail: std::sync::atomic::AtomicBool::new(fail) };
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+        let parts = FailsAssembly {
+            inner: Parts { provider: provider.clone(), workspace: workspace.to_path_buf(), more: Vec::new(), settle: None, effort: None },
+            fail: std::sync::atomic::AtomicBool::new(fail),
+        };
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(parts),
+        ));
         SessionDirectory::new(Arc::new(deps))
     }
     /// A prompt fold that moved the prefix owes the stored thinking a rebind (`thinkingRebindPending`, written with the prefix). A
@@ -2497,7 +2728,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_failed_assembly_leaves_the_thinking_rebind_owed_to_the_next_turn_after_a_reopen() {
         const SIGNATURE: &str = "sig-owed";
-        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let done = |text: &str| {
+            vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+        };
         let mut first_round = vec![StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "thinking": "hm", "signature": SIGNATURE }]))];
         first_round.extend(done("one"));
         let (first, third) = (scripted_rounds(vec![first_round]), scripted_rounds(vec![done("three")]));
@@ -2505,7 +2738,10 @@ mod tests {
         let rig = Rig::new();
         let provider: Arc<dyn ProviderAdapter> = first.clone();
         let directory = restartable_failing(&rig, &provider, workspace.path(), false);
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2513,7 +2749,10 @@ mod tests {
         eventually_on_awaiting(|| "the end record of the first turn".to_owned(), &[handle.stepped()], || (ended_runs(&rig, &id) > 0).then_some(())).await;
         // The fold's write: the prefix moved and the rebind is owed, in one header change.
         let owed = json!({ "threadId": id, "set": { "thinkingRebindPending": true }, "unset": [] });
-        handle.request(CoreRequest { method: Method("thread/header/patch"), params: owed, op: None, ctx: CallContext::internal("test") }).await.expect("the owed rebind");
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: owed, op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("the owed rebind");
         drop(handle);
         drop(directory);
 
@@ -2521,7 +2760,8 @@ mod tests {
         let failing = restartable_failing(&rig, &provider, workspace.path(), true);
         let handle = failing.open_handle(&id, &CallContext::internal("test")).await.expect("reopen");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the failed turn's end".to_owned(), &[handle.stepped()], || (ended_runs(&rig, &id) > 1 && !handle.turn_busy()).then_some(())).await;
+        eventually_on_awaiting(|| "the failed turn's end".to_owned(), &[handle.stepped()], || (ended_runs(&rig, &id) > 1 && !handle.turn_busy()).then_some(()))
+            .await;
         assert_eq!(handle.live_header().header().get("thinkingRebindPending"), Some(&Value::Bool(true)), "the debt outlives the failed turn");
         drop(handle);
         drop(failing);
@@ -2532,14 +2772,21 @@ mod tests {
         let handle = resumed.open_handle(&id, &CallContext::internal("test")).await.expect("reopen again");
         assert_eq!(handle.live_header().header().get("thinkingRebindPending"), Some(&Value::Bool(true)), "the debt is on disk");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-3", "input": { "prompt": "third" } }), "op-3")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the third turn's end".to_owned(), &[handle.stepped()], || (!lock(&third.requests).is_empty() && !handle.turn_busy()).then_some(())).await;
+        eventually_on_awaiting(
+            || "the third turn's end".to_owned(),
+            &[handle.stepped()],
+            || (!lock(&third.requests).is_empty() && !handle.turn_busy()).then_some(()),
+        )
+        .await;
         let sent = format!("{:?}", lock(&third.requests)[0].messages);
         assert!(sent.contains("one") && sent.contains("third"), "the history and the new prompt are sent: {sent}");
         assert!(!sent.contains(SIGNATURE), "the thinking the old prefix signed is not replayed: {sent}");
         assert!(handle.live_header().header().get("thinkingRebindPending").is_none(), "the debt is cleared once paid");
     }
     fn scripted(answers: &[&str]) -> Arc<Scripted> {
-        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let done = |text: &str| {
+            vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+        };
         Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
@@ -2562,12 +2809,18 @@ mod tests {
         let rig = Rig::new();
         let provider: Arc<dyn ProviderAdapter> = first.clone();
         let directory = restartable(&rig, &provider, workspace.path());
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         let patch = json!({ "threadId": id, "set": { "promptBase": "rules" }, "unset": [] });
-        handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("the system prompt");
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("the system prompt");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         eventually_on_awaiting(|| "the end record of the first turn".to_owned(), &[handle.stepped()], || (ended_runs(&rig, &id) > 0).then_some(())).await;
         drop(handle);
@@ -2595,7 +2848,10 @@ mod tests {
         let rig = Rig::new();
         let adapter: Arc<dyn ProviderAdapter> = provider.clone();
         let directory = restartable(&rig, &adapter, workspace.path());
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2603,7 +2859,10 @@ mod tests {
         eventually_on_awaiting(|| "the request on the wire".to_owned(), &[handle.stepped()], || (!lock(&provider.0.requests).is_empty()).then_some(())).await;
         let records = rig.store.records(&id);
         let items = records.iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
-        let started = records.iter().filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Started))).count();
+        let started = records
+            .iter()
+            .filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Started)))
+            .count();
         assert_eq!((items >= 1, started, ended_runs(&rig, &id)), (true, 1, 0), "with the request on the wire: the prompt and the start are on disk, no end");
         release.notify_one();
         eventually_on_awaiting(|| "the end record".to_owned(), &[handle.stepped()], || (ended_runs(&rig, &id) > 0).then_some(())).await;
@@ -2681,13 +2940,21 @@ mod tests {
         });
         let adapter: Arc<dyn ProviderAdapter> = provider;
         let directory = restartable(&rig, &adapter, workspace.path());
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         *lock(&id_cell) = Some(id.clone());
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the turn carried on to the end".to_owned(), &[handle.stepped()], || (lock(&inner.requests).len() == 2 && !handle.turn_busy()).then_some(())).await;
+        eventually_on_awaiting(
+            || "the turn carried on to the end".to_owned(),
+            &[handle.stepped()],
+            || (lock(&inner.requests).len() == 2 && !handle.turn_busy()).then_some(()),
+        )
+        .await;
         let second = format!("{:?}", lock(&inner.requests)[1].messages);
         assert!(second.contains("echo:"), "the tool ran and its result went on to the next request: {second}");
         assert_eq!(Some(item_rows(&rig, &id)), *lock(&on_disk_at_failure), "no row written after the store began refusing reached disk");
@@ -2716,20 +2983,33 @@ mod tests {
         let (rig, workspace) = (Rig::new(), tempfile::tempdir().unwrap());
         let provider: Arc<dyn ProviderAdapter> = first.clone();
         let directory = restartable_with(&rig, &provider, workspace.path(), vec![Arc::new(Blocker(spec, blocked.clone(), release.clone()))]);
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         tokio::time::timeout(std::time::Duration::from_secs(30), blocked.notified()).await.expect("the tool started within 30 s");
         // The process dies here: the tool never ends, and only the files are what the next process has.
-        let started = rig.store.records(&id).iter().filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Started))).count();
+        let started = rig
+            .store
+            .records(&id)
+            .iter()
+            .filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Started)))
+            .count();
         assert_eq!((item_rows(&rig, &id) >= 1, started, ended_runs(&rig, &id)), (true, 1, 0), "the prompt and the start are on disk, no end");
         let next: Arc<dyn ProviderAdapter> = second.clone();
         let resumed = restartable(&rig, &next, workspace.path());
         let handle = resumed.open_handle(&id, &CallContext::internal("test")).await.expect("the thread reopens from its files");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the resumed turn's end".to_owned(), &[handle.stepped()], || (!lock(&second.requests).is_empty() && !handle.turn_busy()).then_some(())).await;
+        eventually_on_awaiting(
+            || "the resumed turn's end".to_owned(),
+            &[handle.stepped()],
+            || (!lock(&second.requests).is_empty() && !handle.turn_busy()).then_some(()),
+        )
+        .await;
         let sent = format!("{:?}", lock(&second.requests)[0].messages);
         let (go, again) = (sent.find("go").expect("the first prompt is in the request"), sent.find("again").expect("the new prompt is in the request"));
         assert!(go < again, "the first prompt precedes the new one: {sent}");
@@ -2740,7 +3020,9 @@ mod tests {
     /// guard outlived the actor and the rewrite's lineage was only the old actor's to name).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_send_after_the_idle_unload_of_a_rewound_thread_reaches_the_provider() {
-        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let done = |text: &str| {
+            vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+        };
         let provider = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
@@ -2753,9 +3035,16 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2764,7 +3053,12 @@ mod tests {
         };
         for (turns, (op, prompt)) in [("op-1", "go"), ("op-2", "again")].into_iter().enumerate() {
             handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": prompt } }), op)).await.expect("turn/start");
-            eventually_on_awaiting(|| format!("the end record of turn {op}"), &[handle.stepped()], || (phases(mixdog_store::schema::record::RunPhase::Completed) > turns).then_some(())).await;
+            eventually_on_awaiting(
+                || format!("the end record of turn {op}"),
+                &[handle.stepped()],
+                || (phases(mixdog_store::schema::record::RunPhase::Completed) > turns).then_some(()),
+            )
+            .await;
         }
         // The second turn's prompt leaves the transcript; the first actor's guard still describes the longer history.
         let again = rig
@@ -2792,9 +3086,11 @@ mod tests {
         let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopen");
         assert!(!Arc::ptr_eq(&reopened, &handle), "a replacement actor");
         reopened.request(request("turn/start", json!({ "threadId": id, "opId": "op-3", "input": { "prompt": "third" } }), "op-3")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the send after the unload ends".to_owned(), &[reopened.stepped()], || {
-            (phases(mixdog_store::schema::record::RunPhase::Completed) + phases(mixdog_store::schema::record::RunPhase::Failed) >= 3).then_some(())
-        })
+        eventually_on_awaiting(
+            || "the send after the unload ends".to_owned(),
+            &[reopened.stepped()],
+            || (phases(mixdog_store::schema::record::RunPhase::Completed) + phases(mixdog_store::schema::record::RunPhase::Failed) >= 3).then_some(()),
+        )
         .await;
         assert_eq!(phases(mixdog_store::schema::record::RunPhase::Failed), 0, "no refusal: {:?}", rig.store.records(&id));
         assert_eq!(lock(&provider.requests).len(), 3, "the third send reached the provider");
@@ -2808,7 +3104,10 @@ mod tests {
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
-            script: Mutex::new(VecDeque::from([vec![StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]])),
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::TextDelta("ok".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
@@ -2816,17 +3115,38 @@ mod tests {
         let rig = Rig::new();
         let settle = Arc::new(Settle { add: ("featureDeniedTools", json!(["web_search"])), seen: Mutex::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()), effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts {
+                provider: provider.clone(),
+                workspace: workspace.path().to_path_buf(),
+                more: Vec::new(),
+                settle: Some(settle.clone()),
+                effort: None,
+            }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the assistant's answer in the store".to_owned(), &[handle.stepped()], || {
-            let answered = rig.store.records(&id).into_iter().any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant")));
-            answered.then_some(())
-        })
+        eventually_on_awaiting(
+            || "the assistant's answer in the store".to_owned(),
+            &[handle.stepped()],
+            || {
+                let answered = rig
+                    .store
+                    .records(&id)
+                    .into_iter()
+                    .any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant")));
+                answered.then_some(())
+            },
+        )
         .await;
         let seen = lock(&settle.seen).clone();
         assert_eq!(seen.len(), 1);
@@ -2837,7 +3157,9 @@ mod tests {
     /// while the transcript keeps every row it showed.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_retried_prompt_is_in_the_next_turns_model_context_once() {
-        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let done = |text: &str| {
+            vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+        };
         let provider = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
@@ -2850,9 +3172,16 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2877,7 +3206,12 @@ mod tests {
                 let kind = started["kind"].as_str().expect("turn/start names its answer");
                 assert!(kind == "queued" && want > 1 || kind == "started", "turn {op}: {started}");
                 // Woken by each step of the thread's actor, which is where a run's end is acknowledged after its record is stored.
-                eventually_on_awaiting(|| format!("the end record of run {want} in the store (turn {op})"), &[handle.stepped()], || (ended() >= want).then_some(())).await;
+                eventually_on_awaiting(
+                    || format!("the end record of run {want} in the store (turn {op})"),
+                    &[handle.stepped()],
+                    || (ended() >= want).then_some(()),
+                )
+                .await;
             }
         };
         turn(json!({ "prompt": "fix it" }), "op-1", 1).await;
@@ -2885,7 +3219,8 @@ mod tests {
         turn(json!({ "prompt": "fix it", "options": { "retryFailedTurn": true } }), "op-2", 2).await;
         turn(json!({ "prompt": "thanks" }), "op-3", 3).await;
 
-        let prompts_of = |request: &ModelRequest| request.messages.iter().filter(|m| m.role == Role::User && format!("{:?}", m.content).contains("fix it")).count();
+        let prompts_of =
+            |request: &ModelRequest| request.messages.iter().filter(|m| m.role == Role::User && format!("{:?}", m.content).contains("fix it")).count();
         let requests = lock(&provider.requests).clone();
         assert_eq!(requests.len(), 2, "the retry and the next turn each asked once");
         assert_eq!(prompts_of(&requests[0]), 1, "the retry's request carries the prompt once");
@@ -2895,7 +3230,9 @@ mod tests {
             .store
             .records(&id)
             .into_iter()
-            .filter(|(_, record)| matches!(record, Record::Item(item) if item.visible && matches!(&item.body, Slot::Inline(body) if body["content"] == "fix it")))
+            .filter(
+                |(_, record)| matches!(record, Record::Item(item) if item.visible && matches!(&item.body, Slot::Inline(body) if body["content"] == "fix it")),
+            )
             .count();
         assert_eq!(transcript_prompts, 2, "the transcript keeps the failed prompt beside the retry's");
     }
@@ -2916,7 +3253,10 @@ mod tests {
                     StreamEvent::ToolCallDone(ToolCall { id: "c2".into(), name: "blocker".into(), arguments: json!({}), native_type: None }),
                     StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
-                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![
+                    StreamEvent::TextDelta("all done".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
             ])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
@@ -2938,10 +3278,18 @@ mod tests {
         let rig = Rig::new();
         let workspace = tempfile::tempdir().unwrap();
         let mut deps = rig.deps_parts(rig.store.clone());
-        let more: Vec<Arc<dyn Tool>> = vec![Arc::new(Probe(spec("probe"), ran.clone(), ran_now.clone())), Arc::new(Blocker(spec("blocker"), blocked.clone(), release.clone()))];
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: scripted, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None })));
+        let more: Vec<Arc<dyn Tool>> =
+            vec![Arc::new(Probe(spec("probe"), ran.clone(), ran_now.clone())), Arc::new(Blocker(spec("blocker"), blocked.clone(), release.clone()))];
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: scripted, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -2951,19 +3299,35 @@ mod tests {
         // The two calls run side by side: the first is waited for, not assumed to be ahead of the second.
         tokio::time::timeout(std::time::Duration::from_secs(30), ran_now.notified()).await.expect("the first call ran within 30 s");
         assert!(ran.load(std::sync::atomic::Ordering::SeqCst), "the first call ran");
-        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "typed while blocked" } }), "op-2")).await.expect("the second prompt is taken");
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "typed while blocked" } }), "op-2"))
+            .await
+            .expect("the second prompt is taken");
         let frames = || rig.feeds.frames(id.as_str());
         fn card_told(frames: &[(u64, String, Value)], call: &str, closed: bool) -> bool {
-            frames.iter().any(|(_, method, params)| method == "item/completed" && params["item"]["run"]["callId"] == call && params["item"]["run"]["completedAt"].is_null() != closed)
+            frames.iter().any(|(_, method, params)| {
+                method == "item/completed" && params["item"]["run"]["callId"] == call && params["item"]["run"]["completedAt"].is_null() != closed
+            })
         }
         let told = || {
             let frames = frames();
             let method = |wanted: &str| frames.iter().any(|(_, method, _)| method == wanted);
-            method("thread/tokenUsage/updated") && card_told(&frames, "c1", false) && card_told(&frames, "c2", false) && card_told(&frames, "c1", true) && method("thread/queue/changed")
+            method("thread/tokenUsage/updated")
+                && card_told(&frames, "c1", false)
+                && card_told(&frames, "c2", false)
+                && card_told(&frames, "c1", true)
+                && method("thread/queue/changed")
         };
-        eventually_on_awaiting(|| format!("the step shown with its second call blocked: {:?}", frames().iter().map(|(_, method, _)| method.clone()).collect::<Vec<_>>()), &[handle.stepped()], || told().then_some(())).await;
+        eventually_on_awaiting(
+            || format!("the step shown with its second call blocked: {:?}", frames().iter().map(|(_, method, _)| method.clone()).collect::<Vec<_>>()),
+            &[handle.stepped()],
+            || told().then_some(()),
+        )
+        .await;
         assert!(
-            !frames().iter().any(|(_, method, params)| method == "item/completed" && params["item"]["run"]["callId"] == "c2" && !params["item"]["run"]["completedAt"].is_null()),
+            !frames().iter().any(|(_, method, params)| method == "item/completed"
+                && params["item"]["run"]["callId"] == "c2"
+                && !params["item"]["run"]["completedAt"].is_null()),
             "the blocked call's card is not closed"
         );
         release.notify_one();
@@ -3030,9 +3394,16 @@ mod tests {
             Arc::new(Probe(spec("quick"), ran, ran_now)),
             Arc::new(Blocker(spec("task"), wait_started.clone(), wait_release.clone())),
         ];
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: scripted, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None })));
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: scripted, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let thread = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&thread).expect("loaded");
@@ -3040,7 +3411,11 @@ mod tests {
             tokio::time::timeout(std::time::Duration::from_secs(30), signal.notified()).await.unwrap_or_else(|_| panic!("{what} within 30 s"));
         };
         let frames = || rig.feeds.frames(thread.as_str());
-        let mode = || frames().iter().rev().find_map(|(_, method, params)| (method == "thread/runtime/updated").then(|| params["value"]["spinner"]["mode"].as_str().map(str::to_owned)).flatten());
+        let mode = || {
+            frames().iter().rev().find_map(|(_, method, params)| {
+                (method == "thread/runtime/updated").then(|| params["value"]["spinner"]["mode"].as_str().map(str::to_owned)).flatten()
+            })
+        };
         let waiting = || directory.worker_live(&thread, 0, &NoJobs).task_waiting;
         let shown_open = || mode().as_deref() == Some("task-wait") && waiting();
         handle.request(request("turn/start", json!({ "threadId": thread, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
@@ -3061,7 +3436,12 @@ mod tests {
         }
         assert!(shown_open(), "the held call's late settlement left the wait open");
         wait_release.notify_one();
-        eventually_on_awaiting(|| format!("the wait's own result clears the working state: {:?}", mode()), &[handle.stepped()], || (mode().as_deref() != Some("task-wait") && !waiting()).then_some(())).await;
+        eventually_on_awaiting(
+            || format!("the wait's own result clears the working state: {:?}", mode()),
+            &[handle.stepped()],
+            || (mode().as_deref() != Some("task-wait") && !waiting()).then_some(()),
+        )
+        .await;
         eventually_on_awaiting(|| "the turn settled".to_owned(), &[handle.stepped()], || (!handle.turn_busy()).then_some(())).await;
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -3079,22 +3459,34 @@ mod tests {
         let (ran, ran_now) = (Arc::new(std::sync::atomic::AtomicBool::new(false)), Arc::new(tokio::sync::Notify::new()));
         let settled = Arc::new(tokio::sync::Notify::new());
         SETTLED_HOOKS.lock().unwrap().push(("early-wait".into(), settled.clone()));
-        let scripted = Arc::new(HeldScripted(Scripted {
-            id: ProviderId::from("scripted"),
-            policy: RetryPolicy::codex_default(),
-            keepalive: KeepaliveSchedule::SPEC,
-            codec: MockCodec,
-            script: Mutex::new(VecDeque::from([
-                vec![
-                    StreamEvent::ToolCallDone(ToolCall { id: "early-wait".into(), name: "task".into(), arguments: json!({ "action": "wait" }), native_type: None }),
-                    StreamEvent::ToolCallDone(ToolCall { id: "c2".into(), name: "blocker".into(), arguments: json!({}), native_type: None }),
-                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
-                ],
-                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-            ])),
-            requests: Mutex::new(Vec::new()),
-            fail_first: std::sync::atomic::AtomicBool::new(false),
-        }, settled, 0));
+        let scripted = Arc::new(HeldScripted(
+            Scripted {
+                id: ProviderId::from("scripted"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(VecDeque::from([
+                    vec![
+                        StreamEvent::ToolCallDone(ToolCall {
+                            id: "early-wait".into(),
+                            name: "task".into(),
+                            arguments: json!({ "action": "wait" }),
+                            native_type: None,
+                        }),
+                        StreamEvent::ToolCallDone(ToolCall { id: "c2".into(), name: "blocker".into(), arguments: json!({}), native_type: None }),
+                        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                    ],
+                    vec![
+                        StreamEvent::TextDelta("all done".into()),
+                        StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                    ],
+                ])),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            },
+            settled,
+            0,
+        ));
         let spec = |name: &str| ToolSpec {
             name: name.into(),
             title: None,
@@ -3111,10 +3503,18 @@ mod tests {
         let rig = Rig::new();
         let workspace = tempfile::tempdir().unwrap();
         let mut deps = rig.deps_parts(rig.store.clone());
-        let more: Vec<Arc<dyn Tool>> = vec![Arc::new(Probe(spec("task"), ran.clone(), ran_now.clone())), Arc::new(Blocker(spec("blocker"), blocked.clone(), release.clone()))];
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: scripted, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None })));
+        let more: Vec<Arc<dyn Tool>> =
+            vec![Arc::new(Probe(spec("task"), ran.clone(), ran_now.clone())), Arc::new(Blocker(spec("blocker"), blocked.clone(), release.clone()))];
+        deps.runs = Arc::new(RunHostFactory::new(
+            mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+            mixdog_tools::web::NativeSearchUsageSinks::new(),
+            Arc::new(Parts { provider: scripted, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None }),
+        ));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -3124,7 +3524,11 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(30), ran_now.notified()).await.expect("the wait ran within 30 s");
         assert!(ran.load(std::sync::atomic::Ordering::SeqCst), "the wait ran");
         let frames = || rig.feeds.frames(id.as_str());
-        let shown = || frames().iter().any(|(_, method, params)| method == "item/completed" && params["item"]["run"]["callId"] == "c2" && params["item"]["run"]["completedAt"].is_null());
+        let shown = || {
+            frames().iter().any(|(_, method, params)| {
+                method == "item/completed" && params["item"]["run"]["callId"] == "c2" && params["item"]["run"]["completedAt"].is_null()
+            })
+        };
         eventually_on_awaiting(|| "the blocked call's card shown".to_owned(), &[handle.stepped()], || shown().then_some(())).await;
         let waiting = frames().iter().any(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "task-wait");
         assert!(!waiting, "a wait that already ended is not shown as waiting");
@@ -3146,7 +3550,10 @@ mod tests {
                         StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "probe".into(), arguments: json!({}), native_type: None }),
                         StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                     ],
-                    vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                    vec![
+                        StreamEvent::TextDelta("all done".into()),
+                        StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                    ],
                 ])),
                 requests: Mutex::new(Vec::new()),
                 fail_first: std::sync::atomic::AtomicBool::new(false),
@@ -3175,9 +3582,16 @@ mod tests {
             let workspace = tempfile::tempdir().unwrap();
             let mut deps = rig.deps_parts(rig.store.clone());
             let more: Vec<Arc<dyn Tool>> = vec![Arc::new(Probe(spec, ran.clone(), ran_now.clone()))];
-            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None })));
+            deps.runs = Arc::new(RunHostFactory::new(
+                mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+                mixdog_tools::web::NativeSearchUsageSinks::new(),
+                Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more, settle: None, effort: None }),
+            ));
             let directory = SessionDirectory::new(Arc::new(deps));
-            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let reply = directory
+                .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+                .await
+                .expect("thread/start");
             let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
             let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
             let handle = directory.handle(&id).expect("loaded");
@@ -3188,7 +3602,8 @@ mod tests {
         /// A report's preparation started after the hold began, and waits.
         async fn a_preparation_is_held(&self) {
             let mut started = self.rig.compaction.prepare_started.subscribe();
-            let wait = started.wait_for(|started| *self.rig.compaction.prepare_held.borrow() && *started > self.held_from.load(std::sync::atomic::Ordering::SeqCst));
+            let wait =
+                started.wait_for(|started| *self.rig.compaction.prepare_held.borrow() && *started > self.held_from.load(std::sync::atomic::Ordering::SeqCst));
             tokio::time::timeout(std::time::Duration::from_secs(30), wait).await.expect("a preparation held within 30 s").expect("the counter");
         }
 
@@ -3240,7 +3655,8 @@ mod tests {
 
         turn.rig.compaction.prepare_held.send_replace(false);
         tokio::time::timeout(std::time::Duration::from_secs(30), turn.ran_now.notified()).await.expect("the tool started within 30 s");
-        eventually_on_awaiting(|| format!("the answer shown: {:?}", turn.shown()), &[turn.handle.stepped()], || turn.shown().contains(&"answer").then_some(())).await;
+        eventually_on_awaiting(|| format!("the answer shown: {:?}", turn.shown()), &[turn.handle.stepped()], || turn.shown().contains(&"answer").then_some(()))
+            .await;
         assert_eq!(turn.shown(), ["text", "card", "tool started", "result", "answer"], "shown in the order produced");
         // The turn's normal end waits for every preparation it started: none is left running once it settled.
         eventually_on_awaiting(|| "the turn settled".to_owned(), &[turn.handle.stepped()], || (!turn.handle.turn_busy()).then_some(())).await;
@@ -3267,7 +3683,10 @@ mod tests {
             })
         }));
         let directory = SessionDirectory::new(rig.deps());
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -3284,12 +3703,22 @@ mod tests {
         let forwarder = spawn_forwarder(port.clone(), shown_rx, tokio_util::sync::CancellationToken::new());
         let check = || Shown::Check(mixdog_core_session::session::run::SendCheck { messages: Arc::from(Vec::new()), tools: Vec::new(), reactive: false });
         send_prepared(&shown_tx, &port, check());
-        let item = |iid: &str| ItemCommit { iid: ItemId::from(iid), role: Some("assistant".into()), model: true, visible: true, body: json!({ "content": "x" }), prompt: None };
+        let item = |iid: &str| ItemCommit {
+            iid: ItemId::from(iid),
+            role: Some("assistant".into()),
+            model: true,
+            visible: true,
+            body: json!({ "content": "x" }),
+            prompt: None,
+        };
         jobs.row(true, None, item("held"));
         let Some(Job::Commit(_, _, Some(held))) = jobs_rx.recv().await else { panic!("the row with its place") };
         let within = std::time::Duration::from_secs(30);
         let mut started = compaction.prepare_started.subscribe();
-        tokio::time::timeout(within, started.wait_for(|started| *started > started_before)).await.expect("the preparation held within 30 s").expect("the counter");
+        tokio::time::timeout(within, started.wait_for(|started| *started > started_before))
+            .await
+            .expect("the preparation held within 30 s")
+            .expect("the counter");
 
         forwarder.abort();
         assert!(matches!(tokio::time::timeout(within, row_handover(Some(held))).await.expect("the held row goes within 30 s"), Handover::Gone));
@@ -3328,7 +3757,10 @@ mod tests {
             })
         }));
         let directory = SessionDirectory::new(rig.deps());
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -3347,11 +3779,17 @@ mod tests {
         let (reached, mut place) = tokio::sync::oneshot::channel();
         let _ = shown_tx.send(Shown::Row(reached));
         let mut started = rig.compaction.prepare_started.subscribe();
-        tokio::time::timeout(std::time::Duration::from_secs(30), started.wait_for(|started| *started >= before + 3)).await.expect("three preparations under way within 30 s").expect("the counter");
+        tokio::time::timeout(std::time::Duration::from_secs(30), started.wait_for(|started| *started >= before + 3))
+            .await
+            .expect("three preparations under way within 30 s")
+            .expect("the counter");
         assert!(matches!(place.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)), "the row waits while the reports ahead prepare");
 
         rig.compaction.prepare_held.send_replace(false);
-        let handed = tokio::time::timeout(std::time::Duration::from_secs(30), place).await.expect("the place answered within 30 s").expect("the forwarder reached the row");
+        let handed = tokio::time::timeout(std::time::Duration::from_secs(30), place)
+            .await
+            .expect("the place answered within 30 s")
+            .expect("the forwarder reached the row");
         let _ = handed.send(());
         cancel.cancel();
         let _ = forwarder.await;
@@ -3374,15 +3812,32 @@ mod tests {
             let mut refusal = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::InvalidRequest, DeliveryState::NotSent);
             refusal.code = code.map(str::to_owned);
             refusal.message = "provider timed out after 1000ms".to_owned();
-            let provider = Arc::new(Refusing { id: ProviderId::from("mock"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: MockCodec, error: refusal });
+            let provider = Arc::new(Refusing {
+                id: ProviderId::from("mock"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                error: refusal,
+            });
             let workspace = tempfile::tempdir().unwrap();
             let rig = Rig::new();
             let (reaps, woke) = (Arc::new(Mutex::new(Vec::new())), Arc::new(tokio::sync::Notify::new()));
-            let parts = Reaping { inner: Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }, reaps: reaps.clone(), woke: woke.clone() };
+            let parts = Reaping {
+                inner: Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None },
+                reaps: reaps.clone(),
+                woke: woke.clone(),
+            };
             let mut deps = rig.deps_parts(rig.store.clone());
-            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+            deps.runs = Arc::new(RunHostFactory::new(
+                mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+                mixdog_tools::web::NativeSearchUsageSinks::new(),
+                Arc::new(parts),
+            ));
             let directory = SessionDirectory::new(Arc::new(deps));
-            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let reply = directory
+                .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+                .await
+                .expect("thread/start");
             let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
             let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
             let handle = directory.handle(&id).expect("loaded");
@@ -3441,14 +3896,23 @@ mod tests {
             let workspace = tempfile::tempdir().unwrap();
             let rig = Rig::new();
             let mut deps = rig.deps_parts(rig.store.clone());
-            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+            deps.runs = Arc::new(RunHostFactory::new(
+                mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+                mixdog_tools::web::NativeSearchUsageSinks::new(),
+                Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+            ));
             let directory = SessionDirectory::new(Arc::new(deps));
-            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let reply = directory
+                .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+                .await
+                .expect("thread/start");
             let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
             let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
             let handle = directory.handle(&id).expect("loaded");
             handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-            let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
+            let frames = |method: &str| -> Vec<Value> {
+                rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect()
+            };
             eventually_on_awaiting(|| format!("{how}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
             let stages: Vec<Value> = frames("thread/stage/updated").into_iter().filter(|p| p["stage"] == "reconnecting").collect();
             assert_eq!(stages, [json!({ "threadId": id, "stage": "reconnecting", "detail": { "message": switching } })], "{how}: the switching status, once");
@@ -3456,7 +3920,8 @@ mod tests {
             assert_eq!(changed.len(), 1, "{how}: the account change, once: {changed:?}");
             // The PC's account id never leaves the PC (Node's `scalarDetail`); a direct run names it.
             assert_eq!(changed[0].to_string().contains("\"k2\""), how == "direct", "{how}: {changed:?}");
-            let rows = serde_json::to_string(&rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m.starts_with("item/")).collect::<Vec<_>>()).unwrap();
+            let rows =
+                serde_json::to_string(&rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m.starts_with("item/")).collect::<Vec<_>>()).unwrap();
             assert!(!rows.contains(switching), "{how}: the switching message is not a transcript row");
         }
     }
@@ -3586,11 +4051,19 @@ mod tests {
     }
     #[async_trait]
     impl mixdog_ai::transport::http::HttpSend for CacheEndpoint {
-        async fn send(&self, request: mixdog_core_api::domain::provider::WireRequest, _: mixdog_ai::transport::Exchange) -> Result<mixdog_ai::transport::http::HttpResponse, ProviderError> {
+        async fn send(
+            &self,
+            request: mixdog_core_api::domain::provider::WireRequest,
+            _: mixdog_ai::transport::Exchange,
+        ) -> Result<mixdog_ai::transport::http::HttpResponse, ProviderError> {
             let body: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
             let reply = self.sse(&body);
             lock(&self.bodies).push(body);
-            Ok(mixdog_ai::transport::http::HttpResponse { status: 200, headers: vec![("content-type".into(), "text/event-stream".into())], body: Box::new(OneBody(Some(reply.into()))) })
+            Ok(mixdog_ai::transport::http::HttpResponse {
+                status: 200,
+                headers: vec![("content-type".into(), "text/event-stream".into())],
+                body: Box::new(OneBody(Some(reply.into()))),
+            })
         }
     }
     struct TestKey;
@@ -3640,7 +4113,8 @@ mod tests {
         }));
         // Not the official URL: the body goes out plain.
         config.base_url = "http://anthropic.test".into();
-        let adapter = mixdog_ai::providers::anthropic::AnthropicAdapter::api_key(config, endpoint.clone(), Arc::new(TestKey), mixdog_rt::testing::tokens().cpu_bulk);
+        let adapter =
+            mixdog_ai::providers::anthropic::AnthropicAdapter::api_key(config, endpoint.clone(), Arc::new(TestKey), mixdog_rt::testing::tokens().cpu_bulk);
         let clock = Arc::new(Moving(AtomicI64::new(1_700_000_000_000)));
         let (waiting, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
         let spec = |name: &str| named_spec(name);
@@ -3651,17 +4125,37 @@ mod tests {
             Arc::new(Says(spec("glob"), "MORE".into())),
             named("Skill"),
         ];
-        let world = turn_world_at(Arc::new(adapter), Arc::new(NoMcp), Vec::new(), false, None, Some(pool), Arc::new(MockFileService::default()), true, clock.clone(), Arc::new(Windowed { auto: false }), true, None).await;
+        let world = turn_world_at(
+            Arc::new(adapter),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            Some(pool),
+            Arc::new(MockFileService::default()),
+            true,
+            clock.clone(),
+            Arc::new(Windowed { auto: false }),
+            true,
+            None,
+        )
+        .await;
         let tools = json!([{ "name": "grep" }, { "name": "list" }, { "name": "glob" }]);
         let (id, handle) = started_thread(&world, json!({ "provider": "anthropic", "model": "claude-test", "tools": tools })).await;
         let completed = || world.rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == "turn/completed").count();
-        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1")).await.expect("turn/start");
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1"))
+            .await
+            .expect("turn/start");
         eventually_on_awaiting(|| "the first turn's end".to_owned(), &[handle.stepped()], || (completed() >= 1).then_some(())).await;
         clock.0.fetch_add(10_000, std::sync::atomic::Ordering::SeqCst);
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "now wait" } }), "op-2")).await.expect("turn/start");
         if mixdog_rt::time::timeout(Duration::from_secs(30), waiting.notified()).await.is_err() {
             let frames: Vec<(String, Value)> = world.rig.feeds.frames(id.as_str()).into_iter().map(|(_, m, p)| (m, p)).collect();
-            panic!("the held tool never ran; sent {:#?}; frames {frames:#?}", lock(&endpoint.bodies).iter().map(|b| b["messages"].to_string()).collect::<Vec<_>>());
+            panic!(
+                "the held tool never ran; sent {:#?}; frames {frames:#?}",
+                lock(&endpoint.bodies).iter().map(|b| b["messages"].to_string()).collect::<Vec<_>>()
+            );
         }
         clock.0.fetch_add(wait_ms, std::sync::atomic::Ordering::SeqCst);
         release.notify_one();
@@ -3739,24 +4233,58 @@ mod tests {
     async fn first_turn_then_restart(gap_ms: i64, after: AfterRestart) -> (Vec<Value>, Option<Value>) {
         let clock = Arc::new(Moving(AtomicI64::new(1_700_000_000_000)));
         let first = Arc::new(CacheEndpoint::default());
-        let world = turn_world_at(cache_adapter(&first), Arc::new(NoMcp), Vec::new(), false, None, Some(answering_pool()), Arc::new(MockFileService::default()), true, clock.clone(), Arc::new(Windowed { auto: false }), true, None).await;
+        let world = turn_world_at(
+            cache_adapter(&first),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            Some(answering_pool()),
+            Arc::new(MockFileService::default()),
+            true,
+            clock.clone(),
+            Arc::new(Windowed { auto: false }),
+            true,
+            None,
+        )
+        .await;
         let tools = json!([{ "name": "grep" }, { "name": "list" }, { "name": "glob" }]);
         // The session records its model's window ([`Windowed`]'s), as a session created over a listed model does: the manual
         // pass reads it there.
         let (id, handle) = started_thread(&world, json!({ "provider": "anthropic", "model": "claude-test", "tools": tools, "contextWindow": 100_000 })).await;
         let completed = |world: &World| world.rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == "turn/completed").count();
-        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1")).await.expect("turn/start");
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "read the log" } }), "op-1"))
+            .await
+            .expect("turn/start");
         eventually_on_awaiting(|| "the first turn's end".to_owned(), &[handle.stepped()], || (completed(&world) >= 1).then_some(())).await;
         assert!(handle.header_snapshot().get("cacheTailBook").is_some(), "the checkpoint holds the book");
         // The process ends here: the next host has the stored session and books of its own, none of them open.
         clock.0.fetch_add(gap_ms, std::sync::atomic::Ordering::SeqCst);
         let second = Arc::new(CacheEndpoint::default());
         let store: Arc<dyn mixdog_core_session::session::ThreadStore> = world.rig.store.clone();
-        let resumed = turn_world_at(cache_adapter(&second), Arc::new(NoMcp), Vec::new(), false, Some(store), Some(answering_pool()), Arc::new(MockFileService::default()), true, clock.clone(), Arc::new(Windowed { auto: false }), true, None).await;
+        let resumed = turn_world_at(
+            cache_adapter(&second),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            Some(store),
+            Some(answering_pool()),
+            Arc::new(MockFileService::default()),
+            true,
+            clock.clone(),
+            Arc::new(Windowed { auto: false }),
+            true,
+            None,
+        )
+        .await;
         let handle = resumed.directory.open_handle(&id, &CallContext::internal("test")).await.expect("the thread reopens from its files");
         let answer = match after {
             AfterRestart::Turn => {
-                handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "now wait" } }), "op-2")).await.expect("turn/start");
+                handle
+                    .request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "now wait" } }), "op-2"))
+                    .await
+                    .expect("turn/start");
                 eventually_on_awaiting(|| "the resumed turn's end".to_owned(), &[handle.stepped()], || (completed(&resumed) >= 1).then_some(())).await;
                 None
             }
@@ -3833,7 +4361,22 @@ mod tests {
         summaries_on_turn_registry: bool,
         first_auto_effort: Option<Arc<super::super::auto_effort::TurnAutoEffort>>,
     ) -> World {
-        turn_world_routed(provider, mcp, connected, lead, threads, pool, files, header_surfaces, clock, config, summaries_on_turn_registry, first_auto_effort, None).await
+        turn_world_routed(
+            provider,
+            mcp,
+            connected,
+            lead,
+            threads,
+            pool,
+            files,
+            header_surfaces,
+            clock,
+            config,
+            summaries_on_turn_registry,
+            first_auto_effort,
+            None,
+        )
+        .await
     }
     /// The providers a [`turn_world_routed`] registry builds and the agent config its route hops read; its hops write the
     /// session through the production route adapter. The hops read `config` as it stands at each read, so a test may edit
@@ -3881,7 +4424,10 @@ mod tests {
         );
         let data = workspace.path().join("data");
         let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
-            mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll"))),
+            mixdog_services::effort_judge::model::ModelConfig::in_data_dir(
+                &data,
+                mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll")),
+            ),
             mixdog_services::effort_judge::JudgeLanes::of(&tokens),
             mixdog_services::effort_judge::judge::JudgeOptions::default(),
         )
@@ -3894,7 +4440,15 @@ mod tests {
         let hop_clocks: (Arc<dyn Clock>, Arc<dyn mixdog_core_session::session::Clock>) = (clock.clone(), rig.clock.clone());
         let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(builder).with_accounting(accounting));
         let compaction = if summaries_on_turn_registry {
-            super::super::compaction_world::tests::services_over(workspace.path(), json!({}), Arc::default(), store.clone(), registry.clone(), serde_json::Map::new()).await
+            super::super::compaction_world::tests::services_over(
+                workspace.path(),
+                json!({}),
+                Arc::default(),
+                store.clone(),
+                registry.clone(),
+                serde_json::Map::new(),
+            )
+            .await
         } else {
             super::super::compaction_world::tests::services(workspace.path(), json!({}), Arc::default()).await
         };
@@ -3905,8 +4459,12 @@ mod tests {
         let asked = Arc::new(AskedFor::default());
         let exclusions: Arc<mixdog_core_session::session::SessionToolExclusions> = Arc::default();
         let surfaces_from = exclusions.clone();
-        let (compaction_docs, compaction_reader, compaction_facts, compaction_config) = (compaction.docs.clone(), compaction.reader.clone(), compaction.attachment_facts.clone(), compaction.config.clone());
-        let compactors = Arc::new(super::super::compactors::SessionCompactors::new(Arc::new(super::super::compaction_world::ProcessCompactionWorld::new(compaction)), clock.clone()));
+        let (compaction_docs, compaction_reader, compaction_facts, compaction_config) =
+            (compaction.docs.clone(), compaction.reader.clone(), compaction.attachment_facts.clone(), compaction.config.clone());
+        let compactors = Arc::new(super::super::compactors::SessionCompactors::new(
+            Arc::new(super::super::compaction_world::ProcessCompactionWorld::new(compaction)),
+            clock.clone(),
+        ));
         // A world wired as the composition wires compaction (summaries on the turn's registry) also compacts a session on
         // `thread/compact/start` with the host's own manual pass, over the same compactor the turns use.
         let late = Arc::new(super::super::compose_parts::LateDirectory::default());
@@ -3951,9 +4509,21 @@ mod tests {
             unattended: crate::run_host::unattended::UnattendedRunRegistry::new(Arc::new(NoStamps)),
             approvals: asked.clone(),
             exclusions,
-            agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction_config, workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
+            agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(
+                workspace.path().join("shipped"),
+                workspace.path().join("agents"),
+                tokens.interactive_io,
+                mixdog_core_config::config::AgentRoutes::new(compaction_config, workspace.path()),
+                Arc::new(NoEvidence),
+                Arc::new(|| json!({})),
+                workspace.path(),
+            )),
             allow_all: Arc::new(AllowNone),
-            hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }, workspace.path().to_path_buf(), Default::default())),
+            hub: (mixdog_mcp::McpHub::new(
+                mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
+                workspace.path().to_path_buf(),
+                Default::default(),
+            )),
             blobs: Arc::new(NoBlobs),
             tool_pool: pool,
             mcp: mcp.clone(),
@@ -3967,7 +4537,16 @@ mod tests {
             todos: rig.todos.clone(),
             work: rig.work.clone(),
             config,
-            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), media: None, heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff), first_auto_effort, vision: None },
+            settings: super::super::settings::SettingsSources {
+                wiring: Arc::new(NoWiring),
+                attachments: Arc::new(NoAttachmentText),
+                media: None,
+                heartbeats: Arc::new(NoMarks),
+                ceilings: Arc::new(NoCeilings),
+                auto_effort: Arc::new(AutoOff),
+                first_auto_effort,
+                vision: None,
+            },
             ladder: Arc::new(NoLadder),
             shells: None,
             liveness,
@@ -3985,14 +4564,16 @@ mod tests {
                         deps.compaction = manual;
                     }
                     if production_surface {
-                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
+                        deps.surfaces =
+                            Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
                     }
                     deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
                     // A Lead world's sessions are judged by the surface the composition derives from the header (`compose_flip`).
                     if lead {
                         deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(surfaces_from));
                     } else if header_surfaces {
-                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
+                        deps.surfaces =
+                            Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
                     }
                     deps
                 }
@@ -4003,20 +4584,40 @@ mod tests {
                 move |directory, registry| {
                     let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
                     let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), registry_dir, io);
-                    let catalog = futures::executor::block_on(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata));
+                    let catalog = futures::executor::block_on(mixdog_ai::catalog::CatalogService::cold_start(
+                        mixdog_ai::catalog::CatalogSnapshot::default(),
+                        Vec::new(),
+                        metadata,
+                    ));
                     // A routed world's hops write the session as the composition's do (`compose_flip`): the route adapter over
                     // the directory, with the route change the run host computes.
-                    let (config, sessions): (mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>) = match hop_config {
-                        Some(config) => {
-                            let (run_clock, session_clock) = hop_clocks;
-                            let change = Arc::new(super::super::route_change::RunHostRouteChange::new(Arc::new(NoRouteFacts), run_clock));
-                            let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
-                            let routes = Arc::new(HopRouteConfig(lock(&config).clone()));
-                            let adapter = Arc::new(mixdog_core_session::session::route_session::SessionRouteAdapter::new(directory.clone(), threads, change, routes.clone(), routes.clone(), routes, session_clock));
-                            (Arc::new(move || lock(&config).clone()) as mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc::new(mixdog_core_session::session::route_session::SessionHops::new(adapter)) as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>)
-                        }
-                        None => (Arc::new(serde_json::Map::new) as mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc::new(OpenHopSessions) as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>),
-                    };
+                    let (config, sessions): (mixdog_core_run::run_host::hop_host::ConfigSnapshot, Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>) =
+                        match hop_config {
+                            Some(config) => {
+                                let (run_clock, session_clock) = hop_clocks;
+                                let change = Arc::new(super::super::route_change::RunHostRouteChange::new(Arc::new(NoRouteFacts), run_clock));
+                                let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+                                let routes = Arc::new(HopRouteConfig(lock(&config).clone()));
+                                let adapter = Arc::new(mixdog_core_session::session::route_session::SessionRouteAdapter::new(
+                                    directory.clone(),
+                                    threads,
+                                    change,
+                                    routes.clone(),
+                                    routes.clone(),
+                                    routes,
+                                    session_clock,
+                                ));
+                                (
+                                    Arc::new(move || lock(&config).clone()) as mixdog_core_run::run_host::hop_host::ConfigSnapshot,
+                                    Arc::new(mixdog_core_session::session::route_session::SessionHops::new(adapter))
+                                        as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>,
+                                )
+                            }
+                            None => (
+                                Arc::new(serde_json::Map::new) as mixdog_core_run::run_host::hop_host::ConfigSnapshot,
+                                Arc::new(OpenHopSessions) as Arc<dyn mixdog_core_run::run_host::hop_host::HopSessions>,
+                            ),
+                        };
                     mixdog_core_run::run_host::hop_host::HopFactory::new(
                         mixdog_core_run::run_host::hop_host::HopDeps {
                             registry: registry.clone(),
@@ -4041,36 +4642,39 @@ mod tests {
         let settings = Arc::new(Mutex::new(serde_json::Map::new()));
         assert!(!lead, "a Lead surface host needs the recorded tool pool, which only the local comparison build has");
         assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
-        World {
-            workspace,
-            rig,
-            ledger,
-            asked,
-            store,
-            next,
-            directory,
-        }
+        World { workspace, rig, ledger, asked, store, next, directory }
     }
     #[test]
     fn a_fresh_turn_at_saved_effort_supersedes_the_previous_turns_stamp() {
         use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot, EffortWiring, ProjectingAdapter};
 
         let saved = EffortSnapshot {
-            provider: "openai".into(), model: "gpt-6".into(), mode: EffortMode::Responses,
-            initial_effort: "high".into(), effort: "medium".into(),
+            provider: "openai".into(),
+            model: "gpt-6".into(),
+            mode: EffortMode::Responses,
+            initial_effort: "high".into(),
+            effort: "medium".into(),
         };
         let previous = EffortSnapshot { effort: "high".into(), ..saved.clone() };
         let mut config = RunConfig::new(ThreadId::from("thread"), TurnId::from("turn"), "gpt-6");
         config.options.effort = Some("medium".into());
         config.effort = Some(EffortWiring {
             route: EffortRoute {
-                provider: saved.provider.clone(), model: saved.model.clone(), mode: Some(saved.mode),
-                allowed: vec!["medium".into(), "high".into()], seed: Some(saved),
+                provider: saved.provider.clone(),
+                model: saved.model.clone(),
+                mode: Some(saved.mode),
+                allowed: vec!["medium".into(), "high".into()],
+                seed: Some(saved),
                 wire: Arc::new(|effort| Some(effort.to_owned())),
             },
             adapter: Arc::new(ProjectingAdapter::new(Arc::new(Scripted {
-                id: ProviderId::from("openai"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC,
-                codec: MockCodec, script: Mutex::default(), requests: Mutex::default(), fail_first: Default::default(),
+                id: ProviderId::from("openai"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::default(),
+                requests: Mutex::default(),
+                fail_first: Default::default(),
             }))),
         });
         let mut row = json!({"role": "user", "content": "new question"});
@@ -4089,16 +4693,24 @@ mod tests {
         struct JudgeRoute;
         #[async_trait]
         impl EffortConfiguration for JudgeRoute {
-            async fn configured(&self, _: &mixdog_store::schema::record::Header) -> bool { true }
+            async fn configured(&self, _: &mixdog_store::schema::record::Header) -> bool {
+                true
+            }
         }
         #[async_trait]
         impl super::super::step_judge::LadderSources for JudgeRoute {
             fn cached_row(&self, _: &str, _: &str) -> Option<serde_json::Map<String, Value>> {
                 json!({"reasoningLevels": ["low", "medium", "high"]}).as_object().cloned()
             }
-            async fn rejected(&self, _: &str, _: &str) -> Option<mixdog_ai::effort::RejectionEntry> { None }
-            fn custom_config(&self, _: &str) -> Option<(mixdog_ai::providers::custom::Protocol, String)> { None }
-            fn anthropic_levels(&self, _: &str) -> Vec<String> { Vec::new() }
+            async fn rejected(&self, _: &str, _: &str) -> Option<mixdog_ai::effort::RejectionEntry> {
+                None
+            }
+            fn custom_config(&self, _: &str) -> Option<(mixdog_ai::providers::custom::Protocol, String)> {
+                None
+            }
+            fn anthropic_levels(&self, _: &str) -> Vec<String> {
+                Vec::new()
+            }
         }
         #[async_trait]
         impl TurnJudge for JudgeRoute {
@@ -4117,36 +4729,60 @@ mod tests {
             root.path().join("config.json"),
             Arc::new(mixdog_core_api::mock::MockStatePublisher::default()),
             mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         let auto = Arc::new(TurnAutoEffort::new(
             Arc::new(ConfigAutoEffort::new(cfg, Arc::new(|name| (name == "MIXDOG_AUTO_EFFORT").then(|| "on".to_owned())))),
-            Arc::new(JudgeRoute), Arc::new(JudgeRoute), Arc::new(JudgeRoute), Arc::new(JudgeRoute), Arc::new(String::new),
+            Arc::new(JudgeRoute),
+            Arc::new(JudgeRoute),
+            Arc::new(JudgeRoute),
+            Arc::new(JudgeRoute),
+            Arc::new(String::new),
         ));
         let provider = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
-            script: Mutex::new(VecDeque::from([
-                vec![StreamEvent::TextDelta("answer".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-            ])),
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::TextDelta("answer".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
         let World { workspace, directory, ledger, .. } = turn_world_at(
-            provider.clone(), Arc::new(NoMcp), Vec::new(), false, None, None,
-            Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, Some(auto),
-        ).await;
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.unwrap();
+            provider.clone(),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            None,
+            Arc::new(MockFileService::default()),
+            false,
+            Arc::new(Fixed),
+            Arc::new(Config),
+            false,
+            Some(auto),
+        )
+        .await;
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start"))
+            .await
+            .unwrap();
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().unwrap());
         let handle = directory.handle(&id).unwrap();
-        handle.request(CoreRequest {
-            method: Method("thread/header/patch"),
-            params: json!({ "threadId": id, "set": { "provider": "scripted", "model": "m", "effort": "low" } }),
-            op: None,
-            ctx: CallContext::internal("test"),
-        }).await.unwrap();
+        handle
+            .request(CoreRequest {
+                method: Method("thread/header/patch"),
+                params: json!({ "threadId": id, "set": { "provider": "scripted", "model": "m", "effort": "low" } }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await
+            .unwrap();
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "hard problem" } }), "op-1")).await.unwrap();
         eventually_on_awaiting(|| "the turn's usage record".to_owned(), &[&ledger.1], || (!lock(&ledger.0).is_empty()).then_some(())).await;
         assert_eq!(lock(&provider.requests)[0].options.effort.as_deref(), Some("high"));
@@ -4167,16 +4803,28 @@ mod tests {
                     StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
                     StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
-                vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![
+                    StreamEvent::TextDelta("listed".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
                 // The side question's answer, then the answer after the saved request was forgotten.
-                vec![StreamEvent::TextDelta(" it listed the path ".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-                vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![
+                    StreamEvent::TextDelta(" it listed the path ".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
+                vec![
+                    StreamEvent::TextDelta("rebuilt".into()),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
             ])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
         let World { workspace, rig, ledger, asked, store, directory, .. } = turn_world(provider.clone()).await;
-        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
+        let reply = directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
@@ -4189,7 +4837,8 @@ mod tests {
             })
             .await
             .expect("route");
-        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        let started =
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         let Reply::Value(started) = started else { panic!("turn/start answers a value") };
         assert_eq!(started["kind"], "started");
         let roles = || -> Vec<String> {
@@ -4205,7 +4854,12 @@ mod tests {
                 })
                 .collect()
         };
-        eventually_on_awaiting(|| "the four-role transcript in the store and two usage rows in the ledger".to_owned(), &[&rig.store.committed, &ledger.1], || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(())).await;
+        eventually_on_awaiting(
+            || "the four-role transcript in the store and two usage rows in the ledger".to_owned(),
+            &[&rig.store.committed, &ledger.1],
+            || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(()),
+        )
+        .await;
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
         // The turn's two approval entry points (the policy gate and the tool environment a nested call is judged with) both went through the composition's choice.
         assert_eq!(*lock(&asked.0), [id.as_str(), id.as_str()]);
@@ -4217,21 +4871,33 @@ mod tests {
 
         // `thread/askSide` end to end: the real service forks the request the loop saved, on a scope of
         // its own, and the answer comes back trimmed without entering the transcript.
-        let asked = handle.request(request("thread/askSide", json!({ "opId": "op-side", "question": " what did it list? " }), "op-side")).await.expect("thread/askSide");
+        let asked = handle
+            .request(request("thread/askSide", json!({ "opId": "op-side", "question": " what did it list? " }), "op-side"))
+            .await
+            .expect("thread/askSide");
         let Reply::Value(asked) = asked else { panic!("thread/askSide answers a value") };
         assert_eq!(asked["text"], "it listed the path");
         let requests = lock(&provider.requests).clone();
         let fork = requests.last().expect("the fork's request");
         assert_eq!(requests.len(), 3);
-        assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User], "the saved request, its reply, the question");
-        assert!(fork.options.transport_scope.as_deref().is_some_and(|scope| scope.starts_with(&format!("{}#side:", id.as_str()))), "{:?}", fork.options.transport_scope);
+        assert_eq!(
+            fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(),
+            [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User],
+            "the saved request, its reply, the question"
+        );
+        assert!(
+            fork.options.transport_scope.as_deref().is_some_and(|scope| scope.starts_with(&format!("{}#side:", id.as_str()))),
+            "{:?}",
+            fork.options.transport_scope
+        );
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"], "the question never enters the transcript");
         assert_eq!(lock(&ledger.0).len(), 3, "the fork's usage row is the provider's own accounting row");
 
         // With no saved request (a restart, a forgotten one) the question forks the request the next turn
         // would send, rebuilt from the stored rows by the turn's own assembly.
         store.forget(&id);
-        let rebuilt = handle.request(request("thread/askSide", json!({ "opId": "op-side-2", "question": "again?" }), "op-side-2")).await.expect("thread/askSide");
+        let rebuilt =
+            handle.request(request("thread/askSide", json!({ "opId": "op-side-2", "question": "again?" }), "op-side-2")).await.expect("thread/askSide");
         let Reply::Value(rebuilt) = rebuilt else { panic!("thread/askSide answers a value") };
         assert_eq!(rebuilt["text"], "rebuilt");
         let requests = lock(&provider.requests).clone();
@@ -4259,24 +4925,34 @@ mod tests {
             })
         };
         let done = || StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None };
-        let primary_state = mixdog_core_api::domain::provider::ProviderState { gemini: None, rest: json!({ "primarySlot": "p0" }).as_object().unwrap().clone() };
-        let primary = scripted("primary", vec![
+        let primary_state =
+            mixdog_core_api::domain::provider::ProviderState { gemini: None, rest: json!({ "primarySlot": "p0" }).as_object().unwrap().clone() };
+        let primary = scripted(
+            "primary",
             vec![
-                StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "thinking": "plan", "signature": "sig-primary" }])),
-                StreamEvent::ProviderState(primary_state),
-                StreamEvent::TextDelta("first".into()),
-                done(),
+                vec![
+                    StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "thinking": "plan", "signature": "sig-primary" }])),
+                    StreamEvent::ProviderState(primary_state),
+                    StreamEvent::TextDelta("first".into()),
+                    done(),
+                ],
+                vec![StreamEvent::TextDelta("primary again".into()), done()],
+                vec![StreamEvent::TextDelta("primary while the fallback is gone".into()), done()],
             ],
-            vec![StreamEvent::TextDelta("primary again".into()), done()],
-            vec![StreamEvent::TextDelta("primary while the fallback is gone".into()), done()],
-        ]);
-        let fallback = scripted("openai-oauth", vec![
-            vec![StreamEvent::TextDelta("fallback answer".into()), done()],
-            vec![StreamEvent::TextDelta("fallback again".into()), done()],
-            vec![StreamEvent::TextDelta("fallback after the hop".into()), done()],
-        ]);
+        );
+        let fallback = scripted(
+            "openai-oauth",
+            vec![
+                vec![StreamEvent::TextDelta("fallback answer".into()), done()],
+                vec![StreamEvent::TextDelta("fallback again".into()), done()],
+                vec![StreamEvent::TextDelta("fallback after the hop".into()), done()],
+            ],
+        );
         let refusing = ArmedRefusal::new(primary.clone());
-        let providers = GatedProviders::new(vec![("primary", refusing.clone() as Arc<dyn ProviderAdapter>), ("openai-oauth", fallback.clone() as Arc<dyn ProviderAdapter>)]);
+        let providers = GatedProviders::new(vec![
+            ("primary", refusing.clone() as Arc<dyn ProviderAdapter>),
+            ("openai-oauth", fallback.clone() as Arc<dyn ProviderAdapter>),
+        ]);
         let config = json!({
             "default": "lead-route",
             "presets": [{ "id": "lead-route", "provider": "primary", "model": "m1", "fallbacks": [{ "provider": "openai-oauth", "model": "m2" }] }],
@@ -4284,7 +4960,19 @@ mod tests {
         });
         let routed = routed(providers.clone(), config);
         let world = turn_world_routed(
-            fallback.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed),
+            fallback.clone(),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            None,
+            Arc::new(MockFileService::default()),
+            false,
+            Arc::new(Fixed),
+            Arc::new(Config),
+            false,
+            None,
+            Some(routed),
         )
         .await;
         let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
@@ -4292,14 +4980,21 @@ mod tests {
             let (handle, id, world) = (handle.clone(), id.clone(), &world);
             async move {
                 let covered = handle.header_snapshot().get("turnCoverage").cloned();
-                let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": op } }), op)).await.expect("turn/start");
+                let started =
+                    handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": op } }), op)).await.expect("turn/start");
                 let Reply::Value(started) = started else { panic!("turn/start answers a value") };
                 assert_eq!(started["kind"], "started", "{op}");
                 settled_turns(world, &id, &handle, count, covered).await;
             }
         };
         let notices = |needle: &str| {
-            world.rig.feeds.frames(id.as_str()).iter().filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains(needle)).count()
+            world
+                .rig
+                .feeds
+                .frames(id.as_str())
+                .iter()
+                .filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains(needle))
+                .count()
         };
         let route = || {
             let header = handle.live_header().header();
@@ -4322,7 +5017,11 @@ mod tests {
         assert_eq!(landed.model, "m2");
         assert_eq!(landed.options.session_id.as_deref(), Some(wire.as_str()), "the first request names the minted wire id");
         assert_eq!(landed.options.provider_state, None, "the primary's continuation state stays with the primary");
-        assert!(landed.messages.iter().all(|m| m.thinking_blocks.is_none() && m.provider_replay().is_empty()), "the primary's replay reached the fallback: {:?}", landed.messages);
+        assert!(
+            landed.messages.iter().all(|m| m.thinking_blocks.is_none() && m.provider_replay().is_empty()),
+            "the primary's replay reached the fallback: {:?}",
+            landed.messages
+        );
         assert_eq!(route(), on("openai-oauth", "m2"));
         assert_eq!(header["routeFallbackFailures"][0]["kind"], mixdog_core_run::run_host::route_fallback::PROVIDER_UNAVAILABLE);
         assert_eq!(notices("switched to"), 1, "the switch is told once");
@@ -4363,17 +5062,21 @@ mod tests {
         // Every send the server answered is a ledger row (`accountProviderSend`): the primary's 503 is the sixth turn's failed
         // row, ahead of the fallback's.
         eventually_on_awaiting(|| "a usage row per sent request".to_owned(), &[&world.ledger.1], || (lock(&world.ledger.0).len() >= 7).then_some(())).await;
-        let booked: Vec<(String, String, String)> = lock(&world.ledger.0).iter().map(|row| (row.provider.clone(), row.model.clone(), row.status.clone())).collect();
+        let booked: Vec<(String, String, String)> =
+            lock(&world.ledger.0).iter().map(|row| (row.provider.clone(), row.model.clone(), row.status.clone())).collect();
         let row = |provider: &str, model: &str, status: &str| (provider.to_owned(), model.to_owned(), status.to_owned());
-        assert_eq!(booked, [
-            row("primary", "m1", "completed"),
-            row("openai-oauth", "m2", "completed"),
-            row("primary", "m1", "completed"),
-            row("openai-oauth", "m2", "completed"),
-            row("primary", "m1", "completed"),
-            row("primary", "m1", "failed"),
-            row("openai-oauth", "m2", "completed"),
-        ]);
+        assert_eq!(
+            booked,
+            [
+                row("primary", "m1", "completed"),
+                row("openai-oauth", "m2", "completed"),
+                row("primary", "m1", "completed"),
+                row("openai-oauth", "m2", "completed"),
+                row("primary", "m1", "completed"),
+                row("primary", "m1", "failed"),
+                row("openai-oauth", "m2", "completed"),
+            ]
+        );
     }
     /// A → B → C with A not available at preflight and B a removed custom provider (no family serves it): B is absent, not
     /// an error, and the turn runs on C.
@@ -4384,7 +5087,10 @@ mod tests {
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
-            script: Mutex::new(VecDeque::from([vec![StreamEvent::TextDelta("from c".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]])),
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::TextDelta("from c".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
@@ -4397,7 +5103,8 @@ mod tests {
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
-        let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("third", third.clone() as Arc<dyn ProviderAdapter>)]);
+        let providers =
+            GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("third", third.clone() as Arc<dyn ProviderAdapter>)]);
         providers.set("primary", false);
         // The removed custom provider is in the route, not in the providers the config enables.
         let config = json!({
@@ -4407,12 +5114,25 @@ mod tests {
         });
         let routed = routed(providers.clone(), config);
         let world = turn_world_routed(
-            third.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed),
+            third.clone(),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            None,
+            Arc::new(MockFileService::default()),
+            false,
+            Arc::new(Fixed),
+            Arc::new(Config),
+            false,
+            None,
+            Some(routed),
         )
         .await;
         let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
         let covered = handle.header_snapshot().get("turnCoverage").cloned();
-        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        let started =
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
         settled_turns(&world, &id, &handle, 1, covered).await;
         assert_eq!(lock(&third.requests).first().map(|r| r.model.clone()).as_deref(), Some("m3"), "the turn ran on C");
@@ -4424,7 +5144,12 @@ mod tests {
     /// requests, behind a registry that builds either.
     fn switched_off_pair(answers: usize) -> (Arc<Scripted>, Arc<Scripted>, Arc<GatedProviders>) {
         let scripted = |id: &str| {
-            let reply = || vec![StreamEvent::TextDelta(format!("from {id}")), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+            let reply = || {
+                vec![
+                    StreamEvent::TextDelta(format!("from {id}")),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ]
+            };
             Arc::new(Scripted {
                 id: ProviderId::from(id),
                 policy: RetryPolicy::codex_default(),
@@ -4436,7 +5161,8 @@ mod tests {
             })
         };
         let (primary, fallback) = (scripted("primary"), scripted("openai-oauth"));
-        let providers = GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("openai-oauth", fallback.clone() as Arc<dyn ProviderAdapter>)]);
+        let providers =
+            GatedProviders::new(vec![("primary", primary.clone() as Arc<dyn ProviderAdapter>), ("openai-oauth", fallback.clone() as Arc<dyn ProviderAdapter>)]);
         (primary, fallback, providers)
     }
     /// One turn of `id` (`op`), the `count`th, settled.
@@ -4457,7 +5183,19 @@ mod tests {
             "providers": { "primary": { "enabled": false } },
         });
         let world = turn_world_routed(
-            fallback.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed(providers, config)),
+            fallback.clone(),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            None,
+            Arc::new(MockFileService::default()),
+            false,
+            Arc::new(Fixed),
+            Arc::new(Config),
+            false,
+            None,
+            Some(routed(providers, config)),
         )
         .await;
         let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
@@ -4480,7 +5218,19 @@ mod tests {
         let routed = routed(providers, config);
         let config = routed.config.clone();
         let world = turn_world_routed(
-            fallback.clone(), Arc::new(NoMcp), Vec::new(), false, None, None, Arc::new(MockFileService::default()), false, Arc::new(Fixed), Arc::new(Config), false, None, Some(routed),
+            fallback.clone(),
+            Arc::new(NoMcp),
+            Vec::new(),
+            false,
+            None,
+            None,
+            Arc::new(MockFileService::default()),
+            false,
+            Arc::new(Fixed),
+            Arc::new(Config),
+            false,
+            None,
+            Some(routed),
         )
         .await;
         let (id, handle) = started_thread(&world, json!({ "provider": "primary", "model": "m1", "agent": "lead" })).await;
@@ -4514,7 +5264,8 @@ mod tests {
     /// The production `tools/toolsStatus` service over the world's threads and its request source.
     fn tools_status(world: &World) -> mixdog_tools::orch::status::ToolsService {
         let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(world.directory.clone()));
-        let surface = mixdog_core_ports::ports::tools_status::SessionToolStatus::new(threads, Arc::new(Reconciling(world.directory.clone()))).with_snapshots(world.next.clone());
+        let surface = mixdog_core_ports::ports::tools_status::SessionToolStatus::new(threads, Arc::new(Reconciling(world.directory.clone())))
+            .with_snapshots(world.next.clone());
         mixdog_tools::orch::status::ToolsService::new(Arc::new(surface))
     }
     /// The snapshot taken now, and the request the thread's next turn (`op`, prompt `go`) then hands the provider,
@@ -4547,9 +5298,13 @@ mod tests {
         let world = turn_world(provider.clone()).await;
         let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
-        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        let started =
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv())
+            .await
+            .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request"))
+            .expect("the provider is alive");
         settled_turns(&world, &id, &handle, 1, covered_before).await;
         let before = stored_state(&world, &id, &handle);
         let first = snapshot_call(&tools_status(&world), &id, "go").await;
@@ -4584,12 +5339,21 @@ mod tests {
         directory: Arc<SessionDirectory>,
     }
     async fn started_thread(world: &World, header: Value) -> (ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {
-        let reply = world.directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": world.workspace.path() }), "op-start")).await.expect("thread/start");
+        let reply = world
+            .directory
+            .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": world.workspace.path() }), "op-start"))
+            .await
+            .expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = world.directory.handle(&id).expect("loaded");
         handle
-            .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": header }), op: None, ctx: CallContext::internal("test") })
+            .request(CoreRequest {
+                method: Method("thread/header/patch"),
+                params: json!({ "threadId": id, "set": header }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
             .await
             .expect("route");
         (id, handle)
@@ -4597,8 +5361,22 @@ mod tests {
     /// Waits until `count` runs of the thread have completed in the store and the last turn's settlement is over: the
     /// coverage stamp is written before the Goal settlement comes back (`JobDone::GoalSettled`), and a turn started
     /// while the actor is still busy settling is queued. `covered_before` is the stamp before the turn started.
-    async fn settled_turns(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>, count: usize, covered_before: Option<Value>) {
-        let done = || world.rig.store.records(id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Completed)).count();
+    async fn settled_turns(
+        world: &World,
+        id: &ThreadId,
+        handle: &Arc<mixdog_core_session::session::SessionHandle>,
+        count: usize,
+        covered_before: Option<Value>,
+    ) {
+        let done = || {
+            world
+                .rig
+                .store
+                .records(id)
+                .into_iter()
+                .filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Completed))
+                .count()
+        };
         let covered = || handle.header_snapshot().get("turnCoverage").cloned();
         eventually_on_awaiting(
             || format!("{count} completed runs of {}, the changed turnCoverage stamp and an idle actor", id.as_str()),
@@ -4793,44 +5571,52 @@ impl PortSink {
         let unheld = port.closing();
         // The actor takes each job in order and shows it at once; it orders the writes itself (`outbox.rs`), so nothing here
         // waits for one before handing on the next.
-        drop(mixdog_rt::spawn("run-commit", TaskClass::Work, turn_task(async move {
-            while let Some(job) = turn_input(queue.recv()).await {
-                let (n, queued, failed) = match job {
-                    Job::Commit(n, item, place) => {
-                        let queued = match row_handover(place).await {
-                            Handover::Reached(handed) => {
-                                let queued = worker.queue_item(item).await;
-                                let _ = handed.send(());
-                                queued
-                            }
-                            Handover::Unplaced => worker.queue_item(item).await,
-                            Handover::Gone => unheld.queue_item(item).await,
-                        };
-                        (n, queued, "[session] message save failed")
-                    }
-                    Job::Compact(n, compaction) => (n, worker.queue_compacted(compaction).await, "[session] compaction save failed"),
-                    Job::Rewound(n, replacement) => (n, worker.queue_context_rewound(replacement).await, "[session] context save failed"),
-                    // Node reports a failed checkpoint write and goes on (`[turn-checkpoint] write failed`).
-                    Job::Draft(n, body) => (n, worker.queue_draft(body).await, "[turn-checkpoint] write failed"),
-                };
-                accepted_tx.send_replace(n);
-                let _ = saves.send((n, queued, failed));
-            }
-        })));
-        let teller = port.clone();
-        drop(mixdog_rt::spawn("run-commit-saves", TaskClass::Work, turn_task(async move {
-            while let Some((n, queued, failed)) = turn_input(saving.recv()).await {
-                // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
-                let saved = match queued {
-                    Ok(queued) => teller.saved(queued).await,
-                    Err(error) => Err(error),
-                };
-                if let Err(error) = saved {
-                    tracing::warn!("{failed}: {error:?}");
+        drop(mixdog_rt::spawn(
+            "run-commit",
+            TaskClass::Work,
+            turn_task(async move {
+                while let Some(job) = turn_input(queue.recv()).await {
+                    let (n, queued, failed) = match job {
+                        Job::Commit(n, item, place) => {
+                            let queued = match row_handover(place).await {
+                                Handover::Reached(handed) => {
+                                    let queued = worker.queue_item(item).await;
+                                    let _ = handed.send(());
+                                    queued
+                                }
+                                Handover::Unplaced => worker.queue_item(item).await,
+                                Handover::Gone => unheld.queue_item(item).await,
+                            };
+                            (n, queued, "[session] message save failed")
+                        }
+                        Job::Compact(n, compaction) => (n, worker.queue_compacted(compaction).await, "[session] compaction save failed"),
+                        Job::Rewound(n, replacement) => (n, worker.queue_context_rewound(replacement).await, "[session] context save failed"),
+                        // Node reports a failed checkpoint write and goes on (`[turn-checkpoint] write failed`).
+                        Job::Draft(n, body) => (n, worker.queue_draft(body).await, "[turn-checkpoint] write failed"),
+                    };
+                    accepted_tx.send_replace(n);
+                    let _ = saves.send((n, queued, failed));
                 }
-                done_tx.send_replace(n);
-            }
-        })));
+            }),
+        ));
+        let teller = port.clone();
+        drop(mixdog_rt::spawn(
+            "run-commit-saves",
+            TaskClass::Work,
+            turn_task(async move {
+                while let Some((n, queued, failed)) = turn_input(saving.recv()).await {
+                    // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
+                    let saved = match queued {
+                        Ok(queued) => teller.saved(queued).await,
+                        Err(error) => Err(error),
+                    };
+                    if let Err(error) = saved {
+                        tracing::warn!("{failed}: {error:?}");
+                    }
+                    done_tx.send_replace(n);
+                }
+            }),
+        ));
         let jobs = Jobs {
             observed,
             seq: AtomicU64::new(0),
@@ -4839,7 +5625,24 @@ impl PortSink {
             #[cfg(any(test, feature = "test-support"))]
             taken: Mutex::default(),
         };
-        Arc::new(Self { jobs, accepted, done, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied, drafted: Mutex::new(DraftClock::default()) })
+        Arc::new(Self {
+            jobs,
+            accepted,
+            done,
+            port,
+            rows,
+            live,
+            turn: Mutex::new(Vec::new()),
+            streaming,
+            iids: Mutex::new(HashMap::new()),
+            clock,
+            blobs,
+            on_tool_result,
+            stamp,
+            terminal: Mutex::new(None),
+            applied,
+            drafted: Mutex::new(DraftClock::default()),
+        })
     }
 
     /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
@@ -5174,7 +5977,12 @@ impl PortObserver {
         let generation = generation.unwrap_or(waits.generation);
         let closed = waits.settle(call_id, generation);
         #[cfg(any(test, feature = "test-support"))]
-        SETTLED_HOOKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|(id, _)| id == call_id).for_each(|(_, signal)| signal.notify_one());
+        SETTLED_HOOKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|(id, _)| id == call_id)
+            .for_each(|(_, signal)| signal.notify_one());
         let Some(task) = closed else { return };
         self.progress.task_wait(false, task.as_deref());
         if waits.open.is_empty() {
@@ -5266,7 +6074,8 @@ impl PortObserver {
         }
         let (id, opened) = lock(&self.streaming).extend(&text);
         if opened {
-            let item = ThreadItem::AgentMessage { id: id.clone(), text: MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: ItemMeta::default() };
+            let item =
+                ThreadItem::AgentMessage { id: id.clone(), text: MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: ItemMeta::default() };
             let _ = self.out.send(Shown::Started(item));
         }
         let _ = self.out.send(Shown::Delta(id, text));
@@ -5413,7 +6222,11 @@ impl RunObserver for PortObserver {
                 // it streams, then the usage that completes the request).
                 let calls = std::mem::take(&mut *lock(&self.streamed_calls));
                 let index = self.requests.load(std::sync::atomic::Ordering::Relaxed).max(1);
-                let _ = self.out.send(Shown::ModelRequest(index, mixdog_app_protocol::v2::thread::ModelRequestPhase::Completed, (!calls.is_empty()).then_some(calls)));
+                let _ = self.out.send(Shown::ModelRequest(
+                    index,
+                    mixdog_app_protocol::v2::thread::ModelRequestPhase::Completed,
+                    (!calls.is_empty()).then_some(calls),
+                ));
                 *lock(&self.last_send_tools) = delta.send_tools.clone();
                 let report = Shown::Usage(mixdog_core_session::session::UsageReport::from_event(iteration, usage, delta));
                 send_prepared(&self.out, &self.sink.port, report);
@@ -5425,7 +6238,13 @@ impl RunObserver for PortObserver {
                 send_prepared(&self.out, &self.sink.port, Shown::Pass(pass));
             }
             RunEvent::CompactUsage { iteration, usage, reasoning_tokens, reasoning_tokens_complete, input_excludes_cache } => {
-                let _ = self.out.send(Shown::CompactUsage(mixdog_core_session::session::CompactUsageReport { iteration, usage, reasoning_tokens, reasoning_tokens_complete, input_excludes_cache }));
+                let _ = self.out.send(Shown::CompactUsage(mixdog_core_session::session::CompactUsageReport {
+                    iteration,
+                    usage,
+                    reasoning_tokens,
+                    reasoning_tokens_complete,
+                    input_excludes_cache,
+                }));
             }
             RunEvent::ToolStream(kind) => self.model_progress(kind),
             RunEvent::Transport => self.progress.stream_delta(StreamKind::Transport),
@@ -5444,7 +6263,13 @@ impl RunObserver for PortObserver {
             RunEvent::ContextPressure { will_compact, trigger_tokens, boundary_tokens, context_window, messages, tools, reactive, .. } => {
                 let positive = |tokens: u64| i64::try_from(tokens).ok().filter(|tokens| *tokens > 0);
                 let window = context_window.and_then(positive);
-                let context = mixdog_app_protocol::v2::thread::ThreadContext { context_window: window, display_context_window: window, auto_compact_token_limit: positive(trigger_tokens), compact_boundary_tokens: positive(boundary_tokens), ..Default::default() };
+                let context = mixdog_app_protocol::v2::thread::ThreadContext {
+                    context_window: window,
+                    display_context_window: window,
+                    auto_compact_token_limit: positive(trigger_tokens),
+                    compact_boundary_tokens: positive(boundary_tokens),
+                    ..Default::default()
+                };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Context(context)));
                 if !will_compact {
                     let check = Shown::Check(mixdog_core_session::session::run::SendCheck { messages, tools, reactive });
@@ -5597,7 +6422,7 @@ async fn close_cancelled(
     reason: mixdog_agent::interrupt::AbortReason,
 ) {
     use mixdog_agent::compact::execution_tail::MessageRows as _;
-    use mixdog_agent::interrupt::{finalize_interrupted_turn, Interrupted, Phase};
+    use mixdog_agent::interrupt::{Interrupted, Phase, finalize_interrupted_turn};
     let (input_item, input_text) = input;
     let seen = std::mem::take(&mut *lock(observed));
     let mut known: Vec<(ItemId, AgentMessage)> = history.iter().map(|(iid, row)| (iid.clone(), row.message())).collect();
@@ -5646,12 +6471,21 @@ async fn close_cancelled(
                 Role::Tool => "tool",
                 _ => "user",
             };
-            let item = ItemCommit { iid: iid.clone(), role: Some(role.to_owned()), model: true, visible: message.role() != Role::User, body: body.clone(), prompt: None };
+            let item = ItemCommit {
+                iid: iid.clone(),
+                role: Some(role.to_owned()),
+                model: true,
+                visible: message.role() != Role::User,
+                body: body.clone(),
+                prompt: None,
+            };
             if let Err(error) = port.commit_item(item).await {
                 tracing::warn!("[session] interrupted turn row save failed: {error:?}");
             }
         }
-        if finalized.sent_request_tail == Some(index) && let Some(object) = body.as_object_mut() {
+        if finalized.sent_request_tail == Some(index)
+            && let Some(object) = body.as_object_mut()
+        {
             let meta = object.entry("meta").or_insert_with(|| json!({}));
             if let Some(meta) = meta.as_object_mut() {
                 meta.insert("sentRequestTail".into(), Value::Bool(true));
@@ -5676,7 +6510,11 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
         self.parts.request_tools(&self.thread, &surface).await.map_err(|error| error.message)
     }
 
-    async fn snapshot(&self, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
+    async fn snapshot(
+        &self,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        messages: &[AgentMessage],
+    ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
         self.parts.request_snapshot(&self.thread, tools, native_searches(messages)).await.map_err(|error| error.message)
     }
 
@@ -5685,7 +6523,6 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
         self.parts.migrate_exposure(&self.thread, rows).await.map_err(|error| error.message)
     }
 }
-
 
 /// What a turn's host assembly reads from the turn.
 pub struct AssembleInput<'a> {
@@ -5728,7 +6565,12 @@ pub trait RunParts: Send + Sync + 'static {
     /// `reconcileTurnSettings`: the header the turn is built from, once the thread's settings follow the
     /// live ones (`conversation`: the thread already holds one, so it keeps its prefix; `header` is what
     /// the turn started with).
-    async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError>;
+    async fn reconcile_turn(
+        &self,
+        thread: &ThreadId,
+        header: mixdog_store::schema::record::Header,
+        conversation: bool,
+    ) -> Result<mixdog_store::schema::record::Header, TurnError>;
 
     /// `refreshDeferredMcpToolCatalog(session)`: the thread's MCP catalog follows the live registry. Run by the
     /// loop at each request boundary and around each tool call; a host with no MCP catalog has nothing to refresh.
@@ -5738,7 +6580,11 @@ pub trait RunParts: Send + Sync + 'static {
 
     /// `currentAgents()`: the agents the thread's Lead may delegate to now, for the turn's agent list reminder;
     /// `None` for a thread that gets none (an agent's own, a bot's).
-    async fn current_agents(&self, _thread: &ThreadId, _header: &mixdog_store::schema::record::Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, TurnError> {
+    async fn current_agents(
+        &self,
+        _thread: &ThreadId,
+        _header: &mixdog_store::schema::record::Header,
+    ) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, TurnError> {
         Ok(None)
     }
 
@@ -5755,7 +6601,12 @@ pub trait RunParts: Send + Sync + 'static {
 
     /// `snapshotProviderRequestTools` over `tools` and the native tool searches (`nativeToolSearch`) of the
     /// transcript the request is built from; a host with no deferred catalog keeps `tools`.
-    async fn request_snapshot(&self, _thread: &ThreadId, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, _native: Vec<Value>) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
+    async fn request_snapshot(
+        &self,
+        _thread: &ThreadId,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        _native: Vec<Value>,
+    ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
         Ok(tools)
     }
 
@@ -5793,7 +6644,14 @@ pub trait RunParts: Send + Sync + 'static {
 impl RunFactory for RunHostFactory {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
         let (parts, liveness, search_usage) = (self.parts.clone(), self.liveness.clone(), self.search_usage.clone());
-        let before_loop = BeforeLoop { port: run.port.clone(), input_item: run.input_item.clone(), input_body: run.input_body.clone(), cancel: run.cancel.clone(), signal: run.signal.clone(), asked: Arc::default() };
+        let before_loop = BeforeLoop {
+            port: run.port.clone(),
+            input_item: run.input_item.clone(),
+            input_body: run.input_body.clone(),
+            cancel: run.cancel.clone(),
+            signal: run.signal.clone(),
+            asked: Arc::default(),
+        };
         Box::pin(async move {
             let outcome = drive(parts, liveness, search_usage, run, before_loop.asked.clone()).await;
             before_loop.settle(outcome).await
@@ -5822,7 +6680,8 @@ impl mixdog_agent::env::StoredHistory for ReloadedHistory {
         let stored = self.context.read().await.map_err(|error| format!("model context unreadable: {error:?}"))?;
         let mut messages = Vec::new();
         for (iid, body) in stored {
-            let message = mixdog_agent::message_row::message_of_owned(body).map_err(|(error, _)| format!("the model context holds a row this build cannot read: {error}"))?;
+            let message = mixdog_agent::message_row::message_of_owned(body)
+                .map_err(|(error, _)| format!("the model context holds a row this build cannot read: {error}"))?;
             if messages.is_empty() && is_stale_system_row(&message) {
                 continue;
             }
@@ -5918,8 +6777,7 @@ impl TranscriptSink for PortSink {
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
         // The run's leading system messages are the header's prompt (`system_messages`, put before the stored rows by `drive`),
         // not context rows: the next turn's request carries one system set, as `adoptCompactedTranscript` leaves one.
-        let replacement: Vec<(ItemId, Value)> =
-            messages.iter().skip_while(|m| m.role() == Role::System).map(|m| (self.iid_of(m), row_of(m))).collect();
+        let replacement: Vec<(ItemId, Value)> = messages.iter().skip_while(|m| m.role() == Role::System).map(|m| (self.iid_of(m), row_of(m))).collect();
         // Only a compaction pass writes a compaction record (and its divider, which an agent-mode session never shows).
         // Node splices any other rewrite into `state.messages` in place (`route-fallback.mjs:161` for a route's replay
         // strip): the context restarts silently.
@@ -5927,7 +6785,12 @@ impl TranscriptSink for PortSink {
             self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Rewound(n, replacement));
             return;
         }
-        let compaction = mixdog_core_session::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
+        let compaction = mixdog_core_session::session::run::Compaction {
+            replacement,
+            at: self.clock.now_ms(),
+            dropped_count: rewrite.dropped_count,
+            dropped: rewrite.dropped.as_ref().map(dropped_of),
+        };
         self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
     }
 
@@ -5976,12 +6839,41 @@ async fn drive(
     run: RunStart,
     asked: Arc<std::sync::atomic::AtomicBool>,
 ) -> RunOutcome {
-    let RunStart { prefix_guard, cache_tail, thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts, lifecycle } = run;
+    let RunStart {
+        prefix_guard,
+        cache_tail,
+        thread,
+        turn,
+        input_body,
+        header,
+        port,
+        context,
+        surface,
+        progress,
+        turn_messages,
+        cancel,
+        signal,
+        review,
+        agent_turn,
+        unattended,
+        verb,
+        skill_selection: routine_selection,
+        input: submitted,
+        input_item,
+        goal_reminder,
+        notice: carried_notice,
+        transcripts,
+        lifecycle,
+    } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, &header, progress.subscribe(), cancel.clone());
     // The turn's own context (`options.context`: an agent spawn's or send's `context` argument).
     // A queued follow-up carries it in its submission options (`drain.mjs` `turnOptionsForBatch`).
-    let own_context = agent_turn.as_ref().and_then(|turn| turn.context.as_ref()).and_then(Value::as_str).map(str::to_owned)
+    let own_context = agent_turn
+        .as_ref()
+        .and_then(|turn| turn.context.as_ref())
+        .and_then(Value::as_str)
+        .map(str::to_owned)
         .or_else(|| submitted.options.as_ref().and_then(|options| options.context.clone()));
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
         Some(turn) => {
@@ -6088,12 +6980,56 @@ async fn drive(
     }
     let turn_context = super::lifecycle_hooks::turn_context(own_context.as_deref(), &verdict.context);
     let surface_now = surface.borrow().clone();
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, generation, request: &request, injected, cancel: &cancel, unattended, notify, progress: tool_progress }).await {
+    let assembled = match parts
+        .assemble(AssembleInput {
+            thread: &thread,
+            turn: &turn,
+            header: &header,
+            surface: surface_now,
+            port: &port,
+            surface_rx: surface.clone(),
+            slot,
+            skill_selection,
+            prior: &prior,
+            generation,
+            request: &request,
+            injected,
+            cancel: &cancel,
+            unattended,
+            notify,
+            progress: tool_progress,
+        })
+        .await
+    {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
+        provider,
+        tools,
+        tool_env,
+        gate,
+        worktree,
+        mut config,
+        clock,
+        decider,
+        guards,
+        compactor,
+        route,
+        skills,
+        hooks,
+        reuse,
+        reactions,
+        reaction_scope: _reaction_scope,
+        rows,
+        tail,
+        side,
+        step_judge,
+        artifacts,
+        images,
+        failures,
+        blobs,
+        carry,
     } = assembled;
     // The actor incarnation's guard: the request its last completed turn settled on, on this lineage (a route switch or a
     // rewrite names a new one); a replacement actor holds none.
@@ -6202,7 +7138,15 @@ async fn drive(
     let observed = Arc::new(Mutex::new(Observed::default()));
     let applied = AppliedSkills { parts: parts.clone(), thread: thread.clone(), input: (input.message_id.clone(), input_item.clone()) };
     let (shown_tx, shown_rx) = mpsc::unbounded_channel::<Shown>();
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), (streaming.clone(), observed.clone()), (clock.clone(), blobs), (on_tool_result, shown_tx.clone()), (stamp, applied));
+    let sink = PortSink::spawn(
+        port.clone(),
+        rows.clone(),
+        live.clone(),
+        (streaming.clone(), observed.clone()),
+        (clock.clone(), blobs),
+        (on_tool_result, shown_tx.clone()),
+        (stamp, applied),
+    );
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with: each
@@ -6265,29 +7209,59 @@ async fn drive(
         // recorded with what the sweep judged, then the abort.
         let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
         let anchor_ts = clock.now_ms();
-        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |snapshot: &Snapshot, message: &str, now: i64| {
-            reaper.reap_turn_shells(&reaped_thread, asked_at);
-            if let Some(log) = stall_log {
-                log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
-            }
-        })
+        Watchdog::arm(
+            true,
+            policy,
+            signal.clone(),
+            clock.clone(),
+            move |now| watched.borrow().snapshot(now),
+            move |snapshot: &Snapshot, message: &str, now: i64| {
+                reaper.reap_turn_shells(&reaped_thread, asked_at);
+                if let Some(log) = stall_log {
+                    log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+                }
+            },
+        )
     } else {
         None
     };
     // The quiet-time cue of a turn a person watches (`startQuietWatch` in the lead turn, `turn.mjs:781`), against the lead's warn point.
     let quiet_watch = (!unattended).then(|| {
-        let warn_ms = mixdog_agent::agent_tool::watchdog::stall_warn_ms(AgentKind { name: Some("lead"), ..AgentKind::default() }, &|name: &str| std::env::var(name).ok());
+        let warn_ms =
+            mixdog_agent::agent_tool::watchdog::stall_warn_ms(AgentKind { name: Some("lead"), ..AgentKind::default() }, &|name: &str| std::env::var(name).ok());
         QuietWatch::start(quiet_changes, port.clone(), clock.clone(), Arc::new(TimerWait), warn_ms as f64)
     });
     drop(spawn_forwarder(port.clone(), shown_rx, cancel.clone()));
     // `registerNativeWebSearchUsageSink(session.id, options.onNativeWebSearchUsage)` (`turn-run.mjs`): from the first send to the
     // ask's end the newest entry of this thread's session hears every search the turn runs, in the order the other reports reach the port.
     let search_tx = shown_tx.clone();
-    let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
-        let _ = search_tx.send(Shown::SearchUsage(delta));
-    }));
+    let hears_search = search_usage.register(
+        thread.as_str(),
+        Arc::new(move |delta| {
+            let _ = search_tx.send(Shown::SearchUsage(delta));
+        }),
+    );
     let agent_route = (header.get("owner").and_then(Value::as_str) == Some("agent")).then(|| (liveness.clone(), thread.clone()));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), requests: std::sync::atomic::AtomicU32::new(0), streamed_calls: Mutex::new(Vec::new()), held_early: Mutex::new(None), task_waits: Mutex::default(), context: context.clone(), sink: sink.clone(), transcript: turn_transcript.clone(), agent_route });
+    let observer = Arc::new(PortObserver {
+        observed: observed.clone(),
+        progress: progress.clone(),
+        out: shown_tx,
+        streaming,
+        reasoning: Mutex::new(None),
+        last_send_tools: Mutex::new(Vec::new()),
+        chunked: std::sync::atomic::AtomicBool::new(false),
+        live: live.clone(),
+        rows: rows.clone(),
+        cancel: cancel.clone(),
+        requests: std::sync::atomic::AtomicU32::new(0),
+        streamed_calls: Mutex::new(Vec::new()),
+        held_early: Mutex::new(None),
+        task_waits: Mutex::default(),
+        context: context.clone(),
+        sink: sink.clone(),
+        transcript: turn_transcript.clone(),
+        agent_route,
+    });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -6296,8 +7270,15 @@ async fn drive(
     config.first_request_after = Some(Ticket(0));
     config.select_input_skills = !injected && !retried;
     // Only the gate's refusal (a stale request) reloads the history: a run without one has nothing to reload for.
-    config.history = config.options.tail_gate.clone().map(|gate| Arc::new(ReloadedHistory { sink: sink.clone(), context: context.clone(), gate }) as Arc<dyn mixdog_agent::env::StoredHistory>);
-    let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
+    config.history = config
+        .options
+        .tail_gate
+        .clone()
+        .map(|gate| Arc::new(ReloadedHistory { sink: sink.clone(), context: context.clone(), gate }) as Arc<dyn mixdog_agent::env::StoredHistory>);
+    let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(
+        review,
+        gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) }),
+    ));
     let skills = skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() }));
     let guard_state = guards.clone();
     let env = RunEnv {
@@ -6464,7 +7445,7 @@ async fn drive(
 /// committed, and the model context restarts on the finalized transcript, with `sentRequestTail` on the message the
 /// request ended with (as [`close_cancelled`] leaves a stopped turn).
 fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_session::session::CrashedRows {
-    use mixdog_agent::interrupt::{finalize_interrupted_turn, AbortReason, Interrupted, Phase};
+    use mixdog_agent::interrupt::{AbortReason, Interrupted, Phase, finalize_interrupted_turn};
     use mixdog_core_session::session::CrashedRows;
     use mixdog_protocol::message_class::RowFacts;
     use mixdog_protocol::message_class::user_text::{Blobs, ReadError};
@@ -6488,14 +7469,21 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
     // The turn's own rows follow its input row: any of them is output (`responseStarted`).
     let answered = input.is_some_and(|at| at + 1 < known.len());
     let sealed = answered
-        && run.context.last().is_some_and(|(_, body)| body.get("role").and_then(Value::as_str) == Some("assistant") && body.pointer("/meta/transcript/completion").is_some());
+        && run
+            .context
+            .last()
+            .is_some_and(|(_, body)| body.get("role").and_then(Value::as_str) == Some("assistant") && body.pointer("/meta/transcript/completion").is_some());
     if sealed {
         return CrashedRows { sealed: true, ..CrashedRows::default() };
     }
     // The turn was sealed (its final reply drafted) but the reply's row never landed: the reply is committed as that row
     // and the turn ends finished, as Node brings a sealed checkpoint back (`turn-checkpoint-recovery.mjs`).
     if let Some(row) = run.draft.sealed.clone() {
-        return CrashedRows { sealed: true, rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }], ..CrashedRows::default() };
+        return CrashedRows {
+            sealed: true,
+            rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }],
+            ..CrashedRows::default()
+        };
     }
     // A recovery whose rows landed but whose end record did not (the process died again in between) left the restart line
     // closing the turn: finalized again, the turn is rebuilt with that line at the same place, which is kept, not added again.
@@ -6505,7 +7493,8 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
         transcript.pop();
     }
     let draft = run.draft;
-    let calls = message_of(&json!({ "role": "assistant", "content": "", "toolCalls": draft.calls })).map(|message| message.tool_calls().to_vec()).unwrap_or_default();
+    let calls =
+        message_of(&json!({ "role": "assistant", "content": "", "toolCalls": draft.calls })).map(|message| message.tool_calls().to_vec()).unwrap_or_default();
     let results = draft.results.iter().filter_map(|row| message_of(row).ok()).collect();
     let finalized = finalize_interrupted_turn(Interrupted {
         transcript,
@@ -6536,11 +7525,20 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
                 // The restart line is classified as a live commit's is (a cancel line shows as the turn's end); it names
                 // no attachment, so no attachment is read.
                 let facts = row_facts(&mut body, &mut UserText::new(&NoAttachments)).unwrap_or(RowFacts { visible: true, prompt: None });
-                rows.push(ItemCommit { iid: iid.clone(), role: Some(role.to_owned()), model: true, visible: facts.visible, body: body.clone(), prompt: facts.prompt });
+                rows.push(ItemCommit {
+                    iid: iid.clone(),
+                    role: Some(role.to_owned()),
+                    model: true,
+                    visible: facts.visible,
+                    body: body.clone(),
+                    prompt: facts.prompt,
+                });
                 (iid, body)
             }
         };
-        if finalized.sent_request_tail == Some(index) && let Some(object) = body.as_object_mut() {
+        if finalized.sent_request_tail == Some(index)
+            && let Some(object) = body.as_object_mut()
+        {
             let meta = object.entry("meta").or_insert_with(|| json!({}));
             if let Some(meta) = meta.as_object_mut() {
                 meta.insert("sentRequestTail".into(), Value::Bool(true));

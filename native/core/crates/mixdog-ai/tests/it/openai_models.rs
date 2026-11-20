@@ -62,11 +62,7 @@ struct Endpoint {
 
 #[async_trait]
 impl HttpSend for Endpoint {
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         let window = exchange.liveness.head_deadline();
         self.windows.lock().unwrap().push((window, window.and_then(|wait| exchange.surface.timeout_text(wait))));
         self.seen.lock().unwrap().push(request);
@@ -88,12 +84,7 @@ impl CredentialSource for Creds {
 
 fn listing(codex: bool, status: u16, body: Vec<u8>) -> (OpenAiModels, Arc<Endpoint>) {
     let config = if codex {
-        let identity = CodexIdentity {
-            installation_id: "i".into(),
-            user_agent: "ua".into(),
-            version: "0.166.0".into(),
-            beta_features: "b".into(),
-        };
+        let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "b".into() };
         OpenAiConfig::codex(false, identity, Arc::new(NoFacts), Arc::new(Ctx))
     } else {
         OpenAiConfig::api_key(true, Arc::new(NoFacts), Arc::new(Ctx))
@@ -107,8 +98,6 @@ fn listing(codex: bool, status: u16, body: Vec<u8>) -> (OpenAiModels, Arc<Endpoi
     let models = OpenAiModels::new(OpenAiCodec::new(config, TransportKind::Http1), endpoint.clone(), Arc::new(Creds(credential)), ListingLookup::new());
     (models, endpoint)
 }
-
-
 
 #[tokio::test]
 async fn a_failed_list_is_a_typed_error_never_an_empty_list() {
@@ -243,4 +232,3 @@ fn the_max_context_window_is_the_reported_whole_number_raised_to_a_million_for_a
         assert_eq!(record.max_context_window, want, "{id} reported {reported}");
     }
 }
-

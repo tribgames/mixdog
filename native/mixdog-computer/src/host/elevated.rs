@@ -7,9 +7,9 @@ use super::{Host, Res};
 use crate::config::Config;
 use crate::lease_api::NoLease;
 use crate::observer::Observer;
-use crate::platform::{self, parse_window_id, Integrity};
+use crate::platform::{self, Integrity, parse_window_id};
 use crate::protocol::{Obj, Req};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -17,18 +17,7 @@ use std::time::{Duration, Instant};
 static IN_WORKER: AtomicBool = AtomicBool::new(false);
 
 /// The actions an elevated worker may run (`$allowed`, elevated-program.ts).
-const ALLOWED_ACTIONS: [&str; 10] = [
-    "click",
-    "double_click",
-    "right_click",
-    "middle_click",
-    "triple_click",
-    "mouse_move",
-    "drag",
-    "scroll",
-    "key",
-    "type",
-];
+const ALLOWED_ACTIONS: [&str; 10] = ["click", "double_click", "right_click", "middle_click", "triple_click", "mouse_move", "drag", "scroll", "key", "type"];
 
 /// How long the worker's fresh observer may take to start reading input.
 const OBSERVER_READY: Duration = Duration::from_secs(3);
@@ -52,10 +41,7 @@ fn decide(level: Option<&Integrity>, req: &Req) -> Decision {
         return Decision::Normal;
     };
     if !level.known() {
-        return Decision::Refuse(
-            "target_integrity_unknown: foreground input was not sent because the target integrity could not be verified"
-                .into(),
-        );
+        return Decision::Refuse("target_integrity_unknown: foreground input was not sent because the target integrity could not be verified".into());
     }
     if !level.higher() {
         return Decision::Normal;
@@ -64,10 +50,7 @@ fn decide(level: Option<&Integrity>, req: &Req) -> Decision {
         return Decision::Refuse("computer_policy_denied: elevated input is not authorized".into());
     }
     if has_element_target(req) {
-        return Decision::Refuse(
-            "privileged_worker_ref_unsupported: use frame-bound coordinates or direct keys/text; no UAC request was opened"
-                .into(),
-        );
+        return Decision::Refuse("privileged_worker_ref_unsupported: use frame-bound coordinates or direct keys/text; no UAC request was opened".into());
     }
     match validate(req) {
         Ok(()) => Decision::Elevate,
@@ -99,12 +82,7 @@ pub(super) fn route(host: &Host, req: &Req) -> Option<Res<Obj>> {
 
 /// A privileged reply says so (annotatePrivilegedResponse).
 fn annotate(result: &mut Obj, level: &Integrity) {
-    let path = result
-        .get("path")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .unwrap_or("foreground_input")
-        .to_string();
+    let path = result.get("path").and_then(Value::as_str).filter(|path| !path.is_empty()).unwrap_or("foreground_input").to_string();
     result.insert("path".into(), json!(format!("uac_elevated_{path}")));
     result.insert(
         "privilege".into(),
@@ -123,9 +101,7 @@ fn has_element_target(req: &Req) -> bool {
 /// A `hwnd:0x<hex>` id (`^hwnd:0x[0-9a-fA-F]+$`, matched without case as
 /// PowerShell's -match does).
 fn exact_window_id(id: &str) -> bool {
-    id.get(..7).is_some_and(|head| head.eq_ignore_ascii_case("hwnd:0x"))
-        && id.len() > 7
-        && id[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    id.get(..7).is_some_and(|head| head.eq_ignore_ascii_case("hwnd:0x")) && id.len() > 7 && id[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// What the worker runs: one allowed foreground action on an exact window,
@@ -203,9 +179,7 @@ fn blocked_named(inner: &str, plain: Run, any: Run) -> bool {
         Some((name, repeat)) => (name, Some(repeat.trim_start())),
         None => (inner, None),
     };
-    let counted = repeat.is_none_or(|repeat| {
-        (1..=3).contains(&repeat.len()) && repeat.bytes().all(|byte| byte.is_ascii_digit())
-    });
+    let counted = repeat.is_none_or(|repeat| (1..=3).contains(&repeat.len()) && repeat.bytes().all(|byte| byte.is_ascii_digit()));
     if !counted {
         return false;
     }
@@ -354,10 +328,7 @@ mod tests {
 
     #[test]
     fn a_target_whose_integrity_cannot_be_read_is_refused() {
-        let refusal = Decision::Refuse(
-            "target_integrity_unknown: foreground input was not sent because the target integrity could not be verified"
-                .into(),
-        );
+        let refusal = Decision::Refuse("target_integrity_unknown: foreground input was not sent because the target integrity could not be verified".into());
         let request = click(json!({}));
         assert_eq!(decide(Some(&level(0x2000, 0)), &request), refusal);
         assert_eq!(decide(Some(&level(0, 0x3000)), &request), refusal);
@@ -366,10 +337,7 @@ mod tests {
     #[test]
     fn a_policy_that_forbids_elevated_input_refuses_before_any_prompt() {
         let request = click(json!({ "allow_elevated_input": false }));
-        assert_eq!(
-            decide(Some(&level(0x2000, 0x3000)), &request),
-            Decision::Refuse("computer_policy_denied: elevated input is not authorized".into())
-        );
+        assert_eq!(decide(Some(&level(0x2000, 0x3000)), &request), Decision::Refuse("computer_policy_denied: elevated input is not authorized".into()));
         // Without the policy's say the caller's default is to allow.
         let silent = Req(json!({ "action": "click", "delivery": "foreground", "window_id": "hwnd:0x2a" }));
         assert_eq!(decide(Some(&level(0x2000, 0x3000)), &silent), Decision::Elevate);
@@ -380,10 +348,7 @@ mod tests {
         for extra in [json!({ "ref": "e3" }), json!({ "to": { "x": 1, "y": 2 } })] {
             assert_eq!(
                 decide(Some(&level(0x2000, 0x3000)), &click(extra)),
-                Decision::Refuse(
-                    "privileged_worker_ref_unsupported: use frame-bound coordinates or direct keys/text; no UAC request was opened"
-                        .into()
-                )
+                Decision::Refuse("privileged_worker_ref_unsupported: use frame-bound coordinates or direct keys/text; no UAC request was opened".into())
             );
         }
     }
@@ -397,10 +362,7 @@ mod tests {
         );
         assert_eq!(
             decide(Some(&high), &click(json!({ "action": "key", "keys": "%{F4}" }))),
-            Decision::Refuse(
-                "privileged_worker_failed: privileged worker blocked a destructive or session-ending key combination"
-                    .into()
-            )
+            Decision::Refuse("privileged_worker_failed: privileged worker blocked a destructive or session-ending key combination".into())
         );
     }
 
@@ -410,39 +372,38 @@ mod tests {
         for action in ["double_click", "key", "type", "scroll", "drag", "mouse_move"] {
             assert_eq!(validate(&click(json!({ "action": action }))), Ok(()), "{action}");
         }
-        assert_eq!(
-            validate(&click(json!({ "action": "invoke" }))),
-            Err("privileged worker action is not allowed: invoke".into())
-        );
-        assert_eq!(
-            validate(&click(json!({ "delivery": "background" }))),
-            Err("privileged worker requires delivery=foreground".into())
-        );
+        assert_eq!(validate(&click(json!({ "action": "invoke" }))), Err("privileged worker action is not allowed: invoke".into()));
+        assert_eq!(validate(&click(json!({ "delivery": "background" }))), Err("privileged worker requires delivery=foreground".into()));
         for id in ["", "hwnd:0x", "hwnd:0xzz", "0x2a", "hwnd:0x2a ", "hwnd:2a"] {
-            assert_eq!(
-                validate(&click(json!({ "window_id": id }))),
-                Err("privileged worker requires exact window_id".into()),
-                "{id:?}"
-            );
+            assert_eq!(validate(&click(json!({ "window_id": id }))), Err("privileged worker requires exact window_id".into()), "{id:?}");
         }
         assert_eq!(validate(&click(json!({ "window_id": "HWND:0X2A" }))), Ok(()));
-        assert_eq!(
-            validate(&click(json!({ "ref": "e1" }))),
-            Err("privileged worker requires frame-bound coordinates or direct keys/text".into())
-        );
+        assert_eq!(validate(&click(json!({ "ref": "e1" }))), Err("privileged worker requires frame-bound coordinates or direct keys/text".into()));
     }
 
     #[test]
     fn destructive_chords_are_blocked_as_input_guards_names_them() {
-        for keys in [
-            "%{F4}", "%+{F4 2}", "^%{DEL}", "^%{delete}", "^%{END}", "+{DEL}", "^+{DELETE 3}",
-            "#l", "#L", "+#l", "#{L}", "{ENTER}#l",
-        ] {
+        for keys in ["%{F4}", "%+{F4 2}", "^%{DEL}", "^%{delete}", "^%{END}", "+{DEL}", "^+{DELETE 3}", "#l", "#L", "+#l", "#{L}", "{ENTER}#l"] {
             assert!(blocked_keys(keys), "{keys}");
         }
         for keys in [
-            "{F4}", "^{F4}", "%{DEL}", "^{DEL}", "^{END}", "%{END}", "{DEL}", "#a", "l", "{L}",
-            "%a{F4}", "%#{F4}", "#{ENTER}l", "%{F4 1234}", "^%{DEL x}", "^c", "hello world",
+            "{F4}",
+            "^{F4}",
+            "%{DEL}",
+            "^{DEL}",
+            "^{END}",
+            "%{END}",
+            "{DEL}",
+            "#a",
+            "l",
+            "{L}",
+            "%a{F4}",
+            "%#{F4}",
+            "#{ENTER}l",
+            "%{F4 1234}",
+            "^%{DEL x}",
+            "^c",
+            "hello world",
         ] {
             assert!(!blocked_keys(keys), "{keys}");
         }
@@ -462,10 +423,7 @@ mod tests {
             assert_eq!(held.join().unwrap(), Err(crate::port::REVOKED.to_string()), "a grant line opens nothing");
         });
         let text = acknowledgement.text();
-        let reports: Vec<Value> = text
-            .lines()
-            .map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap())
-            .collect();
+        let reports: Vec<Value> = text.lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
         assert_eq!(reports.len(), 2);
         assert_eq!((reports[0]["admission"].as_str(), reports[0]["cleanup"].as_str()), (Some("closed"), Some("pending")));
         assert_eq!(reports[1]["cleanup"], json!("complete"));
@@ -510,12 +468,14 @@ mod tests {
             let holding = threads.spawn(|| port.hold_no_activate(7));
             pause.reached.wait();
             control(std::io::Cursor::new(format!("{}\n", platform::ELEVATED_REVOKE_LINE)), &scope, acknowledgement.clone());
-            let before: Vec<Value> = acknowledgement.text().lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
+            let before: Vec<Value> =
+                acknowledgement.text().lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
             assert_eq!(before.last().unwrap()["cleanup"], json!("pending"), "the pending hold is still out");
             pause.resume.wait();
             assert!(holding.join().unwrap().is_err());
         });
-        let after: Vec<Value> = acknowledgement.text().lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
+        let after: Vec<Value> =
+            acknowledgement.text().lines().map(|line| serde_json::from_str(line.strip_prefix(platform::ELEVATED_REVOKED_LINE).unwrap()).unwrap()).collect();
         assert_eq!(after.last().unwrap()["cleanup"], json!("complete"), "the compensation's report reached the parent: {after:?}");
     }
 
@@ -524,10 +484,7 @@ mod tests {
         let mut result = json!({ "path": "foreground_click", "text": "ok" }).as_object().unwrap().clone();
         annotate(&mut result, &level(0x2000, 0x3000));
         assert_eq!(result["path"], json!("uac_elevated_foreground_click"));
-        assert_eq!(
-            result["privilege"],
-            json!({ "source_integrity": "medium", "target_integrity": "high", "worker": "one_shot" })
-        );
+        assert_eq!(result["privilege"], json!({ "source_integrity": "medium", "target_integrity": "high", "worker": "one_shot" }));
         let mut bare = Obj::new();
         annotate(&mut bare, &level(0x2000, 0x3000));
         assert_eq!(bare["path"], json!("uac_elevated_foreground_input"));

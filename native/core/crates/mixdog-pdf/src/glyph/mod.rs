@@ -71,11 +71,7 @@ pub(crate) struct Commands {
 
 impl Commands {
     pub(crate) fn new() -> Self {
-        Self {
-            cmds: Vec::new(),
-            stack: Vec::new(),
-            current: IDENTITY,
-        }
+        Self { cmds: Vec::new(), stack: Vec::new(), current: IDENTITY }
     }
 
     /// Adds an operator with points `args` (x, y pairs), each transformed by the current matrix.
@@ -183,40 +179,25 @@ impl FontRenderer {
             let Some(loca) = tables.loca else {
                 return error("Cannot read properties of undefined (reading 'buffer')");
             };
-            let font =
-                TrueTypeFont::new(&glyf, &loca, tables.index_to_loc_format.unwrap_or(0) != 0)?;
+            let font = TrueTypeFont::new(&glyf, &loca, tables.index_to_loc_format.unwrap_or(0) != 0)?;
             return Ok(Self::new(Program::TrueType(font), cmap, matrix));
         }
         let Some(cff) = tables.cff else {
             return error("Cannot read properties of undefined (reading 'glyphs')");
         };
         let font = type2::parse_cff(&cff, true)?;
-        Ok(Self::new(
-            Program::Type2(font),
-            cmap,
-            font_matrix.unwrap_or(FONT_IDENTITY_MATRIX),
-        ))
+        Ok(Self::new(Program::Type2(font), cmap, font_matrix.unwrap_or(FONT_IDENTITY_MATRIX)))
     }
 
     /// A renderer over a Type 2 program built elsewhere (a Type 1 font converted by [`type1::Type1Font`]) and the
     /// `cmap` its font object built for it.
     pub fn from_type2(font: Type2Font, cmap: Vec<CmapRange>, font_matrix: Option<Matrix>) -> Self {
-        Self::new(
-            Program::Type2(font),
-            cmap,
-            font_matrix.unwrap_or(FONT_IDENTITY_MATRIX),
-        )
+        Self::new(Program::Type2(font), cmap, font_matrix.unwrap_or(FONT_IDENTITY_MATRIX))
     }
 
     /// A renderer over the `glyf` and `loca` tables of a TrueType program, drawn by glyph id (`units_per_em` zero takes
     /// `font_matrix`, as [`FontRenderer::create`] does).
-    pub fn from_glyf(
-        glyf: &[u8],
-        loca: &[u8],
-        long_offsets: bool,
-        units_per_em: u16,
-        font_matrix: Option<Matrix>,
-    ) -> Result<Self> {
+    pub fn from_glyf(glyf: &[u8], loca: &[u8], long_offsets: bool, units_per_em: u16, font_matrix: Option<Matrix>) -> Result<Self> {
         let matrix = if units_per_em != 0 {
             let unit = 1.0 / f64::from(units_per_em);
             [unit, 0.0, 0.0, unit, 0.0, 0.0]
@@ -237,21 +218,14 @@ impl FontRenderer {
     }
 
     fn new(program: Program, cmap: Vec<CmapRange>, font_matrix: Matrix) -> Self {
-        Self {
-            program,
-            cmap,
-            font_matrix,
-            compiled_glyphs: HashMap::new(),
-            compiled_char_codes: HashSet::new(),
-        }
+        Self { program, cmap, font_matrix, compiled_glyphs: HashMap::new(), compiled_char_codes: HashSet::new() }
     }
 
     /// pdf.js `getPath(unicode)` for the code point `code`: the path of its glyph, `None` when this glyph was already
     /// handed out for this code point (the page already has it), or the error pdf.js throws.
     pub fn get_path(&mut self, code: u32) -> Result<Option<Vec<f32>>> {
         let glyph_id = lookup_cmap(&self.cmap, code)?;
-        if self.compiled_glyphs.contains_key(&glyph_id) && self.compiled_char_codes.contains(&code)
-        {
+        if self.compiled_glyphs.contains_key(&glyph_id) && self.compiled_char_codes.contains(&code) {
             return Ok(None);
         }
         if !self.compiled_glyphs.contains_key(&glyph_id) {
@@ -294,6 +268,5 @@ impl FontRenderer {
         Ok(cmds.into_path())
     }
 }
-
 
 impl std::error::Error for GlyphError {}

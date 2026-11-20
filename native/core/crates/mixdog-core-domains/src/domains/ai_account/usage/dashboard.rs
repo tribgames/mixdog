@@ -88,10 +88,7 @@ pub fn normalise_windows(value: Option<&Value>, source: &str) -> Vec<Value> {
             .iter()
             .enumerate()
             .map(|(i, entry)| {
-                let label = ["label", "name"]
-                    .iter()
-                    .find_map(|k| entry.get(*k).filter(|v| truthy(Some(v))))
-                    .map_or_else(|| format!("W{}", i + 1), js_string);
+                let label = ["label", "name"].iter().find_map(|k| entry.get(*k).filter(|v| truthy(Some(v)))).map_or_else(|| format!("W{}", i + 1), js_string);
                 (label, entry)
             })
             .collect(),
@@ -105,27 +102,22 @@ pub fn normalise_windows(value: Option<&Value>, source: &str) -> Vec<Value> {
                 return None;
             }
             let limit_usd = amount(entry, &["limitUsd", "limit_usd", "budgetUsd", "budget_usd"], "limit_usd_cents");
-            let used_usd = amount(
-                entry,
-                &["usedUsd", "used_usd", "spendUsd", "spend_usd", "costUsd", "cost_usd"],
-                "used_usd_cents",
-            );
-            let remaining_usd = amount(
-                entry,
-                &["remainingUsd", "remaining_usd", "leftUsd", "left_usd", "balanceUsd", "balance_usd"],
-                "remaining_usd_cents",
-            );
+            let used_usd = amount(entry, &["usedUsd", "used_usd", "spendUsd", "spend_usd", "costUsd", "cost_usd"], "used_usd_cents");
+            let remaining_usd = amount(entry, &["remainingUsd", "remaining_usd", "leftUsd", "left_usd", "balanceUsd", "balance_usd"], "remaining_usd_cents");
             let used_pct = nn(first(entry, &["usedPct", "used_pct", "percent", "pct"]));
-            let remaining_credits = nn(first(
-                entry,
-                &["remainingCredits", "remaining_credits", "creditsRemaining", "credits_remaining"],
-            ));
+            let remaining_credits = nn(first(entry, &["remainingCredits", "remaining_credits", "creditsRemaining", "credits_remaining"]));
             let limit_credits = nn(first(entry, &["limitCredits", "limit_credits"]));
             let used_credits = nn(first(entry, &["usedCredits", "used_credits"]));
             let reset_at = nn(first(entry, &["resetAt", "reset_at", "resetsAt", "resets_at"]));
             let label = match clean(entry.get("label")) {
                 l if !l.is_empty() => l,
-                _ => if truthy(Some(&json!(key))) { key.to_uppercase() } else { "USE".to_owned() },
+                _ => {
+                    if truthy(Some(&json!(key))) {
+                        key.to_uppercase()
+                    } else {
+                        "USE".to_owned()
+                    }
+                }
             };
             let source_text = match clean(entry.get("source")) {
                 s if !s.is_empty() => s,
@@ -149,10 +141,7 @@ pub fn normalise_windows(value: Option<&Value>, source: &str) -> Vec<Value> {
             if let Some(reset) = reset_at.filter(|v| *v != 0.0) {
                 out.insert("resetAt".into(), n(reset));
             }
-            if !out.contains_key("usedPct")
-                && out.get("limitUsd").and_then(Value::as_f64).is_some_and(|l| l > 0.0)
-                && out.contains_key("usedUsd")
-            {
+            if !out.contains_key("usedPct") && out.get("limitUsd").and_then(Value::as_f64).is_some_and(|l| l > 0.0) && out.contains_key("usedUsd") {
                 let used = out["usedUsd"].as_f64().unwrap_or(0.0);
                 let limit = out["limitUsd"].as_f64().unwrap_or(0.0);
                 out.insert("usedPct".into(), n(r((used * 100.0 / limit).min(100.0), 2)));
@@ -211,10 +200,7 @@ pub struct Known {
 }
 
 pub fn local_budget(provider: &Value) -> Option<Known> {
-    let limit = nn(first(
-        provider,
-        &["limitUsd", "limit_usd", "budgetUsd", "budget_usd", "monthlyBudgetUsd", "monthly_budget_usd"],
-    ));
+    let limit = nn(first(provider, &["limitUsd", "limit_usd", "budgetUsd", "budget_usd", "monthlyBudgetUsd", "monthly_budget_usd"]));
     let used = nn(first(provider, &["usedUsd", "used_usd", "spendUsd", "spend_usd", "costUsd", "cost_usd"]));
     let remaining = nn(first(provider, &["remainingUsd", "remaining_usd", "leftUsd", "left_usd"]));
     if let Some(remaining) = remaining {
@@ -283,12 +269,7 @@ pub fn snapshot_usage(snapshot: Option<&Value>) -> Option<Known> {
     let balance = snapshot.and_then(|s| s.get("balance"))?;
     let used = nn(first(balance, &["usedUsd", "used_usd"]))?;
     let limit = nn(first(balance, &["limitUsd", "limit_usd"]));
-    Some(Known {
-        remaining_usd: None,
-        used_usd: Some(r(used, 4)),
-        limit_usd: limit.map(|v| r(v, 4)),
-        source: snapshot_source(snapshot, balance.get("source")),
-    })
+    Some(Known { remaining_usd: None, used_usd: Some(r(used, 4)), limit_usd: limit.map(|v| r(v, 4)), source: snapshot_source(snapshot, balance.get("source")) })
 }
 
 pub struct TokenUsage {
@@ -310,13 +291,7 @@ pub fn snapshot_token_usage(snapshot: Option<&Value>) -> Option<TokenUsage> {
         return None;
     }
     let own = clean(value.get("source"));
-    Some(TokenUsage {
-        input_tokens,
-        output_tokens,
-        cached_input_tokens,
-        requests,
-        source: if own.is_empty() { snapshot_source(snapshot, None) } else { own },
-    })
+    Some(TokenUsage { input_tokens, output_tokens, cached_input_tokens, requests, source: if own.is_empty() { snapshot_source(snapshot, None) } else { own } })
 }
 
 pub fn display_window(w: &Value) -> String {
@@ -410,11 +385,7 @@ fn text_of(row: &Row, key: &str) -> String {
 
 pub fn apply_api_unavailable(row: &mut Row, id: &str, snapshot: Option<&Value>) {
     set(row, "status", "hidden");
-    set(
-        row,
-        "source",
-        if snapshot_unavailable(snapshot).is_some() { "provider-api-unavailable" } else { "provider-hidden" },
-    );
+    set(row, "source", if snapshot_unavailable(snapshot).is_some() { "provider-api-unavailable" } else { "provider-hidden" });
     set(row, "sourceLabel", "unavailable");
     set(row, "primary", "-");
     set(row, "detail", api_unavailable_detail(id, snapshot));
@@ -522,11 +493,7 @@ pub fn apply_known_remaining(row: &mut Row, known: &Known, estimated: bool) {
         set(row, "limitUsd", n(limit));
     }
     set(row, "status", if estimated { "estimated" } else { "ok" });
-    let source = if known.source.is_empty() {
-        if estimated { "local-budget" } else { "provider-api" }.to_owned()
-    } else {
-        known.source.clone()
-    };
+    let source = if known.source.is_empty() { if estimated { "local-budget" } else { "provider-api" }.to_owned() } else { known.source.clone() };
     set(row, "source", source.clone());
     set(row, "sourceLabel", if estimated { "local budget" } else { "API" });
     set(row, "primary", money(remaining));
@@ -567,11 +534,7 @@ pub fn apply_token_usage(row: &mut Row, usage: &TokenUsage) {
     set(row, "sourceLabel", "usage");
     set(row, "primary", format!("{} tokens", compact_number(total)));
     let requests = if usage.requests != 0.0 { format!(" · {} req", compact_number(usage.requests)) } else { String::new() };
-    set(
-        row,
-        "detail",
-        format!("{} in · {} out{requests}", compact_number(usage.input_tokens), compact_number(usage.output_tokens)),
-    );
+    set(row, "detail", format!("{} in · {} out{requests}", compact_number(usage.input_tokens), compact_number(usage.output_tokens)));
     set(row, "includeInTotal", false);
     set(row, "totalBucket", Value::Null);
 }
@@ -597,7 +560,9 @@ pub fn apply_window_quota(row: &mut Row, windows: &Value, source: &str, detail: 
 
 fn usage_total(rows: &[Row]) -> Value {
     let mut total = Map::new();
-    for key in ["providerCount", "knownRemainingUsd", "apiVerifiedRemainingUsd", "localEstimatedRemainingUsd", "hiddenCount", "notConfiguredCount", "errorCount"] {
+    for key in
+        ["providerCount", "knownRemainingUsd", "apiVerifiedRemainingUsd", "localEstimatedRemainingUsd", "hiddenCount", "notConfiguredCount", "errorCount"]
+    {
         total.insert(key.into(), n(0.0));
     }
     let (mut known, mut api, mut local) = (0.0, 0.0, 0.0);
@@ -689,10 +654,7 @@ pub fn credits_from_snapshot(provider_id: &str, snapshot: Option<&Value>) -> Opt
 pub fn usage_dashboard_snapshot(rows: &[Row], checked_at: i64, refresh: bool, checking: bool) -> Value {
     let mut sorted: Vec<&Row> = rows.iter().collect();
     sorted.sort_by(|a, b| {
-        provider_rank(a)
-            .partial_cmp(&provider_rank(b))
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| locale_compare(&label_text(a), &label_text(b)))
+        provider_rank(a).partial_cmp(&provider_rank(b)).unwrap_or(Ordering::Equal).then_with(|| locale_compare(&label_text(a), &label_text(b)))
     });
     json!({
         "title": "Provider Quotas",
@@ -727,7 +689,8 @@ async fn oauth_snapshot(sources: &dyn UsageSources, provider: &str, refresh: boo
         return cached;
     }
     if sources.oauth_provider_ready(provider)
-        && let Ok(Some(fresh)) = sources.fetch_oauth(provider, refresh).await {
+        && let Ok(Some(fresh)) = sources.fetch_oauth(provider, refresh).await
+    {
         return Some(fresh);
     }
     match cached {
@@ -754,22 +717,11 @@ pub struct DashboardOptions {
 
 fn refresh_scope(options: &DashboardOptions) -> Option<HashSet<String>> {
     let requested = options.refresh_providers.as_ref().filter(|r| !r.is_empty())?;
-    let ids: HashSet<String> = requested
-        .iter()
-        .take(16)
-        .map(|v| mixdog_js::js_trim(v).to_lowercase())
-        .filter(|v| !v.is_empty())
-        .collect();
+    let ids: HashSet<String> = requested.iter().take(16).map(|v| mixdog_js::js_trim(v).to_lowercase()).filter(|v| !v.is_empty()).collect();
     (!ids.is_empty()).then_some(ids)
 }
 
-async fn api_provider_row(
-    item: &Value,
-    providers: &Value,
-    preview: bool,
-    refresh: bool,
-    sources: &dyn UsageSources,
-) -> Row {
+async fn api_provider_row(item: &Value, providers: &Value, preview: bool, refresh: bool, sources: &dyn UsageSources) -> Row {
     let id = item.get("id").and_then(Value::as_str).unwrap_or("");
     let provider_cfg = providers.get(id).cloned().unwrap_or_else(|| json!({}));
     let mut row = base_row(item, "api", &provider_cfg);
@@ -812,8 +764,10 @@ async fn api_provider_row(
             apply_token_usage(&mut row, tokens);
             has_quota = true;
         }
-        if row["includeInTotal"] != Value::Bool(true) && !has_quota
-            && let Some(estimated) = local_budget(&provider_cfg) {
+        if row["includeInTotal"] != Value::Bool(true)
+            && !has_quota
+            && let Some(estimated) = local_budget(&provider_cfg)
+        {
             apply_known_remaining(&mut row, &estimated, true);
             has_quota = true;
         }
@@ -826,14 +780,7 @@ async fn api_provider_row(
     row
 }
 
-async fn oauth_provider_row(
-    item: &Value,
-    providers: &Value,
-    preview: bool,
-    refresh: bool,
-    sources: &dyn UsageSources,
-    accounts: &AccountStore,
-) -> Row {
+async fn oauth_provider_row(item: &Value, providers: &Value, preview: bool, refresh: bool, sources: &dyn UsageSources, accounts: &AccountStore) -> Row {
     let id = item.get("id").and_then(Value::as_str).unwrap_or("");
     let provider_cfg = providers.get(id).cloned().unwrap_or_else(|| json!({}));
     let mut row = base_row(item, "oauth", &provider_cfg);

@@ -59,10 +59,7 @@ async fn a_notification_holding_a_lone_surrogate_outside_free_text_is_dropped() 
         rig.core.mock.mock_domain().notifications().into_iter().map(|(method, params, _)| (method.as_str().to_owned(), params)).collect();
     assert_eq!(
         recorded,
-        [
-            ("terminal/input".to_owned(), json!({ "tabId": "t", "data": "k\u{fffd}" })),
-            ("modelProxy/cancel".to_owned(), json!({ "runId": "r\u{fffd}" })),
-        ]
+        [("terminal/input".to_owned(), json!({ "tabId": "t", "data": "k\u{fffd}" })), ("modelProxy/cancel".to_owned(), json!({ "runId": "r\u{fffd}" })),]
     );
 }
 
@@ -82,9 +79,7 @@ async fn every_free_text_field_of_a_notification_reaches_its_service_as_u_fffd()
     let client = rig.ready(1, json!({}));
     let samples = Samples::new();
     for (method, pattern) in &listed {
-        let frame = json!({ "method": method, "params": samples.untyped_with_text(pattern, MARK) })
-            .to_string()
-            .replace(&format!("\"{MARK}\""), r#""a\ud800""#);
+        let frame = json!({ "method": method, "params": samples.untyped_with_text(pattern, MARK) }).to_string().replace(&format!("\"{MARK}\""), r#""a\ud800""#);
         client.send_text(&frame);
     }
     let recorded: Vec<(String, serde_json::Value)> =
@@ -99,16 +94,10 @@ async fn a_notification_routes_by_exact_method_like_a_request() {
     let rig = Rig::routed(&["client/activity"], Vec::new());
     let client = rig.ready(1, json!({}));
 
-    assert!(matches!(
-        client.send(json!({ "method": "client/activity", "params": { "at": 5 } })),
-        Inbound::Continue
-    ));
+    assert!(matches!(client.send(json!({ "method": "client/activity", "params": { "at": 5 } })), Inbound::Continue));
     // `client/perfLog` is in the table but nobody claims it: dropped, there is no reply to carry
     // a refusal.
-    assert!(matches!(
-        client.send(json!({ "method": "client/perfLog", "params": { "line": "x" } })),
-        Inbound::Continue
-    ));
+    assert!(matches!(client.send(json!({ "method": "client/perfLog", "params": { "line": "x" } })), Inbound::Continue));
     let recorded = rig.core.mock.mock_domain().notifications();
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].0.as_str(), "client/activity");

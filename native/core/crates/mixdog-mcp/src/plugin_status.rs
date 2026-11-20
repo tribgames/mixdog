@@ -151,7 +151,10 @@ fn server_row(row: &Value) -> Value {
 enum Registered {
     /// No root recorded: not listed at all.
     Skipped,
-    Missing { id: String, name: String },
+    Missing {
+        id: String,
+        name: String,
+    },
     Plugin(Map<String, Value>),
 }
 
@@ -165,10 +168,7 @@ fn registered_plugin(lane: &InLane<MaintenanceIo>, declarations: &DeclarationCac
     let entry_name = clean(field(entry, "name"));
     let tail = root.rsplit(['/', '\\']).next().unwrap_or_default().to_owned();
     if field(entry, "exists") != &Value::Bool(true) {
-        return Registered::Missing {
-            id: first(&[&entry_id, &entry_name, &root]),
-            name: first(&[&entry_name, &entry_id, &tail, &root]),
-        };
+        return Registered::Missing { id: first(&[&entry_id, &entry_name, &root]), name: first(&[&entry_name, &entry_id, &tail, &root]) };
     }
     let root_path = Path::new(&root);
     let (_, manifest_doc) = manifest(lane, root_path);

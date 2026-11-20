@@ -85,7 +85,11 @@ impl GmailCardEnricher {
             request["account"] = Value::String(account.to_owned());
         }
         let name = crate::naming::qualified_tool_name(server.name(), "describe_emails", crate::naming::PROVIDER_TOOL_NAME_MAX);
-        let account = self.hub.resolve_tool_account_in(&normalize_scope(scope), &name, &request, "card:describe_emails").await.ok()?
+        let account = self
+            .hub
+            .resolve_tool_account_in(&normalize_scope(scope), &name, &request, "card:describe_emails")
+            .await
+            .ok()?
             .map(|account| mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id });
         let output = server
             .call_tool_unlisted_bound("card:describe_emails", "describe_emails", request, &CancellationToken::new(), None, account.as_ref())
@@ -93,11 +97,7 @@ impl GmailCardEnricher {
             .ok()?;
         // A reply with any part that is not text reaches Node's `JSON.parse` as an object, not a
         // string, and fails there.
-        let texts = output
-            .parts
-            .iter()
-            .map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None })
-            .collect::<Option<Vec<_>>>()?;
+        let texts = output.parts.iter().map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Option<Vec<_>>>()?;
         let text = texts.join("\n");
         let parsed: Value = serde_json::from_str(&text).ok()?;
         // `const { account, emails } = JSON.parse(raw)` throws on null.

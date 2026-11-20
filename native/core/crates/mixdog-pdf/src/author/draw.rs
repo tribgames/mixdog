@@ -50,17 +50,9 @@ fn truthy(value: &Value) -> bool {
 /// `pageSize(properties)`: `[width, height]` in points of the `pageSize` property (A4 when there is none), turned on its
 /// side by `orientation: "landscape"`.
 pub fn page_size(properties: &Value) -> Result<[f64; 2], String> {
-    let asked = properties
-        .get("pageSize")
-        .filter(|value| truthy(value))
-        .cloned()
-        .unwrap_or_else(|| Value::String("a4".to_owned()));
+    let asked = properties.get("pageSize").filter(|value| truthy(value)).cloned().unwrap_or_else(|| Value::String("a4".to_owned()));
     let size = page_size_points(Some(&asked), "PDF page size")?;
-    let orientation = properties
-        .get("orientation")
-        .filter(|value| truthy(value))
-        .map(value_to_string)
-        .unwrap_or_default();
+    let orientation = properties.get("orientation").filter(|value| truthy(value)).map(value_to_string).unwrap_or_default();
     Ok(if js_to_lowercase(&orientation) == "landscape" && size[0] < size[1] { [size[1], size[0]] } else { size })
 }
 
@@ -136,9 +128,7 @@ fn animated_png(data: &[u8]) -> bool {
         match &header[4..8] {
             b"IDAT" => return false,
             b"acTL" => {
-                return data
-                    .get(at + 8..at + 12)
-                    .is_some_and(|frames| u32::from_be_bytes([frames[0], frames[1], frames[2], frames[3]]) > 1);
+                return data.get(at + 8..at + 12).is_some_and(|frames| u32::from_be_bytes([frames[0], frames[1], frames[2], frames[3]]) > 1);
             }
             _ => {}
         }
@@ -219,8 +209,7 @@ fn embed_jpeg(store: &mut ObjectStore, data: &[u8]) -> Result<EmbeddedImage, Emb
 }
 
 fn embed_svg(store: &mut ObjectStore, fonts: &SvgFonts, data: &[u8], image_path: &str) -> Result<EmbeddedImage, EmbedError> {
-    svg::metadata(fonts, data, svg::DEFAULT_DENSITY)
-        .map_err(|error| EmbedError::new(format!("PDF could not read the SVG {image_path}: {error}")))?;
+    svg::metadata(fonts, data, svg::DEFAULT_DENSITY).map_err(|error| EmbedError::new(format!("PDF could not read the SVG {image_path}: {error}")))?;
     let logo = svg::rasterize_logo(fonts, data).map_err(|error| EmbedError::new(error.to_string()))?;
     let raster = embed_pixels(store, &logo.image);
     Ok(EmbeddedImage { width: logo.width, height: logo.height, ..raster })
@@ -228,12 +217,7 @@ fn embed_svg(store: &mut ObjectStore, fonts: &SvgFonts, data: &[u8], image_path:
 
 /// `embedImage(document, imagePath)`: the file at `image_path` embedded into `store`, chosen by sniffing (a `.png` or a
 /// PNG signature, then a `.jpg`, `.jpeg` or JPEG signature, then an SVG) and returned with the size the page places it at.
-pub fn embed_image<P: ReadProof>(
-    proof: &P,
-    store: &mut ObjectStore,
-    fonts: &SvgFonts,
-    image_path: &str,
-) -> Result<EmbeddedImage, EmbedError> {
+pub fn embed_image<P: ReadProof>(proof: &P, store: &mut ObjectStore, fonts: &SvgFonts, image_path: &str) -> Result<EmbeddedImage, EmbedError> {
     let data = mixdog_fsio::read(proof, image_path).map_err(|error| EmbedError::new(error.to_string()))?;
     let extension = extension(image_path);
     if extension == ".png" || data.starts_with(&[0x89, 0x50]) {

@@ -143,7 +143,9 @@ mod tests {
         let parts = json!({ "role": "user", "content": [{ "type": "text", "text": "look" }, { "type": "image", "attachmentRef": "a" }] });
         assert_eq!(
             with_turn_context(&parts, "remember X"),
-            Some(json!({ "role": "user", "content": [{ "type": "text", "text": "# Additional context\nremember X\n\n# Task\n" }, { "type": "text", "text": "look" }, { "type": "image", "attachmentRef": "a" }] }))
+            Some(
+                json!({ "role": "user", "content": [{ "type": "text", "text": "# Additional context\nremember X\n\n# Task\n" }, { "type": "text", "text": "look" }, { "type": "image", "attachmentRef": "a" }] })
+            )
         );
         assert_eq!(with_turn_context(&json!({ "role": "user", "content": null }), "x"), None);
     }
@@ -152,7 +154,8 @@ mod tests {
     fn context_over_the_cap_is_cut_with_a_marker() {
         let long = "x".repeat(CONTEXT_CHAR_CAP + 5);
         let carried = with_turn_context(&json!({ "role": "user", "content": "go" }), &long).expect("a message");
-        let expected = format!("# Additional context\n{}\n\n... [context truncated; original {} chars]\n\n# Task\ngo", "x".repeat(CONTEXT_CHAR_CAP), CONTEXT_CHAR_CAP + 5);
+        let expected =
+            format!("# Additional context\n{}\n\n... [context truncated; original {} chars]\n\n# Task\ngo", "x".repeat(CONTEXT_CHAR_CAP), CONTEXT_CHAR_CAP + 5);
         assert_eq!(carried["content"], json!(expected));
         assert_eq!(cap_context(&"y".repeat(CONTEXT_CHAR_CAP)), "y".repeat(CONTEXT_CHAR_CAP));
     }

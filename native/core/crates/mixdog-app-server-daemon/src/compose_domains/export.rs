@@ -114,10 +114,7 @@ mod tests {
     }
 
     fn command() -> Map<String, Value> {
-        json!({ "sessionId": "s", "tabId": "t", "action": "export", "format": "png", "pane": 1 })
-            .as_object()
-            .unwrap()
-            .clone()
+        json!({ "sessionId": "s", "tabId": "t", "action": "export", "format": "png", "pane": 1 }).as_object().unwrap().clone()
     }
 
     #[tokio::test]
@@ -159,11 +156,7 @@ mod tests {
     async fn a_session_record_that_was_not_read_is_not_a_closed_tab() {
         let host = Arc::new(MockHostChannel::default());
         host.claim(HostCapability::Visualize);
-        let error = HostExportRenderer::new(host.clone(), Arc::new(UnreadableCwds))
-            .render(&command(), &CancellationToken::new())
-            .await
-            .err()
-            .unwrap();
+        let error = HostExportRenderer::new(host.clone(), Arc::new(UnreadableCwds)).render(&command(), &CancellationToken::new()).await.err().unwrap();
         assert_eq!(error.message, "This visualize tab's session could not be read: its lane did not run the read.");
         assert!(host.sent().is_empty());
     }
@@ -183,7 +176,6 @@ mod tests {
         let error = renderer(host).render(&command(), &CancellationToken::new()).await.err().unwrap();
         assert_eq!(error.reason, Reason::Unsupported);
     }
-
 
     #[async_trait]
     impl mixdog_core::run_host::config_hosts::ThreadHeaders for Headers {

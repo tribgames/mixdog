@@ -125,11 +125,7 @@ fn picker_of(row: &Value) -> PickerFields {
         .map(|tiers| {
             tiers
                 .iter()
-                .map(|t| ServiceTier {
-                    id: trimmed(t.get("id")),
-                    name: trimmed(t.get("name")),
-                    description: trimmed(t.get("description")),
-                })
+                .map(|t| ServiceTier { id: trimmed(t.get("id")), name: trimmed(t.get("name")), description: trimmed(t.get("description")) })
                 .filter(|t| !t.id.is_empty())
                 .collect()
         })
@@ -144,10 +140,7 @@ fn picker_of(row: &Value) -> PickerFields {
 
 /// `_normalizeCodexModel` for one catalog row; a row naming no model is none.
 pub fn codex_record(row: &Value) -> Option<ModelRecord> {
-    let id = ["slug", "id"]
-        .iter()
-        .filter_map(|key| row.get(*key).and_then(Value::as_str))
-        .find(|s| !s.is_empty())?;
+    let id = ["slug", "id"].iter().filter_map(|key| row.get(*key).and_then(Value::as_str)).find(|s| !s.is_empty())?;
     let picker = picker_of(row);
     let levels: Vec<String> = row
         .get("supported_reasoning_levels")
@@ -155,17 +148,13 @@ pub fn codex_record(row: &Value) -> Option<ModelRecord> {
         .map(|levels| levels.iter().filter_map(|l| l.get("effort").and_then(Value::as_str).map(str::to_owned)).collect())
         .unwrap_or_default();
     let display = row.get("display_name").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(id);
-    let access_only = picker
-        .access_programs
-        .as_ref()
-        .is_some_and(|p| !p.is_empty() && !p.iter().any(|p| p == STANDARD_PROGRAM));
+    let access_only = picker.access_programs.as_ref().is_some_and(|p| !p.is_empty() && !p.iter().any(|p| p == STANDARD_PROGRAM));
     let mut record = ModelRecord::new(id);
     record.picker = picker;
     record.picker.tier = Some("version".to_owned());
     // `m?.description || ''`: the catalog's text as stated, else empty.
     record.picker.description = Some(row.get("description").and_then(Value::as_str).unwrap_or_default().to_owned());
-    record.picker.default_service_tier =
-        row.get("default_service_tier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    record.picker.default_service_tier = row.get("default_service_tier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     record.supports_reasoning_effort_updates = row.get("supports_reasoning_effort_updates").and_then(Value::as_bool);
     // `supportsReasoningSummaries: m?.supports_reasoning_summaries === true`: always stated.
     record.supports_reasoning_summaries = Some(row.get("supports_reasoning_summaries").and_then(Value::as_bool) == Some(true));
@@ -184,8 +173,7 @@ pub fn codex_record(row: &Value) -> Option<ModelRecord> {
     if !levels.is_empty() {
         record.picker.reasoning_options = vec![ReasoningOption { kind: "effort".into(), values: levels.clone() }];
     }
-    record.default_reasoning_level =
-        row.get("default_reasoning_level").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    record.default_reasoning_level = row.get("default_reasoning_level").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     record.reasoning_levels = levels;
     record.hidden = row.get("visibility").and_then(Value::as_str) == Some("hide") || access_only;
     record.raw = Some(row.clone());
@@ -218,9 +206,7 @@ static GPT_VERSION: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"g
 
 /// `[major, minor]` of `gpt-X.Y`; none when the id has no dotted version.
 fn gpt_version(id: &str) -> Vec<f64> {
-    GPT_VERSION.captures(id).map_or_else(Vec::new, |caps| {
-        (1..=2).map(|i| caps.get(i).and_then(|part| part.parse::<f64>().ok()).unwrap_or(0.0)).collect()
-    })
+    GPT_VERSION.captures(id).map_or_else(Vec::new, |caps| (1..=2).map(|i| caps.get(i).and_then(|part| part.parse::<f64>().ok()).unwrap_or(0.0)).collect())
 }
 
 /// `_compareVersion(a, b) > 0`.
@@ -284,10 +270,7 @@ impl OpenAiModels {
         let credential = self.credentials.current().await?;
         let identity = self.identity_of(&credential);
         let (url, headers) = match self.codec.route() {
-            Route::ApiKey => (
-                API_MODELS_URL.to_owned(),
-                vec![("Authorization".to_owned(), format!("Bearer {}", credential.bearer))],
-            ),
+            Route::ApiKey => (API_MODELS_URL.to_owned(), vec![("Authorization".to_owned(), format!("Bearer {}", credential.bearer))]),
             Route::Codex => {
                 let version = self.codec.identity().map(|i| i.version.get()).unwrap_or_default();
                 (
@@ -301,19 +284,8 @@ impl OpenAiModels {
                 )
             }
         };
-        let response = self
-            .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "GET".into(),
-                    url,
-                    headers,
-                    body: Vec::new(),
-                },
-                OPENAI_CATALOG,
-            )
-            .await?;
+        let response =
+            self.http.send(WireRequest { transport: TransportKind::Http1, method: "GET".into(), url, headers, body: Vec::new() }, OPENAI_CATALOG).await?;
         let success = response.is_success();
         let read = response.read_all().await?;
         if !success {
@@ -414,11 +386,13 @@ mod tests {
         async fn current(&self) -> Result<crate::providers::openai::adapter::Credential, ProviderError> {
             Ok(crate::providers::openai::adapter::Credential { bearer: "t".into(), account_id: Some("a".into()) })
         }
-        async fn after_rejection(&self, _: &crate::providers::openai::adapter::Credential) -> Result<Option<crate::providers::openai::adapter::Credential>, ProviderError> {
+        async fn after_rejection(
+            &self,
+            _: &crate::providers::openai::adapter::Credential,
+        ) -> Result<Option<crate::providers::openai::adapter::Credential>, ProviderError> {
             Ok(None)
         }
     }
-
 
     /// The catalog that outlives its timer reads as the real Node function did (`sites.openaiCatalog`).
     #[tokio::test(start_paused = true)]

@@ -16,8 +16,7 @@ use mixdog_core_base::rooms::ids::ROOM_ROW_SOURCE;
 fn room_of(message: &Value) -> Option<&Value> {
     let meta = message.get("meta")?;
     let room = meta.get("room")?;
-    (meta.get("source").and_then(Value::as_str) == Some(ROOM_ROW_SOURCE) && room.get("kind").is_some_and(truthy))
-        .then_some(room)
+    (meta.get("source").and_then(Value::as_str) == Some(ROOM_ROW_SOURCE) && room.get("kind").is_some_and(truthy)).then_some(room)
 }
 
 /// `isReactableMessage`: a message the user wrote (a prompt typed or steered into the chat, or the
@@ -100,9 +99,7 @@ pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Resul
     let agent_of = |entry: &Value| entry["agentId"].as_str().unwrap_or_default().to_owned();
     let own = current.iter().find(|entry| agent_of(entry) == change.agent_id);
     if !change.emoji.is_empty() && change.others_keep {
-        let taken = current
-            .iter()
-            .find(|entry| agent_of(entry) != change.agent_id && entry["emoji"].as_str() == Some(change.emoji));
+        let taken = current.iter().find(|entry| agent_of(entry) != change.agent_id && entry["emoji"].as_str() == Some(change.emoji));
         if let Some(taken) = taken {
             return Err(format!("react: {} already left {} on that message", agent_of(taken), change.emoji));
         }
@@ -131,8 +128,4 @@ pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Resul
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
-
+mod tests {}

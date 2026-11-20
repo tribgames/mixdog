@@ -70,9 +70,9 @@ fn separate(current: &Doc) -> Doc {
     desktop.shift_remove("zoomFactor");
     desktop.shift_remove("git");
     let historical = match record(desktop.get("activityRailPins")).get("pins") {
-        Some(Value::Array(pins)) => HISTORICAL_ACTIVITY_RAIL_PINS
-            .iter()
-            .any(|list| pins.len() == list.len() && pins.iter().zip(list.iter()).all(|(pin, id)| pin.as_str() == Some(*id))),
+        Some(Value::Array(pins)) => {
+            HISTORICAL_ACTIVITY_RAIL_PINS.iter().any(|list| pins.len() == list.len() && pins.iter().zip(list.iter()).all(|(pin, id)| pin.as_str() == Some(*id)))
+        }
         _ => false,
     };
     if historical {

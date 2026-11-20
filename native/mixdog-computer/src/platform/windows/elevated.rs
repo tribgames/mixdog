@@ -13,34 +13,30 @@
 
 use super::native::Process;
 use super::process::creation_time;
-use crate::protocol::{Obj, Req};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
-use std::sync::Arc;
 use crate::elevated_launch::Cancellation;
-use windows::core::{HSTRING, PCWSTR};
+use crate::protocol::{Obj, Req};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{ERROR_CANCELLED, ERROR_INVALID_PARAMETER, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
-use windows::Win32::Security::Cryptography::{
-    BCryptGenRandom, BCryptHash, BCRYPT_SHA256_ALG_HANDLE, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+use windows::Win32::Security::Cryptography::{BCRYPT_SHA256_ALG_HANDLE, BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom, BCryptHash};
+use windows::Win32::Storage::FileSystem::{
+    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification,
+};
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject,
 };
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId, WaitForMultipleObjects,
-    WaitForSingleObject, OpenProcess, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId, INFINITE, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    WaitForMultipleObjects, WaitForSingleObject,
 };
-use windows::Win32::Storage::FileSystem::{
-    FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification, FILE_NOTIFY_CHANGE_FILE_NAME,
-    FILE_NOTIFY_CHANGE_LAST_WRITE,
-};
-use windows::Win32::System::JobObjects::{CreateJobObjectW, SetInformationJobObject,
-    AssignProcessToJobObject, JobObjectExtendedLimitInformation,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE};
-use windows::Win32::UI::Shell::{
-    ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-};
+use windows::Win32::UI::Shell::{SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+use windows::core::{HSTRING, PCWSTR};
 
 /// How long the launcher waits before it asks the worker to cancel.
 const LAUNCHER_DEADLINE: Duration = Duration::from_secs(120);
@@ -63,9 +59,7 @@ const GRANT_FILE: &str = "grant";
 const REVOKE_FILE: &str = "revoke";
 /// The supervisor's acknowledgement: the input child closed admission, or exited.
 const CLOSED_FILE: &str = "closed";
-use crate::platform::{
-    ELEVATED_GRANT_LINE as GRANT_LINE, ELEVATED_REVOKED_LINE as REVOKED_LINE, ELEVATED_REVOKE_LINE as REVOKE_LINE,
-};
+use crate::platform::{ELEVATED_GRANT_LINE as GRANT_LINE, ELEVATED_REVOKE_LINE as REVOKE_LINE, ELEVATED_REVOKED_LINE as REVOKED_LINE};
 
 /// The worker's answer to a foreground request; always Some on Windows.
 pub fn run(scope: &crate::port::Scope, req: &Req) -> Option<Result<Obj, String>> {
@@ -196,10 +190,7 @@ fn new_token() -> Result<String, String> {
 
 /// The token shape the worker accepts (`^[A-Za-z0-9_-]{32,}$`).
 fn token_valid(token: &str) -> bool {
-    token.len() >= 32
-        && token
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    token.len() >= 32 && token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
 /// Process identity: id and creation FILETIME.
@@ -231,7 +222,9 @@ fn dotnet_ticks(filetime: i64) -> Option<i64> {
 
 /// A read-only identity query. Access denied is never reported as a missing PID.
 pub fn process_start_ticks(pid: u32) -> Result<Option<i64>, String> {
-    if pid == 0 { return Err("process identity query requires a positive PID".into()); }
+    if pid == 0 {
+        return Err("process identity query requires a positive PID".into());
+    }
     // SAFETY: only query rights, no mutation or inherited handle.
     let process = match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, false, pid) } {
         Ok(handle) => Process(handle),
@@ -243,15 +236,13 @@ pub fn process_start_ticks(pid: u32) -> Result<Option<i64>, String> {
         WAIT_TIMEOUT => {}
         _ => return Err("process identity query failed: process state is unavailable".into()),
     }
-    dotnet_ticks(creation_time(process.0)).map(Some)
-        .ok_or_else(|| "process identity query failed: creation time is unavailable".into())
+    dotnet_ticks(creation_time(process.0)).map(Some).ok_or_else(|| "process identity query failed: creation time is unavailable".into())
 }
 
 /// Whether a process's identity is the one expected. A creation time that
 /// could not be read (0 on either side) leaves the id alone to decide.
 fn same_identity(expected: Identity, actual: Identity) -> bool {
-    expected.pid == actual.pid
-        && (expected.created == 0 || actual.created == 0 || expected.created == actual.created)
+    expected.pid == actual.pid && (expected.created == 0 || actual.created == 0 || expected.created == actual.created)
 }
 
 /// What the worker needs from its launcher, as command-line arguments.
@@ -355,11 +346,7 @@ fn read_response(text: &str, token: &str, worker: Identity, id: i64) -> Result<O
             _ => Obj::new(),
         });
     }
-    Err(body
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or("privileged_worker_failed: structured response is missing")
-        .to_string())
+    Err(body.get("error").and_then(Value::as_str).unwrap_or("privileged_worker_failed: structured response is missing").to_string())
 }
 
 /// Why there is no response file (elevatedLauncherFailure).
@@ -413,14 +400,8 @@ struct Unconfirmed {
 fn watch_unconfirmed(fence: &WorkerFence, tail: &Unconfirmed, changed: impl Fn()) {
     let Some(process) = fence.process.get().map(|process| (process.0).0) else { return };
     // SAFETY: a change notification on the launch directory, closed below.
-    let notification = unsafe {
-        FindFirstChangeNotificationW(
-            &HSTRING::from(tail.dir.as_os_str()),
-            false,
-            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
-        )
-    }
-    .ok();
+    let notification =
+        unsafe { FindFirstChangeNotificationW(&HSTRING::from(tail.dir.as_os_str()), false, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE) }.ok();
     // A report that landed between `launch`'s last read and this registration is published now; later ones on the notification.
     let mut reported = tail.reported.clone();
     let now = fence.child_report();
@@ -529,9 +510,7 @@ fn run_worker(launch: &Launch, id: i64, fence: &WorkerFence) -> (Result<Obj, Str
         Err(error) => return (Err(error), WorkerEnd::StopUnconfirmed { worker }),
     };
     let text = std::fs::read_to_string(launch.dir.join(RESPONSE_FILE)).ok();
-    let answered = text.as_deref().is_some_and(|text| {
-        authenticated_body(text, &launch.token, worker, id).is_ok_and(|body| body.get("worker_error").is_none())
-    });
+    let answered = text.as_deref().is_some_and(|text| authenticated_body(text, &launch.token, worker, id).is_ok_and(|body| body.get("worker_error").is_none()));
     let outcome = match text {
         Some(text) => read_response(&text, &launch.token, worker, id),
         None => Err(missing_response(exit)),
@@ -546,18 +525,21 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
     let mut stopped = true; // No child exists until start succeeds.
     let mut staged: Option<PathBuf> = None;
     let outcome = (|| -> Result<Value, String> {
-        let request = message.get("request").filter(|value| value.is_object())
-            .ok_or("privileged worker request is not an object")?;
+        let request = message.get("request").filter(|value| value.is_object()).ok_or("privileged worker request is not an object")?;
         let id = request.get("id").and_then(Value::as_i64).ok_or(INCOMPLETE)?;
-        let marker = message.get("inputMarker").and_then(Value::as_str)
-            .and_then(|value| value.parse::<i64>().ok()).ok_or(INCOMPLETE)?;
-        let ledger = message.get("inactiveLedger").and_then(Value::as_str)
-            .filter(|value| !value.is_empty()).ok_or(INCOMPLETE)?;
+        let marker = message.get("inputMarker").and_then(Value::as_str).and_then(|value| value.parse::<i64>().ok()).ok_or(INCOMPLETE)?;
+        let ledger = message.get("inactiveLedger").and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or(INCOMPLETE)?;
         let token = new_token()?;
         let dir = std::env::temp_dir().join(format!("mixdog-elevated-{token}"));
         let bytes = format!("{request}\n").into_bytes();
-        let launch = Launch { dir: dir.clone(), token, request_sha256: sha256_hex(&bytes)?,
-            marker: Some(marker), ledger: Some(PathBuf::from(ledger)), parent: own_identity() };
+        let launch = Launch {
+            dir: dir.clone(),
+            token,
+            request_sha256: sha256_hex(&bytes)?,
+            marker: Some(marker),
+            ledger: Some(PathBuf::from(ledger)),
+            parent: own_identity(),
+        };
         std::fs::create_dir(&dir).map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
         staged = Some(dir.clone());
         std::fs::write(dir.join(REQUEST_FILE), bytes).map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
@@ -565,7 +547,9 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
         let word: Arc<dyn crate::port::AdmissionWord> = Arc::new(crate::port::windows::shared::create(&launch.token)?);
         cancelled.fence(word)?;
         cancelled.arm(dir.join(CANCEL_FILE))?;
-        if cancelled.requested() { return Err("privileged_worker_cancelled".into()); }
+        if cancelled.requested() {
+            return Err("privileged_worker_cancelled".into());
+        }
         stopped = false;
         let (process, worker) = match start(&launch) {
             Ok(child) => child,
@@ -590,14 +574,18 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
         let body = authenticated_body(&text, &launch.token, worker, id)?;
         stopped = true;
         if let Some(error) = body.get("worker_error").and_then(Value::as_str) {
-            if error.contains("cleanup_unconfirmed") { stopped = false; }
+            if error.contains("cleanup_unconfirmed") {
+                stopped = false;
+            }
             return Err(format!("privileged_worker_failed: {error}"));
         }
         Ok(body)
     })();
     cancelled.disarm();
     if stopped {
-        if let Some(dir) = staged { let _ = std::fs::remove_dir_all(dir); }
+        if let Some(dir) = staged {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
     let (receipt, code) = match outcome {
         Ok(response) => (json!({"kind":"result", "stopped":stopped, "response":response}), 0),
@@ -610,8 +598,7 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
 /// ShellExecuteExW with the `runas` verb on this executable; the process
 /// handle and the identity of the worker it started.
 fn start(launch: &Launch) -> Result<(Process, Identity), String> {
-    let program = std::env::current_exe()
-        .map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
+    let program = std::env::current_exe().map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
     let file = HSTRING::from(program.as_os_str());
     let parameters = HSTRING::from(launch.command_line());
     let verb = HSTRING::from("runas");
@@ -663,9 +650,7 @@ fn wait_controlled(process: &Process, cancel_file: &Path, token: &str, cancelled
                 cancelled_at = Some(Instant::now());
             }
             Some(at) if at.elapsed() >= CANCEL_GRACE => {
-                return Err(
-                    "privileged_worker_cleanup_unconfirmed: elevated input did not acknowledge cancellation".into(),
-                );
+                return Err("privileged_worker_cleanup_unconfirmed: elevated input did not acknowledge cancellation".into());
             }
             _ => {}
         }
@@ -682,12 +667,7 @@ fn exit_code(process: HANDLE) -> u32 {
 // --- worker -----------------------------------------------------------------
 
 /// Why a running worker must stop (Test-Cancelled).
-fn stop_reason(
-    now: Instant,
-    deadline: Instant,
-    cancel_requested: bool,
-    parent_alive: bool,
-) -> Option<&'static str> {
+fn stop_reason(now: Instant, deadline: Instant, cancel_requested: bool, parent_alive: bool) -> Option<&'static str> {
     (now >= deadline || cancel_requested || !parent_alive).then_some("privileged_worker_cancelled")
 }
 
@@ -744,10 +724,7 @@ pub fn worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 
         _ => return refuse("privileged worker request is not an object".into()),
     };
     if let Some(expires) = req.int("authorization_expires_at") {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis() as i64)
-            .unwrap_or(i64::MAX);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_millis() as i64).unwrap_or(i64::MAX);
         if now >= expires {
             return refuse("computer_policy_expired: authorization expired before elevated input".into());
         }
@@ -757,10 +734,7 @@ pub fn worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 
         return refuse(error);
     }
     let body = supervise_input(&line, &launch, deadline);
-    let _ = std::fs::write(
-        launch.dir.join(RESPONSE_FILE),
-        response_text(&launch.token, me, &body),
-    );
+    let _ = std::fs::write(launch.dir.join(RESPONSE_FILE), response_text(&launch.token, me, &body));
     0
 }
 
@@ -768,18 +742,23 @@ pub fn worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 
 /// stops and waits for the input process BEFORE releasing its owned input.
 fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
     use std::io::{Read, Write};
-    use std::process::{Command, Stdio};
-    use std::os::windows::process::CommandExt;
     use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
     // Non-inheritable handle; losing this supervisor kills its input child.
     let job = match input_job() {
         Ok(job) => job,
         Err(error) => return json!({"worker_error":error}),
     };
-    let mut child = match std::env::current_exe().and_then(|program|
-        Command::new(program).arg("--elevated-input")
+    let mut child = match std::env::current_exe().and_then(|program| {
+        Command::new(program)
+            .arg("--elevated-input")
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()) {
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    }) {
         Ok(child) => child,
         Err(error) => return json!({"worker_error":format!("privileged worker could not start: {error}")}),
     };
@@ -837,12 +816,15 @@ fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
     let mut relay = Relay { dir: &launch.dir, token: &launch.token, granted: false, revoked: false, reported: None };
     let clock = Instant::now();
     // Each poll relays the launcher's grant and revocation first; the waits between hold nothing.
-    let reason = match supervise_wait(&mut child,
+    let reason = match supervise_wait(
+        &mut child,
         || {
             relay.relay(&control, reported.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone());
             stop_reason(Instant::now(), deadline, launch.dir.join(CANCEL_FILE).exists(), parent_alive(launch.parent)).map(str::to_owned)
         },
-        || clock.elapsed(), || std::thread::sleep(POLL)) {
+        || clock.elapsed(),
+        || std::thread::sleep(POLL),
+    ) {
         Ok(reason) => reason,
         Err(error) => return json!({"worker_error":error}),
     };
@@ -857,14 +839,16 @@ fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
     if let Err(error) = released.and(recovered) {
         return json!({"worker_error":format!("privileged_worker_cleanup_unconfirmed: {error}")});
     }
-    if let Some(reason) = reason { return json!({"worker_error":reason}); }
+    if let Some(reason) = reason {
+        return json!({"worker_error":reason});
+    }
     if !matches!(writer.join(), Ok(Ok(()))) {
         return json!({"worker_error":"privileged worker request could not be written"});
     }
     match reader.join() {
-        Ok(Ok(bytes)) if bytes.len() <= crate::elevated_launch::MAX_REQUEST =>
-            serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_|
-                json!({"worker_error":"privileged worker host returned no structured response"})),
+        Ok(Ok(bytes)) if bytes.len() <= crate::elevated_launch::MAX_REQUEST => {
+            serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_| json!({"worker_error":"privileged worker host returned no structured response"}))
+        }
         _ => json!({"worker_error":"privileged worker host returned no structured response"}),
     }
 }
@@ -908,12 +892,18 @@ impl InputControl for std::process::Child {
     fn exited(&mut self) -> Result<bool, String> {
         self.try_wait().map(|status| status.is_some()).map_err(|error| error.to_string())
     }
-    fn stop(&mut self) { let _ = self.kill(); }
+    fn stop(&mut self) {
+        let _ = self.kill();
+    }
 }
 
 /// Testable process supervision: a stop request is never a stop receipt.
-fn supervise_wait(child: &mut impl InputControl, mut cancelled: impl FnMut() -> Option<String>,
-    mut elapsed: impl FnMut() -> Duration, mut pause: impl FnMut()) -> Result<Option<String>, String> {
+fn supervise_wait(
+    child: &mut impl InputControl,
+    mut cancelled: impl FnMut() -> Option<String>,
+    mut elapsed: impl FnMut() -> Duration,
+    mut pause: impl FnMut(),
+) -> Result<Option<String>, String> {
     let mut reason = None;
     let mut stopping = None;
     loop {
@@ -942,12 +932,10 @@ fn supervise_wait(child: &mut impl InputControl, mut cancelled: impl FnMut() -> 
 
 fn input_job() -> Result<Process, String> {
     // Process is the local CloseHandle RAII wrapper; it also owns job handles.
-    let job = Process(unsafe { CreateJobObjectW(None, PCWSTR::null()) }
-        .map_err(|error| format!("privileged_worker_unavailable: {error}"))?);
+    let job = Process(unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map_err(|error| format!("privileged_worker_unavailable: {error}"))?);
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    unsafe { SetInformationJobObject(job.0, JobObjectExtendedLimitInformation,
-        &limits as *const _ as *const _, std::mem::size_of_val(&limits) as u32) }
+    unsafe { SetInformationJobObject(job.0, JobObjectExtendedLimitInformation, &limits as *const _ as *const _, std::mem::size_of_val(&limits) as u32) }
         .map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
     Ok(job)
 }
@@ -955,8 +943,12 @@ fn input_job() -> Result<Process, String> {
 fn wait_input_stop(child: &mut std::process::Child) -> bool {
     let started = Instant::now();
     loop {
-        if matches!(child.try_wait(), Ok(Some(_))) { return true; }
-        if started.elapsed() >= Duration::from_secs(5) { return false; }
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return true;
+        }
+        if started.elapsed() >= Duration::from_secs(5) {
+            return false;
+        }
         std::thread::sleep(POLL);
     }
 }
@@ -968,20 +960,25 @@ mod tests {
     const WORKER: Identity = Identity { pid: 4242, created: 133_750_000_000_000_000 };
     const TOKEN: &str = "abcdefghijklmnopqrstuvwxyzABCDEF_-0123456789";
 
-    struct FakeInput { polls: usize, stopped: bool, acknowledges: bool }
+    struct FakeInput {
+        polls: usize,
+        stopped: bool,
+        acknowledges: bool,
+    }
     impl InputControl for FakeInput {
         fn exited(&mut self) -> Result<bool, String> {
             self.polls += 1;
             Ok(self.stopped && self.acknowledges && self.polls >= 3)
         }
-        fn stop(&mut self) { self.stopped = true; }
+        fn stop(&mut self) {
+            self.stopped = true;
+        }
     }
 
     #[test]
     fn cancellation_waits_for_actual_child_exit_before_allowing_cleanup() {
         let mut child = FakeInput { polls: 0, stopped: false, acknowledges: true };
-        let answer = supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()),
-            || Duration::ZERO, || {});
+        let answer = supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()), || Duration::ZERO, || {});
         assert_eq!(answer.unwrap(), Some("privileged_worker_cancelled".into()));
         assert!(child.stopped && child.polls >= 3);
     }
@@ -990,8 +987,8 @@ mod tests {
     fn an_unacknowledged_kill_cannot_become_a_stop_receipt() {
         let mut child = FakeInput { polls: 0, stopped: false, acknowledges: false };
         let clock = std::cell::Cell::new(0);
-        let answer = supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()),
-            || Duration::from_secs(clock.get()), || clock.set(clock.get() + 1));
+        let answer =
+            supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()), || Duration::from_secs(clock.get()), || clock.set(clock.get() + 1));
         assert_eq!(answer.unwrap_err(), "privileged_worker_cleanup_unconfirmed");
         assert!(child.stopped);
     }
@@ -1028,10 +1025,7 @@ mod tests {
 
     #[test]
     fn sha256_matches_the_known_digest() {
-        assert_eq!(
-            sha256_hex(b"abc").unwrap(),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
+        assert_eq!(sha256_hex(b"abc").unwrap(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
     #[test]
@@ -1119,37 +1113,18 @@ mod tests {
     #[test]
     fn a_response_is_rejected_for_a_wrong_token_identity_or_id() {
         let text = response_text(TOKEN, WORKER, &envelope(9));
-        assert_eq!(
-            read_response(&text, "another-token", WORKER, 9).unwrap_err(),
-            "privileged_worker_rejected: response authentication failed"
-        );
+        assert_eq!(read_response(&text, "another-token", WORKER, 9).unwrap_err(), "privileged_worker_rejected: response authentication failed");
         let other = Identity { pid: 7, ..WORKER };
-        assert_eq!(
-            read_response(&text, TOKEN, other, 9).unwrap_err(),
-            "privileged_worker_rejected: response identity mismatch"
-        );
-        assert_eq!(
-            read_response(&text, TOKEN, WORKER, 10).unwrap_err(),
-            "privileged_worker_rejected: response id mismatch"
-        );
-        assert_eq!(
-            read_response(TOKEN, TOKEN, WORKER, 9).unwrap_err(),
-            "privileged_worker_rejected: response identity mismatch"
-        );
+        assert_eq!(read_response(&text, TOKEN, other, 9).unwrap_err(), "privileged_worker_rejected: response identity mismatch");
+        assert_eq!(read_response(&text, TOKEN, WORKER, 10).unwrap_err(), "privileged_worker_rejected: response id mismatch");
+        assert_eq!(read_response(TOKEN, TOKEN, WORKER, 9).unwrap_err(), "privileged_worker_rejected: response identity mismatch");
     }
 
     #[test]
     fn a_workers_refusal_and_the_hosts_own_error_keep_their_text() {
         let refusal = response_text(TOKEN, WORKER, &json!({ "worker_error": "no way" }));
-        assert_eq!(
-            read_response(&refusal, TOKEN, WORKER, 9).unwrap_err(),
-            "privileged_worker_failed: no way"
-        );
-        let failed = response_text(
-            TOKEN,
-            WORKER,
-            &json!({ "id": 9, "ok": false, "error": "window_id is stale" }),
-        );
+        assert_eq!(read_response(&refusal, TOKEN, WORKER, 9).unwrap_err(), "privileged_worker_failed: no way");
+        let failed = response_text(TOKEN, WORKER, &json!({ "id": 9, "ok": false, "error": "window_id is stale" }));
         assert_eq!(read_response(&failed, TOKEN, WORKER, 9).unwrap_err(), "window_id is stale");
     }
 
@@ -1157,10 +1132,7 @@ mod tests {
     fn a_missing_response_is_classified_by_the_exit_code() {
         assert_eq!(missing_response(1223), "privileged_worker_cancelled: UAC consent was declined");
         assert_eq!(missing_response(0), "privileged_worker_unavailable: elevated worker returned no response");
-        assert_eq!(
-            missing_response(3),
-            "privileged_worker_launcher_failed: elevated worker exited with code 3"
-        );
+        assert_eq!(missing_response(3), "privileged_worker_launcher_failed: elevated worker exited with code 3");
     }
 
     #[test]
@@ -1182,12 +1154,7 @@ mod tests {
 
     /// A process this test controls: it runs until its standard input closes.
     fn controlled_child() -> (std::process::Child, Process) {
-        let child = std::process::Command::new("findstr.exe")
-            .arg("x")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = std::process::Command::new("findstr.exe").arg("x").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).spawn().unwrap();
         let process = Process::open(child.id(), (PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE).0).unwrap();
         (child, process)
     }
@@ -1293,7 +1260,8 @@ mod tests {
             let _ = published.send(report.cleanup);
         });
         assert_eq!(scope.report().cleanup, Cleanup::Pending, "the supervisor is live and said nothing");
-        let tail = Unconfirmed { dir: dir.clone(), token: token.clone(), ledger: None, worker: Identity { pid: child.id(), created: 0 }, id: 1, reported: None };
+        let tail =
+            Unconfirmed { dir: dir.clone(), token: token.clone(), ledger: None, worker: Identity { pid: child.id(), created: 0 }, id: 1, reported: None };
         let watcher = {
             let (fence, scope) = (fence.clone(), scope.clone());
             std::thread::spawn(move || watch_unconfirmed(&fence, &tail, || scope.notify()))

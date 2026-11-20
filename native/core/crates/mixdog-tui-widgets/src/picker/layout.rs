@@ -66,9 +66,7 @@ pub fn normalize_footer_lines(lines: &[FooterInput], columns: usize) -> Vec<Foot
         .map(|line| {
             let (glyph, color, text) = match line {
                 FooterInput::Plain(text) => (String::new(), themed(Key::Text).fg, text.as_str()),
-                FooterInput::Object { glyph, color, text } => {
-                    (glyph.clone(), color.map_or(themed(Key::PanelTitle).fg, grid_color), text.as_str())
-                }
+                FooterInput::Object { glyph, color, text } => (glyph.clone(), color.map_or(themed(Key::PanelTitle).fg, grid_color), text.as_str()),
             };
             let room = columns.saturating_sub(if glyph.is_empty() { 4 } else { 7 });
             FooterLine { text: truncate_panel_text(text, room), glyph, color }

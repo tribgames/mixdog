@@ -49,11 +49,7 @@ impl StateScheduleStore {
 
     /// Applies `f` to row `name` in one transaction and stamps `updatedAt`; None when the row
     /// does not exist.
-    async fn edit<R: Send + 'static>(
-        &self,
-        name: &str,
-        f: impl FnOnce(&mut Schedule) -> R + Send + 'static,
-    ) -> Result<Option<R>, ScheduleError> {
+    async fn edit<R: Send + 'static>(&self, name: &str, f: impl FnOnce(&mut Schedule) -> R + Send + 'static) -> Result<Option<R>, ScheduleError> {
         let (name, now) = (name.to_owned(), self.clock.now());
         self.state
             .write(move |tx| {
@@ -77,11 +73,7 @@ impl ScheduleStore for StateScheduleStore {
 
     async fn list(&self) -> Result<Vec<Schedule>, ScheduleError> {
         let rows = self.state.meta_prefix(KEY_PREFIX).await.map_err(store_error)?;
-        let mut all = rows
-            .iter()
-            .map(|(k, text)| parse(&k[KEY_PREFIX.len()..], text))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(store_error)?;
+        let mut all = rows.iter().map(|(k, text)| parse(&k[KEY_PREFIX.len()..], text)).collect::<Result<Vec<_>, _>>().map_err(store_error)?;
         // Node's `ORDER BY name` runs on the embedded PG, initdb'd `--no-locale -E UTF8`
         // (memory/lib/pg/process.mjs): C collation = byte order of the UTF-8, i.e. code-point
         // order, which is exactly `str::cmp` (not UTF-16 order for names beyond the BMP).

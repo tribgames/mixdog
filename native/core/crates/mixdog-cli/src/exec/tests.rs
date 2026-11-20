@@ -1,10 +1,7 @@
 //! Parity tests of `src/headless-exec.test.mjs` on a scripted core: exit codes, outputs, the usage
 //! document, the re-ask on completions, the ordered shutdown and the removal of the root. The
 //! JSON lifecycle and the usage document are compared with what Node wrote (`tests/goldens`).
-#![allow(
-    clippy::disallowed_methods,
-    reason = "the tests inspect the files the exec writes and removes"
-)]
+#![allow(clippy::disallowed_methods, reason = "the tests inspect the files the exec writes and removes")]
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -360,16 +357,18 @@ async fn usage_is_on_disk_before_the_next_response_arrives() {
     let usage_path = dir.path().join("usage.json");
     let launcher = FakeLauncher::new(
         "sess_flush_test",
-        vec![Turn::Paced(vec![Paced::Send(usage(None, 9, 4, 2, 6)), Paced::Probe(usage_path.clone()), Paced::Send(assistant("done")), Paced::Send(completed())])],
+        vec![Turn::Paced(vec![
+            Paced::Send(usage(None, 9, 4, 2, 6)),
+            Paced::Probe(usage_path.clone()),
+            Paced::Send(assistant("done")),
+            Paced::Send(completed()),
+        ])],
     );
     let (code, _) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
 
     assert_eq!(code, 0);
     let mid: Value = serde_json::from_str(launcher.probes.lock().unwrap()[0].as_deref().expect("the file existed mid-run")).unwrap();
-    assert_eq!(
-        mid["totals"],
-        json!({ "inputTokens": 9, "cacheTokens": 4, "cacheWriteTokens": 2, "outputTokens": 6, "toolCallCountApprox": 0 })
-    );
+    assert_eq!(mid["totals"], json!({ "inputTokens": 9, "cacheTokens": 4, "cacheWriteTokens": 2, "outputTokens": 6, "toolCallCountApprox": 0 }));
 }
 
 #[tokio::test]
@@ -662,10 +661,7 @@ fn options_stand_anywhere_until_the_escape_and_refusals_are_nodes() {
         (&["--effort", " Exec ", "hi"], "option --effort requires a route value before \" Exec \""),
         (&["--workflow", "exec", "hi"], "option --workflow is not supported for mixdog exec"),
         (&["--worktree", "--no-worktree", "hi"], "options --worktree and --no-worktree are mutually exclusive"),
-        (
-            &["--worktree=a b", "hi"],
-            "option --worktree name \"a b\" is invalid: use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit",
-        ),
+        (&["--worktree=a b", "hi"], "option --worktree name \"a b\" is invalid: use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit"),
         (&["--worktree", "task", "hi"], "option --worktree is not supported for mixdog exec"),
         (&["--worktree", "exec", "hi"], "option --worktree is not supported for mixdog exec"),
         (&["hi", "--tool-mode"], "unknown option --tool-mode"),
@@ -806,9 +802,21 @@ async fn the_json_lifecycle_is_one_line_per_event_in_order() {
     assert_eq!(
         kinds,
         [
-            "thread.started", "turn.started", "model.request.started", "model.request.completed", "item.completed", "item.started",
-            "tool.batch.started", "item.completed", "tool.batch.completed", "notification", "model.request.started", "item.completed",
-            "model.request.completed", "turn.completed", "result"
+            "thread.started",
+            "turn.started",
+            "model.request.started",
+            "model.request.completed",
+            "item.completed",
+            "item.started",
+            "tool.batch.started",
+            "item.completed",
+            "tool.batch.completed",
+            "notification",
+            "model.request.started",
+            "item.completed",
+            "model.request.completed",
+            "turn.completed",
+            "result"
         ]
     );
     // The stream's thread id is the one the exec reserves for its session (`exec_<32 hex>`), the same on every line.
@@ -826,7 +834,10 @@ async fn the_json_lifecycle_is_one_line_per_event_in_order() {
     assert_eq!(done["timing"], json!({ "queue_ms": 0, "dispatch_ms": 2, "execution_ms": 3, "batch_wait_ms": 1, "postprocess_ms": 2, "total_ms": 8 }));
     assert_eq!(lines[13]["usage"], json!({ "input_tokens": 16, "cached_input_tokens": 7, "cache_write_input_tokens": 3, "output_tokens": 7, "tool_calls": 1 }));
     let result = &lines[14];
-    assert_eq!((&result["subtype"], &result["result"], &result["num_turns"], &result["provider_requests"]), (&json!("success"), &json!("done"), &json!(1), &json!(2)));
+    assert_eq!(
+        (&result["subtype"], &result["result"], &result["num_turns"], &result["provider_requests"]),
+        (&json!("success"), &json!("done"), &json!(1), &json!(2))
+    );
     // The credential is bound in process: the run reads the host's own file, no copy.
     let bound = launcher.captured.lock().unwrap().as_ref().unwrap().credential.clone();
     assert_eq!(bound, Some(dir.path().join("host-data").join("openai-oauth.json")));
@@ -840,10 +851,8 @@ async fn the_json_lifecycle_is_one_line_per_event_in_order() {
 #[test]
 fn the_pristine_boundary_carries_only_the_explicit_route() {
     let dir = tempfile::tempdir().unwrap();
-    let host_env: BTreeMap<String, String> = [("MIXDOG_X", "1"), ("OPENAI_API_KEY", "sk-host"), ("PATH", "p")]
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value.to_owned()))
-        .collect();
+    let host_env: BTreeMap<String, String> =
+        [("MIXDOG_X", "1"), ("OPENAI_API_KEY", "sk-host"), ("PATH", "p")].into_iter().map(|(name, value)| (name.to_owned(), value.to_owned())).collect();
     struct Key;
     impl HostCredentials for Key {
         fn api_key(&self, _provider: &str) -> Option<String> {
@@ -904,7 +913,19 @@ async fn the_tool_mode_reaches_the_core_as_the_sessions_mode() {
     for mode in ["readonly", "full"] {
         let dir = tempfile::tempdir().unwrap();
         let usage_path = dir.path().join("usage.json");
-        let argv = ["--provider", "anthropic", "--model", "claude-sonnet-4-6", "--cwd", "/work", "--tool-mode", mode, "--usage-log", usage_path.to_str().unwrap(), "go"];
+        let argv = [
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-sonnet-4-6",
+            "--cwd",
+            "/work",
+            "--tool-mode",
+            mode,
+            "--usage-log",
+            usage_path.to_str().unwrap(),
+            "go",
+        ];
         let opts = parse(&argv).unwrap();
         let launcher = FakeLauncher::new("sess_exec_mode", vec![Turn::Events(vec![assistant("read it"), completed()])]);
         let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;

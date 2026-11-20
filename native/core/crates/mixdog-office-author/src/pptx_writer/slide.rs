@@ -249,12 +249,17 @@ impl Slide {
 
     /// `ppt/slides/_rels/slide<n>.xml.rels`: the slide's own relationships, then the layout and the notes slide.
     pub(crate) fn rels_xml(&self) -> String {
-        let mut xml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>{CRLF}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+        let mut xml = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>{CRLF}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+        );
         let mut last = 0;
         for rel in &self.rels {
             last = last.max(rel.rid);
             if rel.to_slide {
-                xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slide{}.xml\"/>", rel.rid, rel.target));
+                xml.push_str(&format!(
+                    "<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slide{}.xml\"/>",
+                    rel.rid, rel.target
+                ));
             } else {
                 xml.push_str(&format!(
                     "<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"{}\" TargetMode=\"External\"/>",
@@ -264,11 +269,18 @@ impl Slide {
         }
         for chart in self.charts() {
             last = last.max(chart.rid());
-            xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"{}\"/>", chart.rid(), chart.target()));
+            xml.push_str(&format!(
+                "<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"{}\"/>",
+                chart.rid(),
+                chart.target()
+            ));
         }
         for rel in &self.rels_media {
             last = last.max(rel.rid);
-            xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"{}\"/>", rel.rid, rel.target));
+            xml.push_str(&format!(
+                "<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"{}\"/>",
+                rel.rid, rel.target
+            ));
         }
         xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>", last + 1));
         xml.push_str(&format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide\" Target=\"../notesSlides/notesSlide{}.xml\"/>", last + 2, self.number));
@@ -427,10 +439,7 @@ fn slide_number_xml(props: &SlideNumber, layout: &Layout, shown: &str) -> String
         Some('r') => "<a:pPr algn=\"r\"/>",
         _ => "<a:pPr algn=\"l\"/>",
     });
-    xml.push_str(&format!(
-        "<a:fld id=\"{{F7021451-1387-4CA6-816F-3879F97B5CBC}}\" type=\"slidenum\"><a:rPr b=\"{}\" lang=\"en-US\"/>",
-        u8::from(props.bold)
-    ));
+    xml.push_str(&format!("<a:fld id=\"{{F7021451-1387-4CA6-816F-3879F97B5CBC}}\" type=\"slidenum\"><a:rPr b=\"{}\" lang=\"en-US\"/>", u8::from(props.bold)));
     xml.push_str(&format!("<a:t>{shown}</a:t></a:fld><a:endParaRPr lang=\"en-US\"/></a:p>"));
     xml.push_str("</p:txBody></p:sp>");
     xml
@@ -473,22 +482,34 @@ mod tests {
         assert_eq!(slide.rels_media[0].target, "../media/Slide-2-image-1.png");
         let mut plain = fresh();
         plain.set_background(Background { fill: Some("abcdef".to_owned()), transparency: Some(20.0), ..Background::default() });
-        assert!(plain.xml().contains("<p:bg><p:bgPr><a:solidFill><a:srgbClr val=\"ABCDEF\"><a:alpha val=\"80000\"/></a:srgbClr></a:solidFill></p:bgPr></p:bg>"));
+        assert!(
+            plain.xml().contains("<p:bg><p:bgPr><a:solidFill><a:srgbClr val=\"ABCDEF\"><a:alpha val=\"80000\"/></a:srgbClr></a:solidFill></p:bgPr></p:bg>")
+        );
     }
 
     #[test]
     fn relationships_list_links_then_pictures_then_layout_and_notes() {
         let mut slide = fresh();
         slide
-            .add_shape("rect", ShapeOptions { hyperlink: Some(Hyperlink { url: Some("https://x.test/?a=1&b=2".to_owned()), ..Hyperlink::default() }), ..ShapeOptions::default() })
+            .add_shape(
+                "rect",
+                ShapeOptions {
+                    hyperlink: Some(Hyperlink { url: Some("https://x.test/?a=1&b=2".to_owned()), ..Hyperlink::default() }),
+                    ..ShapeOptions::default()
+                },
+            )
             .expect("shape");
         slide.add_image(ImageOptions { data: Some("image/png;base64,QUJD".to_owned()), ..ImageOptions::default() }).expect("image");
         let rels = slide.rels_xml();
         let at = |needle: &str| rels.find(needle).unwrap_or_else(|| panic!("{needle} in {rels}"));
-        assert!(at("hyperlink\" Target=\"https://x.test/?a=1&amp;b=2\" TargetMode=\"External\"") < at("relationships/image\" Target=\"../media/image-2-1.png\""));
+        assert!(
+            at("hyperlink\" Target=\"https://x.test/?a=1&amp;b=2\" TargetMode=\"External\"") < at("relationships/image\" Target=\"../media/image-2-1.png\"")
+        );
         assert!(at("slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"") < at("notesSlide\" Target"));
         assert!(rels.contains("Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\""));
-        assert!(rels.contains("Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide\" Target=\"../notesSlides/notesSlide2.xml\""));
+        assert!(rels.contains(
+            "Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide\" Target=\"../notesSlides/notesSlide2.xml\""
+        ));
     }
 
     #[test]
@@ -518,6 +539,10 @@ mod tests {
         assert!(xml.contains("<a:off x=\"10972800\" y=\"6400800\"/><a:ext cx=\"800000\" cy=\"300000\"/>"));
         assert!(xml.contains("<a:bodyPr lIns=\"0\" tIns=\"12700\" rIns=\"25400\" bIns=\"0\" anchor=\"ctr\"/>"));
         assert!(xml.contains("<a:defRPr sz=\"1000\"><a:solidFill><a:srgbClr val=\"808080\"/></a:solidFill><a:latin typeface=\"Arial\"/>"));
-        assert!(xml.contains("<a:pPr algn=\"r\"/><a:fld id=\"{F7021451-1387-4CA6-816F-3879F97B5CBC}\" type=\"slidenum\"><a:rPr b=\"1\" lang=\"en-US\"/><a:t>2</a:t>"));
+        assert!(
+            xml.contains(
+                "<a:pPr algn=\"r\"/><a:fld id=\"{F7021451-1387-4CA6-816F-3879F97B5CBC}\" type=\"slidenum\"><a:rPr b=\"1\" lang=\"en-US\"/><a:t>2</a:t>"
+            )
+        );
     }
 }

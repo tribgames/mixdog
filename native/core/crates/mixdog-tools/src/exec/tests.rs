@@ -97,9 +97,7 @@ fn numbered_lines(lines: std::ops::Range<usize>) -> Vec<u8> {
 #[async_trait]
 impl ProcessManager for FakeProcesses {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
-        let CommandSpec::Shell { script, .. } = &request.command else {
-            unreachable!()
-        };
+        let CommandSpec::Shell { script, .. } = &request.command else { unreachable!() };
         let (tx, rx) = mpsc::unbounded_channel();
         let mut seq = 0;
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
@@ -116,11 +114,7 @@ impl ProcessManager for FakeProcesses {
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
     }
 
-    fn subscribe(
-        &self,
-        handle: &ProcessHandle,
-        _from_seq: Option<u64>,
-    ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+    fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let rx = self.receivers.lock().unwrap().remove(handle).ok_or(ProcessError::UnknownHandle)?;
         Ok(Box::new(ChanSource(rx)))
     }
@@ -153,10 +147,7 @@ impl ProcessManager for FakeProcesses {
         let mut senders = self.senders.lock().unwrap();
         let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         let reason = if self.limited.lock().unwrap().contains(handle) { KillReason::TimeLimit } else { KillReason::Requested };
-        send(tx, seq, |seq| ProcessEvent::Exited {
-            seq,
-            exit: ProcessExit { status: ExitStatus::Signal(9), killed: Some(reason) },
-        });
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Signal(9), killed: Some(reason) } });
         Ok(())
     }
     fn list(&self) -> Vec<ProcessInfo> {
@@ -177,67 +168,44 @@ impl FakeProcesses {
             send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
         } else if script == "run-limited" {
             self.limited.lock().unwrap().insert(handle.clone());
-        } else if let Some(tee) = script
-            .split("-FilePath '")
-            .nth(1)
-            .filter(|_| script.contains("Tee-Object"))
-            .and_then(|rest| rest.split('\'').next())
-        {
+        } else if let Some(tee) = script.split("-FilePath '").nth(1).filter(|_| script.contains("Tee-Object")).and_then(|rest| rest.split('\'').next()) {
             // A filter pipeline whose producer failed: the tee holds what the filters swallowed.
             std::fs::write(tee, "boom\n").unwrap();
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
         } else if script == "echo begin; Start-Sleep 30" {
             let bytes = b"begin\n".to_vec();
-            send(tx, seq,|seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
-            send(tx, seq,|seq| ProcessEvent::Exited {
-                seq,
-                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
-            });
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)) });
         } else if self.quiet.load(std::sync::atomic::Ordering::SeqCst) && script.ends_with("; Start-Sleep 30") {
         } else if let Some(word) = script.strip_suffix("; Start-Sleep 30").and_then(|s| s.strip_prefix("echo ")) {
             let bytes = format!("{word}\n").into_bytes();
-            send(tx, seq,|seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
         } else if script == "echo done-out" {
             // Silent until the test prints and ends it, as Node's process had printed nothing when
             // the task was promoted.
         } else if let Some(rest) = script.strip_prefix("echo ") {
-            send(tx, seq,|seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: format!("{rest}\n").into_bytes(),
-            });
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: format!("{rest}\n").into_bytes() });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
         } else if script.starts_with("grep ") {
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
         } else if script == "korean" {
-            send(tx, seq,|seq| ProcessEvent::Output {
+            send(tx, seq, |seq| ProcessEvent::Output {
                 seq,
                 stream: OutputStream::Stdout,
                 bytes: vec![0xC7, 0xD1, 0xB1, 0xDB, 0x20, 0xC3, 0xE2, 0xB7, 0xC2, 0x0A],
             });
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
         } else if script == "repeat" {
-            send(tx, seq,|seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: "tick\n".repeat(200).into_bytes(),
-            });
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: "tick\n".repeat(200).into_bytes() });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
         } else if script == "big" {
             print_chunked(tx, seq, &numbered_lines(0..200_000));
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
         } else if script == "fail" {
-            send(tx, seq,|seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stderr,
-                bytes: b"boom\n".to_vec(),
-            });
-            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(3), None) });
+            send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stderr, bytes: b"boom\n".to_vec() });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(3), None) });
         } else if script == "timeout" {
-            send(tx, seq,|seq| ProcessEvent::Exited {
-                seq,
-                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
-            });
+            send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)) });
         }
     }
 }
@@ -371,16 +339,10 @@ impl TaskNotifier for OwnerNotices {
     }
 }
 
-
 // ---- invocation plan ----
 
 fn skill_runtime() -> SkillRuntime {
-    SkillRuntime {
-        platform: "win32".into(),
-        interpreter: "C:\\Mixdog\\Mixdog.exe".into(),
-        entry: "C:\\Mixdog\\entry.mjs".into(),
-        electron: true,
-    }
+    SkillRuntime { platform: "win32".into(), interpreter: "C:\\Mixdog\\Mixdog.exe".into(), entry: "C:\\Mixdog\\entry.mjs".into(), electron: true }
 }
 
 /// The bootstrap runs a script only when all of it arrived: an input that ends after half of the script (a pipe that broke
@@ -428,10 +390,16 @@ fn the_hand_off_prelude_sets_paths_with_quotes_of_every_kind_in_the_clear() {
     let cwd = dir.path().join("it's \u{2018}a\u{2019} \u{201a}b\u{201b} 한글 $x `y");
     std::fs::create_dir(&cwd).unwrap();
     let cwd = cwd.to_string_lossy().into_owned();
-    let env = mixdog_core_api::domain::process::EnvSpec { inherit: true, set: vec![("TEMP".to_owned(), cwd.clone())], remove: vec!["TMP".to_owned(), "TMPDIR".to_owned()] };
+    let env = mixdog_core_api::domain::process::EnvSpec {
+        inherit: true,
+        set: vec![("TEMP".to_owned(), cwd.clone())],
+        remove: vec!["TMP".to_owned(), "TMPDIR".to_owned()],
+    };
     let prelude = super::standby::hand_off_prelude(&env, &cwd);
     assert!(prelude.contains("한글"), "{prelude}");
-    let script = format!("{prelude}[Console]::Out.Write($env:TEMP + \"`n\" + (Get-Location).Path + \"`n\" + [System.Environment]::CurrentDirectory + \"`n\" + [string]$env:TMP)");
+    let script = format!(
+        "{prelude}[Console]::Out.Write($env:TEMP + \"`n\" + (Get-Location).Path + \"`n\" + [System.Environment]::CurrentDirectory + \"`n\" + [string]$env:TMP)"
+    );
     let mut child = std::process::Command::new("powershell.exe")
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", super::invocation::POWERSHELL_BOOTSTRAP])
         .stdin(Stdio::piped())
@@ -501,10 +469,7 @@ impl ProcessManager for ExitSignal {
         self.hold(&spawned.handle, ended).await;
         Ok(spawned)
     }
-    async fn spawn_subscribed(
-        &self,
-        request: SpawnRequest,
-    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+    async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
         let (options, ended) = self.options();
         let spawned = self.inner.spawn_subscribed_with(request, options).await?;
         self.hold(&spawned.0.handle, ended).await;
@@ -531,8 +496,6 @@ impl ProcessManager for ExitSignal {
 }
 // ---- the shell's refusal of a command the built-in tools cover: recorded from Node ----
 
-
-
 /// Every completion the owner's default delivery took, with its text.
 #[derive(Default)]
 struct Told(std::sync::Mutex<Vec<(String, String, String)>>);
@@ -543,7 +506,6 @@ impl TaskNotifier for Told {
         self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}"), notification));
     }
 }
-
 
 mod unconfirmed_foreground;
 
@@ -680,11 +642,7 @@ pub(super) fn ctx(rig: &Rig, call: &str) -> ToolContext {
         cancel: CancellationToken::new(),
         deadline: None,
         progress: Arc::new(MockProgress::default()),
-        io: ToolIo {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-        },
+        io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
         approvals: Arc::new(MockApprovalGate::default()),
         files: Arc::new(MockFileService::default()),
         processes: rig.manager.clone(),
@@ -790,11 +748,7 @@ async fn an_append_recreates_a_log_another_sweep_removed() {
 #[tokio::test]
 async fn a_hoisted_script_of_a_tree_that_never_settled_is_removed_at_shutdown() {
     let rig = rig();
-    let started = body(
-        rig.shell
-            .call(&ctx(&rig, "c1"), serde_json::json!({"command": "node -e \"console.log(1)\"", "background": true}))
-            .await,
-    );
+    let started = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "node -e \"console.log(1)\"", "background": true})).await);
     assert!(started.starts_with("background task\n"), "{started}");
     let (spec, _) = rig.processes.seen.lock().unwrap().last().cloned().unwrap();
     let CommandSpec::Shell { script, .. } = spec else { unreachable!() };
@@ -857,7 +811,9 @@ async fn finished_background_job() -> (Rig, Arc<ExecRuntime>, Arc<std::sync::ato
         let clock = clock.clone();
         move || clock.load(std::sync::atomic::Ordering::SeqCst)
     });
-    config.tasks = Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(Strips(tokio::sync::watch::channel(0u64).0)), move || clock.load(std::sync::atomic::Ordering::SeqCst)));
+    config.tasks = Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(Strips(tokio::sync::watch::channel(0u64).0)), move || {
+        clock.load(std::sync::atomic::Ordering::SeqCst)
+    }));
     let runtime = ExecRuntime::new(config);
     let shell = ShellTool::new(runtime.clone());
     shell.call(&ctx(&rig, "x1"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
@@ -904,7 +860,8 @@ async fn a_row_the_strip_still_lists_is_not_released() {
     now.store(finished + mixdog_spawn::tasks::FINISHED_RETENTION_MS + 1, std::sync::atomic::Ordering::SeqCst);
     assert!(runtime.get(&owner, "task-x1").is_none());
     assert!(runtime.config.tasks.get("task-x1").is_none());
-}/// A tail replay leaves a task's read cursor where the last read stopped (`readShellTaskOutput`: an explicit tail read never
+}
+/// A tail replay leaves a task's read cursor where the last read stopped (`readShellTaskOutput`: an explicit tail read never
 /// changes the incremental cursor), so the next `new` read still shows what no earlier one delivered.
 #[tokio::test]
 async fn a_tail_replay_leaves_the_next_read_where_the_last_one_stopped() {
@@ -949,10 +906,7 @@ async fn a_settled_shell_command_notes_its_folder_for_the_turn_review() {
     rig.shell.call(&ctx(&rig, "n3"), serde_json::json!({"command": "shutdown now"})).await.unwrap_err();
     rig.shell.call(&ctx(&rig, "n4"), serde_json::json!({"nope": 1})).await.unwrap_err();
     let gone = rig.dir.path().join("gone").to_string_lossy().into_owned();
-    assert_eq!(
-        notes(),
-        vec![Some(vec![session.clone()]), Some(vec![gone]), Some(vec![session.clone()]), Some(vec![session.clone()])]
-    );
+    assert_eq!(notes(), vec![Some(vec![session.clone()]), Some(vec![gone]), Some(vec![session.clone()]), Some(vec![session.clone()])]);
 
     rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
     assert_eq!(notes().len(), 5);
@@ -976,10 +930,7 @@ async fn a_promoted_command_that_hits_its_limit_reports_the_remainder() {
     rig.runtime = ExecRuntime::new(config);
     rig.shell = ShellTool::new(rig.runtime.clone());
     rig.task = TaskTool::new(rig.runtime.clone());
-    rig.shell
-        .call(&ctx(&rig, "l1"), serde_json::json!({"command": "run-limited", "timeout_ms": 4000, "wait_ms": 1000}))
-        .await
-        .unwrap();
+    rig.shell.call(&ctx(&rig, "l1"), serde_json::json!({"command": "run-limited", "timeout_ms": 4000, "wait_ms": 1000})).await.unwrap();
     let c = ctx(&rig, "l2");
     rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-l1"})).await.unwrap();
     let read = body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-l1"})).await);
@@ -1017,11 +968,7 @@ async fn non_zero_exit_keeps_output_and_code() {
 #[tokio::test]
 async fn time_limit_is_a_deadline_error_with_node_status_text() {
     let rig = rig();
-    let err = rig
-        .shell
-        .call(&ctx(&rig, "c1"), serde_json::json!({"command": "timeout", "timeout_ms": 5}))
-        .await
-        .unwrap_err();
+    let err = rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "timeout", "timeout_ms": 5})).await.unwrap_err();
     assert!(matches!(err.code, ToolErrorCode::DeadlineExceeded { partial: true }));
     assert_eq!(
         err.message_for_model,
@@ -1035,18 +982,12 @@ async fn wmic_is_rewritten_for_powershell_with_a_hard_30s_cap_and_refused_withou
     config.powershell = true;
     let runtime = ExecRuntime::new(config);
     let (shell, task) = (ShellTool::new(runtime.clone()), TaskTool::new(runtime));
-    let err = shell
-        .call(&ctx(&rig, "w1"), serde_json::json!({"command": "wmic process"}))
-        .await
-        .unwrap_err();
+    let err = shell.call(&ctx(&rig, "w1"), serde_json::json!({"command": "wmic process"})).await.unwrap_err();
     assert_eq!(
         err.message_for_model,
         "Error: [shell-tool-failed] wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead."
     );
-    shell
-        .call(&ctx(&rig, "w2"), serde_json::json!({"command": "wmic process get name", "background": true}))
-        .await
-        .unwrap();
+    shell.call(&ctx(&rig, "w2"), serde_json::json!({"command": "wmic process get name", "background": true})).await.unwrap();
     let listed = body(task.call(&ctx(&rig, "w3"), serde_json::json!({"action": "list"})).await);
     assert!(listed.contains("shell/shell running label=powershell.exe -NoProfile -EncodedCommand "), "{listed}");
 }
@@ -1093,7 +1034,10 @@ async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     let (shell, task) = (ShellTool::new(runtime.clone()), TaskTool::new(runtime));
     shell.call(&ctx(&rig, "s1"), serde_json::json!({"command": "echo hi"})).await.unwrap();
     let out = body(task.call(&ctx(&rig, "s2"), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
-    assert_eq!(out, "status: cancel-pending\ntask_id: task-s1\nthe kill was sent and the command itself exited, but processes it started are still alive. They keep being terminated and stay tracked (the folder stays held) until they are gone; re-run task cancel or task read to check again.");
+    assert_eq!(
+        out,
+        "status: cancel-pending\ntask_id: task-s1\nthe kill was sent and the command itself exited, but processes it started are still alive. They keep being terminated and stay tracked (the folder stays held) until they are gone; re-run task cancel or task read to check again."
+    );
 }
 /// A runtime over `watch` and the survivors task `task-s1` an `echo hi` left behind.
 async fn survivors_rig(rig: &Rig, watch: Arc<FakeSurvivors>) -> (ShellTool, TaskTool, Arc<ExecRuntime>, Arc<Job>) {
@@ -1197,21 +1141,13 @@ async fn repeated_output_is_compacted_and_the_full_capture_is_archived() {
 #[tokio::test]
 async fn a_destructive_command_gets_its_warning_after_the_status_line() {
     let rig = rig();
-    let text = body(
-        rig.shell
-            .call(&ctx(&rig, "c1"), serde_json::json!({"command": "echo hi; git reset --hard"}))
-            .await,
-    );
+    let text = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "echo hi; git reset --hard"})).await);
     assert_eq!(text, "[exit code: 0]\n⚠️ may discard uncommitted changes\n\nhi; git reset --hard\n");
 }
 #[tokio::test]
 async fn the_exec_policy_refuses_before_anything_is_spawned() {
     let rig = rig();
-    let err = rig
-        .shell
-        .call(&ctx(&rig, "c1"), serde_json::json!({"command": "shutdown now"}))
-        .await
-        .unwrap_err();
+    let err = rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "shutdown now"})).await.unwrap_err();
     assert_eq!(
         err.message_for_model,
         "Error: [shell-tool-failed] command blocked by exec policy — destructive or system-destabilising pattern (hard block) [rule hard-block]"
@@ -1247,11 +1183,7 @@ async fn a_foreground_only_shell_rejects_background_options_before_starting() {
 #[tokio::test]
 async fn held_command_moves_to_background_and_task_cancels_it() {
     let rig = rig();
-    let text = body(
-        rig.shell
-            .call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true}))
-            .await,
-    );
+    let text = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true})).await);
     assert!(text.contains("\nstarted in the background; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] no new output since you last saw it — still running, not an error\n\n(no new output)"), "{text}");
     let c = ctx(&rig, "c2");
     let cancelled = body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-c1"})).await);
@@ -1302,10 +1234,7 @@ async fn a_declined_or_missing_hook_falls_back_to_the_owner() {
 #[tokio::test]
 async fn a_wait_ends_the_moment_the_session_reports_user_input() {
     let rig = rig();
-    rig.shell
-        .call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true}))
-        .await
-        .unwrap();
+    rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
     let c = ctx(&rig, "c2");
     let hub = rig.runtime.config.wake.clone();
     let waiter = rig.task.call(&c, serde_json::json!({"action": "wait", "task_id": "task-c1", "timeout_ms": 3_600_000}));
@@ -1316,19 +1245,14 @@ async fn a_wait_ends_the_moment_the_session_reports_user_input() {
         hub.interrupt(&ThreadId::from("t"), WakeReason::UserMessage, None);
     };
     let (waited, ()) = tokio::join!(waiter, wake);
-    assert!(body(waited).ends_with(
-        "\n\nWait ended by new user input; task still running in the background. Handle the new message first."
-    ));
+    assert!(body(waited).ends_with("\n\nWait ended by new user input; task still running in the background. Handle the new message first."));
 }
 /// A wait does not start while a user message waits unanswered, nor again right after a notification cut one
 /// short; a boundary the model passed through other work lets it start.
 #[tokio::test]
 async fn a_wait_refuses_an_unanswered_message_and_an_unhandled_notification() {
     let rig = rig();
-    rig.shell
-        .call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true}))
-        .await
-        .unwrap();
+    rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
     let hub = rig.runtime.config.wake.clone();
     let t = ThreadId::from("t");
     let wait = |id: &'static str| async {
@@ -1361,11 +1285,7 @@ async fn a_wait_refuses_an_unanswered_message_and_an_unhandled_notification() {
 #[tokio::test]
 async fn cwd_must_be_an_existing_directory() {
     let rig = rig();
-    let err = rig
-        .shell
-        .call(&ctx(&rig, "c1"), serde_json::json!({"command": "echo x", "cwd": "missing-dir"}))
-        .await
-        .unwrap_err();
+    let err = rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "echo x", "cwd": "missing-dir"})).await.unwrap_err();
     assert!(matches!(err.code, ToolErrorCode::NotFound { .. }));
     assert!(err.message_for_model.starts_with("Error: [shell-tool-failed] shell cwd \""));
     assert!(err.message_for_model.ends_with("missing-dir\" does not exist"));
@@ -1375,11 +1295,7 @@ async fn cwd_must_be_an_existing_directory() {
 #[tokio::test]
 async fn cwd_is_folded_like_a_resolved_path() {
     let rig = rig();
-    let err = rig
-        .shell
-        .call(&ctx(&rig, "c2"), serde_json::json!({"command": "echo x", "cwd": "a/../b/./missing-dir"}))
-        .await
-        .unwrap_err();
+    let err = rig.shell.call(&ctx(&rig, "c2"), serde_json::json!({"command": "echo x", "cwd": "a/../b/./missing-dir"})).await.unwrap_err();
     let named = err.message_for_model.rsplit_once("shell cwd \"").expect("names the folder").1;
     assert!(!named.contains("..") && !named.contains("/./") && !named.contains("\\.\\"), "{named}");
     assert!(named.ends_with(&format!("b{}missing-dir\" does not exist", std::path::MAIN_SEPARATOR)), "{named}");
@@ -1459,10 +1375,7 @@ async fn a_setting_change_makes_the_next_spawn_resolve_the_default_again() {
     .enumerate()
     {
         source.set(value);
-        shell
-            .call(&ctx(&rig, &format!("r{n}")), serde_json::json!({"command": "echo hi", "background": true}))
-            .await
-            .unwrap();
+        shell.call(&ctx(&rig, &format!("r{n}")), serde_json::json!({"command": "echo hi", "background": true})).await.unwrap();
         let (spec, _) = rig.processes.seen.lock().unwrap()[n].clone();
         let CommandSpec::Shell { shell: Some(program), .. } = spec else { panic!("{spec:?}") };
         assert_eq!(program, expected, "spawn {n}");
@@ -1491,10 +1404,7 @@ async fn a_changed_system_shell_setting_reaches_the_next_spawn() {
     .enumerate()
     {
         setting.set(value);
-        shell
-            .call(&ctx(&rig, &format!("s{n}")), serde_json::json!({"command": "echo hi", "background": true}))
-            .await
-            .unwrap();
+        shell.call(&ctx(&rig, &format!("s{n}")), serde_json::json!({"command": "echo hi", "background": true})).await.unwrap();
         let (spec, _) = rig.processes.seen.lock().unwrap()[n].clone();
         let CommandSpec::Shell { shell: Some(program), .. } = spec else { panic!("{spec:?}") };
         assert_eq!(program, expected, "setting {value:?}");
@@ -1505,11 +1415,7 @@ async fn a_changed_system_shell_setting_reaches_the_next_spawn() {
 #[tokio::test]
 async fn a_swallowing_filter_pipeline_gets_the_rescue_tail_and_its_tee_is_consumed() {
     let (rig, shell) = windows_powershell_rig();
-    let text = body(
-        shell
-            .call(&ctx(&rig, "t1"), serde_json::json!({"command": "npm test 2>&1 | Select-Object -First 3"}))
-            .await,
-    );
+    let text = body(shell.call(&ctx(&rig, "t1"), serde_json::json!({"command": "npm test 2>&1 | Select-Object -First 3"})).await);
     assert_eq!(
         text,
         "[exit code: 1]\n\n(no output)\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\nboom\n"
@@ -1536,10 +1442,7 @@ async fn a_bash_command_is_delivered_through_the_environment() {
 
 pub(super) fn real_rig() -> Rig {
     let mut rig = rig();
-    rig.manager = Arc::new(mixdog_spawn::LocalProcessManager::new(
-        rig.tokens.spawn_io,
-        mixdog_spawn::ProcessConfig::default(),
-    ));
+    rig.manager = Arc::new(mixdog_spawn::LocalProcessManager::new(rig.tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
     rig
 }
 /// Both io-maintenance threads are held by jobs that do not return (two long searches or tree
@@ -1588,8 +1491,8 @@ async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
 /// thread (process-wide executors, so a process of its own: nextest).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() {
-    use futures::FutureExt;
     use super::spill::LOG_PENDING_CAP;
+    use futures::FutureExt;
     const CHUNK: usize = 16 * 1024;
     let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
     let dir = tempfile::tempdir().unwrap();
@@ -1646,12 +1549,7 @@ async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() 
 #[tokio::test]
 async fn a_launcher_changed_on_disk_is_written_again_by_the_next_call() {
     let rig = rig();
-    let rt = SkillRuntime {
-        platform: "linux".into(),
-        interpreter: "/opt/mixdog/mixdogd".into(),
-        entry: "/opt/mixdog/skill.js".into(),
-        electron: false,
-    };
+    let rt = SkillRuntime { platform: "linux".into(), interpreter: "/opt/mixdog/mixdogd".into(), entry: "/opt/mixdog/skill.js".into(), electron: false };
     let mut config = rig.runtime.config.clone_for_test();
     config.skill_runtime = Some(rt.clone());
     let shell = ShellTool::new(ExecRuntime::new(config));
@@ -1674,12 +1572,7 @@ async fn a_launcher_changed_on_disk_is_written_again_by_the_next_call() {
 #[tokio::test]
 async fn a_launcher_replaced_with_the_same_length_and_time_is_written_again() {
     let rig = rig();
-    let rt = SkillRuntime {
-        platform: "linux".into(),
-        interpreter: "/opt/mixdog/mixdogd".into(),
-        entry: "/opt/mixdog/skill.js".into(),
-        electron: false,
-    };
+    let rt = SkillRuntime { platform: "linux".into(), interpreter: "/opt/mixdog/mixdogd".into(), entry: "/opt/mixdog/skill.js".into(), electron: false };
     let mut config = rig.runtime.config.clone_for_test();
     config.skill_runtime = Some(rt.clone());
     let shell = ShellTool::new(ExecRuntime::new(config));
@@ -1841,29 +1734,20 @@ async fn output_written_while_the_log_creation_is_held_is_not_lost() {
     let mut rig = rig_on(tokens, Arc::new(OsPromptElevation), None);
     let (exited, exit_seen) = std::sync::mpsc::channel();
     let config = mixdog_spawn::ProcessConfig { ring_bytes: 16 * 1024, ..mixdog_spawn::ProcessConfig::default() };
-    rig.manager = Arc::new(ExitSignal {
-        inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config),
-        exited: Mutex::new(Some(exited)),
-        hold_caller: false,
-    });
+    rig.manager =
+        Arc::new(ExitSignal { inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config), exited: Mutex::new(Some(exited)), hold_caller: false });
     let gate = super::spill::write_gate::arm(&rig.dir.path().join("l"));
-    let (command, expected) = if cfg!(windows) {
-        (format!("[Console]::Out.Write('x' * {BYTES})"), "x".repeat(BYTES))
-    } else {
-        (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES))
-    };
+    let (command, expected) =
+        if cfg!(windows) { (format!("[Console]::Out.Write('x' * {BYTES})"), "x".repeat(BYTES)) } else { (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES)) };
     // The creation is held until the child has exited; the waiting is on a thread of its own.
     let opener = std::thread::spawn(move || {
         gate.wait_reached(1);
         exit_seen.recv_timeout(std::time::Duration::from_secs(60)).expect("the child wrote everything and exited");
         gate.open();
     });
-    let outcome = mixdog_rt::time::timeout(
-        std::time::Duration::from_secs(120),
-        rig.shell.call(&ctx(&rig, "ring"), serde_json::json!({ "command": command })),
-    )
-    .await
-    .expect("the call ends");
+    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(120), rig.shell.call(&ctx(&rig, "ring"), serde_json::json!({ "command": command })))
+        .await
+        .expect("the call ends");
     opener.join().unwrap();
     let text = body(outcome);
     assert!(text.starts_with("[exit code: 0]"), "{}", &text[..text.len().min(300)]);
@@ -1879,22 +1763,12 @@ async fn output_written_before_the_job_is_scheduled_is_not_lost() {
     let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
     let mut rig = rig_on(tokens, Arc::new(OsPromptElevation), None);
     let config = mixdog_spawn::ProcessConfig { ring_bytes: 16 * 1024, ..mixdog_spawn::ProcessConfig::default() };
-    rig.manager = Arc::new(ExitSignal {
-        inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config),
-        exited: Mutex::new(None),
-        hold_caller: true,
-    });
-    let (command, expected) = if cfg!(windows) {
-        (format!("[Console]::Out.Write('x' * {BYTES})"), "x".repeat(BYTES))
-    } else {
-        (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES))
-    };
-    let outcome = mixdog_rt::time::timeout(
-        std::time::Duration::from_secs(120),
-        rig.shell.call(&ctx(&rig, "late"), serde_json::json!({ "command": command })),
-    )
-    .await
-    .expect("the call ends");
+    rig.manager = Arc::new(ExitSignal { inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config), exited: Mutex::new(None), hold_caller: true });
+    let (command, expected) =
+        if cfg!(windows) { (format!("[Console]::Out.Write('x' * {BYTES})"), "x".repeat(BYTES)) } else { (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES)) };
+    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(120), rig.shell.call(&ctx(&rig, "late"), serde_json::json!({ "command": command })))
+        .await
+        .expect("the call ends");
     let text = body(outcome);
     assert!(text.starts_with("[exit code: 0]"), "{}", &text[..text.len().min(300)]);
     let log = std::fs::read_to_string(rig.dir.path().join("l").join("task-late.stdout.log")).unwrap();
@@ -1910,9 +1784,7 @@ async fn closing_a_stalled_log_writer_returns_at_its_deadline_and_names_the_miss
     let logs = [dir.path().join("c.stdout.log"), dir.path().join("c.stderr.log")];
     let gate = super::spill::write_gate::arm(dir.path());
     let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.push(0, b"held\n".to_vec()))
-        .await
-        .expect("the drain starts");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.push(0, b"held\n".to_vec())).await.expect("the drain starts");
     let reached = gate.clone();
     tokio::task::spawn_blocking(move || reached.wait_reached(1)).await.unwrap();
     let closed = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
@@ -1971,17 +1843,12 @@ async fn a_real_non_zero_exit_keeps_its_code() {
 #[tokio::test]
 async fn a_real_command_over_its_time_limit_is_killed_with_nodes_text() {
     let rig = real_rig();
-    let err = rig
-        .shell
-        .call(&ctx(&rig, "r3"), serde_json::json!({"command": format!("echo begin; {LONG_SLEEP}"), "timeout_ms": 5000}))
-        .await
-        .unwrap_err();
+    let err = rig.shell.call(&ctx(&rig, "r3"), serde_json::json!({"command": format!("echo begin; {LONG_SLEEP}"), "timeout_ms": 5000})).await.unwrap_err();
     assert!(matches!(err.code, ToolErrorCode::DeadlineExceeded { partial: true }));
     // How much output a slow shell start got in before the kill varies; the status text does not.
     assert!(
-        err.message_for_model.starts_with(
-            "Error: [shell-run-failed] [timeout: 5000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n"
-        ),
+        err.message_for_model
+            .starts_with("Error: [shell-run-failed] [timeout: 5000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n"),
         "{}",
         err.message_for_model
     );
@@ -1989,11 +1856,7 @@ async fn a_real_command_over_its_time_limit_is_killed_with_nodes_text() {
 #[tokio::test]
 async fn a_real_background_command_is_cancelled_through_the_task_tool() {
     let rig = real_rig();
-    let started = body(
-        rig.shell
-            .call(&ctx(&rig, "r4"), serde_json::json!({"command": LONG_SLEEP, "background": true}))
-            .await,
-    );
+    let started = body(rig.shell.call(&ctx(&rig, "r4"), serde_json::json!({"command": LONG_SLEEP, "background": true})).await);
     assert!(started.contains("\nstarted in the background; still running. "), "{started}");
     let c = ctx(&rig, "r5");
     let cancelled = body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-r4"})).await);
@@ -2027,17 +1890,11 @@ async fn a_session_stops_only_its_own_background_shells_with_the_structured_answ
 
     assert_eq!(control.stop_job(&owner, "  ").await, serde_json::json!({ "stopped": false, "error": "task_id is required" }));
     // Another session's job reads as unknown and keeps running.
-    assert_eq!(
-        control.stop_job(&other, "task-a").await,
-        serde_json::json!({ "stopped": false, "error": "task not found: task-a" })
-    );
+    assert_eq!(control.stop_job(&other, "task-a").await, serde_json::json!({ "stopped": false, "error": "task not found: task-a" }));
     assert!(rig.runtime.get(&owner, "task-a").unwrap().is_running());
     assert_eq!(control.stop_job(&owner, " task-a ").await, serde_json::json!({ "stopped": true }));
     // An ended task is not a failed stop: it says how it ended.
-    assert_eq!(
-        control.stop_job(&owner, "task-a").await,
-        serde_json::json!({ "stopped": false, "finished": true, "error": "task already cancelled: task-a" })
-    );
+    assert_eq!(control.stop_job(&owner, "task-a").await, serde_json::json!({ "stopped": false, "finished": true, "error": "task already cancelled: task-a" }));
 
     assert_eq!(control.stop_jobs(&owner).await, serde_json::json!({ "stopped": 1, "stopping": 0 }));
     assert!(rig.runtime.get(&other, "task-f").unwrap().is_running(), "another session keeps its job");
@@ -2098,9 +1955,7 @@ async fn an_unconfirmed_stop_holds_the_row_until_the_job_ends_or_is_released() {
     assert!(control.hold("task-s1").is_some(), "the unconfirmed stop is recorded");
     assert_eq!(control.list_stoppable(&owner).len(), 1, "a held job stays listed");
     control.tasks().owner_closed(owner.as_str());
-    let orphaned = |control: &ShellControl| -> Vec<String> {
-        control.tasks().host_state().orphaned.into_iter().map(|row| row.task_id).collect()
-    };
+    let orphaned = |control: &ShellControl| -> Vec<String> { control.tasks().host_state().orphaned.into_iter().map(|row| row.task_id).collect() };
     assert_eq!(orphaned(&control), ["task-s1"], "a closed owner's hold is found");
 
     // The survivors exit by themselves: confirmed gone, so the hold ends with the job.
@@ -2185,10 +2040,7 @@ async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
         "{read}"
     );
     assert!(read.contains("task-done.{stdout,stderr}.log\n\n[stdout]\nDONE"), "{read}");
-    assert_eq!(
-        body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-done"})).await),
-        "Error: task already completed: task-done"
-    );
+    assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-done"})).await), "Error: task already completed: task-done");
     for action in ["read", "wait"] {
         assert_eq!(
             body(rig.task.call(&c, serde_json::json!({"action": action, "task_id": "task-live"})).await),
@@ -2202,10 +2054,7 @@ async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
     assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-fg"})).await), "Error: task not found: task-fg");
     let mut other = ctx(&rig, "c2");
     other.thread_id = ThreadId::from("other");
-    assert_eq!(
-        body(rig.task.call(&other, serde_json::json!({"action": "read", "task_id": "task-done"})).await),
-        "Error: task not found: task-done"
-    );
+    assert_eq!(body(rig.task.call(&other, serde_json::json!({"action": "read", "task_id": "task-done"})).await), "Error: task not found: task-done");
     assert_eq!(
         body(rig.task.call(&c, serde_json::json!({"action": "list"})).await),
         "background tasks: 0\n[recovered shell tasks]\n- task-done shell completed recovered=true command=\"echo DONE\"\n- task-live shell state-unavailable recovered=true command=\"sleep 9\""
@@ -2230,9 +2079,7 @@ async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_own
     let told = Arc::new(Told::default());
     let rig = rig_full(Arc::new(OsPromptElevation), Some(told.clone()));
     let (gone, live) = (std::process::id().wrapping_add(1), std::process::id().wrapping_add(2));
-    let running = |pid: u32, command: &str| {
-        serde_json::json!({"pid": pid, "state": "running", "background": true, "ownerSessionId": "t", "command": command, "cwd": "/w", "startedAtMs": golden_ms()})
-    };
+    let running = |pid: u32, command: &str| serde_json::json!({"pid": pid, "state": "running", "background": true, "ownerSessionId": "t", "command": command, "cwd": "/w", "startedAtMs": golden_ms()});
     kept_job(&rig, "task-lost", running(gone, "ping -n 300 host"), "Reply from host\n");
     kept_job(&rig, "task-elsewhere", running(live, "sleep 9"), "");
     kept_job(&rig, "task-fg", serde_json::json!({"pid": gone, "state": "running"}), "");
@@ -2243,14 +2090,24 @@ async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_own
     assert_eq!(notices.len(), 1, "{notices:?}");
     let (owner, what, text) = &notices[0];
     assert_eq!((owner.as_str(), what.as_str()), ("t", "shell/task-lost/failed"));
-    assert!(text.starts_with("<task-notification>\n<task-id>task-lost</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit n/a): ping -n 300 host</summary>"), "{text}");
+    assert!(
+        text.starts_with(
+            "<task-notification>\n<task-id>task-lost</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit n/a): ping -n 300 host</summary>"
+        ),
+        "{text}"
+    );
     assert!(text.contains("[stdout]\nReply from host"), "{text}");
     assert!(
         text.ends_with("<error>daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.</error>\n</task-notification>"),
         "{text}"
     );
     let read = body(rig.task.call(&ctx(&rig, "c1"), serde_json::json!({"action": "read", "task_id": "task-lost"})).await);
-    assert!(read.contains("\nstatus: failed\n") && read.contains("\nerror: daemon restarted while this shell task was running;") && read.contains("\nrecovered: true\n"), "{read}");
+    assert!(
+        read.contains("\nstatus: failed\n")
+            && read.contains("\nerror: daemon restarted while this shell task was running;")
+            && read.contains("\nrecovered: true\n"),
+        "{read}"
+    );
     assert_eq!(
         body(rig.task.call(&ctx(&rig, "c2"), serde_json::json!({"action": "read", "task_id": "task-elsewhere"})).await),
         "Error: task state is unavailable after restart: task-elsewhere"
@@ -2265,7 +2122,13 @@ impl crate::exec::AgentTasks for FakeAgentTasks {
         if owner.as_str() != "t" {
             return Vec::new();
         }
-        vec![crate::exec::AgentTaskRow { task_id: "task_agent_1".into(), operation: "spawn".into(), label: Some("w1".into()), status: self.status(), error: None }]
+        vec![crate::exec::AgentTaskRow {
+            task_id: "task_agent_1".into(),
+            operation: "spawn".into(),
+            label: Some("w1".into()),
+            status: self.status(),
+            error: None,
+        }]
     }
 
     fn view(&self, owner: &ThreadId, task_id: &str) -> Option<crate::exec::AgentTaskView> {
@@ -2346,7 +2209,6 @@ async fn task_lists_reads_waits_for_and_cancels_agent_tasks() {
     let unknown = body(task.call(&c, serde_json::json!({"action": "read", "task_id": "task_nope"})).await);
     assert_eq!(unknown, "Error: task not found: task_nope");
 }
-
 
 #[tokio::test]
 async fn a_finished_command_answers_its_exit_code_and_its_output() {
@@ -2429,11 +2291,7 @@ async fn a_running_background_shell_is_listed_and_read_as_its_header() {
     let rig = rig();
     let c = ctx(&rig, "c0");
     // A running shell `sleep 100`, id task-gold.
-    let started = body(
-        rig.shell
-            .call(&ctx(&rig, "gold"), serde_json::json!({"command": "sleep 100", "background": true}))
-            .await,
-    );
+    let started = body(rig.shell.call(&ctx(&rig, "gold"), serde_json::json!({"command": "sleep 100", "background": true})).await);
     assert!(started.starts_with("background task\ntask_id: task-gold\nlabel: sleep 100\nstatus: running\nstarted: 2026-01-02T03:04:05.678Z\n"), "{started}");
     assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "list"})).await), "background tasks: 1\n- task-gold shell/shell running label=sleep 100");
     // `task read` of a running task that holds no result renders the bare header.
@@ -2510,9 +2368,12 @@ async fn task_read_wait_and_list_report_a_finished_and_a_running_task() {
     let c = ctx(&rig, "x");
     for (action, tail) in [("read", "[stdout]\ndone-out\n"), ("wait", "(no new output)")] {
         let output = rig.task.call(&c, serde_json::json!({"action": action, "task_id": "task-a"})).await.unwrap();
-        assert_eq!(output.meta, Some(serde_json::json!({
-            "code": "task-completion", "executionId": "task-a", "status": "completed"
-        })));
+        assert_eq!(
+            output.meta,
+            Some(serde_json::json!({
+                "code": "task-completion", "executionId": "task-a", "status": "completed"
+            }))
+        );
         assert_eq!(
             normalize(&body(Ok(output))),
             format!("background task\ntask_id: JOB\nsurface: shell\nstatus: completed\nexit_code: 0\nstarted: TS\nfinished: TS\nlogs: LOGS\n\n{tail}"),
@@ -2661,7 +2522,11 @@ fn the_completion_instruction_names_how_the_task_ended() {
     }
 }
 fn elevation_commands() -> Vec<(String, String)> {
-    let message = |rule: &str| format!("Error: command requires user approval for elevation — Command requests elevated privileges [rule elevation: \"{rule}\"]; no approval was granted for this call");
+    let message = |rule: &str| {
+        format!(
+            "Error: command requires user approval for elevation — Command requests elevated privileges [rule elevation: \"{rule}\"]; no approval was granted for this call"
+        )
+    };
     [
         ("Start-Process powershell -Verb RunAs", "Start-Process powershell -Verb RunAs"),
         ("start-process notepad -verb runas", "start-process notepad -verb runas"),
@@ -2682,22 +2547,14 @@ async fn an_unapproved_elevation_is_refused_with_its_rule_and_never_spawned() {
     assert_eq!(commands.len(), 6);
     let rig = rig_with(Arc::new(RefuseElevation));
     for (i, (command, message)) in commands.iter().enumerate() {
-        let err = rig
-            .shell
-            .call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true}))
-            .await
-            .unwrap_err();
+        let err = rig.shell.call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true})).await.unwrap_err();
         assert_eq!(err.message_for_model, message.replacen("Error: ", "Error: [shell-tool-failed] ", 1), "{command:?}");
     }
     assert!(rig.processes.senders.lock().unwrap().is_empty());
 
     let rig = rig_with(Arc::new(OsPromptElevation));
     for (i, (command, _)) in commands.iter().enumerate() {
-        let out = body(
-            rig.shell
-                .call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true}))
-                .await,
-        );
+        let out = body(rig.shell.call(&ctx(&rig, &format!("e{i}")), serde_json::json!({"command": command, "background": true})).await);
         assert!(!out.contains("requires user approval"), "{command:?}: {out}");
         assert!(out.contains("still running") || out.starts_with("[exit code: 0]"), "{command:?}: {out}");
     }
@@ -2716,11 +2573,17 @@ async fn a_completed_shell_leaves_the_stoppable_list_and_its_stop_says_how_it_en
     let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
     let owner = ThreadId::from("sess_b");
     background_of(&rig, "b", owner.as_str(), "sleep 100").await;
-    rig.shell.call(&{
-        let mut c = ctx(&rig, "d");
-        c.thread_id = owner.clone();
-        c
-    }, serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    rig.shell
+        .call(
+            &{
+                let mut c = ctx(&rig, "d");
+                c.thread_id = owner.clone();
+                c
+            },
+            serde_json::json!({"command": "echo done-out", "background": true}),
+        )
+        .await
+        .unwrap();
     let ids = |control: &ShellControl| control.list_stoppable(&owner).into_iter().map(|job| job.task_id).collect::<Vec<_>>();
     // Listed in the order they started.
     assert_eq!(ids(&control), ["task-b", "task-d"]);
@@ -2741,9 +2604,8 @@ async fn a_completed_shell_leaves_the_stoppable_list_and_its_stop_says_how_it_en
 #[tokio::test]
 async fn a_stalled_turns_reap_stops_and_splits_the_shells_of_the_turn() {
     use std::sync::atomic::Ordering::SeqCst;
-    let names = |value: &JsonValue| -> std::collections::BTreeSet<String> {
-        value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
-    };
+    let names =
+        |value: &JsonValue| -> std::collections::BTreeSet<String> { value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect() };
     // Four jobs of the turn's session started 20 s, 3 s, 1 s and 0 s before the clock's reading, and one of another session.
     let jobs = serde_json::json!([
         {"id": "old", "startedOffset": -20000}, {"id": "mine-a", "startedOffset": -3000}, {"id": "mine-b", "startedOffset": -1000},
@@ -2805,4 +2667,3 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_of_the_turn() {
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
 }
-

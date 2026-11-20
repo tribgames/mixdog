@@ -23,8 +23,25 @@ const BASENAME_SCAN_MAX_DIRS: usize = 6000;
 /// Segments peeled off a requested path at most (`findBySuffixStrip`'s `maxIterations`).
 const SUFFIX_STRIP_MAX: usize = 12;
 const SKIP_DIRS: &[&str] = &[
-    "node_modules", ".git", ".hg", ".svn", "dist", "build", "out", "coverage", ".next", ".nuxt", ".turbo", ".cache", "vendor", "target",
-    ".venv", "venv", "__pycache__", ".idea", ".vscode",
+    "node_modules",
+    ".git",
+    ".hg",
+    ".svn",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".cache",
+    "vendor",
+    "target",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".idea",
+    ".vscode",
 ];
 
 fn key(path: &Path) -> String {
@@ -74,7 +91,8 @@ async fn suffix_strip(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Op
         let candidate = tail.iter().fold(base.as_path().to_path_buf(), |acc, part| acc.join(part));
         let abs = AbsPath::new(candidate.clone())?;
         if let Ok(stat) = ctx.files.stat(ctx.io.interactive, abs).await
-            && matches!(stat.kind, EntryKind::File | EntryKind::Dir) {
+            && matches!(stat.kind, EntryKind::File | EntryKind::Dir)
+        {
             return Some(tail.iter().collect());
         }
     }
@@ -130,7 +148,8 @@ async fn unique_existing_target(ctx: &ToolContext, base: &AbsPath, requested: &A
         return Ok(None);
     }
     if let Some(rel) = suffix_strip(ctx, base, requested.as_path()).await
-        && let Some(found) = is_file(ctx, &base.as_path().join(rel)).await {
+        && let Some(found) = is_file(ctx, &base.as_path().join(rel)).await
+    {
         return Ok(Some(found));
     }
     let hits = basename_hits(ctx, base, requested.as_path()).await?;

@@ -258,7 +258,12 @@ impl Owners {
     /// One connection of `owner`, bound to the process; false when the owner was proven ended, the id or process is not valid, or
     /// the id is already bound to another process.
     fn attach(&mut self, owner: &str, pid: u64, created: &str) -> bool {
-        if !is_owner_id(owner) || self.gone.contains(owner) || pid < 1 || !created.starts_with(|c: char| ('1'..='9').contains(&c)) || !created.bytes().all(|b| b.is_ascii_digit()) {
+        if !is_owner_id(owner)
+            || self.gone.contains(owner)
+            || pid < 1
+            || !created.starts_with(|c: char| ('1'..='9').contains(&c))
+            || !created.bytes().all(|b| b.is_ascii_digit())
+        {
             return false;
         }
         if self.owners.get(owner).is_some_and(|known| known.pid != pid || known.created != created) {
@@ -408,7 +413,19 @@ impl ComputerBridgeRun {
         blobs: Arc<dyn ComputerBlobs>,
         fill_turns: Arc<FillTurns>,
     ) -> Self {
-        Self { host, secrets, saved, blobs, fill_turns, owners: Arc::default(), fates: Mutex::default(), queues: Mutex::default(), runs: Mutex::default(), next_run: AtomicU64::new(1), active: AtomicUsize::new(0) }
+        Self {
+            host,
+            secrets,
+            saved,
+            blobs,
+            fill_turns,
+            owners: Arc::default(),
+            fates: Mutex::default(),
+            queues: Mutex::default(),
+            runs: Mutex::default(),
+            next_run: AtomicU64::new(1),
+            active: AtomicUsize::new(0),
+        }
     }
 
     /// `assertPublicComputerRequest`: why the command is not a public one.
@@ -459,7 +476,14 @@ impl ComputerBridgeRun {
         let cancel = req.ctx.cancel.child_token();
         let covered = Arc::new(AtomicBool::new(false));
         let id = self.next_run.fetch_add(1, Ordering::SeqCst);
-        locked(&self.runs).push(Run { id, session: session.to_owned(), signal: params.signal_id.clone(), cancel: cancel.clone(), covered: covered.clone(), ordinary });
+        locked(&self.runs).push(Run {
+            id,
+            session: session.to_owned(),
+            signal: params.signal_id.clone(),
+            cancel: cancel.clone(),
+            covered: covered.clone(),
+            ordinary,
+        });
         let outcome = self.dispatch(session, command, &cancel).await;
         locked(&self.runs).retain(|run| run.id != id);
         self.trim_queue(session);
@@ -500,11 +524,18 @@ impl ComputerBridgeRun {
             // Runtime-only: bind a secret request to its window and field at request time, then type the secret the user handed the
             // desktop.
             "secret_bind" => {
-                return Ok(Answer::text(self.secrets.bind(session, text_field(command, "request_id"), text_field(command, "window_id"), text_field(command, "ref"))));
+                return Ok(Answer::text(self.secrets.bind(
+                    session,
+                    text_field(command, "request_id"),
+                    text_field(command, "window_id"),
+                    text_field(command, "ref"),
+                )));
             }
             "secret_input" => {
                 let _turn = self.queued(session, cancel).await?;
-                return Ok(Answer::text(self.secrets.input(session, text_field(command, "request_id"), text_field(command, "window_id"), text_field(command, "ref")).await));
+                return Ok(Answer::text(
+                    self.secrets.input(session, text_field(command, "request_id"), text_field(command, "window_id"), text_field(command, "ref")).await,
+                ));
             }
             _ => {}
         }
@@ -878,8 +909,8 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
         // A single input command is a sequence of one step, which settles and observes as the host's single path did. `toggle` is no
         // step of a sequence, and an `act` names exactly one window or app: a command that names none (an element mark of the last
         // capture, a point of a frame) stays the helper's own, as the host's single path took it without a window.
-        "invoke" | "set_value" | "click" | "double_click" | "right_click" | "middle_click" | "triple_click" | "mouse_down" | "mouse_up" | "mouse_move" | "drag" | "type" | "key"
-        | "key_down" | "key_up" | "scroll" => {
+        "invoke" | "set_value" | "click" | "double_click" | "right_click" | "middle_click" | "triple_click" | "mouse_down" | "mouse_up" | "mouse_move"
+        | "drag" | "type" | "key" | "key_down" | "key_up" | "scroll" => {
             if ["window_id", "app"].iter().filter(|key| input.contains_key(**key)).count() != 1 {
                 return None;
             }
@@ -1016,7 +1047,10 @@ mod tests {
                 return Err(ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: unknown frame_id".into() });
             }
             let data = if self.blob { ImageData::Blob(blob_digest()) } else { ImageData::Bytes(vec![1, 2]) };
-            Ok(vec![ToolPart::Text("{\"ok\":true,\"secret\":\"hunter2\"}".into()), ToolPart::Image { mime: "image/png".into(), data, width: None, height: None }])
+            Ok(vec![
+                ToolPart::Text("{\"ok\":true,\"secret\":\"hunter2\"}".into()),
+                ToolPart::Image { mime: "image/png".into(), data, width: None, height: None },
+            ])
         }
         fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
             Ok(InputOutcome::Applied)
@@ -1221,8 +1255,14 @@ mod tests {
         let f = fixture();
         for (command, text) in [
             (json!([1]), "invalid request: invalid_request: computer command must be an object"),
-            (json!({ "action": "capture", "session_id": "__computer_host_warmup__" }), "invalid request: computer_policy_denied: internal execution authority cannot be supplied by a bridge caller"),
-            (json!({ "action": "click", "expected_input_tick": 4 }), "invalid request: computer_policy_denied: internal execution authority cannot be supplied by a bridge caller"),
+            (
+                json!({ "action": "capture", "session_id": "__computer_host_warmup__" }),
+                "invalid request: computer_policy_denied: internal execution authority cannot be supplied by a bridge caller",
+            ),
+            (
+                json!({ "action": "click", "expected_input_tick": 4 }),
+                "invalid request: computer_policy_denied: internal execution authority cannot be supplied by a bridge caller",
+            ),
             (json!({ "action": "format_disk" }), "invalid request: invalid_action: computer bridge action is not available"),
         ] {
             let answer = run(&f, "s1", command).await;
@@ -1252,10 +1292,13 @@ mod tests {
         let mut running = Vec::new();
         for n in 0..ORDINARY_CAPACITY {
             let (f, cancel) = (f.clone(), CancellationToken::new());
-            running.push((tokio::spawn({
-                let cancel = cancel.clone();
-                async move { run_with(&f, &format!("s{n}"), "sig", json!({ "action": "capture", "app": "a" }), cancel).await }
-            }), cancel));
+            running.push((
+                tokio::spawn({
+                    let cancel = cancel.clone();
+                    async move { run_with(&f, &format!("s{n}"), "sig", json!({ "action": "capture", "app": "a" }), cancel).await }
+                }),
+                cancel,
+            ));
         }
         for _ in 0..200 {
             if f.service.active.load(Ordering::SeqCst) == ORDINARY_CAPACITY {
@@ -1411,7 +1454,8 @@ mod tests {
     #[tokio::test]
     async fn secrets_are_bound_and_typed_and_the_focus_hold_withholds_reads() {
         let f = fixture();
-        let bound = run(&f, "s1", json!({ "action": "secret_bind", "session_id": "s1", "request_id": "secret_abcdefgh", "window_id": "w1", "ref": "e1" })).await;
+        let bound =
+            run(&f, "s1", json!({ "action": "secret_bind", "session_id": "s1", "request_id": "secret_abcdefgh", "window_id": "w1", "ref": "e1" })).await;
         assert_eq!(bound["value"], json!({ "text": "bound" }));
         assert_eq!(locked(&f.secrets.bound)[0], "s1|secret_abcdefgh|w1|e1");
         let typed = run(&f, "s1", json!({ "action": "secret_input", "session_id": "s1", "request_id": "secret_abcdefgh" })).await;
@@ -1473,7 +1517,10 @@ mod tests {
         let late = run(&f, "s1", fill(2)).await;
         assert_eq!(error_of(&late), "saved_login_unavailable: its agent turn has already ended; no input was sent");
         let invalid = run(&f, "s1", json!({ "action": "fill_saved_login", "session_id": "s1", "app": "a" })).await;
-        assert_eq!(error_of(&invalid), "saved_login_unavailable: the request names no runtime owner and agent turn to scope its protection to; no input was sent");
+        assert_eq!(
+            error_of(&invalid),
+            "saved_login_unavailable: the request names no runtime owner and agent turn to scope its protection to; no input was sent"
+        );
         let registry = fixture_with(Host::default(), Saved { refuse: true, ..Saved::default() });
         *locked(&registry.host.fate) = "running".into();
         run(&registry, "s1", json!({ "action": "owner_attach", "runtime_id": OWNER, "pid": 4321 })).await;
@@ -1545,7 +1592,24 @@ mod tests {
             Value::Object(back),
             json!({ "action": "sequence", "window_id": "w", "delivery": "foreground", "capture_after_mode": "ax", "steps": [{ "action": "right_click", "x": 1, "y": 2, "frame_id": "f" }] })
         );
-        for action in ["invoke", "set_value", "click", "double_click", "right_click", "middle_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag", "type", "key", "key_down", "key_up", "scroll"] {
+        for action in [
+            "invoke",
+            "set_value",
+            "click",
+            "double_click",
+            "right_click",
+            "middle_click",
+            "triple_click",
+            "mouse_down",
+            "mouse_up",
+            "mouse_move",
+            "drag",
+            "type",
+            "key",
+            "key_down",
+            "key_up",
+            "scroll",
+        ] {
             let request = tool_request(&command(json!({ "action": action, "window_id": "w" }))).unwrap_or_else(|| panic!("{action} is a step"));
             assert_eq!(request.action, ComputerAction::Act, "{action}");
         }
@@ -1573,7 +1637,15 @@ mod tests {
         let f = fixture_with(Host { blob: true, ..Host::default() }, Saved::default());
         let answer = run(&f, "s1", json!({ "action": "capture", "app": "a" })).await;
         assert_eq!(answer["value"]["image"], json!({ "data": "AwQ=", "mimeType": "image/png" }), "{answer}");
-        let missing = f.service.parts(vec![ToolPart::Image { mime: "image/png".into(), data: ImageData::Blob(mixdog_protocol::BlobDigest::try_from(format!("sha256:{}", "b".repeat(64))).unwrap_or_else(|error| panic!("{error}"))), width: None, height: None }]).await;
+        let missing = f
+            .service
+            .parts(vec![ToolPart::Image {
+                mime: "image/png".into(),
+                data: ImageData::Blob(mixdog_protocol::BlobDigest::try_from(format!("sha256:{}", "b".repeat(64))).unwrap_or_else(|error| panic!("{error}"))),
+                width: None,
+                height: None,
+            }])
+            .await;
         assert!(missing.is_err_and(|message| message.contains("no such blob")));
     }
 

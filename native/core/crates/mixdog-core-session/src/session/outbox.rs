@@ -22,8 +22,8 @@ use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::server_request::PendingServerRequest;
 use mixdog_protocol::ApprovalResolution;
-use mixdog_store::schema::record::{ApprovalPhase, QueueAction};
 use mixdog_store::schema::record::Record;
+use mixdog_store::schema::record::{ApprovalPhase, QueueAction};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
@@ -127,10 +127,15 @@ pub(crate) enum Effect {
     Resolved(ApprovalId, ApprovalResolution),
     /// A history mutation is durable: recompute the prompt-history session part over the
     /// remaining lineage, and republish the merged list when `publish`.
-    RecomputePrompts { publish: bool },
+    RecomputePrompts {
+        publish: bool,
+    },
     /// A failed turn's end is released: its quota settlement begins (`beginQuotaSettlement`), then the Goal
     /// settles with `settle` (`onGoalTurnSettled`'s detail).
-    TurnClosed { turn: TurnId, settle: Value },
+    TurnClosed {
+        turn: TurnId,
+        settle: Value,
+    },
     /// Told once the frames of the pump that released this entry are published: the caller sees its change as a client does.
     /// An entry whose record failed to be stored is told that failure instead; its change is never shown.
     AfterPublish(oneshot::Sender<Result<(), CoreError>>),
@@ -164,8 +169,9 @@ pub(crate) struct Entry {
 /// An outbox entry whose failure a client hears: a request's own record, a close's mark, a toast its caller waits on, or
 /// a queued prompt (refused, so a retry is a new submission).
 pub(crate) fn answers_a_client(entry: &Entry) -> bool {
-    entry.effects.iter().any(|effect| matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()) || matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_)))
-        || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Queue(queue) if queue.action == QueueAction::Enqueue))
+    entry.effects.iter().any(|effect| {
+        matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()) || matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_))
+    }) || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Queue(queue) if queue.action == QueueAction::Enqueue))
 }
 
 /// A failure of the entry's save withdraws it rather than holding it: its caller hears the failure (a client's request, a
@@ -267,9 +273,9 @@ impl Outbox {
     fn paired_waits(&self, id: u64) -> bool {
         match self.paired {
             Some((paired, None)) => paired == id,
-            Some((paired, Some(start))) if paired == id => self.index(start).is_some_and(|index| {
-                !matches!(self.entries[index].durable, Some(Durable { stage: Stage::Acked(_), .. })) && !self.showable(index)
-            }),
+            Some((paired, Some(start))) if paired == id => self
+                .index(start)
+                .is_some_and(|index| !matches!(self.entries[index].durable, Some(Durable { stage: Stage::Acked(_), .. })) && !self.showable(index)),
             _ => false,
         }
     }
@@ -290,15 +296,10 @@ impl Outbox {
 
     /// A record of `class` fits the window now.
     pub fn has_room(&self, class: Class) -> bool {
-        let normal = self.normal.records < self.limits.window_records
-            && self.normal.bytes < self.limits.window_bytes;
+        let normal = self.normal.records < self.limits.window_records && self.normal.bytes < self.limits.window_bytes;
         match class {
             Class::Normal => normal,
-            Class::Control => {
-                normal
-                    || (self.reserve.records < self.limits.reserve_records
-                        && self.reserve.bytes < self.limits.reserve_bytes)
-            }
+            Class::Control => normal || (self.reserve.records < self.limits.reserve_records && self.reserve.bytes < self.limits.reserve_bytes),
         }
     }
 
@@ -330,9 +331,7 @@ impl Outbox {
     pub fn unsaved_conversation(&self) -> impl Iterator<Item = u64> + '_ {
         self.entries.iter().filter_map(|entry| {
             let durable = entry.durable.as_ref()?;
-            (!durable.counted
-                && !matches!(durable.stage, Stage::Acked(_))
-                && conversation_record(&durable.record)).then_some(entry.id)
+            (!durable.counted && !matches!(durable.stage, Stage::Acked(_)) && conversation_record(&durable.record)).then_some(entry.id)
         })
     }
 
@@ -353,7 +352,10 @@ impl Outbox {
 
     /// Some record accepted at or before entry `id` is not stored yet.
     pub fn unwritten_through(&self, id: u64) -> bool {
-        self.entries.iter().take_while(|entry| entry.id <= id).any(|entry| entry.durable.as_ref().is_some_and(|durable| !matches!(durable.stage, Stage::Acked(_))))
+        self.entries
+            .iter()
+            .take_while(|entry| entry.id <= id)
+            .any(|entry| entry.durable.as_ref().is_some_and(|durable| !matches!(durable.stage, Stage::Acked(_))))
     }
 
     /// Some record a failed barrier left, held or kept, waits for a retry.
@@ -372,11 +374,7 @@ impl Outbox {
 
     /// The ids of the entries handed to the barrier that failed, in order.
     pub fn handed(&self) -> Vec<u64> {
-        self.entries
-            .iter()
-            .filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_), .. })))
-            .map(|entry| entry.id)
-            .collect()
+        self.entries.iter().filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_), .. }))).map(|entry| entry.id).collect()
     }
 
     /// The handed entry `id` failed its barrier: it waits for a retry, out of the window. The first time, it is
@@ -431,11 +429,7 @@ impl Outbox {
 
     /// The ids of the handed entries of retained units, in order.
     pub fn handed_retained(&self) -> Vec<u64> {
-        self.entries
-            .iter()
-            .filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_), retain: true, .. })))
-            .map(|entry| entry.id)
-            .collect()
+        self.entries.iter().filter(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Handed(_), retain: true, .. }))).map(|entry| entry.id).collect()
     }
 
     /// The unit `id` belongs to, when it holds a record.
@@ -451,22 +445,12 @@ impl Outbox {
     }
 
     /// Appends an entry; a durable one must fit ([`Self::has_room`]).
-    pub fn push(
-        &mut self,
-        durable: Option<(Arc<Record>, Class)>,
-        change: Change,
-        notes: Vec<Note>,
-        effects: Vec<Effect>,
-    ) -> u64 {
+    pub fn push(&mut self, durable: Option<(Arc<Record>, Class)>, change: Change, notes: Vec<Note>, effects: Vec<Effect>) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         let durable = durable.map(|(record, class)| {
             // A control record taken while the normal window has room counts there.
-            let class = if class == Class::Control && self.has_room(Class::Normal) {
-                Class::Normal
-            } else {
-                class
-            };
+            let class = if class == Class::Control && self.has_room(Class::Normal) { Class::Normal } else { class };
             self.usage(class).records += 1;
             let (unit, retain) = self.unit.unwrap_or((id, false));
             Durable {
@@ -481,16 +465,7 @@ impl Outbox {
                 mark: self.marks.accept(),
             }
         });
-        self.entries.push_back(Entry {
-            id,
-            durable,
-            change,
-            notes,
-            effects,
-            needs: None,
-            held: false,
-            shown: false,
-        });
+        self.entries.push_back(Entry { id, durable, change, notes, effects, needs: None, held: false, shown: false });
         id
     }
 
@@ -629,14 +604,7 @@ impl Outbox {
                 out.push(HandedUnit { records: Vec::new() });
                 last_unit = Some(durable.unit);
             }
-            out.last_mut().expect("pushed").records.push((
-                entry.id,
-                CommitRecord {
-                    record: durable.record.clone(),
-                    encoded,
-                },
-                durable.bytes,
-            ));
+            out.last_mut().expect("pushed").records.push((entry.id, CommitRecord { record: durable.record.clone(), encoded }, durable.bytes));
         }
         out
     }
@@ -667,12 +635,8 @@ impl Outbox {
         let Some(unit) = self.index(id).and_then(|index| self.entries[index].durable.as_ref()).map(|durable| durable.unit) else {
             return self.remove(id).into_iter().collect();
         };
-        let ids: Vec<u64> = self
-            .entries
-            .iter()
-            .filter(|entry| entry.durable.as_ref().is_some_and(|durable| durable.unit == unit))
-            .map(|entry| entry.id)
-            .collect();
+        let ids: Vec<u64> =
+            self.entries.iter().filter(|entry| entry.durable.as_ref().is_some_and(|durable| durable.unit == unit)).map(|entry| entry.id).collect();
         ids.into_iter().filter_map(|id| self.remove(id)).collect()
     }
 
@@ -785,7 +749,11 @@ impl Outbox {
 
     /// The records not yet stored, in accept order.
     pub fn unsaved_records(&self) -> impl Iterator<Item = &Arc<Record>> {
-        self.entries.iter().filter_map(|entry| entry.durable.as_ref()).filter(|durable| !matches!(durable.stage, Stage::Acked(_))).map(|durable| &durable.record)
+        self.entries
+            .iter()
+            .filter_map(|entry| entry.durable.as_ref())
+            .filter(|durable| !matches!(durable.stage, Stage::Acked(_)))
+            .map(|durable| &durable.record)
     }
 
     /// The records accepted and not yet released, stored or not, in accept order.

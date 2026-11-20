@@ -19,10 +19,10 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
-use std::sync::mpsc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -211,12 +211,7 @@ impl LaneExec {
             limit: max_threads + threads,
             lease,
             idle_after,
-            pending: Mutex::new(Pending {
-                queue: Queue::new(room, queue),
-                idle: HashMap::new(),
-                retiring: HashSet::new(),
-                closed: false,
-            }),
+            pending: Mutex::new(Pending { queue: Queue::new(room, queue), idle: HashMap::new(), retiring: HashSet::new(), closed: false }),
             available: Condvar::new(),
             stats: stats.clone(),
             priority,
@@ -239,41 +234,22 @@ impl LaneExec {
             match ready_rx.recv() {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
-                    return Err(io::Error::new(
-                        e.kind(),
-                        format!("lane {}: setting {priority:?} priority failed: {e}", kind.name()),
-                    ));
+                    return Err(io::Error::new(e.kind(), format!("lane {}: setting {priority:?} priority failed: {e}", kind.name())));
                 }
                 Err(_) => {
-                    return Err(io::Error::other(format!(
-                        "lane {}: a worker exited before it was ready",
-                        kind.name()
-                    )));
+                    return Err(io::Error::other(format!("lane {}: a worker exited before it was ready", kind.name())));
                 }
             }
         }
         let dog = watch.clone();
-        std::thread::Builder::new()
-            .name(format!("mixdog-{}-watchdog", kind.name()))
-            .stack_size(LANE_STACK)
-            .spawn(move || watchdog(&dog))?;
+        std::thread::Builder::new().name(format!("mixdog-{}-watchdog", kind.name())).stack_size(LANE_STACK).spawn(move || watchdog(&dog))?;
         closing.disarm();
-        Ok(Self {
-            kind,
-            stats,
-            shape: Shape::Pooled(watch),
-        })
+        Ok(Self { kind, stats, shape: Shape::Pooled(watch) })
     }
 
     /// A lane whose every job owns a thread for its whole duration (blocking PTY reads),
     /// capped at `max_live` concurrent jobs; the rest wait in a FIFO queue of at most `queue`.
-    pub(crate) fn per_job(
-        kind: LaneKind,
-        priority: Priority,
-        max_live: usize,
-        queue: usize,
-        priority_failures: &Arc<AtomicU64>,
-    ) -> io::Result<Self> {
+    pub(crate) fn per_job(kind: LaneKind, priority: Priority, max_live: usize, queue: usize, priority_failures: &Arc<AtomicU64>) -> io::Result<Self> {
         Self::per_job_with(kind, priority, max_live, queue, priority_failures, set_current_thread)
     }
 
@@ -286,10 +262,7 @@ impl LaneExec {
         apply: ApplyPriority,
     ) -> io::Result<Self> {
         if max_live == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("lane {} needs a live-job cap of at least one", kind.name()),
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("lane {} needs a live-job cap of at least one", kind.name())));
         }
         let stats = Arc::new(LaneStats::new());
         let lane = PerJobLane {
@@ -301,11 +274,7 @@ impl LaneExec {
             stats: stats.clone(),
             pending: Mutex::new(PerJobPending { queue: Queue::new(0, queue), live: 0, closed: false }),
         };
-        Ok(Self {
-            kind,
-            stats,
-            shape: Shape::PerJob(Arc::new(lane)),
-        })
+        Ok(Self { kind, stats, shape: Shape::PerJob(Arc::new(lane)) })
     }
 
     pub(crate) fn kind(&self) -> LaneKind {
@@ -503,7 +472,8 @@ impl Queue {
             ticket.settle(TicketEnd::Admitted);
         }
         if let Some(edge) = self.room.checked_sub(1).and_then(|edge| self.entries.get_mut(edge))
-            && let Some(ticket) = edge.ticket.take() {
+            && let Some(ticket) = edge.ticket.take()
+        {
             ticket.settle(TicketEnd::Admitted);
         }
         Some(job)
@@ -587,30 +557,27 @@ impl PerJobLane {
     /// slot is already counted.
     fn start(self: &Arc<Self>, job: QueuedJob) {
         let lane = self.clone();
-        let started = std::thread::Builder::new()
-            .name(format!("mixdog-{}", self.kind.name()))
-            .stack_size(LANE_STACK)
-            .spawn(move || {
-                if (lane.apply)(lane.priority).is_err() {
-                    // The job is dropped unrun, so its handle resolves `JobDropped`; the next one
-                    // gets a thread of its own.
-                    lane.failures.fetch_add(1, Relaxed);
-                    lane.stats.priority_failed.fetch_add(1, Relaxed);
-                    drop(job);
-                    if let Some(next) = lane.next() {
-                        lane.start(next);
-                    }
-                    return;
+        let started = std::thread::Builder::new().name(format!("mixdog-{}", self.kind.name())).stack_size(LANE_STACK).spawn(move || {
+            if (lane.apply)(lane.priority).is_err() {
+                // The job is dropped unrun, so its handle resolves `JobDropped`; the next one
+                // gets a thread of its own.
+                lane.failures.fetch_add(1, Relaxed);
+                lane.stats.priority_failed.fetch_add(1, Relaxed);
+                drop(job);
+                if let Some(next) = lane.next() {
+                    lane.start(next);
                 }
-                let mut job = job;
-                loop {
-                    run_job(&lane.stats, job);
-                    match lane.next() {
-                        Some(next) => job = next,
-                        None => return,
-                    }
+                return;
+            }
+            let mut job = job;
+            loop {
+                run_job(&lane.stats, job);
+                match lane.next() {
+                    Some(next) => job = next,
+                    None => return,
                 }
-            });
+            }
+        });
         if started.is_err() {
             // The job was dropped with the closure: its handle resolves `JobDropped`.
             self.end_thread(&mut lock(&self.pending));
@@ -732,10 +699,7 @@ struct Running {
 
 impl Watch {
     fn healthy(&self) -> usize {
-        self.stats
-            .live
-            .load(Relaxed)
-            .saturating_sub(self.stats.wedged.load(Relaxed))
+        self.stats.live.load(Relaxed).saturating_sub(self.stats.wedged.load(Relaxed))
     }
 
     /// Starts one worker past boot, the one place that decides it: under the queue's lock
@@ -751,10 +715,7 @@ impl Watch {
 
     /// Starts one worker (called with the queue's lock held). `ready` reports the priority result
     /// of a lane's first workers.
-    fn spawn_worker(
-        self: &Arc<Self>,
-        ready: Option<mpsc::Sender<io::Result<()>>>,
-    ) -> io::Result<()> {
+    fn spawn_worker(self: &Arc<Self>, ready: Option<mpsc::Sender<io::Result<()>>>) -> io::Result<()> {
         let id = self.next_id.fetch_add(1, Relaxed);
         self.stats.live.fetch_add(1, Relaxed);
         let watch = self.clone();
@@ -771,15 +732,7 @@ impl Watch {
     fn begin(&self, id: usize) {
         let progress = Arc::new(AtomicU64::new(0));
         PROGRESS.set(Some(progress.clone()));
-        lock(&self.running).insert(
-            id,
-            Running {
-                progress,
-                seen: 0,
-                since: Instant::now(),
-                wedged: false,
-            },
-        );
+        lock(&self.running).insert(id, Running { progress, seen: 0, since: Instant::now(), wedged: false });
     }
 
     /// The worker's job returned. `true` when the worker is surplus and must exit.
@@ -844,7 +797,7 @@ impl Watch {
         let expired: Vec<usize> = pending
             .idle
             .iter()
-            .filter(|(id, since)| !pending.retiring.contains(*id) &&now.saturating_duration_since(**since) >= self.idle_after)
+            .filter(|(id, since)| !pending.retiring.contains(*id) && now.saturating_duration_since(**since) >= self.idle_after)
             .map(|(id, _)| *id)
             .take(surplus)
             .collect();
@@ -869,10 +822,7 @@ impl Watch {
         }
         let idle = pending.idle.len().saturating_sub(pending.retiring.len());
         let wants_thread = pending.queue.len() + 1 > idle;
-        if mode == Mode::Now
-            && wants_thread
-            && (self.stats.live.load(Relaxed) >= self.limit || self.healthy() >= self.max_threads)
-        {
+        if mode == Mode::Now && wants_thread && (self.stats.live.load(Relaxed) >= self.limit || self.healthy() >= self.max_threads) {
             return refused;
         }
         let entered = match pending.queue.push(job, mode == Mode::Wait, &mut dropped) {
@@ -959,10 +909,7 @@ fn worker(watch: &Arc<Watch>, id: usize, ready: Option<&mpsc::Sender<io::Result<
 fn watchdog(watch: &Arc<Watch>) {
     let tick = (watch.lease / 4).min(watch.idle_after / 2).max(Duration::from_millis(1));
     loop {
-        let (stopped, _) = watch
-            .wake
-            .wait_timeout_while(lock(&watch.stopped), tick, |stopped| !*stopped)
-            .unwrap_or_else(PoisonError::into_inner);
+        let (stopped, _) = watch.wake.wait_timeout_while(lock(&watch.stopped), tick, |stopped| !*stopped).unwrap_or_else(PoisonError::into_inner);
         if *stopped {
             return;
         }
@@ -1047,30 +994,19 @@ mod tests {
     /// A job that signals `started`, then blocks until `release` is sent or dropped, then
     /// sends on the returned channel: its late "effect". The channel disconnects without a
     /// message if the job is dropped unrun.
-    fn blocking_job(
-        started: mpsc::Sender<()>,
-        release: mpsc::Receiver<()>,
-    ) -> (QueuedJob, mpsc::Receiver<()>) {
+    fn blocking_job(started: mpsc::Sender<()>, release: mpsc::Receiver<()>) -> (QueuedJob, mpsc::Receiver<()>) {
         let (done_tx, done_rx) = mpsc::channel();
         let run = Box::new(move |_: crate::lanes::Answer| {
             started.send(()).unwrap();
             let _ = release.recv_timeout(TEST_WAIT);
             done_tx.send(()).unwrap();
         });
-        (
-            QueuedJob::new(LaneKind::CpuBulk, CancellationToken::new(), run),
-            done_rx,
-        )
+        (QueuedJob::new(LaneKind::CpuBulk, CancellationToken::new(), run), done_rx)
     }
 
     /// Like [`blocking_job`], but after `step` is received it reports progress and signals
     /// `progressed`, then blocks on `release`.
-    fn advancing_job(
-        started: mpsc::Sender<()>,
-        step: mpsc::Receiver<()>,
-        progressed: mpsc::Sender<()>,
-        release: mpsc::Receiver<()>,
-    ) -> QueuedJob {
+    fn advancing_job(started: mpsc::Sender<()>, step: mpsc::Receiver<()>, progressed: mpsc::Sender<()>, release: mpsc::Receiver<()>) -> QueuedJob {
         let run = Box::new(move |_: crate::lanes::Answer| {
             started.send(()).unwrap();
             step.recv_timeout(TEST_WAIT).expect("the test steps the advancing job");
@@ -1098,17 +1034,7 @@ mod tests {
     #[test]
     fn wedged_workers_are_replaced_then_the_lane_refuses_and_drops_its_queue() {
         let failures = Arc::new(AtomicU64::new(0));
-        let lane = LaneExec::pooled_with(
-            LaneKind::CpuBulk,
-            Priority::Normal,
-            1,
-            4,
-            4,
-            LEASE,
-            &failures,
-            |_| Ok(()),
-        )
-        .unwrap();
+        let lane = LaneExec::pooled_with(LaneKind::CpuBulk, Priority::Normal, 1, 4, 4, LEASE, &failures, |_| Ok(())).unwrap();
         let (started_tx, started_rx) = mpsc::channel();
 
         // Job A takes the only worker and never returns.
@@ -1148,21 +1074,18 @@ mod tests {
         assert_eq!(a_done.recv_timeout(TEST_WAIT), Ok(()));
         assert_eq!(b_done.recv_timeout(TEST_WAIT), Ok(()));
         let freed = lane.freed();
-        tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async {
-                // A returning stuck job notifies `freed`; registered before each check.
-                loop {
-                    let notified = freed.notified();
-                    tokio::pin!(notified);
-                    notified.as_mut().enable();
-                    if !lane.is_wedged() {
-                        break;
-                    }
-                    notified.await;
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            // A returning stuck job notifies `freed`; registered before each check.
+            loop {
+                let notified = freed.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if !lane.is_wedged() {
+                    break;
                 }
-            });
+                notified.await;
+            }
+        });
         let (e, e_rx) = job(LaneKind::CpuBulk);
         lane.submit(e).unwrap();
         assert_eq!(e_rx.recv_timeout(TEST_WAIT), Ok(7));
@@ -1173,8 +1096,7 @@ mod tests {
     #[test]
     fn an_elastic_lanes_wedged_worker_is_replaced_and_the_lane_keeps_serving() {
         let failures = Arc::new(AtomicU64::new(0));
-        let lane = LaneExec::elastic_with(LaneKind::InteractiveIo, Priority::Normal, 1, 2, 4, 4, LEASE, Duration::MAX, &failures, |_| Ok(()))
-            .unwrap();
+        let lane = LaneExec::elastic_with(LaneKind::InteractiveIo, Priority::Normal, 1, 2, 4, 4, LEASE, Duration::MAX, &failures, |_| Ok(())).unwrap();
         let (started_tx, started_rx) = mpsc::channel();
         let (release, gate) = mpsc::channel::<()>();
         let (stuck, stuck_done) = blocking_job(started_tx, gate);
@@ -1194,24 +1116,13 @@ mod tests {
     #[test]
     fn a_job_that_reports_progress_keeps_its_lease() {
         let failures = Arc::new(AtomicU64::new(0));
-        let lane = LaneExec::pooled_with(
-            LaneKind::CpuBulk,
-            Priority::Normal,
-            1,
-            4,
-            4,
-            LEASE,
-            &failures,
-            |_| Ok(()),
-        )
-        .unwrap();
+        let lane = LaneExec::pooled_with(LaneKind::CpuBulk, Priority::Normal, 1, 4, 4, LEASE, &failures, |_| Ok(())).unwrap();
         let base = Instant::now();
         let (started_tx, started_rx) = mpsc::channel();
         let (step_tx, step_rx) = mpsc::channel();
         let (progressed_tx, progressed_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel::<()>();
-        lane.submit(advancing_job(started_tx, step_rx, progressed_tx, release_rx))
-            .unwrap();
+        lane.submit(advancing_job(started_tx, step_rx, progressed_tx, release_rx)).unwrap();
         started(&started_rx);
 
         // Three quarters of the lease with no progress: still within it. The sweep notes the
@@ -1236,18 +1147,7 @@ mod tests {
     #[test]
     fn pooled_lane_that_cannot_take_its_priority_fails_to_start() {
         let failures = Arc::new(AtomicU64::new(0));
-        let err = LaneExec::pooled_with(
-            LaneKind::CpuBulk,
-            Priority::BelowNormal,
-            2,
-            4,
-            4,
-            LEASE,
-            &failures,
-            refuse,
-        )
-        .err()
-        .expect("start must fail");
+        let err = LaneExec::pooled_with(LaneKind::CpuBulk, Priority::BelowNormal, 2, 4, 4, LEASE, &failures, refuse).err().expect("start must fail");
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         assert!(err.to_string().contains("cpu-bulk"));
         assert!(failures.load(Relaxed) >= 1);
@@ -1256,15 +1156,7 @@ mod tests {
     #[test]
     fn per_job_lane_drops_a_job_whose_thread_cannot_take_the_priority() {
         let failures = Arc::new(AtomicU64::new(0));
-        let lane = LaneExec::per_job_with(
-            LaneKind::PtyIo,
-            Priority::Normal,
-            2,
-            4,
-            &failures,
-            refuse,
-        )
-        .unwrap();
+        let lane = LaneExec::per_job_with(LaneKind::PtyIo, Priority::Normal, 2, 4, &failures, refuse).unwrap();
         let (queued, rx) = job(LaneKind::PtyIo);
         lane.submit(queued).unwrap();
         // The submitter sees the failure: the result channel closes without a value.
@@ -1375,8 +1267,7 @@ mod tests {
             .collect();
         // The first is admitted (room 1); the three behind it wait.
         assert!(matches!(entered[0], Entered::Admitted));
-        let tickets: Vec<Ticket> =
-            entered[1..].iter().map(|e| if let Entered::Waiting(t) = e { t.clone() } else { panic!("waits") }).collect();
+        let tickets: Vec<Ticket> = entered[1..].iter().map(|e| if let Entered::Waiting(t) = e { t.clone() } else { panic!("waits") }).collect();
         assert_eq!(lane.snapshot().waiters, 3);
         // The head waiter withdraws; the others keep their places.
         assert!(lane.withdraw(&tickets[0]));

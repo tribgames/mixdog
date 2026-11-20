@@ -9,9 +9,7 @@ use serde_json::Value;
 
 use super::Extensions;
 use super::disabled_skills::{SkillSet, set_disabled_skills};
-use super::panel::{
-    Action, ExtItem, ExtPanel, ExtensionsHost, Handler, MarkerTone, claim, close_now, or_text, read_status, status_list, with_scope,
-};
+use super::panel::{Action, ExtItem, ExtPanel, ExtensionsHost, Handler, MarkerTone, claim, close_now, or_text, read_status, status_list, with_scope};
 use crate::slash::host::{PromptSurface, TextPrompt, Tone};
 use crate::slash::notices::{truthy, value_text};
 

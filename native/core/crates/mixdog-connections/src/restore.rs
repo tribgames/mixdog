@@ -117,7 +117,9 @@ impl Inner {
         let ownership = links.open(spec, attempt_context(record), Some(progress)).await.map_err(|error| error.to_string())?;
         let opened = windows.open(&record.id, &record.name).await;
         // A window refusal only detaches the link this reopening made.
-        if opened.is_err() && let LinkOpen::Owned(token) = ownership {
+        if opened.is_err()
+            && let LinkOpen::Owned(token) = ownership
+        {
             links.rollback(&record.id, token).await;
         }
         opened

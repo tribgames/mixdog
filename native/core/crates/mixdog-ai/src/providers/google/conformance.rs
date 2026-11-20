@@ -44,13 +44,13 @@ use super::auth::antigravity::TokenStore;
 use super::auth::vertex;
 use super::codec::GEMINI_ORIGIN;
 use super::codec::GoogleCodec;
-use crate::transport::BodyStream;
-use crate::transport::HttpResponse;
-use crate::transport::HttpSend;
 use super::policy;
 use super::serving::VertexPlace;
 use super::traits::ModelTraits;
 use super::traits::ThinkingControl;
+use crate::transport::BodyStream;
+use crate::transport::HttpResponse;
+use crate::transport::HttpSend;
 
 struct AllGemini;
 
@@ -70,9 +70,6 @@ fn traits() -> Arc<dyn ModelTraits> {
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
-
-
-
 
 fn fixture_request(model: &str) -> ModelRequest {
     let text = |role, t: &str| Message::new(role, Content::Text(t.into()));
@@ -96,20 +93,11 @@ fn fixture_request(model: &str) -> ModelRequest {
 
 const VERTEX_ADC_BASE: &str = "https://us-central1-aiplatform.googleapis.com/v1/projects/projectaa-a5af6/locations/us-central1";
 
-
-
-
 #[test]
 fn vertex_project_base_matches_the_recording() {
     assert_eq!(vertex::project_base("projectaa-a5af6", "us-central1").unwrap(), VERTEX_ADC_BASE);
-    assert_eq!(
-        vertex::project_base("p", "global").unwrap(),
-        "https://aiplatform.googleapis.com/v1/projects/p/locations/global"
-    );
-    assert_eq!(
-        vertex::project_base("p", "eu").unwrap(),
-        "https://aiplatform.eu.rep.googleapis.com/v1/projects/p/locations/eu"
-    );
+    assert_eq!(vertex::project_base("p", "global").unwrap(), "https://aiplatform.googleapis.com/v1/projects/p/locations/global");
+    assert_eq!(vertex::project_base("p", "eu").unwrap(), "https://aiplatform.eu.rep.googleapis.com/v1/projects/p/locations/eu");
     assert!(vertex::project_base("p", "us/../x").is_err());
 }
 
@@ -132,18 +120,11 @@ fn fold(events: &[StreamEvent]) -> Folded {
     (text, calls, usage, stop)
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Retry rows against the recorded sleeps
 // ---------------------------------------------------------------------------
 
-fn delays(
-    error: &ProviderError,
-    policy: &RetryPolicy,
-    class: RetryClass,
-    samples: impl Fn(usize) -> JitterSamples,
-) -> (Vec<u64>, Verdict) {
+fn delays(error: &ProviderError, policy: &RetryPolicy, class: RetryClass, samples: impl Fn(usize) -> JitterSamples) -> (Vec<u64>, Verdict) {
     let decider = MockRetryDecider;
     let mut state = RetryState::new(class, "m");
     let mut out = Vec::new();
@@ -176,11 +157,7 @@ fn antigravity_retry_kinds_follow_the_typed_error_fields() {
     let (quota, end) = run(&failure(429, "QUOTA_EXHAUSTED"));
     assert!(quota.is_empty() && end == Verdict::Surface, "spent quota is never retried");
     let (overloaded, _) = run(&failure(503, "BACKEND_ERROR"));
-    assert_eq!(
-        overloaded.len(),
-        15,
-        "503 runs the inner ladder (3), then a capacity retry (1) that restarts it, three times, then a last ladder"
-    );
+    assert_eq!(overloaded.len(), 15, "503 runs the inner ladder (3), then a capacity retry (1) that restarts it, three times, then a last ladder");
 }
 
 // ---------------------------------------------------------------------------
@@ -223,11 +200,7 @@ impl Scripted {
 
 #[async_trait]
 impl HttpSend for Scripted {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         match self.steps.lock().unwrap().pop_front().expect("scripted step") {
             Step::Fail(err) => Err(err),
@@ -272,7 +245,6 @@ fn clock() -> Box<dyn Fn() -> u64 + Send + Sync> {
     Box::new(|| NOW_MS)
 }
 
-
 async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<StreamEvent>, Option<ProviderError>) {
     let mut stream = match adapter.attempt(Arc::new(request)).await {
         Ok(stream) => stream,
@@ -306,12 +278,8 @@ impl super::cache::layer::CacheRuntime for TokioRuntime {
 fn big_request() -> ModelRequest {
     let say = |role, t: String| Message::new(role, Content::Text(t));
     let mut request = fixture_request("gemini-2.5-pro");
-    request.messages = vec![
-        say(Role::System, "x".repeat(12_000)),
-        say(Role::User, "first".into()),
-        say(Role::Assistant, "second".into()),
-        say(Role::User, "third".into()),
-    ];
+    request.messages =
+        vec![say(Role::System, "x".repeat(12_000)), say(Role::User, "first".into()), say(Role::Assistant, "second".into()), say(Role::User, "third".into())];
     request
 }
 
@@ -432,10 +400,7 @@ fn service_account_jwt_is_a_valid_rs256_assertion() {
     let parts: Vec<&str> = jwt.split('.').collect();
     assert_eq!(parts.len(), 3);
     let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
-    assert_eq!(
-        claims,
-        json!({"iss":"sa@p.iam.gserviceaccount.com","scope":vertex::SCOPE,"aud":vertex::TOKEN_URI,"iat":1000,"exp":4600})
-    );
+    assert_eq!(claims, json!({"iss":"sa@p.iam.gserviceaccount.com","scope":vertex::SCOPE,"aud":vertex::TOKEN_URI,"iat":1000,"exp":4600}));
     let public = STANDARD.decode(TEST_KEY_PUBLIC).unwrap();
     ring::signature::UnparsedPublicKey::new(&ring::signature::RSA_PKCS1_2048_8192_SHA256, public)
         .verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &URL_SAFE_NO_PAD.decode(parts[2]).unwrap())
@@ -449,18 +414,11 @@ fn error_wording_sets_only_the_codes_node_reads_it_for() {
     // rate-limit wording on an untyped 429), never for a context overflow.
     let codec = GoogleCodec::antigravity(ENDPOINT, "p", "2.19.1", traits());
     let classify = |status, message: &str| {
-        codec
-            .classify(&ErrorResponse {
-                status: Some(status),
-                headers: vec![],
-                body: json!({"error": {"message": message}}).to_string().into_bytes(),
-            })
-            .kind
+        codec.classify(&ErrorResponse { status: Some(status), headers: vec![], body: json!({"error": {"message": message}}).to_string().into_bytes() }).kind
     };
     assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::Overloaded);
     assert_eq!(classify(400, "prompt is too long, maximum context length exceeded"), ErrorKind::InvalidRequest);
 }
-
 
 fn gemini_adapter(http: Arc<Scripted>) -> super::adapter::GoogleAdapter {
     super::gemini("key-1", http, traits())
@@ -471,14 +429,8 @@ fn cached_adapter(steps: Vec<Step>) -> (super::adapter::GoogleAdapter, Arc<Scrip
     use super::cache::registry::Registry;
 
     let http = Scripted::new(steps);
-    let cache = ExplicitCache::new(
-        "key-1",
-        super::codec::GEMINI_ORIGIN,
-        http.clone(),
-        Arc::new(TokioRuntime),
-        Arc::new(Registry::default()),
-        Tuning::default(),
-    );
+    let cache =
+        ExplicitCache::new("key-1", super::codec::GEMINI_ORIGIN, http.clone(), Arc::new(TokioRuntime), Arc::new(Registry::default()), Tuning::default());
     (super::gemini("key-1", http.clone(), traits()).with_cache(cache), http)
 }
 /// After a cached rejection the uncached resend runs once; if it fails, the
@@ -585,10 +537,7 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
     let adapter = gemini_adapter(Scripted::new(vec![respond(200, wire)]));
     let (events, err) = collect(&adapter, fixture_request("gemini-2.5-pro")).await;
     assert!(err.is_none());
-    let replay = events
-        .iter()
-        .find_map(|e| if let StreamEvent::ReasoningReplay(r) = e { Some(r.clone()) } else { None })
-        .expect("replay envelope");
+    let replay = events.iter().find_map(|e| if let StreamEvent::ReasoningReplay(r) = e { Some(r.clone()) } else { None }).expect("replay envelope");
     assert_eq!(replay.items["model"], "gemini-2.5-pro");
     let call = fold(&events).1.remove(0);
 
@@ -606,10 +555,7 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
     assert_eq!(model_parts[0]["thoughtSignature"], "sig-t");
     assert_eq!(model_parts[1]["thoughtSignature"], "sig-c");
     // The recorded part carried no id, so the response carries none either.
-    assert_eq!(
-        body["contents"][2]["parts"][0],
-        json!({"functionResponse": {"name": "lookup", "response": {"result": "42"}}})
-    );
+    assert_eq!(body["contents"][2]["parts"][0], json!({"functionResponse": {"name": "lookup", "response": {"result": "42"}}}));
 }
 // ---------------------------------------------------------------------------
 // Structure
@@ -642,7 +588,6 @@ fn no_content_timer_exists_in_the_provider_sources() {
         }
     }
 }
-
 
 #[async_trait]
 impl TokenStore for MemoryStore {

@@ -7,10 +7,7 @@ use serde_json::{Value, json};
 use super::report_failure;
 use super::slash_panel::open_slash_panel;
 use crate::slash::host::{Opener, SlashHost, Tone};
-use crate::slash::notices::{
-    first_truthy_text, model_switch_notice, output_style_notice, theme_notice, truthy, value_text,
-    workflow_switch_notice,
-};
+use crate::slash::notices::{first_truthy_text, model_switch_notice, output_style_notice, theme_notice, truthy, value_text, workflow_switch_notice};
 
 const STATUS_WORDS: [&str; 3] = ["status", "current", "show"];
 
@@ -55,10 +52,7 @@ fn websearch(host: &mut dyn SlashHost, arg: &str) -> bool {
     // No busy guard: /websearch only picks the web-search provider/model (a config save the NEXT web_search tool call reads).
     // It never touches the in-flight turn, and the same picker is reachable mid-turn through /settings.
     if !arg.is_empty() {
-        host.push_notice(
-            "/websearch sets the web-search provider/model; the web_search tool uses that model when called.",
-            Tone::Warn,
-        );
+        host.push_notice("/websearch sets the web-search provider/model; the web_search tool uses that model when called.", Tone::Warn);
     }
     open_slash_panel(host, "websearch", "Web Search Model", Opener::WebSearch, json!({}));
     true
@@ -142,8 +136,7 @@ fn theme(host: &mut dyn SlashHost, arg: &str) -> bool {
         let id_text = if truthy(&id) { value_text(&id) } else { String::new() };
         let entry = themes.iter().find(|theme| theme.get("id") == Some(&id) && truthy(&id));
         let label = entry.and_then(|entry| first_truthy_text(entry, &["label"])).filter(|label| !label.is_empty());
-        let shown =
-            label.or_else(|| Some(id_text).filter(|text| !text.is_empty())).unwrap_or_else(|| "default".to_owned());
+        let shown = label.or_else(|| Some(id_text).filter(|text| !text.is_empty())).unwrap_or_else(|| "default".to_owned());
         host.push_notice(&format!("Theme: {shown}"), Tone::Info);
         return true;
     }

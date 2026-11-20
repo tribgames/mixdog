@@ -120,7 +120,8 @@ impl HelperApp {
     fn start(dir: &Path, names: &[&str]) -> Self {
         // The helper application that holds documents open is started by a script of its own (`tests/support/host-app.ps1`).
         let path = crate_dir().join("tests").join("support").join("host-app.ps1");
-        let powershell = Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot")).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
+        let powershell =
+            Path::new(&std::env::var_os("SystemRoot").expect("SystemRoot")).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
         let mut child = Command::new(powershell)
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Sta", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(&path)
@@ -228,7 +229,8 @@ async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run
             let host = kill["session"].as_str().expect("a session host");
             let id = hosts.get(host).and_then(|ids| ids.last()).unwrap_or_else(|| panic!("no session of host {host}"));
             let pid = office.session_identity(id).and_then(|identity| identity.app_pid).expect("the session's application process");
-            let status = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status().expect("taskkill");
+            let status =
+                Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status().expect("taskkill");
             assert!(status.success(), "the application process {pid} was not ended");
             None
         } else if let Some(host) = step.get("eof").and_then(Json::as_str) {
@@ -272,7 +274,8 @@ fn every_excel_scenario_through_the_transport_meets_what_it_expects_and_leaves_n
     let mut request_time = Duration::ZERO;
     let mut ran = 0;
     for area in AREAS {
-        let text = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("tests").join("scenarios").join(format!("{area}.json"))).expect("the scenarios");
+        let text = mixdog_fsio::read_to_string(&mixdog_fsio::Unlaned, &crate_dir().join("tests").join("scenarios").join(format!("{area}.json")))
+            .expect("the scenarios");
         let file: Json = serde_json::from_str(&text).expect("the scenarios are JSON");
         for scenario in file["scenarios"].as_array().expect("scenarios").iter().filter(|scenario| is_excel_scenario(scenario)) {
             let id = scenario["id"].as_str().expect("an id");

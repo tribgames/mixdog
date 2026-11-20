@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -362,7 +362,8 @@ pub(super) fn compute_transition(before: &[Window], after: &[Window], target_win
     };
     let all_opened: Vec<&Window> = after.iter().filter(|window| !before_by_id.contains_key(window.id.as_str())).collect();
     let opened: Vec<&Window> = all_opened.iter().copied().filter(|window| belongs_to_target(window, &after_by_id)).collect();
-    let closed: Vec<&Window> = before.iter().filter(|window| !after_by_id.contains_key(window.id.as_str()) && belongs_to_target(window, &before_by_id)).collect();
+    let closed: Vec<&Window> =
+        before.iter().filter(|window| !after_by_id.contains_key(window.id.as_str()) && belongs_to_target(window, &before_by_id)).collect();
     let changed: Vec<&Window> = after
         .iter()
         .filter(|window| before_by_id.get(window.id.as_str()).is_some_and(|previous| belongs_to_target(window, &after_by_id) && window.differs_from(previous)))
@@ -454,16 +455,30 @@ fn assert_running(cancel: &CancellationToken) -> Result<(), ComputerError> {
 }
 
 /// One read of the window list and the transition it shows against the list taken before the action.
-async fn scan<R: WindowReader>(reader: &R, settling: &Settling, before: Option<&[Window]>, with_app: bool, cancel: &CancellationToken) -> Result<Option<Transition>, ComputerError> {
+async fn scan<R: WindowReader>(
+    reader: &R,
+    settling: &Settling,
+    before: Option<&[Window]>,
+    with_app: bool,
+    cancel: &CancellationToken,
+) -> Result<Option<Transition>, ComputerError> {
     let after = reader.windows(with_app, false, cancel).await?;
     Ok(match (before, after) {
-        (Some(before), Some(after)) => Some(compute_transition(before, &after, &settling.target_window_id, settling.pid, &settling.app_hint, settling.action == "launch")),
+        (Some(before), Some(after)) => {
+            Some(compute_transition(before, &after, &settling.target_window_id, settling.pid, &settling.app_hint, settling.action == "launch"))
+        }
         _ => None,
     })
 }
 
 /// A launch polls until its successor window exists or the budget ends.
-async fn await_launch_successor<R: WindowReader>(reader: &R, settling: &Settling, before: Option<&[Window]>, started: Instant, cancel: &CancellationToken) -> Result<Settled, ComputerError> {
+async fn await_launch_successor<R: WindowReader>(
+    reader: &R,
+    settling: &Settling,
+    before: Option<&[Window]>,
+    started: Instant,
+    cancel: &CancellationToken,
+) -> Result<Settled, ComputerError> {
     let deadline = started + settling.delay.max(LAUNCH_SUCCESSOR_TIMEOUT);
     let minimum = settling.delay.max(LAUNCH_MINIMUM_SETTLE);
     loop {
@@ -508,7 +523,12 @@ async fn await_dialog<R: WindowReader>(
 /// Lets the desktop settle after a mutation and reports what moved. A launch polls until its successor window exists or the
 /// budget ends; every other action pays one settle and then reads the window list once, and keeps looking for a dialog it
 /// promised or whose focus gap it sees. The settle budget is never shortened by watching for the transition to start.
-pub(super) async fn settle<R: WindowReader>(reader: &R, settling: &Settling, before: Option<&[Window]>, cancel: &CancellationToken) -> Result<Settled, ComputerError> {
+pub(super) async fn settle<R: WindowReader>(
+    reader: &R,
+    settling: &Settling,
+    before: Option<&[Window]>,
+    cancel: &CancellationToken,
+) -> Result<Settled, ComputerError> {
     let started = Instant::now();
     if settling.action == "launch" {
         return await_launch_successor(reader, settling, before, started, cancel).await;
@@ -735,7 +755,15 @@ impl Arrivals {
     /// next command.
     /// A restricted session hears only about the windows it may capture; the ones it does not see are named as well, so they are not
     /// offered again.
-    pub async fn report<R: WindowReader>(&self, reader: &R, session: &str, arrived: Vec<Window>, parts: &mut [ToolPart], clipboard_read: bool, cancel: &CancellationToken) -> Result<(), ComputerError> {
+    pub async fn report<R: WindowReader>(
+        &self,
+        reader: &R,
+        session: &str,
+        arrived: Vec<Window>,
+        parts: &mut [ToolPart],
+        clipboard_read: bool,
+        cancel: &CancellationToken,
+    ) -> Result<(), ComputerError> {
         if arrived.is_empty() || clipboard_read {
             return Ok(());
         }
@@ -757,7 +785,8 @@ impl Arrivals {
             return Ok(());
         }
         // The snapshot read carries no app names; only a reply with arrivals pays for them, and a slow or failed read leaves them empty.
-        let apps: HashMap<String, String> = self.bounded_read(reader, true, cancel).await?.into_iter().flatten().map(|window| (window.id, window.app)).collect();
+        let apps: HashMap<String, String> =
+            self.bounded_read(reader, true, cancel).await?.into_iter().flatten().map(|window| (window.id, window.app)).collect();
         let rows: Vec<Value> = arrived
             .iter()
             .map(|window| json!({"id": window.id, "title": window.title, "app": apps.get(&window.id).filter(|app| !app.is_empty()).unwrap_or(&window.app)}))
@@ -784,7 +813,8 @@ pub(super) struct Before {
 
 /// The settle delay of `command`: `capture_delay_ms` when a capture follows, else the default (`screenshotInteger`).
 fn settle_delay(command: &Map<String, Value>) -> Result<Duration, ComputerError> {
-    let requested = if command.get("capture_after") == Some(&Value::Bool(true)) { command.get("capture_delay_ms").filter(|value| !value.is_null()) } else { None };
+    let requested =
+        if command.get("capture_after") == Some(&Value::Bool(true)) { command.get("capture_delay_ms").filter(|value| !value.is_null()) } else { None };
     let Some(requested) = requested else { return Ok(Duration::from_millis(DEFAULT_SETTLE_MS)) };
     match requested.as_u64() {
         Some(ms) if ms <= MAX_SETTLE_MS => Ok(Duration::from_millis(ms)),
@@ -793,7 +823,12 @@ fn settle_delay(command: &Map<String, Value>) -> Result<Duration, ComputerError>
 }
 
 /// Reads the windows before `action` runs: a mutation is judged against this list.
-pub(super) async fn before(backend: &ProcessComputerBackend, action: &str, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Before, ComputerError> {
+pub(super) async fn before(
+    backend: &ProcessComputerBackend,
+    action: &str,
+    command: &Map<String, Value>,
+    cancel: &CancellationToken,
+) -> Result<Before, ComputerError> {
     if !tracks() || HOST_READ_ACTIONS.contains(&action) {
         return Ok(Before { windows: None, settling: None });
     }
@@ -810,7 +845,13 @@ pub(super) async fn before(backend: &ProcessComputerBackend, action: &str, comma
 
 /// Waits for `action`'s windows to settle and adds what changed since `before` to its result as `window_transition`, and how long
 /// the settle took as `settle_delay_ms`.
-pub(super) async fn after(backend: &ProcessComputerBackend, action: &str, before: Before, result: &mut Map<String, Value>, cancel: &CancellationToken) -> Result<(), ComputerError> {
+pub(super) async fn after(
+    backend: &ProcessComputerBackend,
+    action: &str,
+    before: Before,
+    result: &mut Map<String, Value>,
+    cancel: &CancellationToken,
+) -> Result<(), ComputerError> {
     let Some(mut settling) = before.settling else { return Ok(()) };
     if settling.target_window_id.is_empty() {
         settling.target_window_id = result.get("window_id").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -863,7 +904,13 @@ pub(super) async fn arrived_before(backend: &ProcessComputerBackend, action: &st
 }
 
 /// Names `arrived` on the reply of `action`.
-pub(super) async fn report_arrived(backend: &ProcessComputerBackend, action: &str, arrived: Vec<Window>, parts: &mut [ToolPart], cancel: &CancellationToken) -> Result<(), ComputerError> {
+pub(super) async fn report_arrived(
+    backend: &ProcessComputerBackend,
+    action: &str,
+    arrived: Vec<Window>,
+    parts: &mut [ToolPart],
+    cancel: &CancellationToken,
+) -> Result<(), ComputerError> {
     backend.arrivals.report(backend, &backend.config.session_id, arrived, parts, action == "clipboard_read", cancel).await
 }
 
@@ -1011,7 +1058,8 @@ mod tests {
     fn a_folder_path_launch_offers_the_explorer_window_that_appeared() {
         let existing = with(window("hwnd:0x1", 11), |w| w.focused = true);
         let folder = with(window("hwnd:0x29B0E6C", 7128), |w| w.app = "explorer".into());
-        let transition = compute_transition(std::slice::from_ref(&existing), &[existing.clone(), folder], "", 0, "C:\\Users\\me\\AppData\\Local\\Temp\\probe", true);
+        let transition =
+            compute_transition(std::slice::from_ref(&existing), &[existing.clone(), folder], "", 0, "C:\\Users\\me\\AppData\\Local\\Temp\\probe", true);
         assert_eq!(target(&transition), named("hwnd:0x29B0E6C", Reason::LaunchedSingleWindow));
     }
 

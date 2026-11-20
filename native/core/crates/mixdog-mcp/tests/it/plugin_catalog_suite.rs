@@ -49,7 +49,11 @@ fn a_name_over_thirty_two_characters_is_cut_and_ends_in_a_hash_of_its_plugin_and
     assert!(long.starts_with("plugin-a-very-long-plug"), "{long}");
     let (head, hash) = long.rsplit_once('-').unwrap();
     assert!(hash.len() == 8 && hash.chars().all(|c| c.is_ascii_hexdigit()) && !head.ends_with('-'), "{long}");
-    assert_eq!(long, plugin_mcp_server_base_name("a-very-long-plugin-name-here-536a8a2d", "an-equally-long-server-key"), "the same plugin and key give the same name");
+    assert_eq!(
+        long,
+        plugin_mcp_server_base_name("a-very-long-plugin-name-here-536a8a2d", "an-equally-long-server-key"),
+        "the same plugin and key give the same name"
+    );
     assert_ne!(long, plugin_mcp_server_base_name("a-very-long-plugin-name-here-536a8a2d", "an-equally-long-server-kez"));
 }
 
@@ -98,7 +102,11 @@ fn a_plugin_server_process_is_told_its_plugin_and_data_folders_in_three_spelling
 #[test]
 fn the_catalog_lists_configured_servers_first_then_each_plugins_under_its_generated_name() {
     let config = json!({"mcpServers": {"plain": {"command": "z"}}});
-    let declared = [declaring(plugin("alpha-plugin-536a8a2d", "alpha-plugin", "/plugins/alpha", true), "claude", &[("search", json!({"command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/s.js"]}))])];
+    let declared = [declaring(
+        plugin("alpha-plugin-536a8a2d", "alpha-plugin", "/plugins/alpha", true),
+        "claude",
+        &[("search", json!({"command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/s.js"]}))],
+    )];
     let catalog = resolve_mcp_server_catalog(&config, &declared, "/work", "/data");
     let names: Vec<&str> = catalog.servers.keys().map(String::as_str).collect();
     assert_eq!(names, ["plain", "plugin-alpha-plugin-search"]);

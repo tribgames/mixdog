@@ -40,10 +40,7 @@ fn newest_state_db(home: &Path) -> Option<PathBuf> {
 fn read_state_titles(home: &Path, titles: &mut HashMap<String, String>) -> rusqlite::Result<()> {
     let Some(path) = newest_state_db(home) else { return Ok(()) };
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let columns: Vec<String> = db
-        .prepare("PRAGMA table_info(threads)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<_>>()?;
+    let columns: Vec<String> = db.prepare("PRAGMA table_info(threads)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<_>>()?;
     let wanted: Vec<&str> = ["title", "name"].into_iter().filter(|c| columns.iter().any(|x| x == c)).collect();
     if wanted.is_empty() {
         return Ok(());
@@ -103,11 +100,8 @@ mod tests {
             db.execute_batch("CREATE TABLE threads (id TEXT, title TEXT, name TEXT)").unwrap();
             db.execute("INSERT INTO threads VALUES ('t1', ?1, NULL), ('t2', 'two', 'renamed  two'), ('t3', 'three', '')", [title]).unwrap();
         }
-        std::fs::write(
-            home.join("session_index.jsonl"),
-            "{\"id\":\"t3\",\"thread_name\":\"from index\"}\nbroken\n{\"id\":\"t3\",\"thread_name\":\"  \"}\n",
-        )
-        .unwrap();
+        std::fs::write(home.join("session_index.jsonl"), "{\"id\":\"t3\",\"thread_name\":\"from index\"}\nbroken\n{\"id\":\"t3\",\"thread_name\":\"  \"}\n")
+            .unwrap();
         let titles = load_codex_thread_titles(home);
         assert_eq!(titles["t1"], "db title", "the newest state database wins");
         assert_eq!(titles["t2"], "renamed two");

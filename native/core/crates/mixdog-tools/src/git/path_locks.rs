@@ -61,10 +61,7 @@ pub async fn lock_paths(paths: &[&Path], cancel: &CancellationToken) -> Option<P
     for key in keyed {
         let semaphore = {
             let mut map = LOCKS.lock().expect("path locks");
-            map.get_or_insert_with(HashMap::new)
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                .clone()
+            map.get_or_insert_with(HashMap::new).entry(key.clone()).or_insert_with(|| Arc::new(Semaphore::new(1))).clone()
         };
         // Pushed before the wait so a cancelled wait still releases its map entry.
         held.push(Held { key, semaphore: semaphore.clone(), permit: None });
@@ -130,19 +127,15 @@ mod tests {
         let cancel = CancellationToken::new();
         // A git write holds the work tree; an edit locks its target file (and its real path).
         let git_write = lock_paths(&[Path::new("/r/work")], &cancel).await.unwrap();
-        let edit = mixdog_rt::time::timeout(
-            Duration::from_millis(200),
-            lock_paths(&[Path::new("/r/work/src/a.rs"), Path::new("/r/work/src/a.rs")], &cancel),
-        )
-        .await
-        .expect("an edit under the folder is not held up by the git write")
-        .unwrap();
+        let edit = mixdog_rt::time::timeout(Duration::from_millis(200), lock_paths(&[Path::new("/r/work/src/a.rs"), Path::new("/r/work/src/a.rs")], &cancel))
+            .await
+            .expect("an edit under the folder is not held up by the git write")
+            .unwrap();
         assert_eq!(edit.len(), 1, "the target and its real path are one key");
         // The same key does wait: a second git write in the folder, and a second edit of the file.
         let second_git = mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work")], &cancel)).await;
         assert!(second_git.is_err());
-        let second_edit =
-            mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/src/a.rs")], &cancel)).await;
+        let second_edit = mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/src/a.rs")], &cancel)).await;
         assert!(second_edit.is_err());
         // Spelling differences of one folder (separators, trailing slash) are one key.
         let alias = mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/")], &cancel)).await;
@@ -153,9 +146,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn entries_are_dropped_once_unused_and_a_cancelled_wait_leaves_none() {
         let cancel = CancellationToken::new();
-        let held = lock_paths(&[Path::new("/r/only-here"), Path::new("/r/only-here-too")], &cancel)
-            .await
-            .unwrap();
+        let held = lock_paths(&[Path::new("/r/only-here"), Path::new("/r/only-here-too")], &cancel).await.unwrap();
         assert_eq!(held.len(), 2);
         let waiting = CancellationToken::new();
         let stop = waiting.clone();

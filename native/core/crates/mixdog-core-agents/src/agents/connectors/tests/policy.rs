@@ -51,7 +51,8 @@ fn a_remote_change_may_switch_a_connector_off_or_lower_a_tool() {
 
 #[test]
 fn a_remote_change_may_not_switch_a_connector_back_on_or_raise_a_tool() {
-    let refused = |before: Value, after: Value| assert_eq!(assert_not_widened(Some(&before), Some(&after), None), Err(NO_WIDEN.to_owned()), "{before} -> {after}");
+    let refused =
+        |before: Value, after: Value| assert_eq!(assert_not_widened(Some(&before), Some(&after), None), Err(NO_WIDEN.to_owned()), "{before} -> {after}");
     refused(json!({ "off": ["gmail"] }), json!({ "off": [] }));
     refused(json!({ "off": ["gmail", "drive"] }), json!({ "off": ["gmail"] }));
     refused(tools("gmail", "send", "disabled"), tools("gmail", "send", "needs_approval"));

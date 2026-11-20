@@ -111,7 +111,10 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
             let reference = source_ref(&uuid, index, tail.generation);
             // A fractional ms (a sub-millisecond second stamp) is not a BIGINT: the insert fails as it does in Node.
             if row.ts_ms.fract() != 0.0 {
-                mixdog_rt::memory_stderr!("[transcript-watch] insert error ({reference}): invalid input syntax for type bigint: \"{}\"", mixdog_js::number_to_string(row.ts_ms));
+                mixdog_rt::memory_stderr!(
+                    "[transcript-watch] insert error ({reference}): invalid input syntax for type bigint: \"{}\"",
+                    mixdog_js::number_to_string(row.ts_ms)
+                );
                 break;
             }
             let (ts, turn) = (row.ts_ms as i64, index as i32);

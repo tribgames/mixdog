@@ -42,9 +42,11 @@ fn a_legacy_models_list_becomes_manual_overrides_that_hide_new_models() {
         config["modelOverrides"],
         json!({ "a": { "contextWindow": 8000, "hidden": false, "manual": true, "maxOutputTokens": 512, "name": "Alpha" }, "b": { "hidden": false, "manual": true } })
     );
-    let blank = normalized(json!({ "baseURL": "http://localhost:1234/v1", "name": "P", "protocol": "openai-chat", "models": [{ "contextWindow": "", "id": "a" }] }));
+    let blank =
+        normalized(json!({ "baseURL": "http://localhost:1234/v1", "name": "P", "protocol": "openai-chat", "models": [{ "contextWindow": "", "id": "a" }] }));
     assert_eq!(blank["modelOverrides"], json!({ "a": { "hidden": false, "manual": true } }));
-    let huge = normalized(json!({ "baseURL": "http://localhost:1234/v1", "name": "P", "protocol": "openai-chat", "models": [{ "contextWindow": 1e300, "id": "a" }] }));
+    let huge =
+        normalized(json!({ "baseURL": "http://localhost:1234/v1", "name": "P", "protocol": "openai-chat", "models": [{ "contextWindow": 1e300, "id": "a" }] }));
     assert_eq!(huge["modelOverrides"], json!({ "a": { "hidden": false, "manual": true } }), "an unrepresentable window is dropped");
 }
 
@@ -119,7 +121,10 @@ fn the_base_url_is_checked_and_stripped_of_trailing_slashes() {
     ] {
         assert_eq!(refusal(v2(json!({ "baseURL": url }))), want, "{url}");
     }
-    assert_eq!(refusal(v2(json!({ "baseURL": format!("https://example.com/{}", "x".repeat(2100)) }))), "[custom-provider] baseURL must be at most 2048 characters");
+    assert_eq!(
+        refusal(v2(json!({ "baseURL": format!("https://example.com/{}", "x".repeat(2100)) }))),
+        "[custom-provider] baseURL must be at most 2048 characters"
+    );
     for (url, want) in [
         ("http://[::1]:8080/v1", "http://[::1]:8080/v1"),
         ("http://127.0.0.1/v1///", "http://127.0.0.1/v1"),
@@ -167,11 +172,18 @@ fn wires_are_sorted_checked_and_must_include_the_protocol_wire() {
 #[test]
 fn a_model_wire_must_be_one_of_the_served_wires() {
     assert_eq!(normalized(v2(json!({ "modelWires": { "m1": "responses" }, "wires": ["chat", "responses"] })))["modelWires"], json!({ "m1": "responses" }));
-    assert_eq!(normalized(v2(json!({ "modelWires": { "m1": "chat" } })))["modelWires"], json!({ "m1": "chat" }), "without wires only the protocol wire is served");
+    assert_eq!(
+        normalized(v2(json!({ "modelWires": { "m1": "chat" } })))["modelWires"],
+        json!({ "m1": "chat" }),
+        "without wires only the protocol wire is served"
+    );
     for (extra, want) in [
         (json!({ "modelWires": { "m1": "responses" } }), "[custom-provider] modelWires[m1] must be one of the served wires: chat"),
         (json!({ "modelWires": [] }), "[custom-provider] modelWires must be an object"),
-        (json!({ "protocol": "anthropic", "modelWires": { "m": "messages" } }), "[custom-provider] modelWires requires an 'openai-chat' or 'openai-responses' protocol"),
+        (
+            json!({ "protocol": "anthropic", "modelWires": { "m": "messages" } }),
+            "[custom-provider] modelWires requires an 'openai-chat' or 'openai-responses' protocol",
+        ),
         (json!({ "modelWires": { " m": "chat" } }), "[custom-provider] modelWires key must not have surrounding whitespace: \" m\""),
     ] {
         assert_eq!(refusal(v2(extra.clone())), want, "{extra}");
@@ -209,7 +221,9 @@ fn the_request_body_may_not_set_what_the_app_owns_and_is_bounded() {
     ] {
         assert_eq!(refusal(v2(json!({ "requestBody": body }))), want);
     }
-    let unsafe_key: Value = serde_json::from_str(r#"{"baseURL":"http://localhost:1234/v1","name":"P","protocol":"openai-chat","schemaVersion":2,"requestBody":{"__proto__":1}}"#).unwrap();
+    let unsafe_key: Value =
+        serde_json::from_str(r#"{"baseURL":"http://localhost:1234/v1","name":"P","protocol":"openai-chat","schemaVersion":2,"requestBody":{"__proto__":1}}"#)
+            .unwrap();
     assert_eq!(refusal(unsafe_key), "[custom-provider] requestBody has an unsafe key: __proto__");
 }
 
@@ -230,7 +244,10 @@ fn model_overrides_keep_what_they_set_and_refuse_what_they_do_not_know() {
         (json!({ "m1": { "contextWindow": 8000.5 } }), "[custom-provider] modelOverrides[m1].contextWindow must be a positive integer"),
         (json!({ "m1": { "hidden": 1 } }), "[custom-provider] modelOverrides[m1].hidden must be a boolean"),
         (json!({ "": {} }), "[custom-provider] every modelOverrides key must be a non-empty string"),
-        (json!({ "m1": { "requestHeaders": { "Host": "x" } } }), "[custom-provider] modelOverrides[m1].requestHeaders must not set Host: the app owns this header"),
+        (
+            json!({ "m1": { "requestHeaders": { "Host": "x" } } }),
+            "[custom-provider] modelOverrides[m1].requestHeaders must not set Host: the app owns this header",
+        ),
     ] {
         assert_eq!(refusal(v2(json!({ "modelOverrides": overrides.clone() }))), want, "{overrides}");
     }
@@ -238,7 +255,10 @@ fn model_overrides_keep_what_they_set_and_refuse_what_they_do_not_know() {
     assert_eq!(refusal(v2(json!({ "modelOverrides": long_key }))), "[custom-provider] modelOverrides key must be at most 256 characters");
     let many: serde_json::Map<String, Value> = (0..501).map(|n| (format!("m{n}"), json!({}))).collect();
     assert_eq!(refusal(v2(json!({ "modelOverrides": many }))), "[custom-provider] at most 500 model overrides are allowed");
-    let unsafe_key: Value = serde_json::from_str(r#"{"baseURL":"http://localhost:1234/v1","name":"P","protocol":"openai-chat","schemaVersion":2,"modelOverrides":{"__proto__":{}}}"#).unwrap();
+    let unsafe_key: Value = serde_json::from_str(
+        r#"{"baseURL":"http://localhost:1234/v1","name":"P","protocol":"openai-chat","schemaVersion":2,"modelOverrides":{"__proto__":{}}}"#,
+    )
+    .unwrap();
     assert_eq!(refusal(unsafe_key), "[custom-provider] unsafe modelOverrides key: __proto__");
 }
 
@@ -246,8 +266,15 @@ fn model_overrides_keep_what_they_set_and_refuse_what_they_do_not_know() {
 fn a_model_reasoning_override_sorts_its_levels_and_trims_its_wire_values() {
     let reasoning = json!({ "levels": ["high", "ultra", "low"], "replay": true, "wireFormat": "vllm", "wireValues": { "high": " hi ", "max": "mx" } });
     let config = normalized(v2(json!({ "modelOverrides": { "m1": { "reasoning": reasoning } } })));
-    assert_eq!(config["modelOverrides"]["m1"]["reasoning"], json!({ "levels": ["low", "high", "max"], "replay": true, "wireFormat": "vllm", "wireValues": { "high": "hi", "max": "mx" } }));
-    assert_eq!(normalized(v2(json!({ "modelOverrides": { "m1": { "reasoning": {} } } })))["modelOverrides"], json!({ "m1": {} }), "an empty reasoning is dropped");
+    assert_eq!(
+        config["modelOverrides"]["m1"]["reasoning"],
+        json!({ "levels": ["low", "high", "max"], "replay": true, "wireFormat": "vllm", "wireValues": { "high": "hi", "max": "mx" } })
+    );
+    assert_eq!(
+        normalized(v2(json!({ "modelOverrides": { "m1": { "reasoning": {} } } })))["modelOverrides"],
+        json!({ "m1": {} }),
+        "an empty reasoning is dropped"
+    );
 }
 
 #[test]
@@ -270,7 +297,10 @@ fn a_model_reasoning_override_refuses_what_it_cannot_send() {
     ] {
         assert_eq!(reasoning(value.clone(), "openai-chat"), want, "{value}");
     }
-    assert_eq!(reasoning(json!({ "wireFormat": "deepseek" }), "openai-responses"), "[custom-provider] modelOverrides[m1].reasoning.wireFormat 'deepseek' requires protocol 'openai-chat'");
+    assert_eq!(
+        reasoning(json!({ "wireFormat": "deepseek" }), "openai-responses"),
+        "[custom-provider] modelOverrides[m1].reasoning.wireFormat 'deepseek' requires protocol 'openai-chat'"
+    );
 }
 
 /// A lone surrogate in a client's request body is one character here (U+FFFD) but six in Node's `JSON.stringify` (`\ud83d`),

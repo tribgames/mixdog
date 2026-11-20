@@ -80,12 +80,7 @@ pub(crate) fn unpriced_pending(conn: &Connection, now: i64) -> Result<Pending> {
         "SELECT COUNT(*),MAX(e.ts) FROM usage_routes r CROSS JOIN usage_events e ON e.route=r.id
          WHERE json_extract(r.signature,'$[4]')='unpriced' AND e.cost_usd IS NULL AND e.ts<=?1",
         params![now],
-        |r| {
-            Ok(Pending {
-                count: r.get(0)?,
-                latest: r.get(1)?,
-            })
-        },
+        |r| Ok(Pending { count: r.get(0)?, latest: r.get(1)? }),
     )?)
 }
 
@@ -161,12 +156,7 @@ impl Drop for Running<'_> {
 
 impl UsageRefresher {
     pub fn new(pricer: Arc<dyn Pricer>, cpu_bulk: CpuBulk) -> Arc<Self> {
-        Arc::new(Self {
-            pricer,
-            cpu_bulk,
-            state: Mutex::new(State::default()),
-            history: OnceLock::new(),
-        })
+        Arc::new(Self { pricer, cpu_bulk, state: Mutex::new(State::default()), history: OnceLock::new() })
     }
 
     /// Statistics reads import the usage history the earlier daemon left under `data_dir`
@@ -196,12 +186,7 @@ impl UsageRefresher {
     }
 
     /// `refreshUnpricedUsageAsync`. `now_ms` is the clock at the call (`Date.now()`).
-    pub async fn refresh(
-        &self,
-        writer: &Arc<UsageWriter>,
-        reader: &Arc<UsageReader>,
-        now_ms: i64,
-    ) -> Result<Refresh> {
+    pub async fn refresh(&self, writer: &Arc<UsageWriter>, reader: &Arc<UsageReader>, now_ms: i64) -> Result<Refresh> {
         let _running = loop {
             let wait = {
                 let mut state = self.lock();
@@ -224,12 +209,7 @@ impl UsageRefresher {
         self.run(writer, reader, now_ms).await
     }
 
-    async fn run(
-        &self,
-        writer: &Arc<UsageWriter>,
-        reader: &Arc<UsageReader>,
-        now: i64,
-    ) -> Result<Refresh> {
+    async fn run(&self, writer: &Arc<UsageWriter>, reader: &Arc<UsageReader>, now: i64) -> Result<Refresh> {
         if !self.pricer.ready() {
             return Ok(Refresh::Skipped);
         }
@@ -242,10 +222,7 @@ impl UsageRefresher {
             Some(checked) => Some(checked),
             None => self.noted_check(writer).await,
         };
-        if previous
-            .as_ref()
-            .is_some_and(|p| p.revision == revision && p.stamp == stamp)
-        {
+        if previous.as_ref().is_some_and(|p| p.revision == revision && p.stamp == stamp) {
             return Ok(Refresh::Skipped);
         }
         // Under the same table, records become unpriced only by being appended: when none appended since the last check is
@@ -259,42 +236,23 @@ impl UsageRefresher {
             return Ok(Refresh::Skipped);
         }
         let pending = reader.unpriced_pending(now).await?;
-        if pending.count == 0
-            || previous
-                .as_ref()
-                .is_some_and(|p| p.revision == revision && p.pending == pending)
-        {
+        if pending.count == 0 || previous.as_ref().is_some_and(|p| p.revision == revision && p.pending == pending) {
             self.keep(writer, Checked { revision, pending, stamp }).await;
             return Ok(Refresh::Skipped);
         }
         let incremental_from = match &previous {
             Some(p) if p.revision == revision => match p.pending.latest {
-                Some(latest)
-                    if p.pending.count + reader.unpriced_after(now, latest).await?
-                        == pending.count =>
-                {
-                    Some(latest)
-                }
+                Some(latest) if p.pending.count + reader.unpriced_after(now, latest).await? == pending.count => Some(latest),
                 _ => None,
             },
             _ => None,
         };
-        let options = RepairOptions {
-            through_ts: now,
-            since_ts: incremental_from,
-            only_unpriced: true,
-            backup: true,
-            ..RepairOptions::default()
-        };
+        let options = RepairOptions { through_ts: now, since_ts: incremental_from, only_unpriced: true, backup: true, ..RepairOptions::default() };
         let candidates = reader.repair_candidates(options.clone()).await?;
         let (report, changes) = {
             let pricer = self.pricer.clone();
             let plan_options = options.clone();
-            let job = move |_: &mixdog_rt::InLane<CpuBulk>| {
-                plan_repair(candidates, &plan_options, &mut |request| {
-                    pricer.price(request)
-                })
-            };
+            let job = move |_: &mixdog_rt::InLane<CpuBulk>| plan_repair(candidates, &plan_options, &mut |request| pricer.price(request));
             self.cpu_bulk
                 .submit(&CancellationToken::new(), job)
                 .map_err(|_| LedgerError::Busy { queue: "cpu-bulk" })?

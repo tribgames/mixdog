@@ -90,7 +90,8 @@ async fn settled_answers_at_the_records_accepted_before_it_while_later_ones_are_
     // The record from before syncs; the later one reaches the store and is held there: settled answers anyway.
     before_go.send(()).expect("the commit waits");
     tokio::time::timeout(DEADLINE, after_arrived.notified()).await.expect("the later record did not reach the store within 10 s");
-    let answer = tokio::time::timeout(DEADLINE, settled).await.expect("settled did not answer within 10 s although the record from before the call was committed");
+    let answer =
+        tokio::time::timeout(DEADLINE, settled).await.expect("settled did not answer within 10 s although the record from before the call was committed");
     assert_eq!(answer, Ok(1));
     assert!(futures::poll!(after.as_mut()).is_pending(), "the later record was still unsynced when settled answered");
     tokio::time::timeout(DEADLINE, before).await.expect("the earlier rename did not answer within 10 s").expect("joined").expect("committed");
@@ -110,7 +111,10 @@ async fn settled_answers_an_error_when_a_record_from_before_it_failed() {
     assert!(failed.is_err(), "the store failed the record: {failed:?}");
     let answer = tokio::time::timeout(DEADLINE, directory.durability_settled().wait()).await.expect("settled did not answer within 10 s");
     let error = answer.expect_err("a failed record from before the call is the call's error");
-    assert!(error.starts_with(&format!("thread {}: the thread's records: write ", handle.id.as_str())) && error.contains("accepted before the barrier, failed: "), "{error}");
+    assert!(
+        error.starts_with(&format!("thread {}: the thread's records: write ", handle.id.as_str())) && error.contains("accepted before the barrier, failed: "),
+        "{error}"
+    );
 }
 
 /// A thread whose actor ends with a record from before the call not yet acked: nobody commits it now, so the call answers
@@ -129,7 +133,11 @@ async fn settled_answers_an_error_when_the_thread_ends_with_a_record_unwritten()
     handle.inbox.send(super::actor::Inbox::Unwind(super::actor::UnwindAt::Now)).await.expect("the actor takes the inbox");
     let answer = tokio::time::timeout(DEADLINE, settling.wait()).await.expect("settled did not answer within 10 s of the thread's end");
     let error = answer.expect_err("an unwritten record from before the call is the call's error");
-    assert!(error.starts_with(&format!("thread {}: the thread's records: write ", handle.id.as_str())) && error.ends_with("failed: the thread ended before the record was committed"), "{error}");
+    assert!(
+        error.starts_with(&format!("thread {}: the thread's records: write ", handle.id.as_str()))
+            && error.ends_with("failed: the thread ended before the record was committed"),
+        "{error}"
+    );
 }
 
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);

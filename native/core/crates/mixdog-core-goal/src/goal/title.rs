@@ -32,9 +32,7 @@ impl Inner {
         let (inner, id) = (self.clone(), id.to_owned());
         self.spawn_task(async move {
             let slot = inner.slot(&id);
-            let superseded = |inner: &Arc<Inner>| {
-                inner.is_closed() || cancel.is_cancelled() || slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id)
-            };
+            let superseded = |inner: &Arc<Inner>| inner.is_closed() || cancel.is_cancelled() || slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
             let timer = inner.env.timers.after(TimerKind::Title, SESSION_TITLE_TIMEOUT_MS as f64, {
                 let cancel = cancel.clone();
                 Box::new(move || cancel.cancel())
@@ -45,16 +43,15 @@ impl Inner {
             };
             timer.cancel();
             if let Ok(raw) = raw
-                && !superseded(&inner) {
+                && !superseded(&inner)
+            {
                 let title = compact_session_title(&raw);
                 if !title.is_empty() && title != shown_title {
                     let (task_slot, task_goal_id, task_objective) = (slot.clone(), goal_id.clone(), objective.clone());
                     let guard_cancel = cancel.clone();
                     let _ = inner
                         .with_mutation(&id, move |tx| {
-                            let stale = guard_cancel.is_cancelled()
-                                || tx.inner.is_closed()
-                                || task_slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
+                            let stale = guard_cancel.is_cancelled() || tx.inner.is_closed() || task_slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
                             if stale {
                                 return Ok(());
                             }

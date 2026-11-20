@@ -183,7 +183,6 @@ fn desktop_media_metadata_cannot_make_the_relay_origin_serve_active_content() {
     assert!(passthrough.contains(&("Accept-Ranges", "bytes".to_owned())));
 }
 
-
 impl Rig {
     async fn send(&self, frame: Value) {
         self.handle.frame(wire(&frame), false).await;

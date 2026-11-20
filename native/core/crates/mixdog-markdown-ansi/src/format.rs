@@ -15,9 +15,7 @@ use mixdog_js::js_trim;
 use mixdog_termtext::{display_width, display_width_with, strip_ansi};
 use mixdog_tui_style::figures::{BLOCKQUOTE_BAR, HR_LINE};
 
-pub use code::{
-    colorize_diff_line, highlight_code_block_to_lines, highlight_code_line, lang_family, looks_like_unified_diff,
-};
+pub use code::{colorize_diff_line, highlight_code_block_to_lines, highlight_code_line, lang_family, looks_like_unified_diff};
 pub use colors::{Colorizers, ExtraColorizers, Styles, styles};
 
 use colors::{bold, bold_italic, bold_underline, dim, dim_italic, italic, strikethrough};
@@ -64,14 +62,7 @@ impl Default for Context<'static> {
 
 impl Context<'_> {
     /// The context of a recursive call.
-    fn derive<'x>(
-        &self,
-        list_base_indent: usize,
-        ordered_number: Option<u64>,
-        parent: Option<&'x Token>,
-        width: usize,
-        depth: usize,
-    ) -> Context<'x> {
+    fn derive<'x>(&self, list_base_indent: usize, ordered_number: Option<u64>, parent: Option<&'x Token>, width: usize, depth: usize) -> Context<'x> {
         Context { list_base_indent, ordered_number, parent, width, depth, wide: self.wide }
     }
 }
@@ -124,11 +115,7 @@ pub fn format_token(token: &Token, ctx: &Context<'_>) -> String {
                 .split(EOL)
                 .map(|line| {
                     // Padded fenced-code blank rows are space-only; trimming would drop the quote bar.
-                    if display_width_with(&strip_ansi(line), ctx.wide) == 0 {
-                        line.to_owned()
-                    } else {
-                        format!("{bar} {}", italic(line))
-                    }
+                    if display_width_with(&strip_ansi(line), ctx.wide) == 0 { line.to_owned() } else { format!("{bar} {}", italic(line)) }
                 })
                 .collect::<Vec<_>>()
                 .join(EOL)

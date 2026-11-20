@@ -28,27 +28,15 @@ pub fn random_samples() -> JitterSamples {
         return JitterSamples { step, advice };
     }
     let mut rng = rand::rng();
-    JitterSamples {
-        step: rng.random(),
-        advice: rng.random(),
-    }
+    JitterSamples { step: rng.random(), advice: rng.random() }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StandardRetryDecider;
 
 impl RetryDecider for StandardRetryDecider {
-    fn verdict(
-        &self,
-        error: &ProviderError,
-        state: &RetryState,
-        policy: &RetryPolicy,
-        samples: JitterSamples,
-    ) -> Decision {
-        let stop = |verdict| Decision {
-            verdict,
-            next: state.after_failure(error.kind),
-        };
+    fn verdict(&self, error: &ProviderError, state: &RetryState, policy: &RetryPolicy, samples: JitterSamples) -> Decision {
+        let stop = |verdict| Decision { verdict, next: state.after_failure(error.kind) };
         let status = error.status;
         let rules = &policy.status;
 
@@ -67,19 +55,13 @@ impl RetryDecider for StandardRetryDecider {
         if let Some(status) = status {
             let refused = TERMINAL_EDGE_STATUSES.contains(&status)
                 || rules.terminal.contains(&status)
-                || rules
-                    .retry_only
-                    .as_ref()
-                    .is_some_and(|only| !only.contains(&status));
+                || rules.retry_only.as_ref().is_some_and(|only| !only.contains(&status));
             if refused || (status == 529 && !rules.retry_529) {
                 return stop(Verdict::Surface);
             }
         }
         if let Some(model) = &error.fallback_model {
-            return Decision {
-                verdict: Verdict::Fallback { model: model.to_string() },
-                next: state.after_failure(error.kind),
-            };
+            return Decision { verdict: Verdict::Fallback { model: model.to_string() }, next: state.after_failure(error.kind) };
         }
         // Overload: repeated capacity refusals fall back to another model or
         // end the send.
@@ -89,12 +71,7 @@ impl RetryDecider for StandardRetryDecider {
             if overload.fallback_after.is_some_and(|after| seen >= after) {
                 match &overload.fallback_model {
                     Some(model) if model != state.model() => {
-                        return Decision {
-                            verdict: Verdict::Fallback {
-                                model: model.clone(),
-                            },
-                            next: state.after_failure(error.kind),
-                        };
+                        return Decision { verdict: Verdict::Fallback { model: model.clone() }, next: state.after_failure(error.kind) };
                     }
                     _ if overload.stop_after_repeated => return stop(Verdict::Exhausted),
                     _ => {}
@@ -115,11 +92,7 @@ impl RetryDecider for StandardRetryDecider {
             return stop(Verdict::Surface);
         };
         let retry = |delay, under| Decision {
-            verdict: Verdict::Retry {
-                delay,
-                reason: reason_of(error),
-                delivery: error.delivery,
-            },
+            verdict: Verdict::Retry { delay, reason: reason_of(error), delivery: error.delivery },
             next: state.after_retry(error.kind, under, delay),
         };
         // A per-status cap bounds the retries of that status. The state
@@ -138,43 +111,23 @@ impl RetryDecider for StandardRetryDecider {
                 return stop(Verdict::Surface);
             }
             if let Some(delay) = wait_under(error, &row.schedule, state.budget_used(None), samples) {
-                let counted = KindSchedule {
-                    kind: error.kind,
-                    schedule: row.schedule.clone(),
-                    resets_base: false,
-                };
-                let next = state
-                    .after_retry(error.kind, None, delay)
-                    .after_retry(error.kind, Some(&counted), Duration::ZERO);
-                return Decision {
-                    verdict: Verdict::Retry {
-                        delay,
-                        reason: reason_of(error),
-                        delivery: error.delivery,
-                    },
-                    next,
-                };
+                let counted = KindSchedule { kind: error.kind, schedule: row.schedule.clone(), resets_base: false };
+                let next = state.after_retry(error.kind, None, delay).after_retry(error.kind, Some(&counted), Duration::ZERO);
+                return Decision { verdict: Verdict::Retry { delay, reason: reason_of(error), delivery: error.delivery }, next };
             }
         }
         // The row's own schedule governs first; a kind schedule takes what
         // it leaves (a status kept from the row, a spent count or budget).
-        if row_retries
-            && let Some(delay) = wait_under(error, &row.schedule, state.budget_used(None), samples)
-        {
+        if row_retries && let Some(delay) = wait_under(error, &row.schedule, state.budget_used(None), samples) {
             return retry(delay, None);
         }
         if let Some(entry) = row.kind_schedule(error.kind) {
-            return match wait_under(error, &entry.schedule, state.budget_used(Some(entry.kind)), samples)
-            {
+            return match wait_under(error, &entry.schedule, state.budget_used(Some(entry.kind)), samples) {
                 Some(delay) => retry(delay, Some(entry)),
                 None => stop(Verdict::Exhausted),
             };
         }
-        stop(if row_retries {
-            Verdict::Exhausted
-        } else {
-            Verdict::Surface
-        })
+        stop(if row_retries { Verdict::Exhausted } else { Verdict::Surface })
     }
 }
 
@@ -198,24 +151,14 @@ fn reason_of(error: &ProviderError) -> RetryReason {
 /// `raw_statuses` skip clamp and jitter.
 ///
 /// [`AdviceRule`]: mixdog_core_api::domain::retry::AdviceRule
-fn wait_under(
-    error: &ProviderError,
-    schedule: &RetrySchedule,
-    used: ScheduleCount,
-    samples: JitterSamples,
-) -> Option<Duration> {
+fn wait_under(error: &ProviderError, schedule: &RetrySchedule, used: ScheduleCount, samples: JitterSamples) -> Option<Duration> {
     if used.retries >= schedule.max_retries {
         return None;
     }
     let attempt = used.retries + 1;
     let step = match &schedule.backoff {
-        Backoff::Ladder(steps) => steps
-            .get((attempt as usize).min(steps.len()).wrapping_sub(1))
-            .copied()
-            .unwrap_or_default(),
-        Backoff::Exponential { base } => {
-            base.saturating_mul(2u32.saturating_pow(attempt - 1))
-        }
+        Backoff::Ladder(steps) => steps.get((attempt as usize).min(steps.len()).wrapping_sub(1)).copied().unwrap_or_default(),
+        Backoff::Exponential { base } => base.saturating_mul(2u32.saturating_pow(attempt - 1)),
     };
     let step = schedule.jitter.apply(step, samples.step);
     let Some(advice) = error.retry_after else {
@@ -225,21 +168,12 @@ fn wait_under(
     if rule.ceiling.is_some_and(|ceiling| advice > ceiling) {
         return None;
     }
-    if rule
-        .budget
-        .is_some_and(|budget| used.waited + advice > budget)
-    {
+    if rule.budget.is_some_and(|budget| used.waited + advice > budget) {
         return None;
     }
-    let raw = error
-        .status
-        .is_some_and(|status| rule.raw_statuses.contains(&status));
+    let raw = error.status.is_some_and(|status| rule.raw_statuses.contains(&status));
     let jittered = |stage, wait: Duration| {
-        if raw || rule.jitter_stage != stage {
-            wait
-        } else {
-            rule.jitter.apply(wait, samples.advice)
-        }
+        if raw || rule.jitter_stage != stage { wait } else { rule.jitter.apply(wait, samples.advice) }
     };
     let advice = match rule.clamp {
         Some(clamp) if !raw => advice.min(clamp),

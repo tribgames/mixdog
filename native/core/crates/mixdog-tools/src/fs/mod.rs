@@ -1,23 +1,23 @@
 //! File tools (WP-TOOLS-FS): read, list, glob, find, grep.
 
+mod advisory;
 pub(crate) mod common;
 mod edit;
 mod edit_plan;
 mod grep_context;
 mod hints;
-mod list;
 #[cfg(test)]
 mod legacy_regression_tests;
+mod list;
 #[cfg(test)]
 mod locator_page_tests;
 mod not_found;
+mod os_error;
 mod patch;
 mod patch_guard;
 mod patch_hunk;
 mod patch_native;
 mod patch_parse;
-mod advisory;
-mod os_error;
 mod patch_redirect;
 mod patch_review;
 mod patch_unified;
@@ -86,9 +86,7 @@ pub fn read_result_file(cwd: &std::path::Path, path: &str) -> Option<std::path::
 pub fn list_result_root(args: &mixdog_protocol::JsonValue) -> Option<String> {
     let raw = common::optional_path_arg(args, "path", |_| String::new()).ok()?.unwrap_or(".");
     let mode = common::arg_str(args, "mode");
-    let glob_find = mode != Some("tree")
-        && !common::arg_str(args, "name").is_some_and(|name| !name.is_empty())
-        && common::has_glob_magic(raw);
+    let glob_find = mode != Some("tree") && !common::arg_str(args, "name").is_some_and(|name| !name.is_empty()) && common::has_glob_magic(raw);
     if (mode == Some("find") || glob_find) && list::uses_relative_time(args) {
         return None;
     }

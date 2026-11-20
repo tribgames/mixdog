@@ -57,7 +57,10 @@ pub enum Next {
     /// Append these now, oldest first.
     Flush(Vec<String>),
     /// Wake with `due(epoch)` after `delay`; any later wait replaces this one.
-    Wait { epoch: u64, delay: Duration },
+    Wait {
+        epoch: u64,
+        delay: Duration,
+    },
 }
 
 /// The appends not yet on disk of one thread (`pendingAppends`, `pendingTimers`, `writeFailures`,
@@ -200,9 +203,8 @@ impl AppendQueue {
 fn js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
     )
 }
 
@@ -213,10 +215,7 @@ fn trim(text: &str) -> &str {
 
 /// `promptHistoryKey`: trimmed, every whitespace run collapsed to one space.
 pub fn key(text: &str) -> String {
-    text.split(js_space)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    text.split(js_space).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 /// A newer `user` row: it moves to the front of the session part (newest first).
@@ -268,23 +267,15 @@ pub(crate) fn change(before: &[String], after: &[String]) -> Option<PromptHistor
         return None;
     }
     Some(match after.first() {
-        Some(prompt) if added(before, prompt) == after => PromptHistoryChange::Added {
-            prompt: prompt.clone(),
-        },
-        _ => PromptHistoryChange::Replaced {
-            prompts: after.to_vec(),
-        },
+        Some(prompt) if added(before, prompt) == after => PromptHistoryChange::Added { prompt: prompt.clone() },
+        _ => PromptHistoryChange::Replaced { prompts: after.to_vec() },
     })
 }
 
 /// `applyAppend`:the persisted list (oldest → newest) after `text` was submitted.
 pub fn append_persisted(persisted: &[String], text: &str) -> Vec<String> {
     let k = key(text);
-    let mut next: Vec<String> = persisted
-        .iter()
-        .filter(|entry| key(entry) != k)
-        .cloned()
-        .collect();
+    let mut next: Vec<String> = persisted.iter().filter(|entry| key(entry) != k).cloned().collect();
     next.push(trim(text).to_owned());
     let excess = next.len().saturating_sub(PROMPT_HISTORY_LIMIT);
     next.drain(..excess);
@@ -402,13 +393,7 @@ fn entry_text(value: &Value) -> String {
 /// The entries of a parsed file; `None` when they are damaged (no `entries` list).
 fn entries_of(doc: &Value) -> Option<Vec<String>> {
     let entries = doc.get("entries")?.as_array()?;
-    Some(
-        entries
-            .iter()
-            .map(entry_text)
-            .filter(|entry| !key(entry).is_empty())
-            .collect(),
-    )
+    Some(entries.iter().map(entry_text).filter(|entry| !key(entry).is_empty()).collect())
 }
 
 /// The `validate` of the history file: a document without an `entries` list is damaged.
@@ -557,7 +542,6 @@ mod tests {
         assert_eq!(without(&merged, " a "), s(&["b", "y", "x"]));
     }
 
-
     /// The replay barrier's positions: an append pushed before the barrier holds it until its flush landed, one pushed after
     /// it does not, and an append before it whose flush failed is its error.
     #[test]
@@ -575,7 +559,10 @@ mod tests {
         let later = queue.marks().accepted();
         assert_eq!(queue.due(epoch), Some(s(&["after"])));
         assert!(matches!(queue.flushed(s(&["after"])), Next::Wait { .. }), "the failed append is retried");
-        assert_eq!(queue.marks().check(later), Some(Err("the prompt history: write 2, accepted before the barrier, failed: the append was not written".to_owned())));
+        assert_eq!(
+            queue.marks().check(later),
+            Some(Err("the prompt history: write 2, accepted before the barrier, failed: the append was not written".to_owned()))
+        );
         assert_eq!(queue.marks().check(mark), Some(Ok(())), "a failure after a barrier is not its error");
     }
 
@@ -594,14 +581,8 @@ mod tests {
     #[test]
     fn updates_are_added_when_the_client_rule_reproduces_the_list() {
         assert_eq!(change(&s(&["a"]), &s(&["a"])), None);
-        assert_eq!(
-            change(&s(&["a", "b"]), &s(&["b", "a"])),
-            Some(PromptHistoryChange::Added { prompt: "b".into() })
-        );
-        assert_eq!(
-            change(&s(&["a", "b"]), &s(&["a"])),
-            Some(PromptHistoryChange::Replaced { prompts: s(&["a"]) })
-        );
+        assert_eq!(change(&s(&["a", "b"]), &s(&["b", "a"])), Some(PromptHistoryChange::Added { prompt: "b".into() }));
+        assert_eq!(change(&s(&["a", "b"]), &s(&["a"])), Some(PromptHistoryChange::Replaced { prompts: s(&["a"]) }));
     }
 
     #[test]
@@ -682,10 +663,7 @@ mod tests {
         assert_eq!(name.len(), 32 + ".json".len());
 
         let bytes = mixdog_statefile::json_bytes(&history_doc(&s(&["a", "b"])), &Opts::default());
-        assert_eq!(
-            String::from_utf8(bytes.clone()).unwrap(),
-            "{\n  \"version\": 1,\n  \"entries\": [\n    \"a\",\n    \"b\"\n  ]\n}\n"
-        );
+        assert_eq!(String::from_utf8(bytes.clone()).unwrap(), "{\n  \"version\": 1,\n  \"entries\": [\n    \"a\",\n    \"b\"\n  ]\n}\n");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, br#"{"entries": [" x ", "", null, 0, 7, true]}"#).unwrap();
         assert_eq!(recovered(&path), s(&["x", "7", "true"]));
@@ -698,10 +676,8 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"{torn");
         assert_eq!(recovered(&path), s(&["a", "b"]));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
-        let kept = std::fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
-            .count();
+        let kept =
+            std::fs::read_dir(path.parent().unwrap()).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-")).count();
         assert_eq!(kept, 1);
     }
     struct Flaky {
@@ -727,8 +703,6 @@ mod tests {
         }
         fn redact(&self, _: &InLane<DurabilityIo>, _: &str, _: &dyn Fn(&str) -> String) {}
     }
-
-
 
     /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on
     /// Node's backoff. The clock is paused and held, so it moves only by the advances below: each follows the actor's arming of the
@@ -766,7 +740,6 @@ mod tests {
     }
 }
 
-
 #[cfg(any(test, feature = "test-support"))]
 impl AppendQueue {
     /// A queue numbering its appends on `marks`: the thread's [`super::control::ControlCell::prompt_marks`], which the
@@ -777,7 +750,11 @@ impl AppendQueue {
 }
 impl FilePromptHistory {
     pub fn new(data_dir: &Path) -> Self {
-        let limit = std::env::var("MIXDOG_PROMPT_HISTORY_CACHE_LIMIT").ok().and_then(|raw| raw.trim().parse::<f64>().ok()).filter(|n| !n.is_nan() && *n != 0.0).map_or(DEFAULT_CACHE_LIMIT, |n| n.max(0.0) as usize);
+        let limit = std::env::var("MIXDOG_PROMPT_HISTORY_CACHE_LIMIT")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<f64>().ok())
+            .filter(|n| !n.is_nan() && *n != 0.0)
+            .map_or(DEFAULT_CACHE_LIMIT, |n| n.max(0.0) as usize);
         Self::with_cache_limit(data_dir, limit)
     }
 
@@ -808,11 +785,7 @@ fn cwd_key(raw: &str) -> String {
         return String::new();
     }
     let path = Path::new(text);
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
-    };
+    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
     let mut out = PathBuf::new();
     for component in absolute.components() {
         match component {
@@ -824,9 +797,5 @@ fn cwd_key(raw: &str) -> String {
         }
     }
     let resolved = out.to_string_lossy().into_owned();
-    if cfg!(windows) {
-        resolved.trim_end_matches(['\\', '/']).to_lowercase()
-    } else {
-        resolved.trim_end_matches('/').to_owned()
-    }
+    if cfg!(windows) { resolved.trim_end_matches(['\\', '/']).to_lowercase() } else { resolved.trim_end_matches('/').to_owned() }
 }

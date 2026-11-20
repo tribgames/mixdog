@@ -65,11 +65,7 @@ pub(super) fn declaration_head(text: &str, start: usize, end: usize, name: &str)
             // declaration itself (`bool operator ==(Object other)`), a `=`
             // inside a type argument list is a generic default, and a `=` the
             // name itself ends in is Ruby's setter syntax.
-            b'=' if depth <= 0
-                && angle <= 0
-                && !is_comparison(bytes, index)
-                && name_end.is_none_or(|at| index >= at) =>
-            {
+            b'=' if depth <= 0 && angle <= 0 && !is_comparison(bytes, index) && name_end.is_none_or(|at| index >= at) => {
                 cut = initializer_head_end(window, index).unwrap_or(index);
                 break;
             }
@@ -142,22 +138,12 @@ pub(super) fn skip_spaces(bytes: &[u8], from: usize) -> usize {
 
 /// `text[at..]` starts with `word` as a whole word.
 pub(super) fn starts_word_at(text: &str, at: usize, word: &str) -> bool {
-    text.get(at..).is_some_and(|rest| {
-        rest.starts_with(word)
-            && !rest
-                .as_bytes()
-                .get(word.len())
-                .copied()
-                .is_some_and(is_word_byte)
-    })
+    text.get(at..).is_some_and(|rest| rest.starts_with(word) && !rest.as_bytes().get(word.len()).copied().is_some_and(is_word_byte))
 }
 
 /// The `=` at `index` belongs to a comparison operator, not to an assignment.
 fn is_comparison(bytes: &[u8], index: usize) -> bool {
-    let previous = index
-        .checked_sub(1)
-        .map(|at| bytes[at])
-        .is_some_and(|byte| matches!(byte, b'=' | b'!' | b'<' | b'>'));
+    let previous = index.checked_sub(1).map(|at| bytes[at]).is_some_and(|byte| matches!(byte, b'=' | b'!' | b'<' | b'>'));
     previous || bytes.get(index + 1) == Some(&b'=')
 }
 
@@ -281,38 +267,21 @@ mod tests {
             "export function gen<T = string, U extends keyof T = keyof T>(v: T): U | undefined {\n  return undefined;\n}\nexport type Alias<T = number> = { a: T };\nexport const arrow = (a: string, b: number): boolean => a.length > b;\nexport const wrapped = async (x: number) => x + 1;\nexport const made = function named(a: number) { return a; };\nexport const value = { a: 1 };\n",
         );
         // A generic default is part of the signature, not an initializer.
-        assert_eq!(
-            record(&ts, "gen").sig,
-            "function gen<T = string, U extends keyof T = keyof T>(v: T): U | undefined"
-        );
+        assert_eq!(record(&ts, "gen").sig, "function gen<T = string, U extends keyof T = keyof T>(v: T): U | undefined");
         assert_eq!(record(&ts, "Alias").sig, "type Alias<T = number>");
         // A function-valued binding reports the callable it declares …
-        assert_eq!(
-            record(&ts, "arrow").sig,
-            "arrow = (a: string, b: number): boolean =>"
-        );
+        assert_eq!(record(&ts, "arrow").sig, "arrow = (a: string, b: number): boolean =>");
         assert_eq!(record(&ts, "wrapped").sig, "wrapped = async (x: number) =>");
         assert_eq!(record(&ts, "made").sig, "made = function named(a: number)");
         // … while a value initializer still ends the head at the `=`, which
         // leaves the bare name, i.e. no signature at all.
         assert_eq!(record(&ts, "value").sig, "");
 
-        let rust = records(
-            "rust",
-            "rs",
-            "pub struct Wrapper<T = String> { inner: T }\n",
-        );
-        assert_eq!(
-            record(&rust, "Wrapper").sig,
-            "pub struct Wrapper<T = String>"
-        );
+        let rust = records("rust", "rs", "pub struct Wrapper<T = String> { inner: T }\n");
+        assert_eq!(record(&rust, "Wrapper").sig, "pub struct Wrapper<T = String>");
 
         // The `=` of a Ruby setter is part of the NAME, so it cannot cut …
-        let ruby = records(
-            "ruby",
-            "rb",
-            "class Store\n  def name=(value); @name = value; end\nend\n",
-        );
+        let ruby = records("ruby", "rb", "class Store\n  def name=(value); @name = value; end\nend\n");
         assert_eq!(record(&ruby, "name=").sig, "def name=(value)");
         // … and `class Child < Parent` is a superclass, not a type argument
         // list that would swallow the rest of the head.
@@ -320,15 +289,8 @@ mod tests {
         assert_eq!(record(&ruby_super, "Child").sig, "class Child < Parent");
 
         // Kotlin's `=` opens an expression BODY: cutting there is right.
-        let kotlin = records(
-            "kotlin",
-            "kt",
-            "fun expressionBody(a: Int, b: Int) = a + b\n",
-        );
-        assert_eq!(
-            record(&kotlin, "expressionBody").sig,
-            "fun expressionBody(a: Int, b: Int)"
-        );
+        let kotlin = records("kotlin", "kt", "fun expressionBody(a: Int, b: Int) = a + b\n");
+        assert_eq!(record(&kotlin, "expressionBody").sig, "fun expressionBody(a: Int, b: Int)");
         // R assigns its functions with `<-` or `=`; both keep the parameters.
         let r = records("r", "r", "add = function(a, b) {\n  a + b\n}\n");
         assert_eq!(record(&r, "add").sig, "add = function(a, b)");
@@ -342,30 +304,20 @@ mod tests {
             "export function resolve(\n  input: string,\n  base: string,\n): string {\n  return input;\n}\nexport const limit: number = 4;\nexport const plain = 5;\n",
         );
         // The multi-line signature collapses; the body is not part of it.
-        assert_eq!(
-            record(&ts, "resolve").sig,
-            "function resolve( input: string, base: string, ): string"
-        );
+        assert_eq!(record(&ts, "resolve").sig, "function resolve( input: string, base: string, ): string");
         // A binding keeps its type annotation and drops the value …
         assert_eq!(record(&ts, "limit").sig, "limit: number");
         // … and a binding with neither is just its name, so there is no sig.
         assert_eq!(record(&ts, "plain").sig, "");
 
         // Python cuts at the `:` that opens the block, not at an annotation.
-        let python = records(
-            "python",
-            "py",
-            "def read(path: str) -> bytes:\n    return b''\n\nclass Store:\n    pass\n",
-        );
+        let python = records("python", "py", "def read(path: str) -> bytes:\n    return b''\n\nclass Store:\n    pass\n");
         assert_eq!(record(&python, "read").sig, "def read(path: str) -> bytes");
         assert_eq!(record(&python, "Store").sig, "class Store");
 
         // Rust keeps the whole head including generics and the return type.
         let rust = records("rust", "rs", "pub fn run<R: Read>(input: &mut R) -> Result<()> {\n    Ok(())\n}\npub const LIMIT: usize = 1;\n");
-        assert_eq!(
-            record(&rust, "run").sig,
-            "pub fn run<R: Read>(input: &mut R) -> Result<()>"
-        );
+        assert_eq!(record(&rust, "run").sig, "pub fn run<R: Read>(input: &mut R) -> Result<()>");
         assert_eq!(record(&rust, "LIMIT").sig, "pub const LIMIT: usize");
 
         // A keyword-delimited body ends the head at the newline after the name.
@@ -373,11 +325,7 @@ mod tests {
         assert_eq!(record(&lua, "greet").sig, "function greet(name)");
 
         // Go's type spec head is the spec, not the body.
-        let go = records(
-            "go",
-            "go",
-            "package p\n\ntype Store struct {\n\tname string\n}\n",
-        );
+        let go = records("go", "go", "package p\n\ntype Store struct {\n\tname string\n}\n");
         assert_eq!(record(&go, "Store").sig, "Store struct");
     }
 

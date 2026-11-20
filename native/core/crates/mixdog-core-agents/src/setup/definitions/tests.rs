@@ -90,10 +90,6 @@ impl SetupCallers for Callers {
     }
 }
 
-
-
-
-
 #[tokio::test]
 async fn a_route_sent_with_a_save_goes_to_the_route_setter_after_the_files() {
     let dir = tempfile::tempdir().unwrap();
@@ -101,8 +97,16 @@ async fn a_route_sent_with_a_save_goes_to_the_route_setter_after_the_files() {
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let effects = Arc::new(NoEffects::default());
-    let agents = AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
-        .with_writes(tokens.durability_io, effects.clone(), Arc::new(String::new));
+    let agents = AgentDefinitions::new(
+        dir.path(),
+        dir.path(),
+        tokens.interactive_io,
+        AgentRoutes::new(config, dir.path()),
+        Arc::new(NoEvidence),
+        Arc::new(|| Value::Null),
+        dir.path().join("task"),
+    )
+    .with_writes(tokens.durability_io, effects.clone(), Arc::new(String::new));
     let route = json!({ "provider": "openai", "model": "gpt-6" });
     let payload = json!({ "name": "Routed", "body": "Body", "route": route }).as_object().unwrap().clone();
     let view = agents.save(&payload).await.unwrap();
@@ -121,8 +125,16 @@ async fn a_name_that_is_no_text_is_an_unknown_agent_not_the_id_undefined() {
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let agents = Arc::new(
-        AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
-            .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
+        AgentDefinitions::new(
+            dir.path(),
+            dir.path(),
+            tokens.interactive_io,
+            AgentRoutes::new(config, dir.path()),
+            Arc::new(NoEvidence),
+            Arc::new(|| Value::Null),
+            dir.path().join("task"),
+        )
+        .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
     );
     // An agent that really is called "undefined" and one called "null" exist.
     for id in ["undefined", "null"] {
@@ -143,5 +155,3 @@ async fn a_name_that_is_no_text_is_an_unknown_agent_not_the_id_undefined() {
         }
     }
 }
-
-

@@ -106,8 +106,7 @@ pub fn decide(route: Route, error: &ProviderError, handshake: bool, exhausted: b
             if status == Some(429) {
                 return None;
             }
-            (eligible(error) && (status == Some(426) || exhausted || too_big_close(error)))
-                .then_some(Fallback { sticky: true })
+            (eligible(error) && (status == Some(426) || exhausted || too_big_close(error))).then_some(Fallback { sticky: true })
         }
         Route::ApiKey => {
             if status.is_some_and(|s| (400..500).contains(&s)) {

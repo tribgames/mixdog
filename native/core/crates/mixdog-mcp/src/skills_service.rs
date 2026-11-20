@@ -19,8 +19,8 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
-use mixdog_js::locale_compare;
 use mixdog_js::js_trim;
+use mixdog_js::locale_compare;
 use mixdog_js::value_to_string;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
@@ -343,9 +343,7 @@ impl SkillsService {
             return Err(format!("skill already exists: {name}"));
         }
         let (job_file, job_original, job_name) = (file_path.clone(), original.clone(), name.clone());
-        let outcome = self
-            .on_lane(move |lane| rewrite_skill(lane, &job_file, &job_original, &job_name, &description, &when_to_use, &body))
-            .await??;
+        let outcome = self.on_lane(move |lane| rewrite_skill(lane, &job_file, &job_original, &job_name, &description, &when_to_use, &body)).await??;
         match outcome {
             Rewrite::Unchanged => {
                 self.save_dependencies(&file_path, &deps).await?;
@@ -478,11 +476,7 @@ fn rewrite_skill(
     }
     let source = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
     let parsed = parse_document(&source).map_err(|e| e.to_string())?;
-    if name == original
-        && description == parsed.description
-        && when_to_use == parsed.when_to_use
-        && js_trim(body) == js_trim(&parsed.body)
-    {
+    if name == original && description == parsed.description && when_to_use == parsed.when_to_use && js_trim(body) == js_trim(&parsed.body) {
         return Ok(Rewrite::Unchanged);
     }
     let updated = update_document(&source, &Fields { name, description, when_to_use }, body).map_err(|e| e.to_string())?;
@@ -536,11 +530,7 @@ impl DomainService for SkillsService {
                 }
             }
             "skills/setDisabledSkills" => {
-                let names: Vec<String> = params
-                    .get("names")
-                    .and_then(Value::as_array)
-                    .map(|l| l.iter().map(value_to_string).collect())
-                    .unwrap_or_default();
+                let names: Vec<String> = params.get("names").and_then(Value::as_array).map(|l| l.iter().map(value_to_string).collect()).unwrap_or_default();
                 let disabled = self.set_disabled(names).await;
                 self.host.flush_skills_save().await;
                 self.host.invalidate_skills();

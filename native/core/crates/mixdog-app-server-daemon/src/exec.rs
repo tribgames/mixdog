@@ -17,6 +17,7 @@ use std::time::Instant;
 use std::time::UNIX_EPOCH;
 
 use crate::domain_seams::settings_effects::ConfiguredShell;
+use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TimerHandle;
@@ -26,10 +27,9 @@ use mixdog_spawn::tasks::HostShellJobs;
 use mixdog_spawn::tasks::ShellJobsState;
 use mixdog_spawn::tasks::TaskPublisher;
 use mixdog_spawn::tasks::TaskRegistry;
-use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_tools::exec::ExecConfig;
-use mixdog_tools::exec::ExtSyntax;
 use mixdog_tools::exec::ExecRuntime;
+use mixdog_tools::exec::ExtSyntax;
 use mixdog_tools::exec::IoLanes;
 use mixdog_tools::exec::OsPromptElevation;
 use mixdog_tools::exec::ShellSource;
@@ -66,13 +66,7 @@ impl TaskNotifier for ChannelNotifier {
     async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
         let _ = self
             .0
-            .send(Finished {
-                owner: owner.clone(),
-                surface: surface.to_owned(),
-                task_id: task_id.to_owned(),
-                status: status.to_owned(),
-                notification,
-            })
+            .send(Finished { owner: owner.clone(), surface: surface.to_owned(), task_id: task_id.to_owned(), status: status.to_owned(), notification })
             .await;
     }
 }
@@ -148,12 +142,9 @@ impl ShellSource for ConfiguredShell {
     /// The one resolver (`shell_name::resolve_program`) over this process's directory, PATH and
     /// environment; the caller runs it in a lane job.
     fn resolve_default(&self) -> String {
-        crate::shell_name::resolve_program(
-            cfg!(windows),
-            std::env::current_dir().ok().as_deref(),
-            std::env::var_os("PATH").as_deref(),
-            &|name| std::env::var(name).ok(),
-        )
+        crate::shell_name::resolve_program(cfg!(windows), std::env::current_dir().ok().as_deref(), std::env::var_os("PATH").as_deref(), &|name| {
+            std::env::var(name).ok()
+        })
     }
 
     fn keep_default(&self, configured: &str, program: String) {
@@ -185,12 +176,7 @@ pub fn build_exec(
     let (finished_tx, finished) = mpsc::channel(FINISHED_CAPACITY);
     let (threads, thread_strips) = watch::channel(HashMap::new());
     let (host, host_strip) = watch::channel(HostShellJobs::default());
-    let publisher = Arc::new(StripPublisher {
-        threads,
-        host,
-        registry: OnceLock::new(),
-        armed: Mutex::new(None),
-    });
+    let publisher = Arc::new(StripPublisher { threads, host, registry: OnceLock::new(), armed: Mutex::new(None) });
     let tasks = Arc::new(TaskRegistry::new(publisher.clone(), now_ms));
     let _ = publisher.registry.set(Arc::downgrade(&tasks));
     let wakes = WakeHub::new();
@@ -246,13 +232,6 @@ mod tests {
     use mixdog_tools::exec::ShellTool;
     use tokio_util::sync::CancellationToken;
 
-
-
-
-
-
-
-
     fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
         let tokens = mixdog_rt::testing::tokens();
         ToolContext {
@@ -305,11 +284,7 @@ mod tests {
             SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
             ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
         );
-        Rig {
-            dir,
-            processes,
-            shell: ShellTool::new(exec.runtime.clone()),
-        }
+        Rig { dir, processes, shell: ShellTool::new(exec.runtime.clone()) }
     }
 
     impl Rig {
@@ -320,12 +295,7 @@ mod tests {
         async fn run_in(&self, cwd: &Path, call: &str, command: &str) -> String {
             text(self.shell.call(&ctx(cwd, call, self.processes.clone()), serde_json::json!({"command": command})).await)
         }
-
-
-
     }
-
-
 
     /// The shell tool's command of `size` bytes: a PowerShell script that answers the length of its one long string.
     #[cfg(windows)]
@@ -400,7 +370,4 @@ mod tests {
             mib(commit_after - commit)
         );
     }
-
-
-
 }

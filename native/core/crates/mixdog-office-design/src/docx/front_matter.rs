@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use super::components::{CalloutOptions, add_docx_decision_callout, add_docx_metric_strip};
 use super::writer::{DocxWriter, paragraph_text};
 use super::{Props, num};
-use crate::tokens::strings;
 use crate::prop;
+use crate::tokens::strings;
 use mixdog_office_base::values::truthy;
 
 /// `writeDocxFrontMatter(w, operation)`.

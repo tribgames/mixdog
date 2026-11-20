@@ -19,13 +19,15 @@ const GUTTER: usize = 2;
 
 /// `String(value || '')`.
 fn text_of(value: Option<&Value>) -> Option<String> {
-    value.filter(|value| match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Value::String(text) => !text.is_empty(),
-        _ => true,
-    }).map(value_to_string)
+    value
+        .filter(|value| match value {
+            Value::Null => false,
+            Value::Bool(flag) => *flag,
+            Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+            Value::String(text) => !text.is_empty(),
+            _ => true,
+        })
+        .map(value_to_string)
 }
 
 /// The compact form of an entry: its line breaks are spaces, and it is cut with an ellipsis when it is longer than

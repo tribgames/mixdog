@@ -153,11 +153,8 @@ impl HiddenRoleRunner {
         let runtime_spec = self.world.runtime_spec(&preset, agent);
         // `nonEmptyString(callCwd) || nonEmptyString(opts.cwd)`.
         let cwd = non_empty(&request.cwd).or_else(|| non_empty(&request.default_cwd));
-        let context = if truthy(preset.get("contextPercent")) || truthy(preset.get("contextTokens")) {
-            self.world.context_selection(&preset)
-        } else {
-            Map::new()
-        };
+        let context =
+            if truthy(preset.get("contextPercent")) || truthy(preset.get("contextTokens")) { self.world.context_selection(&preset) } else { Map::new() };
         let spec = PrepareSpec {
             agent: agent.to_owned(),
             preset_name: preset_name.clone(),
@@ -189,7 +186,12 @@ impl HiddenRoleRunner {
             },
             Overrides {
                 // `Number.isFinite(call) ? call : opts.idleTimeoutMs`.
-                idle_timeout_ms: [request.idle_timeout_ms, request.default_idle_timeout_ms].into_iter().flatten().find(|ms| ms.is_finite()).filter(|ms| *ms >= 0.0).map(|ms| ms.floor() as i64),
+                idle_timeout_ms: [request.idle_timeout_ms, request.default_idle_timeout_ms]
+                    .into_iter()
+                    .flatten()
+                    .find(|ms| ms.is_finite())
+                    .filter(|ms| *ms >= 0.0)
+                    .map(|ms| ms.floor() as i64),
                 provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
                 provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
                 ..Overrides::default()
@@ -227,19 +229,14 @@ impl HiddenRoleRunner {
         ));
         let start = self.sessions.message_count(&id).await;
         let began = clock.now_ms();
-        let asked = self
-            .sessions
-            .ask(&id, AskRequest { prompt: request.prompt.clone(), cwd, live_projection: false, slot }, &link)
-            .await;
+        let asked = self.sessions.ask(&id, AskRequest { prompt: request.prompt.clone(), cwd, live_projection: false, slot }, &link).await;
         if asked.is_ok() {
             self.world.diagnostic(&format!("[agent-dispatch] agent={agent} session={id} elapsed={}ms", clock.now_ms() - began));
         }
         // A caller that opted into salvage gets the text this run wrote before it was stopped (read
         // before the close); such a dispatch has answered, so it settles as done.
         let settled = match asked {
-            Err(message) if request.salvage_partial => {
-                partial_handoff_text(&self.sessions.assistant_texts(&id, start).await).ok_or(message)
-            }
+            Err(message) if request.salvage_partial => partial_handoff_text(&self.sessions.assistant_texts(&id, start).await).ok_or(message),
             other => other,
         };
         drop(watchdog);
@@ -405,9 +402,15 @@ fn resolve_preset(explicit: Option<&Value>, agent: &str, config: &Map<String, Va
             config
                 .get("presets")
                 .and_then(Value::as_array)
-                .and_then(|presets| presets.iter().find(|p| [p.get("id"), p.get("name")].into_iter().any(|field| field.and_then(Value::as_str) == Some(name.as_str()))))
+                .and_then(|presets| {
+                    presets.iter().find(|p| [p.get("id"), p.get("name")].into_iter().any(|field| field.and_then(Value::as_str) == Some(name.as_str())))
+                })
                 .cloned()
-                .ok_or_else(|| format!("[agent-dispatch] maintenance route for agent \"{agent}\" is neither a {{provider,model}} route nor a known preset name (\"{name}\")"))?
+                .ok_or_else(|| {
+                    format!(
+                        "[agent-dispatch] maintenance route for agent \"{agent}\" is neither a {{provider,model}} route nor a known preset name (\"{name}\")"
+                    )
+                })?
         }
     };
     let label = [preset.get("id"), preset.get("name")]
@@ -421,7 +424,8 @@ fn resolve_preset(explicit: Option<&Value>, agent: &str, config: &Map<String, Va
 /// (`session-prep.mjs:75-78`): a hidden role asks for its declared permission, `read` when it
 /// declares none, and a role declared read-only is locked to it; a public agent asks for none.
 fn session_permission(agent: &str, hidden: Option<&Value>, option: Option<&str>) -> Option<String> {
-    let asked = option.or_else(|| hidden.map(|hidden| hidden.get("permission").and_then(Value::as_str).filter(|permission| !permission.is_empty()).unwrap_or("read")));
+    let asked =
+        option.or_else(|| hidden.map(|hidden| hidden.get("permission").and_then(Value::as_str).filter(|permission| !permission.is_empty()).unwrap_or("read")));
     super::agent_spawn_world::resolve_agent_session_permission(agent, asked)
 }
 

@@ -25,14 +25,13 @@ use super::tool_schema::estimate_request_reserve_tokens;
 use super::tool_schema::tool_schema_signature;
 use crate::message::AgentMessage;
 
+mod ask_usage;
 mod inspection;
 mod rows;
 mod status;
-mod ask_usage;
 mod usage_metrics;
 
 pub use ask_usage::Books;
-pub use ask_usage::with_prompt_cache_evidence;
 pub use ask_usage::Settled;
 pub use ask_usage::check_change;
 pub use ask_usage::estimate_transcript_context_usage;
@@ -41,18 +40,44 @@ pub use ask_usage::send_pressure;
 pub use ask_usage::settled_change;
 pub use ask_usage::turn_started;
 pub use ask_usage::usage_change;
+pub use ask_usage::with_prompt_cache_evidence;
 pub use inspection::Inspections;
 pub use rows::AttachmentBytes;
+pub use rows::BlobError;
+pub(crate) use rows::node_base64;
+pub use rows::restore_turn_checkpoint_context_state_rows;
+pub use rows::rows_exact_signature;
+pub use rows::rows_shape_signature;
+pub use rows::{clean_image_mime, image_descriptor, image_identity};
+pub use status::After;
+pub use status::Archived;
+pub use status::COMPACT_NO_WINDOW;
+pub use status::COMPACTION_CONFIG_KEYS;
+pub use status::CommitInput;
+pub use status::Committed;
+pub use status::CompactionPlan;
+pub use status::Failed;
+pub use status::Route;
 pub use status::StageMeta;
+pub use status::StatusInput;
+pub use status::SummaryFacts;
+pub use status::TRANSCRIPT_MOVED_ERROR;
+pub use status::baseline_message_count;
+pub use status::commit_compaction;
 pub use status::compact_telemetry;
+pub use status::compaction_plan;
+pub use status::context_status;
+pub use status::current_provider_reading;
+pub use status::failed_compaction;
+pub use status::forced_target_budget;
 pub use status::post_compact_snapshot;
 pub use status::pre_send_check;
 pub use status::provider_pressure;
 pub use status::provider_token_calibration;
-pub use status::baseline_message_count;
-pub use status::current_provider_reading;
 pub use status::single_shot_consumed;
+pub use status::summarize_messages;
 pub use status::unanchored_after_restart;
+pub use status::usage_totals;
 pub use usage_metrics::TerminalUsage;
 pub use usage_metrics::bump_epoch;
 pub use usage_metrics::bump_turn_id;
@@ -61,31 +86,6 @@ pub use usage_metrics::iteration_metrics;
 pub use usage_metrics::measured_context_tokens;
 pub use usage_metrics::terminal_usage;
 pub use usage_metrics::uncached_input_tokens;
-pub use status::After;
-pub use status::Archived;
-pub use status::COMPACTION_CONFIG_KEYS;
-pub use status::CommitInput;
-pub use status::Committed;
-pub use status::Failed;
-pub use status::SummaryFacts;
-pub use status::TRANSCRIPT_MOVED_ERROR;
-pub use status::commit_compaction;
-pub use status::failed_compaction;
-pub use status::usage_totals;
-pub use status::COMPACT_NO_WINDOW;
-pub use status::CompactionPlan;
-pub use status::Route;
-pub use status::StatusInput;
-pub use status::compaction_plan;
-pub use status::context_status;
-pub use status::forced_target_budget;
-pub use status::summarize_messages;
-pub use rows::BlobError;
-pub(crate) use rows::node_base64;
-pub use rows::{clean_image_mime, image_descriptor, image_identity};
-pub use rows::restore_turn_checkpoint_context_state_rows;
-pub use rows::rows_exact_signature;
-pub use rows::rows_shape_signature;
 
 /// A session header: its fields under Node's names.
 pub type Header = Map<String, Value>;
@@ -218,8 +218,7 @@ pub trait ImageIdentities: Send + Sync {
     fn images(&self, message: &AgentMessage) -> Vec<ImageDescriptor>;
 }
 
-static STORED_MEDIA_PLACEHOLDER: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\[(?:Image|File) omitted from stored history[^\]]*\]", "g"));
+static STORED_MEDIA_PLACEHOLDER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[(?:Image|File) omitted from stored history[^\]]*\]", "g"));
 
 /// `text.replace(/\[(?:Image|File) omitted from stored history[^\]]*\]/g, ' ')
 /// .replace(/\s+/g, ' ').trim()`, and how many placeholders it replaced.
@@ -514,9 +513,7 @@ fn non_negative_count(value: Option<&Value>) -> Option<usize> {
 
 /// `checkpointContextSliceMatches`.
 fn slice_matches<M, E>(messages: &[M], state: &Value, exact: &dyn Fn(&[M]) -> Result<String, E>) -> Result<bool, E> {
-    let (Some(committed), Some(turn)) =
-        (non_negative_count(state.get("committedPrefixCount")), non_negative_count(state.get("turnMessageCount")))
-    else {
+    let (Some(committed), Some(turn)) = (non_negative_count(state.get("committedPrefixCount")), non_negative_count(state.get("turnMessageCount"))) else {
         return Ok(false);
     };
     if committed + turn > messages.len() {
@@ -529,15 +526,9 @@ fn slice_matches<M, E>(messages: &[M], state: &Value, exact: &dyn Fn(&[M]) -> Re
 }
 
 /// `legacyProviderBaselineMatches`.
-fn legacy_baseline_matches<M, E>(
-    header: &Header,
-    messages: &[M],
-    exact: &dyn Fn(&[M]) -> Result<String, E>,
-) -> Result<bool, E> {
+fn legacy_baseline_matches<M, E>(header: &Header, messages: &[M], exact: &dyn Fn(&[M]) -> Result<String, E>) -> Result<bool, E> {
     match non_negative_count(header.get("contextPressureBaselineMessageCount")) {
-        Some(count) if count <= messages.len() => {
-            Ok(string_or_empty(header.get("contextPressureBaselinePrefixSignature")) == exact(&messages[..count])?)
-        }
+        Some(count) if count <= messages.len() => Ok(string_or_empty(header.get("contextPressureBaselinePrefixSignature")) == exact(&messages[..count])?),
         _ => Ok(false),
     }
 }
@@ -584,23 +575,17 @@ pub fn restore_turn_checkpoint_context_state(
 
 /// The restore over any message form: `exact` signs a slice of `messages` the way
 /// `contextMessagesSignature` does.
-fn restore_with<M, E>(
-    header: &Header,
-    messages: &[M],
-    checkpoint: &Value,
-    exact: &dyn Fn(&[M]) -> Result<String, E>,
-    now: f64,
-) -> Result<Restored, E> {
+fn restore_with<M, E>(header: &Header, messages: &[M], checkpoint: &Value, exact: &dyn Fn(&[M]) -> Result<String, E>, now: f64) -> Result<Restored, E> {
     let state = checkpoint.get("contextState").filter(|s| truthy(Some(s)));
     let raw_used = number(state.and_then(|s| s.get("usedTokens")));
     let mut usable = None;
     if let Some(s) = state
         && s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
-            && raw_used.is_finite()
-            && raw_used >= 0.0
-            && string_or_empty(s.get("provider")) == string_or_empty(header.get("provider"))
-            && string_or_empty(s.get("model")) == string_or_empty(header.get("model"))
-            && slice_matches(messages, s, exact)?
+        && raw_used.is_finite()
+        && raw_used >= 0.0
+        && string_or_empty(s.get("provider")) == string_or_empty(header.get("provider"))
+        && string_or_empty(s.get("model")) == string_or_empty(header.get("model"))
+        && slice_matches(messages, s, exact)?
     {
         usable = Some(s);
     }
@@ -614,8 +599,7 @@ fn restore_with<M, E>(
         return Ok(Restored { anchored: false, patch: mark_unanchored_context(header).unwrap_or_default() });
     };
 
-    let count = non_negative_count(state.get("committedPrefixCount")).unwrap_or(0)
-        + non_negative_count(state.get("turnMessageCount")).unwrap_or(0);
+    let count = non_negative_count(state.get("committedPrefixCount")).unwrap_or(0) + non_negative_count(state.get("turnMessageCount")).unwrap_or(0);
     let used = round(raw_used).max(0.0);
     let output = rounded_count(state.get("outputTokens"));
     let prefix_signature = exact(&messages[..count])?;

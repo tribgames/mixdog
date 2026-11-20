@@ -213,7 +213,11 @@ impl TurnFollow {
                 .map(str::to_owned);
             let failed = matches!(end["status"].as_str(), Some("failed"));
             let error = failed.then(|| {
-                ["errorDetails", "detail"].into_iter().find_map(|field| end[field].as_str().filter(|text| !text.is_empty())).unwrap_or("the turn failed").to_owned()
+                ["errorDetails", "detail"]
+                    .into_iter()
+                    .find_map(|field| end[field].as_str().filter(|text| !text.is_empty()))
+                    .unwrap_or("the turn failed")
+                    .to_owned()
             });
             steps.push(TurnStep::Done(TurnEnd { final_text, error }));
         }

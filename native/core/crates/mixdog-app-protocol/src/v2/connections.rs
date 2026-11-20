@@ -259,33 +259,72 @@ pub enum SshFailureKind {
         #[cfg_attr(feature = "codegen", ts(optional))]
         agent: Option<SshAgentStatus>,
     },
-    SshMissing { command: Option<String> },
-    UnsupportedPlatform { message: String },
-    InstallFailed { message: String },
+    SshMissing {
+        command: Option<String>,
+    },
+    UnsupportedPlatform {
+        message: String,
+    },
+    InstallFailed {
+        message: String,
+    },
     InstallLocked,
     /// The server's Mixdog speaks another protocol version: reconnecting reinstalls the matching one.
-    ProtocolMismatch { message: String },
+    ProtocolMismatch {
+        message: String,
+    },
     /// An unexpected error inside Mixdog (bootstrap/protocol), not something the user's server setup caused.
-    Internal { message: String },
+    Internal {
+        message: String,
+    },
     /// The login shell or home directory of the server answered in a way the bootstrap cannot use.
-    RemoteShell { message: String },
-    DaemonBusy { message: String },
-    PortUnavailable { message: String },
+    RemoteShell {
+        message: String,
+    },
+    DaemonBusy {
+        message: String,
+    },
+    PortUnavailable {
+        message: String,
+    },
     Cancelled,
     /// The server is connected already, so a new login key or folder cannot be tested: disconnecting first is the only way.
     AlreadyConnected,
-    Node { reason: SshNodeProblem, found: Option<String>, required: u32, command: String },
-    NpmMissing { command: String },
-    DepsInstall { message: String },
-    DaemonStop { message: String },
-    DaemonReplace { message: String },
-    DaemonUnproven { message: String },
+    Node {
+        reason: SshNodeProblem,
+        found: Option<String>,
+        required: u32,
+        command: String,
+    },
+    NpmMissing {
+        command: String,
+    },
+    DepsInstall {
+        message: String,
+    },
+    DaemonStop {
+        message: String,
+    },
+    DaemonReplace {
+        message: String,
+    },
+    DaemonUnproven {
+        message: String,
+    },
     /// The server's own (non-desktop) Mixdog is in the way: it is left running and there is nothing to restart.
-    DaemonUnmanaged { message: String },
+    DaemonUnmanaged {
+        message: String,
+    },
     /// Another daemon holds the data folder.
-    DaemonDataInUse { message: String },
-    DaemonRunning { pid: u32 },
-    Failed { message: String },
+    DaemonDataInUse {
+        message: String,
+    },
+    DaemonRunning {
+        pid: u32,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 /// A message the interface words in the user's language: `code` is a stable name (the set is the `message` lists, exported to

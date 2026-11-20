@@ -52,11 +52,7 @@ fn id_matches(pattern: &'static str, id: &str) -> bool {
     static COMPILED: Mutex<Option<HashMap<&'static str, Arc<JsRegex>>>> = Mutex::new(None);
     let regex = {
         let mut cache = COMPILED.lock().unwrap_or_else(PoisonError::into_inner);
-        cache
-            .get_or_insert_with(HashMap::new)
-            .entry(pattern)
-            .or_insert_with(|| Arc::new(JsRegex::new_static(pattern, "i")))
-            .clone()
+        cache.get_or_insert_with(HashMap::new).entry(pattern).or_insert_with(|| Arc::new(JsRegex::new_static(pattern, "i"))).clone()
     };
     regex.is_match(id)
 }
@@ -112,14 +108,8 @@ pub fn route_for(
     context: &mixdog_core_api::domain::provider::WireRouteContext,
 ) -> Option<mixdog_core_api::domain::provider::WireRoute> {
     let exclude: Vec<Wire> = context.exclude.iter().filter_map(|w| Wire::parse(w)).collect();
-    let facts = WireFacts {
-        model,
-        agent: context.agent,
-        legacy: context.legacy,
-        keep: context.keep.as_deref().and_then(Wire::parse),
-        exclude: &exclude,
-        ..facts
-    };
+    let facts =
+        WireFacts { model, agent: context.agent, legacy: context.legacy, keep: context.keep.as_deref().and_then(Wire::parse), exclude: &exclude, ..facts };
     resolve_wire(profile, &facts).map(|route| mixdog_core_api::domain::provider::WireRoute {
         wire: route.wire.as_str().to_owned(),
         source: route.source.as_str().to_owned(),
@@ -130,13 +120,8 @@ pub fn route_for(
 /// `None` when the gateway offers the model on no wire.
 pub fn resolve_wire(profile: &CompatProfile, facts: &WireFacts<'_>) -> Option<Route> {
     let offer = &profile.wires;
-    let advertised: Vec<Wire> = offer
-        .offered
-        .iter()
-        .copied()
-        .filter(|w| facts.endpoints.is_none_or(|e| e.contains(w)))
-        .filter(|w| !facts.exclude.contains(w))
-        .collect();
+    let advertised: Vec<Wire> =
+        offer.offered.iter().copied().filter(|w| facts.endpoints.is_none_or(|e| e.contains(w))).filter(|w| !facts.exclude.contains(w)).collect();
     let usable = |wire: Wire| advertised.contains(&wire);
     let route = |wire, source| Some(Route { wire, source });
     // A wire the session already pinned stays while the model is still offered
@@ -184,10 +169,7 @@ pub fn resolve_wire(profile: &CompatProfile, facts: &WireFacts<'_>) -> Option<Ro
     if facts.endpoints.is_some() && advertised.len() == 1 {
         return route(advertised[0], RouteSource::Endpoints);
     }
-    let family = offer
-        .families
-        .iter()
-        .find(|f| id_matches(f.pattern, facts.model) && (!f.agent_only || facts.agent) && usable(f.wire));
+    let family = offer.families.iter().find(|f| id_matches(f.pattern, facts.model) && (!f.agent_only || facts.agent) && usable(f.wire));
     if let Some(family) = family {
         return route(family.wire, RouteSource::Family);
     }
@@ -209,7 +191,11 @@ fn legacy_wire(offer: &WireOffer, model: &str, catalog: Option<Wire>, advertised
             patterns.iter().find(|(pattern, _)| id_matches(pattern, model)).map_or(otherwise, |(_, wire)| *wire)
         }
         LegacyWire::Advertised { prefer, fallback } => {
-            if advertised.contains(&prefer) || !advertised.contains(&fallback) { prefer } else { fallback }
+            if advertised.contains(&prefer) || !advertised.contains(&fallback) {
+                prefer
+            } else {
+                fallback
+            }
         }
     }
 }

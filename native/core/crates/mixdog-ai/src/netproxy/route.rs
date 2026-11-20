@@ -149,12 +149,7 @@ fn request_of(target: &str) -> Result<Option<(Url, Kind)>, RouteError> {
 
 /// The route for `target`. `system` is the OS route, when this process has one.
 /// A manual proxy without an address is a [`ProxyConfigError`].
-pub async fn decide_proxy_route(
-    target: &str,
-    setting: &NetworkProxySetting,
-    env: &dyn EnvLookup,
-    system: Option<&SystemProxy>,
-) -> Result<Route, RouteError> {
+pub async fn decide_proxy_route(target: &str, setting: &NetworkProxySetting, env: &dyn EnvLookup, system: Option<&SystemProxy>) -> Result<Route, RouteError> {
     if setting.mode == Mode::Off {
         return Ok(Route::direct("off"));
     }
@@ -174,11 +169,7 @@ pub async fn decide_proxy_route(
         return Ok(Route::direct("direct"));
     }
     if let Some((name, proxy)) = env_proxy_for(kind, env) {
-        return Ok(if exceptions_cover(&no_proxy, &url) {
-            Route::direct("direct")
-        } else {
-            Route { proxy: Some(proxy), via: "env", env_var: Some(name) }
-        });
+        return Ok(if exceptions_cover(&no_proxy, &url) { Route::direct("direct") } else { Route { proxy: Some(proxy), via: "env", env_var: Some(name) } });
     }
     let Some(system) = system else { return Ok(Route::direct("direct")) };
     let answer = system.route(&url.origin().ascii_serialization()).await;

@@ -261,9 +261,7 @@ mod tests {
 
     #[test]
     fn three_filled_cards_on_one_line_are_a_card_grid_and_two_are_not() {
-        let card = |left: f64| {
-            json!({ "text": "A card carrying its own copy here", "fill": { "color": "EEEEEE" }, "left": left, "top": 100, "width": 200, "height": 120 })
-        };
+        let card = |left: f64| json!({ "text": "A card carrying its own copy here", "fill": { "color": "EEEEEE" }, "left": left, "top": 100, "width": 200, "height": 120 });
         let cards = [card(40.0), card(280.0), card(520.0)];
         let refs: Vec<&Value> = cards.iter().collect();
         assert!(is_card_grid_slide(&refs, &refs));

@@ -83,7 +83,14 @@ pub async fn extract_docx_flow(page: &Page) -> Result<Value, String> {
 
 /// Lays out the document the page has loaded (`source_path`) and reads it back. The page prints with the `print`
 /// media afterwards, so it must not be used for anything that reads the screen layout once this has run.
-pub async fn measure_docx_page(page: &Page, lanes: &AuthorLanes, note: &dyn WriteNote, source_path: &Path, print_path: &Path, scratch: &Path) -> Result<DocxLayout, String> {
+pub async fn measure_docx_page(
+    page: &Page,
+    lanes: &AuthorLanes,
+    note: &dyn WriteNote,
+    source_path: &Path,
+    print_path: &Path,
+    scratch: &Path,
+) -> Result<DocxLayout, String> {
     page.goto(&file_url(source_path)?, WaitUntil::Load).await?;
     let area = read_printable_area(page).await?;
     // The body is the page's text column: as wide as the sheet between its margins, from the top of that column.
@@ -105,7 +112,13 @@ pub async fn measure_docx_page(page: &Page, lanes: &AuthorLanes, note: &dyn Writ
 
 /// Lays an HTML document out in the shared render browser and reads it as Word's flow. The browser is leased for the
 /// run and closed on every exit.
-pub async fn measure_docx_html(endpoint: &dyn BrowserEndpoint, lanes: &AuthorLanes, note: &dyn WriteNote, html: &str, options: DocxMeasureOptions<'_>) -> Result<DocxLayout, RunError> {
+pub async fn measure_docx_html(
+    endpoint: &dyn BrowserEndpoint,
+    lanes: &AuthorLanes,
+    note: &dyn WriteNote,
+    html: &str,
+    options: DocxMeasureOptions<'_>,
+) -> Result<DocxLayout, RunError> {
     let DocxMeasureOptions { source_path, print_path, scratch, timeout, cancel } = options;
     lanes.write_file(source_path, html.as_bytes().to_vec()).await?;
     let browser = HtmlBrowser::launch(endpoint).await?;

@@ -43,7 +43,11 @@ impl Idle {
 /// same critical section that found it, so its idle expiry cannot end it between the two.
 pub enum Taken {
     H1(Conn),
-    H2 { id: u64, send: h2::client::SendRequest<Bytes>, guard: H2Guard },
+    H2 {
+        id: u64,
+        send: h2::client::SendRequest<Bytes>,
+        guard: H2Guard,
+    },
     /// A client without a socket: the request dials, and the new connection takes the client's number.
     Vacant(u64),
 }
@@ -208,7 +212,9 @@ mod tests {
     /// An HTTP/2 connection and the handle of its client-side task, which ends when the connection does. The task removes
     /// nothing from a pool: a test that wants a connection gone from it must have the pool's own code do it.
     async fn h2_pair(
-        serve: impl FnOnce(h2::server::Connection<tokio::io::DuplexStream, Bytes>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + 'static,
+        serve: impl FnOnce(h2::server::Connection<tokio::io::DuplexStream, Bytes>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + 'static,
     ) -> (h2::client::SendRequest<Bytes>, tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
         let (near, far) = tokio::io::duplex(1 << 16);
         let server = tokio::spawn(async move { serve(h2::server::handshake(far).await.unwrap()).await });
@@ -336,7 +342,6 @@ mod tests {
         drop(stream);
         assert_eq!(pool.idle_count("k"), 0);
     }
-
 
     // A8: an idle connection closes when its keep-alive runs out, with no other request to look at it.
     #[tokio::test(start_paused = true)]

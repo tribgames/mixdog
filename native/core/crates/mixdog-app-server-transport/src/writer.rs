@@ -125,9 +125,7 @@ struct EventBudget {
 
 impl EventBudget {
     fn ledger(&self) -> MutexGuard<'_, usize> {
-        self.used
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.used.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn free(&self) -> usize {
@@ -160,10 +158,7 @@ impl EventBudget {
     }
 
     fn check_bound(&self, used: usize) {
-        debug_assert!(
-            used <= self.total + self.slack,
-            "charged bytes exceed the event budget plus one in-flight frame"
-        );
+        debug_assert!(used <= self.total + self.slack, "charged bytes exceed the event budget plus one in-flight frame");
     }
 }
 
@@ -193,10 +188,7 @@ struct LaneBudget {
 
 impl LaneBudget {
     fn new(parent: Arc<EventBudget>) -> Arc<Self> {
-        Arc::new(Self {
-            parent,
-            held: AtomicUsize::new(0),
-        })
+        Arc::new(Self { parent, held: AtomicUsize::new(0) })
     }
 
     fn held(&self) -> usize {
@@ -271,12 +263,7 @@ impl ByteBudget for LaneBudget {
 /// lags). A live reservation is returned and retaken under the state lock, which every other
 /// charge also needs, so only returns can interleave and the retake of at most the same bytes
 /// is always admitted.
-fn recharge(
-    budget: &Arc<LaneBudget>,
-    mut reservation: Reservation,
-    bytes: usize,
-    share: usize,
-) -> Option<Reservation> {
+fn recharge(budget: &Arc<LaneBudget>, mut reservation: Reservation, bytes: usize, share: usize) -> Option<Reservation> {
     REVOKED.with(|revoked| revoked.set(false));
     reservation.shrink_to(0);
     drop(reservation);
@@ -317,21 +304,12 @@ struct OrderedReserve {
 
 impl OrderedReserve {
     fn new(total: usize, admits_any_head: bool) -> Arc<Self> {
-        Arc::new(Self {
-            total,
-            admits_any_head,
-            used: AtomicUsize::new(0),
-            returned: Notify::new(),
-        })
+        Arc::new(Self { total, admits_any_head, used: AtomicUsize::new(0), returned: Notify::new() })
     }
 
     fn try_take(self: &Arc<Self>, bytes: usize) -> Option<Reservation> {
         let (total, any_head) = (self.total, self.admits_any_head);
-        self.used
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                (used + bytes <= total || (any_head && used == 0)).then_some(used + bytes)
-            })
-            .ok()?;
+        self.used.try_update(Ordering::AcqRel, Ordering::Acquire, |used| (used + bytes <= total || (any_head && used == 0)).then_some(used + bytes)).ok()?;
         let budget: Arc<dyn ByteBudget> = self.clone();
         Some(Reservation::new(bytes, budget))
     }
@@ -421,9 +399,7 @@ impl Entry {
 
     fn bytes(&self) -> usize {
         match self {
-            Entry::Frame { reservation, .. } | Entry::Slot { reservation, .. } => {
-                reservation.bytes()
-            }
+            Entry::Frame { reservation, .. } | Entry::Slot { reservation, .. } => reservation.bytes(),
         }
     }
 }
@@ -512,29 +488,13 @@ impl State {
             }
             let mut entries = lane.queue.iter();
             match entries.next() {
-                Some(
-                    Entry::Frame { number, .. }
-                    | Entry::Slot {
-                        number,
-                        frame: Some(_),
-                        ..
-                    },
-                ) => {
+                Some(Entry::Frame { number, .. } | Entry::Slot { number, frame: Some(_), .. }) => {
                     if best.as_ref().is_none_or(|(lowest, _)| number < lowest) {
                         best = Some((*number, Pick::Lane(*serial)));
                     }
                 }
-                Some(Entry::Slot {
-                    number,
-                    recovery: false,
-                    frame: None,
-                    ..
-                }) => barrier = barrier.min(*number),
-                Some(Entry::Slot {
-                    recovery: true,
-                    frame: None,
-                    ..
-                }) => {
+                Some(Entry::Slot { number, recovery: false, frame: None, .. }) => barrier = barrier.min(*number),
+                Some(Entry::Slot { recovery: true, frame: None, .. }) => {
                     if let Some(next) = entries.next() {
                         barrier = barrier.min(next.number());
                     }
@@ -542,8 +502,7 @@ impl State {
                 None => {}
             }
         }
-        best.filter(|(number, _)| *number < barrier)
-            .map(|(_, pick)| pick)
+        best.filter(|(number, _)| *number < barrier).map(|(_, pick)| pick)
     }
 
     fn lag_waiting(&self) -> bool {
@@ -693,50 +652,28 @@ impl ConnectionSink for ConnectionWriter {
     }
 
     fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
-        debug_assert_eq!(
-            release.connection(),
-            self.shared.id,
-            "lane release of another connection"
-        );
-        self.shared
-            .queue_control(frame, Some(release.sub().clone()))
+        debug_assert_eq!(release.connection(), self.shared.id, "lane release of another connection");
+        self.shared.queue_control(frame, Some(release.sub().clone()))
     }
 
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.open(sub, recovery, false)
     }
 
-    fn open_ordered_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_ordered_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.open(sub, recovery, true)
     }
 }
 
 impl ConnectionWriter {
-    fn open(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-        ordered: bool,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>, ordered: bool) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         let shared = &self.shared;
         let replaced = {
             let mut state = shared.lock();
             if state.closing.is_some() {
                 return Err(SinkClosed);
             }
-            let replaced = state
-                .by_sub
-                .get(&sub)
-                .copied()
-                .and_then(|serial| state.remove_lane(serial));
+            let replaced = state.by_sub.get(&sub).copied().and_then(|serial| state.remove_lane(serial));
             let serial = state.next_serial;
             state.next_serial += 1;
             state.by_sub.insert(sub.clone(), serial);
@@ -754,12 +691,7 @@ impl ConnectionWriter {
                 },
             );
             shared.shrink_shares(&mut state);
-            let lane = WriterLane {
-                shared: Arc::clone(shared),
-                sub: sub.clone(),
-                serial,
-                ordered,
-            };
+            let lane = WriterLane { shared: Arc::clone(shared), sub: sub.clone(), serial, ordered };
             (replaced, lane)
         };
         let (replaced, lane) = replaced;
@@ -788,11 +720,7 @@ impl WriterLane {
             let number = state.next_number;
             match state.lanes.get_mut(&self.serial) {
                 Some(lane) if !lane.lagged => {
-                    lane.queue.push_back(Entry::Frame {
-                        number,
-                        frame,
-                        reservation,
-                    });
+                    lane.queue.push_back(Entry::Frame { number, frame, reservation });
                     state.next_number += 1;
                     lane.released
                 }
@@ -832,10 +760,7 @@ impl Lane for WriterLane {
     }
 
     fn push(&self, reservation: Reservation, frame: Bytes) {
-        assert!(
-            frame.len() <= reservation.bytes(),
-            "frame exceeds its reservation"
-        );
+        assert!(frame.len() <= reservation.bytes(), "frame exceeds its reservation");
         if self.ordered {
             self.push_ordered(reservation, frame);
             return;
@@ -851,11 +776,7 @@ impl Lane for WriterLane {
                     let len = frame.len();
                     match recharge(&lane.budget, reservation, len, share) {
                         Some(reservation) => {
-                            lane.queue.push_back(Entry::Frame {
-                                number,
-                                frame,
-                                reservation,
-                            });
+                            lane.queue.push_back(Entry::Frame { number, frame, reservation });
                             state.next_number += 1;
                             lane.released
                         }
@@ -895,13 +816,7 @@ impl Lane for WriterLane {
                     Some(reservation) => {
                         let recovery = lane.lagged;
                         lane.lagged = false;
-                        lane.queue.push_back(Entry::Slot {
-                            id,
-                            number: state.next_number,
-                            recovery,
-                            frame: None,
-                            reservation,
-                        });
+                        lane.queue.push_back(Entry::Slot { id, number: state.next_number, recovery, frame: None, reservation });
                         state.next_number += 1;
                         state.lagged.retain(|s| *s != serial);
                     }
@@ -916,22 +831,14 @@ impl Lane for WriterLane {
             self.shared.sync_lag_flag(state);
             id
         };
-        SnapshotSlot::new(Box::new(WriterSlot {
-            shared: Arc::downgrade(&self.shared),
-            serial: self.serial,
-            id,
-            filled: false,
-        }))
+        SnapshotSlot::new(Box::new(WriterSlot { shared: Arc::downgrade(&self.shared), serial: self.serial, id, filled: false }))
     }
 
     /// An ordered lane that has written something closes the connection instead (module docs).
     fn lag(&self) -> usize {
         let released = {
             let mut state = self.shared.lock();
-            let live_ordered = state
-                .lanes
-                .get(&self.serial)
-                .is_some_and(|lane| lane.ordered && lane.written);
+            let live_ordered = state.lanes.get(&self.serial).is_some_and(|lane| lane.ordered && lane.written);
             if live_ordered {
                 None
             } else {
@@ -941,10 +848,7 @@ impl Lane for WriterLane {
             }
         };
         let Some(released) = released else {
-            self.shared.slow_consumer(&format!(
-                "cause=orderedLaneBehind lane_sub={:?} lane_serial={}",
-                self.sub, self.serial
-            ));
+            self.shared.slow_consumer(&format!("cause=orderedLaneBehind lane_sub={:?} lane_serial={}", self.sub, self.serial));
             return 0;
         };
         self.shared.wake();
@@ -952,11 +856,7 @@ impl Lane for WriterLane {
     }
 
     fn is_lagged(&self) -> bool {
-        self.shared
-            .lock()
-            .lanes
-            .get(&self.serial)
-            .is_some_and(|lane| lane.lagged)
+        self.shared.lock().lanes.get(&self.serial).is_some_and(|lane| lane.lagged)
     }
 
     fn close(&self) {
@@ -990,36 +890,16 @@ impl WriterSlot {
             let Some(lane) = state.lanes.get_mut(&self.serial) else {
                 return;
             };
-            let Some(index) = lane
-                .queue
-                .iter()
-                .position(|entry| matches!(entry, Entry::Slot { id, .. } if *id == self.id))
-            else {
+            let Some(index) = lane.queue.iter().position(|entry| matches!(entry, Entry::Slot { id, .. } if *id == self.id)) else {
                 return;
             };
-            let Some(Entry::Slot {
-                id,
-                number,
-                recovery,
-                mut frame,
-                mut reservation,
-            }) = lane.queue.remove(index)
-            else {
+            let Some(Entry::Slot { id, number, recovery, mut frame, mut reservation }) = lane.queue.remove(index) else {
                 unreachable!("position matched a slot");
             };
             if f(&mut state, &mut frame, &mut reservation)
                 && let Some(lane) = state.lanes.get_mut(&self.serial)
             {
-                lane.queue.insert(
-                    index,
-                    Entry::Slot {
-                        id,
-                        number,
-                        recovery,
-                        frame,
-                        reservation,
-                    },
-                );
+                lane.queue.insert(index, Entry::Slot { id, number, recovery, frame, reservation });
             }
             shared.sync_lag_flag(&state);
         }
@@ -1062,13 +942,7 @@ mod budget_tests {
     use std::time::Duration;
 
     fn budget(total: usize, slack: usize) -> Arc<EventBudget> {
-        Arc::new(EventBudget {
-            total,
-            slack,
-            used: Mutex::new(0),
-            wake: Notify::new(),
-            lag_waiting: AtomicBool::new(false),
-        })
+        Arc::new(EventBudget { total, slack, used: Mutex::new(0), wake: Notify::new(), lag_waiting: AtomicBool::new(false) })
     }
 
     /// A release paused between the lane's holding and the parent charge cannot be overtaken:
@@ -1106,10 +980,7 @@ mod budget_tests {
                 done_tx.send(taken).unwrap();
             })
         };
-        assert!(
-            done_rx.recv_timeout(Duration::from_millis(200)).is_err(),
-            "a charge must wait for the paused release"
-        );
+        assert!(done_rx.recv_timeout(Duration::from_millis(200)).is_err(), "a charge must wait for the paused release");
 
         go_tx.send(()).unwrap();
         releaser.join().unwrap();
@@ -1121,15 +992,8 @@ mod budget_tests {
     }
 }
 
-
 impl Shared {
-    pub(crate) fn new(
-        id: ConnectionId,
-        origin: ConnectionOrigin,
-        limits: WriterLimits,
-        clock: Arc<AtomicU64>,
-        log: Arc<OnceLock<LineSink>>,
-    ) -> Self {
+    pub(crate) fn new(id: ConnectionId, origin: ConnectionOrigin, limits: WriterLimits, clock: Arc<AtomicU64>, log: Arc<OnceLock<LineSink>>) -> Self {
         let now = clock.load(Ordering::Relaxed);
         Self {
             id,
@@ -1179,9 +1043,7 @@ impl Shared {
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn wake(&self) {
@@ -1220,12 +1082,7 @@ impl Shared {
 
     /// Lags every lane other than `except` that holds more than `share`.
     fn revoke_borrowers(&self, state: &mut State, except: u64, share: usize) {
-        let over: Vec<u64> = state
-            .lanes
-            .iter()
-            .filter(|(serial, lane)| **serial != except && lane.budget.held() > share)
-            .map(|(serial, _)| *serial)
-            .collect();
+        let over: Vec<u64> = state.lanes.iter().filter(|(serial, lane)| **serial != except && lane.budget.held() > share).map(|(serial, _)| *serial).collect();
         for serial in over {
             state.lag(serial);
         }
@@ -1239,9 +1096,7 @@ impl Shared {
     }
 
     fn sync_lag_flag(&self, state: &State) {
-        self.budget
-            .lag_waiting
-            .store(state.lag_waiting(), Ordering::Release);
+        self.budget.lag_waiting.store(state.lag_waiting(), Ordering::Release);
     }
 
     pub(crate) fn mark_upgraded(&self) {
@@ -1279,8 +1134,7 @@ impl Shared {
 
     /// Any received frame: the peer is alive.
     pub(crate) fn note_rx(&self) {
-        self.last_rx
-            .store(self.clock.load(Ordering::Relaxed), Ordering::Release);
+        self.last_rx.store(self.clock.load(Ordering::Relaxed), Ordering::Release);
         self.ping_since.store(0, Ordering::Release);
     }
 
@@ -1326,12 +1180,7 @@ impl Shared {
         }
         let hold = self.reserve.try_take(frame.len())?;
         let number = state.number();
-        state.control.push_back(Queued {
-            number,
-            frame: frame.clone(),
-            release,
-            hold,
-        });
+        state.control.push_back(Queued { number, frame: frame.clone(), release, hold });
         drop(state);
         self.wake();
         Some(Ok(()))
@@ -1419,14 +1268,7 @@ impl Shared {
                         Entry::Slot { frame, .. } => held.add("snapshot".to_owned(), entry.bytes().max(frame.as_ref().map_or(0, Bytes::len))),
                     }
                 }
-                let line = format!(
-                    "lane sub={:?} ordered={} written={} lagged={} {}",
-                    lane.sub,
-                    lane.ordered,
-                    lane.written,
-                    lane.lagged,
-                    held.render()
-                );
+                let line = format!("lane sub={:?} ordered={} written={} lagged={} {}", lane.sub, lane.ordered, lane.written, lane.lagged, held.render());
                 (held.bytes, line)
             })
             .collect();
@@ -1507,21 +1349,14 @@ impl Shared {
             state.recovering = Some(serial);
             self.sync_lag_flag(&state);
             if let Some(lane) = state.lanes.get(&serial) {
-                return Work::Recover {
-                    recovery: lane.recovery.clone(),
-                    sub: lane.sub.clone(),
-                    serial,
-                    reservation,
-                };
+                return Work::Recover { recovery: lane.recovery.clone(), sub: lane.sub.clone(), serial, reservation };
             }
         }
         let serial = match state.next_in_order() {
             None => return Work::Idle,
             Some(Pick::Control) => {
                 let queued = state.control.pop_front().expect("the pick is the control head");
-                if let Some(serial) = queued
-                    .release
-                    .and_then(|sub| state.by_sub.get(&sub).copied())
+                if let Some(serial) = queued.release.and_then(|sub| state.by_sub.get(&sub).copied())
                     && let Some(lane) = state.lanes.get_mut(&serial)
                 {
                     lane.released = true;
@@ -1535,14 +1370,8 @@ impl Shared {
         lane.written = true;
         let ordered = lane.ordered;
         let (frame, reservation, was_slot) = match lane.queue.pop_front() {
-            Some(Entry::Frame {
-                frame, reservation, ..
-            }) => (frame, reservation, false),
-            Some(Entry::Slot {
-                frame: Some(frame),
-                reservation,
-                ..
-            }) => (frame, reservation, true),
+            Some(Entry::Frame { frame, reservation, .. }) => (frame, reservation, false),
+            Some(Entry::Slot { frame: Some(frame), reservation, .. }) => (frame, reservation, true),
             _ => unreachable!("next_in_order checked the head"),
         };
         if was_slot && state.recovering == Some(serial) {
@@ -1570,8 +1399,7 @@ impl Shared {
     fn recovery_returned(&self, serial: u64) {
         let dead = {
             let mut state = self.lock();
-            let failed = state.recovering == Some(serial)
-                && state.lanes.get(&serial).is_some_and(|lane| lane.lagged);
+            let failed = state.recovering == Some(serial) && state.lanes.get(&serial).is_some_and(|lane| lane.lagged);
             let dead = failed.then(|| state.remove_lane(serial)).flatten();
             self.sync_lag_flag(&state);
             dead
@@ -1596,12 +1424,7 @@ pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: 
             }
             Work::Held => true,
             Work::Ping => guarded(&shared, socket.ping()).await,
-            Work::Recover {
-                recovery,
-                sub,
-                serial,
-                reservation,
-            } => {
+            Work::Recover { recovery, sub, serial, reservation } => {
                 recovery.recover(sub, reservation);
                 shared.recovery_returned(serial);
                 true

@@ -1,7 +1,9 @@
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::Unlaned;
-use mixdog_ooxml::opc::{add_package_relationship, ensure_content_type_override, ensure_default_content_type, next_relationship_id, remove_package_relationship};
 use mixdog_ooxml::fingerprint::{document_fingerprint, document_fingerprint_bytes};
+use mixdog_ooxml::opc::{
+    add_package_relationship, ensure_content_type_override, ensure_default_content_type, next_relationship_id, remove_package_relationship,
+};
 use mixdog_ooxml::package::{load_package, open_package_bytes, package_buffer};
 use mixdog_ooxml::placeholder_scan::placeholder_text_issues;
 use mixdog_ooxml::portable::replace_across_runs;
@@ -71,7 +73,13 @@ fn validation_reports_a_relationship_whose_target_part_is_missing() {
     let doc = Doc::new("docx");
     doc.assert_valid();
     let mut package = doc.package();
-    add_package_relationship(&mut package, "word/_rels/document.xml.rels", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image", "media/none.png", "");
+    add_package_relationship(
+        &mut package,
+        "word/_rels/document.xml.rels",
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+        "media/none.png",
+        "",
+    );
     std::fs::write(&doc.path, package_buffer(&package).expect("a buffer")).expect("written");
     let report = doc.validate();
     assert_eq!(report["ok"], json!(false), "{report}");

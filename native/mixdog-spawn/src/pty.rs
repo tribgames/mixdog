@@ -112,6 +112,8 @@ mod windows {
     use std::sync::Mutex;
     use std::sync::MutexGuard;
 
+    use super::*;
+    use crate::winspawn;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::Console::COORD;
@@ -120,8 +122,6 @@ mod windows {
     use windows_sys::Win32::System::Console::HPCON;
     use windows_sys::Win32::System::Console::ResizePseudoConsole;
     use windows_sys::Win32::System::Pipes::CreatePipe;
-    use super::*;
-    use crate::winspawn;
 
     /// The pseudo-console. Closing it ends the output stream once the host has flushed.
     pub(crate) struct Pty {
@@ -167,10 +167,7 @@ mod windows {
     }
 
     fn coord(size: PtySize) -> COORD {
-        COORD {
-            X: size.cols as i16,
-            Y: size.rows as i16,
-        }
+        COORD { X: size.cols as i16, Y: size.rows as i16 }
     }
 
     fn pipe() -> io::Result<(HANDLE, HANDLE)> {
@@ -182,13 +179,7 @@ mod windows {
         Ok((read, write))
     }
 
-    pub(crate) fn spawn(
-        launch: &Launch,
-        cwd: &Path,
-        env: &[(OsString, OsString)],
-        size: PtySize,
-        containment: &Containment,
-    ) -> io::Result<PtyParts> {
+    pub(crate) fn spawn(launch: &Launch, cwd: &Path, env: &[(OsString, OsString)], size: PtySize, containment: &Containment) -> io::Result<PtyParts> {
         unsafe {
             let (in_read, in_write) = pipe()?;
             let (out_read, out_write) = match pipe() {
@@ -209,9 +200,7 @@ mod windows {
                 CloseHandle(out_read);
                 return Err(io::Error::from_raw_os_error(hr & 0xffff));
             }
-            let pty = Pty {
-                console: Mutex::new(Some(console)),
-            };
+            let pty = Pty { console: Mutex::new(Some(console)) };
             let reader = File::from_raw_handle(out_read as RawHandle);
             let writer = File::from_raw_handle(in_write as RawHandle);
 
@@ -230,12 +219,7 @@ mod windows {
                 },
                 created,
             )?;
-            Ok(PtyParts {
-                root: Root::Win(std::sync::Arc::new(process)),
-                pty,
-                reader: Box::new(reader),
-                writer: Box::new(writer),
-            })
+            Ok(PtyParts { root: Root::Win(std::sync::Arc::new(process)), pty, reader: Box::new(reader), writer: Box::new(writer) })
         }
     }
 }
@@ -270,34 +254,14 @@ mod unix {
     }
 
     fn winsize(size: PtySize) -> libc::winsize {
-        libc::winsize {
-            ws_row: size.rows,
-            ws_col: size.cols,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        }
+        libc::winsize { ws_row: size.rows, ws_col: size.cols, ws_xpixel: 0, ws_ypixel: 0 }
     }
 
-    pub(crate) fn spawn(
-        launch: &Launch,
-        cwd: &Path,
-        env: &[(OsString, OsString)],
-        size: PtySize,
-        containment: &Containment,
-    ) -> io::Result<PtyParts> {
+    pub(crate) fn spawn(launch: &Launch, cwd: &Path, env: &[(OsString, OsString)], size: PtySize, containment: &Containment) -> io::Result<PtyParts> {
         let (mut master, mut slave) = (-1, -1);
         // Apple's openpty takes `*mut` for termios and winsize, Linux's `*const`; `*mut` coerces to both.
         let mut ws = winsize(size);
-        if unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut ws,
-            )
-        } != 0
-        {
+        if unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws) } != 0 {
             return Err(io::Error::last_os_error());
         }
         let master = unsafe { OwnedFd::from_raw_fd(master) };
@@ -325,11 +289,6 @@ mod unix {
         containment.adopt(child.id());
         let reader = File::from(master.try_clone()?);
         let writer = File::from(master.try_clone()?);
-        Ok(PtyParts {
-            root: Root::Child(child),
-            pty: Pty { master },
-            reader: Box::new(reader),
-            writer: Box::new(writer),
-        })
+        Ok(PtyParts { root: Root::Child(child), pty: Pty { master }, reader: Box::new(reader), writer: Box::new(writer) })
     }
 }

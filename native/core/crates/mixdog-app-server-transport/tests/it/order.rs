@@ -41,11 +41,7 @@ impl LaneRecovery for NoRecovery {
 async fn live_lane(peer: &mut Peer, name: &str, ordered: bool, recovery: Arc<dyn LaneRecovery>) -> Arc<dyn Lane> {
     let sink = &peer.connection.sink;
     let sub = SubscriptionId::from(name);
-    let (lane, release) = if ordered {
-        sink.open_ordered_lane(sub, recovery).unwrap()
-    } else {
-        sink.open_lane(sub, recovery).unwrap()
-    };
+    let (lane, release) = if ordered { sink.open_ordered_lane(sub, recovery).unwrap() } else { sink.open_lane(sub, recovery).unwrap() };
     let response = format!("opened {name}");
     sink.send_control_release(Bytes::from(response.clone()), release).unwrap();
     allow_up_to(peer, 1);
@@ -367,5 +363,3 @@ async fn an_answer_and_a_ping_still_queue_when_the_ordered_room_is_full() {
     assert_eq!(short(&wire), short(&expected), "in-flight frame, ping, the events in order, the answer");
     assert!(wire == expected, "every frame written whole");
 }
-
-

@@ -2,10 +2,7 @@
 //! native `.exe` (`git status`, `node -e …`) skips the ~330 ms PowerShell/.NET/AMSI startup.
 //! Anything that needs a shell stays on PowerShell: operators, expansion, cmdlets, aliases, and
 //! `.cmd`/`.bat`/`.ps1` wrappers. The file probes run as lane jobs.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)"
-)]
+#![allow(clippy::disallowed_methods, reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)")]
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -28,13 +25,11 @@ macro_rules! lazy_re {
 /// PowerShell aliases / language heads whose meaning would change if a same-named `.exe` were
 /// resolved (Git `usr\bin\ls.exe` vs `Get-ChildItem`).
 const POWERSHELL_RESERVED_HEADS: [&str; 80] = [
-    "cat", "cd", "chdir", "clear", "cls", "copy", "cp", "del", "diff", "dir", "echo", "erase", "fc",
-    "foreach", "help", "history", "kill", "ls", "man", "md", "measure", "mkdir", "mount", "move",
-    "mv", "popd", "ps", "pushd", "pwd", "ren", "rename", "rm", "rmdir", "select", "set", "sleep",
-    "sort", "start", "tee", "type", "where", "write", "gal", "gc", "gci", "gi", "gp", "gsv", "ii",
-    "ni", "ri", "sal", "sc", "si", "sl", "sls", "sp", "sv", "begin", "break", "catch", "continue",
-    "else", "elseif", "end", "exit", "filter", "finally", "function", "if", "param", "process",
-    "return", "switch", "throw", "trap", "try", "until", "while", "workflow",
+    "cat", "cd", "chdir", "clear", "cls", "copy", "cp", "del", "diff", "dir", "echo", "erase", "fc", "foreach", "help", "history", "kill", "ls", "man", "md",
+    "measure", "mkdir", "mount", "move", "mv", "popd", "ps", "pushd", "pwd", "ren", "rename", "rm", "rmdir", "select", "set", "sleep", "sort", "start", "tee",
+    "type", "where", "write", "gal", "gc", "gci", "gi", "gp", "gsv", "ii", "ni", "ri", "sal", "sc", "si", "sl", "sls", "sp", "sv", "begin", "break", "catch",
+    "continue", "else", "elseif", "end", "exit", "filter", "finally", "function", "if", "param", "process", "return", "switch", "throw", "trap", "try",
+    "until", "while", "workflow",
 ];
 
 fn head_name(token: &str) -> String {
@@ -281,10 +276,7 @@ pub fn direct_exe_tokens(command: &str, windows: bool, powershell: bool, disable
         return None;
     }
     let name = head_name(head);
-    if name.is_empty()
-        || POWERSHELL_RESERVED_HEADS.contains(&name.as_str())
-        || lazy_re!(r"^[A-Za-z]+-[A-Za-z]+$", "").is_match(head)
-    {
+    if name.is_empty() || POWERSHELL_RESERVED_HEADS.contains(&name.as_str()) || lazy_re!(r"^[A-Za-z]+-[A-Za-z]+$", "").is_match(head) {
         return None;
     }
     Some(tokens)
@@ -292,8 +284,7 @@ pub fn direct_exe_tokens(command: &str, windows: bool, powershell: bool, disable
 
 /// `MIXDOG_SHELL_DIRECT_EXE=0|false|no|off` turns direct spawns off.
 pub fn disabled_by_env() -> bool {
-    std::env::var("MIXDOG_SHELL_DIRECT_EXE")
-        .is_ok_and(|raw| lazy_re!(r"^(0|false|no|off)$", "i").is_match(mixdog_js::js_trim(&raw)))
+    std::env::var("MIXDOG_SHELL_DIRECT_EXE").is_ok_and(|raw| lazy_re!(r"^(0|false|no|off)$", "i").is_match(mixdog_js::js_trim(&raw)))
 }
 
 /// `planDirectExeSpawn`: resolves the head on a lane job. Not kept between calls: a program
@@ -307,7 +298,8 @@ pub async fn plan_direct_exe(
     cwd: &Path,
     path_value: &str,
 ) -> Option<DirectExe> {
-    let tokens = direct_exe_tokens(command, windows, powershell, disabled_by_env())?;    let (head, cwd, path_value) = (tokens[0].clone(), cwd.to_owned(), path_value.to_owned());
+    let tokens = direct_exe_tokens(command, windows, powershell, disabled_by_env())?;
+    let (head, cwd, path_value) = (tokens[0].clone(), cwd.to_owned(), path_value.to_owned());
     let job = lane.submit(cancel, move |_| resolve_direct_exe_blocking(&head, &cwd, &path_value, 64)).ok()?;
     let exe = job.await.ok()??;
     Some(DirectExe { exe, argv: tokens[1..].to_vec() })
@@ -351,19 +343,37 @@ mod tests {
         assert_eq!(text, "[exit code: 3]\n\nok\n");
     }
 
-
     fn argv(command: &str, strict: bool) -> Option<Vec<&'static str>> {
         tokenize_direct_argv(command, strict).map(|v| v.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect())
     }
 
     #[test]
     fn a_plain_command_runs_directly_and_one_with_shell_syntax_needs_the_shell() {
-        for command in ["git status", "git log --oneline -5", "ls -la", "echo '$HOME'", "echo a~b", "echo a#b", "tool \"a b\" c", "tool 'it''s'", "tool a\tb", "", "   "] {
+        for command in
+            ["git status", "git log --oneline -5", "ls -la", "echo '$HOME'", "echo a~b", "echo a#b", "tool \"a b\" c", "tool 'it''s'", "tool a\tb", "", "   "]
+        {
             assert!(!command_needs_shell(command), "{command:?}");
         }
         for command in [
-            "git log | head", "a && b", "a; b", "echo $HOME", "echo \"$HOME\"", "echo ~", "echo @args", "echo # c", "tool *.txt", "tool [ab]",
-            "tool a?b", "tool 2>&1", "tool (a)", "tool {a}", "tool a>b", "tool a\nb", "& tool", "tool \"unterminated", "tool 'unterminated",
+            "git log | head",
+            "a && b",
+            "a; b",
+            "echo $HOME",
+            "echo \"$HOME\"",
+            "echo ~",
+            "echo @args",
+            "echo # c",
+            "tool *.txt",
+            "tool [ab]",
+            "tool a?b",
+            "tool 2>&1",
+            "tool (a)",
+            "tool {a}",
+            "tool a>b",
+            "tool a\nb",
+            "& tool",
+            "tool \"unterminated",
+            "tool 'unterminated",
         ] {
             assert!(command_needs_shell(command), "{command:?}");
         }
@@ -371,7 +381,18 @@ mod tests {
 
     #[test]
     fn powershell_only_syntax_is_recognised_by_cmdlet_names_variables_and_parameters() {
-        for command in ["Get-Process", "Get-ChildItem", "$x = 1", "$env:PATH", "tool -eq 1", "tool -Path x", "tool -Force", "x | % { $_ }", "tool 2>$null", "[System.IO.Path]::GetTempPath()"] {
+        for command in [
+            "Get-Process",
+            "Get-ChildItem",
+            "$x = 1",
+            "$env:PATH",
+            "tool -eq 1",
+            "tool -Path x",
+            "tool -Force",
+            "x | % { $_ }",
+            "tool 2>$null",
+            "[System.IO.Path]::GetTempPath()",
+        ] {
             assert!(has_powershell_only_syntax(command), "{command:?}");
         }
         for command in ["git status", "a-b", "path/get-thing", "tool 2>&1", "echo $HOME"] {
@@ -404,7 +425,22 @@ mod tests {
     #[test]
     fn a_bare_token_resolves_to_the_first_exe_on_the_path_and_never_to_a_script() {
         let root = tempfile::tempdir().unwrap();
-        for file in ["d1/a.exe", "d2/b.exe", "d2/b.cmd", "d3/c.exe", "d3/c.ps1", "d4/e.bat", "d5/e.exe", "d6/f.com", "d6/f.exe", "d7/g.cmd", "d8/g.exe", "d9/h.exe", "d9/sub/i.exe", "d10/j.cmd"] {
+        for file in [
+            "d1/a.exe",
+            "d2/b.exe",
+            "d2/b.cmd",
+            "d3/c.exe",
+            "d3/c.ps1",
+            "d4/e.bat",
+            "d5/e.exe",
+            "d6/f.com",
+            "d6/f.exe",
+            "d7/g.cmd",
+            "d8/g.exe",
+            "d9/h.exe",
+            "d9/sub/i.exe",
+            "d10/j.cmd",
+        ] {
             let path = root.path().join(file);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, b"").unwrap();

@@ -209,11 +209,7 @@ pub enum Message {
     GrantChallenge { nonce: String, challenge: String },
     /// app -> helper, the phone's signature (base64 of the 64-byte P-256
     /// `r ‖ s`) over the grant payload for `challenge` and `epoch`.
-    Grant {
-        challenge: String,
-        epoch: u64,
-        signature: String,
-    },
+    Grant { challenge: String, epoch: u64, signature: String },
     /// app -> helper, press the secure attention sequence (Ctrl+Alt+Del). The
     /// service performs it; needs active control and a live grant.
     Sas,
@@ -224,10 +220,7 @@ pub enum Message {
 
 impl Message {
     pub fn error(code: &str, message: impl Into<String>) -> Self {
-        Message::Error {
-            code: code.to_string(),
-            message: message.into(),
-        }
+        Message::Error { code: code.to_string(), message: message.into() }
     }
 }
 
@@ -276,10 +269,7 @@ pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<Decoded> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "empty frame"));
     }
     if body_len > MAX_VIDEO_LEN {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "frame exceeds the maximum size",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds the maximum size"));
     }
     let mut body = vec![0u8; body_len];
     reader.read_exact(&mut body)?;
@@ -295,32 +285,24 @@ pub fn decode_body(body: &[u8]) -> Result<Decoded, String> {
             if payload.len() > MAX_CONTROL_LEN {
                 return Err("control message exceeds the maximum size".into());
             }
-            let message = serde_json::from_slice::<Message>(payload)
-                .map_err(|error| format!("invalid control JSON: {error}"))?;
+            let message = serde_json::from_slice::<Message>(payload).map_err(|error| format!("invalid control JSON: {error}"))?;
             Ok(Decoded::Control(message))
         }
         KIND_VIDEO => {
             if payload.len() < 4 {
                 return Err("video frame is missing its header length".into());
             }
-            let header_len =
-                u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
+            let header_len = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
             let rest = &payload[4..];
             if header_len > rest.len() {
                 return Err("video frame header length is out of range".into());
             }
             let (header_bytes, pixels) = rest.split_at(header_len);
-            let header = serde_json::from_slice::<FrameHeader>(header_bytes)
-                .map_err(|error| format!("invalid frame header JSON: {error}"))?;
+            let header = serde_json::from_slice::<FrameHeader>(header_bytes).map_err(|error| format!("invalid frame header JSON: {error}"))?;
             // Checked so a hostile stride/height cannot overflow the product.
-            let expected = (header.stride as usize)
-                .checked_mul(header.height as usize)
-                .ok_or("frame stride*height overflows")?;
+            let expected = (header.stride as usize).checked_mul(header.height as usize).ok_or("frame stride*height overflows")?;
             if pixels.len() != expected {
-                return Err(format!(
-                    "frame pixel length {} does not match stride*height {expected}",
-                    pixels.len()
-                ));
+                return Err(format!("frame pixel length {} does not match stride*height {expected}", pixels.len()));
             }
             Ok(Decoded::Video(header, pixels.to_vec()))
         }
@@ -383,10 +365,7 @@ impl FrameAccumulator {
     /// True when an incomplete frame has been arriving for longer than `limit`
     /// in total, measured from its first byte — not from the latest byte.
     pub fn frame_overdue(&self, now: std::time::Instant, limit: std::time::Duration) -> bool {
-        self.pending()
-            && self
-                .frame_started
-                .is_some_and(|started| now > started + limit)
+        self.pending() && self.frame_started.is_some_and(|started| now > started + limit)
     }
 
     /// Pop the next complete frame, `Ok(None)` if one is not yet fully
@@ -398,20 +377,11 @@ impl FrameAccumulator {
     /// a frame that completes (or would be dispatched) past its total deadline
     /// is never executed — a late frame cannot slip through because its last
     /// byte happened to arrive.
-    pub fn next_frame(
-        &mut self,
-        now: std::time::Instant,
-        limit: std::time::Duration,
-    ) -> Result<Option<Decoded>, String> {
+    pub fn next_frame(&mut self, now: std::time::Instant, limit: std::time::Duration) -> Result<Option<Decoded>, String> {
         if self.buffer.len() < 4 {
             return Ok(None);
         }
-        let body_len = u32::from_le_bytes([
-            self.buffer[0],
-            self.buffer[1],
-            self.buffer[2],
-            self.buffer[3],
-        ]) as usize;
+        let body_len = u32::from_le_bytes([self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3]]) as usize;
         if body_len == 0 {
             return Err("empty frame".into());
         }
@@ -431,11 +401,7 @@ impl FrameAccumulator {
         self.buffer.drain(..total);
         // Frames are drained after every feed, so the bytes left behind began
         // arriving in the latest feed: time the next frame from there.
-        self.frame_started = if self.buffer.is_empty() {
-            None
-        } else {
-            self.last_extend
-        };
+        self.frame_started = if self.buffer.is_empty() { None } else { self.last_extend };
         Ok(Some(decoded))
     }
 }
@@ -452,62 +418,18 @@ mod tests {
     #[test]
     fn control_round_trips_through_a_stream() {
         let messages = [
-            Message::ClientHello {
-                protocol: PROTOCOL_VERSION,
-                client_nonce: "Y2xpZW50Tm9uY2U=".into(),
-            },
-            Message::ServerAuth {
-                protocol: PROTOCOL_VERSION,
-                server_nonce: "c2VydmVyTm9uY2U=".into(),
-                mac: "bWFjLXZhbHVl".into(),
-            },
-            Message::ClientAuth {
-                mac: "Y2xpZW50LW1hYw==".into(),
-            },
-            Message::ServerHello {
-                protocol: PROTOCOL_VERSION,
-                version: "0.1.0".into(),
-                session: 1,
-                desktop: "Default".into(),
-                locked: None,
-            },
-            Message::DesktopChanged {
-                desktop: "Winlogon".into(),
-                session: 1,
-                locked: Some(true),
-            },
+            Message::ClientHello { protocol: PROTOCOL_VERSION, client_nonce: "Y2xpZW50Tm9uY2U=".into() },
+            Message::ServerAuth { protocol: PROTOCOL_VERSION, server_nonce: "c2VydmVyTm9uY2U=".into(), mac: "bWFjLXZhbHVl".into() },
+            Message::ClientAuth { mac: "Y2xpZW50LW1hYw==".into() },
+            Message::ServerHello { protocol: PROTOCOL_VERSION, version: "0.1.0".into(), session: 1, desktop: "Default".into(), locked: None },
+            Message::DesktopChanged { desktop: "Winlogon".into(), session: 1, locked: Some(true) },
             Message::VideoRun { epoch: 7 },
-            Message::GrantChallenge {
-                nonce: "bm9uY2Vub25jZW5vbmNlMQ==".into(),
-                challenge: "Y2hhbGxlbmdlY2hhbGxlbmc=".into(),
-            },
-            Message::Grant {
-                challenge: "Y2hhbGxlbmdlY2hhbGxlbmc=".into(),
-                epoch: 7,
-                signature: "c2ln".into(),
-            },
+            Message::GrantChallenge { nonce: "bm9uY2Vub25jZW5vbmNlMQ==".into(), challenge: "Y2hhbGxlbmdlY2hhbGxlbmc=".into() },
+            Message::Grant { challenge: "Y2hhbGxlbmdlY2hhbGxlbmc=".into(), epoch: 7, signature: "c2ln".into() },
             Message::Sas,
-            Message::Input {
-                event: InputEvent::PointerButton {
-                    button: PointerButton::Left,
-                    down: true,
-                    x: -7,
-                    y: 42,
-                },
-            },
-            Message::Input {
-                event: InputEvent::Key {
-                    down: true,
-                    vk: 0x41,
-                    scan: 0x1e,
-                    extended: false,
-                },
-            },
-            Message::Input {
-                event: InputEvent::Text {
-                    text: "héllo".into(),
-                },
-            },
+            Message::Input { event: InputEvent::PointerButton { button: PointerButton::Left, down: true, x: -7, y: 42 } },
+            Message::Input { event: InputEvent::Key { down: true, vk: 0x41, scan: 0x1e, extended: false } },
+            Message::Input { event: InputEvent::Text { text: "héllo".into() } },
             Message::Control { active: true },
             Message::error("capture_failed", "GDI BitBlt returned 0"),
         ];
@@ -531,47 +453,20 @@ mod tests {
         let json = |message: &Message| serde_json::to_value(message).unwrap();
         assert_eq!(json(&Message::Sas), serde_json::json!({ "type": "sas" }));
         assert_eq!(
-            json(&Message::Grant {
-                challenge: "c".into(),
-                epoch: 3,
-                signature: "s".into()
-            }),
+            json(&Message::Grant { challenge: "c".into(), epoch: 3, signature: "s".into() }),
             serde_json::json!({ "type": "grant", "challenge": "c", "epoch": 3, "signature": "s" })
         );
         assert_eq!(
-            json(&Message::GrantChallenge {
-                nonce: "n".into(),
-                challenge: "c".into()
-            }),
+            json(&Message::GrantChallenge { nonce: "n".into(), challenge: "c".into() }),
             serde_json::json!({ "type": "grant-challenge", "nonce": "n", "challenge": "c" })
         );
-        assert_eq!(
-            json(&Message::VideoRun { epoch: 9 }),
-            serde_json::json!({ "type": "video-run", "epoch": 9 })
-        );
+        assert_eq!(json(&Message::VideoRun { epoch: 9 }), serde_json::json!({ "type": "video-run", "epoch": 9 }));
         // An unknown lock state is omitted, not sent as null; a known one
         // travels as a boolean.
-        let unknown = Message::DesktopChanged {
-            desktop: "Default".into(),
-            session: 1,
-            locked: None,
-        };
-        assert_eq!(
-            json(&unknown),
-            serde_json::json!({ "type": "desktop-changed", "desktop": "Default", "session": 1 })
-        );
-        let decoded: Message = serde_json::from_str(
-            r#"{"type":"desktop-changed","desktop":"Winlogon","session":2,"locked":true}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            decoded,
-            Message::DesktopChanged {
-                desktop: "Winlogon".into(),
-                session: 2,
-                locked: Some(true)
-            }
-        );
+        let unknown = Message::DesktopChanged { desktop: "Default".into(), session: 1, locked: None };
+        assert_eq!(json(&unknown), serde_json::json!({ "type": "desktop-changed", "desktop": "Default", "session": 1 }));
+        let decoded: Message = serde_json::from_str(r#"{"type":"desktop-changed","desktop":"Winlogon","session":2,"locked":true}"#).unwrap();
+        assert_eq!(decoded, Message::DesktopChanged { desktop: "Winlogon".into(), session: 2, locked: Some(true) });
     }
 
     #[test]
@@ -586,12 +481,7 @@ mod tests {
             origin_x: 0,
             origin_y: 0,
             desktop: "Default".into(),
-            dirty: vec![DirtyRect {
-                x: 0,
-                y: 0,
-                width: 1,
-                height: 2,
-            }],
+            dirty: vec![DirtyRect { x: 0, y: 0, width: 1, height: 2 }],
         };
         let pixels: Vec<u8> = (0..16).collect();
         let frame = encode_video(&header, &pixels);
@@ -688,10 +578,7 @@ mod tests {
         let t0 = Instant::now();
         let frame = encode_control(&Message::Control { active: true });
         let mut acc = FrameAccumulator::new();
-        assert!(
-            !acc.frame_overdue(t0 + limit * 5, limit),
-            "nothing pending, nothing overdue"
-        );
+        assert!(!acc.frame_overdue(t0 + limit * 5, limit), "nothing pending, nothing overdue");
 
         // Dribble one byte every 3 s: each byte is "recent", but the frame as a
         // whole began at t0, so it is overdue once 10 s have passed since then.
@@ -714,10 +601,7 @@ mod tests {
         assert!(matches!(acc.next_frame(t1, limit), Ok(Some(_))));
         assert!(acc.pending());
         let past_t0_deadline = t0 + limit + Duration::from_millis(1);
-        assert!(
-            !acc.frame_overdue(past_t0_deadline, limit),
-            "next frame timed from t1, not t0"
-        );
+        assert!(!acc.frame_overdue(past_t0_deadline, limit), "next frame timed from t1, not t0");
         assert!(acc.frame_overdue(t1 + limit + Duration::from_millis(1), limit));
     }
 
@@ -732,28 +616,16 @@ mod tests {
         let mut on_time = FrameAccumulator::new();
         on_time.extend(&frame[..1], t0);
         on_time.extend(&frame[1..], t0 + limit);
-        assert!(matches!(
-            on_time.next_frame(t0 + limit, limit),
-            Ok(Some(Decoded::Control(_)))
-        ));
+        assert!(matches!(on_time.next_frame(t0 + limit, limit), Ok(Some(Decoded::Control(_)))));
 
         // Completed one tick later: refused, and nothing is ever returned for it.
         let mut late = FrameAccumulator::new();
         late.extend(&frame[..1], t0);
         late.extend(&frame[1..], t0 + limit + tick);
         let refused = late.next_frame(t0 + limit + tick, limit);
-        assert!(
-            matches!(&refused, Err(reason) if reason.contains("deadline")),
-            "{refused:?}"
-        );
-        assert!(
-            late.pending(),
-            "the late frame was not consumed as if executed"
-        );
-        assert!(
-            late.next_frame(t0 + limit + tick, limit).is_err(),
-            "still refused on retry"
-        );
+        assert!(matches!(&refused, Err(reason) if reason.contains("deadline")), "{refused:?}");
+        assert!(late.pending(), "the late frame was not consumed as if executed");
+        assert!(late.next_frame(t0 + limit + tick, limit).is_err(), "still refused on retry");
 
         // Completed in time but dispatched one tick past the deadline: refused.
         let mut stale = FrameAccumulator::new();

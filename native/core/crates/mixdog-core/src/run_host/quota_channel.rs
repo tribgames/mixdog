@@ -100,7 +100,13 @@ mod tests {
             unreachable!("a quota question sends no notification")
         }
 
-        async fn request_streamed(&self, capability: HostCapability, method: Method, params: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+        async fn request_streamed(
+            &self,
+            capability: HostCapability,
+            method: Method,
+            params: Value,
+            _: &mut (dyn FnMut(Value) + Send),
+        ) -> Result<Value, HostError> {
             self.asked.lock().unwrap().push((capability, method.as_str().to_owned(), params));
             self.reply.lock().unwrap().take().expect("one question per channel")
         }
@@ -146,9 +152,9 @@ mod tests {
         let ask = |reply| async move { HostQuotaChannel::new(Pc::answering(reply)).quota_usable("openai-oauth", "").await };
         assert!(matches!(ask(answer(ProxyAnswer::Sent { attempts: 1 })).await, Ok(Value::Null)));
         assert!(matches!(ask(Ok(json!({ "unexpected": true }))).await, Ok(Value::Null)));
-        assert!(matches!(ask(rpc(Some(serde_json::to_value(failure("")).unwrap()))).await, Err(ChannelError::Failed(text)) if text == "model proxy call failed"));
+        assert!(
+            matches!(ask(rpc(Some(serde_json::to_value(failure("")).unwrap()))).await, Err(ChannelError::Failed(text)) if text == "model proxy call failed")
+        );
         assert!(matches!(ask(answer(ProxyAnswer::Failed { failure: failure("PC broke") })).await, Err(ChannelError::Failed(text)) if text == "PC broke"));
     }
-
-
 }

@@ -51,10 +51,7 @@ pub fn collect_sockets(desktops: &[DesktopSockets]) -> (usize, Vec<SocketBuffer>
             continue;
         }
         phones += desktop.phones.len();
-        sockets.push(SocketBuffer {
-            name: format!("desktop:{}", js_slice(&desktop.device_id, 8)),
-            buffered_bytes: desktop.socket_buffered as f64,
-        });
+        sockets.push(SocketBuffer { name: format!("desktop:{}", js_slice(&desktop.device_id, 8)), buffered_bytes: desktop.socket_buffered as f64 });
         for phone in &desktop.phones {
             sockets.push(SocketBuffer { name: format!("phone:{}", js_slice(&phone.client_id, 8)), buffered_bytes: phone.buffered as f64 });
         }

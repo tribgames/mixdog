@@ -47,12 +47,7 @@ pub fn render(log_id: &str, id: &str, header: &Header, messages: &[Value]) -> St
         "t": "session", "s": 0, "v": 1, "logId": log_id, "id": id, "prev": null, "legacy": null, "header": header,
     });
     let messages: Vec<String> = messages.iter().map(mixdog_js::json_stringify).collect();
-    format!(
-        "{}\n{{\"t\":\"compacted\",\"s\":1,\"len\":{},\"messages\":[{}]}}\n",
-        mixdog_js::json_stringify(&session),
-        messages.len(),
-        messages.join(",")
-    )
+    format!("{}\n{{\"t\":\"compacted\",\"s\":1,\"len\":{},\"messages\":[{}]}}\n", mixdog_js::json_stringify(&session), messages.len(), messages.join(","))
 }
 
 /// The exports of the sessions the thread store holds.
@@ -81,13 +76,16 @@ impl TranscriptFiles {
         let (store, id) = (self.store.clone(), thread.clone());
         let log_id = on_lane(self.lanes.io, &token, move |lane| store.read_log_id(lane, &id)).await??;
         let rows = read_context(&self.store, &self.lanes, thread).await?;
-        Ok(Some((log_id, header, rows
-            .into_iter()
-            .map(|(_, mut message)| {
-                mixdog_agent::interrupt::without_recovery_mark(&mut message);
-                message
-            })
-            .collect())))
+        Ok(Some((
+            log_id,
+            header,
+            rows.into_iter()
+                .map(|(_, mut message)| {
+                    mixdog_agent::interrupt::without_recovery_mark(&mut message);
+                    message
+                })
+                .collect(),
+        )))
     }
 
     /// Writes the export; false when the session has no model context to export.
@@ -115,11 +113,7 @@ impl TranscriptExport for TranscriptFiles {
             tracing::warn!(?error, session_id, "hook transcript export failed");
             false
         });
-        let shown = if exported {
-            export_path(&self.data_dir, session_id)
-        } else {
-            self.data_dir.join("sessions").join(format!("{session_id}.json"))
-        };
+        let shown = if exported { export_path(&self.data_dir, session_id) } else { self.data_dir.join("sessions").join(format!("{session_id}.json")) };
         json!(shown.to_string_lossy())
     }
 }
@@ -136,7 +130,4 @@ mod tests {
             "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"0123456789abcdef01234567\",\"id\":\"sess_a\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_a\"}}\n{\"t\":\"compacted\",\"s\":1,\"len\":0,\"messages\":[]}\n"
         );
     }
-
-
-
 }

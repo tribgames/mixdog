@@ -94,7 +94,8 @@ fn a_formula_written_by_the_crate_has_no_cached_value_and_the_audit_says_so() {
         json!([{ "op": "set_range", "range": "A1:B2", "values": [["a", "b"], [1, 2]] }, { "op": "set_formula", "cell": "C2", "formula": "=A2+B2" }, { "op": "set_formula", "cell": "D2", "formula": "=A2*B2" }]),
     );
     let answer = office.call(json!({ "action": "issues", "session": several }));
-    let missing = answer["issues"].as_array().expect("issues").iter().find(|issue| issue["code"] == "formula_cache_missing").unwrap_or_else(|| panic!("{answer}"));
+    let missing =
+        answer["issues"].as_array().expect("issues").iter().find(|issue| issue["code"] == "formula_cache_missing").unwrap_or_else(|| panic!("{answer}"));
     assert_eq!(missing["path"], "/sheet[Sheet1]");
     assert_eq!(missing["cells"], json!(["C2", "D2"]));
     assert_eq!(missing["cellCount"], 2);
@@ -114,11 +115,14 @@ fn a_word_document_lists_its_paragraphs_and_a_paragraph_can_be_replaced() {
     let office = Harness::new();
     let session = created(&office, "report.docx", json!([{ "op": "append_text", "text": "Old body" }, { "op": "append_text", "text": "Second paragraph" }]));
     let snapshot = office.call(json!({ "action": "snapshot", "session": session }));
-    let texts: Vec<String> = find(&snapshot, "paragraphs").and_then(Value::as_array).expect("paragraphs").iter().filter_map(|p| p["text"].as_str().map(str::to_owned)).collect();
+    let texts: Vec<String> =
+        find(&snapshot, "paragraphs").and_then(Value::as_array).expect("paragraphs").iter().filter_map(|p| p["text"].as_str().map(str::to_owned)).collect();
     assert!(texts.iter().any(|text| text == "Old body"), "{texts:?}");
     assert!(texts.iter().any(|text| text == "Second paragraph"), "{texts:?}");
-    let index = find(&snapshot, "paragraphs").and_then(Value::as_array).expect("paragraphs").iter().position(|p| p["text"] == "Old body").expect("a position") + 1;
-    let replaced = office.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "set_paragraph_text", "paragraph": index, "text": "New body" }] }));
+    let index =
+        find(&snapshot, "paragraphs").and_then(Value::as_array).expect("paragraphs").iter().position(|p| p["text"] == "Old body").expect("a position") + 1;
+    let replaced =
+        office.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "set_paragraph_text", "paragraph": index, "text": "New body" }] }));
     assert_eq!(replaced["ok"], true, "{replaced}");
     let after = office.call(json!({ "action": "snapshot", "session": session }));
     let texts: Vec<&str> = find(&after, "paragraphs").and_then(Value::as_array).expect("paragraphs").iter().filter_map(|p| p["text"].as_str()).collect();
@@ -145,7 +149,11 @@ fn a_deck_gets_slides_and_text_boxes_and_a_tiny_font_is_an_issue() {
 #[test]
 fn a_slide_can_be_deleted_and_the_deck_keeps_the_rest() {
     let office = Harness::new();
-    let session = created(&office, "two.pptx", json!([{ "op": "add_slide" }, { "op": "add_slide" }, { "op": "add_textbox", "slide": 2, "text": "Second slide text", "left": 60, "top": 60, "width": 400, "height": 60 }]));
+    let session = created(
+        &office,
+        "two.pptx",
+        json!([{ "op": "add_slide" }, { "op": "add_slide" }, { "op": "add_textbox", "slide": 2, "text": "Second slide text", "left": 60, "top": 60, "width": 400, "height": 60 }]),
+    );
     let done = office.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "delete_slide", "slide": 1 }] }));
     assert_eq!(done["ok"], true, "{done}");
     let snapshot = office.call(json!({ "action": "snapshot", "session": session }));
@@ -165,6 +173,10 @@ fn an_operation_that_misses_a_required_field_or_does_not_exist_is_refused_and_ch
     );
     // contracts/mod.rs: "Unknown <FORMAT> operation "<name>" at operation <n>.<suggestions> Call office with <describe call> to list operations."
     let unknown = batch(json!([{ "op": "zzzzzz" }]));
-    assert_eq!(unknown, "Error: Unknown XLSX operation \"zzzzzz\" at operation 1. Call office with {\"action\":\"describe\",\"format\":\"xlsx\",\"backend\":\"mixdog-ooxml\"} to list operations.");    let cell = office.call(json!({ "action": "get", "session": session, "target": "/sheet[Sheet1]/cell[A1]" }));
+    assert_eq!(
+        unknown,
+        "Error: Unknown XLSX operation \"zzzzzz\" at operation 1. Call office with {\"action\":\"describe\",\"format\":\"xlsx\",\"backend\":\"mixdog-ooxml\"} to list operations."
+    );
+    let cell = office.call(json!({ "action": "get", "session": session, "target": "/sheet[Sheet1]/cell[A1]" }));
     assert_eq!(cell["element"]["value"], "keep");
 }

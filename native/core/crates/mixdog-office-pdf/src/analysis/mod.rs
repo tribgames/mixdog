@@ -25,20 +25,12 @@ pub(crate) fn round_to(value: f64, digits: usize) -> f64 {
 
 /// `Math.min(a, b)`: a NaN anywhere is NaN.
 pub(crate) fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.min(b)
-    }
+    if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) }
 }
 
 /// `Math.max(a, b)`: a NaN anywhere is NaN.
 pub(crate) fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.max(b)
-    }
+    if a.is_nan() || b.is_nan() { f64::NAN } else { a.max(b) }
 }
 
 /// `Math.min(...values)`: `Infinity` for none.

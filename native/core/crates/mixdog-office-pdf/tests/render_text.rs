@@ -24,8 +24,7 @@ fn pdf(content: &str, font: &str, extra: &[Vec<u8>]) -> Vec<u8> {
     let mut objects: Vec<Vec<u8>> = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
-            .to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_vec(),
         stream("", content.as_bytes()),
         font.as_bytes().to_vec(),
     ];
@@ -60,13 +59,7 @@ fn dark_pixels(name: &str, bytes: Vec<u8>) -> usize {
     let rendered = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("runtime")
-        .block_on(render_pdf_pages(
-            mixdog_rt::testing::tokens(),
-            Arc::new(Registry::new()),
-            Arc::new(Quiet),
-            &path,
-            RenderPagesOptions::default(),
-        ))
+        .block_on(render_pdf_pages(mixdog_rt::testing::tokens(), Arc::new(Registry::new()), Arc::new(Quiet), &path, RenderPagesOptions::default()))
         .expect("renders");
     let image = Image::decode(rendered.images[0].png()).expect("PNG");
     image.rgba().chunks_exact(4).filter(|pixel| pixel[0] < 128 && pixel[1] < 128 && pixel[2] < 128).count()
@@ -90,11 +83,7 @@ fn a_page_with_an_embedded_true_type_subset_is_not_blank() {
     let descriptor = "<< /Type /FontDescriptor /FontName /ABCDEF+LiberationSans-Bold /Flags 32 /FontBBox [-200 -300 1200 1000] \
                       /ItalicAngle 0 /Ascent 900 /Descent -200 /CapHeight 700 /StemV 140 /FontFile2 7 0 R >>";
     let file = stream(&format!("/Length1 {}", face.len()), &face);
-    let bytes = pdf(
-        "BT /F1 36 Tf 30 100 Td (Review text) Tj ET",
-        font,
-        &[descriptor.as_bytes().to_vec(), file],
-    );
+    let bytes = pdf("BT /F1 36 Tf 30 100 Td (Review text) Tj ET", font, &[descriptor.as_bytes().to_vec(), file]);
     let drawn = dark_pixels("embedded", bytes);
     assert!(drawn > 400, "the embedded glyphs are drawn: {drawn} dark pixels");
 }

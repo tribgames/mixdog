@@ -33,16 +33,10 @@ const BACKTRACK_LIMIT: usize = 10_000_000_000;
 struct Registered(Arc<HashMap<String, Value>>);
 
 impl jsonschema::Retrieve for Registered {
-    fn retrieve(
-        &self,
-        uri: &jsonschema::Uri<String>,
-    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    fn retrieve(&self, uri: &jsonschema::Uri<String>) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         let address = uri.as_str();
         let address = address.split_once('#').map_or(address, |(base, _)| base);
-        let resource = self
-            .0
-            .get(address)
-            .ok_or_else(|| format!("can't resolve reference {address}"))?;
+        let resource = self.0.get(address).ok_or_else(|| format!("can't resolve reference {address}"))?;
         Ok(for_engine(resource)?)
     }
 }
@@ -56,30 +50,20 @@ fn for_engine(schema: &Value) -> Result<Value, String> {
     let mut out = serde_json::Map::with_capacity(map.len());
     for (key, value) in map {
         let value = match (key.as_str(), value) {
-            ("pattern", Value::String(pattern)) => {
-                Value::String(crate::ecma_pattern::for_engine(pattern)?)
-            }
+            ("pattern", Value::String(pattern)) => Value::String(crate::ecma_pattern::for_engine(pattern)?),
             ("patternProperties", Value::Object(props)) => {
                 let mut rewritten = serde_json::Map::with_capacity(props.len());
                 for (pattern, subschema) in props {
-                    rewritten.insert(
-                        crate::ecma_pattern::for_engine(pattern)?,
-                        for_engine(subschema)?,
-                    );
+                    rewritten.insert(crate::ecma_pattern::for_engine(pattern)?, for_engine(subschema)?);
                 }
                 Value::Object(rewritten)
             }
             _ => match (children(key, value), value) {
                 (Some(Children::One), _) => for_engine(value)?,
-                (Some(Children::Many), Value::Array(items)) => {
-                    Value::Array(items.iter().map(for_engine).collect::<Result<_, _>>()?)
+                (Some(Children::Many), Value::Array(items)) => Value::Array(items.iter().map(for_engine).collect::<Result<_, _>>()?),
+                (Some(Children::Map), Value::Object(entries)) => {
+                    Value::Object(entries.iter().map(|(k, v)| Ok((k.clone(), for_engine(v)?))).collect::<Result<_, String>>()?)
                 }
-                (Some(Children::Map), Value::Object(entries)) => Value::Object(
-                    entries
-                        .iter()
-                        .map(|(k, v)| Ok((k.clone(), for_engine(v)?)))
-                        .collect::<Result<_, String>>()?,
-                ),
                 _ => value.clone(),
             },
         };
@@ -95,10 +79,7 @@ struct Slot {
 }
 
 /// `schema` compiled as the SDK's Ajv compiles it, its references resolved against `registered`.
-fn build(
-    schema: &Value,
-    registered: &Arc<HashMap<String, Value>>,
-) -> Result<jsonschema::Validator, ValidationError<'static>> {
+fn build(schema: &Value, registered: &Arc<HashMap<String, Value>>) -> Result<jsonschema::Validator, ValidationError<'static>> {
     jsonschema::options()
         .with_draft(jsonschema::Draft::Draft7)
         .with_pattern_options(jsonschema::PatternOptions::fancy_regex().backtrack_limit(BACKTRACK_LIMIT))
@@ -117,8 +98,7 @@ impl Slot {
             if crate::ajv_stack::compile_overflows(&crate::ajv_stack::Documents::new(&self.schema, &self.registered)) {
                 return Err(crate::ajv_stack::STACK_OVERFLOW.to_owned());
             }
-            build(&for_engine(&self.schema)?, &self.registered)
-                .map_err(|error| compile_error_text(&self.schema, &error))
+            build(&for_engine(&self.schema)?, &self.registered).map_err(|error| compile_error_text(&self.schema, &error))
         })
     }
 }
@@ -173,10 +153,7 @@ fn base_of(id: &str) -> &str {
 /// naming an `$id`, or a `$ref` that does not start with `#`, anywhere in its text compiles when listed.
 fn compiles_when_listed(schema: &Value) -> bool {
     let text = serde_json::to_string(schema).unwrap_or_default();
-    text.contains("\"$id\"")
-        || text
-            .match_indices("\"$ref\":\"")
-            .any(|(at, m)| !text[at + m.len()..].starts_with('#'))
+    text.contains("\"$id\"") || text.match_indices("\"$ref\":\"").any(|(at, m)| !text[at + m.len()..].starts_with('#'))
 }
 
 /// How a keyword's value holds subschemas.
@@ -190,23 +167,11 @@ enum Children {
 /// walks for `$id`s): everything else, `const`, `enum`, `default` and `examples` among it, is data.
 fn children(key: &str, value: &Value) -> Option<Children> {
     match (key, value) {
-        (
-            "additionalItems"
-            | "items"
-            | "contains"
-            | "additionalProperties"
-            | "propertyNames"
-            | "not"
-            | "if"
-            | "then"
-            | "else",
-            Value::Object(_),
-        ) => Some(Children::One),
+        ("additionalItems" | "items" | "contains" | "additionalProperties" | "propertyNames" | "not" | "if" | "then" | "else", Value::Object(_)) => {
+            Some(Children::One)
+        }
         ("items" | "allOf" | "anyOf" | "oneOf", Value::Array(_)) => Some(Children::Many),
-        (
-            "$defs" | "definitions" | "properties" | "patternProperties" | "dependencies",
-            Value::Object(_),
-        ) => Some(Children::Map),
+        ("$defs" | "definitions" | "properties" | "patternProperties" | "dependencies", Value::Object(_)) => Some(Children::Map),
         _ => None,
     }
 }
@@ -245,19 +210,11 @@ fn resources(node: &Value, base: Option<&url::Url>, found: &mut Vec<(String, Val
 /// value is not one Ajv's code generation accepts.
 fn compile_error_text(schema: &Value, error: &ValidationError<'_>) -> String {
     // Ajv names the schema's own `$id`, or `#` when it has none.
-    let own = schema
-        .get("$id")
-        .and_then(Value::as_str)
-        .map_or("#", base_of);
+    let own = schema.get("$id").and_then(Value::as_str).map_or("#", base_of);
     match error.kind() {
-        ValidationErrorKind::Referencing(jsonschema::ReferencingError::Unretrievable {
-            uri,
-            ..
-        }) => format!("can't resolve reference {uri} from id {own}"),
+        ValidationErrorKind::Referencing(jsonschema::ReferencingError::Unretrievable { uri, .. }) => format!("can't resolve reference {uri} from id {own}"),
         // A local pointer to nothing (`#/definitions/missing`).
-        ValidationErrorKind::Referencing(jsonschema::ReferencingError::PointerToNowhere {
-            pointer,
-        }) => {
+        ValidationErrorKind::Referencing(jsonschema::ReferencingError::PointerToNowhere { pointer }) => {
             format!("can't resolve reference #{pointer} from id {own}")
         }
         // A schema that breaks the meta-schema: the error's instance is the offending keyword of `schema`.
@@ -267,14 +224,9 @@ fn compile_error_text(schema: &Value, error: &ValidationError<'_>) -> String {
                 // `String(type)`: an array reads as its items joined with commas.
                 Some(value) if at.ends_with("/type") => {
                     let text = match value {
-                        Value::Array(items) => items
-                            .iter()
-                            .map(|item| {
-                                item.as_str()
-                                    .map_or_else(|| item.to_string(), str::to_owned)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(","),
+                        Value::Array(items) => {
+                            items.iter().map(|item| item.as_str().map_or_else(|| item.to_string(), str::to_owned)).collect::<Vec<_>>().join(",")
+                        }
                         Value::String(one) => one.clone(),
                         other => other.to_string(),
                     };
@@ -326,23 +278,13 @@ impl OutputValidators {
         let mut registered: HashMap<String, Value> = HashMap::new();
         let mut slots = HashMap::new();
         for tool in tools {
-            let (Some(name), Some(schema)) = (
-                tool.get("name").and_then(Value::as_str),
-                tool.get("outputSchema"),
-            ) else {
+            let (Some(name), Some(schema)) = (tool.get("name").and_then(Value::as_str), tool.get("outputSchema")) else {
                 continue;
             };
             // `ajv.getSchema($id)`: a repeated `$id` validates with the schema first registered under it.
             let own = schema.get("$id").and_then(Value::as_str).map(base_of);
-            let schema = own
-                .and_then(|id| registered.get(id))
-                .cloned()
-                .unwrap_or_else(|| schema.clone());
-            let slot = Slot {
-                schema,
-                registered: Arc::new(registered.clone()),
-                compiled: OnceLock::new(),
-            };
+            let schema = own.and_then(|id| registered.get(id)).cloned().unwrap_or_else(|| schema.clone());
+            let slot = Slot { schema, registered: Arc::new(registered.clone()), compiled: OnceLock::new() };
             if compiles_when_listed(&slot.schema) {
                 slot.compile().as_ref().map_err(String::clone)?;
                 let mut found = Vec::new();
@@ -376,31 +318,13 @@ impl OutputValidators {
         let Some(slot) = self.tools.get(tool) else {
             return Ok(());
         };
-        let refused = |code: i64, message: String| RpcError::Server {
-            code,
-            message,
-            data: None,
-        };
+        let refused = |code: i64, message: String| RpcError::Server { code, message, data: None };
         let structured = result.get("structuredContent").filter(|v| !v.is_null());
         let is_error = result.get("isError").and_then(Value::as_bool) == Some(true);
         let Some(structured) = structured else {
-            return if is_error {
-                Ok(())
-            } else {
-                Err(refused(
-                    -32600,
-                    format!(
-                        "Tool {tool} has an output schema but did not return structured content"
-                    ),
-                ))
-            };
+            return if is_error { Ok(()) } else { Err(refused(-32600, format!("Tool {tool} has an output schema but did not return structured content"))) };
         };
-        let validator = slot.compile().as_ref().map_err(|error| {
-            refused(
-                -32602,
-                format!("Failed to validate structured content: {error}"),
-            )
-        })?;
+        let validator = slot.compile().as_ref().map_err(|error| refused(-32602, format!("Failed to validate structured content: {error}")))?;
         // Where Ajv's validation recurses without end, or past V8's stack, Node's call fails; the walk is bounded. Without a
         // reference nothing recurses.
         let overflows = crate::ajv_stack::references(&slot.schema)
@@ -411,19 +335,14 @@ impl OutputValidators {
                     .spawn_scoped(scope, || {
                         let keywords = KeywordChecks { registered: &slot.registered, built: RefCell::default(), patterns: RefCell::default() };
                         let docs = crate::ajv_stack::Documents::new(&slot.schema, &slot.registered);
-                        fancy_regex::interrupt::checking(Arc::clone(stop), || {
-                            crate::ajv_stack::validation_overflows(&docs, structured, &keywords)
-                        })
+                        fancy_regex::interrupt::checking(Arc::clone(stop), || crate::ajv_stack::validation_overflows(&docs, structured, &keywords))
                     })
                     .expect("a thread for the validation walk")
                     .join()
                     .expect("the validation walk ends")
             });
         if overflows {
-            return Err(refused(
-                -32602,
-                format!("Failed to validate structured content: {}", crate::ajv_stack::STACK_OVERFLOW),
-            ));
+            return Err(refused(-32602, format!("Failed to validate structured content: {}", crate::ajv_stack::STACK_OVERFLOW)));
         }
         let errors: Vec<ValidationError<'_>> = validator.iter_errors(structured).collect();
         // A pattern whose backtracking ran past the engine's bound has no verdict; V8 has no such bound and answers
@@ -434,28 +353,16 @@ impl OutputValidators {
         }) {
             return Err(refused(
                 -32602,
-                format!(
-                    "Failed to validate structured content: data{at}: its pattern needs more than {BACKTRACK_LIMIT} backtracking steps"
-                ),
+                format!("Failed to validate structured content: data{at}: its pattern needs more than {BACKTRACK_LIMIT} backtracking steps"),
             ));
         }
         if errors.is_empty() {
             return Ok(());
         }
         let mut texts = Vec::new();
-        let at = Scope {
-            root: &slot.schema,
-            registered: &slot.registered,
-            instance: "",
-        };
+        let at = Scope { root: &slot.schema, registered: &slot.registered, instance: "" };
         errors_text(&at, errors.iter().collect(), &mut texts);
-        Err(refused(
-            -32602,
-            format!(
-                "Structured content does not match the tool's output schema: {}",
-                texts.join(", ")
-            ),
-        ))
+        Err(refused(-32602, format!("Structured content does not match the tool's output schema: {}", texts.join(", "))))
     }
 }
 
@@ -498,10 +405,7 @@ fn rank(keyword: &str) -> usize {
         "properties",
         "patternProperties",
     ];
-    ORDER
-        .iter()
-        .position(|k| *k == keyword)
-        .unwrap_or(ORDER.len())
+    ORDER.iter().position(|k| *k == keyword).unwrap_or(ORDER.len())
 }
 
 /// The schema an error is read against: the root a validator was built from, the resources its references reach, and
@@ -543,16 +447,9 @@ fn order_key(schema: &Value, error: &ValidationError<'_>) -> Vec<usize> {
         };
         key.push(rank(&keyword));
         // Past a reference the path names keywords of another schema: only their ranks place the error.
-        let child = if keyword == "$ref" {
-            None
-        } else {
-            node.and_then(|n| n.get(keyword.as_ref()))
-        };
+        let child = if keyword == "$ref" { None } else { node.and_then(|n| n.get(keyword.as_ref())) };
         node = match (keyword.as_ref(), child) {
-            (
-                "properties" | "patternProperties" | "dependencies" | "definitions" | "$defs",
-                Some(Value::Object(map)),
-            ) => {
+            ("properties" | "patternProperties" | "dependencies" | "definitions" | "$defs", Some(Value::Object(map))) => {
                 let Some(name) = segments.next() else { break };
                 let name = match name {
                     LocationSegment::Property(name) => name.into_owned(),
@@ -593,11 +490,7 @@ impl Conditional {
 /// The failed conditional branches along an error's evaluation path, outermost first, each with the instance path of
 /// the value its `if` applies to (the error's own, less the steps the path takes into that value after it).
 fn conditionals(scope: &Scope<'_>, error: &ValidationError<'_>) -> Vec<Conditional> {
-    let segments: Vec<String> = error
-        .evaluation_path()
-        .into_iter()
-        .map(segment_text)
-        .collect();
+    let segments: Vec<String> = error.evaluation_path().into_iter().map(segment_text).collect();
     let instance: Vec<&str> = error.instance_path().as_str().split('/').skip(1).collect();
     let mut found = Vec::new();
     let mut depth = 0;
@@ -614,27 +507,12 @@ fn conditionals(scope: &Scope<'_>, error: &ValidationError<'_>) -> Vec<Condition
             }
             "items" => {
                 depth += 1;
-                at += if segments
-                    .get(at + 1)
-                    .is_some_and(|s| s.parse::<usize>().is_ok())
-                {
-                    2
-                } else {
-                    1
-                };
+                at += if segments.get(at + 1).is_some_and(|s| s.parse::<usize>().is_ok()) { 2 } else { 1 };
             }
             "dependencies" | "definitions" | "$defs" | "allOf" | "anyOf" | "oneOf" => at += 2,
             branch @ ("then" | "else") => {
-                let holder: String = instance
-                    .iter()
-                    .take(depth)
-                    .map(|s| format!("/{s}"))
-                    .collect();
-                found.push(Conditional {
-                    path: segments[..=at].join("/"),
-                    at: format!("data{}{holder}", scope.instance),
-                    branch: branch.to_owned(),
-                });
+                let holder: String = instance.iter().take(depth).map(|s| format!("/{s}")).collect();
+                found.push(Conditional { path: segments[..=at].join("/"), at: format!("data{}{holder}", scope.instance), branch: branch.to_owned() });
                 at += 1;
             }
             _ => at += 1,
@@ -644,11 +522,7 @@ fn conditionals(scope: &Scope<'_>, error: &ValidationError<'_>) -> Vec<Condition
 }
 
 /// Ajv's `errorsText` entries of `errors` (`allErrors`), in Ajv's order.
-fn errors_text<'e>(
-    scope: &Scope<'_>,
-    mut errors: Vec<&ValidationError<'e>>,
-    texts: &mut Vec<String>,
-) {
+fn errors_text<'e>(scope: &Scope<'_>, mut errors: Vec<&ValidationError<'e>>, texts: &mut Vec<String>) {
     errors.sort_by_cached_key(|error| order_key(scope.root, error));
     let mut open: Vec<Conditional> = Vec::new();
     for error in errors {
@@ -668,86 +542,48 @@ fn errors_text<'e>(
 }
 
 /// The `dependencies` entry an array-form dependency error comes from: the property present and the ones it requires.
-fn array_dependency(
-    scope: &Scope<'_>,
-    error: &ValidationError<'_>,
-    missing: &str,
-) -> Option<(String, Vec<String>)> {
-    if error
-        .schema_path()
-        .into_iter()
-        .last()
-        .map(segment_text)
-        .as_deref()
-        != Some("dependencies")
-    {
+fn array_dependency(scope: &Scope<'_>, error: &ValidationError<'_>, missing: &str) -> Option<(String, Vec<String>)> {
+    if error.schema_path().into_iter().last().map(segment_text).as_deref() != Some("dependencies") {
         return None;
     }
     let dependencies = keyword_value(scope, error)?.as_object()?;
     let present = error.instance().as_object()?;
     dependencies.iter().find_map(|(property, required)| {
-        let required: Vec<String> = required
-            .as_array()?
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect();
-        (present.contains_key(property) && required.iter().any(|r| r == missing))
-            .then(|| (property.clone(), required))
+        let required: Vec<String> = required.as_array()?.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        (present.contains_key(property) && required.iter().any(|r| r == missing)).then(|| (property.clone(), required))
     })
 }
 
 /// What each item failed on when none matched `contains` (Ajv keeps them when the keyword fails).
 fn contains_items(scope: &Scope<'_>, error: &ValidationError<'_>, texts: &mut Vec<String>) {
-    let (Some(subschema), Some(items)) = (keyword_value(scope, error), error.instance().as_array())
-    else {
+    let (Some(subschema), Some(items)) = (keyword_value(scope, error), error.instance().as_array()) else {
         return;
     };
-    let Ok(validator) = for_engine(subschema)
-        .map_err(drop)
-        .and_then(|engine| build(&engine, scope.registered).map_err(drop))
-    else {
+    let Ok(validator) = for_engine(subschema).map_err(drop).and_then(|engine| build(&engine, scope.registered).map_err(drop)) else {
         return;
     };
     let base = format!("{}{}", scope.instance, error.instance_path().as_str());
     for (index, item) in items.iter().enumerate() {
         let instance = format!("{base}/{index}");
-        let inner = Scope {
-            root: subschema,
-            registered: scope.registered,
-            instance: &instance,
-        };
+        let inner = Scope { root: subschema, registered: scope.registered, instance: &instance };
         let errors: Vec<ValidationError<'_>> = validator.iter_errors(item).collect();
         errors_text(&inner, errors.iter().collect(), texts);
     }
 }
 
 /// Ajv's message for one error at `at`; the errors Ajv reports before it go to `texts` first.
-fn message(
-    scope: &Scope<'_>,
-    error: &ValidationError<'_>,
-    at: &str,
-    texts: &mut Vec<String>,
-) -> String {
+fn message(scope: &Scope<'_>, error: &ValidationError<'_>, at: &str, texts: &mut Vec<String>) -> String {
     let limit = |value: &Value| value.to_string();
     match error.kind() {
         ValidationErrorKind::Type { kind } => {
             // As declared (Ajv keeps the schema's order), in whichever schema the keyword is; one that cannot be
             // found is read from the error's own type.
             let types = match keyword_value(scope, error) {
-                Some(Value::Array(types)) => types
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(","),
+                Some(Value::Array(types)) => types.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","),
                 Some(Value::String(one)) => one.clone(),
                 _ => match kind {
                     TypeKind::Single(one) => one.to_string(),
-                    TypeKind::Multiple(set) => set
-                        .into_iter()
-                        .map(|t| t.to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
+                    TypeKind::Multiple(set) => set.into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","),
                 },
             };
             format!("must be {types}")
@@ -757,11 +593,7 @@ fn message(
             match array_dependency(scope, error, missing) {
                 Some((present, required)) => format!(
                     "must have {} {} when property {present} is present",
-                    if required.len() == 1 {
-                        "property"
-                    } else {
-                        "properties"
-                    },
+                    if required.len() == 1 { "property" } else { "properties" },
                     required.join(", ")
                 ),
                 None => format!("must have required property '{missing}'"),
@@ -830,9 +662,7 @@ fn message(
             }
             keyword.to_owned()
         }
-        ValidationErrorKind::OneOfMultipleValid { .. } => {
-            "must match exactly one schema in oneOf".to_owned()
-        }
+        ValidationErrorKind::OneOfMultipleValid { .. } => "must match exactly one schema in oneOf".to_owned(),
         _ => error.to_string(),
     }
 }
@@ -842,10 +672,7 @@ fn message(
 fn keyword_value<'s>(scope: &Scope<'s>, error: &ValidationError<'_>) -> Option<&'s Value> {
     let segments: Vec<String> = error.schema_path().into_iter().map(segment_text).collect();
     let own = scope.root.get("$id").and_then(Value::as_str).map(base_of);
-    let elsewhere = error
-        .absolute_keyword_location()
-        .map(|uri| base_of(uri.as_str()))
-        .filter(|base| Some(*base) != own)
-        .and_then(|base| scope.registered.get(base));
+    let elsewhere =
+        error.absolute_keyword_location().map(|uri| base_of(uri.as_str())).filter(|base| Some(*base) != own).and_then(|base| scope.registered.get(base));
     node_at(elsewhere.unwrap_or(scope.root), &segments)
 }

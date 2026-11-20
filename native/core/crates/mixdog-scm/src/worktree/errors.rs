@@ -98,13 +98,7 @@ pub fn retained_by(sessions: Vec<String>) -> ScmFailure {
 /// `WORKTREE_BUSY_JOBS` with a free reason and the fields it can carry.
 pub fn busy_with(reason: &str, sessions: Option<Vec<String>>, entry_id: Option<String>, kept: Option<String>) -> ScmFailure {
     let mut detail = none_busy(reason);
-    if let DomainErrorDetail::WorktreeBusyJobs {
-        sessions: s,
-        entry_id: e,
-        kept: k,
-        ..
-    } = &mut detail
-    {
+    if let DomainErrorDetail::WorktreeBusyJobs { sessions: s, entry_id: e, kept: k, .. } = &mut detail {
         *s = sessions;
         *e = entry_id;
         *k = kept;
@@ -118,43 +112,18 @@ pub fn confirm_required() -> ScmFailure {
 
 /// The project folder is not on the branch the action was confirmed for.
 pub fn target_mismatch(target: Option<String>, current: Option<String>, expected: Option<String>, actual: Option<String>) -> ScmFailure {
-    ScmFailure::coded(
-        WORKTREE_TARGET_MISMATCH,
-        DomainErrorDetail::WorktreeTargetMismatch {
-            target,
-            current,
-            expected,
-            actual,
-        },
-    )
+    ScmFailure::coded(WORKTREE_TARGET_MISMATCH, DomainErrorDetail::WorktreeTargetMismatch { target, current, expected, actual })
 }
 
 /// `target_mismatch` with the text its Node producer wrote (each producer words it for its own caller).
-pub fn target_mismatch_text(
-    message: String,
-    target: Option<String>,
-    current: Option<String>,
-    expected: Option<String>,
-    actual: Option<String>,
-) -> ScmFailure {
-    ScmFailure::coded_with_message(
-        WORKTREE_TARGET_MISMATCH,
-        DomainErrorDetail::WorktreeTargetMismatch { target, current, expected, actual },
-        message,
-    )
+pub fn target_mismatch_text(message: String, target: Option<String>, current: Option<String>, expected: Option<String>, actual: Option<String>) -> ScmFailure {
+    ScmFailure::coded_with_message(WORKTREE_TARGET_MISMATCH, DomainErrorDetail::WorktreeTargetMismatch { target, current, expected, actual }, message)
 }
 
 pub fn unsupported_repo(project_path: Option<String>, reason_file: Option<String>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_UNSUPPORTED_REPO,
-        DomainErrorDetail::WorktreeUnsupportedRepo {
-            project_path,
-            file: reason_file,
-            line: None,
-            rel: None,
-            base_branch: None,
-            branch: None,
-        },
+        DomainErrorDetail::WorktreeUnsupportedRepo { project_path, file: reason_file, line: None, rel: None, base_branch: None, branch: None },
     )
 }
 
@@ -162,14 +131,7 @@ pub fn unsupported_repo(project_path: Option<String>, reason_file: Option<String
 pub fn unsupported_repo_text(project_path: String, message: &str) -> ScmFailure {
     ScmFailure::coded_with_message(
         WORKTREE_UNSUPPORTED_REPO,
-        DomainErrorDetail::WorktreeUnsupportedRepo {
-            project_path: Some(project_path),
-            file: None,
-            line: None,
-            rel: None,
-            base_branch: None,
-            branch: None,
-        },
+        DomainErrorDetail::WorktreeUnsupportedRepo { project_path: Some(project_path), file: None, line: None, rel: None, base_branch: None, branch: None },
         message,
     )
 }
@@ -178,14 +140,7 @@ pub fn unsupported_repo_text(project_path: String, message: &str) -> ScmFailure 
 pub fn base_branch_missing(branch: String) -> ScmFailure {
     ScmFailure::coded_with_message(
         WORKTREE_UNSUPPORTED_REPO,
-        DomainErrorDetail::WorktreeUnsupportedRepo {
-            project_path: None,
-            file: None,
-            line: None,
-            rel: None,
-            base_branch: Some(branch.clone()),
-            branch: None,
-        },
+        DomainErrorDetail::WorktreeUnsupportedRepo { project_path: None, file: None, line: None, rel: None, base_branch: Some(branch.clone()), branch: None },
         format!("Base branch {branch} does not exist."),
     )
 }
@@ -194,49 +149,26 @@ pub fn base_branch_missing(branch: String) -> ScmFailure {
 pub fn session_attempt_conflict(message: &str, entry_id: String, remaining: Option<Vec<RemovalRemnant>>) -> ScmFailure {
     ScmFailure::coded_with_message(
         WORKTREE_REVISION_CONFLICT,
-        DomainErrorDetail::WorktreeRevisionConflict {
-            entry_id: Some(entry_id),
-            remaining,
-            branch: None,
-            tx_id: None,
-            expected_revision: None,
-            revision: None,
-        },
+        DomainErrorDetail::WorktreeRevisionConflict { entry_id: Some(entry_id), remaining, branch: None, tx_id: None, expected_revision: None, revision: None },
         message,
     )
 }
 
 pub fn project_unknown(project_path: String, reason: &str) -> ScmFailure {
-    ScmFailure::coded(
-        WORKTREE_PROJECT_UNKNOWN,
-        DomainErrorDetail::WorktreeProjectUnknown {
-            project_path: Some(project_path),
-            reason: Some(reason.to_owned()),
-        },
-    )
+    ScmFailure::coded(WORKTREE_PROJECT_UNKNOWN, DomainErrorDetail::WorktreeProjectUnknown { project_path: Some(project_path), reason: Some(reason.to_owned()) })
 }
 
 /// `project_unknown` under the text of the Node check that refused.
 pub fn project_unknown_text(project_path: String, reason: &str, message: &str) -> ScmFailure {
     ScmFailure::coded_with_message(
         WORKTREE_PROJECT_UNKNOWN,
-        DomainErrorDetail::WorktreeProjectUnknown {
-            project_path: Some(project_path),
-            reason: Some(reason.to_owned()),
-        },
+        DomainErrorDetail::WorktreeProjectUnknown { project_path: Some(project_path), reason: Some(reason.to_owned()) },
         message,
     )
 }
 
 pub fn missing(entry_id: Option<String>, worktree_id: Option<String>, path: Option<String>) -> ScmFailure {
-    ScmFailure::coded(
-        WORKTREE_MISSING,
-        DomainErrorDetail::WorktreeMissing {
-            entry_id,
-            worktree_id,
-            path,
-        },
-    )
+    ScmFailure::coded(WORKTREE_MISSING, DomainErrorDetail::WorktreeMissing { entry_id, worktree_id, path })
 }
 
 /// `settleSessionAttempts` (manager.mjs:1387-1391): the transaction made a worktree another session retains.
@@ -258,14 +190,7 @@ pub fn transaction_of_another_session(tx_id: String) -> ScmFailure {
 pub fn revision_conflict(entry_id: Option<String>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_REVISION_CONFLICT,
-        DomainErrorDetail::WorktreeRevisionConflict {
-            entry_id,
-            remaining: None,
-            branch: None,
-            tx_id: None,
-            expected_revision: None,
-            revision: None,
-        },
+        DomainErrorDetail::WorktreeRevisionConflict { entry_id, remaining: None, branch: None, tx_id: None, expected_revision: None, revision: None },
     )
 }
 
@@ -273,40 +198,19 @@ pub fn revision_conflict(entry_id: Option<String>) -> ScmFailure {
 pub fn branch_revision_conflict() -> ScmFailure {
     ScmFailure::coded_with_message(
         WORKTREE_REVISION_CONFLICT,
-        DomainErrorDetail::WorktreeRevisionConflict {
-            entry_id: None,
-            remaining: None,
-            branch: None,
-            tx_id: None,
-            expected_revision: None,
-            revision: None,
-        },
+        DomainErrorDetail::WorktreeRevisionConflict { entry_id: None, remaining: None, branch: None, tx_id: None, expected_revision: None, revision: None },
         "The branch changed; reopen the menu and confirm again.".to_owned(),
     )
 }
 
 pub fn branch_occupied(branch: String, path: Option<String>, kind: Option<&str>, session_id: Option<String>) -> ScmFailure {
-    ScmFailure::coded(
-        WORKTREE_BRANCH_OCCUPIED,
-        DomainErrorDetail::WorktreeBranchOccupied {
-            branch,
-            path,
-            kind: kind.map(str::to_owned),
-            session_id,
-        },
-    )
+    ScmFailure::coded(WORKTREE_BRANCH_OCCUPIED, DomainErrorDetail::WorktreeBranchOccupied { branch, path, kind: kind.map(str::to_owned), session_id })
 }
 
 pub fn path_unsafe(entry_id: String, path: String, reason: Option<&str>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_PATH_UNSAFE,
-        DomainErrorDetail::WorktreePathUnsafe {
-            entry_id,
-            path,
-            reason: reason.map(str::to_owned),
-            links: None,
-            count: None,
-        },
+        DomainErrorDetail::WorktreePathUnsafe { entry_id, path, reason: reason.map(str::to_owned), links: None, count: None },
     )
 }
 
@@ -393,10 +297,7 @@ pub fn merge_source_dirty(operation: &str, count: u64) -> ScmFailure {
 pub fn dirty_choice(files: Vec<String>) -> ScmFailure {
     ScmFailure::coded(
         "WORKTREE_DIRTY_CHOICE",
-        DomainErrorDetail::WorktreeDirtyChoice {
-            count: files.len() as u64,
-            paths: files.into_iter().take(50).collect(),
-        },
+        DomainErrorDetail::WorktreeDirtyChoice { count: files.len() as u64, paths: files.into_iter().take(50).collect() },
     )
 }
 
@@ -515,27 +416,12 @@ pub fn project_dirty(files: Vec<String>) -> ScmFailure {
 pub fn unmerged_commits(entry_id: String, branch: Option<String>, merge_target: Option<String>, commits: u64) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_UNMERGED,
-        DomainErrorDetail::WorktreeUnmerged {
-            commit: None,
-            entry_id: Some(entry_id),
-            branch,
-            merge_target,
-            commits: Some(commits),
-        },
+        DomainErrorDetail::WorktreeUnmerged { commit: None, entry_id: Some(entry_id), branch, merge_target, commits: Some(commits) },
     )
 }
 
 pub fn unmerged(entry_id: Option<String>, commit: Option<String>, branch: Option<String>, merge_target: Option<String>) -> ScmFailure {
-    ScmFailure::coded(
-        WORKTREE_UNMERGED,
-        DomainErrorDetail::WorktreeUnmerged {
-            commit,
-            entry_id,
-            branch,
-            merge_target,
-            commits: None,
-        },
-    )
+    ScmFailure::coded(WORKTREE_UNMERGED, DomainErrorDetail::WorktreeUnmerged { commit, entry_id, branch, merge_target, commits: None })
 }
 
 /// `delete-branch` of a branch the target does not contain: Node's own text and only the
@@ -551,26 +437,12 @@ pub fn branch_unmerged(commit: String, target: &str) -> ScmFailure {
 pub fn removal_incomplete(entry_id: String, path: String, retryable: bool, remaining: Vec<RemovalRemnant>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_REMOVAL_INCOMPLETE,
-        DomainErrorDetail::WorktreeRemovalIncomplete {
-            entry_id,
-            path,
-            retryable,
-            remaining,
-            reason: None,
-            revision: None,
-        },
+        DomainErrorDetail::WorktreeRemovalIncomplete { entry_id, path, retryable, remaining, reason: None, revision: None },
     )
 }
 
 pub fn merge_failed(reason: &str, source: Option<String>, aborted: Option<bool>) -> ScmFailure {
-    ScmFailure::coded(
-        MERGE_FAILED,
-        DomainErrorDetail::MergeFailed {
-            reason: reason.to_owned(),
-            source,
-            aborted,
-        },
-    )
+    ScmFailure::coded(MERGE_FAILED, DomainErrorDetail::MergeFailed { reason: reason.to_owned(), source, aborted })
 }
 
 /// A `git merge` that failed: git's own diagnostic (and whether the merge was aborted) is the message.
@@ -583,14 +455,7 @@ pub fn merge_failed_with_output(message: String, aborted: bool) -> ScmFailure {
 }
 
 pub fn merge_target_dirty(operation: &str, files: Vec<String>, count: Option<u64>) -> ScmFailure {
-    ScmFailure::coded(
-        MERGE_TARGET_DIRTY,
-        DomainErrorDetail::MergeTargetDirty {
-            operation: operation.to_owned(),
-            files,
-            count,
-        },
-    )
+    ScmFailure::coded(MERGE_TARGET_DIRTY, DomainErrorDetail::MergeTargetDirty { operation: operation.to_owned(), files, count })
 }
 
 #[cfg(test)]
@@ -607,12 +472,7 @@ mod tests {
                 assert_eq!(code.as_deref(), Some(WORKTREE_TARGET_MISMATCH));
                 assert_eq!(
                     detail.as_deref(),
-                    Some(&DomainErrorDetail::WorktreeTargetMismatch {
-                        target: None,
-                        current: None,
-                        expected: Some("main".into()),
-                        actual: Some("dev".into()),
-                    })
+                    Some(&DomainErrorDetail::WorktreeTargetMismatch { target: None, current: None, expected: Some("main".into()), actual: Some("dev".into()) })
                 );
             }
             other => panic!("{other:?}"),
@@ -631,7 +491,6 @@ mod tests {
         }
     }
 }
-
 
 /// A managed worktree still retains the branch (`delete-branch`): Node's plain
 /// `worktreeError('WORKTREE_BUSY_JOBS', text)`, with no `reason` or other details.

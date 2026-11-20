@@ -7,10 +7,3 @@
 //! that missed its deadline is stamped by the catalog itself (`store::deadline_error`); the rendered
 //! `catalogError.errorKind` is compared whole, so a case where the typed mapping and Node's verdict
 //! differ fails here unless it is listed in `KNOWN_DIFFERENCES`.
-
-
-
-
-
-
-

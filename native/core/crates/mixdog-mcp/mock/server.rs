@@ -58,8 +58,11 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
         "slow" => {
             for tick in 1..=5 {
                 std::thread::sleep(Duration::from_millis(100));
-                send(shared, json!({"jsonrpc": "2.0", "method": "notifications/progress",
-                                    "params": {"progressToken": token, "progress": tick}}));
+                send(
+                    shared,
+                    json!({"jsonrpc": "2.0", "method": "notifications/progress",
+                                    "params": {"progressToken": token, "progress": tick}}),
+                );
             }
             text("slow done")
         }
@@ -78,8 +81,11 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
         "elicit" => {
             let (tx, rx) = std::sync::mpsc::channel();
             *shared.elicit_answer.lock().unwrap() = Some(tx);
-            send(shared, json!({"jsonrpc": "2.0", "id": "e1", "method": "elicitation/create",
-                                "params": {"message": "name?"}}));
+            send(
+                shared,
+                json!({"jsonrpc": "2.0", "id": "e1", "method": "elicitation/create",
+                                "params": {"message": "name?"}}),
+            );
             let answer = rx.recv_timeout(Duration::from_secs(5)).unwrap_or(Value::Null);
             text(answer["error"]["message"].as_str().unwrap_or("no answer"))
         }
@@ -218,11 +224,14 @@ fn main() {
                     .ok()
                     .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
                     .unwrap_or_else(|| json!({"tools": {"listChanged": true}}));
-                send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {
+                send(
+                    &shared,
+                    json!({"jsonrpc": "2.0", "id": id, "result": {
                     "protocolVersion": "2025-06-18",
                     "capabilities": capabilities,
                     "serverInfo": {"name": "mock", "version": "0"},
-                    "instructions": "mock instructions"}}));
+                    "instructions": "mock instructions"}}),
+                );
             }
             (Some("notifications/roots/list_changed"), None) => {
                 shared.roots_changes.fetch_add(1, Ordering::SeqCst);
@@ -235,8 +244,7 @@ fn main() {
                     (Some(names), _) => json!({"tools": names.iter().map(|name| json!({"name": name, "inputSchema": {"type": "object"}})).collect::<Vec<_>>()}),
                     (None, None) => json!({"tools": [tool("echo"), tool("slow")], "nextCursor": "p2"}),
                     (None, Some(_)) => {
-                        let mut tools = vec![tool("big"), tool("fail"), tool("hang"), tool("crash"),
-                                             tool("elicit"), tool("grow"), tool("cancels")];
+                        let mut tools = vec![tool("big"), tool("fail"), tool("hang"), tool("crash"), tool("elicit"), tool("grow"), tool("cancels")];
                         if shared.grown.load(Ordering::SeqCst) {
                             tools.push(tool("extra"));
                         }

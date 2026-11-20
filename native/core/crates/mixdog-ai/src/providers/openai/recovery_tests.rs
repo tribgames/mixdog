@@ -73,31 +73,32 @@ fn adapter(
     OpenAiAdapter::new(
         ProviderId::from("openai"),
         OpenAiCodec::new(OpenAiConfig::api_key(true, Arc::new(Facts), context.clone()), transport),
-        AdapterLinks {
-            http, dial, context, credentials: keys,
-            compress_lane: mixdog_rt::testing::tokens().cpu_bulk,
-            listing: ListingLookup::new(),
-        },
-    ).with_mode(mode)
+        AdapterLinks { http, dial, context, credentials: keys, compress_lane: mixdog_rt::testing::tokens().cpu_bulk, listing: ListingLookup::new() },
+    )
+    .with_mode(mode)
 }
 
 fn context(switch: Option<&'static str>) -> Arc<SessionContext> {
-    Arc::new(SessionContext::with_sources(|| 0, || "request-id".into())
-        .with_var(move |key| (key == "MIXDOG_OPENAI_HTTP_FALLBACK").then_some(switch).flatten().map(str::to_owned)))
+    Arc::new(
+        SessionContext::with_sources(|| 0, || "request-id".into())
+            .with_var(move |key| (key == "MIXDOG_OPENAI_HTTP_FALLBACK").then_some(switch).flatten().map(str::to_owned)),
+    )
 }
 
-fn codex_adapter(
-    mode: TransportMode, context: Arc<SessionContext>, keys: Arc<Keys>, dial: Arc<ScriptedDial>, http: Arc<Http>,
-) -> OpenAiAdapter {
+fn codex_adapter(mode: TransportMode, context: Arc<SessionContext>, keys: Arc<Keys>, dial: Arc<ScriptedDial>, http: Arc<Http>) -> OpenAiAdapter {
     let identity = super::super::config::CodexIdentity {
-        installation_id: "fixture-installation".into(), user_agent: "fixture".into(),
-        version: "1".into(), beta_features: String::new(),
+        installation_id: "fixture-installation".into(),
+        user_agent: "fixture".into(),
+        version: "1".into(),
+        beta_features: String::new(),
     };
     let codec = OpenAiCodec::new(OpenAiConfig::codex(false, identity, Arc::new(Facts), context.clone()), TransportKind::WebSocket);
-    OpenAiAdapter::new(ProviderId::from("openai-oauth"), codec, AdapterLinks {
-        http, dial, context, credentials: keys, compress_lane: mixdog_rt::testing::tokens().cpu_bulk,
-        listing: ListingLookup::new(),
-    }).with_mode(mode)
+    OpenAiAdapter::new(
+        ProviderId::from("openai-oauth"),
+        codec,
+        AdapterLinks { http, dial, context, credentials: keys, compress_lane: mixdog_rt::testing::tokens().cpu_bulk, listing: ListingLookup::new() },
+    )
+    .with_mode(mode)
 }
 
 fn request() -> ModelRequest {
@@ -166,12 +167,9 @@ async fn fallback_opt_out_blocks_switching_and_prior_stickiness_but_not_explicit
 
 #[tokio::test]
 async fn public_websocket_reloads_in_band_401_once_and_never_after_visible_output_or_a_call() {
-    for (frames, reload, second_401) in [
-        (vec![CREATED, AUTH], true, false),
-        (vec![AUTH], true, true),
-        (vec![CREATED, TEXT, AUTH], false, false),
-        (vec![CREATED, CALL, AUTH], false, false),
-    ] {
+    for (frames, reload, second_401) in
+        [(vec![CREATED, AUTH], true, false), (vec![AUTH], true, true), (vec![CREATED, TEXT, AUTH], false, false), (vec![CREATED, CALL, AUTH], false, false)]
+    {
         let keys = Arc::new(Keys::default());
         let mut script = vec![socket(&frames)];
         if reload {
@@ -189,10 +187,14 @@ async fn public_websocket_reloads_in_band_401_once_and_never_after_visible_outpu
                 assert!(events.iter().any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::ToolCallDone(_))));
             }
         }
-        let upgrades: Vec<_> = dial.wire().into_iter().filter_map(|entry| match entry {
-            SocketWire::Upgrade { headers, .. } => headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, key)| key),
-            _ => None,
-        }).collect();
+        let upgrades: Vec<_> = dial
+            .wire()
+            .into_iter()
+            .filter_map(|entry| match entry {
+                SocketWire::Upgrade { headers, .. } => headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, key)| key),
+                _ => None,
+            })
+            .collect();
         assert_eq!(upgrades, if reload { vec!["Bearer fixture-old", "Bearer fixture-new"] } else { vec!["Bearer fixture-old"] });
     }
 }
@@ -202,10 +204,7 @@ async fn oauth_401_renewal_is_shared_by_websocket_and_http_fallback() {
     let http = Arc::new(Http::default());
     http.replies.lock().unwrap().push_back((200, sse(&[AUTH])));
     let keys = Arc::new(Keys::default());
-    let dial = ScriptedDial::with(vec![
-        socket(&[AUTH]),
-        Dialed::Rejected { status: 404, body: "{}".into() },
-    ]);
+    let dial = ScriptedDial::with(vec![socket(&[AUTH]), Dialed::Rejected { status: 404, body: "{}".into() }]);
     let adapter = codex_adapter(TransportMode::Auto, context(None), keys.clone(), dial, http.clone());
     let (_, error) = result(&adapter, request()).await;
     assert!(error.is_some_and(|error| error.status == Some(401) && error.reauth_required));
@@ -277,9 +276,8 @@ async fn visible_reasoning_ends_the_send_without_reconnect_refresh_or_fallback()
 
 fn with_update(mut request: ModelRequest, index: usize) -> ModelRequest {
     request.options.effort = Some("high".into());
-    request.options.effort_projection = Some(mixdog_core_api::domain::provider::EffortProjection {
-        initial_effort: "low".into(), updates: [(index, "high".into())].into(),
-    });
+    request.options.effort_projection =
+        Some(mixdog_core_api::domain::provider::EffortProjection { initial_effort: "low".into(), updates: [(index, "high".into())].into() });
     request
 }
 
@@ -291,14 +289,17 @@ fn update_in(body: &Value) -> bool {
 async fn a_rejected_effort_value_does_not_disable_the_update_field() {
     let http = Arc::new(Http::default());
     http.replies.lock().unwrap().extend([
-        (400, json!({"error": {
-            "code": "unsupported_value", "param": "input[0].reasoning.effort",
-            "message": "configuration_update rejected the effort value 'high'",
-        }}).to_string()),
+        (
+            400,
+            json!({"error": {
+                "code": "unsupported_value", "param": "input[0].reasoning.effort",
+                "message": "configuration_update rejected the effort value 'high'",
+            }})
+            .to_string(),
+        ),
         (200, sse(&[DONE])),
     ]);
-    let adapter = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()),
-        ScriptedDial::with(Vec::new()), http.clone());
+    let adapter = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()), ScriptedDial::with(Vec::new()), http.clone());
     assert_eq!(result(&adapter, with_update(request(), 0)).await.1.and_then(|error| error.status), Some(400));
     assert!(result(&adapter, with_update(request(), 0)).await.1.is_none());
     let requests = http.requests.lock().unwrap();
@@ -314,8 +315,7 @@ async fn rejected_effort_rebuilds_the_http_request_and_is_remembered_by_normaliz
         (200, sse(&[DONE])),
         (200, sse(&[DONE])),
     ]);
-    let adapter = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()),
-        ScriptedDial::with(Vec::new()), http.clone());
+    let adapter = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()), ScriptedDial::with(Vec::new()), http.clone());
     assert!(result(&adapter, with_update(request(), 0)).await.1.is_none());
     let mut alias = request();
     alias.model = "gpt-6-1-sol-2026-07-01".into();
@@ -334,18 +334,21 @@ async fn rejected_effort_rebuilds_the_http_request_and_is_remembered_by_normaliz
 async fn an_effort_error_indexes_the_sent_websocket_delta_and_reissues_full_input() {
     const REJECTED: &str = r#"{"type":"response.failed","response":{"error":{"status":400,"param":"input[0].type","message":"Unknown value"}}}"#;
     let dial = ScriptedDial::with(vec![socket(&[DONE, REJECTED]), socket(&[DONE])]);
-    let adapter = adapter(TransportKind::WebSocket, TransportMode::WsDelta, context(None), Arc::new(Keys::default()),
-        dial.clone(), Arc::new(Http::default()));
+    let adapter = adapter(TransportKind::WebSocket, TransportMode::WsDelta, context(None), Arc::new(Keys::default()), dial.clone(), Arc::new(Http::default()));
     let mut first = request();
     first.options.effort = Some("low".into());
     assert!(result(&adapter, first).await.1.is_none());
     let mut second = with_update(request(), 1);
     second.messages.push(ChatMessage::new(Role::User, Content::Text("follow-up".into())));
     assert!(result(&adapter, second).await.1.is_none());
-    let frames: Vec<Value> = dial.wire().into_iter().filter_map(|entry| match entry {
-        SocketWire::Frame(text) => Some(serde_json::from_str(&text).unwrap()),
-        _ => None,
-    }).collect();
+    let frames: Vec<Value> = dial
+        .wire()
+        .into_iter()
+        .filter_map(|entry| match entry {
+            SocketWire::Frame(text) => Some(serde_json::from_str(&text).unwrap()),
+            _ => None,
+        })
+        .collect();
     assert_eq!(frames.len(), 3);
     assert_eq!(frames[1]["previous_response_id"], "r");
     assert_eq!(frames[1]["input"][0]["type"], "configuration_update");
@@ -364,8 +367,7 @@ async fn partial_sse_preserves_dispatched_calls_replay_and_reported_usage_withou
         frames.extend(tail);
         http.replies.lock().unwrap().push_back((200, sse(&frames)));
     }
-    let adapter = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()),
-        ScriptedDial::with(Vec::new()), http.clone());
+    let adapter = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()), ScriptedDial::with(Vec::new()), http.clone());
     for billed in [true, false] {
         let (events, failure) = result(&adapter, with_update(request(), 0)).await;
         let failure = failure.expect("neither terminal failure nor EOF completes the response");
@@ -412,8 +414,7 @@ async fn cancelling_before_the_queued_failure_keeps_its_decoded_usage() {
     const FAILED: &str = r#"{"type":"response.failed","response":{"usage":{"input_tokens":11,"output_tokens":3},"error":{"status":400,"message":"configuration_update rejected"}}}"#;
     let http = Arc::new(Http::default());
     http.replies.lock().unwrap().push_back((200, sse(&[CREATED, TEXT, FAILED])));
-    let inner = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()),
-        ScriptedDial::with(Vec::new()), http.clone());
+    let inner = adapter(TransportKind::Http1, TransportMode::Auto, context(None), Arc::new(Keys::default()), ScriptedDial::with(Vec::new()), http.clone());
     let ledger = Arc::new(Ledger::default());
     let sink = Arc::clone(&ledger);
     let deps = AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
@@ -439,8 +440,7 @@ async fn cancellation_at_a_tool_from_the_completed_bundle_keeps_decoded_usage() 
             http.replies.lock().unwrap().push_back((200, sse(&[COMPLETED])));
             Vec::new()
         };
-        let inner = adapter(transport, TransportMode::WsDelta, context(None), Arc::new(Keys::default()),
-            ScriptedDial::with(sockets), http);
+        let inner = adapter(transport, TransportMode::WsDelta, context(None), Arc::new(Keys::default()), ScriptedDial::with(sockets), http);
         let ledger = Arc::new(Ledger::default());
         let sink = Arc::clone(&ledger);
         let deps = AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
@@ -467,7 +467,8 @@ async fn cancellation_at_a_tool_from_the_completed_bundle_keeps_decoded_usage() 
 #[tokio::test]
 async fn the_accounted_send_keeps_a_billed_effort_refusal_exactly_once() {
     const BILLED: &str = r#"{"type":"response.failed","response":{"usage":{"input_tokens":11,"output_tokens":3,"cost_in_usd_ticks":125000000},"error":{"status":400,"message":"configuration_update rejected"}}}"#;
-    const SUCCESS: &str = r#"{"type":"response.completed","response":{"id":"second","output":[],"model":"gpt-6.1-sol","usage":{"input_tokens":17,"output_tokens":5}}}"#;
+    const SUCCESS: &str =
+        r#"{"type":"response.completed","response":{"id":"second","output":[],"model":"gpt-6.1-sol","usage":{"input_tokens":17,"output_tokens":5}}}"#;
     for transport in [TransportKind::Http1, TransportKind::WebSocket] {
         for effect in [None, Some(TEXT), Some(CALL)] {
             let mut first = vec![CREATED];
@@ -495,10 +496,13 @@ async fn the_accounted_send_keeps_a_billed_effort_refusal_exactly_once() {
             let (events, error) = result(accounted.as_ref(), with_update(request(), 0)).await;
             let rows = ledger.0.lock().unwrap();
             let sent: Vec<Value> = if transport == TransportKind::WebSocket {
-                dial.wire().into_iter().filter_map(|item| match item {
-                    SocketWire::Frame(text) => Some(serde_json::from_str(&text).unwrap()),
-                    _ => None,
-                }).collect()
+                dial.wire()
+                    .into_iter()
+                    .filter_map(|item| match item {
+                        SocketWire::Frame(text) => Some(serde_json::from_str(&text).unwrap()),
+                        _ => None,
+                    })
+                    .collect()
             } else {
                 http.requests.lock().unwrap().clone()
             };

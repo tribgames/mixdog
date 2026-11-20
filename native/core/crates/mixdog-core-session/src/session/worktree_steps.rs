@@ -116,10 +116,8 @@ impl Inner {
                 } else {
                     None
                 };
-                let created = self
-                    .ops
-                    .create_for_session(&project, TxScope { session, tx_id }, &hint, options.changes.as_deref(), options.confirm_large, cancel)
-                    .await?;
+                let created =
+                    self.ops.create_for_session(&project, TxScope { session, tx_id }, &hint, options.changes.as_deref(), options.confirm_large, cancel).await?;
                 (created.record, created.changes)
             }
         };
@@ -134,10 +132,8 @@ impl Inner {
             self.ops.make_dir(&cwd, cancel).await?;
         }
         self.host.copy_project_identity(&project_path, &cwd).await?;
-        let repo_common_dir =
-            if entry.repo_common_dir.is_empty() { text(&project.common_dir) } else { entry.repo_common_dir.clone() };
-        let moved = (!previous.is_bound())
-            .then(|| Move { from: previous.cwd.clone(), changes: changes.map(|(mode, _)| mode.to_owned()) });
+        let repo_common_dir = if entry.repo_common_dir.is_empty() { text(&project.common_dir) } else { entry.repo_common_dir.clone() };
+        let moved = (!previous.is_bound()).then(|| Move { from: previous.cwd.clone(), changes: changes.map(|(mode, _)| mode.to_owned()) });
         let entered = self
             .commit(
                 session,
@@ -304,15 +300,9 @@ impl Inner {
                 let remaining = serde_json::from_value(partly["remaining"].clone()).unwrap_or_default();
                 Err(Self::incomplete(journal, &entry, revision, partly["retryable"] != false, remaining, None))
             }
-            Err(ScmFailure::Coded {
-                code: errors::WORKTREE_REMOVAL_INCOMPLETE,
-                detail: Some(detail),
-                ..
-            }) => {
+            Err(ScmFailure::Coded { code: errors::WORKTREE_REMOVAL_INCOMPLETE, detail: Some(detail), .. }) => {
                 let (retryable, remaining, reason) = match *detail {
-                    DomainErrorDetail::WorktreeRemovalIncomplete { retryable, remaining, reason, .. } => {
-                        (retryable, remaining, reason)
-                    }
+                    DomainErrorDetail::WorktreeRemovalIncomplete { retryable, remaining, reason, .. } => (retryable, remaining, reason),
                     _ => (true, Vec::new(), None),
                 };
                 Err(Self::incomplete(journal, &entry, revision, retryable, remaining, reason))
@@ -344,13 +334,7 @@ impl Inner {
 
     /// The one entry of every transition: admitted against turns and other workspace changes,
     /// the Lead checked idle, the steps journaled.
-    async fn transition(
-        self: &Arc<Self>,
-        session: &str,
-        target: Target,
-        options: Options,
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, ScmFailure> {
+    async fn transition(self: &Arc<Self>, session: &str, target: Target, options: Options, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         if cancel.is_cancelled() {
             return Err(ScmFailure::Cancelled);
         }
@@ -373,9 +357,7 @@ impl Inner {
         let outcome = async {
             self.assert_lead_idle(session, options.own_turn).await?;
             match &target {
-                Target::Worktree { name } => {
-                    self.enter_worktree(session, &previous, name.clone(), &options, (&tx_id, &mut journal), cancel).await
-                }
+                Target::Worktree { name } => self.enter_worktree(session, &previous, name.clone(), &options, (&tx_id, &mut journal), cancel).await,
                 Target::Branch { branch, create } => {
                     self.enter_project_branch(session, &previous, (branch, *create), &options, (&tx_id, &mut journal), cancel).await
                 }
@@ -406,8 +388,7 @@ impl Inner {
         own_turn: bool,
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
-        self.transition(session, Target::Remove { force }, Options { expected_revision, own_turn, ..Options::default() }, cancel)
-            .await
+        self.transition(session, Target::Remove { force }, Options { expected_revision, own_turn, ..Options::default() }, cancel).await
     }
 
     /// `runTransition`: a branch or retained-worktree entry from a request.

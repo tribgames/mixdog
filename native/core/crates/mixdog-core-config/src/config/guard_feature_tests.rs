@@ -24,12 +24,7 @@ fn guard(root: &Path) -> Arc<UserData> {
     let mhome = root.join("mhome").to_string_lossy().into_owned();
     let env = Env::new(move |name| (name == "MIXDOG_HOME").then(|| mhome.clone()), Some(root.join("home")));
     let ids = AtomicU64::new(0);
-    Arc::new(UserData::new(
-        env,
-        || 1_767_225_600_000,
-        move || format!("00000000-0000-4000-8000-{:012}", ids.fetch_add(1, Ordering::SeqCst) + 1),
-        |_| {},
-    ))
+    Arc::new(UserData::new(env, || 1_767_225_600_000, move || format!("00000000-0000-4000-8000-{:012}", ids.fetch_add(1, Ordering::SeqCst) + 1), |_| {}))
 }
 
 async fn write_config(root: &Path, set: serde_json::Value) {

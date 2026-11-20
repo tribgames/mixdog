@@ -25,11 +25,13 @@ use super::pptx_session::{
     AuthorError, land_staged_deck, release_existing_session, release_staging_target, reusable_authored_session, staging_target, swap_authored_document,
     throw_if_authoring_cancelled,
 };
-use super::{AuthorCall, AuthorHost, flag_is, mark_authored_from_html, opens_with_markup, pick, render_args, replaced_edits_of, requested_path, script_of, script_source};
+use super::{
+    AuthorCall, AuthorHost, flag_is, mark_authored_from_html, opens_with_markup, pick, render_args, replaced_edits_of, requested_path, script_of, script_source,
+};
+use crate::session::SessionHandle;
 use crate::session::mode::validate_author_mode;
 use crate::session::registry::lock;
 use crate::session::working_copy::full_path;
-use crate::session::SessionHandle;
 
 /// The reply to a bare author call, before the skill is read.
 pub const PPTX_AUTHOR_NEEDS_SOURCE: &str = "author requires script: HTML slides or a pptxgenjs script (without one it re-authors from <deck>.pptx.mixdog-source.html, and none is there). Load the `pptx` Skill first (Skill name:\"pptx\"): it carries the authoring workflow, the HTML contract, the composition grammar, and the device kit, then call author again with path and script.";
@@ -118,23 +120,34 @@ pub fn facts_gate_result(target: &str, brief: &Value, gate: &Value, run: &Value)
     let listed = slides
         .iter()
         .map(|entry| {
-            let figures = entry.get("figures").and_then(Value::as_array).map(|figures| figures.iter().map(value_to_string).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            let figures = entry
+                .get("figures")
+                .and_then(Value::as_array)
+                .map(|figures| figures.iter().map(value_to_string).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default();
             format!("slide {}: {figures}", value_to_string(entry.get("slide").unwrap_or(&Value::Null)))
         })
         .collect::<Vec<_>>()
         .join("; ");
     let missing = gate.get("code").and_then(Value::as_str) == Some("facts_missing");
     let next_action = if missing {
-        format!("The deck shows figures ({listed}) but the brief has no facts line, so nothing landed. Add `// facts: F1 <value> — <source> · …` for every figure the slides show, or declare `// facts: sample — <why no source>` to mark every figure illustrative; then call author again.")
+        format!(
+            "The deck shows figures ({listed}) but the brief has no facts line, so nothing landed. Add `// facts: F1 <value> — <source> · …` for every figure the slides show, or declare `// facts: sample — <why no source>` to mark every figure illustrative; then call author again."
+        )
     } else {
-        format!("Figures with no fact behind them ({listed}), so nothing landed. Add each to the brief facts line with its source, remove it from the slide, or declare `// facts: sample — <why>`; then call author again.")
+        format!(
+            "Figures with no fact behind them ({listed}), so nothing landed. Add each to the brief facts line with its source, remove it from the slide, or declare `// facts: sample — <why>`; then call author again."
+        )
     };
     let facts = brief.get("facts").and_then(Value::as_array).map_or(0, Vec::len);
     let entries = vec![
         ("ok", json!(false)),
         ("reason", json!("facts_gate")),
         ("output", json!(target)),
-        ("gate", json!({ "code": gate.get("code").cloned().unwrap_or(Value::Null), "slides": gate.get("slides").cloned().unwrap_or(Value::Null), "facts": facts })),
+        (
+            "gate",
+            json!({ "code": gate.get("code").cloned().unwrap_or(Value::Null), "slides": gate.get("slides").cloned().unwrap_or(Value::Null), "facts": facts }),
+        ),
         ("logs", run.get("logs").cloned().unwrap_or(Value::Null)),
         ("elapsedMs", run.get("elapsedMs").cloned().unwrap_or(Value::Null)),
         ("nextAction", Value::String(next_action)),
@@ -162,7 +175,11 @@ pub fn geometry_gate_result(target: &str, run: &Value) -> Value {
     let listed = pages
         .iter()
         .map(|page| {
-            let findings = page.get("findings").and_then(Value::as_array).map(|findings| findings.iter().map(|finding| value_to_string(finding.get("message").unwrap_or(&Value::Null))).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+            let findings = page
+                .get("findings")
+                .and_then(Value::as_array)
+                .map(|findings| findings.iter().map(|finding| value_to_string(finding.get("message").unwrap_or(&Value::Null))).collect::<Vec<_>>().join("; "))
+                .unwrap_or_default();
             format!("slide {}: {findings}", value_to_string(page.get("slide").unwrap_or(&Value::Null)))
         })
         .collect::<Vec<_>>()
@@ -174,7 +191,12 @@ pub fn geometry_gate_result(target: &str, run: &Value) -> Value {
         ("gate", json!({ "code": "geometry", "slides": run.get("geometry").cloned().unwrap_or(Value::Null) })),
         ("logs", run.get("logs").cloned().unwrap_or(Value::Null)),
         ("elapsedMs", run.get("elapsedMs").cloned().unwrap_or(Value::Null)),
-        ("nextAction", Value::String(format!("The pages' geometry does not hold ({listed}), so nothing landed. Compute related positions from one source (flex or grid, calc() on shared custom properties, related shapes in one SVG) and declare the relation (data-on, data-inside, data-between, data-align, data-label); mark an offset that is deliberate data-free. Then call author again."))),
+        (
+            "nextAction",
+            Value::String(format!(
+                "The pages' geometry does not hold ({listed}), so nothing landed. Compute related positions from one source (flex or grid, calc() on shared custom properties, related shapes in one SVG) and declare the relation (data-on, data-inside, data-between, data-align, data-label); mark an offset that is deliberate data-free. Then call author again."
+            )),
+        ),
     ];
     strip_undefined(result_object(entries), run)
 }
@@ -187,7 +209,10 @@ fn script_failed_result(target: &str, run: &Value, html: bool) -> Value {
         ("error", run.get("error").cloned().unwrap_or(Value::Null)),
         ("logs", run.get("logs").cloned().unwrap_or(Value::Null)),
         ("elapsedMs", run.get("elapsedMs").cloned().unwrap_or(Value::Null)),
-        ("nextAction", json!(if html { "Fix the HTML the error names and call author again." } else { "Fix the script at the reported line and call author again." })),
+        (
+            "nextAction",
+            json!(if html { "Fix the HTML the error names and call author again." } else { "Fix the script at the reported line and call author again." }),
+        ),
     ];
     strip_undefined(result_object(entries), run)
 }
@@ -216,7 +241,13 @@ struct Landed {
 
 /// `landAuthoredDeck`: a reusable session swaps its document in place; otherwise the existing session is released before the
 /// file moves.
-async fn land_authored_deck<H: AuthorHost>(host: &H, reusable: Option<&SessionHandle>, staging: &Path, target: &Path, signal: Option<&CancellationToken>) -> Result<Landed, AuthorError> {
+async fn land_authored_deck<H: AuthorHost>(
+    host: &H,
+    reusable: Option<&SessionHandle>,
+    staging: &Path,
+    target: &Path,
+    signal: Option<&CancellationToken>,
+) -> Result<Landed, AuthorError> {
     let target_text = target.to_string_lossy().into_owned();
     if let Some(reusable) = reusable {
         let opened_at = host.now_iso();
@@ -275,7 +306,14 @@ fn audit_next_action(audit: Option<&Value>) -> String {
 
 /// The render of the landed deck onto the result: page images, review token and receipt, with the next step gated on the
 /// inline audit.
-async fn render_authored_deck<H: AuthorHost>(host: &H, handle: &SessionHandle, args: &Value, cwd: &str, result: &mut Map<String, Value>, audit: Option<&Value>) -> Result<(), AuthorError> {
+async fn render_authored_deck<H: AuthorHost>(
+    host: &H,
+    handle: &SessionHandle,
+    args: &Value,
+    cwd: &str,
+    result: &mut Map<String, Value>,
+    audit: Option<&Value>,
+) -> Result<(), AuthorError> {
     let rendered = host.render(handle, &render_args(args), Path::new(cwd)).await?;
     result.insert("render".into(), Value::Object(pick(&rendered, &["output", "pageCount", "visualCoverage", "images", "reviewToken", "contactSheet"])));
     let images = match rendered.get("_images") {
@@ -331,10 +369,16 @@ async fn compare_with_html<H: AuthorHost>(host: &H, target: &str, run: &Value, r
     let drifted = if moved.is_empty() {
         String::new()
     } else {
-        format!(" html_render_drift: text PowerPoint drew more than {threshold}px from where the HTML put it ({}); open those pages' compare pairs and fix the HTML or report the residue.", moved.join("; "))
+        format!(
+            " html_render_drift: text PowerPoint drew more than {threshold}px from where the HTML put it ({}); open those pages' compare pairs and fix the HTML or report the residue.",
+            moved.join("; ")
+        )
     };
     let unread = match drift.get("unreadPages").and_then(Value::as_array).filter(|pages| !pages.is_empty()) {
-        Some(pages) => format!(" Pages {} were rendered in shared images, so their drift was not read; render them in batches of 12 or fewer to read it.", pages.iter().map(value_to_string).collect::<Vec<_>>().join(", ")),
+        Some(pages) => format!(
+            " Pages {} were rendered in shared images, so their drift was not read; render them in batches of 12 or fewer to read it.",
+            pages.iter().map(value_to_string).collect::<Vec<_>>().join(", ")
+        ),
         None => String::new(),
     };
     if let Some(Value::Object(render)) = result.get_mut("render") {
@@ -349,7 +393,15 @@ async fn compare_with_html<H: AuthorHost>(host: &H, target: &str, run: &Value, r
     Ok(())
 }
 
-async fn finish_authored_deck<H: AuthorHost>(host: &H, handle: &SessionHandle, args: &Value, call: &AuthorCall<'_>, target: &str, run: &Value, landed: &Landed) -> Result<Value, AuthorError> {
+async fn finish_authored_deck<H: AuthorHost>(
+    host: &H,
+    handle: &SessionHandle,
+    args: &Value,
+    call: &AuthorCall<'_>,
+    target: &str,
+    run: &Value,
+    landed: &Landed,
+) -> Result<Value, AuthorError> {
     let audit = if flag_is(args, "audit", false) { None } else { host.inline_audit(handle, &[]).await };
     let mut result = authored_result(handle, target, run, landed, audit.as_ref());
     if flag_is(args, "render", false) {
@@ -375,7 +427,13 @@ async fn finish_authored_deck<H: AuthorHost>(host: &H, handle: &SessionHandle, a
 /// The session the target already has, if any: a reusable authored session swaps its deck; an existing session hands its audit
 /// rounds on. A re-author replaces the session, but the audit fix rounds belong to the deck: the loop keeps counting across
 /// passes on the same path.
-async fn authoring_session_state<H: AuthorHost>(host: &H, target: &str, mode: &str, args: &Value, from_source: bool) -> Result<(Option<SessionHandle>, Option<Value>), AuthorError> {
+async fn authoring_session_state<H: AuthorHost>(
+    host: &H,
+    target: &str,
+    mode: &str,
+    args: &Value,
+    from_source: bool,
+) -> Result<(Option<SessionHandle>, Option<Value>), AuthorError> {
     let reusable = reusable_authored_session(host, target, mode);
     let existing = host.session_for_document(target);
     if reusable.is_none() && existing.is_none() && !from_source && host.exists(Path::new(target)).await && !flag_is(args, "overwrite", true) {
@@ -392,7 +450,10 @@ async fn authoring_session_state<H: AuthorHost>(host: &H, target: &str, mode: &s
 enum Staged {
     /// A gate or the run refused: the answer to return, nothing landed.
     Refused(Value),
-    Landed { run: Value, landed: Landed },
+    Landed {
+        run: Value,
+        landed: Landed,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]

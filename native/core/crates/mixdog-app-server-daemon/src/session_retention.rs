@@ -29,7 +29,6 @@ pub struct Running {
     auto: Option<tokio::task::JoinHandle<()>>,
 }
 
-
 /// Starts the cycle over `host`, judging idleness by `now` (epoch ms). A failed pass is written
 /// as Node writes it: `[session-sweep] sub-agent retention error: <message>`.
 pub fn start(host: Arc<dyn RetentionHost>, now: Arc<dyn Fn() -> f64 + Send + Sync>) -> Running {
@@ -88,7 +87,8 @@ mod tests {
     }
 
     fn child(id: &str, parent: &str, active: f64) -> (String, Header) {
-        let header = json!({"agent": "worker", "owner": "lead", "ownerSessionId": parent, "parentSessionId": parent, "visibility": "agent-only", "lastUsedAt": active});
+        let header =
+            json!({"agent": "worker", "owner": "lead", "ownerSessionId": parent, "parentSessionId": parent, "visibility": "agent-only", "lastUsedAt": active});
         (id.to_owned(), header.as_object().unwrap().clone())
     }
 

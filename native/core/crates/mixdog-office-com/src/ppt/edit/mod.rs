@@ -98,14 +98,7 @@ const OPERATIONS: [&str; 46] = [
 ];
 
 impl FormatEditor for Editor {
-    fn apply_operation(
-        &self,
-        context: &mut EditContext<'_>,
-        document: &Obj,
-        op: &Value,
-        _live: bool,
-        allow_ui_activation: bool,
-    ) -> Result<Option<Value>> {
+    fn apply_operation(&self, context: &mut EditContext<'_>, document: &Obj, op: &Value, _live: bool, allow_ui_activation: bool) -> Result<Option<Value>> {
         apply_powerpoint_operation(context, &as_value(document), op, allow_ui_activation).map(Some)
     }
 

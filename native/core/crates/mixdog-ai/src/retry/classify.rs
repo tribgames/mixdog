@@ -78,18 +78,13 @@ static CONTEXT_OVERFLOW_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
 /// Byte or media size refusals (`REQUEST_SIZE_PATTERNS`): the body itself is
 /// too large.
 static REQUEST_SIZE_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([
-        r"(?i)request payload size exceeds the limit",
-        r"(?i)request entity too large",
-        r"(?i)request exceeds the maximum size",
-    ])
-    .expect("static patterns")
+    RegexSet::new([r"(?i)request payload size exceeds the limit", r"(?i)request entity too large", r"(?i)request exceeds the maximum size"])
+        .expect("static patterns")
 });
 
 /// Capacity wording on an untyped 429 (`CAPACITY_MESSAGE_RE`).
-static CAPACITY_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([r"(?i)\bat capacity\b|\boverloaded\b|\bserver is busy\b"]).expect("static patterns")
-});
+static CAPACITY_WORDING: LazyLock<RegexSet> =
+    LazyLock::new(|| RegexSet::new([r"(?i)\bat capacity\b|\boverloaded\b|\bserver is busy\b"]).expect("static patterns"));
 
 /// `providerErrorKind`'s wording fallback: an error read as `unknown` or
 /// `invalid_request` whose text names a token-context or request-size refusal
@@ -116,8 +111,7 @@ pub fn kind_from_code(code: &str) -> Option<ErrorKind> {
         return Some(ErrorKind::Policy);
     }
     Some(match code {
-        "cyber_policy" | "bio_policy" | "content_filter" | "safety" | "recitation"
-        | "invalid_prompt" => ErrorKind::Policy,
+        "cyber_policy" | "bio_policy" | "content_filter" | "safety" | "recitation" | "invalid_prompt" => ErrorKind::Policy,
         "insufficient_quota"
         | "credit_balance_exhausted"
         | "organization_spend_limit_exceeded"
@@ -128,14 +122,9 @@ pub fn kind_from_code(code: &str) -> Option<ErrorKind> {
         | "payment_required"
         | "insufficient_g1_credits_balance" => ErrorKind::Billing,
         "usage_not_included" => ErrorKind::Entitlement,
-        "quota_exceeded" | "quota_exhausted" | "usage_limit_reached"
-        | "provider_accounts_exhausted" => ErrorKind::QuotaExhausted,
-        "context_length_exceeded" | "context_window_exceeded" | "model_context_window_exceeded" => {
-            ErrorKind::ContextOverflow
-        }
-        "request_too_large" | "payload_too_large" | "request_entity_too_large" => {
-            ErrorKind::RequestTooLarge
-        }
+        "quota_exceeded" | "quota_exhausted" | "usage_limit_reached" | "provider_accounts_exhausted" => ErrorKind::QuotaExhausted,
+        "context_length_exceeded" | "context_window_exceeded" | "model_context_window_exceeded" => ErrorKind::ContextOverflow,
+        "request_too_large" | "payload_too_large" | "request_entity_too_large" => ErrorKind::RequestTooLarge,
         "invalid_api_key"
         | "authentication_error"
         | "unauthenticated"
@@ -146,17 +135,12 @@ pub fn kind_from_code(code: &str) -> Option<ErrorKind> {
         | "access_token_expired"
         | "auth_context_expired"
         | "auth_expired" => ErrorKind::Auth,
-        "permission_error" | "permission_denied" | "forbidden" | "service_disabled"
-        | "api_key_service_blocked" => ErrorKind::Permission,
-        "server_is_overloaded"
-        | "overloaded_error"
-        | "overloaded"
-        | "server_overloaded"
-        | "model_capacity_exhausted"
-        | "model_capacity_exceeded" => ErrorKind::Overloaded,
+        "permission_error" | "permission_denied" | "forbidden" | "service_disabled" | "api_key_service_blocked" => ErrorKind::Permission,
+        "server_is_overloaded" | "overloaded_error" | "overloaded" | "server_overloaded" | "model_capacity_exhausted" | "model_capacity_exceeded" => {
+            ErrorKind::Overloaded
+        }
         "flex_unavailable" => ErrorKind::ServiceTierUnavailable,
-        "rate_limit_exceeded" | "rate_limit_error" | "rate_limited" | "slow_down"
-        | "too_many_requests" => ErrorKind::RateLimited,
+        "rate_limit_exceeded" | "rate_limit_error" | "rate_limited" | "slow_down" | "too_many_requests" => ErrorKind::RateLimited,
         "server_error"
         | "api_error"
         | "internal"
@@ -214,17 +198,9 @@ pub fn kind_of(facts: &Facts<'_>) -> ErrorKind {
     } else if facts.reauth_required {
         ErrorKind::Auth
     } else if facts.status == Some(402) {
-        let in_flight = facts
-            .code
-            .is_some_and(|c| c.eq_ignore_ascii_case(OPENROUTER_IN_FLIGHT_BUDGET))
-            && facts
-                .retry_after
-                .is_some_and(|advice| advice <= IN_FLIGHT_BUDGET_MAX_ADVICE);
-        if in_flight {
-            ErrorKind::Transient
-        } else {
-            ErrorKind::Billing
-        }
+        let in_flight = facts.code.is_some_and(|c| c.eq_ignore_ascii_case(OPENROUTER_IN_FLIGHT_BUDGET))
+            && facts.retry_after.is_some_and(|advice| advice <= IN_FLIGHT_BUDGET_MAX_ADVICE);
+        if in_flight { ErrorKind::Transient } else { ErrorKind::Billing }
     } else {
         base_kind(facts)
     };
@@ -253,11 +229,7 @@ fn base_kind(facts: &Facts<'_>) -> ErrorKind {
     let mut kind = typed.or(by_status);
     if facts.quota_header && matches!(kind, None | Some(ErrorKind::RateLimited)) {
         kind = Some(ErrorKind::QuotaExhausted);
-    } else if typed.is_none()
-        && facts.code.is_none()
-        && facts.status == Some(429)
-        && facts.text.is_some_and(|text| CAPACITY_WORDING.is_match(text))
-    {
+    } else if typed.is_none() && facts.code.is_none() && facts.status == Some(429) && facts.text.is_some_and(|text| CAPACITY_WORDING.is_match(text)) {
         // Capacity wording counts only on an untyped 429 ("... is at
         // capacity"): it keeps such a 429 from reading as a rate limit.
         kind = Some(ErrorKind::Overloaded);
@@ -279,9 +251,7 @@ fn base_kind(facts: &Facts<'_>) -> ErrorKind {
 fn window_adjusted(kind: ErrorKind, facts: &Facts<'_>) -> ErrorKind {
     match (kind, facts.quota_scope) {
         (ErrorKind::QuotaExhausted, Some(QuotaScope::Minute)) => ErrorKind::RateLimited,
-        (ErrorKind::RateLimited, Some(QuotaScope::Day | QuotaScope::Plan)) => {
-            ErrorKind::QuotaExhausted
-        }
+        (ErrorKind::RateLimited, Some(QuotaScope::Day | QuotaScope::Plan)) => ErrorKind::QuotaExhausted,
         _ => kind,
     }
 }
@@ -291,10 +261,7 @@ mod tests {
     use super::*;
 
     fn status(status: u16) -> Facts<'static> {
-        Facts {
-            status: Some(status),
-            ..Facts::default()
-        }
+        Facts { status: Some(status), ..Facts::default() }
     }
 
     #[test]
@@ -318,38 +285,21 @@ mod tests {
 
     #[test]
     fn typed_code_beats_status() {
-        let facts = Facts {
-            status: Some(429),
-            code: Some("insufficient_quota"),
-            ..Facts::default()
-        };
+        let facts = Facts { status: Some(429), code: Some("insufficient_quota"), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Billing);
-        let facts = Facts {
-            status: Some(400),
-            code: Some("context_length_exceeded"),
-            ..Facts::default()
-        };
+        let facts = Facts { status: Some(400), code: Some("context_length_exceeded"), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::ContextOverflow);
     }
 
     #[test]
     fn gateway_type_supersedes_native_code() {
-        let facts = Facts {
-            status: Some(429),
-            code: Some("rate_limit_exceeded"),
-            gateway_error_type: Some("insufficient_quota"),
-            ..Facts::default()
-        };
+        let facts = Facts { status: Some(429), code: Some("rate_limit_exceeded"), gateway_error_type: Some("insufficient_quota"), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Billing);
     }
 
     #[test]
     fn google_resource_exhausted_follows_quota_scope() {
-        let mut facts = Facts {
-            status: Some(429),
-            code: Some("RESOURCE_EXHAUSTED"),
-            ..Facts::default()
-        };
+        let mut facts = Facts { status: Some(429), code: Some("RESOURCE_EXHAUSTED"), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::RateLimited);
         facts.quota_scope = Some(QuotaScope::Day);
         assert_eq!(kind_of(&facts), ErrorKind::QuotaExhausted);
@@ -359,22 +309,13 @@ mod tests {
 
     #[test]
     fn quota_header_promotes_a_rate_limit() {
-        let facts = Facts {
-            status: Some(429),
-            quota_header: true,
-            ..Facts::default()
-        };
+        let facts = Facts { status: Some(429), quota_header: true, ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::QuotaExhausted);
     }
 
     #[test]
     fn in_flight_budget_402_is_transient_only_with_short_advice() {
-        let mut facts = Facts {
-            status: Some(402),
-            code: Some(OPENROUTER_IN_FLIGHT_BUDGET),
-            retry_after: Some(Duration::from_secs(5)),
-            ..Facts::default()
-        };
+        let mut facts = Facts { status: Some(402), code: Some(OPENROUTER_IN_FLIGHT_BUDGET), retry_after: Some(Duration::from_secs(5)), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Transient);
         facts.retry_after = Some(Duration::from_secs(61));
         assert_eq!(kind_of(&facts), ErrorKind::Billing);
@@ -382,49 +323,28 @@ mod tests {
 
     #[test]
     fn reauth_and_account_evidence_come_first() {
-        let facts = Facts {
-            status: Some(500),
-            reauth_required: true,
-            ..Facts::default()
-        };
+        let facts = Facts { status: Some(500), reauth_required: true, ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Auth);
-        let facts = Facts {
-            status: Some(500),
-            account_quota_exhausted: true,
-            reauth_required: true,
-            ..Facts::default()
-        };
+        let facts = Facts { status: Some(500), account_quota_exhausted: true, reauth_required: true, ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::QuotaExhausted);
     }
 
     #[test]
     fn transport_evidence_is_transient() {
         let closed = TransportFault::Reset;
-        let facts = Facts {
-            transport: Some(&closed),
-            ..Facts::default()
-        };
+        let facts = Facts { transport: Some(&closed), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Transient);
         let policy_close = TransportFault::WsClose { code: Some(1008) };
-        let facts = Facts {
-            transport: Some(&policy_close),
-            ..Facts::default()
-        };
+        let facts = Facts { transport: Some(&policy_close), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Unknown);
         let going_away = TransportFault::WsClose { code: Some(1001) };
-        let facts = Facts {
-            transport: Some(&going_away),
-            ..Facts::default()
-        };
+        let facts = Facts { transport: Some(&going_away), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Transient);
     }
 
     #[test]
     fn codeless_wire_error_is_transient() {
-        let facts = Facts {
-            wire_error_without_code: true,
-            ..Facts::default()
-        };
+        let facts = Facts { wire_error_without_code: true, ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Transient);
     }
 
@@ -441,12 +361,7 @@ mod tests {
             let facts = Facts { text: Some(text), ..Facts::default() };
             assert_eq!(kind_of(&facts), ErrorKind::ContextOverflow, "{text}");
         }
-        let typed = Facts {
-            status: Some(400),
-            code: Some("content_filter"),
-            text: Some("prompt is too long"),
-            ..Facts::default()
-        };
+        let typed = Facts { status: Some(400), code: Some("content_filter"), text: Some("prompt is too long"), ..Facts::default() };
         assert_eq!(kind_of(&typed), ErrorKind::Policy);
         let rate = Facts { status: Some(429), text: Some("prompt is too long"), ..Facts::default() };
         assert_eq!(kind_of(&rate), ErrorKind::RateLimited);
@@ -476,12 +391,7 @@ mod tests {
     fn capacity_wording_counts_only_on_an_untyped_429() {
         let facts = Facts { status: Some(429), text: Some("The server is busy"), ..Facts::default() };
         assert_eq!(kind_of(&facts), ErrorKind::Overloaded);
-        let typed = Facts {
-            status: Some(429),
-            code: Some("rate_limit_exceeded"),
-            text: Some("model is at capacity"),
-            ..Facts::default()
-        };
+        let typed = Facts { status: Some(429), code: Some("rate_limit_exceeded"), text: Some("model is at capacity"), ..Facts::default() };
         assert_eq!(kind_of(&typed), ErrorKind::RateLimited);
         let server = Facts { status: Some(500), text: Some("overloaded"), ..Facts::default() };
         assert_eq!(kind_of(&server), ErrorKind::Transient);

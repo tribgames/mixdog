@@ -121,13 +121,7 @@ pub trait WebhookStore: Send + Sync {
     async fn resuming_rule_handoff(&self, _name: &str, _id: &str) -> Result<bool, String> {
         Ok(false)
     }
-    async fn update_delivery_status(
-        &self,
-        endpoint: &str,
-        delivery_id: &str,
-        status: &str,
-        error: Option<&str>,
-    ) -> Result<(), String>;
+    async fn update_delivery_status(&self, endpoint: &str, delivery_id: &str, status: &str, error: Option<&str>) -> Result<(), String>;
 }
 
 pub enum WebhookRoute {
@@ -140,20 +134,11 @@ pub enum WebhookRoute {
 pub trait WebhookDispatch: Send + Sync {
     /// Bot dispatch stays in the request scope. Only an identified rule's durability handoff
     /// can take ownership of the claim and outlive the HTTP waiter.
-    async fn route(
-        &self, name: &str, payload: Value, headers: &Headers, delivery_id: &str, endpoint_in_table: bool,
-    ) -> Result<WebhookRoute, String> {
+    async fn route(&self, name: &str, payload: Value, headers: &Headers, delivery_id: &str, endpoint_in_table: bool) -> Result<WebhookRoute, String> {
         self.handle(name, payload, headers, delivery_id, endpoint_in_table).await.map(WebhookRoute::Reply)
     }
 
-    async fn handle(
-        &self,
-        name: &str,
-        payload: Value,
-        headers: &Headers,
-        delivery_id: &str,
-        endpoint_in_table: bool,
-    ) -> Result<HttpReply, String>;
+    async fn handle(&self, name: &str, payload: Value, headers: &Headers, delivery_id: &str, endpoint_in_table: bool) -> Result<HttpReply, String>;
 }
 
 /// How long `process` may take. Node's request handler has no deadline, but the relay that forwards
@@ -308,9 +293,7 @@ fn parse_body_json(text: &str) -> Result<Value, String> {
 /// alone is rejected. A probe never dispatches.
 fn test_probe(headers: &Headers, raw_body: &[u8]) -> Option<bool> {
     let header = headers.get(WEBHOOK_TEST_HEADER).is_some_and(|v| v == "1");
-    let marked = parse_body_json(&String::from_utf8_lossy(raw_body))
-        .ok()
-        .is_some_and(|v| v.get(WEBHOOK_TEST_FIELD) == Some(&Value::Bool(true)));
+    let marked = parse_body_json(&String::from_utf8_lossy(raw_body)).ok().is_some_and(|v| v.get(WEBHOOK_TEST_FIELD) == Some(&Value::Bool(true)));
     (header || marked).then_some(header && marked)
 }
 
@@ -322,15 +305,7 @@ impl WebhookService {
         work: RunningWork,
         now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Self {
-        Self {
-            store,
-            dispatch,
-            config: RwLock::new(config),
-            work,
-            active: Default::default(),
-            now_ms,
-            warned_unsigned: Default::default(),
-        }
+        Self { store, dispatch, config: RwLock::new(config), work, active: Default::default(), now_ms, warned_unsigned: Default::default() }
     }
 
     pub fn set_config(&self, config: WebhookConfig) {
@@ -419,9 +394,8 @@ impl WebhookService {
             mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected (table endpoint requires a webhook secret)");
             return Err(HttpReply::error(401, "webhook secret required for endpoint"));
         }
-        let allow = endpoint.allow_unsigned == Some(true)
-            || config.endpoints.get(name).and_then(|e| e.allow_unsigned) == Some(true)
-            || config.allow_unsigned_webhooks;
+        let allow =
+            endpoint.allow_unsigned == Some(true) || config.endpoints.get(name).and_then(|e| e.allow_unsigned) == Some(true) || config.allow_unsigned_webhooks;
         if !allow {
             mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected — unsigned request and no secret configured");
             return Err(HttpReply::error(401, "webhook secret required for endpoint"));
@@ -434,10 +408,7 @@ impl WebhookService {
 
     pub async fn process(&self, name: &str, headers: &Headers, raw_body: &[u8]) -> HttpReply {
         let mut claimed = None;
-        let bounded = Scope::new()
-            .within(PROCESS)
-            .run(self.process_inner(name, headers, raw_body, &mut claimed))
-            .await;
+        let bounded = Scope::new().within(PROCESS).run(self.process_inner(name, headers, raw_body, &mut claimed)).await;
         let Scoped::Done(outcome) = bounded else {
             tracing::warn!("webhook {name}: processing timed out");
             // A claim still held here never reached a handoff: a rule handoff or a started
@@ -466,13 +437,7 @@ impl WebhookService {
         }
     }
 
-    async fn process_inner(
-        &self,
-        name: &str,
-        headers: &Headers,
-        raw_body: &[u8],
-        claimed: &mut Option<ClaimedDelivery>,
-    ) -> Result<HttpReply, Failure> {
+    async fn process_inner(&self, name: &str, headers: &Headers, raw_body: &[u8], claimed: &mut Option<ClaimedDelivery>) -> Result<HttpReply, Failure> {
         let db_endpoint = self.store.load_endpoint(name).await.map_err(Failure::Internal)?;
         let endpoint = db_endpoint.clone().or_else(|| self.config_endpoint(name));
         let in_table = db_endpoint.is_some();
@@ -542,8 +507,7 @@ impl WebhookService {
             parse_body_json(&body_text).map_err(Failure::Invalid)?
         };
         // Our own issue comments carry this marker; forwarding one would self-trigger.
-        let own_comment = event.as_deref() == Some("issue_comment")
-            && parsed["comment"]["body"].as_str().is_some_and(|b| b.starts_with("[mixdog "));
+        let own_comment = event.as_deref() == Some("issue_comment") && parsed["comment"]["body"].as_str().is_some_and(|b| b.starts_with("[mixdog "));
         if own_comment {
             self.store.update_delivery_status(name, &id, "self-comment-skip", None).await.map_err(Failure::Internal)?;
             claimed.take().unwrap().settled();
@@ -575,11 +539,7 @@ impl WebhookService {
 }
 
 async fn fail(store: &dyn WebhookStore, name: &str, id: &str, error: &str, retryable: bool) {
-    let result = if retryable {
-        store.fail_handoff(name, id, error).await
-    } else {
-        store.update_delivery_status(name, id, "failed", Some(error)).await
-    };
+    let result = if retryable { store.fail_handoff(name, id, error).await } else { store.update_delivery_status(name, id, "failed", Some(error)).await };
     if let Err(err) = result {
         mixdog_rt::node_stderr!("mixdog webhook: failed to mark delivery {name}/{id} failed — {err}");
     }

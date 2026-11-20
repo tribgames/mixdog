@@ -26,8 +26,8 @@ use serde_json::json;
 use super::SessionLanes;
 use super::ThreadStore;
 use super::Transcript;
-use super::reads::History;
 use super::reads::Before;
+use super::reads::History;
 use super::reads::history_before;
 use super::reads::history_tail;
 use super::reads::items_window;
@@ -131,7 +131,13 @@ impl ThreadStore for DefaultTail {
     fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &super::seams::HeadRead) -> Result<super::seams::WindowRead, CoreError> {
         self.0.read_window(lane, id, head)
     }
-    fn decode(&self, lane: &InLane<mixdog_rt::CpuInteractive>, id: &ThreadId, head: super::seams::HeadRead, window: super::seams::WindowRead) -> Result<super::seams::OpenedLog, CoreError> {
+    fn decode(
+        &self,
+        lane: &InLane<mixdog_rt::CpuInteractive>,
+        id: &ThreadId,
+        head: super::seams::HeadRead,
+        window: super::seams::WindowRead,
+    ) -> Result<super::seams::OpenedLog, CoreError> {
         self.0.decode(lane, id, head, window)
     }
     fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<ItemRecord>, CoreError> {
@@ -141,7 +147,12 @@ impl ThreadStore for DefaultTail {
         self.0.history_rows(lane, id)
     }
     /// The seam's own default with the store's marks: the whole history read, then cut to its newest rows.
-    fn history_tail_decor(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, rows: usize) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
+    fn history_tail_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        rows: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
         let (rev, mut all, mut decor, _) = self.0.history_tail_decor(lane, id, usize::MAX)?;
         let complete = all.len() <= rows;
         let cut = all.len().saturating_sub(rows);
@@ -214,7 +225,11 @@ async fn whole(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, 
     let rows = tokens
         .cpu_interactive
         .submit(&token, move |lane| {
-            records.iter().enumerate().flat_map(|(at, record)| super::reads::decorated(transcript.rows(lane, record), decor.get(at))).collect::<Vec<(ThreadItem, usize)>>()
+            records
+                .iter()
+                .enumerate()
+                .flat_map(|(at, record)| super::reads::decorated(transcript.rows(lane, record), decor.get(at)))
+                .collect::<Vec<(ThreadItem, usize)>>()
         })
         .expect("lane")
         .await
@@ -240,7 +255,6 @@ async fn tailed(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId,
         |anchor, n| -> futures::future::BoxFuture<'static, Result<Option<Before>, CoreError>> {
             let (store, transcript, id, anchor) = (store.clone(), transcript.clone(), id.clone(), anchor.to_owned());
             Box::pin(async move { history_before(&store, &transcript, lanes(tokens), &id, anchor, n).await })
-
         },
     )
     .await;
@@ -257,8 +271,17 @@ fn shapes_of_big() -> Vec<Value> {
     shapes.push(json!({ "limit": 20, "sortDirection": "asc" }));
     // Cursors in the newest rows, outside them, aliases, a hidden row's id, a missing one, the typed form.
     let cursors = [
-        json!("a699"), json!("a600"), json!("a650"), json!("a30"), json!("u640"), json!("s640"), json!("a5"),
-        json!("a3"), json!("c350-0"), json!("nope"), json!({ "type": "item", "itemId": "a650" }),
+        json!("a699"),
+        json!("a600"),
+        json!("a650"),
+        json!("a30"),
+        json!("u640"),
+        json!("s640"),
+        json!("a5"),
+        json!("a3"),
+        json!("c350-0"),
+        json!("nope"),
+        json!({ "type": "item", "itemId": "a650" }),
     ];
     for cursor in cursors {
         for direction in ["desc", "asc"] {
@@ -302,13 +325,21 @@ async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: L
                     newest = Some(widest);
                 }
                 match (&want, got) {
-                    (Ok(Reply::Value(want)), Ok(Reply::Value(got))) if &got != want => return Err(format!("{what}
+                    (Ok(Reply::Value(want)), Ok(Reply::Value(got))) if &got != want => {
+                        return Err(format!(
+                            "{what}
   left: {got}
- right: {want}")),
+ right: {want}"
+                        ));
+                    }
                     (Ok(Reply::Value(_)), Ok(Reply::Value(_))) => {}
-                    (Err(want), Err(got)) if format!("{got:?}") != format!("{want:?}") => return Err(format!("{what}
+                    (Err(want), Err(got)) if format!("{got:?}") != format!("{want:?}") => {
+                        return Err(format!(
+                            "{what}
   left: {got:?}
- right: {want:?}")),
+ right: {want:?}"
+                        ));
+                    }
                     (Err(_), Err(_)) => {}
                     (want, got) => return Err(format!("{what}: {got:?} against {want:?}")),
                 }
@@ -320,9 +351,16 @@ async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: L
         .await;
     eprintln!("{label}: {total} cases compared");
     let failed: Vec<&String> = outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).collect();
-    assert!(failed.is_empty(), "{} of {total} cases differ:
-{}", failed.len(), failed.iter().map(|f| f.as_str()).collect::<Vec<_>>().join("
-"));
+    assert!(
+        failed.is_empty(),
+        "{} of {total} cases differ:
+{}",
+        failed.len(),
+        failed.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(
+            "
+"
+        )
+    );
     let newest = outcomes.iter().find_map(|outcome| outcome.as_ref().ok().copied().flatten()).expect("the newest row's case ran");
     // The newest row's page reads the first tail only, not the 700 rows.
     assert_eq!(newest, 128, "{label}");
@@ -331,9 +369,17 @@ async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: L
 /// The rows asked for and whether they are all the history: exactly the stored rows is all of it, one more is not.
 async fn completeness(stores: &[(&str, Arc<dyn ThreadStore>)], tokens: LaneTokens) {
     for (path, store) in stores {
-        for (rows, want, complete) in [(128, 128, true), (129, 128, false), (200, 200, true), (201, 200, false), (256, 256, true), (257, 256, false), (200, 201, true), (200, 1, false)] {
+        for (rows, want, complete) in
+            [(128, 128, true), (129, 128, false), (200, 200, true), (201, 200, false), (256, 256, true), (257, 256, false), (200, 201, true), (200, 1, false)]
+        {
             let (store, thread) = (store.clone(), ThreadId::from(format!("n{rows}").as_str()));
-            let (_, got, all) = tokens.interactive_io.submit(&CancellationToken::new(), move |lane| store.history_tail(lane, &thread, want)).expect("lane").await.expect("job ran").expect("tail");
+            let (_, got, all) = tokens
+                .interactive_io
+                .submit(&CancellationToken::new(), move |lane| store.history_tail(lane, &thread, want))
+                .expect("lane")
+                .await
+                .expect("job ran")
+                .expect("tail");
             assert_eq!((got.len(), all), (want.min(rows), complete), "{path}: {want} of {rows} stored rows");
         }
     }
@@ -422,7 +468,8 @@ async fn a_turn_scan_survives_other_writes_but_rejects_unprojected_changes_to_it
     let data = tempfile::tempdir().expect("data dir");
     let threads = Arc::new(
         StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
-            .await.expect("the thread store"),
+            .await
+            .expect("the thread store"),
     );
     let scanned = create(&threads, tokens, "scan-turns", plain(40)).await;
     let other = create(&threads, tokens, "other-turns", plain(1)).await;
@@ -430,21 +477,23 @@ async fn a_turn_scan_survives_other_writes_but_rejects_unprojected_changes_to_it
     let cancel = CancellationToken::new();
     let chunk = |after| {
         let (threads, read_cancel) = (threads.clone(), cancel.clone());
-        on_lane_wait(tokens.interactive_io, &cancel, move |lane| {
-            threads.turn_history_chunk(lane, &ThreadId::from("scan-turns"), after, &read_cancel)
-        })
+        on_lane_wait(tokens.interactive_io, &cancel, move |lane| threads.turn_history_chunk(lane, &ThreadId::from("scan-turns"), after, &read_cancel))
     };
     let first = chunk(None).await.expect("job").expect("read").expect("initial chunk");
     let (held, release) = threads.hold_index();
     held.await.expect("index held");
     on_lane_wait(tokens.durability_io, &cancel, move |lane| {
         other.lock().expect("log").commit(lane, &[assistant(1, "t0", true)]).expect("unrelated write");
-    }).await.expect("job");
+    })
+    .await
+    .expect("job");
     let result = chunk(Some(first.next.expect("more history"))).await.expect("job").expect("read");
     assert!(result.as_ref().is_some_and(|page| !page.records.is_empty()), "the unrelated write must not invalidate this scan");
     on_lane_wait(tokens.durability_io, &cancel, move |lane| {
         scanned.lock().expect("log").commit(lane, &[assistant(40, "t0", true)]).expect("same-thread write");
-    }).await.expect("job");
+    })
+    .await
+    .expect("job");
     let stale = chunk(Some(result.expect("next chunk").next.expect("more history"))).await.expect("job").expect("read");
     assert!(stale.is_none(), "the old scan cannot continue after a same-thread write");
     assert!(chunk(None).await.expect("job").expect("read").is_none(), "an unprojected append cannot start a new scan");
@@ -462,7 +511,8 @@ async fn cancelling_a_turn_page_at_the_read_barrier_reports_caller_cancellation(
     let data = tempfile::tempdir().expect("data dir");
     let threads = Arc::new(
         StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
-            .await.expect("the thread store"),
+            .await
+            .expect("the thread store"),
     );
     let _log = create(&threads, tokens, "cancel-turns", plain(1)).await;
     let rig = super::testing::Rig::new();

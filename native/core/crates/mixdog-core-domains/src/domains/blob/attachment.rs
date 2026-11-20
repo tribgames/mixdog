@@ -83,9 +83,7 @@ pub(crate) fn sanitized_file_name(value: &str) -> String {
         }
         in_run = bad;
     }
-    let trimmed = replaced
-        .trim_start_matches(|c| is_js_space(c) || c == '.' || c == '-')
-        .trim_end_matches(|c| is_js_space(c) || c == '.');
+    let trimmed = replaced.trim_start_matches(|c| is_js_space(c) || c == '.' || c == '-').trim_end_matches(|c| is_js_space(c) || c == '.');
     let name = mixdog_js::slice_utf16(trimmed, 120);
     if name.is_empty() { "download".into() } else { name }
 }
@@ -111,11 +109,7 @@ fn extension_of(mime_type: &str) -> &'static str {
 /// `attachmentViewName(meta)`: a name that previews by its extension.
 fn view_name(name: &str, mime_type: &str) -> String {
     let name = sanitized_file_name(name);
-    if has_extension(&name) {
-        name
-    } else {
-        format!("{name}{}", extension_of(mime_type))
-    }
+    if has_extension(&name) { name } else { format!("{name}{}", extension_of(mime_type)) }
 }
 
 fn refused(reason: Reason, message: &str) -> WsError {
@@ -184,9 +178,7 @@ impl TransferSource for AttachmentSource {
     async fn open(&self, source: &Value, cancel: &CancellationToken) -> WsResult<SourceFile> {
         let Named { name, mime_type, digest, id } = self.named_in(source).await?;
         let store = self.store.clone();
-        let (file, path) = on_lane(self.interactive, cancel, move |lane| stage(&store, lane, &digest, &id))
-            .await
-            .map_err(lane_failure)??;
+        let (file, path) = on_lane(self.interactive, cancel, move |lane| stage(&store, lane, &digest, &id)).await.map_err(lane_failure)??;
         Ok(SourceFile { file, name, mime_type, cleanup: Some(path) })
     }
 
@@ -204,19 +196,14 @@ impl AttachmentSource {
     async fn named_in(&self, source: &Value) -> WsResult<Named> {
         let session_id = required_session_id(source.get("sessionId"))?;
         // `requiredAttachmentId`: any non-string, or a string off the pattern, is one TypeError.
-        let id = source
-            .get("attachmentId")
-            .and_then(Value::as_str)
-            .filter(|id| valid_id(id))
-            .ok_or_else(|| WsError::invalid("attachment id is invalid."))?;
+        let id = source.get("attachmentId").and_then(Value::as_str).filter(|id| valid_id(id)).ok_or_else(|| WsError::invalid("attachment id is invalid."))?;
         let Some(named) = self.sessions.named(session_id, id).await else {
             return Err(refused(Reason::NotLinked, "This conversation has no such attachment."));
         };
         // `sessionAttachments` defaults: `String(name || 'attachment').slice(0, 200)`, the type
         // `String(mimeType || 'application/octet-stream').slice(0, 100)`.
         let name = mixdog_js::slice_utf16(named.name.as_deref().filter(|n| !n.is_empty()).unwrap_or("attachment"), 200);
-        let mime_type =
-            mixdog_js::slice_utf16(named.mime_type.as_deref().filter(|m| !m.is_empty()).unwrap_or("application/octet-stream"), 100);
+        let mime_type = mixdog_js::slice_utf16(named.mime_type.as_deref().filter(|m| !m.is_empty()).unwrap_or("application/octet-stream"), 100);
         let digest: BlobDigest = format!("sha256:{id}").parse().map_err(|_| WsError::invalid("attachment id is invalid."))?;
         Ok(Named { name: view_name(&name, &mime_type), mime_type, digest, id: id.to_owned() })
     }

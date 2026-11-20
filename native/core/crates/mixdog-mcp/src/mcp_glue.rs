@@ -36,8 +36,8 @@ use tokio_util::sync::CancellationToken;
 use crate::config::Env;
 use crate::config::McpServerConfig;
 use crate::config::TransportKind;
-use crate::config::normalize_url;
 use crate::config::expand_env;
+use crate::config::normalize_url;
 use crate::config::transport_kind;
 use crate::connector_accounts::AccountHealth;
 use crate::connector_accounts::Health;
@@ -339,99 +339,107 @@ impl McpGlue {
         self.hub.oauth_in(&self.request_scope()?, name)
     }
     /// `collectSkills`'s roots: the global `skills` folder, the skill folders of each enabled
-/// registered plugin, and the package's own bundle (`defaults/`, a plugin root outside the
-/// registry), in that precedence. An unreadable registry contributes no plugin root, as in Node.
-pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillRoots {
-    use crate::skills::SkillRoot;
-    use crate::skills::SkillSource;
-    Arc::new(move |lane| {
-        let mut roots = vec![SkillRoot { dir: admin.data_dir().join("skills"), source: SkillSource::Global, plugin: None }];
-        for (id, root) in McpGlue::enabled_plugin_roots(&admin, lane) {
-            if !McpGlue::path_present(lane, &root) {
+    /// registered plugin, and the package's own bundle (`defaults/`, a plugin root outside the
+    /// registry), in that precedence. An unreadable registry contributes no plugin root, as in Node.
+    pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillRoots {
+        use crate::skills::SkillRoot;
+        use crate::skills::SkillSource;
+        Arc::new(move |lane| {
+            let mut roots = vec![SkillRoot { dir: admin.data_dir().join("skills"), source: SkillSource::Global, plugin: None }];
+            for (id, root) in McpGlue::enabled_plugin_roots(&admin, lane) {
+                if !McpGlue::path_present(lane, &root) {
+                    continue;
+                }
+                roots.extend(McpGlue::existing_skills_roots(lane, &root).into_iter().map(|dir| SkillRoot {
+                    dir,
+                    source: SkillSource::Plugin,
+                    plugin: id.clone(),
+                }));
+            }
+            roots.extend(McpGlue::existing_skills_roots(lane, &builtin_plugin_root).into_iter().map(|dir| SkillRoot {
+                dir,
+                source: SkillSource::Builtin,
+                plugin: None,
+            }));
+            roots
+        })
+    }
+
+    fn path_present(lane: &mixdog_rt::InLane<MaintenanceIo>, path: &std::path::Path) -> bool {
+        mixdog_statefile::metadata(lane, path).is_ok()
+    }
+
+    fn existing_skills_roots(lane: &mixdog_rt::InLane<MaintenanceIo>, root: &std::path::Path) -> Vec<PathBuf> {
+        crate::plugins::skills_roots(lane, root).into_iter().filter(|dir| McpGlue::path_present(lane, dir)).collect()
+    }
+
+    /// The enabled registered plugins, including roots that might be created later.
+    fn enabled_plugin_roots(admin: &PluginAdmin, lane: &mixdog_rt::InLane<MaintenanceIo>) -> Vec<(Option<String>, PathBuf)> {
+        let mut out = Vec::new();
+        for plugin in admin.list_registered_plugins(lane).unwrap_or_default() {
+            if plugin.get("enabled") == Some(&Value::Bool(false)) {
                 continue;
             }
-            roots.extend(McpGlue::existing_skills_roots(lane, &root).into_iter().map(|dir| SkillRoot { dir, source: SkillSource::Plugin, plugin: id.clone() }));
+            let root = PathBuf::from(clean(&plugin["root"]));
+            if root.as_os_str().is_empty() {
+                continue;
+            }
+            let id = [clean(&plugin["id"]), clean(&plugin["name"])].into_iter().find(|s| !s.is_empty());
+            out.push((id, root));
         }
-        roots.extend(McpGlue::existing_skills_roots(lane, &builtin_plugin_root).into_iter().map(|dir| SkillRoot { dir, source: SkillSource::Builtin, plugin: None }));
-        roots
-    })
-}
-
-fn path_present(lane: &mixdog_rt::InLane<MaintenanceIo>, path: &std::path::Path) -> bool {
-    mixdog_statefile::metadata(lane, path).is_ok()
-}
-
-fn existing_skills_roots(lane: &mixdog_rt::InLane<MaintenanceIo>, root: &std::path::Path) -> Vec<PathBuf> {
-    crate::plugins::skills_roots(lane, root).into_iter().filter(|dir| McpGlue::path_present(lane, dir)).collect()
-}
-
-/// The enabled registered plugins, including roots that might be created later.
-fn enabled_plugin_roots(admin: &PluginAdmin, lane: &mixdog_rt::InLane<MaintenanceIo>) -> Vec<(Option<String>, PathBuf)> {
-    let mut out = Vec::new();
-    for plugin in admin.list_registered_plugins(lane).unwrap_or_default() {
-        if plugin.get("enabled") == Some(&Value::Bool(false)) {
-            continue;
-        }
-        let root = PathBuf::from(clean(&plugin["root"]));
-        if root.as_os_str().is_empty() {
-            continue;
-        }
-        let id = [clean(&plugin["id"]), clean(&plugin["name"])].into_iter().find(|s| !s.is_empty());
-        out.push((id, root));
+        out
     }
-    out
-}
 
-/// What the skill list depends on, as watch targets (Node's `skillRootsSignature` +
-/// `pluginShallowWatchPaths`): every skills root watched deep, or, while it does not exist yet, its
-/// nearest existing ancestor watched shallow; each plugin root (its manifests) and the registry's folder
-/// shallow, so a plugin installed, removed or edited is seen.
-pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillWatchTargets {
-    use crate::skills_watch::WatchTargets;
-    fn add(lane: &mixdog_rt::InLane<MaintenanceIo>, targets: &mut WatchTargets, dir: PathBuf, deep: bool) {
-        let mut at = dir.as_path();
-        while !McpGlue::path_present(lane, at) {
-            let Some(parent) = at.parent() else { return };
-            at = parent;
+    /// What the skill list depends on, as watch targets (Node's `skillRootsSignature` +
+    /// `pluginShallowWatchPaths`): every skills root watched deep, or, while it does not exist yet, its
+    /// nearest existing ancestor watched shallow; each plugin root (its manifests) and the registry's folder
+    /// shallow, so a plugin installed, removed or edited is seen.
+    pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillWatchTargets {
+        use crate::skills_watch::WatchTargets;
+        fn add(lane: &mixdog_rt::InLane<MaintenanceIo>, targets: &mut WatchTargets, dir: PathBuf, deep: bool) {
+            let mut at = dir.as_path();
+            while !McpGlue::path_present(lane, at) {
+                let Some(parent) = at.parent() else { return };
+                at = parent;
+            }
+            let deep = deep && at == dir;
+            if deep
+                && let Some(parent) = at.parent()
+                && !targets.shallow.iter().any(|p| p == parent)
+            {
+                // The parent still reports removal or replacement if the deep watch loses its directory.
+                targets.shallow.push(parent.to_path_buf());
+            }
+            let list = if deep { &mut targets.deep } else { &mut targets.shallow };
+            if !list.iter().any(|p| p == at) {
+                list.push(at.to_path_buf());
+            }
         }
-        let deep = deep && at == dir;
-        if deep
-            && let Some(parent) = at.parent()
-            && !targets.shallow.iter().any(|p| p == parent)
-        {
-            // The parent still reports removal or replacement if the deep watch loses its directory.
-            targets.shallow.push(parent.to_path_buf());
-        }
-        let list = if deep { &mut targets.deep } else { &mut targets.shallow };
-        if !list.iter().any(|p| p == at) {
-            list.push(at.to_path_buf());
-        }
-    }
-    Arc::new(move |lane| {
-        let mut targets = WatchTargets::default();
-        add(lane, &mut targets, admin.data_dir().join("skills"), true);
-        add(lane, &mut targets, crate::skill_deps::dependencies_root(admin.data_dir()), true);
-        add(lane, &mut targets, admin.data_dir().join("plugins"), false);
-        for (_, root) in McpGlue::enabled_plugin_roots(&admin, lane) {
-            // Node watches every manifest path; a file is seen through its folder (the nearest existing one while it is missing).
-            add(lane, &mut targets, root.clone(), false);
-            for file in crate::plugins::MANIFEST_FILES {
-                if let Some(folder) = root.join(file).parent() {
-                    add(lane, &mut targets, folder.to_path_buf(), false);
+        Arc::new(move |lane| {
+            let mut targets = WatchTargets::default();
+            add(lane, &mut targets, admin.data_dir().join("skills"), true);
+            add(lane, &mut targets, crate::skill_deps::dependencies_root(admin.data_dir()), true);
+            add(lane, &mut targets, admin.data_dir().join("plugins"), false);
+            for (_, root) in McpGlue::enabled_plugin_roots(&admin, lane) {
+                // Node watches every manifest path; a file is seen through its folder (the nearest existing one while it is missing).
+                add(lane, &mut targets, root.clone(), false);
+                for file in crate::plugins::MANIFEST_FILES {
+                    if let Some(folder) = root.join(file).parent() {
+                        add(lane, &mut targets, folder.to_path_buf(), false);
+                    }
+                }
+                for dir in crate::plugins::skills_roots(lane, &root) {
+                    add(lane, &mut targets, dir, true);
                 }
             }
-            for dir in crate::plugins::skills_roots(lane, &root) {
+            for dir in crate::plugins::skills_roots(lane, &builtin_plugin_root) {
                 add(lane, &mut targets, dir, true);
             }
-        }
-        for dir in crate::plugins::skills_roots(lane, &builtin_plugin_root) {
-            add(lane, &mut targets, dir, true);
-        }
-        targets
-    })
-}
+            targets
+        })
+    }
 
-// ── The effective server set ──────────────────────────────────────────────────────────
+    // ── The effective server set ──────────────────────────────────────────────────────────
 
     /// `resolveCatalog()`: nothing while MCP is switched off.
     async fn resolve_catalog(&self) -> Catalog {
@@ -540,14 +548,14 @@ pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf
         let mut out = Vec::new();
         let mut bad = HashMap::new();
         for (name, cfg) in &catalog.servers {
-                match McpServerConfig::from_entry(name, cfg, &self.env) {
-                    Ok(config) => out.push(config),
-                    Err(error) => {
-                        if cfg.get("enabled") != Some(&Value::Bool(false)) {
-                            bad.insert(name.clone(), crate::config::scrub(&error.to_string(), &[]));
-                        }
+            match McpServerConfig::from_entry(name, cfg, &self.env) {
+                Ok(config) => out.push(config),
+                Err(error) => {
+                    if cfg.get("enabled") != Some(&Value::Bool(false)) {
+                        bad.insert(name.clone(), crate::config::scrub(&error.to_string(), &[]));
                     }
                 }
+            }
         }
         (out, bad)
     }
@@ -688,7 +696,8 @@ pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf
                 let (l, f) = one(&server);
                 // A connector merges the accounts that are connected; a dead one is among its failures.
                 if let Some(l) = l.filter(|l| l.connected) {
-                    let slot = merged.get_or_insert(LiveServer { tools: Vec::new(), capabilities: l.capabilities.clone(), warnings: Vec::new(), connected: true });
+                    let slot =
+                        merged.get_or_insert(LiveServer { tools: Vec::new(), capabilities: l.capabilities.clone(), warnings: Vec::new(), connected: true });
                     for warning in l.warnings {
                         if !slot.warnings.contains(&warning) {
                             slot.warnings.push(warning);
@@ -745,7 +754,12 @@ pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf
         let (catalog, status) = self.status_with_catalog().await;
         let rows: HashMap<&str, &Value> = status["servers"].as_array().into_iter().flatten().filter_map(|row| Some((row["name"].as_str()?, row))).collect();
         let plugins = catalog.plugins.iter().map(|(id, plugin)| {
-            let servers: Vec<Value> = plugin["servers"].as_array().into_iter().flatten().map(|name| name.as_str().and_then(|name| rows.get(name)).map_or(Value::Null, |row| (*row).clone())).collect();
+            let servers: Vec<Value> = plugin["servers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|name| name.as_str().and_then(|name| rows.get(name)).map_or(Value::Null, |row| (*row).clone()))
+                .collect();
             (id.clone(), json!({"format": plugin["format"], "errors": plugin["errors"], "servers": servers}))
         });
         Value::Object(plugins.collect())
@@ -802,8 +816,7 @@ pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf
                 self.health.get(&name).map(|h| (name, h))
             })
             .collect();
-        let pending: HashSet<String> =
-            catalog.servers.keys().cloned().chain(live.keys().cloned()).filter(|n| self.logins.is_pending(n)).collect();
+        let pending: HashSet<String> = catalog.servers.keys().cloned().chain(live.keys().cloned()).filter(|n| self.logins.is_pending(n)).collect();
         let status = status_value(&StatusInput {
             catalog: &catalog,
             live: &live,
@@ -825,7 +838,11 @@ pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf
         let Some(server) = server else { return String::new() };
         match &*server.state() {
             ServerState::Failed { cause } => {
-                if self.live_oauth(name).is_some_and(|o| o.sign_in_required()) { "Sign-in required".to_owned() } else { cause.clone() }
+                if self.live_oauth(name).is_some_and(|o| o.sign_in_required()) {
+                    "Sign-in required".to_owned()
+                } else {
+                    cause.clone()
+                }
             }
             _ => String::new(),
         }
@@ -1006,7 +1023,10 @@ impl LoginBackend for Bridge {
         if transactional {
             rollback().await;
             glue.reconnect_one(name).await;
-            return (false, Some(if !account_error.is_empty() { account_error } else { error.unwrap_or_else(|| "The new sign-in could not connect".to_owned()) }));
+            return (
+                false,
+                Some(if !account_error.is_empty() { account_error } else { error.unwrap_or_else(|| "The new sign-in could not connect".to_owned()) }),
+            );
         }
         (false, error)
     }
@@ -1072,9 +1092,11 @@ fn account_row(input: &StatusInput<'_>, account_cfg: &Value, enabled: bool, in_u
     let name = clean(&account_cfg["name"]);
     let address = gmail_app_password_account(account_cfg);
     let oauth = if address.is_empty() { input.oauth.get(&name) } else { None };
-    let health = input.health.get(&name).cloned().or_else(|| {
-        input.failures.get(&name).map(|f| Health { email: String::new(), error: f.msg.clone(), auth_required: f.auth_required })
-    });
+    let health = input
+        .health
+        .get(&name)
+        .cloned()
+        .or_else(|| input.failures.get(&name).map(|f| Health { email: String::new(), error: f.msg.clone(), auth_required: f.auth_required }));
     let auth_required = oauth.is_some_and(|o| o["signedIn"] != json!(true)) || health.as_ref().is_some_and(|h| h.auth_required);
     let mut row = Map::new();
     row.insert("name".to_owned(), json!(name));
@@ -1131,7 +1153,10 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
         let connector = if owner.is_some() { None } else { connector_of_server(cfg) };
         let record = if stored.is_empty() { None } else { connector.and_then(|c| input.in_use.get(c.id)) };
         let recorded = record.and_then(|(rname, rid)| {
-            stored.iter().find(|a| clean(&a["name"]) == *rname && !rid.is_empty() && a.get("id").and_then(Value::as_str) == Some(rid.as_str())).map(|a| clean(&a["name"]))
+            stored
+                .iter()
+                .find(|a| clean(&a["name"]) == *rname && !rid.is_empty() && a.get("id").and_then(Value::as_str) == Some(rid.as_str()))
+                .map(|a| clean(&a["name"]))
         });
         let in_use = if record.is_some() { recorded } else { stored.iter().find(|a| account_enabled(a)).map(|a| clean(&a["name"])) };
         let accounts: Vec<Value> = stored
@@ -1225,7 +1250,9 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
             "configured": false, "status": "connected",
         });
         // `{ ...live, configured: false, status: 'connected' }`: a dead connection's row carries how it ended.
-        if !live.connected && let Some(f) = input.failures.get(name) {
+        if !live.connected
+            && let Some(f) = input.failures.get(name)
+        {
             row["error"] = json!(f.msg);
         }
         servers.push(row);
@@ -1394,7 +1421,12 @@ impl McpRuntime for McpGlue {
                 if let Some(v) = &a.title {
                     annotations.insert("title".to_owned(), json!(v));
                 }
-                for (key, v) in [("readOnlyHint", a.read_only_hint), ("destructiveHint", a.destructive_hint), ("idempotentHint", a.idempotent_hint), ("openWorldHint", a.open_world_hint)] {
+                for (key, v) in [
+                    ("readOnlyHint", a.read_only_hint),
+                    ("destructiveHint", a.destructive_hint),
+                    ("idempotentHint", a.idempotent_hint),
+                    ("openWorldHint", a.open_world_hint),
+                ] {
                     if let Some(v) = v {
                         annotations.insert(key.to_owned(), json!(v));
                     }
@@ -1424,10 +1456,7 @@ async fn probe_auth_within(probe: &Value, env: &Env, within: Duration) -> Result
     if has_configured_auth(probe) {
         return Ok(json!({"auth": "configured"}));
     }
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| e.without_url().to_string())?;
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.without_url().to_string())?;
     match mixdog_rt::time::timeout(within, probe_server(&client, kind, &url)).await {
         Ok(answer) => answer,
         Err(_) => Ok(json!({"auth": "unreachable", "error": format!("no answer within {}ms", within.as_millis())})),
@@ -1436,11 +1465,7 @@ async fn probe_auth_within(probe: &Value, env: &Env, within: Duration) -> Result
 
 async fn probe_server(client: &reqwest::Client, kind: &str, url: &reqwest::Url) -> Result<Value, String> {
     let request = if kind == "http" {
-        client
-            .post(url.clone())
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json, text/event-stream")
-            .body(INITIALIZE_PROBE)
+        client.post(url.clone()).header("Content-Type", "application/json").header("Accept", "application/json, text/event-stream").body(INITIALIZE_PROBE)
     } else {
         client.get(url.clone()).header("Accept", "text/event-stream")
     };

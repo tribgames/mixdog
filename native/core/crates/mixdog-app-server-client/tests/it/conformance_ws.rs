@@ -22,11 +22,7 @@ use mixdog_app_server_client::{
     discovery::Endpoint,
     ws::{FixedEndpoint, WsConnector},
 };
-use tokio::{
-    net::TcpListener,
-    sync::mpsc,
-    task::JoinHandle,
-};
+use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
 use tokio_tungstenite::{
     accept_async,
     tungstenite::{
@@ -80,10 +76,7 @@ impl ServerConn for WsConn {
                 t.abort();
             }
         } else {
-            let _ = self.out.send(Out::Close {
-                code,
-                reason: reason.to_string(),
-            });
+            let _ = self.out.send(Out::Close { code, reason: reason.to_string() });
         }
     }
     fn client_close(&self) -> Option<u16> {
@@ -118,10 +111,7 @@ impl WsNet {
             async move {
                 loop {
                     let (tcp, _) = listener.accept().await.unwrap();
-                    if fail
-                        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                        .is_ok()
-                    {
+                    if fail.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
                         drop(tcp); // the upgrade never completes: the client's open fails
                         continue;
                     }
@@ -131,10 +121,7 @@ impl WsNet {
             }
         });
         Self {
-            connector: Arc::new(WsConnector::new(Arc::new(FixedEndpoint(Endpoint {
-                port,
-                token: "t".into(),
-            })))),
+            connector: Arc::new(WsConnector::new(Arc::new(FixedEndpoint(Endpoint { port, token: "t".into() })))),
             accepted: Mutex::new(Some(accepted)),
             fail,
             listener_task,
@@ -158,8 +145,7 @@ impl WsConn {
         let server_closed = Arc::new(Mutex::new(false));
 
         let reader = tokio::spawn({
-            let (queued, client_close, server_closed) =
-                (queued.clone(), client_close.clone(), server_closed.clone());
+            let (queued, client_close, server_closed) = (queued.clone(), client_close.clone(), server_closed.clone());
             async move {
                 while let Some(Ok(message)) = stream.next().await {
                     match message {
@@ -169,8 +155,7 @@ impl WsConn {
                         }
                         // A close that answers the server's own close is the handshake echo, not the client's decision.
                         Message::Close(frame) if !*server_closed.lock().unwrap() => {
-                            *client_close.lock().unwrap() =
-                                Some(frame.map_or(1005, |f| u16::from(f.code)));
+                            *client_close.lock().unwrap() = Some(frame.map_or(1005, |f| u16::from(f.code)));
                         }
                         _ => {}
                     }
@@ -186,10 +171,7 @@ impl WsConn {
                         }
                     }
                     Out::Close { code, reason } => {
-                        let frame = CloseFrame {
-                            code: CloseCode::from(code),
-                            reason: reason.into(),
-                        };
+                        let frame = CloseFrame { code: CloseCode::from(code), reason: reason.into() };
                         let _ = sink.send(Message::Close(Some(frame))).await;
                         // Keep the sink alive so the client's echo can arrive; the reader task ends with the socket.
                         std::future::pending::<()>().await;
@@ -197,14 +179,7 @@ impl WsConn {
                 }
             }
         });
-        Self {
-            from_client: Mutex::new(Some(from_client)),
-            queued,
-            out,
-            client_close,
-            server_closed,
-            tasks: vec![reader, writer],
-        }
+        Self { from_client: Mutex::new(Some(from_client)), queued, out, client_close, server_closed, tasks: vec![reader, writer] }
     }
 }
 
@@ -212,7 +187,6 @@ impl WsConn {
 async fn conformance_scenarios_over_websocket() {
     common::run_all(|| async { Arc::new(WsNet::start().await) as Arc<dyn Net> }).await;
 }
-
 
 #[async_trait]
 impl Net for WsNet {

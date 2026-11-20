@@ -45,7 +45,6 @@ mod tests {
     }
 }
 
-
 impl MouseConfig {
     /// The configuration `lookup` names (`None` for an unset variable).
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>, statusline_band_rows: usize) -> Self {

@@ -23,9 +23,7 @@ pub fn day_key(ts_ms: i64) -> String {
 /// The compact integer a stored event keeps for its day (`20260101`).
 pub fn day_number(day: &str) -> Result<i64> {
     let digits: String = day.chars().filter(|c| *c != '-').collect();
-    digits
-        .parse()
-        .map_err(|_| LedgerError::Invalid("a calendar day"))
+    digits.parse().map_err(|_| LedgerError::Invalid("a calendar day"))
 }
 
 pub fn parse_day(day: &str) -> Result<NaiveDate> {
@@ -50,14 +48,7 @@ pub fn local_ms(local: NaiveDateTime) -> i64 {
 /// The local wall-clock fields of `ts_ms`.
 pub fn local_fields(ts_ms: i64) -> NaiveDateTime {
     mixdog_js::time::local_fields(ts_ms as f64)
-        .and_then(|f| {
-            NaiveDate::from_ymd_opt(f.year, f.month, f.day)?.and_hms_milli_opt(
-                f.hour,
-                f.minute,
-                f.second,
-                f.millisecond,
-            )
-        })
+        .and_then(|f| NaiveDate::from_ymd_opt(f.year, f.month, f.day)?.and_hms_milli_opt(f.hour, f.minute, f.second, f.millisecond))
         .unwrap_or_default()
 }
 
@@ -70,9 +61,7 @@ pub fn add_local_days(ts_ms: i64, days: i64) -> i64 {
 /// `new Date(ts); date.setHours(h, m, s, ms)` on the local day containing `ts_ms`.
 pub fn set_local_time(ts_ms: i64, hours: u32, minutes: u32, seconds: u32, millis: u32) -> i64 {
     let day = local_fields(ts_ms).date();
-    let time = day
-        .and_hms_milli_opt(hours, minutes, seconds, millis)
-        .unwrap_or_default();
+    let time = day.and_hms_milli_opt(hours, minutes, seconds, millis).unwrap_or_default();
     local_ms(time)
 }
 

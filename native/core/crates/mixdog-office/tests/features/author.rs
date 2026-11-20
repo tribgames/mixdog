@@ -187,7 +187,15 @@ impl AuthorHost for Fake {
         Ok(json!({ "ok": false, "error": { "message": "no data-sheet" }, "elapsedMs": 2 }))
     }
 
-    async fn print_pdf(&self, _html: &str, output: &Path, _source: &Path, _properties: &Value, _frame: bool, _signal: Option<&CancellationToken>) -> Result<Value, RunError> {
+    async fn print_pdf(
+        &self,
+        _html: &str,
+        output: &Path,
+        _source: &Path,
+        _properties: &Value,
+        _frame: bool,
+        _signal: Option<&CancellationToken>,
+    ) -> Result<Value, RunError> {
         self.runs.set(self.runs.get() + 1);
         self.write_staged(output, "%PDF printed");
         Ok(json!({ "ok": true, "bytes": 12, "pageCount": 2, "area": { "width": 794, "height": 1123 }, "warnings": [], "elapsedMs": 3 }))
@@ -241,7 +249,10 @@ fn folder(directory: &tempfile::TempDir) -> String {
 }
 
 fn names(directory: &Path) -> Vec<String> {
-    let mut found: Vec<String> = mixdog_fsio::read_dir(&Unlaned, directory).expect("read the folder").map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned()).collect();
+    let mut found: Vec<String> = mixdog_fsio::read_dir(&Unlaned, directory)
+        .expect("read the folder")
+        .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
     found.sort();
     found
 }
@@ -297,7 +308,12 @@ fn a_pptx_authored_from_html_lands_opens_a_session_and_leaves_no_staging_folder(
     // The write receipts: the document and the sidecars kept beside it.
     let target = directory.path().join("deck.pptx").to_string_lossy().into_owned();
     let noted = host.noted.borrow().clone();
-    assert!(noted.iter().any(|path| *path == target) && noted.contains(&format!("{target}.mixdog-source.html")) && noted.contains(&format!("{target}.mixdog-html.pdf")), "{noted:?}");
+    assert!(
+        noted.iter().any(|path| *path == target)
+            && noted.contains(&format!("{target}.mixdog-source.html"))
+            && noted.contains(&format!("{target}.mixdog-html.pdf")),
+        "{noted:?}"
+    );
 }
 
 #[test]
@@ -433,7 +449,10 @@ fn swap_session() -> SessionHandle {
 fn a_cancelled_document_swap_stops_instead_of_entering_replacement_recovery() {
     // The host answers that it was cancelled: the old version is intact.
     let handle = swap_session();
-    let error = run(swap_authored_document(&handle, Path::new("unused-staging.pptx"), None, "now", |_| async { json!({ "ok": false, "cancelled": true, "error": "cancelled by host" }) })).expect_err("cancelled");
+    let error = run(swap_authored_document(&handle, Path::new("unused-staging.pptx"), None, "now", |_| async {
+        json!({ "ok": false, "cancelled": true, "error": "cancelled by host" })
+    }))
+    .expect_err("cancelled");
     assert!(error.is_abort());
     assert_eq!(error.message(), "cancelled by host");
     {
@@ -469,7 +488,10 @@ fn document_swaps_publish_fresh_application_identity_and_invalidate_prior_readin
     .expect("swapped");
     assert!(swapped);
     let session = lock(&handle);
-    assert_eq!((session.com.app_pid.clone(), session.com.window_hwnd.clone(), session.com.document_id.clone()), (Some(json!(202)), Some(json!(20)), Some(json!("new-document"))));
+    assert_eq!(
+        (session.com.app_pid.clone(), session.com.window_hwnd.clone(), session.com.document_id.clone()),
+        (Some(json!(202)), Some(json!(20)), Some(json!("new-document")))
+    );
     assert_eq!(session.snapshot_version, 8);
     assert!(session.caches.render.is_none() && session.caches.snapshot.is_none());
     assert!(session.design_state.requires_visual_review);
@@ -526,7 +548,8 @@ fn a_cancellation_is_an_abort_whatever_raised_it() {
 
 // ---- the gates (pptx-html-reauthor.slow.test.mjs, the brief and plan tests of the author route) ---------------------------
 
-const BRIEF_HTML: &str = "<!doctype html><!-- BRIEF\nsubject/audience/action: board - approve the plan\n--><section class=\"slide\"><h1>Revenue grew 41%</h1></section>";
+const BRIEF_HTML: &str =
+    "<!doctype html><!-- BRIEF\nsubject/audience/action: board - approve the plan\n--><section class=\"slide\"><h1>Revenue grew 41%</h1></section>";
 
 #[test]
 fn a_figure_with_no_fact_behind_it_is_refused_before_anything_lands() {
@@ -561,7 +584,8 @@ fn a_sample_declaration_passes_the_facts_gate_and_an_unreadable_deck_is_left_to_
 fn a_geometry_finding_refuses_the_deck_and_lists_the_slide_and_message() {
     let directory = tempfile::tempdir().expect("folder");
     let host = Fake::new();
-    *host.answer.borrow_mut() = json!({ "ok": true, "bytes": 1, "logs": [], "elapsedMs": 2, "geometry": [{ "slide": 2, "findings": [{ "message": "label is 14px off its mark" }] }] });
+    *host.answer.borrow_mut() =
+        json!({ "ok": true, "bytes": 1, "logs": [], "elapsedMs": 2, "geometry": [{ "slide": 2, "findings": [{ "message": "label is 14px off its mark" }] }] });
     let result = author_with(&host, json!({ "path": "deck.pptx", "script": SLIDE_HTML }), &folder(&directory)).expect("a refusal is an answer");
     assert_eq!(result["reason"], json!("geometry_gate"));
     assert_eq!(result["gate"]["code"], json!("geometry"));
@@ -572,7 +596,8 @@ fn a_geometry_finding_refuses_the_deck_and_lists_the_slide_and_message() {
 #[test]
 fn a_script_with_no_runtime_says_so_and_changes_nothing() {
     let directory = tempfile::tempdir().expect("folder");
-    let error = author_with(&Fake::new(), json!({ "path": "deck.pptx", "script": "const pptxgen = require('pptxgenjs');" }), &folder(&directory)).expect_err("no runtime");
+    let error = author_with(&Fake::new(), json!({ "path": "deck.pptx", "script": "const pptxgen = require('pptxgenjs');" }), &folder(&directory))
+        .expect_err("no runtime");
     assert_eq!(error.message(), "no script runtime");
     assert_eq!(names(directory.path()), Vec::<String>::new());
 }
@@ -654,7 +679,8 @@ fn a_word_document_is_written_landed_and_opened_with_its_html_source_named() {
 #[test]
 fn an_excel_run_that_failed_lands_nothing_and_names_the_html() {
     let directory = tempfile::tempdir().expect("folder");
-    let result = author_with(&Fake::new(), json!({ "path": "book.xlsx", "script": "<!doctype html><p>x</p>" }), &folder(&directory)).expect("a refusal is an answer");
+    let result =
+        author_with(&Fake::new(), json!({ "path": "book.xlsx", "script": "<!doctype html><p>x</p>" }), &folder(&directory)).expect("a refusal is an answer");
     assert_eq!(result["reason"], json!("html_failed"));
     assert_eq!(result["error"]["message"], json!("no data-sheet"));
     assert!(result["htmlSource"].as_str().expect("source").ends_with("book.xlsx.mixdog-source.html"));
@@ -669,4 +695,3 @@ fn a_word_or_excel_author_without_its_source_points_at_its_skill() {
     let error = author_with(&Fake::new(), json!({ "path": "book.xlsx" }), &folder(&directory)).expect_err("no source");
     assert!(error.message().contains("Skill name:\"xlsx\"") && error.message().contains("an HTML document for an Excel workbook"), "{error}");
 }
-

@@ -295,8 +295,15 @@ impl Timings {
 
     /// The durations that are the graph's own.
     pub fn graph_ms(&self) -> u64 {
-        self.root_wait_ms + self.inventory_ms + self.verify_ms + self.resolver_check_ms
-            + self.cache_load_ms + self.parse_ms + self.link_ms + self.assemble_ms + self.admission_ms
+        self.root_wait_ms
+            + self.inventory_ms
+            + self.verify_ms
+            + self.resolver_check_ms
+            + self.cache_load_ms
+            + self.parse_ms
+            + self.link_ms
+            + self.assemble_ms
+            + self.admission_ms
     }
 }
 
@@ -421,7 +428,12 @@ impl Ledger {
         self.hook(|h| &mut h.before_snapshot);
         let prefix = format!("{}/", key.trim_end_matches('/'));
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let seen: Receipts = state.latest.iter().filter(|(path, _)| path.as_str() == Self::UNKNOWN || path.starts_with(&prefix)).map(|(path, revision)| (path.clone(), *revision)).collect();
+        let seen: Receipts = state
+            .latest
+            .iter()
+            .filter(|(path, _)| path.as_str() == Self::UNKNOWN || path.starts_with(&prefix))
+            .map(|(path, revision)| (path.clone(), *revision))
+            .collect();
         drop(state);
         #[cfg(test)]
         self.hook(|h| &mut h.after_snapshot);
@@ -790,7 +802,6 @@ mod tests {
         old.lock().unwrap().queried = true;
     }
 
-
     /// `constants.mjs:26`: `MIXDOG_CODE_GRAPH_CACHE_MAX_MB || 80` megabytes of disk cache.
     #[test]
     fn the_disk_cache_default_is_eighty_megabytes() {
@@ -842,19 +853,12 @@ fn env_count(name: &str, fallback: f64, min: f64) -> f64 {
     parsed.max(min)
 }
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 impl GraphCache {
     /// A cache under `dir` (created on the first write).
     pub fn new(dir: PathBuf) -> Self {
-        let mb = std::env::var("MIXDOG_CODE_GRAPH_CACHE_MAX_MB")
-            .ok()
-            .and_then(|v| v.trim().parse::<f64>().ok())
-            .filter(|v| *v > 0.0)
-            .unwrap_or(DEFAULT_MAX_MB);
+        let mb = std::env::var("MIXDOG_CODE_GRAPH_CACHE_MAX_MB").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| *v > 0.0).unwrap_or(DEFAULT_MAX_MB);
         Self {
             dir,
             max_bytes: ((mb * 1024.0 * 1024.0).floor() as u64).max(1024 * 1024),
@@ -1084,7 +1088,10 @@ impl GraphCache {
     /// `(signature, heap bytes)` of `key`'s last built graph.
     fn heap_note(&self, key: &str) -> Option<(u64, u64)> {
         let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        notes.get_or_insert_with(|| std::fs::read(self.note_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()).get(key).copied()
+        notes
+            .get_or_insert_with(|| std::fs::read(self.note_path()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default())
+            .get(key)
+            .copied()
     }
 
     /// Notes what `key`'s graph over the files of `signature` weighs.
@@ -1191,7 +1198,6 @@ impl GraphCache {
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
     }
 
-
     #[cfg(test)]
     pub(super) fn with_graph_budget(mut self, entries: usize, heap_bytes: u64) -> Self {
         self.resident_max_entries = entries;
@@ -1290,7 +1296,8 @@ impl GraphCache {
         let (epoch, receipts) = (self.ledger.epoch().to_owned(), graph.receipts.clone());
         let write = Box::new(move |out: &mut dyn io::Write| {
             let graph = reader.upgrade().ok_or_else(|| io::Error::other("graph released before it was written"))?;
-            serde_json::to_writer(out, &Payload { version: FORMAT_VERSION, key: payload_key, epoch, receipts, files: GraphFiles(graph) }).map_err(io::Error::other)
+            serde_json::to_writer(out, &Payload { version: FORMAT_VERSION, key: payload_key, epoch, receipts, files: GraphFiles(graph) })
+                .map_err(io::Error::other)
         });
         let staged = Staged { root: root.to_string_lossy().into_owned(), write, built_at: now_ms(), released: Some(weak), generation };
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, staged);
@@ -1467,15 +1474,9 @@ impl GraphCache {
     }
 
     /// Writes everything staged now, on `lane` (the exit drain; a failed write is the error).
-    pub async fn drain(
-        self: &Arc<Self>,
-        lane: mixdog_rt::MaintenanceIo,
-        cancel: &tokio_util::sync::CancellationToken,
-    ) -> io::Result<()> {
+    pub async fn drain(self: &Arc<Self>, lane: mixdog_rt::MaintenanceIo, cancel: &tokio_util::sync::CancellationToken) -> io::Result<()> {
         let cache = self.clone();
-        mixdog_scm::repo::on_lane(lane, cancel, move || cache.flush())
-            .await
-            .map_err(io::Error::other)?
+        mixdog_scm::repo::on_lane(lane, cancel, move || cache.flush()).await.map_err(io::Error::other)?
     }
 
     /// Debounced flush: one task waits 250 ms and then writes whatever has been staged since.

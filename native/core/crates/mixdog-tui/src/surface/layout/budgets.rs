@@ -37,11 +37,7 @@ const BTW_MAX_BODY_ROWS: usize = 10;
 
 /// `btwContentRows(panel, columns)`: the rows of the answer body (the scrollable content height).
 fn btw_content_rows(panel: &BtwPanel, columns: usize) -> usize {
-    let body = if panel.done {
-        measure_markdown_rendered_rows(&panel.text, columns.saturating_sub(4).max(1), false)
-    } else {
-        panel.text.split('\n').count()
-    };
+    let body = if panel.done { measure_markdown_rendered_rows(&panel.text, columns.saturating_sub(4).max(1), false) } else { panel.text.split('\n').count() };
     body.max(1)
 }
 
@@ -176,11 +172,9 @@ struct WelcomeBudget {
 }
 
 fn welcome_budget(input: &ShellLayoutInput, input_box_rows: usize, surfaces: &Surfaces) -> WelcomeBudget {
-    let slash_keeps_banner =
-        input.slash_palette_open && input.rows >= WELCOME_BANNER_ROWS + SLASH_PALETTE_ROWS + input_box_rows + STATUSLINE_ROWS + 1;
-    let show_banner = (input.state.item_count == 0 && (!surfaces.has_floating_panel || slash_keeps_banner))
-        || surfaces.project_selection_active
-        || input.onboarding_active;
+    let slash_keeps_banner = input.slash_palette_open && input.rows >= WELCOME_BANNER_ROWS + SLASH_PALETTE_ROWS + input_box_rows + STATUSLINE_ROWS + 1;
+    let show_banner =
+        (input.state.item_count == 0 && (!surfaces.has_floating_panel || slash_keeps_banner)) || surfaces.project_selection_active || input.onboarding_active;
     WelcomeBudget { slash_keeps_banner, show_banner, rows: if show_banner { WELCOME_BANNER_ROWS } else { 0 } }
 }
 
@@ -229,11 +223,8 @@ fn floating_panel_budget(input: &ShellLayoutInput, text_entry_rows: usize, optio
 /// The signature token order: `[tool, picker, context, usage, slash, text, inputBoxHidden, floatingPanelRows,
 /// promptBoxRows, promptMetaRows, queuedRows, WELCOME_ROWS]`, read by `signature.rs`.
 fn layout_signature(input: &ShellLayoutInput, surfaces: &Surfaces, rows: [usize; 5]) -> String {
-    let picker = input
-        .picker
-        .as_ref()
-        .map(|picker| format!("picker:{}:{}", picker.kind, if picker.fill_available { "fill" } else { "fit" }))
-        .unwrap_or_default();
+    let picker =
+        input.picker.as_ref().map(|picker| format!("picker:{}:{}", picker.kind, if picker.fill_available { "fill" } else { "fit" })).unwrap_or_default();
     let text = surfaces.text_entry_prompt.as_ref().map(|prompt| format!("text:{}", prompt.kind)).unwrap_or_default();
     let tokens = [
         if input.tool_approval.is_some() { "tool".to_owned() } else { String::new() },
@@ -266,10 +257,11 @@ pub(super) fn compute_row_budgets(input: &ShellLayoutInput, surfaces: &Surfaces,
             .latest_transcript_item
             .as_ref()
             .map(|item| mixdog_tui_widgets::spinner::TranscriptTail { kind: &item.kind, id: item.id.as_deref() }),
-        streaming_tail: state
-            .streaming_tail
-            .as_ref()
-            .map(|tail| mixdog_tui_widgets::spinner::StreamingTail { kind: &tail.kind, streaming: tail.streaming, text: &tail.text }),
+        streaming_tail: state.streaming_tail.as_ref().map(|tail| mixdog_tui_widgets::spinner::StreamingTail {
+            kind: &tail.kind,
+            streaming: tail.streaming,
+            text: &tail.text,
+        }),
         transcript_view_active: state.transcript_view_active,
     });
     let prompt_meta_rows = if prompt_meta_visible { 2 } else { 0 };
@@ -282,8 +274,7 @@ pub(super) fn compute_row_budgets(input: &ShellLayoutInput, surfaces: &Surfaces,
     let max_floating_panel_rows = input.rows.saturating_sub(base_reserve + 1);
     let text_entry = text_entry_budget(input, surfaces, max_floating_panel_rows);
     let panel = floating_panel_budget(input, text_entry.rows, option_panel_extra_rows, max_floating_panel_rows);
-    let panel_layout_signature =
-        layout_signature(input, surfaces, [panel.floating, prompt.prompt_box_rows, prompt_meta_rows, queued.rows, welcome.rows]);
+    let panel_layout_signature = layout_signature(input, surfaces, [panel.floating, prompt.prompt_box_rows, prompt_meta_rows, queued.rows, welcome.rows]);
     Budgets {
         current_prompt_layout_rows: prompt.current_prompt_layout_rows,
         prompt_input_rows: prompt.prompt_input_rows,

@@ -260,10 +260,7 @@ impl PairCode {
     /// The relay redeemed a code; only the lease that owns it is spent. A wanted code is replaced
     /// at once (the wake is already due), so a second phone can pair in the same visit.
     pub fn on_used(&mut self, fx: &mut dyn PairCodeEffects, envelope: &Value) {
-        let owns = self
-            .current
-            .as_ref()
-            .is_some_and(|held| envelope.get("lease").and_then(Value::as_str) == Some(held.lease.as_str()));
+        let owns = self.current.as_ref().is_some_and(|held| envelope.get("lease").and_then(Value::as_str) == Some(held.lease.as_str()));
         if owns {
             self.drop_current(fx);
             if self.wanted() {

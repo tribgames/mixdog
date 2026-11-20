@@ -63,20 +63,30 @@ fn gmail(tag: &str, command: &str) -> Option<Vec<Vec<u8>>> {
         "UID SEARCH X-GM-MSGID 333" => reply(vec![untagged("* SEARCH 7")]),
         c if c.starts_with("UID SEARCH X-GM-MSGID") => reply(vec![untagged("* SEARCH")]),
         "UID FETCH 9,7 (UID ENVELOPE INTERNALDATE BODYSTRUCTURE X-GM-THRID X-GM-MSGID)" => reply(vec![
-            untagged(&format!("* 1 FETCH (UID 7 INTERNALDATE \"17-Jul-2022 02:44:25 -0700\" ENVELOPE {ENVELOPE_7} BODYSTRUCTURE {STRUCTURE_7} X-GM-THRID 444 X-GM-MSGID 333)")),
-            untagged(&format!("* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9} BODYSTRUCTURE {STRUCTURE_9} X-GM-THRID 222 X-GM-MSGID 111)")),
+            untagged(&format!(
+                "* 1 FETCH (UID 7 INTERNALDATE \"17-Jul-2022 02:44:25 -0700\" ENVELOPE {ENVELOPE_7} BODYSTRUCTURE {STRUCTURE_7} X-GM-THRID 444 X-GM-MSGID 333)"
+            )),
+            untagged(&format!(
+                "* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9} BODYSTRUCTURE {STRUCTURE_9} X-GM-THRID 222 X-GM-MSGID 111)"
+            )),
         ]),
         "UID FETCH 9 (UID ENVELOPE INTERNALDATE BODYSTRUCTURE X-GM-THRID X-GM-MSGID)" => reply(vec![untagged(&format!(
             "* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9} BODYSTRUCTURE {STRUCTURE_9} X-GM-THRID 222 X-GM-MSGID 111)"
         ))]),
-        "UID FETCH 9 (UID ENVELOPE INTERNALDATE BODYSTRUCTURE X-GM-THRID X-GM-MSGID BODY.PEEK[HEADER.FIELDS (AUTHENTICATION-RESULTS)])" => reply(vec![with_literal(
-            &format!("* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9} BODYSTRUCTURE {STRUCTURE_9} X-GM-THRID 222 X-GM-MSGID 111 BODY[HEADER.FIELDS (AUTHENTICATION-RESULTS)]"),
-            AUTH_9.as_bytes(),
-            ")",
-        )]),
+        "UID FETCH 9 (UID ENVELOPE INTERNALDATE BODYSTRUCTURE X-GM-THRID X-GM-MSGID BODY.PEEK[HEADER.FIELDS (AUTHENTICATION-RESULTS)])" => {
+            reply(vec![with_literal(
+                &format!(
+                    "* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9} BODYSTRUCTURE {STRUCTURE_9} X-GM-THRID 222 X-GM-MSGID 111 BODY[HEADER.FIELDS (AUTHENTICATION-RESULTS)]"
+                ),
+                AUTH_9.as_bytes(),
+                ")",
+            )])
+        }
         c if c.starts_with("UID FETCH 9 (UID BODY.PEEK[1]<0.") => reply(vec![with_literal("* 2 FETCH (UID 9 BODY[1]<0>", BODY_9.as_bytes(), ")")]),
         "UID FETCH 7 (UID BODY.PEEK[1]<0.2048>)" => reply(vec![with_literal("* 1 FETCH (UID 7 BODY[1]<0>", BODY_7.as_bytes(), ")")]),
-        "UID FETCH 9 (UID ENVELOPE INTERNALDATE)" => reply(vec![untagged(&format!("* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9})"))]),
+        "UID FETCH 9 (UID ENVELOPE INTERNALDATE)" => {
+            reply(vec![untagged(&format!("* 2 FETCH (UID 9 INTERNALDATE \"08-Feb-2022 05:52:25 +0000\" ENVELOPE {ENVELOPE_9})"))])
+        }
         "UID FETCH 9 (UID ENVELOPE BODY.PEEK[HEADER.FIELDS (REFERENCES)])" => reply(vec![with_literal(
             &format!("* 2 FETCH (UID 9 ENVELOPE {ENVELOPE_9} BODY[HEADER.FIELDS (REFERENCES)]"),
             b"References: <root@x.org>\r\n <m9@x.org>\r\n\r\n",
@@ -98,7 +108,12 @@ async fn server(store: Arc<dyn SecretStore>) -> Server {
     let mut imap = Imap::gmail();
     imap.extra = Some(Arc::new(gmail) as Extra);
     let rig = rig(imap, Smtp::gmail(), quick()).await;
-    Server { mcp: GmailMcp::new(Arc::new(rig.verifier), store), imap_log: rig.imap_log, smtp_log: rig.smtp_log, url: Url::parse(GMAIL_APP_PASSWORD_URL).unwrap() }
+    Server {
+        mcp: GmailMcp::new(Arc::new(rig.verifier), store),
+        imap_log: rig.imap_log,
+        smtp_log: rig.smtp_log,
+        url: Url::parse(GMAIL_APP_PASSWORD_URL).unwrap(),
+    }
 }
 
 async fn stored() -> Arc<dyn SecretStore> {
@@ -115,7 +130,8 @@ impl Server {
 
     /// The `result` of `tools/call`.
     async fn call(&self, name: &str, arguments: Value) -> Value {
-        let reply = self.post(Some(EMAIL), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": arguments } })).await;
+        let reply =
+            self.post(Some(EMAIL), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": arguments } })).await;
         reply["result"].clone()
     }
 
@@ -160,7 +176,8 @@ async fn the_reserved_address_is_recognised_and_other_paths_and_methods_are_refu
 #[tokio::test]
 async fn initialize_names_the_account_and_needs_a_saved_password() {
     let server = server(stored().await).await;
-    let reply = server.post(Some("User@Gmail.com"), json!({ "jsonrpc": "2.0", "id": 5, "method": "initialize", "params": { "protocolVersion": "2025-03-26" } })).await;
+    let reply =
+        server.post(Some("User@Gmail.com"), json!({ "jsonrpc": "2.0", "id": 5, "method": "initialize", "params": { "protocolVersion": "2025-03-26" } })).await;
     assert_eq!(reply["result"]["protocolVersion"], "2025-03-26");
     assert_eq!(reply["result"]["serverInfo"]["name"], "mixdog-gmail-app-password");
     assert_eq!(reply["result"]["instructions"], "Accounts: user@gmail.com. `account` may be left out.");
@@ -168,7 +185,10 @@ async fn initialize_names_the_account_and_needs_a_saved_password() {
     let empty = self::server(Arc::new(MemoryStore::default())).await;
     let reply = empty.post(Some(EMAIL), json!({ "jsonrpc": "2.0", "id": 5, "method": "initialize" })).await;
     assert_eq!(reply["error"]["code"], -32001);
-    assert_eq!(reply["error"]["message"], "GMAIL_APP_PASSWORD_MISSING: No Gmail app password is saved on this computer. Connect Gmail again with an app password.");
+    assert_eq!(
+        reply["error"]["message"],
+        "GMAIL_APP_PASSWORD_MISSING: No Gmail app password is saved on this computer. Connect Gmail again with an app password."
+    );
     let result = empty.call("search_emails", json!({})).await;
     assert_eq!(result["isError"], true);
     assert!(result["content"][0]["text"].as_str().unwrap().starts_with("GMAIL_APP_PASSWORD_MISSING"));
@@ -261,12 +281,8 @@ async fn read_email_gives_the_headers_text_links_attachments_and_the_authenticat
 #[test]
 fn a_text_part_is_read_in_the_charset_it_names() {
     use super::parse::Node;
-    let node = |charset: &str| Node {
-        kind: "text/plain".into(),
-        parameters: vec![("charset".into(), charset.into())],
-        encoding: "base64".into(),
-        ..Node::default()
-    };
+    let node =
+        |charset: &str| Node { kind: "text/plain".into(), parameters: vec![("charset".into(), charset.into())], encoding: "base64".into(), ..Node::default() };
     // "한글" in EUC-KR, as imapflow's download converts it.
     assert_eq!(super::decoded_part(&node("euc-kr"), b"x9Gx2w==", 1024), "한글");
     assert_eq!(super::decoded_part(&node("US-ASCII"), b"aGk=", 1024), "hi");
@@ -315,7 +331,8 @@ async fn managing_emails_sends_the_stores_and_moves_imapflow_sends() {
 #[tokio::test]
 async fn send_email_talks_smtp_stuffs_dots_and_reports_the_message_id() {
     let server = server(stored().await).await;
-    let text = server.text("send_email", json!({ "to": "a@x.org, Bee <b@y.org>", "cc": "c@x.org", "bcc": "d@x.org", "subject": "Hi", "body": "one\n.dot" })).await;
+    let text =
+        server.text("send_email", json!({ "to": "a@x.org, Bee <b@y.org>", "cc": "c@x.org", "bcc": "d@x.org", "subject": "Hi", "body": "one\n.dot" })).await;
     assert!(text.starts_with("Sent (message <") && text.ends_with("@gmail.com>)."), "{text}");
     let seen = lines(&server.smtp_log);
     let from = seen.iter().position(|line| line == "MAIL FROM:<user@gmail.com>").unwrap();
@@ -358,7 +375,8 @@ async fn a_refused_login_is_the_fixed_sentence_and_the_password_never_appears() 
     let mail = Arc::new(rig.verifier);
     let server = GmailMcp::new(mail, stored().await);
     let url = Url::parse(GMAIL_APP_PASSWORD_URL).unwrap();
-    let body = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "search_emails", "arguments": {} } })).unwrap();
+    let body =
+        serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "search_emails", "arguments": {} } })).unwrap();
     let answer = server.answer(&url, "POST", Some(EMAIL), &body).await.unwrap().body.unwrap();
     assert_eq!(answer["result"]["isError"], true);
     let text = answer["result"]["content"][0]["text"].as_str().unwrap();

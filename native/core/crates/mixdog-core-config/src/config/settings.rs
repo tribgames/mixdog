@@ -75,8 +75,7 @@ const HEARTBEAT_INTERVAL_CHOICES: [i64; 4] = [30, 60, 120, 240];
 const DEFAULT_HEARTBEAT_INTERVAL_MINUTES: i64 = 60;
 const MAX_BOT_ORDER_IDS: usize = 500;
 const STARTER_GUIDE_STEPS: [&str; 5] = ["provider", "project", "workflow", "extensions", "remote"];
-const OAUTH_RISK_WARNING: &str =
-    "Using this provider through OAuth carries a high risk of penalties such as account restrictions.";
+const OAUTH_RISK_WARNING: &str = "Using this provider through OAuth carries a high risk of penalties such as account restrictions.";
 
 fn type_error(message: impl Into<String>) -> ToolModulesError {
     ToolModulesError::InvalidArgument(message.into())
@@ -131,13 +130,10 @@ impl Settings {
     }
 
     pub async fn set_heartbeat_interval(&self, minutes: &Value) -> Result<Value, ToolModulesError> {
-        let choice = minutes
-            .as_f64()
-            .filter(|m| HEARTBEAT_INTERVAL_CHOICES.iter().any(|c| *c as f64 == *m))
-            .ok_or_else(|| {
-                let list: Vec<String> = HEARTBEAT_INTERVAL_CHOICES.iter().map(i64::to_string).collect();
-                failed(format!("heartbeat interval must be one of {} minutes", list.join(", ")))
-            })?;
+        let choice = minutes.as_f64().filter(|m| HEARTBEAT_INTERVAL_CHOICES.iter().any(|c| *c as f64 == *m)).ok_or_else(|| {
+            let list: Vec<String> = HEARTBEAT_INTERVAL_CHOICES.iter().map(i64::to_string).collect();
+            failed(format!("heartbeat interval must be one of {} minutes", list.join(", ")))
+        })?;
         let before = self.config.agent();
         let mut after = before.clone();
         after.insert("heartbeatIntervalMinutes".into(), Value::from(choice as i64));
@@ -333,8 +329,7 @@ pub const PROFILE_LANGUAGES: [(&str, &str, Option<&str>); 21] = [
     ("uk", "Українська", Some("Ukrainian (Українська)")),
 ];
 
-pub const PROFILE_EXPERIENCE_LEVELS: [(&str, &str); 4] =
-    [("beginner", "Beginner"), ("vibe-coder", "Vibe coder"), ("junior", "Junior"), ("expert", "Expert")];
+pub const PROFILE_EXPERIENCE_LEVELS: [(&str, &str); 4] = [("beginner", "Beginner"), ("vibe-coder", "Vibe coder"), ("junior", "Junior"), ("expert", "Expert")];
 
 fn language_json((id, label, prompt): &(&str, &str, Option<&str>)) -> Value {
     json!({ "id": id, "label": label, "prompt": prompt })
@@ -346,11 +341,7 @@ fn level_json((id, label): &(&str, &str)) -> Value {
 
 /// `String(value ?? fallback)` over the first non-null of `values`.
 fn first_text(values: &[Option<&Value>], fallback: &str) -> String {
-    values
-        .iter()
-        .flatten()
-        .find(|v| !v.is_null())
-        .map_or_else(|| fallback.to_owned(), |v| mixdog_js::value_to_string(v))
+    values.iter().flatten().find(|v| !v.is_null()).map_or_else(|| fallback.to_owned(), |v| mixdog_js::value_to_string(v))
 }
 
 /// `normalizeProfileConfig`: `{ title, language, experienceLevel }`.
@@ -416,9 +407,7 @@ impl Settings {
         let mut next = normalize_profile(before.get("profile"));
         let own = |key: &str| input.as_object().and_then(|m| m.get(key));
         let has = |key: &str| input.as_object().is_some_and(|m| m.contains_key(key));
-        let pick = |keys: [&str; 2], fallback: &str| {
-            Value::String(first_text(&[own(keys[0]), own(keys[1])], fallback))
-        };
+        let pick = |keys: [&str; 2], fallback: &str| Value::String(first_text(&[own(keys[0]), own(keys[1])], fallback));
         if has("title") || has("name") {
             next.insert("title".into(), pick(["title", "name"], ""));
         }
@@ -553,10 +542,7 @@ fn shell_command(value: Option<&Value>) -> Result<String, ToolModulesError> {
     let text = clean(value);
     let text = if text.eq_ignore_ascii_case("auto") { String::new() } else { text };
     let chars: Vec<char> = text.chars().collect();
-    let unquoted = if chars.len() >= 3
-        && matches!(chars[0], '\'' | '"')
-        && matches!(chars[chars.len() - 1], '\'' | '"')
-    {
+    let unquoted = if chars.len() >= 3 && matches!(chars[0], '\'' | '"') && matches!(chars[chars.len() - 1], '\'' | '"') {
         chars[1..chars.len() - 1].iter().collect::<String>()
     } else {
         text
@@ -579,10 +565,22 @@ fn shell_command(value: Option<&Value>) -> Result<String, ToolModulesError> {
 /// label, description, warning and provider.
 type DeveloperOption = (&'static str, &'static str, &'static str, &'static str, Option<&'static str>, Option<&'static str>);
 const DEVELOPER_OPTIONS: [DeveloperOption; 5] = [
-    ("approvals", "allowAllActions", "Allow all actions",
-     "Skips the approval cards for every action except payments and permanent deletes.",
-     Some("Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk."), None),
-    ("providers", "antigravityOAuth", "Gemini (Antigravity)", "Show Antigravity (Gemini) OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("antigravity-oauth")),
+    (
+        "approvals",
+        "allowAllActions",
+        "Allow all actions",
+        "Skips the approval cards for every action except payments and permanent deletes.",
+        Some("Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk."),
+        None,
+    ),
+    (
+        "providers",
+        "antigravityOAuth",
+        "Gemini (Antigravity)",
+        "Show Antigravity (Gemini) OAuth in Providers and the model picker.",
+        Some(OAUTH_RISK_WARNING),
+        Some("antigravity-oauth"),
+    ),
     ("providers", "cursorOAuth", "Cursor", "Show Cursor OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("cursor-oauth")),
     ("providers", "devinOAuth", "Devin", "Show Devin OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("devin-oauth")),
     ("providers", "mimoOAuth", "MiMo", "Show Xiaomi MiMo OAuth in Providers and the model picker.", Some(OAUTH_RISK_WARNING), Some("mimo-oauth")),
@@ -590,10 +588,8 @@ const DEVELOPER_OPTIONS: [DeveloperOption; 5] = [
 
 /// `developerSettingsView(stored)`.
 fn developer_view(stored: Option<&Value>) -> Value {
-    let values: Doc = stored
-        .and_then(Value::as_object)
-        .map(|m| m.iter().filter(|(_, v)| v.is_boolean()).map(|(k, v)| (k.clone(), v.clone())).collect())
-        .unwrap_or_default();
+    let values: Doc =
+        stored.and_then(Value::as_object).map(|m| m.iter().filter(|(_, v)| v.is_boolean()).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
     let section = |id: &str, label: &str, description: Option<&str>| {
         let options: Vec<Value> = DEVELOPER_OPTIONS
             .iter()
@@ -657,10 +653,7 @@ fn required_starter_guide(value: &Value) -> Result<Guide, ToolModulesError> {
 /// `mergeStarterGuide`: every field only moves forward.
 fn merge_starter_guide(stored: Option<Guide>, next: Guide) -> Value {
     let (closed, welcomed, visited) = stored.unwrap_or((false, false, Vec::new()));
-    let merged: Vec<&str> = STARTER_GUIDE_STEPS
-        .into_iter()
-        .filter(|step| visited.contains(step) || next.2.contains(step))
-        .collect();
+    let merged: Vec<&str> = STARTER_GUIDE_STEPS.into_iter().filter(|step| visited.contains(step) || next.2.contains(step)).collect();
     json!({ "closed": closed || next.0, "welcomed": welcomed || next.1, "visited": merged })
 }
 

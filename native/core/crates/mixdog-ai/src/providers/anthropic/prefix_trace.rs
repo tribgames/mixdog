@@ -100,14 +100,17 @@ pub fn fingerprint(body: &Map<String, Value>) -> Fingerprint {
             markers.push(format!("s{index}:{}", marker_ttl(marker)));
         }
     }
-    let params = hash(&json!({ "thinking": body.get("thinking").cloned().unwrap_or(Value::Null), "output_config": body.get("output_config").cloned().unwrap_or(Value::Null) }));
+    let params = hash(
+        &json!({ "thinking": body.get("thinking").cloned().unwrap_or(Value::Null), "output_config": body.get("output_config").cloned().unwrap_or(Value::Null) }),
+    );
     let mut chain = Vec::new();
     let mut message_marks = Vec::new();
     let mut link = params.clone();
     for (index, message) in messages.iter().enumerate() {
         link = hash(&json!([link, message_without_markers(message)]));
         chain.push(link.clone());
-        let marked = message.get("content").and_then(Value::as_array).and_then(|blocks| blocks.iter().find_map(|b| b.get("cache_control").filter(|m| truthy(m))));
+        let marked =
+            message.get("content").and_then(Value::as_array).and_then(|blocks| blocks.iter().find_map(|b| b.get("cache_control").filter(|m| truthy(m))));
         if let Some(marker) = marked {
             markers.push(format!("m{index}:{}", marker_ttl(marker)));
             message_marks.push((index as u64, link.clone()));
@@ -135,7 +138,10 @@ impl Fingerprint {
         out.insert("system".into(), json!(self.system));
         out.insert("params".into(), self.params.as_ref().map_or(Value::Null, |p| json!(p)));
         out.insert("markers".into(), json!(self.markers));
-        out.insert("messageMarks".into(), self.message_marks.as_ref().map_or(Value::Null, |marks| Value::Array(marks.iter().map(|(i, h)| json!({ "i": i, "h": h })).collect())));
+        out.insert(
+            "messageMarks".into(),
+            self.message_marks.as_ref().map_or(Value::Null, |marks| Value::Array(marks.iter().map(|(i, h)| json!({ "i": i, "h": h })).collect())),
+        );
         Value::Object(out)
     }
 
@@ -222,7 +228,8 @@ pub fn changes(session: &str) -> Option<Map<String, Value>> {
     out.insert("changedBlocks".into(), json!(if changed.is_empty() { "none".to_owned() } else { changed.join(",") }));
     out.insert("markersChanged".into(), json!(system_markers(previous) != system_markers(current)));
     if let (Some(marks), Some(chain)) = (&previous.message_marks, &current.chain) {
-        let lost: Vec<String> = marks.iter().filter(|(i, h)| usize::try_from(*i).ok().and_then(|i| chain.get(i)) != Some(h)).map(|(i, _)| format!("m{i}")).collect();
+        let lost: Vec<String> =
+            marks.iter().filter(|(i, h)| usize::try_from(*i).ok().and_then(|i| chain.get(i)) != Some(h)).map(|(i, _)| format!("m{i}")).collect();
         out.insert("lostMessageBreakpoints".into(), json!(if lost.is_empty() { "none".to_owned() } else { lost.join(",") }));
     }
     Some(out)

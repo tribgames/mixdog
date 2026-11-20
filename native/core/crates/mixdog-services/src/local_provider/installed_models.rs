@@ -124,7 +124,12 @@ impl LocalRuntime for ManagedRuntime {
     }
 
     fn supports_tools(&self, model: &str) -> Option<bool> {
-        self.0.catalog.state.get(model).pointer("/capabilities/tools").and_then(Value::as_bool)
+        self.0
+            .catalog
+            .state
+            .get(model)
+            .pointer("/capabilities/tools")
+            .and_then(Value::as_bool)
             .or_else(|| self.0.catalog.model_entry(model)?.get("supportsFunctionCalling")?.as_bool())
     }
 }
@@ -153,8 +158,7 @@ mod tests {
             _ = mixdog_rt::time::sleep(std::time::Duration::from_secs(1)) => {},
         }
         assert_eq!(provider.queue.status()["activeRequests"], 1);
-        assert!(matches!(provider.queue.run(None, |_| async {}).await,
-            Err(super::super::request_queue::QueueError::Stopping)));
+        assert!(matches!(provider.queue.run(None, |_| async {}).await, Err(super::super::request_queue::QueueError::Stopping)));
         drop(cleanup);
         stopping.await;
         assert_eq!(provider.queue.run(None, |_| async { 1 }).await, Ok(1));

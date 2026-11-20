@@ -49,8 +49,16 @@ const CALIBRATION_MAX: f64 = 3.0;
 /// How many readings stay resolvable for entry previews (`INSPECTION_SNAPSHOT_LIMIT`).
 const SNAPSHOT_LIMIT: usize = 4;
 const ATTACHMENT_LABEL_LIMIT: usize = 3;
-const OPAQUE_FIELDS: [&str; 8] =
-    ["signature", "thinkingSignature", "thoughtSignature", "thought_signature", "encrypted_content", "encryptedContent", "encrypted_reasoning", "encryptedReasoning"];
+const OPAQUE_FIELDS: [&str; 8] = [
+    "signature",
+    "thinkingSignature",
+    "thoughtSignature",
+    "thought_signature",
+    "encrypted_content",
+    "encryptedContent",
+    "encrypted_reasoning",
+    "encryptedReasoning",
+];
 /// `CONTEXT_CATEGORIES` (`shared/context-inspection.mjs`).
 const CATEGORIES: [(&str, &str); 11] = [
     ("system", "System messages"),
@@ -340,7 +348,9 @@ fn section_drafts(sections: Vec<Section>, index: usize, tokens: f64, reminder: b
         .into_iter()
         .enumerate()
         .map(|(at, section)| {
-            let heading = section_heading(&section.text).filter(|h| !h.is_empty()).unwrap_or_else(|| if reminder { "System reminder" } else { "System prompt" }.to_owned());
+            let heading = section_heading(&section.text)
+                .filter(|h| !h.is_empty())
+                .unwrap_or_else(|| if reminder { "System reminder" } else { "System prompt" }.to_owned());
             let skill_label = match mixdog_js::js_to_lowercase(mixdog_js::js_trim(&heading)).as_str() {
                 "skills" => Some("Skill instructions"),
                 "available-skills" => Some("Available skills"),
@@ -413,7 +423,8 @@ fn attachment_draft(items: &[Attachment], index: usize, identity: Option<(&str, 
     if tokens == 0.0 {
         return None;
     }
-    let mut shown: Vec<String> = items.iter().take(ATTACHMENT_LABEL_LIMIT).map(|i| if i.label.is_empty() { i.kind.to_owned() } else { i.label.clone() }).collect();
+    let mut shown: Vec<String> =
+        items.iter().take(ATTACHMENT_LABEL_LIMIT).map(|i| if i.label.is_empty() { i.kind.to_owned() } else { i.label.clone() }).collect();
     if items.len() > ATTACHMENT_LABEL_LIMIT {
         shown.push(format!("+{}", items.len() - ATTACHMENT_LABEL_LIMIT));
     }
@@ -446,7 +457,8 @@ fn attachment_draft(items: &[Attachment], index: usize, identity: Option<(&str, 
 }
 
 fn is_reasoning_block(block: &Value) -> bool {
-    matches!(block.get("type").and_then(Value::as_str), Some("thinking" | "redacted_thinking" | "reasoning")) || block.get("thought") == Some(&Value::Bool(true))
+    matches!(block.get("type").and_then(Value::as_str), Some("thinking" | "redacted_thinking" | "reasoning"))
+        || block.get("thought") == Some(&Value::Bool(true))
 }
 
 /// The reasoning blocks of an assistant message (`messageReasoningBreakdown(message).blocks`): a replay envelope's
@@ -455,7 +467,9 @@ fn reasoning_blocks(message: &AgentMessage, input: &StatusInput<'_>, row: &Value
     if message.role() != Role::Assistant {
         return Vec::new();
     }
-    let reasoning = |items: Option<&Value>| -> Vec<Value> { items.and_then(Value::as_array).map(|list| list.iter().filter(|b| is_reasoning_block(b)).cloned().collect()).unwrap_or_default() };
+    let reasoning = |items: Option<&Value>| -> Vec<Value> {
+        items.and_then(Value::as_array).map(|list| list.iter().filter(|b| is_reasoning_block(b)).cloned().collect()).unwrap_or_default()
+    };
     let mut blocks = reasoning(row.get("content"));
     if let Some(replay) = message.message.replay_for(input.meter.replay_owner).find(|r| r.items.is_array()) {
         blocks.extend(reasoning(Some(&replay.items)));
@@ -495,18 +509,22 @@ fn split_injected(message: &AgentMessage, row: &Value) -> Option<(AgentMessage, 
     {
         let injected = [prefix, suffix].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n");
         let stripped = match (&message.message.content, row.get("content")) {
-            (Content::Text(text), Some(Value::String(_))) => {
-                (mixdog_js::utf16_len(text) >= mixdog_js::utf16_len(prefix) + mixdog_js::utf16_len(suffix) && text.starts_with(prefix) && text.ends_with(suffix))
-                    .then(|| {
-                        let inner = text[prefix.len()..text.len() - suffix.len()].to_owned();
-                        (Content::Text(inner.clone()), Value::String(inner))
-                    })
-            }
+            (Content::Text(text), Some(Value::String(_))) => (mixdog_js::utf16_len(text) >= mixdog_js::utf16_len(prefix) + mixdog_js::utf16_len(suffix)
+                && text.starts_with(prefix)
+                && text.ends_with(suffix))
+            .then(|| {
+                let inner = text[prefix.len()..text.len() - suffix.len()].to_owned();
+                (Content::Text(inner.clone()), Value::String(inner))
+            }),
             (Content::Parts(parts), Some(Value::Array(items))) => {
-                let is_text = |item: Option<&Value>, want: &str| item.is_some_and(|i| i.get("type").and_then(Value::as_str) == Some("text") && i.get("text").and_then(Value::as_str) == Some(want));
+                let is_text = |item: Option<&Value>, want: &str| {
+                    item.is_some_and(|i| i.get("type").and_then(Value::as_str) == Some("text") && i.get("text").and_then(Value::as_str) == Some(want))
+                };
                 let (head, tail) = (usize::from(!prefix.is_empty()), usize::from(!suffix.is_empty()));
-                let fits = (prefix.is_empty() || is_text(items.first(), prefix)) && (suffix.is_empty() || is_text(items.last(), suffix)) && items.len() >= head + tail;
-                (fits && parts.len() == items.len()).then(|| (Content::Parts(parts[head..parts.len() - tail].to_vec()), Value::Array(items[head..items.len() - tail].to_vec())))
+                let fits =
+                    (prefix.is_empty() || is_text(items.first(), prefix)) && (suffix.is_empty() || is_text(items.last(), suffix)) && items.len() >= head + tail;
+                (fits && parts.len() == items.len())
+                    .then(|| (Content::Parts(parts[head..parts.len() - tail].to_vec()), Value::Array(items[head..items.len() - tail].to_vec())))
             }
             _ => None,
         };
@@ -784,7 +802,8 @@ fn tool_drafts(tools: &RequestTools<'_>, deferred_catalog: &[String], annotation
             let (name, annotations, preview, shown) = match tool {
                 Tool::Native(value) => {
                     let name = value.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string).unwrap_or_default();
-                    let shown = value.get("name").filter(|n| truthy(Some(n))).or_else(|| value.get("type").filter(|t| truthy(Some(t)))).map(mixdog_js::value_to_string);
+                    let shown =
+                        value.get("name").filter(|n| truthy(Some(n))).or_else(|| value.get("type").filter(|t| truthy(Some(t)))).map(mixdog_js::value_to_string);
                     (name, ToolAnnotations::of_native(value), (*value).clone(), shown)
                 }
                 Tool::Defined(definition) => {
@@ -884,7 +903,15 @@ struct BuildFacts<'a> {
     annotations_of: &'a dyn Fn(&str) -> ToolAnnotations,
 }
 
-fn build(input: &StatusInput<'_>, facts: &BuildFacts<'_>, messages: &[AgentMessage], tools: &RequestTools<'_>, revision: String, coverage: Option<&Coverage>, coverage_key: String) -> Reading {
+fn build(
+    input: &StatusInput<'_>,
+    facts: &BuildFacts<'_>,
+    messages: &[AgentMessage],
+    tools: &RequestTools<'_>,
+    revision: String,
+    coverage: Option<&Coverage>,
+    coverage_key: String,
+) -> Reading {
     let mut drafts = message_drafts(messages, input);
     let deferred_catalog: Vec<String> = ["deferredToolCatalog", "deferredLateToolCatalog"]
         .into_iter()
@@ -976,7 +1003,8 @@ impl Inspections {
             let live = truthy(input.session.get("id")) && input.active;
             let messages: &[AgentMessage] = if live { input.messages } else { &[] };
             let tools = if live { input.request_tools } else { RequestTools::default() };
-            let identity = json!([status.get("sessionId"), status.get("provider"), status.get("model"), input.signer.exact(messages), tool_schema_signature(&tools)]);
+            let identity =
+                json!([status.get("sessionId"), status.get("provider"), status.get("model"), input.signer.exact(messages), tool_schema_signature(&tools)]);
             let revision = sha256_hex(mixdog_js::json_stringify(&identity).as_bytes());
             let coverage = provider_coverage(input.session, messages, input.signer);
             let key = coverage.as_ref().map_or_else(|| "none".to_owned(), |c| format!("{}:{}", c.count, mixdog_js::number_to_string(c.tokens)));

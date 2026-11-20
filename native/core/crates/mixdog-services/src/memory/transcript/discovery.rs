@@ -45,7 +45,6 @@ mod tests {
     }
 }
 
-
 /// `mtimeMs` of a metadata, as a JS number.
 pub fn mtime_ms(meta: &std::fs::Metadata) -> Option<f64> {
     let modified = meta.modified().ok()?;

@@ -8,7 +8,6 @@ use mixdog_mcp::permissions::ConnectorPolicy;
 use mixdog_mcp::permissions::PolicyIo;
 use serde_json::json;
 
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_damaged_policy_is_kept_aside_and_its_good_copy_restored_but_without_one_it_stays() {
     let tokens = mixdog_rt::testing::tokens();
@@ -52,7 +51,9 @@ async fn a_policy_saved_after_the_start_load_is_read_at_the_next_refresh() {
     let tool = "mcp__outbox__say";
     assert_eq!(policy.permission("worker", tool).name(), "auto");
     // Each save has a size of its own, so its stamp moves however coarse the file times are.
-    for (connectors, expected) in [(r#"{"tools":{"outbox":{"say":"needs_approval"}}}"#, "needs_approval"), (r#"{"off":["outbox"]}"#, "disabled"), (r#"{"off":[]}"#, "auto")] {
+    for (connectors, expected) in
+        [(r#"{"tools":{"outbox":{"say":"needs_approval"}}}"#, "needs_approval"), (r#"{"off":["outbox"]}"#, "disabled"), (r#"{"off":[]}"#, "auto")]
+    {
         std::fs::write(agent.join("agent.json"), format!(r#"{{"connectors":{connectors}}}"#)).unwrap();
         policy.refresh("worker", Some(tool)).await;
         assert_eq!(policy.permission("worker", tool).name(), expected, "after saving {connectors}");
@@ -110,4 +111,3 @@ async fn a_tools_identity_is_its_connector_and_tool_whichever_account_serves_it(
     assert_eq!(policy.identity("mcp__slack__post"), "mcp__slack__post");
     assert_eq!(policy.identity("shell"), "shell");
 }
-

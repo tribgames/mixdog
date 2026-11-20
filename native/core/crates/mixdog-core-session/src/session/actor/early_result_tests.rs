@@ -57,18 +57,35 @@ impl Played {
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
                 let Some((mut steps, done)) = slot.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
-                let row = |iid: String, role: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None };
+                let row = |iid: String, role: &str, body: Value| ItemCommit {
+                    iid: ItemId::from(iid),
+                    role: Some(role.into()),
+                    model: true,
+                    visible: true,
+                    body,
+                    prompt: None,
+                };
                 let mut n = 0;
                 while let Some(step) = steps.recv().await {
                     n += 1;
                     match step {
                         Step::Card(calls) => {
                             let calls: Vec<Value> = calls.iter().map(|id| json!({ "id": id, "name": "shell", "arguments": { "command": "ls" } })).collect();
-                            drop(run.port.queue_item(row(format!("a{n}-{}", run.turn), "assistant", json!({ "text": "", "toolCalls": calls }))).await.expect("the call row"));
+                            drop(
+                                run.port
+                                    .queue_item(row(format!("a{n}-{}", run.turn), "assistant", json!({ "text": "", "toolCalls": calls })))
+                                    .await
+                                    .expect("the call row"),
+                            );
                         }
                         Step::Early(call, text) => run.port.early_result(json!({ "toolCallId": call, "text": text })).await.expect("the early result"),
                         Step::Result(call, text) => {
-                            drop(run.port.queue_item(row(format!("t{n}-{}", run.turn), "tool", json!({ "toolCallId": call, "text": text }))).await.expect("the result row"));
+                            drop(
+                                run.port
+                                    .queue_item(row(format!("t{n}-{}", run.turn), "tool", json!({ "toolCallId": call, "text": text })))
+                                    .await
+                                    .expect("the result row"),
+                            );
                         }
                         Step::End => break,
                     }

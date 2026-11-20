@@ -23,11 +23,7 @@ pub enum Incoming {
 /// `appendMcpStderrTail`: a failure message followed by the server's stderr tail, as Node prints it.
 pub fn append_stderr_tail(message: &str, tail: &str) -> String {
     let tail = tail.trim();
-    if tail.is_empty() {
-        message.to_owned()
-    } else {
-        format!("{message}\n--- server stderr (tail) ---\n{tail}")
-    }
+    if tail.is_empty() { message.to_owned() } else { format!("{message}\n--- server stderr (tail) ---\n{tail}") }
 }
 
 pub type IncomingRx = mpsc::UnboundedReceiver<Incoming>;
@@ -93,7 +89,9 @@ pub trait Authorizer: Send + Sync {
     /// `challenge` is the `WWW-Authenticate` value of that last refusal.
     fn refused_after_renewal(&self, _attempted: Option<&str>, _challenge: Option<&str>) {}
 
-    fn sign_in_required(&self) -> bool { false }
+    fn sign_in_required(&self) -> bool {
+        false
+    }
 }
 
 /// Whether a response refuses the request's credentials: a 401, or a 403 that asks for more

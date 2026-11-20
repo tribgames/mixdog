@@ -70,8 +70,7 @@ fn decode_path(path: &str) -> String {
 
 fn display_path(diff_line: &str) -> String {
     let re = Regex::new(r#"^diff --git (?:"(?:[^"\\]|\\.)*"|a/.*?) ("(?:[^"\\]|\\.)*"|b/.*)$"#).expect("static pattern");
-    re.captures(diff_line)
-        .map_or_else(|| diff_line.to_owned(), |m| decode_path(&m[1]))
+    re.captures(diff_line).map_or_else(|| diff_line.to_owned(), |m| decode_path(&m[1]))
 }
 
 struct Entry {
@@ -117,10 +116,8 @@ fn finish_file(files: &mut Vec<File>, file: Option<File>) {
 }
 
 fn parse_files(raw: &str) -> Vec<File> {
-    let meta = Regex::new(
-        r"^(deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |GIT binary patch)",
-    )
-    .expect("static pattern");
+    let meta = Regex::new(r"^(deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |GIT binary patch)")
+        .expect("static pattern");
     let mut files = Vec::new();
     let mut file: Option<File> = None;
     let mut in_hunk = false;
@@ -327,8 +324,7 @@ pub(super) fn build_selected_stage_patch(raw: &str, requested_ids: &[String]) ->
         if !file.stageable {
             continue;
         }
-        let file_selected: Vec<&Change> =
-            changes.iter().filter(|c| c.path == file.path && wanted.contains(c.id.as_str())).collect();
+        let file_selected: Vec<&Change> = changes.iter().filter(|c| c.path == file.path && wanted.contains(c.id.as_str())).collect();
         if file_selected.is_empty() {
             continue;
         }
@@ -341,10 +337,7 @@ pub(super) fn build_selected_stage_patch(raw: &str, requested_ids: &[String]) ->
         let mut hunks: Vec<String> = Vec::new();
         let mut selected_delta: i64 = 0;
         for hunk in &file.hunks {
-            let has_selected = hunk
-                .entries
-                .iter()
-                .any(|e| e.change_id.as_deref().is_some_and(|id| wanted.contains(id)));
+            let has_selected = hunk.entries.iter().any(|e| e.change_id.as_deref().is_some_and(|id| wanted.contains(id)));
             if !has_selected {
                 continue;
             }
@@ -392,13 +385,9 @@ mod tests {
         let (_, changes) = parse_stageable_diff(RAW);
         assert_eq!(changes.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["c1", "c2"]);
         let only_second = build_selected_stage_patch(RAW, &["c2".to_owned()]);
-        assert_eq!(
-            only_second.patch,
-            "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,4 @@\n a\n b\n c\n+d\n"
-        );
+        assert_eq!(only_second.patch, "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,4 @@\n a\n b\n c\n+d\n");
         assert_eq!(build_selected_stage_patch(RAW, &["c9".to_owned()]).missing, ["c9"]);
     }
-
 
     #[test]
     fn snapshots_are_consumed_by_delete_and_matched_by_hash() {
@@ -412,21 +401,12 @@ mod tests {
     }
 }
 
-
 fn new_diff_id(raw_hash: &str) -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let seed = format!("{raw_hash}:{nanos}:{}:{}", COUNTER.fetch_add(1, Ordering::Relaxed), std::process::id());
     format!("diff_{}", &digest(&seed)[..20])
 }
-pub(super) fn create_diff_snapshot(
-    repo: &std::path::Path,
-    scope: &std::path::Path,
-    plan: SnapshotPlan,
-    argv: &[String],
-    raw: &str,
-) -> DiffSnapshot {
+pub(super) fn create_diff_snapshot(repo: &std::path::Path, scope: &std::path::Path, plan: SnapshotPlan, argv: &[String], raw: &str) -> DiffSnapshot {
     let (_, changes) = parse_stageable_diff(raw);
     if changes.is_empty() {
         return DiffSnapshot { diff_id: None, changes };
@@ -434,10 +414,7 @@ pub(super) fn create_diff_snapshot(
     let raw_hash = digest(raw);
     let diff_id = new_diff_id(&raw_hash);
     let mut store = SNAPSHOTS.lock().expect("snapshots");
-    store.push((
-        diff_id.clone(),
-        Snapshot { repo: repo.to_path_buf(), scope: scope.to_path_buf(), plan, argv: argv.to_vec(), raw_hash },
-    ));
+    store.push((diff_id.clone(), Snapshot { repo: repo.to_path_buf(), scope: scope.to_path_buf(), plan, argv: argv.to_vec(), raw_hash }));
     while store.len() > SNAPSHOT_LIMIT {
         store.remove(0);
     }

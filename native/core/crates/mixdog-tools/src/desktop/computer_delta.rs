@@ -136,7 +136,15 @@ impl DeltaStore {
         self.observe_at(session, window_id, snapshot, image_digest, opts, Instant::now())
     }
 
-    fn observe_at(&self, session: &str, window_id: &str, snapshot: &Map<String, Value>, image_digest: Option<&str>, opts: &DeltaOptions, now: Instant) -> DeltaOutcome {
+    fn observe_at(
+        &self,
+        session: &str,
+        window_id: &str,
+        snapshot: &Map<String, Value>,
+        image_digest: Option<&str>,
+        opts: &DeltaOptions,
+        now: Instant,
+    ) -> DeltaOutcome {
         let elements: &[Value] = snapshot.get("elements").and_then(Value::as_array).map_or(&[], Vec::as_slice);
         let generation = snapshot.get("generation").and_then(Value::as_f64);
         let mut inner = self.inner();
@@ -156,7 +164,10 @@ impl DeltaStore {
             .get(session)
             .filter(|baseline| !window_id.is_empty() && baseline.window_id == window_id && baseline.baseline_key == baseline_key)
             .map(|baseline| summarize_capture_changes(&baseline.elements, &identities));
-        inner.baselines.insert(session.to_string(), CaptureBaseline { window_id: window_id.to_string(), baseline_key: baseline_key.to_string(), elements: identities, ref_identities });
+        inner.baselines.insert(
+            session.to_string(),
+            CaptureBaseline { window_id: window_id.to_string(), baseline_key: baseline_key.to_string(), elements: identities, ref_identities },
+        );
         changes
     }
 
@@ -223,7 +234,8 @@ fn json_length(value: &impl serde::Serialize) -> usize {
 fn fingerprint_of(row: &Value) -> String {
     match row {
         Value::Object(fields) => {
-            let content: Map<String, Value> = fields.iter().filter(|(key, _)| *key != "mark" && *key != "ref").map(|(key, value)| (key.clone(), value.clone())).collect();
+            let content: Map<String, Value> =
+                fields.iter().filter(|(key, _)| *key != "mark" && *key != "ref").map(|(key, value)| (key.clone(), value.clone())).collect();
             Value::Object(content).to_string()
         }
         other => other.to_string(),
@@ -259,7 +271,11 @@ fn pairable_keys(own: &[&str], other: &[&str], side: &str) -> Vec<String> {
     own.iter()
         .enumerate()
         .map(|(index, fingerprint)| {
-            if own_counts.get(fingerprint) == Some(&1) && other_counts.get(fingerprint).copied().unwrap_or(0) <= 1 { (*fingerprint).to_string() } else { format!("\0{side}:{index}") }
+            if own_counts.get(fingerprint) == Some(&1) && other_counts.get(fingerprint).copied().unwrap_or(0) <= 1 {
+                (*fingerprint).to_string()
+            } else {
+                format!("\0{side}:{index}")
+            }
         })
         .collect()
 }
@@ -285,7 +301,11 @@ fn align_rows(before: &[String], after: &[String]) -> Vec<(usize, usize)> {
         let mut lengths = vec![0_u32; (rows + 1) * width];
         for i in (0..rows).rev() {
             for j in (0..columns).rev() {
-                lengths[i * width + j] = if before[head + i] == after[head + j] { lengths[(i + 1) * width + j + 1] + 1 } else { lengths[(i + 1) * width + j].max(lengths[i * width + j + 1]) };
+                lengths[i * width + j] = if before[head + i] == after[head + j] {
+                    lengths[(i + 1) * width + j + 1] + 1
+                } else {
+                    lengths[(i + 1) * width + j].max(lengths[i * width + j + 1])
+                };
             }
         }
         let (mut i, mut j) = (0, 0);
@@ -360,7 +380,15 @@ fn same_window_lineage(previous: &DeltaState, window_id: &str, opts: &DeltaOptio
 
 /// Anything that cannot be proven a continuation (no baseline, another window or read, a dialog, a generation that did not
 /// advance, OCR rows, a delta no smaller) answers none and resets the baseline to this full list.
-fn record_observation(store: &mut HashMap<String, DeltaState>, session: &str, window_id: &str, elements: &[Value], generation: Option<f64>, opts: &DeltaOptions, now: Instant) -> Option<Value> {
+fn record_observation(
+    store: &mut HashMap<String, DeltaState>,
+    session: &str,
+    window_id: &str,
+    elements: &[Value],
+    generation: Option<f64>,
+    opts: &DeltaOptions,
+    now: Instant,
+) -> Option<Value> {
     let generation = match generation {
         Some(generation) if opts.recordable && !elements.iter().any(|row| row.get("source").and_then(Value::as_str) == Some("ocr")) => generation,
         _ => {
@@ -368,30 +396,39 @@ fn record_observation(store: &mut HashMap<String, DeltaState>, session: &str, wi
             return None;
         }
     };
-    let rows: Vec<(String, String, &Value)> = elements.iter().map(|row| (row.get("ref").map_or_else(|| "undefined".to_string(), js_string), fingerprint_of(row), row)).collect();
+    let rows: Vec<(String, String, &Value)> =
+        elements.iter().map(|row| (row.get("ref").map_or_else(|| "undefined".to_string(), js_string), fingerprint_of(row), row)).collect();
     let live_refs: HashSet<&str> = rows.iter().map(|(reference, _, _)| reference.as_str()).collect();
     // A ref the model holds that is also a live one (a worker whose generation restarted) would name another element than the
     // model means.
-    let delta = store.get(session).filter(|previous| opts.observation_delta && same_window_lineage(previous, window_id, opts, generation, now) && !previous.held.iter().any(|held| live_refs.contains(held.reference.as_str()))).and_then(|previous| {
-        let held_prints: Vec<&str> = previous.held.iter().map(|held| held.fingerprint.as_str()).collect();
-        let live_prints: Vec<&str> = rows.iter().map(|(_, fingerprint, _)| fingerprint.as_str()).collect();
-        let pairs = align_rows(&pairable_keys(&held_prints, &live_prints, "held"), &pairable_keys(&live_prints, &held_prints, "live"));
-        let live_paired: HashSet<usize> = pairs.iter().map(|(_, live)| *live).collect();
-        let kept_held: HashSet<usize> = pairs.iter().map(|(held, _)| *held).collect();
-        let added: Vec<Value> = rows.iter().enumerate().filter(|(index, _)| !live_paired.contains(index)).map(|(_, (_, _, row))| delta_row(row)).collect();
-        let removed: Vec<Value> = previous.held.iter().enumerate().filter(|(index, _)| !kept_held.contains(index)).map(|(_, held)| json!(held.reference)).collect();
-        let named: Vec<(&str, &str)> = pairs.iter().map(|(held, live)| (previous.held[*held].reference.as_str(), rows[*live].0.as_str())).collect();
-        let mut delta = Map::new();
-        delta.insert("unchanged".into(), json!(pair_runs(&named)));
-        if !added.is_empty() {
-            delta.insert("added".into(), Value::Array(added));
-        }
-        if !removed.is_empty() {
-            delta.insert("removed".into(), Value::Array(removed));
-        }
-        let delta = Value::Object(delta);
-        (json_length(&delta) < json_length(&elements)).then(|| (delta, previous.consecutive_deltas + 1))
-    });
+    let delta = store
+        .get(session)
+        .filter(|previous| {
+            opts.observation_delta
+                && same_window_lineage(previous, window_id, opts, generation, now)
+                && !previous.held.iter().any(|held| live_refs.contains(held.reference.as_str()))
+        })
+        .and_then(|previous| {
+            let held_prints: Vec<&str> = previous.held.iter().map(|held| held.fingerprint.as_str()).collect();
+            let live_prints: Vec<&str> = rows.iter().map(|(_, fingerprint, _)| fingerprint.as_str()).collect();
+            let pairs = align_rows(&pairable_keys(&held_prints, &live_prints, "held"), &pairable_keys(&live_prints, &held_prints, "live"));
+            let live_paired: HashSet<usize> = pairs.iter().map(|(_, live)| *live).collect();
+            let kept_held: HashSet<usize> = pairs.iter().map(|(held, _)| *held).collect();
+            let added: Vec<Value> = rows.iter().enumerate().filter(|(index, _)| !live_paired.contains(index)).map(|(_, (_, _, row))| delta_row(row)).collect();
+            let removed: Vec<Value> =
+                previous.held.iter().enumerate().filter(|(index, _)| !kept_held.contains(index)).map(|(_, held)| json!(held.reference)).collect();
+            let named: Vec<(&str, &str)> = pairs.iter().map(|(held, live)| (previous.held[*held].reference.as_str(), rows[*live].0.as_str())).collect();
+            let mut delta = Map::new();
+            delta.insert("unchanged".into(), json!(pair_runs(&named)));
+            if !added.is_empty() {
+                delta.insert("added".into(), Value::Array(added));
+            }
+            if !removed.is_empty() {
+                delta.insert("removed".into(), Value::Array(removed));
+            }
+            let delta = Value::Object(delta);
+            (json_length(&delta) < json_length(&elements)).then(|| (delta, previous.consecutive_deltas + 1))
+        });
     // The model applies a delta reply to its list, so it then holds exactly the live refs published here: the next delta
     // addresses these, not older ones.
     let (delta, consecutive_deltas) = match delta {
@@ -401,7 +438,15 @@ fn record_observation(store: &mut HashMap<String, DeltaState>, session: &str, wi
     let held = rows.iter().map(|(reference, fingerprint, _)| HeldRow { reference: reference.clone(), fingerprint: fingerprint.clone() }).collect();
     store.insert(
         session.to_string(),
-        DeltaState { window_id: window_id.to_string(), baseline_key: opts.baseline_key.clone(), related_window_ids: related_key(&opts.related_window_ids), generation, observed_at: now, consecutive_deltas, held },
+        DeltaState {
+            window_id: window_id.to_string(),
+            baseline_key: opts.baseline_key.clone(),
+            related_window_ids: related_key(&opts.related_window_ids),
+            generation,
+            observed_at: now,
+            consecutive_deltas,
+            held,
+        },
     );
     delta
 }
@@ -494,7 +539,8 @@ pub fn summarize_capture_changes(previous: &IdentityMap, current: &IdentityMap) 
 /// `elements` array of a `window_predicates` reply.
 pub fn layout_fingerprint(elements: Option<&Value>) -> Option<String> {
     let rows = elements?.as_array()?;
-    let pairs: Vec<Value> = rows.iter().map(|row| json!([row.get("role").cloned().unwrap_or(Value::Null), row.get("name").cloned().unwrap_or(Value::Null)])).collect();
+    let pairs: Vec<Value> =
+        rows.iter().map(|row| json!([row.get("role").cloned().unwrap_or(Value::Null), row.get("name").cloned().unwrap_or(Value::Null)])).collect();
     Some(Value::Array(pairs).to_string())
 }
 
@@ -661,7 +707,12 @@ mod tests {
         let delta = world.after().delta.unwrap();
         assert_eq!(delta["unchanged"], json!(["s2:e0..e4=s4:e0..e4", "s2:e7..e29=s4:e6..e28"]));
         assert_eq!(delta["removed"], json!([held[5], held[6]]), "an updated row is its old ref removed and its new row listed");
-        let added: Vec<(&str, &str, &str, Option<&Value>)> = delta["added"].as_array().unwrap().iter().map(|row| (row["name"].as_str().unwrap(), row["value"].as_str().unwrap(), row["ref"].as_str().unwrap(), row.get("mark"))).collect();
+        let added: Vec<(&str, &str, &str, Option<&Value>)> = delta["added"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["name"].as_str().unwrap(), row["value"].as_str().unwrap(), row["ref"].as_str().unwrap(), row.get("mark")))
+            .collect();
         assert_eq!(added, vec![(rows[5].name.as_str(), "on", "s4:e5", None), ("Brand new", "", "s4:e29", None)]);
         accounts_for_every_ref(&delta, &held);
     }
@@ -784,7 +835,12 @@ mod tests {
         }
         let mut world = World::new(tree_rows(30));
         world.after();
-        let mut model: HashMap<String, String> = snapshot(world.generation, &world.rows)["elements"].as_array().unwrap().iter().map(|row| (row["ref"].as_str().unwrap().to_string(), describe(row))).collect();
+        let mut model: HashMap<String, String> = snapshot(world.generation, &world.rows)["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["ref"].as_str().unwrap().to_string(), describe(row)))
+            .collect();
         let rows = tree_rows(30);
         let steps = [
             [rows[..12].to_vec(), rows[14..].to_vec(), vec![row("Button", "Late", 900)]].concat(),
@@ -806,7 +862,8 @@ mod tests {
             for added in delta["added"].as_array().into_iter().flatten() {
                 next.insert(added["ref"].as_str().unwrap().to_string(), describe(added));
             }
-            let expected: HashMap<String, String> = world.rows.iter().zip(world.refs()).map(|(row, reference)| (reference, format!("{}|{}|{}", row.role, row.name, row.y))).collect();
+            let expected: HashMap<String, String> =
+                world.rows.iter().zip(world.refs()).map(|(row, reference)| (reference, format!("{}|{}|{}", row.role, row.name, row.y))).collect();
             assert_eq!(next, expected, "the rebuilt list is the full list");
             model = next;
         }
@@ -899,7 +956,9 @@ mod tests {
     #[test]
     fn only_an_identical_frame_for_the_same_target_counts_as_a_repeat() {
         let store = DeltaStore::new();
-        let frame = |session: &str, window: &str, data: &str| store.observe(session, window, &Map::new(), Some(&image_digest(data.as_bytes())), &DeltaOptions::default()).suppress_image;
+        let frame = |session: &str, window: &str, data: &str| {
+            store.observe(session, window, &Map::new(), Some(&image_digest(data.as_bytes())), &DeltaOptions::default()).suppress_image
+        };
         assert!(!frame("s1", "hwnd:0x1", "AAAA"));
         assert!(frame("s1", "hwnd:0x1", "AAAA"));
         assert!(!frame("s1", "hwnd:0x1", "BBBB"));

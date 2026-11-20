@@ -50,8 +50,10 @@ impl StatusReader for MediaStatus {
             })
             .await
             .map_err(|error| PortError::Failed { capability: "media".into(), message: error.to_string() })?;
-        let pinned: Map<String, Value> = KINDS.iter().map(|kind| ((*kind).to_owned(), fields_of(pins.get(*kind).unwrap_or(&Value::Null), &["lane", "model", "account"]))).collect();
-        let remembered: Map<String, Value> = KINDS.iter().zip(&remembered).map(|(kind, row)| ((*kind).to_owned(), fields_of(row, &["lane", "model"]))).collect();
+        let pinned: Map<String, Value> =
+            KINDS.iter().map(|kind| ((*kind).to_owned(), fields_of(pins.get(*kind).unwrap_or(&Value::Null), &["lane", "model", "account"]))).collect();
+        let remembered: Map<String, Value> =
+            KINDS.iter().zip(&remembered).map(|(kind, row)| ((*kind).to_owned(), fields_of(row, &["lane", "model"]))).collect();
         let mut out = Map::new();
         out.insert("pinned".into(), Value::Object(pinned));
         out.insert("remembered".into(), Value::Object(remembered));
@@ -61,8 +63,4 @@ impl StatusReader for MediaStatus {
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
-mod tests {
-
-
-}
-
+mod tests {}

@@ -58,18 +58,9 @@ fn meta_from_conversion(conversion: &Conversion, whole: bool) -> Meta {
         // A Codex marker sits in the first line; a Claude transcript is sidechain-only only once
         // read to the end.
         internal_kind: if whole || conversion.source == Source::Codex { conversion.internal_kind.clone() } else { None },
-        history_base_id: conversion
-            .history_base
-            .as_ref()
-            .and_then(|b| b.get("thread_id"))
-            .and_then(Value::as_str)
-            .map(str::to_lowercase),
+        history_base_id: conversion.history_base.as_ref().and_then(|b| b.get("thread_id")).and_then(Value::as_str).map(str::to_lowercase),
         message_count: (whole && conversion.error_code.is_none()).then_some(conversion.message_count),
-        warnings: if whole {
-            conversion.warnings.clone()
-        } else {
-            conversion.warnings.iter().filter(|w| *w != "malformed").cloned().collect()
-        },
+        warnings: if whole { conversion.warnings.clone() } else { conversion.warnings.iter().filter(|w| *w != "malformed").cloned().collect() },
         error_code: if whole { conversion.error_code.clone() } else { None },
     }
 }
@@ -121,9 +112,11 @@ pub fn resolve_source_cwd(raw: Option<&str>, cache: &mut HashMap<String, CwdInfo
         return hit.clone();
     }
     let mut result = CwdInfo { exists: false, path: Some(raw.to_owned()) };
-    if Path::new(raw).is_absolute() && !(is_unc_path(raw) || is_windows_device_path(raw))
+    if Path::new(raw).is_absolute()
+        && !(is_unc_path(raw) || is_windows_device_path(raw))
         && let Ok(real) = real_path(Path::new(raw))
-        && !(is_unc_path(&real.to_string_lossy()) || is_windows_device_path(&real.to_string_lossy())) && real.is_dir()
+        && !(is_unc_path(&real.to_string_lossy()) || is_windows_device_path(&real.to_string_lossy()))
+        && real.is_dir()
     {
         result = CwdInfo { exists: true, path: Some(real.to_string_lossy().into_owned()) };
     }
@@ -193,9 +186,7 @@ fn same_path(left: Option<&str>, right: Option<&str>) -> bool {
 /// the list; a fork's parent is another thread and stays listed.
 fn superseded_base_ids(entries: &[(Candidate, Option<Meta>)]) -> HashSet<String> {
     let rollout_of = |c: &Candidate| {
-        (c.source == Source::Codex)
-            .then(|| rollout_id_of(&c.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
-            .flatten()
+        (c.source == Source::Codex).then(|| rollout_id_of(&c.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())).flatten()
     };
     let mut by_rollout: HashMap<String, String> = HashMap::new();
     for (c, meta) in entries {
@@ -250,12 +241,7 @@ struct Filtered {
 /// cached metadata; a candidate whose metadata is still pending is neither a member nor counted
 /// and leaves the result incomplete. The source app's internal and empty records are never
 /// members.
-fn filter_candidates(
-    entries: &[(Candidate, Option<Meta>)],
-    filters: &Filters,
-    imported: &Imported,
-    titles: Option<&HashMap<String, String>>,
-) -> Filtered {
+fn filter_candidates(entries: &[(Candidate, Option<Meta>)], filters: &Filters, imported: &Imported, titles: Option<&HashMap<String, String>>) -> Filtered {
     let mut cwd_cache = HashMap::new();
     let (mut member_ids, mut project_counts, mut complete) = (Vec::new(), Vec::<(String, usize)>::new(), true);
     let superseded = superseded_base_ids(entries);
@@ -403,7 +389,8 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         .map_err(|_| ImportError::new("unreadable"))?
     };
     // The stored title records sit near the end of a transcript.
-    if claude && !read.eof
+    if claude
+        && !read.eof
         && let Opened::Plain(file) = &mut opened
     {
         for line in read_tail_lines(file, candidate.size) {
@@ -417,10 +404,7 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         if conversion.history_base.is_none() {
             return meta;
         }
-        let base_missing = meta
-            .history_base_id
-            .as_deref()
-            .is_some_and(|id| find_rollout_by_id(codex_home, id).is_none());
+        let base_missing = meta.history_base_id.as_deref().is_some_and(|id| find_rollout_by_id(codex_home, id).is_none());
         if base_missing {
             let mut meta = meta;
             meta.warnings.push(WARNING_HISTORY_UNAVAILABLE.to_owned());
@@ -434,7 +418,8 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         return Ok(listing(meta_from_conversion(&conversion, true)));
     }
     let mut meta = listing(meta_from_conversion(&conversion, false));
-    if candidate.source == Source::Codex && (meta.foreign_session_id.is_none() || meta.cwd.is_none())
+    if candidate.source == Source::Codex
+        && (meta.foreign_session_id.is_none() || meta.cwd.is_none())
         && let Some(partial) = &read.first_partial
     {
         // A session_meta line longer than the prefix still names its id/cwd.
@@ -477,14 +462,7 @@ impl Discovery {
 
     /// `scan_max_bytes` overrides the per-file budget of a sidechain-only scan.
     pub fn with_scan_budget(env: Env, scan_max_bytes: u64, lane: MaintenanceIo) -> Arc<Self> {
-        Arc::new(Self {
-            env,
-            scan_max_bytes,
-            state: Mutex::default(),
-            metas: SingleFlight::default(),
-            permits: Semaphore::new(META_CONCURRENCY),
-            lane,
-        })
+        Arc::new(Self { env, scan_max_bytes, state: Mutex::default(), metas: SingleFlight::default(), permits: Semaphore::new(META_CONCURRENCY), lane })
     }
 
     pub fn env(&self) -> &Env {
@@ -513,11 +491,7 @@ impl Discovery {
 
     /// Records a full conversion's message count against the stamp it was read at.
     pub fn record_conversion(&self, candidate: &Candidate, conversion: &Conversion) {
-        self.state
-            .lock()
-            .unwrap()
-            .meta
-            .insert(candidate.path.clone(), (candidate.stamp_key(), meta_from_conversion(conversion, true)));
+        self.state.lock().unwrap().meta.insert(candidate.path.clone(), (candidate.stamp_key(), meta_from_conversion(conversion, true)));
     }
 
     /// Refreshes a candidate's stamp from the file as it is now, on the lane.
@@ -572,9 +546,7 @@ impl Discovery {
                 let (c, scan) = (cand.clone(), this.scan_max_bytes);
                 let read = on_lane(this.lane, move || read_prefix_meta(&c, scan, &home)).await;
                 let ran = read.is_ok();
-                let meta = read
-                    .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
-                    .unwrap_or_else(|e| Meta { error_code: Some(e.0), ..Meta::default() });
+                let meta = read.unwrap_or_else(|_| Err(ImportError::new("unreadable"))).unwrap_or_else(|e| Meta { error_code: Some(e.0), ..Meta::default() });
                 // A read that never ran is not cached: "unreadable" would stick to the file's stamp.
                 if ran {
                     this.state.lock().unwrap().meta.insert(cand.path.clone(), (cand.stamp_key(), meta.clone()));
@@ -722,9 +694,12 @@ impl Discovery {
     async fn filter(&self, ids: &[String], filters: &Filters, imported: &Imported, titles: Option<Arc<HashMap<String, String>>>) -> Filtered {
         let entries = self.snapshot(ids);
         let (filters, imported) = (filters.clone(), imported.clone());
-        on_lane(self.lane, move || filter_candidates(&entries, &filters, &imported, titles.as_deref()))
-            .await
-            .unwrap_or(Filtered { member_ids: Vec::new(), selectable_ids: Vec::new(), projects: Vec::new(), complete: false })
+        on_lane(self.lane, move || filter_candidates(&entries, &filters, &imported, titles.as_deref())).await.unwrap_or(Filtered {
+            member_ids: Vec::new(),
+            selectable_ids: Vec::new(),
+            projects: Vec::new(),
+            complete: false,
+        })
     }
 
     /// Complete selectable membership of a view for select-all: waits until the metadata of
@@ -793,11 +768,9 @@ impl Discovery {
     pub async fn convert(&self, candidate: &Candidate, limits: Limits) -> Result<Conversion, ImportError> {
         let home = self.codex_home(candidate);
         let candidate = candidate.clone();
-        on_lane(self.lane, move || {
-            convert_candidate_file(&candidate, &home, limits, super::history::IMPORT_CHUNK_BYTES).map(|f| f.conversion)
-        })
-        .await
-        .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
+        on_lane(self.lane, move || convert_candidate_file(&candidate, &home, limits, super::history::IMPORT_CHUNK_BYTES).map(|f| f.conversion))
+            .await
+            .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
     }
 }
 
@@ -815,4 +788,3 @@ mod lane_tests {
         assert!(discovery.state.lock().unwrap().views.is_empty());
     }
 }
-

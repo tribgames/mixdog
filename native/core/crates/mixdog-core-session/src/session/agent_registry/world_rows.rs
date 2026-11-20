@@ -260,7 +260,6 @@ mod tests {
         fn release(&self, _: &mixdog_core_api::ids::ThreadId, _: &str) {}
     }
 
-
     /// `agent-turns.mjs:96`: a worker turn on a session a cancellation covers is refused before
     /// anything starts, with `assertAdmission`'s text.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -281,12 +280,7 @@ mod tests {
             context: None,
             cwd: String::new(),
             skill_selection: None,
-            hooks: TurnHooks {
-                submission_id: String::new(),
-                notify: Arc::new(|_, _| false),
-                on_tool_result: Arc::new(|_| {}),
-                on_terminal_result: None,
-            },
+            hooks: TurnHooks { submission_id: String::new(), notify: Arc::new(|_, _| false), on_tool_result: Arc::new(|_| {}), on_terminal_result: None },
             slot: None,
         };
         let error = turns.run_turn(request).await.unwrap_err();

@@ -46,12 +46,7 @@ impl SessionGrantRegistry {
         let mut entries = self.entries.lock().expect("session grants");
         Self::drop_stale(&mut entries, session, agent_id, mark);
         if !entries.iter().any(|e| e.session == session && &e.action == action) {
-            entries.push(Entry {
-                session: session.to_owned(),
-                action: action.clone(),
-                agent_id: agent_id.to_owned(),
-                mark: mark.to_owned(),
-            });
+            entries.push(Entry { session: session.to_owned(), action: action.clone(), agent_id: agent_id.to_owned(), mark: mark.to_owned() });
         }
         true
     }

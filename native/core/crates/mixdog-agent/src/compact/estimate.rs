@@ -12,13 +12,13 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::Role;
-use mixdog_protocol::ProviderId;
 use mixdog_js::JsRegex;
+use mixdog_protocol::ProviderId;
 use serde_json::Value as JsonValue;
 use serde_json::json;
 
-use mixdog_js::token_estimate::estimate_tokens;
 use crate::message::AgentMessage;
+use mixdog_js::token_estimate::estimate_tokens;
 
 /// Vision models downscale past this, so no image bills above it; also the
 /// flat allowance of an image whose size was never learned.
@@ -140,9 +140,7 @@ fn block_is_image(block: &JsonValue) -> bool {
         return true;
     }
     let file_data = block.get("fileData").or_else(|| block.get("file_data"));
-    file_data.is_some_and(|f| {
-        non_empty(string_field(f, "fileUri")).is_some() || non_empty(string_field(f, "file_uri")).is_some()
-    })
+    file_data.is_some_and(|f| non_empty(string_field(f, "fileUri")).is_some() || non_empty(string_field(f, "file_uri")).is_some())
 }
 
 fn image_of(block: &JsonValue) -> Option<JsonImage> {
@@ -171,11 +169,7 @@ fn image_of(block: &JsonValue) -> Option<JsonImage> {
             other => mixdog_js::value_to_string(other).to_lowercase(),
         })
         .unwrap_or_else(|| "auto".to_owned());
-    Some(JsonImage {
-        width: dimension("width"),
-        height: dimension("height"),
-        detail,
-    })
+    Some(JsonImage { width: dimension("width"), height: dimension("height"), detail })
 }
 
 /// The images of one provider-native block (or an array/`content` list of
@@ -190,8 +184,7 @@ fn block_images(block: &JsonValue) -> Vec<JsonImage> {
     image_of(block).into_iter().collect()
 }
 
-static OPAQUE_KEY: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static("signature|encrypted|redacted|^data$|^blob$", "i"));
+static OPAQUE_KEY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("signature|encrypted|redacted|^data$|^blob$", "i"));
 static OPAQUE_VALUE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("^[A-Za-z0-9+/_=-]{64,}$", ""));
 
 /// An opaque replay blob priced as the base64 it is: plain words that
@@ -211,14 +204,8 @@ fn strip_opaque_payloads(value: &JsonValue, depth: usize, key_hint: &str) -> Jso
                 value.clone()
             }
         }
-        JsonValue::Array(items) if depth < 8 => {
-            JsonValue::Array(items.iter().map(|v| strip_opaque_payloads(v, depth + 1, key_hint)).collect())
-        }
-        JsonValue::Object(map) if depth < 8 => JsonValue::Object(
-            map.iter()
-                .map(|(k, v)| (k.clone(), strip_opaque_payloads(v, depth + 1, k)))
-                .collect(),
-        ),
+        JsonValue::Array(items) if depth < 8 => JsonValue::Array(items.iter().map(|v| strip_opaque_payloads(v, depth + 1, key_hint)).collect()),
+        JsonValue::Object(map) if depth < 8 => JsonValue::Object(map.iter().map(|(k, v)| (k.clone(), strip_opaque_payloads(v, depth + 1, k))).collect()),
         _ => value.clone(),
     }
 }
@@ -239,11 +226,7 @@ pub(crate) fn native_blocks_text(value: &JsonValue) -> String {
     list.iter()
         .map(|block| {
             let images = block_images(block);
-            if images.is_empty() {
-                mixdog_js::json_stringify(&strip_opaque_payloads(block, 0, ""))
-            } else {
-                image_stub_text(&images)
-            }
+            if images.is_empty() { mixdog_js::json_stringify(&strip_opaque_payloads(block, 0, "")) } else { image_stub_text(&images) }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -278,11 +261,7 @@ impl MessageMeter<'_> {
         if m.role() != Role::Assistant {
             return None;
         }
-        m.message
-            .replay_for(self.replay_owner)
-            .map(|r| &r.items)
-            .find(|items| non_empty_array(items).is_some())
-            .cloned()
+        m.message.replay_for(self.replay_owner).map(|r| &r.items).find(|items| non_empty_array(items).is_some()).cloned()
     }
 
     fn projection(&self, m: &AgentMessage) -> Projection {
@@ -322,12 +301,7 @@ impl MessageMeter<'_> {
         };
         let assistant = m.role() == Role::Assistant;
         if assistant && !m.message.tool_calls.is_empty() {
-            let calls: Vec<JsonValue> = m
-                .message
-                .tool_calls
-                .iter()
-                .map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments}))
-                .collect();
+            let calls: Vec<JsonValue> = m.message.tool_calls.iter().map(|c| json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
             text.push('\n');
             text.push_str(&mixdog_js::json_stringify(&JsonValue::Array(calls)));
         }
@@ -440,9 +414,8 @@ impl MessageMeter<'_> {
     /// Native search results can put schemas on the wire even when their text is just a stub.
     /// These are loaded schemas in a result, not deferred definitions in the request reserve.
     pub(super) fn compact_message(&self, message: &AgentMessage) -> u64 {
-        let schemas = message.message.native_tool_search.as_ref()
-            .and_then(|payload| payload.get("openaiTools"))
-            .filter(|tools| non_empty_array(tools).is_some());
+        let schemas =
+            message.message.native_tool_search.as_ref().and_then(|payload| payload.get("openaiTools")).filter(|tools| non_empty_array(tools).is_some());
         self.message(message) + schemas.map_or(0, |tools| estimate_tokens(&mixdog_js::json_stringify(tools)))
     }
 

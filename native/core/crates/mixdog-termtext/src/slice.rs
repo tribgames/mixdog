@@ -11,28 +11,93 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ansi::{
-    BEL, C1_APC, C1_CSI, C1_DCS, C1_OSC, C1_PM, C1_SOS, C1_ST, ESC, is_close_code, is_csi_final, is_csi_parameter,
-    is_fullwidth_code_point, is_intermediate, js_parse_int, sgr_code, style_close,
+    BEL, C1_APC, C1_CSI, C1_DCS, C1_OSC, C1_PM, C1_SOS, C1_ST, ESC, is_close_code, is_csi_final, is_csi_parameter, is_fullwidth_code_point, is_intermediate,
+    js_parse_int, sgr_code, style_close,
 };
 
 /// The code points with the Unicode property Emoji_Presentation (Unicode 16.0, as V8 of Node 22 answers
 /// `/\p{Emoji_Presentation}/v`), sorted, inclusive.
 static EMOJI_PRESENTATION: &[(u32, u32)] = &[
-    (0x231a, 0x231b), (0x23e9, 0x23ec), (0x23f0, 0x23f0), (0x23f3, 0x23f3), (0x25fd, 0x25fe), (0x2614, 0x2615),
-    (0x2648, 0x2653), (0x267f, 0x267f), (0x2693, 0x2693), (0x26a1, 0x26a1), (0x26aa, 0x26ab), (0x26bd, 0x26be),
-    (0x26c4, 0x26c5), (0x26ce, 0x26ce), (0x26d4, 0x26d4), (0x26ea, 0x26ea), (0x26f2, 0x26f3), (0x26f5, 0x26f5),
-    (0x26fa, 0x26fa), (0x26fd, 0x26fd), (0x2705, 0x2705), (0x270a, 0x270b), (0x2728, 0x2728), (0x274c, 0x274c),
-    (0x274e, 0x274e), (0x2753, 0x2755), (0x2757, 0x2757), (0x2795, 0x2797), (0x27b0, 0x27b0), (0x27bf, 0x27bf),
-    (0x2b1b, 0x2b1c), (0x2b50, 0x2b50), (0x2b55, 0x2b55), (0x1f004, 0x1f004), (0x1f0cf, 0x1f0cf),
-    (0x1f18e, 0x1f18e), (0x1f191, 0x1f19a), (0x1f1e6, 0x1f1ff), (0x1f201, 0x1f201), (0x1f21a, 0x1f21a),
-    (0x1f22f, 0x1f22f), (0x1f232, 0x1f236), (0x1f238, 0x1f23a), (0x1f250, 0x1f251), (0x1f300, 0x1f320),
-    (0x1f32d, 0x1f335), (0x1f337, 0x1f37c), (0x1f37e, 0x1f393), (0x1f3a0, 0x1f3ca), (0x1f3cf, 0x1f3d3),
-    (0x1f3e0, 0x1f3f0), (0x1f3f4, 0x1f3f4), (0x1f3f8, 0x1f43e), (0x1f440, 0x1f440), (0x1f442, 0x1f4fc),
-    (0x1f4ff, 0x1f53d), (0x1f54b, 0x1f54e), (0x1f550, 0x1f567), (0x1f57a, 0x1f57a), (0x1f595, 0x1f596),
-    (0x1f5a4, 0x1f5a4), (0x1f5fb, 0x1f64f), (0x1f680, 0x1f6c5), (0x1f6cc, 0x1f6cc), (0x1f6d0, 0x1f6d2),
-    (0x1f6d5, 0x1f6d7), (0x1f6dc, 0x1f6df), (0x1f6eb, 0x1f6ec), (0x1f6f4, 0x1f6fc), (0x1f7e0, 0x1f7eb),
-    (0x1f7f0, 0x1f7f0), (0x1f90c, 0x1f93a), (0x1f93c, 0x1f945), (0x1f947, 0x1f9ff), (0x1fa70, 0x1fa7c),
-    (0x1fa80, 0x1fa89), (0x1fa8f, 0x1fac6), (0x1face, 0x1fadc), (0x1fadf, 0x1fae9), (0x1faf0, 0x1faf8),
+    (0x231a, 0x231b),
+    (0x23e9, 0x23ec),
+    (0x23f0, 0x23f0),
+    (0x23f3, 0x23f3),
+    (0x25fd, 0x25fe),
+    (0x2614, 0x2615),
+    (0x2648, 0x2653),
+    (0x267f, 0x267f),
+    (0x2693, 0x2693),
+    (0x26a1, 0x26a1),
+    (0x26aa, 0x26ab),
+    (0x26bd, 0x26be),
+    (0x26c4, 0x26c5),
+    (0x26ce, 0x26ce),
+    (0x26d4, 0x26d4),
+    (0x26ea, 0x26ea),
+    (0x26f2, 0x26f3),
+    (0x26f5, 0x26f5),
+    (0x26fa, 0x26fa),
+    (0x26fd, 0x26fd),
+    (0x2705, 0x2705),
+    (0x270a, 0x270b),
+    (0x2728, 0x2728),
+    (0x274c, 0x274c),
+    (0x274e, 0x274e),
+    (0x2753, 0x2755),
+    (0x2757, 0x2757),
+    (0x2795, 0x2797),
+    (0x27b0, 0x27b0),
+    (0x27bf, 0x27bf),
+    (0x2b1b, 0x2b1c),
+    (0x2b50, 0x2b50),
+    (0x2b55, 0x2b55),
+    (0x1f004, 0x1f004),
+    (0x1f0cf, 0x1f0cf),
+    (0x1f18e, 0x1f18e),
+    (0x1f191, 0x1f19a),
+    (0x1f1e6, 0x1f1ff),
+    (0x1f201, 0x1f201),
+    (0x1f21a, 0x1f21a),
+    (0x1f22f, 0x1f22f),
+    (0x1f232, 0x1f236),
+    (0x1f238, 0x1f23a),
+    (0x1f250, 0x1f251),
+    (0x1f300, 0x1f320),
+    (0x1f32d, 0x1f335),
+    (0x1f337, 0x1f37c),
+    (0x1f37e, 0x1f393),
+    (0x1f3a0, 0x1f3ca),
+    (0x1f3cf, 0x1f3d3),
+    (0x1f3e0, 0x1f3f0),
+    (0x1f3f4, 0x1f3f4),
+    (0x1f3f8, 0x1f43e),
+    (0x1f440, 0x1f440),
+    (0x1f442, 0x1f4fc),
+    (0x1f4ff, 0x1f53d),
+    (0x1f54b, 0x1f54e),
+    (0x1f550, 0x1f567),
+    (0x1f57a, 0x1f57a),
+    (0x1f595, 0x1f596),
+    (0x1f5a4, 0x1f5a4),
+    (0x1f5fb, 0x1f64f),
+    (0x1f680, 0x1f6c5),
+    (0x1f6cc, 0x1f6cc),
+    (0x1f6d0, 0x1f6d2),
+    (0x1f6d5, 0x1f6d7),
+    (0x1f6dc, 0x1f6df),
+    (0x1f6eb, 0x1f6ec),
+    (0x1f6f4, 0x1f6fc),
+    (0x1f7e0, 0x1f7eb),
+    (0x1f7f0, 0x1f7f0),
+    (0x1f90c, 0x1f93a),
+    (0x1f93c, 0x1f945),
+    (0x1f947, 0x1f9ff),
+    (0x1fa70, 0x1fa7c),
+    (0x1fa80, 0x1fa89),
+    (0x1fa8f, 0x1fac6),
+    (0x1face, 0x1fadc),
+    (0x1fadf, 0x1fae9),
+    (0x1faf0, 0x1faf8),
 ];
 
 fn has_emoji_presentation(ch: char) -> bool {
@@ -154,25 +219,16 @@ fn sgr_fragments(code: &str) -> Vec<Fragment> {
         if code_number == 38 || code_number == 48 {
             let color_type = raw_codes.get(index + 1).and_then(|raw| js_parse_int(raw));
             if color_type == Some(5) && index + 2 < raw_codes.len() {
-                fragments.push(Fragment::Start {
-                    code: create_sgr_code(prefix, &raw_codes[index..index + 3]),
-                    end_code: extended_end_code(code_number),
-                });
+                fragments.push(Fragment::Start { code: create_sgr_code(prefix, &raw_codes[index..index + 3]), end_code: extended_end_code(code_number) });
                 index += 3;
                 continue;
             }
             if color_type == Some(2) && index + 4 < raw_codes.len() {
-                fragments.push(Fragment::Start {
-                    code: create_sgr_code(prefix, &raw_codes[index..index + 5]),
-                    end_code: extended_end_code(code_number),
-                });
+                fragments.push(Fragment::Start { code: create_sgr_code(prefix, &raw_codes[index..index + 5]), end_code: extended_end_code(code_number) });
                 index += 5;
                 continue;
             }
-            fragments.push(Fragment::Start {
-                code: create_sgr_code(prefix, &[raw_codes[index]]),
-                end_code: extended_end_code(code_number),
-            });
+            fragments.push(Fragment::Start { code: create_sgr_code(prefix, &[raw_codes[index]]), end_code: extended_end_code(code_number) });
             index += 1;
             continue;
         }
@@ -257,12 +313,7 @@ fn parse_hyperlink(chars: &[char], index: usize) -> Option<Parsed> {
         } else {
             continue;
         };
-        let hyperlink = Hyperlink {
-            code: collect(chars, index, end),
-            open: at != uri_start + 1,
-            close_prefix,
-            terminator,
-        };
+        let hyperlink = Hyperlink { code: collect(chars, index, end), open: at != uri_start + 1, close_prefix, terminator };
         return Some(Parsed { token: Token::Hyperlink(hyperlink), end });
     }
     Some(control(collect(chars, index, chars.len()), chars.len()))
@@ -563,10 +614,7 @@ impl Slicer {
         if is_past_end && !should_include_sgr_after_end(fragments, &self.active_styles) {
             return;
         }
-        if self.include
-            && fragments.iter().any(|fragment| matches!(fragment, Fragment::Start { .. }))
-            && self.pending_sgr_output_index.is_none()
-        {
+        if self.include && fragments.iter().any(|fragment| matches!(fragment, Fragment::Start { .. })) && self.pending_sgr_output_index.is_none() {
             self.pending_sgr_output_index = Some(self.out.len());
             self.pending_sgr_active_styles = Some(self.active_styles.clone());
         }

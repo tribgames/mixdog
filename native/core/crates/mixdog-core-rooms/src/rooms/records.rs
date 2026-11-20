@@ -153,7 +153,15 @@ pub struct Rooms<S: RoomStore> {
 
 impl<S: RoomStore> Rooms<S> {
     pub fn new(store: S) -> Self {
-        Self { store, listeners: Mutex::new(Vec::new()), resets: Mutex::new(Vec::new()), turn_view: Mutex::new(None), member_log: Mutex::new(None), writer: SerialChain::new(), doc: Mutex::new(None) }
+        Self {
+            store,
+            listeners: Mutex::new(Vec::new()),
+            resets: Mutex::new(Vec::new()),
+            turn_view: Mutex::new(None),
+            member_log: Mutex::new(None),
+            writer: SerialChain::new(),
+            doc: Mutex::new(None),
+        }
     }
 
     /// Every save that changes who is in a room first has `log` record the members about to be saved ([`Self::log_members`]).
@@ -352,8 +360,7 @@ impl<S: RoomStore> Rooms<S> {
                 share_tools: patch.share_tools.unwrap_or(current.share_tools),
             })?;
             let renamed = config.name != current.name;
-            let gone: Vec<String> =
-                current.members.iter().filter(|id| !config.members.contains(id)).cloned().collect();
+            let gone: Vec<String> = current.members.iter().filter(|id| !config.members.contains(id)).cloned().collect();
             remove_from_room(room, &gone);
             room.config = config;
             Ok(Updated { room: room.clone(), renamed, gone })
@@ -380,27 +387,27 @@ impl<S: RoomStore> Rooms<S> {
     /// "대화 초기화": the room keeps its id, members and limits; cursors and the last line restart.
     /// Refused while members are speaking.
     pub async fn reset(&self, room_id: &str, now_ms: i64) -> Result<RoomRecord, RoomError> {
-        let reset = self.write(|doc| {
-            let room = doc.get_mut(room_id).ok_or_else(no_room)?;
-            if room.running.is_some() {
-                return Err(RoomError::Invalid("The room is still talking; stop it or wait before resetting.".into()));
-            }
-            room.cursors.clear();
-            room.seen.clear();
-            room.owed = None;
-            room.last_speaker = None;
-            room.last_preview = None;
-            room.last_at = Some(now_ms);
-            Ok(room.clone())
-        })
-        .await?;
+        let reset = self
+            .write(|doc| {
+                let room = doc.get_mut(room_id).ok_or_else(no_room)?;
+                if room.running.is_some() {
+                    return Err(RoomError::Invalid("The room is still talking; stop it or wait before resetting.".into()));
+                }
+                room.cursors.clear();
+                room.seen.clear();
+                room.owed = None;
+                room.last_speaker = None;
+                room.last_preview = None;
+                room.last_at = Some(now_ms);
+                Ok(room.clone())
+            })
+            .await?;
         let told: Vec<RoomReset> = self.resets.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for listener in told {
             listener(&reset);
         }
         Ok(reset)
     }
-
 
     /// A user message was accepted under `submission_id`: appended, the newest [`SUBMISSIONS_KEPT`] kept
     /// (`agent-room-messages.ts:103`; a second send of the id that was already on its way appends it again, as Node's does).
@@ -448,7 +455,8 @@ impl<S: RoomStore> Rooms<S> {
                 room.interrupted_rounds.retain(|round| *round != started_at);
             }
             Ok(())
-        }).await
+        })
+        .await
     }
 }
 
@@ -460,8 +468,7 @@ fn no_room() -> RoomError {
 fn drop_from(doc: &mut RoomDoc, agent_ids: &[String]) -> Vec<Left> {
     let mut left = Vec::new();
     for room in doc.values_mut() {
-        let gone: Vec<String> =
-            room.config.members.iter().filter(|id| id.as_str() != MIXY_AGENT_ID && agent_ids.contains(id)).cloned().collect();
+        let gone: Vec<String> = room.config.members.iter().filter(|id| id.as_str() != MIXY_AGENT_ID && agent_ids.contains(id)).cloned().collect();
         if gone.is_empty() {
             continue;
         }
@@ -500,11 +507,7 @@ mod tests {
     }
 
     fn input(members: &[&str]) -> RoomConfigInput {
-        RoomConfigInput {
-            name: "Plan".into(),
-            members: members.iter().map(|m| (*m).into()).collect(),
-            ..Default::default()
-        }
+        RoomConfigInput { name: "Plan".into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() }
     }
 
     #[tokio::test]
@@ -515,13 +518,7 @@ mod tests {
         rooms.create(&input(&["gh", "ops"]), "room02", 2).await.unwrap();
         rooms.create(&input(&["lead", "ops"]), "room03", 3).await.unwrap();
         let left = rooms.drop_members(&["gh".into(), "lead".into()]).await.unwrap();
-        assert_eq!(
-            left,
-            [
-                Left { room_id: "room01".into(), agent_id: "gh".into() },
-                Left { room_id: "room02".into(), agent_id: "gh".into() },
-            ]
-        );
+        assert_eq!(left, [Left { room_id: "room01".into(), agent_id: "gh".into() }, Left { room_id: "room02".into(), agent_id: "gh".into() },]);
         assert_eq!(left[0].session_id().as_deref(), Some("sess_rmem_room01_gh"));
         let room = rooms.get("room01").await.unwrap();
         assert_eq!(room.config.members, ["lead", "ops"]);

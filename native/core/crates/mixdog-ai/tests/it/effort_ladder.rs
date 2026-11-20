@@ -71,7 +71,11 @@ fn a_row_that_declares_nothing_takes_its_families_ladder_then_its_providers_then
     assert_eq!(provider("mimo-oauth"), ["minimal", "low", "medium", "high"]);
     assert_eq!(provider("command-code-oauth"), ["low", "medium", "high"]);
     assert!(provider("somebody-else").is_empty());
-    assert_eq!(effort_options_for("openai", &json!({"id": "m", "family": "unknown-family"}), None), ["none", "low", "medium", "high", "xhigh"], "an unknown family falls through to the provider");
+    assert_eq!(
+        effort_options_for("openai", &json!({"id": "m", "family": "unknown-family"}), None),
+        ["none", "low", "medium", "high", "xhigh"],
+        "an unknown family falls through to the provider"
+    );
 }
 
 #[test]
@@ -120,17 +124,18 @@ fn a_custom_rows_effort_snaps_down_to_what_it_declares_and_never_up() {
     assert_eq!(coerce_effort_for("custom-x", &row, "max", None).as_deref(), Some("high"));
     assert_eq!(coerce_effort_for("custom-x", &row, "high", None).as_deref(), Some("high"));
     assert_eq!(coerce_effort_for("custom-x", &row, "none", None), None);
-    assert_eq!(coerce_effort_for("custom-x", &json!({"id": "m", "customReasoning": true, "reasoningLevels": ["medium"]}), "low", None), None, "nothing at or below the request");
+    assert_eq!(
+        coerce_effort_for("custom-x", &json!({"id": "m", "customReasoning": true, "reasoningLevels": ["medium"]}), "low", None),
+        None,
+        "nothing at or below the request"
+    );
 }
 
 #[test]
 fn the_picker_lists_each_level_with_its_label_and_marks_the_current_one() {
     let items = effort_items_for("anthropic", &json!({"id": "m", "family": "opus"}), Some("high"), None);
     let shown: Vec<(&str, &str, &str)> = items.iter().map(|i| (i.value.as_str(), i.label.as_str(), i.description.as_str())).collect();
-    assert_eq!(
-        shown,
-        [("low", "Low", ""), ("medium", "Medium", ""), ("high", "High", "current"), ("xhigh", "Extra High", ""), ("max", "Max", "")]
-    );
+    assert_eq!(shown, [("low", "Low", ""), ("medium", "Medium", ""), ("high", "High", "current"), ("xhigh", "Extra High", ""), ("max", "Max", "")]);
     let none_active = effort_items_for("openai", &json!({"id": "m"}), None, None);
     assert_eq!(none_active[0].label, "None");
     assert!(none_active.iter().all(|i| i.description.is_empty()));
@@ -165,7 +170,11 @@ fn a_request_whose_level_was_refused_is_stepped_down_and_every_effort_field_foll
     assert_eq!(clamp_effort_opts(&untouched, None, None, Some(&entry)), untouched, "an accepted level stays");
     assert_eq!(clamp_effort_opts(&untouched, None, None, None), untouched);
     let none = json!({"model": "m"});
-    assert_eq!(clamp_effort_opts(&none, Some(&json!("high")), None, Some(&entry)), json!({"model": "m", "effort": "medium"}), "the configured effort stands in when the request names none");
+    assert_eq!(
+        clamp_effort_opts(&none, Some(&json!("high")), None, Some(&entry)),
+        json!({"model": "m", "effort": "medium"}),
+        "the configured effort stands in when the request names none"
+    );
     assert_eq!(clamp_effort_opts(&json!({"effort": "bogus"}), None, None, Some(&entry)), json!({"effort": "bogus"}));
 }
 
@@ -173,8 +182,20 @@ fn a_request_whose_level_was_refused_is_stepped_down_and_every_effort_field_foll
 fn a_wire_that_accepts_only_some_levels_steps_a_level_it_does_not_accept_down_but_leaves_foreign_levels() {
     let opts = json!({"effort": "high"});
     assert_eq!(clamp_effort_opts(&opts, None, Some(&["low", "high"]), Some(&refused(&["high"]))), json!({"effort": "low"}));
-    assert_eq!(clamp_effort_opts(&opts, None, Some(&["low", "medium"]), Some(&refused(&["high"]))), opts, "a level outside the wire's ladder is not this clamp's to change");
+    assert_eq!(
+        clamp_effort_opts(&opts, None, Some(&["low", "medium"]), Some(&refused(&["high"]))),
+        opts,
+        "a level outside the wire's ladder is not this clamp's to change"
+    );
     let named = RejectionEntry { rejected: Vec::new(), allowed: vec!["medium".into()] };
-    assert_eq!(clamp_effort_opts(&json!({"effort": "low"}), None, None, Some(&named)), json!({"effort": "medium"}), "with the endpoint's list known the step may go up");
-    assert_eq!(clamp_effort_opts(&json!({"effort": "low"}), None, None, Some(&refused(&["low", "minimal", "none"]))), json!({"effort": "low"}), "no list, nothing lower: left as asked");
+    assert_eq!(
+        clamp_effort_opts(&json!({"effort": "low"}), None, None, Some(&named)),
+        json!({"effort": "medium"}),
+        "with the endpoint's list known the step may go up"
+    );
+    assert_eq!(
+        clamp_effort_opts(&json!({"effort": "low"}), None, None, Some(&refused(&["low", "minimal", "none"]))),
+        json!({"effort": "low"}),
+        "no list, nothing lower: left as asked"
+    );
 }

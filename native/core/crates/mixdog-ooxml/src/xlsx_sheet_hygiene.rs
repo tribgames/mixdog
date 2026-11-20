@@ -12,8 +12,8 @@ use serde_json::Value;
 
 use crate::sheet_xml::Area;
 use crate::xlsx_audit_support::{
-    IssueList, Located, Position, cell_path, escape_reg_exp, formula_body_of, general_format, inside_area,
-    locate, merged_areas, numeric_value, position, sheet_path, table_areas, text_or_empty, truthy,
+    IssueList, Located, Position, cell_path, escape_reg_exp, formula_body_of, general_format, inside_area, locate, merged_areas, numeric_value, position,
+    sheet_path, table_areas, text_or_empty, truthy,
 };
 
 const LONG_SHEET_ROWS: f64 = 20.0;
@@ -27,8 +27,7 @@ const FORMAT_MAJORITY: f64 = 0.75;
 /// unquoted and reporting it leaves a warning nobody can resolve.
 static SHEET_IDENTIFIER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[\p{L}_][\p{L}\p{N}_.]*$", "u"));
 static EXTERNAL_LINK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[\d+\]|\[[^\]]*\.xls[xmb]?\]", "i"));
-static NUMBER_TEXT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*%?$", ""));
+static NUMBER_TEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*%?$", ""));
 static YEAR_TEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:19|20)\d{2}$", ""));
 static THOUSANDS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"#,#|0,0", ""));
 static QUOTED_PART: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#""[^"]*""#, "g"));
@@ -106,11 +105,7 @@ fn numeric_text(cell: &Value) -> bool {
 }
 
 fn format_key(style: Option<&Value>) -> String {
-    if general_format(style) {
-        "General".to_owned()
-    } else {
-        js_trim(&text_or_empty(style.and_then(|style| style.get("numberFormat")))).to_owned()
-    }
+    if general_format(style) { "General".to_owned() } else { js_trim(&text_or_empty(style.and_then(|style| style.get("numberFormat")))).to_owned() }
 }
 
 fn is_integer(value: f64) -> bool {
@@ -163,9 +158,7 @@ fn audit_formula_hygiene(list: &mut IssueList, cell: &Value, path: &str, sheet_n
             "warning",
             "unquoted_sheet_reference",
             path,
-            format!(
-                "Formula references sheet \"{name}\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '{name}'!."
-            ),
+            format!("Formula references sheet \"{name}\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '{name}'!."),
         );
     }
     if external_link_reference(&formula) {
@@ -191,13 +184,7 @@ fn audit_formula_hygiene(list: &mut IssueList, cell: &Value, path: &str, sheet_n
 }
 
 /// `auditSheetHygiene(list, sheet, cells, sheetNames, externalNames)`.
-pub fn audit_sheet_hygiene(
-    list: &mut IssueList,
-    sheet: &Value,
-    cells: &[Value],
-    sheet_names: &[String],
-    external_names: &[String],
-) {
+pub fn audit_sheet_hygiene(list: &mut IssueList, sheet: &Value, cells: &[Value], sheet_names: &[String], external_names: &[String]) {
     let display = merged_areas(sheet);
     let by_column_format = numbers_by_column_format(cells);
     for cell in cells {
@@ -235,10 +222,8 @@ pub fn audit_sheet_hygiene(
             );
         }
         if thousands_format(style) && is_integer(value) && (1900.0..=2100.0).contains(&value) {
-            let beside = position(cell)
-                .and_then(|at| by_column_format.get(&column_format_key(at.column, &format_key(style))))
-                .cloned()
-                .unwrap_or_else(|| vec![value]);
+            let beside =
+                position(cell).and_then(|at| by_column_format.get(&column_format_key(at.column, &format_key(style)))).cloned().unwrap_or_else(|| vec![value]);
             if year_like(&beside) {
                 list.push(
                     "warning",
@@ -275,10 +260,8 @@ fn table_column_formats(located: &[Located<'_>], area: &Area) -> TableFormats {
     while column <= area.end_col {
         let current = column;
         column += 1.0;
-        let body: Vec<&Located<'_>> = located
-            .iter()
-            .filter(|entry| entry.at.column == current && entry.at.row > area.start_row && entry.at.row <= area.end_row)
-            .collect();
+        let body: Vec<&Located<'_>> =
+            located.iter().filter(|entry| entry.at.column == current && entry.at.row > area.start_row && entry.at.row <= area.end_row).collect();
         let numbers: Vec<(&Located<'_>, f64)> = body
             .iter()
             .filter(|entry| entry.cell.get("dataType").and_then(Value::as_str) != Some("text"))
@@ -343,10 +326,7 @@ pub fn audit_sheet_layout(list: &mut IssueList, sheet: &Value, cells: &[Value]) 
         let named_last = to_number_of(sheet.get("lastRow"));
         let last_row = if truthy(sheet.get("truncated")) && named_last > read_last { named_last } else { read_last };
         let header_row = located.iter().fold(f64::INFINITY, |first, entry| first.min(entry.at.row));
-        let headers = located
-            .iter()
-            .filter(|entry| entry.at.row == header_row && entry.cell.get("dataType").and_then(Value::as_str) == Some("text"))
-            .count();
+        let headers = located.iter().filter(|entry| entry.at.row == header_row && entry.cell.get("dataType").and_then(Value::as_str) == Some("text")).count();
         if last_row - header_row >= LONG_SHEET_ROWS && headers >= 2 {
             list.push(
                 "info",
@@ -443,10 +423,7 @@ mod tests {
 
     #[test]
     fn external_names_and_grouping() {
-        let names = external_defined_names(&[
-            json!({ "name": "Rate", "refersTo": "=[1]Rates!$A$1" }),
-            json!({ "name": "Local", "refersTo": "=Data!$A$1" }),
-        ]);
+        let names = external_defined_names(&[json!({ "name": "Rate", "refersTo": "=[1]Rates!$A$1" }), json!({ "name": "Local", "refersTo": "=Data!$A$1" })]);
         assert_eq!(names, ["Rate"]);
         assert_eq!(external_name_read("=Rate*B2", &names), "Rate");
         assert_eq!(external_name_read("=XRate*B2", &names), "");

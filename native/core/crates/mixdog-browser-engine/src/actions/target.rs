@@ -525,7 +525,10 @@ mod tests {
 
     fn snapshot_answer(snapshot_id: &str, elements: Vec<BrowserSnapshotElement>) -> Expect {
         let payload = payload(snapshot_id, elements, "https://a.test/");
-        Expect::ok("host/browser/snapshot", json!({"snapshotId": snapshot_id, "documentId": "p1:1", "revision": 3, "payload": payload, "warnings": [], "facts": page_facts("p1", 4)}))
+        Expect::ok(
+            "host/browser/snapshot",
+            json!({"snapshotId": snapshot_id, "documentId": "p1:1", "revision": 3, "payload": payload, "warnings": [], "facts": page_facts("p1", 4)}),
+        )
     }
 
     #[test]
@@ -547,10 +550,24 @@ mod tests {
         let page = TestPage::new();
         let mut rig = Rig::new(None);
         let command = json!({"ref": "p1-s1-e1", "target": {"name": "Save"}});
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         assert_eq!(action_ref(&mut cx).await, Ok(Some("p1-s1-e1".to_string())));
         let none = json!({"x": 3});
-        let mut cx = ActionContext { host: &host, page: &page, command: &none, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &none,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         assert_eq!(action_ref(&mut cx).await, Ok(None));
         host.finish().expect("no host call");
     }
@@ -563,7 +580,14 @@ mod tests {
         let page = TestPage::with(|state| state.adopted = Some(fresh.clone()));
         let mut rig = Rig::new(None);
         let command = json!({"target": {"name": "Save"}});
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         assert_eq!(action_ref(&mut cx).await, Ok(Some("p1-s2-e1".to_string())));
         assert_eq!(rig.recovery.source.as_ref().map(|set| set.snapshot_id.as_str()), Some("p1-s2"));
         assert_eq!(rig.baseline.as_ref().map(|set| set.snapshot_id.as_str()), Some("p1-s2"));
@@ -579,13 +603,27 @@ mod tests {
         let page = TestPage::new();
         let mut rig = Rig::new(None);
         let command = json!({"target": {"name": "Card"}, "dropTarget": {"name": "Done"}});
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         assert_eq!(drag_refs(&mut cx).await, Ok((Some("p1-s2-e1".to_string()), Some("p1-s2-e2".to_string()))));
         assert_eq!(rig.recovery.resolved_targets.len(), 2);
         host.finish().expect("one snapshot for both ends");
         let plain = json!({"ref": "a", "targetRef": "b"});
         let quiet = FakeHost::scripted(Vec::new());
-        let mut cx = ActionContext { host: &quiet, page: &page, command: &plain, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &quiet,
+            page: &page,
+            command: &plain,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         assert_eq!(drag_refs(&mut cx).await, Ok((Some("a".to_string()), Some("b".to_string()))));
     }
 
@@ -657,6 +695,5 @@ mod tests {
         assert_eq!(page.get(|state| state.dropped_grounding), 1);
     }
 }
-
 
 impl std::error::Error for ActionError {}

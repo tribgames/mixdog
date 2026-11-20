@@ -20,18 +20,18 @@ use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 
+use super::FetchKind;
 use super::hosted_search::*;
 use super::pipeline::PageRenderer;
 use super::render::BrowserEndpoint;
 use super::render::BrowserRenderer;
-use mixdog_core_api::domain::ext::BrowserHold;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use mixdog_core_api::ids::ThreadId;
 use super::search::NativeSearchRequest;
 use super::search::NativeWebSearch;
 use super::ssrf::AddressPolicy;
-use super::FetchKind;
+use mixdog_core_api::domain::ext::BrowserHold;
+use mixdog_core_api::ids::ThreadId;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 struct Endpoint(String);
 
@@ -89,17 +89,12 @@ async fn fake_browser(page_url: Url) -> (String, Arc<Mutex<Seen>>) {
             let name = frame["method"].as_str().unwrap().to_string();
             record.lock().unwrap().methods.push(name.clone());
             let reply = |result: Value| Message::text(json!({ "id": id, "result": result }).to_string());
-            let event = |method: &str, params: Value| {
-                Message::text(json!({ "method": method, "params": params, "sessionId": "s1" }).to_string())
-            };
+            let event = |method: &str, params: Value| Message::text(json!({ "method": method, "params": params, "sessionId": "s1" }).to_string());
             match name.as_str() {
                 "Target.createBrowserContext" => socket.send(reply(json!({ "browserContextId": "c1" }))).await.unwrap(),
                 "Target.createTarget" => socket.send(reply(json!({ "targetId": "t1" }))).await.unwrap(),
                 "Target.attachToTarget" => socket.send(reply(json!({ "sessionId": "s1" }))).await.unwrap(),
-                "Page.getFrameTree" => socket
-                    .send(reply(json!({ "frameTree": { "frame": { "id": "f1", "url": page_url.as_str() } } })))
-                    .await
-                    .unwrap(),
+                "Page.getFrameTree" => socket.send(reply(json!({ "frameTree": { "frame": { "id": "f1", "url": page_url.as_str() } } }))).await.unwrap(),
                 "Page.navigate" => {
                     navigate_id = id;
                     socket
@@ -116,11 +111,7 @@ async fn fake_browser(page_url: Url) -> (String, Arc<Mutex<Seen>>) {
                         .unwrap();
                 }
                 "Fetch.fulfillRequest" => {
-                    let body = base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
-                        frame["params"]["body"].as_str().unwrap(),
-                    )
-                    .unwrap();
+                    let body = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, frame["params"]["body"].as_str().unwrap()).unwrap();
                     {
                         let mut seen = record.lock().unwrap();
                         seen.fulfilled_status = frame["params"]["responseCode"].as_u64();
@@ -129,10 +120,7 @@ async fn fake_browser(page_url: Url) -> (String, Arc<Mutex<Seen>>) {
                     socket.send(reply(json!({}))).await.unwrap();
                     let done = json!({ "id": navigate_id, "result": { "frameId": "f1", "loaderId": "L1" } });
                     socket.send(Message::text(done.to_string())).await.unwrap();
-                    socket
-                        .send(event("Page.lifecycleEvent", json!({ "name": "DOMContentLoaded", "frameId": "f1", "loaderId": "L1" })))
-                        .await
-                        .unwrap();
+                    socket.send(event("Page.lifecycleEvent", json!({ "name": "DOMContentLoaded", "frameId": "f1", "loaderId": "L1" }))).await.unwrap();
                 }
                 "Fetch.failRequest" => {
                     socket.send(reply(json!({}))).await.unwrap();
@@ -141,11 +129,7 @@ async fn fake_browser(page_url: Url) -> (String, Arc<Mutex<Seen>>) {
                 }
                 "Runtime.evaluate" => {
                     let expression = frame["params"]["expression"].as_str().unwrap();
-                    let value = if expression.contains("innerText") {
-                        json!(true)
-                    } else {
-                        json!(record.lock().unwrap().fulfilled_body.clone())
-                    };
+                    let value = if expression.contains("innerText") { json!(true) } else { json!(record.lock().unwrap().fulfilled_body.clone()) };
                     socket.send(reply(json!({ "result": { "type": "string", "value": value } }))).await.unwrap();
                 }
                 _ => socket.send(reply(json!({}))).await.unwrap(),
@@ -181,15 +165,7 @@ impl HostedSearchSender for Sender {
 }
 
 fn candidate(provider: &str, family: SearchFamily) -> SearchCandidate {
-    SearchCandidate {
-        provider: provider.into(),
-        family,
-        model: "m".into(),
-        effort: None,
-        fast: false,
-        model_parameters: json!({}),
-        tool_type: None,
-    }
+    SearchCandidate { provider: provider.into(), family, model: "m".into(), effort: None, fast: false, model_parameters: json!({}), tool_type: None }
 }
 
 fn request(site: Option<&str>) -> NativeSearchRequest {
@@ -242,10 +218,7 @@ async fn a_capacity_refusal_moves_to_the_next_candidate() {
     assert_eq!(calls[0].tool, json!({ "type": "web_search", "search_context_size": "high", "filters": { "allowed_domains": ["a.com", "b.com"] } }));
     assert_eq!(calls[0].include, ["web_search_call.action.sources"]);
     assert_eq!(calls[0].tool_choice, "required");
-    assert_eq!(
-        calls[1].tool,
-        json!({ "type": "web_search_20250305", "name": "web_search", "max_uses": 7, "allowed_domains": ["a.com", "b.com"] })
-    );
+    assert_eq!(calls[1].tool, json!({ "type": "web_search_20250305", "name": "web_search", "max_uses": 7, "allowed_domains": ["a.com", "b.com"] }));
     assert!(calls[1].include.is_empty());
     assert_eq!(calls[1].user, "the prompt");
 }
@@ -260,10 +233,7 @@ async fn an_unnamed_model_falls_back_to_the_candidates() {
 
 #[tokio::test]
 async fn any_other_refusal_surfaces_without_trying_the_next_candidate() {
-    let (search, sender) = search_with(
-        vec![candidate("gemini", SearchFamily::Gemini), candidate("xai", SearchFamily::Xai)],
-        vec![Err(refusal(false))],
-    );
+    let (search, sender) = search_with(vec![candidate("gemini", SearchFamily::Gemini), candidate("xai", SearchFamily::Xai)], vec![Err(refusal(false))]);
     let error = search.search(request(None), CancellationToken::new()).await.unwrap_err();
     assert_eq!(error, super::NativeSearchError::Failed("busy".into()));
     let calls = sender.calls.lock().unwrap();
@@ -281,19 +251,20 @@ async fn exhausted_candidates_and_missing_routes_say_why() {
     assert_eq!(none.search(request(None), CancellationToken::new()).await.unwrap_err(), super::NativeSearchError::Unavailable("no route".into()));
 }
 
-
 #[tokio::test]
 async fn render_reads_the_page_through_the_request_gate() {
     let origin = MockServer::start().await;
     let body = "<title>Rendered</title><main><h1>Hi</h1><p>Script made this.</p></main>";
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8"))
-        .mount(&origin)
-        .await;
+    Mock::given(method("GET")).respond_with(ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8")).mount(&origin).await;
     let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
     let (endpoint, seen) = fake_browser(url.clone()).await;
-    let renderer =
-        BrowserRenderer::with_policy(Arc::new(Endpoint(endpoint)), AddressPolicy::AnyForTest, "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
+    let renderer = BrowserRenderer::with_policy(
+        Arc::new(Endpoint(endpoint)),
+        AddressPolicy::AnyForTest,
+        "test",
+        super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+    )
+    .unwrap();
     let page = renderer.render(&url, Duration::from_secs(10)).await.unwrap();
     assert_eq!(page.title, "Rendered");
     assert_eq!(page.content, "# Hi\n\nScript made this.");
@@ -308,11 +279,7 @@ async fn render_holds_the_shared_browser_for_the_whole_render_and_lets_go_after(
     let origin = MockServer::start().await;
     let body = "<title>Slow</title><main><p>Late.</p></main>";
     Mock::given(method("GET"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8")
-                .set_delay(Duration::from_millis(300)),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8").set_delay(Duration::from_millis(300)))
         .mount(&origin)
         .await;
     let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
@@ -342,7 +309,12 @@ async fn render_refuses_a_private_document_before_it_reaches_the_browser() {
     let origin = MockServer::start().await;
     let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
     let (endpoint, seen) = fake_browser(url.clone()).await;
-    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
+    let renderer = BrowserRenderer::new(
+        Arc::new(Endpoint(endpoint)),
+        "test",
+        super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+    )
+    .unwrap();
     let error = renderer.render(&url, Duration::from_secs(10)).await.unwrap_err();
     assert_eq!(error.kind, FetchKind::Policy);
     assert_eq!(seen.lock().unwrap().fulfilled_status, None);
@@ -353,7 +325,12 @@ async fn render_reports_an_unreachable_browser() {
     let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("ws://{}/devtools/browser/x", free.local_addr().unwrap());
     drop(free);
-    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
+    let renderer = BrowserRenderer::new(
+        Arc::new(Endpoint(endpoint)),
+        "test",
+        super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+    )
+    .unwrap();
     let url = Url::parse("https://example.com/").unwrap();
     let error = renderer.render(&url, Duration::from_secs(5)).await.unwrap_err();
     assert!(error.message.starts_with("puppeteer launch failed:"), "{error}");

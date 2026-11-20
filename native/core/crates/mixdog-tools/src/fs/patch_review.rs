@@ -67,7 +67,14 @@ fn content(snapshot: Option<&Snapshot>) -> ReviewContent {
 ///
 /// `announce`: the read state's invalidation (which the review follows) happens here, as Node's native apply does it once for
 /// the batch. A sequence announces each unit as it commits ([`unit_committed`]), so its end does not announce again.
-pub(super) async fn committed_patch(ctx: &ToolContext, state: Option<&ReadState>, before: &[Snapshot], paths: &[AbsPath], renames: &[(AbsPath, AbsPath)], announce: bool) {
+pub(super) async fn committed_patch(
+    ctx: &ToolContext,
+    state: Option<&ReadState>,
+    before: &[Snapshot],
+    paths: &[AbsPath],
+    renames: &[(AbsPath, AbsPath)],
+    announce: bool,
+) {
     if (ctx.review.is_none() && state.is_none()) || before.is_empty() {
         return;
     }
@@ -82,12 +89,7 @@ pub(super) async fn committed_patch(ctx: &ToolContext, state: Option<&ReadState>
     let mut changes = Vec::new();
     let mut renamed = std::collections::HashSet::new();
     for (src, dest) in renames {
-        changes.push(CallChange {
-            path: text_of(src),
-            new_path: Some(text_of(dest)),
-            before: content(find(before, src)),
-            after: content(find(&after, dest)),
-        });
+        changes.push(CallChange { path: text_of(src), new_path: Some(text_of(dest)), before: content(find(before, src)), after: content(find(&after, dest)) });
         renamed.insert(key(src));
         renamed.insert(key(dest));
     }
@@ -137,9 +139,7 @@ fn note_patch(ctx: &ToolContext, state: &ReadState, before: &[Snapshot], after: 
         let started = find(before, &snap.path);
         let proven = match (prior, started.and_then(Snapshot::bytes)) {
             (Some(prior), Some(bytes)) => {
-                prior.content_hash.is_some()
-                    && (prior.body_delivered == Some(true) || covers_full_file(&prior))
-                    && content_hash_of(bytes) == prior.content_hash
+                prior.content_hash.is_some() && (prior.body_delivered == Some(true) || covers_full_file(&prior)) && content_hash_of(bytes) == prior.content_hash
             }
             _ => false,
         };

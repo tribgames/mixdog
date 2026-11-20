@@ -54,10 +54,7 @@ mod tests {
             language: Some(TailLanguage { id: "ko".into(), name: "Korean".into() }),
             role: TailRole::Lead,
         });
-        assert_eq!(
-            reminder.text("claude-opus-5-5-20260101").as_deref(),
-            Some("<system-reminder>Write all user-facing text in Korean.</system-reminder>")
-        );
+        assert_eq!(reminder.text("claude-opus-5-5-20260101").as_deref(), Some("<system-reminder>Write all user-facing text in Korean.</system-reminder>"));
         assert_eq!(reminder.text("gpt-5"), None);
     }
 
@@ -67,7 +64,9 @@ mod tests {
 
     #[test]
     fn the_context_follows_the_headers_role_and_recorded_language() {
-        let lead = tail_context(&header(serde_json::json!({ "provider": "openai", "responseLanguage": { "id": "ko", "name": "Korean" } })), || panic!("a recorded language is not re-read"));
+        let lead = tail_context(&header(serde_json::json!({ "provider": "openai", "responseLanguage": { "id": "ko", "name": "Korean" } })), || {
+            panic!("a recorded language is not re-read")
+        });
         assert_eq!((lead.provider.as_str(), lead.role, lead.language.map(|l| l.name)), ("openai", TailRole::Lead, Some("Korean".to_owned())));
         let bot = tail_context(&header(serde_json::json!({ "sessionMode": "agent", "responseLanguage": null })), || panic!("null is a recorded no language"));
         assert!(bot.role == TailRole::Bot && bot.language.is_none());

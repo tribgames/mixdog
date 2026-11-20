@@ -252,13 +252,7 @@ fn phase(fraction: f64) -> f64 {
 fn shrink(src: &Plane, axis: Axis, factor: usize) -> Plane {
     let n = src.len(axis);
     let out = n.div_ceil(factor);
-    map_axis(
-        src,
-        axis,
-        out,
-        |o| (0..factor).map(|i| ((o * factor + i).min(n - 1), 1)).collect(),
-        |sum| ((sum + (factor as i64) / 2) / factor as i64) as i32,
-    )
+    map_axis(src, axis, out, |o| (0..factor).map(|i| ((o * factor + i).min(n - 1), 1)).collect(), |sum| ((sum + (factor as i64) / 2) / factor as i64) as i32)
 }
 
 /// libvips's reduce of one axis by `shrink` (at least 1) with `kernel`: the source position of an output sample is
@@ -640,11 +634,7 @@ const WHITE: [f64; 3] = [95.047, 100.0, 108.883];
 /// sRGB bytes to CIE XYZ (D65, Y of white = 100), libvips's matrix.
 pub(crate) fn to_xyz(r: u8, g: u8, b: u8) -> [f64; 3] {
     let (r, g, b) = (to_linear(r), to_linear(g), to_linear(b));
-    [
-        100.0 * (0.4124 * r + 0.3576 * g + 0.1805 * b),
-        100.0 * (0.2126 * r + 0.7152 * g + 0.0722 * b),
-        100.0 * (0.0193 * r + 0.1192 * g + 0.9505 * b),
-    ]
+    [100.0 * (0.4124 * r + 0.3576 * g + 0.1805 * b), 100.0 * (0.2126 * r + 0.7152 * g + 0.0722 * b), 100.0 * (0.0193 * r + 0.1192 * g + 0.9505 * b)]
 }
 
 fn lab_f(t: f64) -> f64 {
@@ -666,11 +656,7 @@ fn lab_to_srgb(lab: [f64; 3]) -> [u8; 3] {
     let fy = (lab[0] + 16.0) / 116.0;
     let (fx, fz) = (fy + lab[1] / 500.0, fy - lab[2] / 200.0);
     let (x, y, z) = (lab_f_inverse(fx) * WHITE[0] / 100.0, lab_f_inverse(fy), lab_f_inverse(fz) * WHITE[2] / 100.0);
-    let linear = [
-        3.2406 * x - 1.5372 * y - 0.4986 * z,
-        -0.9689 * x + 1.8758 * y + 0.0415 * z,
-        0.0557 * x - 0.2040 * y + 1.0570 * z,
-    ];
+    let linear = [3.2406 * x - 1.5372 * y - 0.4986 * z, -0.9689 * x + 1.8758 * y + 0.0415 * z, 0.0557 * x - 0.2040 * y + 1.0570 * z];
     [0, 1, 2].map(|c| to_byte((from_linear(linear[c]) * 255.0) as f32))
 }
 

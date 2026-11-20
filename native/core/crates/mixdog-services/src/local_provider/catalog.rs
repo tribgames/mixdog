@@ -123,9 +123,13 @@ pub(crate) mod tests {
         assert!(available_bytes(&dir.path().join("a/b/c")).is_some());
     }
 
-
     pub(crate) fn catalog(dir: &Path) -> Arc<Catalog> {
-        Arc::new(Catalog::new(dir, HardwareProbe::new("windows", "x86_64", None, crate::tidy::process::Processes::for_tests()), Arc::new(ModelState::default()), mixdog_rt::testing::tokens().durability_io))
+        Arc::new(Catalog::new(
+            dir,
+            HardwareProbe::new("windows", "x86_64", None, crate::tidy::process::Processes::for_tests()),
+            Arc::new(ModelState::default()),
+            mixdog_rt::testing::tokens().durability_io,
+        ))
     }
     #[test]
     fn the_bundled_manifest_describes_runtime_and_models() {
@@ -157,8 +161,6 @@ pub(crate) mod tests {
         fs::write(format!("{}.part", weights.display()), vec![1u8; 1000]).unwrap();
         assert_eq!(c.status(Some("win32-x64-nvidia")).await.unwrap()["models"][0]["remainingDownloadBytes"], 18_973_870_432i64 - 1000);
     }
-
-
 }
 
 impl Catalog {

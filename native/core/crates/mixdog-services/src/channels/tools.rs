@@ -41,11 +41,7 @@ pub struct ToolDispatch {
 }
 
 impl ToolDispatch {
-    pub fn new(
-        lifecycle: Arc<dyn ChannelLifecycle>,
-        work: RunningWork,
-        degraded: Box<dyn Fn() -> bool + Send + Sync>,
-    ) -> Self {
+    pub fn new(lifecycle: Arc<dyn ChannelLifecycle>, work: RunningWork, degraded: Box<dyn Fn() -> bool + Send + Sync>) -> Self {
         Self { lifecycle, work, degraded, active_guard: Mutex::new(None) }
     }
 
@@ -95,8 +91,7 @@ impl ToolDispatch {
             }
             "rename_schedule" => {
                 let old = args["name"].as_str().unwrap_or_default();
-                let saved =
-                    self.lifecycle.rename_schedule(old, &args["def"], args["timingChanged"] == Value::Bool(true)).await?;
+                let saved = self.lifecycle.rename_schedule(old, &args["def"], args["timingChanged"] == Value::Bool(true)).await?;
                 Ok(text_result(saved.to_string()))
             }
             _ => Ok(error_result(format!("unknown tool: {name}"))),

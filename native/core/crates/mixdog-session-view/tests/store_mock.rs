@@ -285,9 +285,17 @@ async fn a_submission_is_a_turn_input_with_a_submission_id() {
 #[tokio::test(flavor = "current_thread")]
 async fn esc_steer_and_restore_are_the_cores_requests() {
     let rig = Rig::open_default().await;
-    let (aborted, request) = rig.answering(json!({ "cancelRequested": true, "aborted": true, "restoreText": "back" }), rig.store.abort(&json!({ "restorePrompt": false, "submissionId": " s1 " }))).await;
+    let (aborted, request) = rig
+        .answering(
+            json!({ "cancelRequested": true, "aborted": true, "restoreText": "back" }),
+            rig.store.abort(&json!({ "restorePrompt": false, "submissionId": " s1 " })),
+        )
+        .await;
     assert_eq!(aborted.expect("aborted")["restoreText"], "back");
-    assert_eq!((request["method"].clone(), request["params"].clone()), (json!("turn/interrupt"), json!({ "threadId": "lead", "restorePrompt": false, "submissionId": "s1" })));
+    assert_eq!(
+        (request["method"].clone(), request["params"].clone()),
+        (json!("turn/interrupt"), json!({ "threadId": "lead", "restorePrompt": false, "submissionId": "s1" }))
+    );
     let (_, request) = rig.answering(json!({}), rig.store.abort(&json!({}))).await;
     assert_eq!(request["params"], json!({ "threadId": "lead" }));
     let (restored, request) = rig.answering(json!({ "count": 1, "text": "q" }), rig.store.restore_queued("", Some("q1"))).await;
@@ -388,9 +396,11 @@ async fn a_sign_in_flow_is_tracked_and_a_pending_one_is_cancelled_when_the_store
     let (_, request) = rig.answering(json!({ "flowId": "oauth_1", "state": "pending" }), rig.store.oauth_status(OAuthKind::Provider, "oauth_1")).await;
     assert_eq!((request["method"].clone(), request["params"]["flowId"].clone()), (json!("account/getOAuthProviderLoginStatus"), json!("oauth_1")));
     // A flow that is no longer pending ends the wait at once.
-    let (done, _) = rig.answering(json!({ "flowId": "oauth_2", "state": "complete" }), rig.store.wait_oauth(OAuthKind::Mcp, "oauth_2", Duration::from_millis(1))).await;
+    let (done, _) =
+        rig.answering(json!({ "flowId": "oauth_2", "state": "complete" }), rig.store.wait_oauth(OAuthKind::Mcp, "oauth_2", Duration::from_millis(1))).await;
     assert_eq!(done.expect("waited")["state"], "complete");
-    let (_, request) = rig.answering(json!({ "flowId": "oauth_3", "state": "pending" }), rig.store.begin_oauth(OAuthKind::Mcp, "srv", &json!({ "openBrowser": true }))).await;
+    let (_, request) =
+        rig.answering(json!({ "flowId": "oauth_3", "state": "pending" }), rig.store.begin_oauth(OAuthKind::Mcp, "srv", &json!({ "openBrowser": true }))).await;
     assert_eq!(request["method"], "mcp/beginMcpOAuthLogin");
     // Disposal cancels both pending flows, stops following the session and closes the connection.
     let mut sent = Vec::new();
@@ -407,7 +417,8 @@ async fn a_sign_in_flow_is_tracked_and_a_pending_one_is_cancelled_when_the_store
         }
     });
     assert!(finished);
-    let cancelled: Vec<&Value> = sent.iter().filter(|(method, _)| method.ends_with("OAuthLogin") || method.ends_with("OAuthProviderLogin")).map(|(_, flow)| flow).collect();
+    let cancelled: Vec<&Value> =
+        sent.iter().filter(|(method, _)| method.ends_with("OAuthLogin") || method.ends_with("OAuthProviderLogin")).map(|(_, flow)| flow).collect();
     assert_eq!(cancelled.len(), 2);
     assert_eq!(sent.last().map(|(method, _)| method.as_str()), Some("thread/unsubscribe"));
     settle().await;
@@ -444,11 +455,12 @@ async fn a_session_list_reads_every_page_or_the_one_asked_for() {
     assert_eq!((pages.0["method"].clone(), pages.0["params"].get("cursor").cloned()), (json!("thread/list"), None));
     assert_eq!((pages.1["params"]["cursor"].clone(), pages.1["params"]["cwd"].clone()), (json!("c2"), json!("/w")));
     let (one, request) = rig
-        .answering(json!({ "data": [{ "id": "x" }], "nextCursor": "more" }), rig.store.call("listSessions", &[json!({ "page": { "limit": 1, "cursor": "k" } })]))
+        .answering(
+            json!({ "data": [{ "id": "x" }], "nextCursor": "more" }),
+            rig.store.call("listSessions", &[json!({ "page": { "limit": 1, "cursor": "k" } })]),
+        )
         .await;
     assert_eq!(one.expect("one page"), json!([{ "id": "x" }]));
     assert_eq!((request["params"]["limit"].clone(), request["params"]["cursor"].clone()), (json!(1), json!("k")));
     assert_eq!(rig.conn.queued(), 0);
 }
-
-

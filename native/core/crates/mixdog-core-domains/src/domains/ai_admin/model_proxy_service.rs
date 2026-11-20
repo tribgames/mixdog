@@ -21,7 +21,9 @@ use mixdog_app_protocol::v2::model_proxy as w;
 use mixdog_core_api::host::lost_after_dispatch;
 use mixdog_core_api::ids::{ConnectionId, Method};
 use mixdog_core_api::service::Admit;
-use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, DomainService, HostCapability, HostChannel, HostError, Reply, model_proxy_unavailable_text};
+use mixdog_core_api::{
+    Caller, ConnectionNotifier, CoreError, CoreRequest, DomainService, HostCapability, HostChannel, HostError, Reply, model_proxy_unavailable_text,
+};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -87,7 +89,13 @@ impl ModelProxyTransport for HostProxyTransport {
     }
 
     /// A session send: the owner's verdicts go back to the PC running the call as `model/proxy/tail`.
-    async fn execute_duplex(&self, call: Value, events: &mut (dyn FnMut(Value) + Send), back: tokio::sync::mpsc::UnboundedReceiver<Value>, cancel: &CancellationToken) -> Result<Value, ProxyError> {
+    async fn execute_duplex(
+        &self,
+        call: Value,
+        events: &mut (dyn FnMut(Value) + Send),
+        back: tokio::sync::mpsc::UnboundedReceiver<Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ProxyError> {
         let request = self.host.request_streamed_duplex(HostCapability::ModelProxy, EXECUTE, json!({ "call": call }), events, TAIL, back);
         let reply = tokio::select! {
             biased;
@@ -158,7 +166,9 @@ pub fn claimed_chars(value: &Value) -> usize {
         Value::Number(number) => mixdog_js::number_to_string(number.as_f64().expect("a JSON number is finite")).len(),
         Value::String(text) => quoted_len(text),
         Value::Array(items) => 2 + items.len().saturating_sub(1) + items.iter().map(claimed_chars).sum::<usize>(),
-        Value::Object(fields) => 2 + fields.len().saturating_sub(1) + fields.iter().map(|(key, field)| quoted_len(key) + 1 + claimed_chars(field)).sum::<usize>(),
+        Value::Object(fields) => {
+            2 + fields.len().saturating_sub(1) + fields.iter().map(|(key, field)| quoted_len(key) + 1 + claimed_chars(field)).sum::<usize>()
+        }
     }
 }
 
@@ -230,7 +240,15 @@ impl ModelProxyService {
 
     /// One admitted run, as `modelProxy/run` and `run_local` share it: the payload is admitted (a refusal is the answer `Failed`),
     /// the run is tracked under `key` so `modelProxy/cancel` and `close` can stop it, and a failure is the answer `Failed`.
-    async fn run_admitted(&self, chars: usize, call: w::ProxyCall, allowed: Option<&[String]>, events: &dyn ProxyEvents, cancel: CancellationToken, key: (ConnectionId, String)) -> w::ProxyAnswer {
+    async fn run_admitted(
+        &self,
+        chars: usize,
+        call: w::ProxyCall,
+        allowed: Option<&[String]>,
+        events: &dyn ProxyEvents,
+        cancel: CancellationToken,
+        key: (ConnectionId, String),
+    ) -> w::ProxyAnswer {
         let _held = match self.admit(chars) {
             Ok(held) => held,
             Err(failure) => return w::ProxyAnswer::Failed { failure },
@@ -253,7 +271,13 @@ impl ModelProxyService {
     /// `modelProxy/run` for a caller inside this core (the in-core relay): the same admission, the same run and the same answer,
     /// without a connection. The events go to `events`; the run is tracked under a key of its own, so `close` waits for it and
     /// aborts it like any other. A call that does not decode is the answer `Failed`, as a plain error.
-    pub async fn run_local(&self, call: Value, allowed: Option<Vec<String>>, events: Arc<dyn ProxyEvents + Send + Sync>, cancel: CancellationToken) -> w::ProxyAnswer {
+    pub async fn run_local(
+        &self,
+        call: Value,
+        allowed: Option<Vec<String>>,
+        events: Arc<dyn ProxyEvents + Send + Sync>,
+        cancel: CancellationToken,
+    ) -> w::ProxyAnswer {
         let chars = claimed_chars(&call);
         let call = match serde_json::from_value::<w::ProxyCall>(call) {
             Ok(call) => call,

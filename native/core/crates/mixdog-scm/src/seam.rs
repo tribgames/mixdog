@@ -98,10 +98,8 @@ mod debug {
         state.advanced_ms += ms;
         let total = state.advanced_ms;
         // A child that already ended dropped its limit: it is neither counting nor reached.
-        let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut state.waiters)
-            .into_iter()
-            .filter(|waiter| !waiter.fire.is_closed())
-            .partition(|waiter| waiter.deadline_ms <= total);
+        let (due, waiting): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut state.waiters).into_iter().filter(|waiter| !waiter.fire.is_closed()).partition(|waiter| waiter.deadline_ms <= total);
         state.waiters = waiting;
         let armed: Vec<_> = state.waiters.iter().map(|waiter| waiter.child.clone()).collect();
         let fired: Vec<_> = due.iter().map(|waiter| waiter.child.clone()).collect();
@@ -187,14 +185,7 @@ pub(crate) struct Attempt {
 }
 
 /// The attempt is being made now: told to the replay at this moment, so attempts issued side by side are in the order they were issued.
-pub(crate) fn attempt_begin(
-    program: &str,
-    args: &[String],
-    pty: bool,
-    cwd: &std::path::Path,
-    env_set: &[(String, String)],
-    env_remove: &[String],
-) -> Attempt {
+pub(crate) fn attempt_begin(program: &str, args: &[String], pty: bool, cwd: &std::path::Path, env_set: &[(String, String)], env_remove: &[String]) -> Attempt {
     #[cfg(debug_assertions)]
     {
         let seq = if debug::enabled() { debug::next_seq() } else { 0 };
@@ -256,10 +247,13 @@ pub(crate) fn run_limit(own: Option<Duration>, attempt: &Attempt) -> (Option<Dur
     }
     #[cfg(not(debug_assertions))]
     let _ = attempt;
-    (own, Deadline {
-        #[cfg(debug_assertions)]
-        fire: None,
-    })
+    (
+        own,
+        Deadline {
+            #[cfg(debug_assertions)]
+            fire: None,
+        },
+    )
 }
 
 /// A work-tree file's identity as a recording's scratch repositories scripted it (see the module doc), or the real one.

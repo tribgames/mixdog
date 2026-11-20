@@ -101,7 +101,11 @@ pub struct PastedImage {
 pub enum PromptPart {
     Text(String),
     /// `{ type: 'image', data, mimeType, pasteId }`: `paste_id` pairs the part with its pasted image by identity.
-    Image { data: String, mime_type: String, paste_id: u64 },
+    Image {
+        data: String,
+        mime_type: String,
+        paste_id: u64,
+    },
 }
 
 /// A prompt: the text alone, or the text and the images it references.
@@ -359,12 +363,7 @@ impl Default for AttachmentSource<'_> {
 }
 
 /// `imageAttachmentFromBuffer`: the image through the caller's resize.
-pub fn image_attachment_from_buffer(
-    buffer: &[u8],
-    mime_type: &str,
-    source: &AttachmentSource<'_>,
-    resize: Resizer<'_>,
-) -> Result<ImageAttachment, String> {
+pub fn image_attachment_from_buffer(buffer: &[u8], mime_type: &str, source: &AttachmentSource<'_>, resize: Resizer<'_>) -> Result<ImageAttachment, String> {
     if buffer.is_empty() {
         return Err("image is empty".to_owned());
     }
@@ -394,15 +393,11 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 }
 
 /// The PowerShell that writes the clipboard text to stdout as base64 of UTF-8, so non-ASCII survives the console code page.
-pub const WINDOWS_CLIPBOARD_TEXT_SCRIPT: &str = "$t=Get-Clipboard -Raw; if ($null -eq $t) { exit 2 }; [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t)))";
+pub const WINDOWS_CLIPBOARD_TEXT_SCRIPT: &str =
+    "$t=Get-Clipboard -Raw; if ($null -eq $t) { exit 2 }; [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t)))";
 
 fn capture(program: &str, args: &[&str], timeout: Duration) -> HelperCommand {
-    HelperCommand {
-        capture_stdout: true,
-        timeout: Some(timeout),
-        max_stdout: Some(MAX_HELPER_STDOUT),
-        ..HelperCommand::new(program, args)
-    }
+    HelperCommand { capture_stdout: true, timeout: Some(timeout), max_stdout: Some(MAX_HELPER_STDOUT), ..HelperCommand::new(program, args) }
 }
 
 fn powershell(script: &str, timeout: Duration) -> HelperCommand {
@@ -531,14 +526,7 @@ mod tests {
         let texts: Vec<(&str, bool)> = parts.iter().map(|part| (part.text.as_str(), part.image_path)).collect();
         assert_eq!(
             texts,
-            vec![
-                ("/a/one.png", true),
-                ("~/two.JPG", true),
-                ("C:\\three.gif", true),
-                ("\n", false),
-                ("note", false),
-                ("file:///x/four.webp  x", false),
-            ]
+            vec![("/a/one.png", true), ("~/two.JPG", true), ("C:\\three.gif", true), ("\n", false), ("note", false), ("file:///x/four.webp  x", false),]
         );
     }
 
@@ -567,13 +555,9 @@ mod tests {
 
     #[test]
     fn the_temporary_file_is_named_for_the_process_and_time() {
-        assert_eq!(
-            temp_png_path(Path::new("/tmp"), 42, 1700000000000, 0xAB),
-            Path::new("/tmp").join("mixdog-clipboard-42-1700000000000-000000ab.png")
-        );
+        assert_eq!(temp_png_path(Path::new("/tmp"), 42, 1700000000000, 0xAB), Path::new("/tmp").join("mixdog-clipboard-42-1700000000000-000000ab.png"));
     }
 }
-
 
 /// Read an image named by a pasted path. `Ok(None)` when the text is not an image path or no such file exists; an error
 /// when the file cannot be read or the resize refuses it. A relative path is taken from `cwd` (the current directory when
@@ -604,13 +588,7 @@ pub fn read_image_attachment_from_path(
     let buffer = mixdog_fsio::read(&Unlaned, &full_path).map_err(|error| error.to_string())?;
     let filename = full_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let source_path = full_path.to_string_lossy().into_owned();
-    image_attachment_from_buffer(
-        &buffer,
-        mime_type,
-        &AttachmentSource { filename: &filename, source_path: &source_path, provider },
-        resize,
-    )
-    .map(Some)
+    image_attachment_from_buffer(&buffer, mime_type, &AttachmentSource { filename: &filename, source_path: &source_path, provider }, resize).map(Some)
 }
 fn fresh_temp_png_path() -> PathBuf {
     use std::hash::{BuildHasher, Hasher};

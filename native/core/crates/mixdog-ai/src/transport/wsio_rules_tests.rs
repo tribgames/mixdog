@@ -20,12 +20,17 @@ fn parse_ext(header: &str) -> Result<Option<Extension>, String> {
 fn no_extension_header_is_no_compression_and_a_bare_acceptance_keeps_the_defaults() {
     assert_eq!(Extension::parse(None), Ok(None));
     assert_eq!(parse_ext("permessage-deflate"), Ok(Some(Extension::default())));
-    assert_eq!(Extension::default(), Extension { server_no_context_takeover: false, client_no_context_takeover: false, client_max_window_bits: 15, server_max_window_bits: 15 });
+    assert_eq!(
+        Extension::default(),
+        Extension { server_no_context_takeover: false, client_no_context_takeover: false, client_max_window_bits: 15, server_max_window_bits: 15 }
+    );
 }
 
 #[test]
 fn the_accepted_parameters_set_the_windows_and_the_context_takeover_flags() {
-    let got = parse_ext("permessage-deflate; server_no_context_takeover; client_no_context_takeover; client_max_window_bits=10; server_max_window_bits=\"9\"").unwrap().unwrap();
+    let got = parse_ext("permessage-deflate; server_no_context_takeover; client_no_context_takeover; client_max_window_bits=10; server_max_window_bits=\"9\"")
+        .unwrap()
+        .unwrap();
     assert_eq!(got, Extension { server_no_context_takeover: true, client_no_context_takeover: true, client_max_window_bits: 10, server_max_window_bits: 9 });
     let first_of_two = parse_ext("permessage-deflate; client_max_window_bits=9, permessage-deflate").unwrap().unwrap();
     assert_eq!(first_of_two.client_max_window_bits, 9, "of several configurations the first is used");
@@ -39,7 +44,10 @@ fn an_answer_that_is_malformed_unrequested_repeated_or_out_of_range_ends_the_han
         ("x-webkit-deflate-frame", "Server indicated an extension that was not requested"),
         ("permessage-deflate, other", "Server indicated an extension that was not requested"),
         ("permessage-deflate; frobnicate", "Unknown parameter \"frobnicate\""),
-        ("permessage-deflate; server_no_context_takeover; server_no_context_takeover", "Parameter \"server_no_context_takeover\" must have only a single value"),
+        (
+            "permessage-deflate; server_no_context_takeover; server_no_context_takeover",
+            "Parameter \"server_no_context_takeover\" must have only a single value",
+        ),
         ("permessage-deflate; client_max_window_bits=7", "Invalid value for parameter \"client_max_window_bits\": 7"),
         ("permessage-deflate; server_max_window_bits=16", "Invalid value for parameter \"server_max_window_bits\": 16"),
         ("permessage-deflate; client_max_window_bits", "Invalid value for parameter \"client_max_window_bits\": true"),
@@ -78,7 +86,11 @@ fn a_masked_server_frame_reserved_bits_and_unknown_opcodes_are_refused_with_1002
     let masked = refused(0x81, &[0x82, 1, 2, 3, 4, 5, 6], &mut Codec::plain());
     assert_eq!((masked.code, masked.ws_code, masked.text.as_str()), (1002, "WS_ERR_UNEXPECTED_MASK", "Invalid WebSocket frame: MASK must be clear"));
     let rsv1 = refused(0xc1, &[0], &mut Codec::plain());
-    assert_eq!((rsv1.code, rsv1.ws_code, rsv1.text.as_str()), (1002, "WS_ERR_UNEXPECTED_RSV_1", "Invalid WebSocket frame: RSV1 must be clear"), "no compression was negotiated");
+    assert_eq!(
+        (rsv1.code, rsv1.ws_code, rsv1.text.as_str()),
+        (1002, "WS_ERR_UNEXPECTED_RSV_1", "Invalid WebSocket frame: RSV1 must be clear"),
+        "no compression was negotiated"
+    );
     let rsv2 = refused(0xa1, &[0], &mut Codec::new(Extension::default()));
     assert_eq!((rsv2.code, rsv2.ws_code), (1002, "WS_ERR_UNEXPECTED_RSV_2_3"));
     let opcode = refused(0x83, &[0], &mut Codec::plain());

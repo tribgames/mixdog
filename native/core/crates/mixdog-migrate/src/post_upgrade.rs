@@ -48,18 +48,14 @@ pub const FAMILY: &str = "migration:";
 
 /// The schedules and webhook endpoints 1.4.5 kept in its PostgreSQL database
 /// (`scheduler.schedules`, `webhooks.endpoints`).
-pub const LEGACY_ROUTINES: Step = Step {
-    key: "legacyRoutines",
-    carries: "schedules and webhook endpoints from the 1.4.5 database, with their run stamps, secrets and pause state",
-};
+pub const LEGACY_ROUTINES: Step =
+    Step { key: "legacyRoutines", carries: "schedules and webhook endpoints from the 1.4.5 database, with their run stamps, secrets and pause state" };
 
 /// The delivery dedup log of the webhook endpoints (`webhooks.deliveries`): what makes a provider's redelivery of an event the
 /// old version handled a duplicate. A step of its own, so an installation whose `legacyRoutines` is already recorded gets it
 /// too, without the schedule and endpoint import running again.
-pub const LEGACY_DELIVERIES: Step = Step {
-    key: "legacyDeliveries",
-    carries: "the webhook delivery dedup log from the 1.4.5 database, for the endpoints the store holds",
-};
+pub const LEGACY_DELIVERIES: Step =
+    Step { key: "legacyDeliveries", carries: "the webhook delivery dedup log from the 1.4.5 database, for the endpoints the store holds" };
 
 /// Every post-upgrade step, in the order they run.
 pub const STEPS: &[Step] = &[LEGACY_ROUTINES, LEGACY_DELIVERIES];
@@ -135,9 +131,8 @@ pub fn read_report(data: &Path) -> Result<Report> {
     }
     let blocked = |error: rusqlite::Error| Blocked::journal(format!("{}: {error}", path.display()));
     let connection = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(blocked)?;
-    let has_meta: i64 = connection
-        .query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'", [], |row| row.get(0))
-        .map_err(blocked)?;
+    let has_meta: i64 =
+        connection.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'", [], |row| row.get(0)).map_err(blocked)?;
     if has_meta == 0 {
         return Ok(report(Vec::new()));
     }

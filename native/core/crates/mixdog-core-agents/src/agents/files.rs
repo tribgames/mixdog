@@ -15,16 +15,16 @@ use serde_json::Map;
 use serde_json::Value;
 
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_config::config::agent_routes::agent_editor_id;
 use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::config::is_store_bot;
-use mixdog_core_config::config::agent_routes::agent_editor_id;
-use mixdog_core_rooms::rooms::home::Presence;
 use mixdog_core_config::workflow::ids::clean;
 use mixdog_core_config::workflow::ids::one_line;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_config::workflow::ids::workflow_id;
 use mixdog_core_config::workflow::pack::read_document;
 use mixdog_core_config::workflow::pack::read_text_safe;
+use mixdog_core_rooms::rooms::home::Presence;
 
 pub(super) type Lane = InLane<InteractiveIo>;
 
@@ -34,10 +34,8 @@ pub(super) const BOTS_DIR: &str = "bots";
 pub(super) const MIXY_BOT_ID: &str = "mixy";
 
 /// `FIXED_AGENT_SLOTS`: id, label and description of the built-in services.
-pub const FIXED_SLOTS: [(&str, &str, &str, &str); 2] = [
-    ("maintainer", "Maintainer", "Memory and upkeep", "memory"),
-    ("explore", "Explore", "Codebase exploration", "explore"),
-];
+pub const FIXED_SLOTS: [(&str, &str, &str, &str); 2] =
+    [("maintainer", "Maintainer", "Memory and upkeep", "memory"), ("explore", "Explore", "Codebase exploration", "explore")];
 /// `DEFAULT_DISABLED_AGENT_IDS`: the shipped starter roles, in their listing order.
 pub const STARTERS: [&str; 7] = ["worker", "heavy-worker", "reviewer", "advisor", "security", "front-worker", "writer"];
 
@@ -209,11 +207,7 @@ impl Folders {
 
     /// `userDefinitionDir`: `bots/<id>` for a store bot, else `agents/<id>`.
     pub(super) fn user_dir(&self, lane: &Lane, id: &str) -> PathBuf {
-        if is_store_bot(lane, &self.data, id) {
-            self.data.join(BOTS_DIR).join(id)
-        } else {
-            self.data.join("agents").join(id)
-        }
+        if is_store_bot(lane, &self.data, id) { self.data.join(BOTS_DIR).join(id) } else { self.data.join("agents").join(id) }
     }
 
     /// `hasUserAgentFile`: the user folder holds an `AGENT.md`.
@@ -277,11 +271,7 @@ impl Folders {
             return vec![self.data.join(BOTS_DIR).join(id)];
         }
         let user = self.data.join("agents").join(id);
-        if user.join(DELETED_MARKER).exists() {
-            vec![user]
-        } else {
-            vec![user, self.shipped_dir(id)]
-        }
+        if user.join(DELETED_MARKER).exists() { vec![user] } else { vec![user, self.shipped_dir(id)] }
     }
 
     /// `loadAgentDefinition`: the first source folder whose entry file has a body.
@@ -299,11 +289,7 @@ impl Folders {
                 continue;
             }
             let label = |own: &str, fallback: Option<&str>| {
-                if !own.is_empty() {
-                    own.to_owned()
-                } else {
-                    fallback.map_or_else(|| agent_id.clone(), str::to_owned)
-                }
+                if !own.is_empty() { own.to_owned() } else { fallback.map_or_else(|| agent_id.clone(), str::to_owned) }
             };
             let name = label(&clean(manifest.get("name")), slot.map(|s| s.1));
             let description = {
@@ -311,11 +297,8 @@ impl Folders {
                 if own.is_empty() { slot.map_or("", |s| s.2).to_owned() } else { own }
             };
             let explicit = explicit_kind(frontmatter.get("kind"));
-            let (kind, unmarked) = if dir == self.shipped_dir(&agent_id) {
-                (explicit, false)
-            } else {
-                self.kind_of(lane, &agent_id, explicit, &manifest, &body)
-            };
+            let (kind, unmarked) =
+                if dir == self.shipped_dir(&agent_id) { (explicit, false) } else { self.kind_of(lane, &agent_id, explicit, &manifest, &body) };
             let persona = read_text_safe(&dir.join("PERSONA.md"));
             return Some(Loaded {
                 definition: AgentDefinition {
@@ -444,11 +427,7 @@ impl Folders {
 
     /// Mixy's identity folder: `bots/mixy` once the store is active, `agents/lead` before.
     pub(super) fn identity_dir(&self, lane: &Lane) -> PathBuf {
-        if bot_migration(lane, &self.data).is_some() {
-            self.data.join(BOTS_DIR).join(MIXY_BOT_ID)
-        } else {
-            self.data.join("agents").join(MIXY_AGENT_ID)
-        }
+        if bot_migration(lane, &self.data).is_some() { self.data.join(BOTS_DIR).join(MIXY_BOT_ID) } else { self.data.join("agents").join(MIXY_AGENT_ID) }
     }
 }
 

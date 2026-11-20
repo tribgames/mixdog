@@ -305,12 +305,7 @@ impl H1Body {
         // A message without a body (a `HEAD`, a 204, `Content-Length: 0`) ended with its head: dropping the body at once
         // leaves the connection to the reader.
         let received = Received { end: incoming.is_end_stream().then_some(Ok(())), ..Received::default() };
-        let shared = Arc::new(Shared {
-            received: Mutex::new(received),
-            arrived: Notify::new(),
-            room: Notify::new(),
-            gone: Notify::new(),
-        });
+        let shared = Arc::new(Shared { received: Mutex::new(received), arrived: Notify::new(), room: Notify::new(), gone: Notify::new() });
         let born = conn.born;
         tokio::spawn(read_message(incoming, conn, reuse, shared.clone()));
         Self { shared, decoder, done: false, born }
@@ -588,9 +583,10 @@ mod tests {
             far // kept open, unread
         });
         let body = vec![b'x'; 1 << 20];
-        let outcome = mixdog_rt::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
-            .await
-            .expect("the answer arrives while the write is pending");
+        let outcome =
+            mixdog_rt::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
+                .await
+                .expect("the answer arrives while the write is pending");
         match outcome {
             Exchange::Answered { response, written } => {
                 assert_eq!(response.status(), 413);

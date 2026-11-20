@@ -299,7 +299,6 @@ mod tests {
         .await
     }
 
-
     #[tokio::test(start_paused = true)]
     async fn a_waiter_cancelled_after_the_hand_off_passes_the_turn_on() {
         let chain = SerialChain::new();

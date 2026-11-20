@@ -43,9 +43,7 @@ pub struct LateServerRequests {
 
 impl LateServerRequests {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            state: Mutex::new(State::Waiting(Vec::new())),
-        })
+        Arc::new(Self { state: Mutex::new(State::Waiting(Vec::new())) })
     }
 
     /// Binds the server's router and replays what the core sent before it, in order. A second
@@ -157,6 +155,5 @@ mod tests {
         assert!(second.events().is_empty());
     }
 }
-
 
 impl std::error::Error for AlreadyBound {}

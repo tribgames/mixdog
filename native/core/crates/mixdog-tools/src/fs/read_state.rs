@@ -66,11 +66,8 @@ impl LineRange {
 
 /// `mergeReadRanges`.
 pub fn merge_ranges(ranges: &[LineRange]) -> Vec<LineRange> {
-    let mut sorted: Vec<LineRange> = ranges
-        .iter()
-        .map(|r| LineRange { start: r.start.max(1), end: r.end })
-        .filter(|r| r.end.is_none_or(|e| e >= r.start))
-        .collect();
+    let mut sorted: Vec<LineRange> =
+        ranges.iter().map(|r| LineRange { start: r.start.max(1), end: r.end }).filter(|r| r.end.is_none_or(|e| e >= r.start)).collect();
     sorted.sort_by_key(|r| r.start);
     let mut out: Vec<LineRange> = Vec::new();
     for cur in sorted {
@@ -114,12 +111,8 @@ fn covers_all_lines(s: &Snapshot, line_count: u64) -> bool {
     if line_count == 0 {
         return true;
     }
-    let mut ranges: Vec<(u64, u64)> = s
-        .ranges
-        .iter()
-        .map(|r| (r.start.max(1), r.end.map_or(line_count, |e| e.min(line_count))))
-        .filter(|(a, b)| b >= a)
-        .collect();
+    let mut ranges: Vec<(u64, u64)> =
+        s.ranges.iter().map(|r| (r.start.max(1), r.end.map_or(line_count, |e| e.min(line_count)))).filter(|(a, b)| b >= a).collect();
     ranges.sort();
     let mut covered = 0;
     for (a, b) in ranges {
@@ -241,17 +234,9 @@ fn paths_overlap(a: &str, b: &str) -> bool {
 }
 
 /// `resolveBodyDelivered`: whether the session has been given this file's body.
-fn resolve_body_delivered(
-    next: &Snapshot,
-    meta: &SnapshotMeta,
-    prior: Option<&Snapshot>,
-    identity: &FileVersion,
-    incoming_is_grep: bool,
-) -> Option<bool> {
+fn resolve_body_delivered(next: &Snapshot, meta: &SnapshotMeta, prior: Option<&Snapshot>, identity: &FileVersion, incoming_is_grep: bool) -> Option<bool> {
     if is_mutation_source(&meta.source) {
-        let prior_paged_full = prior
-            .and_then(|p| p.file_line_count.filter(|c| *c > 0).map(|c| covers_all_lines(p, c)))
-            .unwrap_or(false);
+        let prior_paged_full = prior.and_then(|p| p.file_line_count.filter(|c| *c > 0).map(|c| covers_all_lines(p, c))).unwrap_or(false);
         let prior_current = match (prior, meta.pre_mutation.as_ref()) {
             (Some(p), Some(pre)) => same_version(pre, &p.version),
             _ => false,
@@ -259,11 +244,8 @@ fn resolve_body_delivered(
         let prior_ranges_are_reads = prior.is_none_or(|p| !is_mutation_source(&p.source));
         return Some(
             prior_current
-                && prior.is_some_and(|p| {
-                    !p.grep_only
-                        && (p.body_delivered == Some(true)
-                            || (prior_ranges_are_reads && (covers_full_file(p) || prior_paged_full)))
-                }),
+                && prior
+                    .is_some_and(|p| !p.grep_only && (p.body_delivered == Some(true) || (prior_ranges_are_reads && (covers_full_file(p) || prior_paged_full)))),
         );
     }
     if !incoming_is_grep && covers_full_file(next) {
@@ -432,11 +414,7 @@ mod tests {
 
     #[test]
     fn ranges_merge_across_adjacent_lines_and_keep_an_open_end() {
-        let merged = merge_ranges(&[
-            LineRange { start: 5, end: Some(7) },
-            LineRange { start: 1, end: Some(4) },
-            LineRange { start: 10, end: None },
-        ]);
+        let merged = merge_ranges(&[LineRange { start: 5, end: Some(7) }, LineRange { start: 1, end: Some(4) }, LineRange { start: 10, end: None }]);
         assert_eq!(merged, vec![LineRange { start: 1, end: Some(7) }, LineRange { start: 10, end: None }]);
     }
 
@@ -546,7 +524,6 @@ mod tests {
         assert_eq!(serde_json::to_string(&files[0].1.extra).unwrap(), r#"{"x":1,"y":2}"#);
     }
 
-
     const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(30);
     /// A state whose flush timer is short enough to wait out.
     fn persistent(store: Arc<dyn SnapshotPersist>) -> ReadState {
@@ -562,12 +539,7 @@ mod tests {
         let snap = state.snapshot(Some("s"), "/a").unwrap();
         assert!(covers_full_file(&snap));
         let after = version(2.0, 11);
-        state.record(
-            Some("s"),
-            "/a",
-            Some(after),
-            SnapshotMeta { replace_existing: true, pre_mutation: Some(v), ..SnapshotMeta::new("edit") },
-        );
+        state.record(Some("s"), "/a", Some(after), SnapshotMeta { replace_existing: true, pre_mutation: Some(v), ..SnapshotMeta::new("edit") });
         assert_eq!(state.snapshot(Some("s"), "/a").unwrap().body_delivered, Some(true));
         assert!(state.snapshot(None, "/a").is_none());
         assert!(state.snapshot(Some("other"), "/a").is_none());
@@ -588,7 +560,12 @@ mod tests {
         assert_eq!(state.snapshot(Some("s"), "/a").unwrap().body_delivered, Some(false));
         state.record(Some("s"), "/b", Some(v), SnapshotMeta::new("read"));
         // The file changed under the session before the edit: the earlier read proves nothing.
-        state.record(Some("s"), "/b", Some(version(9.0, 12)), SnapshotMeta { replace_existing: true, pre_mutation: Some(version(8.0, 10)), ..SnapshotMeta::new("edit") });
+        state.record(
+            Some("s"),
+            "/b",
+            Some(version(9.0, 12)),
+            SnapshotMeta { replace_existing: true, pre_mutation: Some(version(8.0, 10)), ..SnapshotMeta::new("edit") },
+        );
         assert_eq!(state.snapshot(Some("s"), "/b").unwrap().body_delivered, Some(false));
     }
     #[test]
@@ -786,7 +763,6 @@ mod tests {
         assert_eq!(left, [("a".to_owned(), r#"{"/b":{"mtimeMs":2,"size":2},"/c":{"mtimeMs":3,"size":3}}"#.to_owned())]);
     }
 }
-
 
 /// libuv's `mtimeMs`: seconds times 1000 plus the nanoseconds over 1e6.
 fn epoch_ms(t: std::time::SystemTime) -> f64 {
@@ -1049,7 +1025,18 @@ impl ReadState {
 
     fn build(persist: Option<Persistence>, clock: Clock, debounce: std::time::Duration) -> Self {
         let marks = mixdog_rt::WriteMarks::new("the read-state snapshots");
-        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new(), watchers: Mutex::new(Vec::new()), releases: Mutex::new(Vec::new()), marks }) }
+        Self {
+            shared: Arc::new(Shared {
+                inner: Mutex::new(Inner::default()),
+                clock,
+                persist,
+                debounce,
+                idle: tokio::sync::Notify::new(),
+                watchers: Mutex::new(Vec::new()),
+                releases: Mutex::new(Vec::new()),
+                marks,
+            }),
+        }
     }
 
     /// The changes' numbers: a barrier takes `accepted()` when it arrives, calls [`Self::flush_pending`], and waits for

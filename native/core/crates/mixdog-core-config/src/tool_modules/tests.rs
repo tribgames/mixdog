@@ -17,14 +17,8 @@ struct MockHost {
 
 impl MockHost {
     fn new(external: External) -> Arc<Self> {
-        Arc::new(Self {
-            external: Mutex::new(external),
-            prepare_error: Mutex::default(),
-            calls: Mutex::default(),
-            tick: watch::channel(0).0,
-        })
+        Arc::new(Self { external: Mutex::new(external), prepare_error: Mutex::default(), calls: Mutex::default(), tick: watch::channel(0).0 })
     }
-
 
     fn record(&self, call: Value) {
         self.calls.lock().unwrap().push(call);
@@ -41,11 +35,7 @@ impl ToolModulesHost for MockHost {
         self.tick.subscribe()
     }
 
-    async fn prepare_builtin_feature(
-        &self,
-        name: &str,
-        engines: Option<&[String]>,
-    ) -> Result<Option<Value>, String> {
+    async fn prepare_builtin_feature(&self, name: &str, engines: Option<&[String]>) -> Result<Option<Value>, String> {
         self.record(match engines {
             Some(engines) => json!(["prepare", name, { "engines": engines }]),
             None => json!(["prepare", name]),
@@ -82,8 +72,6 @@ fn lanes() -> ConfigLanes {
     ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io }
 }
 
-
-
 async fn service(
     dir: &tempfile::TempDir,
     config: Option<&Value>,
@@ -104,11 +92,7 @@ async fn service(
 }
 
 fn tool_modules_frames(publisher: &MockStatePublisher) -> usize {
-    publisher
-        .published()
-        .iter()
-        .filter(|(section, _, _)| *section == SectionName::ToolModules)
-        .count()
+    publisher.published().iter().filter(|(section, _, _)| *section == SectionName::ToolModules).count()
 }
 
 #[tokio::test]
@@ -129,8 +113,7 @@ async fn runtime_completion_activates_unless_off_was_saved_after_the_start() {
 
     for concurrent_off in [false, true] {
         let dir = tempfile::tempdir().unwrap();
-        let (modules, host, _, config, cancel) =
-            service(&dir, None, plain_external(), Arc::new(|_| None)).await;
+        let (modules, host, _, config, cancel) = service(&dir, None, plain_external(), Arc::new(|_| None)).await;
         let epoch = modules.runtime_activation_epoch();
         if concurrent_off {
             modules.set_builtin_tool_enabled("localProvider", false).await.unwrap();
@@ -141,11 +124,7 @@ async fn runtime_completion_activates_unless_off_was_saved_after_the_start() {
         assert_eq!(settings["localProvider"]["enabled"], !concurrent_off);
         assert_eq!(config.agent()["providers"]["mixdog-local"]["enabled"], !concurrent_off);
         let calls = host.calls.lock().unwrap().clone();
-        let expected = if concurrent_off {
-            vec![json!(["stopServer"]), json!(["syncRegistry", false])]
-        } else {
-            vec![json!(["syncRegistry", true])]
-        };
+        let expected = if concurrent_off { vec![json!(["stopServer"]), json!(["syncRegistry", false])] } else { vec![json!(["syncRegistry", true])] };
         assert_eq!(calls, expected);
         cancel.cancel();
     }
@@ -158,18 +137,9 @@ fn plain_external() -> External {
         git_available: true,
         local_provider: json!({ "runtime": { "installed": true } }),
         installation_command_error: None,
-        effort_judge: EffortJudgeState {
-            available: true,
-            installing: false,
-            ready: false,
-            last_error: json!(""),
-            info: json!({}),
-        },
+        effort_judge: EffortJudgeState { available: true, installing: false, ready: false, last_error: json!(""), info: json!({}) },
     }
 }
-
-
-
 
 /// A 1.4.5 profile holding only `agent.autoClear.enabled:false` (the desktop settings store's write, no install marker) is
 /// grandfathered by Node's load. In the product every writer works from the config loaded from disk, so a first write by any of
@@ -231,8 +201,7 @@ async fn a_first_write_on_a_fresh_profile_does_not_grandfather_it() {
 #[tokio::test]
 async fn a_setter_pushes_once_and_an_unchanged_value_pushes_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let (modules, _, publisher, _, cancel) =
-        service(&dir, None, plain_external(), Arc::new(|_| None)).await;
+    let (modules, _, publisher, _, cancel) = service(&dir, None, plain_external(), Arc::new(|_| None)).await;
     until(|| tool_modules_frames(&publisher) == 1).await;
 
     let value = modules.set_instruction_files("claude").await.unwrap();
@@ -253,12 +222,10 @@ async fn until(condition: impl Fn() -> bool) {
 #[tokio::test]
 async fn host_status_and_other_config_writers_push_without_polling() {
     let dir = tempfile::tempdir().unwrap();
-    let (modules, host, publisher, config, cancel) =
-        service(&dir, None, plain_external(), Arc::new(|_| None)).await;
+    let (modules, host, publisher, config, cancel) = service(&dir, None, plain_external(), Arc::new(|_| None)).await;
     until(|| tool_modules_frames(&publisher) == 1).await;
 
-    host.external.lock().unwrap().local_provider =
-        json!({ "runtime": { "installed": true }, "installations": [{ "phase": "model", "state": "running" }] });
+    host.external.lock().unwrap().local_provider = json!({ "runtime": { "installed": true }, "installations": [{ "phase": "model", "state": "running" }] });
     host.tick.send_modify(|tick| *tick += 1);
     until(|| tool_modules_frames(&publisher) == 2).await;
 
@@ -274,5 +241,3 @@ async fn host_status_and_other_config_writers_push_without_polling() {
 
     cancel.cancel();
 }
-
-

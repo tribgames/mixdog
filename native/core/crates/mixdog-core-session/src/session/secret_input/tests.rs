@@ -29,11 +29,9 @@ use super::*;
 const ID: &str = "secret_0123456789ab";
 const VALUE: &str = "Tr0ub4dor&3";
 
-
 fn lasting() -> SecretSlots {
     SecretSlots::new(SECRET_INPUT_TIMEOUT)
 }
-
 
 struct Gates {
     browser: bool,
@@ -75,7 +73,6 @@ fn idle_computer() -> Arc<Computer> {
     Arc::new(Computer { script: Vec::new(), sent: Mutex::new(Vec::new()) })
 }
 
-
 fn open() -> Gates {
     Gates { browser: true, computer: true }
 }
@@ -107,8 +104,6 @@ impl HostCommands for Page {
         Err(HostCommandError::NoHost)
     }
 }
-
-
 
 fn claim() -> HostClaim {
     HostClaim { host: HostId::from("host-A"), connection: ConnectionId(1), generation: 1 }
@@ -191,7 +186,14 @@ fn has_value(sent: &[(String, JsonValue)]) -> bool {
 
 #[tokio::test]
 async fn a_precheck_that_is_not_the_bound_desktops_ready_sends_nothing() {
-    for answer in [Ok(json!({ "text": "ready", "hostId": "host-B" })), Ok(json!({ "text": "ready" })), Ok(json!({ "hostId": "host-A" })), Ok(json!({ "text": "entered", "hostId": "host-A" })), Ok(json!({})), Err(HostError::Core(CoreError::ConnectionClosed))] {
+    for answer in [
+        Ok(json!({ "text": "ready", "hostId": "host-B" })),
+        Ok(json!({ "text": "ready" })),
+        Ok(json!({ "hostId": "host-A" })),
+        Ok(json!({ "text": "entered", "hostId": "host-A" })),
+        Ok(json!({})),
+        Err(HostError::Core(CoreError::ConnectionClosed)),
+    ] {
         let desk = Desk::new();
         let (slots, fill) = browser_fill(&desk, open());
         let thread = ThreadId::from("S1");
@@ -293,8 +295,12 @@ async fn provide_secret_answers_only_that_it_was_taken() {
     let answered = value(&service, request("approval/provideSecret", params(" secret_0123456789ab ", "482190"), Some(1))).await.unwrap();
     assert_eq!(answered, json!({}));
     assert_eq!(slots.take(ID), "482190");
-    for (bad, message) in [(params("nope", "v"), "secret was not accepted."), (params(ID, ""), "secret was not accepted."), (params("  ", "v"), "secret request id is invalid.")] {
-        let CoreError::DomainError { message: Some(got), .. } = value(&service, request("approval/provideSecret", bad, Some(2))).await.unwrap_err() else { panic!("a domain error") };
+    for (bad, message) in
+        [(params("nope", "v"), "secret was not accepted."), (params(ID, ""), "secret was not accepted."), (params("  ", "v"), "secret request id is invalid.")]
+    {
+        let CoreError::DomainError { message: Some(got), .. } = value(&service, request("approval/provideSecret", bad, Some(2))).await.unwrap_err() else {
+            panic!("a domain error")
+        };
         assert_eq!(&*got, message);
         assert!(!slots.has(ID));
     }
@@ -302,7 +308,9 @@ async fn provide_secret_answers_only_that_it_was_taken() {
     assert!(matches!(missing, CoreError::OpIdRequired));
     assert!(!slots.has(ID), "no value is kept without an op id");
     let number = json!({ "opId": "x", "requestId": 7, "secret": "v" });
-    let CoreError::DomainError { message: Some(got), .. } = value(&service, request("approval/provideSecret", number, Some(3))).await.unwrap_err() else { panic!("a domain error") };
+    let CoreError::DomainError { message: Some(got), .. } = value(&service, request("approval/provideSecret", number, Some(3))).await.unwrap_err() else {
+        panic!("a domain error")
+    };
     assert_eq!(&*got, "secret request id must be a string.");
 }
 
@@ -477,7 +485,10 @@ mod saved_login_backend {
     }
 
     fn login() -> ComputerRequest {
-        ComputerRequest { action: ComputerAction::SavedLogin, input: json!({ "window_id": "hwnd:0x1", "savedAccount": "j•••e@example.com", "field": "password" }) }
+        ComputerRequest {
+            action: ComputerAction::SavedLogin,
+            input: json!({ "window_id": "hwnd:0x1", "savedAccount": "j•••e@example.com", "field": "password" }),
+        }
     }
 
     fn failure(outcome: Result<Vec<ToolPart>, ComputerError>) -> (String, String) {
@@ -526,15 +537,24 @@ mod saved_login_backend {
     #[tokio::test]
     async fn a_fill_that_names_an_app_is_made_in_the_apps_window() {
         let chrome = rig(Some(7), true, false);
-        let by_app = ComputerRequest { action: ComputerAction::SavedLogin, input: json!({ "app": "chrome", "savedAccount": "j•••e@example.com", "field": "password" }) };
+        let by_app = ComputerRequest {
+            action: ComputerAction::SavedLogin,
+            input: json!({ "app": "chrome", "savedAccount": "j•••e@example.com", "field": "password" }),
+        };
         chrome.backend.run(by_app, CancellationToken::new()).await.unwrap();
         let sent = chrome.helper.0.lock().unwrap().clone();
-        assert_eq!(sent.iter().map(|command| command["action"].as_str().unwrap()).collect::<Vec<_>>(), ["window_bounds", "saved_login_check", "saved_login_type"]);
+        assert_eq!(
+            sent.iter().map(|command| command["action"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["window_bounds", "saved_login_check", "saved_login_type"]
+        );
         assert_eq!(sent[0], json!({ "action": "window_bounds", "session_id": SESSION, "app": "chrome" }));
         assert!(sent[1..].iter().all(|command| command["window_id"] == "hwnd:0x1"));
 
         let edge = rig(Some(8), true, false);
-        let by_app = ComputerRequest { action: ComputerAction::SavedLogin, input: json!({ "app": "edge", "savedAccount": "j•••e@example.com", "field": "password" }) };
+        let by_app = ComputerRequest {
+            action: ComputerAction::SavedLogin,
+            input: json!({ "app": "edge", "savedAccount": "j•••e@example.com", "field": "password" }),
+        };
         let (code, message) = failure(edge.backend.run(by_app, CancellationToken::new()).await);
         assert_eq!(code, "ambiguous_window_target");
         assert!(message.contains("retry with one exact window_id"));
@@ -569,7 +589,6 @@ mod saved_login_backend {
         assert_eq!(rig.inner.0.load(Ordering::SeqCst), 1);
         assert!(rig.desktop.actions.lock().unwrap().is_empty());
     }
-
 
     /// The agent turn a fill is scoped to is the session's running one; its settlement (the actor's `turn_settled`) lifts the
     /// redaction and the pixel guard of that turn, and a session that ends lifts all of its own.
@@ -712,5 +731,3 @@ async fn an_overdue_entry_is_refused_even_before_its_timer_ran() {
     assert!(slots.browser_binding(ID).is_none() && slots.computer_binding(&format!("{ID}2")).is_none());
     assert_eq!(slots.take(ID), "");
 }
-
-

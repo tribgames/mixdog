@@ -44,8 +44,8 @@ impl Bound for LateAgentPort {
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::domain::common::AbsPath;
-    use mixdog_protocol::ToolCallId;
     use mixdog_core_api::ids::ThreadId;
+    use mixdog_protocol::ToolCallId;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -68,7 +68,9 @@ mod tests {
         assert_eq!(require(&[&late]), Ok(()));
         assert!(late.bind(Arc::new(Says("second"))).is_err(), "a second bind is refused");
         let (thread, call, cwd, cancel) = (ThreadId::from("t"), ToolCallId::from("c"), AbsPath::new(std::env::temp_dir()).unwrap(), CancellationToken::new());
-        let reply = late.execute(AgentRequest { thread: &thread, call: &call, args: serde_json::json!({}), attachment_parts: Vec::new(), cwd: &cwd, cancel: &cancel }).await;
+        let reply = late
+            .execute(AgentRequest { thread: &thread, call: &call, args: serde_json::json!({}), attachment_parts: Vec::new(), cwd: &cwd, cancel: &cancel })
+            .await;
         assert_eq!(reply.unwrap(), AgentReply::Text("first".into()));
     }
 }

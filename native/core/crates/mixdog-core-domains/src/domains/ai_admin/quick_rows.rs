@@ -231,7 +231,10 @@ impl Quick<'_> {
     /// back into the picker.
     fn deleted_custom(&self, provider: &str) -> bool {
         provider.starts_with("custom-")
-            && !self.providers.get(provider).is_some_and(|c| c.get("type").and_then(Value::as_str) == Some("custom") && c.get("enabled") != Some(&Value::Bool(false)))
+            && !self
+                .providers
+                .get(provider)
+                .is_some_and(|c| c.get("type").and_then(Value::as_str) == Some("custom") && c.get("enabled") != Some(&Value::Bool(false)))
     }
 
     /// `addModel(provider, modelLike)`.
@@ -316,7 +319,9 @@ impl Quick<'_> {
         let custom = self.providers.get(&provider).filter(|c| c.get("type").and_then(Value::as_str) == Some("custom")).cloned();
         match custom {
             Some(config) => {
-                let found = custom_provider_models(&provider, &config, &[route_row]).into_iter().find(|item| item.get("id").and_then(Value::as_str) == Some(model.as_str()));
+                let found = custom_provider_models(&provider, &config, &[route_row])
+                    .into_iter()
+                    .find(|item| item.get("id").and_then(Value::as_str) == Some(model.as_str()));
                 if let Some(row) = found {
                     self.add_model(&provider, &row);
                 }
@@ -349,7 +354,13 @@ impl ModelListService {
         for preset in mixdog_core_config::workflow::effective_presets(agent) {
             quick.add_route(&preset);
         }
-        let values = |key: &str| agent.get(key).and_then(Value::as_object).map(|m| m.iter().filter(|(k, _)| key != "workflowRoutes" || k.as_str() != "search").map(|(_, v)| v.clone()).collect::<Vec<_>>()).unwrap_or_default();
+        let values = |key: &str| {
+            agent
+                .get(key)
+                .and_then(Value::as_object)
+                .map(|m| m.iter().filter(|(k, _)| key != "workflowRoutes" || k.as_str() != "search").map(|(_, v)| v.clone()).collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
         for route in values("workflowRoutes").iter().chain(values("agents").iter()) {
             quick.add_route(route);
         }

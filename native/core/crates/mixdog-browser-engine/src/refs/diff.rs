@@ -127,12 +127,6 @@ mod tests {
         assert_eq!(diff.changed, vec![next[1].clone()]);
         assert_eq!(diff.unseen, vec![next[1].clone()]);
         assert_eq!(diff.unchanged, 1);
-        assert_eq!(
-            diff.gone,
-            vec![
-                GoneElement { role: "button".into(), name: "Item".into() },
-                GoneElement { role: "button".into(), name: "Removed".into() },
-            ]
-        );
+        assert_eq!(diff.gone, vec![GoneElement { role: "button".into(), name: "Item".into() }, GoneElement { role: "button".into(), name: "Removed".into() },]);
     }
 }

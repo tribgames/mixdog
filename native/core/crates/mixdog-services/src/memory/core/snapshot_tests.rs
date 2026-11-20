@@ -30,14 +30,21 @@ fn an_older_snapshot_waits_for_the_atomic_update_and_cannot_replace_a_newer_one(
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let premature = done_rx.recv_timeout(Duration::from_millis(200));
         // Reentrant on this holder thread, but mutually exclusive with the older writer.
-        mixdog_statefile::update_json(&Unlaned, &path, |_| {
-            Ok::<_, std::convert::Infallible>(Some(json!({
-                "version": 1, "revision": 2, "updatedAt": 2,
-                "curated": [{"id": 1, "summary": "newer", "updatedAt": 2}]
-            })))
-        }, &mixdog_statefile::Opts { secret: true, compact: true, ..Default::default() }).unwrap();
+        mixdog_statefile::update_json(
+            &Unlaned,
+            &path,
+            |_| {
+                Ok::<_, std::convert::Infallible>(Some(json!({
+                    "version": 1, "revision": 2, "updatedAt": 2,
+                    "curated": [{"id": 1, "summary": "newer", "updatedAt": 2}]
+                })))
+            },
+            &mixdog_statefile::Opts { secret: true, compact: true, ..Default::default() },
+        )
+        .unwrap();
         premature
-    }).unwrap();
+    })
+    .unwrap();
     let answer = match &premature {
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Some(done_rx.recv_timeout(Duration::from_secs(5)).unwrap()),
         _ => None,
@@ -73,7 +80,10 @@ async fn publishing_and_replacing_a_snapshot_preserves_owner_only_access_and_com
     let lane = mixdog_rt::testing::tokens().durability_io;
     let reserved = AtomicU64::new(0);
     for revision in [1, 2] {
-        assert_eq!(write_snapshot(lane, dir.path(), &[json!({"id": 1, "summary": format!("entry {revision}")})], Some(revision), &reserved).await.unwrap(), (revision, true));
+        assert_eq!(
+            write_snapshot(lane, dir.path(), &[json!({"id": 1, "summary": format!("entry {revision}")})], Some(revision), &reserved).await.unwrap(),
+            (revision, true)
+        );
         let path = file_path(dir.path());
         assert!(mixdog_statefile::is_owner_only(&Unlaned, &path).unwrap(), "fresh and replacement snapshots must retain the secret-file contract");
         let bytes = std::fs::read(&path).unwrap();

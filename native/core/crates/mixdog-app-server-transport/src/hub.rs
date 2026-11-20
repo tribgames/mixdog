@@ -59,9 +59,7 @@ struct HubInner {
 
 impl HubInner {
     fn entries(&self) -> std::sync::MutexGuard<'_, HashMap<ConnectionId, Arc<Shared>>> {
-        self.entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -109,11 +107,7 @@ impl ConnectionHub {
     /// Where the connection `id` came from, `None` once it is closing or gone (or never existed). A caller
     /// that needs a decision for an unknown id must fail closed, e.g. as [`Origin::Relay`].
     pub fn connection_origin(&self, id: ConnectionId) -> Option<ConnectionOrigin> {
-        self.inner
-            .entries()
-            .get(&id)
-            .filter(|shared| shared.closing().is_none())
-            .map(|shared| shared.origin().clone())
+        self.inner.entries().get(&id).filter(|shared| shared.closing().is_none()).map(|shared| shared.origin().clone())
     }
 
     /// The method-table origin of connection `id` (`connection_origin(id).origin()`), the
@@ -126,38 +120,14 @@ impl ConnectionHub {
     /// `maxConnections` and is reaped by the heartbeat if it never finishes its upgrade.
     pub fn admit(&self, origin: ConnectionOrigin) -> Pending {
         let id = ConnectionId(self.inner.next_id.fetch_add(1, Ordering::Relaxed));
-        let shared = Arc::new(Shared::new(
-            id,
-            origin,
-            self.inner.writer_limits,
-            Arc::clone(&self.inner.clock),
-            Arc::clone(&self.inner.log),
-        ));
+        let shared = Arc::new(Shared::new(id, origin, self.inner.writer_limits, Arc::clone(&self.inner.clock), Arc::clone(&self.inner.log)));
         self.inner.entries().insert(id, Arc::clone(&shared));
-        let unserved = Unserved {
-            hub: Arc::clone(&self.inner),
-            id,
-            origin: origin_name(shared.origin()),
-            reason: Mutex::new(None),
-            armed: true,
-        };
-        Pending {
-            shared,
-            registration: Registration {
-                hub: Arc::clone(&self.inner),
-                id,
-            },
-            unserved,
-        }
+        let unserved = Unserved { hub: Arc::clone(&self.inner), id, origin: origin_name(shared.origin()), reason: Mutex::new(None), armed: true };
+        Pending { shared, registration: Registration { hub: Arc::clone(&self.inner), id }, unserved }
     }
 
     /// A connection over an already established socket (the relay channel, tests).
-    pub fn attach<R: SocketRead, W: SocketWrite>(
-        &self,
-        origin: ConnectionOrigin,
-        reader: R,
-        writer: W,
-    ) -> Result<AcceptedConnection, ConnectionLimit> {
+    pub fn attach<R: SocketRead, W: SocketWrite>(&self, origin: ConnectionOrigin, reader: R, writer: W) -> Result<AcceptedConnection, ConnectionLimit> {
         let pending = self.admit(origin);
         if pending.over_limit() {
             return Err(ConnectionLimit);
@@ -183,8 +153,7 @@ impl ConnectionHub {
         let hub: Weak<HubInner> = Arc::downgrade(&self.inner);
         let period = Duration::from_millis(self.inner.limits.heartbeat_tick_ms);
         mixdog_rt::spawn("transport.heartbeat", TaskClass::Control, async move {
-            let mut interval =
-                mixdog_rt::time::interval_at(tokio::time::Instant::now() + period, period);
+            let mut interval = mixdog_rt::time::interval_at(tokio::time::Instant::now() + period, period);
             loop {
                 interval.tick().await;
                 let Some(inner) = hub.upgrade() else { return };
@@ -281,11 +250,7 @@ impl Pending {
     /// are added, and only before the connection starts. False when an origin was taken already.
     pub fn narrow_to_window(&self, window_id: String, role: WindowRole) -> bool {
         let tunnel = matches!(self.shared.origin(), ConnectionOrigin::SshTunnel);
-        self.shared.narrow(ConnectionOrigin::Window {
-            window_id,
-            tunnel,
-            role,
-        })
+        self.shared.narrow(ConnectionOrigin::Window { window_id, tunnel, role })
     }
 
     /// Why this socket will not become a connection (a fixed name: `refused status=503 reason=connectionLimit`, `abandoned`,
@@ -301,11 +266,7 @@ impl Pending {
 
     /// Turns the socket into a connection: starts its writer and reader tasks on RT-C.
     pub fn start<R: SocketRead, W: SocketWrite>(self, reader: R, writer: W) -> AcceptedConnection {
-        let Self {
-            shared,
-            registration,
-            mut unserved,
-        } = self;
+        let Self { shared, registration, mut unserved } = self;
         unserved.armed = false;
         let id = shared.id();
         let origin = shared.origin().clone();
@@ -329,12 +290,6 @@ impl Pending {
             });
         }
         let sink = ConnectionWriter::new(shared);
-        AcceptedConnection {
-            id,
-            origin,
-            authenticated_relay_credential: None,
-            inbound: InboundFrames::new(inbound_rx, sink.clone()),
-            sink,
-        }
+        AcceptedConnection { id, origin, authenticated_relay_credential: None, inbound: InboundFrames::new(inbound_rx, sink.clone()), sink }
     }
 }

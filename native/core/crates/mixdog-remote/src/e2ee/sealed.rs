@@ -1,8 +1,8 @@
 //! Boxes sealed to one party: the pairing approval handed to a credential-less container, and
 //! a browser's Web Push keys sealed to this PC.
 
-use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::Nonce;
+use aes_gcm::aead::{Aead, Payload};
 use p256::SecretKey;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -63,9 +63,7 @@ pub fn seal_pairing(material: &PairingMaterial, client_public_key: &str) -> Resu
     let key = claim_key(&ephemeral, client_public_key, client_public_key, &ephemeral_public)?;
     let nonce: [u8; 12] = random();
     let body = json!({"version": material.version, "serverPublicKey": material.server_public_key, "pairingSecret": material.pairing_secret});
-    let ciphertext = cipher(&key)
-        .encrypt(Nonce::from_slice(&nonce), body.to_string().as_bytes())
-        .map_err(|_| E2eeError::Auth)?;
+    let ciphertext = cipher(&key).encrypt(Nonce::from_slice(&nonce), body.to_string().as_bytes()).map_err(|_| E2eeError::Auth)?;
     Ok(SealedBox { version: VERSION, ephemeral_public_key: ephemeral_public, nonce: b64(&nonce), ciphertext: b64(&ciphertext) })
 }
 
@@ -78,10 +76,7 @@ pub fn open_sealed_pairing(sealed: &SealedBox, pair: &ClaimKeyPair) -> Option<Pa
     let nonce = unb64(&sealed.nonce).ok().filter(|n| n.len() == 12)?;
     let plaintext = cipher(&key).decrypt(Nonce::from_slice(&nonce), unb64(&sealed.ciphertext).ok()?.as_slice()).ok()?;
     let parsed: PairingMaterial = serde_json::from_slice(&plaintext).ok()?;
-    (parsed.version == VERSION
-        && is_b64url_len(&parsed.server_public_key, 87)
-        && is_b64url_len(&parsed.pairing_secret, 43))
-    .then_some(parsed)
+    (parsed.version == VERSION && is_b64url_len(&parsed.server_public_key, 87) && is_b64url_len(&parsed.pairing_secret, 43)).then_some(parsed)
 }
 
 fn web_push_key(private: &SecretKey, peer: &str, secret: &str, server_public: &str, ephemeral: &str) -> Result<[u8; 32], E2eeError> {
@@ -96,9 +91,8 @@ pub fn seal_web_push_keys(pairing: &PairingMaterial, endpoint: &str, keys: &WebP
     let key = web_push_key(&ephemeral, &pairing.server_public_key, &pairing.pairing_secret, &pairing.server_public_key, &ephemeral_public)?;
     let nonce: [u8; 12] = random();
     let body = json!({"p256dh": keys.p256dh, "auth": keys.auth});
-    let ciphertext = cipher(&key)
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: body.to_string().as_bytes(), aad: endpoint.as_bytes() })
-        .map_err(|_| E2eeError::Auth)?;
+    let ciphertext =
+        cipher(&key).encrypt(Nonce::from_slice(&nonce), Payload { msg: body.to_string().as_bytes(), aad: endpoint.as_bytes() }).map_err(|_| E2eeError::Auth)?;
     Ok(SealedBox { version: VERSION, ephemeral_public_key: ephemeral_public, nonce: b64(&nonce), ciphertext: b64(&ciphertext) })
 }
 
@@ -107,12 +101,12 @@ pub fn open_web_push_keys(identity: &super::ServerIdentity, endpoint: &str, seal
     if sealed.version != VERSION || !is_b64url_len(&sealed.ephemeral_public_key, 87) {
         return None;
     }
-    let key = web_push_key(identity.secret(), &sealed.ephemeral_public_key, &identity.pairing_secret, &identity.server_public_key, &sealed.ephemeral_public_key).ok()?;
+    let key =
+        web_push_key(identity.secret(), &sealed.ephemeral_public_key, &identity.pairing_secret, &identity.server_public_key, &sealed.ephemeral_public_key)
+            .ok()?;
     let nonce = unb64(&sealed.nonce).ok().filter(|n| n.len() == 12)?;
     let ct = unb64(&sealed.ciphertext).ok()?;
-    let plaintext = cipher(&key)
-        .decrypt(Nonce::from_slice(&nonce), Payload { msg: &ct, aad: endpoint.as_bytes() })
-        .ok()?;
+    let plaintext = cipher(&key).decrypt(Nonce::from_slice(&nonce), Payload { msg: &ct, aad: endpoint.as_bytes() }).ok()?;
     let parsed: serde_json::Value = serde_json::from_slice(&plaintext).ok()?;
     let p256dh = parsed["p256dh"].as_str().filter(|v| is_b64url_len(v, 87))?;
     let auth = parsed["auth"].as_str().filter(|v| is_b64url_len(v, 22))?;

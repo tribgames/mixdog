@@ -90,8 +90,7 @@ impl Entry {
             Ownership::Owned => "owned",
             Ownership::Attached => "attached",
         });
-        let chart_excel: Vec<Value> =
-            self.chart_excel.iter().map(|tracked| json!({"pid": tracked.pid, "startTicks": tracked.start_ticks})).collect();
+        let chart_excel: Vec<Value> = self.chart_excel.iter().map(|tracked| json!({"pid": tracked.pid, "startTicks": tracked.start_ticks})).collect();
         json!({
             "format": self.format,
             "mode": self.mode,

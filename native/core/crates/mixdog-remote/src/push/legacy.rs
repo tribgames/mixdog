@@ -356,13 +356,7 @@ fn failed(error: impl ToString) -> WebPushSendResult {
 
 /// `sendWebPush`: network and protocol failures both resolve, so an unreachable phone never
 /// breaks the turn that triggered the notification.
-pub async fn send_web_push(
-    poster: &dyn PushPoster,
-    subscription: &LegacySubscription,
-    payload: &str,
-    keys: &LegacyKeys,
-    now_ms: u64,
-) -> WebPushSendResult {
+pub async fn send_web_push(poster: &dyn PushPoster, subscription: &LegacySubscription, payload: &str, keys: &LegacyKeys, now_ms: u64) -> WebPushSendResult {
     let normalized = |text: &str| URL_SAFE_NO_PAD.encode(node_base64_decode(text));
     let target = WebPushTarget {
         endpoint: subscription.endpoint.clone(),

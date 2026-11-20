@@ -13,10 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::data::{
     self,
-    encodings::{
-        MAC_ROMAN_ENCODING, STANDARD_ENCODING, SYMBOL_SET_ENCODING, WIN_ANSI_ENCODING,
-        ZAPF_DINGBATS_ENCODING, get_encoding,
-    },
+    encodings::{MAC_ROMAN_ENCODING, STANDARD_ENCODING, SYMBOL_SET_ENCODING, WIN_ANSI_ENCODING, ZAPF_DINGBATS_ENCODING, get_encoding},
     font_flags,
     glyphlist::GLYPHS_UNICODE,
     standard_fonts::SYMBOLS_FONTS,
@@ -126,10 +123,7 @@ impl ToUnicodeMap {
 
     /// `charCodeOf(value)`: the first code whose entry is `value`, or -1.
     pub fn char_code_of(&self, value: &UniValue) -> i64 {
-        self.entries
-            .iter()
-            .find(|(_, entry)| entry == value)
-            .map_or(-1, |(code, _)| i64::from(*code))
+        self.entries.iter().find(|(_, entry)| entry == value).map_or(-1, |(code, _)| i64::from(*code))
     }
 
     /// `amend(map)`: the entries of `other` are set, over those that are there.
@@ -146,9 +140,7 @@ impl ToUnicodeMap {
             match entry {
                 UniValue::Str(units) => callback(*code, code_point_at_start(units)),
                 UniValue::Code(_) => {
-                    return Err(PdfError::Unknown(
-                        "entry.codePointAt is not a function".to_owned(),
-                    ));
+                    return Err(PdfError::Unknown("entry.codePointAt is not a function".to_owned()));
                 }
             }
         }
@@ -216,9 +208,7 @@ impl ToUnicode {
     pub fn get(&self, code: u32) -> Option<UniValue> {
         match self {
             ToUnicode::Map(map) => map.get(code).cloned(),
-            ToUnicode::Identity(identity) => identity
-                .has(i64::from(code))
-                .then(|| UniValue::Str(from_char_code(i64::from(code)))),
+            ToUnicode::Identity(identity) => identity.has(i64::from(code)).then(|| UniValue::Str(from_char_code(i64::from(code)))),
         }
     }
 
@@ -227,11 +217,7 @@ impl ToUnicode {
         match self {
             ToUnicode::Map(map) => map.char_code_of(value),
             ToUnicode::Identity(identity) => match value {
-                UniValue::Code(code)
-                    if identity.first_char <= *code && *code <= identity.last_char =>
-                {
-                    *code
-                }
+                UniValue::Code(code) if identity.first_char <= *code && *code <= identity.last_char => *code,
                 _ => -1,
             },
         }
@@ -274,18 +260,12 @@ fn parse_int_hex(text: &str) -> Option<i64> {
         Some(b'+') => (false, &text[1..]),
         _ => (false, text),
     };
-    let text = text
-        .strip_prefix("0x")
-        .or_else(|| text.strip_prefix("0X"))
-        .unwrap_or(text);
+    let text = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")).unwrap_or(text);
     let digits = text.bytes().take_while(u8::is_ascii_hexdigit).count();
     if digits == 0 {
         return None;
     }
-    let value = text[..digits].bytes().fold(0_i64, |sum, byte| {
-        sum.saturating_mul(16)
-            .saturating_add(i64::from((byte as char).to_digit(16).unwrap_or(0)))
-    });
+    let value = text[..digits].bytes().fold(0_i64, |sum, byte| sum.saturating_mul(16).saturating_add(i64::from((byte as char).to_digit(16).unwrap_or(0))));
     Some(if negative { -value } else { value })
 }
 
@@ -296,25 +276,12 @@ fn js_number(text: &str) -> Option<f64> {
     if text.is_empty() {
         return Some(0.0);
     }
-    for (prefix, radix) in [
-        ("0x", 16),
-        ("0X", 16),
-        ("0o", 8),
-        ("0O", 8),
-        ("0b", 2),
-        ("0B", 2),
-    ] {
+    for (prefix, radix) in [("0x", 16), ("0X", 16), ("0o", 8), ("0O", 8), ("0b", 2), ("0B", 2)] {
         if let Some(digits) = text.strip_prefix(prefix) {
-            return i64::from_str_radix(digits, radix)
-                .ok()
-                .filter(|_| !digits.starts_with(['+', '-']))
-                .map(|value| value as f64);
+            return i64::from_str_radix(digits, radix).ok().filter(|_| !digits.starts_with(['+', '-'])).map(|value| value as f64);
         }
     }
-    if !text
-        .bytes()
-        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-'))
-    {
+    if !text.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-')) {
         return None;
     }
     text.parse::<f64>().ok()
@@ -325,10 +292,7 @@ fn js_number(text: &str) -> Option<f64> {
 /// The map of a `/ToUnicode` that is a CMap: its entries as strings.
 fn to_unicode_from_cmap(cmap: &CMap) -> Result<ToUnicode> {
     if cmap.is_identity_kind() {
-        return Ok(ToUnicode::Identity(IdentityToUnicodeMap {
-            first_char: 0,
-            last_char: 0xffff,
-        }));
+        return Ok(ToUnicode::Identity(IdentityToUnicodeMap { first_char: 0, last_char: 0xffff }));
     }
     let mut map = ToUnicodeMap::new();
     for (code, token) in cmap.get_map() {
@@ -369,10 +333,7 @@ pub fn read_to_unicode(xref: &Xref, cmap_obj: &Obj) -> Result<Option<ToUnicode>>
         Obj::Name(name) => {
             let cmap = CMapFactory::create(Some(CMapEncoding::Name(name)), None, xref.guard())?;
             if cmap.is_identity_kind() {
-                return Ok(Some(ToUnicode::Identity(IdentityToUnicodeMap {
-                    first_char: 0,
-                    last_char: 0xffff,
-                })));
+                return Ok(Some(ToUnicode::Identity(IdentityToUnicodeMap { first_char: 0, last_char: 0xffff })));
             }
             let mut map = ToUnicodeMap::new();
             for (code, value) in cmap.get_map() {
@@ -390,9 +351,7 @@ pub fn read_to_unicode(xref: &Xref, cmap_obj: &Obj) -> Result<Option<ToUnicode>>
         Obj::Stream(stream) => {
             let created = stream
                 .decode(xref.filters().as_ref(), xref.guard())
-                .and_then(|bytes| {
-                    CMapFactory::create(Some(CMapEncoding::Stream(&bytes)), None, xref.guard())
-                })
+                .and_then(|bytes| CMapFactory::create(Some(CMapEncoding::Stream(&bytes)), None, xref.guard()))
                 .and_then(|cmap| to_unicode_from_cmap(&cmap));
             match created {
                 Ok(to_unicode) => Ok(Some(to_unicode)),
@@ -412,25 +371,14 @@ pub fn read_to_unicode(xref: &Xref, cmap_obj: &Obj) -> Result<Option<ToUnicode>>
 /// `_simpleFontToUnicode(properties, forceGlyphs)`: the text of each code of a simple font by the glyph name its
 /// encoding and `/Differences` give it.
 pub fn simple_font_to_unicode(properties: &Properties, force_glyphs: bool) -> ToUnicodeMap {
-    let mut encoding: BTreeMap<i64, String> = properties
-        .default_encoding
-        .iter()
-        .enumerate()
-        .map(|(code, name)| (code as i64, (*name).to_owned()))
-        .collect();
+    let mut encoding: BTreeMap<i64, String> = properties.default_encoding.iter().enumerate().map(|(code, name)| (code as i64, (*name).to_owned())).collect();
     for (code, glyph_name) in properties.differences.iter() {
-        if glyph_name == ".notdef"
-            || !is_integer(code)
-            || !(0.0..=MAX_ENCODING_CODE as f64).contains(&code)
-        {
+        if glyph_name == ".notdef" || !is_integer(code) || !(0.0..=MAX_ENCODING_CODE as f64).contains(&code) {
             continue;
         }
         encoding.insert(code as i64, glyph_name.to_owned());
     }
-    let base_encoding = properties
-        .base_encoding_name
-        .as_deref()
-        .and_then(get_encoding);
+    let base_encoding = properties.base_encoding_name.as_deref().and_then(get_encoding);
     let mut to_unicode = ToUnicodeMap::new();
     for (charcode, glyph_name) in &encoding {
         let charcode = *charcode;
@@ -438,10 +386,7 @@ pub fn simple_font_to_unicode(properties: &Properties, force_glyphs: bool) -> To
             continue;
         }
         if let Some(unicode) = data::glyph_unicode(glyph_name) {
-            to_unicode.set(
-                charcode as u32,
-                UniValue::Str(from_char_code(i64::from(unicode))),
-            );
+            to_unicode.set(charcode as u32, UniValue::Str(from_char_code(i64::from(unicode))));
             continue;
         }
         let units = glyph_name.encode_utf16().count();
@@ -486,15 +431,10 @@ pub fn simple_font_to_unicode(properties: &Properties, force_glyphs: bool) -> To
         if code > 0.0 && code <= 1_114_111.0 && is_integer(code) {
             let code = code as i64;
             if base_encoding.is_some() && code == charcode {
-                let base_glyph = base_encoding
-                    .and_then(|table| table.get(charcode as usize))
-                    .filter(|name| !name.is_empty());
+                let base_glyph = base_encoding.and_then(|table| table.get(charcode as usize)).filter(|name| !name.is_empty());
                 if let Some(base_glyph) = base_glyph {
                     let unicode = data::glyph_unicode(base_glyph).unwrap_or(0);
-                    to_unicode.set(
-                        charcode as u32,
-                        UniValue::Str(from_char_code(i64::from(unicode))),
-                    );
+                    to_unicode.set(charcode as u32, UniValue::Str(from_char_code(i64::from(unicode))));
                     continue;
                 }
             }
@@ -513,34 +453,21 @@ pub fn simple_font_to_unicode(properties: &Properties, force_glyphs: bool) -> To
 /// font gets its encoding's, a CID font on a predefined CMap or an Adobe CJK ordering gets the one of the
 /// `<registry>-<ordering>-UCS2` CMap, and any other CID font the identity.
 pub fn build_to_unicode(xref: &Xref, properties: &mut Properties) -> Result<ToUnicode> {
-    properties.has_included_to_unicode_map = properties
-        .to_unicode
-        .as_ref()
-        .is_some_and(|to_unicode| to_unicode.size() != 0);
+    properties.has_included_to_unicode_map = properties.to_unicode.as_ref().is_some_and(|to_unicode| to_unicode.size() != 0);
     if properties.has_included_to_unicode_map {
         if !properties.composite && properties.has_encoding {
             properties.fallback_to_unicode = Some(simple_font_to_unicode(properties, false));
         }
-        return Ok(properties
-            .to_unicode
-            .take()
-            .expect("a map was included, so there is one"));
+        return Ok(properties.to_unicode.take().expect("a map was included, so there is one"));
     }
     if !properties.composite {
         return Ok(ToUnicode::Map(simple_font_to_unicode(properties, false)));
     }
-    let cmap = properties.cmap.as_ref().ok_or_else(|| {
-        PdfError::Unknown("Cannot read properties of undefined (reading 'builtInCMap')".to_owned())
-    })?;
+    let cmap = properties.cmap.as_ref().ok_or_else(|| PdfError::Unknown("Cannot read properties of undefined (reading 'builtInCMap')".to_owned()))?;
     let info = properties.cid_system_info.as_ref();
-    let adobe_ordering = info.is_some_and(|info| {
-        info.registry == "Adobe"
-            && matches!(info.ordering.as_str(), "GB1" | "CNS1" | "Japan1" | "Korea1")
-    });
+    let adobe_ordering = info.is_some_and(|info| info.registry == "Adobe" && matches!(info.ordering.as_str(), "GB1" | "CNS1" | "Japan1" | "Korea1"));
     if (cmap.built_in && !cmap.is_identity_kind()) || adobe_ordering {
-        let info = info.ok_or_else(|| {
-            PdfError::Unknown("Cannot destructure property 'registry' of undefined".to_owned())
-        })?;
+        let info = info.ok_or_else(|| PdfError::Unknown("Cannot destructure property 'registry' of undefined".to_owned()))?;
         let ucs2_name = format!("{}-{}-UCS2", info.registry, info.ordering);
         let ucs2 = CMapFactory::create(Some(CMapEncoding::Name(&ucs2_name)), None, xref.guard())?;
         let mut to_unicode = ToUnicodeMap::new();
@@ -573,10 +500,7 @@ pub fn build_to_unicode(xref: &Xref, properties: &mut Properties) -> Result<ToUn
         }
         return Ok(ToUnicode::Map(to_unicode));
     }
-    Ok(ToUnicode::Identity(IdentityToUnicodeMap {
-        first_char: properties.first_char,
-        last_char: properties.last_char,
-    }))
+    Ok(ToUnicode::Identity(IdentityToUnicodeMap { first_char: properties.first_char, last_char: properties.last_char }))
 }
 
 /// `readCidToGidMap(glyphsData, toUnicode)`.
@@ -599,12 +523,8 @@ fn read_cid_to_gid_map(glyphs_data: &[u8], to_unicode: &ToUnicode) -> BTreeMap<u
 fn system_info_text(value: &Obj) -> Result<String> {
     match value {
         Obj::Str(bytes) => Ok(data::string_to_pdf_string(bytes, false)),
-        Obj::Null => Err(PdfError::Unknown(
-            "Cannot read properties of undefined (reading '0')".to_owned(),
-        )),
-        Obj::Array(items) if !items.is_empty() => Err(PdfError::Unknown(
-            "str.charCodeAt is not a function".to_owned(),
-        )),
+        Obj::Null => Err(PdfError::Unknown("Cannot read properties of undefined (reading '0')".to_owned())),
+        Obj::Array(items) if !items.is_empty() => Err(PdfError::Unknown("str.charCodeAt is not a function".to_owned())),
         _ => Ok(String::new()),
     }
 }
@@ -616,9 +536,7 @@ fn read_differences(xref: &Xref, encoding: &Dict, properties: &mut Properties) -
         Obj::Array(entries) => entries,
         Obj::Str(bytes) if bytes.is_empty() => &[],
         Obj::Str(_) => {
-            return Err(PdfError::format(
-                "Invalid entry in 'Differences' array: a string".to_owned(),
-            ));
+            return Err(PdfError::format("Invalid entry in 'Differences' array: a string".to_owned()));
         }
         _ => {
             return Err(PdfError::Unknown("diffEncoding is not iterable".to_owned()));
@@ -633,9 +551,7 @@ fn read_differences(xref: &Xref, encoding: &Dict, properties: &mut Properties) -
                 index += 1.0;
             }
             other => {
-                return Err(PdfError::format(format!(
-                    "Invalid entry in 'Differences' array: {other:?}"
-                )));
+                return Err(PdfError::format(format!("Invalid entry in 'Differences' array: {other:?}")));
             }
         }
     }
@@ -648,11 +564,7 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
 
 /// `extractDataStructures(dict, properties)`: reads the `/ToUnicode`, the CID system info and `/CIDToGIDMap` of a CID
 /// font, the base encoding and `/Differences`, chooses the default encoding, and builds the ToUnicode map.
-pub fn extract_data_structures(
-    xref: &Xref,
-    dict: &Dict,
-    properties: &mut Properties,
-) -> Result<()> {
+pub fn extract_data_structures(xref: &Xref, dict: &Dict, properties: &mut Properties) -> Result<()> {
     let to_unicode = read_to_unicode(xref, &properties.to_unicode_obj)?;
     let mut cid_to_gid_bytes = None;
     if properties.composite {
@@ -669,9 +581,7 @@ pub fn extract_data_structures(
                 Ok(bytes) => cid_to_gid_bytes = Some(bytes),
                 Err(error) if error.is_fatal() => return Err(error),
                 Err(error) => {
-                    tracing::warn!(
-                        "extractDataStructures - ignoring CIDToGIDMap data: \"{error}\"."
-                    );
+                    tracing::warn!("extractDataStructures - ignoring CIDToGIDMap data: \"{error}\".");
                 }
             },
             Ok(_) => {}
@@ -695,10 +605,7 @@ pub fn extract_data_structures(
             Obj::Name(name) => base_encoding_name = Some(name.to_string()),
             _ => tracing::warn!("Encoding is not a Name nor a Dict"),
         }
-        if !matches!(
-            base_encoding_name.as_deref(),
-            Some("MacRomanEncoding" | "MacExpertEncoding" | "WinAnsiEncoding")
-        ) {
+        if !matches!(base_encoding_name.as_deref(), Some("MacRomanEncoding" | "MacExpertEncoding" | "WinAnsiEncoding")) {
             base_encoding_name = None;
         }
     }
@@ -709,11 +616,7 @@ pub fn extract_data_structures(
     }
     if base_encoding_name.as_deref() == Some("WinAnsiEncoding")
         && non_embedded_font
-        && properties
-            .name
-            .chars()
-            .next()
-            .is_some_and(|ch| u32::from(ch) >= 0xb7)
+        && properties.name.chars().next().is_some_and(|ch| u32::from(ch) >= 0xb7)
         && CHINESE_FONT_NAMES.contains(&properties.name.as_str())
     {
         base_encoding_name = None;
@@ -722,21 +625,14 @@ pub fn extract_data_structures(
         properties.cid_encoding = Some("GBK-EUC-H".to_owned());
         properties.vertical = cmap.vertical;
         properties.cmap = Some(cmap);
-        properties.cid_system_info = Some(CidSystemInfo {
-            registry: "Adobe".to_owned(),
-            ordering: "GB1".to_owned(),
-        });
+        properties.cid_system_info = Some(CidSystemInfo { registry: "Adobe".to_owned(), ordering: "GB1".to_owned() });
     }
     if let Some(name) = base_encoding_name.as_deref() {
         properties.default_encoding = get_encoding(name).expect("the three names are encodings");
     } else {
         let mut is_symbolic_font = properties.flags & font_flags::SYMBOLIC as i32 != 0;
         let is_nonsymbolic_font = properties.flags & font_flags::NONSYMBOLIC as i32 != 0;
-        if properties.ty == "TrueType"
-            && is_symbolic_font
-            && is_nonsymbolic_font
-            && properties.differences.size() > 0
-        {
+        if properties.ty == "TrueType" && is_symbolic_font && is_nonsymbolic_font && properties.differences.size() > 0 {
             properties.flags &= !(font_flags::SYMBOLIC as i32);
             is_symbolic_font = false;
         }
@@ -787,15 +683,11 @@ mod tests {
         map.set(3, UniValue::Str(vec![0x42]));
         map.set(5, UniValue::Str(vec![0x43]));
         assert_eq!(map.size(), 2);
-        assert_eq!(
-            map.iter().map(|(code, _)| code).collect::<Vec<_>>(),
-            vec![5, 3]
-        );
+        assert_eq!(map.iter().map(|(code, _)| code).collect::<Vec<_>>(), vec![5, 3]);
         assert_eq!(map.char_code_of(&UniValue::Str(vec![0x42])), 3);
         assert_eq!(map.char_code_of(&UniValue::Str(vec![0x41])), -1);
         let mut seen = Vec::new();
-        map.for_each(|code, point| seen.push((code, point)))
-            .unwrap();
+        map.for_each(|code, point| seen.push((code, point))).unwrap();
         assert_eq!(seen, vec![(5, Some(0x43)), (3, Some(0x42))]);
     }
 
@@ -805,8 +697,7 @@ mod tests {
         map.set(1, UniValue::Str(vec![0xd83d, 0xde00, 0x41]));
         map.set(2, UniValue::Str(Vec::new()));
         let mut seen = Vec::new();
-        map.for_each(|code, point| seen.push((code, point)))
-            .unwrap();
+        map.for_each(|code, point| seen.push((code, point))).unwrap();
         assert_eq!(seen, vec![(1, Some(0x1f600)), (2, None)]);
         map.set(3, UniValue::Code(65));
         assert!(map.for_each(|_, _| {}).is_err());
@@ -814,10 +705,7 @@ mod tests {
 
     #[test]
     fn the_identity_map_covers_its_range_only() {
-        let identity = ToUnicode::Identity(IdentityToUnicodeMap {
-            first_char: 32,
-            last_char: 126,
-        });
+        let identity = ToUnicode::Identity(IdentityToUnicodeMap { first_char: 32, last_char: 126 });
         assert_eq!(identity.size(), 95);
         assert!(identity.has(65) && !identity.has(31));
         assert_eq!(str_of(identity.get(65).as_ref()), "A");
@@ -842,10 +730,7 @@ mod tests {
 
     #[test]
     fn code_points_become_utf16() {
-        assert_eq!(
-            from_code_points(&[0x41, 0x1f600]).unwrap(),
-            vec![0x41, 0xd83d, 0xde00]
-        );
+        assert_eq!(from_code_points(&[0x41, 0x1f600]).unwrap(), vec![0x41, 0xd83d, 0xde00]);
         assert!(from_code_points(&[0x11_0000]).is_err());
         assert!(from_code_points(&[-1]).is_err());
         assert_eq!(from_code_points(&[0xd800]).unwrap(), vec![0xd800]);
@@ -854,11 +739,8 @@ mod tests {
 
     #[test]
     fn a_simple_font_reads_its_encoding_and_differences() {
-        let mut properties = Properties {
-            default_encoding: &WIN_ANSI_ENCODING,
-            base_encoding_name: Some("WinAnsiEncoding".to_owned()),
-            ..Properties::default()
-        };
+        let mut properties =
+            Properties { default_encoding: &WIN_ANSI_ENCODING, base_encoding_name: Some("WinAnsiEncoding".to_owned()), ..Properties::default() };
         properties.differences.set(65.0, "uni0042".to_owned());
         properties.differences.set(66.0, "g41".to_owned());
         properties.differences.set(67.0, "c67".to_owned());
@@ -875,10 +757,7 @@ mod tests {
         assert!(map.get(66).is_none());
         assert_eq!(str_of(map.get(67)), "C");
         // A c name that is only hex ("c4f") makes pdf.js read every c and g name as hex.
-        let mut hex = Properties {
-            default_encoding: &STANDARD_ENCODING,
-            ..Properties::default()
-        };
+        let mut hex = Properties { default_encoding: &STANDARD_ENCODING, ..Properties::default() };
         hex.differences.set(1.0, "c4f".to_owned());
         hex.differences.set(2.0, "c20".to_owned());
         let map = simple_font_to_unicode(&hex, false);

@@ -105,10 +105,7 @@ async fn store_bots_and_mixy_write_their_own_folder() {
     assert_eq!(bot_file(&dir, "mixy"), json!({}));
     assert_eq!(routes.own_route("lead").await.unwrap(), json!({}));
     // The previous content stays as the last good copy.
-    assert_eq!(
-        serde_json::from_slice::<Value>(&std::fs::read(dir.path().join("bots/mixy/agent.json.bak")).unwrap()).unwrap(),
-        json!({ "route": route("m") })
-    );
+    assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(dir.path().join("bots/mixy/agent.json.bak")).unwrap()).unwrap(), json!({ "route": route("m") }));
 }
 #[tokio::test]
 async fn a_damaged_bot_file_reads_from_its_last_good_copy() {
@@ -144,8 +141,6 @@ async fn a_separated_file_holds_the_roster_as_a_delta() {
     let agent = routes.config.agent();
     assert!(agent.get("enabledAgents").is_none() && agent.get("disabledAgents").is_none(), "the defaults alone are stored as nothing");
 }
-
-
 
 #[test]
 fn an_agent_name_becomes_its_editor_id_the_role_aliases_collapse_and_an_unusable_name_is_empty() {

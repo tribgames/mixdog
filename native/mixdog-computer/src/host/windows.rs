@@ -1,15 +1,12 @@
 //! Window reads and window-level operations.
 
-use super::frame::{capture_size, local_region, map_ocr, Pixels};
-use super::frame_quality::{decode_png, png_quality_issue, Issue, Region};
-use super::{sleep_ms, Host, Res};
+use super::frame::{Pixels, capture_size, local_region, map_ocr};
+use super::frame_quality::{Issue, Region, decode_png, png_quality_issue};
+use super::{Host, Res, sleep_ms};
 use crate::obj;
-use crate::platform::{
-    window_id, CaptureFailure, Cleanup, Surface, Wid, WinState, WindowInfo,
-    UNKNOWN_CAPTURE_BACKEND,
-};
+use crate::platform::{CaptureFailure, Cleanup, Surface, UNKNOWN_CAPTURE_BACKEND, Wid, WinState, WindowInfo, window_id};
 use crate::protocol::{Obj, Req};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Instant;
 
 /// The work one capture attempt may spend: NATIVE_CAPTURE_TIMEOUT_MS less
@@ -63,16 +60,8 @@ impl Host {
                 } else {
                     ""
                 };
-                let owner = if info.owner != 0 {
-                    format!(" owner={}", info.owner_id())
-                } else {
-                    String::new()
-                };
-                let title = if info.title.is_empty() {
-                    "<untitled>"
-                } else {
-                    info.title.as_str()
-                };
+                let owner = if info.owner != 0 { format!(" owner={}", info.owner_id()) } else { String::new() };
+                let title = if info.title.is_empty() { "<untitled>" } else { info.title.as_str() };
                 format!(
                     "{} | app={} pid={} class={}{}{}{} | \"{}\" | {}x{} at {},{}",
                     info.id(),
@@ -95,23 +84,13 @@ impl Host {
     }
 
     pub(super) fn window_snapshot(&self) -> Res<Obj> {
-        let rows: Vec<Value> = self
-            .desktop
-            .windows()?
-            .iter()
-            .map(|info| window_row(info, false))
-            .collect();
+        let rows: Vec<Value> = self.desktop.windows()?.iter().map(|info| window_row(info, false)).collect();
         Ok(obj! { "windows" => rows })
     }
 
     pub(super) fn related_windows(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
-        let ids: Vec<String> = self
-            .desktop
-            .related_windows(info.handle)
-            .into_iter()
-            .map(window_id)
-            .collect();
+        let ids: Vec<String> = self.desktop.related_windows(info.handle).into_iter().map(window_id).collect();
         Ok(obj! { "window_ids" => ids })
     }
 
@@ -120,12 +99,7 @@ impl Host {
         if info.width <= 0 || info.height <= 0 {
             return Err(format!("window has no capturable bounds: {}", info.id()));
         }
-        let related: Vec<String> = self
-            .desktop
-            .related_windows(info.handle)
-            .into_iter()
-            .map(window_id)
-            .collect();
+        let related: Vec<String> = self.desktop.related_windows(info.handle).into_iter().map(window_id).collect();
         let (client_x, client_y, client_width, client_height) = info.client;
         Ok(obj! {
             "text" => format!("window bounds: {}", info.title),
@@ -161,10 +135,7 @@ impl Host {
         // appended to the child's, tagged scope owner.
         if capture.surface.is_err() && !capture.terminal && info.owner != 0 && info.owner != info.handle {
             // The owner is a capture of its own: a grant that names the child alone does not reach it.
-            let owner = self
-                .desktop
-                .info(info.owner)
-                .filter(|owner| owner.handle != 0 && self.authorize(req, owner.handle).is_ok());
+            let owner = self.desktop.info(info.owner).filter(|owner| owner.handle != 0 && self.authorize(req, owner.handle).is_ok());
             if let Some(owner) = owner {
                 let (owner_capture, owner_delivery) = self.capture_surface(req, &owner, &output)?;
                 let mut attempts = std::mem::take(&mut capture.attempts);
@@ -193,20 +164,10 @@ impl Host {
         if let (true, Ok(result)) = (through_owner, reply.result.as_mut()) {
             result.insert("requested_window_id".into(), json!(info.id()));
             let text = result.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-            result.insert(
-                "text".into(),
-                json!(format!(
-                    "{text}; requested child window {} was captured through owner {}",
-                    info.id(),
-                    served.id()
-                )),
-            );
+            result.insert("text".into(), json!(format!("{text}; requested child window {} was captured through owner {}", info.id(), served.id())));
         }
         if let Some(result) = reply.error_result {
-            self.error_result
-                .borrow_mut()
-                .get_or_insert_with(Obj::new)
-                .extend(result);
+            self.error_result.borrow_mut().get_or_insert_with(Obj::new).extend(result);
         }
         if reply.retire {
             self.retire_after_reply.set(true);
@@ -227,21 +188,13 @@ impl Host {
         };
         let mut capture = run_plan(
             plan,
-            |backend| {
-                self.desktop
-                    .window_surface_backend(info.handle, backend, CAPTURE_WORK_MS)
-            },
+            |backend| self.desktop.window_surface_backend(info.handle, backend, CAPTURE_WORK_MS),
             |surface| {
                 if !judged {
                     return None;
                 }
                 let (x, y, width, height) = info.client;
-                let content = (width > 0 && height > 0).then_some(Region {
-                    x: x - surface.x,
-                    y: y - surface.y,
-                    width,
-                    height,
-                });
+                let content = (width > 0 && height > 0).then_some(Region { x: x - surface.x, y: y - surface.y, width, height });
                 png_quality_issue(&surface.png, (surface.width, surface.height), content)
             },
         );
@@ -255,9 +208,7 @@ impl Host {
                 Ok(None) if output.region.is_some() => {
                     // A crop that cannot be made is refused, never answered
                     // with the whole surface under the region's geometry.
-                    refused = Some(
-                        "capture_region_invalid: the frame could not be decoded or encoded for the region".into(),
-                    )
+                    refused = Some("capture_region_invalid: the frame could not be decoded or encoded for the region".into())
                 }
                 Ok(delivered) => delivery = delivered,
                 Err(error) => refused = Some(error),
@@ -328,29 +279,14 @@ impl Host {
         }
         self.authorize(req, info.handle)?;
         if info.minimized {
-            let _ = self
-                .desktop
-                .set_window_state(info.handle, WinState::Restore);
+            let _ = self.desktop.set_window_state(info.handle, WinState::Restore);
         }
-        self.desktop
-            .move_window(info.handle, x, y, width, height)
-            .map_err(|error| format!("could not move window: {} ({error})", info.id()))?;
+        self.desktop.move_window(info.handle, x, y, width, height).map_err(|error| format!("could not move window: {} ({error})", info.id()))?;
         sleep_ms(80);
         let after = self.desktop.info(info.handle);
-        let verified = after.is_some_and(|after| {
-            after.x == x && after.y == y && after.width == width && after.height == height
-        });
+        let verified = after.is_some_and(|after| after.x == x && after.y == y && after.width == width && after.height == height);
         let message = format!("moved {} to {x},{y} size {width}x{height}", info.id());
-        Ok(self.action_result(
-            "move_window",
-            self.desktop.name(),
-            effect(verified),
-            verified,
-            &message,
-            None,
-            "background",
-            Some(info.id()),
-        ))
+        Ok(self.action_result("move_window", self.desktop.name(), effect(verified), verified, &message, None, "background", Some(info.id())))
     }
 
     pub(super) fn window_state(&self, req: &Req) -> Res<Obj> {
@@ -367,14 +303,11 @@ impl Host {
         let mut verified = false;
         for _ in 0..10 {
             sleep_ms(80);
-            verified = self
-                .desktop
-                .info(info.handle)
-                .is_some_and(|after| match state {
-                    WinState::Minimize => after.minimized,
-                    WinState::Maximize => after.maximized,
-                    WinState::Restore => !after.minimized && !after.maximized,
-                });
+            verified = self.desktop.info(info.handle).is_some_and(|after| match state {
+                WinState::Minimize => after.minimized,
+                WinState::Maximize => after.maximized,
+                WinState::Restore => !after.minimized && !after.maximized,
+            });
             if verified {
                 break;
             }
@@ -411,21 +344,9 @@ impl Host {
         let message = if verified {
             format!("closed window {}", info.id())
         } else {
-            format!(
-                "close requested for {}; the app may be showing a save or confirmation dialog",
-                info.id()
-            )
+            format!("close requested for {}; the app may be showing a save or confirmation dialog", info.id())
         };
-        Ok(self.action_result(
-            "close_window",
-            self.desktop.name(),
-            effect(verified),
-            verified,
-            &message,
-            None,
-            "background",
-            Some(info.id()),
-        ))
+        Ok(self.action_result("close_window", self.desktop.name(), effect(verified), verified, &message, None, "background", Some(info.id())))
     }
 
     /// Killing a process has nothing to undo, so it needs the caller's repeated
@@ -435,32 +356,11 @@ impl Host {
         let id = Some(info.id());
         if req.text("confirm") != "terminate" {
             let message = format!("terminating {} discards unsaved work; confirm=terminate is required and the user has to agree first", info.id());
-            return Ok(self.action_result(
-                "terminate_process",
-                "none",
-                "suspected_noop",
-                false,
-                &message,
-                Some("confirmation_required"),
-                "background",
-                id,
-            ));
+            return Ok(self.action_result("terminate_process", "none", "suspected_noop", false, &message, Some("confirmation_required"), "background", id));
         }
         if self.desktop.is_responding(info.handle) {
-            let message = format!(
-                "window {} still answers; close it the ordinary way instead of killing its process",
-                info.id()
-            );
-            return Ok(self.action_result(
-                "terminate_process",
-                "none",
-                "suspected_noop",
-                false,
-                &message,
-                Some("window_still_responding"),
-                "background",
-                id,
-            ));
+            let message = format!("window {} still answers; close it the ordinary way instead of killing its process", info.id());
+            return Ok(self.action_result("terminate_process", "none", "suspected_noop", false, &message, Some("window_still_responding"), "background", id));
         }
         self.authorize(req, info.handle)?;
         if let Err(error) = self.desktop.terminate(info.pid) {
@@ -534,35 +434,19 @@ impl Host {
                 "foreground",
                 "suspected_noop",
                 false,
-                &format!(
-                    "the foreground moved away from {} before focus settled",
-                    info.title
-                ),
+                &format!("the foreground moved away from {} before focus settled", info.title),
                 Some("foreground_changed"),
                 "foreground",
                 Some(info.id()),
             ));
         }
         self.session(|session| session.last_focus = info.handle);
-        Ok(self.action_result(
-            "focus_window",
-            "foreground",
-            "confirmed",
-            true,
-            &format!("focused: {}", info.title),
-            None,
-            "foreground",
-            Some(info.id()),
-        ))
+        Ok(self.action_result("focus_window", "foreground", "confirmed", true, &format!("focused: {}", info.title), None, "foreground", Some(info.id())))
     }
 }
 
 pub(super) fn effect(verified: bool) -> &'static str {
-    if verified {
-        "confirmed"
-    } else {
-        "unverifiable"
-    }
+    if verified { "confirmed" } else { "unverifiable" }
 }
 
 /// What the capture plan left: the surface or the last refusal, one row per
@@ -584,14 +468,8 @@ fn code_of(text: &str) -> &str {
     let text = text.trim();
     let end = text.find(['|', ':']).unwrap_or(0);
     let code = &text[..end];
-    let coded = code.len() <= 80
-        && code.starts_with(|c: char| c.is_ascii_alphabetic())
-        && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if coded {
-        code
-    } else {
-        "capture_source_unavailable"
-    }
+    let coded = code.len() <= 80 && code.starts_with(|c: char| c.is_ascii_alphabetic()) && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if coded { code } else { "capture_source_unavailable" }
 }
 
 /// Whether the next backend may still succeed after a refusal
@@ -601,10 +479,7 @@ fn code_of(text: &str) -> &str {
 fn falls_through(failure: &CaptureFailure) -> bool {
     let code = code_of(&failure.text);
     let capture_code = code.starts_with("capture_") && !matches!(code, "capture_minimized" | "capture_cloaked");
-    let frame_code = matches!(
-        code,
-        "empty_frame" | "blank_black_frame" | "blank_white_frame" | "coordinate_mismatch"
-    );
+    let frame_code = matches!(code, "empty_frame" | "blank_black_frame" | "blank_white_frame" | "coordinate_mismatch");
     failure.cleanup.status == "confirmed" && (capture_code || frame_code)
 }
 
@@ -615,11 +490,7 @@ fn worse(first: Cleanup, second: Cleanup) -> Cleanup {
         "unconfirmed" => 1,
         _ => 0,
     };
-    if rank(&second) > rank(&first) {
-        second
-    } else {
-        first
-    }
+    if rank(&second) > rank(&first) { second } else { first }
 }
 
 fn cleanup_json(cleanup: &Cleanup) -> Value {
@@ -631,11 +502,7 @@ fn cleanup_json(cleanup: &Cleanup) -> Value {
 
 /// Tries `backends` in order, each surface judged by `judge`; one
 /// capture_attempts row per attempt (shared/capture-attempts.ts:9-60).
-fn run_plan(
-    backends: &[&str],
-    mut acquire: impl FnMut(&str) -> Result<Surface, CaptureFailure>,
-    judge: impl Fn(&Surface) -> Option<Issue>,
-) -> Capture {
+fn run_plan(backends: &[&str], mut acquire: impl FnMut(&str) -> Result<Surface, CaptureFailure>, judge: impl Fn(&Surface) -> Option<Issue>) -> Capture {
     let mut attempts = Vec::new();
     let mut cleanup = Cleanup::CONFIRMED;
     let mut flags = None;
@@ -663,22 +530,12 @@ fn run_plan(
             Ok(mut surface) => {
                 attempts.push(Value::Object(row));
                 surface.print_window_flags = flags;
-                return Capture {
-                    surface: Ok(surface),
-                    attempts,
-                    cleanup,
-                    terminal: false,
-                };
+                return Capture { surface: Ok(surface), attempts, cleanup, terminal: false };
             }
             Err((failure, status)) => {
                 // A backend this desktop lacks was never an attempt.
                 if failure.text == UNKNOWN_CAPTURE_BACKEND && index > 0 {
-                    return Capture {
-                        surface: Err(previous),
-                        attempts,
-                        cleanup,
-                        terminal: true,
-                    };
+                    return Capture { surface: Err(previous), attempts, cleanup, terminal: true };
                 }
                 row.insert("status".into(), json!(status));
                 row.insert("code".into(), json!(code_of(&failure.text)));
@@ -694,12 +551,7 @@ fn run_plan(
             }
         }
     }
-    Capture {
-        surface: Err(previous),
-        attempts,
-        cleanup,
-        terminal,
-    }
+    Capture { surface: Err(previous), attempts, cleanup, terminal }
 }
 
 /// The backend that produced the frame of a successful capture.
@@ -740,11 +592,7 @@ fn capture_reply(info: &WindowInfo, capture: Capture) -> CaptureReply {
             if let Some(flags) = surface.print_window_flags {
                 result.insert("print_window_flags".into(), json!(flags));
             }
-            CaptureReply {
-                result: Ok(result),
-                error_result: None,
-                retire,
-            }
+            CaptureReply { result: Ok(result), error_result: None, retire }
         }
         Err(text) => CaptureReply {
             result: Err(text),
@@ -791,12 +639,7 @@ impl Output {
         let region = match req.child("region") {
             None => None,
             Some(region) => {
-                let edge = |key: &str| {
-                    region
-                        .f64(key)
-                        .filter(|value| value.fract() == 0.0 && value.abs() < f64::from(i32::MAX))
-                        .map(|value| value as i32)
-                };
+                let edge = |key: &str| region.f64(key).filter(|value| value.fract() == 0.0 && value.abs() < f64::from(i32::MAX)).map(|value| value as i32);
                 match (edge("x"), edge("y"), edge("width"), edge("height")) {
                     (Some(x), Some(y), Some(width), Some(height)) => Some(Region { x, y, width, height }),
                     _ => return Err("region requires integer x, y, width and height".into()),
@@ -833,10 +676,7 @@ struct Fitted {
 fn fit(pixels: Pixels, surface: (i32, i32), output: &Output) -> Res<Fitted> {
     let (mut origin, mut unfitted) = (surface, pixels);
     if let Some(wanted) = output.region {
-        let local = local_region(
-            (surface.0, surface.1, unfitted.width as i32, unfitted.height as i32),
-            wanted,
-        )?;
+        let local = local_region((surface.0, surface.1, unfitted.width as i32, unfitted.height as i32), wanted)?;
         origin = (surface.0 + local.x, surface.1 + local.y);
         unfitted = unfitted.crop(local);
     }
@@ -864,10 +704,7 @@ impl Delivery {
         use base64::Engine;
         let (fitted, unfitted) = (&self.frame.fitted, &self.frame.unfitted);
         result.remove("image_base64");
-        result.insert(
-            "image".into(),
-            json!({ "mimeType": self.mime, "data": base64::engine::general_purpose::STANDARD.encode(&self.bytes) }),
-        );
+        result.insert("image".into(), json!({ "mimeType": self.mime, "data": base64::engine::general_purpose::STANDARD.encode(&self.bytes) }));
         result.insert("image_width".into(), json!(fitted.width));
         result.insert("image_height".into(), json!(fitted.height));
         result.insert("scale".into(), json!(fitted.width as f64 / unfitted.width as f64));
@@ -895,33 +732,18 @@ impl Host {
         };
         let frame = fit(Pixels { width, height, data }, (surface.x, surface.y), output)?;
         let (fitted, unfitted) = (&frame.fitted, &frame.unfitted);
-        let Some((mime, bytes)) = self.desktop.encode_image(
-            &fitted.data,
-            fitted.width as u32,
-            fitted.height as u32,
-            Some(output.quality),
-        ) else {
+        let Some((mime, bytes)) = self.desktop.encode_image(&fitted.data, fitted.width as u32, fitted.height as u32, Some(output.quality)) else {
             return Ok(None);
         };
         let ocr = output.ocr.as_ref().map(|(language, words)| {
             let png = match output.region {
                 None => Some(surface.png.clone()),
-                Some(_) => self
-                    .desktop
-                    .encode_image(&unfitted.data, unfitted.width as u32, unfitted.height as u32, None)
-                    .map(|(_, bytes)| bytes),
+                Some(_) => self.desktop.encode_image(&unfitted.data, unfitted.width as u32, unfitted.height as u32, None).map(|(_, bytes)| bytes),
             };
-            let read = png
-                .ok_or_else(|| "ocr_failed: the frame could not be encoded".to_string())
-                .and_then(|png| self.desktop.ocr(&png, language, *words));
+            let read = png.ok_or_else(|| "ocr_failed: the frame could not be encoded".to_string()).and_then(|png| self.desktop.ocr(&png, language, *words));
             match read {
                 Ok(mut ocr) => {
-                    let from = |key: &str, fallback: usize| {
-                        ocr.get(key)
-                            .and_then(Value::as_f64)
-                            .filter(|size| *size > 0.0)
-                            .unwrap_or(fallback as f64)
-                    };
+                    let from = |key: &str, fallback: usize| ocr.get(key).and_then(Value::as_f64).filter(|size| *size > 0.0).unwrap_or(fallback as f64);
                     let size = (from("image_width", unfitted.width), from("image_height", unfitted.height));
                     map_ocr(&mut ocr, size, (fitted.width, fitted.height));
                     ocr
@@ -945,10 +767,7 @@ mod tests {
 
     #[test]
     fn the_image_request_has_the_screenshot_defaults() {
-        assert_eq!(
-            Output::of(&request(json!({}))),
-            Ok(Output { max_width: 1280, quality: 55, region: None, preserve_resolution: false, ocr: None })
-        );
+        assert_eq!(Output::of(&request(json!({}))), Ok(Output { max_width: 1280, quality: 55, region: None, preserve_resolution: false, ocr: None }));
     }
 
     #[test]
@@ -1035,14 +854,7 @@ mod tests {
     }
 
     fn surface(flags: Option<&'static str>) -> Surface {
-        Surface {
-            png: vec![1, 2, 3],
-            x: 10,
-            y: 20,
-            width: 300,
-            height: 200,
-            print_window_flags: flags,
-        }
+        Surface { png: vec![1, 2, 3], x: 10, y: 20, width: 300, height: 200, print_window_flags: flags }
     }
 
     fn refusal(text: &str) -> CaptureFailure {
@@ -1071,11 +883,7 @@ mod tests {
     }
 
     /// Runs the plan with scripted answers per backend; returns what it asked.
-    fn run(
-        backends: &[&str],
-        mut answers: Vec<Result<Surface, CaptureFailure>>,
-        issue: impl Fn(&Surface) -> Option<Issue>,
-    ) -> (Capture, Vec<String>) {
+    fn run(backends: &[&str], mut answers: Vec<Result<Surface, CaptureFailure>>, issue: impl Fn(&Surface) -> Option<Issue>) -> (Capture, Vec<String>) {
         answers.reverse();
         let asked = RefCell::new(Vec::new());
         let capture = run_plan(
@@ -1090,10 +898,7 @@ mod tests {
     }
 
     fn black(_: &Surface) -> Option<Issue> {
-        Some(Issue {
-            reason: "blank_black_frame",
-            message: "capture is effectively all black; no coordinate frame was issued",
-        })
+        Some(Issue { reason: "blank_black_frame", message: "capture is effectively all black; no coordinate frame was issued" })
     }
 
     fn usable(_: &Surface) -> Option<Issue> {
@@ -1116,19 +921,11 @@ mod tests {
 
     #[test]
     fn the_backend_of_a_captured_frame_is_the_last_attempt() {
-        let (fell, _) = run(
-            &CAPTURE_PLAN,
-            vec![Err(refusal("capture_timeout|window is not responding")), Ok(surface(None))],
-            usable,
-        );
+        let (fell, _) = run(&CAPTURE_PLAN, vec![Err(refusal("capture_timeout|window is not responding")), Ok(surface(None))], usable);
         assert_eq!(captured_by(&fell), Some("wgc"));
         let (direct, _) = run(&CAPTURE_PLAN, vec![Ok(surface(Some("2")))], usable);
         assert_eq!(captured_by(&direct), Some("print_window"));
-        let (failed, _) = run(
-            &CAPTURE_PLAN,
-            vec![Err(refusal("capture_minimized|minimized"))],
-            usable,
-        );
+        let (failed, _) = run(&CAPTURE_PLAN, vec![Err(refusal("capture_minimized|minimized"))], usable);
         assert_eq!(captured_by(&failed), None);
     }
 
@@ -1150,19 +947,14 @@ mod tests {
 
     #[test]
     fn a_black_print_window_frame_falls_to_wgc() {
-        let (capture, asked) = run(
-            &CAPTURE_PLAN,
-            vec![Ok(surface(Some("2,0"))), Ok(surface(None))],
-            |surface| if surface.print_window_flags.is_some() { black(surface) } else { None },
-        );
+        let (capture, asked) =
+            run(
+                &CAPTURE_PLAN,
+                vec![Ok(surface(Some("2,0"))), Ok(surface(None))],
+                |surface| if surface.print_window_flags.is_some() { black(surface) } else { None },
+            );
         assert_eq!(asked, ["print_window", "wgc"]);
-        assert_eq!(
-            rows(&capture),
-            [
-                ("print_window".into(), "unavailable".into(), Some("blank_black_frame".into())),
-                ("wgc".into(), "captured".into(), None),
-            ]
-        );
+        assert_eq!(rows(&capture), [("print_window".into(), "unavailable".into(), Some("blank_black_frame".into())), ("wgc".into(), "captured".into(), None),]);
         // The flags of the PrintWindow attempt are kept on the wgc frame.
         assert_eq!(capture.surface.map(|s| s.print_window_flags), Ok(Some("2,0")));
     }
@@ -1174,11 +966,7 @@ mod tests {
             "capture_source_unavailable|window-owned rendering is unavailable",
             "capture_geometry_changed|native window changed during capture",
         ] {
-            let (capture, asked) = run(
-                &CAPTURE_PLAN,
-                vec![Err(refusal(text)), Ok(surface(None))],
-                usable,
-            );
+            let (capture, asked) = run(&CAPTURE_PLAN, vec![Err(refusal(text)), Ok(surface(None))], usable);
             assert_eq!(asked, ["print_window", "wgc"], "{text}");
             assert!(capture.surface.is_ok(), "{text}");
         }
@@ -1186,10 +974,9 @@ mod tests {
 
     #[test]
     fn a_minimized_or_cloaked_window_never_reaches_wgc() {
-        for text in [
-            "capture_minimized|minimized native window has no rendered surface",
-            "capture_cloaked|native window is cloaked and has no available surface",
-        ] {
+        for text in
+            ["capture_minimized|minimized native window has no rendered surface", "capture_cloaked|native window is cloaked and has no available surface"]
+        {
             let (capture, asked) = run(&CAPTURE_PLAN, vec![Err(refusal(text))], usable);
             assert_eq!(asked, ["print_window"], "{text}");
             assert_eq!(capture.attempts.len(), 1);
@@ -1212,35 +999,20 @@ mod tests {
     fn both_backends_failing_reports_the_last_refusal_and_each_attempt() {
         let (capture, _) = run(
             &CAPTURE_PLAN,
-            vec![
-                Err(refusal("capture_timeout|window is not responding")),
-                Err(refusal("capture_denied|Windows denied capture of the selected window")),
-            ],
+            vec![Err(refusal("capture_timeout|window is not responding")), Err(refusal("capture_denied|Windows denied capture of the selected window"))],
             usable,
         );
         assert_eq!(
             rows(&capture),
-            [
-                ("print_window".into(), "failed".into(), Some("capture_timeout".into())),
-                ("wgc".into(), "failed".into(), Some("capture_denied".into())),
-            ]
+            [("print_window".into(), "failed".into(), Some("capture_timeout".into())), ("wgc".into(), "failed".into(), Some("capture_denied".into())),]
         );
-        assert_eq!(
-            capture.surface.err().as_deref(),
-            Some("capture_denied|Windows denied capture of the selected window")
-        );
+        assert_eq!(capture.surface.err().as_deref(), Some("capture_denied|Windows denied capture of the selected window"));
     }
 
     #[test]
     fn only_a_plan_that_ran_out_of_recoverable_sources_may_ask_the_owner() {
-        let (exhausted, _) = run(
-            &CAPTURE_PLAN,
-            vec![
-                Err(refusal("capture_timeout|window is not responding")),
-                Err(refusal("capture_source_unavailable|no frame")),
-            ],
-            usable,
-        );
+        let (exhausted, _) =
+            run(&CAPTURE_PLAN, vec![Err(refusal("capture_timeout|window is not responding")), Err(refusal("capture_source_unavailable|no frame"))], usable);
         assert!(!exhausted.terminal);
         let (cloaked, _) = run(&CAPTURE_PLAN, vec![Err(refusal("capture_cloaked|cloaked"))], usable);
         assert!(cloaked.terminal);
@@ -1252,17 +1024,11 @@ mod tests {
     fn a_backend_the_desktop_lacks_is_not_an_attempt() {
         let (capture, _) = run(
             &CAPTURE_PLAN,
-            vec![
-                Err(refusal("capture_source_unavailable: linux has no native window surface backend")),
-                Err(refusal(UNKNOWN_CAPTURE_BACKEND)),
-            ],
+            vec![Err(refusal("capture_source_unavailable: linux has no native window surface backend")), Err(refusal(UNKNOWN_CAPTURE_BACKEND))],
             usable,
         );
         assert_eq!(rows(&capture).len(), 1);
-        assert!(capture
-            .surface
-            .err()
-            .is_some_and(|text| text.starts_with("capture_source_unavailable: linux")));
+        assert!(capture.surface.err().is_some_and(|text| text.starts_with("capture_source_unavailable: linux")));
     }
 
     #[test]
@@ -1302,25 +1068,15 @@ mod tests {
         let (capture, _) = run(&["wgc"], vec![Err(unconfirmed)], usable);
         let reply = capture_reply(&info(), capture);
         assert!(reply.retire);
-        assert_eq!(
-            reply.result.err().as_deref(),
-            Some("capture_timeout|GPU copy exceeded the remaining capture budget")
-        );
+        assert_eq!(reply.result.err().as_deref(), Some("capture_timeout|GPU copy exceeded the remaining capture budget"));
         let reported = reply.error_result.expect("the cleanup is reported");
-        assert_eq!(
-            reported["capture_cleanup"],
-            json!({ "status": "unconfirmed", "cancellation": "unconfirmed" })
-        );
+        assert_eq!(reported["capture_cleanup"], json!({ "status": "unconfirmed", "cancellation": "unconfirmed" }));
         assert_eq!(reported["capture_attempts"][0]["cleanup"]["status"], "unconfirmed");
     }
 
     #[test]
     fn a_confirmed_refusal_keeps_the_host() {
-        let (capture, _) = run(
-            &CAPTURE_PLAN[..1],
-            vec![Err(refusal("capture_minimized|minimized native window has no rendered surface"))],
-            usable,
-        );
+        let (capture, _) = run(&CAPTURE_PLAN[..1], vec![Err(refusal("capture_minimized|minimized native window has no rendered surface"))], usable);
         assert!(!capture_reply(&info(), capture).retire);
     }
 

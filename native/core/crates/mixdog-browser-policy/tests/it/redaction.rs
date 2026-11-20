@@ -17,12 +17,8 @@ fn secret_named_query_parameters_with_a_value_make_a_url_secret() {
     for name in ["api_key", "password", "PASSWORD", "session-id", "sessionToken", "session_token", "token"] {
         assert!(url_contains_secret(&format!("https://example.com/?{name}=x")), "{name}");
     }
-    for url in [
-        "https://example.com/?secret=",
-        "https://example.com/?mytoken=abc",
-        "https://example.com/?api+key=abc",
-        "https://example.com/docs?key=keyboard",
-    ] {
+    for url in ["https://example.com/?secret=", "https://example.com/?mytoken=abc", "https://example.com/?api+key=abc", "https://example.com/docs?key=keyboard"]
+    {
         assert!(!url_contains_secret(url), "{url}");
     }
 }

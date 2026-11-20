@@ -6,7 +6,7 @@
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::ice::turn::{issue_turn_credential, TURN_CREDENTIAL_TTL_SECONDS};
+use crate::ice::turn::{TURN_CREDENTIAL_TTL_SECONDS, issue_turn_credential};
 
 pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as i64)

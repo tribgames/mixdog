@@ -86,10 +86,7 @@ fn clear(host: &mut dyn SlashHost, raw_name: &str) -> bool {
     let state = host.state();
     let is_new = raw_name == "new";
     if state.busy || state.command_busy {
-        host.push_notice(
-            &format!("wait for the current session command to finish before /{}", if is_new { "new" } else { "clear" }),
-            Tone::Warn,
-        );
+        host.push_notice(&format!("wait for the current session command to finish before /{}", if is_new { "new" } else { "clear" }), Tone::Warn);
         return false;
     }
     if is_new {
@@ -133,10 +130,7 @@ fn btw(host: &mut dyn SlashHost, arg: &str) -> bool {
 fn goal(host: &mut dyn SlashHost, arg: &str) -> bool {
     match host.store_call("goalControl", json!([{"command": arg}])) {
         Ok(result) if truthy(&result) => {
-            let message = result
-                .get("message")
-                .filter(|message| truthy(message))
-                .map_or_else(|| "Goal updated.".to_owned(), value_text);
+            let message = result.get("message").filter(|message| truthy(message)).map_or_else(|| "Goal updated.".to_owned(), value_text);
             let tone = if result.get("ok") == Some(&Value::Bool(false)) { Tone::Warn } else { Tone::Info };
             host.push_notice(&message, tone);
         }
@@ -222,9 +216,7 @@ fn shells(host: &mut dyn SlashHost, arg: &str) -> bool {
     };
     if flag != Some("--confirm") {
         host.push_notice(
-            &format!(
-                "Releasing {task_id} unlocks its folder although its processes may still be running. To proceed, run /shells release {task_id} --confirm"
-            ),
+            &format!("Releasing {task_id} unlocks its folder although its processes may still be running. To proceed, run /shells release {task_id} --confirm"),
             Tone::Warn,
         );
         return true;
@@ -234,8 +226,7 @@ fn shells(host: &mut dyn SlashHost, arg: &str) -> bool {
             host.push_notice(&format!("Released {task_id}."), Tone::Info);
         }
         Ok(result) => {
-            let reason =
-                result.get("error").filter(|error| truthy(error)).map_or_else(|| "unavailable".to_owned(), value_text);
+            let reason = result.get("error").filter(|error| truthy(error)).map_or_else(|| "unavailable".to_owned(), value_text);
             host.push_notice(&format!("Couldn\u{2019}t release {task_id}: {reason}"), Tone::Warn);
         }
         Err(error) => report_failure(host, &format!("Couldn\u{2019}t release {task_id}"), &error),
@@ -246,16 +237,10 @@ fn shells(host: &mut dyn SlashHost, arg: &str) -> bool {
 fn stop_all(host: &mut dyn SlashHost) {
     match host.store_call("stopShellJobs", json!([])) {
         Ok(result) => {
-            let count = |key: &str| {
-                result.get(key).filter(|value| truthy(value)).map_or(0.0, |value| mixdog_js::to_number(value))
-            };
+            let count = |key: &str| result.get(key).filter(|value| truthy(value)).map_or(0.0, |value| mixdog_js::to_number(value));
             let (stopped, stopping) = (count("stopped"), count("stopping"));
             let text = if stopping != 0.0 {
-                format!(
-                    "Stopped background shells: {} \u{b7} still stopping: {}",
-                    mixdog_js::number_to_string(stopped),
-                    mixdog_js::number_to_string(stopping)
-                )
+                format!("Stopped background shells: {} \u{b7} still stopping: {}", mixdog_js::number_to_string(stopped), mixdog_js::number_to_string(stopping))
             } else {
                 format!("Stopped background shells: {}", mixdog_js::number_to_string(stopped))
             };

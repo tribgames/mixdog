@@ -64,9 +64,7 @@ pub(super) fn retain_fuzzy_path(
     total_matches: &mut usize,
 ) {
     for token in tokens {
-        if let (Some((query_low, query_high)), Some((path_low, path_high))) =
-            (token.mask, path_mask)
-        {
+        if let (Some((query_low, query_high)), Some((path_low, path_high))) = (token.mask, path_mask) {
             if path_low & query_low != query_low || path_high & query_high != query_high {
                 return;
             }
@@ -84,19 +82,13 @@ pub(super) fn retain_fuzzy_path(
         score = score.saturating_add(token_score);
     }
     *total_matches += 1;
-    let candidate = FuzzyHit {
-        score,
-        path: path.to_string(),
-    };
+    let candidate = FuzzyHit { score, path: path.to_string() };
     retain_bounded(matches, candidate, limit);
 }
 
 impl Ord for FuzzyHit {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .score
-            .cmp(&self.score)
-            .then_with(|| self.path.cmp(&other.path))
+        other.score.cmp(&self.score).then_with(|| self.path.cmp(&other.path))
     }
 }
 
@@ -120,12 +112,7 @@ struct FuzzyScope<'a> {
 }
 
 fn fuzzy_scope(req: &ServeRequest) -> Result<FuzzyScope<'_>, String> {
-    let query = req
-        .fuzzy
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "empty fuzzy query".to_string())?;
+    let query = req.fuzzy.as_deref().map(str::trim).filter(|value| !value.is_empty()).ok_or_else(|| "empty fuzzy query".to_string())?;
     let limit = req.limit.clamp(1, 1_000);
     let inventory_lease_ms = if req.keep_inventory_ms > 0 {
         req.keep_inventory_ms.min(30_000)
@@ -149,15 +136,7 @@ fn fuzzy_scope(req: &ServeRequest) -> Result<FuzzyScope<'_>, String> {
     let root = Path::new(&req.cwd);
     let key = fuzzy_key(root, &parsed);
     let filter = PathFilter::new(root, &parsed)?;
-    Ok(FuzzyScope {
-        query,
-        limit,
-        inventory_lease_ms,
-        parsed,
-        root,
-        key,
-        filter,
-    })
+    Ok(FuzzyScope { query, limit, inventory_lease_ms, parsed, root, key, filter })
 }
 
 /// The whitespace-separated query atoms. Each carries its own ASCII presence
@@ -168,12 +147,7 @@ fn fuzzy_query_tokens(query: &str) -> Vec<FuzzyQueryToken> {
         .map(|text| FuzzyQueryToken {
             text: text.to_string(),
             mask: fuzzy_ascii_presence(text),
-            pattern: Pattern::new(
-                text,
-                CaseMatching::Ignore,
-                Normalization::Smart,
-                AtomKind::Fuzzy,
-            ),
+            pattern: Pattern::new(text, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy),
         })
         .collect::<Vec<_>>()
 }
@@ -203,15 +177,7 @@ impl<'a> FuzzyRanking<'a> {
     }
 
     fn consider(&mut self, path: &str, path_mask: Option<(u64, u64)>) {
-        retain_fuzzy_path(
-            self.tokens,
-            path,
-            path_mask,
-            &mut self.matcher,
-            &mut self.matches,
-            self.limit,
-            &mut self.total_matches,
-        );
+        retain_fuzzy_path(self.tokens, path, path_mask, &mut self.matcher, &mut self.matches, self.limit, &mut self.total_matches);
     }
 }
 
@@ -280,14 +246,7 @@ fn rank_live_walk(
     let watched = store.watch_root(root);
     let mut cache_safe = watched;
     let walk_key = scope.key.walk.clone();
-    let (live, _waiter) = store.join_live_walk(
-        walk_key,
-        root,
-        &scope.parsed,
-        keep_warm,
-        scope.inventory_lease_ms,
-        watched,
-    );
+    let (live, _waiter) = store.join_live_walk(walk_key, root, &scope.parsed, keep_warm, scope.inventory_lease_ms, watched);
     let mut cursor = 0usize;
     loop {
         // Materialize the wire-relative strings the ranker scores once, under
@@ -295,11 +254,7 @@ fn rank_live_walk(
         // temporary batch first: that was costly across hundreds of thousands
         // of broad candidates.
         let take = |files: &[PathBuf]| -> Vec<String> {
-            files
-                .iter()
-                .filter(|file| scope.filter.allows(file))
-                .map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file)))
-                .collect()
+            files.iter().filter(|file| scope.filter.allows(file)).map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file))).collect()
         };
         let batch = match next_stream_batch(&live, &mut cursor, cancelled, deadline_at, take)? {
             StreamBatch::Items(batch) => batch,
@@ -341,14 +296,7 @@ fn rank_live_walk(
         // retain the completed walk until finish_live installs its cache.
         live.keep_warm.store(true, Ordering::Release);
     }
-    Ok(FuzzyWalkOutcome {
-        timed_out,
-        walk_complete,
-        walk_errors,
-        walk_error_details,
-        cache_safe,
-        rank_ms,
-    })
+    Ok(FuzzyWalkOutcome { timed_out, walk_complete, walk_errors, walk_error_details, cache_safe, rank_ms })
 }
 
 pub(super) fn handle_fuzzy(
@@ -363,28 +311,12 @@ pub(super) fn handle_fuzzy(
     let tokens = fuzzy_query_tokens(scope.query);
     let mut ranking = FuzzyRanking::new(&tokens, limit);
     let inventory_started_at = Instant::now();
-    let cached_corpus = store.take_fuzzy_corpus(&scope.key).or_else(|| {
-        store
-            .take_ready(&scope.key.walk)
-            .map(|files| store.fuzzy_corpus(&scope.key, &files, scope.root, &scope.filter))
-    });
-    let FuzzyWalkOutcome {
-        timed_out,
-        walk_complete,
-        walk_errors,
-        walk_error_details,
-        cache_safe,
-        rank_ms,
-    } = match cached_corpus {
+    let cached_corpus = store
+        .take_fuzzy_corpus(&scope.key)
+        .or_else(|| store.take_ready(&scope.key.walk).map(|files| store.fuzzy_corpus(&scope.key, &files, scope.root, &scope.filter)));
+    let FuzzyWalkOutcome { timed_out, walk_complete, walk_errors, walk_error_details, cache_safe, rank_ms } = match cached_corpus {
         Some(corpus) => rank_cached_corpus(&corpus, &mut ranking, cancelled, deadline_at)?,
-        None => rank_live_walk(
-            &scope,
-            store,
-            req.keep_warm,
-            &mut ranking,
-            cancelled,
-            deadline_at,
-        )?,
+        None => rank_live_walk(&scope, store, req.keep_warm, &mut ranking, cancelled, deadline_at)?,
     };
     let total_matches = ranking.total_matches;
     let total_seen = ranking.total_seen;
@@ -394,11 +326,7 @@ pub(super) fn handle_fuzzy(
     let inventory_complete = walk_complete && walk_errors == 0;
     // FuzzyHit orders best score first, then path, so the ascending heap
     // order is the response order.
-    let paths: Vec<String> = matches
-        .into_sorted_vec()
-        .into_iter()
-        .map(|entry| entry.path)
-        .collect();
+    let paths: Vec<String> = matches.into_sorted_vec().into_iter().map(|entry| entry.path).collect();
     Ok(serde_json::json!({
         "id": req.id,
         "matches": paths,
@@ -427,23 +355,9 @@ mod tests {
     fn bounded_fuzzy_hits_keep_best_scores_and_lexical_ties() {
         let mut hits = std::collections::BinaryHeap::new();
         for (score, path) in [(5, "early"), (10, "beta"), (10, "alpha"), (3, "late")] {
-            retain_bounded(
-                &mut hits,
-                FuzzyHit {
-                    score,
-                    path: path.to_string(),
-                },
-                2,
-            );
+            retain_bounded(&mut hits, FuzzyHit { score, path: path.to_string() }, 2);
         }
-        let kept: Vec<_> = hits
-            .into_sorted_vec()
-            .into_iter()
-            .map(|hit| (hit.score, hit.path))
-            .collect();
-        assert_eq!(
-            kept,
-            vec![(10, "alpha".to_string()), (10, "beta".to_string())]
-        );
+        let kept: Vec<_> = hits.into_sorted_vec().into_iter().map(|hit| (hit.score, hit.path)).collect();
+        assert_eq!(kept, vec![(10, "alpha".to_string()), (10, "beta".to_string())]);
     }
 }

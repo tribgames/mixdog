@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! Project file operations (port of `project-files.ts`): traversal-guarded
 //! listing, editor read/stat, in-place compare-and-set saves with recovery
 //! journals, and tree mutations. Everything here blocks; the service runs each
@@ -21,13 +25,13 @@ use crate::error::WsResult;
 use crate::ident::mtime_ms;
 use crate::ident::path_id;
 use crate::inplace::Opened;
-use crate::nodeerr::AtPath;
-use crate::nodeerr::io_error2;
 use crate::inplace::open_authorized_ro;
 use crate::inplace::open_authorized_rw;
 use crate::inplace::read_all;
 use crate::inplace::rewrite;
 use crate::inplace::rewrite_or_restore;
+use crate::nodeerr::AtPath;
+use crate::nodeerr::io_error2;
 use crate::pathguard::canonical;
 use crate::pathguard::lexical;
 use crate::pathguard::project_entry_path;
@@ -111,7 +115,8 @@ fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 pub fn list_dir(root: &Path, rel: &str) -> WsResult<Vec<DirItem>> {
     let target = project_entry_path(root, rel)?;
-    let mut items: Vec<DirItem> = fs::read_dir(&target).at("scandir", &target)?
+    let mut items: Vec<DirItem> = fs::read_dir(&target)
+        .at("scandir", &target)?
         .filter_map(Result::ok)
         .filter_map(|e| {
             let kind = e.file_type().ok()?;
@@ -209,10 +214,7 @@ fn expected_text(file: &mut File, expected: &str, expected_lone: bool, label: &s
     let bytes = read_all(file)?;
     let decoded = text::decode(&bytes);
     if !decoded.lossless {
-        return Err(WsError::new(
-            Reason::InvalidEncoding,
-            "File has invalid text encoding. Convert or repair it in an external editor before saving.",
-        ));
+        return Err(WsError::new(Reason::InvalidEncoding, "File has invalid text encoding. Convert or repair it in an external editor before saving."));
     }
     if decoded.binary || expected_lone || decoded.content != expected {
         return Err(WsError::precondition(expected, &decoded.content));
@@ -256,11 +258,7 @@ impl ProjectFs {
         path_names_file(root, rel, &opened)?;
         let (original, decoded) = expected_text(&mut opened.file, expected, expected_lone, rel)?;
         check_paired(content_lone)?;
-        let bytes = text::encode(
-            content,
-            encoding.unwrap_or(decoded.encoding),
-            if encoding.is_none() { decoded.has_bom } else { true },
-        );
+        let bytes = text::encode(content, encoding.unwrap_or(decoded.encoding), if encoding.is_none() { decoded.has_bom } else { true });
         rewrite_or_restore(&mut opened.file, &bytes, &original)?;
         Ok(mtime_ms(&opened.file.metadata()?))
     }
@@ -272,8 +270,7 @@ impl ProjectFs {
         if writes.is_empty() || writes.len() > 100 {
             return Err(WsError::invalid("Workspace edit files are invalid."));
         }
-        let normalized: Vec<(String, &BatchFile)> =
-            writes.iter().map(|w| (w.rel_path.replace('\\', "/"), w)).collect();
+        let normalized: Vec<(String, &BatchFile)> = writes.iter().map(|w| (w.rel_path.replace('\\', "/"), w)).collect();
         let lower: HashSet<String> = normalized.iter().map(|(r, _)| r.to_lowercase()).collect();
         if lower.len() != normalized.len() {
             return Err(WsError::invalid("Workspace edit contains duplicate files."));
@@ -303,11 +300,15 @@ impl ProjectFs {
             let after = text::encode(&write.content, decoded.encoding, decoded.has_bom);
             staged.push(Staged { rel: rel.clone(), before, after });
         }
-        let mut journal = if journaled {
-            Some(self.recovery.begin(root, self.prepared(root, &opened, &staged.iter().map(|s| (s.rel.clone(), s.before.clone(), s.after.clone())).collect::<Vec<_>>())?)?)
-        } else {
-            None
-        };
+        let mut journal =
+            if journaled {
+                Some(self.recovery.begin(
+                    root,
+                    self.prepared(root, &opened, &staged.iter().map(|s| (s.rel.clone(), s.before.clone(), s.after.clone())).collect::<Vec<_>>())?,
+                )?)
+            } else {
+                None
+            };
         let mut written: Vec<usize> = Vec::new();
         let mut restored: HashSet<String> = HashSet::new();
         let mut failure: Option<WsError> = None;
@@ -334,10 +335,7 @@ impl ProjectFs {
             failure = Some(if unrestored.is_empty() {
                 error
             } else {
-                WsError::new(
-                    Reason::Io,
-                    format!("Workspace edit failed: {}. Not restored: {unrestored:?}.", error.message),
-                )
+                WsError::new(Reason::Io, format!("Workspace edit failed: {}. Not restored: {unrestored:?}.", error.message))
             });
         }
         let mut bookkeeping = Vec::new();
@@ -359,10 +357,7 @@ impl ProjectFs {
         if let Some(error) = bookkeeping.into_iter().next() {
             return Err(tag(WsError::new(
                 Reason::Io,
-                format!(
-                    "Files were saved, but recovery bookkeeping failed. Inspect retained recovery records before retrying. ({})",
-                    error.message
-                ),
+                format!("Files were saved, but recovery bookkeeping failed. Inspect retained recovery records before retrying. ({})", error.message),
             )));
         }
         Ok(())
@@ -374,10 +369,7 @@ impl ProjectFs {
         for (file, (rel, before, after)) in opened.iter().zip(staged) {
             bytes += (before.len() + after.len()) as u64;
             if bytes > RECOVERY_MAX_BYTES {
-                return Err(recovery_err(
-                    "RECOVERY_BATCH_LIMIT",
-                    "Workspace edit exceeds the 16 MiB recovery budget. Split the edit.",
-                ));
+                return Err(recovery_err("RECOVERY_BATCH_LIMIT", "Workspace edit exceeds the 16 MiB recovery budget. Split the edit."));
             }
             let destination = canonical(&project_entry_path(root, rel)?)?;
             if path_id(&destination)? != file.id {
@@ -391,14 +383,7 @@ impl ProjectFs {
             };
             #[cfg(not(unix))]
             let mode = 0;
-            out.push(PreparedFile {
-                rel_path: rel.clone(),
-                destination,
-                parent,
-                mode,
-                before: before.clone(),
-                after: after.clone(),
-            });
+            out.push(PreparedFile { rel_path: rel.clone(), destination, parent, mode, before: before.clone(), after: after.clone() });
         }
         Ok(out)
     }
@@ -410,8 +395,7 @@ fn invalid_segment(s: &str) -> bool {
 }
 
 pub fn entry_segments(name: &str) -> WsResult<Vec<String>> {
-    let segments: Vec<String> =
-        name.replace('\\', "/").split('/').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
+    let segments: Vec<String> = name.replace('\\', "/").split('/').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
     if segments.is_empty() || segments.iter().any(|s| invalid_segment(s)) {
         return Err(WsError::invalid("Entry name is invalid."));
     }
@@ -472,9 +456,7 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str) -> WsResult<()> {
         let names: Vec<String> =
             fs::read_dir(parent).at("scandir", parent)?.filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         let base = from.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        let case_only = base.to_lowercase() == trimmed.to_lowercase()
-            && names.contains(&base)
-            && !names.iter().any(|n| n == trimmed);
+        let case_only = base.to_lowercase() == trimmed.to_lowercase() && names.contains(&base) && !names.iter().any(|n| n == trimmed);
         if !case_only {
             return Err(WsError::new(Reason::AlreadyExists, EXISTS));
         }
@@ -617,12 +599,7 @@ pub struct LocalEntry {
 pub fn stat_local(path: &str) -> WsResult<LocalEntry> {
     let absolute = crate::pathguard::absolute_local_path(path)?;
     let meta = fs::metadata(&absolute).at("stat", &absolute)?;
-    Ok(LocalEntry {
-        name: display_name(&absolute),
-        absolute_path: absolute.to_string_lossy().into_owned(),
-        dir: meta.is_dir(),
-        size: meta.len(),
-    })
+    Ok(LocalEntry { name: display_name(&absolute), absolute_path: absolute.to_string_lossy().into_owned(), dir: meta.is_dir(), size: meta.len() })
 }
 
 #[derive(Serialize)]
@@ -734,8 +711,20 @@ mod tests {
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
         let batch = |content_lone| {
             vec![
-                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), content_lone: false, expected_lone: false },
-                BatchFile { rel_path: "crlf.txt".into(), content: "B\u{fffd}".into(), expected_content: "a\r\nb\r\n".into(), content_lone, expected_lone: false },
+                BatchFile {
+                    rel_path: "utf8.txt".into(),
+                    content: "A".into(),
+                    expected_content: "héllo\nworld\n".into(),
+                    content_lone: false,
+                    expected_lone: false,
+                },
+                BatchFile {
+                    rel_path: "crlf.txt".into(),
+                    content: "B\u{fffd}".into(),
+                    expected_content: "a\r\nb\r\n".into(),
+                    content_lone,
+                    expected_lone: false,
+                },
             ]
         };
         let refused = fs_.write_batch(&root, &batch(true), true).unwrap_err();
@@ -757,7 +746,8 @@ mod tests {
         fs::write(root.join("r.txt"), "a\u{fffd}b\n").unwrap();
         let stale = fs_.write_text(&root, "r.txt", "new", "a\u{fffd}b\n", None, (false, true)).unwrap_err();
         assert_eq!(stale.message, "File changed on disk. Reload or keep your edits before saving.");
-        let batch = [BatchFile { rel_path: "r.txt".into(), content: "new".into(), expected_content: "a\u{fffd}b\n".into(), content_lone: false, expected_lone: true }];
+        let batch =
+            [BatchFile { rel_path: "r.txt".into(), content: "new".into(), expected_content: "a\u{fffd}b\n".into(), content_lone: false, expected_lone: true }];
         assert_eq!(fs_.write_batch(&root, &batch, true).unwrap_err().reason.code(), "preconditionFailed");
         assert_eq!(fs::read_to_string(root.join("r.txt")).unwrap(), "a\u{fffd}b\n");
     }
@@ -780,7 +770,13 @@ mod tests {
         let (_d, root, fs_) = fixture();
         let files = |second: &str| {
             vec![
-                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), content_lone: false, expected_lone: false },
+                BatchFile {
+                    rel_path: "utf8.txt".into(),
+                    content: "A".into(),
+                    expected_content: "héllo\nworld\n".into(),
+                    content_lone: false,
+                    expected_lone: false,
+                },
                 BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into(), content_lone: false, expected_lone: false },
             ]
         };

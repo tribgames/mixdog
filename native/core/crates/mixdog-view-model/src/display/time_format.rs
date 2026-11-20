@@ -17,10 +17,7 @@ pub fn format_utc_timestamp(ms: f64) -> String {
     } else {
         format!("{}{:06}", if fields.year < 0 { '-' } else { '+' }, fields.year.unsigned_abs())
     };
-    format!(
-        "{year}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.millisecond
-    )
+    format!("{year}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.millisecond)
 }
 
 /// What `localTimestampParts` returns.
@@ -62,13 +59,7 @@ pub fn local_timestamp_parts(ms: f64, time_zone: Option<&str>) -> Option<LocalTi
         }
     };
     let Some(zone) = zone else {
-        return Some(LocalTimestampParts {
-            date: utc[..10].to_owned(),
-            time: utc[11..19].to_owned(),
-            time_zone: label,
-            offset: "UTC+00:00".to_owned(),
-            utc,
-        });
+        return Some(LocalTimestampParts { date: utc[..10].to_owned(), time: utc[11..19].to_owned(), time_zone: label, offset: "UTC+00:00".to_owned(), utc });
     };
     let fields = local_fields_in(zone, ms)?;
     Some(LocalTimestampParts {

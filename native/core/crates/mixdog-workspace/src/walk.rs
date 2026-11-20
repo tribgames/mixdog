@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! Breadth-first project walks with nested `.gitignore` pruning (ports of
 //! `workspaceFiles` in `workspace-search.ts` and `walkDirectories` in
 //! `project-file-search.ts`). Both are blocking and run on the maintenance lane;
@@ -13,10 +17,7 @@ use crate::glob::ignore_rules;
 use crate::glob::ignored_path;
 use crate::pathguard::canonical;
 
-const TEXT_SKIPPED: &[&str] = &[
-    ".git", ".hg", ".svn", ".mixdog", "node_modules", ".venv", "venv", "dist", "build", "out", "coverage", "target",
-    "__pycache__",
-];
+const TEXT_SKIPPED: &[&str] = &[".git", ".hg", ".svn", ".mixdog", "node_modules", ".venv", "venv", "dist", "build", "out", "coverage", "target", "__pycache__"];
 pub const TEXT_MAX_FILES: usize = 20_000;
 const TEXT_MAX_DEPTH: usize = 24;
 pub const INDEX_MAX_ENTRIES: usize = 100_000;
@@ -25,11 +26,8 @@ const INDEX_PRUNED: &[&str] = &[".git", "node_modules"];
 /// A folder's entries in the order the filesystem lists them, as Node's `readdir` and `opendir` give them (neither sorts):
 /// the order of the walk is the order of the search results and of what a scan cap leaves out.
 fn listed_entries(dir: &Path) -> Option<Vec<(String, fs::FileType)>> {
-    let entries = fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), e.file_type().ok()?)))
-        .collect();
+    let entries =
+        fs::read_dir(dir).ok()?.filter_map(Result::ok).filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), e.file_type().ok()?))).collect();
     Some(entries)
 }
 
@@ -37,11 +35,7 @@ fn nested_rules(root: &Path, relative: &str, parent: &[IgnoreRule]) -> Vec<Ignor
     match fs::read_to_string(root.join(relative).join(".gitignore")) {
         Ok(source) => {
             let nested = ignore_rules(&source, relative);
-            if nested.is_empty() {
-                parent.to_vec()
-            } else {
-                [parent, &nested].concat()
-            }
+            if nested.is_empty() { parent.to_vec() } else { [parent, &nested].concat() }
         }
         Err(_) => parent.to_vec(),
     }
@@ -186,13 +180,7 @@ pub fn index_paths(root: &Path, include_ignored: bool, max_entries: usize, stop:
 /// The paths of the unvisited folders that match `keep`, walked without a cap, and whether the
 /// walk finished. A walk `stop` ended early still returns what it found before it stopped (Node's
 /// `searchBeyond` answers with the partial walk); nothing is kept after `stop` turns true.
-pub fn matches_beyond(
-    root: &Path,
-    pending: &[Pending],
-    include_ignored: bool,
-    stop: &dyn Fn() -> bool,
-    keep: &dyn Fn(&str) -> bool,
-) -> (Vec<String>, bool) {
+pub fn matches_beyond(root: &Path, pending: &[Pending], include_ignored: bool, stop: &dyn Fn() -> bool, keep: &dyn Fn(&str) -> bool) -> (Vec<String>, bool) {
     let Ok(root_real) = canonical(root) else { return (Vec::new(), false) };
     let mut found = Vec::new();
     let left = walk_directories(root, &root_real, pending.iter().cloned().collect(), include_ignored, usize::MAX, stop, &mut |p| {

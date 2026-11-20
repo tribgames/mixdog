@@ -37,7 +37,16 @@ fn owner_of(v: &Value) -> Owner {
 }
 
 fn record(v: &Value) -> TagRecord {
-    TagRecord { tag: s(v, "tag"), session_id: s(v, "sessionId"), agent: s(v, "agent"), cwd: s(v, "cwd"), owner: owner_of(v), status: s(v, "status"), stage: s(v, "stage"), at_ms: 0.0 }
+    TagRecord {
+        tag: s(v, "tag"),
+        session_id: s(v, "sessionId"),
+        agent: s(v, "agent"),
+        cwd: s(v, "cwd"),
+        owner: owner_of(v),
+        status: s(v, "status"),
+        stage: s(v, "stage"),
+        at_ms: 0.0,
+    }
 }
 
 fn scope_json(scope: &Scope) -> Value {
@@ -172,13 +181,8 @@ impl Registry for Fakes {
 #[async_trait]
 impl SendFlow for Fakes {
     async fn prepare_send(&self, args: &Value, scope: &Scope) -> Result<Prepared, String> {
-        let step = self
-            .0
-            .prepare
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or_else(|| json!({ "ok": { "sessionId": "sess_default", "agent": "worker", "cwd": "/work" } }));
+        let step =
+            self.0.prepare.lock().unwrap().pop_front().unwrap_or_else(|| json!({ "ok": { "sessionId": "sess_default", "agent": "worker", "cwd": "/work" } }));
         self.0.log(json!(["prepareSend", args, scope_json(scope)]));
         if let Some(message) = step.get("err").and_then(Value::as_str) {
             return Err(message.to_owned());
@@ -431,17 +435,11 @@ fn runtime(world: &Arc<World>) -> AgentRuntime {
     })
 }
 
-
-
 /// A spawn reuses an existing session only if the request fits it (same agent, same cwd where given): the live path
 /// and the resume path ask the same question (`TagResume::request_fits`). A decided departure from Node, whose live
 /// path never asked.
 fn world_with(json: Value, tags: &[(&str, &str)]) -> Arc<World> {
-    Arc::new(World {
-        json,
-        tags: Mutex::new(tags.iter().map(|(t, id)| ((*t).to_owned(), (*id).to_owned())).collect()),
-        ..World::default()
-    })
+    Arc::new(World { json, tags: Mutex::new(tags.iter().map(|(t, id)| ((*t).to_owned(), (*id).to_owned())).collect()), ..World::default() })
 }
 
 async fn spawn_on(world: &Arc<World>, args: Value) -> (String, Vec<Value>) {
@@ -457,19 +455,13 @@ fn names(trace: &[Value], op: &str) -> bool {
 #[tokio::test]
 async fn a_spawn_on_a_live_tag_reuses_it_only_when_the_request_fits() {
     let live = json!({ "live": { "s1": { "id": "s1", "agent": "worker", "cwd": "/work", "parentSessionId": "lead1" } } });
-    for args in [
-        json!({ "prompt": "again", "tag": "w1" }),
-        json!({ "prompt": "again", "tag": "w1", "agent": "worker", "cwd": "/work" }),
-    ] {
+    for args in [json!({ "prompt": "again", "tag": "w1" }), json!({ "prompt": "again", "tag": "w1", "agent": "worker", "cwd": "/work" })] {
         let world = world_with(live.clone(), &[("w1", "s1")]);
         let (answer, trace) = spawn_on(&world, args).await;
         assert_eq!(answer, "dispatched sess_default");
         assert!(names(&trace, "dispatch") && !names(&trace, "startSpawn"));
     }
-    for args in [
-        json!({ "prompt": "again", "tag": "w1", "cwd": "/elsewhere" }),
-        json!({ "prompt": "again", "tag": "w1", "agent": "reviewer" }),
-    ] {
+    for args in [json!({ "prompt": "again", "tag": "w1", "cwd": "/elsewhere" }), json!({ "prompt": "again", "tag": "w1", "agent": "reviewer" })] {
         let world = world_with(live.clone(), &[("w1", "s1")]);
         let (answer, trace) = spawn_on(&world, args).await;
         assert!(answer.starts_with("Error: agent spawn: tag \"w1\" is in use by agent \"worker\" in \"/work\""), "{answer}");
@@ -486,14 +478,9 @@ async fn a_spawn_on_a_reaped_tag_resumes_it_only_when_the_request_fits() {
     let world = world_with(reaped.clone(), &[]);
     let (_, trace) = spawn_on(&world, json!({ "prompt": "go", "tag": "w1", "cwd": "/work" })).await;
     assert!(names(&trace, "dispatch") && !names(&trace, "startSpawn"), "a fitting request resumes");
-    for args in [
-        json!({ "prompt": "go", "tag": "w1", "cwd": "/elsewhere" }),
-        json!({ "prompt": "go", "tag": "w1", "agent": "reviewer" }),
-    ] {
+    for args in [json!({ "prompt": "go", "tag": "w1", "cwd": "/elsewhere" }), json!({ "prompt": "go", "tag": "w1", "agent": "reviewer" })] {
         let world = world_with(reaped.clone(), &[]);
         let (_, trace) = spawn_on(&world, args).await;
         assert!(names(&trace, "startSpawn") && !names(&trace, "dispatch"), "a request that does not fit starts fresh");
     }
 }
-
-

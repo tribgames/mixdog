@@ -97,10 +97,8 @@ fn render(success: bool, body_ko: &str, body_en: &str, reason: Option<&str>) -> 
         .collect::<Vec<_>>()
         .join("\n    ");
     // Node tests `reason` for truthiness: an empty reason shows no block.
-    let reason_block = reason
-        .filter(|r| !r.is_empty())
-        .map(|r| format!("<div class=\"reason\"><span>사유 / Reason</span>{}</div>", escape_html(r)))
-        .unwrap_or_default();
+    let reason_block =
+        reason.filter(|r| !r.is_empty()).map(|r| format!("<div class=\"reason\"><span>사유 / Reason</span>{}</div>", escape_html(r))).unwrap_or_default();
     let document_title = escape_html(&format!("{title_ko} / {title_en} · Mixdog"));
     let style = STYLE.replace("@@HEADING@@", if success { "var(--ok)" } else { "var(--bad)" });
     format!(

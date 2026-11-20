@@ -18,12 +18,12 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
-use mixdog_store::schema::record::HeaderChange;
 use mixdog_core_session::session::HeaderToolSurfaces;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::ToolSurfaceSource;
 use mixdog_mcp::permissions::parse_mcp_tool_name;
 use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::HeaderChange;
 use mixdog_tools::orch::bridge::CallResolution;
 use mixdog_tools::orch::bridge::CatalogView;
 use mixdog_tools::orch::bridge::ToolDoc;
@@ -35,10 +35,10 @@ use sha2::Sha256;
 use super::deferred_manifest::server_label;
 use super::deferred_select::render_tool_search;
 use super::deferred_select::scope_mode;
-use super::surface_host::thread_mode;
-use super::tool_exposure::is_tool_bridge_enabled;
 use super::route_schema::Verdict;
 use super::route_schema::schema_verdict;
+use super::surface_host::thread_mode;
+use super::tool_exposure::is_tool_bridge_enabled;
 use super::tool_surface::SELECT_ALIASES;
 use super::tool_surface::SurfaceHost;
 use super::tool_surface::ToolSurface;
@@ -165,7 +165,8 @@ fn eager_names(session: &Value) -> HashSet<String> {
 /// `isDeferredToolAvailable`: only the latest scoped MCP snapshot grants availability, and an
 /// absent snapshot preserves pre-initialization behaviour.
 pub(super) fn deferred_available(session: &Value, name: &str) -> bool {
-    !name.starts_with("mcp__") || session.get("deferredMcpToolNames").and_then(Value::as_array).is_none_or(|names| names.iter().any(|n| n.as_str() == Some(name)))
+    !name.starts_with("mcp__")
+        || session.get("deferredMcpToolNames").and_then(Value::as_array).is_none_or(|names| names.iter().any(|n| n.as_str() == Some(name)))
 }
 
 /// `lookupByName`: the exact name, else the same name in any case.
@@ -376,10 +377,8 @@ impl CatalogView for SessionCatalog {
                 ("mcpInstructionsAnnounced".to_owned(), current("mcpInstructionsAnnounced")),
                 ("mcpInstructionHashes".to_owned(), current("mcpInstructionHashes")),
             ]);
-            let set = Map::from_iter([
-                ("mcpInstructionsAnnounced".to_owned(), Value::Array(announced)),
-                ("mcpInstructionHashes".to_owned(), Value::Object(hashes)),
-            ]);
+            let set =
+                Map::from_iter([("mcpInstructionsAnnounced".to_owned(), Value::Array(announced)), ("mcpInstructionHashes".to_owned(), Value::Object(hashes))]);
             match self.threads.patch_header_if(thread, expect, set, Vec::new()).await {
                 Ok(Some(_)) => continue,
                 Ok(None) | Err(_) => return,
@@ -503,7 +502,13 @@ mod tests {
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             unreachable!("the catalog patches conditionally")
         }
-        async fn patch_header_if(&self, _: &ThreadId, expect: Map<String, Value>, set: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            expect: Map<String, Value>,
+            set: Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             let mut header = self.0.lock().expect("store");
             let current: Map<String, Value> = expect.keys().map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             if current != expect {
@@ -614,14 +619,24 @@ mod tests {
 
     /// `load_tool {names}` on `session` as `host` runs it, then the tool set a turn of the session's header executes with over
     /// `registry`: the load's answer, the header it left and the set.
-    async fn load_then_set(session: &Value, host: Arc<dyn SurfaceHost>, registry: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>, names: &[&str]) -> (Value, Header, mixdog_agent::tools::ToolSet) {
+    async fn load_then_set(
+        session: &Value,
+        host: Arc<dyn SurfaceHost>,
+        registry: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>,
+        names: &[&str],
+    ) -> (Value, Header, mixdog_agent::tools::ToolSet) {
         let thread = ThreadId::from("t1");
         let store = Store::of(session);
         let catalog = SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), host, Arc::new(Now));
         let answer = mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": names })).await.expect("an answer");
         let header = store.0.lock().expect("store").clone();
         let surface = HeaderToolSurfaces::new(Arc::new(NoRouteExclusions)).surface(&thread, &header);
-        let set = super::super::assemble::with_surface_registry(mixdog_agent::tools::ToolSet::new(vec![stub("read")]), Arc::new(Registered(registry)), None, &surface);
+        let set = super::super::assemble::with_surface_registry(
+            mixdog_agent::tools::ToolSet::new(vec![stub("read")]),
+            Arc::new(Registered(registry)),
+            None,
+            &surface,
+        );
         (serde_json::from_str(&answer).expect("a JSON answer"), header, set)
     }
 
@@ -656,7 +671,8 @@ mod tests {
         let store = Store::of(&bridged);
         let thread = ThreadId::from("t1");
         let catalog = SessionCatalog::new(store.clone(), store.clone(), store, Arc::new(NoRouteExclusions), Arc::new(Without("computer")), Arc::new(Now));
-        let page: Value = serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["computer"] })).await.expect("a page")).expect("json");
+        let page: Value =
+            serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["computer"] })).await.expect("a page")).expect("json");
         assert_eq!(page["blocked"], json!([{ "name": "computer", "reason": reason }]));
         assert_eq!(catalog.resolve_call(&thread, "computer"), CallResolution::Unrunnable { name: "computer".to_owned(), reason: reason.clone() });
         // The bridge's own response to the call carries that reason, not the generic catalog sentence.
@@ -668,7 +684,8 @@ mod tests {
             }
         }
         let call = mixdog_tools::orch::bridge::CallTool::new(Arc::new(catalog), Arc::new(Never));
-        let refused = mixdog_core_api::domain::tool::CallProjection::project(&call, &thread, &json!({ "name": "computer", "arguments": {} })).expect_err("refused");
+        let refused =
+            mixdog_core_api::domain::tool::CallProjection::project(&call, &thread, &json!({ "name": "computer", "arguments": {} })).expect_err("refused");
         assert!(refused.starts_with("Error: TOOL_UNAVAILABLE:") && refused.contains(&reason) && !refused.contains("current session catalog"), "{refused}");
     }
 
@@ -704,7 +721,8 @@ mod tests {
         session["deferredSelectedTools"] = json!(["read", "computer"]);
         session["deferredDiscoveredTools"] = json!(["computer"]);
         let store = Store::of(&session);
-        let catalog = SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Switch(on.clone())), Arc::new(Now));
+        let catalog =
+            SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Switch(on.clone())), Arc::new(Now));
         let set_over = |registered: &[&str]| {
             let header = store.0.lock().expect("store").clone();
             let surface = HeaderToolSurfaces::new(Arc::new(NoRouteExclusions)).surface(&thread, &header);
@@ -715,7 +733,8 @@ mod tests {
 
         // Not runnable: neither is active, neither is discovered, no call resolves, and nothing stored changed. The probe is a load
         // of `read`, already active: a load with no names lists the eager names alone (Node's answer), a named one the whole active set.
-        let answer: Value = serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["read"] })).await.expect("an answer")).expect("json");
+        let answer: Value =
+            serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["read"] })).await.expect("an answer")).expect("json");
         assert!(!listed(&answer, "activeTools", "computer") && !listed(&answer, "activeTools", "eagerone") && !listed(&answer, "discoveredTools", "computer"));
         assert!(set_over(&["read"]).resolve("computer").is_none());
         let kept = store.0.lock().expect("store").clone();
@@ -731,7 +750,8 @@ mod tests {
 
         // Runnable: the same session, no load in between.
         on.store(true, std::sync::atomic::Ordering::SeqCst);
-        let answer: Value = serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["read"] })).await.expect("an answer")).expect("json");
+        let answer: Value =
+            serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["read"] })).await.expect("an answer")).expect("json");
         assert!(listed(&answer, "activeTools", "computer") && listed(&answer, "activeTools", "eagerone"));
         assert!(listed(&answer, "discoveredTools", "computer"));
         assert_eq!(set_over(&["read", "computer", "eagerone"]).resolve("computer").expect("callable").spec().name, "computer");
@@ -747,6 +767,4 @@ mod tests {
         assert!(set.resolve("computer").is_none());
         assert_eq!(set.unknown_message("computer"), "Error: unknown tool \"computer\"");
     }
-
-
 }

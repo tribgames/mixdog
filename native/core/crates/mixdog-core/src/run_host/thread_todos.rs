@@ -81,9 +81,9 @@ impl TodoStore for ThreadTodos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mixdog_tools::state::todo::{TodoPhase, TodoStatus, TodoTask};
-    use mixdog_core_session::session::thread_state::SessionThreads;
     use mixdog_core_session::session::SessionDirectory;
+    use mixdog_core_session::session::thread_state::SessionThreads;
+    use mixdog_tools::state::todo::{TodoPhase, TodoStatus, TodoTask};
 
     fn obj(value: Value) -> Map<String, Value> {
         value.as_object().cloned().unwrap()
@@ -115,11 +115,21 @@ mod tests {
             ("drop by number", two.clone(), json!({ "op": "drop", "index": 2 }), Ok("0/1 · drop: B · next: A")),
             ("advance with no list", Value::Null, json!({ "op": "advance" }), Err("todo: the list is empty; set it first")),
             ("a number past the list", two.clone(), json!({ "op": "done", "index": 3 }), Err("todo: index is a step number from 1 to 2")),
-            ("init over unfinished steps", two.clone(), json!({ "op": "init", "items": ["Z"] }), Err("todo: init would erase unfinished items (\"A\", \"B\"); done or drop each first, or append to add asks")),
+            (
+                "init over unfinished steps",
+                two.clone(),
+                json!({ "op": "init", "items": ["Z"] }),
+                Err("todo: init would erase unfinished items (\"A\", \"B\"); done or drop each first, or append to add asks"),
+            ),
             ("init over nothing", Value::Null, json!({ "op": "init", "items": ["Z"] }), Ok("0/1\nTasks\n  [>] Z")),
             ("append", two.clone(), json!({ "op": "append", "items": ["C"] }), Ok("0/3 · append: C · next: A")),
             ("rm by wording", two.clone(), json!({ "op": "rm", "item": "B" }), Ok("0/1 · rm: B · next: A")),
-            ("an unknown operation", two.clone(), json!({ "op": "swap" }), Err("todo: op must be one of set, init, advance, done, start, drop, append, rm, view")),
+            (
+                "an unknown operation",
+                two.clone(),
+                json!({ "op": "swap" }),
+                Err("todo: op must be one of set, init, advance, done, start, drop, append, rm, view"),
+            ),
         ];
         for (name, before_todo, args, want) in cases {
             let (todos, threads, thread, _rig) = store(json!({ "todo": before_todo, "updatedAt": 1 })).await;
@@ -167,10 +177,7 @@ mod tests {
         let (todos, threads, thread, rig) = store(json!({})).await;
         assert!(todos.read(&thread).await.phases.is_empty());
         let written = TodoList {
-            phases: vec![TodoPhase {
-                name: "Tasks".into(),
-                tasks: vec![TodoTask { content: "A".into(), status: TodoStatus::InProgress, note: None }],
-            }],
+            phases: vec![TodoPhase { name: "Tasks".into(), tasks: vec![TodoTask { content: "A".into(), status: TodoStatus::InProgress, note: None }] }],
             updated_at_ms: 777,
         };
         let sent = written.clone();

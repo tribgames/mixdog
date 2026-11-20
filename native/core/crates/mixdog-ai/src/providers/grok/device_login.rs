@@ -176,7 +176,6 @@ mod tests {
         assert!(local.is_ok(), "http is allowed for localhost only");
     }
 
-
     #[async_trait]
     impl LoginFlow for Browser {
         fn target(&self) -> &LoginTarget {
@@ -235,7 +234,6 @@ mod tests {
         ));
     }
 }
-
 
 pub struct GrokDeviceLogin {
     target: LoginTarget,

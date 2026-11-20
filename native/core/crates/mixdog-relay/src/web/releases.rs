@@ -301,9 +301,7 @@ impl ReleaseIndex {
     /// `selectRelease`: the registry entry a device should be served; see the rule at the top.
     pub fn select(&self, report: &DeviceReport) -> Option<&ReleaseEntry> {
         let hash_matches = |entry: &ReleaseEntry| !report.renderer_release.is_empty() && entry.shell_version == report.renderer_release;
-        let exact = || {
-            self.releases.iter().filter(move |entry| !report.app_version.is_empty() && entry.desktop_version == report.app_version)
-        };
+        let exact = || self.releases.iter().filter(move |entry| !report.app_version.is_empty() && entry.desktop_version == report.app_version);
         if !report.app_version.is_empty() {
             if let Some(hit) = newest_of(exact().filter(|entry| hash_matches(entry))) {
                 return Some(hit);
@@ -451,7 +449,8 @@ impl RendererCatalog {
             report.renderer_release.is_empty() && selected.is_some_and(|entry| entry.legacy)
         } else {
             selected.is_none()
-                && parse_version(&report.app_version).zip(parse_version(&min_version))
+                && parse_version(&report.app_version)
+                    .zip(parse_version(&min_version))
                     .is_some_and(|(current, min)| compare_versions(&current, &min) == Ordering::Less)
         };
         update.then_some(LegacyNotice { min_version })

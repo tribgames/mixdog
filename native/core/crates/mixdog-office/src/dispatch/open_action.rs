@@ -76,7 +76,16 @@ fn with_operations(args: &Value, operations: &[Value]) -> Value {
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     pub(crate) fn call_env<'e>(&'e self, signal: Option<&'e CancellationToken>) -> SessionEnv<'e, P, H> {
         let env = &self.author.env;
-        SessionEnv { design: env.design, note: env.note, registry: env.registry, host: env.host, legacy: env.legacy, data_dir: env.data_dir, cwd: env.cwd, cancel: signal }
+        SessionEnv {
+            design: env.design,
+            note: env.note,
+            registry: env.registry,
+            host: env.host,
+            legacy: env.legacy,
+            data_dir: env.data_dir,
+            cwd: env.cwd,
+            cancel: signal,
+        }
     }
 
     /// `discardFailedOfficeSession(session, { action, initialEditSettled })`.
@@ -102,7 +111,14 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
     }
 
     /// `openCreateOrAttachOffice({ action, args, cwd, dataDir, signal, startedAt })`: the answer as a tool result.
-    pub async fn open_create_or_attach(&self, action: &str, args: &Value, cwd: &str, signal: Option<&CancellationToken>, started: Instant) -> Result<Value, TransactionError> {
+    pub async fn open_create_or_attach(
+        &self,
+        action: &str,
+        args: &Value,
+        cwd: &str,
+        signal: Option<&CancellationToken>,
+        started: Instant,
+    ) -> Result<Value, TransactionError> {
         if action == "attach" && args.get("finalize") == Some(&Value::Bool(true)) {
             return Err("attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended".into());
         }
@@ -113,14 +129,22 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
                 let rewritten = with_operations(args, &created.operations);
                 (created.session, created.operations, rewritten)
             }
-            "attach" => (open_session(&env, &with_field(args, "mode", Value::String("attach".to_owned())), false).await?, initial_office_operations(args), args.clone()),
+            "attach" => {
+                (open_session(&env, &with_field(args, "mode", Value::String("attach".to_owned())), false).await?, initial_office_operations(args), args.clone())
+            }
             _ => (open_session(&env, args, false).await?, initial_office_operations(args), args.clone()),
         };
         let handle = opened.handle.clone();
         {
             let mut session = lock(&handle);
             let created = session.created;
-            ensure_office_session_design(self.design(), self.data_dir(), &mut session, &args, EnsureOptions { created: Some(created), ..EnsureOptions::default() })?;
+            ensure_office_session_design(
+                self.design(),
+                self.data_dir(),
+                &mut session,
+                &args,
+                EnsureOptions { created: Some(created), ..EnsureOptions::default() },
+            )?;
             session.active_signal = signal.cloned();
         }
         let mut settled = false;
@@ -133,7 +157,16 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn open_flow(&self, opened: &OpenedSession, action: &str, args: &Value, operations: Vec<Value>, cwd: &str, started: Instant, settled: &mut bool) -> Result<Value, TransactionError> {
+    async fn open_flow(
+        &self,
+        opened: &OpenedSession,
+        action: &str,
+        args: &Value,
+        operations: Vec<Value>,
+        cwd: &str,
+        started: Instant,
+        settled: &mut bool,
+    ) -> Result<Value, TransactionError> {
         let handle: &SessionHandle = &opened.handle;
         let finalizing = args.get("finalize") == Some(&Value::Bool(true));
         let mut initial_edit: Option<Value> = None;
@@ -204,7 +237,8 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
             .or_else(|| lock(handle).com.background_isolation.clone())
             .unwrap_or(Value::Null);
         let foreground = lock(handle).com.foreground_activated;
-        let identity = opened_identity(&lock(handle), action, opened.reused, vec![("foregroundActivated", Value::Bool(foreground)), ("backgroundIsolation", isolation)]);
+        let identity =
+            opened_identity(&lock(handle), action, opened.reused, vec![("foregroundActivated", Value::Bool(foreground)), ("backgroundIsolation", isolation)]);
         initial.extend(identity);
         lock(handle).active_signal = None;
         Ok(self.tool_result(Value::Object(initial), action, Some(handle), started, &[]))

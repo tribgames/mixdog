@@ -6,7 +6,7 @@ use crate::obj;
 use crate::platform::{AppEntry, WindowInfo};
 use crate::protocol::{Obj, Req};
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// The installed catalogue runs to hundreds of entries, so a listing answers
 /// a query and otherwise only says how much more is there
@@ -16,11 +16,8 @@ const MAX_INSTALLED_APP_MATCHES: usize = 40;
 /// File names the system opener owns. On Windows they are the shell's
 /// (Find-InstalledApp, runtime-window.ps1:125-126): "control.exe" once
 /// matched the catalogue id of FanControl.exe and launched the wrong program.
-const OPENER_SUFFIXES: &[&str] = if cfg!(windows) {
-    &[".exe", ".com", ".bat", ".cmd", ".msc", ".cpl", ".lnk"]
-} else {
-    &[".app", ".desktop", ".sh", ".exe", ".bin"]
-};
+const OPENER_SUFFIXES: &[&str] =
+    if cfg!(windows) { &[".exe", ".com", ".bat", ".cmd", ".msc", ".cpl", ".lnk"] } else { &[".app", ".desktop", ".sh", ".exe", ".bin"] };
 
 /// A bare name can mean a catalogue entry; a path, URL, or executable file
 /// name belongs to the system opener.
@@ -28,21 +25,12 @@ fn names_catalogue_entry(target: &str) -> bool {
     let lower = target.to_lowercase();
     let scheme = target.split_once(':').is_some_and(|(scheme, _)| {
         !scheme.is_empty()
-            && scheme
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic())
-            && scheme
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+            && scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
     });
     // A packaged AppId (`Family!App`) is activated as given, never looked up
     // (Do-Launch, runtime-window.ps1:152-155).
-    !(target.contains('!')
-        || target.contains('/')
-        || target.contains('\\')
-        || scheme
-        || OPENER_SUFFIXES.iter().any(|ext| lower.ends_with(ext)))
+    !(target.contains('!') || target.contains('/') || target.contains('\\') || scheme || OPENER_SUFFIXES.iter().any(|ext| lower.ends_with(ext)))
 }
 
 fn matches_like(value: &str, query: &str) -> bool {
@@ -63,10 +51,7 @@ fn find_catalogue_entry<'a>(installed: &'a [AppEntry], target: &str) -> Res<Opti
     let wanted = target.to_lowercase();
     let mut found: Vec<&AppEntry> = installed.iter().filter(|app| app.name.to_lowercase() == wanted).collect();
     if found.is_empty() {
-        found = installed
-            .iter()
-            .filter(|app| matches_like(&app.name, target) || matches_like(&app.app_id, target))
-            .collect();
+        found = installed.iter().filter(|app| matches_like(&app.name, target) || matches_like(&app.app_id, target)).collect();
     }
     if found.len() > 1 {
         let mut packaged_apps = found.iter().filter(|app| packaged(app));
@@ -74,11 +59,7 @@ fn find_catalogue_entry<'a>(installed: &'a [AppEntry], target: &str) -> Res<Opti
             return Ok(Some(only));
         }
         let names: Vec<&str> = found.iter().take(6).map(|app| app.name.as_str()).collect();
-        return Err(format!(
-            "launch failed [ambiguous_app/0] for '{target}': {} installed apps match ({})",
-            found.len(),
-            names.join(", ")
-        ));
+        return Err(format!("launch failed [ambiguous_app/0] for '{target}': {} installed apps match ({})", found.len(), names.join(", ")));
     }
     Ok(found.first().copied())
 }
@@ -97,20 +78,10 @@ fn running_apps(windows: &[WindowInfo]) -> Vec<Value> {
     let mut groups: Vec<Group> = Vec::new();
     for window in windows {
         let key = window.app.to_lowercase();
-        let at = groups
-            .iter()
-            .position(|group| group.pid == window.pid && group.key == key)
-            .unwrap_or_else(|| {
-                groups.push(Group {
-                    name: &window.app,
-                    key,
-                    pid: window.pid,
-                    focused: false,
-                    minimized: true,
-                    windows: Vec::new(),
-                });
-                groups.len() - 1
-            });
+        let at = groups.iter().position(|group| group.pid == window.pid && group.key == key).unwrap_or_else(|| {
+            groups.push(Group { name: &window.app, key, pid: window.pid, focused: false, minimized: true, windows: Vec::new() });
+            groups.len() - 1
+        });
         let group = &mut groups[at];
         group.focused |= window.focused;
         group.minimized &= window.minimized;
@@ -123,12 +94,7 @@ fn running_apps(windows: &[WindowInfo]) -> Vec<Value> {
         }));
     }
     // A stable sort: apps that compare equal keep the window order.
-    groups.sort_by(|left, right| {
-        right
-            .focused
-            .cmp(&left.focused)
-            .then_with(|| left.key.cmp(&right.key))
-    });
+    groups.sort_by(|left, right| right.focused.cmp(&left.focused).then_with(|| left.key.cmp(&right.key)));
     groups
         .into_iter()
         .map(|group| {
@@ -172,10 +138,7 @@ impl Host {
         let image = base64::engine::general_purpose::STANDARD
             .decode(encoded.trim())
             .map_err(|error| format!("ocr_image: image_base64 is not valid base64 ({error})"))?;
-        match self
-            .desktop
-            .ocr(&image, req.text("ocr_language").trim(), maximum as usize)?
-        {
+        match self.desktop.ocr(&image, req.text("ocr_language").trim(), maximum as usize)? {
             Value::Object(result) => Ok(result),
             _ => Err("ocr_image: recognizer returned no result".into()),
         }
@@ -203,21 +166,8 @@ impl Host {
         self.authorize_current(0)?;
         let text = req.text("text");
         let verified = self.desktop.clipboard_write(&text)?;
-        let message = if text.is_empty() {
-            "cleared clipboard".to_string()
-        } else {
-            format!("clipboard set: {} chars", text.chars().count())
-        };
-        Ok(self.action_result(
-            "clipboard_write",
-            "clipboard",
-            effect(verified),
-            verified,
-            &message,
-            None,
-            "background",
-            None,
-        ))
+        let message = if text.is_empty() { "cleared clipboard".to_string() } else { format!("clipboard set: {} chars", text.chars().count()) };
+        Ok(self.action_result("clipboard_write", "clipboard", effect(verified), verified, &message, None, "background", None))
     }
 
     fn find_installed_app(&self, target: &str) -> Res<Option<AppEntry>> {
@@ -236,16 +186,7 @@ impl Host {
         self.authorize_current(0)?;
         let app = self.find_installed_app(&target)?;
         let launched = self.desktop.launch(&target, app.as_ref())?;
-        let mut result = self.action_result(
-            "launch",
-            launched.route,
-            "unverifiable",
-            false,
-            &format!("launched {target}"),
-            None,
-            "background",
-            None,
-        );
+        let mut result = self.action_result("launch", launched.route, "unverifiable", false, &format!("launched {target}"), None, "background", None);
         if !launched.app_id.is_empty() {
             result.insert("app_id".into(), json!(launched.app_id));
         }
@@ -267,11 +208,7 @@ impl Host {
         };
         let rows = apps
             .iter()
-            .filter(|app| {
-                query.trim().is_empty()
-                    || matches_like(&app.name, query)
-                    || matches_like(&app.app_id, query)
-            })
+            .filter(|app| query.trim().is_empty() || matches_like(&app.name, query) || matches_like(&app.app_id, query))
             .map(|app| json!({ "name": app.name, "app_id": app.app_id, "packaged": packaged(app) }))
             .collect();
         (rows, apps.len(), error)
@@ -279,8 +216,7 @@ impl Host {
 
     pub(super) fn list_installed_apps(&self, req: &Req) -> Res<Obj> {
         let (rows, total, error) = self.installed_rows(&req.text("query"));
-        let mut payload =
-            json!({ "installed": rows, "matched": rows.len(), "catalogue_total": total });
+        let mut payload = json!({ "installed": rows, "matched": rows.len(), "catalogue_total": total });
         if let Some(error) = &error {
             payload["catalogue_error"] = json!(error);
         }
@@ -291,10 +227,7 @@ impl Host {
     /// catalogue holds for the query (listComputerApps,
     /// input/targeting.ts:151-170).
     pub(super) fn list_apps(&self, req: &Req) -> Res<Obj> {
-        let windows = self
-            .desktop
-            .windows()
-            .map_err(|_| "could not enumerate apps".to_string())?;
+        let windows = self.desktop.windows().map_err(|_| "could not enumerate apps".to_string())?;
         let query = req.text("query");
         let (installed, total, _) = self.installed_rows(&query);
         let payload = apps_payload(running_apps(&windows), &query, &installed, total);
@@ -386,37 +319,16 @@ mod tests {
     #[test]
     fn several_matches_without_one_packaged_app_stay_unlaunched() {
         // Two packaged entries.
-        assert_eq!(
-            found("pain"),
-            Err("launch failed [ambiguous_app/0] for 'pain': 2 installed apps match (Paint, Paint 3D)".into())
-        );
+        assert_eq!(found("pain"), Err("launch failed [ambiguous_app/0] for 'pain': 2 installed apps match (Paint, Paint 3D)".into()));
         // None packaged.
-        assert_eq!(
-            found("fancontrol"),
-            Err(
-                "launch failed [ambiguous_app/0] for 'fancontrol': 2 installed apps match (Fan Control, Fan Control Docs)"
-                    .into()
-            )
-        );
+        assert_eq!(found("fancontrol"), Err("launch failed [ambiguous_app/0] for 'fancontrol': 2 installed apps match (Fan Control, Fan Control Docs)".into()));
         let many: Vec<AppEntry> = (1..=8).map(|n| entry(&format!("Tool {n}"), "tool.exe")).collect();
         let error = find_catalogue_entry(&many, "tool").unwrap_err();
-        assert!(
-            error.ends_with("8 installed apps match (Tool 1, Tool 2, Tool 3, Tool 4, Tool 5, Tool 6)"),
-            "{error}"
-        );
+        assert!(error.ends_with("8 installed apps match (Tool 1, Tool 2, Tool 3, Tool 4, Tool 5, Tool 6)"), "{error}");
     }
 
     fn window(handle: u64, app: &str, pid: i64, focused: bool, minimized: bool) -> WindowInfo {
-        WindowInfo {
-            handle,
-            app: app.into(),
-            pid,
-            focused,
-            minimized,
-            title: format!("w{handle}"),
-            class_name: "C".into(),
-            ..Default::default()
-        }
+        WindowInfo { handle, app: app.into(), pid, focused, minimized, title: format!("w{handle}"), class_name: "C".into(), ..Default::default() }
     }
 
     #[test]
@@ -464,10 +376,7 @@ mod tests {
     #[test]
     fn the_installed_catalogue_is_listed_only_for_a_query_and_capped() {
         let installed: Vec<Value> = (0..45).map(|n| json!({ "name": format!("app {n}") })).collect();
-        assert_eq!(
-            apps_payload(Vec::new(), "  ", &installed, 300),
-            json!({ "apps": [], "installed_total": 300 })
-        );
+        assert_eq!(apps_payload(Vec::new(), "  ", &installed, 300), json!({ "apps": [], "installed_total": 300 }));
         let listed = apps_payload(vec![json!({ "name": "x" })], "app", &installed, 300);
         assert_eq!(listed["apps"], json!([{ "name": "x" }]));
         assert_eq!(listed["installed"].as_array().map(Vec::len), Some(MAX_INSTALLED_APP_MATCHES));

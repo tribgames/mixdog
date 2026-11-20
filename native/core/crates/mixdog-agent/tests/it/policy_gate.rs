@@ -184,12 +184,7 @@ fn rig(connectors: Connectors, surface: SessionSurface, hook: bool) -> Rig {
     rig_bound(connectors, surface, hook.then(|| Arc::new(RewriteHook::default()) as Arc<dyn PreToolHook>), Ok(None))
 }
 
-fn rig_bound(
-    connectors: Connectors,
-    surface: SessionSurface,
-    hook: Option<Arc<dyn PreToolHook>>,
-    account: Result<Option<BoundAccount>, String>,
-) -> Rig {
+fn rig_bound(connectors: Connectors, surface: SessionSurface, hook: Option<Arc<dyn PreToolHook>>, account: Result<Option<BoundAccount>, String>) -> Rig {
     let connectors = Arc::new(connectors);
     let mut policy = ToolPolicy::new(Arc::new(MemoryGrantStore::default()), connectors.clone());
     if let Some(hook) = hook {
@@ -216,16 +211,7 @@ fn rig_bound(
 
 fn decided(approved: bool, remember: Option<ApprovalRemember>) -> ApprovalResolution {
     ApprovalResolution::Decided {
-        decision: ToolApprovalDecision {
-            approved,
-            reason: None,
-            answers: None,
-            reply: None,
-            response: None,
-            edited_args: None,
-            remember,
-            scope: None,
-        },
+        decision: ToolApprovalDecision { approved, reason: None, answers: None, reply: None, response: None, edited_args: None, remember, scope: None },
         device: "Pixel".into(),
         connection_kind: ConnectionKind::Phone,
         at: 0,
@@ -253,20 +239,13 @@ fn waits(events: &Events) -> Vec<bool> {
 async fn an_ordinary_call_is_allowed_and_a_hook_rewrite_is_passed_on() {
     let r = rig(Connectors::default(), SessionSurface::default(), true);
     assert_eq!(r.gate.check_call("c1", &call("grep", json!({"pattern": "x"}))).await, GateDecision::Allow);
-    assert_eq!(
-        r.gate.check_call("c2", &call("read", json!({"path": "a"}))).await,
-        GateDecision::Rewrite(call("read", json!({"path": "rewritten"})))
-    );
+    assert_eq!(r.gate.check_call("c2", &call("read", json!({"path": "a"}))).await, GateDecision::Rewrite(call("read", json!({"path": "rewritten"}))));
     assert!(waits(&r.events).is_empty());
 }
 
 #[tokio::test]
 async fn the_session_surface_refuses_before_dedup_and_at_the_gate_with_the_same_text() {
-    let surface = SessionSurface {
-        disallowed: vec!["goal".into()],
-        feature_denied: vec!["goal".into()],
-        ..SessionSurface::default()
-    };
+    let surface = SessionSurface { disallowed: vec!["goal".into()], feature_denied: vec!["goal".into()], ..SessionSurface::default() };
     let r = rig(Connectors { disabled: vec!["mcp__a__b".into()], ..Connectors::default() }, surface, false);
     let text = "Error: tool \"goal\" is disabled in settings by the user. Do not retry unless the user turns it back on.";
     assert_eq!(r.gate.pre_dispatch_deny(&call("goal", json!({}))).as_deref(), Some(text));
@@ -311,17 +290,11 @@ async fn a_routed_call_is_judged_under_its_schema_name() {
 
     let denied = SessionSurface { disallowed: vec!["web_fetch".into()], ..SessionSurface::default() };
     let r = rig(Connectors::default(), denied, false);
-    assert_eq!(
-        r.gate.pre_dispatch_deny(&routed(Some("web_fetch"))).as_deref(),
-        Some("Error: tool \"local_fetch\" is not available in this session.")
-    );
+    assert_eq!(r.gate.pre_dispatch_deny(&routed(Some("web_fetch"))).as_deref(), Some("Error: tool \"local_fetch\" is not available in this session."));
     assert_eq!(r.gate.pre_dispatch_deny(&routed(None)), None);
 
     let r = rig(Connectors { disabled: vec!["web_fetch".into()], ..Connectors::default() }, SessionSurface::default(), false);
-    assert_eq!(
-        r.gate.pre_dispatch_deny(&routed(Some("web_fetch"))).as_deref(),
-        Some("Error: tool \"local_fetch\" is not available to this agent.")
-    );
+    assert_eq!(r.gate.pre_dispatch_deny(&routed(Some("web_fetch"))).as_deref(), Some("Error: tool \"local_fetch\" is not available to this agent."));
 }
 
 fn work_account() -> BoundAccount {
@@ -370,21 +343,14 @@ async fn an_unresolvable_rewritten_account_is_refused_before_approval() {
         Some(hook.clone()),
         Err(refusal.clone()),
     );
-    assert_eq!(
-        r.gate.check_call("c", &call("mcp__mail__send", json!({"account": "gone"}))).await,
-        GateDecision::Deny(format!("Error: {refusal}"))
-    );
+    assert_eq!(r.gate.check_call("c", &call("mcp__mail__send", json!({"account": "gone"}))).await, GateDecision::Deny(format!("Error: {refusal}")));
     assert_eq!(hook.0.lock().expect("seen").len(), 1, "resolution follows the hook rewrite");
     assert!(r.approvals.asks.lock().expect("asks").is_empty(), "no card was shown");
 }
 
 #[tokio::test]
 async fn a_no_from_the_person_denies_waits_and_marks_the_turn_as_waiting_on_them() {
-    let r = rig(
-        Connectors { needs: vec!["mcp__notes__append".into()], ..Connectors::default() },
-        SessionSurface::default(),
-        false,
-    );
+    let r = rig(Connectors { needs: vec!["mcp__notes__append".into()], ..Connectors::default() }, SessionSurface::default(), false);
     r.approvals.script.lock().expect("script").push_back(decided(false, None));
     let got = r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await;
     let GateDecision::Deny(text) = got else { panic!("{got:?}") };
@@ -395,21 +361,12 @@ async fn a_no_from_the_person_denies_waits_and_marks_the_turn_as_waiting_on_them
 
 #[tokio::test]
 async fn an_approved_ask_runs_and_an_unsaved_always_allow_is_noticed() {
-    let r = rig(
-        Connectors { needs: vec!["mcp__notes__append".into()], save_works: false, ..Connectors::default() },
-        SessionSurface::default(),
-        false,
-    );
+    let r = rig(Connectors { needs: vec!["mcp__notes__append".into()], save_works: false, ..Connectors::default() }, SessionSurface::default(), false);
     r.approvals.script.lock().expect("script").push_back(decided(true, Some(ApprovalRemember::Agent)));
     assert_eq!(r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await, GateDecision::Allow);
     assert_eq!(waits(&r.events), [true, false]);
     assert_eq!(*r.guards.0.lock().expect("waits"), 0);
-    assert!(r
-        .events
-        .0
-        .lock()
-        .expect("events")
-        .contains(&RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.into(), tone: Tone::Warn })));
+    assert!(r.events.0.lock().expect("events").contains(&RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.into(), tone: Tone::Warn })));
 }
 
 #[tokio::test]
@@ -437,15 +394,20 @@ async fn a_connector_call_is_bound_after_rewrites_before_approval() {
     assert_eq!(none.gate.check_call("c4", &call("mcp__mail__search", json!({"q": "x"}))).await, GateDecision::Allow);
 
     let connectors = Arc::new(Connectors { needs: vec!["mcp__gmail__send_email".into()], ..Default::default() });
-    let session = Arc::new(Session {
-        surface: SessionSurface::default(), account: Mutex::new(Ok(Some(work_account()))), resolved: Mutex::default(),
-    });
+    let session = Arc::new(Session { surface: SessionSurface::default(), account: Mutex::new(Ok(Some(work_account()))), resolved: Mutex::default() });
     let approvals = Arc::new(PendingApproval::default());
     let gate = PolicyGate::new(PolicyGateParts {
         policy: Arc::new(ToolPolicy::new(Arc::new(MemoryGrantStore::default()), connectors.clone()).with_hook(Arc::new(RenameMail))),
-        connectors, session: session.clone(), tools: Arc::new(NoTools), grants: Arc::new(SessionGrants::default()),
-        approvals: approvals.clone(), observer: Arc::new(Events::default()), guards: Arc::new(Guards::default()),
-        thread_id: "t1".into(), cwd: "work".into(), cancel: CancellationToken::new(),
+        connectors,
+        session: session.clone(),
+        tools: Arc::new(NoTools),
+        grants: Arc::new(SessionGrants::default()),
+        approvals: approvals.clone(),
+        observer: Arc::new(Events::default()),
+        guards: Arc::new(Guards::default()),
+        thread_id: "t1".into(),
+        cwd: "work".into(),
+        cancel: CancellationToken::new(),
     });
     let original = call("mcp__gmail__draft_email", json!({"account": "gmail-2"}));
     let replace = async {
@@ -462,7 +424,6 @@ async fn a_connector_call_is_bound_after_rewrites_before_approval() {
     assert_eq!(asks[0].payload["name"], "mcp__gmail__send_email");
     assert_eq!(asks[0].payload["account"], "work@example.com");
 }
-
 
 /// A connector approval answered "always allow": the call runs once either way; a refused save raises the notice and stores
 /// nothing, a saved one raises none and stores the grant.

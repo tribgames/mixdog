@@ -80,13 +80,25 @@ pub fn load_rule_packs() -> (Vec<RulePack>, Vec<RuleGroup>) {
 pub fn group_rule_packs(packs: &[RulePack]) -> Vec<RuleGroup> {
     let mut groups: Vec<(String, Vec<&RulePack>)> = Vec::new();
     for pack in packs {
-        let language = pack.languages.first().cloned().or_else(|| pack.id.split('/').next().filter(|s| !s.is_empty()).map(str::to_owned)).unwrap_or_else(|| "other".into());
+        let language = pack
+            .languages
+            .first()
+            .cloned()
+            .or_else(|| pack.id.split('/').next().filter(|s| !s.is_empty()).map(str::to_owned))
+            .unwrap_or_else(|| "other".into());
         match groups.iter_mut().find(|(l, _)| *l == language) {
             Some((_, members)) => members.push(pack),
             None => groups.push((language, vec![pack])),
         }
     }
-    groups.into_iter().map(|(language, members)| RuleGroup { language, packs: members.iter().map(|p| p.id.clone()).collect(), rules_text: members.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n---\n") }).collect()
+    groups
+        .into_iter()
+        .map(|(language, members)| RuleGroup {
+            language,
+            packs: members.iter().map(|p| p.id.clone()).collect(),
+            rules_text: members.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n---\n"),
+        })
+        .collect()
 }
 
 /// `.tsx` is where the scan grammar and the detection id diverge: the binary calls a .tsx file
@@ -98,12 +110,20 @@ fn group_aliases(language: &str) -> &'static [&'static str] {
 
 /// Rule groups that can apply to `languages`; an empty list means all.
 pub fn groups_for_languages<'a>(groups: &'a [RuleGroup], languages: &[String]) -> Vec<&'a RuleGroup> {
-    groups.iter().filter(|g| languages.is_empty() || languages.contains(&g.language) || group_aliases(&g.language).iter().any(|a| languages.iter().any(|l| l == a))).collect()
+    groups
+        .iter()
+        .filter(|g| languages.is_empty() || languages.contains(&g.language) || group_aliases(&g.language).iter().any(|a| languages.iter().any(|l| l == a)))
+        .collect()
 }
 
 /// Packs that can apply to `languages`, with the same `tsx`→`typescript` alias scans use; an empty list means all.
 pub fn packs_for_languages<'a>(packs: &'a [RulePack], languages: &[String]) -> Vec<&'a RulePack> {
-    packs.iter().filter(|p| languages.is_empty() || p.languages.iter().any(|l| languages.contains(l) || group_aliases(l).iter().any(|a| languages.iter().any(|x| x == a)))).collect()
+    packs
+        .iter()
+        .filter(|p| {
+            languages.is_empty() || p.languages.iter().any(|l| languages.contains(l) || group_aliases(l).iter().any(|a| languages.iter().any(|x| x == a)))
+        })
+        .collect()
 }
 
 /// Files one structural language group should scan; never an unfiltered tree.
@@ -326,7 +346,9 @@ fn run_failure(result: &ProcessResult) -> Option<Value> {
         return Some(json!({"exitCode": -1, "kind": "spawn", "message": result.error}));
     }
     if result.truncated {
-        return Some(json!({"exitCode": result.code, "kind": "truncated", "message": format!("structural scan output passed {MAX_CAPTURE_BYTES} bytes and was cut; split the scope")}));
+        return Some(
+            json!({"exitCode": result.code, "kind": "truncated", "message": format!("structural scan output passed {MAX_CAPTURE_BYTES} bytes and was cut; split the scope")}),
+        );
     }
     None
 }
@@ -367,7 +389,14 @@ impl GraphStructuralAdapter {
 
     /// Scans; with `fix` the binary emits fix payloads (byte range + text, and the SHA-256 of the
     /// bytes it parsed, kept as `scanned`) and writes nothing.
-    pub async fn scan(&self, cwd: &Path, rules_text: &str, files: &[String], fix: bool, cancel: Option<&CancellationToken>) -> Result<Value, StructuralEngineUnavailable> {
+    pub async fn scan(
+        &self,
+        cwd: &Path,
+        rules_text: &str,
+        files: &[String],
+        fix: bool,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<Value, StructuralEngineUnavailable> {
         let mut args = vec![cwd.to_string_lossy().into_owned(), "--scan".into(), "--rules".into(), "-".into()];
         if !files.is_empty() {
             args.push("--files".into());
@@ -391,7 +420,8 @@ impl GraphStructuralAdapter {
         if parsed.get("error").is_none() {
             let matches = parsed["matches"].as_array().cloned().unwrap_or_default();
             let (owned_cwd, owned_matches) = (cwd.to_owned(), matches.clone());
-            let refined = on_lane(self.processes.durability(), move || refine_scanned(owned_matches, fix, &scan_source_reader(owned_cwd))).await.unwrap_or(matches);
+            let refined =
+                on_lane(self.processes.durability(), move || refine_scanned(owned_matches, fix, &scan_source_reader(owned_cwd))).await.unwrap_or(matches);
             let files = refined.iter().filter_map(|m| m["file"].as_str()).collect::<std::collections::HashSet<_>>().len();
             parsed["summary"]["matches"] = json!(refined.len());
             parsed["summary"]["files"] = json!(files);
@@ -403,7 +433,13 @@ impl GraphStructuralAdapter {
 
 /// The structural implementation: the local graph binary, once it proves it owns the scan
 /// protocol. An old or missing binary must never read as "no findings".
-pub async fn resolve_structural_adapter(processes: &Processes, cwd: &Path, graph_bin: Option<&Path>, graph_ready: Option<bool>, cancel: Option<&CancellationToken>) -> Result<GraphStructuralAdapter, StructuralEngineUnavailable> {
+pub async fn resolve_structural_adapter(
+    processes: &Processes,
+    cwd: &Path,
+    graph_bin: Option<&Path>,
+    graph_ready: Option<bool>,
+    cancel: Option<&CancellationToken>,
+) -> Result<GraphStructuralAdapter, StructuralEngineUnavailable> {
     let ready = match (graph_ready, graph_bin) {
         (Some(r), _) => r,
         (None, Some(bin)) => graph_supports_scan(processes, bin, cwd, cancel).await,
@@ -455,20 +491,28 @@ mod tests {
         assert_eq!(m["range"]["byteOffset"], json!([10, 13]));
         assert_eq!(m["fix"], json!({"byteOffset": [10, 13], "text": "let", "stale": NO_SCAN_DIGEST}));
         assert!(normalize_structural_match(&json!({"ruleId": "x"}), true).is_none());
-        let object_fix = normalize_structural_match(&json!({"file": "a", "range": {"byteOffset": [1, 2]}, "fix": {"replacement": "z", "sha256": "ab"}}), false).unwrap();
+        let object_fix =
+            normalize_structural_match(&json!({"file": "a", "range": {"byteOffset": [1, 2]}, "fix": {"replacement": "z", "sha256": "ab"}}), false).unwrap();
         assert_eq!(object_fix["fix"], json!({"byteOffset": [1, 2], "text": "z", "scanned": "ab"}));
     }
 
     #[test]
     fn the_jsonl_protocol_distinguishes_clean_rule_errors_and_old_binaries() {
-        let ok = parse_structural_jsonl("{\"file\":\"a.ts\",\"ruleId\":\"r\",\"range\":{\"start\":{\"line\":1,\"column\":0}}}\nnot json\n{\"summary\":{\"matches\":1,\"files\":1}}\n", 0, "");
+        let ok = parse_structural_jsonl(
+            "{\"file\":\"a.ts\",\"ruleId\":\"r\",\"range\":{\"start\":{\"line\":1,\"column\":0}}}\nnot json\n{\"summary\":{\"matches\":1,\"files\":1}}\n",
+            0,
+            "",
+        );
         assert_eq!((ok["matches"].as_array().unwrap().len(), ok["malformedLines"].clone(), ok.get("error").is_none()), (1, json!(1), true));
         let clean = parse_structural_jsonl("{\"summary\":{\"matches\":0,\"files\":0}}\n", 0, "");
         assert!(clean.get("error").is_none());
         let old = parse_structural_jsonl("", 0, "");
         assert_eq!(old["error"]["kind"], "protocol");
         let rules = parse_structural_jsonl("{\"file\":\"a\",\"ruleId\":\"r\",\"fix\":\"x\"}", 2, "bad kind");
-        assert_eq!((rules["error"]["kind"].clone(), rules["error"]["message"].clone(), rules["matches"].clone()), (json!("rules"), json!("bad kind"), json!([])));
+        assert_eq!(
+            (rules["error"]["kind"].clone(), rules["error"]["message"].clone(), rules["matches"].clone()),
+            (json!("rules"), json!("bad kind"), json!([]))
+        );
         let internal = parse_structural_jsonl("{\"file\":\"a\",\"ruleId\":\"r\",\"range\":{\"byteOffset\":[0,1]},\"fix\":\"x\"}\n", 1, "");
         assert_eq!(internal["error"]["kind"], "internal");
         assert_eq!((internal["matches"][0]["fix"].clone(), internal["matches"][0]["manual"].clone()), (Value::Null, json!(true)));
@@ -502,7 +546,9 @@ mod tests {
     fn fixes_carry_the_scanners_digest_or_are_stale() {
         let source = "// moved from b.ts\nlet a;\n";
         let digest = sha256_hex(source.as_bytes());
-        let row = |file: &str, fix: Value| normalize_structural_match(&json!({"file": file, "ruleId": "r", "range": {"byteOffset": [0, 3]}, "fix": fix}), true).unwrap();
+        let row = |file: &str, fix: Value| {
+            normalize_structural_match(&json!({"file": file, "ruleId": "r", "range": {"byteOffset": [0, 3]}, "fix": fix}), true).unwrap()
+        };
         assert_eq!(row("a.ts", json!({"byteOffset": [0, 3], "text": "x", "sha256": digest}))["fix"]["scanned"], json!(digest));
         let old = row("a.ts", json!({"byteOffset": [0, 3], "text": "x"}));
         assert_eq!((old["fix"]["stale"].clone(), old["fix"].get("scanned")), (json!(NO_SCAN_DIGEST), None));
@@ -534,7 +580,10 @@ mod tests {
         assert!(err.to_string().contains("no mixdog-graph binary was found") && err.to_string().contains("structural:false"));
         let missing = dir.path().join("nope");
         assert!(resolve_structural_adapter(&Processes::for_tests(), dir.path(), Some(&missing), None, None).await.is_err());
-        assert!(resolve_structural_adapter(&Processes::for_tests(), dir.path(), Some(&missing), Some(true), None).await.is_ok(), "a caller-probed table is trusted");
+        assert!(
+            resolve_structural_adapter(&Processes::for_tests(), dir.path(), Some(&missing), Some(true), None).await.is_ok(),
+            "a caller-probed table is trusted"
+        );
         reset_structural_probe_cache();
     }
 }

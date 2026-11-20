@@ -25,9 +25,7 @@ fn safe_id(value: Option<&Value>, label: &str, location: &str) -> Result<String,
         return Err(format!("Office content {label} is required{at}"));
     }
     if !SAFE_ID.is_match(&normalized) {
-        return Err(format!(
-            "Office content {label} \"{normalized}\" must use 1-64 letters, digits, dots, underscores, or hyphens{at}"
-        ));
+        return Err(format!("Office content {label} \"{normalized}\" must use 1-64 letters, digits, dots, underscores, or hyphens{at}"));
     }
     Ok(normalized)
 }
@@ -59,15 +57,8 @@ const FACT_KEYS: [&str; 8] = ["id", "label", "value", "unit", "detail", "numberF
 
 /// A caller writes the format the way they say it out loud. Named formats reach the spreadsheet notation the composers
 /// already apply; an explicit pattern is taken as written.
-const NAMED_NUMBER_FORMATS: [(&str, &str); 7] = [
-    ("percent", "0.0%"),
-    ("percentage", "0.0%"),
-    ("number", "#,##0"),
-    ("integer", "#,##0"),
-    ("decimal", "#,##0.0"),
-    ("currency", "#,##0"),
-    ("money", "#,##0"),
-];
+const NAMED_NUMBER_FORMATS: [(&str, &str); 7] =
+    [("percent", "0.0%"), ("percentage", "0.0%"), ("number", "#,##0"), ("integer", "#,##0"), ("decimal", "#,##0.0"), ("currency", "#,##0"), ("money", "#,##0")];
 
 /// `officeNumberFormat`: one resolution for every figure the composers print, for a bound fact and a preset's metric
 /// alike. Empty when the entry names none.
@@ -77,10 +68,7 @@ pub fn office_number_format(entry: &Value) -> String {
         return String::new();
     }
     let lowered = js_to_lowercase(&written);
-    NAMED_NUMBER_FORMATS
-        .iter()
-        .find(|(name, _)| *name == lowered)
-        .map_or(written, |(_, notation)| (*notation).to_owned())
+    NAMED_NUMBER_FORMATS.iter().find(|(name, _)| *name == lowered).map_or(written, |(_, notation)| (*notation).to_owned())
 }
 
 fn source_text(value: &Value) -> String {
@@ -143,10 +131,7 @@ pub fn normalize_office_content_model(value: Option<&Value>) -> Result<Value, St
         // spellings reach numberFormat, and anything else is named rather than ignored.
         let number_format = office_number_format(fact);
         let source = normalize_source(prop(fact, "source"));
-        let unknown: Vec<&String> = js_object_keys(fact.as_object().expect("an object"))
-            .into_iter()
-            .filter(|key| !FACT_KEYS.contains(&key.as_str()))
-            .collect();
+        let unknown: Vec<&String> = js_object_keys(fact.as_object().expect("an object")).into_iter().filter(|key| !FACT_KEYS.contains(&key.as_str())).collect();
         if !unknown.is_empty() {
             return Err(format!(
                 "Office content fact {id} has unknown key(s): {}. A fact takes: {}.",
@@ -275,11 +260,7 @@ struct Facts<'a> {
 impl<'a> Facts<'a> {
     fn fact(&self, id: Option<&Value>, used: &mut Used) -> Result<&'a Value, String> {
         let normalized = safe_id(id, "fact reference", "")?;
-        let resolved = self
-            .by_id
-            .get(normalized.as_str())
-            .copied()
-            .ok_or_else(|| format!("Office semantic operation references unknown fact {normalized}"))?;
+        let resolved = self.by_id.get(normalized.as_str()).copied().ok_or_else(|| format!("Office semantic operation references unknown fact {normalized}"))?;
         used.add(&normalized);
         Ok(resolved)
     }
@@ -333,20 +314,14 @@ pub fn bind_office_content(operation: &Value, model: Option<&Value>) -> Result<B
     let empty = Vec::new();
     let model_facts = array_of(prop(model, "facts")).unwrap_or(&empty);
     let facts = Facts { by_id: model_facts.iter().map(|fact| (prop(fact, "id").and_then(Value::as_str).unwrap_or(""), fact)).collect() };
-    let claims: HashMap<&str, &Value> = array_of(prop(model, "claims"))
-        .unwrap_or(&empty)
-        .iter()
-        .map(|claim| (prop(claim, "id").and_then(Value::as_str).unwrap_or(""), claim))
-        .collect();
+    let claims: HashMap<&str, &Value> =
+        array_of(prop(model, "claims")).unwrap_or(&empty).iter().map(|claim| (prop(claim, "id").and_then(Value::as_str).unwrap_or(""), claim)).collect();
     let mut used = Used::default();
     let mut bound = clone(operation);
     let map = bound.as_object_mut().expect("an object");
     if let Some(claim_ref) = map.get("claimId").filter(|written| truthy(written)).cloned() {
         let claim_id = safe_id(Some(&claim_ref), "claim reference", "")?;
-        let claim = claims
-            .get(claim_id.as_str())
-            .copied()
-            .ok_or_else(|| format!("Office semantic operation references unknown claim {claim_id}"))?;
+        let claim = claims.get(claim_id.as_str()).copied().ok_or_else(|| format!("Office semantic operation references unknown claim {claim_id}"))?;
         for fact_id in array_of(prop(claim, "factIds")).unwrap_or(&empty) {
             used.add(&text_of(fact_id));
         }
@@ -466,10 +441,13 @@ mod tests {
         let normalized = normalize_office_content_model(Some(&value)).expect("model");
         assert_eq!(normalized["packageId"], json!("q3.review"));
         assert_eq!(normalized["audience"], json!("5"));
-        assert_eq!(normalized["facts"][0], json!({
-            "id": "rev", "label": "rev", "value": 1.5, "unit": "M", "numberFormat": "0.0%",
-            "source": { "document": "a.xlsx", "target": "B2" }
-        }));
+        assert_eq!(
+            normalized["facts"][0],
+            json!({
+                "id": "rev", "label": "rev", "value": 1.5, "unit": "M", "numberFormat": "0.0%",
+                "source": { "document": "a.xlsx", "target": "B2" }
+            })
+        );
         assert_eq!(normalized["facts"][1]["source"], json!("s"));
         assert!(normalized["facts"][1].get("value").is_none());
         assert_eq!(normalized["claims"][0], json!({ "id": "c1", "text": "up", "factIds": ["rev"], "implication": "grow" }));
@@ -486,7 +464,10 @@ mod tests {
     fn a_model_refuses_what_it_cannot_read() {
         let err = |facts: Value, claims: Value| model(facts, claims).expect_err("refused");
         assert_eq!(normalize_office_content_model(Some(&json!("x"))), Err("Office design.content must be an object".into()));
-        assert!(err(json!([{ "id": "a", "color": 1 }]), json!([])).contains("fact a has unknown key(s): color. A fact takes: id, label, value, unit, detail, numberFormat, format, source."));
+        assert!(
+            err(json!([{ "id": "a", "color": 1 }]), json!([]))
+                .contains("fact a has unknown key(s): color. A fact takes: id, label, value, unit, detail, numberFormat, format, source.")
+        );
         assert!(err(json!([{ "id": "a" }, { "id": "A" }]), json!([])).contains("duplicate fact id a"));
         assert!(err(json!([{ "id": "a" }]), json!([{ "id": "c", "factIds": ["b"] }])).contains("claim c references unknown fact b"));
         assert!(err(json!([1]), json!([])).contains("facts must be objects"));
@@ -537,10 +518,7 @@ mod tests {
             Some(&normalized),
         )
         .expect("bound");
-        assert_eq!(
-            json_stringify(&unset.operation),
-            r#"{"metrics":[{"factId":"gone","label":"L","z":1,"detail":"","numberFormat":""}],"after":1}"#
-        );
+        assert_eq!(json_stringify(&unset.operation), r#"{"metrics":[{"factId":"gone","label":"L","z":1,"detail":"","numberFormat":""}],"after":1}"#);
         let untouched = bind_office_content(&operation, None).expect("no model");
         assert_eq!(untouched, BoundOperation { operation: operation.clone(), binding: None });
     }

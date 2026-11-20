@@ -39,11 +39,7 @@ impl SessionDispatch {
 /// `normalizeContextPercent`: a requested share snapped to 10% steps within 10..100.
 fn context_percent(value: Option<&Value>) -> Value {
     let requested = number(value);
-    if requested.is_finite() && requested > 0.0 {
-        json!(((requested / 10.0 + 0.5).floor() * 10.0).clamp(10.0, 100.0) as i64)
-    } else {
-        Value::Null
-    }
+    if requested.is_finite() && requested > 0.0 { json!(((requested / 10.0 + 0.5).floor() * 10.0).clamp(10.0, 100.0) as i64) } else { Value::Null }
 }
 
 fn text_or_null(value: Option<&String>) -> Value {
@@ -123,9 +119,9 @@ impl DispatchSessions for SessionDispatch {
         }
         // The first-response window the session's provider declares for its model: what the watchdog's first-response
         // deadlines sit above (`provider.firstResponseBudget(model, { modelParameters })`).
-        let first_response_budget = provider.zip(header.get("model").and_then(Value::as_str)).and_then(|(provider, model)| {
-            provider.first_response_budget(model, header.get("modelParameters").filter(|parameters| parameters.is_object()))
-        });
+        let first_response_budget = provider
+            .zip(header.get("model").and_then(Value::as_str))
+            .and_then(|(provider, model)| provider.first_response_budget(model, header.get("modelParameters").filter(|parameters| parameters.is_object())));
         let id = self.threads.create(header).await?;
         Ok(Prepared { tools: self.threads.tools(&id), id, first_response_budget })
     }

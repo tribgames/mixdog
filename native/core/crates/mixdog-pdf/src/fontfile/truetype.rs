@@ -27,39 +27,268 @@ const MAX_COLLECTION_FONTS: u32 = 1 << 16;
 const MAX_POST_NAMES: usize = 1 << 20;
 
 /// `VALID_TABLES`: the tables `readTables` keeps.
-const VALID_TABLES: [&str; 14] = [
-    "OS/2", "cmap", "head", "hhea", "hmtx", "maxp", "name", "post", "loca", "glyf", "fpgm", "prep",
-    "cvt ", "CFF ",
-];
+const VALID_TABLES: [&str; 14] = ["OS/2", "cmap", "head", "hhea", "hmtx", "maxp", "name", "post", "loca", "glyf", "fpgm", "prep", "cvt ", "CFF "];
 
 /// `MacStandardGlyphOrdering`: the 258 glyph names of `post` formats 1 and 2.
 pub const MAC_STANDARD_GLYPH_ORDERING: [&str; 258] = [
-    ".notdef", ".null", "nonmarkingreturn", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent",
-    "ampersand", "quotesingle", "parenleft", "parenright", "asterisk", "plus", "comma", "hyphen", "period",
-    "slash", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "colon",
-    "semicolon", "less", "equal", "greater", "question", "at", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
-    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "bracketleft", "backslash",
-    "bracketright", "asciicircum", "underscore", "grave", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k",
-    "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "braceleft", "bar", "braceright",
-    "asciitilde", "Adieresis", "Aring", "Ccedilla", "Eacute", "Ntilde", "Odieresis", "Udieresis", "aacute",
-    "agrave", "acircumflex", "adieresis", "atilde", "aring", "ccedilla", "eacute", "egrave", "ecircumflex",
-    "edieresis", "iacute", "igrave", "icircumflex", "idieresis", "ntilde", "oacute", "ograve", "ocircumflex",
-    "odieresis", "otilde", "uacute", "ugrave", "ucircumflex", "udieresis", "dagger", "degree", "cent",
-    "sterling", "section", "bullet", "paragraph", "germandbls", "registered", "copyright", "trademark", "acute",
-    "dieresis", "notequal", "AE", "Oslash", "infinity", "plusminus", "lessequal", "greaterequal", "yen", "mu",
-    "partialdiff", "summation", "product", "pi", "integral", "ordfeminine", "ordmasculine", "Omega", "ae",
-    "oslash", "questiondown", "exclamdown", "logicalnot", "radical", "florin", "approxequal", "Delta",
-    "guillemotleft", "guillemotright", "ellipsis", "nonbreakingspace", "Agrave", "Atilde", "Otilde", "OE", "oe",
-    "endash", "emdash", "quotedblleft", "quotedblright", "quoteleft", "quoteright", "divide", "lozenge",
-    "ydieresis", "Ydieresis", "fraction", "currency", "guilsinglleft", "guilsinglright", "fi", "fl",
-    "daggerdbl", "periodcentered", "quotesinglbase", "quotedblbase", "perthousand", "Acircumflex",
-    "Ecircumflex", "Aacute", "Edieresis", "Egrave", "Iacute", "Icircumflex", "Idieresis", "Igrave", "Oacute",
-    "Ocircumflex", "apple", "Ograve", "Uacute", "Ucircumflex", "Ugrave", "dotlessi", "circumflex", "tilde",
-    "macron", "breve", "dotaccent", "ring", "cedilla", "hungarumlaut", "ogonek", "caron", "Lslash", "lslash",
-    "Scaron", "scaron", "Zcaron", "zcaron", "brokenbar", "Eth", "eth", "Yacute", "yacute", "Thorn", "thorn",
-    "minus", "multiply", "onesuperior", "twosuperior", "threesuperior", "onehalf", "onequarter",
-    "threequarters", "franc", "Gbreve", "gbreve", "Idotaccent", "Scedilla", "scedilla", "Cacute", "cacute",
-    "Ccaron", "ccaron", "dcroat",
+    ".notdef",
+    ".null",
+    "nonmarkingreturn",
+    "space",
+    "exclam",
+    "quotedbl",
+    "numbersign",
+    "dollar",
+    "percent",
+    "ampersand",
+    "quotesingle",
+    "parenleft",
+    "parenright",
+    "asterisk",
+    "plus",
+    "comma",
+    "hyphen",
+    "period",
+    "slash",
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "colon",
+    "semicolon",
+    "less",
+    "equal",
+    "greater",
+    "question",
+    "at",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "bracketleft",
+    "backslash",
+    "bracketright",
+    "asciicircum",
+    "underscore",
+    "grave",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "braceleft",
+    "bar",
+    "braceright",
+    "asciitilde",
+    "Adieresis",
+    "Aring",
+    "Ccedilla",
+    "Eacute",
+    "Ntilde",
+    "Odieresis",
+    "Udieresis",
+    "aacute",
+    "agrave",
+    "acircumflex",
+    "adieresis",
+    "atilde",
+    "aring",
+    "ccedilla",
+    "eacute",
+    "egrave",
+    "ecircumflex",
+    "edieresis",
+    "iacute",
+    "igrave",
+    "icircumflex",
+    "idieresis",
+    "ntilde",
+    "oacute",
+    "ograve",
+    "ocircumflex",
+    "odieresis",
+    "otilde",
+    "uacute",
+    "ugrave",
+    "ucircumflex",
+    "udieresis",
+    "dagger",
+    "degree",
+    "cent",
+    "sterling",
+    "section",
+    "bullet",
+    "paragraph",
+    "germandbls",
+    "registered",
+    "copyright",
+    "trademark",
+    "acute",
+    "dieresis",
+    "notequal",
+    "AE",
+    "Oslash",
+    "infinity",
+    "plusminus",
+    "lessequal",
+    "greaterequal",
+    "yen",
+    "mu",
+    "partialdiff",
+    "summation",
+    "product",
+    "pi",
+    "integral",
+    "ordfeminine",
+    "ordmasculine",
+    "Omega",
+    "ae",
+    "oslash",
+    "questiondown",
+    "exclamdown",
+    "logicalnot",
+    "radical",
+    "florin",
+    "approxequal",
+    "Delta",
+    "guillemotleft",
+    "guillemotright",
+    "ellipsis",
+    "nonbreakingspace",
+    "Agrave",
+    "Atilde",
+    "Otilde",
+    "OE",
+    "oe",
+    "endash",
+    "emdash",
+    "quotedblleft",
+    "quotedblright",
+    "quoteleft",
+    "quoteright",
+    "divide",
+    "lozenge",
+    "ydieresis",
+    "Ydieresis",
+    "fraction",
+    "currency",
+    "guilsinglleft",
+    "guilsinglright",
+    "fi",
+    "fl",
+    "daggerdbl",
+    "periodcentered",
+    "quotesinglbase",
+    "quotedblbase",
+    "perthousand",
+    "Acircumflex",
+    "Ecircumflex",
+    "Aacute",
+    "Edieresis",
+    "Egrave",
+    "Iacute",
+    "Icircumflex",
+    "Idieresis",
+    "Igrave",
+    "Oacute",
+    "Ocircumflex",
+    "apple",
+    "Ograve",
+    "Uacute",
+    "Ucircumflex",
+    "Ugrave",
+    "dotlessi",
+    "circumflex",
+    "tilde",
+    "macron",
+    "breve",
+    "dotaccent",
+    "ring",
+    "cedilla",
+    "hungarumlaut",
+    "ogonek",
+    "caron",
+    "Lslash",
+    "lslash",
+    "Scaron",
+    "scaron",
+    "Zcaron",
+    "zcaron",
+    "brokenbar",
+    "Eth",
+    "eth",
+    "Yacute",
+    "yacute",
+    "Thorn",
+    "thorn",
+    "minus",
+    "multiply",
+    "onesuperior",
+    "twosuperior",
+    "threesuperior",
+    "onehalf",
+    "onequarter",
+    "threequarters",
+    "franc",
+    "Gbreve",
+    "gbreve",
+    "Idotaccent",
+    "Scedilla",
+    "scedilla",
+    "Cacute",
+    "cacute",
+    "Ccaron",
+    "ccaron",
+    "dcroat",
 ];
 
 /// `GLYPH_HEADER_SIZE` of the composite glyph code.
@@ -79,10 +308,7 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn at(bytes: &'a [u8], pos: u64) -> Self {
-        Reader {
-            bytes,
-            pos: usize::try_from(pos).unwrap_or(usize::MAX),
-        }
+        Reader { bytes, pos: usize::try_from(pos).unwrap_or(usize::MAX) }
     }
 
     /// `getByte`: -1 at the end.
@@ -105,11 +331,7 @@ impl<'a> Reader<'a> {
     fn u16(&mut self) -> i32 {
         let b0 = self.byte();
         let b1 = self.byte();
-        if b0 == -1 || b1 == -1 {
-            -1
-        } else {
-            (b0 << 8) + b1
-        }
+        if b0 == -1 || b1 == -1 { -1 } else { (b0 << 8) + b1 }
     }
 
     /// `getInt32`: the four bytes (each -1 past the end) combined as `(b0 << 24) + (b1 << 16) + (b2 << 8) + b3`.
@@ -131,17 +353,9 @@ impl<'a> Reader<'a> {
     fn take(&mut self, length: i64) -> &'a [u8] {
         let end = i64::try_from(self.bytes.len()).unwrap_or(i64::MAX);
         let pos = i64::try_from(self.pos).unwrap_or(i64::MAX);
-        let end_pos = if length == 0 {
-            end
-        } else {
-            pos.saturating_add(length).min(end)
-        };
+        let end_pos = if length == 0 { end } else { pos.saturating_add(length).min(end) };
         self.pos = usize::try_from(end_pos.max(0)).unwrap_or(0);
-        if end_pos > pos && pos >= 0 {
-            &self.bytes[pos as usize..end_pos as usize]
-        } else {
-            &[]
-        }
+        if end_pos > pos && pos >= 0 { &self.bytes[pos as usize..end_pos as usize] } else { &[] }
     }
 
     /// `getString(length)`: the bytes as Latin-1 chars.
@@ -159,9 +373,7 @@ impl<'a> Reader<'a> {
     /// `skip(n)`: `pos += n || 1`.
     fn skip(&mut self, n: u64) {
         let n = if n == 0 { 1 } else { n };
-        self.pos = self
-            .pos
-            .saturating_add(usize::try_from(n).unwrap_or(usize::MAX));
+        self.pos = self.pos.saturating_add(usize::try_from(n).unwrap_or(usize::MAX));
     }
 
     fn position(&self) -> i64 {
@@ -181,31 +393,15 @@ fn int16(b0: Option<u8>, b1: Option<u8>) -> Option<i32> {
 /// `signedInt16(b0, b1)`.
 fn signed_int16(b0: Option<u8>, b1: Option<u8>) -> Option<i32> {
     let value = int16(b0, b1)?;
-    Some(if value & (1 << 15) != 0 {
-        value - 0x10000
-    } else {
-        value
-    })
+    Some(if value & (1 << 15) != 0 { value - 0x10000 } else { value })
 }
 
 /// The chars JS `\s` matches.
 fn is_js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n'
-            | '\u{b}'
-            | '\u{c}'
-            | '\r'
-            | ' '
-            | '\u{a0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202f}'
-            | '\u{205f}'
-            | '\u{3000}'
-            | '\u{feff}'
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
     )
 }
 
@@ -226,12 +422,7 @@ pub struct Table {
 fn table_bytes(file_len: usize, offset: u64, length: u64) -> Range<usize> {
     let pos = if offset == 0 { 1 } else { offset };
     let pos = usize::try_from(pos).unwrap_or(usize::MAX);
-    let end_pos = if length == 0 {
-        file_len
-    } else {
-        pos.saturating_add(usize::try_from(length).unwrap_or(usize::MAX))
-            .min(file_len)
-    };
+    let end_pos = if length == 0 { file_len } else { pos.saturating_add(usize::try_from(length).unwrap_or(usize::MAX)).min(file_len) };
     if end_pos > pos { pos..end_pos } else { 0..0 }
 }
 
@@ -248,10 +439,7 @@ fn read_open_type_header(reader: &mut Reader<'_>) -> OpenTypeHeader {
     reader.u16();
     reader.u16();
     reader.u16();
-    OpenTypeHeader {
-        version,
-        num_tables,
-    }
+    OpenTypeHeader { version, num_tables }
 }
 
 /// `readTableEntry`.
@@ -261,13 +449,7 @@ fn read_table_entry(reader: &mut Reader<'_>) -> Table {
     let offset = reader.uint32();
     let length = reader.uint32();
     let data = table_bytes(reader.bytes.len(), u64::from(offset), u64::from(length));
-    Table {
-        tag,
-        checksum,
-        offset,
-        length,
-        data,
-    }
+    Table { tag, checksum, offset, length, data }
 }
 
 /// `readTables`: the valid tables with a length, a later entry of the same tag replacing an earlier one.
@@ -385,20 +567,14 @@ fn read_name_table_at(file: &[u8], table: &Table) -> NameTable {
 }
 
 /// `readTrueTypeCollectionData`: the header version and tables of the font of a collection that `font_name` names.
-fn read_collection_data(
-    reader: &mut Reader<'_>,
-    file: &[u8],
-    font_name: &str,
-) -> Result<(String, Vec<Table>)> {
+fn read_collection_data(reader: &mut Reader<'_>, file: &[u8], font_name: &str) -> Result<(String, Vec<Table>)> {
     // `readTrueTypeCollectionHeader`
     reader.string(4);
     let major_version = reader.u16();
     reader.u16();
     let num_fonts = reader.uint32();
     if num_fonts > MAX_COLLECTION_FONTS {
-        return Err(PdfError::format(format!(
-            "Invalid TrueType Collection: {num_fonts} fonts."
-        )));
+        return Err(PdfError::format(format!("Invalid TrueType Collection: {num_fonts} fonts.")));
     }
     let offset_table: Vec<u32> = (0..num_fonts).map(|_| reader.uint32()).collect();
     match major_version {
@@ -410,9 +586,7 @@ fn read_collection_data(
             reader.uint32();
         }
         _ => {
-            return Err(PdfError::format(format!(
-                "Invalid TrueType Collection majorVersion: {major_version}."
-            )));
+            return Err(PdfError::format(format!("Invalid TrueType Collection majorVersion: {major_version}.")));
         }
     }
     let font_name_parts: Vec<&str> = font_name.split('+').collect();
@@ -422,9 +596,7 @@ fn read_collection_data(
         let header = read_open_type_header(reader);
         let tables = read_tables(reader, header.num_tables);
         let Some(name_table) = tables.iter().find(|t| t.tag == "name") else {
-            return Err(PdfError::format(
-                "TrueType Collection font must contain a \"name\" table.",
-            ));
+            return Err(PdfError::format("TrueType Collection font must contain a \"name\" table."));
         };
         let names = read_name_table_at(file, name_table);
         for entry in names.names.iter().flat_map(BTreeMap::values) {
@@ -446,14 +618,10 @@ fn read_collection_data(
         }
     }
     if let Some((name, tables, version)) = fallback {
-        tracing::warn!(
-            "TrueType Collection does not contain \"{font_name}\" font, falling back to \"{name}\" font instead."
-        );
+        tracing::warn!("TrueType Collection does not contain \"{font_name}\" font, falling back to \"{name}\" font instead.");
         return Ok((version, tables));
     }
-    Err(PdfError::format(format!(
-        "TrueType Collection does not contain \"{font_name}\" font."
-    )))
+    Err(PdfError::format(format!("TrueType Collection does not contain \"{font_name}\" font.")))
 }
 
 /// One glyph-to-code pair of a `cmap` subtable.
@@ -475,12 +643,7 @@ pub struct CmapTable {
 
 impl CmapTable {
     fn none() -> Self {
-        CmapTable {
-            platform_id: -1,
-            encoding_id: -1,
-            mappings: Vec::new(),
-            has_short_cmap: false,
-        }
+        CmapTable { platform_id: -1, encoding_id: -1, mappings: Vec::new(), has_short_cmap: false }
     }
 }
 
@@ -572,11 +735,7 @@ impl TrueTypeFont {
             let tables = read_tables(&mut reader, header.num_tables);
             (header.version, tables)
         };
-        Ok(TrueTypeFont {
-            file,
-            header_version,
-            tables,
-        })
+        Ok(TrueTypeFont { file, header_version, tables })
     }
 
     /// The font file's bytes.
@@ -610,8 +769,7 @@ impl TrueTypeFont {
     }
 
     fn required(&self, tag: &str) -> Result<&Table> {
-        self.table(tag)
-            .ok_or_else(|| PdfError::format(format!("Required \"{tag}\" table is not found")))
+        self.table(tag).ok_or_else(|| PdfError::format(format!("Required \"{tag}\" table is not found")))
     }
 
     fn data_byte(&self, tag: &str, index: usize) -> Option<u8> {
@@ -640,8 +798,7 @@ impl TrueTypeFont {
             return Err(PdfError::format("\"maxp\" table has a wrong version number"));
         }
         let head = self.required("head")?;
-        let is_long = int16(self.data_byte("head", 50), self.data_byte("head", 51))
-            .is_some_and(|value| value != 0);
+        let is_long = int16(self.data_byte("head", 50), self.data_byte("head", 51)).is_some_and(|value| value != 0);
         let mut loca_range = loca.map(|t| t.data.clone());
         let mut loca_length = loca.map_or(0, |t| i64::from(t.length));
         if let Some(loca) = loca {
@@ -651,49 +808,29 @@ impl TrueTypeFont {
                 tracing::warn!("Incorrect 'loca' table length -- attempting to fix it.");
                 let mut sorted: Vec<&Table> = self.tables.iter().collect();
                 sorted.sort_by_key(|t| t.offset);
-                let next = sorted
-                    .iter()
-                    .position(|t| t.tag == "loca")
-                    .and_then(|i| sorted.get(i + 1));
+                let next = sorted.iter().position(|t| t.tag == "loca").and_then(|i| sorted.get(i + 1));
                 if let Some(next) = next
                     && i64::from(loca.offset) + expected < i64::from(next.offset)
                 {
-                    loca_range = Some(table_bytes(
-                        self.file.len(),
-                        u64::from(loca.offset),
-                        u64::try_from(expected).unwrap_or(0),
-                    ));
+                    loca_range = Some(table_bytes(self.file.len(), u64::from(loca.offset), u64::try_from(expected).unwrap_or(0)));
                     loca_length = expected;
                 }
             }
         }
         // `sanitizeMetrics` reads `metrics.length` of the `hmtx` table whenever there is an `hhea`.
         if self.table("hhea").is_some() && self.table("hmtx").is_none() {
-            return Err(PdfError::Unknown(
-                "Cannot read properties of null (reading 'length')".to_owned(),
-            ));
+            return Err(PdfError::Unknown("Cannot read properties of null (reading 'length')".to_owned()));
         }
         self.sanitize_head(head, num_glyphs, loca_length)?;
         let missing_glyphs = match loca_range {
             Some(range) => {
-                let glyf = self
-                    .table("glyf")
-                    .map_or_else(Vec::new, |t| self.file[t.data.clone()].to_vec());
-                Some(sanitize_glyph_locations(
-                    &self.file[range],
-                    glyf,
-                    num_glyphs,
-                    is_long,
-                )?)
+                let glyf = self.table("glyf").map_or_else(Vec::new, |t| self.file[t.data.clone()].to_vec());
+                Some(sanitize_glyph_locations(&self.file[range], glyf, num_glyphs, is_long)?)
             }
             None => None,
         };
         self.required("hhea")?;
-        Ok(GlyphInfo {
-            num_glyphs,
-            missing_glyphs,
-            is_glyph_locations_long: is_long,
-        })
+        Ok(GlyphInfo { num_glyphs, missing_glyphs, is_glyph_locations_long: is_long })
     }
 
     /// `sanitizeHead`: what it throws.
@@ -708,12 +845,8 @@ impl TrueTypeFont {
         {
             tracing::info!("Attempting to fix invalid indexToLocFormat in head table: {format}");
             let plus_one = num_glyphs.wrapping_add(1);
-            if loca_length != i64::from(plus_one.wrapping_shl(1))
-                && loca_length != i64::from(plus_one.wrapping_shl(2))
-            {
-                return Err(PdfError::format(format!(
-                    "Could not fix indexToLocFormat: {format}"
-                )));
+            if loca_length != i64::from(plus_one.wrapping_shl(1)) && loca_length != i64::from(plus_one.wrapping_shl(2)) {
+                return Err(PdfError::format(format!("Could not fix indexToLocFormat: {format}")));
             }
         }
         Ok(())
@@ -768,17 +901,14 @@ impl TrueTypeFont {
 
     /// `readNameTable` of the font's `name` table (`None` without one).
     pub fn read_name_table(&self) -> Option<NameTable> {
-        self.table("name")
-            .map(|table| read_name_table_at(&self.file, table))
+        self.table("name").map(|table| read_name_table_at(&self.file, table))
     }
 
     /// `readPostScriptTable(post, properties, maxpNumGlyphs)` (`None` without a `post` table).
     pub fn read_post_script_table(&self, max_num_glyphs: i32) -> Option<PostTable> {
         let post = self.table("post")?;
         let start = u64::from(post.offset);
-        let end = i64::try_from(start)
-            .unwrap_or(i64::MAX)
-            .saturating_add(i64::from(post.length));
+        let end = i64::try_from(start).unwrap_or(i64::MAX).saturating_add(i64::from(post.length));
         let mut reader = Reader::at(&self.file, start);
         let version = reader.int32();
         reader.skip(28);
@@ -787,12 +917,7 @@ impl TrueTypeFont {
         let mut unsupported_version = false;
         match version {
             0x0001_0000 => {
-                glyph_names = Some(
-                    MAC_STANDARD_GLYPH_ORDERING
-                        .iter()
-                        .map(|name| Some((*name).to_owned()))
-                        .collect(),
-                );
+                glyph_names = Some(MAC_STANDARD_GLYPH_ORDERING.iter().map(|name| Some((*name).to_owned())).collect());
             }
             0x0002_0000 => {
                 let num_glyphs = reader.u16();
@@ -834,11 +959,7 @@ impl TrueTypeFont {
                 unsupported_version = true;
             }
         }
-        Some(PostTable {
-            glyph_names,
-            valid,
-            unsupported_version,
-        })
+        Some(PostTable { glyph_names, valid, unsupported_version })
     }
 
     /// `readCmapTable(cmap, file, isSymbolicFont, hasEncoding)`: pdf.js's choice among the subtables, and the
@@ -863,9 +984,7 @@ impl TrueTypeFont {
                 continue;
             }
             let mut use_table = false;
-            if (platform_id == 0 && matches!(encoding_id, 0 | 1 | 3))
-                || (platform_id == 1 && encoding_id == 0)
-            {
+            if (platform_id == 0 && matches!(encoding_id, 0 | 1 | 3)) || (platform_id == 1 && encoding_id == 0) {
                 use_table = true;
             } else if platform_id == 3 && encoding_id == 1 && (has_encoding || potential.is_none()) {
                 use_table = true;
@@ -919,17 +1038,9 @@ impl TrueTypeFont {
             }
         };
         let mut seen = HashSet::new();
-        let mut final_mappings: Vec<CmapMapping> = mappings
-            .into_iter()
-            .filter(|mapping| seen.insert(mapping.char_code))
-            .collect();
+        let mut final_mappings: Vec<CmapMapping> = mappings.into_iter().filter(|mapping| seen.insert(mapping.char_code)).collect();
         final_mappings.sort_by_key(|mapping| mapping.char_code);
-        Ok(CmapTable {
-            platform_id,
-            encoding_id,
-            mappings: final_mappings,
-            has_short_cmap,
-        })
+        Ok(CmapTable { platform_id, encoding_id, mappings: final_mappings, has_short_cmap })
     }
 }
 
@@ -945,10 +1056,7 @@ fn read_cmap_format0(file: &mut Reader<'_>) -> Vec<CmapMapping> {
         if index == 0 {
             continue;
         }
-        mappings.push(CmapMapping {
-            char_code,
-            glyph_id: i64::from(index),
-        });
+        mappings.push(CmapMapping { char_code, glyph_id: i64::from(index) });
     }
     mappings
 }
@@ -976,22 +1084,13 @@ fn read_cmap_format2(file: &mut Reader<'_>) -> Result<Vec<CmapMapping>> {
         let b1 = file.byte();
         let id_delta = {
             let value = (b0 << 8) + b1;
-            if value & (1 << 15) != 0 {
-                value - 0x10000
-            } else {
-                value
-            }
+            if value & (1 << 15) != 0 { value - 0x10000 } else { value }
         };
         // `file.pos + file.getUint16()`: the position is read before the call.
         let pos = file.position();
         let range = file.u16();
         let id_range_pos = pos.saturating_add(i64::from(range)).max(0);
-        sub_headers.push(SubHeader {
-            first_code,
-            entry_count,
-            id_delta,
-            id_range_pos: usize::try_from(id_range_pos).unwrap_or(usize::MAX),
-        });
+        sub_headers.push(SubHeader { first_code, entry_count, id_delta, id_range_pos: usize::try_from(id_range_pos).unwrap_or(usize::MAX) });
     }
     let undefined = || PdfError::Unknown("Cannot read properties of undefined".to_owned());
     let mut mappings = Vec::new();
@@ -999,32 +1098,19 @@ fn read_cmap_format2(file: &mut Reader<'_>) -> Result<Vec<CmapMapping>> {
         let i = i as i64;
         if *key == 0 {
             let first = sub_headers.first().ok_or_else(undefined)?;
-            file.pos = first
-                .id_range_pos
-                .saturating_add(usize::try_from(2 * i).unwrap_or(0));
+            file.pos = first.id_range_pos.saturating_add(usize::try_from(2 * i).unwrap_or(0));
             let glyph_id = file.u16();
-            mappings.push(CmapMapping {
-                char_code: i,
-                glyph_id: i64::from(glyph_id),
-            });
+            mappings.push(CmapMapping { char_code: i, glyph_id: i64::from(glyph_id) });
         } else {
-            let s = usize::try_from(*key)
-                .ok()
-                .and_then(|k| sub_headers.get(k))
-                .ok_or_else(undefined)?;
+            let s = usize::try_from(*key).ok().and_then(|k| sub_headers.get(k)).ok_or_else(undefined)?;
             for j in 0..s.entry_count.max(0) {
                 let char_code = (i << 8) + i64::from(j) + i64::from(s.first_code);
-                file.pos = s
-                    .id_range_pos
-                    .saturating_add(usize::try_from(2 * i64::from(j)).unwrap_or(0));
+                file.pos = s.id_range_pos.saturating_add(usize::try_from(2 * i64::from(j)).unwrap_or(0));
                 let mut glyph_id = file.u16();
                 if glyph_id != 0 {
                     glyph_id = (glyph_id + s.id_delta) % 65536;
                 }
-                mappings.push(CmapMapping {
-                    char_code,
-                    glyph_id: i64::from(glyph_id),
-                });
+                mappings.push(CmapMapping { char_code, glyph_id: i64::from(glyph_id) });
             }
         }
     }
@@ -1042,14 +1128,7 @@ fn read_cmap_format4(file: &mut Reader<'_>) -> Result<Vec<CmapMapping>> {
     let seg_count = file.u16() >> 1;
     file.skip(6);
     let count = usize::try_from(seg_count.max(0)).unwrap_or(0);
-    let mut segments: Vec<Segment> = (0..count)
-        .map(|_| Segment {
-            end: file.u16(),
-            start: 0,
-            delta: 0,
-            offset_index: -1,
-        })
-        .collect();
+    let mut segments: Vec<Segment> = (0..count).map(|_| Segment { end: file.u16(), start: 0, delta: 0, offset_index: -1 }).collect();
     file.skip(2);
     for segment in &mut segments {
         segment.start = file.u16();
@@ -1066,8 +1145,7 @@ fn read_cmap_format4(file: &mut Reader<'_>) -> Result<Vec<CmapMapping>> {
         }
         let offset_index = i64::from(range_offset >> 1) - (i64::from(seg_count) - seg_index as i64);
         segment.offset_index = offset_index;
-        offsets_count =
-            offsets_count.max(offset_index + i64::from(segment.end) - i64::from(segment.start) + 1);
+        offsets_count = offsets_count.max(offset_index + i64::from(segment.end) - i64::from(segment.start) + 1);
     }
     let offsets: Vec<i32> = (0..offsets_count.max(0)).map(|_| file.u16()).collect();
     let mut mappings = Vec::new();
@@ -1079,19 +1157,14 @@ fn read_cmap_format4(file: &mut Reader<'_>) -> Result<Vec<CmapMapping>> {
             let glyph_id = if segment.offset_index < 0 {
                 Some(j)
             } else {
-                usize::try_from(segment.offset_index + i64::from(j) - i64::from(segment.start))
-                    .ok()
-                    .and_then(|index| offsets.get(index).copied())
+                usize::try_from(segment.offset_index + i64::from(j) - i64::from(segment.start)).ok().and_then(|index| offsets.get(index).copied())
             };
             // `undefined + delta` is NaN, which `& 0xffff` makes 0.
             let glyph_id = glyph_id.map_or(0, |g| (g + segment.delta) & 0xffff);
             if mappings.len() >= MAX_CMAP_MAPPINGS {
                 return Err(too_many_mappings());
             }
-            mappings.push(CmapMapping {
-                char_code: i64::from(j),
-                glyph_id: i64::from(glyph_id),
-            });
+            mappings.push(CmapMapping { char_code: i64::from(j), glyph_id: i64::from(glyph_id) });
         }
     }
     Ok(mappings)
@@ -1104,10 +1177,7 @@ fn read_cmap_format6(file: &mut Reader<'_>) -> Vec<CmapMapping> {
     let mut mappings = Vec::new();
     for j in 0..entry_count.max(0) {
         let glyph_id = file.u16();
-        mappings.push(CmapMapping {
-            char_code: i64::from(first_code) + i64::from(j),
-            glyph_id: i64::from(glyph_id),
-        });
+        mappings.push(CmapMapping { char_code: i64::from(first_code) + i64::from(j), glyph_id: i64::from(glyph_id) });
     }
     mappings
 }
@@ -1176,11 +1246,7 @@ fn copy_within_clamped(data: &mut [u8], target: i64, start: i64, end: i64) {
 
 /// `pruneCompositeGlyphCycles`: removes the components that close a cycle of composite glyphs, in `glyf` itself, and
 /// returns which glyphs are left without a component.
-fn prune_composite_glyph_cycles(
-    glyf: &mut [u8],
-    entries: &[LocaEntry],
-    num_glyphs: usize,
-) -> Result<Vec<bool>> {
+fn prune_composite_glyph_cycles(glyf: &mut [u8], entries: &[LocaEntry], num_glyphs: usize) -> Result<Vec<bool>> {
     let byte_length = i64::try_from(glyf.len()).unwrap_or(i64::MAX);
     let mut components: Vec<Option<Vec<Component>>> = (0..num_glyphs).map(|_| None).collect();
     for (i, slot) in components.iter_mut().enumerate() {
@@ -1206,12 +1272,7 @@ fn prune_composite_glyph_cycles(
             } else if flags & WE_HAVE_A_TWO_BY_TWO != 0 {
                 size += 8;
             }
-            comps.push(Component {
-                gid: usize::try_from(gid).unwrap_or(usize::MAX),
-                offset: p,
-                size,
-                flags,
-            });
+            comps.push(Component { gid: usize::try_from(gid).unwrap_or(usize::MAX), offset: p, size, flags });
             p += size;
             if flags & MORE_COMPONENTS == 0 {
                 break;
@@ -1268,12 +1329,7 @@ fn prune_composite_glyph_cycles(
     let mut dropped = vec![false; num_glyphs];
     for (g_idx, remove_set) in &back_edges {
         let comps = components[*g_idx].as_deref().unwrap_or(&[]);
-        let remaining: Vec<&Component> = comps
-            .iter()
-            .enumerate()
-            .filter(|(ci, _)| !remove_set.contains(ci))
-            .map(|(_, c)| c)
-            .collect();
+        let remaining: Vec<&Component> = comps.iter().enumerate().filter(|(ci, _)| !remove_set.contains(ci)).map(|(_, c)| c).collect();
         if remaining.is_empty() {
             dropped[*g_idx] = true;
             continue;
@@ -1283,11 +1339,7 @@ fn prune_composite_glyph_cycles(
         for (ci, c) in remaining.iter().enumerate() {
             let is_last = ci + 1 == remaining.len();
             let mut new_flags = c.flags & !WE_HAVE_INSTRUCTIONS;
-            new_flags = if is_last {
-                new_flags & !MORE_COMPONENTS
-            } else {
-                new_flags | MORE_COMPONENTS
-            };
+            new_flags = if is_last { new_flags & !MORE_COMPONENTS } else { new_flags | MORE_COMPONENTS };
             if write_pos != c.offset {
                 copy_within_clamped(glyf, write_pos, c.offset, c.offset + c.size);
             }
@@ -1408,38 +1460,24 @@ fn glyph_has_outline(source: &mut [u8], source_start: i64, source_end: i64) -> b
 
 /// `sanitizeGlyphLocations`: for each glyph whether it ends up with no data in `glyf`. `loca` is the table's data
 /// (zero-padded as pdf.js pads it), `glyf` a copy of the `glyf` data that is repaired in place.
-fn sanitize_glyph_locations(
-    loca: &[u8],
-    mut glyf: Vec<u8>,
-    num_glyphs: i32,
-    is_long: bool,
-) -> Result<Vec<bool>> {
+fn sanitize_glyph_locations(loca: &[u8], mut glyf: Vec<u8>, num_glyphs: i32, is_long: bool) -> Result<Vec<bool>> {
     // `locaEntries.at(-2)` of fewer than two entries is `undefined`.
     let num_glyphs = usize::try_from(num_glyphs)
         .ok()
         .filter(|n| *n > 0)
-        .ok_or_else(|| {
-            PdfError::Unknown("Cannot read properties of undefined (reading 'offset')".to_owned())
-        })?;
+        .ok_or_else(|| PdfError::Unknown("Cannot read properties of undefined (reading 'offset')".to_owned()))?;
     let item_size = if is_long { 4 } else { 2 };
     let item = |k: usize| i64::from(loca.get(k).copied().unwrap_or(0));
     let decode = |at: usize| -> i64 {
         if is_long {
-            i64::from(
-                ((item(at) << 24) | (item(at + 1) << 16) | (item(at + 2) << 8) | item(at + 3)) as i32,
-            )
+            i64::from(((item(at) << 24) | (item(at + 1) << 16) | (item(at + 2) << 8) | item(at + 3)) as i32)
         } else {
             (item(at) << 9) | (item(at + 1) << 1)
         }
     };
     let glyf_len = i64::try_from(glyf.len()).unwrap_or(i64::MAX);
-    let mut entries: Vec<LocaEntry> = (0..=num_glyphs)
-        .map(|index| LocaEntry {
-            index,
-            offset: decode(index * item_size).min(glyf_len),
-            end_offset: 0,
-        })
-        .collect();
+    let mut entries: Vec<LocaEntry> =
+        (0..=num_glyphs).map(|index| LocaEntry { index, offset: decode(index * item_size).min(glyf_len), end_offset: 0 }).collect();
     entries.sort_by_key(|e| e.offset);
     let offsets: Vec<i64> = entries.iter().map(|e| e.offset).collect();
     for (entry, next) in entries.iter_mut().zip(offsets.iter().skip(1)) {
@@ -1465,8 +1503,7 @@ fn sanitize_glyph_locations(
     let dropped = prune_composite_glyph_cycles(&mut glyf, &entries, num_glyphs)?;
     let mut missing = Vec::with_capacity(num_glyphs);
     for (entry, dropped) in entries.iter().zip(dropped).take(num_glyphs) {
-        let has_outline =
-            !dropped && glyph_has_outline(&mut glyf, entry.offset, entry.end_offset);
+        let has_outline = !dropped && glyph_has_outline(&mut glyf, entry.offset, entry.end_offset);
         missing.push(!has_outline);
     }
     Ok(missing)

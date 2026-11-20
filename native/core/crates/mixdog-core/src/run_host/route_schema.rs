@@ -32,7 +32,9 @@ pub enum Verdict {
 /// `isResponsesFreeformTool`.
 pub(super) fn freeform(tool: &Value) -> bool {
     let Some(grammar) = tool.get("freeform").filter(|f| f.is_object()) else { return false };
-    grammar.get("type").and_then(Value::as_str) == Some("grammar") && grammar.get("syntax").is_some_and(Value::is_string) && grammar.get("definition").is_some_and(Value::is_string)
+    grammar.get("type").and_then(Value::as_str) == Some("grammar")
+        && grammar.get("syntax").is_some_and(Value::is_string)
+        && grammar.get("definition").is_some_and(Value::is_string)
 }
 
 /// `schemaExclusion(session, routeSchemaFamily(session), tool)` as the model-facing text.
@@ -74,8 +76,4 @@ pub fn schema_verdict(header: &Header, tool: &Value) -> Verdict {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
-
+mod tests {}

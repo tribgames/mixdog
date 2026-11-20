@@ -78,17 +78,10 @@ fn one() -> u32 {
 /// The stored form of a record id: a tag byte (`0` hex digest, `1` UTF-8 text) then the
 /// identifier in full, so arbitrary request ids stay disjoint from digests.
 pub fn encode_usage_id(id: &str) -> Vec<u8> {
-    let is_digest = id.len() == 64
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    let is_digest = id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
     if is_digest {
         let mut out = vec![0u8];
-        out.extend(
-            (0..64)
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&id[i..i + 2], 16).unwrap_or(0)),
-        );
+        out.extend((0..64).step_by(2).map(|i| u8::from_str_radix(&id[i..i + 2], 16).unwrap_or(0)));
         out
     } else {
         let mut out = vec![1u8];
@@ -154,93 +147,68 @@ fn validate(row: &UsageRecord) -> Result<()> {
             4 | 7 => *b == b'-',
             _ => b.is_ascii_digit(),
         });
-    if calendar {
-        Ok(())
-    } else {
-        Err(LedgerError::Invalid("a calendar day"))
-    }
+    if calendar { Ok(()) } else { Err(LedgerError::Invalid("a calendar day")) }
 }
 
 fn intern(tx: &Transaction, table: &'static str, column: &'static str, value: &str) -> Result<i64> {
-    tx.prepare_cached(&format!(
-        "INSERT OR IGNORE INTO {table}({column}) VALUES (?1)"
-    ))?
-    .execute([value])?;
-    Ok(tx
-        .prepare_cached(&format!("SELECT id FROM {table} WHERE {column} = ?1"))?
-        .query_row([value], |r| r.get(0))?)
+    tx.prepare_cached(&format!("INSERT OR IGNORE INTO {table}({column}) VALUES (?1)"))?.execute([value])?;
+    Ok(tx.prepare_cached(&format!("SELECT id FROM {table} WHERE {column} = ?1"))?.query_row([value], |r| r.get(0))?)
 }
 
 fn metadata(tx: &Transaction, key: &str) -> Result<Option<String>> {
-    Ok(tx
-        .prepare_cached("SELECT value FROM metadata WHERE key = ?1")?
-        .query_row([key], |r| r.get(0))
-        .optional()?)
+    Ok(tx.prepare_cached("SELECT value FROM metadata WHERE key = ?1")?.query_row([key], |r| r.get(0)).optional()?)
 }
 
 /// Inserts one record unless its id is already stored; `false` for a duplicate.
 fn insert_event(tx: &Transaction, row: &UsageRecord) -> Result<bool> {
     validate(row)?;
     let id = encode_usage_id(&row.id);
-    let known: Option<i64> = tx
-        .prepare_cached("SELECT 1 FROM usage_events WHERE id = ?1")?
-        .query_row([&id], |r| r.get(0))
-        .optional()?;
+    let known: Option<i64> = tx.prepare_cached("SELECT 1 FROM usage_events WHERE id = ?1")?.query_row([&id], |r| r.get(0)).optional()?;
     if known.is_some() {
         return Ok(false);
     }
     let route = intern(tx, "usage_routes", "signature", &route_signature(row)?)?;
     let session = intern(tx, "usage_sessions", "value", &row.session_id)?;
-    if let Some(owner) = row
-        .owner_session_id
-        .as_deref()
-        .filter(|o| !o.is_empty() && *o != row.session_id)
-    {
+    if let Some(owner) = row.owner_session_id.as_deref().filter(|o| !o.is_empty() && *o != row.session_id) {
         let owner = intern(tx, "usage_sessions", "value", owner)?;
-        tx.prepare_cached("INSERT OR IGNORE INTO usage_session_owners VALUES (?1, ?2)")?
-            .execute(params![session, owner])?;
+        tx.prepare_cached("INSERT OR IGNORE INTO usage_session_owners VALUES (?1, ?2)")?.execute(params![session, owner])?;
     }
-    tx.prepare_cached("INSERT INTO usage_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")?
-        .execute(params![
-            id,
-            row.ts,
-            day_number(&row.day)?,
-            route,
-            session,
-            row.input,
-            row.output,
-            row.cache_read,
-            row.cache_write,
-            row.cost_usd,
-            row.duration_ms,
-        ])?;
+    tx.prepare_cached("INSERT INTO usage_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")?.execute(params![
+        id,
+        row.ts,
+        day_number(&row.day)?,
+        route,
+        session,
+        row.input,
+        row.output,
+        row.cache_read,
+        row.cache_write,
+        row.cost_usd,
+        row.duration_ms,
+    ])?;
     // Request-log facts live beside the record; a completed single attempt with nothing
     // else to say needs no row.
     let requested = (!row.requested_model.is_empty()).then_some(row.requested_model.as_str());
     let elapsed = (row.elapsed_ms != 0.0).then_some(row.elapsed_ms);
     if row.status != "completed" || row.attempts > 1 || requested.is_some() || elapsed.is_some() {
-        tx.prepare_cached("INSERT INTO usage_requests VALUES (?1,?2,?3,?4,?5,?6,?7)")?
-            .execute(params![
-                id,
-                row.ts,
-                requested,
-                row.status,
-                row.attempts,
-                None::<f64>,
-                elapsed
-            ])?;
+        tx.prepare_cached("INSERT INTO usage_requests VALUES (?1,?2,?3,?4,?5,?6,?7)")?.execute(params![
+            id,
+            row.ts,
+            requested,
+            row.status,
+            row.attempts,
+            None::<f64>,
+            elapsed
+        ])?;
     }
     if let Some(tokens) = row.rates.as_deref().and_then(|rates| split_cache_1h(rates).1).filter(|tokens| *tokens != 0.0) {
-        tx.prepare_cached("INSERT OR REPLACE INTO usage_event_cache_1h VALUES (?1, ?2)")?
-            .execute(params![id, tokens])?;
+        tx.prepare_cached("INSERT OR REPLACE INTO usage_event_cache_1h VALUES (?1, ?2)")?.execute(params![id, tokens])?;
     }
     if let Some(ttft) = row.ttft_ms {
-        tx.prepare_cached("INSERT INTO usage_request_first_output VALUES (?1, ?2)")?
-            .execute(params![id, ttft])?;
+        tx.prepare_cached("INSERT INTO usage_request_first_output VALUES (?1, ?2)")?.execute(params![id, ttft])?;
     }
     if !row.requested_provider.is_empty() {
-        tx.prepare_cached("INSERT INTO usage_request_requested_provider VALUES (?1, ?2)")?
-            .execute(params![id, row.requested_provider])?;
+        tx.prepare_cached("INSERT INTO usage_request_requested_provider VALUES (?1, ?2)")?.execute(params![id, row.requested_provider])?;
     }
     Ok(true)
 }
@@ -280,12 +248,7 @@ pub(crate) fn index_event(tx: &Transaction, row: &UsageRecord, rank: i64) -> Res
             "INSERT INTO day_sessions VALUES (?1,?2,?3,?4)
              ON CONFLICT(day,rank,session_id) DO UPDATE SET tokens=tokens+excluded.tokens",
         )?
-        .execute(params![
-            row.day,
-            rank,
-            row.session_id,
-            row.input + row.output + row.cache_read + row.cache_write,
-        ])?;
+        .execute(params![row.day, rank, row.session_id, row.input + row.output + row.cache_read + row.cache_write,])?;
     }
     Ok(())
 }
@@ -300,8 +263,7 @@ fn append_tx(conn: &mut Connection, rows: &[UsageRecord]) -> Result<Vec<bool>> {
         if new {
             index_event(&tx, row, rank_of(row))?;
             if row.origin == "live" && metadata(&tx, "liveSince")?.is_none() {
-                tx.prepare_cached("INSERT INTO metadata VALUES ('liveSince', ?1)")?
-                    .execute([row.ts.to_string()])?;
+                tx.prepare_cached("INSERT INTO metadata VALUES ('liveSince', ?1)")?.execute([row.ts.to_string()])?;
             }
         }
         inserted.push(new);
@@ -312,10 +274,7 @@ fn append_tx(conn: &mut Connection, rows: &[UsageRecord]) -> Result<Vec<bool>> {
 
 /// Appends `rows` in one transaction; returns how many were new.
 pub fn append_batch(conn: &mut Connection, rows: &[UsageRecord]) -> Result<usize> {
-    Ok(append_tx(conn, rows)?
-        .into_iter()
-        .filter(|new| *new)
-        .count())
+    Ok(append_tx(conn, rows)?.into_iter().filter(|new| *new).count())
 }
 
 /// What became of one record of an [`append_rows`] batch.
@@ -330,11 +289,7 @@ pub enum Appended {
 /// failure is reported only for the row it belongs to.
 pub fn append_rows(conn: &mut Connection, rows: &[UsageRecord]) -> Vec<Appended> {
     let outcome = |new: bool| {
-        if new {
-            Appended::Inserted
-        } else {
-            Appended::Duplicate
-        }
+        if new { Appended::Inserted } else { Appended::Duplicate }
     };
     if let Ok(inserted) = append_tx(conn, rows) {
         return inserted.into_iter().map(outcome).collect();

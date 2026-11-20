@@ -12,9 +12,7 @@ use base64::engine::general_purpose::STANDARD;
 use mixdog_fsio::Unlaned;
 use mixdog_relay::feedback::attachments::{self, MAX_BYTES};
 use mixdog_relay::feedback::records;
-use mixdog_relay::feedback::{
-    FeedbackError, FeedbackMail, FeedbackOptions, FeedbackSender, FeedbackService, SendFailure,
-};
+use mixdog_relay::feedback::{FeedbackError, FeedbackMail, FeedbackOptions, FeedbackSender, FeedbackService, SendFailure};
 use mixdog_relay::js;
 use mixdog_relay::logline::Line;
 use serde_json::{Value, json};
@@ -196,10 +194,8 @@ impl World {
     }
 
     fn names(&self) -> Vec<String> {
-        let mut names: Vec<String> = mixdog_fsio::read_dir(&Unlaned, self.feedback())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
+        let mut names: Vec<String> =
+            mixdog_fsio::read_dir(&Unlaned, self.feedback()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         names
     }
@@ -600,13 +596,7 @@ async fn corrupt_records_fail_closed_with_generic_diagnostics() {
     let sender = Fake::ok();
     let service = world.start(Some(&sender), world.options()).await;
     let lines = world.lines.all();
-    assert_eq!(
-        lines,
-        [
-            format!("[relay] feedback record unreadable file={id}.json code=error"),
-            format!("[relay] feedback record corrupt file={other}.json"),
-        ]
-    );
+    assert_eq!(lines, [format!("[relay] feedback record unreadable file={id}.json code=error"), format!("[relay] feedback record corrupt file={other}.json"),]);
     assert!(!lines.join("\n").contains(secret));
     let error = service.submit(&valid(&uid(9))).await.unwrap_err();
     assert_eq!(error.status, 503);
@@ -788,15 +778,10 @@ async fn attachments_are_persisted_before_acceptance_mailed_and_removed() {
     wait_for("the mail", || sender.delivered() == 1).await;
     let mails = sender.mails();
     let mail = mails.last().unwrap();
-    let files: Vec<(&str, &str, Vec<u8>)> =
-        mail.attachments.iter().map(|a| (a.filename.as_str(), a.content_type.as_str(), a.content.clone())).collect();
+    let files: Vec<(&str, &str, Vec<u8>)> = mail.attachments.iter().map(|a| (a.filename.as_str(), a.content_type.as_str(), a.content.clone())).collect();
     assert_eq!(
         files,
-        [
-            ("a.png", "image/png", image("png", 100, 1)),
-            ("b.jpg", "image/jpeg", image("jpeg", 200, 2)),
-            ("c.webp", "image/webp", image("webp", 300, 3)),
-        ]
+        [("a.png", "image/png", image("png", 100, 1)), ("b.jpg", "image/jpeg", image("jpeg", 200, 2)), ("c.webp", "image/webp", image("webp", 300, 3)),]
     );
     assert_eq!(mail.reply_to.as_deref(), Some("who@example.com"));
     wait_for("the sent mark", || world.sent_at(&id) > 0.0).await;
@@ -819,8 +804,7 @@ async fn an_attachment_free_payload_hashes_as_before() {
 #[tokio::test(start_paused = true)]
 async fn legacy_records_without_attachments_load_and_corrupt_attachments_fail_closed() {
     let legacy = |id: &str, payload: Value| {
-        json!({ "id": id, "hash": "h", "payload": payload, "createdAt": 1, "attempts": 0, "nextAttemptAt": 0, "sentAt": 0 })
-            .to_string()
+        json!({ "id": id, "hash": "h", "payload": payload, "createdAt": 1, "attempts": 0, "nextAttemptAt": 0, "sentAt": 0 }).to_string()
     };
     let world = World::new();
     mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
@@ -887,7 +871,9 @@ async fn what_the_strict_loader_refuses() {
         service.close().await;
     }
     // A sent record needs no payload, and an empty attachments list is a valid record.
-    for record in [good(json!({ "sentAt": 5, "payload": null })), good(json!({ "payload": { "kind": "bug", "message": "m", "replyTo": "", "attachments": [] } }))] {
+    for record in
+        [good(json!({ "sentAt": 5, "payload": null })), good(json!({ "payload": { "kind": "bug", "message": "m", "replyTo": "", "attachments": [] } }))]
+    {
         let world = World::new();
         mixdog_fsio::create_dir_all(&Unlaned, world.feedback()).unwrap();
         mixdog_fsio::write(&Unlaned, world.feedback().join(format!("{id}.json")), record.to_string()).unwrap();
@@ -896,5 +882,3 @@ async fn what_the_strict_loader_refuses() {
         service.close().await;
     }
 }
-
-

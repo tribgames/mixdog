@@ -64,9 +64,7 @@ pub fn validate(args: &Value) -> Result<(String, Map<String, Value>), String> {
         "open" => validate_open(&input)?,
         "inspect" => {
             if let Some(v) = input.get("viewport").filter(|v| !v.is_null()) {
-                let ok = v.is_object()
-                    && sized(v.get("width"), 200, 3000)
-                    && v.get("height").is_none_or(|h| h.is_null() || sized(Some(h), 200, 4000));
+                let ok = v.is_object() && sized(v.get("width"), 200, 3000) && v.get("height").is_none_or(|h| h.is_null() || sized(Some(h), 200, 4000));
                 if !ok {
                     return Err("inspect input.viewport must be { width: 200-3000, height?: 200-4000 } in whole pixels".to_owned());
                 }
@@ -94,9 +92,7 @@ pub fn validate(args: &Value) -> Result<(String, Map<String, Value>), String> {
             let Some(steps) = steps else {
                 return Err(format!("act requires input.steps: 1-{MAX_ACT_STEPS} steps"));
             };
-            let bad = steps
-                .iter()
-                .position(|s| !s.get("do").and_then(Value::as_str).is_some_and(|d| ACT_STEP_KINDS.contains(&d)));
+            let bad = steps.iter().position(|s| !s.get("do").and_then(Value::as_str).is_some_and(|d| ACT_STEP_KINDS.contains(&d)));
             if let Some(bad) = bad {
                 return Err(format!("act input.steps[{bad}].do must be click, type, key, scroll, wait, or evaluate"));
             }
@@ -285,10 +281,7 @@ mod tests {
 
     #[test]
     fn open_and_export_wordings() {
-        assert_eq!(
-            validate(&json!({"action":"open","input":{}})).unwrap_err(),
-            "open requires input.targets: 1-3 non-empty strings"
-        );
+        assert_eq!(validate(&json!({"action":"open","input":{}})).unwrap_err(), "open requires input.targets: 1-3 non-empty strings");
         assert_eq!(
             validate(&json!({"action":"open","input":{"targets":["https://a.com","b.md"]}})).unwrap_err(),
             "a web URL must be the only target; do not mix it with files or other URLs"
@@ -344,11 +337,24 @@ mod tests {
 
     #[async_trait]
     impl HostCommands for Owned {
-        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
+        async fn browser(
+            &self,
+            _: &ThreadId,
+            _: &str,
+            _: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, super::super::host::HostCommandError> {
             unreachable!()
         }
 
-        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
+        async fn visualize(
+            &self,
+            _: &ThreadId,
+            _: &str,
+            _: &str,
+            input: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, super::super::host::HostCommandError> {
             self.seen.lock().unwrap().push(input);
             Ok(self.answer.clone())
         }
@@ -365,7 +371,8 @@ mod tests {
         let call = |answer: Value| async move {
             let host = Arc::new(Owned { answer, seen: Default::default() });
             let waits = crate::desktop::pending::tests::waits(40, 1000);
-            let out = VisualizeTool::new(host.clone(), waits).call(&crate::orch::tests::ctx(), json!({"action":"open","input":{"targets":["a.md"]}})).await.unwrap();
+            let out =
+                VisualizeTool::new(host.clone(), waits).call(&crate::orch::tests::ctx(), json!({"action":"open","input":{"targets":["a.md"]}})).await.unwrap();
             (out.meta, host.seen.lock().unwrap()[0].clone())
         };
         let (meta, seen) = call(json!({"text": "shown", "ownerSessionId": "sess_lead1x"})).await;
@@ -377,14 +384,26 @@ mod tests {
         assert_eq!(call(json!({"text": "shown", "ownerSessionId": "a".repeat(129)})).await.0, None);
     }
 
-
     #[async_trait]
     impl HostCommands for Pane {
-        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
+        async fn browser(
+            &self,
+            _: &ThreadId,
+            _: &str,
+            _: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, super::super::host::HostCommandError> {
             unreachable!()
         }
 
-        async fn visualize(&self, thread: &ThreadId, _: &str, _: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
+        async fn visualize(
+            &self,
+            thread: &ThreadId,
+            _: &str,
+            _: &str,
+            input: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, super::super::host::HostCommandError> {
             if let Some(page) = self.report {
                 self.waits.new_tab_created(thread.as_str(), input["openRequestId"].as_str().unwrap(), page);
             }
@@ -409,10 +428,7 @@ mod tests {
     #[tokio::test]
     async fn a_web_url_open_answers_with_the_page_the_pane_made() {
         let (reply, sent) = open_url(Some("p7"), 1000).await;
-        assert_eq!(
-            reply,
-            format!("Opened {URL} in the session's browser panel as page p7; pass tab:\"p7\" to the browser tool.\n{TAB_ROW}")
-        );
+        assert_eq!(reply, format!("Opened {URL} in the session's browser panel as page p7; pass tab:\"p7\" to the browser tool.\n{TAB_ROW}"));
         assert!(uuid::Uuid::parse_str(sent["openRequestId"].as_str().unwrap()).is_ok());
     }
     #[tokio::test]

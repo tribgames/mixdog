@@ -8,9 +8,7 @@ pub(crate) fn estimate_added_hunk_bytes(entry: &Entry) -> usize {
     for hunk in &entry.hunks {
         for line in &hunk.lines {
             if line.as_bytes().first() == Some(&b'+') {
-                bytes = bytes
-                    .saturating_add(line.len().saturating_sub(1))
-                    .saturating_add(2);
+                bytes = bytes.saturating_add(line.len().saturating_sub(1)).saturating_add(2);
             }
         }
     }
@@ -61,50 +59,22 @@ pub(crate) fn parse_hunk_parts(hunk: &Hunk) -> Result<HunkParts, String> {
         let body = raw.as_bytes()[1..].to_vec();
         match tag {
             b' ' => {
-                old.push(HunkLine {
-                    tag: HunkTag::Context,
-                    body: body.clone(),
-                    has_newline: true,
-                });
-                new.push(HunkLine {
-                    tag: HunkTag::Context,
-                    body: body.clone(),
-                    has_newline: true,
-                });
-                ops.push(HunkOp {
-                    tag: HunkTag::Context,
-                    body,
-                    new_has_newline: true,
-                });
+                old.push(HunkLine { tag: HunkTag::Context, body: body.clone(), has_newline: true });
+                new.push(HunkLine { tag: HunkTag::Context, body: body.clone(), has_newline: true });
+                ops.push(HunkOp { tag: HunkTag::Context, body, new_has_newline: true });
                 last_old = Some(old.len() - 1);
                 last_new = Some(new.len() - 1);
                 last_op = Some(ops.len() - 1);
             }
             b'-' => {
-                old.push(HunkLine {
-                    tag: HunkTag::Delete,
-                    body: body.clone(),
-                    has_newline: true,
-                });
-                ops.push(HunkOp {
-                    tag: HunkTag::Delete,
-                    body,
-                    new_has_newline: true,
-                });
+                old.push(HunkLine { tag: HunkTag::Delete, body: body.clone(), has_newline: true });
+                ops.push(HunkOp { tag: HunkTag::Delete, body, new_has_newline: true });
                 last_old = Some(old.len() - 1);
                 last_op = Some(ops.len() - 1);
             }
             b'+' => {
-                new.push(HunkLine {
-                    tag: HunkTag::Add,
-                    body: body.clone(),
-                    has_newline: true,
-                });
-                ops.push(HunkOp {
-                    tag: HunkTag::Add,
-                    body,
-                    new_has_newline: true,
-                });
+                new.push(HunkLine { tag: HunkTag::Add, body: body.clone(), has_newline: true });
+                ops.push(HunkOp { tag: HunkTag::Add, body, new_has_newline: true });
                 last_new = Some(new.len() - 1);
                 last_op = Some(ops.len() - 1);
             }
@@ -139,11 +109,7 @@ pub(crate) fn hunk_lines_to_bytes(lines: &[HunkLine], eol: &str) -> Vec<u8> {
 /// it replaces inside that run (falling back to the local convention when the
 /// run has none left). Content-similarity mapping cannot express interior
 /// context, several change runs, or a moved line, so it is not used at all.
-pub(crate) fn hunk_ops_to_bytes<'a>(
-    parts: &'a HunkParts,
-    old_eols: &[Option<&'a str>],
-    fallback_eol: &'a str,
-) -> Vec<u8> {
+pub(crate) fn hunk_ops_to_bytes<'a>(parts: &'a HunkParts, old_eols: &[Option<&'a str>], fallback_eol: &'a str) -> Vec<u8> {
     // Pre-pass: EVERY delete of the hunk with the terminator of the source
     // line it consumes, tagged with its run. Filling the pool while walking
     // only saw deletes already passed, so a BACKWARD move (the add precedes
@@ -159,12 +125,7 @@ pub(crate) fn hunk_ops_to_bytes<'a>(
                     run += 1;
                 }
                 HunkTag::Delete => {
-                    pool.push((
-                        op.body.as_slice(),
-                        old_eols.get(cursor).copied().flatten(),
-                        false,
-                        run,
-                    ));
+                    pool.push((op.body.as_slice(), old_eols.get(cursor).copied().flatten(), false, run));
                     cursor += 1;
                 }
                 HunkTag::Add => {}
@@ -196,28 +157,16 @@ pub(crate) fn hunk_ops_to_bytes<'a>(
                 let index = pool
                     .iter()
                     .enumerate()
-                    .position(|(position, (candidate, _, used, _))| {
-                        !*used && *candidate == body && position as isize > last_claimed
-                    })
-                    .or_else(|| {
-                        pool.iter()
-                            .position(|(candidate, _, used, _)| !*used && *candidate == body)
-                    })
-                    .or_else(|| {
-                        pool.iter()
-                            .position(|(_, _, used, run)| !*used && *run == current_run)
-                    });
+                    .position(|(position, (candidate, _, used, _))| !*used && *candidate == body && position as isize > last_claimed)
+                    .or_else(|| pool.iter().position(|(candidate, _, used, _)| !*used && *candidate == body))
+                    .or_else(|| pool.iter().position(|(_, _, used, run)| !*used && *run == current_run));
                 let mut inherited: Option<&'a str> = None;
                 if let Some(position) = index {
                     pool[position].2 = true;
                     last_claimed = position as isize;
                     inherited = pool[position].1;
                 }
-                let eol = if op.new_has_newline {
-                    Some(inherited.unwrap_or(fallback_eol))
-                } else {
-                    None
-                };
+                let eol = if op.new_has_newline { Some(inherited.unwrap_or(fallback_eol)) } else { None };
                 pieces.push((body, eol));
             }
         }
@@ -246,10 +195,7 @@ pub(crate) fn hunk_ops_to_bytes<'a>(
 /// still encode that line with the default `has_newline: true` unless a `\`
 /// no-newline marker is present; that single-line EOF mismatch stays tolerated
 /// for the last old hunk line only.
-pub(crate) fn old_hunk_span_line_eols<'a>(
-    parts: &HunkParts,
-    span: &'a [u8],
-) -> Option<Vec<Option<&'a str>>> {
+pub(crate) fn old_hunk_span_line_eols<'a>(parts: &HunkParts, span: &'a [u8]) -> Option<Vec<Option<&'a str>>> {
     let mut eols: Vec<Option<&'a str>> = Vec::with_capacity(parts.old.len());
     let mut pos = 0usize;
     for (index, expected) in parts.old.iter().enumerate() {
@@ -265,11 +211,7 @@ pub(crate) fn old_hunk_span_line_eols<'a>(
             }
             if span[cursor] == b'\r' {
                 body_end = cursor;
-                eol = Some(if span.get(cursor + 1) == Some(&b'\n') {
-                    "\r\n"
-                } else {
-                    "\r"
-                });
+                eol = Some(if span.get(cursor + 1) == Some(&b'\n') { "\r\n" } else { "\r" });
                 break;
             }
             cursor += 1;
@@ -291,12 +233,7 @@ pub(crate) fn old_hunk_span_line_eols<'a>(
     Some(eols)
 }
 
-pub(crate) fn newline_flags_compatible(
-    line: &SourceLine,
-    expected: &HunkLine,
-    is_last_old_in_hunk: bool,
-    is_last_line_in_file: bool,
-) -> bool {
+pub(crate) fn newline_flags_compatible(line: &SourceLine, expected: &HunkLine, is_last_old_in_hunk: bool, is_last_line_in_file: bool) -> bool {
     if expected.has_newline == line.has_newline {
         return true;
     }
@@ -319,13 +256,7 @@ pub(crate) fn source_line_matches_eof_aware(
     source[line.start..line.body_end] == expected.body
 }
 
-pub(crate) fn apply_declared_hunk(
-    source: &[u8],
-    hunk: &Hunk,
-    parts: &HunkParts,
-    cursor: usize,
-    scan: &mut Scan,
-) -> Option<(usize, usize, Vec<u8>)> {
+pub(crate) fn apply_declared_hunk(source: &[u8], hunk: &Hunk, parts: &HunkParts, cursor: usize, scan: &mut Scan) -> Option<(usize, usize, Vec<u8>)> {
     let mut local_scan = *scan;
     if parts.old.is_empty() {
         if parts.new.is_empty() {
@@ -352,11 +283,7 @@ pub(crate) fn apply_declared_hunk(
         }
         let eol = insertion_line_ending_at(source, start_offset);
         *scan = local_scan;
-        return Some((
-            start_offset,
-            start_offset,
-            hunk_lines_to_bytes(&parts.new, eol),
-        ));
+        return Some((start_offset, start_offset, hunk_lines_to_bytes(&parts.new, eol)));
     }
 
     let start_line = hunk.old_start.saturating_sub(1);
@@ -369,26 +296,12 @@ pub(crate) fn apply_declared_hunk(
     // Per-line terminators, so a replacement inherits the ending of the line it
     // replaces and a mixed-EOL span is never folded onto one anchor EOL.
     let old_eols = old_hunk_span_line_eols(parts, span)?;
-    let fallback_eol = old_eols
-        .iter()
-        .rev()
-        .find_map(|entry| *entry)
-        .unwrap_or_else(|| insertion_line_ending_at(source, start_offset));
+    let fallback_eol = old_eols.iter().rev().find_map(|entry| *entry).unwrap_or_else(|| insertion_line_ending_at(source, start_offset));
     *scan = local_scan;
-    Some((
-        start_offset,
-        end_offset,
-        hunk_ops_to_bytes(parts, &old_eols, fallback_eol),
-    ))
+    Some((start_offset, end_offset, hunk_ops_to_bytes(parts, &old_eols, fallback_eol)))
 }
 
-pub(crate) fn apply_fuzzy_hunk(
-    source: &[u8],
-    hunk: &Hunk,
-    parts: &HunkParts,
-    cursor: usize,
-    fuzz_factor: usize,
-) -> Option<(usize, usize, Vec<u8>)> {
+pub(crate) fn apply_fuzzy_hunk(source: &[u8], hunk: &Hunk, parts: &HunkParts, cursor: usize, fuzz_factor: usize) -> Option<(usize, usize, Vec<u8>)> {
     if parts.old.is_empty() {
         return None;
     }
@@ -404,9 +317,7 @@ pub(crate) fn apply_fuzzy_hunk(
         if start_offset < cursor {
             continue;
         }
-        let Some((fuzz, norm_count, new_bytes)) =
-            evaluate_fuzzy_candidate(source, &lines, idx, parts, fuzz_factor)
-        else {
+        let Some((fuzz, norm_count, new_bytes)) = evaluate_fuzzy_candidate(source, &lines, idx, parts, fuzz_factor) else {
             continue;
         };
         let distance = idx.abs_diff(target_idx);
@@ -417,19 +328,10 @@ pub(crate) fn apply_fuzzy_hunk(
         // nearer the normalized block sits to the target line.
         let replace = match &best {
             None => true,
-            Some((best_fuzz, best_norm, best_dist, _, _, _)) => {
-                (fuzz, norm_count, distance) < (*best_fuzz, *best_norm, *best_dist)
-            }
+            Some((best_fuzz, best_norm, best_dist, _, _, _)) => (fuzz, norm_count, distance) < (*best_fuzz, *best_norm, *best_dist),
         };
         if replace {
-            best = Some((
-                fuzz,
-                norm_count,
-                distance,
-                start_offset,
-                end_offset,
-                new_bytes,
-            ));
+            best = Some((fuzz, norm_count, distance, start_offset, end_offset, new_bytes));
         }
     }
     best.map(|(_, _, _, start, end, bytes)| (start, end, bytes))
@@ -497,13 +399,7 @@ pub(crate) fn evaluate_fuzzy_candidate(
         let src = lines.get(idx + offset)?;
         let is_last_old_in_hunk = offset + 1 == parts.old.len();
         let is_last_line_in_file = idx + offset + 1 == lines.len();
-        if source_line_matches_eof_aware(
-            source,
-            src,
-            expected,
-            is_last_old_in_hunk,
-            is_last_line_in_file,
-        ) {
+        if source_line_matches_eof_aware(source, src, expected, is_last_old_in_hunk, is_last_line_in_file) {
             continue;
         }
         // Whitespace-only drift (leading OR trailing) is always tolerated and
@@ -515,13 +411,7 @@ pub(crate) fn evaluate_fuzzy_candidate(
         // for Context, and to a hard reject for Delete.
         if fuzz_factor > 0
             && matches!(expected.tag, HunkTag::Context | HunkTag::Delete)
-            && source_context_line_matches_fuzzy(
-                source,
-                src,
-                expected,
-                is_last_old_in_hunk,
-                is_last_line_in_file,
-            )
+            && source_context_line_matches_fuzzy(source, src, expected, is_last_old_in_hunk, is_last_line_in_file)
         {
             continue;
         }
@@ -534,13 +424,7 @@ pub(crate) fn evaluate_fuzzy_candidate(
         // normalise() pass of the seek.
         if fuzz_factor > 0
             && matches!(expected.tag, HunkTag::Context | HunkTag::Delete)
-            && source_context_line_matches_normalized(
-                source,
-                src,
-                expected,
-                is_last_old_in_hunk,
-                is_last_line_in_file,
-            )
+            && source_context_line_matches_normalized(source, src, expected, is_last_old_in_hunk, is_last_line_in_file)
         {
             norm_count += 1;
             continue;
@@ -583,17 +467,11 @@ pub(crate) fn evaluate_fuzzy_candidate(
 
 /// The hunk's new side at candidate `idx`: context copied verbatim from the
 /// source, adds terminated like the deleted lines they replace.
-fn render_fuzzy_candidate(
-    source: &[u8],
-    lines: &[SourceLine],
-    idx: usize,
-    parts: &HunkParts,
-) -> Option<Vec<u8>> {
+fn render_fuzzy_candidate(source: &[u8], lines: &[SourceLine], idx: usize, parts: &HunkParts) -> Option<Vec<u8>> {
     // apply_fuzzy_hunk bounds idx to 0..=lines.len()-parts.old.len() and
     // parts.old is non-empty, so lines[idx] is always in range.
     let anchor = &lines[idx];
-    let fallback_eol = source_line_eol(source, anchor)
-        .unwrap_or_else(|| insertion_line_ending_at(source, anchor.start));
+    let fallback_eol = source_line_eol(source, anchor).unwrap_or_else(|| insertion_line_ending_at(source, anchor.start));
     let mut new_bytes = Vec::new();
     let mut old_offset = 0usize;
     // Terminators of the lines the current run deletes. The k-th added line of
@@ -621,10 +499,7 @@ fn render_fuzzy_candidate(
             HunkTag::Add => {
                 new_bytes.extend_from_slice(&op.body);
                 if op.new_has_newline {
-                    let eol = replaced_eols
-                        .get(replaced_cursor)
-                        .copied()
-                        .unwrap_or(fallback_eol);
+                    let eol = replaced_eols.get(replaced_cursor).copied().unwrap_or(fallback_eol);
                     replaced_cursor += 1;
                     new_bytes.extend_from_slice(eol.as_bytes());
                 }
@@ -680,12 +555,10 @@ pub(crate) fn normalize_typographic(bytes: &[u8]) -> String {
         .chars()
         .map(|c| match c {
             // Various dash / hyphen code-points -> ASCII '-'
-            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
-            | '\u{2212}' => '-',
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' | '\u{2212}' => '-',
             // Non-breaking space and other odd spaces -> normal space
-            '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}'
-            | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}' | '\u{205F}'
-            | '\u{3000}' => ' ',
+            '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}' | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}'
+            | '\u{205F}' | '\u{3000}' => ' ',
             other => fold_char_curly(other),
         })
         .collect::<String>()
@@ -720,10 +593,7 @@ pub(crate) fn source_line_eol<'a>(source: &'a [u8], line: &SourceLine) -> Option
     if !line.has_newline {
         return None;
     }
-    if line.body_end + 1 < line.end
-        && source.get(line.body_end) == Some(&b'\r')
-        && source.get(line.body_end + 1) == Some(&b'\n')
-    {
+    if line.body_end + 1 < line.end && source.get(line.body_end) == Some(&b'\r') && source.get(line.body_end + 1) == Some(&b'\n') {
         return Some("\r\n");
     }
     if source.get(line.body_end) == Some(&b'\r') {
@@ -740,21 +610,11 @@ pub(crate) fn split_source_lines(source: &[u8]) -> Vec<SourceLine> {
             match memchr(b'\r', &source[start..]) {
                 Some(rel) => {
                     let cr = start + rel;
-                    lines.push(SourceLine {
-                        start,
-                        body_end: cr,
-                        end: cr + 1,
-                        has_newline: true,
-                    });
+                    lines.push(SourceLine { start, body_end: cr, end: cr + 1, has_newline: true });
                     start = cr + 1;
                 }
                 None => {
-                    lines.push(SourceLine {
-                        start,
-                        body_end: source.len(),
-                        end: source.len(),
-                        has_newline: false,
-                    });
+                    lines.push(SourceLine { start, body_end: source.len(), end: source.len(), has_newline: false });
                     break;
                 }
             }
@@ -764,26 +624,12 @@ pub(crate) fn split_source_lines(source: &[u8]) -> Vec<SourceLine> {
     while start < source.len() {
         match memchr_lf(source, start) {
             Some(nl) => {
-                let body_end = if nl > start && source[nl - 1] == b'\r' {
-                    nl - 1
-                } else {
-                    nl
-                };
-                lines.push(SourceLine {
-                    start,
-                    body_end,
-                    end: nl + 1,
-                    has_newline: true,
-                });
+                let body_end = if nl > start && source[nl - 1] == b'\r' { nl - 1 } else { nl };
+                lines.push(SourceLine { start, body_end, end: nl + 1, has_newline: true });
                 start = nl + 1;
             }
             None => {
-                lines.push(SourceLine {
-                    start,
-                    body_end: source.len(),
-                    end: source.len(),
-                    has_newline: false,
-                });
+                lines.push(SourceLine { start, body_end: source.len(), end: source.len(), has_newline: false });
                 break;
             }
         }
@@ -796,11 +642,7 @@ pub(crate) fn line_start_at_fresh(source: &[u8], target_line: usize) -> Option<u
     line_start_at(source, target_line, &mut scan)
 }
 
-pub(crate) fn line_start_at_cached(
-    source: &[u8],
-    target_line: usize,
-    scan: &mut Scan,
-) -> Option<usize> {
+pub(crate) fn line_start_at_cached(source: &[u8], target_line: usize, scan: &mut Scan) -> Option<usize> {
     if target_line < scan.line {
         return line_start_at_fresh(source, target_line);
     }
@@ -842,11 +684,7 @@ pub(crate) fn source_uses_cr_only(source: &[u8]) -> bool {
 /// otherwise. `cr_only` is `source_uses_cr_only(source)`, computed once by
 /// the caller because it scans the whole source.
 fn next_eol(source: &[u8], start: usize, cr_only: bool) -> Option<usize> {
-    if cr_only {
-        memchr(b'\r', source.get(start..)?).map(|idx| start + idx)
-    } else {
-        memchr_lf(source, start)
-    }
+    if cr_only { memchr(b'\r', source.get(start..)?).map(|idx| start + idx) } else { memchr_lf(source, start) }
 }
 
 pub(crate) fn count_source_lines(source: &[u8]) -> usize {
@@ -918,11 +756,7 @@ pub(crate) fn strip_trailing_eol(bytes: &mut Vec<u8>) {
 /// `\ No newline at end of file` marker on the side in question); an explicit
 /// marker is a deliberate intent and is left alone. This matches the JS
 /// dispatcher, which carries the source's `hasFinalNewline` through unchanged.
-pub(crate) fn preserve_eof_newline_state(
-    source: &[u8],
-    parts: &HunkParts,
-    applied: (usize, usize, Vec<u8>),
-) -> (usize, usize, Vec<u8>) {
+pub(crate) fn preserve_eof_newline_state(source: &[u8], parts: &HunkParts, applied: (usize, usize, Vec<u8>)) -> (usize, usize, Vec<u8>) {
     let (start, end, mut bytes) = applied;
     if source.is_empty() || end != source.len() || source_ends_with_newline(source) {
         return (start, end, bytes);

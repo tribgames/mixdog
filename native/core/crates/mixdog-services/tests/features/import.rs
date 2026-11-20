@@ -4,8 +4,10 @@ use mixdog_services::import::convert::Converter;
 use mixdog_services::import::{Conversion, Limits, Source};
 
 const CODEX_META: &str = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"c1\",\"cwd\":\"/w\"}}\n";
-const CODEX_USER: &str = "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Fix the build\"}]}}\n";
-const CODEX_REPLY: &str = "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}}\n";
+const CODEX_USER: &str =
+    "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Fix the build\"}]}}\n";
+const CODEX_REPLY: &str =
+    "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}}\n";
 
 fn convert_with(source: Source, text: &str, limits: Limits) -> Conversion {
     let mut converter = Converter::new(source, limits);
@@ -55,10 +57,7 @@ fn a_bad_line_among_good_ones_is_skipped_and_reported_once() {
 #[test]
 fn a_transcript_over_a_limit_is_too_large_and_returns_no_turns() {
     let text = format!("{CODEX_META}{CODEX_USER}{CODEX_REPLY}");
-    for limits in [
-        Limits { max_transcript_chars: 5, ..Limits::default() },
-        Limits { max_retained_entries: 1, ..Limits::default() },
-    ] {
+    for limits in [Limits { max_transcript_chars: 5, ..Limits::default() }, Limits { max_retained_entries: 1, ..Limits::default() }] {
         let c = convert_with(Source::Codex, &text, limits);
         assert_eq!(c.error_code.as_deref(), Some("tooLarge"));
         assert!((c.message_count, c.turns.len()) == (0, 0));

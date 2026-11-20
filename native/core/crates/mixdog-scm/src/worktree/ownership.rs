@@ -58,8 +58,7 @@ pub struct Lease {
 }
 
 pub fn same_owner(left: &Option<Owner>, right: &Owner) -> bool {
-    left.as_ref()
-        .is_some_and(|left| left.session_id == right.session_id && left.runtime_token == right.runtime_token)
+    left.as_ref().is_some_and(|left| left.session_id == right.session_id && left.runtime_token == right.runtime_token)
 }
 
 /// A destructive operation needs proof of death, not merely a failed probe: no pid, or a probe
@@ -98,9 +97,7 @@ pub fn pid_alive_or_unknown(pid: Option<u32>) -> bool {
 }
 
 pub(crate) fn lease_path(data_dir: &Path, record: &WorktreeRecord) -> PathBuf {
-    managed_root(data_dir, Path::new(&record.repo_common_dir))
-        .join(".owners")
-        .join(format!("{}.json", record.id))
+    managed_root(data_dir, Path::new(&record.repo_common_dir)).join(".owners").join(format!("{}.json", record.id))
 }
 
 fn read_lease_file(path: &Path, record_id: &str) -> Result<Option<Lease>, ScmFailure> {
@@ -132,12 +129,7 @@ fn write_lease_file(path: &Path, lease: &Lease) -> Result<(), ScmFailure> {
 }
 
 fn shared_leases(record: &WorktreeRecord) -> serde_json::Map<String, Value> {
-    record
-        .extra
-        .get("sharedLeases")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default()
+    record.extra.get("sharedLeases").and_then(Value::as_object).cloned().unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -161,11 +153,7 @@ mod tests {
     fn leases_round_trip_and_garbage_is_no_lease() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".owners").join("w.json");
-        let lease = Lease {
-            owner: Owner { session_id: "s".into(), runtime_token: "t".into(), pid: Some(7) },
-            entry_id: "w".into(),
-            claimed_at: Some(1),
-        };
+        let lease = Lease { owner: Owner { session_id: "s".into(), runtime_token: "t".into(), pid: Some(7) }, entry_id: "w".into(), claimed_at: Some(1) };
         write_lease_file(&path, &lease).unwrap();
         assert_eq!(read_lease_file(&path, "w").unwrap(), Some(lease));
         std::fs::write(&path, b"{ nope").unwrap();
@@ -173,11 +161,8 @@ mod tests {
     }
 }
 
-
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 impl Worktrees {
     pub async fn read_owner_lease(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<Option<Lease>, ScmFailure> {
@@ -210,22 +195,12 @@ impl Worktrees {
     /// reference; the first claim of an unowned worktree makes the claimant its owner.
     pub async fn claim_owner(&self, entry_id: &str, owner: Owner, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         owner.validate()?;
-        let found = self
-            .record(cancel, entry_id)
-            .await?
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
+        let found = self.record(cancel, entry_id).await?.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let repo = self.scm().open(&repo_cwd(&found), cancel).await?;
         let _lock = repo.lock_repository().await?;
-        let mut current = self
-            .record(cancel, entry_id)
-            .await?
-            .filter(|r| r.state == "ready")
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
-        let lease = Lease {
-            owner: owner.clone(),
-            entry_id: entry_id.to_owned(),
-            claimed_at: Some(now_ms()),
-        };
+        let mut current =
+            self.record(cancel, entry_id).await?.filter(|r| r.state == "ready").ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
+        let lease = Lease { owner: owner.clone(), entry_id: entry_id.to_owned(), claimed_at: Some(now_ms()) };
         if let Some(holder) = current.owner_session_id.clone().filter(|holder| *holder != owner.session_id) {
             let _ = holder;
             let reference_added = !current.shared_session_ids.contains(&owner.session_id);
@@ -233,9 +208,7 @@ impl Worktrees {
                 current.shared_session_ids.push(owner.session_id.clone());
             }
             let mut leases = shared_leases(&current);
-            let previous = leases
-                .get(&owner.session_id)
-                .and_then(|v| serde_json::from_value::<Lease>(v.clone()).ok());
+            let previous = leases.get(&owner.session_id).and_then(|v| serde_json::from_value::<Lease>(v.clone()).ok());
             leases.insert(owner.session_id.clone(), serde_json::to_value(&lease).unwrap_or(Value::Null));
             current.extra.insert("sharedLeases".into(), Value::Object(leases));
             current.extra.insert("disposable".into(), json!(false));
@@ -244,11 +217,8 @@ impl Worktrees {
             return Ok(json!({ "entry": entry_json(&current), "lease": lease, "referenceAdded": reference_added, "replaced": replaced }));
         }
         if current.owner_session_id.is_none() {
-            let other = self
-                .all_records(cancel)
-                .await?
-                .into_iter()
-                .find(|r| r.owner_session_id.as_deref() == Some(owner.session_id.as_str()) && r.id != entry_id);
+            let other =
+                self.all_records(cancel).await?.into_iter().find(|r| r.owner_session_id.as_deref() == Some(owner.session_id.as_str()) && r.id != entry_id);
             if let Some(other) = other {
                 return Err(ScmFailure::coded(
                     errors::WORKTREE_REVISION_CONFLICT,
@@ -292,13 +262,7 @@ impl Worktrees {
 
     /// Releases the live lease when, and only when, exactly `owner` holds it. Durable ownership
     /// (the session retaining the worktree) is unchanged.
-    pub async fn release_owner(
-        &self,
-        entry_id: &str,
-        owner: Owner,
-        forget_reference: bool,
-        cancel: &CancellationToken,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn release_owner(&self, entry_id: &str, owner: Owner, forget_reference: bool, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         owner.validate()?;
         let Some(found) = self.record(cancel, entry_id).await? else {
             return Ok(json!({ "released": false }));
@@ -309,10 +273,7 @@ impl Worktrees {
             return Ok(json!({ "released": false }));
         };
         let mut leases = shared_leases(&current);
-        let shared = leases
-            .get(&owner.session_id)
-            .and_then(|v| serde_json::from_value::<Lease>(v.clone()).ok())
-            .map(|l| l.owner);
+        let shared = leases.get(&owner.session_id).and_then(|v| serde_json::from_value::<Lease>(v.clone()).ok()).map(|l| l.owner);
         if same_owner(&shared, &owner) {
             leases.remove(&owner.session_id);
             current.extra.insert("sharedLeases".into(), Value::Object(leases));
@@ -327,9 +288,9 @@ impl Worktrees {
             return Ok(json!({ "released": false }));
         }
         let path = lease_path(self.data_dir(), &current);
-        on_lane(self.scm().lane, cancel, move || std::fs::remove_file(path).or_else(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }
-        }))
+        on_lane(self.scm().lane, cancel, move || {
+            std::fs::remove_file(path).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+        })
         .await??;
         Ok(json!({ "released": true }))
     }
@@ -337,10 +298,6 @@ impl Worktrees {
     /// Whether a runtime still holds the worktree: the owner's or a sharer's lease whose
     /// process is alive or cannot be told dead.
     pub async fn owner_live(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<bool, ScmFailure> {
-        Ok(self
-            .leases_of(record, cancel)
-            .await?
-            .iter()
-            .any(|lease| pid_alive_or_unknown(lease.owner.pid)))
+        Ok(self.leases_of(record, cancel).await?.iter().any(|lease| pid_alive_or_unknown(lease.owner.pid)))
     }
 }

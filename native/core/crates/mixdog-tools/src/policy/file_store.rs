@@ -39,7 +39,6 @@ use tokio_util::sync::CancellationToken;
 use super::action::GrantKey;
 use super::grants::AuditEntry;
 use super::grants::FIELD_LIMIT;
-use super::grants::cut_utf16;
 use super::grants::Grant;
 use super::grants::GrantStore;
 use super::grants::GrantTable;
@@ -47,6 +46,7 @@ use super::grants::PermissionMode;
 use super::grants::PermissionRow;
 use super::grants::StoreError;
 use super::grants::WouldWiden;
+use super::grants::cut_utf16;
 
 const GRANTS_FILE: &str = "grants.json";
 const AUDIT_FILE: &str = "audit.jsonl";
@@ -68,9 +68,7 @@ struct GrantsDoc<'a> {
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 fn cancelled() -> StoreError {
@@ -83,28 +81,20 @@ fn io_error(error: std::io::Error) -> StoreError {
 
 /// Rows of the stored document; one that cannot exist is dropped.
 fn table_of(doc: &Value) -> GrantTable {
-    let rows = doc
-        .get("grants")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            Some(Grant {
-                id: row.get("id")?.as_str()?.to_owned(),
-                agent_id: row.get("agentId")?.as_str()?.to_owned(),
-                action: GrantKey::parse(row.get("action")?.as_str()?)?,
-                mode: match row.get("mode")?.as_str()? {
-                    "allow" => PermissionMode::Allow,
-                    "block" => PermissionMode::Block,
-                    _ => return None,
-                },
-                device: row.get("device").and_then(Value::as_str).unwrap_or("").to_owned(),
-                at_ms: row
-                    .get("at")
-                    .and_then(|at| at.as_i64().or_else(|| at.as_f64().map(|f| f as i64)))
-                    .unwrap_or(0),
-            })
-        });
+    let rows = doc.get("grants").and_then(Value::as_array).into_iter().flatten().filter_map(|row| {
+        Some(Grant {
+            id: row.get("id")?.as_str()?.to_owned(),
+            agent_id: row.get("agentId")?.as_str()?.to_owned(),
+            action: GrantKey::parse(row.get("action")?.as_str()?)?,
+            mode: match row.get("mode")?.as_str()? {
+                "allow" => PermissionMode::Allow,
+                "block" => PermissionMode::Block,
+                _ => return None,
+            },
+            device: row.get("device").and_then(Value::as_str).unwrap_or("").to_owned(),
+            at_ms: row.get("at").and_then(|at| at.as_i64().or_else(|| at.as_f64().map(|f| f as i64))).unwrap_or(0),
+        })
+    });
     GrantTable::from_rows(rows)
 }
 
@@ -142,14 +132,7 @@ fn grants_doc(table: &GrantTable) -> Result<Value, StoreError> {
         grants: table
             .rows()
             .iter()
-            .map(|g| GrantRow {
-                id: &g.id,
-                agent_id: &g.agent_id,
-                action: g.action.render(),
-                mode: g.mode.as_str(),
-                device: &g.device,
-                at: g.at_ms,
-            })
+            .map(|g| GrantRow { id: &g.id, agent_id: &g.agent_id, action: g.action.render(), mode: g.mode.as_str(), device: &g.device, at: g.at_ms })
             .collect(),
     };
     serde_json::to_value(&doc).map_err(|e| StoreError(e.to_string()))
@@ -167,11 +150,7 @@ fn json_field(value: &str) -> String {
     text
 }
 
-#[allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the body of a durability-lane job; the proof argument is the lane's"
-)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the body of a durability-lane job; the proof argument is the lane's")]
 fn append_audit(_lane: &InLane<DurabilityIo>, path: &Path, entry: &AuditEntry) -> Result<(), StoreError> {
     let at = entry.at_ms.unwrap_or_else(now_ms);
     let mut text = format!(
@@ -188,25 +167,12 @@ fn append_audit(_lane: &InLane<DurabilityIo>, path: &Path, entry: &AuditEntry) -
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(io_error)?;
     }
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .and_then(|mut file| file.write_all(text.as_bytes()))
-        .map_err(io_error)
+    std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut file| file.write_all(text.as_bytes())).map_err(io_error)
 }
 
 /// Newest first; `agent_id` filters to one agent; unparseable lines are skipped.
-#[allow(
-    clippy::disallowed_methods,
-    reason = "the body of an interactive-lane job; the proof argument is the lane's"
-)]
-fn read_audit_lines(
-    _lane: &InLane<InteractiveIo>,
-    path: &Path,
-    agent_id: Option<&str>,
-    limit: usize,
-) -> Result<Vec<AuditEntry>, StoreError> {
+#[allow(clippy::disallowed_methods, reason = "the body of an interactive-lane job; the proof argument is the lane's")]
+fn read_audit_lines(_lane: &InLane<InteractiveIo>, path: &Path, agent_id: Option<&str>, limit: usize) -> Result<Vec<AuditEntry>, StoreError> {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -264,12 +230,7 @@ impl FileGrantStore {
     }
 
     /// [`Self::new`] stamping with `clock` (epoch ms) instead of the wall clock.
-    pub fn with_clock(
-        dir: impl Into<PathBuf>,
-        interactive: InteractiveIo,
-        durability: DurabilityIo,
-        clock: Arc<dyn Fn() -> i64 + Send + Sync>,
-    ) -> Arc<Self> {
+    pub fn with_clock(dir: impl Into<PathBuf>, interactive: InteractiveIo, durability: DurabilityIo, clock: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
         let dir = dir.into();
         Arc::new(Self {
             clock,
@@ -300,10 +261,7 @@ impl FileGrantStore {
 
     /// Read-modify-write under the writer order. `change` returns the result
     /// and whether the table changed (only a change is written).
-    async fn update<R: Send + 'static>(
-        &self,
-        change: impl FnOnce(&mut GrantTable) -> (R, bool) + Send + 'static,
-    ) -> Result<R, StoreError> {
+    async fn update<R: Send + 'static>(&self, change: impl FnOnce(&mut GrantTable) -> (R, bool) + Send + 'static) -> Result<R, StoreError> {
         let _order = self.writes.enter(&self.cancel).await.map_err(|_| cancelled())?;
         let path = self.grants_path.clone();
         run(self.durability, move |lane| {
@@ -381,30 +339,17 @@ async fn run<L: LaneToken, R: Send + 'static>(
     lane: L,
     job: impl FnOnce(&mixdog_rt::InLane<L>) -> Result<R, StoreError> + Send + 'static,
 ) -> Result<R, StoreError> {
-    let handle = lane
-        .submit(&CancellationToken::new(), job)
-        .map_err(|full| StoreError(full.to_string()))?;
+    let handle = lane.submit(&CancellationToken::new(), job).map_err(|full| StoreError(full.to_string()))?;
     handle.await.map_err(|dropped| StoreError(dropped.to_string()))?
 }
 
 #[async_trait]
 impl GrantStore for FileGrantStore {
-    async fn mode_for(
-        &self,
-        agent_id: &str,
-        action: &GrantKey,
-        shared_only: bool,
-    ) -> Result<PermissionMode, StoreError> {
+    async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<PermissionMode, StoreError> {
         Ok(self.read_table().await?.mode_for(agent_id, action, shared_only))
     }
 
-    async fn grant(
-        &self,
-        agent_id: &str,
-        action: &GrantKey,
-        scope: ApprovalRemember,
-        device: &str,
-    ) -> Result<bool, StoreError> {
+    async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, StoreError> {
         let (agent, action, device) = (agent_id.to_owned(), action.clone(), device.to_owned());
         let now = (self.clock)();
         self.update(move |table| {
@@ -571,11 +516,8 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&grants_doc(&repaired).expect("doc")).expect("json")).expect("repair");
         drop(order);
         assert_eq!(reader.await.expect("join"), Ok(PermissionMode::Allow));
-        let aside = std::fs::read_dir(dir.path())
-            .expect("dir")
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
-            .count();
+        let aside =
+            std::fs::read_dir(dir.path()).expect("dir").filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".corrupt-")).count();
         assert_eq!(aside, 0);
         assert_eq!(store.mode_for("bot", &comment(), false).await, Ok(PermissionMode::Allow));
     }
@@ -605,12 +547,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let store = store_in(dir.path());
         // 201 emoji = 402 units: 100 whole emoji fit in 200 units exactly.
-        let entry = |tool: String| AuditEntry {
-            agent_id: "bot".into(),
-            tool,
-            decision: "approve".into(),
-            ..AuditEntry::default()
-        };
+        let entry = |tool: String| AuditEntry { agent_id: "bot".into(), tool, decision: "approve".into(), ..AuditEntry::default() };
         store.record_audit(entry("😀".repeat(201))).await.expect("audit");
         // Odd cut: 99 emoji (198 units) + "a" (199) + a pair cut after its high surrogate (200).
         store.record_audit(entry(format!("{}a😀😀", "😀".repeat(99)))).await.expect("audit");

@@ -328,8 +328,7 @@ fn language_settings(source: &Map<String, Value>, language: &str) -> Map<String,
             continue;
         }
         let listed = key.split('[').skip(1).filter_map(|s| s.split(']').next()).any(|l| l == language);
-        if listed
-            && let Some(object) = value.as_object() {
+        if listed && let Some(object) = value.as_object() {
             result.extend(object.clone());
         }
     }
@@ -497,11 +496,15 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let user_data = data.path().join("userdata");
         std::fs::create_dir_all(user_data.join("User")).unwrap();
-        std::fs::write(user_data.join("User").join("settings.json"), "{
+        std::fs::write(
+            user_data.join("User").join("settings.json"),
+            "{
   // mine
   \"editor.tabSize\": 2,
 }
-").unwrap();
+",
+        )
+        .unwrap();
         let folder = data.path().join("project");
         std::fs::create_dir_all(&folder).unwrap();
         let settings = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
@@ -560,8 +563,6 @@ mod tests {
         assert_eq!(std::fs::read_to_string(slot.join(name)).unwrap(), stale);
     }
 
-
-
     /// A draft backed up holding half of an emoji (a lone surrogate escape) is read back with U+FFFD in its place and is not deleted.
     #[test]
     fn a_backup_holding_half_an_emoji_is_read_not_deleted() {
@@ -596,7 +597,8 @@ mod tests {
         ]);
         let written = write_workspace_file(&base.join("proj").join("team"), &folders).unwrap();
         assert_eq!((written["kind"].as_str(), written["name"].as_str()), (Some("workspace"), Some("team")));
-        let names: Vec<(String, Option<String>)> = written["folders"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_owned(), f["name"].as_str().map(str::to_owned))).collect();
+        let names: Vec<(String, Option<String>)> =
+            written["folders"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_owned(), f["name"].as_str().map(str::to_owned))).collect();
         assert_eq!(names, [(folder("proj/a"), None), (folder("proj/b"), Some("B".into())), (folder("proj/d"), Some(String::new())), (folder("proj"), None)]);
         let text = std::fs::read_to_string(base.join("proj").join("team.code-workspace")).unwrap();
         let saved: Value = serde_json::from_str(&text).unwrap();
@@ -613,7 +615,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let base = canonical(dir.path()).unwrap();
         std::fs::create_dir_all(base.join("proj")).unwrap();
-        std::fs::write(base.join("proj/commented.code-workspace"), "{\n // c\n \"folders\": [ {\"path\": \"sub\"}, {\"path\": \"../up\", \"name\": \"Up\"}, ],\n}").unwrap();
+        std::fs::write(
+            base.join("proj/commented.code-workspace"),
+            "{\n // c\n \"folders\": [ {\"path\": \"sub\"}, {\"path\": \"../up\", \"name\": \"Up\"}, ],\n}",
+        )
+        .unwrap();
         let read = read_workspace_file(&base.join("proj/commented.code-workspace")).unwrap();
         let paths: Vec<String> = read["folders"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_owned()).collect();
         assert_eq!(paths, [base.join("proj").join("sub").to_string_lossy().into_owned(), base.join("up").to_string_lossy().into_owned()]);
@@ -635,17 +641,36 @@ mod tests {
         std::fs::create_dir_all(folder.join(".vscode")).unwrap();
         let defaults = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
         assert_eq!(
-            (defaults["fontSize"].clone(), defaults["lineHeight"].clone(), defaults["tabSize"].clone(), defaults["wordWrap"].clone(), defaults["renderWhitespace"].clone(), defaults["markdownDefaultView"].clone()),
+            (
+                defaults["fontSize"].clone(),
+                defaults["lineHeight"].clone(),
+                defaults["tabSize"].clone(),
+                defaults["wordWrap"].clone(),
+                defaults["renderWhitespace"].clone(),
+                defaults["markdownDefaultView"].clone()
+            ),
             (json!(14), json!(21), json!(4), json!("off"), json!("selection"), json!("preview"))
         );
-        assert_eq!((defaults["minimapEnabled"].clone(), defaults["formatOnSave"].clone(), defaults["insertSpaces"].clone(), defaults["inlayHintsEnabled"].clone()), (json!(true), json!(false), json!(true), json!("on")));
+        assert_eq!(
+            (defaults["minimapEnabled"].clone(), defaults["formatOnSave"].clone(), defaults["insertSpaces"].clone(), defaults["inlayHintsEnabled"].clone()),
+            (json!(true), json!(false), json!(true), json!("on"))
+        );
         std::fs::write(user_data.join("User/settings.json"), r#"{ "editor.fontSize": 18, "editor.tabSize": 2, "editor.wordWrap": "on" }"#).unwrap();
         let workspace = base.join("w.code-workspace");
         std::fs::write(&workspace, r#"{ "settings": { "editor.fontSize": 16, "editor.wordWrap": "bounded", "editor.lineHeight": 2 } }"#).unwrap();
         std::fs::write(folder.join(".vscode/settings.json"), r#"{ "editor.fontSize": 12 }"#).unwrap();
         let merged = read_editor_settings(&user_data, &folder, "a.ts", Some(&workspace), Some("rich".into())).unwrap();
         // The folder wins the font size, the workspace the wrap, the user the tab size; a line height below 8 is out of range.
-        assert_eq!((merged["fontSize"].clone(), merged["wordWrap"].clone(), merged["tabSize"].clone(), merged["lineHeight"].clone(), merged["markdownDefaultView"].clone()), (json!(12), json!("bounded"), json!(2), json!(21), json!("rich")));
+        assert_eq!(
+            (
+                merged["fontSize"].clone(),
+                merged["wordWrap"].clone(),
+                merged["tabSize"].clone(),
+                merged["lineHeight"].clone(),
+                merged["markdownDefaultView"].clone()
+            ),
+            (json!(12), json!("bounded"), json!(2), json!(21), json!("rich"))
+        );
         std::fs::write(folder.join(".vscode/settings.json"), "\0\0").unwrap();
         assert_eq!(read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap()["fontSize"], 18, "a NUL-filled file is absent");
         std::fs::write(folder.join(".vscode/settings.json"), r#"{ "editor.fontSize": "#).unwrap();
@@ -663,7 +688,10 @@ mod tests {
         assert_eq!(backups.read("relative/file.txt").unwrap_err().message, "Editor backup path is invalid.");
         assert_eq!(backups.write(&source("big.txt"), &"x".repeat(4_194_305), "").unwrap_err().message, "Editor backup content is invalid.");
         assert!(backups.write(&source("max.txt"), &"x".repeat(4_194_304), "").is_ok());
-        assert_eq!(backups.write(&source("emoji.txt"), &"😀".repeat(2_097_152), "").map(|v| v["content"].as_str().map(|s| s.encode_utf16().count())).unwrap(), Some(4_194_304));
+        assert_eq!(
+            backups.write(&source("emoji.txt"), &"😀".repeat(2_097_152), "").map(|v| v["content"].as_str().map(|s| s.encode_utf16().count())).unwrap(),
+            Some(4_194_304)
+        );
         let planted = |name: &str, text: &str| {
             let path = backups.path_of(&source(name)).unwrap();
             std::fs::write(&path, text).unwrap();
@@ -697,7 +725,6 @@ mod tests {
         assert_eq!(backups.read(&source("n104.txt")).unwrap()["content"], "c");
     }
 }
-
 
 /// The backup clock. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, so a replay can give the
 /// core the same virtual clock the Node recording ran on.

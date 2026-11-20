@@ -40,18 +40,12 @@ pub type Result<T> = std::result::Result<T, PdfError>;
 impl PdfError {
     /// `PasswordException` with code 1 (`No password given`).
     pub fn need_password() -> Self {
-        PdfError::Password {
-            message: "No password given".to_owned(),
-            code: NEED_PASSWORD,
-        }
+        PdfError::Password { message: "No password given".to_owned(), code: NEED_PASSWORD }
     }
 
     /// `PasswordException` with code 2 (`Incorrect Password`).
     pub fn incorrect_password() -> Self {
-        PdfError::Password {
-            message: "Incorrect Password".to_owned(),
-            code: INCORRECT_PASSWORD,
-        }
+        PdfError::Password { message: "Incorrect Password".to_owned(), code: INCORRECT_PASSWORD }
     }
 
     /// The exception class name pdf.js gives this failure.
@@ -123,11 +117,7 @@ pub struct Budget {
 
 impl Default for Budget {
     fn default() -> Self {
-        Budget {
-            max_objects: 50_000_000,
-            max_depth: 1000,
-            max_bytes: 1 << 30,
-        }
+        Budget { max_objects: 50_000_000, max_depth: 1000, max_bytes: 1 << 30 }
     }
 }
 
@@ -143,20 +133,13 @@ pub struct Guard {
 
 impl fmt::Debug for Guard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Guard")
-            .field("budget", &self.budget)
-            .field("cancel", &self.cancel.is_some())
-            .finish()
+        f.debug_struct("Guard").field("budget", &self.budget).field("cancel", &self.cancel.is_some()).finish()
     }
 }
 
 impl Guard {
     pub fn new(cancel: Option<CancelCheck>, budget: Budget) -> Arc<Self> {
-        Arc::new(Guard {
-            cancel,
-            budget,
-            ticks: AtomicUsize::new(0),
-        })
+        Arc::new(Guard { cancel, budget, ticks: AtomicUsize::new(0) })
     }
 
     /// No cancellation, the default budget.
@@ -189,20 +172,14 @@ impl Guard {
 
     pub(crate) fn check_objects(&self, count: usize) -> Result<()> {
         if count > self.budget.max_objects {
-            return Err(PdfError::ResourceLimit(format!(
-                "more than {} objects",
-                self.budget.max_objects
-            )));
+            return Err(PdfError::ResourceLimit(format!("more than {} objects", self.budget.max_objects)));
         }
         Ok(())
     }
 
     pub(crate) fn check_depth(&self, depth: usize) -> Result<()> {
         if depth > self.budget.max_depth {
-            return Err(PdfError::ResourceLimit(format!(
-                "nesting deeper than {}",
-                self.budget.max_depth
-            )));
+            return Err(PdfError::ResourceLimit(format!("nesting deeper than {}", self.budget.max_depth)));
         }
         Ok(())
     }

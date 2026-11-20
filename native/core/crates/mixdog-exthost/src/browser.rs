@@ -192,21 +192,13 @@ mod tests {
         assert_eq!(ms(Some("Infinity")), 1);
     }
 
-
     fn service(launches: &Arc<AtomicU64>) -> BrowserHandle {
         let config = RenderBrowserConfig {
             command: Some((crate::pool::tests::fake_binary("ext_fake_browser"), vec!["endpoint".into()])),
             profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
             no_sandbox: false,
         };
-        start_with_idle(
-            config,
-            mixdog_rt::testing::tokens().spawn_io,
-            Handle::current(),
-            launches.clone(),
-            ChildExits::watch().unwrap(),
-            IDLE,
-        )
+        start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE)
     }
     /// A browser that starts and never publishes an endpoint is given up on at Puppeteer's 30 s, with its text, and is ended;
     /// the next request launches again.
@@ -215,23 +207,13 @@ mod tests {
         let config = RenderBrowserConfig {
             command: Some((
                 crate::pool::tests::fake_binary("ext_fake_browser"),
-                vec![
-                    "silent".into(),
-                    std::env::temp_dir().join("mixdog-exthost-silent-browser.pid").into_os_string(),
-                ],
+                vec!["silent".into(), std::env::temp_dir().join("mixdog-exthost-silent-browser.pid").into_os_string()],
             )),
             profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
             no_sandbox: false,
         };
         let launches = Arc::new(AtomicU64::new(0));
-        let browser = start_with_idle(
-            config,
-            mixdog_rt::testing::tokens().spawn_io,
-            Handle::current(),
-            launches.clone(),
-            ChildExits::watch().unwrap(),
-            IDLE,
-        );
+        let browser = start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE);
         let asking = browser.clone();
         let asked = tokio::spawn(async move { asking.endpoint().await });
         // The launch counts itself, with its deadline taken, before it spawns anything: on this one-thread runtime
@@ -243,10 +225,7 @@ mod tests {
         assert!(!asked.is_finished(), "still waiting just short of the bound");
         tokio::time::advance(Duration::from_millis(1)).await;
         let error = asked.await.unwrap().unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!"
-        );
+        assert_eq!(error.to_string(), "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!");
         browser.shutdown().await;
     }
     // The idle timer runs on the paused tokio clock: time moves only through `advance`, so no
@@ -336,7 +315,6 @@ mod tests {
     }
 }
 
-
 #[derive(Clone)]
 pub(crate) struct BrowserHandle {
     requests: mpsc::UnboundedSender<Request>,
@@ -366,13 +344,9 @@ impl BrowserHandle {
 
     async fn ask(&self, lease: bool) -> Result<(String, Option<BrowserLease>), BrowserError> {
         let (reply, answer) = oneshot::channel();
-        self.requests
-            .send(Request::Endpoint(Waiter { reply, lease }))
-            .map_err(|_| BrowserError::Stopped)?;
+        self.requests.send(Request::Endpoint(Waiter { reply, lease })).map_err(|_| BrowserError::Stopped)?;
         let ws = answer.await.map_err(|_| BrowserError::Stopped)??;
-        let lease = lease.then(|| BrowserLease {
-            requests: self.requests.clone(),
-        });
+        let lease = lease.then(|| BrowserLease { requests: self.requests.clone() });
         Ok((ws, lease))
     }
 }
@@ -414,13 +388,7 @@ fn idle_period() -> Duration {
     idle_period_from(std::env::var("PUPPETEER_POOL_IDLE_MS").ok().as_deref())
 }
 /// `launches` counts every browser launch, so the owner can observe reuse.
-pub(crate) fn start(
-    config: RenderBrowserConfig,
-    spawn_io: SpawnIo,
-    rt: Handle,
-    launches: Arc<AtomicU64>,
-    exits: ChildExits,
-) -> BrowserHandle {
+pub(crate) fn start(config: RenderBrowserConfig, spawn_io: SpawnIo, rt: Handle, launches: Arc<AtomicU64>, exits: ChildExits) -> BrowserHandle {
     start_with_idle(config, spawn_io, rt, launches, exits, idle_period())
 }
 pub(crate) fn start_with_idle(
@@ -432,13 +400,7 @@ pub(crate) fn start_with_idle(
     idle: Duration,
 ) -> BrowserHandle {
     let (requests, inbox) = mpsc::unbounded_channel::<Request>();
-    let launcher = Launcher {
-        config,
-        spawn_io,
-        rt,
-        launches,
-        exits,
-    };
+    let launcher = Launcher { config, spawn_io, rt, launches, exits };
     mixdog_rt::spawn("exthost.browser", TaskClass::Work, serve(launcher, inbox, idle));
     BrowserHandle { requests }
 }
@@ -604,11 +566,7 @@ impl Launcher {
         mixdog_rt::spawn("exthost.browser.launch", TaskClass::Work, async move {
             let _ = done.send(launcher.launch(&token).await);
         });
-        Launching {
-            outcome,
-            cancel,
-            waiters: vec![first],
-        }
+        Launching { outcome, cancel, waiters: vec![first] }
     }
 
     /// Spawns the browser under its owner and waits for the endpoint it publishes. Cancelling
@@ -622,9 +580,7 @@ impl Launcher {
         let rt = self.rt.clone();
         let spawned = self
             .spawn_io
-            .submit(&CancellationToken::new(), move |_lane| {
-                spawn_browser(&config, launch, &rt)
-            })
+            .submit(&CancellationToken::new(), move |_lane| spawn_browser(&config, launch, &rt))
             .map_err(|full| BrowserError::Launch(full.to_string()))?
             .await
             .map_err(|dropped| BrowserError::Launch(dropped.to_string()))?
@@ -686,12 +642,7 @@ impl Launcher {
             ))),
         };
         match endpoint {
-            Ok(ws) => Ok(Running {
-                ws,
-                alive,
-                kill,
-                gone,
-            }),
+            Ok(ws) => Ok(Running { ws, alive, kill, gone }),
             Err(error) => {
                 kill.kill();
                 let _ = gone.await;
@@ -706,9 +657,7 @@ fn spawn_browser(config: &RenderBrowserConfig, launch: u64, rt: &Handle) -> Resu
         Some((program, leading)) => (program.clone(), leading.clone()),
         None => (find_browser().ok_or("no Chrome, Chromium or Edge found")?, Vec::new()),
     };
-    let profile = config
-        .profile_root
-        .join(format!("render-browser-{}-{launch}", std::process::id()));
+    let profile = config.profile_root.join(format!("render-browser-{}-{launch}", std::process::id()));
     std::fs::create_dir_all(&profile).map_err(|e| format!("render browser profile: {e}"))?;
     args.extend(browser_args(&profile, config.no_sandbox));
     let proc = spawn_command(&program, &args, &[], rt).map_err(|e| {
@@ -718,7 +667,7 @@ fn spawn_browser(config: &RenderBrowserConfig, launch: u64, rt: &Handle) -> Resu
     Ok((proc, profile))
 }
 #[allow(clippy::disallowed_methods, reason = "called only from a spawn-io lane job")]
-fn find_browser() ->Option<PathBuf> {
+fn find_browser() -> Option<PathBuf> {
     if let Some(explicit) = std::env::var_os("PUPPETEER_EXECUTABLE_PATH") {
         let explicit = PathBuf::from(explicit);
         if explicit.exists() {
@@ -732,10 +681,7 @@ fn install_locations() -> Vec<PathBuf> {
     let env = |name: &str, default: &str| PathBuf::from(std::env::var_os(name).unwrap_or_else(|| default.into()));
     let program_files = env("PROGRAMFILES", "C:/Program Files");
     let program_files_x86 = env("PROGRAMFILES(X86)", "C:/Program Files (x86)");
-    let mut found = vec![
-        program_files.join("Google/Chrome/Application/chrome.exe"),
-        program_files_x86.join("Google/Chrome/Application/chrome.exe"),
-    ];
+    let mut found = vec![program_files.join("Google/Chrome/Application/chrome.exe"), program_files_x86.join("Google/Chrome/Application/chrome.exe")];
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
     found.extend(local.iter().map(|d| d.join("Google/Chrome/Application/chrome.exe")));
     found.push(program_files.join("Microsoft/Edge/Application/msedge.exe"));

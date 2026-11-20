@@ -84,12 +84,7 @@ fn windows_gh_present() -> bool {
 
 /// stdout of a command that must exit 0; a failure carries `gh`'s bounded diagnostic, and a
 /// failed write says its remote state is unknown.
-pub async fn run_text(
-    runner: &dyn GhRunner,
-    command: &GhCommand,
-    cwd: &Path,
-    cancel: &CancellationToken,
-) -> Result<String, ScmFailure> {
+pub async fn run_text(runner: &dyn GhRunner, command: &GhCommand, cwd: &Path, cancel: &CancellationToken) -> Result<String, ScmFailure> {
     let output = match runner.raw(command, cwd, cancel).await {
         Ok(output) => output,
         // client.mjs: the one text a missing `gh` has for every pull-request and API call.
@@ -106,10 +101,7 @@ pub async fn run_text(
     }
     let detail = if output.stderr.is_empty() { &output.stdout } else { &output.stderr };
     let uncertain = if command.mutation { WRITE_UNCERTAIN } else { "" };
-    Err(ScmFailure::Command {
-        domain: GITHUB_DOMAIN,
-        text: format!("{}{uncertain}", bounded(detail)),
-    })
+    Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: format!("{}{uncertain}", bounded(detail)) })
 }
 
 /// Where `gh` is: a known install location when one exists, else the one on `PATH`.
@@ -122,18 +114,12 @@ fn gh_candidates() -> Vec<PathBuf> {
         }
         found
     } else {
-        ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
-            .into_iter()
-            .map(PathBuf::from)
-            .collect()
+        ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"].into_iter().map(PathBuf::from).collect()
     }
 }
 
 pub fn resolve_gh_program() -> String {
-    gh_candidates()
-        .into_iter()
-        .find(|path| path.exists())
-        .map_or_else(|| "gh".to_owned(), |path| path.to_string_lossy().into_owned())
+    gh_candidates().into_iter().find(|path| path.exists()).map_or_else(|| "gh".to_owned(), |path| path.to_string_lossy().into_owned())
 }
 
 pub struct ProcessGh {
@@ -145,28 +131,16 @@ pub struct ProcessGh {
 
 impl ProcessGh {
     pub fn new(exec: Arc<Exec>) -> Self {
-        Self {
-            exec,
-            program: Mutex::new(None),
-            fixed: false,
-        }
+        Self { exec, program: Mutex::new(None), fixed: false }
     }
 
     /// A fixed program, for a recorded `gh` shim.
     pub fn with_program(exec: Arc<Exec>, program: impl Into<String>) -> Self {
-        Self {
-            exec,
-            program: Mutex::new(Some(program.into())),
-            fixed: true,
-        }
+        Self { exec, program: Mutex::new(Some(program.into())), fixed: true }
     }
 
     pub fn program(&self) -> String {
-        self.program
-            .lock()
-            .expect("gh program")
-            .get_or_insert_with(resolve_gh_program)
-            .clone()
+        self.program.lock().expect("gh program").get_or_insert_with(resolve_gh_program).clone()
     }
 
     /// Looks for `gh` again (it may have been installed since).
@@ -229,27 +203,19 @@ impl GhRunner for ProcessGh {
         let uncertain = if command.mutation { WRITE_UNCERTAIN } else { "" };
         let program = spec.program.clone();
         match self.exec.run(spec, cancel).await {
-            Ok(output) => Ok(GhOutput {
-                code: output.code,
-                stdout: output.stdout_text(),
-                stderr: output.stderr_text(),
-            }),
-            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::Unavailable {
-                capability: "gh".into(),
-            }),
+            Ok(output) => Ok(GhOutput { code: output.code, stdout: output.stdout_text(), stderr: output.stderr_text() }),
+            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::Unavailable { capability: "gh".into() }),
             // `runGithubProcess`: a refused start has no stderr, so execFile's message is the text, a write's with its notice.
-            Err(ScmFailure::Spawn { code, .. }) => Err(ScmFailure::Command {
-                domain: GITHUB_DOMAIN,
-                text: format!("{}{uncertain}", bounded(&crate::exec::spawn_message(&program, code))),
-            }),
+            Err(ScmFailure::Spawn { code, .. }) => {
+                Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: format!("{}{uncertain}", bounded(&crate::exec::spawn_message(&program, code))) })
+            }
             Err(ScmFailure::TimedOut { .. }) => Err(ScmFailure::Command {
                 domain: GITHUB_DOMAIN,
                 text: format!("GitHub CLI did not answer within {} seconds.{uncertain}", RUN_LIMIT.as_secs()),
             }),
-            Err(ScmFailure::OutputTooLarge { .. }) => Err(ScmFailure::Command {
-                domain: GITHUB_DOMAIN,
-                text: format!("GitHub CLI output exceeded {MAX_OUTPUT_BYTES} bytes.{uncertain}"),
-            }),
+            Err(ScmFailure::OutputTooLarge { .. }) => {
+                Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: format!("GitHub CLI output exceeded {MAX_OUTPUT_BYTES} bytes.{uncertain}") })
+            }
             Err(other) => Err(other),
         }
     }
@@ -267,13 +233,7 @@ pub struct GhClient {
 #[cfg(feature = "write-queue-hook")]
 type WriteQueued = Arc<dyn Fn(&str) + Send + Sync>;
 
-fn finish(
-    request: &GithubRequest,
-    command: &GhCommand,
-    repo: &str,
-    hostname: &str,
-    raw: &str,
-) -> Result<Value, ScmFailure> {
+fn finish(request: &GithubRequest, command: &GhCommand, repo: &str, hostname: &str, raw: &str) -> Result<Value, ScmFailure> {
     let trimmed = raw.trim();
     let data: Value = if command.json && !trimmed.is_empty() {
         serde_json::from_str(trimmed).map_err(|_| ScmFailure::Command {
@@ -288,15 +248,8 @@ fn finish(
         Value::String(trimmed.to_owned())
     };
     if request.action() == "pr.merge" && data.get("merged") == Some(&Value::Bool(false)) {
-        let message = data
-            .get("message")
-            .and_then(Value::as_str)
-            .filter(|message| !message.is_empty())
-            .unwrap_or("GitHub refused to merge this pull request.");
-        return Err(ScmFailure::Command {
-            domain: GITHUB_DOMAIN,
-            text: message.to_owned(),
-        });
+        let message = data.get("message").and_then(Value::as_str).filter(|message| !message.is_empty()).unwrap_or("GitHub refused to merge this pull request.");
+        return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: message.to_owned() });
     }
     let mut response = json!({ "action": request.action(), "repo": repo, "hostname": hostname, "data": data });
     if command.list {
@@ -305,18 +258,12 @@ fn finish(
             None => Some(response["data"].clone()),
         };
         let Some(Value::Array(items)) = items else {
-            return Err(ScmFailure::Command {
-                domain: GITHUB_DOMAIN,
-                text: "GitHub returned an invalid list.".into(),
-            });
+            return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: "GitHub returned an invalid list.".into() });
         };
         let has_more = items.len() as u64 == command.limit;
         // The REST issues list also contains pull requests; paging follows the unfiltered page.
         let shown: Vec<Value> = if request.action() == "issue.list" {
-            items
-                .into_iter()
-                .filter(|item| item.get("pull_request").is_none_or(|v| v.is_null() || v == &Value::Bool(false)))
-                .collect()
+            items.into_iter().filter(|item| item.get("pull_request").is_none_or(|v| v.is_null() || v == &Value::Bool(false))).collect()
         } else {
             items
         };
@@ -363,10 +310,20 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_api::domain::process::ProcessManager for Refused {
-        async fn spawn(&self, _request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        async fn spawn(
+            &self,
+            _request: mixdog_core_api::domain::process::SpawnRequest,
+        ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
             Err(mixdog_core_api::domain::process::ProcessError::PermissionDenied)
         }
-        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        fn subscribe(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _from_seq: Option<u64>,
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
             Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
         }
         async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -375,7 +332,11 @@ mod tests {
         fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
         }
-        fn resize_pty(&self, _handle: &mixdog_protocol::ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        fn resize_pty(
+            &self,
+            _handle: &mixdog_protocol::ProcessHandle,
+            _size: mixdog_core_api::domain::process::PtySize,
+        ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
         }
         fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -405,7 +366,6 @@ mod tests {
         assert_eq!(text(run_text(&gh, &write, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}{WRITE_UNCERTAIN}"));
     }
 
-
     #[test]
     fn clone_destinations_must_be_new_absolute_folders() {
         assert!(clone_destination("relative/dir").is_err());
@@ -414,7 +374,6 @@ mod tests {
         assert!(clone_destination(&dir.to_string_lossy()).is_ok());
     }
 }
-
 
 impl GhClient {
     pub fn new(runner: Arc<dyn GhRunner>, locks: Arc<RepoLocks>) -> Self {
@@ -455,12 +414,7 @@ impl GhClient {
     }
 
     /// The raw answer of `gh` with plain arguments: the exit code is the caller's to read.
-    pub async fn output(
-        &self,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        args: &[&str],
-    ) -> Result<GhOutput, ScmFailure> {
+    pub async fn output(&self, cwd: &Path, cancel: &CancellationToken, args: &[&str]) -> Result<GhOutput, ScmFailure> {
         let mut command = GhCommand::read(args.iter().map(|arg| (*arg).to_owned()).collect(), None);
         command.json = false;
         command.plain = true;
@@ -468,13 +422,7 @@ impl GhClient {
     }
 
     /// Runs `gh` with plain arguments (pane operations).
-    pub async fn run_args(
-        &self,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        args: &[&str],
-        mutation: bool,
-    ) -> Result<String, ScmFailure> {
+    pub async fn run_args(&self, cwd: &Path, cancel: &CancellationToken, args: &[&str], mutation: bool) -> Result<String, ScmFailure> {
         let mut command = GhCommand::read(args.iter().map(|arg| (*arg).to_owned()).collect(), None);
         command.json = false;
         command.mutation = mutation;
@@ -494,42 +442,26 @@ impl GhClient {
         let hostname = request.hostname().to_owned();
         if !contract::is_repo_free(action) && request.repo().is_none() {
             // Every request is bound to a concrete repository before any write is sent.
-            let mut probe = GhCommand::read(
-                vec!["repo".into(), "view".into(), "--json".into(), "nameWithOwner".into()],
-                Some(hostname.clone()),
-            );
+            let mut probe = GhCommand::read(vec!["repo".into(), "view".into(), "--json".into(), "nameWithOwner".into()], Some(hostname.clone()));
             probe.json = true;
             let raw = run_text(self.runner.as_ref(), &probe, cwd, cancel).await?;
             let value: Value = serde_json::from_str(&raw)
-                .map_err(|_| ScmFailure::Command {
-                    domain: GITHUB_DOMAIN,
-                    text: "GitHub returned an unreadable response.".into(),
-                })?;
-            let name = value
-                .get("nameWithOwner")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_owned();
+                .map_err(|_| ScmFailure::Command { domain: GITHUB_DOMAIN, text: "GitHub returned an unreadable response.".into() })?;
+            let name = value.get("nameWithOwner").and_then(Value::as_str).unwrap_or("").to_owned();
             contract::github_repository(&name)?;
             request.fields.insert("repo".into(), Value::String(name));
         }
         let mut destination: Option<PathBuf> = None;
         if action == "repo.clone" {
             let chosen = clone_destination(request.text("destination").unwrap_or(""))?;
-            request
-                .fields
-                .insert("destination".into(), Value::String(chosen.to_string_lossy().into_owned()));
+            request.fields.insert("destination".into(), Value::String(chosen.to_string_lossy().into_owned()));
             destination = Some(chosen);
         }
         let command = commands::build(&request)?;
         let repo_name = request.repo().unwrap_or("").to_owned();
         let write_key = format!("{hostname}/{}", if repo_name.is_empty() { "@account" } else { &repo_name }).to_lowercase();
         let mutates = request.def.write;
-        let _turn = if mutates {
-            Some(self.write_turn(&write_key, cancel).await?)
-        } else {
-            None
-        };
+        let _turn = if mutates { Some(self.write_turn(&write_key, cancel).await?) } else { None };
         let _repo_guard = if action == "pr.checkout" || action == "repo.clone" {
             // The key is the repository's common dir when `cwd` is in one, else the path itself.
             let key_dir = match &destination {

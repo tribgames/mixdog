@@ -80,14 +80,7 @@ impl MockFeed {
                 epoch,
                 limits,
                 cpu: mixdog_rt::testing::tokens().cpu_interactive,
-                state: Mutex::new(State {
-                    closed: false,
-                    seq: 0,
-                    view,
-                    ring: VecDeque::new(),
-                    ring_used: 0,
-                    subs: HashMap::new(),
-                }),
+                state: Mutex::new(State { closed: false, seq: 0, view, ring: VecDeque::new(), ring_used: 0, subs: HashMap::new() }),
             }),
         }
     }
@@ -99,25 +92,17 @@ impl MockFeed {
 
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn position(&self, seq: u64) -> FeedPosition {
-        FeedPosition {
-            epoch: self.epoch.clone(),
-            seq,
-        }
+        FeedPosition { epoch: self.epoch.clone(), seq }
     }
 
     /// P §6.3 conditions 1–3; condition 4 (byte fit) is the reservation in `attach`.
     fn replayable(&self, state: &State, resume: &ResumeFrom, window: &Window) -> bool {
         let first_seq = state.ring.front().map_or(state.seq + 1, |frame| frame.seq);
-        resume.position.epoch == self.epoch
-            && resume.window == *window
-            && resume.position.seq <= state.seq
-            && resume.position.seq + 1 >= first_seq
+        resume.position.epoch == self.epoch && resume.window == *window && resume.position.seq <= state.seq && resume.position.seq + 1 >= first_seq
     }
 
     /// Runs after the feed lock is released. A full lane drops the job, and with it the slot,
@@ -148,32 +133,17 @@ impl FeedSource for MockFeed {
             return Err(CoreError::ConnectionClosed);
         }
         let seq = state.seq;
-        let mut decision = AttachDecision {
-            mode: AttachMode::Snapshot,
-            epoch: shared.epoch.clone(),
-            start_seq: seq + 1,
-            live_seq: seq + 1,
-        };
+        let mut decision = AttachDecision { mode: AttachMode::Snapshot, epoch: shared.epoch.clone(), start_seq: seq + 1, live_seq: seq + 1 };
         let (lane, window, reservation) = match req.start {
-            AttachStart::Open {
-                lane,
-                window,
-                resume_from,
-            } => {
+            AttachStart::Open { lane, window, resume_from } => {
                 if let Some(resume) = &resume_from
                     && shared.replayable(&state, resume, &window)
                 {
-                    let frames: Vec<&FeedFrame> = state
-                        .ring
-                        .iter()
-                        .filter(|f| f.seq > resume.position.seq)
-                        .collect();
+                    let frames: Vec<&FeedFrame> = state.ring.iter().filter(|f| f.seq > resume.position.seq).collect();
                     let total = frames.iter().map(|f| f.bytes.len()).sum();
                     if let Ok(mut reservation) = lane.try_reserve(total) {
                         for frame in frames {
-                            let part = reservation
-                                .split(frame.bytes.len())
-                                .expect("reserved the sum");
+                            let part = reservation.split(frame.bytes.len()).expect("reserved the sum");
                             lane.push(part, frame.bytes.clone());
                         }
                         decision.mode = AttachMode::Replay;
@@ -186,23 +156,14 @@ impl FeedSource for MockFeed {
                 let Some(subscriber) = state.subs.get(&req.sub) else {
                     return Err(CoreError::ConnectionClosed);
                 };
-                (
-                    subscriber.lane.clone(),
-                    subscriber.window.clone(),
-                    Some(reservation),
-                )
+                (subscriber.lane.clone(), subscriber.window.clone(), Some(reservation))
             }
         };
         let mut encode = None;
         if decision.mode == AttachMode::Snapshot {
             match reservation.or_else(|| lane.try_reserve_snapshot(shared.limits.max_snapshot_bytes).ok()) {
                 Some(reservation) => {
-                    encode = Some(Encode {
-                        slot: lane.push_slot(reservation),
-                        view: state.view.clone(),
-                        at: shared.position(seq),
-                        window: window.clone(),
-                    });
+                    encode = Some(Encode { slot: lane.push_slot(reservation), view: state.view.clone(), at: shared.position(seq), window: window.clone() });
                 }
                 None => {
                     lane.lag();
@@ -222,10 +183,7 @@ impl FeedSource for MockFeed {
         let shared = &self.shared;
         let state = shared.lock();
         let held = state.subs.get(sub)?;
-        (held.window == *window
-            && resume.window == *window
-            && resume.position.epoch == shared.epoch
-            && (held.since..=state.seq).contains(&resume.position.seq))
+        (held.window == *window && resume.window == *window && resume.position.epoch == shared.epoch && (held.since..=state.seq).contains(&resume.position.seq))
             .then(|| AttachDecision::carried(shared.position(state.seq), resume))
     }
 
@@ -238,19 +196,12 @@ impl FeedSource for MockFeed {
 }
 
 impl Feed for MockFeed {
-    fn publish(
-        &self,
-        frames: &[FeedFrame],
-        view: Option<Arc<dyn FeedView>>,
-    ) -> Result<(), PublishError> {
+    fn publish(&self, frames: &[FeedFrame], view: Option<Arc<dyn FeedView>>) -> Result<(), PublishError> {
         let mut state = self.shared.lock();
         for (offset, frame) in frames.iter().enumerate() {
             let expected = state.seq + 1 + offset as u64;
             if frame.seq != expected {
-                return Err(PublishError::SeqGap {
-                    expected,
-                    got: frame.seq,
-                });
+                return Err(PublishError::SeqGap { expected, got: frame.seq });
             }
         }
         let state = &mut *state;
@@ -258,10 +209,7 @@ impl Feed for MockFeed {
             state.ring.push_back(frame.clone());
             state.ring_used += frame.bytes.len();
             while state.ring_used > self.shared.limits.ring_bytes {
-                let evicted = state
-                    .ring
-                    .pop_front()
-                    .expect("ring holds the counted bytes");
+                let evicted = state.ring.pop_front().expect("ring holds the counted bytes");
                 state.ring_used -= evicted.bytes.len();
             }
             state.seq = frame.seq;
@@ -309,31 +257,17 @@ pub struct MockScopedFeeds {
 
 impl MockScopedFeeds {
     pub fn new(limits: MockLimits) -> Self {
-        Self {
-            limits,
-            next_epoch: AtomicU64::new(1),
-            made: Mutex::new(HashMap::new()),
-        }
+        Self { limits, next_epoch: AtomicU64::new(1), made: Mutex::new(HashMap::new()) }
     }
 
     /// The feed last created under `id`, the lookup a subscribing request makes.
     pub fn find(&self, id: &FeedId) -> Option<Arc<dyn ScopedFeed>> {
-        self.made
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(id)
-            .cloned()
+        self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(id).cloned()
     }
 
     /// The ids of the feeds created so far, sorted.
     pub fn ids(&self) -> Vec<FeedId> {
-        let mut ids: Vec<FeedId> = self
-            .made
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .keys()
-            .cloned()
-            .collect();
+        let mut ids: Vec<FeedId> = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).keys().cloned().collect();
         ids.sort();
         ids
     }
@@ -343,10 +277,7 @@ impl ScopedFeeds for MockScopedFeeds {
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
         let epoch = super::epoch(u128::from(self.next_epoch.fetch_add(1, Ordering::Relaxed)));
         let feed: Arc<dyn ScopedFeed> = Arc::new(MockFeed::new(id.clone(), epoch, view, self.limits));
-        self.made
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(id, feed.clone());
+        self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(id, feed.clone());
         feed
     }
 }
@@ -374,19 +305,14 @@ impl FeedTap {
         let conn = super::MockConnection::new(ConnectionId(id), MockLimits::default());
         let source: Arc<dyn FeedSource> = feed.clone();
         let sub = if id == 1 { "tap".to_owned() } else { format!("tap{id}") };
-        let attached = crate::feed::subscribe(&source, SubscriptionId::from(sub.as_str()), Window::Fixed, None, &conn)
-            .expect("attach to an open connection");
-        conn.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release)
-            .expect("connection open");
+        let attached = crate::feed::subscribe(&source, SubscriptionId::from(sub.as_str()), Window::Fixed, None, &conn).expect("attach to an open connection");
+        conn.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("connection open");
         Self { conn, kept: std::sync::Mutex::new(Vec::new()), prefix: format!("{sub}:") }
     }
 
     /// The notifications written to the subscriber, parsed, in order, until `done` holds of them.
     /// Woken by each frame that arrives, never by the clock.
-    pub async fn notifications_until(
-        &self,
-        mut done: impl FnMut(&[serde_json::Value]) -> bool,
-    ) -> Vec<serde_json::Value> {
+    pub async fn notifications_until(&self, mut done: impl FnMut(&[serde_json::Value]) -> bool) -> Vec<serde_json::Value> {
         let before = self.kept.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let mut seen = before.clone();
         self.conn

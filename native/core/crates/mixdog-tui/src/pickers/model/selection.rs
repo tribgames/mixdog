@@ -28,10 +28,7 @@ pub fn effort_items_for(model: &Value) -> Vec<Value> {
 }
 
 fn model_effort_values(model: &Value) -> Vec<String> {
-    effort_items_for(model)
-        .iter()
-        .filter_map(|effort| effort.get("value").filter(|value| truthy(value)).map(mixdog_js::value_to_string))
-        .collect()
+    effort_items_for(model).iter().filter_map(|effort| effort.get("value").filter(|value| truthy(value)).map(mixdog_js::value_to_string)).collect()
 }
 
 fn text_field<'a>(model: &'a Value, key: &str) -> Option<&'a str> {
@@ -77,21 +74,13 @@ pub struct RouteSelection {
 
 impl RouteSelection {
     pub fn new(provider_models: Vec<Value>, state: RouteState, current_route: Option<Value>) -> Self {
-        Self {
-            provider_models,
-            state,
-            current_route,
-            efforts: HashMap::new(),
-            fasts: HashMap::new(),
-            parameters: HashMap::new(),
-            context: HashMap::new(),
-        }
+        Self { provider_models, state, current_route, efforts: HashMap::new(), fasts: HashMap::new(), parameters: HashMap::new(), context: HashMap::new() }
     }
 
     fn is_current_route(&self, model: &Value) -> bool {
-        self.current_route.as_ref().is_some_and(|route| {
-            route.get("provider") == model.get("provider") && route.get("model") == model.get("id") && route.get("model").is_some()
-        })
+        self.current_route
+            .as_ref()
+            .is_some_and(|route| route.get("provider") == model.get("provider") && route.get("model") == model.get("id") && route.get("model").is_some())
     }
 
     fn is_state_route(&self, model: &Value) -> bool {
@@ -189,7 +178,8 @@ impl RouteSelection {
             return values.clone();
         }
         let object = |value: Option<&Value>| value.and_then(Value::as_object).cloned().unwrap_or_default();
-        let current = if self.is_current_route(model) { object(self.current_route.as_ref().and_then(|route| route.get("modelParameters"))) } else { Map::new() };
+        let current =
+            if self.is_current_route(model) { object(self.current_route.as_ref().and_then(|route| route.get("modelParameters"))) } else { Map::new() };
         let mut defaults = object(model.get("defaultModelParameters"));
         defaults.extend(object(model.get("savedModelParameters")));
         defaults.extend(current);
@@ -279,7 +269,12 @@ impl RouteSelection {
     fn ultrafast_offered(model: &Value) -> bool {
         model.get("modelParameterOptions").and_then(Value::as_array).into_iter().flatten().any(|parameter| {
             parameter.get("id").and_then(Value::as_str) == Some("serviceTier")
-                && parameter.get("options").and_then(Value::as_array).into_iter().flatten().any(|option| option.get("value").and_then(Value::as_str) == Some("ultrafast"))
+                && parameter
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .any(|option| option.get("value").and_then(Value::as_str) == Some("ultrafast"))
         })
     }
 

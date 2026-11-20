@@ -16,8 +16,8 @@ use crate::docx_revisions::{RevisionKind, count_docx_property_changes, docx_revi
 use crate::opc::relationship_map;
 use crate::snapshot_shared::{docx_paragraph_spacing, docx_run_font, next_page_offset, soft_break_facts, stated_run_font};
 use crate::xml::{
-    Container, block_text, compiled, container_inner, settings_track_changes, tag_pattern, text_nodes, top_level_elements,
-    trailing_section_pattern, xml_attribute, xml_decode,
+    Container, block_text, compiled, container_inner, settings_track_changes, tag_pattern, text_nodes, top_level_elements, trailing_section_pattern,
+    xml_attribute, xml_decode,
 };
 use crate::zipio::Package;
 
@@ -336,14 +336,16 @@ fn comment_para_ids(comments_xml: &str) -> (Vec<(String, Vec<String>)>, HashMap<
 
 /// The thread facts a comment carries: whether it is resolved, and the comment it replies to (by the id the snapshot
 /// reports, not Word's internal paraId).
-fn comment_thread(threads: &HashMap<String, usize>, records: &[ThreadRecord], para_ids: &[String], id_by_para_id: &HashMap<String, String>) -> Map<String, Value> {
+fn comment_thread(
+    threads: &HashMap<String, usize>,
+    records: &[ThreadRecord],
+    para_ids: &[String],
+    id_by_para_id: &HashMap<String, String>,
+) -> Map<String, Value> {
     let mut facts = Map::new();
     let Some(entry) = para_ids.iter().find_map(|para_id| threads.get(para_id)).map(|&at| &records[at]) else { return facts };
-    let reply_to = if entry.parent_para_id.is_empty() {
-        String::new()
-    } else {
-        id_by_para_id.get(&entry.parent_para_id.to_uppercase()).cloned().unwrap_or_default()
-    };
+    let reply_to =
+        if entry.parent_para_id.is_empty() { String::new() } else { id_by_para_id.get(&entry.parent_para_id.to_uppercase()).cloned().unwrap_or_default() };
     if entry.resolved {
         facts.insert("resolved".to_owned(), Value::Bool(true));
     }
@@ -674,10 +676,7 @@ fn apply_list_kinds(model: &mut DocxBodyModel, numbering: &str) {
     let mut formats: HashMap<String, String> = HashMap::new();
     for definition in compiled(r#"<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>"#, "g").captures_iter(numbering) {
         for level in compiled(r#"<w:lvl\b[^>]*\bw:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>"#, "g").captures_iter(definition.get(2).unwrap_or("")) {
-            formats.insert(
-                format!("{}:{}", definition.get(1).unwrap_or(""), level.get(1).unwrap_or("")),
-                numbering_level_format(level.get(2).unwrap_or("")),
-            );
+            formats.insert(format!("{}:{}", definition.get(1).unwrap_or(""), level.get(1).unwrap_or("")), numbering_level_format(level.get(2).unwrap_or("")));
         }
     }
     for paragraph in &mut model.paragraphs {
@@ -1025,9 +1024,7 @@ fn docx_sections(document_xml: &str, relationships_xml: &str, part_text: &HashMa
     for (offset, range) in compiled(r"<w:sectPr\b[\s\S]*?<\/w:sectPr>", "g").find_iter(document_xml).enumerate() {
         let section_xml = &document_xml[range];
         let index = offset + 1;
-        let margin = |side: &str| {
-            first(&format!(r#"<w:pgMar\b[^>]*\bw:{side}="(-?\d+)""#), section_xml).map(|twips| points_of(string_to_number(&twips)))
-        };
+        let margin = |side: &str| first(&format!(r#"<w:pgMar\b[^>]*\bw:{side}="(-?\d+)""#), section_xml).map(|twips| points_of(string_to_number(&twips)));
         let mut own: HashMap<String, String> = HashMap::new();
         for found in references.captures_iter(section_xml) {
             let location = found.get(1).unwrap_or("");

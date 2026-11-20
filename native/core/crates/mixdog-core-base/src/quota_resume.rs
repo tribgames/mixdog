@@ -123,11 +123,7 @@ fn normalize_entry(value: &Value) -> Option<Entry> {
 }
 
 fn normalize_suspension(value: &Value) -> Option<Suspension> {
-    let suspension = Suspension {
-        session_id: text(value.get("sessionId")),
-        turn_key: text(value.get("turnKey")),
-        goal_id: text(value.get("goalId")),
-    };
+    let suspension = Suspension { session_id: text(value.get("sessionId")), turn_key: text(value.get("turnKey")), goal_id: text(value.get("goalId")) };
     (!suspension.session_id.is_empty() && !suspension.turn_key.is_empty() && !suspension.goal_id.is_empty()).then_some(suspension)
 }
 
@@ -172,13 +168,7 @@ fn document(state: &State) -> Value {
     doc.insert("entries".into(), Value::Array(state.entries.iter().map(Entry::to_value).collect()));
     doc.insert(
         "suspensions".into(),
-        Value::Array(
-            state
-                .suspensions
-                .iter()
-                .map(|s| json!({ "sessionId": s.session_id, "turnKey": s.turn_key, "goalId": s.goal_id }))
-                .collect(),
-        ),
+        Value::Array(state.suspensions.iter().map(|s| json!({ "sessionId": s.session_id, "turnKey": s.turn_key, "goalId": s.goal_id })).collect()),
     );
     Value::Object(doc)
 }
@@ -318,10 +308,7 @@ impl QuotaResumeStore {
     /// Stages `change` against the committed state, writes what it returns, and only then makes
     /// it the state: memory never holds what the disk does not (a failed write leaves both as
     /// they were, and the caller sees the error).
-    async fn change<R: Send + 'static>(
-        &self,
-        change: impl FnOnce(&State) -> Result<Staged<R>, QuotaError> + Send + 'static,
-    ) -> Result<R, QuotaError> {
+    async fn change<R: Send + 'static>(&self, change: impl FnOnce(&State) -> Result<Staged<R>, QuotaError> + Send + 'static) -> Result<R, QuotaError> {
         let inner = self.inner.clone();
         on_lane(self.lane, &self.cancel, move |lane: &InLane<DurabilityIo>| {
             let _writing = inner.writing.lock().unwrap_or_else(PoisonError::into_inner);
@@ -399,8 +386,7 @@ impl QuotaResumeStore {
                 map.insert("attempts".into(), json!(0));
                 map.insert("generation".into(), json!(current.generation + 1));
             }
-            let entry = normalize_entry(&request)
-                .ok_or_else(|| QuotaError::Type("quota resume needs a session, turn, provider and reset time".into()))?;
+            let entry = normalize_entry(&request).ok_or_else(|| QuotaError::Type("quota resume needs a session, turn, provider and reset time".into()))?;
             let mut next = current.clone();
             next.generation = entry.generation as i64;
             set_entry(&mut next.entries, entry.clone());
@@ -487,12 +473,7 @@ impl QuotaResumeStore {
     pub fn suspended_goal(&self, session_id: &str, turn_key: &str) -> String {
         let (id, turn) = (js_trim(session_id), js_trim(turn_key));
         let current = self.inner.current();
-        current
-            .suspensions
-            .iter()
-            .find(|s| s.session_id == id && s.turn_key == turn)
-            .map(|s| s.goal_id.clone())
-            .unwrap_or_default()
+        current.suspensions.iter().find(|s| s.session_id == id && s.turn_key == turn).map(|s| s.goal_id.clone()).unwrap_or_default()
     }
 
     pub async fn forget_suspended_goal(&self, session_id: &str) -> Result<bool, QuotaError> {

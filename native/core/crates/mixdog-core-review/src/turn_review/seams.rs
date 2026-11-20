@@ -51,10 +51,7 @@ impl ToolReviewRecorder {
 #[async_trait]
 impl ReviewRecorder for ToolReviewRecorder {
     async fn record(&self, thread: &ThreadId, _call: &ToolCallId, changes: Vec<ReviewChange>) {
-        let changes = changes
-            .into_iter()
-            .map(|c| CallChange { path: c.path, new_path: None, before: content(c.before), after: content(c.after) })
-            .collect();
+        let changes = changes.into_iter().map(|c| CallChange { path: c.path, new_path: None, before: content(c.before), after: content(c.after) }).collect();
         self.review.record_tool_changes(thread.as_str(), &self.cwd.cwd(thread), changes).await;
     }
 }

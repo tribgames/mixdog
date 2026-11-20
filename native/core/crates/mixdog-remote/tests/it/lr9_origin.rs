@@ -6,21 +6,21 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use bytes::Bytes;
+use mixdog_app_protocol::CLIENT_METHODS;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::v1::{CapabilityState, ServerCapabilities};
-use mixdog_app_protocol::CLIENT_METHODS;
 use mixdog_app_server::{AppServer, Inbound, Outgoing, ServerConfig, VersionOrder};
 use mixdog_app_server_transport::relay::{RelayEndpoint, RelayOut, open_relay};
 use mixdog_app_server_transport::{AcceptedConnection, ConnectionHub};
-use bytes::Bytes;
 use mixdog_core_api::feed::{FeedFrame, FeedPosition, FeedView, Window};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::{MockCore, MockLimits};
-use mixdog_rt::{CpuInteractive, InLane};
 use mixdog_core_api::{Feed, FeedSource, Reply, Subscribe};
 use mixdog_protocol::Origin;
 use mixdog_remote::bridge::local::{Accept, LocalDialer};
 use mixdog_remote::identity::load_or_create_e2ee_identity;
+use mixdog_rt::{CpuInteractive, InLane};
 use serde_json::{Value, json};
 
 use crate::common;
@@ -81,25 +81,14 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
     let thread = core.directory().insert(ThreadId::from("t1"));
     let feed: Arc<dyn FeedSource> = thread.feed().clone();
     thread.set_handler(Arc::new(move |_| {
-        Ok(Reply::Subscribe(Subscribe {
-            result: json!({ "thread": { "id": "t1" } }),
-            feed: feed.clone(),
-            window: Window::LastItems(10),
-            resume_from: None,
-        }))
+        Ok(Reply::Subscribe(Subscribe { result: json!({ "thread": { "id": "t1" } }), feed: feed.clone(), window: Window::LastItems(10), resume_from: None }))
     }));
     // A relay connection's writer refuses a frame that is not a JSON object and ends the connection (writer.rs `relay_frame`), so
     // this feed's frames are JSON rather than the mock's plain labels.
     thread.feed().publish(&[json_event(1), json_event(2)], Some(Arc::new(JsonView))).unwrap();
     let hub = ConnectionHub::new(Limits::default()).unwrap();
     let origins = hub.clone();
-    let server = AppServer::new(
-        core,
-        Outgoing::new(),
-        Arc::new(move |id| origins.origin_of(id)),
-        server_config(),
-    )
-    .unwrap();
+    let server = AppServer::new(core, Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), server_config()).unwrap();
     let accept: Accept = {
         let server = server.clone();
         Arc::new(move |accepted| {
@@ -193,13 +182,7 @@ async fn a_phone_is_a_relay_connection_and_methods_outside_that_origin_are_refus
     let core = Arc::new(MockCore::new(&[], MockLimits::default()));
     let hub = ConnectionHub::new(Limits::default()).unwrap();
     let origins = hub.clone();
-    let server = AppServer::new(
-        core,
-        Outgoing::new(),
-        Arc::new(move |id| origins.origin_of(id)),
-        server_config(),
-    )
-    .unwrap();
+    let server = AppServer::new(core, Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), server_config()).unwrap();
     let accept: Accept = {
         let server = server.clone();
         Arc::new(move |accepted| {
@@ -240,11 +223,7 @@ async fn a_phone_is_a_relay_connection_and_methods_outside_that_origin_are_refus
     while refused.len() < withheld.len() {
         let answer: Value = serde_json::from_str(&phone.recv().await).unwrap();
         let method = withheld[answer["id"].as_u64().unwrap() as usize - 1];
-        assert_eq!(
-            answer["error"]["data"],
-            json!({ "reason": "permissionDenied", "method": method, "origin": "relay" }),
-            "{method}: {answer}"
-        );
+        assert_eq!(answer["error"]["data"], json!({ "reason": "permissionDenied", "method": method, "origin": "relay" }), "{method}: {answer}");
         refused.insert(method);
     }
 

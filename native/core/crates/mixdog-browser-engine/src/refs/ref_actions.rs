@@ -94,7 +94,9 @@ impl RefActions {
             BrowserInputOutcome::Completed | BrowserInputOutcome::Dialog => Ok(()),
             BrowserInputOutcome::Cancelled => Err(HostCallError::Cancelled.into()),
             BrowserInputOutcome::UserInput => Err(HostCallError::UserInput { until: None }.into()),
-            BrowserInputOutcome::HitGuard => Err(RefError::Failed("the element under the pointer changed before the click; take a fresh snapshot first".into())),
+            BrowserInputOutcome::HitGuard => {
+                Err(RefError::Failed("the element under the pointer changed before the click; take a fresh snapshot first".into()))
+            }
         }
     }
 
@@ -157,7 +159,14 @@ pub(crate) mod tests {
         RefActions {
             host,
             page_id: "p1".into(),
-            expect: Precondition { document_id: "p1:1".into(), origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: Some("p1-s2".into()) },
+            expect: Precondition {
+                document_id: "p1:1".into(),
+                origin: None,
+                url: None,
+                child_sessions: None,
+                receiver_key: None,
+                snapshot_id: Some("p1-s2".into()),
+            },
             cancel: CancellationToken::new().into(),
             redact: Arc::new(|text: &str| text.replace("hunter2", "[REDACTED]")),
             remember_secret: Arc::new(|_: &str| {}),
@@ -207,9 +216,9 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_press_carries_the_key_and_its_page_and_expectation() {
-        let host = Arc::new(FakeHost::scripted(vec![
-            batch_done().with_params(json!({"pageId": "p1", "stopOnDialog": true, "steps": [{"op": "press", "key": "Enter"}], "expect": {"documentId": "p1:1", "snapshotId": "p1-s2"}})),
-        ]));
+        let host = Arc::new(FakeHost::scripted(vec![batch_done().with_params(
+            json!({"pageId": "p1", "stopOnDialog": true, "steps": [{"op": "press", "key": "Enter"}], "expect": {"documentId": "p1:1", "snapshotId": "p1-s2"}}),
+        )]));
         actions(host.clone()).press_key("Enter").await.expect("pressed");
         host.finish().expect("one call");
     }

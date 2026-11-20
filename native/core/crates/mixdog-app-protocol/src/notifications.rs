@@ -18,25 +18,25 @@ use serde::Serialize;
 use crate::rpc::JsonRpcErrorBody;
 use crate::v2::approval::ServerRequestResolvedParams;
 use crate::v2::browser_engine::HostBrowserLeaseReleaseParams;
+use crate::v2::config::UiProviderModelsChangedParams;
+use crate::v2::config::UiSettingsChangedParams;
+use crate::v2::connections::*;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
 use crate::v2::host::BrowserFrameParams;
-use crate::v2::host::VisualizeChangedParams;
 use crate::v2::host::BrowserWebrtcSignalParams;
-use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
+use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::HostNotificationShowParams;
-use crate::v2::host_notification::HostNotificationCloseParams;
-use crate::v2::relay_payload::UiRelayPayloadRefusedParams;
 use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::ModelProxyTailParams;
 use crate::v2::host::RemotePointerParams;
 use crate::v2::host::UiOpenRequestedParams;
-use crate::v2::config::UiProviderModelsChangedParams;
-use crate::v2::config::UiSettingsChangedParams;
+use crate::v2::host::VisualizeChangedParams;
+use crate::v2::host_notification::HostNotificationCloseParams;
+use crate::v2::relay_payload::UiRelayPayloadRefusedParams;
 use crate::v2::thread::*;
-use crate::v2::connections::*;
 
 /// `error`: a connection-scoped failure, or a thread error with `willRetry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -315,7 +315,10 @@ pub struct ProcessInputParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "method", content = "params")]
 // The inline enum footprint is bounded; variable-size fields keep their owned storage.
-#[allow(clippy::large_enum_variant, reason = "Keep public notification DTO variants by value; boxing page facts would add a payload allocation and change Rust constructors")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Keep public notification DTO variants by value; boxing page facts would add a payload allocation and change Rust constructors"
+)]
 pub enum ClientNotification {
     /// No params; changes no state.
     #[serde(rename = "initialized")]
@@ -427,178 +430,53 @@ pub enum ClientNotification {
 }
 
 pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
-    crate::common::NotificationSpec {
-        method: "initialized",
-        params: "()",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "terminal/input",
-        params: "TerminalInputParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "terminal/resize",
-        params: "TerminalResizeParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "process/input",
-        params: "ProcessInputParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "client/activity",
-        params: "ClientActivityParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "client/perfLog",
-        params: "ClientPerfLogParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/power",
-        params: "HostPowerParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/update/report",
-        params: "HostUpdateReportParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/browser/surface",
-        params: "HostBrowserSurfaceParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/screen/displaysChanged",
-        params: "ScreenDisplaysParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/screen/indicator/stop",
-        params: "ScreenIndicatorStopParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/browser/page",
-        params: "HostBrowserPageParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/browser/frame",
-        params: "HostBrowserFrameParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/browser/events",
-        params: "HostBrowserEventsParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/browser/page/facts",
-        params: "HostBrowserPageFactsParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/browser/userInput",
-        params: "HostBrowserUserInputParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "browser/streamAck",
-        params: "BrowserStreamAckParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/notification/clicked",
-        params: "HostNotificationClickedParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/window/closed",
-        params: "HostWindowClosedParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "computer/pointerReleased",
-        params: "ComputerPointerReleasedParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "host/computer/scopeReport",
-        params: "HostComputerScopeReportParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "model/proxy/event",
-        params: "ModelProxyEventParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "model/proxy/heartbeat",
-        params: "ModelProxyHeartbeatParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "modelProxy/cancel",
-        params: "ModelProxyRunCancelParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "ui/newTab/created",
-        params: "UiNewTabCreatedParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "ui/terminalRun/claimed",
-        params: "UiTerminalRunClaimedParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "ui/screenSessions/changed",
-        params: "UiScreenSessionsChangedParams",
-        delivery: None,
-    },
-    crate::common::NotificationSpec {
-        method: "remote/connectionTimeline",
-        params: "RemoteConnectionTimelineParams",
-        delivery: None,
-    },
+    crate::common::NotificationSpec { method: "initialized", params: "()", delivery: None },
+    crate::common::NotificationSpec { method: "terminal/input", params: "TerminalInputParams", delivery: None },
+    crate::common::NotificationSpec { method: "terminal/resize", params: "TerminalResizeParams", delivery: None },
+    crate::common::NotificationSpec { method: "process/input", params: "ProcessInputParams", delivery: None },
+    crate::common::NotificationSpec { method: "client/activity", params: "ClientActivityParams", delivery: None },
+    crate::common::NotificationSpec { method: "client/perfLog", params: "ClientPerfLogParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/power", params: "HostPowerParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/update/report", params: "HostUpdateReportParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/browser/surface", params: "HostBrowserSurfaceParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/screen/displaysChanged", params: "ScreenDisplaysParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/screen/indicator/stop", params: "ScreenIndicatorStopParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/browser/page", params: "HostBrowserPageParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/browser/frame", params: "HostBrowserFrameParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/browser/events", params: "HostBrowserEventsParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/browser/page/facts", params: "HostBrowserPageFactsParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/browser/userInput", params: "HostBrowserUserInputParams", delivery: None },
+    crate::common::NotificationSpec { method: "browser/streamAck", params: "BrowserStreamAckParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/notification/clicked", params: "HostNotificationClickedParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/window/closed", params: "HostWindowClosedParams", delivery: None },
+    crate::common::NotificationSpec { method: "computer/pointerReleased", params: "ComputerPointerReleasedParams", delivery: None },
+    crate::common::NotificationSpec { method: "host/computer/scopeReport", params: "HostComputerScopeReportParams", delivery: None },
+    crate::common::NotificationSpec { method: "model/proxy/event", params: "ModelProxyEventParams", delivery: None },
+    crate::common::NotificationSpec { method: "model/proxy/heartbeat", params: "ModelProxyHeartbeatParams", delivery: None },
+    crate::common::NotificationSpec { method: "modelProxy/cancel", params: "ModelProxyRunCancelParams", delivery: None },
+    crate::common::NotificationSpec { method: "ui/newTab/created", params: "UiNewTabCreatedParams", delivery: None },
+    crate::common::NotificationSpec { method: "ui/terminalRun/claimed", params: "UiTerminalRunClaimedParams", delivery: None },
+    crate::common::NotificationSpec { method: "ui/screenSessions/changed", params: "UiScreenSessionsChangedParams", delivery: None },
+    crate::common::NotificationSpec { method: "remote/connectionTimeline", params: "RemoteConnectionTimelineParams", delivery: None },
 ];
 
 impl ClientNotification {
     /// Typed decode of a received notification; `params` absent is allowed only for `initialized`.
-    pub fn from_jsonrpc(
-        notification: crate::rpc::JsonRpcNotification,
-    ) -> Result<Self, crate::common::RequestDecodeError> {
-        let Some(spec) = CLIENT_NOTIFICATIONS
-            .iter()
-            .find(|spec| spec.method == notification.method)
-        else {
-            return Err(crate::common::RequestDecodeError::MethodNotFound(
-                notification.method,
-            ));
+    pub fn from_jsonrpc(notification: crate::rpc::JsonRpcNotification) -> Result<Self, crate::common::RequestDecodeError> {
+        let Some(spec) = CLIENT_NOTIFICATIONS.iter().find(|spec| spec.method == notification.method) else {
+            return Err(crate::common::RequestDecodeError::MethodNotFound(notification.method));
         };
         let mut object = serde_json::Map::new();
         object.insert("method".to_owned(), JsonValue::String(notification.method));
         if let Some(params) = notification.params {
             object.insert("params".to_owned(), params);
         }
-        serde_json::from_value(JsonValue::Object(object)).map_err(|error| {
-            crate::common::RequestDecodeError::InvalidParams {
-                method: spec.method,
-                detail: error.to_string(),
-            }
-        })
+        serde_json::from_value(JsonValue::Object(object))
+            .map_err(|error| crate::common::RequestDecodeError::InvalidParams { method: spec.method, detail: error.to_string() })
     }
 }
 
 /// The section notification names agree with `SectionName::notification_method`.
 pub fn section_notification_methods() -> impl Iterator<Item = &'static str> {
-    mixdog_protocol::SectionName::ALL
-        .iter()
-        .map(|name| name.notification_method())
+    mixdog_protocol::SectionName::ALL.iter().map(|name| name.notification_method())
 }

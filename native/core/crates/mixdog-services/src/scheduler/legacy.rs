@@ -483,7 +483,8 @@ mod tests {
 
     const CLAIM_DONE: &str = r#"{"endpoint":"gh","delivery_id":"d1:body-sha256-aa","status":"done","event":"push","error":null,"headers_summary":{"event_type":"push"},"payload_preview":"{}","created_at":"2026-11-10T01:02:03.456+09:00","updated_at":"2026-11-10T01:02:05+09:00"}"#;
     const CLAIM_FAILED: &str = r#"{"endpoint":"gh","delivery_id":"d2:body-sha256-bb","status":"failed","event":null,"error":"boom","headers_summary":null,"payload_preview":null,"created_at":"2026-11-10T02:00:00+09:00","updated_at":"2026-11-10T02:00:01+09:00"}"#;
-    const CLAIM_GONE: &str = r#"{"endpoint":"removed","delivery_id":"d3","status":"done","created_at":"2026-11-10T02:00:00+09:00","updated_at":"2026-11-10T02:00:01+09:00"}"#;
+    const CLAIM_GONE: &str =
+        r#"{"endpoint":"removed","delivery_id":"d3","status":"done","created_at":"2026-11-10T02:00:00+09:00","updated_at":"2026-11-10T02:00:01+09:00"}"#;
 
     /// A provider redelivering an event the old version handled must not run it again. Legacy
     /// failures do not say whether the old version had already accepted the delivery.

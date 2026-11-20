@@ -10,11 +10,11 @@ use std::path::Path;
 
 use mixdog_fsio::File;
 use mixdog_fsio::WriteProof;
+use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::json_parse;
 use mixdog_js::json_stringify;
 use mixdog_js::json_stringify_indent;
-use mixdog_js::js_to_lowercase;
 use mixdog_js::nodepath;
 use mixdog_js::v8_json_parse_error;
 use serde_json::Map;
@@ -91,8 +91,7 @@ pub fn validate_packet(packet: &Value) -> Result<Packet, String> {
     let Some(questions) = questions else { return Err("questions requires 1-20 reader questions".to_owned()) };
     let candidates = list(get(packet, "candidates")).filter(|candidates| !candidates.is_empty());
     let Some(candidates) = candidates else { return Err("candidates is required".to_owned()) };
-    let questions: Vec<(String, String)> =
-        questions.iter().map(|question| (text(get(question, "id")), text(get(question, "question")))).collect();
+    let questions: Vec<(String, String)> = questions.iter().map(|question| (text(get(question, "id")), text(get(question, "question")))).collect();
     let candidates: Vec<(String, Vec<String>)> = candidates
         .iter()
         .map(|candidate| {
@@ -394,15 +393,16 @@ mod tests {
         assert_eq!(mutated(&|a| a["candidates"][0]["answers"] = json!([])), Err("answer coverage incomplete".into()));
         assert_eq!(mutated(&|a| a["candidates"][0]["answers"][0]["evidencePages"] = json!([2])), Err("answer evidence incomplete".into()));
         assert_eq!(mutated(&|a| a["candidates"][0]["answers"][0]["evidencePages"] = json!([])), Err("answer evidence incomplete".into()));
-        assert!(mutated(&|a| {
-            a["candidates"][0]["answers"][0]["status"] = json!("missing");
-            a["candidates"][0]["answers"][0]["evidencePages"] = json!([]);
-        })
-        .is_ok());
+        assert!(
+            mutated(&|a| {
+                a["candidates"][0]["answers"][0]["status"] = json!("missing");
+                a["candidates"][0]["answers"][0]["evidencePages"] = json!([]);
+            })
+            .is_ok()
+        );
         assert_eq!(mutated(&|a| a["candidates"] = json!([null])), Err("Cannot read properties of null (reading 'id')".into()));
         assert!(validate_review("not json", &packet).is_err());
     }
-
 
     #[test]
     fn a_review_run_writes_the_report_and_names_the_route_and_the_read_only_mode() {
@@ -485,8 +485,15 @@ mod tests {
     }
 }
 
-
-fn copy_input<P: WriteProof>(proof: &P, input: &str, directory: &str, path: &str, name: &str, kind: Kind, files: &mut Vec<CopiedFile>) -> Result<String, String> {
+fn copy_input<P: WriteProof>(
+    proof: &P,
+    input: &str,
+    directory: &str,
+    path: &str,
+    name: &str,
+    kind: Kind,
+    files: &mut Vec<CopiedFile>,
+) -> Result<String, String> {
     let source = nodepath::resolve_host(&[&dirname(input), path]);
     let extension = js_to_lowercase(&extname(&source));
     let allowed: &[&str] = if kind == Kind::Source { &[".md", ".txt"] } else { &[".png", ".jpg", ".jpeg", ".webp"] };
@@ -579,10 +586,8 @@ pub fn run_review<P: WriteProof>(proof: &P, request: ReviewRequest<'_>, host: &O
     result.insert("ok".to_owned(), json!(false));
     result.insert("route".to_owned(), json!({ "provider": provider, "model": model, "effort": effort }));
     result.insert("isolation".to_owned(), json!("pristine-readonly"));
-    result.insert(
-        "inputs".to_owned(),
-        Value::Array(files.iter().map(|file| json!({ "file": file.file, "sha256": file.sha256, "bytes": file.bytes })).collect()),
-    );
+    result
+        .insert("inputs".to_owned(), Value::Array(files.iter().map(|file| json!({ "file": file.file, "sha256": file.sha256, "bytes": file.bytes })).collect()));
     let mut errors: Vec<Value> = Vec::new();
     let executed = host.exec.run(&ExecOptions {
         message: review_prompt(&packet),
@@ -637,13 +642,8 @@ pub fn run_review_deck<P: WriteProof>(proof: &P, args: &[String], host: &OfficeH
         outcome.code = 1;
         return outcome;
     };
-    let request = ReviewRequest {
-        input: &parsed.positionals[0],
-        output,
-        provider: parsed.text("provider"),
-        model: parsed.text("model"),
-        effort: parsed.text("effort"),
-    };
+    let request =
+        ReviewRequest { input: &parsed.positionals[0], output, provider: parsed.text("provider"), model: parsed.text("model"), effort: parsed.text("effort") };
     match run_review(proof, request, host, &mut outcome) {
         Ok(reviewed) => {
             let cwd = host.cwd.to_string_lossy();

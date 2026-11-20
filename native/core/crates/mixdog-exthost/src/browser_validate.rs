@@ -183,9 +183,7 @@ fn page_control(input: &Map<String, Value>) -> Checked<()> {
 fn main_tab_id(value: Option<&Value>) -> Checked<()> {
     match value {
         Some(Value::String(id))
-            if id.starts_with(MAIN_BROWSER_PAGE_PREFIX)
-                && len16(id) <= 256
-                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') =>
+            if id.starts_with(MAIN_BROWSER_PAGE_PREFIX) && len16(id) <= 256 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') =>
         {
             Ok(())
         }
@@ -270,7 +268,6 @@ mod tests {
         let Err(CoreError::DomainError { message, .. }) = validate_ui_action("input", &mut Value::Null) else { panic!("refused") };
         assert_eq!(message.as_deref(), Some("unknown remote browser control \"(none)\"."));
     }
-
 
     fn refusal(action: &str, mut input: Value) -> Option<String> {
         match validate_ui_action(action, &mut input) {
@@ -365,7 +362,9 @@ mod tests {
 
     #[test]
     fn a_composition_selection_stays_inside_its_text() {
-        let comp = |start: i64, end: i64| refusal("input", json!({"type": "composition", "documentId": DOC, "text": "abc", "selectionStart": start, "selectionEnd": end}));
+        let comp = |start: i64, end: i64| {
+            refusal("input", json!({"type": "composition", "documentId": DOC, "text": "abc", "selectionStart": start, "selectionEnd": end}))
+        };
         assert_eq!(comp(1, 3), None);
         assert_eq!(comp(2, 1).as_deref(), Some("Browser selectionEnd is invalid."));
         assert_eq!(comp(0, 4).as_deref(), Some("Browser selectionEnd is invalid."));

@@ -98,40 +98,15 @@ pub const kAXValueCGPointType: u32 = 1;
 pub const kAXValueCGSizeType: u32 = 2;
 pub const kAXValueAXErrorType: u32 = 5;
 
-pub type CGEventTapCallBack = extern "C" fn(
-    proxy: *mut c_void,
-    kind: u32,
-    event: CGEventRef,
-    user_info: *mut c_void,
-) -> CGEventRef;
+pub type CGEventTapCallBack = extern "C" fn(proxy: *mut c_void, kind: u32, event: CGEventRef, user_info: *mut c_void) -> CGEventRef;
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     pub fn CGEventCreate(source: CGEventSourceRef) -> CGEventRef;
-    pub fn CGEventCreateMouseEvent(
-        source: CGEventSourceRef,
-        kind: u32,
-        position: CGPoint,
-        button: u32,
-    ) -> CGEventRef;
-    pub fn CGEventCreateKeyboardEvent(
-        source: CGEventSourceRef,
-        keycode: u16,
-        down: bool,
-    ) -> CGEventRef;
-    pub fn CGEventCreateScrollWheelEvent2(
-        source: CGEventSourceRef,
-        units: u32,
-        count: u32,
-        wheel1: i32,
-        wheel2: i32,
-        wheel3: i32,
-    ) -> CGEventRef;
-    pub fn CGEventKeyboardSetUnicodeString(
-        event: CGEventRef,
-        length: std::os::raw::c_ulong,
-        text: *const u16,
-    );
+    pub fn CGEventCreateMouseEvent(source: CGEventSourceRef, kind: u32, position: CGPoint, button: u32) -> CGEventRef;
+    pub fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, keycode: u16, down: bool) -> CGEventRef;
+    pub fn CGEventCreateScrollWheelEvent2(source: CGEventSourceRef, units: u32, count: u32, wheel1: i32, wheel2: i32, wheel3: i32) -> CGEventRef;
+    pub fn CGEventKeyboardSetUnicodeString(event: CGEventRef, length: std::os::raw::c_ulong, text: *const u16);
     pub fn CGEventSetFlags(event: CGEventRef, flags: u64);
     pub fn CGEventGetFlags(event: CGEventRef) -> u64;
     pub fn CGEventSetIntegerValueField(event: CGEventRef, field: u32, value: i64);
@@ -147,16 +122,8 @@ extern "C" {
     pub fn CGWarpMouseCursorPosition(point: CGPoint) -> i32;
     pub fn CGAssociateMouseAndMouseCursorPosition(connected: bool) -> i32;
     pub fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFArrayRef;
-    pub fn CGRectMakeWithDictionaryRepresentation(dict: CFDictionaryRef, rect: *mut CGRect)
-        -> bool;
-    pub fn CGEventTapCreate(
-        tap: u32,
-        place: u32,
-        options: u32,
-        mask: u64,
-        callback: CGEventTapCallBack,
-        user_info: *mut c_void,
-    ) -> CFMachPortRef;
+    pub fn CGRectMakeWithDictionaryRepresentation(dict: CFDictionaryRef, rect: *mut CGRect) -> bool;
+    pub fn CGEventTapCreate(tap: u32, place: u32, options: u32, mask: u64, callback: CGEventTapCallBack, user_info: *mut c_void) -> CFMachPortRef;
     pub fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     pub fn CGPreflightScreenCaptureAccess() -> bool;
     pub fn CGSessionCopyCurrentDictionary() -> CFDictionaryRef;
@@ -168,33 +135,11 @@ extern "C" {
     pub fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
     pub fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     pub fn AXUIElementCreateSystemWide() -> AXUIElementRef;
-    pub fn AXUIElementCopyElementAtPosition(
-        application: AXUIElementRef,
-        x: f32,
-        y: f32,
-        element: *mut AXUIElementRef,
-    ) -> i32;
-    pub fn AXUIElementCopyAttributeValue(
-        element: AXUIElementRef,
-        attribute: CFStringRef,
-        value: *mut CFTypeRef,
-    ) -> i32;
-    pub fn AXUIElementCopyMultipleAttributeValues(
-        element: AXUIElementRef,
-        attributes: CFArrayRef,
-        options: u32,
-        values: *mut CFArrayRef,
-    ) -> i32;
-    pub fn AXUIElementSetAttributeValue(
-        element: AXUIElementRef,
-        attribute: CFStringRef,
-        value: CFTypeRef,
-    ) -> i32;
-    pub fn AXUIElementIsAttributeSettable(
-        element: AXUIElementRef,
-        attribute: CFStringRef,
-        settable: *mut u8,
-    ) -> i32;
+    pub fn AXUIElementCopyElementAtPosition(application: AXUIElementRef, x: f32, y: f32, element: *mut AXUIElementRef) -> i32;
+    pub fn AXUIElementCopyAttributeValue(element: AXUIElementRef, attribute: CFStringRef, value: *mut CFTypeRef) -> i32;
+    pub fn AXUIElementCopyMultipleAttributeValues(element: AXUIElementRef, attributes: CFArrayRef, options: u32, values: *mut CFArrayRef) -> i32;
+    pub fn AXUIElementSetAttributeValue(element: AXUIElementRef, attribute: CFStringRef, value: CFTypeRef) -> i32;
+    pub fn AXUIElementIsAttributeSettable(element: AXUIElementRef, attribute: CFStringRef, settable: *mut u8) -> i32;
     pub fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> i32;
     pub fn AXUIElementCopyActionNames(element: AXUIElementRef, names: *mut CFArrayRef) -> i32;
     pub fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
@@ -207,17 +152,9 @@ extern "C" {
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
-    pub fn CFMachPortCreateRunLoopSource(
-        allocator: *const c_void,
-        port: CFMachPortRef,
-        order: isize,
-    ) -> CFRunLoopSourceRef;
+    pub fn CFMachPortCreateRunLoopSource(allocator: *const c_void, port: CFMachPortRef, order: isize) -> CFRunLoopSourceRef;
     pub fn CFRunLoopGetCurrent() -> CFRunLoopRef;
-    pub fn CFRunLoopAddSource(
-        run_loop: CFRunLoopRef,
-        source: CFRunLoopSourceRef,
-        mode: CFStringRef,
-    );
+    pub fn CFRunLoopAddSource(run_loop: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
     pub fn CFRunLoopRun();
     pub static kCFRunLoopCommonModes: CFStringRef;
 }
@@ -231,8 +168,7 @@ pub fn ax_window_number(element: AXUIElementRef) -> Option<u32> {
         // SAFETY: dlsym with RTLD_DEFAULT looks up an exported symbol by name.
         let pointer = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"_AXUIElementGetWindow".as_ptr()) };
         // SAFETY: the symbol, when present, has exactly this C signature.
-        (!pointer.is_null())
-            .then(|| unsafe { std::mem::transmute::<*mut c_void, GetWindow>(pointer) })
+        (!pointer.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, GetWindow>(pointer) })
     });
     let function = (*function)?;
     let mut number = 0u32;
@@ -250,8 +186,7 @@ pub fn ax_copy(element: AXUIElementRef, attribute: &str) -> Result<CFType, i32> 
     let name = cfstr(attribute);
     let mut value: CFTypeRef = std::ptr::null();
     // SAFETY: element is a live AXUIElement, name a CFString, value an out pointer.
-    let status =
-        unsafe { AXUIElementCopyAttributeValue(element, name.as_concrete_TypeRef(), &mut value) };
+    let status = unsafe { AXUIElementCopyAttributeValue(element, name.as_concrete_TypeRef(), &mut value) };
     if status != kAXErrorSuccess || value.is_null() {
         return Err(status);
     }
@@ -267,34 +202,20 @@ pub fn as_bool(value: &CFType) -> Option<bool> {
     if let Some(flag) = value.downcast::<CFBoolean>() {
         return Some(flag.into());
     }
-    value
-        .downcast::<CFNumber>()
-        .and_then(|number| number.to_i64())
-        .map(|number| number != 0)
+    value.downcast::<CFNumber>().and_then(|number| number.to_i64()).map(|number| number != 0)
 }
 
 pub fn as_f64(value: &CFType) -> Option<f64> {
     if let Some(number) = value.downcast::<CFNumber>() {
-        return number
-            .to_f64()
-            .or_else(|| number.to_i64().map(|value| value as f64));
+        return number.to_f64().or_else(|| number.to_i64().map(|value| value as f64));
     }
-    value
-        .downcast::<CFBoolean>()
-        .map(|flag| if bool::from(flag) { 1.0 } else { 0.0 })
+    value.downcast::<CFBoolean>().map(|flag| if bool::from(flag) { 1.0 } else { 0.0 })
 }
 
 fn ax_value<T: Default>(value: &CFType, kind: u32) -> Option<T> {
     let mut out = T::default();
     // SAFETY: AXValueGetValue writes a value of `kind`, which T matches, into out.
-    let ok = unsafe {
-        AXValueGetType(value.as_CFTypeRef()) == kind
-            && AXValueGetValue(
-                value.as_CFTypeRef(),
-                kind,
-                &mut out as *mut T as *mut c_void,
-            )
-    };
+    let ok = unsafe { AXValueGetType(value.as_CFTypeRef()) == kind && AXValueGetValue(value.as_CFTypeRef(), kind, &mut out as *mut T as *mut c_void) };
     ok.then_some(out)
 }
 
@@ -308,10 +229,7 @@ pub fn as_size(value: &CFType) -> Option<CGSize> {
 
 pub fn is_ax_error(value: &CFType) -> bool {
     // SAFETY: AXValueGetType only reads the type tag of an AXValue.
-    unsafe {
-        core_foundation::base::CFGetTypeID(value.as_CFTypeRef()) == ax_value_type_id()
-            && AXValueGetType(value.as_CFTypeRef()) == kAXValueAXErrorType
-    }
+    unsafe { core_foundation::base::CFGetTypeID(value.as_CFTypeRef()) == ax_value_type_id() && AXValueGetType(value.as_CFTypeRef()) == kAXValueAXErrorType }
 }
 
 fn ax_value_type_id() -> usize {
@@ -335,13 +253,8 @@ pub fn ax_elements(value: &CFType) -> Vec<CFType> {
         return Vec::new();
     }
     // SAFETY: the value is a CFArray; its items are CF objects.
-    let array: CFArray<CFType> =
-        unsafe { CFArray::wrap_under_get_rule(value.as_CFTypeRef() as CFArrayRef) };
-    array
-        .iter()
-        .filter(|item| item.type_of() == ax_ui_element_type_id())
-        .map(|item| item.clone())
-        .collect()
+    let array: CFArray<CFType> = unsafe { CFArray::wrap_under_get_rule(value.as_CFTypeRef() as CFArrayRef) };
+    array.iter().filter(|item| item.type_of() == ax_ui_element_type_id()).map(|item| item.clone()).collect()
 }
 
 /// One attribute write: an operation of the executor's port, handed over to the provider (refused once its scope is revoked:
@@ -354,9 +267,7 @@ pub fn ax_settable(element: AXUIElementRef, attribute: &str) -> bool {
     let name = cfstr(attribute);
     let mut settable = 0u8;
     // SAFETY: element is live; settable is a valid out pointer.
-    let status = unsafe {
-        AXUIElementIsAttributeSettable(element, name.as_concrete_TypeRef(), &mut settable)
-    };
+    let status = unsafe { AXUIElementIsAttributeSettable(element, name.as_concrete_TypeRef(), &mut settable) };
     status == kAXErrorSuccess && settable != 0
 }
 
@@ -378,31 +289,16 @@ pub fn ax_actions(element: AXUIElementRef) -> Vec<String> {
 }
 
 /// Several attributes in one round trip; a missing one reads as `None`.
-pub fn ax_copy_many(
-    element: AXUIElementRef,
-    attributes: &CFArray<CFString>,
-) -> Option<Vec<Option<CFType>>> {
+pub fn ax_copy_many(element: AXUIElementRef, attributes: &CFArray<CFString>) -> Option<Vec<Option<CFType>>> {
     let mut values: CFArrayRef = std::ptr::null();
     // SAFETY: element is live; attributes is a CFArray of CFStrings.
-    let status = unsafe {
-        AXUIElementCopyMultipleAttributeValues(
-            element,
-            attributes.as_concrete_TypeRef(),
-            0,
-            &mut values,
-        )
-    };
+    let status = unsafe { AXUIElementCopyMultipleAttributeValues(element, attributes.as_concrete_TypeRef(), 0, &mut values) };
     if status != kAXErrorSuccess || values.is_null() {
         return None;
     }
     // SAFETY: returned under the create rule.
     let array: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(values) };
-    Some(
-        array
-            .iter()
-            .map(|item| (!is_ax_error(&item)).then(|| item.clone()))
-            .collect(),
-    )
+    Some(array.iter().map(|item| (!is_ax_error(&item)).then(|| item.clone())).collect())
 }
 
 pub fn ax_pid(element: AXUIElementRef) -> i32 {
@@ -422,30 +318,16 @@ pub fn application(pid: i32) -> CFType {
 
 pub fn ax_point_value(point: CGPoint) -> CFType {
     // SAFETY: AXValueCreate copies the point and returns a +1 AXValue.
-    unsafe {
-        CFType::wrap_under_create_rule(AXValueCreate(
-            kAXValueCGPointType,
-            &point as *const CGPoint as *const c_void,
-        ))
-    }
+    unsafe { CFType::wrap_under_create_rule(AXValueCreate(kAXValueCGPointType, &point as *const CGPoint as *const c_void)) }
 }
 
 pub fn ax_size_value(size: CGSize) -> CFType {
     // SAFETY: AXValueCreate copies the size and returns a +1 AXValue.
-    unsafe {
-        CFType::wrap_under_create_rule(AXValueCreate(
-            kAXValueCGSizeType,
-            &size as *const CGSize as *const c_void,
-        ))
-    }
+    unsafe { CFType::wrap_under_create_rule(AXValueCreate(kAXValueCGSizeType, &size as *const CGSize as *const c_void)) }
 }
 
 pub fn cf_bool(value: bool) -> CFType {
-    if value {
-        CFBoolean::true_value().as_CFType()
-    } else {
-        CFBoolean::false_value().as_CFType()
-    }
+    if value { CFBoolean::true_value().as_CFType() } else { CFBoolean::false_value().as_CFType() }
 }
 
 pub fn trusted() -> bool {
@@ -459,10 +341,7 @@ pub fn prompt_trust() {
     ASKED.call_once(|| {
         // SAFETY: kAXTrustedCheckOptionPrompt is an exported CFString constant.
         let key = unsafe { CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt) };
-        let options = core_foundation::dictionary::CFDictionary::from_CFType_pairs(&[(
-            key.as_CFType(),
-            CFBoolean::true_value().as_CFType(),
-        )]);
+        let options = core_foundation::dictionary::CFDictionary::from_CFType_pairs(&[(key.as_CFType(), CFBoolean::true_value().as_CFType())]);
         // SAFETY: options is a valid dictionary for the duration of the call.
         unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
     });

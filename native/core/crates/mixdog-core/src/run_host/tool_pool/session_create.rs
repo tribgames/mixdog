@@ -184,7 +184,11 @@ fn choices(rows: &[&Value]) -> String {
     let label = |row: &&Value| {
         let display = clean(row.get("display"));
         let id = row_id(row);
-        format!("{} ({}/{id})", if display.is_empty() { id.clone() } else { display }, row.get("provider").map(mixdog_js::value_to_string).unwrap_or_else(|| "undefined".into()))
+        format!(
+            "{} ({}/{id})",
+            if display.is_empty() { id.clone() } else { display },
+            row.get("provider").map(mixdog_js::value_to_string).unwrap_or_else(|| "undefined".into())
+        )
     };
     let shown = rows.iter().take(CHOICE_LIMIT).map(label).collect::<Vec<_>>().join("; ");
     if rows.len() > CHOICE_LIMIT { format!("{shown}; … ({} total)", rows.len()) } else { shown }
@@ -242,7 +246,10 @@ fn route_by_display_name(text: &str, rows: &[Value], explicit_effort: bool) -> R
     if distinct.len() > 1 {
         return Err(format!("session: model \"{}\" is ambiguous; use provider/model: {}", mixdog_js::js_trim(text), choices(&distinct)));
     }
-    let route = Map::from_iter([("provider".to_owned(), distinct[0].get("provider").cloned().unwrap_or(Value::Null)), ("model".to_owned(), json!(row_id(distinct[0])))]);
+    let route = Map::from_iter([
+        ("provider".to_owned(), distinct[0].get("provider").cloned().unwrap_or(Value::Null)),
+        ("model".to_owned(), json!(row_id(distinct[0]))),
+    ]);
     match effort {
         Some(effort) if !explicit_effort => with_effort(route, &json!(effort), rows),
         _ => Ok(route),
@@ -354,7 +361,10 @@ impl SessionSend {
                 Some(path) => path,
                 None => {
                     let candidate = mixdog_agent::agent_tool::scope::resolve_path(cwd, &requested);
-                    self.create.directory(&candidate).await.ok_or_else(|| format!("session: \"{requested}\" is neither a registered Project nor an existing directory; run list-projects"))?
+                    self.create
+                        .directory(&candidate)
+                        .await
+                        .ok_or_else(|| format!("session: \"{requested}\" is neither a registered Project nor an existing directory; run list-projects"))?
                 }
             };
             Where { cwd: path.clone(), desktop_session: json!({ "classification": "project", "projectPath": path }), project: Some(path) }
@@ -378,7 +388,8 @@ impl SessionSend {
                 Ok(route) => Some(route_fields(self.create.codex_route(Value::Object(route)).await.as_object().unwrap_or(&Map::new()))),
                 Err(name) => {
                     let presets = self.create.presets().await;
-                    let preset = presets.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(&name) || p.get("name").and_then(Value::as_str) == Some(&name));
+                    let preset =
+                        presets.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(&name) || p.get("name").and_then(Value::as_str) == Some(&name));
                     match preset.and_then(Value::as_object) {
                         Some(preset) => Some(route_fields(preset)),
                         None => {
@@ -414,9 +425,14 @@ impl SessionSend {
         let mut cursor = None;
         for _ in 0..LAST_USED_ROUTE_MAX_PAGES {
             let (rows, next) = self.create.catalog_page(50, cursor).await?;
-            let used = rows.iter().find(|row| row.get("sessionMode").and_then(Value::as_str) != Some("agent") && !clean(row.get("provider")).is_empty() && !clean(row.get("model")).is_empty());
+            let used = rows.iter().find(|row| {
+                row.get("sessionMode").and_then(Value::as_str) != Some("agent") && !clean(row.get("provider")).is_empty() && !clean(row.get("model")).is_empty()
+            });
             if let Some(used) = used {
-                return Ok(Some(Map::from_iter([("provider".to_owned(), json!(clean(used.get("provider")))), ("model".to_owned(), json!(clean(used.get("model"))))])));
+                return Ok(Some(Map::from_iter([
+                    ("provider".to_owned(), json!(clean(used.get("provider")))),
+                    ("model".to_owned(), json!(clean(used.get("model")))),
+                ])));
             }
             match next {
                 Some(next) => cursor = Some(next),
@@ -430,7 +446,9 @@ impl SessionSend {
     /// `explicit`, a repository that cannot have one keeps the Project folder.
     async fn request_task_worktree(&self, session_id: &str, input: Value, explicit: bool) -> Result<(), CreateFailure> {
         let failure = match self.create.request_worktree(session_id, input).await {
-            Ok(value) if value.get("pending") == Some(&Value::Bool(false)) && value.pointer("/workspace/worktreeId").is_some_and(Value::is_string) => return Ok(()),
+            Ok(value) if value.get("pending") == Some(&Value::Bool(false)) && value.pointer("/workspace/worktreeId").is_some_and(Value::is_string) => {
+                return Ok(());
+            }
             Ok(_) => CreateFailure::coded("WORKTREE_NOT_IMPLEMENTED", "The session did not enter its worktree before the brief."),
             Err(failure) => failure,
         };
@@ -450,7 +468,9 @@ impl SessionSend {
         };
         let Some(failure) = failure else { return error };
         mixdog_rt::node_stderr!("mixdog task sessions: dropping {session_id} failed: {failure}");
-        format!("{error} The empty task session {session_id} could not be deleted either ({failure}); delete it with session action=delete session_id={session_id}.")
+        format!(
+            "{error} The empty task session {session_id} could not be deleted either ({failure}); delete it with session action=delete session_id={session_id}."
+        )
     }
 
     /// `createTaskSession(args, caller)`: `attended` is the caller's worktree scope.
@@ -478,7 +498,8 @@ impl SessionSend {
         let task_origin = json!({ "agentId": agent_id, "sessionId": caller, "requestId": request_id, "title": title, "notify": notify });
         let route = self.task_route(args).await?;
         let explicit = matches!(location, Location::Worktree(_));
-        let in_worktree = explicit || (location == Location::Default && place.project.is_some() && attended && self.create.new_task_default().await.as_deref() == Some("worktree"));
+        let in_worktree = explicit
+            || (location == Location::Default && place.project.is_some() && attended && self.create.new_task_default().await.as_deref() == Some("worktree"));
         let mut params = route;
         params.insert("cwd".into(), json!(place.cwd));
         params.insert("desktopSession".into(), place.desktop_session.clone());
@@ -501,7 +522,8 @@ impl SessionSend {
                 input.insert("confirmLarge".into(), json!(true));
             }
             if let Err(failure) = self.request_task_worktree(&session_id, Value::Object(input), explicit).await {
-                let error = if failure.code.as_deref().is_some_and(|code| code.starts_with("WORKTREE_")) { task_worktree_failure(&failure) } else { failure.message };
+                let error =
+                    if failure.code.as_deref().is_some_and(|code| code.starts_with("WORKTREE_")) { task_worktree_failure(&failure) } else { failure.message };
                 return Err(self.drop_empty_task_session(&session_id, error).await);
             }
         }
@@ -728,7 +750,10 @@ mod tests {
     #[test]
     fn a_display_name_two_models_share_is_ambiguous_and_names_them() {
         let rows = vec![json!({ "id": "m1", "provider": "a", "display": "Dup" }), json!({ "id": "m2", "provider": "b", "display": "Dup" })];
-        assert_eq!(route_by_display_name("Dup", &rows, false), Err("session: model \"Dup\" is ambiguous; use provider/model: Dup (a/m1); Dup (b/m2)".to_owned()));
+        assert_eq!(
+            route_by_display_name("Dup", &rows, false),
+            Err("session: model \"Dup\" is ambiguous; use provider/model: Dup (a/m1); Dup (b/m2)".to_owned())
+        );
     }
 
     #[test]

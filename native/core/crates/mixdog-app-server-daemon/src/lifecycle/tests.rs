@@ -13,33 +13,17 @@ use super::testing::fixture;
 use super::*;
 
 fn turn() -> ActivityInfo {
-    ActivityInfo {
-        kind: ActivityKind::Turn,
-        thread_id: Some("thread-1".into()),
-        turn_id: Some("turn-1".into()),
-        title: "refactor".into(),
-    }
+    ActivityInfo { kind: ActivityKind::Turn, thread_id: Some("thread-1".into()), turn_id: Some("turn-1".into()), title: "refactor".into() }
 }
 
 fn last_exit(dir: &std::path::Path) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(dir.join(LAST_EXIT_FILE)).unwrap()).unwrap()
 }
 
-const RELEASE_ORDER: [&str; 6] = [
-    "final_barriers",
-    "close_data_handles",
-    "withdraw",
-    "close_connections",
-    "close_ext_host",
-    "exit",
-];
+const RELEASE_ORDER: [&str; 6] = ["final_barriers", "close_data_handles", "withdraw", "close_connections", "close_ext_host", "exit"];
 
 fn release_events(events: &[String]) -> Vec<&str> {
-    events
-        .iter()
-        .map(String::as_str)
-        .filter(|e| RELEASE_ORDER.contains(e))
-        .collect()
+    events.iter().map(String::as_str).filter(|e| RELEASE_ORDER.contains(e)).collect()
 }
 
 #[test]
@@ -90,11 +74,9 @@ fn a_signal_s_name_is_the_reason_the_trigger_noted() {
 #[test]
 fn the_last_client_of_each_registry_names_node_s_text() {
     // `daemon.mjs:1245`, `:917`, `:1159`.
-    for (kind, text) in [
-        (ClientKind::Session, "no live session clients"),
-        (ClientKind::Channel, "no live channel clients"),
-        (ClientKind::Remote, "remote clients changed"),
-    ] {
+    for (kind, text) in
+        [(ClientKind::Session, "no live session clients"), (ClientKind::Channel, "no live channel clients"), (ClientKind::Remote, "remote clients changed")]
+    {
         let fx = fixture();
         fx.lifecycle.set_serving().unwrap();
         drop(fx.lifecycle.connection(kind));
@@ -279,10 +261,7 @@ fn abort_needs_the_token_the_status_shows_and_then_cancels() {
     *fx.recorder.on_cancel.lock().unwrap() = Some(Box::new(move |_| drop(ending.lock().unwrap().take())));
 
     fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-    assert_eq!(
-        fx.lifecycle.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("guess")),
-        Err(CommandError::ConfirmationInvalid)
-    );
+    assert_eq!(fx.lifecycle.stop(StopMode::AbortConfirmed, StopReason::Quit, Some("guess")), Err(CommandError::ConfirmationInvalid));
     assert!(fx.recorder.cancelled().is_empty(), "no abort without the token");
 
     let token = fx.lifecycle.status().drain.clone().unwrap().confirm_token;
@@ -377,10 +356,7 @@ fn boot_progress_is_visible_and_a_stop_during_migration_is_refused() {
     assert_eq!(fx.lifecycle.status().state, StateName::Blocked);
     fx.lifecycle.set_migrating(Migration { kind: "sessions".into(), done: 3, total: 9 }).unwrap();
     assert!(matches!(&*fx.lifecycle.state().borrow(), CoreState::Migrating(m) if m.done == 3 && m.total == 9));
-    assert_eq!(
-        fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None),
-        Err(CommandError::Migrating)
-    );
+    assert_eq!(fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None), Err(CommandError::Migrating));
     fx.lifecycle.set_serving().unwrap();
     assert_eq!(fx.recorder.published().last().unwrap().phase, DiscoveryPhase::Serving);
 }
@@ -452,10 +428,7 @@ fn the_backstop_preserves_a_published_survivor_and_any_fatal_exit_code_while_flu
     }
 
     const WAIT: Duration = Duration::from_secs(10);
-    for (fatal_boot, code, reason) in [
-        (false, 1, "userStop (managed process drain failed)"),
-        (true, 2, "fatalBoot (managed process drain failed)"),
-    ] {
+    for (fatal_boot, code, reason) in [(false, 1, "userStop (managed process drain failed)"), (true, 2, "fatalBoot (managed process drain failed)")] {
         let recorder = Arc::new(Recorder::default());
         let root = tempfile::tempdir().unwrap();
         let (codes, exits) = mpsc::channel();
@@ -509,9 +482,7 @@ fn terminate_answers_before_it_exits_and_records_the_stall() {
     fx.lifecycle.set_stalled_ms(4200);
     let token = fx.lifecycle.status().terminate_token.clone();
     let recorder = Arc::clone(&fx.recorder);
-    fx.lifecycle
-        .terminate(&token, move || assert!(!recorder.has_exited(), "answered first"))
-        .unwrap();
+    fx.lifecycle.terminate(&token, move || assert!(!recorder.has_exited(), "answered first")).unwrap();
     assert!(fx.recorder.has_exited());
     let exit = last_exit(fx.runtime_root.path());
     assert_eq!(exit["reason"], "userTerminated");
@@ -645,5 +616,3 @@ fn a_hold_lapses_after_its_ttl_and_a_release_drops_the_timer() {
     fx.lifecycle.hold(true, None).unwrap();
     assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "running work keeps admission open");
 }
-
-

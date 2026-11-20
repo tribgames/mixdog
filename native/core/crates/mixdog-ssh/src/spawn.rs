@@ -13,8 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::process::{
-    CommandSpec, EnvSpec, ExitStatus, OutputMode, OutputStream, ProcessError, ProcessEvent, ProcessManager, ProcessOwner,
-    SpawnRequest,
+    CommandSpec, EnvSpec, ExitStatus, OutputMode, OutputStream, ProcessError, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest,
 };
 use mixdog_protocol::ProcessHandle;
 use mixdog_rt::{CancellationToken, LaneToken};
@@ -23,7 +22,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::binary::{missing_client_message, ssh_tool_command};
-use crate::command::{classify_failure, exec_args, stderr_tail_default, FailureClass, SshError, SshTarget};
+use crate::command::{FailureClass, SshError, SshTarget, classify_failure, exec_args, stderr_tail_default};
 use crate::context::{AttemptContext, ChildExit, PreparedSpawn, SshChild, SshEnv, SshSpawner};
 use crate::diagnostics::SpawnTrace;
 use crate::private_dir::join_name;
@@ -325,7 +324,11 @@ impl<L: LaneToken> SshSpawner for ProcessSpawner<L> {
     fn spawn(&self, prepared: &PreparedSpawn) -> io::Result<Box<dyn SshChild>> {
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| io::Error::other("no async runtime to start ssh on"))?;
         let program = prepared.command.to_string_lossy().into_owned();
-        let cwd = std::env::current_dir().ok().and_then(AbsPath::new).or_else(|| AbsPath::new(std::env::temp_dir())).ok_or_else(|| io::Error::other("no absolute working directory"))?;
+        let cwd = std::env::current_dir()
+            .ok()
+            .and_then(AbsPath::new)
+            .or_else(|| AbsPath::new(std::env::temp_dir()))
+            .ok_or_else(|| io::Error::other("no absolute working directory"))?;
         let env = match &prepared.env {
             Some(vars) => EnvSpec { inherit: false, set: vars.iter().map(|(key, value)| (key.clone(), value.clone())).collect(), remove: Vec::new() },
             None => EnvSpec { inherit: true, ..Default::default() },
@@ -561,7 +564,8 @@ pub async fn ssh_exec(env: &SshEnv, options: ExecOptions) -> Result<ExecOutput, 
     let display = &options.target.display;
     if timed_out {
         let suffix = if tail.is_empty() { String::new() } else { format!("\n{tail}") };
-        return Err(SshError::new(format!("ssh {display} timed out after {} ms.{suffix}", options.timeout.as_millis()), FailureClass::Transient).with_stderr(tail, None));
+        return Err(SshError::new(format!("ssh {display} timed out after {} ms.{suffix}", options.timeout.as_millis()), FailureClass::Transient)
+            .with_stderr(tail, None));
     }
     if exit.code.is_none() || exit.code == Some(255) {
         let reason = if !tail.is_empty() {
@@ -573,7 +577,11 @@ pub async fn ssh_exec(env: &SshEnv, options: ExecOptions) -> Result<ExecOutput, 
         };
         return Err(SshError::new(format!("ssh {display} failed:\n{reason}"), classify_failure(&err_text)).with_stderr(tail, exit.code));
     }
-    Ok(ExecOutput { exit_code: exit.code.unwrap_or_default(), stdout: String::from_utf8_lossy(&stdout.lock().unwrap_or_else(PoisonError::into_inner)).into_owned(), stderr: err_text })
+    Ok(ExecOutput {
+        exit_code: exit.code.unwrap_or_default(),
+        stdout: String::from_utf8_lossy(&stdout.lock().unwrap_or_else(PoisonError::into_inner)).into_owned(),
+        stderr: err_text,
+    })
 }
 
 #[cfg(test)]

@@ -216,11 +216,7 @@ mod tests {
     #[async_trait::async_trait]
     impl HfHttp for Fake {
         async fn get_json(&self, url: &str, _: usize) -> Result<Value, String> {
-            if url.contains("/api/models?") {
-                Ok(json!([{"id": "o/n", "downloads": 5}, {"id": "bad id", "downloads": 1}]))
-            } else {
-                Ok(self.info.clone())
-            }
+            if url.contains("/api/models?") { Ok(json!([{"id": "o/n", "downloads": 5}, {"id": "bad id", "downloads": 1}])) } else { Ok(self.info.clone()) }
         }
         async fn get_range(&self, _: &str, end: u64) -> Result<RangeResponse, String> {
             let total = self.gguf.len() as u64;
@@ -228,8 +224,6 @@ mod tests {
             Ok(RangeResponse { status: 206, content_range: format!("bytes 0-{end}/{total}"), https: true, body: self.gguf[..=end as usize].to_vec() })
         }
     }
-
-
 
     #[test]
     fn shards_and_ranges_are_recognised() {
@@ -287,10 +281,7 @@ mod tests {
         assert!(c.inspect(&json!({"repository": "../x"}), 0).await.is_err());
         assert!(c.inspect(&json!({"repository": "o/n", "filename": "m.gguf", "contextWindow": 1000}), 0).await.is_err());
     }
-
-
 }
-
 
 impl HuggingFaceCatalog {
     /// `registry` is the catalog's own registry: both must see the same registered models.
@@ -328,7 +319,13 @@ impl HuggingFaceCatalog {
         let repository = repository_id(args.get("repository"))?;
         let requested = match args.get("contextWindow") {
             None => None,
-            Some(v) => Some(v.as_f64().filter(|c| c.fract() == 0.0).map(|c| c as i64).filter(|c| (LOCAL_CONTEXT_MIN_TOKENS..=32768).contains(c)).ok_or_else(|| HfError::Invalid(format!("contextWindow must be between {LOCAL_CONTEXT_MIN_TOKENS} and 32768.")))?),
+            Some(v) => Some(
+                v.as_f64()
+                    .filter(|c| c.fract() == 0.0)
+                    .map(|c| c as i64)
+                    .filter(|c| (LOCAL_CONTEXT_MIN_TOKENS..=32768).contains(c))
+                    .ok_or_else(|| HfError::Invalid(format!("contextWindow must be between {LOCAL_CONTEXT_MIN_TOKENS} and 32768.")))?,
+            ),
         };
         let info = self.http.get_json(&format!("{ORIGIN}/api/models/{repository}?blobs=true"), MAX_JSON).await.map_err(HfError::Failed)?;
         let flag = |k: &str| info.get(k).is_some_and(truthy);
@@ -354,13 +351,19 @@ impl HuggingFaceCatalog {
             }));
         };
         let Some(filename) = filename.as_str() else { return invalid("Select one complete GGUF file; split shards and traversal paths are unsupported.") };
-        if filename.chars().any(|c| c == '\\' || (c as u32) < 0x20) || filename.split('/').any(|p| p.is_empty() || p == "." || p == "..") || is_shard(filename) {
+        if filename.chars().any(|c| c == '\\' || (c as u32) < 0x20) || filename.split('/').any(|p| p.is_empty() || p == "." || p == "..") || is_shard(filename)
+        {
             return invalid("Select one complete GGUF file; split shards and traversal paths are unsupported.");
         }
         let file = files.iter().find(|e| e["rfilename"] == filename);
         let size = file.and_then(|f| f.get("size")).and_then(Value::as_i64).filter(|s| (1..=MAX_SAFE_INTEGER).contains(s));
-        let sha256 = file.and_then(|f| f.pointer("/lfs/sha256")).and_then(Value::as_str).filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
-        let (Some(file), Some(size), Some(sha256)) = (file, size, sha256) else { return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.") };
+        let sha256 = file
+            .and_then(|f| f.pointer("/lfs/sha256"))
+            .and_then(Value::as_str)
+            .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+        let (Some(file), Some(size), Some(sha256)) = (file, size, sha256) else {
+            return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.");
+        };
         if file.pointer("/lfs/size").and_then(Value::as_i64) != Some(size) {
             return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.");
         }

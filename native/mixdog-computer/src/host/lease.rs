@@ -6,7 +6,7 @@
 #![cfg_attr(not(windows), allow(dead_code, reason = "only Windows has a foreground lock to lease"))]
 
 use crate::lease_api::{ForegroundLease, LeaseAnswer, NoLease};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -20,12 +20,8 @@ static STDIN: Channel = Channel::new();
 pub(super) fn from_env() -> Box<dyn ForegroundLease> {
     #[cfg(windows)]
     if crate::config::host_foreground_lock() {
-        use crate::protocol::{write_line, FGLOCK_MARKER};
-        return Box::new(StdioLease {
-            channel: &STDIN,
-            now: crate::platform::lease_now_ms,
-            send: Box::new(|request| write_line(FGLOCK_MARKER, request)),
-        });
+        use crate::protocol::{FGLOCK_MARKER, write_line};
+        return Box::new(StdioLease { channel: &STDIN, now: crate::platform::lease_now_ms, send: Box::new(|request| write_line(FGLOCK_MARKER, request)) });
     }
     Box::new(NoLease)
 }
@@ -79,10 +75,7 @@ fn id(text: &str) -> Option<i64> {
 
 impl Channel {
     const fn new() -> Channel {
-        Channel {
-            state: Mutex::new(State { waiting: None, input_ended: false }),
-            answered: Condvar::new(),
-        }
+        Channel { state: Mutex::new(State { waiting: None, input_ended: false }), answered: Condvar::new() }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -107,11 +100,7 @@ impl Channel {
         if waiter.kind == "released" && waiter.lease != 0 && waiter.lease != lease {
             return;
         }
-        waiter.reply = Some(Reply {
-            lease,
-            word: parts[4].to_string(),
-            deadline: parts.get(5).map(|deadline| deadline.to_string()),
-        });
+        waiter.reply = Some(Reply { lease, word: parts[4].to_string(), deadline: parts.get(5).map(|deadline| deadline.to_string()) });
         self.answered.notify_all();
     }
 
@@ -189,8 +178,7 @@ impl ForegroundLease for StdioLease<'_> {
             return LeaseAnswer::NoAnswer;
         };
         let deadline_at = reply.deadline.and_then(|deadline| deadline.parse::<f64>().ok());
-        let (Ok(lease), Some(deadline_at)) = (u32::try_from(reply.lease), deadline_at.filter(|at| at.is_finite()))
-        else {
+        let (Ok(lease), Some(deadline_at)) = (u32::try_from(reply.lease), deadline_at.filter(|at| at.is_finite())) else {
             return LeaseAnswer::NoAnswer;
         };
         if reply.word != "locked" || lease == 0 {
@@ -245,11 +233,7 @@ mod tests {
 
     impl Host {
         fn new(feeds: &[&[String]]) -> Host {
-            Host {
-                channel: Channel::new(),
-                feeds: RefCell::new(feeds.iter().rev().map(|feed| feed.to_vec()).collect()),
-                requests: RefCell::new(Vec::new()),
-            }
+            Host { channel: Channel::new(), feeds: RefCell::new(feeds.iter().rev().map(|feed| feed.to_vec()).collect()), requests: RefCell::new(Vec::new()) }
         }
         fn lease(&self) -> StdioLease<'_> {
             StdioLease {
@@ -281,10 +265,7 @@ mod tests {
         ]]);
         let answer = host.lease().acquire(7, 1, 100, 1234.56789);
         assert_eq!(answer, LeaseAnswer::Locked { lease: 12, deadline_at: deadline.parse().unwrap() });
-        assert_eq!(
-            *host.requests.borrow(),
-            [r#"{"op":"acquire","action":7,"seq":1,"hold_ms":100,"answer_by":1234.568}"#]
-        );
+        assert_eq!(*host.requests.borrow(), [r#"{"op":"acquire","action":7,"seq":1,"hold_ms":100,"answer_by":1234.568}"#]);
         assert!(host.channel.state().waiting.is_none());
     }
 
@@ -311,9 +292,7 @@ mod tests {
 
     #[test]
     fn a_release_outcome_outside_the_hosts_words_is_no_ack() {
-        for (word, outcome) in
-            [("failed", "failed"), ("unknown", "unknown"), ("none", "none"), ("locked", "no_ack"), ("", "no_ack")]
-        {
+        for (word, outcome) in [("failed", "failed"), ("unknown", "unknown"), ("none", "none"), ("locked", "no_ack"), ("", "no_ack")] {
             let host = Host::new(&[&[format!("released 7 1 12 {word}")]]);
             assert_eq!(host.lease().release(7, 1, 12), outcome, "{word:?}");
         }
@@ -351,20 +330,14 @@ mod tests {
     #[test]
     fn a_lease_past_its_deadline_is_expired_on_arrival() {
         let host = Host::new(&[&[format!("ack 7 3 15 locked {}", at(-1.0))]]);
-        assert!(matches!(
-            host.lease().acquire(7, 3, 100, now() + 250.0),
-            LeaseAnswer::ExpiredOnArrival { lease: 15, .. }
-        ));
+        assert!(matches!(host.lease().acquire(7, 3, 100, now() + 250.0), LeaseAnswer::ExpiredOnArrival { lease: 15, .. }));
     }
 
     #[test]
     fn an_answer_without_a_lock_is_refused_in_the_hosts_word() {
         let deadline = at(60_000.0);
-        let host = Host::new(&[
-            &[format!("ack 7 1 0 refused {deadline}")],
-            &[format!("ack 7 2 0 locked {deadline}")],
-            &["ack 7 3 0 unavailable 0.000".to_string()],
-        ]);
+        let host =
+            Host::new(&[&[format!("ack 7 1 0 refused {deadline}")], &[format!("ack 7 2 0 locked {deadline}")], &["ack 7 3 0 unavailable 0.000".to_string()]]);
         let lease = host.lease();
         assert_eq!(lease.acquire(7, 1, 100, now() + 250.0), LeaseAnswer::Refused("refused".into()));
         assert_eq!(lease.acquire(7, 2, 100, now() + 250.0), LeaseAnswer::Refused("locked".into()));

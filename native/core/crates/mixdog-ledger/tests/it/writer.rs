@@ -1,10 +1,6 @@
 //! The write side: queued records settle in order and once each, one bad record fails alone,
 //! and the price refresh examines only what changed.
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -32,10 +28,7 @@ fn record(id: &str, ts: i64, source: &str, cost: Option<f64>) -> UsageRecord {
 }
 
 fn query<T: rusqlite::types::FromSql>(path: &Path, sql: &str) -> T {
-    Connection::open(path)
-        .unwrap()
-        .query_row(sql, [], |r| r.get(0))
-        .unwrap()
+    Connection::open(path).unwrap().query_row(sql, [], |r| r.get(0)).unwrap()
 }
 
 #[tokio::test]
@@ -43,16 +36,12 @@ async fn queued_records_settle_in_order_once_each_and_a_bad_one_fails_alone() {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
 
     let mut queued = Vec::new();
     for i in 0..20_i64 {
         // Descending times: the first queued record is the first live one (`liveSince`).
-        queued.push((
-            i,
-            writer.record_queued(record(&format!("r{i}"), 2000 - i, "catalog", Some(0.1))),
-        ));
+        queued.push((i, writer.record_queued(record(&format!("r{i}"), 2000 - i, "catalog", Some(0.1)))));
     }
     let mut bad = record("bad", 1, "catalog", Some(0.1));
     bad.day = "not-a-day".into();
@@ -63,10 +52,7 @@ async fn queued_records_settle_in_order_once_each_and_a_bad_one_fails_alone() {
 
     // Everything queued before the barrier is committed before it resolves.
     assert_eq!(query::<i64>(&path, "SELECT COUNT(*) FROM usage_events"), 20);
-    assert_eq!(
-        query::<String>(&path, "SELECT value FROM metadata WHERE key='liveSince'"),
-        "2000"
-    );
+    assert_eq!(query::<String>(&path, "SELECT value FROM metadata WHERE key='liveSince'"), "2000");
     for (_, outcome) in queued {
         outcome.await.unwrap();
     }
@@ -86,10 +72,7 @@ impl Pricer for Table {
 
     fn price(&self, _: &PriceRequest) -> mixdog_ledger::Result<Priced> {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(Priced {
-            cost_usd: Some(1.5),
-            rates: None,
-        })
+        Ok(Priced { cost_usd: Some(1.5), rates: None })
     }
 }
 
@@ -98,56 +81,33 @@ async fn the_refresh_reprices_only_what_changed() {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let table = Arc::new(Table {
-        revision: Mutex::new("r1".into()),
-        calls: 0.into(),
-    });
+    let table = Arc::new(Table { revision: Mutex::new("r1".into()), calls: 0.into() });
     let refresher = UsageRefresher::new(table.clone(), tokens.cpu_bulk);
-    let ledger = UsageLedger {
-        writer: writer.clone(),
-        reader: reader.clone(),
-        refresher: refresher.clone(),
-    };
+    let ledger = UsageLedger { writer: writer.clone(), reader: reader.clone(), refresher: refresher.clone() };
     let unpriced = |sql: &str| query::<i64>(&path, sql);
     let open_rows = "SELECT COUNT(*) FROM usage_events WHERE cost_usd IS NULL";
     let now = 10_000_i64;
 
     for i in 0..3_i64 {
-        writer
-            .record_queued(record(&format!("u{i}"), 100 + i, "unpriced", None))
-            .await
-            .unwrap();
+        writer.record_queued(record(&format!("u{i}"), 100 + i, "unpriced", None)).await.unwrap();
     }
     ledger.writer.settle_writes().await.unwrap();
     let Refresh::Repaired(first) = refresher.refresh(&writer, &reader, now).await.unwrap() else {
         panic!("three unpriced records are examined");
     };
-    assert_eq!(
-        (first.repriced, first.still_unpriced, first.conflict),
-        (3, 0, false)
-    );
+    assert_eq!((first.repriced, first.still_unpriced, first.conflict), (3, 0, false));
     assert_eq!(unpriced(open_rows), 0);
 
     // Nothing changed under the same table: skipped, whatever the clock.
-    assert!(matches!(
-        refresher.refresh(&writer, &reader, now).await.unwrap(),
-        Refresh::Skipped
-    ));
+    assert!(matches!(refresher.refresh(&writer, &reader, now).await.unwrap(), Refresh::Skipped));
     // A new table with nothing unpriced left has nothing to examine either.
     *table.revision.lock().unwrap() = "r2".into();
-    assert!(matches!(
-        refresher.refresh(&writer, &reader, now).await.unwrap(),
-        Refresh::Skipped
-    ));
+    assert!(matches!(refresher.refresh(&writer, &reader, now).await.unwrap(), Refresh::Skipped));
 
     // A record appended later is the only one examined.
-    writer
-        .record_queued(record("late", 200, "unpriced", None))
-        .await
-        .unwrap();
+    writer.record_queued(record("late", 200, "unpriced", None)).await.unwrap();
     let Refresh::Repaired(next) = refresher.refresh(&writer, &reader, now).await.unwrap() else {
         panic!("the appended record is examined");
     };
@@ -170,13 +130,7 @@ async fn the_writer_signals_a_change_once_idle_after_a_commit() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
     let (signals, mut told) = tokio::sync::mpsc::unbounded_channel();
-    let writer = UsageWriter::open_publishing(
-        tokens.sqlite_writer_thread,
-        tokens.maintenance_io,
-        &path,
-        Arc::new(Signals(signals)),
-    )
-    .unwrap();
+    let writer = UsageWriter::open_publishing(tokens.sqlite_writer_thread, tokens.maintenance_io, &path, Arc::new(Signals(signals))).unwrap();
 
     // Booting is not a change: the first signal is the first record's.
     // A record that was already stored is not a change.
@@ -187,10 +141,7 @@ async fn the_writer_signals_a_change_once_idle_after_a_commit() {
     writer.settle_writes().await.unwrap();
     assert!(told.try_recv().is_err(), "a repeated id changes nothing");
     // A new record is.
-    writer
-        .record_queued(record("p1", 1_001, "catalog", Some(0.1)))
-        .await
-        .unwrap();
+    writer.record_queued(record("p1", 1_001, "catalog", Some(0.1))).await.unwrap();
     told.recv().await.unwrap();
 }
 
@@ -218,27 +169,12 @@ fn rig() -> Rig {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let table = Arc::new(Table {
-        revision: Mutex::new("r1".into()),
-        calls: 0.into(),
-    });
+    let table = Arc::new(Table { revision: Mutex::new("r1".into()), calls: 0.into() });
     let refresher = UsageRefresher::new(table.clone(), tokens.cpu_bulk);
-    let ledger = UsageLedger {
-        writer: writer.clone(),
-        reader,
-        refresher: refresher.clone(),
-    };
-    Rig {
-        _dir: dir,
-        path,
-        writer,
-        refresher,
-        table,
-        ledger,
-    }
+    let ledger = UsageLedger { writer: writer.clone(), reader, refresher: refresher.clone() };
+    Rig { _dir: dir, path, writer, refresher, table, ledger }
 }
 
 /// Holds the ledger's write lock: the writer thread cannot commit until it is released.
@@ -251,11 +187,7 @@ fn hold_writes(path: &Path) -> Connection {
 /// Queues a write behind a held write lock, starts a read, and checks that the read has not
 /// answered while the write is pending; releases the lock and returns the read's answer. A read
 /// that does not settle first answers at once, from the ledger without the write.
-async fn read_waits_for_the_queued_write<W, R>(
-    rig: &Rig,
-    write: impl FnOnce(&UsageWriter) -> W,
-    read: impl FnOnce(UsageLedger) -> R,
-) -> Value
+async fn read_waits_for_the_queued_write<W, R>(rig: &Rig, write: impl FnOnce(&UsageWriter) -> W, read: impl FnOnce(UsageLedger) -> R) -> Value
 where
     W: Future<Output = ()>,
     R: Future<Output = mixdog_ledger::Result<Value>> + Send + 'static,
@@ -267,10 +199,7 @@ where
         tokio::task::yield_now().await;
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    assert!(
-        !task.is_finished(),
-        "the read answered before the queued write committed"
-    );
+    assert!(!task.is_finished(), "the read answered before the queued write committed");
     lock.execute_batch("COMMIT").unwrap();
     queued.await;
     task.await.unwrap().unwrap()
@@ -283,10 +212,7 @@ async fn session_usage_and_requests_wait_for_queued_records() {
         let queued = w.record_queued(record("q1", TS, "catalog", Some(0.1)));
         async move { queued.await.unwrap() }
     };
-    let usage = read_waits_for_the_queued_write(&rig, stored, |l| async move {
-        l.session_usage(vec!["s1".into()], vec![]).await
-    })
-    .await;
+    let usage = read_waits_for_the_queued_write(&rig, stored, |l| async move { l.session_usage(vec!["s1".into()], vec![]).await }).await;
     assert!(usage.to_string().contains("\"turns\":1"), "{usage}");
 
     let page = read_waits_for_the_queued_write(
@@ -330,11 +256,7 @@ async fn quota_history_waits_for_queued_readings() {
         provider: "prov".into(),
         account: "acc".into(),
         label: "5h".into(),
-        sample: QuotaSample {
-            ts: TS,
-            used_pct: 12.5,
-            reset_at: Some(TS + 3_600_000),
-        },
+        sample: QuotaSample { ts: TS, used_pct: 12.5, reset_at: Some(TS + 3_600_000) },
     };
     let history = read_waits_for_the_queued_write(
         &rig,
@@ -343,11 +265,8 @@ async fn quota_history_waits_for_queued_readings() {
             async move { assert_eq!(queued.await.unwrap(), 1) }
         },
         |l| async move {
-            let options: QuotaHistoryOptions =
-                serde_json::from_str(r#"{"provider":"prov","account":"acc","window":"5h"}"#)
-                    .unwrap();
-            l.get_quota_history(options, Default::default(), TS + 1_000)
-                .await
+            let options: QuotaHistoryOptions = serde_json::from_str(r#"{"provider":"prov","account":"acc","window":"5h"}"#).unwrap();
+            l.get_quota_history(options, Default::default(), TS + 1_000).await
         },
     )
     .await;
@@ -359,16 +278,12 @@ async fn a_full_queue_answers_busy_with_its_name() {
     let rig = rig();
     let lock = hold_writes(&rig.path);
     // The first record blocks the writer thread inside its commit; the rest wait in the queue.
-    let blocked = rig
-        .writer
-        .record_queued(record("b0", TS, "catalog", Some(0.1)));
+    let blocked = rig.writer.record_queued(record("b0", TS, "catalog", Some(0.1)));
     let mut waiting = Vec::new();
     let mut busy = None;
     for _ in 0..2_000 {
         let barrier = rig.writer.settle_writes();
-        let queued = rig
-            .writer
-            .record_queued(record("b1", TS + 1, "catalog", Some(0.1)));
+        let queued = rig.writer.record_queued(record("b1", TS + 1, "catalog", Some(0.1)));
         // An overflowing command answers at once, without waiting for the writer.
         let answer = futures_now(queued);
         if let Some(Err(error)) = answer {
@@ -377,20 +292,8 @@ async fn a_full_queue_answers_busy_with_its_name() {
         }
         waiting.push(barrier);
     }
-    assert!(
-        matches!(
-            busy,
-            Some(LedgerError::Busy {
-                queue: "usage-writer"
-            })
-        ),
-        "{busy:?}"
-    );
-    assert!(
-        waiting.len() <= 1_024,
-        "{} commands were accepted",
-        waiting.len()
-    );
+    assert!(matches!(busy, Some(LedgerError::Busy { queue: "usage-writer" })), "{busy:?}");
+    assert!(waiting.len() <= 1_024, "{} commands were accepted", waiting.len());
     lock.execute_batch("COMMIT").unwrap();
     blocked.await.unwrap();
     for barrier in waiting {
@@ -405,29 +308,18 @@ async fn the_barrier_waits_for_the_writes_before_it_and_not_the_later_ones() {
     let rig = rig();
     let marks = rig.writer.marks();
     let lock = hold_writes(&rig.path);
-    let before = rig
-        .writer
-        .record_queued(record("m1", TS, "catalog", Some(0.1)));
+    let before = rig.writer.record_queued(record("m1", TS, "catalog", Some(0.1)));
     let mark = marks.accepted();
     let mut settled = Box::pin(marks.reached(mark));
-    assert!(
-        futures_now(settled.as_mut()).is_none(),
-        "the record from before the barrier is not committed"
-    );
+    assert!(futures_now(settled.as_mut()).is_none(), "the record from before the barrier is not committed");
     lock.execute_batch("COMMIT").unwrap();
     before.await.unwrap();
     assert_eq!(settled.await, Ok(()));
 
     let mark = marks.accepted();
     let lock = hold_writes(&rig.path);
-    let later = rig
-        .writer
-        .record_queued(record("m2", TS + 1, "catalog", Some(0.1)));
-    assert_eq!(
-        futures_now(marks.reached(mark)),
-        Some(Ok(())),
-        "a record queued after the barrier does not hold it"
-    );
+    let later = rig.writer.record_queued(record("m2", TS + 1, "catalog", Some(0.1)));
+    assert_eq!(futures_now(marks.reached(mark)), Some(Ok(())), "a record queued after the barrier does not hold it");
     assert_eq!((marks.committed(), marks.accepted()), (mark, mark + 1));
     lock.execute_batch("COMMIT").unwrap();
     later.await.unwrap();
@@ -444,10 +336,7 @@ async fn a_failed_record_before_the_barrier_is_its_error() {
     let answer = marks.reached(marks.accepted()).await;
     assert!(bad.await.is_err());
     let error = answer.expect_err("the failed record is the barrier's error");
-    assert!(
-        error.starts_with("the usage ledger: write 1, accepted before the barrier, failed: "),
-        "{error}"
-    );
+    assert!(error.starts_with("the usage ledger: write 1, accepted before the barrier, failed: "), "{error}");
 }
 
 /// The future's output if it is ready at its first poll (an enqueue that failed is).
@@ -464,22 +353,13 @@ fn futures_now<T>(future: impl Future<Output = T>) -> Option<T> {
 async fn two_concurrent_refreshes_are_serialized() {
     let rig = rig();
     for i in 0..3_i64 {
-        rig.writer
-            .record_queued(record(&format!("u{i}"), TS + i, "unpriced", None))
-            .await
-            .unwrap();
+        rig.writer.record_queued(record(&format!("u{i}"), TS + i, "unpriced", None)).await.unwrap();
     }
     rig.writer.settle_writes().await.unwrap();
     let reader = rig.ledger.reader.clone();
-    let (first, second) = tokio::join!(
-        rig.refresher.refresh(&rig.writer, &reader, TS + 10_000),
-        rig.refresher.refresh(&rig.writer, &reader, TS + 10_000),
-    );
+    let (first, second) = tokio::join!(rig.refresher.refresh(&rig.writer, &reader, TS + 10_000), rig.refresher.refresh(&rig.writer, &reader, TS + 10_000),);
     let outcomes = [first.unwrap(), second.unwrap()];
-    let repaired = outcomes
-        .iter()
-        .filter(|o| matches!(o, Refresh::Repaired(_)))
-        .count();
+    let repaired = outcomes.iter().filter(|o| matches!(o, Refresh::Repaired(_))).count();
     // One pass priced the three records; the other found nothing new once it had its turn.
     assert_eq!(repaired, 1, "{outcomes:?}");
     assert_eq!(rig.table.calls.load(std::sync::atomic::Ordering::SeqCst), 3);

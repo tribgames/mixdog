@@ -473,7 +473,13 @@ impl HostChannel for ScopedDesktop {
         self.inner.notify(capability, method, params)
     }
 
-    async fn request_streamed(&self, capability: HostCapability, method: Method, params: Value, on_event: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+    async fn request_streamed(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+    ) -> Result<Value, HostError> {
         let (params, teardown) = self.scoped(capability, method, params)?;
         let answer = self.inner.request_streamed(capability, method, params, on_event).await;
         self.answered(teardown, answer)

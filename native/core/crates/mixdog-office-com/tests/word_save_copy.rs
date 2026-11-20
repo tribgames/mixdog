@@ -31,7 +31,9 @@ impl ComObject for Document {
                 Ok(Com::Null)
             }
             "FullName" => Ok(Com::Str(self.path.display().to_string())),
-            other => Err(ComError { hresult: -1, inner_hresult: -1, message: format!("unknown member {other}"), inner_message: String::new(), unknown_member: true }),
+            other => {
+                Err(ComError { hresult: -1, inner_hresult: -1, message: format!("unknown member {other}"), inner_message: String::new(), unknown_member: true })
+            }
         }
     }
 

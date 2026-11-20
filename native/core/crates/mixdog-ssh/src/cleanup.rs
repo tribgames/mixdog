@@ -9,13 +9,13 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::bootstrap::{base_args, Remote, ServerPayloads, REMOTE_PROBE_TIMEOUT};
+use crate::bootstrap::{REMOTE_PROBE_TIMEOUT, Remote, ServerPayloads, base_args};
 use crate::command::SshTarget;
-use crate::said;
-use mixdog_app_protocol::message::Said;
 use crate::connect_failure::ConnectError;
 use crate::context::{AttemptContext, SshEnv};
 use crate::install_wire::{CleanupPhase, Mode, ProgramArgs, ServerPlatform};
+use crate::said;
+use mixdog_app_protocol::message::Said;
 
 const REMOTE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(330);
 
@@ -24,9 +24,13 @@ const REMOTE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(330);
 pub enum CleanupProgress {
     Connect,
     /// The core is stopped (or none ran): what became of it.
-    Stop { detail: Said },
+    Stop {
+        detail: Said,
+    },
     /// The files are removed: what went and what stayed.
-    Remove { detail: Said },
+    Remove {
+        detail: Said,
+    },
     Done,
 }
 

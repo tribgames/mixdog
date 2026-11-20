@@ -62,22 +62,36 @@ struct NoGrok;
 async fn cursor_plan_cache_and_inflight_are_scoped_to_the_resolved_key() {
     use std::sync::atomic::{AtomicU8, Ordering};
 
-    struct Keys { key: AtomicU8, gate: Arc<tokio::sync::Semaphore> }
-    struct Plan { key: u8, gate: Arc<tokio::sync::Semaphore> }
+    struct Keys {
+        key: AtomicU8,
+        gate: Arc<tokio::sync::Semaphore>,
+    }
+    struct Plan {
+        key: u8,
+        gate: Arc<tokio::sync::Semaphore>,
+    }
 
     #[async_trait]
     impl CursorApiPlan for Plan {
-        fn key_identity(&self) -> [u8; 32] { [self.key; 32] }
+        fn key_identity(&self) -> [u8; 32] {
+            [self.key; 32]
+        }
         async fn read(&self) -> Result<Value, UsageError> {
-            if self.key == 1 { let _permit = self.gate.acquire().await.unwrap(); }
+            if self.key == 1 {
+                let _permit = self.gate.acquire().await.unwrap();
+            }
             Ok(serde_json::json!({"provider":"cursor-api", "quotaWindows":[{"label":"API", "usedPct": self.key}]}))
         }
     }
 
     #[async_trait]
     impl UsageSource for Keys {
-        async fn ensure_auth(&self, _: &str, _: &str, _: bool) -> Result<Option<Value>, UsageError> { Ok(None) }
-        async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> { Ok(None) }
+        async fn ensure_auth(&self, _: &str, _: &str, _: bool) -> Result<Option<Value>, UsageError> {
+            Ok(None)
+        }
+        async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
+            Ok(None)
+        }
         async fn cursor_api_plan(&self) -> Result<Option<Arc<dyn CursorApiPlan>>, UsageError> {
             Ok(Some(Arc::new(Plan { key: self.key.load(Ordering::SeqCst), gate: self.gate.clone() })))
         }
@@ -86,8 +100,14 @@ async fn cursor_plan_cache_and_inflight_are_scoped_to_the_resolved_key() {
     let rig = rig().await;
     let keys = Arc::new(Keys { key: AtomicU8::new(1), gate: Arc::new(tokio::sync::Semaphore::new(0)) });
     let service = OAuthUsage::new(UsageDeps {
-        http: rig.http.clone(), source: keys.clone(), grok: Arc::new(NoGrok), history: rig.history.clone(),
-        store: rig.store.clone(), io: rig.usage.deps.io, log: Arc::new(|_| {}), data_dir: rig.dir.path().to_owned(),
+        http: rig.http.clone(),
+        source: keys.clone(),
+        grok: Arc::new(NoGrok),
+        history: rig.history.clone(),
+        store: rig.store.clone(),
+        io: rig.usage.deps.io,
+        log: Arc::new(|_| {}),
+        data_dir: rig.dir.path().to_owned(),
     });
     let route = RouteInfo { provider: "cursor-api".into(), model: "m".into(), account_id: "default".into() };
     let mut old = std::pin::pin!(service.fetch_snapshot(&route, false));
@@ -134,10 +154,7 @@ struct Rig {
 async fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let store = AccountStore::new(
-        dir.path().to_path_buf(),
-        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-    );
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     store.register("anthropic-oauth", ID, "A", false).await.unwrap();
     let http = Arc::new(FakeHttp::default());
     let source = Arc::new(FakeSource { forced: Mutex::default() });
@@ -233,10 +250,7 @@ async fn the_reset_credit_redeem_checks_its_arguments_then_replays_once() {
     assert!(is_uuid_v1_to_5("123e4567-e89b-42d3-a456-426614174000"));
     assert!(!is_uuid_v1_to_5("123e4567-e89b-62d3-a456-426614174000"));
     assert_eq!(codex_reset_outcome(Some(&Value::from("no_credit"))).unwrap(), "noCredit");
-    assert_eq!(
-        codex_reset_outcome(None).unwrap_err().message,
-        "Unknown Codex reset outcome: missing"
-    );
+    assert_eq!(codex_reset_outcome(None).unwrap_err().message, "Unknown Codex reset outcome: missing");
 }
 /// [`update_disk_cache`] as a durability-lane job.
 fn cache_update(path: &std::path::Path, edit: impl FnOnce(&mut Obj) + Send + 'static) -> std::io::Result<()> {
@@ -285,11 +299,8 @@ fn concurrent_cache_updates_all_land() {
     }
     let routes = read_json_file(&path).unwrap()["routes"].as_object().unwrap().clone();
     assert_eq!(routes.len(), 60, "an unlocked read-modify-write loses updates");
-    let leftovers: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n.contains("tmp"))
-        .collect();
+    let leftovers: Vec<_> =
+        std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.contains("tmp")).collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -304,11 +315,7 @@ fn a_damaged_cache_is_kept_aside_and_an_unreadable_one_is_an_error() {
     })
     .unwrap();
     assert_eq!(read_json_file(&path).unwrap()["routes"]["a"], 1);
-    let aside: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.to_string_lossy().contains(".corrupt-"))
-        .collect();
+    let aside: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.to_string_lossy().contains(".corrupt-")).collect();
     assert_eq!(aside.len(), 1);
     assert_eq!(std::fs::read_to_string(&aside[0]).unwrap(), "{ not json");
     // A directory where the file belongs cannot be read: an error, not an empty cache.

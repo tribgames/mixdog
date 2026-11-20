@@ -1,7 +1,7 @@
 //! A port over a fake external driver, for the host's tests: the driver log is what reached the "operating system", and a test
 //! can hold a submission right before its admission or inside it.
 
-use super::{Boundary, Cleanup, Holder, Ledger, Owned, Receipt, Scope, REVOKED};
+use super::{Boundary, Cleanup, Holder, Ledger, Owned, REVOKED, Receipt, Scope};
 use std::sync::{Arc, Barrier, Mutex};
 
 /// A key or button the fake desktop holds, by device and code.
@@ -127,7 +127,6 @@ impl FakePort {
         self.driver.land(format!("up {} {}", receipt.hold.device, receipt.hold.code));
         Ok(())
     }
-
 }
 
 impl Holder for FakePort {

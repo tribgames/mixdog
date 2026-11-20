@@ -207,13 +207,7 @@ pub(crate) fn by_key_length_desc(left: &str, right: &str) -> std::cmp::Ordering 
 }
 
 fn visit_shallow_files(root: &Path, names: &[&str], mut on_file: impl FnMut(PathBuf, String)) {
-    fn walk(
-        dir: &Path,
-        rel: &str,
-        depth: usize,
-        names: &[&str],
-        on_file: &mut dyn FnMut(PathBuf, String),
-    ) {
+    fn walk(dir: &Path, rel: &str, depth: usize, names: &[&str], on_file: &mut dyn FnMut(PathBuf, String)) {
         for name in names {
             let path = dir.join(name);
             if is_file(&path) {
@@ -229,19 +223,10 @@ fn visit_shallow_files(root: &Path, names: &[&str], mut on_file: impl FnMut(Path
                 continue;
             }
             let name = entry.file_name().to_string_lossy().replace('\\', "/");
-            if name.starts_with('.')
-                || name == "node_modules"
-                || name == "target"
-                || name == "dist"
-                || name == "vendor"
-            {
+            if name.starts_with('.') || name == "node_modules" || name == "target" || name == "dist" || name == "vendor" {
                 continue;
             }
-            let child_rel = if rel.is_empty() {
-                name
-            } else {
-                format!("{rel}/{name}")
-            };
+            let child_rel = if rel.is_empty() { name } else { format!("{rel}/{name}") };
             walk(&path, &child_rel, depth - 1, names, on_file);
         }
     }
@@ -299,20 +284,13 @@ fn parse_composer_psr4(text: &str) -> Vec<(String, String)> {
     };
     let mut out = Vec::new();
     for key in ["autoload", "autoload-dev"] {
-        let Some(map) = value
-            .get(key)
-            .and_then(|item| item.get("psr-4"))
-            .and_then(|item| item.as_object())
-        else {
+        let Some(map) = value.get(key).and_then(|item| item.get("psr-4")).and_then(|item| item.as_object()) else {
             continue;
         };
         for (ns, path) in map {
             let dirs: Vec<String> = match path {
                 serde_json::Value::String(s) => vec![s.clone()],
-                serde_json::Value::Array(arr) => arr
-                    .iter()
-                    .filter_map(|item| item.as_str().map(String::from))
-                    .collect(),
+                serde_json::Value::Array(arr) => arr.iter().filter_map(|item| item.as_str().map(String::from)).collect(),
                 _ => continue,
             };
             for dir in dirs {
@@ -331,16 +309,8 @@ pub(crate) fn load_php_psr4(root: &Path) -> Vec<(String, String)> {
             return;
         };
         for (ns, dir) in parse_composer_psr4(&text) {
-            let joined = if base.is_empty() {
-                dir
-            } else {
-                path_join_norm(&base, &dir)
-            };
-            let dir = if joined.is_empty() || joined.ends_with('/') {
-                joined
-            } else {
-                format!("{joined}/")
-            };
+            let joined = if base.is_empty() { dir } else { path_join_norm(&base, &dir) };
+            let dir = if joined.is_empty() || joined.ends_with('/') { joined } else { format!("{joined}/") };
             out.push((ns, dir));
         }
     };
@@ -363,25 +333,14 @@ pub(crate) struct TsConfigScope {
     pub(crate) aliases: Vec<(String, Vec<String>)>,
 }
 
-fn parse_tsconfig_raw(
-    text: &str,
-) -> Option<(Option<String>, Option<String>, Vec<(String, Vec<String>)>)> {
+fn parse_tsconfig_raw(text: &str) -> Option<(Option<String>, Option<String>, Vec<(String, Vec<String>)>)> {
     let cleaned = strip_jsonc_comments(text);
     let value: serde_json::Value = serde_json::from_str(&cleaned).ok()?;
-    let extends = value
-        .get("extends")
-        .and_then(|item| item.as_str())
-        .map(|s| s.to_string());
+    let extends = value.get("extends").and_then(|item| item.as_str()).map(|s| s.to_string());
     let opts = value.get("compilerOptions");
-    let base_url = opts
-        .and_then(|item| item.get("baseUrl"))
-        .and_then(|item| item.as_str())
-        .map(|s| s.replace('\\', "/"));
+    let base_url = opts.and_then(|item| item.get("baseUrl")).and_then(|item| item.as_str()).map(|s| s.replace('\\', "/"));
     let mut aliases = Vec::new();
-    if let Some(paths) = opts
-        .and_then(|item| item.get("paths"))
-        .and_then(|item| item.as_object())
-    {
+    if let Some(paths) = opts.and_then(|item| item.get("paths")).and_then(|item| item.as_object()) {
         for (pattern, targets) in paths {
             let prefix = pattern.trim_end_matches('*').to_string();
             if prefix.is_empty() {
@@ -389,11 +348,7 @@ fn parse_tsconfig_raw(
             }
             let mapped: Vec<String> = match targets {
                 serde_json::Value::String(s) => vec![s.trim_end_matches('*').replace('\\', "/")],
-                serde_json::Value::Array(arr) => arr
-                    .iter()
-                    .filter_map(|item| item.as_str())
-                    .map(|s| s.trim_end_matches('*').replace('\\', "/"))
-                    .collect(),
+                serde_json::Value::Array(arr) => arr.iter().filter_map(|item| item.as_str()).map(|s| s.trim_end_matches('*').replace('\\', "/")).collect(),
                 _ => continue,
             };
             if !mapped.is_empty() {
@@ -407,42 +362,21 @@ fn parse_tsconfig_raw(
 pub(crate) fn load_ts_configs(root: &Path) -> Vec<TsConfigScope> {
     let mut out = Vec::new();
     let mut files = Vec::new();
-    visit_shallow_files(
-        root,
-        &["tsconfig.json", "jsconfig.json", "tsconfig.base.json"],
-        |path, dir| files.push((dir, path)),
-    );
-    fn resolve_one(
-        path: &Path,
-        dir: &str,
-        root: &Path,
-        stack: &mut Vec<PathBuf>,
-    ) -> Option<TsConfigScope> {
+    visit_shallow_files(root, &["tsconfig.json", "jsconfig.json", "tsconfig.base.json"], |path, dir| files.push((dir, path)));
+    fn resolve_one(path: &Path, dir: &str, root: &Path, stack: &mut Vec<PathBuf>) -> Option<TsConfigScope> {
         if stack.iter().any(|seen| seen == path) {
             return None;
         }
         let text = read_input(path).ok()?;
         let (extends, base_url, paths) = parse_tsconfig_raw(&text)?;
         stack.push(path.to_path_buf());
-        let mut scope = TsConfigScope {
-            dir: dir.to_string(),
-            base_url: base_url.clone().unwrap_or_else(|| ".".to_string()),
-            aliases: paths.clone(),
-        };
+        let mut scope = TsConfigScope { dir: dir.to_string(), base_url: base_url.clone().unwrap_or_else(|| ".".to_string()), aliases: paths.clone() };
         if let Some(ext) = extends {
             if !ext.starts_with('@') {
-                let file = if ext.ends_with(".json") {
-                    ext.clone()
-                } else {
-                    format!("{ext}.json")
-                };
+                let file = if ext.ends_with(".json") { ext.clone() } else { format!("{ext}.json") };
                 let parent_path = path.parent().unwrap_or(root).join(file);
-                let parent_dir = parent_path
-                    .strip_prefix(root)
-                    .ok()
-                    .and_then(|rel| rel.parent())
-                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_default();
+                let parent_dir =
+                    parent_path.strip_prefix(root).ok().and_then(|rel| rel.parent()).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
                 if let Some(parent) = resolve_one(&parent_path, &parent_dir, root, stack) {
                     if paths.is_empty() {
                         scope.aliases = parent.aliases;
@@ -455,9 +389,7 @@ pub(crate) fn load_ts_configs(root: &Path) -> Vec<TsConfigScope> {
             }
         }
         stack.pop();
-        scope
-            .aliases
-            .sort_by(|left, right| by_key_length_desc(&left.0, &right.0));
+        scope.aliases.sort_by(|left, right| by_key_length_desc(&left.0, &right.0));
         Some(scope)
     }
     for (dir, path) in files {
@@ -484,11 +416,7 @@ fn parse_js_package(text: &str, dir: String) -> Option<(String, JsPackage)> {
     if name.is_empty() {
         return None;
     }
-    let mut main = value
-        .get("main")
-        .and_then(|item| item.as_str())
-        .unwrap_or("")
-        .replace('\\', "/");
+    let mut main = value.get("main").and_then(|item| item.as_str()).unwrap_or("").replace('\\', "/");
     if let Some(exports) = value.get("exports") {
         let entry = exports.get(".").or(Some(exports)).and_then(|item| {
             item.as_str()
@@ -502,14 +430,7 @@ fn parse_js_package(text: &str, dir: String) -> Option<(String, JsPackage)> {
             }
         }
     }
-    Some((
-        name.to_string(),
-        JsPackage {
-            dir,
-            main: main.trim_start_matches("./").to_string(),
-            imports: parse_js_imports_field(&value),
-        },
-    ))
+    Some((name.to_string(), JsPackage { dir, main: main.trim_start_matches("./").to_string(), imports: parse_js_imports_field(&value) }))
 }
 
 pub(crate) fn load_js_packages(root: &Path) -> Vec<(String, JsPackage)> {
@@ -539,10 +460,7 @@ fn parse_js_imports_field(value: &serde_json::Value) -> Vec<(String, String)> {
             continue;
         }
         let mapped = match target {
-            serde_json::Value::String(s) => s
-                .trim_end_matches('*')
-                .trim_start_matches("./")
-                .replace('\\', "/"),
+            serde_json::Value::String(s) => s.trim_end_matches('*').trim_start_matches("./").replace('\\', "/"),
             serde_json::Value::Object(obj) => obj
                 .get("import")
                 .or_else(|| obj.get("default"))
@@ -565,11 +483,7 @@ fn parse_js_imports_field(value: &serde_json::Value) -> Vec<(String, String)> {
 pub(crate) fn load_rust_crate_srcs(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     visit_shallow_files(root, &["Cargo.toml"], |_, dir| {
-        out.push(if dir.is_empty() {
-            "src".to_string()
-        } else {
-            format!("{dir}/src")
-        });
+        out.push(if dir.is_empty() { "src".to_string() } else { format!("{dir}/src") });
     });
     if !out.iter().any(|src| src == "src") {
         out.push("src".to_string());
@@ -599,11 +513,7 @@ fn parse_go_module_path(text: &str) -> String {
 // JS `_findNearestGoModule` in repo-relative space. Walks up from the
 // file's directory (inclusive of the repo root "") looking for a go.mod,
 // reading + caching the module path of the nearest one found.
-fn find_nearest_go_module(
-    rel: &str,
-    root: &Path,
-    cache: &mut HashMap<String, Option<(String, String)>>,
-) -> Option<(String, String)> {
+fn find_nearest_go_module(rel: &str, root: &Path, cache: &mut HashMap<String, Option<(String, String)>>) -> Option<(String, String)> {
     let mut dir = rel_dir(rel).to_string();
     loop {
         if let Some(cached) = cache.get(&dir) {
@@ -611,15 +521,8 @@ fn find_nearest_go_module(
         }
         let go_mod = root.join(&dir).join("go.mod");
         if is_file(&go_mod) {
-            let module_path = read_input(&go_mod)
-                .ok()
-                .map(|t| parse_go_module_path(&t))
-                .unwrap_or_default();
-            let info = if module_path.is_empty() {
-                None
-            } else {
-                Some((dir.clone(), module_path))
-            };
+            let module_path = read_input(&go_mod).ok().map(|t| parse_go_module_path(&t)).unwrap_or_default();
+            let info = if module_path.is_empty() { None } else { Some((dir.clone(), module_path)) };
             cache.insert(dir.clone(), info.clone());
             return info;
         }
@@ -633,11 +536,7 @@ fn find_nearest_go_module(
 
 // JS goImportPath derivation (code-graph.mjs L2609-2611): join the module
 // path with the file dir's offset from the module root.
-pub(crate) fn go_import_path(
-    rel: &str,
-    root: &Path,
-    cache: &mut HashMap<String, Option<(String, String)>>,
-) -> String {
+pub(crate) fn go_import_path(rel: &str, root: &Path, cache: &mut HashMap<String, Option<(String, String)>>) -> String {
     let (module_root, module_path) = match find_nearest_go_module(rel, root, cache) {
         Some(m) => m,
         None => return String::new(),

@@ -41,17 +41,13 @@ const KIND_RANK: [ErrorKind; 13] = [
 ];
 
 fn rank(kind: ErrorKind) -> usize {
-    KIND_RANK
-        .iter()
-        .position(|k| *k == kind)
-        .unwrap_or(KIND_RANK.len())
+    KIND_RANK.iter().position(|k| *k == kind).unwrap_or(KIND_RANK.len())
 }
 
 /// The kind a wire code names (`CODE_KINDS`, the OpenAI-relevant rows).
 pub(super) fn kind_from_code(code: &str) -> Option<ErrorKind> {
     Some(match code {
-        "cyber_policy" | "bio_policy" | "content_filter" | "safety" | "recitation"
-        | "invalid_prompt" => ErrorKind::Policy,
+        "cyber_policy" | "bio_policy" | "content_filter" | "safety" | "recitation" | "invalid_prompt" => ErrorKind::Policy,
         c if c.ends_with("_policy_violation") => ErrorKind::Policy,
         "insufficient_quota"
         | "credit_balance_exhausted"
@@ -63,31 +59,47 @@ pub(super) fn kind_from_code(code: &str) -> Option<ErrorKind> {
         | "payment_required" => ErrorKind::Billing,
         "usage_not_included" => ErrorKind::Entitlement,
         "quota_exceeded" | "quota_exhausted" | "usage_limit_reached" => ErrorKind::QuotaExhausted,
-        "context_length_exceeded" | "context_window_exceeded" | "model_context_window_exceeded" => {
-            ErrorKind::ContextOverflow
+        "context_length_exceeded" | "context_window_exceeded" | "model_context_window_exceeded" => ErrorKind::ContextOverflow,
+        "request_too_large" | "payload_too_large" | "request_entity_too_large" => ErrorKind::RequestTooLarge,
+        "invalid_api_key"
+        | "authentication_error"
+        | "unauthenticated"
+        | "unauthorized"
+        | "invalid_authentication"
+        | "api_key_invalid"
+        | "api_key_expired"
+        | "access_token_expired"
+        | "auth_context_expired"
+        | "auth_expired" => ErrorKind::Auth,
+        "permission_error" | "permission_denied" | "forbidden" | "service_disabled" | "api_key_service_blocked" => ErrorKind::Permission,
+        "server_is_overloaded" | "overloaded_error" | "overloaded" | "server_overloaded" | "model_capacity_exhausted" | "model_capacity_exceeded" => {
+            ErrorKind::Overloaded
         }
-        "request_too_large" | "payload_too_large" | "request_entity_too_large" => {
-            ErrorKind::RequestTooLarge
-        }
-        "invalid_api_key" | "authentication_error" | "unauthenticated" | "unauthorized"
-        | "invalid_authentication" | "api_key_invalid" | "api_key_expired"
-        | "access_token_expired" | "auth_context_expired" | "auth_expired" => ErrorKind::Auth,
-        "permission_error" | "permission_denied" | "forbidden" | "service_disabled"
-        | "api_key_service_blocked" => ErrorKind::Permission,
-        "server_is_overloaded" | "overloaded_error" | "overloaded" | "server_overloaded"
-        | "model_capacity_exhausted" | "model_capacity_exceeded" => ErrorKind::Overloaded,
         "flex_unavailable" => ErrorKind::ServiceTierUnavailable,
-        "rate_limit_exceeded" | "rate_limit_error" | "rate_limited" | "slow_down"
-        | "too_many_requests" => ErrorKind::RateLimited,
-        "server_error" | "api_error" | "internal" | "internal_error" | "unavailable"
-        | "service_unavailable" | "deadline_exceeded" | "timeout"
-        | "previous_response_not_found" | "websocket_connection_limit_reached"
-        | "stream_disconnected" | "network_error" | "malformed_stream" => ErrorKind::Transient,
-        "invalid_request" | "invalid_request_error" | "invalid_argument"
-        | "failed_precondition" | "bad_request" | "not_found" | "not_found_error"
-        | "model_not_found" | "model_not_supported" | "unsupported_parameter" => {
-            ErrorKind::InvalidRequest
-        }
+        "rate_limit_exceeded" | "rate_limit_error" | "rate_limited" | "slow_down" | "too_many_requests" => ErrorKind::RateLimited,
+        "server_error"
+        | "api_error"
+        | "internal"
+        | "internal_error"
+        | "unavailable"
+        | "service_unavailable"
+        | "deadline_exceeded"
+        | "timeout"
+        | "previous_response_not_found"
+        | "websocket_connection_limit_reached"
+        | "stream_disconnected"
+        | "network_error"
+        | "malformed_stream" => ErrorKind::Transient,
+        "invalid_request"
+        | "invalid_request_error"
+        | "invalid_argument"
+        | "failed_precondition"
+        | "bad_request"
+        | "not_found"
+        | "not_found_error"
+        | "model_not_found"
+        | "model_not_supported"
+        | "unsupported_parameter" => ErrorKind::InvalidRequest,
         _ => return None,
     })
 }
@@ -116,10 +128,7 @@ fn lowered(value: Option<&Value>) -> Option<String> {
 
 /// Header lookup, case-insensitive.
 pub(super) fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    headers
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.trim())
+    headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.trim())
 }
 
 fn retry_after(headers: &[(String, String)], now_ms: u64) -> Option<Duration> {
@@ -148,15 +157,9 @@ fn reset_at(sources: &[&Value], now_ms: u64) -> Option<SystemTime> {
             let ms = if n < 1e12 { n * 1000.0 } else { n };
             return Some(UNIX_EPOCH + Duration::from_millis(ms.round() as u64));
         }
-        let relative = ["resets_in_seconds", "reset_in_seconds"]
-            .iter()
-            .find_map(|key| source.get(*key))
-            .and_then(Value::as_f64)
-            .filter(|n| *n > 0.0);
+        let relative = ["resets_in_seconds", "reset_in_seconds"].iter().find_map(|key| source.get(*key)).and_then(Value::as_f64).filter(|n| *n > 0.0);
         if let Some(seconds) = relative {
-            return Some(
-                UNIX_EPOCH + Duration::from_millis(now_ms) + Duration::from_millis((seconds * 1000.0).round() as u64),
-            );
+            return Some(UNIX_EPOCH + Duration::from_millis(now_ms) + Duration::from_millis((seconds * 1000.0).round() as u64));
         }
     }
     None
@@ -171,8 +174,7 @@ fn typed_status(sources: &[&Value]) -> Option<u16> {
     for source in sources {
         for key in ["httpStatus", "http_status", "status", "statusCode", "status_code", "code"] {
             let n = mixdog_js::to_number_of(source.get(key));
-            if (100.0..=599.0).contains(&n)
-            {
+            if (100.0..=599.0).contains(&n) {
                 return Some(n.floor() as u16);
             }
         }
@@ -201,27 +203,19 @@ pub(super) fn classify(failure: &Failure<'_>) -> ProviderError {
         .or_else(|| lowered(failure.error.and_then(|e| e.get("type"))))
         .or_else(|| lowered(failure.envelope.and_then(|e| e.get("error"))));
     let kind_type = lowered(failure.error.and_then(|e| e.get("type")));
-    let by_code = [code.as_deref(), kind_type.as_deref()]
-        .into_iter()
-        .flatten()
-        .filter_map(kind_from_code)
-        .min_by_key(|kind| rank(*kind));
+    let by_code = [code.as_deref(), kind_type.as_deref()].into_iter().flatten().filter_map(kind_from_code).min_by_key(|kind| rank(*kind));
     let status = failure.status.or_else(|| {
         let sources: Vec<&Value> = failure.error.into_iter().chain(failure.envelope).collect();
         typed_status(&sources)
     });
-    let kind = by_code
-        .or_else(|| status.and_then(kind_from_status))
-        .unwrap_or(if failure.wire_event && status.is_none() {
-            ErrorKind::Transient
-        } else {
-            ErrorKind::Unknown
-        });
+    let kind = by_code.or_else(|| status.and_then(kind_from_status)).unwrap_or(if failure.wire_event && status.is_none() {
+        ErrorKind::Transient
+    } else {
+        ErrorKind::Unknown
+    });
     let mut err = ProviderError::new(kind, failure.delivery);
     // The limit can be in either typed field, including alongside invalid_request_error.
-    err.code = if kind == ErrorKind::Transient
-        && [code.as_deref(), kind_type.as_deref()].contains(&Some(CONNECTION_LIMIT))
-    {
+    err.code = if kind == ErrorKind::Transient && [code.as_deref(), kind_type.as_deref()].contains(&Some(CONNECTION_LIMIT)) {
         Some(CONNECTION_LIMIT.into())
     } else {
         code
@@ -324,9 +318,7 @@ fn typed_wire_message(code: &str, kind_type: &str, error: Option<&Value>, header
         return "Selected model is at capacity. Please try a different model.".into();
     }
     let fallback = match code {
-        "websocket_connection_limit_reached" => {
-            "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue."
-        }
+        "websocket_connection_limit_reached" => "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.",
         "previous_response_not_found" => "Previous response was not found. Retrying the full request.",
         _ => return String::new(),
     };
@@ -345,15 +337,11 @@ fn usage_limit_message(plan: &str, reset_ms: Option<f64>, promo: &str, reached_t
     }
     let workspace = match reached_type.to_lowercase().as_str() {
         "workspace_owner_credits_depleted" => Some("Your workspace is out of credits. Add credits to continue."),
-        "workspace_member_credits_depleted" => {
-            Some("Your workspace is out of credits. Ask your workspace owner to refill in order to continue.")
+        "workspace_member_credits_depleted" => Some("Your workspace is out of credits. Ask your workspace owner to refill in order to continue."),
+        "workspace_owner_usage_limit_reached" => Some("You hit your spend cap set in your workspace. Increase your spend cap to continue."),
+        "workspace_member_usage_limit_reached" => {
+            Some("You hit your spend cap set by the owner of your workspace. Ask an owner to increase your spend cap to continue.")
         }
-        "workspace_owner_usage_limit_reached" => {
-            Some("You hit your spend cap set in your workspace. Increase your spend cap to continue.")
-        }
-        "workspace_member_usage_limit_reached" => Some(
-            "You hit your spend cap set by the owner of your workspace. Ask an owner to increase your spend cap to continue.",
-        ),
         _ => None,
     };
     if let Some(workspace) = workspace {
@@ -366,13 +354,16 @@ fn usage_limit_message(plan: &str, reset_ms: Option<f64>, promo: &str, reached_t
         "plus" => format!(
             "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits{suffix_or}"
         ),
-        "team" | "self_serve_business_prolite" | "self_serve_business_usage_based" | "business" | "ent26"
-        | "enterprise_cbp_automation" | "enterprise_cbp_usage_based" => {
+        "team"
+        | "self_serve_business_prolite"
+        | "self_serve_business_usage_based"
+        | "business"
+        | "ent26"
+        | "enterprise_cbp_automation"
+        | "enterprise_cbp_usage_based" => {
             format!("You’ve hit your usage limit. To get more access now, send a request to your admin{suffix_or}")
         }
-        "free" | "go" => format!(
-            "You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus),{suffix_or}"
-        ),
+        "free" | "go" => format!("You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus),{suffix_or}"),
         "pro" | "prolite" | "promax" => {
             format!("You’ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits{suffix_or}")
         }
@@ -462,5 +453,3 @@ mod tests {
         assert_eq!(Value::Array(rust), cases);
     }
 }
-
-

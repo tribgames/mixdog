@@ -89,9 +89,6 @@ async fn host(agent: Value, cells: HashMap<ThreadId, Route>) -> (tempfile::TempD
     (dir, Arc::new(RegistrySearchHost { cells: Arc::new(Cells(cells)), config, catalog, readiness, registry }))
 }
 
-
-
-
 #[tokio::test]
 async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
     let (_dir, host) = host(json!({ "webSearchRoute": { "provider": "openai", "model": "gpt-5.2" } }), HashMap::new()).await;
@@ -100,5 +97,3 @@ async fn a_thread_is_its_own_session_and_a_provider_is_the_registrys() {
     assert!(host.provider("openai").await.unwrap().is_some());
     assert_eq!(host.main_route(&thread_of(7)), json!({}));
 }
-
-

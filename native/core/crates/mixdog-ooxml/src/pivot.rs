@@ -7,10 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use mixdog_js::{
-    JsRegex, js_sort_by, json_number, locale_compare_en, number_to_string, string_to_number, to_number, to_number_of,
-    value_to_string,
-};
+use mixdog_js::{JsRegex, js_sort_by, json_number, locale_compare_en, number_to_string, string_to_number, to_number, to_number_of, value_to_string};
 use serde_json::Value;
 
 use crate::cells::{column_label, column_number, parse_cell_ref, set_cell_in_sheet};
@@ -113,8 +110,7 @@ fn shared_items_xml(field: &PivotField) -> String {
         );
     }
     if field.numeric_items {
-        let items: String =
-            field.items.iter().map(|item| format!("<n v=\"{}\"/>", number_to_string(string_to_number(item)))).collect();
+        let items: String = field.items.iter().map(|item| format!("<n v=\"{}\"/>", number_to_string(string_to_number(item)))).collect();
         return format!(
             "<sharedItems containsSemiMixedTypes=\"0\" containsString=\"0\" containsNumber=\"1\"{integer} minValue=\"{}\" maxValue=\"{}\" count=\"{}\">{items}</sharedItems>",
             number_to_string(field.min),
@@ -155,8 +151,7 @@ fn item_positions(field: &PivotField) -> HashMap<&str, usize> {
 }
 
 fn cache_records_xml(fields: &[PivotField], records: &[Vec<Value>]) -> String {
-    let positions: Vec<Option<HashMap<&str, usize>>> =
-        fields.iter().map(|field| if field.numeric { None } else { Some(item_positions(field)) }).collect();
+    let positions: Vec<Option<HashMap<&str, usize>>> = fields.iter().map(|field| if field.numeric { None } else { Some(item_positions(field)) }).collect();
     let rows: String = records
         .iter()
         .map(|record| {
@@ -255,9 +250,7 @@ fn pivot_grid(layout: &PivotLayout<'_>, records: &[Vec<Value>]) -> Vec<Vec<Value
         rows.push(head);
         for label in &row_labels {
             let mut line = vec![shown(row_field, label)];
-            line.extend(column_labels.iter().map(|column| {
-                number(sum(records, value_index, |record| in_row(record, label) && in_column(record, column)))
-            }));
+            line.extend(column_labels.iter().map(|column| number(sum(records, value_index, |record| in_row(record, label) && in_column(record, column)))));
             line.push(number(sum(records, value_index, |record| in_row(record, label))));
             rows.push(line);
         }
@@ -339,9 +332,7 @@ fn pivot_table_xml(name: &str, cache_id: usize, layout: &PivotLayout<'_>, destin
     let captions = Captions::of(fields);
     let data_fields: String = value_fields
         .iter()
-        .map(|index| {
-            format!("<dataField name=\"{}\" fld=\"{index}\" baseField=\"0\" baseItem=\"0\"/>", xml_encode(&captions.sum(&fields[*index].name)))
-        })
+        .map(|index| format!("<dataField name=\"{}\" fld=\"{index}\" baseField=\"0\" baseItem=\"0\"/>", xml_encode(&captions.sum(&fields[*index].name))))
         .collect();
     let data_fields = format!("<dataFields count=\"{}\">{data_fields}</dataFields>", value_fields.len());
 
@@ -349,20 +340,13 @@ fn pivot_table_xml(name: &str, cache_id: usize, layout: &PivotLayout<'_>, destin
     let header_rows: u64 = if column_field >= 0 { 2 } else { 1 };
     let body_rows = row_order.len().max(1) as u64 + u64::from(row_field >= 0);
     let width = 1 + if column_field >= 0 { column_order.len() + 1 } else { value_fields.len() };
-    let reference = format!(
-        "{}{}:{}{}",
-        anchor.col,
-        anchor.row,
-        column_label(column_number(&anchor.col) + width as f64 - 1.0),
-        anchor.row + header_rows + body_rows - 1
-    );
+    let reference =
+        format!("{}{}:{}{}", anchor.col, anchor.row, column_label(column_number(&anchor.col) + width as f64 - 1.0), anchor.row + header_rows + body_rows - 1);
 
     // The row header names its field, as the cells written here do; a refresh otherwise prints "Row Labels" (행 레이블)
     // over the regions. The column header too: a refresh otherwise prints "Column Labels" (열 레이블) over the months.
-    let row_caption =
-        if row_field >= 0 { format!(" rowHeaderCaption=\"{}\"", xml_encode(&fields[row_field as usize].name)) } else { String::new() };
-    let column_caption =
-        if column_field >= 0 { format!(" colHeaderCaption=\"{}\"", xml_encode(&fields[column_field as usize].name)) } else { String::new() };
+    let row_caption = if row_field >= 0 { format!(" rowHeaderCaption=\"{}\"", xml_encode(&fields[row_field as usize].name)) } else { String::new() };
+    let column_caption = if column_field >= 0 { format!(" colHeaderCaption=\"{}\"", xml_encode(&fields[column_field as usize].name)) } else { String::new() };
 
     Ok(format!(
         "{XML_HEADER}<pivotTableDefinition xmlns=\"{SPREADSHEET_MAIN}\" name=\"{}\" cacheId=\"{cache_id}\" dataCaption=\"Values\" grandTotalCaption=\"{}\"{row_caption}{column_caption} applyNumberFormats=\"0\" applyBorderFormats=\"0\" applyFontFormats=\"0\" applyPatternFormats=\"0\" applyAlignmentFormats=\"0\" applyWidthHeightFormats=\"1\" updatedVersion=\"8\" minRefreshableVersion=\"3\" useAutoFormatting=\"1\" itemPrintTitles=\"1\" createdVersion=\"8\" indent=\"0\" outline=\"1\" outlineData=\"1\" multipleFieldFilters=\"0\"><location ref=\"{reference}\" firstHeaderRow=\"1\" firstDataRow=\"{header_rows}\" firstDataCol=\"1\"/><pivotFields count=\"{}\">{pivot_fields}</pivotFields>{row_section}{column_section}{data_fields}<pivotTableStyleInfo name=\"PivotStyleLight16\" showRowHeaders=\"1\" showColHeaders=\"1\" showRowStripes=\"0\" showColStripes=\"0\" showLastColumn=\"1\"/></pivotTableDefinition>",
@@ -480,14 +464,7 @@ pub fn write_pivot_table(zip: &mut Package, request: &PivotRequest<'_>) -> Resul
     }
     zip.set(destination_sheet_path, sheet_xml);
 
-    Ok(PivotWritten {
-        definition_part,
-        records_part,
-        table_part,
-        cache_id,
-        rows: grid.len(),
-        columns: grid.iter().map(Vec::len).max().unwrap_or(0),
-    })
+    Ok(PivotWritten { definition_part, records_part, table_part, cache_id, rows: grid.len(), columns: grid.iter().map(Vec::len).max().unwrap_or(0) })
 }
 
 #[cfg(test)]

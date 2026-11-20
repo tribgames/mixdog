@@ -81,12 +81,19 @@ type BrotliDecoder = BrotliState<HeapAlloc<u8>, HeapAlloc<u32>, HeapAlloc<Huffma
 
 enum Codec {
     /// `createGunzip`. `between`: a member ended and the next byte decides what follows.
-    Gzip { inner: flate2::Decompress, between: bool },
+    Gzip {
+        inner: flate2::Decompress,
+        between: bool,
+    },
     /// `createInflate` (undici's): zlib or raw by the first byte, `None` until it came.
     Deflate(Option<flate2::Decompress>),
     Brotli(Box<BrotliDecoder>),
     /// `createZstdDecompress` (window log at most 23). `in_frame`: a frame has begun and not ended; `between`: one ended.
-    Zstd { inner: Box<zstd::stream::raw::Decoder<'static>>, in_frame: bool, between: bool },
+    Zstd {
+        inner: Box<zstd::stream::raw::Decoder<'static>>,
+        in_frame: bool,
+        between: bool,
+    },
 }
 
 /// One coding of the body, undone as Node's zlib stream for it undoes it.
@@ -102,7 +109,11 @@ impl Stage {
         let codec = match coding {
             "gzip" | "x-gzip" => Codec::Gzip { inner: flate2::Decompress::new_gzip(15), between: false },
             "deflate" => Codec::Deflate(None),
-            "br" => Codec::Brotli(Box::new(BrotliState::new(HeapAlloc::<u8>::new(0), HeapAlloc::<u32>::new(0), HeapAlloc::<HuffmanCode>::new(HuffmanCode::default())))),
+            "br" => Codec::Brotli(Box::new(BrotliState::new(
+                HeapAlloc::<u8>::new(0),
+                HeapAlloc::<u32>::new(0),
+                HeapAlloc::<HuffmanCode>::new(HuffmanCode::default()),
+            ))),
             "zstd" => {
                 let mut inner = zstd::stream::raw::Decoder::new().ok()?;
                 inner.set_parameter(zstd::stream::raw::DParameter::WindowLogMax(23)).ok()?;
@@ -278,7 +289,9 @@ impl Codings {
         }
         let stages: Option<Vec<Stage>> = codings.iter().rev().map(|c| Stage::of(c.trim())).collect();
         match stages {
-            Some(stages) if !stages.is_empty() => Self::Decode(Decoder { stages, held: VecDeque::new(), held_len: 0, releasing: false, more: false, ended: false, finished: false }),
+            Some(stages) if !stages.is_empty() => {
+                Self::Decode(Decoder { stages, held: VecDeque::new(), held_len: 0, releasing: false, more: false, ended: false, finished: false })
+            }
             _ => Self::Plain,
         }
     }
@@ -374,7 +387,6 @@ impl Decoder {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -455,7 +467,9 @@ mod tests {
     fn what_follows_a_streams_end_is_never_kept() {
         let body = b"the stream itself ".repeat(100);
         let zstd = zstd::bulk::compress(&body, 3).unwrap();
-        for (encoding, wire, suffix) in [("gzip", gzip(&body), 0u8), ("deflate", zlib(&body), b'x'), ("deflate", raw(&body), b'x'), ("br", br(&body), b'x'), ("zstd", zstd, b'x')] {
+        for (encoding, wire, suffix) in
+            [("gzip", gzip(&body), 0u8), ("deflate", zlib(&body), b'x'), ("deflate", raw(&body), b'x'), ("br", br(&body), b'x'), ("zstd", zstd, b'x')]
+        {
             let mut decoder = decoder(encoding);
             decoder.feed(&wire);
             let mut out = Vec::new();
@@ -466,7 +480,11 @@ mod tests {
             for _ in 0..256 {
                 decoder.feed(&read);
                 assert_eq!(decoder.step().unwrap(), None, "{encoding}: nothing comes of the suffix");
-                assert!(decoder.stages[0].input.data.capacity() <= 16 << 10, "{encoding}: the suffix is not kept ({} bytes)", decoder.stages[0].input.data.capacity());
+                assert!(
+                    decoder.stages[0].input.data.capacity() <= 16 << 10,
+                    "{encoding}: the suffix is not kept ({} bytes)",
+                    decoder.stages[0].input.data.capacity()
+                );
             }
             decoder.end();
             assert_eq!(decoder.step().unwrap(), None);

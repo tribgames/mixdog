@@ -14,9 +14,7 @@ pub mod tunnel;
 #[cfg(test)]
 mod tests;
 
-pub use handler::{
-    BodyCollector, Claim, Endpoint, HttpReply, MAX_BODY_BYTES, Rejection, WebhookConfig, WebhookDispatch, WebhookService, WebhookStore,
-};
+pub use handler::{BodyCollector, Claim, Endpoint, HttpReply, MAX_BODY_BYTES, Rejection, WebhookConfig, WebhookDispatch, WebhookService, WebhookStore};
 pub use listener::WebhookListener;
 pub use records::{EndpointRecord, EndpointRecords, RunStamp, StateWebhookStore};
 pub use signature::Headers;

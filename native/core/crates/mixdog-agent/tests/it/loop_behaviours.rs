@@ -357,7 +357,16 @@ async fn with_todos(h: &Harness, list: &Arc<List>, tools: Vec<Arc<dyn Tool>>) ->
     let mut env = h.run_env();
     env.guards = Arc::new(guards);
     let names = tools.iter().map(|t| t.spec().name.clone()).collect();
-    Run::new(env, h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), config(), vec![AgentMessage::user("go")], RunCarry::default())
+    Run::new(
+        env,
+        h.cancel.clone(),
+        h.provider.clone(),
+        ToolSet::with_builtins(tools, names),
+        h.tool_env(),
+        config(),
+        vec![AgentMessage::user("go")],
+        RunCarry::default(),
+    )
 }
 
 fn todo_tool(list: &Arc<List>) -> Arc<dyn Tool> {
@@ -451,10 +460,8 @@ async fn the_report_of_a_failed_turn_keeps_its_answers_in_order() {
 #[tokio::test]
 async fn an_empty_end_after_new_work_is_still_an_empty_turn() {
     let list = List::open(&["First"]);
-    let mut script = vec![
-        turn(vec![text("Credentials are missing."), done(StopReason::EndTurn)]),
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-    ];
+    let mut script =
+        vec![turn(vec![text("Credentials are missing."), done(StopReason::EndTurn)]), turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)])];
     script.extend((0..4).map(|_| turn(vec![done(StopReason::EndTurn)])));
     let h = Harness::new(script);
     let output = finish(with_todos(&h, &list, vec![todo_tool(&list), Echo::tool()]).await).await;
@@ -467,10 +474,8 @@ async fn an_empty_end_after_new_work_is_still_an_empty_turn() {
 
 #[tokio::test]
 async fn past_the_wrap_up_time_no_call_runs_and_the_next_request_forbids_tools() {
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("wrapping up"), done(StopReason::EndTurn)]),
-    ]);
+    let h =
+        Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("wrapping up"), done(StopReason::EndTurn)])]);
     let mut cfg = config();
     cfg.limits = Some(TurnLimits { wrap_up_at_ms: Some(h.clock.now_ms() - 1), ..TurnLimits::default() });
     let output = finish(h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
@@ -583,7 +588,11 @@ async fn a_call_starts_while_its_reply_is_still_streaming() {
     let (log, (tick, _)) = (Arc::new(Mutex::new(Vec::new())), watch::channel(0usize));
     let tool: Arc<dyn Tool> = Arc::new(Logged::new("echo", &log, &tick));
     let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({"k": "x"})), Step::Until(tick.subscribe(), 1, "the call to start before the reply ended"), done(StopReason::ToolUse)]),
+        turn(vec![
+            call("c1", "echo", json!({"k": "x"})),
+            Step::Until(tick.subscribe(), 1, "the call to start before the reply ended"),
+            done(StopReason::ToolUse),
+        ]),
         turn(vec![text("fin"), done(StopReason::EndTurn)]),
     ]);
     let output = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
@@ -641,7 +650,12 @@ async fn a_shell_call_waits_for_the_edit_before_it_and_is_skipped_when_that_edit
         let ran = log.lock().unwrap().clone();
         if fail {
             assert_eq!(ran, ["start edit:e", "end edit:e"], "the shell does not run");
-            assert!(dumped.iter().any(|l| l.starts_with("tool#c2(Skipped):[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c1")), "{dumped:?}");
+            assert!(
+                dumped
+                    .iter()
+                    .any(|l| l.starts_with("tool#c2(Skipped):[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c1")),
+                "{dumped:?}"
+            );
         } else {
             assert_eq!(ran, ["start edit:e", "end edit:e", "start shell:s", "end shell:s"]);
         }
@@ -654,7 +668,11 @@ async fn an_identical_failing_call_is_not_run_again_after_three_failures_and_pat
     let mut probe = Logged::new("probe", &log, &tick);
     probe.fail = true;
     let spellings = ["a.txt", "./a.txt", "sub/../a.txt", "a.txt", "./a.txt"];
-    let mut script: Vec<Attempt> = spellings.iter().enumerate().map(|(n, path)| turn(vec![call(&format!("c{n}"), "probe", json!({ "file_path": path })), done(StopReason::ToolUse)])).collect();
+    let mut script: Vec<Attempt> = spellings
+        .iter()
+        .enumerate()
+        .map(|(n, path)| turn(vec![call(&format!("c{n}"), "probe", json!({ "file_path": path })), done(StopReason::ToolUse)]))
+        .collect();
     script.push(turn(vec![text("fin"), done(StopReason::EndTurn)]));
     let h = Harness::new(script);
     let output = finish(h.run(config(), vec![Arc::new(probe)], vec![AgentMessage::user("go")])).await;
@@ -779,13 +797,28 @@ fn system(text: &str) -> AgentMessage {
 }
 
 /// A run over `messages` whose breaks are collected, carrying the guard of the run before it.
-async fn guarded(model: &str, tools: Vec<Arc<dyn Tool>>, messages: Vec<AgentMessage>, guard: Option<mixdog_agent::prefix_guard::Snapshot>, script: Vec<Attempt>) -> (Result<RunOutput, mixdog_agent::RunFailure>, Vec<serde_json::Map<String, JsonValue>>, usize) {
+async fn guarded(
+    model: &str,
+    tools: Vec<Arc<dyn Tool>>,
+    messages: Vec<AgentMessage>,
+    guard: Option<mixdog_agent::prefix_guard::Snapshot>,
+    script: Vec<Attempt>,
+) -> (Result<RunOutput, mixdog_agent::RunFailure>, Vec<serde_json::Map<String, JsonValue>>, usize) {
     let mut h = Harness::new(script);
     let breaks = Arc::new(CacheBreaks::default());
     h.failures = Some(breaks.clone());
     let names = tools.iter().map(|t| t.spec().name.clone()).collect();
     let carry = RunCarry { prefix_guard: guard, ..RunCarry::default() };
-    let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), RunConfig::new(ThreadId::from("t"), TurnId::from("r"), model), messages, carry);
+    let run = Run::new(
+        h.run_env(),
+        h.cancel.clone(),
+        h.provider.clone(),
+        ToolSet::with_builtins(tools, names),
+        h.tool_env(),
+        RunConfig::new(ThreadId::from("t"), TurnId::from("r"), model),
+        messages,
+        carry,
+    );
     let ended = run.run().await;
     let records = breaks.0.lock().unwrap().clone();
     (ended, records, h.provider.requests().len())
@@ -861,7 +894,8 @@ fn a_changed_prefix_names_what_changed_and_an_anthropic_deferred_tool_does_not_m
     let other_model = snapshot::<JsonValue>(&[], &[tool("a", false)], &[], "anthropic", "n");
     let other_provider = snapshot::<JsonValue>(&[], &[tool("a", false)], &[], "openai", "m");
     let more_tools = snapshot::<JsonValue>(&[], &[tool("a", false), tool("b", false)], &[], "anthropic", "m");
-    let reason = |next: &mixdog_agent::prefix_guard::Snapshot| compare(Some(&base), next, &guard_options(None)).map(|t| t["reason"].as_str().unwrap().to_owned());
+    let reason =
+        |next: &mixdog_agent::prefix_guard::Snapshot| compare(Some(&base), next, &guard_options(None)).map(|t| t["reason"].as_str().unwrap().to_owned());
     assert_eq!(reason(&other_model).as_deref(), Some("model_changed"));
     assert_eq!(reason(&other_provider).as_deref(), Some("provider_changed"));
     assert_eq!(reason(&more_tools).as_deref(), Some("tool_schema_changed"));
@@ -876,7 +910,9 @@ fn a_changed_prefix_names_what_changed_and_an_anthropic_deferred_tool_does_not_m
 // ---------------------------------------------------------------------------
 
 fn korean_lead() -> RuleTailReminder {
-    RuleTailReminder { context: TailContext { provider: "anthropic".into(), language: Some(TailLanguage { id: "ko".into(), name: "Korean".into() }), role: TailRole::Lead } }
+    RuleTailReminder {
+        context: TailContext { provider: "anthropic".into(), language: Some(TailLanguage { id: "ko".into(), name: "Korean".into() }), role: TailRole::Lead },
+    }
 }
 
 const REMINDER: &str = "<system-reminder>Write all user-facing text in Korean.</system-reminder>";
@@ -944,7 +980,12 @@ fn image() -> ContentPart {
 }
 
 fn file() -> ContentPart {
-    ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::Base64("eA==".into()), mime_type: "text/plain".into(), filename: None, text: None }
+    ContentPart::File {
+        source: mixdog_core_api::domain::provider::BinarySource::Base64("eA==".into()),
+        mime_type: "text/plain".into(),
+        filename: None,
+        text: None,
+    }
 }
 
 #[test]
@@ -956,7 +997,12 @@ fn an_image_is_never_replaced_by_text_and_the_text_around_it_stays() {
 
 #[test]
 fn a_stored_image_reference_is_left_for_the_route_and_a_file_with_a_text_form_is_input() {
-    let stored = ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef("a".repeat(64)), mime_type: "image/png".into(), filename: None, text: None };
+    let stored = ContentPart::File {
+        source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef("a".repeat(64)),
+        mime_type: "image/png".into(),
+        filename: None,
+        text: None,
+    };
     let sent = assert_text_only_input(&model(None), &Files, parts(vec![stored.clone()]), false, false).unwrap();
     assert_eq!(sent[0].content, Content::Parts(vec![stored]));
     let sent = assert_text_only_input(&model(None), &Files, parts(vec![file()]), false, false).unwrap();
@@ -984,7 +1030,8 @@ fn pinned(args: JsonValue) -> Result<(JsonValue, JsonValue), String> {
     let own = json!({ "provider": "openai", "model": "gpt-5", "effort": "medium" });
     let mut args = args;
     args["agent"] = json!("worker");
-    mixdog_agent::agent_tool::flow::preset::resolve_agent_spawn_preset(config.as_object().unwrap(), &args, &[own]).map(|spawn| (spawn.preset_name, spawn.preset))
+    mixdog_agent::agent_tool::flow::preset::resolve_agent_spawn_preset(config.as_object().unwrap(), &args, &[own])
+        .map(|spawn| (spawn.preset_name, spawn.preset))
 }
 
 #[test]
@@ -992,7 +1039,10 @@ fn a_spawn_that_names_another_model_runs_on_it_alone_with_the_pickers_defaults_u
     let defaults = json!({ "effort": "high", "fast": true });
     let (name, preset) = pinned(json!({ "provider": "anthropic", "model": "opus", "modelDefaults": defaults })).unwrap();
     assert_eq!(name, "__direct__");
-    assert_eq!((&preset["id"], &preset["provider"], &preset["model"], &preset["effort"], &preset["fast"]), (&json!("__direct__"), &json!("anthropic"), &json!("opus"), &json!("high"), &json!(true)));
+    assert_eq!(
+        (&preset["id"], &preset["provider"], &preset["model"], &preset["effort"], &preset["fast"]),
+        (&json!("__direct__"), &json!("anthropic"), &json!("opus"), &json!("high"), &json!(true))
+    );
     assert!(preset.get("fallbacks").is_none() && preset.get("fallbackSource").is_none(), "the named model answers or the failure is the answer");
     let (_, asked) = pinned(json!({ "provider": "anthropic", "model": "opus", "modelDefaults": defaults, "effort": "low", "fast": false })).unwrap();
     assert_eq!((&asked["effort"], &asked["fast"]), (&json!("low"), &json!(false)));
@@ -1020,7 +1070,11 @@ fn a_pin_keeps_the_presets_name_when_one_is_given_and_half_a_pin_is_no_pin() {
     let (name, preset) = pinned(json!({ "provider": "anthropic", "model": "opus", "preset": "mine" })).unwrap();
     assert_eq!((name, &preset["id"]), (json!("mine"), &json!("__direct__")));
     let (name, preset) = pinned(json!({ "provider": "anthropic" })).unwrap();
-    assert_eq!((name, &preset["id"], &preset["model"]), (json!("AGENT WORKER"), &json!("agent-worker"), &json!("gpt-5")), "a provider without a model runs on the agent's route");
+    assert_eq!(
+        (name, &preset["id"], &preset["model"]),
+        (json!("AGENT WORKER"), &json!("agent-worker"), &json!("gpt-5")),
+        "a provider without a model runs on the agent's route"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,7 +1091,13 @@ async fn cache_reads(provider: &str, read: u64) -> Vec<serde_json::Map<String, J
         let raw = json!({ "input_tokens": 10, "cache_read_input_tokens": read, "cache_creation_input_tokens": write });
         [
             Step::Event(StreamEvent::AccountRouting(served)),
-            Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 10, cache_read_tokens: read, cache_write_tokens: write, raw: Some(raw), ..Default::default() })),
+            Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage {
+                input_tokens: 10,
+                cache_read_tokens: read,
+                cache_write_tokens: write,
+                raw: Some(raw),
+                ..Default::default()
+            })),
         ]
     };
     let mut header = serde_json::Map::new();
@@ -1052,7 +1112,16 @@ async fn cache_reads(provider: &str, read: u64) -> Vec<serde_json::Map<String, J
         let breaks = Arc::new(CacheBreaks::default());
         h.failures = Some(breaks.clone());
         let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
-        let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config(), messages.clone(), carry);
+        let run = Run::new(
+            h.run_env(),
+            h.cancel.clone(),
+            h.provider.clone(),
+            ToolSet::with_builtins(Vec::new(), Vec::new()),
+            h.tool_env(),
+            config(),
+            messages.clone(),
+            carry,
+        );
         let output = finish(run).await;
         header.extend(output.carry.to_saved());
         // The host saves the time of the send beside the carry.
@@ -1071,7 +1140,10 @@ async fn a_send_that_reads_far_less_of_the_cache_than_the_last_one_held_is_trace
     let breaks = cache_reads("anthropic", 1_000).await;
     assert_eq!(breaks.len(), 1);
     let miss = &breaks[0];
-    assert_eq!((miss["classification"].as_str(), miss["reason"].as_str(), miss["source"].as_str()), (Some("unexpected"), Some("actual_cache_miss"), Some("provider_usage")));
+    assert_eq!(
+        (miss["classification"].as_str(), miss["reason"].as_str(), miss["source"].as_str()),
+        (Some("unexpected"), Some("actual_cache_miss"), Some("provider_usage"))
+    );
     assert_eq!((miss["cachedTokens"].as_u64(), miss["previousCachedPrefixTokens"].as_u64()), (Some(1_000), Some(10_000)));
     assert_eq!(miss["actualCacheMiss"], true);
 }

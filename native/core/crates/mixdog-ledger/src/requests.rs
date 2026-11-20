@@ -22,8 +22,7 @@ const MAX_PAGE: i64 = 200;
 
 // A provider-local retry's abandoned attempts are part of their request, never a request of
 // their own.
-const NOT_ABANDONED: &str =
-    "NOT (substr(e.id,1,1)=X'01' AND instr(e.id, CAST(':abandoned:' AS BLOB))>0)";
+const NOT_ABANDONED: &str = "NOT (substr(e.id,1,1)=X'01' AND instr(e.id, CAST(':abandoned:' AS BLOB))>0)";
 const COLUMNS: &str = "e.id,e.ts,e.route,e.session,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,e.duration_ms,
     r.requested_model,r.status,r.attempts,r.elapsed_ms,
     (SELECT f.ttft_ms FROM usage_request_first_output f WHERE f.id=e.id) AS first_output_ms,
@@ -65,20 +64,12 @@ fn decode_cursor(cursor: Option<&str>) -> Option<Cursor> {
         && ts.bytes().all(|b| b.is_ascii_digit())
         && !id.is_empty()
         && id.len() % 2 == 0
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
     if !valid {
         return None;
     }
-    let id = (0..id.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&id[i..i + 2], 16).unwrap_or(0))
-        .collect();
-    Some(Cursor {
-        ts: ts.parse().ok()?,
-        id,
-    })
+    let id = (0..id.len()).step_by(2).map(|i| u8::from_str_radix(&id[i..i + 2], 16).unwrap_or(0)).collect();
+    Some(Cursor { ts: ts.parse().ok()?, id })
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -132,10 +123,7 @@ pub fn page_sql(source: Source, cursor: bool, completed: bool, routes: usize) ->
     if routes > 0 {
         wheres.push(format!("e.route IN ({})", vec!["?"; routes].join(",")));
     }
-    format!(
-        "SELECT {COLUMNS} FROM {from} WHERE {} ORDER BY {alias}.ts DESC, {alias}.id DESC LIMIT ?",
-        wheres.join(" AND ")
-    )
+    format!("SELECT {COLUMNS} FROM {from} WHERE {} ORDER BY {alias}.ts DESC, {alias}.id DESC LIMIT ?", wheres.join(" AND "))
 }
 
 fn run_page(conn: &Connection, sql: &str, params: Vec<Sql>) -> Result<Vec<Row>> {
@@ -178,10 +166,8 @@ fn text(value: Option<String>) -> Value {
     Value::from(value.unwrap_or_default())
 }
 
-pub const MODEL_ROUTES_SQL: &str =
-    "SELECT id FROM usage_routes WHERE json_extract(signature,'$[1]')=?";
-pub const ROUTE_INFO_SQL: &str =
-    "SELECT json_extract(signature,'$[0]'),json_extract(signature,'$[1]'),json_extract(signature,'$[2]'),
+pub const MODEL_ROUTES_SQL: &str = "SELECT id FROM usage_routes WHERE json_extract(signature,'$[1]')=?";
+pub const ROUTE_INFO_SQL: &str = "SELECT json_extract(signature,'$[0]'),json_extract(signature,'$[1]'),json_extract(signature,'$[2]'),
             json_extract(signature,'$[3]'),json_extract(signature,'$[4]'),
             COALESCE(json_extract(json_extract(signature,'$[5]'),'$.inputTokensKnown'),1)=0,
             COALESCE(json_extract(json_extract(signature,'$[5]'),'$.outputTokensKnown'),1)=0
@@ -213,16 +199,12 @@ pub(crate) fn read_request_models(conn: &Connection, from_ms: i64, to_ms: i64) -
     let mut probe = conn.prepare(&models_probe_sql())?;
     let mut found: Vec<String> = Vec::new();
     let mut routes = conn.prepare(MODELS_ROUTES_SQL)?;
-    let list: Vec<(i64, Option<String>)> = routes
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<std::result::Result<_, _>>()?;
+    let list: Vec<(i64, Option<String>)> = routes.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
     for (id, model) in list {
         let Some(model) = model.filter(|m| !m.is_empty()) else {
             continue;
         };
-        if !found.contains(&model)
-            && probe.exists([Sql::Integer(id), Sql::Integer(from_ms), Sql::Integer(to_ms)])?
-        {
+        if !found.contains(&model) && probe.exists([Sql::Integer(id), Sql::Integer(from_ms), Sql::Integer(to_ms)])? {
             found.push(model);
         }
     }
@@ -233,49 +215,22 @@ pub(crate) fn read_request_models(conn: &Connection, from_ms: i64, to_ms: i64) -
 /// `{requests, nextCursor}` for one page, read through the time-ordered indexes and stopping
 /// after the page: bounded by the page size, whatever the ledger holds.
 pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Result<Value> {
-    let limit = if query.limit > 0 {
-        query.limit.min(MAX_PAGE)
-    } else {
-        DEFAULT_PAGE
-    };
-    let status = if REQUEST_STATUSES.contains(&query.status.as_str()) {
-        query.status.as_str()
-    } else {
-        ""
-    };
+    let limit = if query.limit > 0 { query.limit.min(MAX_PAGE) } else { DEFAULT_PAGE };
+    let status = if REQUEST_STATUSES.contains(&query.status.as_str()) { query.status.as_str() } else { "" };
     let cursor = decode_cursor(query.cursor.as_deref());
-    let mut range = vec![
-        Sql::Integer(query.from_ms),
-        Sql::Integer(
-            cursor
-                .as_ref()
-                .map_or(query.to_ms, |c| query.to_ms.min(c.ts)),
-        ),
-    ];
+    let mut range = vec![Sql::Integer(query.from_ms), Sql::Integer(cursor.as_ref().map_or(query.to_ms, |c| query.to_ms.min(c.ts)))];
     if let Some(c) = &cursor {
         range.push(Sql::Integer(c.ts));
         range.push(Sql::Blob(c.id.clone()));
     }
     let model_routes: Option<Vec<i64>> = match query.model.as_deref().filter(|m| !m.is_empty()) {
-        Some(model) => Some(
-            conn.prepare(MODEL_ROUTES_SQL)?
-                .query_map([model], |r| r.get(0))?
-                .collect::<std::result::Result<_, _>>()?,
-        ),
+        Some(model) => Some(conn.prepare(MODEL_ROUTES_SQL)?.query_map([model], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?),
         None => None,
     };
     let has_cursor = cursor.is_some();
-    let run = |source: Source,
-               completed: bool,
-               routes: usize,
-               mut params: Vec<Sql>|
-     -> Result<Vec<Row>> {
+    let run = |source: Source, completed: bool, routes: usize, mut params: Vec<Sql>| -> Result<Vec<Row>> {
         params.push(Sql::Integer(limit + 1));
-        run_page(
-            conn,
-            &page_sql(source, has_cursor, completed, routes),
-            params,
-        )
+        run_page(conn, &page_sql(source, has_cursor, completed, routes), params)
     };
     let mut rows = match &model_routes {
         Some(routes) if routes.is_empty() => Vec::new(),
@@ -293,9 +248,7 @@ pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Resu
                 params.extend(range.clone());
                 all.extend(run(Source::Route, !status.is_empty(), 0, params)?);
             }
-            all.sort_by(|a, b| {
-                (Reverse(a.ts), Reverse(&a.id)).cmp(&(Reverse(b.ts), Reverse(&b.id)))
-            });
+            all.sort_by(|a, b| (Reverse(a.ts), Reverse(&a.id)).cmp(&(Reverse(b.ts), Reverse(&b.id))));
             all.truncate(usize::try_from(limit + 1).unwrap_or(usize::MAX));
             all
         }
@@ -326,33 +279,17 @@ pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Resu
             slot.insert(info);
         }
         let route = &route_cache[&row.route];
-        let session: Option<String> = conn
-            .prepare_cached(SESSION_SQL)?
-            .query_row([row.session], |r| r.get(0))
-            .optional()?;
-        let owner: Option<String> = conn
-            .prepare_cached(OWNER_SQL)?
-            .query_row([row.session], |r| r.get(0))
-            .optional()?;
+        let session: Option<String> = conn.prepare_cached(SESSION_SQL)?.query_row([row.session], |r| r.get(0)).optional()?;
+        let owner: Option<String> = conn.prepare_cached(OWNER_SQL)?.query_row([row.session], |r| r.get(0)).optional()?;
         let non_empty = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
-        let duration = if row.duration_ms != 0.0 {
-            row.duration_ms
-        } else {
-            row.elapsed_ms.unwrap_or(0.0)
-        };
+        let duration = if row.duration_ms != 0.0 { row.duration_ms } else { row.elapsed_ms.unwrap_or(0.0) };
         let mut out = Map::new();
         out.insert("id".into(), Value::from(hex(&row.id)));
         out.insert("ts".into(), Value::from(row.ts));
         out.insert("provider".into(), Value::from(route.provider.as_str()));
         out.insert("model".into(), Value::from(route.model.as_str()));
-        out.insert(
-            "requestedModel".into(),
-            Value::from(non_empty(&row.requested_model).unwrap_or_else(|| route.model.clone())),
-        );
-        out.insert(
-            "requestedProvider".into(),
-            text(non_empty(&row.requested_provider)),
-        );
+        out.insert("requestedModel".into(), Value::from(non_empty(&row.requested_model).unwrap_or_else(|| route.model.clone())));
+        out.insert("requestedProvider".into(), text(non_empty(&row.requested_provider)));
         out.insert("kind".into(), Value::from(route.kind.as_str()));
         out.insert("sourceType".into(), Value::from(route.source_type.as_str()));
         out.insert("costSource".into(), Value::from(route.cost_source.as_str()));
@@ -367,27 +304,12 @@ pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Resu
         out.insert("output".into(), measured(output_known, row.output));
         out.insert("cacheRead".into(), measured(prompt_known, row.cache_read));
         out.insert("cacheWrite".into(), measured(prompt_known, row.cache_write));
-        out.insert(
-            "tokens".into(),
-            measured(prompt_known, row.input + row.output + row.cache_read + row.cache_write),
-        );
-        out.insert(
-            "costUsd".into(),
-            row.cost_usd.map_or(Value::Null, js_number),
-        );
+        out.insert("tokens".into(), measured(prompt_known, row.input + row.output + row.cache_read + row.cache_write));
+        out.insert("costUsd".into(), row.cost_usd.map_or(Value::Null, js_number));
         out.insert("durationMs".into(), js_number(duration));
-        out.insert(
-            "ttftMs".into(),
-            row.first_output_ms.map_or(Value::Null, js_number),
-        );
-        out.insert(
-            "attempts".into(),
-            Value::from(row.attempts.filter(|a| *a != 0).unwrap_or(1)),
-        );
-        out.insert(
-            "status".into(),
-            Value::from(non_empty(&row.status).unwrap_or_else(|| "completed".to_string())),
-        );
+        out.insert("ttftMs".into(), row.first_output_ms.map_or(Value::Null, js_number));
+        out.insert("attempts".into(), Value::from(row.attempts.filter(|a| *a != 0).unwrap_or(1)));
+        out.insert("status".into(), Value::from(non_empty(&row.status).unwrap_or_else(|| "completed".to_string())));
         requests.push(Value::Object(out));
     }
 

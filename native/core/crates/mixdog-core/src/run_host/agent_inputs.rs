@@ -16,13 +16,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::flow::seams::{TurnListener, TurnSource, Unobserve};
 use mixdog_agent::agent_tool::host::Environment;
+use mixdog_agent::compact::settings::agent_terminal_reap_ms;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::{EntryKind, FileService, ReadRange};
-use mixdog_rt::InteractiveIo;
-use mixdog_tools::fs::read_failure_message;
-use mixdog_agent::compact::settings::agent_terminal_reap_ms;
 use mixdog_core_config::config::Config;
 use mixdog_core_session::session::agent_registry::{LiveSessions, LiveStamp, ReapWindow, Row};
+use mixdog_rt::InteractiveIo;
+use mixdog_tools::fs::read_failure_message;
 
 use super::compose_parts::LateDirectory;
 
@@ -199,7 +199,6 @@ mod tests {
         assert_eq!(agent_terminal_reap_ms(Some(&section), "nowhere"), 180_000.0);
     }
 
-
     /// `isExistingDirectory`, `readFileSync(target, 'utf8')` and `toISOString()` as the agent tool
     /// asks them.
     #[tokio::test]
@@ -223,15 +222,11 @@ mod tests {
         assert!(!env.is_directory("relative").await);
         assert_eq!(env.read_text(&root.join("prompt.txt").to_string_lossy()).await.as_deref(), Ok("ask \u{fffd} here"));
         let missing = root.join("gone.txt");
-        assert_eq!(
-            env.read_text(&missing.to_string_lossy()).await,
-            Err(format!("ENOENT: no such file or directory, open '{}'", missing.display()))
-        );
+        assert_eq!(env.read_text(&missing.to_string_lossy()).await, Err(format!("ENOENT: no such file or directory, open '{}'", missing.display())));
         assert_eq!(env.current_dir(), "/start");
         let stamp = env.now_iso();
         assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
     }
-
 
     /// The counters of the test above are live on every route the forbidden work can take, including the ones that do not
     /// pass through the instance under test: another `Config` opening or reloading the file, each provider adapter's
@@ -259,7 +254,9 @@ mod tests {
             assert!(forbidden_work()[counter] > before[counter], "{name} moved no {} counter", FORBIDDEN[counter]);
         };
         let before = forbidden_work();
-        Config::open(other.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("another instance");
+        Config::open(other.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes)
+            .await
+            .expect("another instance");
         moved("opening another Config", before, 0);
         let before = forbidden_work();
         services.config.reload().await.expect("reload");
@@ -287,9 +284,18 @@ mod tests {
             moved(&format!("DefaultProviderBuilder::build {name}"), before, 3);
         }
         for (name, cfg) in [
-            ("custom-one-wire", json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
-            ("custom-anthropic", json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://127.0.0.1:1", "auth": "none" })),
-            ("custom-two-wires", json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "wires": ["chat", "responses"], "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+            (
+                "custom-one-wire",
+                json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "auth": "none" }),
+            ),
+            (
+                "custom-anthropic",
+                json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://127.0.0.1:1", "auth": "none" }),
+            ),
+            (
+                "custom-two-wires",
+                json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "wires": ["chat", "responses"], "baseURL": "http://127.0.0.1:1/v1", "auth": "none" }),
+            ),
         ] {
             let (before, credentials) = (forbidden_work(), mixdog_ai::work::credential_reads());
             builder.build_custom_parts(name, &cfg).unwrap_or_else(|error| panic!("{name}: {error}"));

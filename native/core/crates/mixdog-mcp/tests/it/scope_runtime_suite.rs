@@ -75,11 +75,7 @@ impl ScopeConfigs for Configs {
         if self.panic_next.swap(false, std::sync::atomic::Ordering::SeqCst) {
             panic!("the configuration could not be read");
         }
-        Resolved {
-            configs: snapshot,
-            targets: only.map(|name| vec![name.to_owned()]).unwrap_or_default(),
-            data_folders: lock(&self.data_folders).clone(),
-        }
+        Resolved { configs: snapshot, targets: only.map(|name| vec![name.to_owned()]).unwrap_or_default(), data_folders: lock(&self.data_folders).clone() }
     }
 
     async fn make_data_folders(&self, folders: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
@@ -170,7 +166,8 @@ fn a_rows_warnings_are_its_entrys_then_its_connections() {
         warnings: vec![format!("missing environment variable(s): {name}")],
         connected: true,
     };
-    let live: std::collections::HashMap<String, LiveServer> = [("envsrv".to_owned(), missing("FT_A")), ("loose".to_owned(), missing("FT_B"))].into_iter().collect();
+    let live: std::collections::HashMap<String, LiveServer> =
+        [("envsrv".to_owned(), missing("FT_A")), ("loose".to_owned(), missing("FT_B"))].into_iter().collect();
     let status = status_value(&StatusInput {
         catalog: &catalog,
         live: &live,
@@ -226,10 +223,12 @@ fn a_dead_connections_row_is_failed_and_keeps_what_it_listed() {
     assert_eq!(dies["capabilities"], json!({"tools": true, "prompts": false, "resources": false}));
     assert_eq!(dies["warnings"], json!(["missing environment variable(s): FT_D"]));
     let loose = row("loose");
-    assert_eq!((loose["connected"].clone(), loose["error"].clone(), loose["toolCount"].clone()), (json!(false), json!("MCP server \"loose\" closed"), json!(1)));
+    assert_eq!(
+        (loose["connected"].clone(), loose["error"].clone(), loose["toolCount"].clone()),
+        (json!(false), json!("MCP server \"loose\" closed"), json!(1))
+    );
     assert_eq!((status["connectedCount"].clone(), status["failedCount"].clone()), (json!(0), json!(1)));
 }
-
 
 fn io() -> McpIo {
     let tokens = mixdog_rt::testing::tokens();
@@ -307,9 +306,7 @@ async fn reconcile_acknowledges_removal_after_the_server_exits() {
 async fn a_shared_replacement_starts_after_the_last_owner_releases_its_predecessor() {
     let Rig { runtime, hub, configs, _artifacts } = rig();
     let stopped = _artifacts.path().join("stopped");
-    let version = |env| {
-        McpServerConfig::from_entry("plugin-demo", &json!({"command": MOCK, "env": env}), &std::env::vars().collect()).unwrap()
-    };
+    let version = |env| McpServerConfig::from_entry("plugin-demo", &json!({"command": MOCK, "env": env}), &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![version(json!({"MOCK_STOPPED": stopped}))];
     runtime.open("s1", "t1", "").await.unwrap();
     runtime.open("s2", "t2", "").await.unwrap();
@@ -323,7 +320,11 @@ async fn a_shared_replacement_starts_after_the_last_owner_releases_its_predecess
     assert!(hub.tool_in("s2", "mcp__plugin-demo__echo").is_some(), "the other holder still owns the old server");
 
     // The second reconcile adopts the waiting replacement and gives up the last old holder.
-    tokio::time::timeout(BARRIER, async { tokio::join!(reconcile, runtime.run("s2", Op::Reconcile)); }).await.unwrap();
+    tokio::time::timeout(BARRIER, async {
+        tokio::join!(reconcile, runtime.run("s2", Op::Reconcile));
+    })
+    .await
+    .unwrap();
     assert!(hub.tool_in("s1", "mcp__plugin-demo__replacement").is_some());
     assert!(hub.tool_in("s2", "mcp__plugin-demo__replacement").is_some());
     hub.close_all().await;
@@ -337,9 +338,8 @@ async fn a_retained_server_dying_during_reconcile_does_not_hold_up_the_scheduled
     runtime.open("s2", "t2", "").await.unwrap();
     let retained = hub.server_in("s1", "retained").unwrap();
     let mut retained_state = retained.subscribe();
-    let changing = McpServerConfig::from_entry(
-        "changing", &json!({"command": MOCK, "env": {"MOCK_TOOLS": "[\"replacement\"]"}}), &std::env::vars().collect(),
-    ).unwrap();
+    let changing =
+        McpServerConfig::from_entry("changing", &json!({"command": MOCK, "env": {"MOCK_TOOLS": "[\"replacement\"]"}}), &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![config("retained"), changing];
     let reconcile = runtime.run("s1", Op::Reconcile);
     tokio::pin!(reconcile);
@@ -597,7 +597,11 @@ async fn a_request_carries_its_scope_through_the_work_it_runs() {
     runtime.release("t1");
     assert!(!runtime.is_open("s1"), "a released scope is no longer open: a thread naming it reads nothing");
     assert_eq!(request_scope(), None);
-    let seen = with_request_scope(Some("s2".to_owned()), async { tokio::task::yield_now().await; request_scope() }).await;
+    let seen = with_request_scope(Some("s2".to_owned()), async {
+        tokio::task::yield_now().await;
+        request_scope()
+    })
+    .await;
     assert_eq!(seen.as_deref(), Some("s2"));
     // No scope is read unless named: the argument-less methods read `global`, which holds nothing.
     assert!(hub.server("alpha").is_none() && hub.tools().is_empty() && !hub.has_scope("global"));

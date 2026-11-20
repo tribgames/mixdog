@@ -143,7 +143,10 @@ impl SavedLoginRegistry {
 
     /// The spellings held, in registration order.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub(super) fn spellings(&self) -> Vec<String> {
         self.held().values.iter().map(|(_, spelling)| spelling.clone()).collect()
     }
@@ -214,7 +217,8 @@ impl SavedLoginRegistry {
     pub async fn forget(&self, session: &str) {
         let newest = {
             let state = self.held();
-            let turns = state.running.iter().map(|(_, turn)| turn).chain(state.guards.iter().map(|guard| &guard.turn)).chain(state.values.iter().map(|(turn, _)| turn));
+            let turns =
+                state.running.iter().map(|(_, turn)| turn).chain(state.guards.iter().map(|guard| &guard.turn)).chain(state.values.iter().map(|(turn, _)| turn));
             turns.filter(|turn| turn.session == session).map(|turn| turn.turn).max()
         };
         let Some(newest) = newest else { return };
@@ -497,7 +501,10 @@ pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker:
         }
     };
     if !ok_of(&written) {
-        return Err(redact(&text_of(&written, "error").unwrap_or_else(|| "saved_login_unconfirmed: the worker gave no answer; the value may have been written and is not retried".to_owned())));
+        return Err(redact(
+            &text_of(&written, "error")
+                .unwrap_or_else(|| "saved_login_unconfirmed: the worker gave no answer; the value may have been written and is not retried".to_owned()),
+        ));
     }
     if written.get("result").and_then(|result| result.get("code")).and_then(Value::as_str).is_some_and(|code| !code.is_empty()) {
         return Ok(as_saved_login_reply(written));
@@ -507,7 +514,10 @@ pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker:
             "filled the saved password of {} into the focused field on {}; the site receives it and it stays out of your results, though a page that redisplays it can expose it; pixels of this browser are withheld until this turn ends",
             saved.label, saved.origin
         ),
-        SavedLoginField::Username => format!("filled the saved username of {} into the focused field on {}; a username is an identifier and is not hidden from you", saved.label, saved.origin),
+        SavedLoginField::Username => format!(
+            "filled the saved username of {} into the focused field on {}; a username is an identifier and is not hidden from you",
+            saved.label, saved.origin
+        ),
     };
     let mut result: Map<String, Value> = written.get("result").and_then(Value::as_object).cloned().unwrap_or_default();
     result.insert("action".to_owned(), json!("fill_saved_login"));
@@ -552,26 +562,7 @@ pub async fn pixels_allowed(registry: &SavedLoginRegistry, mode: &str, window_id
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}
-
+mod tests {}
 
 /// The saved-login rules from the code's contract: what a fill sends and refuses, what stays out of the model's sight, and
 /// when each protection ends.
@@ -625,7 +616,12 @@ mod rule_tests {
 
     impl Logins {
         fn on() -> Self {
-            Self { enabled: true, off_after: None, reads: AtomicUsize::new(0), vault: Vault { origin: "https://login.example.com".to_owned(), fails: None, lookups: Mutex::new(Vec::new()) } }
+            Self {
+                enabled: true,
+                off_after: None,
+                reads: AtomicUsize::new(0),
+                vault: Vault { origin: "https://login.example.com".to_owned(), fails: None, lookups: Mutex::new(Vec::new()) },
+            }
         }
     }
 
@@ -647,7 +643,11 @@ mod rule_tests {
 
     impl Worker {
         fn ok() -> Self {
-            Self { check: json!({ "ok": true, "result": { "saved_login_target": page() } }), typed: Ok(json!({ "ok": true, "result": { "effect": "confirmed" } })), requests: Mutex::new(Vec::new()) }
+            Self {
+                check: json!({ "ok": true, "result": { "saved_login_target": page() } }),
+                typed: Ok(json!({ "ok": true, "result": { "effect": "confirmed" } })),
+                requests: Mutex::new(Vec::new()),
+            }
         }
         fn actions(&self) -> Vec<String> {
             self.requests.lock().unwrap().iter().map(|request| request["action"].as_str().unwrap().to_owned()).collect()
@@ -713,8 +713,24 @@ mod rule_tests {
     #[tokio::test]
     async fn each_refusal_before_the_write_sends_no_input() {
         let mut cases: Vec<(&str, Value, Logins, Worker, bool, bool, &str)> = Vec::new();
-        cases.push(("not Windows", command("password"), Logins::on(), Worker::ok(), false, true, "saved_login_unavailable: saved logins are filled on Windows only for now; no input was sent"));
-        cases.push(("Auto login off", command("password"), Logins { enabled: false, ..Logins::on() }, Worker::ok(), true, true, "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent"));
+        cases.push((
+            "not Windows",
+            command("password"),
+            Logins::on(),
+            Worker::ok(),
+            false,
+            true,
+            "saved_login_unavailable: saved logins are filled on Windows only for now; no input was sent",
+        ));
+        cases.push((
+            "Auto login off",
+            command("password"),
+            Logins { enabled: false, ..Logins::on() },
+            Worker::ok(),
+            true,
+            true,
+            "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent",
+        ));
         cases.push(("another field", command("otp"), Logins::on(), Worker::ok(), true, true, "invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user's step (handoff_user takeover)"));
         let mut no_account = command("password");
         no_account["saved_account"] = json!("  ");
@@ -724,8 +740,24 @@ mod rule_tests {
         cases.push(("no window", no_window, Logins::on(), Worker::ok(), true, true, "fill_saved_login requires an exact window_id before dispatch"));
         let mut no_turn = command("password");
         no_turn["turn_id"] = json!(0);
-        cases.push(("no turn", no_turn, Logins::on(), Worker::ok(), true, true, "saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent"));
-        cases.push(("not admitted", command("password"), Logins::on(), Worker::ok(), true, false, "saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent"));
+        cases.push((
+            "no turn",
+            no_turn,
+            Logins::on(),
+            Worker::ok(),
+            true,
+            true,
+            "saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent",
+        ));
+        cases.push((
+            "not admitted",
+            command("password"),
+            Logins::on(),
+            Worker::ok(),
+            true,
+            false,
+            "saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent",
+        ));
         for (name, command, logins, worker, windows, admit, want) in cases {
             let registry = SavedLoginRegistry::new();
             assert_eq!(refused(fill(&registry, &command, &logins, &worker, windows, admit).await), want, "{name}");
@@ -743,7 +775,10 @@ mod rule_tests {
         let mut logins = Logins::on();
         logins.vault.fails = Some("no saved login for j•••e@example.com.".to_owned());
         let worker = Worker::ok();
-        assert_eq!(refused(fill(&registry, &command("password"), &logins, &worker, true, true).await), "saved_login_unavailable: no saved login for j•••e@example.com; no input was sent");
+        assert_eq!(
+            refused(fill(&registry, &command("password"), &logins, &worker, true, true).await),
+            "saved_login_unavailable: no saved login for j•••e@example.com; no input was sent"
+        );
         assert_eq!(worker.actions(), ["saved_login_check"]);
 
         let mut other_origin = Logins::on();
@@ -777,7 +812,10 @@ mod rule_tests {
         let mut worker = Worker::ok();
         worker.typed = Err(format!("the field said {PASSWORD}."));
         let message = refused(fill(&registry, &command("password"), &Logins::on(), &worker, true, true).await);
-        assert_eq!(message, "saved_login_unconfirmed: the saved password was sent but no clear answer came back (the field said [saved login]); it may have been written and is not retried");
+        assert_eq!(
+            message,
+            "saved_login_unconfirmed: the saved password was sent but no clear answer came back (the field said [saved login]); it may have been written and is not retried"
+        );
         assert_eq!(worker.actions(), ["saved_login_check", "saved_login_type"], "one write, no retry");
     }
 

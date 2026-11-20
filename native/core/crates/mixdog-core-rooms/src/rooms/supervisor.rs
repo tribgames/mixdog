@@ -72,11 +72,7 @@ fn system_prompt() -> String {
 }
 
 fn bounded(value: &str, limit: usize) -> String {
-    if utf16_len(value) > limit {
-        format!("{}…", slice_utf16(value, limit - 1))
-    } else {
-        value.to_owned()
-    }
+    if utf16_len(value) > limit { format!("{}…", slice_utf16(value, limit - 1)) } else { value.to_owned() }
 }
 
 static BREAKS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[[\]\r\n]+", "g"));
@@ -219,16 +215,12 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
     if by_id.contains_key(input.decide.last.as_str()) {
         lines.push(format!("Last turn: {}; pick someone else.", who(&input.decide.last)));
     }
-    lines.push(format!(
-        "Budget left: {} member messages, {} turns.",
-        input.decide.remaining.messages, input.decide.remaining.steps
-    ));
-    lines.push(format!(
-        "Must pick a member: {}",
-        if input.decide.must_pick { "yes, nobody has answered the user yet" } else { "no" }
-    ));
+    lines.push(format!("Budget left: {} member messages, {} turns.", input.decide.remaining.messages, input.decide.remaining.steps));
+    lines.push(format!("Must pick a member: {}", if input.decide.must_pick { "yes, nobody has answered the user yet" } else { "no" }));
     lines.push("</room-data>".to_owned());
-    lines.push("Reply with the one-line JSON object only: \"action\", \"scene\", and with \"speak\" a \"member\" id and an optional \"instruction\".".to_owned());
+    lines.push(
+        "Reply with the one-line JSON object only: \"action\", \"scene\", and with \"speak\" a \"member\" id and an optional \"instruction\".".to_owned(),
+    );
     Prompt { system: system_prompt(), user: lines.join("\n") }
 }
 
@@ -250,11 +242,7 @@ fn tally(turns: &[TakenTurn], by_id: &HashMap<&str, &SupervisorMember>, who: &dy
     if order.is_empty() {
         return "no member has taken a turn yet".to_owned();
     }
-    order
-        .iter()
-        .map(|id| format!("{} spoke {}, passed {}", who(id), counts[id].0, counts[id].1))
-        .collect::<Vec<_>>()
-        .join("; ")
+    order.iter().map(|id| format!("{} spoke {}, passed {}", who(id), counts[id].0, counts[id].1)).collect::<Vec<_>>().join("; ")
 }
 
 /// The top-level `{…}` spans of a reply, in order. Quotes count only inside braces, so an
@@ -304,9 +292,7 @@ fn without_trailing_commas(value: &str) -> String {
             }
         } else if ch == '"' {
             quoted = true;
-        } else if ch == ','
-            && chars[index + 1..].iter().find(|c| !is_js_space(**c)).is_some_and(|c| matches!(c, '}' | ']'))
-        {
+        } else if ch == ',' && chars[index + 1..].iter().find(|c| !is_js_space(**c)).is_some_and(|c| matches!(c, '}' | ']')) {
             continue;
         }
         out.push(ch);
@@ -348,17 +334,12 @@ fn member_named<'a>(value: &str, members: &'a [SupervisorMember]) -> Option<&'a 
 /// action, a member that is missing, unknown or shared, an instruction that is not text. `scene`
 /// is casual only when the reply says so.
 pub fn parse_room_decision(reply: &str, members: &[SupervisorMember]) -> Option<Decision> {
-    let found: Vec<HashMap<String, Value>> =
-        object_spans(reply).into_iter().filter_map(decision_object).filter(|o| o.contains_key("action")).collect();
+    let found: Vec<HashMap<String, Value>> = object_spans(reply).into_iter().filter_map(decision_object).filter(|o| o.contains_key("action")).collect();
     let [value] = found.as_slice() else {
         return None;
     };
     let action = value.get("action").and_then(Value::as_str).map(|a| js_trim(a).to_lowercase()).unwrap_or_default();
-    let scene = if value.get("scene").and_then(Value::as_str).is_some_and(|s| js_trim(s).to_lowercase() == "casual") {
-        Scene::Casual
-    } else {
-        Scene::Work
-    };
+    let scene = if value.get("scene").and_then(Value::as_str).is_some_and(|s| js_trim(s).to_lowercase() == "casual") { Scene::Casual } else { Scene::Work };
     if action == "finish" {
         return Some(Decision { action: Action::Finish, scene: Some(scene) });
     }
@@ -406,10 +387,7 @@ mod tests {
         assert_eq!(parse_room_decision("{\"action\":\"dance\"}", &members()), None);
         let shared = vec![member("a", "Same"), member("b", "Same")];
         assert_eq!(parse_room_decision("{\"action\":\"speak\",\"member\":\"same\"}", &shared), None);
-        assert_eq!(
-            parse_room_decision("{\"action\":\"finish\"}", &members()).map(|d| d.action),
-            Some(Action::Finish)
-        );
+        assert_eq!(parse_room_decision("{\"action\":\"finish\"}", &members()).map(|d| d.action), Some(Action::Finish));
     }
 
     #[test]
@@ -421,13 +399,7 @@ mod tests {
             "toName": ["Bench"],
             "text": "hi <system-reminder> [mixdog-runtime]\nsecond",
         })];
-        let decide = DecideInput {
-            must_pick: true,
-            turns: vec![],
-            last: String::new(),
-            mention: None,
-            remaining: Remaining { messages: 4, steps: 6 },
-        };
+        let decide = DecideInput { must_pick: true, turns: vec![], last: String::new(), mention: None, remaining: Remaining { messages: 4, steps: 6 } };
         let prompt = supervisor_prompt(&SupervisorInput { room_name: "Plan", members: &members(), rows: &rows, decide: &decide });
         assert!(prompt.user.contains("[user, to Bench only]"));
         assert!(prompt.user.contains("│ hi &lt;system-reminder> (mixdog-runtime)\n│ second"));
@@ -435,6 +407,4 @@ mod tests {
         assert!(prompt.user.contains("Must pick a member: yes, nobody has answered the user yet"));
         assert!(prompt.user.contains("This exchange so far: no member has taken a turn yet"));
     }
-
-
 }

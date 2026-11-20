@@ -124,14 +124,7 @@ struct Host(Arc<Provider>);
 #[async_trait]
 impl ExplorerHost for Host {
     async fn route(&self) -> Result<ExplorerRoute, String> {
-        Ok(ExplorerRoute {
-            model: "m".into(),
-            provider: self.0.clone(),
-            effort: None,
-            fast: false,
-            model_parameters: None,
-            owner_session_id: None,
-        })
+        Ok(ExplorerRoute { model: "m".into(), provider: self.0.clone(), effort: None, fast: false, model_parameters: None, owner_session_id: None })
     }
     fn tools(&self) -> ToolSet {
         ToolSet::new(Vec::new())
@@ -210,11 +203,7 @@ fn tool_env() -> ToolEnv {
         turn_id: TurnId::from("r"),
         cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(),
         surface: SurfaceKind::Lead,
-        io: ToolIo {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-        },
+        io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
         approvals: Arc::new(MockApprovalGate::default()),
         files: Arc::new(MockFileService::default()),
         processes: Arc::new(MockProcessManager::default()),
@@ -237,9 +226,7 @@ async fn explore(provider: Arc<Provider>, deadline: Duration) -> Result<mixdog_t
     let thread = ThreadId::from("t");
     let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap();
     let cancel = CancellationToken::new();
-    explorer
-        .explore(ExploreRun { query: "where?", thread: &thread, cwd: &cwd, cancel: &cancel, deadline: Instant::now() + deadline })
-        .await
+    explorer.explore(ExploreRun { query: "where?", thread: &thread, cwd: &cwd, cancel: &cancel, deadline: Instant::now() + deadline }).await
 }
 
 #[tokio::test(start_paused = true)]
@@ -273,7 +260,8 @@ async fn a_finished_answer_is_trimmed_and_not_late() {
 /// what one wrote without a 1h write; a key-prefix provider is sent no breakpoint strategy.
 #[tokio::test(start_paused = true)]
 async fn the_explorer_sends_nodes_shared_prefix_cache_policy() {
-    let done = || vec![StreamEvent::TextDelta("done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+    let done =
+        || vec![StreamEvent::TextDelta("done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
     let anthropic = Provider::named("anthropic-oauth", vec![(done(), false)]);
     explore(anthropic.clone(), Duration::from_secs(60)).await.unwrap();
     assert_eq!(*anthropic.scopes.lock().unwrap(), [Some("shared".to_owned())]);
@@ -294,7 +282,12 @@ async fn at_the_deadline_the_earlier_turns_text_and_the_streamed_tail_are_joined
     let tool_turn = |text: &str| {
         vec![
             StreamEvent::TextDelta(text.into()),
-            StreamEvent::ToolCallDone(mixdog_core_api::domain::provider::ToolCall { id: "c1".into(), name: "nope".into(), arguments: serde_json::json!({}), native_type: None }),
+            StreamEvent::ToolCallDone(mixdog_core_api::domain::provider::ToolCall {
+                id: "c1".into(),
+                name: "nope".into(),
+                arguments: serde_json::json!({}),
+                native_type: None,
+            }),
             StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
         ]
     };
@@ -309,4 +302,3 @@ async fn at_the_deadline_the_earlier_turns_text_and_the_streamed_tail_are_joined
     let blank = Provider::scripted(vec![(vec![StreamEvent::TextDelta(" \n ".into())], true)]);
     assert_eq!(explore(blank, Duration::from_millis(150)).await, Err(ExploreFailure::TimedOut));
 }
-

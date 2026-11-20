@@ -70,7 +70,8 @@ impl Log {
     }
 
     fn get_fails(&mut self, id: u64, member: &str, message: &str) {
-        let error = json!({"hresult": -2147352567_i64, "inner_hresult": -2147352567_i64, "message": message, "inner_message": message, "unknown_member": false});
+        let error =
+            json!({"hresult": -2147352567_i64, "inner_hresult": -2147352567_i64, "message": message, "inner_message": message, "unknown_member": false});
         self.push(json!({"obj": id, "kind": "get", "member": member, "flags": 2, "args": [], "error": error}));
     }
 
@@ -150,13 +151,51 @@ fn apply(fake: &Fake, op: &Json) -> Result<String, String> {
 #[test]
 fn the_editor_serves_the_pptx_operations_of_the_registry_fixture() {
     let listed: Vec<String> = [
-        "add_animation", "add_chart", "add_comment", "add_image", "add_media", "add_provenance", "add_shape", "add_slide",
-        "add_table", "add_textbox", "align_shapes", "apply_theme", "crop_image", "delete_comment", "delete_shape",
-        "delete_slide", "distribute_shapes", "duplicate_slide", "fill_template", "fit_text", "group_shapes",
-        "import_slides", "keep_slides", "move_slide", "replace_image", "replace_text", "set_chart_axis", "set_chart_data",
-        "set_chart_data_labels", "set_chart_error_bars", "set_chart_series", "set_chart_trendline", "set_footer",
-        "set_hyperlink", "set_layout", "set_notes", "set_shape", "set_slide_background", "set_slide_number",
-        "set_slide_visibility", "set_table_cell_style", "set_table_data", "set_text", "set_transition", "ungroup_shape",
+        "add_animation",
+        "add_chart",
+        "add_comment",
+        "add_image",
+        "add_media",
+        "add_provenance",
+        "add_shape",
+        "add_slide",
+        "add_table",
+        "add_textbox",
+        "align_shapes",
+        "apply_theme",
+        "crop_image",
+        "delete_comment",
+        "delete_shape",
+        "delete_slide",
+        "distribute_shapes",
+        "duplicate_slide",
+        "fill_template",
+        "fit_text",
+        "group_shapes",
+        "import_slides",
+        "keep_slides",
+        "move_slide",
+        "replace_image",
+        "replace_text",
+        "set_chart_axis",
+        "set_chart_data",
+        "set_chart_data_labels",
+        "set_chart_error_bars",
+        "set_chart_series",
+        "set_chart_trendline",
+        "set_footer",
+        "set_hyperlink",
+        "set_layout",
+        "set_notes",
+        "set_shape",
+        "set_slide_background",
+        "set_slide_number",
+        "set_slide_visibility",
+        "set_table_cell_style",
+        "set_table_data",
+        "set_text",
+        "set_transition",
+        "ungroup_shape",
         "z_order",
     ]
     .iter()
@@ -242,10 +281,7 @@ fn set_slide_visibility_wants_a_visible_field() {
     let mut log = Log::default();
     log.slide(2, 3);
     let fake = log.fake();
-    assert_eq!(
-        apply(&fake, &json!({"op": "set_slide_visibility", "slide": 2})),
-        Err("set_slide_visibility requires visible: true or false".to_owned())
-    );
+    assert_eq!(apply(&fake, &json!({"op": "set_slide_visibility", "slide": 2})), Err("set_slide_visibility requires visible: true or false".to_owned()));
     fake.finish();
 }
 

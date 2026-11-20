@@ -61,11 +61,7 @@ impl Inner {
         }
         let mut result = None;
         if let Some(intent) = self.intent_for(session, &view).await? {
-            let options = Options {
-                confirm_large: intent.confirm_large || start.confirm_large,
-                own_turn: true,
-                ..Options::default()
-            };
+            let options = Options { confirm_large: intent.confirm_large || start.confirm_large, own_turn: true, ..Options::default() };
             match self.provision_intent(session, intent.clone(), &start.submission_id, &start.prompt, options, cancel).await {
                 Ok(provisioned) => result = Some(provisioned),
                 // The settings default never blocks a task outside a git repository.

@@ -149,7 +149,9 @@ async fn two_sessions_judgments_run_one_at_a_time_in_arrival_order() {
         let judge = judge.clone();
         Box::pin(async move { judge.judge(step(request)).await })
     };
-    let next_start = async |started: &mut tokio::sync::mpsc::UnboundedReceiver<String>| mixdog_rt::time::timeout(HANG, started.recv()).await.expect("a judgment starts").expect("the model lives");
+    let next_start = async |started: &mut tokio::sync::mpsc::UnboundedReceiver<String>| {
+        mixdog_rt::time::timeout(HANG, started.recv()).await.expect("a judgment starts").expect("the model lives")
+    };
 
     let a1 = tokio::spawn(judged(&a, "a1"));
     assert_eq!(next_start(&mut started).await, "a1");
@@ -500,7 +502,11 @@ async fn fifty_shutdowns_during_loads_that_never_return_hold_at_most_two_threads
             rig.next_load().await;
         }
         mixdog_rt::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
-        assert_eq!(mixdog_rt::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()), "cycle {cycle}");
+        assert_eq!(
+            mixdog_rt::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(),
+            TurnVerdict::Skipped("warming".into()),
+            "cycle {cycle}"
+        );
         let (current, retiring) = rig.threads();
         assert!(usize::from(current.is_some()) + retiring <= THREADS, "cycle {cycle}: {:?}", rig.threads());
     }

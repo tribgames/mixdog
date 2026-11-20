@@ -21,10 +21,7 @@ pub fn is_ip(text: &str) -> u8 {
 
 /// `normalizeHost`: no brackets, no trailing dot, lower case.
 pub fn normalize_host(hostname: &str) -> String {
-    let unbracketed = hostname
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-        .unwrap_or(hostname);
+    let unbracketed = hostname.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).unwrap_or(hostname);
     unbracketed.strip_suffix('.').unwrap_or(unbracketed).to_lowercase()
 }
 
@@ -115,7 +112,8 @@ impl Rule {
         if self.family() == family {
             return bits(address, family).is_some_and(|a| self.holds(a));
         }
-        if family == Family::V6 && self.family() == Family::V4
+        if family == Family::V6
+            && self.family() == Family::V4
             && let Some(mapped) = Ipv6Addr::from_str(address).ok().and_then(|a| a.to_ipv4_mapped())
         {
             return self.holds(u128::from(u32::from(mapped)));

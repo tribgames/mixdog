@@ -32,12 +32,11 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 
 use languages::{
-    expand_rust_use_spec, resolve_go_relative, resolve_graph_import, resolve_hcl_module,
-    resolve_js_base, resolve_rust_mod, resolve_rust_use_path, rust_crate_src_for,
+    expand_rust_use_spec, resolve_go_relative, resolve_graph_import, resolve_hcl_module, resolve_js_base, resolve_rust_mod, resolve_rust_use_path,
+    rust_crate_src_for,
 };
 use manifests::{
-    by_key_length_desc, go_import_path, load_dart_packages, load_js_packages, load_php_psr4,
-    load_rust_crate_srcs, load_ts_configs, JsPackage, TsConfigScope,
+    JsPackage, TsConfigScope, by_key_length_desc, go_import_path, load_dart_packages, load_js_packages, load_php_psr4, load_rust_crate_srcs, load_ts_configs,
 };
 use paths::{file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir};
 
@@ -58,21 +57,13 @@ pub trait ImportRecord {
 // Case-insensitive strip of a leading `static\s+` (Java/C# static imports).
 fn strip_static_prefix(s: &str) -> String {
     let keyword = "static".len();
-    if s.get(..keyword)
-        .is_some_and(|head| head.eq_ignore_ascii_case("static"))
-        && s[keyword..].starts_with(char::is_whitespace)
-    {
+    if s.get(..keyword).is_some_and(|head| head.eq_ignore_ascii_case("static")) && s[keyword..].starts_with(char::is_whitespace) {
         return s[keyword..].trim_start().to_string();
     }
     s.to_string()
 }
 
-fn resolve_ts_alias(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Option<String> {
+fn resolve_ts_alias(rel: &str, spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Option<String> {
     if spec.starts_with('.') {
         return None;
     }
@@ -103,22 +94,13 @@ fn resolve_ts_alias(
     None
 }
 
-fn resolve_js_hash_import(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Option<String> {
+fn resolve_js_hash_import(rel: &str, spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Option<String> {
     if !spec.starts_with('#') {
         return None;
     }
     let importer_dir = rel_dir(rel);
-    let mut pkgs: Vec<&JsPackage> = index
-        .js_packages
-        .iter()
-        .map(|(_, pkg)| pkg)
-        .filter(|pkg| pkg.dir.is_empty() || is_same_or_under(importer_dir, &pkg.dir))
-        .collect();
+    let mut pkgs: Vec<&JsPackage> =
+        index.js_packages.iter().map(|(_, pkg)| pkg).filter(|pkg| pkg.dir.is_empty() || is_same_or_under(importer_dir, &pkg.dir)).collect();
     pkgs.sort_by(|left, right| by_key_length_desc(&left.dir, &right.dir));
     for pkg in pkgs {
         for (prefix, target) in &pkg.imports {
@@ -134,11 +116,7 @@ fn resolve_js_hash_import(
     None
 }
 
-fn resolve_js_package(
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Option<String> {
+fn resolve_js_package(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Option<String> {
     if spec.starts_with('.') {
         return None;
     }
@@ -182,9 +160,7 @@ fn elixir_module_from_rel(rel: &str) -> Option<String> {
     } else {
         return None;
     };
-    let without_ext = tail
-        .strip_suffix(".ex")
-        .or_else(|| tail.strip_suffix(".exs"))?;
+    let without_ext = tail.strip_suffix(".ex").or_else(|| tail.strip_suffix(".exs"))?;
     let module = without_ext
         .split('/')
         .filter(|seg| !seg.is_empty())
@@ -205,10 +181,7 @@ fn elixir_module_from_rel(rel: &str) -> Option<String> {
 }
 
 fn resolve_php_use(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Vec<String> {
-    let mut cleaned = spec
-        .trim()
-        .trim_start_matches(['\\', '/'])
-        .replace('/', "\\");
+    let mut cleaned = spec.trim().trim_start_matches(['\\', '/']).replace('/', "\\");
     for prefix in ["function ", "const "] {
         if let Some(rest) = cleaned.strip_prefix(prefix) {
             cleaned = rest.trim().to_string();
@@ -226,9 +199,7 @@ fn resolve_php_use(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -
     // An empty PSR-4 key is a legal catch-all root, so "no match yet" is
     // distinguished from "matched length 0" rather than compared as a length.
     for (ns, dir) in &index.php_psr4 {
-        if !cleaned.starts_with(ns.as_str())
-            || best.as_ref().is_some_and(|(len, _)| ns.len() <= *len)
-        {
+        if !cleaned.starts_with(ns.as_str()) || best.as_ref().is_some_and(|(len, _)| ns.len() <= *len) {
             continue;
         }
         let tail = cleaned[ns.len()..].replace('\\', "/");
@@ -241,11 +212,7 @@ fn resolve_php_use(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -
         }
     }
     let path = cleaned.replace('\\', "/");
-    for cand in [
-        format!("{path}.php"),
-        format!("src/{path}.php"),
-        format!("app/{path}.php"),
-    ] {
+    for cand in [format!("{path}.php"), format!("src/{path}.php"), format!("app/{path}.php")] {
         if file_set.contains(&cand) {
             return vec![cand];
         }
@@ -253,11 +220,7 @@ fn resolve_php_use(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -
     Vec::new()
 }
 
-fn resolve_dart_package(
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Option<String> {
+fn resolve_dart_package(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Option<String> {
     let rest = spec.strip_prefix("package:")?;
     let (pkg, path) = rest.split_once('/')?;
     let lib = index.dart_packages.get(pkg)?;
@@ -305,12 +268,7 @@ fn resolve_scala(spec: &str, index: &GraphIndex) -> Vec<String> {
     resolve_by_dotted_prefix(spec, &index.scala_types)
 }
 
-fn resolve_objc_header(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Vec<String> {
+fn resolve_objc_header(rel: &str, spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Vec<String> {
     let norm = normalize_import_spec(spec);
     if norm.is_empty() || (!norm.contains('.') && !norm.contains('/')) {
         return Vec::new();
@@ -380,11 +338,7 @@ fn build_graph_index(records: &[impl ImportRecord], root: &Path) -> GraphIndex {
                     push_index_set(&mut index.package_members, package_name, rel);
                 }
                 for type_name in rec.top_level_types() {
-                    let fqcn = if package_name.is_empty() {
-                        type_name.clone()
-                    } else {
-                        format!("{package_name}.{type_name}")
-                    };
+                    let fqcn = if package_name.is_empty() { type_name.clone() } else { format!("{package_name}.{type_name}") };
                     push_index_set(&mut index.type_by_fqcn, &fqcn, rel);
                 }
             }
@@ -414,10 +368,7 @@ fn build_graph_index(records: &[impl ImportRecord], root: &Path) -> GraphIndex {
                 }
             }
             "scala" => {
-                if let Some(without) = rel
-                    .strip_suffix(".scala")
-                    .or_else(|| rel.strip_suffix(".sc"))
-                {
+                if let Some(without) = rel.strip_suffix(".scala").or_else(|| rel.strip_suffix(".sc")) {
                     push_index_set(&mut index.scala_types, &without.replace('/', "."), rel);
                 }
             }
@@ -427,11 +378,7 @@ fn build_graph_index(records: &[impl ImportRecord], root: &Path) -> GraphIndex {
                         push_index_set(&mut index.objc_headers, name, rel);
                         if let Some((parent, _)) = rel.rsplit_once('/') {
                             if let Some(dir) = parent.rsplit('/').next() {
-                                push_index_set(
-                                    &mut index.objc_headers,
-                                    &format!("{dir}/{name}"),
-                                    rel,
-                                );
+                                push_index_set(&mut index.objc_headers, &format!("{dir}/{name}"), rel);
                             }
                         }
                     }
@@ -467,12 +414,7 @@ fn resolve_java_like(spec: &str, index: &GraphIndex) -> Vec<String> {
 
 /// `mod::` paths name a file directly; a `use` path may expand into several
 /// specs, each resolved against the importer's crate root.
-fn resolve_rust_indexed(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Vec<String> {
+fn resolve_rust_indexed(rel: &str, spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Vec<String> {
     if spec.starts_with("mod::") {
         return resolve_rust_mod(rel, spec, file_set).into_iter().collect();
     }
@@ -496,13 +438,7 @@ fn resolve_csharp(spec: &str, index: &GraphIndex) -> Vec<String> {
         let (lhs, rhs) = cleaned.split_at(eq);
         let lhs = lhs.trim();
         let is_ident = !lhs.is_empty()
-            && lhs.chars().enumerate().all(|(i, c)| {
-                if i == 0 {
-                    c.is_ascii_alphabetic() || c == '_'
-                } else {
-                    c.is_ascii_alphanumeric() || c == '_'
-                }
-            });
+            && lhs.chars().enumerate().all(|(i, c)| if i == 0 { c.is_ascii_alphabetic() || c == '_' } else { c.is_ascii_alphanumeric() || c == '_' });
         if is_ident {
             let rhs = rhs[1..].trim();
             if !rhs.is_empty() {
@@ -515,12 +451,7 @@ fn resolve_csharp(spec: &str, index: &GraphIndex) -> Vec<String> {
 
 // JS `_resolveIndexedGraphImport`: direct fileSet resolution first, then
 // the per-language indexed fallbacks (go/java/kotlin/rust/csharp).
-fn resolve_indexed_graph_import(
-    rec: &impl ImportRecord,
-    spec: &str,
-    file_set: &HashSet<String>,
-    index: &GraphIndex,
-) -> Vec<String> {
+fn resolve_indexed_graph_import(rec: &impl ImportRecord, spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Vec<String> {
     let normalized = normalize_import_spec(spec);
     if normalized.is_empty() {
         return Vec::new();
@@ -538,15 +469,7 @@ fn resolve_indexed_graph_import(
             .collect(),
         "go" => {
             let relative = resolve_go_relative(rel, &normalized, file_set);
-            if !relative.is_empty() {
-                relative
-            } else {
-                index
-                    .go_import_paths
-                    .get(&normalized)
-                    .cloned()
-                    .unwrap_or_default()
-            }
+            if !relative.is_empty() { relative } else { index.go_import_paths.get(&normalized).cloned().unwrap_or_default() }
         }
         "java" | "kotlin" => resolve_java_like(&normalized, index),
         "rust" => resolve_rust_indexed(rel, &normalized, file_set, index),
@@ -560,9 +483,7 @@ fn resolve_indexed_graph_import(
         // A terraform module is a directory, so this one resolves to MANY
         // files and cannot use the single-answer direct leg.
         "hcl" => resolve_hcl_module(rel, &normalized, file_set),
-        "dart" => resolve_dart_package(&normalized, file_set, index)
-            .into_iter()
-            .collect(),
+        "dart" => resolve_dart_package(&normalized, file_set, index).into_iter().collect(),
         "php" => resolve_php_use(&normalized, file_set, index),
         "elixir" => resolve_elixir(&normalized, index),
         "objc" => resolve_objc_header(rel, &normalized, file_set, index),
@@ -574,20 +495,12 @@ fn resolve_indexed_graph_import(
 
 // Post-join: resolve every record's rawImports → resolvedImports (rel,
 // deduped, order-preserving), then a reverse pass fills importedBy.
-pub fn resolve_and_link<R: ImportRecord + Sync>(
-    records: &mut [R],
-    root: &Path,
-    file_set: &HashSet<String>,
-) {
+pub fn resolve_and_link<R: ImportRecord + Sync>(records: &mut [R], root: &Path, file_set: &HashSet<String>) {
     link_records(records, root, file_set);
 }
 
 /// [`resolve_and_link`], returning the paths probed and their stamps just before each probe.
-pub fn resolve_and_link_reporting<R: ImportRecord + Sync>(
-    records: &mut [R],
-    root: &Path,
-    file_set: &HashSet<String>,
-) -> Vec<(PathBuf, Option<(u64, u64)>)> {
+pub fn resolve_and_link_reporting<R: ImportRecord + Sync>(records: &mut [R], root: &Path, file_set: &HashSet<String>) -> Vec<(PathBuf, Option<(u64, u64)>)> {
     // The loaders run in `build_graph_index`, sequentially on this thread, before the parallel resolve.
     let ((), inputs) = manifests::recording(|| link_records(records, root, file_set));
     inputs
@@ -596,11 +509,7 @@ pub fn resolve_and_link_reporting<R: ImportRecord + Sync>(
 pub use manifests::ObservedInput;
 
 /// Same resolution, with the observations needed to revalidate the edges rather than just path stamps.
-pub fn resolve_and_link_observing<R: ImportRecord + Sync>(
-    records: &mut [R],
-    root: &Path,
-    file_set: &HashSet<String>,
-) -> Vec<ObservedInput> {
+pub fn resolve_and_link_observing<R: ImportRecord + Sync>(records: &mut [R], root: &Path, file_set: &HashSet<String>) -> Vec<ObservedInput> {
     manifests::observing(|| link_records(records, root, file_set)).1
 }
 
@@ -647,10 +556,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "mixdog-resolve-{label}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos()
         ));
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir
@@ -683,33 +589,17 @@ mod tests {
         let root = temp_root("js-packages");
         for (dir, name) in [("beta", "pkg-bb"), ("alpha", "pkg-aa")] {
             std::fs::create_dir_all(root.join(dir).join("src")).expect("package dir");
-            std::fs::write(
-                root.join(dir).join("package.json"),
-                format!("{{\"name\":\"{name}\",\"main\":\"src/index.js\"}}\n"),
-            )
-            .expect("package.json");
+            std::fs::write(root.join(dir).join("package.json"), format!("{{\"name\":\"{name}\",\"main\":\"src/index.js\"}}\n")).expect("package.json");
         }
 
         let packages = load_js_packages(&root);
         let names: Vec<&str> = packages.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, vec!["pkg-aa", "pkg-bb"], "total order, not read_dir");
 
-        let index = GraphIndex {
-            js_packages: packages,
-            ..GraphIndex::default()
-        };
-        let file_set: HashSet<String> = ["alpha/src/index.js", "beta/src/index.js"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        assert_eq!(
-            resolve_js_package("pkg-aa", &file_set, &index).as_deref(),
-            Some("alpha/src/index.js")
-        );
-        assert_eq!(
-            resolve_js_package("pkg-bb", &file_set, &index).as_deref(),
-            Some("beta/src/index.js")
-        );
+        let index = GraphIndex { js_packages: packages, ..GraphIndex::default() };
+        let file_set: HashSet<String> = ["alpha/src/index.js", "beta/src/index.js"].into_iter().map(String::from).collect();
+        assert_eq!(resolve_js_package("pkg-aa", &file_set, &index).as_deref(), Some("alpha/src/index.js"));
+        assert_eq!(resolve_js_package("pkg-bb", &file_set, &index).as_deref(), Some("beta/src/index.js"));
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -723,37 +613,18 @@ mod tests {
         let root = temp_root("psr4");
         for (dir, namespace) in [("second", "Bb\\\\"), ("first", "Aa\\\\")] {
             std::fs::create_dir_all(root.join(dir)).expect("package dir");
-            std::fs::write(
-                root.join(dir).join("composer.json"),
-                format!("{{\"autoload\":{{\"psr-4\":{{\"{namespace}\":\"src/\"}}}}}}\n"),
-            )
-            .expect("composer.json");
+            std::fs::write(root.join(dir).join("composer.json"), format!("{{\"autoload\":{{\"psr-4\":{{\"{namespace}\":\"src/\"}}}}}}\n"))
+                .expect("composer.json");
         }
 
         let psr4 = load_php_psr4(&root);
         let namespaces: Vec<&str> = psr4.iter().map(|(ns, _)| ns.as_str()).collect();
-        assert_eq!(
-            namespaces,
-            vec!["Aa\\", "Bb\\"],
-            "total order, not read_dir"
-        );
+        assert_eq!(namespaces, vec!["Aa\\", "Bb\\"], "total order, not read_dir");
 
-        let index = GraphIndex {
-            php_psr4: psr4,
-            ..GraphIndex::default()
-        };
-        let file_set: HashSet<String> = ["first/src/Thing.php", "second/src/Thing.php"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        assert_eq!(
-            resolve_php_use("Aa\\Thing", &file_set, &index),
-            vec!["first/src/Thing.php".to_string()]
-        );
-        assert_eq!(
-            resolve_php_use("Bb\\Thing", &file_set, &index),
-            vec!["second/src/Thing.php".to_string()]
-        );
+        let index = GraphIndex { php_psr4: psr4, ..GraphIndex::default() };
+        let file_set: HashSet<String> = ["first/src/Thing.php", "second/src/Thing.php"].into_iter().map(String::from).collect();
+        assert_eq!(resolve_php_use("Aa\\Thing", &file_set, &index), vec!["first/src/Thing.php".to_string()]);
+        assert_eq!(resolve_php_use("Bb\\Thing", &file_set, &index), vec!["second/src/Thing.php".to_string()]);
 
         std::fs::remove_dir_all(&root).ok();
     }

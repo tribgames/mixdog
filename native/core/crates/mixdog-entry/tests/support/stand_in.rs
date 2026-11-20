@@ -42,7 +42,10 @@ async fn read_request<S: tokio::io::AsyncRead + Unpin>(io: &mut S) -> Option<(St
     let head = String::from_utf8_lossy(&buffer[..head_end]).into_owned();
     let mut first = head.lines().next()?.split(' ');
     let (method, path) = (first.next()?.to_owned(), first.next()?.to_owned());
-    let length = head.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").and_then(|value| value.trim().parse::<usize>().ok())).unwrap_or(0);
+    let length = head
+        .lines()
+        .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").and_then(|value| value.trim().parse::<usize>().ok()))
+        .unwrap_or(0);
     let mut have = buffer.len() - head_end - 4;
     while have < length {
         let read = io.read(&mut chunk).await.ok()?;
@@ -95,7 +98,11 @@ async fn answer<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(mut io:
         Reply::BreakStream(message) => {
             let started = sse_body("", index);
             let started = &started[..started.find("event: content_block_start").unwrap_or(started.len())];
-            ("200 OK", "text/event-stream", format!("{started}event: error\ndata: {}\n\n", json!({ "type": "error", "error": { "type": "invalid_request_error", "message": message } })))
+            (
+                "200 OK",
+                "text/event-stream",
+                format!("{started}event: error\ndata: {}\n\n", json!({ "type": "error", "error": { "type": "invalid_request_error", "message": message } })),
+            )
         }
     };
     let head = format!("HTTP/1.1 {status}\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
@@ -142,14 +149,8 @@ impl StandIn {
                 });
             }
         });
-        Self {
-            tls_addr,
-            cert_path,
-            requests,
-            runtime: Some(runtime),
-        }
+        Self { tls_addr, cert_path, requests, runtime: Some(runtime) }
     }
-
 
     /// The variables that pin the binary's provider requests to the stand-in.
     pub fn pin(&self) -> [(&'static str, String); 2] {

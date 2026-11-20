@@ -4,8 +4,8 @@ use mixdog_term::KeyFlags;
 
 use super::draft::Draft;
 use super::editing::{
-    delete_backward_word, delete_forward_word, delete_to_line_end, delete_to_line_start, move_cursor, next_offset,
-    next_word_offset, previous_offset, previous_word_offset,
+    delete_backward_word, delete_forward_word, delete_to_line_end, delete_to_line_start, move_cursor, next_offset, next_word_offset, previous_offset,
+    previous_word_offset,
 };
 use super::helpers::{delete_backward_char, delete_forward_char};
 

@@ -24,56 +24,41 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use std::os::windows::ffi::OsStrExt;
-use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{
-    GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS,
-    GENERIC_WRITE, HANDLE,
-};
-use windows::Win32::Globalization::{CompareStringOrdinal, CSTR_EQUAL};
+use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, GENERIC_WRITE, GetLastError, HANDLE};
+use windows::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
 use windows::Win32::Security::{
-    CreateWellKnownSid, GetTokenInformation, SetFileSecurityW, TokenElevation,
-    WinBuiltinAdministratorsSid, WinHighLabelSid, DACL_SECURITY_INFORMATION,
-    GROUP_SECURITY_INFORMATION, OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSID,
-    SECURITY_MAX_SID_SIZE, TOKEN_ELEVATION, TOKEN_QUERY, WELL_KNOWN_SID_TYPE,
+    CreateWellKnownSid, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION, GetTokenInformation, OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+    PSID, SECURITY_MAX_SID_SIZE, SetFileSecurityW, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation, WELL_KNOWN_SID_TYPE, WinBuiltinAdministratorsSid,
+    WinHighLabelSid,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateDirectoryW, CreateFileW, MoveFileExW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_MODE,
-    MOVEFILE_DELAY_UNTIL_REBOOT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    MOVE_FILE_FLAGS,
+    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_MODE, MOVE_FILE_FLAGS, MOVEFILE_DELAY_UNTIL_REBOOT, MOVEFILE_REPLACE_EXISTING,
+    MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE,
-    KEY_WOW64_64KEY, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ,
+    HKEY, HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ, RegCloseKey, RegCreateKeyExW,
+    RegDeleteTreeW, RegSetValueExW,
 };
 use windows::Win32::System::Services::{
-    ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService,
-    CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx,
-    SetServiceObjectSecurity, StartServiceW, SC_ACTION, SC_ACTION_NONE, SC_ACTION_RESTART,
-    SC_HANDLE, SC_MANAGER_ALL_ACCESS, SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO,
-    SERVICE_ALL_ACCESS, SERVICE_CONFIG_FAILURE_ACTIONS, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG,
-    SERVICE_CONTROL_STOP, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_FAILURE_ACTIONSW,
-    SERVICE_FAILURE_ACTIONS_FLAG, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_START,
-    SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_PROCESS,
-    SERVICE_STOP, SERVICE_STOPPED, SERVICE_STOP_PENDING, SERVICE_WIN32_OWN_PROCESS,
+    ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW,
+    QueryServiceStatusEx, SC_ACTION, SC_ACTION_NONE, SC_ACTION_RESTART, SC_HANDLE, SC_MANAGER_ALL_ACCESS, SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO,
+    SERVICE_ALL_ACCESS, SERVICE_CONFIG_FAILURE_ACTIONS, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, SERVICE_CONTROL_STOP, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
+    SERVICE_FAILURE_ACTIONS_FLAG, SERVICE_FAILURE_ACTIONSW, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_START, SERVICE_START_PENDING, SERVICE_STATUS,
+    SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_PROCESS, SERVICE_STOP, SERVICE_STOP_PENDING, SERVICE_STOPPED, SERVICE_WIN32_OWN_PROCESS,
+    SetServiceObjectSecurity, StartServiceW,
 };
 use windows::Win32::System::Threading::{
-    AddIntegrityLabelToBoundaryDescriptor, AddSIDToBoundaryDescriptor, ClosePrivateNamespace,
-    CreateBoundaryDescriptorW, CreatePrivateNamespaceW, DeleteBoundaryDescriptor,
-    GetCurrentProcess, GetExitCodeProcess, OpenProcessToken, WaitForSingleObject, INFINITE,
+    AddIntegrityLabelToBoundaryDescriptor, AddSIDToBoundaryDescriptor, ClosePrivateNamespace, CreateBoundaryDescriptorW, CreatePrivateNamespaceW,
+    DeleteBoundaryDescriptor, GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, WaitForSingleObject,
 };
-use windows::Win32::UI::Shell::{
-    ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-};
+use windows::Win32::UI::Shell::{SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+use windows::core::{PCWSTR, PWSTR};
 
 use crate::acl;
 use crate::helper::SHUTDOWN_DEADLINE;
-use crate::security::{
-    binary_sddl, decode_controller_key, service_sddl, state_dir_sddl, state_file_sddl, InstallState,
-};
-use crate::winutil::{
-    current_user_sid, is_win32_error, now_ms, wide, OwnedHandle, SecurityDescriptor,
-};
+use crate::security::{InstallState, binary_sddl, decode_controller_key, service_sddl, state_dir_sddl, state_file_sddl};
+use crate::winutil::{OwnedHandle, SecurityDescriptor, current_user_sid, is_win32_error, now_ms, wide};
 use crate::{log, paths, signature};
 
 const DELETE_ACCESS: u32 = 0x0001_0000; // DELETE
@@ -167,9 +152,7 @@ fn service_start_bound() -> Duration {
 /// Owner + group + protected DACL, applied together so the file ends up owned by
 /// Administrators with no inherited user-writable ACE.
 fn owner_group_dacl() -> OBJECT_SECURITY_INFORMATION {
-    OBJECT_SECURITY_INFORMATION(
-        OWNER_SECURITY_INFORMATION.0 | GROUP_SECURITY_INFORMATION.0 | DACL_SECURITY_INFORMATION.0,
-    )
+    OBJECT_SECURITY_INFORMATION(OWNER_SECURITY_INFORMATION.0 | GROUP_SECURITY_INFORMATION.0 | DACL_SECURITY_INFORMATION.0)
 }
 
 /// RAII wrapper for an SC_HANDLE.
@@ -195,18 +178,10 @@ pub(crate) fn fail(message: &str) -> i32 {
 
 /// Apply an SDDL-derived security descriptor (owner + group + protected DACL)
 /// to an existing path.
-fn apply_security(
-    path: &Path,
-    sddl: &str,
-    info: OBJECT_SECURITY_INFORMATION,
-) -> Result<(), String> {
+fn apply_security(path: &Path, sddl: &str, info: OBJECT_SECURITY_INFORMATION) -> Result<(), String> {
     let descriptor = SecurityDescriptor::from_sddl(sddl).map_err(|e| e.to_string())?;
     let wide_path = wide(&path.to_string_lossy());
-    unsafe {
-        SetFileSecurityW(PCWSTR(wide_path.as_ptr()), info, descriptor.raw())
-            .ok()
-            .map_err(|error| format!("set security on {}: {error}", path.display()))
-    }
+    unsafe { SetFileSecurityW(PCWSTR(wide_path.as_ptr()), info, descriptor.raw()).ok().map_err(|error| format!("set security on {}: {error}", path.display())) }
 }
 
 /// The chain of directories that must exist from just below an already-present
@@ -221,9 +196,7 @@ fn apply_security(
 /// only `leaf`'s final component was created, so a fresh machine whose
 /// `%ProgramData%\Mixdog` did not yet exist failed the install.
 fn protected_dir_chain(base: &Path, leaf: &Path) -> Result<Vec<PathBuf>, String> {
-    let relative = leaf
-        .strip_prefix(base)
-        .map_err(|_| format!("{} is not under {}", leaf.display(), base.display()))?;
+    let relative = leaf.strip_prefix(base).map_err(|_| format!("{} is not under {}", leaf.display(), base.display()))?;
     let mut chain = Vec::new();
     let mut current = base.to_path_buf();
     for component in relative.components() {
@@ -246,9 +219,7 @@ fn create_protected_dir(path: &Path, sddl: &str) -> Result<(), String> {
         Err(error) if is_win32_error(&error, ERROR_ALREADY_EXISTS_CODE) => {
             // Reject an existing directory that is a reparse point or is owned /
             // writable by an untrusted principal, then re-assert our descriptor.
-            acl::verify_trusted_ancestry(path).map_err(|reason| {
-                format!("existing {} is not trusted: {reason}", path.display())
-            })?;
+            acl::verify_trusted_ancestry(path).map_err(|reason| format!("existing {} is not trusted: {reason}", path.display()))?;
             apply_security(path, sddl, owner_group_dacl())
         }
         Err(error) => Err(format!("create {}: {error}", path.display())),
@@ -282,8 +253,7 @@ fn stage_protected_binary(user_sid: &str, image: &[u8]) -> Result<String, String
 
     // 3. Write the verified bytes into the protected dir and lock the copy down
     //    (admin/SYSTEM-only). These are the exact bytes WinVerifyTrust accepted.
-    std::fs::write(paths::bin_exe(), image)
-        .map_err(|e| format!("write binary to {}: {e}", paths::bin_exe().display()))?;
+    std::fs::write(paths::bin_exe(), image).map_err(|e| format!("write binary to {}: {e}", paths::bin_exe().display()))?;
     let bin_sddl = binary_sddl(user_sid).ok_or("invalid user SID")?;
     apply_security(&paths::bin_exe(), &bin_sddl, owner_group_dacl())?;
 
@@ -292,10 +262,7 @@ fn stage_protected_binary(user_sid: &str, image: &[u8]) -> Result<String, String
 
     // Quoted so a space in the path cannot split the ImagePath into an
     // unquoted-service-path hijack.
-    Ok(format!(
-        "\"{}\" service",
-        paths::bin_exe().to_string_lossy()
-    ))
+    Ok(format!("\"{}\" service", paths::bin_exe().to_string_lossy()))
 }
 
 /// Hold on the per-machine install lock while an elevated operation runs.
@@ -333,9 +300,7 @@ impl Drop for Boundary {
 }
 
 /// A well-known SID in a buffer of the documented maximum size.
-pub(crate) fn well_known_sid(
-    kind: WELL_KNOWN_SID_TYPE,
-) -> Result<[u8; SECURITY_MAX_SID_SIZE as usize], String> {
+pub(crate) fn well_known_sid(kind: WELL_KNOWN_SID_TYPE) -> Result<[u8; SECURITY_MAX_SID_SIZE as usize], String> {
     let mut sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
     let mut size = sid.len() as u32;
     unsafe { CreateWellKnownSid(kind, None, Some(PSID(sid.as_mut_ptr().cast())), &mut size) }
@@ -366,45 +331,25 @@ fn acquire_install_lock() -> InstallLock {
     let name = wide(INSTALL_LOCK_NAME);
     let raw = unsafe { CreateBoundaryDescriptorW(PCWSTR(name.as_ptr()), 0) };
     if raw.is_invalid() {
-        return InstallLock::Error(format!(
-            "create the install lock boundary (error {})",
-            unsafe { GetLastError() }.0
-        ));
+        return InstallLock::Error(format!("create the install lock boundary (error {})", unsafe { GetLastError() }.0));
     }
     let mut boundary = Boundary(raw);
-    let (mut admins, mut high) = match (
-        well_known_sid(WinBuiltinAdministratorsSid),
-        well_known_sid(WinHighLabelSid),
-    ) {
+    let (mut admins, mut high) = match (well_known_sid(WinBuiltinAdministratorsSid), well_known_sid(WinHighLabelSid)) {
         (Ok(admins), Ok(high)) => (admins, high),
         (Err(error), _) | (_, Err(error)) => return InstallLock::Error(error),
     };
-    if let Err(error) =
-        unsafe { AddSIDToBoundaryDescriptor(&mut boundary.0, PSID(admins.as_mut_ptr().cast())) }
-    {
-        return InstallLock::Error(format!(
-            "add Administrators to the install lock boundary: {error}"
-        ));
+    if let Err(error) = unsafe { AddSIDToBoundaryDescriptor(&mut boundary.0, PSID(admins.as_mut_ptr().cast())) } {
+        return InstallLock::Error(format!("add Administrators to the install lock boundary: {error}"));
     }
-    if let Err(error) = unsafe {
-        AddIntegrityLabelToBoundaryDescriptor(&mut boundary.0, PSID(high.as_mut_ptr().cast()))
-    } {
-        return InstallLock::Error(format!(
-            "add the High label to the install lock boundary: {error}"
-        ));
+    if let Err(error) = unsafe { AddIntegrityLabelToBoundaryDescriptor(&mut boundary.0, PSID(high.as_mut_ptr().cast())) } {
+        return InstallLock::Error(format!("add the High label to the install lock boundary: {error}"));
     }
     let descriptor = match SecurityDescriptor::from_sddl(INSTALL_LOCK_SDDL) {
         Ok(descriptor) => descriptor,
         Err(error) => return InstallLock::Error(format!("install lock security: {error}")),
     };
     let attributes = descriptor.attributes();
-    let handle = unsafe {
-        CreatePrivateNamespaceW(
-            Some(&attributes),
-            boundary.0 .0 as *const _,
-            PCWSTR(name.as_ptr()),
-        )
-    };
+    let handle = unsafe { CreatePrivateNamespaceW(Some(&attributes), boundary.0.0 as *const _, PCWSTR(name.as_ptr())) };
     if !handle.is_invalid() {
         return InstallLock::Held(PrivateNamespace(handle));
     }
@@ -419,9 +364,7 @@ fn acquire_install_lock() -> InstallLock {
 fn lock_refused(lock: InstallLock) -> i32 {
     match lock {
         InstallLock::Busy => {
-            emit(
-                json!({ "ok": false, "error": "another secure-desktop install is already running" }),
-            );
+            emit(json!({ "ok": false, "error": "another secure-desktop install is already running" }));
             EXIT_BUSY
         }
         InstallLock::Denied => fail("the install lock requires an elevated administrator"),
@@ -434,37 +377,24 @@ fn lock_refused(lock: InstallLock) -> i32 {
 /// registered, and its readable state records another SID. A registration with
 /// no readable state has no owner left to protect (it cannot serve anyone), so
 /// it is repaired. Pure; unit-tested.
-fn owned_by_other_user(
-    service_registered: bool,
-    recorded_owner: Option<&str>,
-    installer_sid: &str,
-) -> bool {
-    service_registered
-        && recorded_owner.is_some_and(|owner| !owner.eq_ignore_ascii_case(installer_sid))
+fn owned_by_other_user(service_registered: bool, recorded_owner: Option<&str>, installer_sid: &str) -> bool {
+    service_registered && recorded_owner.is_some_and(|owner| !owner.eq_ignore_ascii_case(installer_sid))
 }
 
 /// The SID an existing install recorded (readable elevated: the state DACL
 /// grants Administrators), or `None` without a valid state file.
 fn recorded_owner() -> Option<String> {
-    std::fs::read_to_string(paths::state_file())
-        .ok()
-        .and_then(|text| InstallState::from_json(&text).ok())
-        .map(|state| state.user_sid)
+    std::fs::read_to_string(paths::state_file()).ok().and_then(|text| InstallState::from_json(&text).ok()).map(|state| state.user_sid)
 }
 
 /// Whether the service is registered.
 fn service_registered() -> Result<bool, String> {
-    open_manager(SC_MANAGER_CONNECT)
-        .and_then(|manager| open_service(&manager, SERVICE_QUERY_STATUS))
-        .map(|service| service.is_some())
+    open_manager(SC_MANAGER_CONNECT).and_then(|manager| open_service(&manager, SERVICE_QUERY_STATUS)).map(|service| service.is_some())
 }
 
 /// Refuse to act on another Windows account's install: nothing was changed.
 fn refuse_other_user(operation: &str) -> i32 {
-    log::event(
-        operation,
-        "refused: the service is installed for another Windows account",
-    );
+    log::event(operation, "refused: the service is installed for another Windows account");
     emit(json!({
         "ok": false,
         "otherUser": true,
@@ -496,12 +426,10 @@ fn is_state_temp_name(name: &str) -> bool {
 /// replace leaves one). Called under the install lock before each write, so it
 /// never races a live write.
 fn remove_leftover_state_temps(dir: &Path) -> Result<(), String> {
-    let entries =
-        std::fs::read_dir(dir).map_err(|error| format!("list {}: {error}", dir.display()))?;
+    let entries = std::fs::read_dir(dir).map_err(|error| format!("list {}: {error}", dir.display()))?;
     for entry in entries.flatten() {
         if entry.file_name().to_str().is_some_and(is_state_temp_name) {
-            std::fs::remove_file(entry.path())
-                .map_err(|error| format!("remove leftover {}: {error}", entry.path().display()))?;
+            std::fs::remove_file(entry.path()).map_err(|error| format!("remove leftover {}: {error}", entry.path().display()))?;
         }
     }
     Ok(())
@@ -518,23 +446,12 @@ fn create_protected_file(path: &Path, bytes: &[u8], sddl: &str) -> Result<(), St
     let descriptor = SecurityDescriptor::from_sddl(sddl).map_err(|error| error.to_string())?;
     let attributes = descriptor.attributes();
     let wide_path = wide(&path.to_string_lossy());
-    let handle = unsafe {
-        CreateFileW(
-            PCWSTR(wide_path.as_ptr()),
-            GENERIC_WRITE.0,
-            FILE_SHARE_MODE(0),
-            Some(&attributes),
-            CREATE_NEW,
-            FILE_ATTRIBUTE_NORMAL,
-            None,
-        )
-    }
-    .map_err(|error| format!("create {}: {error}", path.display()))?;
+    let handle =
+        unsafe { CreateFileW(PCWSTR(wide_path.as_ptr()), GENERIC_WRITE.0, FILE_SHARE_MODE(0), Some(&attributes), CREATE_NEW, FILE_ATTRIBUTE_NORMAL, None) }
+            .map_err(|error| format!("create {}: {error}", path.display()))?;
     // The File owns (and closes) the handle from here.
     let mut file = unsafe { std::fs::File::from_raw_handle(handle.0) };
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|error| format!("write {}: {error}", path.display()))
+    file.write_all(bytes).and_then(|()| file.sync_all()).map_err(|error| format!("write {}: {error}", path.display()))
 }
 
 /// Write the state file into the already-protected directory with its
@@ -557,14 +474,11 @@ fn create_protected_file(path: &Path, bytes: &[u8], sddl: &str) -> Result<(), St
 /// temp a crash left behind is removed first.
 fn write_protected_state(state: &InstallState) -> Result<(), String> {
     let final_path = paths::state_file();
-    let dir = final_path
-        .parent()
-        .ok_or("the state file has no parent directory")?;
+    let dir = final_path.parent().ok_or("the state file has no parent directory")?;
     let sddl = state_file_sddl(&state.user_sid).ok_or("invalid user SID")?;
     remove_leftover_state_temps(dir)?;
     let temp = dir.join(STATE_TEMP_NAME);
-    let result = create_protected_file(&temp, state.to_json().as_bytes(), &sddl)
-        .and_then(|()| atomic_replace(&temp, &final_path));
+    let result = create_protected_file(&temp, state.to_json().as_bytes(), &sddl).and_then(|()| atomic_replace(&temp, &final_path));
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
@@ -576,27 +490,15 @@ fn write_protected_state(state: &InstallState) -> Result<(), String> {
 fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
     let wide_from = wide(&from.to_string_lossy());
     let wide_to = wide(&to.to_string_lossy());
-    unsafe {
-        MoveFileExW(
-            PCWSTR(wide_from.as_ptr()),
-            PCWSTR(wide_to.as_ptr()),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    }
-    .map_err(|error| format!("atomically replace the state file: {error}"))
+    unsafe { MoveFileExW(PCWSTR(wide_from.as_ptr()), PCWSTR(wide_to.as_ptr()), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) }
+        .map_err(|error| format!("atomically replace the state file: {error}"))
 }
 
 /// Open the service control manager with `access`.
 fn open_manager(access: u32) -> Result<ScHandle, String> {
     unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), access) }
         .map(ScHandle)
-        .map_err(|error| {
-            if access == SC_MANAGER_CONNECT {
-                format!("open SCM: {error}")
-            } else {
-                format!("open SCM (elevation required): {error}")
-            }
-        })
+        .map_err(|error| if access == SC_MANAGER_CONNECT { format!("open SCM: {error}") } else { format!("open SCM (elevation required): {error}") })
 }
 
 /// Open the bridge service with `access`; `None` when it is not registered.
@@ -614,9 +516,7 @@ fn open_service(manager: &ScHandle, access: u32) -> Result<Option<ScHandle>, Str
 fn stop_existing_service() -> Result<(), String> {
     let manager = open_manager(SC_MANAGER_ALL_ACCESS)?;
     match open_service(&manager, SERVICE_STOP | SERVICE_QUERY_STATUS)? {
-        Some(service) if !stop_and_wait(&service) => {
-            Err("existing service did not confirm SERVICE_STOPPED within its wait hint".into())
-        }
+        Some(service) if !stop_and_wait(&service) => Err("existing service did not confirm SERVICE_STOPPED within its wait hint".into()),
         _ => Ok(()),
     }
 }
@@ -632,10 +532,7 @@ const SERVICE_NOT_STOPPED: &str = "the service did not confirm SERVICE_STOPPED (
 /// holds the software SAS value. So an unconfirmed stop is an error and
 /// `delete` is not called; callers then remove nothing else (no SAS recovery,
 /// no files, no uninstall entry). Pure; unit-tested.
-fn delete_after_confirmed_stop(
-    stopped: bool,
-    delete: impl FnOnce() -> Result<(), String>,
-) -> Result<(), String> {
+fn delete_after_confirmed_stop(stopped: bool, delete: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     if !stopped {
         return Err(SERVICE_NOT_STOPPED.into());
     }
@@ -646,19 +543,13 @@ fn delete_after_confirmed_stop(
 /// [`delete_after_confirmed_stop`] for the stop it requires first.
 fn remove_service() -> Result<(), String> {
     let manager = open_manager(SC_MANAGER_ALL_ACCESS)?;
-    let Some(service) = open_service(
-        &manager,
-        SERVICE_STOP | SERVICE_QUERY_STATUS | DELETE_ACCESS,
-    )?
-    else {
+    let Some(service) = open_service(&manager, SERVICE_STOP | SERVICE_QUERY_STATUS | DELETE_ACCESS)? else {
         // Distinguish "not installed" (idempotent success) from a real failure
         // to open the service, which open_service reports as an error.
         log::event("uninstall", "service already absent");
         return Ok(());
     };
-    delete_after_confirmed_stop(stop_and_wait(&service), || {
-        unsafe { DeleteService(service.0) }.map_err(|error| format!("delete service: {error}"))
-    })?;
+    delete_after_confirmed_stop(stop_and_wait(&service), || unsafe { DeleteService(service.0) }.map_err(|error| format!("delete service: {error}")))?;
     log::event("uninstall", "service stopped and deleted");
     Ok(())
 }
@@ -674,9 +565,7 @@ fn recover_software_sas() -> Result<(), String> {
             log::event("uninstall", &format!("software SAS marker resolved: {outcome:?}"));
             Ok(())
         }
-        Err(error) => Err(format!(
-            "the software SAS policy could not be restored ({error}); the state folder and its marker are kept for a retry"
-        )),
+        Err(error) => Err(format!("the software SAS policy could not be restored ({error}); the state folder and its marker are kept for a retry")),
     }
 }
 
@@ -707,11 +596,7 @@ fn may_remove_files(service_removed: &Result<(), String>) -> bool {
 
 /// Decide the cleanup state from the two removal results and collect every
 /// problem into `problems` (pure; unit-tested). Either failure is incomplete.
-fn cleanup_outcome(
-    service_removed: &Result<(), String>,
-    files_removed: &Result<(), String>,
-    problems: &mut Vec<String>,
-) -> Cleanup {
+fn cleanup_outcome(service_removed: &Result<(), String>, files_removed: &Result<(), String>, problems: &mut Vec<String>) -> Cleanup {
     let mut clean = true;
     if let Err(error) = service_removed {
         problems.push(format!("service removal failed: {error}"));
@@ -721,11 +606,7 @@ fn cleanup_outcome(
         problems.push(format!("state removal failed: {error}"));
         clean = false;
     }
-    if clean {
-        Cleanup::Clean
-    } else {
-        Cleanup::Incomplete
-    }
+    if clean { Cleanup::Clean } else { Cleanup::Incomplete }
 }
 
 /// Roll a failed install back. If the service is confirmed stopped and its
@@ -754,10 +635,7 @@ fn roll_back(target: &mut impl UninstallTarget) -> (Cleanup, Vec<String>) {
     let mut problems = Vec::new();
     let service_removed = target.remove_service();
     let files_removed = if may_remove_files(&service_removed) {
-        target
-            .recover_software_sas()
-            .and_then(|()| target.remove_state_dir(&mut problems))
-            .and_then(|()| target.remove_apps_entry())
+        target.recover_software_sas().and_then(|()| target.remove_state_dir(&mut problems)).and_then(|()| target.remove_apps_entry())
     } else {
         Err(FILES_KEPT_FOR_SERVICE.into())
     };
@@ -777,11 +655,8 @@ fn controller_key_arg(args: &[String]) -> Result<Option<String>, String> {
     let Some(position) = args.iter().position(|arg| arg == "--controller-key") else {
         return Ok(None);
     };
-    let key = args
-        .get(position + 1)
-        .ok_or("--controller-key needs a value")?;
-    decode_controller_key(key)
-        .ok_or("the controller key is not an uncompressed P-256 point (base64url)")?;
+    let key = args.get(position + 1).ok_or("--controller-key needs a value")?;
+    decode_controller_key(key).ok_or("the controller key is not an uncompressed P-256 point (base64url)")?;
     Ok(Some(key.trim().to_string()))
 }
 
@@ -793,12 +668,8 @@ fn collect_flag_keys(args: &[String], flag: &str, noun: &str) -> Result<Vec<Stri
     let mut index = 0;
     while index < args.len() {
         if args[index] == flag {
-            let key = args
-                .get(index + 1)
-                .ok_or_else(|| format!("{flag} needs a value"))?;
-            decode_controller_key(key).ok_or_else(|| {
-                format!("the {noun} is not an uncompressed P-256 point (base64url)")
-            })?;
+            let key = args.get(index + 1).ok_or_else(|| format!("{flag} needs a value"))?;
+            decode_controller_key(key).ok_or_else(|| format!("the {noun} is not an uncompressed P-256 point (base64url)"))?;
             keys.push(key.trim().to_string());
             index += 2;
         } else {
@@ -830,13 +701,7 @@ fn wants_logon(args: &[String]) -> bool {
 /// The install state an install writes: freshly built and enrolling `keys`
 /// (zero or more). Pure; unit-tested.
 fn install_state_for(user_sid: &str, keys: &[String], now_ms: u64) -> Result<InstallState, String> {
-    InstallState::new(
-        env!("CARGO_PKG_VERSION"),
-        user_sid,
-        paths::PIPE_NAME,
-        now_ms,
-    )
-    .with_controller_keys(keys)
+    InstallState::new(env!("CARGO_PKG_VERSION"), user_sid, paths::PIPE_NAME, now_ms).with_controller_keys(keys)
 }
 
 /// `install [--controller-key k]...` (zero or more keys) under one UAC
@@ -1013,20 +878,15 @@ fn apply_key_change(add: &[String], remove: &[String]) -> i32 {
 /// user) is always allowed; otherwise the acting user must be the install's
 /// recorded owner. Returns the refusal exit code on failure.
 fn confirm_installed_and_ours() -> Result<(), i32> {
-    let sid =
-        current_user_sid().map_err(|error| fail(&format!("cannot resolve user SID: {error}")))?;
+    let sid = current_user_sid().map_err(|error| fail(&format!("cannot resolve user SID: {error}")))?;
     let registered = service_registered().map_err(|error| fail(&error))?;
     if !registered {
-        return Err(fail(
-            "the secure-desktop helper is not installed; install it before enrolling a key",
-        ));
+        return Err(fail("the secure-desktop helper is not installed; install it before enrolling a key"));
     }
     // SYSTEM is the service applying a delegated change for the verified
     // installing user; the owner check only guards against a *different user*
     // taking over, which SYSTEM is not.
-    if !crate::security::is_system_sid(&sid)
-        && owned_by_other_user(registered, recorded_owner().as_deref(), &sid)
-    {
+    if !crate::security::is_system_sid(&sid) && owned_by_other_user(registered, recorded_owner().as_deref(), &sid) {
         return Err(refuse_other_user("enroll"));
     }
     Ok(())
@@ -1051,14 +911,7 @@ fn mutate_key_set(add: &[String], remove: &[String]) -> Result<bool, String> {
     }
     if changed {
         write_protected_state(&state)?;
-        log::event(
-            "key-change",
-            &format!(
-                "controller key set updated (+{} -{})",
-                add.len(),
-                remove.len()
-            ),
-        );
+        log::event("key-change", &format!("controller key set updated (+{} -{})", add.len(), remove.len()));
     }
     Ok(changed)
 }
@@ -1068,17 +921,12 @@ fn mutate_key_set(add: &[String], remove: &[String]) -> Result<bool, String> {
 /// apply exactly one add or one remove through the shared [`mutate_key_set`].
 /// Returns whether the set changed, or an error string for the pipe reply. It
 /// never emits to stdout (the service has no console peer).
-pub(crate) fn apply_delegated_key_change(
-    op: &str,
-    key: &str,
-    expected: &signature::SignerPolicy,
-) -> Result<bool, String> {
+pub(crate) fn apply_delegated_key_change(op: &str, key: &str, expected: &signature::SignerPolicy) -> Result<bool, String> {
     let _auth = match authorize_key_change() {
         Ok(auth) => auth,
         Err(_) => return Err("the install lock is held or unavailable".into()),
     };
-    confirm_installed_and_ours()
-        .map_err(|_| "the helper is not installed for this account".to_string())?;
+    confirm_installed_and_ours().map_err(|_| "the helper is not installed for this account".to_string())?;
     // Re-read the delegation policy UNDER the lock: a `disable-delegation` (or
     // a signer-policy change) that completed while the caller was being
     // authenticated must be honored, not raced past. The policy read in
@@ -1101,8 +949,7 @@ pub(crate) fn apply_delegated_key_change(
 /// and the same app signer. The under-lock guard against a disable racing an
 /// in-flight delegated request. Pure; unit-tested.
 fn delegation_still_authorized(state: &InstallState, expected: &signature::SignerPolicy) -> bool {
-    state.delegation.authorized_signer()
-        == Some((expected.subject.as_str(), expected.profile_eku.as_str()))
+    state.delegation.authorized_signer() == Some((expected.subject.as_str(), expected.profile_eku.as_str()))
 }
 
 fn perform_install(keys: &[String]) -> i32 {
@@ -1135,17 +982,11 @@ fn perform_install(keys: &[String]) -> i32 {
     let verified = match signature::verify_own_image() {
         Ok(verified) => verified,
         Err(refusal) => {
-            log::event(
-                "install",
-                &format!("refused the source image: {}", refusal.message()),
-            );
+            log::event("install", &format!("refused the source image: {}", refusal.message()));
             return refuse_image(&refusal);
         }
     };
-    log::event(
-        "install",
-        &format!("source image verified (signer {:?})", verified.subject),
-    );
+    log::event("install", &format!("source image verified (signer {:?})", verified.subject));
 
     // An existing registration is upgraded in place: the running service holds
     // its binary open, so stop it before the protected copy is replaced. If it
@@ -1233,16 +1074,14 @@ fn perform_install(keys: &[String]) -> i32 {
         // demand-start service, so a failure is an install failure (rolled
         // back), not a silently degraded install.
         let sddl = service_sddl(&sid).ok_or("invalid user SID for the service security")?;
-        let descriptor = SecurityDescriptor::from_sddl(&sddl)
-            .map_err(|error| format!("build the service security: {error}"))?;
+        let descriptor = SecurityDescriptor::from_sddl(&sddl).map_err(|error| format!("build the service security: {error}"))?;
         unsafe { SetServiceObjectSecurity(service.0, DACL_SECURITY_INFORMATION, descriptor.raw()) }
             .map_err(|error| format!("set the service security: {error}"))?;
 
         set_failure_actions(&service)?;
         write_apps_entry()?;
 
-        unsafe { StartServiceW(service.0, None) }
-            .map_err(|error| format!("start service: {error}"))?;
+        unsafe { StartServiceW(service.0, None) }.map_err(|error| format!("start service: {error}"))?;
         Ok(service)
     })();
 
@@ -1254,11 +1093,7 @@ fn perform_install(keys: &[String]) -> i32 {
     // `running` only once the SCM confirms it (the same bounded waiter as
     // `start`). The install is complete either way; a service that is not
     // confirmed running is started on demand later.
-    let started = wait_until_running(
-        || query_process_status(&service).map(|status| ServiceProgress::of(&status)),
-        std::thread::sleep,
-        Instant::now,
-    );
+    let started = wait_until_running(|| query_process_status(&service).map(|status| ServiceProgress::of(&status)), std::thread::sleep, Instant::now);
     let mut report = json!({
         "ok": true,
         "installed": true,
@@ -1266,10 +1101,7 @@ fn perform_install(keys: &[String]) -> i32 {
         "version": state.product_version,
     });
     if let Some(reason) = start_failure(started) {
-        log::event(
-            "install",
-            &format!("service installed; not confirmed running: {reason}"),
-        );
+        log::event("install", &format!("service installed; not confirmed running: {reason}"));
         report["warning"] = json!(reason);
     } else {
         log::event("install", "service installed and running");
@@ -1282,15 +1114,7 @@ fn perform_install(keys: &[String]) -> i32 {
 fn query_process_status(service: &ScHandle) -> Option<SERVICE_STATUS_PROCESS> {
     let mut buffer = [0u8; std::mem::size_of::<SERVICE_STATUS_PROCESS>()];
     let mut needed = 0u32;
-    unsafe {
-        QueryServiceStatusEx(
-            service.0,
-            SC_STATUS_PROCESS_INFO,
-            Some(&mut buffer),
-            &mut needed,
-        )
-    }
-    .ok()?;
+    unsafe { QueryServiceStatusEx(service.0, SC_STATUS_PROCESS_INFO, Some(&mut buffer), &mut needed) }.ok()?;
     Some(unsafe { *(buffer.as_ptr() as *const SERVICE_STATUS_PROCESS) })
 }
 
@@ -1369,18 +1193,9 @@ const FAILURE_RESET_SECONDS: u32 = 24 * 60 * 60;
 /// trailing `SC_ACTION_NONE` is what makes the fourth and every later failure
 /// (until the daily reset) leave the service stopped.
 fn restart_policy() -> ([SC_ACTION; RESTART_ATTEMPTS + 1], u32) {
-    let restart = SC_ACTION {
-        Type: SC_ACTION_RESTART,
-        Delay: RESTART_DELAY_MS,
-    };
-    let stay_stopped = SC_ACTION {
-        Type: SC_ACTION_NONE,
-        Delay: 0,
-    };
-    (
-        [restart, restart, restart, stay_stopped],
-        FAILURE_RESET_SECONDS,
-    )
+    let restart = SC_ACTION { Type: SC_ACTION_RESTART, Delay: RESTART_DELAY_MS };
+    let stay_stopped = SC_ACTION { Type: SC_ACTION_NONE, Delay: 0 };
+    ([restart, restart, restart, stay_stopped], FAILURE_RESET_SECONDS)
 }
 
 /// Configure SCM recovery with `ChangeServiceConfig2W` (Microsoft Learn):
@@ -1402,25 +1217,11 @@ fn set_failure_actions(service: &ScHandle) -> Result<(), String> {
         cActions: actions.len() as u32,
         lpsaActions: actions.as_mut_ptr(),
     };
-    unsafe {
-        ChangeServiceConfig2W(
-            service.0,
-            SERVICE_CONFIG_FAILURE_ACTIONS,
-            Some(&failure_actions as *const SERVICE_FAILURE_ACTIONSW as *const _),
-        )
-    }
-    .map_err(|error| format!("set the service failure actions: {error}"))?;
-    let non_crash = SERVICE_FAILURE_ACTIONS_FLAG {
-        fFailureActionsOnNonCrashFailures: true.into(),
-    };
-    unsafe {
-        ChangeServiceConfig2W(
-            service.0,
-            SERVICE_CONFIG_FAILURE_ACTIONS_FLAG,
-            Some(&non_crash as *const SERVICE_FAILURE_ACTIONS_FLAG as *const _),
-        )
-    }
-    .map_err(|error| format!("set the service failure-actions flag: {error}"))
+    unsafe { ChangeServiceConfig2W(service.0, SERVICE_CONFIG_FAILURE_ACTIONS, Some(&failure_actions as *const SERVICE_FAILURE_ACTIONSW as *const _)) }
+        .map_err(|error| format!("set the service failure actions: {error}"))?;
+    let non_crash = SERVICE_FAILURE_ACTIONS_FLAG { fFailureActionsOnNonCrashFailures: true.into() };
+    unsafe { ChangeServiceConfig2W(service.0, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, Some(&non_crash as *const SERVICE_FAILURE_ACTIONS_FLAG as *const _)) }
+        .map_err(|error| format!("set the service failure-actions flag: {error}"))
 }
 
 /// The machine's Apps & Features entry for the installed service. Its
@@ -1428,8 +1229,7 @@ fn set_failure_actions(service: &ScHandle) -> Result<(), String> {
 /// once the app folder is gone (an unattended `/S` app uninstall never prompts
 /// and so leaves the service) — and it lives under HKLM, writable only by
 /// administrators, so a user cannot redirect it.
-const APPS_ENTRY_KEY: &str =
-    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop";
+const APPS_ENTRY_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop";
 /// The entry's name in Settings > Apps, the same as the exe's `FileDescription`
 /// (build.rs) that the UAC prompt shows. Only a value: the key above never
 /// depends on it, so an install or update rewrites it in place and uninstall
@@ -1452,17 +1252,11 @@ enum EntryValue {
 /// Learn). Pure; unit-tested.
 fn apps_entry_values(bin_exe: &str, version: &str) -> Vec<(&'static str, EntryValue)> {
     vec![
-        (
-            "DisplayName",
-            EntryValue::Text(APPS_ENTRY_DISPLAY_NAME.into()),
-        ),
+        ("DisplayName", EntryValue::Text(APPS_ENTRY_DISPLAY_NAME.into())),
         ("DisplayVersion", EntryValue::Text(version.into())),
         ("Publisher", EntryValue::Text("Mixdog".into())),
         ("DisplayIcon", EntryValue::Text(format!("\"{bin_exe}\""))),
-        (
-            "UninstallString",
-            EntryValue::Text(format!("\"{bin_exe}\" uninstall {FROM_APPS_ARG}")),
-        ),
+        ("UninstallString", EntryValue::Text(format!("\"{bin_exe}\" uninstall {FROM_APPS_ARG}"))),
         ("NoModify", EntryValue::Number(1)),
         ("NoRepair", EntryValue::Number(1)),
     ]
@@ -1486,38 +1280,16 @@ fn write_apps_entry() -> Result<(), String> {
         )
     };
     if status != ERROR_SUCCESS {
-        return Err(format!(
-            "create the Apps & Features entry (error {})",
-            status.0
-        ));
+        return Err(format!("create the Apps & Features entry (error {})", status.0));
     }
-    let result = apps_entry_values(
-        &paths::bin_exe().to_string_lossy(),
-        env!("CARGO_PKG_VERSION"),
-    )
-    .into_iter()
-    .try_for_each(|(name, value)| {
+    let result = apps_entry_values(&paths::bin_exe().to_string_lossy(), env!("CARGO_PKG_VERSION")).into_iter().try_for_each(|(name, value)| {
         let name_wide = wide(name);
         let (kind, data) = match &value {
-            EntryValue::Text(text) => (
-                REG_SZ,
-                wide(text)
-                    .iter()
-                    .flat_map(|unit| unit.to_le_bytes())
-                    .collect::<Vec<u8>>(),
-            ),
+            EntryValue::Text(text) => (REG_SZ, wide(text).iter().flat_map(|unit| unit.to_le_bytes()).collect::<Vec<u8>>()),
             EntryValue::Number(number) => (REG_DWORD, number.to_le_bytes().to_vec()),
         };
-        let status =
-            unsafe { RegSetValueExW(key, PCWSTR(name_wide.as_ptr()), None, kind, Some(&data)) };
-        if status == ERROR_SUCCESS {
-            Ok(())
-        } else {
-            Err(format!(
-                "write the Apps & Features entry's {name} (error {})",
-                status.0
-            ))
-        }
+        let status = unsafe { RegSetValueExW(key, PCWSTR(name_wide.as_ptr()), None, kind, Some(&data)) };
+        if status == ERROR_SUCCESS { Ok(()) } else { Err(format!("write the Apps & Features entry's {name} (error {})", status.0)) }
     });
     unsafe {
         let _ = RegCloseKey(key);
@@ -1529,21 +1301,13 @@ fn write_apps_entry() -> Result<(), String> {
 fn remove_apps_entry() -> Result<(), String> {
     let key_name = wide(APPS_ENTRY_KEY);
     let status = unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, PCWSTR(key_name.as_ptr())) };
-    if status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND {
-        Ok(())
-    } else {
-        Err(format!(
-            "remove the Apps & Features entry (error {})",
-            status.0
-        ))
-    }
+    if status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND { Ok(()) } else { Err(format!("remove the Apps & Features entry (error {})", status.0)) }
 }
 
 /// Whether this process runs with an elevated token.
 fn process_is_elevated() -> Result<bool, String> {
     let mut token = HANDLE::default();
-    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }
-        .map_err(|error| format!("open own token: {error}"))?;
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }.map_err(|error| format!("open own token: {error}"))?;
     let token = OwnedHandle::new(token).ok_or("own token handle is invalid")?;
     let mut elevation = TOKEN_ELEVATION::default();
     let mut size = 0u32;
@@ -1659,22 +1423,11 @@ impl UninstallTarget for ThisMachine {
     fn remove_state_dir(&mut self, warnings: &mut Vec<String>) -> Result<(), String> {
         let state = paths::state_dir();
         let unique = format!("{}-{}", std::process::id(), now_ms());
-        let parking = parking_dir_for(&state, &unique)
-            .ok_or_else(|| format!("{} has no parent directory", state.display()))?;
+        let parking = parking_dir_for(&state, &unique).ok_or_else(|| format!("{} has no parent directory", state.display()))?;
         let image = std::env::current_exe().ok();
-        remove_tree_around_image(
-            &mut RealRemovalFs,
-            &state,
-            image.as_deref(),
-            &parking,
-            warnings,
-        )
-        .map(|parked| {
+        remove_tree_around_image(&mut RealRemovalFs, &state, image.as_deref(), &parking, warnings).map(|parked| {
             if let Some(parked) = parked {
-                warnings.push(format!(
-                    "the running uninstaller was moved to {} and is deleted at the next restart",
-                    parked.display()
-                ));
+                warnings.push(format!("the running uninstaller was moved to {} and is deleted at the next restart", parked.display()));
             }
         })
     }
@@ -1705,27 +1458,18 @@ struct RealRemovalFs;
 
 impl RemovalFs for RealRemovalFs {
     fn create_parking_dir(&mut self, dir: &Path) -> Result<(), String> {
-        let descriptor =
-            SecurityDescriptor::from_sddl(PARKING_DIR_SDDL).map_err(|error| error.to_string())?;
+        let descriptor = SecurityDescriptor::from_sddl(PARKING_DIR_SDDL).map_err(|error| error.to_string())?;
         let attributes = descriptor.attributes();
         let wide_dir = wide(&dir.to_string_lossy());
         // No "already exists" acceptance: the name is unique, so an existing
         // directory is someone else's and is never reused.
-        unsafe { CreateDirectoryW(PCWSTR(wide_dir.as_ptr()), Some(&attributes)) }
-            .map_err(|error| error.to_string())
+        unsafe { CreateDirectoryW(PCWSTR(wide_dir.as_ptr()), Some(&attributes)) }.map_err(|error| error.to_string())
     }
     fn rename(&mut self, from: &Path, to: &Path) -> Result<(), String> {
         let (wide_from, wide_to) = (wide(&from.to_string_lossy()), wide(&to.to_string_lossy()));
         // No MOVEFILE_COPY_ALLOWED: a move to another volume fails instead of
         // copying (and the running image could not be deleted after a copy).
-        unsafe {
-            MoveFileExW(
-                PCWSTR(wide_from.as_ptr()),
-                PCWSTR(wide_to.as_ptr()),
-                MOVE_FILE_FLAGS(0),
-            )
-        }
-        .map_err(|error| error.to_string())
+        unsafe { MoveFileExW(PCWSTR(wide_from.as_ptr()), PCWSTR(wide_to.as_ptr()), MOVE_FILE_FLAGS(0)) }.map_err(|error| error.to_string())
     }
     fn remove_tree(&mut self, dir: &Path) -> Result<(), String> {
         remove_tree(dir)
@@ -1735,14 +1479,7 @@ impl RemovalFs for RealRemovalFs {
     }
     fn delete_at_restart(&mut self, path: &Path) -> Result<(), String> {
         let wide_path = wide(&path.to_string_lossy());
-        unsafe {
-            MoveFileExW(
-                PCWSTR(wide_path.as_ptr()),
-                PCWSTR::null(),
-                MOVEFILE_DELAY_UNTIL_REBOOT,
-            )
-        }
-        .map_err(|error| error.to_string())
+        unsafe { MoveFileExW(PCWSTR(wide_path.as_ptr()), PCWSTR::null(), MOVEFILE_DELAY_UNTIL_REBOOT) }.map_err(|error| error.to_string())
     }
 }
 
@@ -1757,10 +1494,7 @@ fn parking_dir_for(state: &Path, unique: &str) -> Option<PathBuf> {
 
 /// Join a primary error with the errors of its recovery steps.
 fn with_recovery(error: String, recovery: impl IntoIterator<Item = Result<(), String>>) -> String {
-    recovery
-        .into_iter()
-        .filter_map(Result::err)
-        .fold(error, |message, problem| format!("{message}; {problem}"))
+    recovery.into_iter().filter_map(Result::err).fold(error, |message, problem| format!("{message}; {problem}"))
 }
 
 /// Remove the state tree. When the running image lives inside it (the Apps &
@@ -1791,49 +1525,23 @@ fn remove_tree_around_image(
     let Some(image) = image.filter(|image| is_within(state, image)) else {
         return fs.remove_tree(state).map(|()| None);
     };
-    let file_name = image
-        .file_name()
-        .ok_or("the running uninstaller has no file name")?;
+    let file_name = image.file_name().ok_or("the running uninstaller has no file name")?;
     let parked = parking.join(file_name);
     let left_in_place = |error: String| format!("{error}; the install files were left in place");
 
-    fs.create_parking_dir(parking).map_err(|error| {
-        left_in_place(format!(
-            "create the parking directory {}: {error}",
-            parking.display()
-        ))
-    })?;
+    fs.create_parking_dir(parking).map_err(|error| left_in_place(format!("create the parking directory {}: {error}", parking.display())))?;
     if let Err(error) = fs.rename(image, &parked) {
-        let primary = format!(
-            "move the running uninstaller to {}: {error}",
-            parked.display()
-        );
-        return Err(left_in_place(with_recovery(
-            primary,
-            [remove_parking(fs, parking)],
-        )));
+        let primary = format!("move the running uninstaller to {}: {error}", parked.display());
+        return Err(left_in_place(with_recovery(primary, [remove_parking(fs, parking)])));
     }
     if let Err(error) = fs.delete_at_restart(&parked) {
-        let primary = format!(
-            "schedule {} for deletion at restart: {error}",
-            parked.display()
-        );
+        let primary = format!("schedule {} for deletion at restart: {error}", parked.display());
         let restored = restore_image(fs, &parked, image);
-        let parking_removed = if restored.is_ok() {
-            remove_parking(fs, parking)
-        } else {
-            Ok(())
-        };
-        return Err(left_in_place(with_recovery(
-            primary,
-            [restored, parking_removed],
-        )));
+        let parking_removed = if restored.is_ok() { remove_parking(fs, parking) } else { Ok(()) };
+        return Err(left_in_place(with_recovery(primary, [restored, parking_removed])));
     }
     if let Err(error) = fs.delete_at_restart(parking) {
-        warnings.push(format!(
-            "the empty admin-only directory {} is not deleted at restart: {error}",
-            parking.display()
-        ));
+        warnings.push(format!("the empty admin-only directory {} is not deleted at restart: {error}", parking.display()));
     }
     if let Err(error) = fs.remove_tree(state) {
         let primary = format!("remove {}: {error}", state.display());
@@ -1873,22 +1581,12 @@ fn is_within(tree: &Path, path: &Path) -> bool {
 
 /// Move a parked image back to where it ran from.
 fn restore_image(fs: &mut impl RemovalFs, parked: &Path, image: &Path) -> Result<(), String> {
-    fs.rename(parked, image).map_err(|error| {
-        format!(
-            "the running uninstaller stays at {} and could not be moved back: {error}",
-            parked.display()
-        )
-    })
+    fs.rename(parked, image).map_err(|error| format!("the running uninstaller stays at {} and could not be moved back: {error}", parked.display()))
 }
 
 /// Remove the (empty) parking directory after a step failed.
 fn remove_parking(fs: &mut impl RemovalFs, parking: &Path) -> Result<(), String> {
-    fs.remove_empty_dir(parking).map_err(|error| {
-        format!(
-            "remove the empty parking directory {}: {error}",
-            parking.display()
-        )
-    })
+    fs.remove_empty_dir(parking).map_err(|error| format!("remove the empty parking directory {}: {error}", parking.display()))
 }
 
 /// Remove a directory tree; a missing tree is success.
@@ -1941,18 +1639,13 @@ fn uninstall_from(target: &mut impl UninstallTarget) -> i32 {
     // if that fails, the state folder and the marker stay for a retry. The
     // Apps & Features entry goes only after the files are gone: while any file
     // cleanup fails it stays, so the removal can be retried from there.
-    let leftovers = target
-        .recover_software_sas()
-        .and_then(|()| target.remove_state_dir(&mut problems))
-        .and_then(|()| target.remove_apps_entry());
+    let leftovers = target.recover_software_sas().and_then(|()| target.remove_state_dir(&mut problems)).and_then(|()| target.remove_apps_entry());
     let cleanup = cleanup_outcome(&service_removed, &leftovers, &mut problems);
     for problem in &problems {
         log::event("uninstall", problem);
     }
     match cleanup {
-        Cleanup::Clean => {
-            emit(json!({ "ok": true, "installed": false, "running": false, "warnings": problems }))
-        }
+        Cleanup::Clean => emit(json!({ "ok": true, "installed": false, "running": false, "warnings": problems })),
         // The service is gone, but some files remain; distinct from a clean
         // not-installed so the leftover is never hidden.
         Cleanup::Incomplete => emit(json!({
@@ -1968,20 +1661,14 @@ fn uninstall_from(target: &mut impl UninstallTarget) -> i32 {
 
 /// Open the service read-only and report installed / running / version.
 pub fn status() -> i32 {
-    let version = std::fs::read_to_string(paths::state_file())
-        .ok()
-        .and_then(|text| InstallState::from_json(&text).ok())
-        .map(|state| state.product_version);
+    let version = std::fs::read_to_string(paths::state_file()).ok().and_then(|text| InstallState::from_json(&text).ok()).map(|state| state.product_version);
 
-    let manager =
-        match unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT) } {
-            Ok(manager) => ScHandle(manager),
-            Err(error) => return fail(&format!("open SCM: {error}")),
-        };
+    let manager = match unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT) } {
+        Ok(manager) => ScHandle(manager),
+        Err(error) => return fail(&format!("open SCM: {error}")),
+    };
     let name = wide(paths::SERVICE_NAME);
-    let service = match unsafe {
-        OpenServiceW(manager.0, PCWSTR(name.as_ptr()), SERVICE_QUERY_STATUS)
-    } {
+    let service = match unsafe { OpenServiceW(manager.0, PCWSTR(name.as_ptr()), SERVICE_QUERY_STATUS) } {
         // Not installed is a normal, expected answer.
         Err(error) if is_win32_error(&error, ERROR_SERVICE_DOES_NOT_EXIST) => {
             emit(json!({ "ok": true, "installed": false, "running": false, "version": version }));
@@ -1992,8 +1679,7 @@ pub fn status() -> i32 {
         Ok(service) => ScHandle(service),
     };
 
-    let running = query_process_status(&service)
-        .is_some_and(|status| status.dwCurrentState == SERVICE_RUNNING);
+    let running = query_process_status(&service).is_some_and(|status| status.dwCurrentState == SERVICE_RUNNING);
 
     emit(json!({ "ok": true, "installed": true, "running": running, "version": version }));
     0
@@ -2067,21 +1753,14 @@ impl InstallCheck {
 /// protected copy with the binary being run, so any bridge change shipped by an
 /// app update is reinstalled without relying on a version bump. A registered
 /// service whose state this user cannot read is another account's install.
-fn install_check(
-    service_registered: bool,
-    state: StateStatus,
-    state_dir_present: bool,
-    binary_matches: bool,
-) -> InstallCheck {
+fn install_check(service_registered: bool, state: StateStatus, state_dir_present: bool, binary_matches: bool) -> InstallCheck {
     match state {
         StateStatus::AccessDenied if service_registered => InstallCheck::OtherUser,
         _ if !service_registered && !state_dir_present => InstallCheck::Missing,
         StateStatus::Valid if service_registered && binary_matches => InstallCheck::Current,
         // Installed and current, but this phone's key is not enrolled: the
         // helper only needs that one key added, not a reinstall.
-        StateStatus::Unenrolled if service_registered && binary_matches => {
-            InstallCheck::NotEnrolled
-        }
+        StateStatus::Unenrolled if service_registered && binary_matches => InstallCheck::NotEnrolled,
         _ => InstallCheck::Stale,
     }
 }
@@ -2126,9 +1805,7 @@ pub fn check(args: &[String]) -> i32 {
             return UNDETERMINED;
         }
     };
-    let registered = match open_manager(SC_MANAGER_CONNECT)
-        .and_then(|manager| open_service(&manager, SERVICE_QUERY_STATUS))
-    {
+    let registered = match open_manager(SC_MANAGER_CONNECT).and_then(|manager| open_service(&manager, SERVICE_QUERY_STATUS)) {
         Ok(service) => service.is_some(),
         Err(error) => {
             fail(&error);
@@ -2137,17 +1814,10 @@ pub fn check(args: &[String]) -> i32 {
     };
     let state = read_state_status(requested_key.as_deref());
     let binary_matches = match (std::env::current_exe(), std::fs::read(paths::bin_exe())) {
-        (Ok(current), Ok(installed)) => {
-            std::fs::read(current).is_ok_and(|bytes| bytes == installed)
-        }
+        (Ok(current), Ok(installed)) => std::fs::read(current).is_ok_and(|bytes| bytes == installed),
         _ => false,
     };
-    let outcome = install_check(
-        registered,
-        state,
-        paths::state_dir().exists(),
-        binary_matches,
-    );
+    let outcome = install_check(registered, state, paths::state_dir().exists(), binary_matches);
     emit(json!({ "ok": true, "check": outcome.label() }));
     outcome.exit_code()
 }
@@ -2162,11 +1832,7 @@ struct ServiceProgress {
 
 impl ServiceProgress {
     fn of(status: &SERVICE_STATUS_PROCESS) -> Self {
-        ServiceProgress {
-            state: status.dwCurrentState,
-            checkpoint: status.dwCheckPoint,
-            wait_hint: status.dwWaitHint,
-        }
+        ServiceProgress { state: status.dwCurrentState, checkpoint: status.dwCheckPoint, wait_hint: status.dwWaitHint }
     }
 }
 
@@ -2189,11 +1855,7 @@ enum StartWait {
 /// a service that keeps reporting progress is followed; for this crate's
 /// service the bound is [`service_start_bound`]. Elapsed time is
 /// measured on `now`; clock and sleep are injected so tests drive a fake clock.
-fn wait_until_running(
-    mut query: impl FnMut() -> Option<ServiceProgress>,
-    mut sleep: impl FnMut(Duration),
-    mut now: impl FnMut() -> Instant,
-) -> StartWait {
+fn wait_until_running(mut query: impl FnMut() -> Option<ServiceProgress>, mut sleep: impl FnMut(Duration), mut now: impl FnMut() -> Instant) -> StartWait {
     let Some(mut progress) = query() else {
         return StartWait::QueryFailed;
     };
@@ -2209,30 +1871,19 @@ fn wait_until_running(
         if progress.checkpoint > checkpoint {
             checkpoint = progress.checkpoint;
             progressed_at = at;
-        } else if progress.state == SERVICE_START_PENDING
-            && at.saturating_duration_since(progressed_at) > stall_window(progress.wait_hint)
-        {
+        } else if progress.state == SERVICE_START_PENDING && at.saturating_duration_since(progressed_at) > stall_window(progress.wait_hint) {
             return StartWait::Stalled;
         }
     }
-    if progress.state == SERVICE_RUNNING {
-        StartWait::Running
-    } else {
-        StartWait::Settled(progress.state)
-    }
+    if progress.state == SERVICE_RUNNING { StartWait::Running } else { StartWait::Settled(progress.state) }
 }
 
 /// Why a followed start did not reach running; `None` when it did.
 fn start_failure(outcome: StartWait) -> Option<String> {
     match outcome {
         StartWait::Running => None,
-        StartWait::Settled(state) => Some(format!(
-            "the service settled in state {} instead of running",
-            state.0
-        )),
-        StartWait::Stalled => {
-            Some("the service stopped making start progress within its wait hint".into())
-        }
+        StartWait::Settled(state) => Some(format!("the service settled in state {} instead of running", state.0)),
+        StartWait::Stalled => Some("the service stopped making start progress within its wait hint".into()),
         StartWait::QueryFailed => Some("the service status could not be queried".into()),
     }
 }
@@ -2258,8 +1909,7 @@ pub fn start() -> i32 {
         Err(error) => return fail(&error),
     };
 
-    let already_running =
-        query_process_status(&service).is_some_and(|s| s.dwCurrentState == SERVICE_RUNNING);
+    let already_running = query_process_status(&service).is_some_and(|s| s.dwCurrentState == SERVICE_RUNNING);
     if !already_running {
         if let Err(error) = unsafe { StartServiceW(service.0, None) } {
             // ERROR_SERVICE_ALREADY_RUNNING (1056) is success: another caller
@@ -2271,11 +1921,7 @@ pub fn start() -> i32 {
         }
     }
 
-    let outcome = wait_until_running(
-        || query_process_status(&service).map(|status| ServiceProgress::of(&status)),
-        std::thread::sleep,
-        Instant::now,
-    );
+    let outcome = wait_until_running(|| query_process_status(&service).map(|status| ServiceProgress::of(&status)), std::thread::sleep, Instant::now);
     match start_failure(outcome) {
         None => {
             emit(json!({ "ok": true, "installed": true, "running": true }));
@@ -2316,33 +1962,20 @@ mod tests {
     /// A fresh, uniquely named directory under `%TEMP%` (`create_dir` fails if
     /// it exists, so nothing pre-existing is ever reused or cleared).
     fn unique_temp_dir(tag: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("mixdog-sd-{tag}-{}-{nanos}", std::process::id()));
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mixdog-sd-{tag}-{}-{nanos}", std::process::id()));
         std::fs::create_dir(&dir).unwrap();
         dir
     }
 
     /// The DACL of `path` as SDDL, read back from disk.
     fn dacl_sddl(path: &Path) -> String {
-        use windows::Win32::Foundation::{LocalFree, HLOCAL};
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
         use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
         let wide_path = wide(&path.to_string_lossy());
         unsafe {
             let mut descriptor = PSECURITY_DESCRIPTOR::default();
-            let status = GetNamedSecurityInfoW(
-                PCWSTR(wide_path.as_ptr()),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                None,
-                None,
-                None,
-                None,
-                &mut descriptor,
-            );
+            let status = GetNamedSecurityInfoW(PCWSTR(wide_path.as_ptr()), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, None, None, None, None, &mut descriptor);
             assert_eq!(status, ERROR_SUCCESS);
             let sddl = descriptor_dacl_sddl(descriptor);
             let _ = LocalFree(Some(HLOCAL(descriptor.0)));
@@ -2352,20 +1985,11 @@ mod tests {
 
     /// The DACL of `descriptor` as SDDL, the way Windows renders it.
     fn descriptor_dacl_sddl(descriptor: PSECURITY_DESCRIPTOR) -> String {
-        use windows::Win32::Foundation::{LocalFree, HLOCAL};
-        use windows::Win32::Security::Authorization::{
-            ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
-        };
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
+        use windows::Win32::Security::Authorization::{ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1};
         unsafe {
             let mut text = PWSTR::null();
-            ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                descriptor,
-                SDDL_REVISION_1,
-                DACL_SECURITY_INFORMATION,
-                &mut text,
-                None,
-            )
-            .unwrap();
+            ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, None).unwrap();
             let sddl = text.to_string().unwrap();
             let _ = LocalFree(Some(HLOCAL(text.0 as *mut _)));
             sddl
@@ -2424,82 +2048,45 @@ mod tests {
 
     #[test]
     fn check_reports_missing_only_when_nothing_is_left() {
-        assert_eq!(
-            install_check(false, StateStatus::Missing, false, false),
-            InstallCheck::Missing
-        );
-        assert_eq!(
-            install_check(false, StateStatus::Missing, false, false).exit_code(),
-            1
-        );
+        assert_eq!(install_check(false, StateStatus::Missing, false, false), InstallCheck::Missing);
+        assert_eq!(install_check(false, StateStatus::Missing, false, false).exit_code(), 1);
         // A leftover state directory without a registration still needs the
         // elevated step (install repairs it, uninstall removes it).
-        assert_eq!(
-            install_check(false, StateStatus::Valid, true, true),
-            InstallCheck::Stale
-        );
+        assert_eq!(install_check(false, StateStatus::Valid, true, true), InstallCheck::Stale);
     }
 
     #[test]
     fn check_reports_current_only_for_a_complete_matching_install() {
-        assert_eq!(
-            install_check(true, StateStatus::Valid, true, true),
-            InstallCheck::Current
-        );
-        assert_eq!(
-            install_check(true, StateStatus::Valid, true, true).exit_code(),
-            0
-        );
+        assert_eq!(install_check(true, StateStatus::Valid, true, true), InstallCheck::Current);
+        assert_eq!(install_check(true, StateStatus::Valid, true, true).exit_code(), 0);
     }
 
     #[test]
     fn check_reports_stale_for_a_different_binary_or_unusable_state() {
         // An app update that ships a different bridge binary.
-        assert_eq!(
-            install_check(true, StateStatus::Valid, true, false),
-            InstallCheck::Stale
-        );
+        assert_eq!(install_check(true, StateStatus::Valid, true, false), InstallCheck::Stale);
         // State invalid/corrupt.
-        assert_eq!(
-            install_check(true, StateStatus::Invalid, true, true),
-            InstallCheck::Stale
-        );
+        assert_eq!(install_check(true, StateStatus::Invalid, true, true), InstallCheck::Stale);
         // Registered, but the state directory is gone.
-        assert_eq!(
-            install_check(true, StateStatus::Missing, false, false),
-            InstallCheck::Stale
-        );
-        assert_eq!(
-            install_check(true, StateStatus::Valid, true, false).exit_code(),
-            2
-        );
+        assert_eq!(install_check(true, StateStatus::Missing, false, false), InstallCheck::Stale);
+        assert_eq!(install_check(true, StateStatus::Valid, true, false).exit_code(), 2);
     }
 
     #[test]
     fn check_reports_other_user_for_a_registered_install_whose_state_is_denied() {
         // Registered + state unreadable (denied) by this account = another
         // user's install; a request must not silently take it over.
-        assert_eq!(
-            install_check(true, StateStatus::AccessDenied, true, false),
-            InstallCheck::OtherUser
-        );
-        assert_eq!(
-            install_check(true, StateStatus::AccessDenied, true, false).exit_code(),
-            4
-        );
+        assert_eq!(install_check(true, StateStatus::AccessDenied, true, false), InstallCheck::OtherUser);
+        assert_eq!(install_check(true, StateStatus::AccessDenied, true, false).exit_code(), 4);
         // Denied state with no registration is not "other-user": nothing owns
         // the machine's SCM slot, so install can repair it.
-        assert_eq!(
-            install_check(false, StateStatus::AccessDenied, true, false),
-            InstallCheck::Stale
-        );
+        assert_eq!(install_check(false, StateStatus::AccessDenied, true, false), InstallCheck::Stale);
     }
 
     /// A valid controller key: base64url of an uncompressed P-256 point.
     fn controller_key(fill: u8) -> String {
         use base64::Engine as _;
-        base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode([&[4u8][..], &[fill; 64][..]].concat())
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([&[4u8][..], &[fill; 64][..]].concat())
     }
 
     fn args(list: &[&str]) -> Vec<String> {
@@ -2511,31 +2098,18 @@ mod tests {
         // Zero keys is allowed now (the helper installs but refuses input
         // until a key is enrolled).
         assert_eq!(collect_controller_keys(&args(&[])), Ok(vec![]));
-        assert_eq!(
-            collect_controller_keys(&args(&["--controller-key"])).is_err(),
-            true
-        );
-        assert_eq!(
-            collect_controller_keys(&args(&["--controller-key", "not-a-key"])).is_err(),
-            true
-        );
+        assert_eq!(collect_controller_keys(&args(&["--controller-key"])).is_err(), true);
+        assert_eq!(collect_controller_keys(&args(&["--controller-key", "not-a-key"])).is_err(), true);
         let compressed = {
             use base64::Engine as _;
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode([&[2u8][..], &[7u8; 32][..]].concat())
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([&[2u8][..], &[7u8; 32][..]].concat())
         };
         assert!(collect_controller_keys(&args(&["--controller-key", &compressed])).is_err());
         // Several valid keys collect in order.
         let (a, b) = (controller_key(7), controller_key(9));
-        assert_eq!(
-            collect_controller_keys(&args(&["--controller-key", &a, "--controller-key", &b])),
-            Ok(vec![a.clone(), b.clone()])
-        );
+        assert_eq!(collect_controller_keys(&args(&["--controller-key", &a, "--controller-key", &b])), Ok(vec![a.clone(), b.clone()]));
         // `--revoke-key` collects the pending revokes enroll applies.
-        assert_eq!(
-            collect_revoke_keys(&args(&["--revoke-key", &a, "--revoke-key", &b])),
-            Ok(vec![a, b])
-        );
+        assert_eq!(collect_revoke_keys(&args(&["--revoke-key", &a, "--revoke-key", &b])), Ok(vec![a, b]));
         assert!(collect_revoke_keys(&args(&["--revoke-key", "nope"])).is_err());
         assert_eq!(collect_revoke_keys(&args(&[])), Ok(vec![]));
     }
@@ -2560,15 +2134,9 @@ mod tests {
         // still stale.
         let bare = InstallState::new("0.1.0", "S-1-5-21-1-2-3-1001", paths::PIPE_NAME, 0);
         assert_eq!(enrollment_status(&bare, None), StateStatus::Unenrolled);
-        assert_eq!(
-            enrollment_status(&bare, Some(&controller_key(7))),
-            StateStatus::Unenrolled
-        );
+        assert_eq!(enrollment_status(&bare, Some(&controller_key(7))), StateStatus::Unenrolled);
         let outcome = install_check(true, enrollment_status(&bare, None), true, true);
-        assert_eq!(
-            (outcome, outcome.exit_code()),
-            (InstallCheck::NotEnrolled, 7)
-        );
+        assert_eq!((outcome, outcome.exit_code()), (InstallCheck::NotEnrolled, 7));
         let outcome = install_check(true, enrollment_status(&bare, None), true, false);
         assert_eq!((outcome, outcome.exit_code()), (InstallCheck::Stale, 2));
     }
@@ -2577,35 +2145,16 @@ mod tests {
     fn a_phone_whose_key_is_not_enrolled_is_offered_enroll_not_a_reinstall() {
         // Two phones enrolled; a third asks.
         let (a, b, c) = (controller_key(7), controller_key(9), controller_key(11));
-        let installed =
-            install_state_for("S-1-5-21-1-2-3-1001", &[a.clone(), b.clone()], 1).unwrap();
+        let installed = install_state_for("S-1-5-21-1-2-3-1001", &[a.clone(), b.clone()], 1).unwrap();
         // Either enrolled phone (or a check naming none) is current…
-        assert_eq!(
-            install_check(true, enrollment_status(&installed, Some(&a)), true, true).exit_code(),
-            0
-        );
-        assert_eq!(
-            install_check(true, enrollment_status(&installed, Some(&b)), true, true).exit_code(),
-            0
-        );
-        assert_eq!(
-            install_check(true, enrollment_status(&installed, None), true, true).exit_code(),
-            0
-        );
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&a)), true, true).exit_code(), 0);
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&b)), true, true).exit_code(), 0);
+        assert_eq!(install_check(true, enrollment_status(&installed, None), true, true).exit_code(), 0);
         // …the third sees not-enrolled (exit 7: add my key), not stale…
-        assert_eq!(
-            install_check(true, enrollment_status(&installed, Some(&c)), true, true),
-            InstallCheck::NotEnrolled
-        );
-        assert_eq!(
-            install_check(true, enrollment_status(&installed, Some(&c)), true, true).exit_code(),
-            7
-        );
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&c)), true, true), InstallCheck::NotEnrolled);
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&c)), true, true).exit_code(), 7);
         // …but a different *binary* is still stale for that phone (reinstall).
-        assert_eq!(
-            install_check(true, enrollment_status(&installed, Some(&c)), true, false).exit_code(),
-            2
-        );
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&c)), true, false).exit_code(), 2);
     }
 
     #[test]
@@ -2620,29 +2169,17 @@ mod tests {
 
     #[test]
     fn a_disable_or_signer_change_fails_the_under_lock_delegation_recheck() {
-        let expected = signature::SignerPolicy {
-            subject: "CN=TRIBGAMES".into(),
-            profile_eku: "1.3.6.1.4.1.311.97.1.2.3".into(),
-        };
+        let expected = signature::SignerPolicy { subject: "CN=TRIBGAMES".into(), profile_eku: "1.3.6.1.4.1.311.97.1.2.3".into() };
         let mut state = InstallState::new("0.1.0", "S-1-5-21-1-2-3-1001", paths::PIPE_NAME, 0);
         state.enable_delegation(&expected.subject, &expected.profile_eku);
-        assert!(
-            delegation_still_authorized(&state, &expected),
-            "enabled + matching signer"
-        );
+        assert!(delegation_still_authorized(&state, &expected), "enabled + matching signer");
         // A security disable that lands during an in-flight request fails the recheck.
         state.disable_delegation();
-        assert!(
-            !delegation_still_authorized(&state, &expected),
-            "a disable is honored"
-        );
+        assert!(!delegation_still_authorized(&state, &expected), "a disable is honored");
         // A changed authorized signer fails it too.
         let mut changed = InstallState::new("0.1.0", "S-1-5-21-1-2-3-1001", paths::PIPE_NAME, 0);
         changed.enable_delegation("CN=OTHER", &expected.profile_eku);
-        assert!(
-            !delegation_still_authorized(&changed, &expected),
-            "a signer change is honored"
-        );
+        assert!(!delegation_still_authorized(&changed, &expected), "a signer change is honored");
     }
 
     #[test]
@@ -2656,25 +2193,14 @@ mod tests {
             return;
         }
         let key = controller_key(7);
-        assert_eq!(
-            enroll(&args(&["--controller-key", &key])),
-            1,
-            "unelevated enroll is refused at the lock"
-        );
-        assert_eq!(
-            revoke(&args(&["--controller-key", &key])),
-            1,
-            "unelevated revoke is refused at the lock"
-        );
+        assert_eq!(enroll(&args(&["--controller-key", &key])), 1, "unelevated enroll is refused at the lock");
+        assert_eq!(revoke(&args(&["--controller-key", &key])), 1, "unelevated revoke is refused at the lock");
     }
 
     #[test]
     fn rollback_is_clean_only_when_both_removals_succeed() {
         let mut problems = Vec::new();
-        assert_eq!(
-            cleanup_outcome(&Ok(()), &Ok(()), &mut problems),
-            Cleanup::Clean
-        );
+        assert_eq!(cleanup_outcome(&Ok(()), &Ok(()), &mut problems), Cleanup::Clean);
         assert!(problems.is_empty());
     }
 
@@ -2688,24 +2214,15 @@ mod tests {
         let service_removed: Result<(), String> = Err("delete service: denied".into());
         // Files are kept in place (not attempted) when the service remains.
         let files_removed: Result<(), String> = Err(FILES_KEPT_FOR_SERVICE.into());
-        assert_eq!(
-            cleanup_outcome(&service_removed, &files_removed, &mut problems),
-            Cleanup::Incomplete
-        );
-        assert!(problems
-            .iter()
-            .any(|p| p.contains("service removal failed")));
+        assert_eq!(cleanup_outcome(&service_removed, &files_removed, &mut problems), Cleanup::Incomplete);
+        assert!(problems.iter().any(|p| p.contains("service removal failed")));
         assert!(problems.iter().any(|p| p.contains("state removal failed")));
     }
 
     #[test]
     fn rollback_reports_incomplete_when_only_file_removal_fails() {
         let mut problems = Vec::new();
-        let outcome = cleanup_outcome(
-            &Ok(()),
-            &Err("state removal failed: busy".into()),
-            &mut problems,
-        );
+        let outcome = cleanup_outcome(&Ok(()), &Err("state removal failed: busy".into()), &mut problems);
         assert_eq!(outcome, Cleanup::Incomplete);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("state removal failed"));
@@ -2761,25 +2278,13 @@ mod tests {
         let elevated = process_is_elevated().expect("query own elevation");
         match acquire_install_lock() {
             InstallLock::Held(first) => {
-                assert!(
-                    elevated,
-                    "an unelevated process must not be able to create (squat) the install lock"
-                );
-                assert!(
-                    matches!(acquire_install_lock(), InstallLock::Busy),
-                    "a second install sees it busy"
-                );
+                assert!(elevated, "an unelevated process must not be able to create (squat) the install lock");
+                assert!(matches!(acquire_install_lock(), InstallLock::Busy), "a second install sees it busy");
                 drop(first);
-                assert!(
-                    matches!(acquire_install_lock(), InstallLock::Held(_)),
-                    "closing it releases it"
-                );
+                assert!(matches!(acquire_install_lock(), InstallLock::Held(_)), "closing it releases it");
             }
             InstallLock::Denied => {
-                assert!(
-                    !elevated,
-                    "an elevated administrator must be able to take the install lock"
-                )
+                assert!(!elevated, "an elevated administrator must be able to take the install lock")
             }
             InstallLock::Busy => panic!("the install lock is busy with no install running"),
             InstallLock::Error(error) => panic!("install lock: {error}"),
@@ -2787,11 +2292,7 @@ mod tests {
     }
 
     fn progress(state: SERVICE_STATUS_CURRENT_STATE, checkpoint: u32) -> ServiceProgress {
-        ServiceProgress {
-            state,
-            checkpoint,
-            wait_hint: 2000,
-        }
+        ServiceProgress { state, checkpoint, wait_hint: 2000 }
     }
 
     /// Answers `states` in order, then repeats the last one.
@@ -2806,9 +2307,7 @@ mod tests {
 
     /// Run the waiter on a fake clock that only the injected sleep advances;
     /// returns the outcome and every slice slept.
-    fn wait_on_fake_clock(
-        query: impl FnMut() -> Option<ServiceProgress>,
-    ) -> (StartWait, Vec<Duration>) {
+    fn wait_on_fake_clock(query: impl FnMut() -> Option<ServiceProgress>) -> (StartWait, Vec<Duration>) {
         let clock = std::cell::Cell::new(Instant::now());
         let slept = std::cell::RefCell::new(Vec::new());
         let outcome = wait_until_running(
@@ -2824,11 +2323,8 @@ mod tests {
 
     #[test]
     fn start_follows_start_pending_to_running() {
-        let (outcome, slept) = wait_on_fake_clock(replay(vec![
-            progress(SERVICE_START_PENDING, 1),
-            progress(SERVICE_START_PENDING, 2),
-            progress(SERVICE_RUNNING, 0),
-        ]));
+        let (outcome, slept) =
+            wait_on_fake_clock(replay(vec![progress(SERVICE_START_PENDING, 1), progress(SERVICE_START_PENDING, 2), progress(SERVICE_RUNNING, 0)]));
         assert_eq!(outcome, StartWait::Running);
         // One slice per pending poll: a tenth of the 2 s hint, clamped to 1 s.
         assert_eq!(slept, vec![Duration::from_secs(1); 2]);
@@ -2848,11 +2344,7 @@ mod tests {
         let mut polls = 0;
         let (outcome, slept) = wait_on_fake_clock(move || {
             polls += 1;
-            Some(if polls > 100 {
-                progress(SERVICE_RUNNING, 0)
-            } else {
-                progress(SERVICE_START_PENDING, polls)
-            })
+            Some(if polls > 100 { progress(SERVICE_RUNNING, 0) } else { progress(SERVICE_START_PENDING, polls) })
         });
         assert_eq!(outcome, StartWait::Running);
         assert_eq!(slept.iter().sum::<Duration>(), Duration::from_secs(100));
@@ -2867,10 +2359,7 @@ mod tests {
 
     #[test]
     fn start_reports_a_service_that_stops_instead_of_running() {
-        let (outcome, _) = wait_on_fake_clock(replay(vec![
-            progress(SERVICE_START_PENDING, 1),
-            progress(SERVICE_STOPPED, 0),
-        ]));
+        let (outcome, _) = wait_on_fake_clock(replay(vec![progress(SERVICE_START_PENDING, 1), progress(SERVICE_STOPPED, 0)]));
         assert_eq!(outcome, StartWait::Settled(SERVICE_STOPPED));
     }
 
@@ -2967,15 +2456,7 @@ mod tests {
     fn uninstall_recovers_the_software_sas_after_the_stop_and_before_the_state_folder_goes() {
         let mut machine = FakeMachine::new(true, Some(ME));
         assert_eq!(uninstall_from(&mut machine), 0);
-        assert_eq!(
-            machine.steps,
-            [
-                "stop+delete service",
-                "recover software SAS",
-                "remove state folder",
-                "remove entry"
-            ]
-        );
+        assert_eq!(machine.steps, ["stop+delete service", "recover software SAS", "remove state folder", "remove entry"]);
     }
 
     #[test]
@@ -2985,10 +2466,7 @@ mod tests {
         // The service is gone; cleanup is reported incomplete, and the state
         // folder (with the marker) and the entry stay for a retry.
         assert_eq!(uninstall_from(&mut machine), 0);
-        assert_eq!(
-            machine.steps,
-            ["stop+delete service", "recover software SAS"]
-        );
+        assert_eq!(machine.steps, ["stop+delete service", "recover software SAS"]);
         assert!(!machine.removed_files && !machine.removed_entry);
     }
 
@@ -3032,15 +2510,7 @@ mod tests {
         let mut machine = FakeMachine::new(true, Some(ME));
         let (cleanup, problems) = roll_back(&mut machine);
         assert_eq!(cleanup, Cleanup::Clean, "{problems:?}");
-        assert_eq!(
-            machine.steps,
-            [
-                "stop+delete service",
-                "recover software SAS",
-                "remove state folder",
-                "remove entry"
-            ]
-        );
+        assert_eq!(machine.steps, ["stop+delete service", "recover software SAS", "remove state folder", "remove entry"]);
     }
 
     #[test]
@@ -3058,10 +2528,7 @@ mod tests {
         // bound, which neither call overrides or disables.
         assert_eq!(signature::WINDOWS_DEFAULT_URL_RETRIEVAL_TIMEOUT_MS, 15_000);
         const WTD_CACHE_ONLY_URL_RETRIEVAL: u32 = 0x1000;
-        assert_eq!(
-            signature::wintrust_provider_flags().0 & WTD_CACHE_ONLY_URL_RETRIEVAL,
-            0
-        );
+        assert_eq!(signature::wintrust_provider_flags().0 & WTD_CACHE_ONLY_URL_RETRIEVAL, 0);
     }
 
     #[test]
@@ -3070,13 +2537,7 @@ mod tests {
         let clock = std::cell::Cell::new(Instant::now());
         let started = clock.get();
         let outcome = wait_until_running(
-            || {
-                Some(ServiceProgress {
-                    state: SERVICE_START_PENDING,
-                    checkpoint: 1,
-                    wait_hint: SERVICE_START_WAIT_HINT_MS,
-                })
-            },
+            || Some(ServiceProgress { state: SERVICE_START_PENDING, checkpoint: 1, wait_hint: SERVICE_START_WAIT_HINT_MS }),
             |slice| clock.set(clock.get() + slice),
             || clock.get(),
         );
@@ -3106,18 +2567,9 @@ mod tests {
     fn uninstall_refuses_another_accounts_install_before_removing_anything() {
         let mut machine = FakeMachine::new(true, Some(OTHER));
         assert_eq!(uninstall_from(&mut machine), EXIT_OTHER_USER);
-        assert!(
-            !machine.removed_service,
-            "the other account's service must stay registered"
-        );
-        assert!(
-            !machine.removed_files,
-            "the other account's state must stay in place"
-        );
-        assert!(
-            !machine.removed_entry,
-            "the other account's Apps & Features entry must stay"
-        );
+        assert!(!machine.removed_service, "the other account's service must stay registered");
+        assert!(!machine.removed_files, "the other account's state must stay in place");
+        assert!(!machine.removed_entry, "the other account's Apps & Features entry must stay");
     }
 
     #[test]
@@ -3128,10 +2580,7 @@ mod tests {
         // entry stays so the removal can be retried from Apps & Features.
         assert_eq!(uninstall_from(&mut machine), 0);
         assert!(machine.removed_service);
-        assert!(
-            !machine.removed_entry,
-            "the entry must stay while files remain"
-        );
+        assert!(!machine.removed_entry, "the entry must stay while files remain");
     }
 
     /// The action the SCM takes on the `failure`-th failure (1-based) since the
@@ -3147,60 +2596,32 @@ mod tests {
         let (actions, reset_seconds) = restart_policy();
         for failure in 1..=3 {
             let action = scm_action_for_failure(&actions, failure);
-            assert_eq!(
-                (action.Type, action.Delay),
-                (SC_ACTION_RESTART, 60_000),
-                "failure {failure}"
-            );
+            assert_eq!((action.Type, action.Delay), (SC_ACTION_RESTART, 60_000), "failure {failure}");
         }
         for failure in 4..=50 {
-            assert_eq!(
-                scm_action_for_failure(&actions, failure).Type,
-                SC_ACTION_NONE,
-                "failure {failure}"
-            );
+            assert_eq!(scm_action_for_failure(&actions, failure).Type, SC_ACTION_NONE, "failure {failure}");
         }
         assert_eq!(reset_seconds, 86_400);
         // The defect this guards against: three restarts alone repeat the last
         // restart for every later failure.
-        assert_eq!(
-            scm_action_for_failure(&actions[..3], 4).Type,
-            SC_ACTION_RESTART
-        );
+        assert_eq!(scm_action_for_failure(&actions[..3], 4).Type, SC_ACTION_RESTART);
     }
 
     #[test]
     fn the_apps_entry_uninstalls_through_the_protected_copy() {
         let exe = r"C:\ProgramData\Mixdog\SecureDesktop\bin\mixdog-secure-desktop.exe";
         let values = apps_entry_values(exe, "1.2.3");
-        let value = |name: &str| {
-            values
-                .iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| value.clone())
-        };
+        let value = |name: &str| values.iter().find(|(key, _)| *key == name).map(|(_, value)| value.clone());
         // Quoted, so a space in the path cannot split it; the only verb that
         // asks for elevation itself.
-        assert_eq!(
-            value("UninstallString"),
-            Some(EntryValue::Text(format!("\"{exe}\" uninstall --from-apps")))
-        );
-        assert_eq!(
-            value("DisplayVersion"),
-            Some(EntryValue::Text("1.2.3".into()))
-        );
+        assert_eq!(value("UninstallString"), Some(EntryValue::Text(format!("\"{exe}\" uninstall --from-apps"))));
+        assert_eq!(value("DisplayVersion"), Some(EntryValue::Text("1.2.3".into())));
         assert_eq!(value("NoModify"), Some(EntryValue::Number(1)));
         assert_eq!(value("NoRepair"), Some(EntryValue::Number(1)));
-        assert_eq!(
-            value("DisplayName"),
-            Some(EntryValue::Text("Mixdog 원격 접근".into()))
-        );
+        assert_eq!(value("DisplayName"), Some(EntryValue::Text("Mixdog 원격 접근".into())));
         // The key an earlier install wrote (under the old display name) is the
         // same key, so an update rewrites it and uninstall still finds it.
-        assert_eq!(
-            APPS_ENTRY_KEY,
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop"
-        );
+        assert_eq!(APPS_ENTRY_KEY, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop");
     }
 
     /// A fake filesystem: a set of existing paths on volumes named by their
@@ -3228,13 +2649,9 @@ mod tests {
             Ok(())
         }
         fn rename(&mut self, from: &Path, to: &Path) -> Result<(), String> {
-            self.log
-                .push(format!("move {} -> {}", from.display(), to.display()));
+            self.log.push(format!("move {} -> {}", from.display(), to.display()));
             if volume(from) != volume(to) {
-                return Err(
-                    "The system cannot move the file to a different disk drive. (os error 17)"
-                        .into(),
-                );
+                return Err("The system cannot move the file to a different disk drive. (os error 17)".into());
             }
             if self.fail_restore && to.starts_with(Path::new("C:/state")) {
                 return Err("bin directory is gone".into());
@@ -3259,8 +2676,7 @@ mod tests {
             Ok(())
         }
         fn delete_at_restart(&mut self, path: &Path) -> Result<(), String> {
-            self.log
-                .push(format!("delete-at-restart {}", path.display()));
+            self.log.push(format!("delete-at-restart {}", path.display()));
             if self.fail_schedule.iter().any(|failing| failing == path) {
                 return Err("access denied".into());
             }
@@ -3275,33 +2691,19 @@ mod tests {
 
     fn fake_install() -> FakeFs {
         let mut fs = FakeFs::default();
-        fs.files
-            .extend([PathBuf::from(IMAGE), PathBuf::from("C:/state/state.json")]);
+        fs.files.extend([PathBuf::from(IMAGE), PathBuf::from("C:/state/state.json")]);
         fs
     }
 
-    fn remove(
-        fs: &mut FakeFs,
-        parking: &str,
-        warnings: &mut Vec<String>,
-    ) -> Result<Option<PathBuf>, String> {
-        remove_tree_around_image(
-            fs,
-            Path::new(STATE),
-            Some(Path::new(IMAGE)),
-            Path::new(parking),
-            warnings,
-        )
+    fn remove(fs: &mut FakeFs, parking: &str, warnings: &mut Vec<String>) -> Result<Option<PathBuf>, String> {
+        remove_tree_around_image(fs, Path::new(STATE), Some(Path::new(IMAGE)), Path::new(parking), warnings)
     }
 
     #[test]
     fn the_parking_directory_is_a_unique_sibling_of_the_state_directory() {
         let state = Path::new(r"C:\ProgramData\Mixdog\SecureDesktop");
         let parking = parking_dir_for(state, "42-7").unwrap();
-        assert_eq!(
-            parking,
-            Path::new(r"C:\ProgramData\Mixdog\SecureDesktop.uninstalled-42-7")
-        );
+        assert_eq!(parking, Path::new(r"C:\ProgramData\Mixdog\SecureDesktop.uninstalled-42-7"));
         // Same parent directory as the image's tree, so the same volume, and
         // not inside the tree that is about to be removed.
         assert_eq!(parking.parent(), state.parent());
@@ -3313,10 +2715,7 @@ mod tests {
     fn the_running_image_is_parked_and_scheduled_before_the_tree_is_removed() {
         let mut fs = fake_install();
         let mut warnings = Vec::new();
-        assert_eq!(
-            remove(&mut fs, PARKING, &mut warnings),
-            Ok(Some(PathBuf::from(PARKED)))
-        );
+        assert_eq!(remove(&mut fs, PARKING, &mut warnings), Ok(Some(PathBuf::from(PARKED))));
         assert_eq!(
             fs.log,
             [
@@ -3329,12 +2728,7 @@ mod tests {
         );
         assert!(warnings.is_empty());
         // Only the parked (scheduled) image and its directory are left.
-        assert_eq!(
-            fs.files,
-            [PathBuf::from(PARKING), PathBuf::from(PARKED)]
-                .into_iter()
-                .collect()
-        );
+        assert_eq!(fs.files, [PathBuf::from(PARKING), PathBuf::from(PARKED)].into_iter().collect());
     }
 
     #[test]
@@ -3346,10 +2740,7 @@ mod tests {
         assert!(error.contains("left in place"), "{error}");
         // Nothing scheduled, nothing removed; only the empty parking directory
         // it had created is removed again.
-        assert!(!fs
-            .log
-            .iter()
-            .any(|op| op.starts_with("delete-at-restart") || op.starts_with("rmtree")));
+        assert!(!fs.log.iter().any(|op| op.starts_with("delete-at-restart") || op.starts_with("rmtree")));
         assert_eq!(fs.log.last().unwrap(), "rmdir D:/parking");
         assert_eq!(fs.files, before);
     }
@@ -3370,10 +2761,7 @@ mod tests {
         fs.fail_schedule = vec![PathBuf::from(PARKED)];
         let before = fs.files.clone();
         let error = remove(&mut fs, PARKING, &mut Vec::new()).unwrap_err();
-        assert!(
-            error.contains("schedule") && error.contains("left in place"),
-            "{error}"
-        );
+        assert!(error.contains("schedule") && error.contains("left in place"), "{error}");
         assert!(fs.log.contains(&format!("move {PARKED} -> {IMAGE}")));
         assert!(!fs.log.iter().any(|op| op.starts_with("rmtree")));
         assert_eq!(fs.files, before);
@@ -3384,16 +2772,9 @@ mod tests {
         let mut fs = fake_install();
         fs.fail_schedule = vec![PathBuf::from(PARKING)];
         let mut warnings = Vec::new();
-        assert_eq!(
-            remove(&mut fs, PARKING, &mut warnings),
-            Ok(Some(PathBuf::from(PARKED)))
-        );
+        assert_eq!(remove(&mut fs, PARKING, &mut warnings), Ok(Some(PathBuf::from(PARKED))));
         assert_eq!(warnings.len(), 1);
-        assert!(
-            warnings[0].contains("empty admin-only directory"),
-            "{}",
-            warnings[0]
-        );
+        assert!(warnings[0].contains("empty admin-only directory"), "{}", warnings[0]);
     }
 
     #[test]
@@ -3404,16 +2785,8 @@ mod tests {
         assert!(error.contains("access denied"), "{error}");
         // Scheduled before the failing removal, then moved back so the kept
         // Apps & Features entry still runs it.
-        let scheduled = fs
-            .log
-            .iter()
-            .position(|op| *op == format!("delete-at-restart {PARKED}"))
-            .unwrap();
-        let removal = fs
-            .log
-            .iter()
-            .position(|op| *op == format!("rmtree {STATE}"))
-            .unwrap();
+        let scheduled = fs.log.iter().position(|op| *op == format!("delete-at-restart {PARKED}")).unwrap();
+        let removal = fs.log.iter().position(|op| *op == format!("rmtree {STATE}")).unwrap();
         assert!(scheduled < removal);
         assert_eq!(fs.log.last().unwrap(), &format!("move {PARKED} -> {IMAGE}"));
         assert!(fs.files.contains(Path::new(IMAGE)));
@@ -3436,50 +2809,25 @@ mod tests {
         let mut fs = fake_install();
         let image = Path::new(r"c:\STATE\Bin\HELPER.exe");
         fs.files.insert(image.to_path_buf());
-        let result = remove_tree_around_image(
-            &mut fs,
-            Path::new(STATE),
-            Some(image),
-            Path::new(PARKING),
-            &mut Vec::new(),
-        );
+        let result = remove_tree_around_image(&mut fs, Path::new(STATE), Some(image), Path::new(PARKING), &mut Vec::new());
         // Parked (not the direct removal that would fail on the running image).
-        assert_eq!(
-            result,
-            Ok(Some(PathBuf::from(r"C:\state.uninstalled-1\HELPER.exe")))
-        );
+        assert_eq!(result, Ok(Some(PathBuf::from(r"C:\state.uninstalled-1\HELPER.exe"))));
         assert_eq!(fs.log[0], format!("mkdir {PARKING}"));
     }
 
     #[test]
     fn containment_is_case_insensitive_on_component_boundaries_only() {
-        assert!(is_within(
-            Path::new(r"C:\ProgramData\Mixdog\SecureDesktop"),
-            Path::new(r"c:\PROGRAMDATA\mixdog\securedesktop\bin\x.exe")
-        ));
+        assert!(is_within(Path::new(r"C:\ProgramData\Mixdog\SecureDesktop"), Path::new(r"c:\PROGRAMDATA\mixdog\securedesktop\bin\x.exe")));
         assert!(is_within(Path::new(r"C:\State"), Path::new(r"c:\state")));
         // A sibling sharing a name prefix is not inside.
-        assert!(!is_within(
-            Path::new(r"C:\state"),
-            Path::new(r"C:\state.uninstalled-1\x.exe")
-        ));
-        assert!(!is_within(
-            Path::new(r"C:\state\bin"),
-            Path::new(r"C:\state")
-        ));
-        assert!(!is_within(
-            Path::new(r"C:\state"),
-            Path::new(r"D:\state\x.exe")
-        ));
+        assert!(!is_within(Path::new(r"C:\state"), Path::new(r"C:\state.uninstalled-1\x.exe")));
+        assert!(!is_within(Path::new(r"C:\state\bin"), Path::new(r"C:\state")));
+        assert!(!is_within(Path::new(r"C:\state"), Path::new(r"D:\state\x.exe")));
     }
 
     #[test]
     fn containment_compares_canonical_paths_of_existing_files() {
-        let root = std::env::temp_dir().join(format!(
-            "mixdog-sd-case-{}-{}",
-            std::process::id(),
-            now_ms()
-        ));
+        let root = std::env::temp_dir().join(format!("mixdog-sd-case-{}-{}", std::process::id(), now_ms()));
         let image = root.join("Bin").join("Helper.exe");
         std::fs::create_dir_all(image.parent().unwrap()).unwrap();
         std::fs::write(&image, b"x").unwrap();
@@ -3495,13 +2843,7 @@ mod tests {
     fn removing_the_tree_from_outside_it_deletes_it_directly() {
         let mut fs = fake_install();
         let outside = Path::new("C:/app/helper.exe");
-        let result = remove_tree_around_image(
-            &mut fs,
-            Path::new(STATE),
-            Some(outside),
-            Path::new(PARKING),
-            &mut Vec::new(),
-        );
+        let result = remove_tree_around_image(&mut fs, Path::new(STATE), Some(outside), Path::new(PARKING), &mut Vec::new());
         assert_eq!(result, Ok(None));
         assert_eq!(fs.log, [format!("rmtree {STATE}")]);
         assert!(fs.files.is_empty());

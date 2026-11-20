@@ -91,10 +91,7 @@ pub struct Discovery {
 
 impl Discovery {
     pub fn parse(bytes: &[u8], path: &Path) -> Result<Self, DiscoveryError> {
-        serde_json::from_slice(bytes).map_err(|e| DiscoveryError::Malformed {
-            path: path.to_path_buf(),
-            message: e.to_string(),
-        })
+        serde_json::from_slice(bytes).map_err(|e| DiscoveryError::Malformed { path: path.to_path_buf(), message: e.to_string() })
     }
 
     /// Reads the file anew; callers read it on every connection attempt because the token and the ports change per core.
@@ -103,32 +100,19 @@ impl Discovery {
     pub fn read(path: &Path) -> Result<Self, DiscoveryError> {
         match std::fs::read(path) {
             Ok(bytes) => Self::parse(&bytes, path),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Err(DiscoveryError::Absent(path.to_path_buf()))
-            }
-            Err(source) => Err(DiscoveryError::Read {
-                path: path.to_path_buf(),
-                source,
-            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(DiscoveryError::Absent(path.to_path_buf())),
+            Err(source) => Err(DiscoveryError::Read { path: path.to_path_buf(), source }),
         }
     }
 
     /// The RPC listener and the token that opens it.
     pub fn rpc_endpoint(&self) -> Result<Endpoint, DiscoveryError> {
-        let rpc = self.core.rpc.as_ref().ok_or_else(|| DiscoveryError::NoRpc {
-            state: self.core.state.clone(),
-        })?;
-        Ok(Endpoint {
-            port: rpc.port,
-            token: self.endpoints.session.token.clone(),
-        })
+        let rpc = self.core.rpc.as_ref().ok_or_else(|| DiscoveryError::NoRpc { state: self.core.state.clone() })?;
+        Ok(Endpoint { port: rpc.port, token: self.endpoints.session.token.clone() })
     }
 
     /// The control listener and the token that opens it.
     pub fn control_endpoint(&self) -> Endpoint {
-        Endpoint {
-            port: self.core.control.port,
-            token: self.endpoints.session.token.clone(),
-        }
+        Endpoint { port: self.core.control.port, token: self.endpoints.session.token.clone() }
     }
 }

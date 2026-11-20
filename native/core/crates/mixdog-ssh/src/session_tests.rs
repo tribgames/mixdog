@@ -11,12 +11,11 @@ use tokio::net::TcpListener;
 use tokio::sync::watch;
 
 use crate::bootstrap::{BootstrapPhase, RemoteDiscovery, RemoteReport};
-use crate::command::{parse_ssh_target, FailureClass, SshError};
+use crate::command::{FailureClass, SshError, parse_ssh_target};
 use crate::connect_failure::ConnectError;
 use crate::context::ModelLogin;
 use crate::session::{
-    dechunk, http_body, read_health, resolve_remote_cwd, Endpoint, RemoteSession, RemoteSessionConfig, SessionError, SessionPhase, Transport,
-    TunnelHandle,
+    Endpoint, RemoteSession, RemoteSessionConfig, SessionError, SessionPhase, Transport, TunnelHandle, dechunk, http_body, read_health, resolve_remote_cwd,
 };
 use crate::tunnel::{TunnelSpec, TunnelState};
 
@@ -179,13 +178,8 @@ impl Transport for FakeTransport {
 
     fn open_tunnel(&self, spec: TunnelSpec) -> Arc<dyn TunnelHandle> {
         let (state, _) = watch::channel(self.initial.clone());
-        let tunnel = Arc::new(FakeTunnel {
-            companion: self.companion,
-            state,
-            restarts: AtomicUsize::new(0),
-            revives: AtomicUsize::new(0),
-            stops: AtomicUsize::new(0),
-        });
+        let tunnel =
+            Arc::new(FakeTunnel { companion: self.companion, state, restarts: AtomicUsize::new(0), revives: AtomicUsize::new(0), stops: AtomicUsize::new(0) });
         self.specs.lock().unwrap_or_else(PoisonError::into_inner).push(spec);
         self.tunnels.lock().unwrap_or_else(PoisonError::into_inner).push(tunnel.clone());
         tunnel
@@ -456,7 +450,6 @@ fn the_remote_folder_resolves_against_the_home_and_must_be_absolute() {
     assert!(resolve_remote_cwd(Some("relative/dir"), home).unwrap_err().to_string().contains("absolute server path"));
     assert!(resolve_remote_cwd(Some("/a\u{7}b"), home).unwrap_err().to_string().contains("control characters"));
 }
-
 
 #[tokio::test]
 async fn health_is_read_from_plain_and_chunked_answers_and_refused_when_not_ok_or_late() {

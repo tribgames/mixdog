@@ -108,8 +108,7 @@ fn complete_oauth_code(host: &mut dyn SlashHost, target: &TextPrompt, command_te
             host.set_oauth_submitting(false);
             host.clear_model_caches("all");
             host.set_prompt(PromptSurface::Provider, None);
-            let name =
-                Some(target.text("providerName")).filter(|name| !name.is_empty()).unwrap_or_else(|| "OAuth".to_owned());
+            let name = Some(target.text("providerName")).filter(|name| !name.is_empty()).unwrap_or_else(|| "OAuth".to_owned());
             host.push_notice(&format!("{name} login complete"), Tone::Info);
             if !host.oauth_success_return(target) {
                 after_provider_save(host, target);

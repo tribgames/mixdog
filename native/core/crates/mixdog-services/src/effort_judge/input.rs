@@ -8,7 +8,6 @@ use std::sync::LazyLock;
 
 use mixdog_agent::step_effort::StepInput;
 
-
 const STEP_CALLS: usize = 3;
 
 static ANSI: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("\u{1b}\\[[0-9;]*m", "g"));
@@ -21,8 +20,7 @@ static CRLF: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\r\n?", 
 fn tag_block_end(text: &str, start: usize) -> Option<usize> {
     let after = &text[start + 1..];
     let first = after.chars().next().filter(char::is_ascii_alphabetic)?;
-    let name_len = first.len_utf8()
-        + after[first.len_utf8()..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').count();
+    let name_len = first.len_utf8() + after[first.len_utf8()..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').count();
     let name = &after[..name_len];
     let rest = &after[name_len..];
     let open_len = match rest.chars().next()? {
@@ -41,11 +39,12 @@ fn strip_tag_blocks(text: &str) -> String {
     let mut i = 0;
     while i < text.len() {
         if text.as_bytes()[i] == b'<'
-            && let Some(end) = tag_block_end(text, i) {
-                out.push(' ');
-                i = end;
-                continue;
-            }
+            && let Some(end) = tag_block_end(text, i)
+        {
+            out.push(' ');
+            i = end;
+            continue;
+        }
         let c = text[i..].chars().next().unwrap_or_default();
         out.push(c);
         i += c.len_utf8();
@@ -225,8 +224,7 @@ pub fn step_judge_text(input: &StepInput) -> String {
     for call in input.calls.iter().take(STEP_CALLS) {
         parts.push(format!("call: {} {}", call.name, clean(&head(&call.args, 160))));
         let result = clean(&step_result_window(&step_result_window(&call.result)));
-        let shown =
-            if result.chars().count() > 500 { format!("{} … {}", head(&result, 300), tail(&result, 200)) } else { result };
+        let shown = if result.chars().count() > 500 { format!("{} … {}", head(&result, 300), tail(&result, 200)) } else { result };
         parts.push(format!("result: {shown}"));
     }
     parts.join("\n")

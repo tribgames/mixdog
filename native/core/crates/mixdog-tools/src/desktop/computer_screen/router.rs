@@ -134,16 +134,12 @@ fn button_name(button: PointerButton) -> &'static str {
 /// `None` for a command that holds nothing.
 fn hold_of(command: &ScreenInput) -> Option<(String, bool, ScreenInput)> {
     match command {
-        ScreenInput::Button { button, down, .. } => Some((
-            format!("btn:{}", button_name(*button)),
-            *down,
-            ScreenInput::Button { button: *button, down: false, at: None },
-        )),
-        ScreenInput::Key { vk, scan, extended, down } => Some((
-            format!("key:{vk}:{scan}:{}", u8::from(*extended)),
-            *down,
-            ScreenInput::Key { vk: *vk, scan: *scan, extended: *extended, down: false },
-        )),
+        ScreenInput::Button { button, down, .. } => {
+            Some((format!("btn:{}", button_name(*button)), *down, ScreenInput::Button { button: *button, down: false, at: None }))
+        }
+        ScreenInput::Key { vk, scan, extended, down } => {
+            Some((format!("key:{vk}:{scan}:{}", u8::from(*extended)), *down, ScreenInput::Key { vk: *vk, scan: *scan, extended: *extended, down: false }))
+        }
         _ => None,
     }
 }
@@ -261,8 +257,7 @@ impl Core {
     async fn deliver(&self, backend: BackendId, presses: Vec<HeldPress>) -> usize {
         let mut dropped = 0;
         for press in presses {
-            let delivered = same_desktop(Some(&press.origin), self.identity(backend).as_ref())
-                && self.send(backend, press.release).await.is_ok();
+            let delivered = same_desktop(Some(&press.origin), self.identity(backend).as_ref()) && self.send(backend, press.release).await.is_ok();
             if !delivered {
                 dropped += 1;
             }
@@ -302,14 +297,8 @@ impl Core {
             _ => None,
         };
         let alt_gr = held.iter().any(|(_, entry)| vk_of(entry) == Some(ALTGR_RIGHT_ALT))
-            && held.iter().all(|(_, entry)| {
-                vk_of(entry).is_some_and(|vk| ALTGR_VKS.contains(&vk)) && same_desktop(Some(&entry.origin), here.as_ref())
-            });
-        if alt_gr {
-            TextModifiers::AltGr(held.into_iter().map(|(id, _)| id).collect())
-        } else {
-            TextModifiers::Refused
-        }
+            && held.iter().all(|(_, entry)| vk_of(entry).is_some_and(|vk| ALTGR_VKS.contains(&vk)) && same_desktop(Some(&entry.origin), here.as_ref()));
+        if alt_gr { TextModifiers::AltGr(held.into_iter().map(|(id, _)| id).collect()) } else { TextModifiers::Refused }
     }
 
     /// Types literal text. Under a held shortcut modifier it is refused (never queued or retried) so it
@@ -537,30 +526,18 @@ pub(super) struct ScreenInputRouter {
 
 impl ScreenInputRouter {
     /// `on_dropped(backend, count)`: a release point dropped `count` presses `backend` could not release.
-    pub(super) fn new(
-        desktop: Arc<dyn ScreenBackend>,
-        secure: Arc<dyn ScreenBackend>,
-        on_dropped: impl Fn(BackendId, usize) + Send + Sync + 'static,
-    ) -> Self {
+    pub(super) fn new(desktop: Arc<dyn ScreenBackend>, secure: Arc<dyn ScreenBackend>, on_dropped: impl Fn(BackendId, usize) + Send + Sync + 'static) -> Self {
         let (abandoned, _) = watch::channel(false);
         Self {
             core: Arc::new(Core {
                 backends: [desktop, secure],
                 on_dropped: Box::new(on_dropped),
-                state: Mutex::new(State {
-                    generation: 0,
-                    active: None,
-                    abandoned: false,
-                    held: [HeldMap::default(), HeldMap::default()],
-                    presses: 0,
-                }),
+                state: Mutex::new(State { generation: 0, active: None, abandoned: false, held: [HeldMap::default(), HeldMap::default()], presses: 0 }),
                 tail: Mutex::new(None),
                 abandoned,
             }),
         }
     }
-
-
 
     /// Queued input from before this call is dropped; releases still run.
     pub(super) fn cancel(&self) {

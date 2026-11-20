@@ -332,7 +332,11 @@ impl StopTicket {
                 _ => None,
             })
             .collect();
-        if failed.is_empty() { Ok(()) } else { Err(format!("The room was stopped here, but {}: those stopped turns may run again after a restart.", failed.join("; "))) }
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("The room was stopped here, but {}: those stopped turns may run again after a restart.", failed.join("; ")))
+        }
     }
 
     /// `(found, saved)`, the stop's completion owned by the returned future.
@@ -471,7 +475,10 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         }
         let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.state();
-        !intakes.contains_key(room_id) && !state.intakes.contains_key(room_id) && !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
+        !intakes.contains_key(room_id)
+            && !state.intakes.contains_key(room_id)
+            && !state.running.contains_key(room_id)
+            && state.relays.get(room_id).is_none_or(Vec::is_empty)
     }
 
     /// Binds the observer of every request `route` takes (once).

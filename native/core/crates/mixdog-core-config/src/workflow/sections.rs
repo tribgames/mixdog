@@ -57,10 +57,7 @@ pub(super) async fn push_changed(workflow: &WorkflowConfig, publisher: &dyn Stat
 /// on an external reload too), of a workflow pack through this service, or of a pack folder by
 /// another process wakes it.
 pub fn spawn_sections(workflow: Arc<WorkflowConfig>, publisher: Arc<dyn StatePublisher>, cancel: CancellationToken) -> Result<(), WsError> {
-    let packs = Watched {
-        roots: vec![workflow.paths.root.join("workflows"), workflow.paths.data.join("workflows")],
-        files: Vec::new(),
-    };
+    let packs = Watched { roots: vec![workflow.paths.root.join("workflows"), workflow.paths.data.join("workflows")], files: Vec::new() };
     let trigger = FolderTrigger::start("workflow-packs", packs, workflow.pack_changes.clone())?;
     mixdog_rt::spawn("workflow-sections", TaskClass::Work, async move {
         // The pack-folder watch lives as long as the task.

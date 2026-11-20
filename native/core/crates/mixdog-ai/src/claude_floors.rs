@@ -24,16 +24,11 @@ pub struct Floors {
 }
 
 /// Tool preambles written as progress-update thinking blocks (`ANTHROPIC_PROGRESS_UPDATES`).
-pub const PROGRESS_UPDATES: Floors = Floors {
-    floors: &[("opus", (5, 5)), ("sonnet", (5, 5)), ("fable", (5, 0)), ("mythos", (5, 1))],
-    exceptions: &[],
-};
+pub const PROGRESS_UPDATES: Floors = Floors { floors: &[("opus", (5, 5)), ("sonnet", (5, 5)), ("fable", (5, 0)), ("mythos", (5, 1))], exceptions: &[] };
 
 /// Turn-scoped `clear_at` system messages (`ANTHROPIC_TURN_SCOPED_SYSTEM`).
-pub const TURN_SCOPED_SYSTEM: Floors = Floors {
-    floors: &[("opus", (4, 8)), ("sonnet", (5, 5)), ("haiku", (5, 5)), ("fable", (5, 0)), ("mythos", (5, 0))],
-    exceptions: &[],
-};
+pub const TURN_SCOPED_SYSTEM: Floors =
+    Floors { floors: &[("opus", (4, 8)), ("sonnet", (5, 5)), ("haiku", (5, 5)), ("fable", (5, 0)), ("mythos", (5, 0))], exceptions: &[] };
 
 /// Message threads (`ANTHROPIC_MESSAGE_THREADS`); `claude-mythos-preview` carries no version.
 pub const MESSAGE_THREADS: Floors = Floors {
@@ -48,10 +43,7 @@ pub fn model_key(model: &str) -> String {
     // The date is ASCII, so the `-` it starts with is a char boundary.
     let tail_is = |shape: &[u8]| {
         key.len() >= shape.len()
-            && key.as_bytes()[key.len() - shape.len()..]
-                .iter()
-                .zip(shape)
-                .all(|(b, s)| if *s == b'd' { b.is_ascii_digit() } else { b == s })
+            && key.as_bytes()[key.len() - shape.len()..].iter().zip(shape).all(|(b, s)| if *s == b'd' { b.is_ascii_digit() } else { b == s })
     };
     for shape in [&b"-dddddddd"[..], &b"-dddd-dd-dd"[..]] {
         if tail_is(shape) {
@@ -178,15 +170,7 @@ pub(crate) fn reset_process() {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-}
-
-
+mod tests {}
 
 /// `claudeGeneration` (`anthropic-thinking-contract.mjs`): major*100 + minor of the version
 /// token, `INFINITY` for a claude id without one, `None` for a non-claude id.

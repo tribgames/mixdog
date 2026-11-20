@@ -187,7 +187,9 @@ mod tests {
     }
 
     fn page() -> TestPage {
-        TestPage::with(|state| state.ref_set = Some(RefSet::from_payload("p1-s1", &payload("p1-s1", vec![element("p1-s1-e1", "textbox", "Name")], "https://a.test/"))))
+        TestPage::with(|state| {
+            state.ref_set = Some(RefSet::from_payload("p1-s1", &payload("p1-s1", vec![element("p1-s1-e1", "textbox", "Name")], "https://a.test/")))
+        })
     }
 
     fn fills(count: usize) -> Value {
@@ -207,7 +209,11 @@ mod tests {
     #[async_trait]
     impl StepRunner for LosesTheConnection {
         async fn run_step(&self, index: u32, _step: Value, _cancel: &CancelView) -> Result<StepResult, ActionError> {
-            if index == 1 { Ok(StepResult { outcome: StepKind::Completed, text: String::new() }) } else { Err(ActionError::Host(HostCallError::ConnectionLost)) }
+            if index == 1 {
+                Ok(StepResult { outcome: StepKind::Completed, text: String::new() })
+            } else {
+                Err(ActionError::Host(HostCallError::ConnectionLost))
+            }
         }
 
         async fn observe(&self, _cancel: &CancelView) -> Result<String, ActionError> {
@@ -222,7 +228,14 @@ mod tests {
         let host = FakeHost::scripted(Vec::new());
         let mut rig = Rig::new(None);
         let command = fills(3);
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         let error = sequence(&mut cx, &LosesTheConnection).await.expect_err("lost");
         assert_eq!(error, ActionError::Host(HostCallError::ConnectionLost));
     }
@@ -253,7 +266,10 @@ mod tests {
             calls[0].1,
             json!({"action": "fill", "tab": "t1", "session_id": "s", "text": "x", "internalStep": true, "session_life": "life", "unattended_run": true, "unattended_agent": "bot"})
         );
-        assert_eq!(step_command(&json!({}), &json!({"action": "wait", "tab": "x", "session_life": "mine"}), "wait"), json!({"action": "wait", "session_life": "mine", "internalStep": true}));
+        assert_eq!(
+            step_command(&json!({}), &json!({"action": "wait", "tab": "x", "session_life": "mine"}), "wait"),
+            json!({"action": "wait", "session_life": "mine", "internalStep": true})
+        );
     }
 
     #[tokio::test]
@@ -262,7 +278,10 @@ mod tests {
         let script = Script::new(&page);
         let command = json!({"steps": [{"action": "fill"}, {"action": "wait", "text": "ready"}, {"action": "fill"}]});
         run(&page, &command, &script).await.expect("completed");
-        assert_eq!(script.calls.lock().expect("calls").iter().map(|(_, step)| step["action"].clone()).collect::<Vec<_>>(), [json!("fill"), json!("wait"), json!("fill")]);
+        assert_eq!(
+            script.calls.lock().expect("calls").iter().map(|(_, step)| step["action"].clone()).collect::<Vec<_>>(),
+            [json!("fill"), json!("wait"), json!("fill")]
+        );
 
         let script = Script::new(&page);
         let error = run(&page, &json!({"steps": [{"action": "fill"}, {"action": "navigate"}]}), &script).await.expect_err("not chainable");
@@ -300,7 +319,10 @@ mod tests {
             });
             let error = run(&page, &fills(2), &script).await.expect_err("fenced");
             let text = error.to_string();
-            assert!(text.contains("remaining steps were not dispatched") && text.contains("completed 1:fill") && text.ends_with("OBSERVED"), "{change}: {text}");
+            assert!(
+                text.contains("remaining steps were not dispatched") && text.contains("completed 1:fill") && text.ends_with("OBSERVED"),
+                "{change}: {text}"
+            );
             assert_eq!(script.indexes(), [1], "{change}: no input after the page moved");
         }
     }
@@ -326,7 +348,8 @@ mod tests {
         let mut rig = Rig::new(None);
         let command = fills(3);
         let view = source.view();
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx =
+            ActionContext { host: &host, page: &page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
         // The first step cancels its own command, the way a caller aborting mid-batch does.
         let aborting = AbortingRunner { inner: &script, source: &source };
         let error = sequence(&mut cx, &aborting).await.expect_err("cancelled");

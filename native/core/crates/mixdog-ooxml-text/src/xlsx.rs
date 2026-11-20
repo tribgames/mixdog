@@ -140,11 +140,7 @@ fn worksheet_rows(xml: &str, strings: &[String], formats: &[String], max_content
             let kind = first_group(&CELL_TYPE_RE, attributes).unwrap_or("n");
             let text = if kind == "s" {
                 let index = first_group(&V_RE, inner).map_or(f64::NAN, string_to_number);
-                if index.is_finite() && index.fract() == 0.0 && index >= 0.0 {
-                    strings.get(index as usize).cloned().unwrap_or_default()
-                } else {
-                    String::new()
-                }
+                if index.is_finite() && index.fract() == 0.0 && index >= 0.0 { strings.get(index as usize).cloned().unwrap_or_default() } else { String::new() }
             } else if kind == "inlineStr" {
                 text_runs(inner)?
             } else {
@@ -231,10 +227,8 @@ fn sheet_figures(zip: &Zip, sheet_part: &str) -> Result<Vec<String>, Failure> {
         return Ok(Vec::new());
     }
     let drawing_rels = zip.part_text(&rels_name(&drawing_part))?;
-    let targets: HashMap<String, String> = relationship_list(&drawing_rels)
-        .into_iter()
-        .filter_map(|(id, target)| id.map(|id| (id, related_part(&target, &drawing_part))))
-        .collect();
+    let targets: HashMap<String, String> =
+        relationship_list(&drawing_rels).into_iter().filter_map(|(id, target)| id.map(|id| (id, related_part(&target, &drawing_part)))).collect();
     let mut anchors: Vec<_> = ["xdr:absoluteAnchor", "xdr:twoCellAnchor", "xdr:oneCellAnchor"]
         .into_iter()
         .flat_map(|name| scan_elements(&drawing, name))

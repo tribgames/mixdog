@@ -71,9 +71,8 @@ fn has_running_count(text: &str) -> bool {
         let rest = rest[digits..].strip_prefix(' ');
         rest.is_some_and(|rest| {
             ["Agent", "Shell"].iter().any(|noun| {
-                rest.strip_prefix(noun).is_some_and(|after| {
-                    !is_word(after.chars().next()) || after.strip_prefix('s').is_some_and(|after_s| !is_word(after_s.chars().next()))
-                })
+                rest.strip_prefix(noun)
+                    .is_some_and(|after| !is_word(after.chars().next()) || after.strip_prefix('s').is_some_and(|after_s| !is_word(after_s.chars().next())))
             })
         })
     })

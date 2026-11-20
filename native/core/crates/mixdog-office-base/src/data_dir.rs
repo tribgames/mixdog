@@ -34,11 +34,7 @@ pub fn resolve_from_process_cwd(path: &Path) -> io::Result<PathBuf> {
 /// `defaultOfficeDataDir` over an explicit environment: `MIXDOG_DATA_DIR`, else `<MIXDOG_HOME, else ~/.mixdog>/data`,
 /// resolved against `cwd`. A variable that is set but empty counts as unset (`||`), and the home directory is asked
 /// only when `MIXDOG_HOME` is not set.
-pub fn office_data_dir_from(
-    env: &dyn Fn(&str) -> Option<String>,
-    home: &dyn Fn() -> Option<PathBuf>,
-    cwd: &Path,
-) -> io::Result<PathBuf> {
+pub fn office_data_dir_from(env: &dyn Fn(&str) -> Option<String>, home: &dyn Fn() -> Option<PathBuf>, cwd: &Path) -> io::Result<PathBuf> {
     let set = |name: &str| env(name).filter(|value| !value.is_empty());
     let dir = match set("MIXDOG_DATA_DIR") {
         Some(dir) => PathBuf::from(dir),
@@ -55,11 +51,7 @@ pub fn office_data_dir_from(
 
 /// `defaultOfficeDataDir()` over the process environment.
 pub fn default_office_data_dir() -> io::Result<PathBuf> {
-    office_data_dir_from(
-        &|name| std::env::var_os(name).map(|value| value.to_string_lossy().into_owned()),
-        &std::env::home_dir,
-        &std::env::current_dir()?,
-    )
+    office_data_dir_from(&|name| std::env::var_os(name).map(|value| value.to_string_lossy().into_owned()), &std::env::home_dir, &std::env::current_dir()?)
 }
 
 #[cfg(test)]
@@ -72,11 +64,7 @@ mod tests {
 
     fn from(vars: &[(&str, &str)], home: Option<PathBuf>) -> io::Result<PathBuf> {
         let vars: Vec<(String, String)> = vars.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        office_data_dir_from(
-            &|name| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone()),
-            &|| home.clone(),
-            &root().join("cwd"),
-        )
+        office_data_dir_from(&|name| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone()), &|| home.clone(), &root().join("cwd"))
     }
 
     #[test]

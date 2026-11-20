@@ -99,11 +99,7 @@ impl HeartbeatState {
                 rows.iter()
                     .filter_map(|entry| {
                         let key = entry.get("key")?.as_str()?.to_owned();
-                        Some(Suggestion {
-                            key,
-                            text: entry.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                            at: millis(entry.get("at")),
-                        })
+                        Some(Suggestion { key, text: entry.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(), at: millis(entry.get("at")) })
                     })
                     .collect()
             })
@@ -143,16 +139,10 @@ impl HeartbeatState {
 
     /// The file's document, its keys in `normalizeState`'s order.
     pub fn to_value(&self) -> Value {
-        let reviews: Map<String, Value> = self
-            .reviews
-            .iter()
-            .map(|(id, row)| (id.clone(), json!({ "at": json_number(row.at as f64), "head": row.head, "note": row.note })))
-            .collect();
-        let pending: Vec<Value> = self
-            .pending
-            .iter()
-            .map(|entry| json!({ "key": entry.key, "text": entry.text, "at": json_number(entry.at as f64) }))
-            .collect();
+        let reviews: Map<String, Value> =
+            self.reviews.iter().map(|(id, row)| (id.clone(), json!({ "at": json_number(row.at as f64), "head": row.head, "note": row.note }))).collect();
+        let pending: Vec<Value> =
+            self.pending.iter().map(|entry| json!({ "key": entry.key, "text": entry.text, "at": json_number(entry.at as f64) })).collect();
         json!({
             "lastBeatAt": json_number(self.last_beat_at as f64),
             "lastAttemptAt": json_number(self.last_attempt_at as f64),
@@ -219,16 +209,33 @@ pub enum Change {
     /// Writes the state as it is (the flush of a dirty state).
     Settle,
     /// A turn the user sent (`noteUserTurn`).
-    UserTurn { time: i64 },
+    UserTurn {
+        time: i64,
+    },
     /// The user operated the desktop app (`noteUserInput`).
-    AppInput { value: i64 },
-    Arm { at: i64 },
+    AppInput {
+        value: i64,
+    },
+    Arm {
+        at: i64,
+    },
     ClearWatermark,
-    Attempt { at: i64 },
-    KeepUnreleased { id: String },
-    Released { ids: Vec<String> },
+    Attempt {
+        at: i64,
+    },
+    KeepUnreleased {
+        id: String,
+    },
+    Released {
+        ids: Vec<String>,
+    },
     /// `recordSuggestion`: `dismissed` declines the proposal for good.
-    Suggest { key: String, text: String, dismissed: bool, at: i64 },
+    Suggest {
+        key: String,
+        text: String,
+        dismissed: bool,
+        at: i64,
+    },
     Commit(Commit),
 }
 

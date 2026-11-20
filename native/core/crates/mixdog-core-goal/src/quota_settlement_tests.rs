@@ -9,8 +9,10 @@ use serde_json::{Value, json};
 
 use crate::goal::quota::GoalQuotaResume;
 use crate::goal::{GoalConfig, GoalEnv, GoalRuntime};
+use crate::quota_settlement::{
+    Begin, QuotaSettlement, RETRY_CONTINUE_INSTRUCTION, ResumeContext, failed_turn_retry_prompt, latest_quota_failure, transcript_turn_keys,
+};
 use mixdog_core_base::quota_resume::QuotaResumeStore;
-use crate::quota_settlement::{Begin, QuotaSettlement, RETRY_CONTINUE_INSTRUCTION, ResumeContext, failed_turn_retry_prompt, latest_quota_failure, transcript_turn_keys};
 
 async fn fixture(dir: &std::path::Path) -> (Arc<QuotaResumeStore>, Arc<QuotaSettlement>) {
     let lane = mixdog_rt::testing::tokens().durability_io;
@@ -139,7 +141,9 @@ fn resumable() -> ResumeContext {
 async fn a_quota_failure_with_a_known_reset_queues_its_resume_under_the_failed_turn() {
     let dir = tempfile::tempdir().unwrap();
     let (store, guard) = fixture(dir.path()).await;
-    let Begin::Queued(entry) = guard.begin("sess_a", &quota_turn(json!(1_800_000_000_000_i64)), &resumable()).await.unwrap() else { panic!("expected a queued resume") };
+    let Begin::Queued(entry) = guard.begin("sess_a", &quota_turn(json!(1_800_000_000_000_i64)), &resumable()).await.unwrap() else {
+        panic!("expected a queued resume")
+    };
     assert_eq!((entry.session_id.as_str(), entry.turn_key.as_str(), entry.provider.as_str(), entry.attempts), ("sess_a", "turn:u1", "x", 0));
     assert_eq!((entry.route_provider.as_str(), entry.route_model.as_str()), ("x", "m"));
     assert_eq!(store.entry("sess_a").unwrap().turn_key, "turn:u1");
@@ -152,7 +156,10 @@ async fn nothing_is_queued_without_a_reset_without_the_setting_or_when_the_turn_
     assert_eq!(guard.begin("sess_a", &quota_turn(json!(null)), &resumable()).await.unwrap(), Begin::Nothing, "no reset time");
     let off = ResumeContext { auto_resume: false, ..resumable() };
     assert_eq!(guard.begin("sess_a", &quota_turn(json!(1_800_000_000_000_i64)), &off).await.unwrap(), Begin::Nothing, "the setting is off");
-    let media = vec![json!({ "kind": "user", "id": "u1", "text": "see", "images": [{ "name": "a.png" }] }), failed(json!({ "provider": "x", "resetAt": 1_800_000_000_000_i64 }))];
+    let media = vec![
+        json!({ "kind": "user", "id": "u1", "text": "see", "images": [{ "name": "a.png" }] }),
+        failed(json!({ "provider": "x", "resetAt": 1_800_000_000_000_i64 })),
+    ];
     assert_eq!(guard.begin("sess_a", &media, &resumable()).await.unwrap(), Begin::NotResumable);
     let retained = ResumeContext { retained_retry: true, ..resumable() };
     assert!(matches!(guard.begin("sess_a", &media, &retained).await.unwrap(), Begin::Queued(_)), "the model history still holds the message");

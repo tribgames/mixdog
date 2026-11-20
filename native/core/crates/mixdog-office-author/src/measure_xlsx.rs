@@ -84,7 +84,13 @@ impl<'a> XlsxMeasureOptions<'a> {
 
 /// Lays an HTML workbook out in the shared render browser and reads its sheets. The browser is leased for the run and
 /// closed on every exit.
-pub async fn measure_xlsx_html(endpoint: &dyn BrowserEndpoint, lanes: &AuthorLanes, note: &dyn WriteNote, html: &str, options: XlsxMeasureOptions<'_>) -> Result<XlsxMeasure, RunError> {
+pub async fn measure_xlsx_html(
+    endpoint: &dyn BrowserEndpoint,
+    lanes: &AuthorLanes,
+    note: &dyn WriteNote,
+    html: &str,
+    options: XlsxMeasureOptions<'_>,
+) -> Result<XlsxMeasure, RunError> {
     let XlsxMeasureOptions { source_path, scratch, timeout, cancel } = options;
     lanes.write_file(source_path, html.as_bytes().to_vec()).await?;
     let browser = HtmlBrowser::launch(endpoint).await?;

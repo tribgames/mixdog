@@ -264,16 +264,10 @@ mod tests {
         assert!(blockers.join(" ").contains("page 1: hierarchy, legibility not passed"));
         let mut old = scored(5);
         old["reviewToken"] = json!("old");
-        assert_eq!(
-            review_document_pages("docx", &old, &state()).expect("review")["blockers"],
-            json!(["reviewToken is not the current render token"])
-        );
+        assert_eq!(review_document_pages("docx", &old, &state()).expect("review")["blockers"], json!(["reviewToken is not the current render token"]));
         let mut unreviewed = scored(5);
         unreviewed["reviewed"] = json!(false);
-        assert_eq!(
-            review_document_pages("docx", &unreviewed, &state()).expect("review")["blockers"],
-            json!(["design.reviewed is not true"])
-        );
+        assert_eq!(review_document_pages("docx", &unreviewed, &state()).expect("review")["blockers"], json!(["design.reviewed is not true"]));
         let one = json!({ "reviewed": true, "reviewToken": "current", "critique": [{ "page": 1, "verdict": "pass", "note": "ok" }] });
         let short = review_document_pages("pdf", &one, &state()).expect("review");
         assert_eq!(short["blockers"][0], "1 critique entries for 2 rendered pages");

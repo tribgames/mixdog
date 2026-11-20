@@ -23,9 +23,7 @@ impl Default for RunningWork {
 
 impl RunningWork {
     pub fn new() -> Self {
-        Self {
-            changed: Arc::new(watch::channel(0).0),
-        }
+        Self { changed: Arc::new(watch::channel(0).0) }
     }
 
     /// Registers one unit of running work until the guard drops.

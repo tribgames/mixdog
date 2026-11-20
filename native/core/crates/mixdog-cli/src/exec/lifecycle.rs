@@ -121,9 +121,7 @@ pub struct Lifecycle {
 }
 
 fn iso(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .expect("a millisecond clock value is a date")
-        .to_rfc3339_opts(SecondsFormat::Millis, true)
+    chrono::DateTime::from_timestamp_millis(ms).expect("a millisecond clock value is a date").to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 fn count(value: u64) -> Value {
@@ -296,11 +294,7 @@ impl Lifecycle {
         let started_at = (self.now)();
         self.provider_request_count += 1;
         let request = Request { id: format!("model_request_{}", self.provider_request_count), index: self.provider_request_count, started_at };
-        self.turn_event(
-            "model.request.started",
-            vec![("request_id", json!(request.id)), ("request_index", count(request.index))],
-            started_at,
-        );
+        self.turn_event("model.request.started", vec![("request_id", json!(request.id)), ("request_index", count(request.index))], started_at);
         self.active_request = Some(request);
     }
 
@@ -308,11 +302,7 @@ impl Lifecycle {
         let Some(request) = self.active_request.take() else { return };
         let duration = (at - request.started_at).max(0) as f64;
         self.provider_duration_ms += duration;
-        let mut fields = vec![
-            ("request_id", json!(request.id)),
-            ("request_index", count(request.index)),
-            ("duration_ms", js_number(duration)),
-        ];
+        let mut fields = vec![("request_id", json!(request.id)), ("request_index", count(request.index)), ("duration_ms", js_number(duration))];
         if let Some(delta) = delta {
             fields.push(("usage", usage_delta_summary(delta)));
         }
@@ -353,12 +343,7 @@ impl Lifecycle {
     }
 
     fn tool_item(entry: &ToolEntry, fields: Vec<(&str, Value)>) -> Value {
-        let mut item = object(vec![
-            ("id", json!(entry.id)),
-            ("type", json!("tool_call")),
-            ("name", json!(entry.name)),
-            ("arguments", entry.arguments.clone()),
-        ]);
+        let mut item = object(vec![("id", json!(entry.id)), ("type", json!("tool_call")), ("name", json!(entry.name)), ("arguments", entry.arguments.clone())]);
         item.extend(object(fields));
         Value::Object(item)
     }
@@ -428,14 +413,15 @@ impl Lifecycle {
 
     pub fn on_tool_batch_completed(&mut self, iteration: f64, calls: f64, elapsed_ms: Option<f64>) {
         let completed_at = (self.now)();
-        let batch = self.active_batch.take().unwrap_or_else(|| Batch { id: format!("tool_batch_{}", self.provider_request_count.max(1)), started_at: completed_at });
+        let batch =
+            self.active_batch.take().unwrap_or_else(|| Batch { id: format!("tool_batch_{}", self.provider_request_count.max(1)), started_at: completed_at });
         self.turn_event(
             "tool.batch.completed",
             vec![
                 ("batch_id", json!(batch.id)),
                 ("iteration", js_number(non_negative(iteration))),
                 ("calls", js_number(non_negative(calls))),
-                ("duration_ms", js_number(non_negative(elapsed_ms.unwrap_or((completed_at - batch.started_at) as f64))))
+                ("duration_ms", js_number(non_negative(elapsed_ms.unwrap_or((completed_at - batch.started_at) as f64)))),
             ],
             completed_at,
         );
@@ -525,11 +511,7 @@ impl Lifecycle {
             termination == Some("refusal"),
             duration_ms,
             usage,
-            vec![
-                ("result", json!(text)),
-                ("stop_reason", json!(result.stop_reason)),
-                ("termination_reason", json!(termination)),
-            ],
+            vec![("result", json!(text)), ("stop_reason", json!(result.stop_reason)), ("termination_reason", json!(termination))],
             completed_at,
         );
     }
@@ -548,14 +530,7 @@ impl Lifecycle {
             ],
             completed_at,
         );
-        self.result_event(
-            "error_during_execution",
-            true,
-            duration_ms,
-            usage,
-            vec![("stop_reason", Value::Null), ("errors", json!([message]))],
-            completed_at,
-        );
+        self.result_event("error_during_execution", true, duration_ms, usage, vec![("stop_reason", Value::Null), ("errors", json!([message]))], completed_at);
     }
 }
 

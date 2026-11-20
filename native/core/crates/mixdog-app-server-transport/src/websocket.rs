@@ -61,10 +61,7 @@ pub const WINDOW_ROLE_HEADER: &str = "Mixdog-Window-Role";
 
 /// `^[A-Za-z0-9._:-]{1,128}$`, the shape of a window id and of a server connection id.
 fn is_window_token(value: &str) -> bool {
-    (1..=128).contains(&value.len())
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+    (1..=128).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
 }
 
 /// The single value of header `name`: `Ok(None)` when absent, `Err` when repeated or not text.
@@ -98,9 +95,7 @@ pub struct BearerAuth {
 
 impl BearerAuth {
     pub fn new(token: impl AsRef<[u8]>) -> Self {
-        Self {
-            token: Arc::from(token.as_ref()),
-        }
+        Self { token: Arc::from(token.as_ref()) }
     }
 
     fn accepts(&self, authorization: &str) -> bool {
@@ -159,12 +154,7 @@ pub struct WebSocketListener {
 
 impl WebSocketListener {
     /// Binds `addr` (loopback only) and starts accepting on RT-C.
-    pub async fn bind(
-        addr: SocketAddr,
-        hub: ConnectionHub,
-        auth: BearerAuth,
-        origin: ListenerOrigin,
-    ) -> Result<Self, ListenError> {
+    pub async fn bind(addr: SocketAddr, hub: ConnectionHub, auth: BearerAuth, origin: ListenerOrigin) -> Result<Self, ListenError> {
         if !addr.ip().is_loopback() {
             return Err(ListenError::NotLoopback(addr));
         }
@@ -172,29 +162,13 @@ impl WebSocketListener {
         let addr = listener.local_addr()?;
         // A host-role connection may send a media frame; text is bounded by the reader.
         let limits = hub.limits();
-        let message_bound = (limits.max_media_frame_bytes as usize + MEDIA_HEADER_ROOM)
-            .max(limits.max_inbound_frame_bytes as usize);
-        let websocket = WebSocketConfig::default()
-            .max_message_size(Some(message_bound))
-            .max_frame_size(Some(message_bound));
-        let context = Arc::new(Context {
-            hub,
-            auth,
-            origin: origin.into(),
-            websocket,
-        });
+        let message_bound = (limits.max_media_frame_bytes as usize + MEDIA_HEADER_ROOM).max(limits.max_inbound_frame_bytes as usize);
+        let websocket = WebSocketConfig::default().max_message_size(Some(message_bound)).max_frame_size(Some(message_bound));
+        let context = Arc::new(Context { hub, auth, origin: origin.into(), websocket });
         let (accepted_tx, accepted) = mpsc::channel(ACCEPT_QUEUE);
         let stop = CancellationToken::new();
-        mixdog_rt::spawn(
-            "transport.ws.accept",
-            TaskClass::Control,
-            accept_loop(listener, context, accepted_tx, stop.clone()),
-        );
-        Ok(Self {
-            addr,
-            accepted,
-            stop,
-        })
+        mixdog_rt::spawn("transport.ws.accept", TaskClass::Control, accept_loop(listener, context, accepted_tx, stop.clone()));
+        Ok(Self { addr, accepted, stop })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -219,12 +193,7 @@ impl Transport for WebSocketListener {
     }
 }
 
-async fn accept_loop(
-    listener: TcpListener,
-    context: Arc<Context>,
-    accepted: mpsc::Sender<AcceptedConnection>,
-    stop: CancellationToken,
-) {
+async fn accept_loop(listener: TcpListener, context: Arc<Context>, accepted: mpsc::Sender<AcceptedConnection>, stop: CancellationToken) {
     loop {
         let stream = tokio::select! {
             () = stop.cancelled() => return,
@@ -253,11 +222,7 @@ async fn accept_loop(
     }
 }
 
-async fn upgrade(
-    stream: TcpStream,
-    pending: Pending,
-    context: &Context,
-) -> Option<AcceptedConnection> {
+async fn upgrade(stream: TcpStream, pending: Pending, context: &Context) -> Option<AcceptedConnection> {
     if let Err(error) = stream.set_nodelay(true) {
         tracing::debug!(%error, "set_nodelay failed");
     }
@@ -317,11 +282,7 @@ impl UpgradeScreen<'_> {
         if request.headers().contains_key(header::ORIGIN) {
             return Err(Box::new(refusal(StatusCode::FORBIDDEN, "originRefused")));
         }
-        let authorized = request
-            .headers()
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| context.auth.accepts(value));
+        let authorized = request.headers().get(header::AUTHORIZATION).and_then(|value| value.to_str().ok()).is_some_and(|value| context.auth.accepts(value));
         if !authorized {
             return Err(Box::new(refusal(StatusCode::UNAUTHORIZED, "unauthorized")));
         }
@@ -345,9 +306,7 @@ impl UpgradeScreen<'_> {
             let role = match role {
                 None | Some("main") => WindowRole::Main,
                 Some(role) => match role.strip_prefix("server:").filter(|id| is_window_token(id)) {
-                    Some(id) => WindowRole::Server {
-                        connection_id: id.to_owned(),
-                    },
+                    Some(id) => WindowRole::Server { connection_id: id.to_owned() },
                     None => return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"))),
                 },
             };
@@ -382,10 +341,7 @@ impl UpgradeScreen<'_> {
 fn refusal(status: StatusCode, reason: &str) -> ErrorResponse {
     let mut response = ErrorResponse::new(Some(format!("{{\"reason\":\"{reason}\"}}")));
     *response.status_mut() = status;
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("application/json"),
-    );
+    response.headers_mut().insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
     response
 }
 
@@ -400,9 +356,7 @@ impl SocketRead for WsRead {
             Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_)) => Incoming::Activity,
             Ok(Message::Close(_)) => Incoming::Close,
             Err(WsError::Capacity(_)) => Incoming::Fault(CloseCode::FrameTooBig),
-            Err(WsError::Utf8(_) | WsError::Protocol(_)) => {
-                Incoming::Fault(CloseCode::InvalidFrame)
-            }
+            Err(WsError::Utf8(_) | WsError::Protocol(_)) => Incoming::Fault(CloseCode::InvalidFrame),
             Err(_) => return None,
         })
     }
@@ -417,27 +371,15 @@ impl SocketWrite for WsWrite {
             tracing::error!("outbound text frame is not UTF-8");
             return Err(SocketClosed);
         };
-        self.0
-            .send(Message::Text(text))
-            .await
-            .map_err(|_| SocketClosed)
+        self.0.send(Message::Text(text)).await.map_err(|_| SocketClosed)
     }
 
     async fn ping(&mut self) -> Result<(), SocketClosed> {
-        self.0
-            .send(Message::Ping(Bytes::new()))
-            .await
-            .map_err(|_| SocketClosed)
+        self.0.send(Message::Ping(Bytes::new())).await.map_err(|_| SocketClosed)
     }
 
     async fn close(&mut self, code: CloseCode) -> Result<(), SocketClosed> {
-        let frame = CloseFrame {
-            code: WsCloseCode::from(code.code()),
-            reason: Utf8Bytes::from_static(code.reason()),
-        };
-        self.0
-            .send(Message::Close(Some(frame)))
-            .await
-            .map_err(|_| SocketClosed)
+        let frame = CloseFrame { code: WsCloseCode::from(code.code()), reason: Utf8Bytes::from_static(code.reason()) };
+        self.0.send(Message::Close(Some(frame))).await.map_err(|_| SocketClosed)
     }
 }

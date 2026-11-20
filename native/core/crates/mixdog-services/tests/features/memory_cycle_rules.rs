@@ -6,8 +6,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_services::memory::cycles::quality::{
-    Generation, Row, assess_chunk_quality, build_cycle1_chunk_prompt, chunk_source_text, cycle1_source_budget, generate_cycle1_chunks,
-    make_chunk_quality, partition_cycle1_rows, split_cycle1_row,
+    Generation, Row, assess_chunk_quality, build_cycle1_chunk_prompt, chunk_source_text, cycle1_source_budget, generate_cycle1_chunks, make_chunk_quality,
+    partition_cycle1_rows, split_cycle1_row,
 };
 use mixdog_services::memory::cycles::requests::{resolve_coalesce_max_drains_in, resolve_coalesce_max_retries_in, resolve_coalesce_retry_delay_ms_in};
 use mixdog_services::memory::cycles::rows::{PlanOptions, cycle1_row_due_sql, cycle1_unchunked_sql, resolve_cycle1_plan, select_root_id};
@@ -50,7 +50,11 @@ fn a_coalescing_limit_is_rounded_down_and_kept_in_its_range() {
     assert_eq!(resolve_coalesce_max_retries_in(&no_env, &json!({}), 3.0), 3.0);
     assert_eq!(resolve_coalesce_retry_delay_ms_in(&no_env, &json!({ "coalesce_retry_delay_ms": 1 }), 500.0), 50.0);
     assert_eq!(resolve_coalesce_retry_delay_ms_in(&no_env, &json!({ "coalesce_retry_delay_ms": 999999 }), 500.0), 60_000.0);
-    assert_eq!(resolve_coalesce_retry_delay_ms_in(&no_env, &json!({ "retry_delay_ms": 1 }), 500.0), 500.0, "only the nested spelling is `coalesce.retry_delay_ms`");
+    assert_eq!(
+        resolve_coalesce_retry_delay_ms_in(&no_env, &json!({ "retry_delay_ms": 1 }), 500.0),
+        500.0,
+        "only the nested spelling is `coalesce.retry_delay_ms`"
+    );
 }
 
 // ---- the plan and the sql ----
@@ -62,7 +66,10 @@ fn an_empty_config_plans_the_defaults() {
         [plan.window_size, plan.max_packets, plan.rows_per_session, plan.min_batch, plan.session_cap, plan.backfill_cap],
         [50.0, 4.0, 100.0, 3.0, 10.0, 3.0]
     );
-    assert_eq!([plan.session_quiet_ms, plan.session_force_age_ms, plan.timeout, plan.input_token_budget, plan.concurrency], [900_000.0, 7_200_000.0, 180_000.0, 16_000.0, 4.0]);
+    assert_eq!(
+        [plan.session_quiet_ms, plan.session_force_age_ms, plan.timeout, plan.input_token_budget, plan.concurrency],
+        [900_000.0, 7_200_000.0, 180_000.0, 16_000.0, 4.0]
+    );
     assert_eq!(plan.only_session_id, "");
     assert_eq!(plan.preset, None);
 }
@@ -71,7 +78,8 @@ fn an_empty_config_plans_the_defaults() {
 fn the_batch_size_sets_the_window_and_the_caps_are_kept_in_range() {
     let plan = resolve_cycle1_plan(&json!({ "batch_size": 20, "max_packets": 9, "session_cap": 2, "cycle1_concurrency": 0 }), &PlanOptions::default(), None);
     assert_eq!((plan.window_size, plan.rows_per_session, plan.max_packets, plan.backfill_cap, plan.concurrency), (20.0, 20.0, 4.0, 1.0, 1.0));
-    let camel = resolve_cycle1_plan(&json!({ "windowSize": 7, "rowsPerSession": 30, "sessionQuietMs": 0, "sessionId": "  abc " }), &PlanOptions::default(), None);
+    let camel =
+        resolve_cycle1_plan(&json!({ "windowSize": 7, "rowsPerSession": 30, "sessionQuietMs": 0, "sessionId": "  abc " }), &PlanOptions::default(), None);
     assert_eq!((camel.window_size, camel.rows_per_session, camel.session_quiet_ms), (7.0, 30.0, 0.0));
     assert_eq!(camel.only_session_id, "abc");
 }
@@ -119,7 +127,11 @@ fn sessions_are_packed_into_windows_one_packet_of_each_in_turn_newest_rows_first
     let sessions = [session("a", 1, 3), session("b", 11, 3)];
     assert_eq!(ids(&pack_cycle1_windows(&sessions, 2.0, 4.0, 16_000.0).unwrap()), [vec![3, 2], vec![13, 12], vec![1], vec![11]]);
     assert_eq!(ids(&pack_cycle1_windows(&sessions, 2.0, 2.0, 16_000.0).unwrap()), [vec![3, 2], vec![13, 12]], "no more windows than the cap");
-    assert_eq!(ids(&pack_cycle1_windows(&sessions, f64::NAN, f64::NAN, 16_000.0).unwrap()), [vec![3, 2, 1], vec![13, 12, 11]], "the defaults are 50 rows and 4 windows");
+    assert_eq!(
+        ids(&pack_cycle1_windows(&sessions, f64::NAN, f64::NAN, 16_000.0).unwrap()),
+        [vec![3, 2, 1], vec![13, 12, 11]],
+        "the defaults are 50 rows and 4 windows"
+    );
 }
 
 #[test]
@@ -219,7 +231,11 @@ fn a_quality_record_names_its_members_sorted_as_text_and_hashes_source_and_summa
     assert_eq!(record["verifiedAt"], 1_800_000_000_000_i64);
     assert_eq!(record["sourceHash"].as_str().unwrap().len(), 64);
     assert_eq!(record["summaryHash"], make_chunk_quality("요약", &members(), 0)["summaryHash"], "the summary is trimmed first");
-    assert_eq!(record["sourceHash"], make_chunk_quality("요약", &[members()[1].clone(), members()[0].clone()], 0)["sourceHash"], "the order of the members does not matter");
+    assert_eq!(
+        record["sourceHash"],
+        make_chunk_quality("요약", &[members()[1].clone(), members()[0].clone()], 0)["sourceHash"],
+        "the order of the members does not matter"
+    );
     let mut changed = members();
     changed[0].content.push('다');
     assert_ne!(record["sourceHash"], make_chunk_quality("요약", &changed, 0)["sourceHash"]);
@@ -408,7 +424,9 @@ async fn a_cancelled_generation_is_cancelled_and_a_budget_under_4096_is_refused(
     let cancel = CancellationToken::new();
     cancel.cancel();
     let rows = source();
-    assert!(generate_cycle1_chunks(&rows, &Generation { llm: &llm, request: &request, cancel: &cancel, input_token_budget: 16_000.0, now: &now }).await.is_err());
+    assert!(
+        generate_cycle1_chunks(&rows, &Generation { llm: &llm, request: &request, cancel: &cancel, input_token_budget: 16_000.0, now: &now }).await.is_err()
+    );
     assert!(llm.prompts.lock().unwrap().is_empty(), "nothing is sent once cancelled");
     let live = CancellationToken::new();
     assert!(generate_cycle1_chunks(&rows, &Generation { llm: &llm, request: &request, cancel: &live, input_token_budget: 100.0, now: &now }).await.is_err());

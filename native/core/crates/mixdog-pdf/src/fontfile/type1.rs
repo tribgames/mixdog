@@ -78,15 +78,8 @@ impl Type1Font {
             Some(glyphs) => glyphs,
             None => parse_type1(&mut file, properties)?,
         };
-        let seacs = glyphs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, g)| g.seac.clone().map(|s| (i + 1, s)))
-            .collect();
-        Ok(Type1Font {
-            charstrings: glyphs,
-            seacs,
-        })
+        let seacs = glyphs.iter().enumerate().filter_map(|(i, g)| g.seac.clone().map(|s| (i + 1, s))).collect();
+        Ok(Type1Font { charstrings: glyphs, seacs })
     }
 
     /// `numGlyphs`.
@@ -114,13 +107,8 @@ impl Type1Font {
 
     /// The composite branch of `Type1Font.getGlyphMapping`: character code to glyph id (`glyphId + 1`).
     /// `char_code_of` is `cMap.charCodeOf`.
-    pub fn composite_glyph_mapping(
-        &self,
-        char_code_of: impl Fn(u32) -> i64,
-    ) -> BTreeMap<i64, usize> {
-        (0..self.charstrings.len())
-            .map(|glyph_id| (char_code_of(glyph_id as u32), glyph_id + 1))
-            .collect()
+    pub fn composite_glyph_mapping(&self, char_code_of: impl Fn(u32) -> i64) -> BTreeMap<i64, usize> {
+        (0..self.charstrings.len()).map(|glyph_id| (char_code_of(glyph_id as u32), glyph_id + 1)).collect()
     }
 
     /// The first part of the simple branch of `Type1Font.getGlyphMapping`: the glyph id of each name of the
@@ -134,12 +122,7 @@ impl Type1Font {
                 first_id.entry(name).or_insert(i + 1);
             }
         }
-        Some(
-            encoding
-                .iter()
-                .filter_map(|(&code, name)| first_id.get(name.as_str()).map(|&id| (code, id)))
-                .collect(),
-        )
+        Some(encoding.iter().filter_map(|(&code, name)| first_id.get(name.as_str()).map(|&id| (code, id))).collect())
     }
 }
 
@@ -165,10 +148,7 @@ impl Stream {
         if self.pos >= self.end() {
             return -1;
         }
-        let byte = usize::try_from(self.pos)
-            .ok()
-            .and_then(|p| self.bytes.get(p))
-            .map_or(-1, |&b| i32::from(b));
+        let byte = usize::try_from(self.pos).ok().and_then(|p| self.bytes.get(p)).map_or(-1, |&b| i32::from(b));
         self.pos += 1;
         byte
     }
@@ -183,11 +163,7 @@ impl Stream {
         self.pos = end_pos;
         let from = pos.clamp(0, self.end()) as usize;
         let to = end_pos.clamp(0, self.end()) as usize;
-        if to <= from {
-            Vec::new()
-        } else {
-            self.bytes[from..to].to_vec()
-        }
+        if to <= from { Vec::new() } else { self.bytes[from..to].to_vec() }
     }
 
     /// `peekBytes(length)`.
@@ -307,16 +283,9 @@ struct CharString {
 
 impl CharString {
     /// `convert`: `Ok(true)` is pdf.js's `error`.
-    fn convert(
-        &mut self,
-        encoded: &[u8],
-        subrs: &BTreeMap<i32, Vec<u8>>,
-        depth: usize,
-    ) -> Result<bool> {
+    fn convert(&mut self, encoded: &[u8], subrs: &BTreeMap<i32, Vec<u8>>, depth: usize) -> Result<bool> {
         if depth > MAX_CHARSTRING_DEPTH {
-            return Err(PdfError::Unknown(
-                "RangeError: Maximum call stack size exceeded".to_owned(),
-            ));
+            return Err(PdfError::Unknown("RangeError: Maximum call stack size exceeded".to_owned()));
         }
         let count = encoded.len();
         let mut error = false;
@@ -388,11 +357,7 @@ impl CharString {
                     30 | 31 => error = self.execute_command(4, false),
                     0x0c06 => {
                         let len = self.stack.len();
-                        let asb = if len >= 5 {
-                            self.stack[len - 5]
-                        } else {
-                            f64::NAN
-                        };
+                        let asb = if len >= 5 { self.stack[len - 5] } else { f64::NAN };
                         let mut seac = self.stack.split_off(len.saturating_sub(4));
                         if seac.is_empty() {
                             seac.push(f64::NAN);
@@ -534,16 +499,9 @@ impl Type1Parser {
             let at = |i: usize| data.get(i).map(|&b| i32::from(b));
             let first_ok = is_hex_digit(at(0)) || at(0).is_some_and(is_white_space);
             let is_binary = !(first_ok && (1..8).all(|i| is_hex_digit(at(i))));
-            stream = Stream::new(if is_binary {
-                decrypt(&data, EEXEC_ENCRYPT_KEY, 4)
-            } else {
-                decrypt_ascii(&data, EEXEC_ENCRYPT_KEY, 4)
-            });
+            stream = Stream::new(if is_binary { decrypt(&data, EEXEC_ENCRYPT_KEY, 4) } else { decrypt_ascii(&data, EEXEC_ENCRYPT_KEY, 4) });
         }
-        let mut parser = Type1Parser {
-            stream,
-            current_char: -1,
-        };
+        let mut parser = Type1Parser { stream, current_char: -1 };
         parser.next_char();
         parser
     }
@@ -627,8 +585,7 @@ impl Type1Parser {
     /// reads from the stream, and the value of `lenIV`.
     fn read_private_entry(&mut self, token: &str, len_iv: &mut f64) {
         match token {
-            "BlueValues" | "OtherBlues" | "FamilyBlues" | "FamilyOtherBlues" | "StemSnapH"
-            | "StemSnapV" | "StdHW" | "StdVW" => {
+            "BlueValues" | "OtherBlues" | "FamilyBlues" | "FamilyOtherBlues" | "StemSnapH" | "StemSnapV" | "StdHW" | "StdVW" => {
                 self.read_number_array();
             }
             "lenIV" => *len_iv = self.read_number(),
@@ -643,10 +600,7 @@ impl Type1Parser {
     }
 
     /// `extractFontProgram`: the glyphs of an `eexec` section.
-    fn extract_font_program(
-        &mut self,
-        properties: &mut Type1Properties,
-    ) -> Result<Vec<Type1Glyph>> {
+    fn extract_font_program(&mut self, properties: &mut Type1Properties) -> Result<Vec<Type1Glyph>> {
         let mut subrs: BTreeMap<i32, Vec<u8>> = BTreeMap::new();
         let mut found: Vec<FoundCharString> = Vec::new();
         let mut len_iv = 4.0f64;
@@ -737,10 +691,7 @@ impl Type1Parser {
                 && let Some((&index, _)) = encoding.iter().find(|(_, n)| n.as_str() == name)
             {
                 let index = i64::from(index);
-                if !properties.widths.contains_key(&index)
-                    && index >= properties.first_char
-                    && index <= properties.last_char
-                {
+                if !properties.widths.contains_key(&index) && index >= properties.first_char && index <= properties.last_char {
                     properties.widths.insert(index, charstring.width);
                 }
             }
@@ -750,19 +701,12 @@ impl Type1Parser {
 
     /// `length > 0 ? stream.getBytes(length) : new Uint8Array(0)`.
     fn read_bytes(&mut self, length: i32) -> Vec<u8> {
-        if length > 0 {
-            self.stream.get_bytes(Some(f64::from(length)))
-        } else {
-            Vec::new()
-        }
+        if length > 0 { self.stream.get_bytes(Some(f64::from(length))) } else { Vec::new() }
     }
 
     /// `extractCidKeyedFontProgram`: the glyphs of a CID-keyed Type 1 file, `None` where the file is not one this
     /// layout can be read from.
-    fn extract_cid_keyed_font_program(
-        &mut self,
-        properties: &mut Type1Properties,
-    ) -> Result<Option<Vec<Type1Glyph>>> {
+    fn extract_cid_keyed_font_program(&mut self, properties: &mut Type1Properties) -> Result<Option<Vec<Type1Glyph>>> {
         let mut len_iv = 4.0f64;
         let mut cid_count: i64 = 0;
         let mut cid_map_offset: i64 = -1;
@@ -782,22 +726,14 @@ impl Type1Parser {
             }
         }
         fn from_end(previous: &[Option<String>], n: usize) -> Option<&str> {
-            previous
-                .len()
-                .checked_sub(n)
-                .and_then(|at| previous[at].as_deref())
+            previous.len().checked_sub(n).and_then(|at| previous[at].as_deref())
         }
         while let Some(token) = self.get_token() {
             if token == "StartData" {
                 let data_type = from_end(&previous, 3);
                 let data_length = from_end(&previous, 1);
-                let digits = data_length
-                    .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
-                if from_end(&previous, 4) != Some("(")
-                    || from_end(&previous, 2) != Some(")")
-                    || !matches!(data_type, Some("Binary" | "Hex"))
-                    || !digits
-                {
+                let digits = data_length.is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
+                if from_end(&previous, 4) != Some("(") || from_end(&previous, 2) != Some(")") || !matches!(data_type, Some("Binary" | "Hex")) || !digits {
                     return Ok(None);
                 }
                 start_data_length = js_parse_int(data_length.unwrap_or("0"));
@@ -831,12 +767,7 @@ impl Type1Parser {
                 None => {}
             }
         }
-        if !found_start_data
-            || cid_count <= 0
-            || cid_map_offset < 0
-            || !(0..=4).contains(&fd_bytes)
-            || !(1..=4).contains(&gd_bytes)
-        {
+        if !found_start_data || cid_count <= 0 || cid_map_offset < 0 || !(0..=4).contains(&fd_bytes) || !(1..=4).contains(&gd_bytes) {
             return Ok(None);
         }
         let max_length = (self.stream.end() - self.stream.pos) as f64;
@@ -847,11 +778,7 @@ impl Type1Parser {
                 return Ok(None);
             }
         }
-        let mut binary = self.stream.get_bytes(if start_data_is_hex {
-            None
-        } else {
-            Some(start_data_length)
-        });
+        let mut binary = self.stream.get_bytes(if start_data_is_hex { None } else { Some(start_data_length) });
         if start_data_is_hex {
             let wanted = start_data_length as usize;
             let mut decoded = vec![0u8; wanted];
@@ -882,20 +809,13 @@ impl Type1Parser {
         let read_uint = |offset: i64, byte_count: i64| -> i64 {
             let mut n: u32 = 0;
             for i in 0..byte_count {
-                let b = usize::try_from(offset + i)
-                    .ok()
-                    .and_then(|p| binary.get(p))
-                    .copied()
-                    .unwrap_or(0);
+                let b = usize::try_from(offset + i).ok().and_then(|p| binary.get(p)).copied().unwrap_or(0);
                 n = (n << 8) | u32::from(b);
             }
             i64::from(n)
         };
         if cid_map_offset + (cid_count + 1) * cid_entry_size > binary_len
-            || (subr_count > 0
-                && (subr_map_offset < 0
-                    || !(1..=4).contains(&sd_bytes)
-                    || subr_map_offset + (subr_count + 1) * sd_bytes > binary_len))
+            || (subr_count > 0 && (subr_map_offset < 0 || !(1..=4).contains(&sd_bytes) || subr_map_offset + (subr_count + 1) * sd_bytes > binary_len))
         {
             return Ok(None);
         }
@@ -908,41 +828,24 @@ impl Type1Parser {
         }
         let mut subrs: Vec<Vec<u8>> = Vec::new();
         if subr_count > 0 {
-            let offsets: Vec<i64> = (0..=subr_count)
-                .map(|i| read_uint(subr_map_offset + i * sd_bytes, sd_bytes))
-                .collect();
+            let offsets: Vec<i64> = (0..=subr_count).map(|i| read_uint(subr_map_offset + i * sd_bytes, sd_bytes)).collect();
             for i in 0..subr_count as usize {
                 let (start, end) = (offsets[i], offsets[i + 1]);
                 if end > binary_len || end < start {
                     subrs.push(Vec::new());
                     continue;
                 }
-                subrs.push(read_char_strings(
-                    &binary[start as usize..end as usize],
-                    len_iv,
-                ));
+                subrs.push(read_char_strings(&binary[start as usize..end as usize], len_iv));
             }
         }
-        let subr_map: BTreeMap<i32, Vec<u8>> = subrs
-            .into_iter()
-            .enumerate()
-            .map(|(i, s)| (i as i32, s))
-            .collect();
+        let subr_map: BTreeMap<i32, Vec<u8>> = subrs.into_iter().enumerate().map(|(i, s)| (i as i32, s)).collect();
         let mut glyphs: Vec<Type1Glyph> = Vec::new();
         let mut prev_offset = read_uint(cid_map_offset + fd_bytes, gd_bytes);
         for cid in 0..cid_count {
-            let next_offset = read_uint(
-                cid_map_offset + (cid + 1) * cid_entry_size + fd_bytes,
-                gd_bytes,
-            );
-            let glyph_name = if cid == 0 {
-                ".notdef".to_owned()
-            } else {
-                format!("cid{cid}")
-            };
+            let next_offset = read_uint(cid_map_offset + (cid + 1) * cid_entry_size + fd_bytes, gd_bytes);
+            let glyph_name = if cid == 0 { ".notdef".to_owned() } else { format!("cid{cid}") };
             if next_offset > prev_offset && next_offset <= binary_len {
-                let encoded =
-                    read_char_strings(&binary[prev_offset as usize..next_offset as usize], len_iv);
+                let encoded = read_char_strings(&binary[prev_offset as usize..next_offset as usize], len_iv);
                 let mut charstring = CharString::default();
                 // A runaway recursion here is the exception pdf.js throws, which fails the whole file.
                 let error = charstring.convert(&encoded, &subr_map, 0)?;
@@ -954,18 +857,10 @@ impl Type1Parser {
                     has_charstring: error || charstring.has_output,
                 });
             } else {
-                let (width, lsb) = glyphs
-                    .first()
-                    .map_or((0.0, 0.0), |g| (or_zero(g.width), or_zero(g.lsb)));
+                let (width, lsb) = glyphs.first().map_or((0.0, 0.0), |g| (or_zero(g.width), or_zero(g.lsb)));
                 // `notDef?.charstring.slice() || [0x8b, 0x0e]`: a copy of glyph 0's charstring, empty when that is.
                 let has_charstring = glyphs.first().is_none_or(|g| g.has_charstring);
-                glyphs.push(Type1Glyph {
-                    glyph_name: Some(glyph_name),
-                    width,
-                    lsb,
-                    seac: None,
-                    has_charstring,
-                });
+                glyphs.push(Type1Glyph { glyph_name: Some(glyph_name), width, lsb, seac: None, has_charstring });
             }
             prev_offset = next_offset;
         }
@@ -989,9 +884,7 @@ impl Type1Parser {
                             self.get_token();
                             for _ in 0..size {
                                 let mut token = self.get_token();
-                                while token.as_deref() != Some("dup")
-                                    && token.as_deref() != Some("def")
-                                {
+                                while token.as_deref() != Some("dup") && token.as_deref() != Some("def") {
                                     token = self.get_token();
                                     if token.is_none() {
                                         return;
@@ -1010,13 +903,9 @@ impl Type1Parser {
                             }
                             Some(encoding)
                         }
-                        Some(name) => get_encoding(name).map(|table| {
-                            table
-                                .iter()
-                                .enumerate()
-                                .map(|(code, glyph)| (code as u32, (*glyph).to_owned()))
-                                .collect()
-                        }),
+                        Some(name) => {
+                            get_encoding(name).map(|table| table.iter().enumerate().map(|(code, glyph)| (code as u32, (*glyph).to_owned())).collect())
+                        }
                         None => None,
                     };
                     properties.built_in_encoding = encoding;
@@ -1035,26 +924,14 @@ impl Type1Parser {
 fn set_ascent_descent(properties: &mut Type1Properties, bbox: &[f64]) {
     let at = |i: usize| bbox.get(i).copied().unwrap_or(f64::NAN);
     let (a, b) = (at(3), at(1));
-    properties.ascent = Some(if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        a.max(b)
-    });
-    properties.descent = Some(if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else {
-        b.min(a)
-    });
+    properties.ascent = Some(if a.is_nan() || b.is_nan() { f64::NAN } else { a.max(b) });
+    properties.descent = Some(if a.is_nan() || b.is_nan() { f64::NAN } else { b.min(a) });
     properties.ascent_scaled = true;
 }
 
 /// `value || 0`.
 fn or_zero(value: f64) -> f64 {
-    if value == 0.0 || value.is_nan() {
-        0.0
-    } else {
-        value
-    }
+    if value == 0.0 || value.is_nan() { 0.0 } else { value }
 }
 
 // ---- the file layout ----------------------------------------------------------------------------------------------
@@ -1070,12 +947,7 @@ fn find_block(stream_bytes: &[u8], signature: &[u8], start_index: i64) -> (bool,
     let mut found = false;
     while i < scan_length {
         let mut j = 0;
-        while j < signature_length
-            && usize::try_from(i + j)
-                .ok()
-                .and_then(|p| stream_bytes.get(p))
-                .is_some_and(|&b| b == signature[j as usize])
-        {
+        while j < signature_length && usize::try_from(i + j).ok().and_then(|p| stream_bytes.get(p)).is_some_and(|&b| b == signature[j as usize]) {
             j += 1;
         }
         if j >= signature_length {
@@ -1097,11 +969,7 @@ fn get_header_block(stream: &mut Stream, suggested_length: Option<f64>) -> Strea
     let header_bytes = stream.get_bytes(suggested_length);
     let header_len = header_bytes.len() as f64;
     if suggested_length == Some(header_len) {
-        let (found, length) = find_block(
-            &header_bytes,
-            &EEXEC_SIGNATURE,
-            header_bytes.len() as i64 - 2 * EEXEC_SIGNATURE.len() as i64,
-        );
+        let (found, length) = find_block(&header_bytes, &EEXEC_SIGNATURE, header_bytes.len() as i64 - 2 * EEXEC_SIGNATURE.len() as i64);
         if found && length == header_bytes.len() as i64 {
             return Stream::new(header_bytes);
         }
@@ -1134,9 +1002,7 @@ fn get_header_block(stream: &mut Stream, suggested_length: Option<f64>) -> Strea
 fn get_eexec_block(stream: &mut Stream) -> Result<Stream> {
     let eexec_bytes = stream.get_bytes(None);
     if eexec_bytes.is_empty() {
-        return Err(PdfError::Format(
-            "getEexecBlock - no font program found.".to_owned(),
-        ));
+        return Err(PdfError::Format("getEexecBlock - no font program found.".to_owned()));
     }
     Ok(Stream::new(eexec_bytes))
 }
@@ -1157,8 +1023,7 @@ fn is_cid_keyed_type1_file(file: &Stream) -> bool {
     while let Some(found) = text[from..].find("/CIDFontType") {
         let mut at = from + found + "/CIDFontType".len();
         let spaces_from = at;
-        let is_space =
-            |c: char| matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}');
+        let is_space = |c: char| matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}');
         while text[at..].chars().next().is_some_and(is_space) {
             at += text[at..].chars().next().map_or(1, char::len_utf8);
         }
@@ -1199,16 +1064,10 @@ fn parse_type1(file: &mut Stream, properties: &mut Type1Properties) -> Result<Ve
 }
 
 /// `Type1Font.#parseCidKeyedType1`.
-fn parse_cid_keyed_type1(
-    file: &Stream,
-    properties: &mut Type1Properties,
-) -> Result<Option<Vec<Type1Glyph>>> {
+fn parse_cid_keyed_type1(file: &Stream, properties: &mut Type1Properties) -> Result<Option<Vec<Type1Glyph>>> {
     // The parser reads its own copy of the stream, so a file it cannot read is still at its start for the plain
     // Type 1 reader (pdf.js resets `file.pos`).
-    let stream = Stream {
-        bytes: file.bytes.clone(),
-        pos: file.pos,
-    };
+    let stream = Stream { bytes: file.bytes.clone(), pos: file.pos };
     let mut parser = Type1Parser::new(stream, false);
     let data = parser.extract_cid_keyed_font_program(properties)?;
     if data.is_none() {

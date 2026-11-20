@@ -34,6 +34,7 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::archive_trees::ArchiveTrees;
 use super::sub_agent_retention::AgentOnlyIndex;
+use super::testing::lock;
 use super::thread_settings::ArchiveStamps;
 use super::thread_settings::ArchivedWorktrees;
 use super::thread_settings::EffortTuning;
@@ -53,7 +54,6 @@ use super::worktree::Undo;
 use super::worktree::WorkspaceContext;
 use super::worktree::WorktreeMaintenance;
 use super::worktree::WorktreeSetup;
-use super::testing::lock;
 
 /// The registered Projects; what a move asked of them.
 pub struct Projects {
@@ -289,6 +289,7 @@ pub fn hosted(directory: &Arc<SessionDirectory>, threads: Arc<SessionThreads>) -
     let worktrees = Arc::new(Worktrees::new(scm, data));
     let setup = Arc::new(WorktreeSetup::new(worktrees.clone(), processes));
     let host = SessionWorkspaceHost::new(directory.clone(), threads as Arc<dyn ThreadState>, Arc::new(Runtime { directory: directory.clone() }), setup);
-    let workspaces = SessionWorkspaces::new(worktrees.clone(), Arc::new(NoSessions), Arc::new(HashSet::new), Arc::new(Defaults), Arc::new(host), AdmissionGate::new());
+    let workspaces =
+        SessionWorkspaces::new(worktrees.clone(), Arc::new(NoSessions), Arc::new(HashSet::new), Arc::new(Defaults), Arc::new(host), AdmissionGate::new());
     Hosted { workspaces, worktrees, dir }
 }

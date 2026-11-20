@@ -14,14 +14,13 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 
-use crate::callback_forward::{open_callback_forward, CallbackForwardError, MAX_CONNECTIONS};
-use crate::command::{parse_ssh_target, FailureClass, TunnelBackoff};
+use crate::callback_forward::{CallbackForwardError, MAX_CONNECTIONS, open_callback_forward};
+use crate::command::{FailureClass, TunnelBackoff, parse_ssh_target};
 use crate::context::{
-    AttemptContext, ChildExit, ConfigFiles, HostSettings, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput,
-    ToolRunner,
+    AttemptContext, ChildExit, ConfigFiles, HostSettings, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner,
 };
 use crate::diagnostics::Diagnostics;
-use crate::tunnel::{free_local_port, local_port_accepts, LocalForward, SshTunnel, Timing, TunnelSpec, TunnelState};
+use crate::tunnel::{LocalForward, SshTunnel, Timing, TunnelSpec, TunnelState, free_local_port, local_port_accepts};
 
 struct NoFiles;
 
@@ -294,12 +293,8 @@ async fn the_tunnel_writes_its_starts_readiness_and_exits_into_the_servers_log()
     spawner.probe(0).finish(255, "client_loop: send disconnect: Connection reset\n").await;
     until(|| spawner.count() == 2).await;
     tunnel.stop().await;
-    let lines: Vec<String> = diagnostics
-        .entries("tunnel-log")
-        .into_iter()
-        .filter(|entry| entry.kind == crate::diagnostics::DiagnosticKind::Log)
-        .map(|entry| entry.text)
-        .collect();
+    let lines: Vec<String> =
+        diagnostics.entries("tunnel-log").into_iter().filter(|entry| entry.kind == crate::diagnostics::DiagnosticKind::Log).map(|entry| entry.text).collect();
     assert!(lines[0].starts_with(&format!("ssh tunnel starting 127.0.0.1:{port} -> ")), "{lines:?}");
     assert_eq!(lines[1], format!("ssh tunnel ready on 127.0.0.1:{port}"));
     assert!(lines[2].starts_with("ssh tunnel exited (ssh exited with status 255); restarting in "), "{lines:?}");
@@ -420,7 +415,8 @@ async fn a_companion_forward_rides_the_same_child() {
 #[tokio::test]
 async fn a_spec_ssh_cannot_carry_is_a_terminal_failure_at_once() {
     let spawner = Spawner::new(false);
-    for forwards in [Vec::new(), vec![forward(1), forward(2), forward(3)], vec![LocalForward { local: 0, remote_host: "10.0.0.5".to_owned(), remote_port: 80 }]] {
+    for forwards in [Vec::new(), vec![forward(1), forward(2), forward(3)], vec![LocalForward { local: 0, remote_host: "10.0.0.5".to_owned(), remote_port: 80 }]]
+    {
         let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(None, forwards), timing());
         assert!(matches!(&*tunnel.state().borrow(), TunnelState::Stopped { failure: Some(failure) } if failure.is_terminal()));
         tunnel.stop().await;

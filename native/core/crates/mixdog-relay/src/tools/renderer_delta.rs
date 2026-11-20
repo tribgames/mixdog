@@ -157,10 +157,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// `safeRelativePath`: a slash-separated path with no empty, `.` or `..` part, not absolute and with no backslash.
 fn is_safe_relative(value: &str) -> bool {
-    !value.is_empty()
-        && !value.starts_with('/')
-        && !value.contains('\\')
-        && value.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+    !value.is_empty() && !value.starts_with('/') && !value.contains('\\') && value.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 fn safe_relative(value: &str) -> Result<&str> {

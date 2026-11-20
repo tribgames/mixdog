@@ -18,14 +18,14 @@ use mixdog_agent::env::ModelVision;
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::providers::custom::reasoning::is_custom_provider_name;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_core_config::config::{is_store_bot, Config, AGENT_SECTION};
+use mixdog_core_config::config::{AGENT_SECTION, Config, is_store_bot};
 use mixdog_rt::{CancellationToken, InLane, InteractiveIo};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
-use mixdog_core_run::run_host::route_chain::{BotRoutes, RouteReadUnavailable};
 use super::model_proxy_pc::takes_images;
 use super::settings::{OutputCeilingSource, OutputCeilings};
+use mixdog_core_run::run_host::route_chain::{BotRoutes, RouteReadUnavailable};
 
 const BOTS_DIR: &str = "bots";
 const MIXY_BOT_ID: &str = "mixy";
@@ -154,9 +154,7 @@ impl CatalogCeilings {
 
 impl OutputCeilingSource for CatalogCeilings {
     fn ceilings(&self, provider: &str, model: &str, _header: &Header) -> OutputCeilings {
-        let escalated = matches!(provider, "anthropic" | "anthropic-oauth")
-            .then(|| escalated_from(self.declared(provider, model), env_override()))
-            .flatten();
+        let escalated = matches!(provider, "anthropic" | "anthropic-oauth").then(|| escalated_from(self.declared(provider, model), env_override())).flatten();
         OutputCeilings { escalated, model_max: None }
     }
 }
@@ -199,14 +197,14 @@ impl ModelVision for CatalogVision {
 mod tests {
     use std::sync::Arc;
 
-    use mixdog_ai::registry::accounting::{Facts, RecordArgs, UsagePricing, make_usage_record};
-    use mixdog_ai::registry::accounting::UsageSink;
     use mixdog_ai::catalog::{CatalogSnapshot, ModelsDevSource, PricedUsage, UsageArgs};
     use mixdog_ai::oauth::CredentialIo;
+    use mixdog_ai::registry::accounting::UsageSink;
+    use mixdog_ai::registry::accounting::{Facts, RecordArgs, UsagePricing, make_usage_record};
     use mixdog_ai::transport::http::{HttpResponse, HttpSend};
     use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, WireRequest};
-    use mixdog_ledger::writer::UsageWriter;
     use mixdog_ledger::reader::UsageReader;
+    use mixdog_ledger::writer::UsageWriter;
     use serde_json::json;
 
     use super::super::accounting_scope::LedgerSink;
@@ -291,15 +289,8 @@ mod tests {
 
     #[async_trait::async_trait]
     impl HttpSend for Offline {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: mixdog_ai::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
+        async fn send(&self, _: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
         }
     }
 

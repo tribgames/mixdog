@@ -82,7 +82,11 @@ async fn conversation_lines_become_rows_and_blank_broken_and_summary_lines_are_s
     assert_eq!((rows[0].ts, rows[0].source.as_deref()), (1_767_323_045_000, Some("recorded")));
     assert_eq!((rows[1].ts, rows[1].source.as_deref()), (NOW, Some("collected")), "a line with no time is stamped by the clock");
     assert!(rows.iter().all(|r| r.session.as_deref() == Some("sess-1") && r.project.as_deref() == Some("proj-a")));
-    assert!(rows[0].reference != rows[1].reference && rows.iter().all(|r| r.reference.starts_with("transcript:sess-1#")), "{:?}", rows.iter().map(|r| &r.reference).collect::<Vec<_>>());
+    assert!(
+        rows[0].reference != rows[1].reference && rows.iter().all(|r| r.reference.starts_with("transcript:sess-1#")),
+        "{:?}",
+        rows.iter().map(|r| &r.reference).collect::<Vec<_>>()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

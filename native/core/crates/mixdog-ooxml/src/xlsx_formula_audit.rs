@@ -17,9 +17,8 @@ use mixdog_office_base::a1::{column_number, parse_cell_ref};
 use serde_json::{Map, Value, json};
 
 use crate::xlsx_audit_support::{
-    Issue, IssueList, Located, MAX_ISSUES_PER_CODE, Position, cell_path, false_value, formula_body_of, has_visible_style,
-    inside_table_body, is_marked_input_style, js_text, list, noted_refs, numeric_value, position, sheet_path, table_areas,
-    text_or_empty, truthy,
+    Issue, IssueList, Located, MAX_ISSUES_PER_CODE, Position, cell_path, false_value, formula_body_of, has_visible_style, inside_table_body,
+    is_marked_input_style, js_text, list, noted_refs, numeric_value, position, sheet_path, table_areas, text_or_empty, truthy,
 };
 use crate::xlsx_sheet_hygiene::{audit_sheet_hygiene, audit_sheet_layout, external_defined_names};
 
@@ -30,14 +29,12 @@ macro_rules! regex {
 }
 
 static WHITESPACE: LazyLock<JsRegex> = regex!(r"\s+", "g");
-static RELATIVE_REFERENCE: LazyLock<JsRegex> =
-    regex!(r"(?<![A-Za-z0-9_.])(\$?)([A-Z]{1,3})(\$?)([1-9]\d*)(?![A-Za-z0-9_(])", "gi");
+static RELATIVE_REFERENCE: LazyLock<JsRegex> = regex!(r"(?<![A-Za-z0-9_.])(\$?)([A-Z]{1,3})(\$?)([1-9]\d*)(?![A-Za-z0-9_(])", "gi");
 static NUMBER_LITERAL: LazyLock<JsRegex> = regex!(r"(?<![A-Za-z0-9_.$])(\d+(?:\.\d+)?)(?![A-Za-z0-9_(])", "g");
 static IF_FAMILY: LazyLock<JsRegex> = regex!(r"(?<![A-Za-z0-9_.])(?:IFERROR|IFNA|IF|IFS)\s*\(", "i");
 static COMPOUNDING_BASE: LazyLock<JsRegex> = regex!(r"\/\s*\(\s*1\s*\+", "g");
 static DIVISOR: LazyLock<JsRegex> = regex!(r"\/\s*(?:\(|[A-Za-z_$'])", "");
-static SINGLE_REFERENCE: LazyLock<JsRegex> =
-    regex!(r"(?<![A-Za-z0-9_.!':$\]])\$?([A-Z]{1,3})\$?([1-9]\d*)(?![A-Za-z0-9_(:])", "gi");
+static SINGLE_REFERENCE: LazyLock<JsRegex> = regex!(r"(?<![A-Za-z0-9_.!':$\]])\$?([A-Z]{1,3})\$?([1-9]\d*)(?![A-Za-z0-9_(:])", "gi");
 static SUMMED: LazyLock<JsRegex> = regex!(r"^SUM\(([^()]+)\)$", "i");
 static SPAN: LazyLock<JsRegex> = regex!(r"^\$?([A-Z]{1,3})\$?([1-9]\d*):\$?([A-Z]{1,3})\$?([1-9]\d*)$", "i");
 static ONE: LazyLock<JsRegex> = regex!(r"^\$?([A-Z]{1,3})\$?([1-9]\d*)$", "i");
@@ -149,12 +146,7 @@ struct Block {
 }
 
 fn block_of(columns: [f64; 2], rows: [f64; 2]) -> Block {
-    Block {
-        start_column: columns[0].min(columns[1]),
-        end_column: columns[0].max(columns[1]),
-        start_row: rows[0].min(rows[1]),
-        end_row: rows[0].max(rows[1]),
-    }
+    Block { start_column: columns[0].min(columns[1]), end_column: columns[0].max(columns[1]), start_row: rows[0].min(rows[1]), end_row: rows[0].max(rows[1]) }
 }
 
 /// `additiveAreas(formula)`: the areas a purely additive formula reads (`SUM(B2:B9)`, `B2+B3`, or the two together) and
@@ -238,11 +230,8 @@ struct Subtotal<'a> {
 /// inside that same range, so every value under the subtotal lands in the answer twice. The sheet recalculates cleanly and the
 /// number is wrong by construction, which is why this reads under every profile.
 fn audit_double_counting(list: &mut IssueList, sheet: &Value, cells: &[Value]) {
-    let located: Vec<Located<'_>> = cells
-        .iter()
-        .filter(|cell| truthy(cell.get("formula")))
-        .filter_map(|cell| position(cell).map(|at| Located { cell, at }))
-        .collect();
+    let located: Vec<Located<'_>> =
+        cells.iter().filter(|cell| truthy(cell.get("formula"))).filter_map(|cell| position(cell).map(|at| Located { cell, at })).collect();
     let mut subtotals: Grouped<Subtotal<'_>> = Grouped::new();
     for entry in &located {
         let Some(terms) = additive_areas(&text_or_empty(entry.cell.get("formula"))) else { continue };
@@ -381,10 +370,7 @@ fn audit_formula_cell(list: &mut IssueList, sheet: &Value, cell: &Value, extent:
             "warning",
             "inline_constant_in_formula",
             path.clone(),
-            format!(
-                "Formula embeds {}; put each assumption in its own labelled cell and reference it (=B5*(1+$B$6), never =B5*1.05).",
-                constants.join(", ")
-            ),
+            format!("Formula embeds {}; put each assumption in its own labelled cell and reference it (=B5*(1+$B$6), never =B5*1.05).", constants.join(", ")),
         );
     }
     if unguarded_division(&formula) {
@@ -396,12 +382,7 @@ fn audit_formula_cell(list: &mut IssueList, sheet: &Value, cell: &Value, extent:
         );
     }
     if checks_sheet && false_value(cell) {
-        list.push(
-            "warning",
-            "failed_check",
-            path,
-            "Tie-out on the Checks sheet evaluates to FALSE; the model does not add up until it reads TRUE.",
-        );
+        list.push("warning", "failed_check", path, "Tie-out on the Checks sheet evaluates to FALSE; the model does not add up until it reads TRUE.");
     }
 }
 
@@ -564,9 +545,7 @@ fn audit_hardcodes(list: &mut IssueList, sheet: &Value, cells: &[Value], lines: 
         let Some(at) = position(cell) else { continue };
         let path = cell_path(sheet, cell);
         let feeds_model = lines.formula_count > 0
-            && (is_marked_input_style(cell.get("style"))
-                || lines.formula_rows.get(key(at.row)).is_some()
-                || lines.formula_columns.contains(&key(at.column)));
+            && (is_marked_input_style(cell.get("style")) || lines.formula_rows.get(key(at.row)).is_some() || lines.formula_columns.contains(&key(at.column)));
         let header_year = at.row == extent.first_row && value.fract() == 0.0 && (1900.0..=2100.0).contains(&value);
         let reference = js_text(cell.get("ref")).to_uppercase();
         if feeds_model && !header_year && !noted.contains(&reference) && !inside_table_body(&bodies, &at) {
@@ -652,10 +631,7 @@ pub fn audit_xlsx_formulas(sheets: &[Value], options: &AuditOptions<'_>) -> Vec<
             severity: "info",
             code: "audit_issues_truncated",
             path: "/".to_owned(),
-            message: format!(
-                "{} additional formula audit finding(s) were omitted after {MAX_ISSUES_PER_CODE} per code.",
-                found.omitted
-            ),
+            message: format!("{} additional formula audit finding(s) were omitted after {MAX_ISSUES_PER_CODE} per code.", found.omitted),
         });
     }
     issues
@@ -674,13 +650,11 @@ pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile:
     let sheets = list(document.get("sheets"));
     let scope = if sheet.is_empty() { String::new() } else { format!("/sheet[{}]", js_to_lowercase(sheet)) };
     let names: Vec<String> = sheets.iter().map(|entry| js_text(entry.get("name"))).collect();
-    let findings: Vec<Issue> = audit_xlsx_formulas(
-        sheets,
-        &AuditOptions { audit_profile, sheet_names: &names, defined_names: list(document.get("definedNames")) },
-    )
-    .into_iter()
-    .filter(|finding| scope.is_empty() || finding.path == "/" || js_to_lowercase(&finding.path).starts_with(&scope))
-    .collect();
+    let findings: Vec<Issue> =
+        audit_xlsx_formulas(sheets, &AuditOptions { audit_profile, sheet_names: &names, defined_names: list(document.get("definedNames")) })
+            .into_iter()
+            .filter(|finding| scope.is_empty() || finding.path == "/" || js_to_lowercase(&finding.path).starts_with(&scope))
+            .collect();
     // Only what came back was read: Excel's full snapshot carries no cells for a sheet past 500 cells and a truncated one for a
     // sheet whose used range runs past its window, so the host's verdict stays for any cell the shared audit never saw: a
     // sheet read whole, or the cells a truncated read reached.
@@ -696,11 +670,7 @@ pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile:
             read_sheets.insert(owner);
         } else {
             for cell in cells {
-                let path = if truthy(cell.get("path")) {
-                    js_text(cell.get("path"))
-                } else {
-                    format!("{owner}/cell[{}]", text_or_empty(cell.get("ref")))
-                };
+                let path = if truthy(cell.get("path")) { js_text(cell.get("path")) } else { format!("{owner}/cell[{}]", text_or_empty(cell.get("ref"))) };
                 read_cells.insert(js_to_lowercase(&path));
             }
         }
@@ -717,10 +687,8 @@ pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile:
         })
         .cloned()
         .collect();
-    let seen: HashSet<String> =
-        issues.iter().map(|entry| format!("{}|{}", js_text(entry.get("code")), js_text(entry.get("path")))).collect();
-    let added: Vec<Value> =
-        findings.iter().filter(|finding| !seen.contains(&format!("{}|{}", finding.code, finding.path))).map(Issue::to_json).collect();
+    let seen: HashSet<String> = issues.iter().map(|entry| format!("{}|{}", js_text(entry.get("code")), js_text(entry.get("path")))).collect();
+    let added: Vec<Value> = findings.iter().filter(|finding| !seen.contains(&format!("{}|{}", finding.code, finding.path))).map(Issue::to_json).collect();
     let added_count = added.len();
     issues.extend(added);
     let count = issues.len();
@@ -731,4 +699,3 @@ pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile:
     merged.insert("sharedAudit".to_owned(), json!({ "added": added_count, "cellsRead": cells_read }));
     Value::Object(merged)
 }
-

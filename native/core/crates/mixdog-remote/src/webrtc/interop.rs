@@ -3,8 +3,8 @@
 //! for the E2EE relay) and drives a real Chromium/WebKit `RTCPeerConnection` as the phone.
 //! Stdout lines starting with `@@ ` are driver messages.
 
-use std::io::BufRead;
 use std::collections::HashMap;
+use std::io::BufRead;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -17,13 +17,13 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use super::capture::SharedSource;
 use super::carrier::CarrierChannel;
 use super::carrier::CarrierConnection;
 use super::carrier::CarrierEvent;
 use super::carrier::CarrierItem;
 use super::config::Candidate;
 use super::config::PeerConfig;
-use super::capture::SharedSource;
 use super::liveview::LiveViewConnection;
 use super::liveview::LiveViewEvent;
 use super::liveview::SKIP_FIRST_KEYFRAME;
@@ -152,7 +152,8 @@ async fn liveview(commands: &mut mpsc::UnboundedReceiver<Value>, media: mixdog_r
             }
             mixdog_rt::time::sleep(Duration::from_millis(33)).await;
         }
-    });    if std::env::var("INTEROP_SKIP_KEY").is_ok() {
+    });
+    if std::env::var("INTEROP_SKIP_KEY").is_ok() {
         SKIP_FIRST_KEYFRAME.store(true, Ordering::Relaxed);
     }
     // Every phone ("v") has its own connection and encoder over the one shared capture.

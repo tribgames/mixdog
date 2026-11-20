@@ -14,13 +14,8 @@ use crate::db::params;
 use crate::error::Result;
 
 /// Triggers a route move would fire per row; dropped for the step and made again from their stored text.
-const HELD_TRIGGERS: [&str; 5] = [
-    "session_days_update",
-    "key_revision_event_route",
-    "day_rev_events_update",
-    "membership_usage_routes_delete",
-    "day_rev_routes_delete",
-];
+const HELD_TRIGGERS: [&str; 5] =
+    ["session_days_update", "key_revision_event_route", "day_rev_events_update", "membership_usage_routes_delete", "day_rev_routes_delete"];
 
 /// The signature without the 1-hour count in its rates and the count, or `None` when the rates hold none.
 fn merged_signature(signature: &str) -> Result<Option<(String, Option<f64>)>> {
@@ -100,7 +95,17 @@ mod tests {
         let signature = mixdog_js::json_stringify(&serde_json::json!(["p", "m", "oauth", "lead", "subscription", rates, "live", 0, "acct"]));
         let (merged, tokens) = merged_signature(&signature).unwrap().unwrap();
         assert_eq!(tokens, Some(3853.0));
-        let expected = mixdog_js::json_stringify(&serde_json::json!(["p", "m", "oauth", "lead", "subscription", r#"{"requestedModel":"m","inputCostPerM":8}"#, "live", 0, "acct"]));
+        let expected = mixdog_js::json_stringify(&serde_json::json!([
+            "p",
+            "m",
+            "oauth",
+            "lead",
+            "subscription",
+            r#"{"requestedModel":"m","inputCostPerM":8}"#,
+            "live",
+            0,
+            "acct"
+        ]));
         assert_eq!(merged, expected);
         assert!(merged_signature(&expected).unwrap().is_none());
     }

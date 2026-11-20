@@ -99,7 +99,6 @@ impl World {
         Self::serving(rig, session, directory, id).await
     }
 
-
     /// [`World::idle`] served by `rig`, each entry holding `pasted_texts` (its options' map) unless null.
     async fn idle_on(rig: Rig, queued: &[(&str, &str)], pasted_texts: Value) -> Self {
         let session = SessionRig::new();
@@ -171,7 +170,6 @@ fn resume() -> Value {
     json!({ "window": { "lastItems": 10 } })
 }
 
-
 /// The kind and text of every row in a `thread/read` or snapshot answer's `items`.
 fn rows(items: &Value) -> Vec<(String, String)> {
     items
@@ -228,7 +226,14 @@ async fn unsubscribing_never_interrupts_the_running_turn() {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             held.notified().await;
-            let commit = ItemCommit { iid: ItemId::from("answer"), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "finished" }), prompt: None };
+            let commit = ItemCommit {
+                iid: ItemId::from("answer"),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": "finished" }),
+                prompt: None,
+            };
             run.port.commit_item(commit).await.expect("commit");
             RunOutcome::Completed(Default::default())
         })
@@ -437,17 +442,26 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let call = json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "call-1", "name": "read", "arguments": {} }] });
-            run.port.commit_item(ItemCommit { iid: ItemId::from("call-row"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None }).await.expect("commit the call");
+            run.port
+                .commit_item(ItemCommit { iid: ItemId::from("call-row"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None })
+                .await
+                .expect("commit the call");
             committed.notify_one();
             held.notified().await;
             let result = json!({ "toolCallId": "call-1", "text": "the tool output" });
-            run.port.commit_item(ItemCommit { iid: ItemId::from("result-row"), role: Some("tool".into()), model: true, visible: true, body: result, prompt: None }).await.expect("commit the result");
+            run.port
+                .commit_item(ItemCommit { iid: ItemId::from("result-row"), role: Some("tool".into()), model: true, visible: true, body: result, prompt: None })
+                .await
+                .expect("commit the result");
             RunOutcome::Completed(Default::default())
         })
     }));
     let id = ThreadId::from("sess_long");
     let creator = SessionDirectory::new(session.deps_configured());
-    creator.create_with_id(id.clone(), json!({ "cwd": "/ws", "orchestrationMode": "balanced" }).as_object().cloned().unwrap(), json!({})).await.expect("create");
+    creator
+        .create_with_id(id.clone(), json!({ "cwd": "/ws", "orchestrationMode": "balanced" }).as_object().cloned().unwrap(), json!({}))
+        .await
+        .expect("create");
     let rows_before = (0..earlier)
         .map(|n| serde_json::from_value::<Record>(json!({ "k": "item", "iid": format!("row-{n}"), "role": "assistant", "form": "message", "model": true, "visible": true, "refs": [], "body": { "inline": { "text": format!("row-{n}") } } })).unwrap())
         .collect();

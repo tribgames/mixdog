@@ -159,11 +159,7 @@ static XML_SPACE_ATTRIBUTE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_st
 
 /// `attrs` with `xml:space="preserve"` added when `text` has edge white space and the attributes do not say.
 fn preserving_space(attrs: &str, text: &str) -> String {
-    if has_edge_space(text) && !XML_SPACE_ATTRIBUTE.is_match(attrs) {
-        format!("{attrs} xml:space=\"preserve\"")
-    } else {
-        attrs.to_owned()
-    }
+    if has_edge_space(text) && !XML_SPACE_ATTRIBUTE.is_match(attrs) { format!("{attrs} xml:space=\"preserve\"") } else { attrs.to_owned() }
 }
 
 /// `text.slice(from, to)` on byte offsets: what lies outside the text, or between characters, is empty.
@@ -188,12 +184,7 @@ pub fn text_nodes(xml: &str, tag: &str) -> Vec<TextNode> {
         .captures_iter(xml)
         .map(|found| {
             let range = found.range();
-            TextNode {
-                start: range.start,
-                end: range.end,
-                attrs: found.get(1).unwrap_or("").to_owned(),
-                text: xml_decode(found.get(2).unwrap_or("")),
-            }
+            TextNode { start: range.start, end: range.end, attrs: found.get(1).unwrap_or("").to_owned(), text: xml_decode(found.get(2).unwrap_or("")) }
         })
         .collect()
 }
@@ -259,8 +250,7 @@ pub fn replace_across_runs(xml: &str, tag: &str, find: &str, replacement: &str) 
         };
         if start_index == end_index {
             let source = nodes[start_index].text.clone();
-            nodes[start_index].text =
-                format!("{}{replacement}{}", cut(&source, 0, start_offset), cut(&source, end_offset, source.len()));
+            nodes[start_index].text = format!("{}{replacement}{}", cut(&source, 0, start_offset), cut(&source, end_offset, source.len()));
             continue;
         }
         let first = nodes[start_index].text.clone();
@@ -317,12 +307,7 @@ fn token_at(tokens: &[Token<'_>], offset: usize) -> (usize, usize) {
 /// "올해 상반기에도" is stored as "올해", a break, "상반기에도", so the phrase the reader sees could never be found. A space
 /// in `find` matches a space or a break; a break inside a match is removed with it, so the new words run as one line. A
 /// match never crosses from one paragraph (or shape) into the next.
-pub fn replace_in_paragraphs(
-    xml: &str,
-    find: &str,
-    replacement: &str,
-    tags: &ParagraphTags<'_>,
-) -> Result<Replaced, String> {
+pub fn replace_in_paragraphs(xml: &str, find: &str, replacement: &str, tags: &ParagraphTags<'_>) -> Result<Replaced, String> {
     if find.is_empty() {
         return Err("replace_text requires non-empty find".to_owned());
     }
@@ -336,8 +321,7 @@ pub fn replace_in_paragraphs(
     let pattern = compiled(&format!("{lead}{body}{tail}"), "g");
     let run = tag_pattern(tags.run);
     let line_break = tag_pattern(tags.line_break);
-    let token_pattern =
-        compiled(&format!(r"<{run}(\s[^>]*)?>([\s\S]*?)</{run}>|<{line_break}\b(?:[^>]*?/>|[^>]*>[\s\S]*?</{line_break}>)"), "g");
+    let token_pattern = compiled(&format!(r"<{run}(\s[^>]*)?>([\s\S]*?)</{run}>|<{line_break}\b(?:[^>]*?/>|[^>]*>[\s\S]*?</{line_break}>)"), "g");
     let paragraph = tag_pattern(tags.paragraph);
     let paragraph_pattern = compiled(&format!(r"<{paragraph}\b[^>]*>[\s\S]*?</{paragraph}>"), "g");
     let count = Cell::new(0_usize);
@@ -468,24 +452,14 @@ pub fn top_level_elements(fragment: &str, accepted: &[&str]) -> Vec<Element> {
             let closes_tracked = stack.is_empty() && tracked.as_ref().is_some_and(|(name, _)| opened.as_deref() == Some(name.as_str()));
             if closes_tracked {
                 if let Some((tracked_name, tracked_start)) = tracked.take() {
-                    elements.push(Element {
-                        xml: fragment[tracked_start..range.end].to_owned(),
-                        name: tracked_name,
-                        start: tracked_start,
-                        end: range.end,
-                    });
+                    elements.push(Element { xml: fragment[tracked_start..range.end].to_owned(), name: tracked_name, start: tracked_start, end: range.end });
                 }
             }
             continue;
         }
         if stack.is_empty() && accepted.contains(&name) {
             if self_closing {
-                elements.push(Element {
-                    name: name.to_owned(),
-                    start: range.start,
-                    end: range.end,
-                    xml: fragment[range.clone()].to_owned(),
-                });
+                elements.push(Element { name: name.to_owned(), start: range.start, end: range.end, xml: fragment[range.clone()].to_owned() });
             } else {
                 tracked = Some((name.to_owned(), range.start));
             }
@@ -560,12 +534,7 @@ pub fn element_spans(fragment: &str, tag: &str) -> Vec<Span> {
         .captures_iter(fragment)
         .map(|found| {
             let range = found.range();
-            Span {
-                start: range.start,
-                end: range.end,
-                attrs: found.get(1).unwrap_or("").to_owned(),
-                xml: fragment[range].to_owned(),
-            }
+            Span { start: range.start, end: range.end, attrs: found.get(1).unwrap_or("").to_owned(), xml: fragment[range].to_owned() }
         })
         .collect()
 }
@@ -684,10 +653,7 @@ mod tests {
         let first = format!("<w:p/>x<w:p>{inner}</w:p>");
         let xml = format!("{first}<w:p>last</w:p>");
         assert_eq!(container_inner(&xml, "w:p", 0), Some(Container { start: 12, end: 12 + inner.len(), inner: inner.into() }));
-        assert_eq!(
-            container_inner(&xml, "w:p", first.len()),
-            Some(Container { start: first.len() + 5, end: first.len() + 9, inner: "last".into() })
-        );
+        assert_eq!(container_inner(&xml, "w:p", first.len()), Some(Container { start: first.len() + 5, end: first.len() + 9, inner: "last".into() }));
         assert_eq!(container_inner("<w:p/>", "w:p", 0), None);
         assert_eq!(container_inner("<w:p>unclosed", "w:p", 0), None);
     }

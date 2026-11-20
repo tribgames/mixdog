@@ -115,9 +115,8 @@ fn inspect_financial_range(sheet: &Com, used: &Com, fonts: &FontSet, comment_add
     let mut row_start = 1;
     while row_start <= row_count {
         let rows_this_block = min_int(rows_per_block, row_count - row_start + 1)?;
-        let mut states: Vec<RowState> = (0..rows_this_block)
-            .map(|_| RowState { formula_count: 0, first_formula: i32::MAX, last_formula: 0, values: Vec::new() })
-            .collect();
+        let mut states: Vec<RowState> =
+            (0..rows_this_block).map(|_| RowState { formula_count: 0, first_formula: i32::MAX, last_formula: 0, values: Vec::new() }).collect();
         let columns_per_block = blocks_fitting(CHUNK_CELLS, rows_this_block)?;
         let mut column_start = 1;
         while column_start <= column_count {
@@ -188,12 +187,7 @@ fn inspect_financial_range(sheet: &Com, used: &Com, fonts: &FontSet, comment_add
                         add_capped_office_issue(
                             &mut issues,
                             &mut omitted,
-                            office_issue(
-                                "warning",
-                                "rogue_hardcode",
-                                &entry.path,
-                                "Numeric hardcode appears inside a row that otherwise contains formulas.",
-                            ),
+                            office_issue("warning", "rogue_hardcode", &entry.path, "Numeric hardcode appears inside a row that otherwise contains formulas."),
                             ISSUE_CAP,
                         );
                     }
@@ -202,12 +196,7 @@ fn inspect_financial_range(sheet: &Com, used: &Com, fonts: &FontSet, comment_add
                     add_capped_office_issue(
                         &mut issues,
                         &mut omitted,
-                        office_issue(
-                            "warning",
-                            "formula_inconsistency",
-                            &entry.path,
-                            "A hardcoded value interrupts a row containing three or more formulas.",
-                        ),
+                        office_issue("warning", "formula_inconsistency", &entry.path, "A hardcoded value interrupts a row containing three or more formulas."),
                         ISSUE_CAP,
                     );
                 }
@@ -382,9 +371,7 @@ fn picture_issues(sheet: &Com, issues: &mut Vec<Value>) -> Result<()> {
             picture_index += 1;
             let alternative = string_of(&shape.member("AlternativeText")?);
             let description = alternative.trim();
-            if description.is_empty()
-                || text::is_match(description, r"^[\w ().\-]+\.(?:png|jpe?g|gif|bmp|tiff?|svg|webp|emf|wmf)$", false).unwrap_or(false)
-            {
+            if description.is_empty() || text::is_match(description, r"^[\w ().\-]+\.(?:png|jpe?g|gif|bmp|tiff?|svg|webp|emf|wmf)$", false).unwrap_or(false) {
                 issues.push(office_issue(
                     "warning",
                     "missing_alt_text",
@@ -443,12 +430,7 @@ pub(super) fn issues_excel(env: &Env<'_>, book: &Obj, payload: &Value) -> Result
             }
         }
         if !has_checks {
-            issues.push(office_issue(
-                "warning",
-                "missing_checks_sheet",
-                "/",
-                "Financial-model audit expects a Checks sheet with explicit tie-out formulas.",
-            ));
+            issues.push(office_issue("warning", "missing_checks_sheet", "/", "Financial-model audit expects a Checks sheet with explicit tie-out formulas."));
         }
     }
     for sheet in items_of(&book.member("Worksheets")?)? {

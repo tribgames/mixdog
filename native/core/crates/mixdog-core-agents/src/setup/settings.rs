@@ -10,9 +10,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_base::quota_resume::QuotaResumeStore;
 use mixdog_core_config::config::Config;
-use mixdog_core_config::config::Settings;
 use mixdog_core_config::config::PROFILE_EXPERIENCE_LEVELS;
 use mixdog_core_config::config::PROFILE_LANGUAGES;
+use mixdog_core_config::config::Settings;
 use mixdog_core_ports::ports::setup_actions::SetupActions;
 use mixdog_core_ports::ports::setup_actions::SetupCall;
 use mixdog_tools::orch::util::PortError;
@@ -62,7 +62,8 @@ impl QuotaAutoResume {
                     }
                 }
                 let now = enabled(&config);
-                if on && !now
+                if on
+                    && !now
                     && let Err(error) = store.cancel_all().await
                 {
                     tracing::warn!(?error, "[quota] the pending resumes were not dropped when the switch went off");
@@ -183,9 +184,7 @@ impl SettingsSetup {
         let label = option["label"].as_str().unwrap_or_default();
         let enabled = truthy(args.get("enabled"));
         if enabled && option["id"] == "allowAllActions" {
-            return Err(failed(format!(
-                "\"{label}\" cannot be turned on by an agent; only the person can turn it on in Settings → Developer options."
-            )));
+            return Err(failed(format!("\"{label}\" cannot be turned on by an agent; only the person can turn it on in Settings → Developer options.")));
         }
         if enabled && truthy(option.get("warning")) && !truthy(args.get("riskAccepted")) {
             return Err(failed(format!(
@@ -193,11 +192,7 @@ impl SettingsSetup {
                 option["warning"].as_str().unwrap_or_default()
             )));
         }
-        let developer = self
-            .settings
-            .set_developer_option(&option["id"], args.get("enabled").unwrap_or(&Value::Null))
-            .await
-            .map_err(from_modules)?;
+        let developer = self.settings.set_developer_option(&option["id"], args.get("enabled").unwrap_or(&Value::Null)).await.map_err(from_modules)?;
         Ok(json!({ "developer": developer }))
     }
 }
@@ -212,39 +207,16 @@ impl SetupActions for SettingsSetup {
         let args = call.args;
         let enabled = || require_boolean(args, "enabled");
         match call.action {
-            "set_system_shell" => self
-                .settings
-                .set_system_shell(&json!({ "command": clean(args.get("command")) }))
-                .await
-                .map_err(from_modules),
+            "set_system_shell" => self.settings.set_system_shell(&json!({ "command": clean(args.get("command")) })).await.map_err(from_modules),
             "set_auto_update" => self.update.set_auto_update(enabled()?).await,
-            "set_ai_session_titles" => self
-                .settings
-                .set_ai_session_titles(&Value::Bool(enabled()?))
-                .await
-                .map_err(from_modules),
+            "set_ai_session_titles" => self.settings.set_ai_session_titles(&Value::Bool(enabled()?)).await.map_err(from_modules),
             "set_quota_auto_resume" => Ok(json!({ "quotaAutoResume": self.quota.set(enabled()?).await? })),
-            "set_heartbeat_enabled" => self
-                .settings
-                .set_heartbeat_enabled(&Value::Bool(enabled()?))
-                .await
-                .map_err(from_modules),
-            "set_heartbeat_interval" => self
-                .settings
-                .set_heartbeat_interval(args.get("minutes").unwrap_or(&Value::Null))
-                .await
-                .map_err(from_modules),
-            "set_reactions_enabled" => self
-                .settings
-                .set_reactions_enabled(&Value::Bool(enabled()?))
-                .await
-                .map_err(from_modules),
+            "set_heartbeat_enabled" => self.settings.set_heartbeat_enabled(&Value::Bool(enabled()?)).await.map_err(from_modules),
+            "set_heartbeat_interval" => self.settings.set_heartbeat_interval(args.get("minutes").unwrap_or(&Value::Null)).await.map_err(from_modules),
+            "set_reactions_enabled" => self.settings.set_reactions_enabled(&Value::Bool(enabled()?)).await.map_err(from_modules),
             "set_profile" => self.set_profile(args).await,
             "set_developer_option" => self.set_developer_option(args).await,
-            other => Err(PortError::Unavailable {
-                capability: format!("setup.{other}"),
-                message: format!("setup {other} is not a scalar setting"),
-            }),
+            other => Err(PortError::Unavailable { capability: format!("setup.{other}"), message: format!("setup {other} is not a scalar setting") }),
         }
     }
 }

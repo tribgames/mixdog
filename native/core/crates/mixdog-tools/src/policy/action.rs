@@ -43,9 +43,7 @@ impl GrantKey {
     /// The key of a tool's hook ask; `None` when that tool is never remembered.
     pub fn tool(name: &str) -> Option<Self> {
         let valid = (1..=TOOL_NAME_LIMIT).contains(&mixdog_js::utf16_len(name))
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'));
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'));
         (valid && !UNREMEMBERED_TOOLS.contains(&name)).then(|| Self::Tool(name.to_owned()))
     }
 
@@ -78,10 +76,7 @@ impl GrantKey {
     /// is never allowed as a whole: an approval covers the one tool approved.
     pub fn may_be_allowed(&self) -> bool {
         match self {
-            Self::Kind(kind) => {
-                kind.rememberable()
-                    && matches!(kind, ActionKind::BrowserSubmit | ActionKind::BrowserPost | ActionKind::BrowserUpload)
-            }
+            Self::Kind(kind) => kind.rememberable() && matches!(kind, ActionKind::BrowserSubmit | ActionKind::BrowserPost | ActionKind::BrowserUpload),
             Self::Tool(_) => true,
         }
     }
@@ -106,10 +101,7 @@ mod tests {
     #[test]
     fn tool_keys_exclude_prompts_and_setup_and_bad_names() {
         assert_eq!(GrantKey::parse("tool:shell"), Some(GrantKey::Tool("shell".into())));
-        assert_eq!(
-            GrantKey::parse("tool:mcp__srv__do.it-1:x").map(|k| k.render()),
-            Some("tool:mcp__srv__do.it-1:x".to_owned())
-        );
+        assert_eq!(GrantKey::parse("tool:mcp__srv__do.it-1:x").map(|k| k.render()), Some("tool:mcp__srv__do.it-1:x".to_owned()));
         for name in ["setup", "ask_user", "handoff_user", "", "has space", "no/slash"] {
             assert_eq!(GrantKey::tool(name), None, "{name}");
         }

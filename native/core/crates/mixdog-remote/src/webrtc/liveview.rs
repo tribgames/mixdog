@@ -67,6 +67,7 @@ use webrtc::peer_connection::Registry;
 use webrtc::peer_connection::StatsSelector;
 use webrtc::rtp_transceiver::RtpSender;
 
+use super::capture::SharedSource;
 use super::config::Candidate;
 use super::config::CandidatePair;
 use super::config::INPUT_CHANNEL_LABEL;
@@ -80,14 +81,12 @@ use super::peer;
 use super::peer::MediaSetup;
 use super::peer::PeerBudget;
 use super::peer::PeerEvent;
-use super::capture::SharedSource;
 use super::track::Subscription;
 use super::track::TrackStats;
 use super::track::Vp8Track;
 
 #[cfg(test)]
-pub(crate) static SKIP_FIRST_KEYFRAME: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub(crate) static SKIP_FIRST_KEYFRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 const VP8_PAYLOAD_TYPE: u8 = 96;
 const VIDEO_CLOCK_RATE: u32 = 90_000;
@@ -170,11 +169,7 @@ impl LiveViewConnection {
         let (commands, command_rx) = mpsc::unbounded_channel();
         let (events, event_rx) = mpsc::unbounded_channel();
         let budget = PeerBudget::default();
-        mixdog_rt::spawn(
-            "webrtc-liveview",
-            TaskClass::Work,
-            run(config, receive_codecs, Arc::clone(&track), command_rx, events, budget.clone()),
-        );
+        mixdog_rt::spawn("webrtc-liveview", TaskClass::Work, run(config, receive_codecs, Arc::clone(&track), command_rx, events, budget.clone()));
         Ok((Self { commands, track, budget }, event_rx))
     }
 
@@ -227,10 +222,7 @@ struct KeyframeRequests {
 
 impl KeyframeRequests {
     fn new() -> Self {
-        Self {
-            read_queue: Default::default(),
-            write_queue: Default::default(),
-        }
+        Self { read_queue: Default::default(), write_queue: Default::default() }
     }
 }
 
@@ -248,11 +240,7 @@ impl Protocol<TaggedPacket, TaggedPacket, ()> for KeyframeRequests {
 
     fn handle_read(&mut self, mut msg: TaggedPacket) -> Result<(), Self::Error> {
         if let Packet::Rtcp(packets) = &msg.message.packet {
-            let requests: Vec<Box<dyn rtc::rtcp::Packet>> = packets
-                .iter()
-                .filter(|packet| is_keyframe_request(packet.as_ref()))
-                .cloned()
-                .collect();
+            let requests: Vec<Box<dyn rtc::rtcp::Packet>> = packets.iter().filter(|packet| is_keyframe_request(packet.as_ref())).cloned().collect();
             if requests.is_empty() {
                 return Ok(());
             }
@@ -293,8 +281,7 @@ struct ReportingEstimator<E: BandwidthEstimator> {
 
 impl<E: BandwidthEstimator> ReportingEstimator<E> {
     fn publish(&self) {
-        self.target
-            .store(self.inner.target_bitrate().to_bits(), Ordering::Relaxed);
+        self.target.store(self.inner.target_bitrate().to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -339,21 +326,10 @@ fn media_setup(target: Arc<AtomicU64>) -> Result<MediaSetup, PeerFault> {
     let fault = |e: RtcError| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string());
     let mut engine = MediaEngine::default();
     // The only codec the core implements.
-    engine
-        .register_codec(vp8_codec(), RtpCodecKind::Video)
-        .map_err(fault)?;
-    let estimator = ReportingEstimator {
-        inner: Gcc::new(INITIAL_BITRATE_BPS, MIN_BITRATE_BPS, MAX_BITRATE_BPS),
-        target,
-    };
+    engine.register_codec(vp8_codec(), RtpCodecKind::Video).map_err(fault)?;
+    let estimator = ReportingEstimator { inner: Gcc::new(INITIAL_BITRATE_BPS, MIN_BITRATE_BPS, MAX_BITRATE_BPS), target };
     estimator.publish();
-    let registry = configure_congestion_control(
-        Registry::new(),
-        estimator,
-        CongestionFeedback::Twcc,
-        &mut engine,
-    )
-    .map_err(fault)?;
+    let registry = configure_congestion_control(Registry::new(), estimator, CongestionFeedback::Twcc, &mut engine).map_err(fault)?;
     let registry = register_default_interceptors(registry, &mut engine).map_err(fault)?;
     // Application-most, so every interceptor has seen all inbound RTCP before it is narrowed.
     let registry = registry.with(Slot::from(14_000), KeyframeRequests::new());
@@ -361,9 +337,7 @@ fn media_setup(target: Arc<AtomicU64>) -> Result<MediaSetup, PeerFault> {
 }
 
 fn wall_clock_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 struct Live {
@@ -388,10 +362,7 @@ async fn run(
         let _ = events.send(event);
     };
     if negotiate_codec(&receive_codecs).is_none() {
-        return emit(LiveViewEvent::Failed(PeerFault::new(
-            PeerFailure::Unsupported,
-            "no common video codec",
-        )));
+        return emit(LiveViewEvent::Failed(PeerFault::new(PeerFailure::Unsupported, "no common video codec")));
     }
     let estimate = Arc::new(AtomicU64::new(INITIAL_BITRATE_BPS.to_bits()));
     let setup = match media_setup(Arc::clone(&estimate)) {
@@ -400,10 +371,7 @@ async fn run(
     };
     let setup_deadline = mixdog_rt::time::sleep(peer::SETUP_BUDGET);
     tokio::pin!(setup_deadline);
-    let opened = budget
-        .step("open", peer::open(&config, Some(setup)))
-        .await
-        .and_then(|opened| opened);
+    let opened = budget.step("open", peer::open(&config, Some(setup))).await.and_then(|opened| opened);
     let peer::Opened { pc, events: mut peer_events } = match opened {
         Ok(opened) => opened,
         Err(fault) => return emit(LiveViewEvent::Failed(fault)),
@@ -416,10 +384,7 @@ async fn run(
             return emit(LiveViewEvent::Failed(fault));
         }
     };
-    let attached = budget
-        .step("attach", attach(pc.as_ref(), &local_track))
-        .await
-        .and_then(|attached| attached);
+    let attached = budget.step("attach", attach(pc.as_ref(), &local_track)).await.and_then(|attached| attached);
     let (input, sender) = match attached {
         Ok(parts) => parts,
         Err(fault) => {
@@ -518,52 +483,30 @@ fn build_track() -> Result<Arc<TrackLocalStaticSample>, PeerFault> {
         "mixdog-live-view".to_owned(),
         RtpCodecKind::Video,
         vec![RTCRtpEncodingParameters {
-            rtp_coding_parameters: RTCRtpCodingParameters {
-                ssrc: Some(ssrc),
-                ..Default::default()
-            },
+            rtp_coding_parameters: RTCRtpCodingParameters { ssrc: Some(ssrc), ..Default::default() },
             codec: vp8_codec().rtp_codec,
             ..Default::default()
         }],
     );
-    TrackLocalStaticSample::new(Instant::now(), stream)
-        .map(Arc::new)
-        .map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))
+    TrackLocalStaticSample::new(Instant::now(), stream).map(Arc::new).map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))
 }
 
-async fn attach(
-    pc: &dyn PeerConnection,
-    local_track: &Arc<TrackLocalStaticSample>,
-) -> Result<(Arc<dyn DataChannel>, Arc<dyn RtpSender>), PeerFault> {
+async fn attach(pc: &dyn PeerConnection, local_track: &Arc<TrackLocalStaticSample>) -> Result<(Arc<dyn DataChannel>, Arc<dyn RtpSender>), PeerFault> {
     let fault = |e: webrtc::error::Error| PeerFault::new(PeerFailure::Unsupported, e.to_string());
-    let input = pc
-        .create_data_channel(INPUT_CHANNEL_LABEL, None)
-        .await
-        .map_err(fault)?;
+    let input = pc.create_data_channel(INPUT_CHANNEL_LABEL, None).await.map_err(fault)?;
     let transceiver = pc
         .add_transceiver_from_track(
             Arc::clone(local_track) as Arc<dyn TrackLocal>,
-            Some(RTCRtpTransceiverInit {
-                direction: RTCRtpTransceiverDirection::Sendonly,
-                ..Default::default()
-            }),
+            Some(RTCRtpTransceiverInit { direction: RTCRtpTransceiverDirection::Sendonly, ..Default::default() }),
         )
         .await
         .map_err(fault)?;
-    let sender = transceiver
-        .sender()
-        .await
-        .map_err(fault)?
-        .ok_or_else(|| PeerFault::new(PeerFailure::Unsupported, "no sender"))?;
+    let sender = transceiver.sender().await.map_err(fault)?.ok_or_else(|| PeerFault::new(PeerFailure::Unsupported, "no sender"))?;
     Ok((input, sender))
 }
 
 /// PLI/FIR from the phone become keyframe requests.
-fn spawn_feedback_reader(
-    local_track: Arc<TrackLocalStaticSample>,
-    key_wanted: Arc<Notify>,
-    closed: tokio_util::sync::CancellationToken,
-) {
+fn spawn_feedback_reader(local_track: Arc<TrackLocalStaticSample>, key_wanted: Arc<Notify>, closed: tokio_util::sync::CancellationToken) {
     mixdog_rt::spawn("webrtc-liveview-rtcp", TaskClass::Work, async move {
         loop {
             let event = tokio::select! {
@@ -585,15 +528,7 @@ async fn start_writer(
     key_wanted: &Arc<Notify>,
     estimate: &Arc<AtomicU64>,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    let payload_type = live
-        .sender
-        .get_parameters()
-        .await
-        .ok()?
-        .rtp_parameters
-        .codecs
-        .first()?
-        .payload_type;
+    let payload_type = live.sender.get_parameters().await.ok()?.rtp_parameters.codecs.first()?.payload_type;
     let ssrc = *local_track.ssrcs().await.first()?;
     let mut subscription = live.track.subscribe();
     let local_track = Arc::clone(local_track);
@@ -657,17 +592,10 @@ fn on_input_event(event: DataChannelEvent, live: &mut Live, emit: &impl Fn(LiveV
             if message.is_string
                 && let Ok(text) = String::from_utf8(message.data.to_vec())
             {
-                emit(LiveViewEvent::Channel {
-                    text,
-                    received_at_ms: wall_clock_ms(),
-                });
+                emit(LiveViewEvent::Channel { text, received_at_ms: wall_clock_ms() });
             }
         }
-        DataChannelEvent::OnClose | DataChannelEvent::OnError => fail(
-            live,
-            emit,
-            PeerFault::bare(PeerFailure::ChannelFailed),
-        ),
+        DataChannelEvent::OnClose | DataChannelEvent::OnError => fail(live, emit, PeerFault::bare(PeerFailure::ChannelFailed)),
         _ => {}
     }
 }
@@ -693,10 +621,7 @@ async fn on_command(command: Command, live: &mut Live, emit: &impl Fn(LiveViewEv
 }
 
 async fn sender_stats(live: &Live) -> Option<SenderStats> {
-    let report = live
-        .pc
-        .get_stats(Instant::now(), StatsSelector::None)
-        .await;
+    let report = live.pc.get_stats(Instant::now(), StatsSelector::None).await;
     let outbound = report.outbound_rtp_streams().next();
     let track = live.track.stats();
     Some(SenderStats {

@@ -28,10 +28,7 @@ pub struct HostMedia {
 
 impl HostMedia {
     pub fn new(max_media_frame_bytes: u64) -> Arc<Self> {
-        Arc::new(Self {
-            max_media_frame_bytes,
-            streams: Mutex::new(HashMap::new()),
-        })
+        Arc::new(Self { max_media_frame_bytes, streams: Mutex::new(HashMap::new()) })
     }
 
     /// Routes frames of `stream_id` to `target`, replacing an earlier target of that stream.
@@ -46,8 +43,7 @@ impl HostMedia {
 
 impl HostMediaSink for HostMedia {
     fn frame(&self, _from: ConnectionId, frame: Bytes) {
-        let Ok((header, payload)) = MediaFrameHeader::decode(&frame, self.max_media_frame_bytes)
-        else {
+        let Ok((header, payload)) = MediaFrameHeader::decode(&frame, self.max_media_frame_bytes) else {
             return;
         };
         let target = lock(&self.streams).get(&header.stream_id).cloned();
@@ -74,14 +70,7 @@ mod tests {
     }
 
     fn frame(stream_id: u32, payload: &'static [u8]) -> Bytes {
-        let header = MediaFrameHeader {
-            purpose: MediaPurpose::BrowserView,
-            flags: 0,
-            stream_id,
-            width: 2,
-            height: 2,
-            format: MediaFormat::Jpeg,
-        };
+        let header = MediaFrameHeader { purpose: MediaPurpose::BrowserView, flags: 0, stream_id, width: 2, height: 2, format: MediaFormat::Jpeg };
         let mut out = header.encode().to_vec();
         out.extend_from_slice(payload);
         Bytes::from(out)

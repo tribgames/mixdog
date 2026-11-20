@@ -60,10 +60,7 @@ fn reply_pattern() -> &'static Regex {
 
 fn uuid_pattern() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-            .expect("static pattern")
-    })
+    RE.get_or_init(|| Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$").expect("static pattern"))
 }
 
 /// JavaScript string length, in UTF-16 code units.
@@ -72,8 +69,7 @@ fn js_len(text: &str) -> usize {
 }
 
 fn unsafe_name_char(c: char) -> bool {
-    matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}')
-        || matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+    matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}') || matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
 }
 
 /// Strict canonical base64: alphabet, padding and zeroed trailing bits.
@@ -83,20 +79,13 @@ fn canonical_base64(data: &str) -> bool {
         return false;
     }
     let pad = bytes.iter().rev().take_while(|b| **b == b'=').count();
-    if pad > 2
-        || !bytes[..bytes.len() - pad]
-            .iter()
-            .all(|b| ALPHABET.contains(b))
-    {
+    if pad > 2 || !bytes[..bytes.len() - pad].iter().all(|b| ALPHABET.contains(b)) {
         return false;
     }
     if pad == 0 {
         return true;
     }
-    let last = ALPHABET
-        .iter()
-        .position(|a| *a == bytes[bytes.len() - pad - 1])
-        .unwrap_or(0);
+    let last = ALPHABET.iter().position(|a| *a == bytes[bytes.len() - pad - 1]).unwrap_or(0);
     last % if pad == 2 { 16 } else { 4 } == 0
 }
 
@@ -129,9 +118,7 @@ fn normalize_attachments(value: Option<&Value>) -> Result<Vec<Value>, &'static s
             return Err(INVALID_ATTACHMENTS);
         };
         let field = |key: &str| item.get(key).and_then(Value::as_str);
-        let (Some(name), Some(mime), Some(data)) =
-            (field("name"), field("mimeType"), field("data"))
-        else {
+        let (Some(name), Some(mime), Some(data)) = (field("name"), field("mimeType"), field("data")) else {
             return Err(INVALID_ATTACHMENTS);
         };
         if !["image/png", "image/jpeg", "image/webp"].contains(&mime) {
@@ -168,14 +155,8 @@ fn normalize(value: &Value) -> Result<Value, &'static str> {
     let Value::Object(input) = value else {
         return Err(INVALID_FEEDBACK);
     };
-    let id = input
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| uuid_pattern().is_match(id));
-    let kind = input
-        .get("kind")
-        .and_then(Value::as_str)
-        .filter(|k| ["bug", "suggestion", "other"].contains(k));
+    let id = input.get("id").and_then(Value::as_str).filter(|id| uuid_pattern().is_match(id));
+    let kind = input.get("kind").and_then(Value::as_str).filter(|k| ["bug", "suggestion", "other"].contains(k));
     let message = input.get("message").and_then(Value::as_str).map(js_trim);
     let (Some(id), Some(kind), Some(message)) = (id, kind, message) else {
         return Err(INVALID_FEEDBACK);
@@ -204,12 +185,7 @@ fn normalize(value: &Value) -> Result<Value, &'static str> {
 
 fn endpoint(relay: &str) -> Option<Url> {
     let mut url = Url::parse(relay).ok()?;
-    url.set_scheme(if url.scheme() == "wss" {
-        "https"
-    } else {
-        "http"
-    })
-    .ok()?;
+    url.set_scheme(if url.scheme() == "wss" { "https" } else { "http" }).ok()?;
     url.set_path("/feedback");
     url.set_query(None);
     url.set_fragment(None);
@@ -225,19 +201,11 @@ pub struct FeedbackService {
 impl FeedbackService {
     pub fn new(relay: RelayUrl, ops: OpScopes) -> Arc<Self> {
         // `redirect: 'error'`: a redirect is a failure, never followed.
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("the HTTP client builds with static options");
+        let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("the HTTP client builds with static options");
         Arc::new(Self { relay, client, ops })
     }
 
-    async fn post(
-        &self,
-        url: Url,
-        body: &Value,
-        with_attachments: bool,
-    ) -> Result<Value, CoreError> {
+    async fn post(&self, url: Url, body: &Value, with_attachments: bool) -> Result<Value, CoreError> {
         let id = body["id"].clone();
         let timeout = Duration::from_secs(if with_attachments { 60 } else { 15 });
         let sent = self
@@ -252,37 +220,23 @@ impl FeedbackService {
         let response = match sent {
             Ok(response) if !response.status().is_redirection() => response,
             _ => {
-                return Err(failed(
-                    DOMAIN,
-                    "Unable to submit feedback. Please try again.",
-                ));
+                return Err(failed(DOMAIN, "Unable to submit feedback. Please try again."));
             }
         };
         let status = response.status().as_u16();
         if status == 429 {
-            return Err(failed(
-                DOMAIN,
-                "Too many feedback requests. Please try again later.",
-            ));
+            return Err(failed(DOMAIN, "Too many feedback requests. Please try again later."));
         }
         if status != 202 {
-            return Err(failed(
-                DOMAIN,
-                "Feedback service is unavailable. Please try again later.",
-            ));
+            return Err(failed(DOMAIN, "Feedback service is unavailable. Please try again later."));
         }
         let receipt: Option<Value> = match response.bytes().await {
             Ok(bytes) => serde_json::from_slice(&bytes).ok(),
             Err(_) => None,
         };
-        let accepted = receipt
-            .as_ref()
-            .is_some_and(|receipt| receipt["id"] == id && receipt["status"] == "accepted");
+        let accepted = receipt.as_ref().is_some_and(|receipt| receipt["id"] == id && receipt["status"] == "accepted");
         if !accepted {
-            return Err(failed(
-                DOMAIN,
-                "Feedback receipt is invalid. Please try again.",
-            ));
+            return Err(failed(DOMAIN, "Feedback receipt is invalid. Please try again."));
         }
         Ok(json!({ "id": id, "status": "accepted" }))
     }
@@ -290,21 +244,12 @@ impl FeedbackService {
     async fn upload(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: FeedbackUploadParams = decode(req)?;
         let body = normalize(&params.input).map_err(|message| failed(DOMAIN, message))?;
-        let relay = (self.relay)()
-            .map_err(|message| failed(DOMAIN, message))?
-            .ok_or_else(|| failed(DOMAIN, "Feedback service is unavailable."))?;
+        let relay = (self.relay)().map_err(|message| failed(DOMAIN, message))?.ok_or_else(|| failed(DOMAIN, "Feedback service is unavailable."))?;
         let url = endpoint(&relay).ok_or_else(|| failed(DOMAIN, "MIXDOG_RELAY_URL is invalid."))?;
         let with_attachments = body.get("attachments").is_some();
         let receipt = json!({ "id": body["id"], "status": "accepted" });
         let target = url.to_string();
-        self.ops
-            .run(
-                req,
-                Some(("feedback.submit", target)),
-                || self.post(url, &body, with_attachments),
-                || async { Ok(receipt) },
-            )
-            .await
+        self.ops.run(req, Some(("feedback.submit", target)), || self.post(url, &body, with_attachments), || async { Ok(receipt) }).await
     }
 }
 

@@ -39,12 +39,7 @@ pub(crate) fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
                 // (addition of `++ x`) would be mis-read as a new file
                 // header. The native path-escape guard in
                 // `resolve_entry_path` enforces the realpath bound here.
-                if old_remaining == 0
-                    && new_remaining == 0
-                    && (line.starts_with("@@ ")
-                        || line.starts_with("--- ")
-                        || line.starts_with("+++ "))
-                {
+                if old_remaining == 0 && new_remaining == 0 && (line.starts_with("@@ ") || line.starts_with("--- ") || line.starts_with("+++ ")) {
                     break;
                 }
                 if line.starts_with('\\') {
@@ -64,9 +59,7 @@ pub(crate) fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
                     _ => return Err(format!("malformed hunk line: {line}")),
                 };
                 if (takes_old && old_remaining == 0) || (takes_new && new_remaining == 0) {
-                    return Err(
-                        "malformed patch: hunk body exceeds declared line counts".to_string()
-                    );
+                    return Err("malformed patch: hunk body exceeds declared line counts".to_string());
                 }
                 old_remaining -= usize::from(takes_old);
                 new_remaining -= usize::from(takes_new);
@@ -74,35 +67,19 @@ pub(crate) fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
                 i += 1;
             }
             if old_remaining != 0 || new_remaining != 0 {
-                return Err(
-                    "malformed patch: incomplete hunk (EOF before declared line counts consumed)"
-                        .to_string(),
-                );
+                return Err("malformed patch: incomplete hunk (EOF before declared line counts consumed)".to_string());
             }
-            hunks.push(Hunk {
-                old_start,
-                lines: hunk_lines,
-            });
+            hunks.push(Hunk { old_start, lines: hunk_lines });
         }
-        entries.push(Entry {
-            old_file,
-            new_file,
-            hunks,
-        });
+        entries.push(Entry { old_file, new_file, hunks });
     }
     Ok(entries)
 }
 
 pub(crate) fn parse_file_header(line: &str, prefix: &str) -> Result<String, String> {
-    let rest = line
-        .strip_prefix(prefix)
-        .ok_or_else(|| format!("bad file header: {line}"))?;
+    let rest = line.strip_prefix(prefix).ok_or_else(|| format!("bad file header: {line}"))?;
     // split() always yields at least one item, so next() is never None.
-    let path = rest
-        .split('\t')
-        .next()
-        .expect("split yields at least one item")
-        .trim();
+    let path = rest.split('\t').next().expect("split yields at least one item").trim();
     if path.is_empty() {
         return Err(format!("empty file header: {line}"));
     }
@@ -114,41 +91,24 @@ pub(crate) fn parse_hunk_header(line: &str) -> Result<(usize, usize, usize), Str
     if parts.next() != Some("@@") {
         return Err(format!("bad hunk header: {line}"));
     }
-    let old = parts.next().ok_or_else(|| {
-        format!("missing old range: {line}; use @@ -A,B +C,D @@ for native unified patches")
-    })?;
-    let old = old.strip_prefix('-').ok_or_else(|| {
-        format!("bad old range: {line}; use @@ -A,B +C,D @@ for native unified patches")
-    })?;
+    let old = parts.next().ok_or_else(|| format!("missing old range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let old = old.strip_prefix('-').ok_or_else(|| format!("bad old range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
     let (old_start_str, old_count_str) = match old.split_once(',') {
         Some((s, c)) => (s, c),
         None => (old, "1"),
     };
-    let old_start = old_start_str.parse::<usize>().map_err(|_| {
-        format!(
-            "bad old start in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"
-        )
-    })?;
-    let old_count = old_count_str.parse::<usize>().map_err(|_| {
-        format!(
-            "bad old count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"
-        )
-    })?;
-    let new = parts.next().ok_or_else(|| {
-        format!("missing new range: {line}; use @@ -A,B +C,D @@ for native unified patches")
-    })?;
-    let new = new.strip_prefix('+').ok_or_else(|| {
-        format!("bad new range: {line}; use @@ -A,B +C,D @@ for native unified patches")
-    })?;
+    let old_start =
+        old_start_str.parse::<usize>().map_err(|_| format!("bad old start in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let old_count =
+        old_count_str.parse::<usize>().map_err(|_| format!("bad old count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let new = parts.next().ok_or_else(|| format!("missing new range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let new = new.strip_prefix('+').ok_or_else(|| format!("bad new range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
     let (_, new_count_str) = match new.split_once(',') {
         Some((s, c)) => (s, c),
         None => (new, "1"),
     };
-    let new_count = new_count_str.parse::<usize>().map_err(|_| {
-        format!(
-            "bad new count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"
-        )
-    })?;
+    let new_count =
+        new_count_str.parse::<usize>().map_err(|_| format!("bad new count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
     Ok((old_start, old_count, new_count))
 }
 
@@ -157,11 +117,7 @@ pub(crate) fn is_dev_null(value: &str) -> bool {
 }
 
 pub(crate) fn strip_diff_prefix(value: &str) -> &str {
-    value
-        .strip_prefix("a/")
-        .or_else(|| value.strip_prefix("b/"))
-        .or_else(|| value.strip_prefix("./"))
-        .unwrap_or(value)
+    value.strip_prefix("a/").or_else(|| value.strip_prefix("b/")).or_else(|| value.strip_prefix("./")).unwrap_or(value)
 }
 
 pub(crate) fn resolve_entry_path(canonical_base: &Path, header: &str) -> Result<PathBuf, String> {
@@ -179,18 +135,9 @@ pub(crate) fn resolve_entry_path(canonical_base: &Path, header: &str) -> Result<
     // symlinked subtrees that resolve outside the base directory even when
     // the header itself looks innocuous.
     let ancestor = nearest_existing_ancestor(&joined);
-    let canonical_ancestor = fs::canonicalize(&ancestor).map_err(|e| {
-        format!(
-            "canonicalize ancestor {} for {header}: {e}",
-            ancestor.display()
-        )
-    })?;
+    let canonical_ancestor = fs::canonicalize(&ancestor).map_err(|e| format!("canonicalize ancestor {} for {header}: {e}", ancestor.display()))?;
     if !canonical_ancestor.starts_with(canonical_base) {
-        return Err(format!(
-            "path escapes base directory: {header} resolves to {} outside {}",
-            canonical_ancestor.display(),
-            canonical_base.display()
-        ));
+        return Err(format!("path escapes base directory: {header} resolves to {} outside {}", canonical_ancestor.display(), canonical_base.display()));
     }
     Ok(joined)
 }
@@ -216,10 +163,7 @@ pub(crate) fn build_create_bytes(entry: &Entry) -> Result<Vec<u8>, String> {
     for hunk in &entry.hunks {
         let parts = parse_hunk_parts(hunk)?;
         if !parts.old.is_empty() {
-            return Err(format!(
-                "create patch contains source lines in {}",
-                entry.new_file
-            ));
+            return Err(format!("create patch contains source lines in {}", entry.new_file));
         }
         append_hunk_lines(&mut out, &parts.new, "\n");
     }

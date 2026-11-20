@@ -13,6 +13,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::*;
+use crate::eventually_on;
 use crate::session::ItemCommit;
 use crate::session::seams::RunOutcome;
 use crate::session::testing::NoProviders;
@@ -20,7 +21,6 @@ use crate::session::testing::NoShells;
 use crate::session::testing::Rig;
 use crate::session::testing::Script;
 use crate::session::testing::lock;
-use crate::eventually_on;
 use crate::session::tests::turn;
 
 /// The prompt side's stubs: the workflows the surface knows, the standalone tools and the mode texts.
@@ -176,7 +176,9 @@ async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_a", world.scenario_header("idle-workflow-round-trip")).await;
     turn(&handle, "hi", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_a")).len() > 4).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_a")).len() > 4)
+        .then_some(()))
+    .await;
     assert!(!world.switches.settings_reach("sess_a").await, "a conversation keeps its prompt");
 
     // alpha -> beta (the prompt carries alpha): an overlay, its notice and the transcript boundary.
@@ -188,7 +190,10 @@ async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     assert_eq!(stored["workflow"], beta);
     assert_eq!(stored["workflowOverlay"]["prompt"]["id"], "alpha", "the prompt still carries alpha, so the choice is an overlay");
     assert_eq!(stored["workflowOverlay"]["deniedTools"], json!(["shell"]));
-    assert_eq!(stored["workflowSwitch"], json!({ "version": 1, "revision": 1, "from": { "id": "alpha", "name": "Alpha" }, "to": { "id": "beta", "name": "Beta" } }));
+    assert_eq!(
+        stored["workflowSwitch"],
+        json!({ "version": 1, "revision": 1, "from": { "id": "alpha", "name": "Alpha" }, "to": { "id": "beta", "name": "Beta" } })
+    );
     let anchor = world.anchor("sess_a").await;
     assert_eq!(anchor["meta"]["workflowSwitches"], json!([switch]));
 
@@ -221,7 +226,9 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_b", world.scenario_header("in-flight-then-pending")).await;
     turn(&handle, "first", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_b")).len() > 4).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_b")).len() > 4)
+        .then_some(()))
+    .await;
     turn(&handle, "second", "op-2").await;
     eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
 
@@ -260,7 +267,8 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     let stored = world.stored("sess_b").await;
     assert_eq!((stored["workflow"]["id"].clone(), stored["orchestrationMode"].clone()), (json!("beta"), json!("swarm")));
     assert!(!stored.contains_key("pendingWorkflowId") && !stored.contains_key("pendingOrchestrationMode") && !stored.contains_key("pendingWorkflow"));
-    let applied_state = json!({ "workflow": stored["workflow"], "orchestrationMode": "swarm", "pendingWorkflowSwitch": false, "pendingOrchestrationModeSwitch": false });
+    let applied_state =
+        json!({ "workflow": stored["workflow"], "orchestrationMode": "swarm", "pendingWorkflowSwitch": false, "pendingOrchestrationModeSwitch": false });
     world.shows_workflow("sess_b", applied_state).await;
     assert_eq!(world.switches.apply_pending_switches(&ThreadId::from("sess_b")).await, Ok(None));
 }
@@ -268,7 +276,10 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
 async fn only_a_coding_session_with_a_prompt_switches() {
     let world = world().await;
     world.rig.set_script(answer_then_wait());
-    for (id, scenario, want) in [("sess_w", "agent-owner", "Only a coding session has a workflow."), ("sess_old", "too-old", "This session is too old to switch its workflow; start a new task.")] {
+    for (id, scenario, want) in [
+        ("sess_w", "agent-owner", "Only a coding session has a workflow."),
+        ("sess_old", "too-old", "This session is too old to switch its workflow; start a new task."),
+    ] {
         let handle = world.session(id, world.scenario_header(scenario)).await;
         turn(&handle, "hi", "op-1").await;
         eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_none().then_some(())).await;
@@ -323,7 +334,9 @@ async fn the_session_left_is_tombstoned_only_when_it_is_a_scratch_one() {
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_used", world.scenario_header("idle-workflow-round-trip")).await;
     turn(&handle, "hi", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_used")).len() > 4).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_used")).len() > 4)
+        .then_some(()))
+    .await;
     turn(&handle, "again", "op-2").await;
     eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     lock(&target.calls).clear();
@@ -359,10 +372,13 @@ async fn the_exit_closes_the_runtimes_own_session_and_no_worker() {
     let mut worker_header = world.scenario_header("idle-workflow-round-trip");
     worker_header.insert("owner".into(), json!("agent"));
     let mut handles = Vec::new();
-    for (id, header) in [("sess_lead", world.scenario_header("idle-workflow-round-trip")), ("sess_worker", worker_header.clone()), ("sess_detached", worker_header)] {
+    for (id, header) in
+        [("sess_lead", world.scenario_header("idle-workflow-round-trip")), ("sess_worker", worker_header.clone()), ("sess_detached", worker_header)]
+    {
         let handle = world.session(id, header).await;
         turn(&handle, "hi", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from(id)).len() > 4).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from(id)).len() > 4).then_some(()))
+            .await;
         handles.push(handle);
     }
     // The agents' close ran first and detached this worker.
@@ -377,7 +393,11 @@ async fn the_exit_closes_the_runtimes_own_session_and_no_worker() {
     assert_eq!(generation(&lead), 1.0, "the runtime's own session is detached once: {lead:?}");
     assert!(lead.get("closed").is_none(), "and stays resumable: {lead:?}");
     let worker = world.stored("sess_worker").await;
-    assert_eq!((generation(&worker), worker.get("detachedReason")), (0.0, None), "a worker the agents' close did not detach is not detached by the exit: {worker:?}");
+    assert_eq!(
+        (generation(&worker), worker.get("detachedReason")),
+        (0.0, None),
+        "a worker the agents' close did not detach is not detached by the exit: {worker:?}"
+    );
     let detached = world.stored("sess_detached").await;
     assert_eq!(generation(&detached), generation(&before), "a detached worker gets no second bump: {detached:?}");
     assert_eq!(detached.get("detachedReason"), Some(&json!("cli-agent-close")));
@@ -478,7 +498,9 @@ impl World {
 
     /// The thread's workflow state as it published it last (`thread/workflow/updated`), once it is `want`.
     async fn shows_workflow(&self, id: &str, want: Value) {
-        let newest = || self.rig.feeds.frames(id).into_iter().rev().find(|(_, method, _)| method == "thread/workflow/updated").map(|(_, _, params)| params["value"].clone());
+        let newest = || {
+            self.rig.feeds.frames(id).into_iter().rev().find(|(_, method, _)| method == "thread/workflow/updated").map(|(_, _, params)| params["value"].clone())
+        };
         eventually_on!(&[&self.rig.feeds.published], || (newest().as_ref() == Some(&want)).then_some(())).await;
     }
 }

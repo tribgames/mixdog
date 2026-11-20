@@ -23,14 +23,7 @@ pub fn assemble(extensions: &[Extension]) -> Registry {
 /// The method names a worker of this build serves, sorted, read from the registry it assembles.
 pub fn native_methods() -> Vec<&'static str> {
     static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
-    NAMES
-        .get_or_init(|| {
-            native_methods_with(&[])
-                .into_iter()
-                .map(|name| &*Box::leak(name.into_boxed_str()))
-                .collect()
-        })
-        .clone()
+    NAMES.get_or_init(|| native_methods_with(&[]).into_iter().map(|name| &*Box::leak(name.into_boxed_str())).collect()).clone()
 }
 
 /// [`native_methods`] of a composition with `extensions`.
@@ -46,16 +39,34 @@ mod tests {
     fn the_names_come_from_the_registry_and_an_extension_adds_to_them() {
         assert_eq!(
             native_methods(),
-            vec!["document.installLibreOffice", "document.libreOfficeStatus", "document.preview", "document.previewPages", "image.jpeg", "image.probe", "image.resize", "image.still", "image.validate", "media.legacyOffice", "media.officeText", "media.pdfCounts", "media.pdfText", "office.run", "office.sweepJournals", "ooxml.text", "pdf.inspect", "pdf.ocr", "pdf.render"]
+            vec![
+                "document.installLibreOffice",
+                "document.libreOfficeStatus",
+                "document.preview",
+                "document.previewPages",
+                "image.jpeg",
+                "image.probe",
+                "image.resize",
+                "image.still",
+                "image.validate",
+                "media.legacyOffice",
+                "media.officeText",
+                "media.pdfCounts",
+                "media.pdfText",
+                "office.run",
+                "office.sweepJournals",
+                "ooxml.text",
+                "pdf.inspect",
+                "pdf.ocr",
+                "pdf.render"
+            ]
         );
-        let extra: Extension =
-            |registry| registry.register("zzz.extra", |_| async { Ok(crate::Outcome::value(serde_json::Value::Null)) });
+        let extra: Extension = |registry| registry.register("zzz.extra", |_| async { Ok(crate::Outcome::value(serde_json::Value::Null)) });
         let all = native_methods_with(&[extra]);
         assert_eq!(all.len(), native_methods().len() + 1);
         assert_eq!(all.last().map(String::as_str), Some("zzz.extra"));
     }
 }
-
 
 /// Runs a worker with the document methods until the pool says bye or closes the pipe.
 pub fn ext_worker_main() -> ExitCode {

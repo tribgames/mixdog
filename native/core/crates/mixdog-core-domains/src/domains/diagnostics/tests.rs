@@ -47,11 +47,7 @@ impl DoctorSources for Scripted {
         self.probe("providerSetup").await
     }
     fn active_provider(&self) -> Option<String> {
-        self.fixture
-            .get("provider")
-            .and_then(Value::as_str)
-            .filter(|p| !p.is_empty())
-            .map(str::to_owned)
+        self.fixture.get("provider").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
     }
     async fn mcp_status(&self, _thread: Option<&ThreadId>) -> Probe {
         self.probe("mcpStatus").await
@@ -90,10 +86,7 @@ impl DoctorSources for Scripted {
         self.bridges[id].as_bool().unwrap()
     }
     async fn notice(&self, thread: Option<&ThreadId>, text: &str) {
-        self.notices
-            .lock()
-            .unwrap()
-            .push((thread.cloned(), text.to_owned()));
+        self.notices.lock().unwrap().push((thread.cloned(), text.to_owned()));
     }
 }
 
@@ -124,7 +117,6 @@ struct Rig {
     _data: tempfile::TempDir,
     _state: tempfile::TempDir,
 }
-
 
 /// The script runtime's version is known only from the install's metadata: absent it, the row
 /// says so; a known version is judged against the package's requirement.
@@ -190,9 +182,7 @@ fn the_update_row_names_the_desktop_app_where_it_installs_updates() {
 #[test]
 fn the_session_log_row_shows_the_migration_counts_and_warns_on_quarantined_data() {
     let base = json!({ "complete": true, "started": true, "logs": 3, "pending": 0, "skipped": [] });
-    let counts = |unexpected: u64| {
-        json!({ "verified": 40, "quarantinedExpected": 1, "quarantinedUnexpected": unexpected, "retired": 7, "retained": 2, "dangling": 0, "quarantineDir": "C:/data/quarantine" })
-    };
+    let counts = |unexpected: u64| json!({ "verified": 40, "quarantinedExpected": 1, "quarantinedUnexpected": unexpected, "retired": 7, "retained": 2, "dangling": 0, "quarantineDir": "C:/data/quarantine" });
     let mut quiet = base.clone();
     quiet["migration"] = counts(0);
     let row = session_log_row(&quiet).expect("a row");
@@ -237,8 +227,6 @@ fn the_data_folder_row_probes_whether_a_file_can_be_created() {
     assert!(!folder_accepts_a_file(&dir.path().join("missing"), &CancellationToken::new()));
     assert!(data_folder(&dir.path().join("missing"), &CancellationToken::new()).unwrap().level == Level::Fail);
 }
-
-
 
 /// "Writable" means the file was created and removed: a probe whose removal fails is not writable, and a check that has ended
 /// creates nothing.
@@ -301,17 +289,8 @@ async fn rig(golden: &Value, case: &Value) -> Rig {
         scopes(state.path(), "diagnostics").await,
         &mixdog_rt::testing::tokens(),
     );
-    Rig {
-        service,
-        sources,
-        _data: data,
-        _state: state,
-    }
+    Rig { service, sources, _data: data, _state: state }
 }
-
-
-
-
 
 /// A healthy install: scripted runtime statuses with nothing to report beyond the data folder and the config.
 fn healthy() -> (Value, Value) {
@@ -329,23 +308,10 @@ fn healthy() -> (Value, Value) {
 async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() {
     let (golden, case) = healthy();
     let rig = rig(&golden, &case).await;
-    value(
-        &*rig.service,
-        request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1)),
-    )
-    .await
-    .unwrap();
+    value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1))).await.unwrap();
     assert!(rig.sources.notices.lock().unwrap().is_empty());
-    let params = with_op(
-        json!({ "threadId": "th-1", "options": { "notice": true } }),
-        2,
-    );
-    value(
-        &*rig.service,
-        request("diagnostics/runDoctor", params, Some(2)),
-    )
-    .await
-    .unwrap();
+    let params = with_op(json!({ "threadId": "th-1", "options": { "notice": true } }), 2);
+    value(&*rig.service, request("diagnostics/runDoctor", params, Some(2))).await.unwrap();
     {
         let notices = rig.sources.notices.lock().unwrap();
         assert_eq!(notices.len(), 1);
@@ -354,12 +320,7 @@ async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() 
     }
 
     rig.service.running.store(true, AtomicOrdering::SeqCst);
-    let busy = value(
-        &*rig.service,
-        request("diagnostics/runDoctor", with_op(json!({}), 3), Some(3)),
-    )
-    .await
-    .unwrap();
+    let busy = value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 3), Some(3))).await.unwrap();
     assert_eq!(busy, json!({ "busy": true }));
 }
 #[tokio::test]
@@ -367,18 +328,8 @@ async fn a_repeated_op_runs_the_checks_once() {
     let (golden, case) = healthy();
     let rig = rig(&golden, &case).await;
     let params = with_op(json!({ "options": { "notice": true } }), 5);
-    let first = value(
-        &*rig.service,
-        request("diagnostics/runDoctor", params.clone(), Some(5)),
-    )
-    .await
-    .unwrap();
-    let again = value(
-        &*rig.service,
-        request("diagnostics/runDoctor", params, Some(5)),
-    )
-    .await
-    .unwrap();
+    let first = value(&*rig.service, request("diagnostics/runDoctor", params.clone(), Some(5))).await.unwrap();
+    let again = value(&*rig.service, request("diagnostics/runDoctor", params, Some(5))).await.unwrap();
     assert_eq!(first, again);
     assert_eq!(rig.sources.notices.lock().unwrap().len(), 1);
 }

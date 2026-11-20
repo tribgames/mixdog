@@ -15,7 +15,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::command::{stdio_forward_args, SshTarget};
+use crate::command::{SshTarget, stdio_forward_args};
 use crate::context::{AttemptContext, SshEnv};
 use crate::spawn::spawn_ssh;
 use crate::tunnel::pump;

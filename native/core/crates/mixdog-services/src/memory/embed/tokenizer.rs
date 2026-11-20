@@ -6,11 +6,10 @@
 //! made from, so each step keeps the behaviour of the tokenizer that produced
 //! them rather than the textbook algorithm.
 
-use mixdog_js::{JsRegex};
+use mixdog_js::JsRegex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
-
 
 use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
@@ -66,8 +65,7 @@ fn unsupported_layout(what: &str, field: Option<&Value>) -> MemoryError {
 }
 
 fn precompiled_normalize(text: &str) -> String {
-    static CONTROL: LazyLock<JsRegex> =
-        LazyLock::new(|| JsRegex::new_static("[\u{1}-\u{8}\u{B}\u{E}-\u{1F}\u{7F}\u{8F}\u{9F}]", "g"));
+    static CONTROL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("[\u{1}-\u{8}\u{B}\u{E}-\u{1F}\u{7F}\u{8F}\u{9F}]", "g"));
     static SPACE: LazyLock<JsRegex> = LazyLock::new(|| {
         JsRegex::new_static("[\u{9}\u{A}\u{C}\u{D}\u{A0}\u{1680}\u{2000}-\u{200F}\u{2028}\u{2029}\u{202F}\u{205F}\u{2581}\u{3000}\u{FEFF}\u{FFFD}]", "g")
     });
@@ -205,12 +203,7 @@ impl UnigramTokenizer {
         }
         let special_ids = |entry: &Value| -> Vec<u32> {
             let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
-            template["special_tokens"][name]["ids"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|id| id.as_u64().map(|id| id as u32))
-                .collect()
+            template["special_tokens"][name]["ids"].as_array().into_iter().flatten().filter_map(|id| id.as_u64().map(|id| id as u32)).collect()
         };
         let single = template["single"].as_array().ok_or_else(|| unsupported("template".into()))?;
         let at = single.iter().position(|entry| entry.get("Sequence").is_some()).ok_or_else(|| unsupported("template".into()))?;
@@ -367,10 +360,7 @@ impl UnigramTokenizer {
 
     /// Token ids with the template's special tokens, cut to the model window.
     pub fn encode(&self, text: &str) -> Vec<i64> {
-        let body = self
-            .tokens(text)
-            .into_iter()
-            .map(|token| self.added.get(&token).map_or_else(|| self.piece_id_or_unk(&token), |t| t.id));
+        let body = self.tokens(text).into_iter().map(|token| self.added.get(&token).map_or_else(|| self.piece_id_or_unk(&token), |t| t.id));
         let mut ids: Vec<i64> = self.prefix.iter().copied().chain(body).chain(self.suffix.iter().copied()).map(i64::from).collect();
         ids.truncate(self.max_length);
         ids
@@ -502,11 +492,8 @@ impl ByteLevelBpe {
         if template["type"] != "TemplateProcessing" {
             return Err(unsupported_layout("post-processor", template.get("type")));
         }
-        let steps: Vec<&Value> = if pre["type"] == "Sequence" {
-            pre["pretokenizers"].as_array().map_or_else(Vec::new, |a| a.iter().collect())
-        } else {
-            vec![pre]
-        };
+        let steps: Vec<&Value> =
+            if pre["type"] == "Sequence" { pre["pretokenizers"].as_array().map_or_else(Vec::new, |a| a.iter().collect()) } else { vec![pre] };
         let (mut split, mut add_prefix_space, mut byte_level) = (None, false, false);
         for step in steps {
             match step["type"].as_str() {
@@ -556,12 +543,7 @@ impl ByteLevelBpe {
         }
         let special_ids = |entry: &Value| -> Vec<u32> {
             let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
-            template["special_tokens"][name]["ids"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|id| id.as_u64().map(|id| id as u32))
-                .collect()
+            template["special_tokens"][name]["ids"].as_array().into_iter().flatten().filter_map(|id| id.as_u64().map(|id| id as u32)).collect()
         };
         let single = template["single"].as_array().ok_or_else(|| unsupported("template".into()))?;
         let at = single.iter().position(|entry| entry.get("Sequence").is_some()).ok_or_else(|| unsupported("template".into()))?;

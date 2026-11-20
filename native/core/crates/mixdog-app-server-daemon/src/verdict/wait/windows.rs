@@ -49,11 +49,7 @@ impl Event {
 
     pub(super) fn signal(&self) -> io::Result<()> {
         // SAFETY: valid event handle.
-        if unsafe { SetEvent(raw(&self.0)) } == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
+        if unsafe { SetEvent(raw(&self.0)) } == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
     }
 }
 
@@ -67,10 +63,7 @@ unsafe impl Sync for DirWatch {}
 impl DirWatch {
     pub(super) fn arm(dir: &DataDir) -> io::Result<Self> {
         let path = crate::ownership::dir_wide(dir.path());
-        let filter = FILE_NOTIFY_CHANGE_FILE_NAME
-            | FILE_NOTIFY_CHANGE_DIR_NAME
-            | FILE_NOTIFY_CHANGE_LAST_WRITE
-            | FILE_NOTIFY_CHANGE_SIZE;
+        let filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE;
         // SAFETY: NUL-terminated wide path.
         let handle = unsafe { FindFirstChangeNotificationW(path.as_ptr(), 0, filter) };
         if handle == INVALID_HANDLE_VALUE {
@@ -103,34 +96,21 @@ impl ExitWatch {
     /// signal, and so does this.
     pub(super) fn signal(&self, _kill: bool) -> io::Result<()> {
         // SAFETY: a valid process handle opened with PROCESS_TERMINATE.
-        if unsafe { TerminateProcess(raw(&self.0), 1) } == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
+        if unsafe { TerminateProcess(raw(&self.0), 1) } == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
     }
 
     fn open_with(identity: ProcessIdentity, access: PROCESS_ACCESS_RIGHTS) -> io::Result<Option<Self>> {
         Ok(match open(identity.pid, access)? {
             Opened::Gone => None,
             Opened::Denied => {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    format!("cannot wait for process {}", identity.pid),
-                ));
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, format!("cannot wait for process {}", identity.pid)));
             }
-            Opened::Running(handle) => {
-                (start_ms(&handle)? == identity.start_ms).then_some(Self(handle))
-            }
+            Opened::Running(handle) => (start_ms(&handle)? == identity.start_ms).then_some(Self(handle)),
         })
     }
 }
 
-pub(super) fn wait(
-    event: &Event,
-    dir: Option<&DirWatch>,
-    exit: Option<&ExitWatch>,
-) -> io::Result<Wake> {
+pub(super) fn wait(event: &Event, dir: Option<&DirWatch>, exit: Option<&ExitWatch>) -> io::Result<Wake> {
     let mut handles: Vec<(HANDLE, Wake)> = Vec::with_capacity(3);
     if let Some(exit) = exit {
         handles.push((raw(&exit.0), Wake::Exited));
@@ -141,14 +121,9 @@ pub(super) fn wait(
     handles.push((raw(&event.0), Wake::Interrupted));
     let raw_handles: Vec<HANDLE> = handles.iter().map(|(handle, _)| *handle).collect();
     // SAFETY: every handle is valid for the duration of the call.
-    let rc = unsafe {
-        WaitForMultipleObjects(raw_handles.len() as u32, raw_handles.as_ptr(), 0, INFINITE)
-    };
+    let rc = unsafe { WaitForMultipleObjects(raw_handles.len() as u32, raw_handles.as_ptr(), 0, INFINITE) };
     if rc == WAIT_FAILED {
         return Err(io::Error::last_os_error());
     }
-    handles
-        .get(rc.wrapping_sub(WAIT_OBJECT_0) as usize)
-        .map(|(_, wake)| *wake)
-        .ok_or_else(|| io::Error::other(format!("unexpected wait result {rc}")))
+    handles.get(rc.wrapping_sub(WAIT_OBJECT_0) as usize).map(|(_, wake)| *wake).ok_or_else(|| io::Error::other(format!("unexpected wait result {rc}")))
 }

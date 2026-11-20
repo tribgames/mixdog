@@ -170,7 +170,10 @@ async fn deliver_queues_the_report_the_payload_names_and_surfaces_a_failure() {
     h.deliver("agent-1", payload).await.unwrap();
     let (agent, report) = home.reports.lock().unwrap()[0].clone();
     assert_eq!(agent, "agent-1");
-    assert_eq!((report.run_id.as_str(), report.task_session_id.as_str(), report.status.as_str(), report.text.as_str()), ("task-1_a1_end", "task-1", "completed", "answer"));
+    assert_eq!(
+        (report.run_id.as_str(), report.task_session_id.as_str(), report.status.as_str(), report.text.as_str()),
+        ("task-1_a1_end", "task-1", "completed", "answer")
+    );
     assert_eq!((report.target.as_deref(), report.hop, report.omitted, report.watch_id.as_str()), (Some("session"), 2.0, 3.0, "w1"));
     assert_eq!((report.files.len(), report.progress_run_id.as_str(), report.from.as_str()), (1, "task-1_progress_a1", "room:x"));
 

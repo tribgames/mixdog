@@ -19,23 +19,23 @@ use mixdog_protocol::ProviderId;
 use serde::Deserialize;
 
 use super::Http;
+use crate::accounts::AccountStore;
+use crate::oauth::CredentialFile;
 use crate::oauth::FlowGuard;
+use crate::oauth::Probe;
 use crate::oauth::http::call_under;
-use crate::transport::deadlines::TOKEN_PROBE;
 use crate::oauth::http::failed;
 use crate::oauth::loopback;
 use crate::oauth::loopback::Handled;
 use crate::oauth::loopback::Request;
 use crate::oauth::loopback::Response;
+use crate::oauth::random_state;
 use crate::oauth::scrub::scrubbed_excerpt;
 use crate::oauth::start_session;
-use crate::accounts::AccountStore;
-use crate::oauth::CredentialFile;
-use crate::oauth::Probe;
-use crate::oauth::random_state;
 use crate::providers::compat::creds::COMMAND_CODE_API_ORIGIN;
 use crate::providers::compat::creds::COMMAND_CODE_STUDIO_ORIGIN;
 use crate::providers::compat::creds::CommandCodeCredentials;
+use crate::transport::deadlines::TOKEN_PROBE;
 
 pub const PROVIDER_ID: &str = "command-code-oauth";
 /// The callback port Studio is registered with; any free port when taken.
@@ -56,11 +56,7 @@ async fn cli_login(file: &CredentialFile) -> Option<CommandCodeCredentials> {
     let Probe::Present(cli) = file.load::<CliAuth>().await else {
         return None;
     };
-    let candidate = CommandCodeCredentials {
-        api_key: mixdog_js::js_trim(&cli.api_key).to_owned(),
-        user_id: String::new(),
-        user_name: String::new(),
-    };
+    let candidate = CommandCodeCredentials { api_key: mixdog_js::js_trim(&cli.api_key).to_owned(), user_id: String::new(), user_name: String::new() };
     (!mixdog_js::js_trim(&cli.user_id).is_empty() && candidate.is_valid()).then_some(candidate)
 }
 
@@ -79,11 +75,7 @@ pub fn parse_callback_payload(doc: &JsonValue, state: &str) -> Result<CommandCod
             None => return Err(format!("callback is missing {field}")),
         }
     }
-    let credentials = CommandCodeCredentials {
-        api_key: fields[0].clone(),
-        user_id: fields[1].clone(),
-        user_name: fields[2].clone(),
-    };
+    let credentials = CommandCodeCredentials { api_key: fields[0].clone(), user_id: fields[1].clone(), user_name: fields[2].clone() };
     if !credentials.is_valid() {
         return Err("callback carried a malformed API key".into());
     }
@@ -100,16 +92,8 @@ pub fn parse_pasted_input(input: &str, state: &str) -> Result<CommandCodeCredent
         let doc: JsonValue = serde_json::from_str(pasted).map_err(|_| "pasted callback is not valid JSON".to_owned())?;
         return parse_callback_payload(&doc, state);
     }
-    let credentials = CommandCodeCredentials {
-        api_key: pasted.to_owned(),
-        user_id: String::new(),
-        user_name: String::new(),
-    };
-    if credentials.is_valid() {
-        Ok(credentials)
-    } else {
-        Err("pasted API key is malformed".into())
-    }
+    let credentials = CommandCodeCredentials { api_key: pasted.to_owned(), user_id: String::new(), user_name: String::new() };
+    if credentials.is_valid() { Ok(credentials) } else { Err("pasted API key is malformed".into()) }
 }
 
 /// The account behind a key: whoami's user id is the stable identity.
@@ -126,9 +110,10 @@ async fn whoami(http: &Http, api_key: &str) -> Result<(String, String), LoginFai
     if reply.status == 401 {
         return Err(failed("invalid_grant", "API key rejected (401): sign in again"));
     }
-    let doc = reply.json().filter(|_| reply.ok()).ok_or_else(|| {
-        failed("whoami", format!("whoami {}: {}", reply.status, scrubbed_excerpt(&reply.text(), &[api_key], 300)))
-    })?;
+    let doc = reply
+        .json()
+        .filter(|_| reply.ok())
+        .ok_or_else(|| failed("whoami", format!("whoami {}: {}", reply.status, scrubbed_excerpt(&reply.text(), &[api_key], 300))))?;
     let user = doc.get("user");
     let text = |field: &str| user.and_then(|u| u.get(field)).and_then(JsonValue::as_str).map_or("", str::trim).to_owned();
     let user_id = text("id");
@@ -158,22 +143,19 @@ fn json_reply(status: u16, success: bool, error: Option<&str>) -> Response {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::Probe;
+    use crate::oauth::http::testing::Scripted;
+    use crate::oauth::http::testing::finish;
     use serde_json::json;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpStream;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
-    use super::*;
-    use crate::oauth::CredentialIo;
-    use crate::oauth::Probe;
 
     async fn post(port: u16, origin: &str, body: &str) -> String {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        let request = format!(
-            "POST /callback HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: {origin}\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
+        let request = format!("POST /callback HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: {origin}\r\nContent-Length: {}\r\n\r\n{body}", body.len());
         stream.write_all(request.as_bytes()).await.unwrap();
         let mut out = String::new();
         stream.read_to_string(&mut out).await.unwrap();
@@ -204,24 +186,15 @@ use crate::oauth::http::testing::finish;
 
     fn store(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("command-code-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        CredentialFile::new(dir.path().join("command-code-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     fn accounts(dir: &tempfile::TempDir) -> AccountStore {
         let tokens = mixdog_rt::testing::tokens();
-        AccountStore::new(
-            dir.path().to_path_buf(),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     fn cli_auth(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("cli-auth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        CredentialFile::new(dir.path().join("cli-auth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     #[tokio::test]
     async fn the_studio_callback_stores_the_key_under_its_whoami_identity() {
@@ -308,7 +281,6 @@ use crate::oauth::http::testing::finish;
         session.cancel();
     }
 
-
     /// An identity read that never answers fails the login step after its timer.
     #[tokio::test(start_paused = true)]
     async fn an_identity_read_that_outlives_its_timer_fails_the_step() {
@@ -335,24 +307,15 @@ use crate::oauth::http::testing::finish;
     }
 }
 
-
 /// `~/.commandcode/auth.json`, the Command Code CLI's own login.
 pub fn default_cli_auth_path() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_default()
-        .join(".commandcode")
-        .join("auth.json")
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_default().join(".commandcode").join("auth.json")
 }
 /// Validates the key under its whoami identity and stores it.
 async fn settle(http: &Http, file: &CredentialFile, candidate: CommandCodeCredentials) -> Result<Option<String>, LoginFailure> {
     let (user_id, user_name) = whoami(http, &candidate.api_key).await?;
-    let credentials = CommandCodeCredentials {
-        api_key: candidate.api_key,
-        user_id,
-        user_name: if user_name.is_empty() { candidate.user_name } else { user_name },
-    };
+    let credentials =
+        CommandCodeCredentials { api_key: candidate.api_key, user_id, user_name: if user_name.is_empty() { candidate.user_name } else { user_name } };
     file.keep(&[&credentials.api_key]);
     file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
     Ok(Some(credentials.user_id))
@@ -370,14 +333,7 @@ pub struct CommandCodeLogin {
 }
 impl CommandCodeLogin {
     pub fn new(http: Http, file: CredentialFile, cli_auth: CredentialFile, accounts: AccountStore) -> Self {
-        Self {
-            target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)),
-            http,
-            file,
-            cli_auth,
-            accounts,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)), http, file, cli_auth, accounts, running: Arc::new(AtomicBool::new(false)) }
     }
 
     /// No account of this provider is connected yet: no roster entry and no
@@ -406,16 +362,12 @@ impl LoginFlow for CommandCodeLogin {
         }
         let bound = match loopback::bind(CALLBACK_PORT, true).await {
             Ok(bound) => bound,
-            Err(_) => loopback::bind(0, true)
-                .await
-                .map_err(|err| LoginError::Failed(failed("listen_failed", err.kind().to_string())))?,
+            Err(_) => loopback::bind(0, true).await.map_err(|err| LoginError::Failed(failed("listen_failed", err.kind().to_string())))?,
         };
         let (listeners, port) = bound;
         let state = random_state();
         let mut url = url::Url::parse(&format!("{COMMAND_CODE_STUDIO_ORIGIN}/studio/auth/cli")).expect("a constant URL parses");
-        url.query_pairs_mut()
-            .append_pair("callback", &format!("http://127.0.0.1:{port}{CALLBACK_PATH}"))
-            .append_pair("state", &state);
+        url.query_pairs_mut().append_pair("callback", &format!("http://127.0.0.1:{port}{CALLBACK_PATH}")).append_pair("state", &state);
         Ok(start_session(guard, LoginState::Authorize { url: url.into(), manual_url: None }, true, move |mut ctx, _| async move {
             ctx.set(LoginState::Waiting);
             let served = {

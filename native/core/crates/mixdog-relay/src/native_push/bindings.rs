@@ -166,10 +166,8 @@ impl NativePushService {
         let mut table = self.table();
         let held = table.get_mut(token).is_some_and(|entry| associations_of(entry).contains_key(&key));
         if !held {
-            let mine: usize = table
-                .values_mut()
-                .map(|entry| associations_of(entry).values().filter(|association| association.device_id == device_id).count())
-                .sum();
+            let mine: usize =
+                table.values_mut().map(|entry| associations_of(entry).values().filter(|association| association.device_id == device_id).count()).sum();
             if mine >= MAX_NATIVE_BINDINGS_PER_DEVICE {
                 return;
             }
@@ -205,9 +203,7 @@ impl NativePushService {
         let Some(request) = self.validated(message) else { return Some(Admitted::Refused(refusal(message, "invalid-message"))) };
         let bound = self.table().get_mut(&request.token).is_some_and(|entry| {
             associations_of(entry).values().any(|association| {
-                association.device_id == device_id
-                    && association.platform == request.platform.as_str()
-                    && owns(paired, device_id, Some(&association.client_id))
+                association.device_id == device_id && association.platform == request.platform.as_str() && owns(paired, device_id, Some(&association.client_id))
             })
         });
         if !bound {

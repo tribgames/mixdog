@@ -13,10 +13,7 @@ use std::sync::{
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::api::{
-    Connector, Target, TransportClosed, TransportEvent, TransportHalves, TransportReader,
-    TransportWriter,
-};
+use crate::api::{Connector, Target, TransportClosed, TransportEvent, TransportHalves, TransportReader, TransportWriter};
 
 /// Frames queued toward the server before the client's writer waits.
 const TO_SERVER_QUEUE: usize = 256;
@@ -26,7 +23,10 @@ const TO_SERVER_QUEUE: usize = 256;
 pub enum FromClient {
     Frame(String),
     /// The client closed the connection (`close`, or its handle dropped: 1006).
-    Closed { code: u16, reason: String },
+    Closed {
+        code: u16,
+        reason: String,
+    },
 }
 
 /// The server's handle for sending to the client and closing the connection. Cheap to clone; never blocks.
@@ -39,17 +39,13 @@ pub struct ServerSender {
 impl ServerSender {
     /// `false` once the connection is closed from either side.
     pub fn send(&self, frame: String) -> bool {
-        !self.closed.load(Ordering::Acquire)
-            && self.to_client.send(TransportEvent::Frame(frame)).is_ok()
+        !self.closed.load(Ordering::Acquire) && self.to_client.send(TransportEvent::Frame(frame)).is_ok()
     }
 
     /// Delivers the client its one `Closed` event; later sends fail.
     pub fn close(&self, code: u16, reason: &str) {
         if !self.closed.swap(true, Ordering::AcqRel) {
-            let _ = self.to_client.send(TransportEvent::Closed {
-                code,
-                reason: reason.to_string(),
-            });
+            let _ = self.to_client.send(TransportEvent::Closed { code, reason: reason.to_string() });
         }
     }
 }
@@ -71,19 +67,13 @@ impl TransportWriter for Writer {
         if self.server.closed.load(Ordering::Acquire) {
             return Err(TransportClosed);
         }
-        self.to_server
-            .send(FromClient::Frame(text))
-            .await
-            .map_err(|_| TransportClosed)
+        self.to_server.send(FromClient::Frame(text)).await.map_err(|_| TransportClosed)
     }
 
     async fn close(&mut self, code: u16, reason: String) {
         // Whoever closes first decides: the server may already have closed.
         if !self.server.closed.swap(true, Ordering::AcqRel) {
-            let _ = self.server.to_client.send(TransportEvent::Closed {
-                code,
-                reason: reason.clone(),
-            });
+            let _ = self.server.to_client.send(TransportEvent::Closed { code, reason: reason.clone() });
             let _ = self.to_server.send(FromClient::Closed { code, reason }).await;
         }
     }
@@ -93,10 +83,7 @@ impl Drop for Writer {
     fn drop(&mut self) {
         // A dropped client without `close` is an abnormal end the server must see.
         if !self.server.closed.swap(true, Ordering::AcqRel) {
-            let _ = self.to_server.try_send(FromClient::Closed {
-                code: 1006,
-                reason: "client dropped".into(),
-            });
+            let _ = self.to_server.try_send(FromClient::Closed { code: 1006, reason: "client dropped".into() });
         }
     }
 }
@@ -106,10 +93,7 @@ struct Reader(mpsc::UnboundedReceiver<TransportEvent>);
 #[async_trait]
 impl TransportReader for Reader {
     async fn recv(&mut self) -> TransportEvent {
-        self.0.recv().await.unwrap_or(TransportEvent::Closed {
-            code: 1006,
-            reason: "server dropped".into(),
-        })
+        self.0.recv().await.unwrap_or(TransportEvent::Closed { code: 1006, reason: "server dropped".into() })
     }
 }
 
@@ -117,17 +101,8 @@ impl TransportReader for Reader {
 pub fn pair() -> (TransportHalves, ServerEnd) {
     let (to_server, from_client) = mpsc::channel(TO_SERVER_QUEUE);
     let (to_client, events) = mpsc::unbounded_channel();
-    let sender = ServerSender {
-        to_client,
-        closed: Arc::new(AtomicBool::new(false)),
-    };
-    let halves = TransportHalves {
-        writer: Box::new(Writer {
-            to_server,
-            server: sender.clone(),
-        }),
-        reader: Box::new(Reader(events)),
-    };
+    let sender = ServerSender { to_client, closed: Arc::new(AtomicBool::new(false)) };
+    let halves = TransportHalves { writer: Box::new(Writer { to_server, server: sender.clone() }), reader: Box::new(Reader(events)) };
     (halves, ServerEnd { from_client, sender })
 }
 
@@ -168,20 +143,8 @@ mod tests {
         assert_eq!(halves.reader.recv().await, TransportEvent::Frame("b".into()));
 
         halves.writer.close(1000, "bye".into()).await;
-        assert_eq!(
-            halves.reader.recv().await,
-            TransportEvent::Closed {
-                code: 1000,
-                reason: "bye".into()
-            }
-        );
-        assert_eq!(
-            end.from_client.recv().await,
-            Some(FromClient::Closed {
-                code: 1000,
-                reason: "bye".into()
-            })
-        );
+        assert_eq!(halves.reader.recv().await, TransportEvent::Closed { code: 1000, reason: "bye".into() });
+        assert_eq!(end.from_client.recv().await, Some(FromClient::Closed { code: 1000, reason: "bye".into() }));
         assert!(!end.sender.send("late".into()));
         assert!(halves.writer.send("late".into()).await.is_err());
     }
@@ -191,13 +154,7 @@ mod tests {
         let (mut halves, end) = pair();
         end.sender.close(1001, "going away");
         end.sender.close(1002, "ignored");
-        assert_eq!(
-            halves.reader.recv().await,
-            TransportEvent::Closed {
-                code: 1001,
-                reason: "going away".into()
-            }
-        );
+        assert_eq!(halves.reader.recv().await, TransportEvent::Closed { code: 1001, reason: "going away".into() });
         assert!(halves.writer.send("x".into()).await.is_err());
     }
 
@@ -205,12 +162,6 @@ mod tests {
     async fn a_dropped_client_is_an_abnormal_close_for_the_server() {
         let (halves, mut end) = pair();
         drop(halves);
-        assert_eq!(
-            end.from_client.recv().await,
-            Some(FromClient::Closed {
-                code: 1006,
-                reason: "client dropped".into()
-            })
-        );
+        assert_eq!(end.from_client.recv().await, Some(FromClient::Closed { code: 1006, reason: "client dropped".into() }));
     }
 }

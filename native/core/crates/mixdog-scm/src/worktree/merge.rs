@@ -76,14 +76,8 @@ mod tests {
     }
 }
 
-
 impl Scm {
-    async fn outcome(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-    ) -> Result<crate::exec::ExecOutput, ScmFailure> {
+    async fn outcome(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str]) -> Result<crate::exec::ExecOutput, ScmFailure> {
         self.git.outcome(cancel, cwd, args, &RunOptions::default()).await
     }
 
@@ -118,11 +112,8 @@ impl Scm {
         if !output.success() {
             return Err(ScmFailure::git(format!("git status failed: {}", output.stderr_text().trim())));
         }
-        let files: Vec<String> = parse_status_entries(&output.stdout_text())
-            .into_iter()
-            .filter(|(code, path)| !(code == "??" && *path == identity))
-            .map(|(_, path)| path)
-            .collect();
+        let files: Vec<String> =
+            parse_status_entries(&output.stdout_text()).into_iter().filter(|(code, path)| !(code == "??" && *path == identity)).map(|(_, path)| path).collect();
         // The paths are named as Node's `uncommittedPaths` names them (an untracked folder once, not file by file); a folder
         // that holds nothing but the identity marker is not a change.
         let listed = self.uncommitted_paths(cancel, cwd).await?;
@@ -147,11 +138,9 @@ impl Scm {
         }
         let current = self.checked_out_branch(cancel, cwd).await?;
         if let Some(target) = target
-            && Some(target) != current.as_deref() {
-            let message = format!(
-                "The project folder is on {}, not {target}; reload and try again.",
-                current.as_deref().unwrap_or("a detached HEAD")
-            );
+            && Some(target) != current.as_deref()
+        {
+            let message = format!("The project folder is on {}, not {target}; reload and try again.", current.as_deref().unwrap_or("a detached HEAD"));
             return Err(errors::target_mismatch_text(message, None, None, Some(target.to_owned()), current.clone()));
         }
         let Some(current) = current else {
@@ -163,11 +152,7 @@ impl Scm {
         }
         let dirty = self.project_changes(cancel, cwd).await?;
         if !dirty.is_empty() {
-            return Err(errors::merge_target_dirty(
-                "",
-                dirty.iter().take(50).cloned().collect(),
-                Some(dirty.len() as u64),
-            ));
+            return Err(errors::merge_target_dirty("", dirty.iter().take(50).cloned().collect(), Some(dirty.len() as u64)));
         }
         let Some(head) = self.rev_parse(cancel, cwd, "HEAD^{commit}").await? else {
             return Err(errors::merge_failed("target-empty", None, None));
@@ -176,26 +161,10 @@ impl Scm {
         let Some(source_commit) = self.rev_parse(cancel, cwd, &peeled).await? else {
             return Err(errors::merge_failed("source-missing", Some(source_name.to_owned()), None));
         };
-        if self
-            .outcome(cancel, cwd, &["merge-base", "--is-ancestor", &source_commit, &head])
-            .await?
-            .success()
-        {
-            return Ok(MergeResult {
-                merged: true,
-                commit: Some(head),
-                target: current,
-                conflicts: None,
-                up_to_date: true,
-            });
+        if self.outcome(cancel, cwd, &["merge-base", "--is-ancestor", &source_commit, &head]).await?.success() {
+            return Ok(MergeResult { merged: true, commit: Some(head), target: current, conflicts: None, up_to_date: true });
         }
-        let preview = self
-            .outcome(
-                cancel,
-                cwd,
-                &["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", &head, &source_commit],
-            )
-            .await?;
+        let preview = self.outcome(cancel, cwd, &["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", &head, &source_commit]).await?;
         if preview.code == Some(1) {
             let mut conflicts: Vec<String> = Vec::new();
             for path in preview.stdout_text().split('\0').skip(1).filter(|p| !p.is_empty()) {
@@ -203,20 +172,10 @@ impl Scm {
                     conflicts.push(path.to_owned());
                 }
             }
-            return Ok(MergeResult {
-                merged: false,
-                commit: None,
-                target: current,
-                conflicts: Some(conflicts),
-                up_to_date: false,
-            });
+            return Ok(MergeResult { merged: false, commit: None, target: current, conflicts: Some(conflicts), up_to_date: false });
         }
         if !preview.success() {
-            return Err(ScmFailure::git(format!(
-                "git merge-tree failed (exit {}): {}",
-                preview.code.unwrap_or(-1),
-                preview.stderr_text().trim()
-            )));
+            return Err(ScmFailure::git(format!("git merge-tree failed (exit {}): {}", preview.code.unwrap_or(-1), preview.stderr_text().trim())));
         }
         // Nothing Mixdog runs can move the folder while the caller holds the repository lock;
         // an outside process still could, so verify again.
@@ -228,29 +187,20 @@ impl Scm {
         }
         let default_message = format!("Merge branch '{source_name}' into {current}");
         let merge_message = message.unwrap_or(&default_message);
-        let merged = self
-            .outcome(
-                cancel,
-                cwd,
-                &["merge", "--no-ff", "--no-edit", "-m", merge_message, &source_commit],
-            )
-            .await?;
+        let merged = self.outcome(cancel, cwd, &["merge", "--no-ff", "--no-edit", "-m", merge_message, &source_commit]).await?;
         if !merged.success() {
             // No operation was in progress before this call, so a MERGE_HEAD now is the merge
             // this call started.
             let started = operation_in_progress(&git_dir) == Some(RepoOperation::Merge);
-            let aborted = started
-                && self
-                    .outcome(cancel, cwd, &["merge", "--abort"])
-                    .await?
-                    .success();
+            let aborted = started && self.outcome(cancel, cwd, &["merge", "--abort"]).await?.success();
             let diagnostic = [merged.stderr_text(), merged.stdout_text()]
                 .iter()
                 .map(|text| text.trim().to_owned())
                 .find(|text| !text.is_empty())
                 .unwrap_or_else(|| "no diagnostic".to_owned());
             let outcome = if aborted { " (the merge was aborted; the project folder is unchanged)" } else { "" };
-            let message = format!("git merge failed (exit {}): {diagnostic}{outcome}", merged.code.map_or_else(|| "undefined".to_owned(), |code| code.to_string()));
+            let message =
+                format!("git merge failed (exit {}): {diagnostic}{outcome}", merged.code.map_or_else(|| "undefined".to_owned(), |code| code.to_string()));
             return Err(errors::merge_failed_with_output(message, aborted));
         }
         let commit = self.rev_parse(cancel, cwd, "HEAD^{commit}").await?;
@@ -258,12 +208,6 @@ impl Scm {
         if commit.is_none() || commit.as_deref() == Some(head.as_str()) || second_parent.as_deref() != Some(source_commit.as_str()) {
             return Err(errors::merge_failed("unexpected-head", None, None));
         }
-        Ok(MergeResult {
-            merged: true,
-            commit,
-            target: current,
-            conflicts: None,
-            up_to_date: false,
-        })
+        Ok(MergeResult { merged: true, commit, target: current, conflicts: None, up_to_date: false })
     }
 }

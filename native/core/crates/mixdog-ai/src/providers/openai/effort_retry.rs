@@ -4,8 +4,8 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Value;
 
@@ -23,10 +23,8 @@ fn rejects_effort_value(code: Option<&str>, param: Option<&str>, text: &str) -> 
     if matches!(code, Some("unsupported_parameter" | "unknown_parameter")) {
         return false;
     }
-    let effort_field = |name: &str| {
-        name == "effort" || name.ends_with(".effort")
-            || name.ends_with("reasoning_effort") || name.ends_with("reasoning_effort_update")
-    };
+    let effort_field =
+        |name: &str| name == "effort" || name.ends_with(".effort") || name.ends_with("reasoning_effort") || name.ends_with("reasoning_effort_update");
     static EFFORT_NAME: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"\b(?:effort|reasoning_effort(?:_update)?)\b").expect("static pattern"));
     static QUOTED_LEVEL: std::sync::LazyLock<regex::Regex> =
@@ -42,8 +40,7 @@ pub(super) struct SentUpdates(Vec<usize>);
 
 impl SentUpdates {
     pub(super) fn of(input: Option<&Value>) -> Self {
-        Self(input.and_then(Value::as_array).into_iter().flatten().enumerate()
-            .filter_map(|(index, item)| is_update(item).then_some(index)).collect())
+        Self(input.and_then(Value::as_array).into_iter().flatten().enumerate().filter_map(|(index, item)| is_update(item).then_some(index)).collect())
     }
 
     pub(super) fn rejected(&self, error: &ProviderError, param: Option<&str>) -> bool {
@@ -51,9 +48,7 @@ impl SentUpdates {
             return false;
         }
         let text = error.message.to_ascii_lowercase();
-        if ["clear_at", "clear-at", "turn-scoped"].iter().any(|part| text.contains(part))
-            || rejects_effort_value(error.code.as_deref(), param, &text)
-        {
+        if ["clear_at", "clear-at", "turn-scoped"].iter().any(|part| text.contains(part)) || rejects_effort_value(error.code.as_deref(), param, &text) {
             return false;
         }
         if param.and_then(input_index).is_some_and(|index| self.0.contains(&index)) {
@@ -88,10 +83,7 @@ pub fn without_effort_updates(sent: &WireRequest, response: &ErrorResponse) -> O
         return None;
     }
     input.retain(|item| !is_update(item));
-    Some(WireRequest {
-        body: serde_json::to_vec(&body).ok()?,
-        ..sent.clone()
-    })
+    Some(WireRequest { body: serde_json::to_vec(&body).ok()?, ..sent.clone() })
 }
 
 /// Models that rejected an effort update: no updates for them for the rest of
@@ -109,9 +101,7 @@ impl EffortUpdateSupport {
     }
 
     pub fn is_rejected(&self, route: &str, model: &str) -> bool {
-        self.rejected
-            .lock()
-            .is_ok_and(|set| !set.is_empty() && set.contains(&Self::key(route, model)))
+        self.rejected.lock().is_ok_and(|set| !set.is_empty() && set.contains(&Self::key(route, model)))
     }
 
     fn key(route: &str, model: &str) -> (String, String) {

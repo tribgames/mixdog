@@ -53,11 +53,7 @@ impl Inner {
         if !workspace.is_bound() && same_path(&workspace.cwd, &workspace.project_path) {
             return Ok(json!({ "revision": workspace.revision, "workspace": workspace.to_value(), "unchanged": true }));
         }
-        let occupancy = self
-            .ops
-            .wt
-            .branch_occupancy(std::path::Path::new(&workspace.project_path), Some(target), cancel)
-            .await?;
+        let occupancy = self.ops.wt.branch_occupancy(std::path::Path::new(&workspace.project_path), Some(target), cancel).await?;
         let branch = occupancy["occupancy"]
             .as_array()
             .and_then(|rows| rows.iter().find(|row| row["kind"] == "current"))
@@ -73,12 +69,7 @@ impl Inner {
     /// The desktop's "merge": into the confirmed merge target, then the cleanup autoCleanup allows.
     async fn merge(self: &Arc<Self>, target: &str, own_turn: bool, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         let workspace = self.workspace_view(target, cancel).await?;
-        let input = MergeWorkspace {
-            confirmed: true,
-            target: workspace.merge_target.clone(),
-            cleanup: true,
-            expected_revision: Some(workspace.revision),
-        };
+        let input = MergeWorkspace { confirmed: true, target: workspace.merge_target.clone(), cleanup: true, expected_revision: Some(workspace.revision) };
         self.merge_workspace(target, input, own_turn, cancel).await
     }
 
@@ -86,9 +77,7 @@ impl Inner {
     /// holds it: the session's own lane, with the same guards as the desktop's removal.
     pub(super) async fn remove_path(self: &Arc<Self>, path: &str, force: bool, caller: &str, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         let entry = self.ops.worktree_by_path(path, cancel).await?.ok_or_else(|| {
-            plain(format!(
-                "git worktree remove: {path} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool"
-            ))
+            plain(format!("git worktree remove: {path} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool"))
         })?;
         if entry.owner_session_id.as_deref() != Some(caller)
             && let Some(gone) = self.orphan(cancel, |row| row["id"] == entry.id.as_str()).await?
@@ -96,10 +85,7 @@ impl Inner {
             return self.remove_orphan(&gone, force, cancel).await;
         }
         let Some(owner) = entry.owner_session_id.clone() else {
-            return Err(plain(format!(
-                "git worktree remove: no session retains {}; git worktree prune removes it once it is clean and merged",
-                entry.path
-            )));
+            return Err(plain(format!("git worktree remove: no session retains {}; git worktree prune removes it once it is clean and merged", entry.path)));
         };
         let own = owner == caller;
         let workspace = self.workspace_view(&owner, cancel).await?;
@@ -133,11 +119,7 @@ impl Inner {
             let row = rows
                 .iter()
                 .find(|row| row["branch"] == branch.as_str() && row["ownerSessionId"] == caller)
-                .ok_or_else(|| {
-                    plain(format!(
-                        "git worktree remove: this session owns no managed worktree of branch {branch}; git worktree list shows them"
-                    ))
-                })?;
+                .ok_or_else(|| plain(format!("git worktree remove: this session owns no managed worktree of branch {branch}; git worktree list shows them")))?;
             let path = row["path"].as_str().unwrap_or_default().to_owned();
             return self.remove_path(&path, force, caller, cancel).await;
         }

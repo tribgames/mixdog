@@ -129,7 +129,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_password_is_registered_as_a_secret_and_never_echoed() {
-        let host = Arc::new(FakeHost::scripted(vec![call(json!({"value": "", "sensitive": true})), call(json!({"value": "", "sensitive": true})), batch_done()]));
+        let host =
+            Arc::new(FakeHost::scripted(vec![call(json!({"value": "", "sensitive": true})), call(json!({"value": "", "sensitive": true})), batch_done()]));
         let secrets = Arc::new(Mutex::new(Vec::<String>::new()));
         let mut actions = actions(host.clone());
         let sink = secrets.clone();

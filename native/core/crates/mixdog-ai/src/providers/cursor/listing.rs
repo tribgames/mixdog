@@ -30,8 +30,7 @@ use super::variants::SlugVariant;
 use super::variants::slug_groups;
 
 static CONTEXT_VALUE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("^(\\d+(?:\\.\\d+)?)(k|m)?$", ""));
-static DESCRIBED_CONTEXT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static("(\\d+(?:\\.\\d+)?)\\s*([km])\\s+context window", "i"));
+static DESCRIBED_CONTEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("(\\d+(?:\\.\\d+)?)\\s*([km])\\s+context window", "i"));
 static HEADING_SUFFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("\\s+\\([^)]*\\)\\s*$", ""));
 static FAST_SUFFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("\\s+Fast$", "i"));
 
@@ -81,9 +80,7 @@ pub(super) fn context_window_of(value: &str) -> u64 {
 }
 
 fn described_context_window(description: &str) -> u64 {
-    DESCRIBED_CONTEXT
-        .captures(description)
-        .map_or(0, |caps| context_window_of(&format!("{}{}", caps.get(1).unwrap_or(""), caps.get(2).unwrap_or(""))))
+    DESCRIBED_CONTEXT.captures(description).map_or(0, |caps| context_window_of(&format!("{}{}", caps.get(1).unwrap_or(""), caps.get(2).unwrap_or(""))))
 }
 
 /// The description without the heading that only repeats the model's name.
@@ -156,8 +153,7 @@ fn default_variant(routes: &[(&Variant, Map<String, Value>)], max_only: bool) ->
 
 fn parameterized_row(model: &CursorModel, provider: &str) -> Map<String, Value> {
     let effort = model.effort_definition();
-    let routes: Vec<(&Variant, Map<String, Value>)> =
-        model.variants.iter().map(|v| (v, route_parameters(v, effort.map(|d| d.id.as_str())))).collect();
+    let routes: Vec<(&Variant, Map<String, Value>)> = model.variants.iter().map(|v| (v, route_parameters(v, effort.map(|d| d.id.as_str())))).collect();
     let supports_max = model.supports_max_mode;
     let supports_non_max = model.supports_non_max_mode || !supports_max;
     let max_only = supports_max && !supports_non_max;
@@ -206,10 +202,7 @@ fn parameterized_row(model: &CursorModel, provider: &str) -> Map<String, Value> 
     row.insert("reasoning".into(), json!(reasoning));
     row.insert("supportsReasoning".into(), json!(reasoning));
     row.insert("reasoningLevels".into(), json!(efforts));
-    row.insert(
-        "reasoningOptions".into(),
-        if efforts.is_empty() { json!([]) } else { json!([{"type": "effort", "values": efforts}]) },
-    );
+    row.insert("reasoningOptions".into(), if efforts.is_empty() { json!([]) } else { json!([{"type": "effort", "values": efforts}]) });
     row.insert("fastCapable".into(), json!(model.fast_capable()));
     row.insert("fastEfforts".into(), json!(fast_efforts));
     row.insert("modelParameterOptions".into(), json!(parameter_options(&model.definitions)));
@@ -227,10 +220,7 @@ fn variant_display(group: &SlugGroup<'_>, variant: &SlugVariant<'_>) -> String {
         return "Auto".to_owned();
     }
     let model = variant.model;
-    let named = [model.name.as_str(), model.id.as_str(), group.base_id.as_str()]
-        .into_iter()
-        .find(|s| !s.is_empty())
-        .unwrap_or_default();
+    let named = [model.name.as_str(), model.id.as_str(), group.base_id.as_str()].into_iter().find(|s| !s.is_empty()).unwrap_or_default();
     let mut display = FAST_SUFFIX.replace_all_with(js_trim(named), |_| String::new());
     if let Some(effort) = variant.parsed.effort.as_deref() {
         let label = if effort == "xhigh" {
@@ -239,8 +229,7 @@ fn variant_display(group: &SlugGroup<'_>, variant: &SlugVariant<'_>) -> String {
             let mut chars = effort.chars();
             chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
         };
-        let label_suffix =
-            JsRegex::new_static(&format!("\\s+{label}(?=\\s+Thinking(?:\\s|$)|\\s+\\(NO ZDR\\)|$)"), "i");
+        let label_suffix = JsRegex::new_static(&format!("\\s+{label}(?=\\s+Thinking(?:\\s|$)|\\s+\\(NO ZDR\\)|$)"), "i");
         if let Some(found) = label_suffix.find(&display) {
             display.replace_range(found, "");
         }
@@ -251,10 +240,7 @@ fn variant_display(group: &SlugGroup<'_>, variant: &SlugVariant<'_>) -> String {
 /// The ids sharing a base as one model, described by the id requests prefer.
 fn group_row(group: &SlugGroup<'_>, provider: &str) -> Map<String, Value> {
     let representative = &group.variants[0];
-    let efforts: Vec<&str> = EFFORT_ORDER
-        .into_iter()
-        .filter(|effort| group.variants.iter().any(|v| v.parsed.effort.as_deref() == Some(effort)))
-        .collect();
+    let efforts: Vec<&str> = EFFORT_ORDER.into_iter().filter(|effort| group.variants.iter().any(|v| v.parsed.effort.as_deref() == Some(effort))).collect();
     let mut fast_efforts: Vec<String> = Vec::new();
     for variant in group.variants.iter().filter(|v| v.parsed.fast) {
         let effort = variant.parsed.effort.clone().unwrap_or_default();
@@ -273,10 +259,7 @@ fn group_row(group: &SlugGroup<'_>, provider: &str) -> Map<String, Value> {
     row.insert("reasoning".into(), json!(reasoning));
     row.insert("supportsReasoning".into(), json!(reasoning));
     row.insert("reasoningLevels".into(), json!(efforts));
-    row.insert(
-        "reasoningOptions".into(),
-        if efforts.is_empty() { json!([]) } else { json!([{"type": "effort", "values": efforts}]) },
-    );
+    row.insert("reasoningOptions".into(), if efforts.is_empty() { json!([]) } else { json!([{"type": "effort", "values": efforts}]) });
     row.insert("fastCapable".into(), json!(!fast_efforts.is_empty()));
     row.insert("fastEfforts".into(), json!(fast_efforts));
     row
@@ -292,11 +275,6 @@ pub fn rows(models: &[CursorModel], provider: &str) -> Vec<Map<String, Value>> {
     parameterized
         .iter()
         .map(|m| parameterized_row(m, provider))
-        .chain(
-            groups
-                .iter()
-                .filter(|group| !parameterized.iter().any(|m| m.id == group.base_id))
-                .map(|group| group_row(group, provider)),
-        )
+        .chain(groups.iter().filter(|group| !parameterized.iter().any(|m| m.id == group.base_id)).map(|group| group_row(group, provider)))
         .collect()
 }

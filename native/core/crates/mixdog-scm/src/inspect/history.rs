@@ -42,11 +42,7 @@ fn compare_names(left: &str, right: &str) -> std::cmp::Ordering {
         .then_with(|| right.cmp(left))
 }
 
-pub async fn branches(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-) -> Result<Vec<GitBranchEntry>, ScmFailure> {
+pub async fn branches(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<Vec<GitBranchEntry>, ScmFailure> {
     // git-branches.ts:66-71: any failure of the ahead/behind listing is answered by the listing without it.
     let raw = match git.run(cancel, cwd, &["for-each-ref", BRANCH_FORMAT, "refs/heads", "refs/remotes"]).await {
         Ok(raw) => raw,
@@ -87,13 +83,7 @@ pub async fn branches(
             })
         })
         .collect();
-    rows.sort_by(|left, right| {
-        right
-            .current
-            .cmp(&left.current)
-            .then(left.remote.cmp(&right.remote))
-            .then_with(|| compare_names(&left.name, &right.name))
-    });
+    rows.sort_by(|left, right| right.current.cmp(&left.current).then(left.remote.cmp(&right.remote)).then_with(|| compare_names(&left.name, &right.name)));
     Ok(rows)
 }
 
@@ -117,9 +107,7 @@ pub struct GitLogEntry {
 fn display_ref(value: &str) -> String {
     let value = value.trim();
     let value = value.strip_prefix("HEAD -> ").unwrap_or(value);
-    let value = value
-        .strip_prefix("tag:")
-        .map_or(value, |rest| rest.trim_start());
+    let value = value.strip_prefix("tag:").map_or(value, |rest| rest.trim_start());
     for prefix in ["refs/heads/", "refs/remotes/", "refs/tags/"] {
         if let Some(rest) = value.strip_prefix(prefix) {
             return rest.to_owned();
@@ -160,34 +148,18 @@ fn decode_refs(decorations: &str) -> DecodedRefs {
     decoded
 }
 
-pub async fn log(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-    query: &str,
-    skip: u32,
-    limit: u32,
-) -> Result<Vec<GitLogEntry>, ScmFailure> {
+pub async fn log(git: &Git, cancel: &CancellationToken, cwd: &Path, query: &str, skip: u32, limit: u32) -> Result<Vec<GitLogEntry>, ScmFailure> {
     let query: String = query.trim().chars().take(200).collect();
     let skip = format!("--skip={skip}");
     let limit = format!("-n{}", limit.clamp(1, 100));
     let grep = format!("--grep={query}");
-    let mut args = vec![
-        "log",
-        "--all",
-        "--topo-order",
-        "--decorate=full",
-        skip.as_str(),
-        limit.as_str(),
-    ];
+    let mut args = vec!["log", "--all", "--topo-order", "--decorate=full", skip.as_str(), limit.as_str()];
     if !query.is_empty() {
         args.push("--regexp-ignore-case");
         args.push(grep.as_str());
     }
     args.push("--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI");
-    let output = git
-        .outcome(cancel, cwd, &args, &RunOptions::read())
-        .await?;
+    let output = git.outcome(cancel, cwd, &args, &RunOptions::read()).await?;
     // An empty history reads as []; a cut-off read is an error, never "no commits".
     if !output.success() {
         return Ok(Vec::new());
@@ -228,29 +200,14 @@ pub async fn log(
 }
 
 /// Commits not on the upstream. Without an upstream no commit of HEAD is on a remote.
-async fn unpushed_commits(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-) -> Result<HashSet<String>, ScmFailure> {
+async fn unpushed_commits(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<HashSet<String>, ScmFailure> {
     let options = RunOptions::read();
-    let with_upstream = git
-        .outcome(cancel, cwd, &["rev-list", "@{u}..HEAD"], &options)
-        .await?;
-    let listed = if with_upstream.success() {
-        with_upstream
-    } else {
-        git.outcome(cancel, cwd, &["rev-list", "HEAD"], &options)
-            .await?
-    };
+    let with_upstream = git.outcome(cancel, cwd, &["rev-list", "@{u}..HEAD"], &options).await?;
+    let listed = if with_upstream.success() { with_upstream } else { git.outcome(cancel, cwd, &["rev-list", "HEAD"], &options).await? };
     if !listed.success() {
         return Ok(HashSet::new());
     }
-    Ok(listed
-        .stdout_text()
-        .split_whitespace()
-        .map(str::to_owned)
-        .collect())
+    Ok(listed.stdout_text().split_whitespace().map(str::to_owned).collect())
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -286,33 +243,18 @@ fn parse_commit_files(status_raw: &str, numstat_raw: &str) -> Vec<GitCommitFile>
             continue;
         }
         let status = token.chars().next().unwrap_or('M');
-        let old_path = if status == 'R' || status == 'C' {
-            fields.next().filter(|value| !value.is_empty()).map(str::to_owned)
-        } else {
-            None
-        };
+        let old_path = if status == 'R' || status == 'C' { fields.next().filter(|value| !value.is_empty()).map(str::to_owned) } else { None };
         let path = fields.next().unwrap_or("");
         if path.is_empty() {
             continue;
         }
         let (additions, deletions) = stats.get(path).copied().unwrap_or((0, 0));
-        files.push(GitCommitFile {
-            path: path.to_owned(),
-            old_path,
-            status: status.to_string(),
-            additions,
-            deletions,
-        });
+        files.push(GitCommitFile { path: path.to_owned(), old_path, status: status.to_string(), additions, deletions });
     }
     files
 }
 
-pub async fn show(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-    hash: &str,
-) -> Result<GitCommitDetails, ScmFailure> {
+pub async fn show(git: &Git, cancel: &CancellationToken, cwd: &Path, hash: &str) -> Result<GitCommitDetails, ScmFailure> {
     let metadata_args = ["show", "-s", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P", hash];
     let status_args = ["show", "--format=", "--name-status", "-z", "--find-renames", "--first-parent", hash];
     let numstat_args = ["show", "--format=", "--numstat", "-z", "--find-renames", "--first-parent", hash];
@@ -326,10 +268,7 @@ pub async fn show(
         crate::promise_all::all2(crate::promise_all::all2(read(&metadata_args), read(&status_args)), read(&numstat_args)).await?;
     let mut fields = metadata.trim().split('\u{1f}');
     let full_hash = fields.next().unwrap_or(hash).to_owned();
-    let short_hash = fields
-        .next()
-        .map(str::to_owned)
-        .unwrap_or_else(|| hash.chars().take(8).collect());
+    let short_hash = fields.next().map(str::to_owned).unwrap_or_else(|| hash.chars().take(8).collect());
     let mut text = || fields.next().unwrap_or("").to_owned();
     let subject = text();
     let author = text();
@@ -349,52 +288,26 @@ pub async fn show(
 }
 
 /// File content at `rev`, or `None` when it does not exist there.
-pub async fn show_file(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-    rev: &str,
-    path: &str,
-) -> Result<Option<String>, ScmFailure> {
+pub async fn show_file(git: &Git, cancel: &CancellationToken, cwd: &Path, rev: &str, path: &str) -> Result<Option<String>, ScmFailure> {
     let spec = format!("{rev}:{}", path.replace('\\', "/"));
-    let output = git
-        .outcome(cancel, cwd, &["show", &spec], &RunOptions::read())
-        .await?;
+    let output = git.outcome(cancel, cwd, &["show", &spec], &RunOptions::read()).await?;
     Ok(output.success().then(|| output.stdout_text()))
 }
 
 /// Whether HEAD names a commit; an unborn branch is diffed against the empty tree.
 pub async fn has_head(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<bool, ScmFailure> {
-    Ok(git
-        .outcome(cancel, cwd, &["rev-parse", "--verify", "HEAD"], &RunOptions::read())
-        .await?
-        .success())
+    Ok(git.outcome(cancel, cwd, &["rev-parse", "--verify", "HEAD"], &RunOptions::read()).await?.success())
 }
 
 /// The empty tree of this repository's object format.
 pub async fn empty_tree(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<String, ScmFailure> {
-    let options = RunOptions {
-        input: Some(Vec::new()),
-        ..RunOptions::read()
-    };
-    Ok(git
-        .text(cancel, cwd, &["--no-optional-locks", "hash-object", "-t", "tree", "--stdin"], &options)
-        .await?
-        .trim()
-        .to_owned())
+    let options = RunOptions { input: Some(Vec::new()), ..RunOptions::read() };
+    Ok(git.text(cancel, cwd, &["--no-optional-locks", "hash-object", "-t", "tree", "--stdin"], &options).await?.trim().to_owned())
 }
 
 /// The ref uncommitted work is diffed against: HEAD, or the empty tree while unborn.
-pub async fn uncommitted_base(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-) -> Result<String, ScmFailure> {
-    if has_head(git, cancel, cwd).await? {
-        Ok("HEAD".to_owned())
-    } else {
-        empty_tree(git, cancel, cwd).await
-    }
+pub async fn uncommitted_base(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<String, ScmFailure> {
+    if has_head(git, cancel, cwd).await? { Ok("HEAD".to_owned()) } else { empty_tree(git, cancel, cwd).await }
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -405,14 +318,8 @@ pub struct GitStashEntry {
     pub when: String,
 }
 
-pub async fn stash_list(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-) -> Result<Vec<GitStashEntry>, ScmFailure> {
-    let raw = git
-        .run(cancel, cwd, &["stash", "list", "--format=%gd%x00%s%x00%cr"])
-        .await?;
+pub async fn stash_list(git: &Git, cancel: &CancellationToken, cwd: &Path) -> Result<Vec<GitStashEntry>, ScmFailure> {
+    let raw = git.run(cancel, cwd, &["stash", "list", "--format=%gd%x00%s%x00%cr"]).await?;
     Ok(raw
         .lines()
         .map(str::trim)
@@ -440,9 +347,7 @@ mod tests {
 
     #[test]
     fn decorations_split_into_branches_tags_and_remotes() {
-        let decoded = decode_refs(
-            "HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main, refs/heads/feature",
-        );
+        let decoded = decode_refs("HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main, refs/heads/feature");
         assert_eq!(decoded.refs, ["main", "v1", "origin/main", "feature"]);
         assert_eq!(decoded.tags, ["v1"]);
         assert_eq!(decoded.remotes, ["origin/main"]);
@@ -458,15 +363,11 @@ mod tests {
         assert_eq!(files[1].additions, 3);
     }
 
-
     #[test]
     fn untracked_patch_adds_every_line() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("new.txt"), "untracked\n").unwrap();
-        assert_eq!(
-            untracked_patch(dir.path(), "new.txt"),
-            "diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"
-        );
+        assert_eq!(untracked_patch(dir.path(), "new.txt"), "diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n");
     }
 }
 
@@ -483,16 +384,8 @@ mod untracked_join_tests {
     }
 }
 
-
-
 pub const DISPLAY_DIFF_ARGS: [&str; 3] = ["--no-ext-diff", "--no-textconv", "--no-color"];
-pub async fn show_diff(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-    hash: &str,
-    path: &str,
-) -> Result<String, ScmFailure> {
+pub async fn show_diff(git: &Git, cancel: &CancellationToken, cwd: &Path, hash: &str, path: &str) -> Result<String, ScmFailure> {
     let mut args = vec!["show"];
     args.extend(DISPLAY_DIFF_ARGS);
     args.extend(["--format=", "--patch", "--find-renames", "--first-parent", hash, "--", path]);
@@ -517,10 +410,7 @@ pub fn untracked_patch(root: &Path, path: &str) -> String {
     if lines.is_empty() {
         return String::new();
     }
-    let mut out = format!(
-        "diff --git a/{path} b/{path}\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n",
-        lines.len()
-    );
+    let mut out = format!("diff --git a/{path} b/{path}\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n", lines.len());
     for line in lines {
         out.push('+');
         out.push_str(line);

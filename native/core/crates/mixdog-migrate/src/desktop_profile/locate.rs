@@ -8,10 +8,7 @@ use std::path::PathBuf;
 pub const USER_DATA_ENV: &str = "MIXDOG_DESKTOP_USER_DATA";
 
 /// `desktop_profile_dir` over an explicit environment.
-pub fn desktop_profile_dir_with(
-    launcher_arg: Option<&Path>,
-    env: &dyn Fn(&str) -> Option<OsString>,
-) -> Option<PathBuf> {
+pub fn desktop_profile_dir_with(launcher_arg: Option<&Path>, env: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     if let Some(path) = launcher_arg {
         return absolute(path);
     }
@@ -34,10 +31,7 @@ mod tests {
     use super::*;
 
     fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
-        let pairs: Vec<(String, OsString)> = pairs
-            .iter()
-            .map(|(key, value)| ((*key).to_owned(), OsString::from(value)))
-            .collect();
+        let pairs: Vec<(String, OsString)> = pairs.iter().map(|(key, value)| ((*key).to_owned(), OsString::from(value))).collect();
         move |name| pairs.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone())
     }
 
@@ -49,14 +43,9 @@ mod tests {
 
     #[test]
     fn the_os_app_data_is_never_a_profile() {
-        let env = env_of(&[
-            ("APPDATA", "C:/Users/u/AppData/Roaming"),
-            ("HOME", "/home/u"),
-            ("XDG_CONFIG_HOME", "/xdg"),
-        ]);
+        let env = env_of(&[("APPDATA", "C:/Users/u/AppData/Roaming"), ("HOME", "/home/u"), ("XDG_CONFIG_HOME", "/xdg")]);
         assert_eq!(desktop_profile_dir_with(None, &env), None);
     }
-
 
     #[test]
     fn launcher_argument_wins_over_environment() {
@@ -71,7 +60,6 @@ mod tests {
         assert_eq!(desktop_profile_dir_with(None, &env), Some(dir));
     }
 }
-
 
 /// `<P>`: the launcher's `--desktop-profile` when given, else `MIXDOG_DESKTOP_USER_DATA` when set.
 /// `None` when the launcher names none: the core never guesses a profile (D-profile-1).

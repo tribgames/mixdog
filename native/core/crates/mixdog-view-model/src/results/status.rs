@@ -543,7 +543,11 @@ mod tests {
 
     #[test]
     fn members_keep_the_atomic_calls() {
-        let calls = [json!({ "callId": "c1", "name": "read", "args": { "path": "a" }, "resultText": "r", "resolved": true, "isError": true, "uiDiff": "d", "startedAt": 5, "completedAt": 0 }), json!(null), json!({})];
+        let calls = [
+            json!({ "callId": "c1", "name": "read", "args": { "path": "a" }, "resultText": "r", "resolved": true, "isError": true, "uiDiff": "d", "startedAt": 5, "completedAt": 0 }),
+            json!(null),
+            json!({}),
+        ];
         let members = aggregate_tool_members(&calls);
         assert_eq!(members.len(), 2);
         assert_eq!(

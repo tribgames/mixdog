@@ -86,7 +86,6 @@ impl Turn {
         Box::pin(Guarded { turn: self.clone(), task })
     }
 
-
     #[cfg(test)]
     fn told_waiting(&self) {
         let listener = self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();

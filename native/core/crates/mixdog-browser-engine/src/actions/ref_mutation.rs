@@ -123,11 +123,21 @@ mod tests {
 
     #[tokio::test]
     async fn a_ref_that_went_stale_before_input_is_found_again_and_the_input_runs_once() {
-        let host = FakeHost::scripted(vec![stale().with_params(json!({"snapshotId": "p1-s1", "ref": "p1-s1-e1"})), connected().with_params(json!({"snapshotId": "p1-s2", "ref": "p1-s2-e1"}))]);
+        let host = FakeHost::scripted(vec![
+            stale().with_params(json!({"snapshotId": "p1-s1", "ref": "p1-s1-e1"})),
+            connected().with_params(json!({"snapshotId": "p1-s2", "ref": "p1-s2-e1"})),
+        ]);
         let page = page_with_snapshots();
         let mut rig = Rig::new(Some(set("p1-s1")));
         let command = Value::Null;
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         let ran = AtomicUsize::new(0);
         let seen = mutate_ref(&mut cx, "p1-s1-e1", false, |ref_id| async {
             ran.fetch_add(1, Ordering::SeqCst);
@@ -147,7 +157,14 @@ mod tests {
         let page = page_with_snapshots();
         let mut rig = Rig::new(Some(set("p1-s1")));
         let command = Value::Null;
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         let attempts = AtomicUsize::new(0);
         let outcome: Result<(), ActionError> = mutate_ref(&mut cx, "p1-s1-e1", false, |_| async {
             attempts.fetch_add(1, Ordering::SeqCst);
@@ -167,7 +184,14 @@ mod tests {
         let page = TestPage::new();
         let mut rig = Rig::new(Some(set("p1-s1")));
         let command = Value::Null;
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx = ActionContext {
+            host: &host,
+            page: &page,
+            command: &command,
+            cancel: &rig.source.view(),
+            recovery: &mut rig.recovery,
+            effect_baseline: &mut rig.baseline,
+        };
         let outcome: Result<(), ActionError> = mutate_ref(&mut cx, "p9-s1-e1", false, |_| async { Ok(()) }).await;
         assert_eq!(outcome.expect_err("unknown").to_string(), "ref p9-s1-e1 is not from the latest snapshot; take a fresh snapshot first");
         host.finish().expect("no host call");
@@ -181,7 +205,8 @@ mod tests {
         let command = Value::Null;
         let view = rig.source.view();
         rig.source.cancel("stopped by the caller");
-        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let mut cx =
+            ActionContext { host: &host, page: &page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
         let ran = AtomicUsize::new(0);
         let outcome: Result<(), ActionError> = mutate_ref(&mut cx, "p1-s1-e1", false, |_| async {
             ran.fetch_add(1, Ordering::SeqCst);

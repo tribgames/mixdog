@@ -24,8 +24,8 @@ pub use admin::{AdminDeps, AdminError, ChannelAdmin};
 pub use bridge::BridgeCalls;
 pub use call::{CallDispatch, CallError, CallRequest, ChannelCallHandler, ChannelClient};
 pub use ports::{
-    AgentRuntime, AutomationServices, ChannelSettings, PublicBase, ReqwestProbe, WebhookAutomation, WebhookListener,
-    WebhookPatch, WebhookProbe, WebhookSettings,
+    AgentRuntime, AutomationServices, ChannelSettings, PublicBase, ReqwestProbe, WebhookAutomation, WebhookListener, WebhookPatch, WebhookProbe,
+    WebhookSettings,
 };
 pub use running::{RunningWork, WorkGuard};
 pub use runtime::ChannelRuntime;

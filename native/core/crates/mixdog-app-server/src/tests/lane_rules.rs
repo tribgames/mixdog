@@ -129,7 +129,11 @@ fn closing_the_lanes_refuses_what_waits_and_what_comes_later() {
     refused.sort();
     assert_eq!(
         refused,
-        [("i1".to_owned(), "shutting down".to_owned(), 503), ("n1".to_owned(), "shutting down".to_owned(), 503), ("n2".to_owned(), "shutting down".to_owned(), 503)]
+        [
+            ("i1".to_owned(), "shutting down".to_owned(), 503),
+            ("n1".to_owned(), "shutting down".to_owned(), 503),
+            ("n2".to_owned(), "shutting down".to_owned(), 503)
+        ]
     );
     let (_, later) = lanes.dispatch("client:a", Lane::Normal, "late".to_owned()).placed.err().expect("a later call is refused");
     assert_eq!((later.message.as_str(), later.status), ("session service call scheduler is closed", 503));
@@ -137,7 +141,19 @@ fn closing_the_lanes_refuses_what_waits_and_what_comes_later() {
 
 #[test]
 fn the_calls_a_person_waits_on_are_interactive_and_the_control_calls_never_queue() {
-    for method in ["thread/start", "thread/read", "thread/resume", "turn/start", "room/send", "project/list", "project/ensureDirectory", "terminal/ensure", "terminal/focus", "terminal/dispose", "terminal/profiles"] {
+    for method in [
+        "thread/start",
+        "thread/read",
+        "thread/resume",
+        "turn/start",
+        "room/send",
+        "project/list",
+        "project/ensureDirectory",
+        "terminal/ensure",
+        "terminal/focus",
+        "terminal/dispose",
+        "terminal/profiles",
+    ] {
         assert_eq!(lane(method), Lane::Interactive, "{method}");
     }
     for method in ["turn/interrupt", "thread/approval/answer", "thread/approval/answerNotification", "thread/unsubscribe", "feed/unsubscribe", "initialize"] {

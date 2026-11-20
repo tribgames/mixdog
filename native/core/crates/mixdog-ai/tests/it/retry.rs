@@ -14,10 +14,7 @@ use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::StatusRules;
 use mixdog_core_api::domain::retry::Verdict;
 
-const MID: JitterSamples = JitterSamples {
-    step: 0.5,
-    advice: 0.5,
-};
+const MID: JitterSamples = JitterSamples { step: 0.5, advice: 0.5 };
 
 #[test]
 fn passes_the_p0_decider_conformance() {
@@ -32,14 +29,7 @@ fn failure(kind: ErrorKind, status: Option<u16>) -> ProviderError {
 }
 
 fn verdict(err: &ProviderError, policy: &RetryPolicy, state: &RetryState) -> Verdict {
-    mixdog_core_api::domain::retry::RetryDecider::verdict(
-        &StandardRetryDecider,
-        err,
-        state,
-        policy,
-        MID,
-    )
-    .verdict
+    mixdog_core_api::domain::retry::RetryDecider::verdict(&StandardRetryDecider, err, state, policy, MID).verdict
 }
 
 fn request() -> RetryState {
@@ -50,90 +40,48 @@ fn request() -> RetryState {
 fn terminal_and_edge_statuses_surface_even_when_transient() {
     let mut policy = RetryPolicy::codex_default();
     policy.status.terminal = vec![409];
-    assert_eq!(
-        verdict(&failure(ErrorKind::Transient, Some(525)), &policy, &request()),
-        Verdict::Surface
-    );
-    assert_eq!(
-        verdict(&failure(ErrorKind::Transient, Some(409)), &policy, &request()),
-        Verdict::Surface
-    );
-    assert!(matches!(
-        verdict(&failure(ErrorKind::Transient, Some(503)), &policy, &request()),
-        Verdict::Retry { .. }
-    ));
+    assert_eq!(verdict(&failure(ErrorKind::Transient, Some(525)), &policy, &request()), Verdict::Surface);
+    assert_eq!(verdict(&failure(ErrorKind::Transient, Some(409)), &policy, &request()), Verdict::Surface);
+    assert!(matches!(verdict(&failure(ErrorKind::Transient, Some(503)), &policy, &request()), Verdict::Retry { .. }));
 }
 
 #[test]
 fn retry_only_limits_statuses_but_not_transport_faults() {
     let mut policy = RetryPolicy::codex_default();
-    policy.status = StatusRules {
-        retry_only: Some(vec![500, 502, 503]),
-        retry_429: true,
-        retry_529: true,
-        ..StatusRules::default()
-    };
-    assert_eq!(
-        verdict(&failure(ErrorKind::RateLimited, Some(429)), &policy, &request()),
-        Verdict::Surface
-    );
-    assert!(matches!(
-        verdict(&failure(ErrorKind::Transient, Some(502)), &policy, &request()),
-        Verdict::Retry { .. }
-    ));
-    assert!(matches!(
-        verdict(&failure(ErrorKind::Transient, None), &policy, &request()),
-        Verdict::Retry { .. }
-    ));
+    policy.status = StatusRules { retry_only: Some(vec![500, 502, 503]), retry_429: true, retry_529: true, ..StatusRules::default() };
+    assert_eq!(verdict(&failure(ErrorKind::RateLimited, Some(429)), &policy, &request()), Verdict::Surface);
+    assert!(matches!(verdict(&failure(ErrorKind::Transient, Some(502)), &policy, &request()), Verdict::Retry { .. }));
+    assert!(matches!(verdict(&failure(ErrorKind::Transient, None), &policy, &request()), Verdict::Retry { .. }));
 }
 
 #[test]
 fn status_429_and_529_switches() {
     let mut policy = RetryPolicy::codex_default();
     policy.status.retry_429 = false;
-    assert_eq!(
-        verdict(&failure(ErrorKind::RateLimited, Some(429)), &policy, &request()),
-        Verdict::Surface
-    );
+    assert_eq!(verdict(&failure(ErrorKind::RateLimited, Some(429)), &policy, &request()), Verdict::Surface);
     policy.status.retry_429 = true;
     policy.status.retry_529 = false;
-    assert_eq!(
-        verdict(&failure(ErrorKind::Overloaded, Some(529)), &policy, &request()),
-        Verdict::Surface
-    );
+    assert_eq!(verdict(&failure(ErrorKind::Overloaded, Some(529)), &policy, &request()), Verdict::Surface);
 }
 
 #[test]
 fn repeated_overload_falls_back_or_ends_the_send() {
     let mut policy = RetryPolicy::codex_default();
-    policy.overload = OverloadRule {
-        fallback_after: Some(3),
-        fallback_model: Some("other".into()),
-        stop_after_repeated: true,
-    };
+    policy.overload = OverloadRule { fallback_after: Some(3), fallback_model: Some("other".into()), stop_after_repeated: true };
     let overloaded = failure(ErrorKind::Overloaded, Some(529));
     let decider = StandardRetryDecider;
     let mut state = request();
     for _ in 0..2 {
-        let decision =
-            mixdog_core_api::domain::retry::RetryDecider::verdict(&decider, &overloaded, &state, &policy, MID);
+        let decision = mixdog_core_api::domain::retry::RetryDecider::verdict(&decider, &overloaded, &state, &policy, MID);
         assert!(matches!(decision.verdict, Verdict::Retry { .. }));
         state = decision.next;
     }
-    assert_eq!(
-        verdict(&overloaded, &policy, &state),
-        Verdict::Fallback {
-            model: "other".into()
-        }
-    );
+    assert_eq!(verdict(&overloaded, &policy, &state), Verdict::Fallback { model: "other".into() });
     // The same model cannot be its own fallback: the send ends instead.
     policy.overload.fallback_model = Some("m".into());
     assert_eq!(verdict(&overloaded, &policy, &state), Verdict::Exhausted);
     policy.overload.stop_after_repeated = false;
-    assert!(matches!(
-        verdict(&overloaded, &policy, &state),
-        Verdict::Retry { .. }
-    ));
+    assert!(matches!(verdict(&overloaded, &policy, &state), Verdict::Retry { .. }));
 }
 
 /// A fallback another ladder already decided (the PC's, in the model-proxy client mode) is taken as it stands, whatever this
@@ -158,10 +106,7 @@ fn should_retry_header_decides_only_where_the_policy_says() {
     forced.should_retry = Some(true);
     assert_eq!(verdict(&forced, &policy, &request()), Verdict::Surface);
     policy.honor_should_retry_true = true;
-    assert!(matches!(
-        verdict(&forced, &policy, &request()),
-        Verdict::Retry { .. }
-    ));
+    assert!(matches!(verdict(&forced, &policy, &request()), Verdict::Retry { .. }));
 }
 
 #[test]
@@ -170,10 +115,7 @@ fn client_abort_499_retries_only_when_the_policy_allows() {
     let abort = failure(ErrorKind::InvalidRequest, Some(499));
     assert_eq!(verdict(&abort, &policy, &request()), Verdict::Surface);
     policy.status.retry_499 = true;
-    assert!(matches!(
-        verdict(&abort, &policy, &request()),
-        Verdict::Retry { .. }
-    ));
+    assert!(matches!(verdict(&abort, &policy, &request()), Verdict::Retry { .. }));
 }
 
 #[test]
@@ -189,15 +131,8 @@ fn status_cap_bounds_retries_of_that_status_only() {
     // A server error in between is not capped, and does not use the cap.
     let between = StandardRetryDecider.verdict(&server, &first.next, &policy, MID);
     assert!(matches!(between.verdict, Verdict::Retry { .. }));
-    assert_eq!(
-        verdict(&limited, &policy, &between.next),
-        Verdict::Surface,
-        "the second 429 stands"
-    );
-    assert!(matches!(
-        verdict(&server, &policy, &between.next),
-        Verdict::Retry { .. }
-    ));
+    assert_eq!(verdict(&limited, &policy, &between.next), Verdict::Surface, "the second 429 stands");
+    assert!(matches!(verdict(&server, &policy, &between.next), Verdict::Retry { .. }));
 }
 
 /// Consecutive 429s through the policy; how many were retried before one
@@ -230,8 +165,5 @@ fn a_class_without_a_row_surfaces() {
     let mut policy = RetryPolicy::codex_default();
     policy.recovery = None;
     let state = RetryState::new(RetryClass::Recovery, "m");
-    assert_eq!(
-        verdict(&failure(ErrorKind::Transient, Some(503)), &policy, &state),
-        Verdict::Surface
-    );
+    assert_eq!(verdict(&failure(ErrorKind::Transient, Some(503)), &policy, &state), Verdict::Surface);
 }

@@ -70,14 +70,7 @@ impl StoreApprovalIds {
 #[async_trait::async_trait]
 impl ApprovalIds for StoreApprovalIds {
     async fn next(&self) -> Result<ApprovalId, CoreError> {
-        self.0
-            .next()
-            .await
-            .map(ApprovalId)
-            .map_err(|error| CoreError::BarrierFailed {
-                scope: "approvalIds".into(),
-                io_kind: error.to_string().into(),
-            })
+        self.0.next().await.map(ApprovalId).map_err(|error| CoreError::BarrierFailed { scope: "approvalIds".into(), io_kind: error.to_string().into() })
     }
 }
 
@@ -103,10 +96,7 @@ pub struct Lineage {
 
 impl Lineage {
     pub fn top_level(thread: &ThreadId) -> Self {
-        Self {
-            surface: thread.clone(),
-            chain: Vec::new(),
-        }
+        Self { surface: thread.clone(), chain: Vec::new() }
     }
 }
 
@@ -164,10 +154,7 @@ fn responses_of(kind: &str) -> &'static [HumanGateResponse] {
 
 /// `GRANTING_RESPONSES`.
 fn grants(response: HumanGateResponse) -> bool {
-    matches!(
-        response,
-        HumanGateResponse::Approve | HumanGateResponse::EditAndApprove | HumanGateResponse::ProvideSecret | HumanGateResponse::Done
-    )
+    matches!(response, HumanGateResponse::Approve | HumanGateResponse::EditAndApprove | HumanGateResponse::ProvideSecret | HumanGateResponse::Done)
 }
 
 fn remember_name(scope: ApprovalRemember) -> &'static str {
@@ -193,14 +180,12 @@ fn lenient_decision(result: &Value) -> ToolApprovalDecision {
     ToolApprovalDecision {
         approved: *result == Value::Bool(true) || field("approved") == Some(&Value::Bool(true)),
         reason,
-        answers: field("answers").and_then(Value::as_array).map(|answers| {
-            answers.iter().map(|answer| serde_json::from_value(answer.clone()).ok()).collect()
-        }),
+        answers: field("answers").and_then(Value::as_array).map(|answers| answers.iter().map(|answer| serde_json::from_value(answer.clone()).ok()).collect()),
         reply: text("reply"),
         response: field("response").and_then(|value| serde_json::from_value(value.clone()).ok()),
-        edited_args: field("editedArgs").and_then(Value::as_object).map(|edits| {
-            edits.iter().filter_map(|(name, text)| Some((name.clone(), text.as_str()?.to_owned()))).collect()
-        }),
+        edited_args: field("editedArgs")
+            .and_then(Value::as_object)
+            .map(|edits| edits.iter().filter_map(|(name, text)| Some((name.clone(), text.as_str()?.to_owned()))).collect()),
         remember: field("remember").and_then(|value| serde_json::from_value(value.clone()).ok()),
         scope: text("scope"),
     }
@@ -218,9 +203,7 @@ fn normalize_decision(ask: &ApprovalAsk, mut decision: ToolApprovalDecision) -> 
     let field = |key: &str| payload.and_then(|fields| fields.get(key));
     let polarity = decision.approved;
     let Some(offered) = field("remember").and_then(Value::as_array) else {
-        decision.remember = decision
-            .remember
-            .filter(|scope| polarity && (*scope == ApprovalRemember::Once || ask.remember.contains(scope)));
+        decision.remember = decision.remember.filter(|scope| polarity && (*scope == ApprovalRemember::Once || ask.remember.contains(scope)));
         return decision;
     };
     let kind = field("kind").and_then(Value::as_str).filter(|kind| HUMAN_REQUEST_KINDS.contains(kind)).unwrap_or("approval");
@@ -294,16 +277,8 @@ pub fn request_frame(request: &ApprovalRequest, params: Value) -> Bytes {
 }
 
 /// `serverRequest/resolved{threadId, requestId, resolution}` (connection-scoped, no feed).
-pub fn resolved_frame(
-    thread: &ThreadId,
-    aid: ApprovalId,
-    resolution: &ApprovalResolution,
-) -> Bytes {
-    let params = ServerRequestResolvedParams {
-        thread_id: thread.clone(),
-        request_id: RequestId::String(aid.request_id().0),
-        resolution: resolution.clone(),
-    };
+pub fn resolved_frame(thread: &ThreadId, aid: ApprovalId, resolution: &ApprovalResolution) -> Bytes {
+    let params = ServerRequestResolvedParams { thread_id: thread.clone(), request_id: RequestId::String(aid.request_id().0), resolution: resolution.clone() };
     Bytes::from(
         serde_json::to_vec(&JsonRpcNotification {
             method: "serverRequest/resolved".to_owned(),
@@ -334,10 +309,7 @@ mod tests {
     }
 
     fn device() -> DeviceInfo {
-        DeviceInfo {
-            device: "desktop-1".into(),
-            kind: ConnectionKind::Desktop,
-        }
+        DeviceInfo { device: "desktop-1".into(), kind: ConnectionKind::Desktop }
     }
 
     #[test]
@@ -345,28 +317,15 @@ mod tests {
         let thread = ThreadId::from("t");
         let mut book = ApprovalBook::default();
         let aid = ApprovalId(7);
-        let request = ApprovalBook::request(
-            aid,
-            &thread,
-            &Lineage::top_level(&thread),
-            ask(vec![ApprovalRemember::Session]),
-            1000,
-        );
+        let request = ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), ask(vec![ApprovalRemember::Session]), 1000);
         book.insert(request, TurnId::from("r"), None);
         let id = aid.request_id();
 
-        let won = book
-            .validate(&id, &json!({"approved": true, "remember": "session"}), device(), 5, Origin::Local)
-            .unwrap()
-            .expect("first decision");
+        let won = book.validate(&id, &json!({"approved": true, "remember": "session"}), device(), 5, Origin::Local).unwrap().expect("first decision");
         assert_eq!(won.aid, aid);
         assert!(book.validate(&id, &json!({"approved": false}), device(), 6, Origin::Local).unwrap().is_none());
         assert!(book.decidable().is_empty());
-        assert!(
-            book.validate(&ServerRequestId("nope".into()), &json!({}), device(), 6, Origin::Local)
-                .unwrap()
-                .is_none()
-        );
+        assert!(book.validate(&ServerRequestId("nope".into()), &json!({}), device(), 6, Origin::Local).unwrap().is_none());
     }
 
     #[test]
@@ -466,14 +425,10 @@ mod tests {
         assert!(book.decidable().is_empty() && book.open_requests().next().is_none(), "the ack forgets the request");
     }
 
-
     #[test]
     fn params_carry_the_envelope_and_the_askers_fields() {
         let thread = ThreadId::from("child");
-        let lineage = Lineage {
-            surface: ThreadId::from("lead"),
-            chain: vec![ThreadId::from("lead")],
-        };
+        let lineage = Lineage { surface: ThreadId::from("lead"), chain: vec![ThreadId::from("lead")] };
         let mut a = ask(vec![]);
         a.expires_after = Some(Duration::from_secs(2));
         let request = ApprovalBook::request(ApprovalId(3), &thread, &lineage, a, 1000);
@@ -515,7 +470,6 @@ mod tests {
     }
 }
 
-
 /// The wait limit of a request that names none (`resolveToolApprovalTimeoutMs`, tool-approval.mjs:30): none unless
 /// `MIXDOG_TOOL_APPROVAL_TIMEOUT_MS` sets one (tests and ops), one second at least.
 fn default_limit() -> Option<Duration> {
@@ -527,29 +481,14 @@ fn default_limit() -> Option<Duration> {
 }
 impl ApprovalBook {
     /// Builds the request record for `ask`. The caller persists it and calls [`Self::insert`].
-    pub fn request(
-        aid: ApprovalId,
-        thread: &ThreadId,
-        lineage: &Lineage,
-        mut ask: ApprovalAsk,
-        requested_at_ms: i64,
-    ) -> ApprovalRequest {
+    pub fn request(aid: ApprovalId, thread: &ThreadId, lineage: &Lineage, mut ask: ApprovalAsk, requested_at_ms: i64) -> ApprovalRequest {
         ask.expires_after = ask.expires_after.or_else(default_limit);
-        let expires_at = ask
-            .expires_after
-            .map(|after| std::time::UNIX_EPOCH + ms(requested_at_ms) + after);
+        let expires_at = ask.expires_after.map(|after| std::time::UNIX_EPOCH + ms(requested_at_ms) + after);
         ApprovalRequest {
             id: aid,
             thread_id: thread.clone(),
             surface_thread_id: lineage.surface.clone(),
-            chain: lineage
-                .chain
-                .iter()
-                .map(|thread_id| ChainLink {
-                    thread_id: thread_id.clone(),
-                    agent: None,
-                })
-                .collect(),
+            chain: lineage.chain.iter().map(|thread_id| ChainLink { thread_id: thread_id.clone(), agent: None }).collect(),
             order: aid.0,
             requested_at: std::time::UNIX_EPOCH + ms(requested_at_ms),
             expires_at,
@@ -557,35 +496,17 @@ impl ApprovalBook {
         }
     }
 
-    pub fn insert(
-        &mut self,
-        request: ApprovalRequest,
-        rid: TurnId,
-        waiter: Option<oneshot::Sender<ApprovalResolution>>,
-    ) {
+    pub fn insert(&mut self, request: ApprovalRequest, rid: TurnId, waiter: Option<oneshot::Sender<ApprovalResolution>>) {
         let deadline = request.ask.expires_after.map(|after| Instant::now() + after);
         if let Some(deadline) = deadline {
             self.deadlines.insert((deadline, request.id));
         }
-        self.open.insert(
-            request.id,
-            Open {
-                request,
-                rid,
-                waiter,
-                deadline,
-                resolving: false,
-            },
-        );
+        self.open.insert(request.id, Open { request, rid, waiter, deadline, resolving: false });
     }
 
     /// Ids that accept a decision now (published to the control cell for RT-C pre-checks).
     pub fn decidable(&self) -> Vec<ApprovalId> {
-        self.open
-            .iter()
-            .filter(|(_, open)| !open.resolving)
-            .map(|(aid, _)| *aid)
-            .collect()
+        self.open.iter().filter(|(_, open)| !open.resolving).map(|(aid, _)| *aid).collect()
     }
 
     /// The request a surface shows now (Node's `state.toolApproval`, the head of its FIFO): the
@@ -668,12 +589,7 @@ impl ApprovalBook {
         Ok(Some(Accepted {
             aid,
             rid: open.rid.clone(),
-            resolution: ApprovalResolution::Decided {
-                decision,
-                device: device.device,
-                connection_kind: device.kind,
-                at: at_ms,
-            },
+            resolution: ApprovalResolution::Decided { decision, device: device.device, connection_kind: device.kind, at: at_ms },
         }))
     }
 
@@ -717,9 +633,7 @@ impl ApprovalBook {
     }
 }
 fn epoch_ms(at: std::time::SystemTime) -> i64 {
-    at.duration_since(std::time::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
+    at.duration_since(std::time::UNIX_EPOCH).map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)).unwrap_or(0)
 }
 /// The server request params: the asker's kind-specific fields (`payload`, an object) with
 /// the actor's envelope (P §8.2, `ApprovalEnvelope`).
@@ -735,16 +649,7 @@ pub fn request_params(request: &ApprovalRequest, rid: &TurnId) -> Value {
     }
     if request.surface_thread_id != request.thread_id {
         params.insert("surfaceThreadId".into(), json!(request.surface_thread_id));
-        params.insert(
-            "chain".into(),
-            json!(
-                request
-                    .chain
-                    .iter()
-                    .map(|link| &link.thread_id)
-                    .collect::<Vec<_>>()
-            ),
-        );
+        params.insert("chain".into(), json!(request.chain.iter().map(|link| &link.thread_id).collect::<Vec<_>>()));
     }
     params.insert("requestedAt".into(), json!(epoch_ms(request.requested_at)));
     if let Some(expires_at) = request.expires_at {

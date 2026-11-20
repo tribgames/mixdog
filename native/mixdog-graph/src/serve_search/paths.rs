@@ -4,8 +4,7 @@
 use super::*;
 
 pub(super) fn path_has_segment(path: &Path, segment: &str) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == segment)
+    path.components().any(|component| component.as_os_str() == segment)
 }
 
 pub(super) fn normalized_operand(operand: &Path) -> PathBuf {
@@ -16,8 +15,7 @@ pub(super) fn normalized_operand(operand: &Path) -> PathBuf {
 /// True when no component of `path` is a symlink or junction (and it exists):
 /// its resolved form is the same path, compared like every other prefix test.
 pub(super) fn is_canonical_path(path: &Path) -> bool {
-    std::fs::canonicalize(path)
-        .is_ok_and(|real| path_starts_with(&real, path) && path_starts_with(path, &real))
+    std::fs::canonicalize(path).is_ok_and(|real| path_starts_with(&real, path) && path_starts_with(path, &real))
 }
 
 pub(super) fn path_starts_with(rooted: &Path, root: &Path) -> bool {
@@ -78,16 +76,10 @@ pub(super) fn relative_inventory_path(file: &Path, root: &Path) -> Option<String
         }
         let file = wire_path(file).replace('\\', "/");
         let root = wire_path(root).replace('\\', "/");
-        Some(
-            file[root.trim_end_matches('/').len()..]
-                .trim_start_matches('/')
-                .to_string(),
-        )
+        Some(file[root.trim_end_matches('/').len()..].trim_start_matches('/').to_string())
     }
     #[cfg(not(windows))]
-    file.strip_prefix(root)
-        .ok()
-        .map(|path| path.to_string_lossy().into_owned())
+    file.strip_prefix(root).ok().map(|path| path.to_string_lossy().into_owned())
 }
 
 pub(super) fn is_filesystem_root(path: &Path) -> bool {
@@ -134,14 +126,8 @@ mod path_starts_with_tests {
     fn unicode_names() {
         let sep = std::path::MAIN_SEPARATOR;
         let root = format!("{sep}프로젝트{sep}소스");
-        assert!(path_starts_with(
-            p(&format!("{root}{sep}파일.rs")),
-            p(&root)
-        ));
-        assert!(!path_starts_with(
-            p(&format!("{root}2{sep}파일.rs")),
-            p(&root)
-        ));
+        assert!(path_starts_with(p(&format!("{root}{sep}파일.rs")), p(&root)));
+        assert!(!path_starts_with(p(&format!("{root}2{sep}파일.rs")), p(&root)));
     }
 
     #[cfg(windows)]
@@ -161,18 +147,9 @@ mod path_starts_with_tests {
     fn windows_verbatim_unc_roots_and_trailing() {
         assert!(path_starts_with(p(r"\\?\C:\Proj\a.rs"), p(r"c:\proj")));
         assert!(path_starts_with(p(r"C:\Proj\a.rs"), p(r"\\?\c:\PROJ")));
-        assert!(path_starts_with(
-            p(r"\\?\UNC\srv\share\d\a"),
-            p(r"\\SRV\share")
-        ));
-        assert!(path_starts_with(
-            p(r"\\srv\share\d"),
-            p(r"\\?\UNC\srv\share\")
-        ));
-        assert!(!path_starts_with(
-            p(r"\\srv\share2\d"),
-            p(r"\\?\UNC\srv\share")
-        ));
+        assert!(path_starts_with(p(r"\\?\UNC\srv\share\d\a"), p(r"\\SRV\share")));
+        assert!(path_starts_with(p(r"\\srv\share\d"), p(r"\\?\UNC\srv\share\")));
+        assert!(!path_starts_with(p(r"\\srv\share2\d"), p(r"\\?\UNC\srv\share")));
         assert!(path_starts_with(p(r"C:\a"), p(r"C:\")));
         assert!(path_starts_with(p(r"C:\"), p(r"C:\")));
         assert!(!path_starts_with(p(r"D:\a"), p(r"C:\")));
@@ -188,11 +165,7 @@ pub(super) fn display_path(operand: &str, operand_path: &Path, file: &Path) -> S
     if rel.is_empty() {
         return operand.to_string();
     }
-    let sep = if operand.contains('/') && !operand.contains('\\') {
-        "/"
-    } else {
-        std::path::MAIN_SEPARATOR_STR
-    };
+    let sep = if operand.contains('/') && !operand.contains('\\') { "/" } else { std::path::MAIN_SEPARATOR_STR };
     let rel = rel.replace(['/', '\\'], sep);
     let trimmed = operand.trim_end_matches(['/', '\\']);
     format!("{trimmed}{sep}{rel}")

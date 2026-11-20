@@ -82,8 +82,7 @@ pub(super) async fn handle(pairing: &Pairing, mut request: Request, mut response
                 return;
             };
             let cookie = pairing_cookie_headers(&registered.token, request.encrypted);
-            let extra: Vec<(&str, &str)> =
-                cookie.iter().flat_map(|(name, values)| values.iter().map(move |value| (name, value.as_str()))).collect();
+            let extra: Vec<(&str, &str)> = cookie.iter().flat_map(|(name, values)| values.iter().map(move |value| (name, value.as_str()))).collect();
             reply_json(&mut response, 200, &json!({ "clientId": client_id, "token": registered.token }), &extra);
         }
     }

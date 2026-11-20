@@ -16,9 +16,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::hashed::is_hashed_asset;
-pub use super::readiness::{StaticResolution, resolve_static_target};
 use super::headers::{ResponseHeaders, device_cookie_headers, security_headers_for_target};
-use super::negotiate::{Encoding, LiveGzip, is_compressible, encoding_accepted, select_precompressed};
+use super::negotiate::{Encoding, LiveGzip, encoding_accepted, is_compressible, select_precompressed};
+pub use super::readiness::{StaticResolution, resolve_static_target};
 use super::releases::{DeviceReport, RendererCatalog};
 use crate::http1::{HeaderError, Request, ResponseWriter, fail_request};
 use crate::js;
@@ -59,8 +59,7 @@ pub fn mime_type(target: &Path) -> &'static str {
 /// Files that revalidate every time. `boot.js` carries no content hash yet is version-locked to `index.html` (it picks the
 /// viewport projection and the first-paint theme): under the generic one-day rule a phone kept an old `boot.js` while the
 /// document handed it a new hashed bundle, and the mismatched pair rendered the PWA shrunk to a fraction of the screen.
-const NO_CACHE_SUFFIXES: [&str; 7] =
-    ["index.html", "manifest.webmanifest", "sw.js", "sw-shell.js", "sw-media.js", "ui-language.js", "boot.js"];
+const NO_CACHE_SUFFIXES: [&str; 7] = ["index.html", "manifest.webmanifest", "sw.js", "sw-shell.js", "sw-media.js", "ui-language.js", "boot.js"];
 
 /// `cacheControlForTarget`.
 pub fn cache_control_for_target(target: &Path, hashed_asset: bool) -> &'static str {
@@ -142,11 +141,7 @@ pub struct StaticRequest<'a> {
 
 impl<'a> StaticRequest<'a> {
     pub fn of(request: &'a Request) -> Self {
-        Self {
-            method: &request.method,
-            accept_encoding: request.headers.get("accept-encoding"),
-            if_none_match: request.headers.get("if-none-match"),
-        }
+        Self { method: &request.method, accept_encoding: request.headers.get("accept-encoding"), if_none_match: request.headers.get("if-none-match") }
     }
 }
 

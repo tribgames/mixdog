@@ -2,8 +2,7 @@
 //! once, in a size-capped reminder carried by its next turn, and the prompt folds the change in later.
 
 use mixdog_core_prompt::prompt::notice::{
-    NOTICE_MAX_BYTES, OwnedSections, acknowledge_change, acknowledge_pending, carry_reminders, note_presented, snapshot_pending,
-    stage_prompt_settings_notice,
+    NOTICE_MAX_BYTES, OwnedSections, acknowledge_change, acknowledge_pending, carry_reminders, note_presented, snapshot_pending, stage_prompt_settings_notice,
 };
 use mixdog_store::schema::record::Header;
 use serde_json::{Value, json};
@@ -111,10 +110,7 @@ fn a_new_output_style_is_named_and_a_removed_one_is_withdrawn() {
     let styled = OwnedSections { meta: "# Output Style: terse\nShort answers only.".into(), ..base() };
     let mut session = session_presenting(&base());
     stage(&mut session, &styled);
-    assert_eq!(
-        snapshot_pending(&session).unwrap().1,
-        notice_of("# Output Style\nThe output style is now \"terse\".\n\nShort answers only.")
-    );
+    assert_eq!(snapshot_pending(&session).unwrap().1, notice_of("# Output Style\nThe output style is now \"terse\".\n\nShort answers only."));
 
     let mut session = session_presenting(&styled);
     stage(&mut session, &base());

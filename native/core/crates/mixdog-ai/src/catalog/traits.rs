@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use mixdog_protocol::ProviderId;
 
-use super::record::ModelRecord;
 use super::modelsdev_source::ModelsDevSource;
+use super::record::ModelRecord;
 use super::record::Thinking;
+use super::store::ProviderCatalog;
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::wire_route::wire_of_package;
-use super::store::ProviderCatalog;
 
 pub trait ModelTraits: Send + Sync {
     /// The wire family of `model`; `None` when the catalog does not state it.
@@ -72,8 +72,7 @@ impl ModelTraits for CatalogTraits {
     }
 
     fn outputs_text(&self, model: &str) -> bool {
-        self.stated(model, |r| (!r.output_modalities.is_empty()).then(|| r.output_modalities.iter().any(|m| m == "text")))
-            .unwrap_or(true)
+        self.stated(model, |r| (!r.output_modalities.is_empty()).then(|| r.output_modalities.iter().any(|m| m == "text"))).unwrap_or(true)
     }
 
     fn family(&self, model: &str) -> Option<String> {
@@ -100,10 +99,7 @@ mod tests {
         snapshot.models.insert("g".into(), vec![record]);
         let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new(snapshot)), "g".into());
         assert_eq!(traits.family("gemini-x").as_deref(), Some("gemini"));
-        assert_eq!(
-            traits.thinking("gemini-x"),
-            Thinking::Levels(vec!["low".into(), "high".into()])
-        );
+        assert_eq!(traits.thinking("gemini-x"), Thinking::Levels(vec!["low".into(), "high".into()]));
         assert_eq!(traits.family("unknown"), None);
         assert_eq!(traits.catalog_wire("gemini-x"), None);
         assert!(traits.outputs_text("unknown"));

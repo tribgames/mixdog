@@ -135,7 +135,13 @@ pub struct Speech<'a> {
 
 /// `postSpeech`: the member's answer `text` as a speech row in the room's log, with the files and
 /// tools of the turn that began at `started_at`. Returns the one peer the speech addresses.
-pub async fn post_speech(host: &dyn RoomTurnHost, state: &TurnState, room: &Mutex<RoomRecord>, labels: &HashMap<String, MemberLabel>, speech: &Speech<'_>) -> Result<Option<String>, String> {
+pub async fn post_speech(
+    host: &dyn RoomTurnHost,
+    state: &TurnState,
+    room: &Mutex<RoomRecord>,
+    labels: &HashMap<String, MemberLabel>,
+    speech: &Speech<'_>,
+) -> Result<Option<String>, String> {
     let Speech { agent_id, member, text, snapshot, started_at } = *speech;
     let id = format!("row_{}", host.new_id());
     let at = host.now();

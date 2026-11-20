@@ -127,7 +127,17 @@ impl Rig {
         }
         let gate = gated.then(|| {
             let read = clock.clone();
-            crate::cache_tail::Books::default().gate(name, None, crate::cache_tail::GateSettings { clock: Arc::new(move || read.load(Ordering::SeqCst)), auto_clear: Arc::new(|| true), sizing: 1, fresh: true, last_send_at: None })
+            crate::cache_tail::Books::default().gate(
+                name,
+                None,
+                crate::cache_tail::GateSettings {
+                    clock: Arc::new(move || read.load(Ordering::SeqCst)),
+                    auto_clear: Arc::new(|| true),
+                    sizing: 1,
+                    fresh: true,
+                    last_send_at: None,
+                },
+            )
         });
         Self { adapter, wire, keys, clock, gate }
     }

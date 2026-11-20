@@ -79,12 +79,7 @@ mod tests {
     use super::*;
 
     fn creds(expires_at: Option<u64>) -> StoredCredentials {
-        StoredCredentials {
-            access_token: "t".into(),
-            refresh_token: None,
-            expires_at,
-            identity: None,
-        }
+        StoredCredentials { access_token: "t".into(), refresh_token: None, expires_at, identity: None }
     }
 
     #[test]
@@ -98,20 +93,16 @@ mod tests {
     #[test]
     fn stored_file_shape_round_trips() {
         let c: StoredCredentials =
-            serde_json::from_str(r#"{"access_token":"a","refresh_token":null,"expires_at":5,"identity":{"id":"1","email":"x@y"}}"#)
-                .unwrap();
+            serde_json::from_str(r#"{"access_token":"a","refresh_token":null,"expires_at":5,"identity":{"id":"1","email":"x@y"}}"#).unwrap();
         assert_eq!(c.expires_at, Some(5));
         assert!(creds(None).usable_token(u64::MAX).is_ok());
     }
 }
 
-
 #[async_trait]
 impl SessionToken for StaticSessionToken {
     async fn session_token(&self) -> Result<String, ProviderError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
         self.credentials.usable_token(now).map(str::to_owned)
     }
 
@@ -130,9 +121,7 @@ impl SessionToken for FileSessionToken {
         match self.0.load::<StoredCredentials>().await {
             Probe::Present(credentials) => {
                 self.0.keep(&[&credentials.access_token, credentials.refresh_token.as_deref().unwrap_or_default()]);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64);
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
                 credentials.usable_token(now).map(str::to_owned)
             }
             Probe::Absent => Err(reauth("Devin is not signed in.")),

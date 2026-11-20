@@ -226,9 +226,7 @@ impl Worker {
         let reply = self.browser.take().unwrap_or(Value::Null);
         match reply.get("error") {
             Some(Value::Null) | None => Ok(reply.get("ws").cloned().unwrap_or(Value::Null)),
-            Some(error) => {
-                Err(coded("browser_unavailable", error.as_str().map_or_else(|| error.to_string(), str::to_owned)))
-            }
+            Some(error) => Err(coded("browser_unavailable", error.as_str().map_or_else(|| error.to_string(), str::to_owned))),
         }
     }
 

@@ -39,12 +39,7 @@ pub struct Region {
 /// `expected` size of its target, sampling the interior of `content` (the whole
 /// frame when None) so a window's border cannot make an empty frame look
 /// usable (frameQualityIssue).
-pub fn frame_quality_issue(
-    pixels: &[u8],
-    (width, height): (usize, usize),
-    expected: (i32, i32),
-    content: Option<Region>,
-) -> Option<Issue> {
+pub fn frame_quality_issue(pixels: &[u8], (width, height): (usize, usize), expected: (i32, i32), content: Option<Region>) -> Option<Issue> {
     if width == 0 || height == 0 || pixels.is_empty() {
         return issue("empty_frame", "capture returned an empty pixel frame");
     }
@@ -52,20 +47,12 @@ pub fn frame_quality_issue(
     let actual_ratio = width as f64 / height as f64;
     let aspect_error = (actual_ratio - expected_ratio).abs() / expected_ratio.max(0.0001);
     if !aspect_error.is_finite() || aspect_error > 0.05 {
-        return issue(
-            "coordinate_mismatch",
-            "capture dimensions do not match the target coordinate space",
-        );
+        return issue("coordinate_mismatch", "capture dimensions do not match the target coordinate space");
     }
     if pixels.len() / 4 == 0 {
         return issue("empty_frame", "capture returned no readable pixel data");
     }
-    let region = content.unwrap_or(Region {
-        x: 0,
-        y: 0,
-        width: width as i32,
-        height: height as i32,
-    });
+    let region = content.unwrap_or(Region { x: 0, y: 0, width: width as i32, height: height as i32 });
     let fits = region.x >= 0
         && region.y >= 0
         && region.width > 0
@@ -73,10 +60,7 @@ pub fn frame_quality_issue(
         && i64::from(region.x) + i64::from(region.width) <= width as i64
         && i64::from(region.y) + i64::from(region.height) <= height as i64;
     if !fits {
-        return issue(
-            "coordinate_mismatch",
-            "window client bounds do not fit the captured surface",
-        );
+        return issue("coordinate_mismatch", "window client bounds do not fit the captured surface");
     }
     let (rx, ry) = (region.x as usize, region.y as usize);
     let (rw, rh) = (region.width as usize, region.height as usize);
@@ -87,9 +71,7 @@ pub fn frame_quality_issue(
     let stride = (interior / SAMPLE_LIMIT).max(1);
     let (mut sampled, mut black, mut white) = (0usize, 0usize, 0usize);
     for pixel in (0..interior).step_by(stride) {
-        let offset =
-            ((ry + margin + pixel / interior_width) * width + rx + margin + pixel % interior_width)
-                * 4;
+        let offset = ((ry + margin + pixel / interior_width) * width + rx + margin + pixel % interior_width) * 4;
         let channel = |at: usize| pixels.get(offset + at).copied().unwrap_or(0);
         let (blue, green, red) = (channel(0), channel(1), channel(2));
         sampled += 1;
@@ -102,26 +84,16 @@ pub fn frame_quality_issue(
     }
     let ratio = |count: usize| count as f64 / sampled.max(1) as f64;
     if ratio(black) >= UNUSABLE_RATIO {
-        return issue(
-            "blank_black_frame",
-            "capture is effectively all black; no coordinate frame was issued",
-        );
+        return issue("blank_black_frame", "capture is effectively all black; no coordinate frame was issued");
     }
     if ratio(white) >= UNUSABLE_RATIO {
-        return issue(
-            "blank_white_frame",
-            "capture is effectively all white; no coordinate frame was issued",
-        );
+        return issue("blank_white_frame", "capture is effectively all white; no coordinate frame was issued");
     }
     None
 }
 
 /// The judgment of a PNG frame: one that cannot be read is empty.
-pub fn png_quality_issue(
-    png: &[u8],
-    expected: (i32, i32),
-    content: Option<Region>,
-) -> Option<Issue> {
+pub fn png_quality_issue(png: &[u8], expected: (i32, i32), content: Option<Region>) -> Option<Issue> {
     match decode_png(png) {
         Some((pixels, size)) => frame_quality_issue(&pixels, size, expected, content),
         None => issue("empty_frame", "capture returned no readable pixel data"),
@@ -174,9 +146,7 @@ mod tests {
     #[test]
     fn a_frame_off_the_target_aspect_is_a_coordinate_mismatch() {
         let pixels = flat(40, 20, 128);
-        let reason = |expected| {
-            frame_quality_issue(&pixels, (40, 20), expected, None).map(|issue| issue.reason)
-        };
+        let reason = |expected| frame_quality_issue(&pixels, (40, 20), expected, None).map(|issue| issue.reason);
         assert_eq!(reason((20, 20)), Some("coordinate_mismatch"));
         // 4.8% off passes; 5.3% does not.
         assert_eq!(reason((42, 20)), None);
@@ -231,10 +201,7 @@ mod tests {
             }
         }
         let region = |x, y, width, height| Some(Region { x, y, width, height });
-        assert_eq!(
-            judge(&pixels, (80, 40), region(0, 0, 40, 40)),
-            Some("blank_black_frame")
-        );
+        assert_eq!(judge(&pixels, (80, 40), region(0, 0, 40, 40)), Some("blank_black_frame"));
         assert_eq!(judge(&pixels, (80, 40), region(40, 0, 40, 40)), None);
         for bad in [region(41, 0, 40, 40), region(-1, 0, 10, 10), region(0, 0, 0, 10)] {
             assert_eq!(judge(&pixels, (80, 40), bad), Some("coordinate_mismatch"));
@@ -253,10 +220,7 @@ mod tests {
     #[test]
     fn the_issue_reads_as_a_coded_refusal() {
         let issue = frame_quality_issue(&flat(8, 8, 0), (8, 8), (8, 8), None).expect("black");
-        assert_eq!(
-            issue.text(),
-            "blank_black_frame: capture is effectively all black; no coordinate frame was issued"
-        );
+        assert_eq!(issue.text(), "blank_black_frame: capture is effectively all black; no coordinate frame was issued");
     }
 
     #[cfg(windows)]

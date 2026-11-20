@@ -33,7 +33,8 @@ fn name_missing_grants(report: &mut Value, permissions: &Value) {
         match restated.and_then(|reason| issues.iter().position(|issue| issue.as_str() == Some(reason.as_str()))) {
             Some(at) => issues[at] = json!(ACCESSIBILITY_GUIDANCE),
             None => {
-                let at = issues.iter().position(|issue| issue.as_str().is_some_and(|text| text.starts_with("OCR language is unavailable"))).unwrap_or(issues.len());
+                let at =
+                    issues.iter().position(|issue| issue.as_str().is_some_and(|text| text.starts_with("OCR language is unavailable"))).unwrap_or(issues.len());
                 issues.insert(at, json!(ACCESSIBILITY_GUIDANCE));
             }
         }
@@ -112,7 +113,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl mixdog_core_api::HostChannel for Grants {
-        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+        async fn request(
+            &self,
+            _: mixdog_core_api::HostCapability,
+            method: mixdog_core_api::ids::Method,
+            _: Value,
+        ) -> Result<Value, mixdog_core_api::HostError> {
             match method.0 {
                 "host/computer/displays" => Ok(json!([])),
                 "host/computer/permissions" => Ok(self.0.clone()),
@@ -144,7 +150,10 @@ mod tests {
         assert_eq!(report["permissions"], json!({"screen_capture": "denied", "accessibility": "not-determined", "input": "granted"}));
         assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, SCREEN_RECORDING_GUIDANCE]));
 
-        let granted = diagnose_granting(json!({"screenCapture": "not_required_on_windows", "accessibility": "target_integrity_dependent", "input": "accessibility_dependent"})).await;
+        let granted = diagnose_granting(
+            json!({"screenCapture": "not_required_on_windows", "accessibility": "target_integrity_dependent", "input": "accessibility_dependent"}),
+        )
+        .await;
         assert_eq!(granted["issues"], json!([]));
         assert_eq!(granted["permissions"]["accessibility"], "target_integrity_dependent");
     }
@@ -159,7 +168,6 @@ mod tests {
         name_missing_grants(&mut report, &json!({"screen_capture": "granted", "accessibility": "denied", "input": "granted"}));
         assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, "OCR language is unavailable: xx"]));
     }
-
 
     /// Off Linux the report is the host's own: the windows and the focused one, the probes of the requested or focused window, the
     /// OCR language reaching `ocr_status`, the input mode and the issues.
@@ -187,7 +195,6 @@ mod tests {
     }
 }
 
-
 /// Node's `process.platform` of the machine this process runs on.
 fn platform() -> &'static str {
     match std::env::consts::OS {
@@ -196,7 +203,6 @@ fn platform() -> &'static str {
         other => other,
     }
 }
-
 
 impl ProcessComputerBackend {
     /// Every command of the host starts with a read of the windows through its arrivals worker; the answer is not used here.

@@ -32,10 +32,6 @@ async fn settings(dir: &tempfile::TempDir, agent: &Value, shell_env: Option<Stri
     (Settings::new(config, effects.clone(), env), effects)
 }
 
-
-
-
-
 // Expected values come from the TUI registry (`src/tui/themes/index.mjs`, run under Node).
 #[tokio::test]
 async fn theme_resolves_and_persists_like_the_tui() {
@@ -59,10 +55,7 @@ async fn save_starter_guide_state_answers_the_onboarding_status() {
     let dir = tempfile::tempdir().unwrap();
     let onboarding = json!({ "completed": true, "version": 3, "completedAt": "then" });
     let (s, _) = settings(&dir, &json!({ "onboarding": onboarding }), None).await;
-    let status = s
-        .save_starter_guide_state(&json!({ "closed": true, "welcomed": true, "visited": ["workflow", "project", "project"] }))
-        .await
-        .unwrap();
+    let status = s.save_starter_guide_state(&json!({ "closed": true, "welcomed": true, "visited": ["workflow", "project", "project"] })).await.unwrap();
     assert_eq!(status["completed"], json!(true));
     assert_eq!(status["version"], json!(3));
     assert_eq!(status["starterGuide"], json!({ "closed": true, "welcomed": true, "visited": ["project", "workflow"] }));
@@ -82,5 +75,3 @@ async fn cache_warming_tells_the_warmer() {
     assert!(s.set_cache_warming_enabled(&json!("on")).await.is_err());
     assert_eq!(*effects.0.lock().unwrap(), vec![json!(["cacheWarming", true]), json!(["cacheWarming", false])]);
 }
-
-

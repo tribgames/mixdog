@@ -14,7 +14,6 @@ impl Style {
         if cfg!(windows) { Style::Win32 } else { Style::Posix }
     }
 
-
     fn is_sep(self, c: char) -> bool {
         c == '/' || (self == Style::Win32 && c == '\\')
     }
@@ -159,11 +158,7 @@ fn resolve_win32(parts: &[&str]) -> String {
             let from_env = std::env::var(format!("={resolved_device}")).ok().filter(|v| !v.is_empty());
             let p = from_env.unwrap_or_else(|| current.clone());
             let head: String = p.chars().take(2).collect::<String>().to_lowercase();
-            if head != resolved_device.to_lowercase() && p.chars().nth(2) == Some('\\') {
-                format!("{resolved_device}\\")
-            } else {
-                p
-            }
+            if head != resolved_device.to_lowercase() && p.chars().nth(2) == Some('\\') { format!("{resolved_device}\\") } else { p }
         };
         let chars: Vec<char> = path.chars().collect();
         let len = chars.len();
@@ -603,6 +598,3 @@ mod tests {
         assert_eq!(win("C:\\😀\\a", "C:\\😀\\B"), "..\\B");
     }
 }
-
-
-

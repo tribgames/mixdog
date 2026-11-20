@@ -16,14 +16,11 @@ use serde_json::{Value, json};
 use super::catalog::{CatalogKind, load_catalog, schedule_background_refresh};
 use super::footer::model_footer;
 use super::options::{
-    CatalogFailure, ProviderNames, build_catalog_failure_items, build_model_provider_items, build_provider_model_items,
-    catalog_provider_display_names, load_provider_catalog_failures, load_provider_display_names, normalize_model_options,
-    resolve_provider_display_name,
+    CatalogFailure, ProviderNames, build_catalog_failure_items, build_model_provider_items, build_provider_model_items, catalog_provider_display_names,
+    load_provider_catalog_failures, load_provider_display_names, normalize_model_options, resolve_provider_display_name,
 };
 use super::selection::RouteSelection;
-use crate::pickers::common::{
-    Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, ProviderSetupRequest, RouteState,
-};
+use crate::pickers::common::{Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, ProviderSetupRequest, RouteState};
 use crate::slash::host::Tone;
 use crate::slash::notices::model_switch_notice;
 use crate::surface::SurfaceKind;
@@ -171,17 +168,7 @@ pub fn open_model_picker(host: &mut dyn PickerHost, options: ModelPickerOptions)
             "contextPercent": state.context_percent,
         })
     });
-    let session = Rc::new(Session {
-        options,
-        state,
-        models,
-        active_route,
-        provider_names,
-        failures,
-        return_label,
-        own,
-        list_highlight: RefCell::new(None),
-    });
+    let session = Rc::new(Session { options, state, models, active_route, provider_names, failures, return_label, own, list_highlight: RefCell::new(None) });
     render_provider_list(host, &session, None);
     schedule_background_refresh(host, &loaded);
 }
@@ -197,10 +184,7 @@ fn render_provider_list(host: &mut dyn PickerHost, session: &Rc<Session>, highli
     items.extend(build_catalog_failure_items(&session.failures, &session.models, Some(&session.provider_names)));
     let active_provider = session.active_route.get("provider").and_then(Value::as_str).filter(|text| !text.is_empty());
     let provider_highlight = highlight.filter(|text| !text.is_empty()).or_else(|| active_provider.map(str::to_owned));
-    let initial = items
-        .iter()
-        .position(|item| provider_highlight.as_deref().is_some_and(|provider| item.tag_text("_provider") == provider))
-        .unwrap_or(0);
+    let initial = items.iter().position(|item| provider_highlight.as_deref().is_some_and(|provider| item.tag_text("_provider") == provider)).unwrap_or(0);
     let mut panel = PickerPanel::new(session.title());
     panel.description = non_empty(&session.options.provider_description).unwrap_or("Choose a provider.").to_owned();
     panel.help = Some(session.list_help());
@@ -329,7 +313,11 @@ impl PickerHandler for ModelListHandler {
     fn on_select(&self, host: &mut dyn PickerHost, item: &PanelItem) {
         let selected = item.tag("_model").cloned().or_else(|| {
             let (provider, id) = (item.tag_text("_provider"), item.tag_text("_modelId"));
-            self.session.models.iter().find(|model| model.get("provider").and_then(Value::as_str) == Some(provider) && model.get("id").and_then(Value::as_str) == Some(id)).cloned()
+            self.session
+                .models
+                .iter()
+                .find(|model| model.get("provider").and_then(Value::as_str) == Some(provider) && model.get("id").and_then(Value::as_str) == Some(id))
+                .cloned()
         });
         let Some(selected) = selected else { return };
         let (effort, route_input) = self.selection.borrow_mut().route_input_for(&selected);

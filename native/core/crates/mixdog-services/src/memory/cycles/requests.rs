@@ -137,18 +137,18 @@ pub async fn mark_cycle_request(db: &Db, kind: &str, reason: &str, signature: &s
 pub async fn consume_cycle_requests(db: &Db, kind: &str, signature: &str, now: i64) -> Result<f64> {
     let key = request_key(kind, signature)?;
     transaction(db, async |tx| {
-    let selected = tx.query("SELECT value FROM meta WHERE key = $1 FOR UPDATE", &[&key]).await?;
-    let Some(row) = selected.first() else {
-        return Ok(0.0);
-    };
-    let value: Option<Value> = row.get(0);
-    let count = to_number_of(value.as_ref().and_then(|v| v.get("count")).or(Some(&Value::from(0))));
-    if !count.is_finite() || count <= 0.0 {
-        return Ok(0.0);
-    }
-    let drained = count.min(2_147_483_647.0) as i32;
-    tx.execute(
-        "UPDATE meta
+        let selected = tx.query("SELECT value FROM meta WHERE key = $1 FOR UPDATE", &[&key]).await?;
+        let Some(row) = selected.first() else {
+            return Ok(0.0);
+        };
+        let value: Option<Value> = row.get(0);
+        let count = to_number_of(value.as_ref().and_then(|v| v.get("count")).or(Some(&Value::from(0))));
+        if !count.is_finite() || count <= 0.0 {
+            return Ok(0.0);
+        }
+        let drained = count.min(2_147_483_647.0) as i32;
+        tx.execute(
+            "UPDATE meta
        SET value = jsonb_set(
          jsonb_set(
            jsonb_set(COALESCE(value, '{}'::jsonb), '{count}', '0'::jsonb, true),
@@ -157,10 +157,10 @@ pub async fn consume_cycle_requests(db: &Db, kind: &str, signature: &str, now: i
          '{last_drained_count}', to_jsonb($3::integer), true
        )
        WHERE key = $1",
-        &[&key, &now, &drained],
-    )
-    .await?;
-    Ok(count)
+            &[&key, &now, &drained],
+        )
+        .await?;
+        Ok(count)
     })
     .await
 }
@@ -204,7 +204,12 @@ pub struct RetryTimers {
 /// Resolves once `timer` has run out `delay`.
 pub async fn wait(timer: &dyn RetryTimer, delay: Duration) {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    timer.arm(delay, Box::new(move || { let _ = tx.send(()); }));
+    timer.arm(
+        delay,
+        Box::new(move || {
+            let _ = tx.send(());
+        }),
+    );
     let _ = rx.await;
 }
 
@@ -229,7 +234,6 @@ mod tests {
         assert!(request_key("cycle2", "x").is_err());
     }
 
-
     #[test]
     fn limits_follow_direct_then_nested_then_env_then_fallback() {
         let direct = serde_json::json!({"coalesce_max_retries": 7.9, "coalesce": {"max_retries": 2}});
@@ -241,7 +245,6 @@ mod tests {
         assert_eq!(resolve_coalesce_max_drains(&serde_json::json!({"coalesce_max_drains": null}), 1.0), 0.0);
     }
 }
-
 
 /// The process environment.
 pub fn process_env(name: &str) -> Option<String> {

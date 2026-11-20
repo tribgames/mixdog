@@ -51,9 +51,7 @@ const CODEX_RESET_CONSUME_URL: &str = "https://chatgpt.com/backend-api/wham/rate
 const CODEX_REDEEM_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 /// A failed usage request; `status` is the HTTP status when the server answered.
@@ -97,15 +95,8 @@ impl UsageResponse {
 /// The usage endpoints' HTTP (no redirects; `Err` is a transport failure).
 #[async_trait]
 pub trait UsageHttp: Send + Sync {
-    async fn get(&self, url: &str, headers: &[(String, String)], timeout: Duration)
-        -> Result<UsageResponse, UsageError>;
-    async fn post_json(
-        &self,
-        url: &str,
-        headers: &[(String, String)],
-        body: &Value,
-        timeout: Duration,
-    ) -> Result<UsageResponse, UsageError>;
+    async fn get(&self, url: &str, headers: &[(String, String)], timeout: Duration) -> Result<UsageResponse, UsageError>;
+    async fn post_json(&self, url: &str, headers: &[(String, String)], body: &Value, timeout: Duration) -> Result<UsageResponse, UsageError>;
 }
 
 /// The provider side of a measurement: its credential and, for the providers
@@ -115,12 +106,7 @@ pub trait UsageSource: Send + Sync {
     /// The account's credential (`ensureAuth({reason: 'usage'})`): a JSON doc
     /// with Node's key spelling (`access_token`/`accessToken`, `account_id`,
     /// `user_id`, `key`). `force_refresh` is the retry after a 401/403.
-    async fn ensure_auth(
-        &self,
-        provider: &str,
-        account_id: &str,
-        force_refresh: bool,
-    ) -> Result<Option<Value>, UsageError>;
+    async fn ensure_auth(&self, provider: &str, account_id: &str, force_refresh: bool) -> Result<Option<Value>, UsageError>;
 
     /// `getUsageSnapshot()` of cursor-oauth, cursor-api, antigravity-oauth,
     /// muse-code-oauth, command-code-oauth and opencode-go-oauth.
@@ -267,11 +253,7 @@ fn provider_key(route: &RouteInfo) -> String {
 
 fn cache_provider_key(route: &RouteInfo) -> String {
     let provider = provider_key(route);
-    if route.account_id == "default" {
-        provider
-    } else {
-        format!("{provider}\u{2}{}", route.account_id)
-    }
+    if route.account_id == "default" { provider } else { format!("{provider}\u{2}{}", route.account_id) }
 }
 
 fn route_key(route: &RouteInfo) -> String {
@@ -286,14 +268,12 @@ fn cache_model_id(v: Option<&Value>) -> Option<String> {
 }
 
 fn contentful(snapshot: &Value) -> bool {
-    snapshot.get("quotaWindows").and_then(Value::as_array).is_some_and(|w| !w.is_empty())
-        || snapshot.get("balance").is_some_and(Value::is_object)
+    snapshot.get("quotaWindows").and_then(Value::as_array).is_some_and(|w| !w.is_empty()) || snapshot.get("balance").is_some_and(Value::is_object)
 }
 
 fn has_future_window(snapshot: &Value, now: i64) -> bool {
     let windows = snapshot.get("quotaWindows").and_then(Value::as_array).cloned().unwrap_or_default();
-    windows.is_empty()
-        || windows.iter().any(|w| !norm::truthy(w.get("resetAt")) || num_or(w.get("resetAt"), 0.0) > now as f64)
+    windows.is_empty() || windows.iter().any(|w| !norm::truthy(w.get("resetAt")) || num_or(w.get("resetAt"), 0.0) > now as f64)
 }
 
 fn fresh(snapshot: Option<&Value>, ttl_ms: i64, now: i64) -> Option<Value> {
@@ -306,12 +286,7 @@ fn fresh(snapshot: Option<&Value>, ttl_ms: i64, now: i64) -> Option<Value> {
 }
 
 /// The newest fresh snapshot of `provider` (its bare key or any route key).
-fn newest_provider_snapshot<'a>(
-    entries: impl Iterator<Item = (&'a String, &'a Value)>,
-    provider: &str,
-    ttl_ms: i64,
-    now: i64,
-) -> Option<Value> {
+fn newest_provider_snapshot<'a>(entries: impl Iterator<Item = (&'a String, &'a Value)>, provider: &str, ttl_ms: i64, now: i64) -> Option<Value> {
     if provider.is_empty() {
         return None;
     }
@@ -353,28 +328,19 @@ pub(super) fn update_json_atomic(
     mutate: impl FnOnce(Option<Value>) -> Value,
 ) -> std::io::Result<()> {
     let opts = mixdog_statefile::Opts { compact: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
-    mixdog_statefile::update_json::<_, std::convert::Infallible>(lane, path, |current| Ok(Some(mutate(current))), &opts)
-        .map(drop)
-        .map_err(|error| match error {
+    mixdog_statefile::update_json::<_, std::convert::Infallible>(lane, path, |current| Ok(Some(mutate(current))), &opts).map(drop).map_err(
+        |error| match error {
             mixdog_statefile::StateError::Io(error) => error,
             other => std::io::Error::other(other.to_string()),
-        })
+        },
+    )
 }
 
 /// Rewrites the routes of the cache file through `edit`. A lane job body: callers on the
 /// request path go through [`OAuthUsage::update_disk_cache`].
-fn update_disk_cache(
-    lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
-    path: &std::path::Path,
-    edit: impl FnOnce(&mut Obj),
-) -> std::io::Result<()> {
+fn update_disk_cache(lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, path: &std::path::Path, edit: impl FnOnce(&mut Obj)) -> std::io::Result<()> {
     update_json_atomic(lane, path, |current| {
-        let mut routes = current
-            .as_ref()
-            .and_then(|c| c.get("routes"))
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
+        let mut routes = current.as_ref().and_then(|c| c.get("routes")).and_then(Value::as_object).cloned().unwrap_or_default();
         edit(&mut routes);
         let mut doc = Obj::new();
         doc.insert("version".into(), Value::from(1));
@@ -427,17 +393,12 @@ fn codex_reset_outcome(code: Option<&Value>) -> Result<&'static str, UsageError>
         Some("nothing_to_reset") => Ok("nothingToReset"),
         Some("no_credit") => Ok("noCredit"),
         Some("already_redeemed") => Ok("alreadyRedeemed"),
-        other => Err(UsageError::new(format!(
-            "Unknown Codex reset outcome: {}",
-            other.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("missing")
-        ))),
+        other => Err(UsageError::new(format!("Unknown Codex reset outcome: {}", other.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("missing")))),
     }
 }
 
 fn is_hex_revision(s: &str) -> bool {
-    s.len() == 67
-        && s.starts_with("v1:")
-        && s[3..].chars().all(|c| c.is_ascii_hexdigit())
+    s.len() == 67 && s.starts_with("v1:") && s[3..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn is_uuid_v1_to_5(s: &str) -> bool {
@@ -524,7 +485,9 @@ impl OAuthUsage {
                         service.record_quota_history("cursor-api", &account, reading).await;
                     }
                     reading
-                }.boxed().shared();
+                }
+                .boxed()
+                .shared();
                 caches.inflight.insert(key, task.clone());
                 task
             }
@@ -612,11 +575,8 @@ impl OAuthUsage {
         if provider_only.is_empty() {
             return;
         }
-        let owned = move |key: &str| {
-            key == provider_only
-                || key.starts_with(&format!("{provider_only}\u{1}"))
-                || key.starts_with(&format!("{provider_only}\u{2}"))
-        };
+        let owned =
+            move |key: &str| key == provider_only || key.starts_with(&format!("{provider_only}\u{1}")) || key.starts_with(&format!("{provider_only}\u{2}"));
         self.caches().memory.retain(|k, _| !owned(k));
         // Dropped like Node's catch: the reset path must not fail on display state.
         let _ = self.update_disk_cache(move |routes| routes.retain(|k, _| !owned(k))).await;
@@ -751,10 +711,7 @@ impl OAuthUsage {
     /// accounts only report their real cadence and reset there; the legacy
     /// shape stays a fallback.
     async fn probe_grok_billing(&self, headers: &[(String, String)], route: &RouteInfo) -> Option<Value> {
-        for url in [
-            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
-            "https://cli-chat-proxy.grok.com/v1/billing",
-        ] {
+        for url in ["https://cli-chat-proxy.grok.com/v1/billing?format=credits", "https://cli-chat-proxy.grok.com/v1/billing"] {
             let Ok(res) = self.deps.http.get(url, headers, FETCH_TIMEOUT).await else { continue };
             if !res.ok() {
                 continue;
@@ -805,20 +762,13 @@ impl OAuthUsage {
         None
     }
 
-    async fn fetch_grok_usage(
-        &self,
-        route: &RouteInfo,
-        force_refresh: bool,
-    ) -> Result<Option<Value>, UsageError> {
+    async fn fetch_grok_usage(&self, route: &RouteInfo, force_refresh: bool) -> Result<Option<Value>, UsageError> {
         let auth = self.deps.source.ensure_auth("grok-oauth", &route.account_id, force_refresh).await?;
         let Some(auth) = auth else { return Ok(None) };
         let Some(token) = clean_token(or_truthy(&auth, &["access_token", "accessToken", "key"])) else {
             return Ok(None);
         };
-        let user_id = or_truthy(&auth, &["user_id", "userId", "principal_id", "principalId"])
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned();
+        let user_id = or_truthy(&auth, &["user_id", "userId", "principal_id", "principalId"]).and_then(Value::as_str).unwrap_or("").to_owned();
         self.deps.grok.warm().await;
         let cli = Self::grok_headers(&token, &user_id, self.deps.grok.headers());
         if let Some(billing) = self.probe_grok_billing(&cli, route).await {
@@ -836,8 +786,9 @@ impl OAuthUsage {
             "openai-oauth" => self.fetch_codex_usage(&route.account_id, force_refresh).await,
             "anthropic-oauth" => self.fetch_anthropic_usage(&route.account_id, force_refresh).await,
             "grok-oauth" => self.fetch_grok_usage(route, force_refresh).await,
-            "cursor-oauth" | "cursor-api" | "antigravity-oauth" | "muse-code-oauth" | "command-code-oauth"
-            | "opencode-go-oauth" => self.deps.source.provider_snapshot(&provider, &route.account_id).await,
+            "cursor-oauth" | "cursor-api" | "antigravity-oauth" | "muse-code-oauth" | "command-code-oauth" | "opencode-go-oauth" => {
+                self.deps.source.provider_snapshot(&provider, &route.account_id).await
+            }
             _ => Ok(None),
         }
     }
@@ -847,9 +798,7 @@ impl OAuthUsage {
     /// server said at issue, a subscription change can revoke it earlier.
     async fn measure_with_auth_retry(&self, route: &RouteInfo) -> Result<Option<Value>, UsageError> {
         match self.measure_usage(route, false).await {
-            Err(e) if e.auth_rejection() && self.deps.source.can_refresh(&provider_key(route)) => {
-                self.measure_usage(route, true).await
-            }
+            Err(e) if e.auth_rejection() && self.deps.source.can_refresh(&provider_key(route)) => self.measure_usage(route, true).await,
             other => other,
         }
     }
@@ -858,16 +807,14 @@ impl OAuthUsage {
     /// credential the server refuses even after a forced refresh cannot vouch
     /// for the reading it last produced: the recorded quota goes with it.
     async fn usage_after_failure(&self, err: &UsageError, provider: &str, account_id: &str) -> Option<Value> {
-        if err.auth_rejection() && ACCOUNT_PROVIDERS.contains(&provider)
+        if err.auth_rejection()
+            && ACCOUNT_PROVIDERS.contains(&provider)
             && !crate::accounts::rotation::uses_bound_plan_evidence(provider)
             && let Err(e) = self.deps.store.clear_quota_state(provider, account_id).await
         {
             self.log(&format!("Account usage could not be cleared: {e}"));
         }
-        self.warn_throttled(
-            &format!("oauth-usage:{provider}"),
-            &format!("gateway {provider} usage fetch unavailable: {err}"),
-        );
+        self.warn_throttled(&format!("oauth-usage:{provider}"), &format!("gateway {provider} usage fetch unavailable: {err}"));
         None
     }
 
@@ -876,9 +823,8 @@ impl OAuthUsage {
     /// another sign-in, or unstamped ones, stay. Returns whether any reading was dropped.
     async fn retire_cached(&self, provider_only: &str, stamp: &str) -> bool {
         let (bare, routes) = (provider_only.to_owned(), format!("{provider_only}\u{1}"));
-        let matches = move |key: &str, reading: &Value| {
-            (key == bare || key.starts_with(&routes)) && reading.get(CREDENTIAL_STAMP).and_then(Value::as_str) == Some(stamp)
-        };
+        let matches =
+            move |key: &str, reading: &Value| (key == bare || key.starts_with(&routes)) && reading.get(CREDENTIAL_STAMP).and_then(Value::as_str) == Some(stamp);
         let dropped = std::sync::atomic::AtomicBool::new(false);
         self.caches().memory.retain(|k, v| {
             let hit = matches(k, v);
@@ -913,8 +859,7 @@ impl OAuthUsage {
     fn negative_fresh(&self, key: &str) -> bool {
         let c = self.caches();
         c.memory.get(key).is_some_and(|cur| {
-            cur.get("empty") == Some(&Value::Bool(true))
-                && ((now_ms() as f64) - num_or(cur.get("cachedAt"), 0.0)) < NEGATIVE_CACHE_TTL_MS as f64
+            cur.get("empty") == Some(&Value::Bool(true)) && ((now_ms() as f64) - num_or(cur.get("cachedAt"), 0.0)) < NEGATIVE_CACHE_TTL_MS as f64
         })
     }
 
@@ -923,11 +868,8 @@ impl OAuthUsage {
     async fn cache_snapshot(&self, snapshot: &Value, route: &RouteInfo, provider: &str, provider_only: &str) -> Value {
         let model = cache_model_id(Some(&Value::String(route.model.clone()))).or_else(|| cache_model_id(snapshot.get("model")));
         let mut provider_snapshot = snapshot.as_object().cloned().unwrap_or_default();
-        let provider_name = if route.provider.is_empty() {
-            clean_token(snapshot.get("provider")).unwrap_or_else(|| provider.to_owned())
-        } else {
-            route.provider.clone()
-        };
+        let provider_name =
+            if route.provider.is_empty() { clean_token(snapshot.get("provider")).unwrap_or_else(|| provider.to_owned()) } else { route.provider.clone() };
         provider_snapshot.insert("provider".into(), Value::String(provider_name));
         provider_snapshot.insert("accountId".into(), Value::String(route.account_id.clone()));
         provider_snapshot.insert("cachedAt".into(), Value::from(now_ms()));
@@ -966,8 +908,7 @@ impl OAuthUsage {
                     .filter_map(|w| {
                         let label: String = clean(w.get("label"))?.chars().take(40).collect();
                         let used = w.get("usedPct").and_then(Value::as_f64).filter(|u| u.is_finite() && *u >= 0.0)?;
-                        let reset_at =
-                            w.get("resetAt").and_then(Value::as_f64).filter(|r| r.is_finite()).map(|r| r.round() as i64);
+                        let reset_at = w.get("resetAt").and_then(Value::as_f64).filter(|r| r.is_finite()).map(|r| r.round() as i64);
                         Some(QuotaSample {
                             provider: provider.to_owned(),
                             account: if account.is_empty() { "default".into() } else { account.to_owned() },
@@ -993,9 +934,7 @@ impl OAuthUsage {
         // Each stored window keeps the sign-in whose request measured it: after a restart that is what lets a withdrawn
         // meter retire the row's old usage and nothing another credential measured.
         let stamp = snapshot.get(CREDENTIAL_STAMP).and_then(Value::as_str).map(str::to_owned);
-        let strings = |v: Option<&Value>| {
-            v.and_then(Value::as_array).map(|a| a.iter().map(|t| t.as_str().unwrap_or("").to_owned()).collect::<Vec<_>>())
-        };
+        let strings = |v: Option<&Value>| v.and_then(Value::as_array).map(|a| a.iter().map(|t| t.as_str().unwrap_or("").to_owned()).collect::<Vec<_>>());
         let inputs: Vec<QuotaWindowInput> = windows
             .iter()
             .take(12)
@@ -1033,8 +972,7 @@ impl OAuthUsage {
             let now = now_ms();
             let cached = {
                 let c = self.caches();
-                fresh(c.memory.get(&key), LIVE_CACHE_TTL_MS, now)
-                    .or_else(|| fresh(c.memory.get(&provider_only), LIVE_CACHE_TTL_MS, now))
+                fresh(c.memory.get(&key), LIVE_CACHE_TTL_MS, now).or_else(|| fresh(c.memory.get(&provider_only), LIVE_CACHE_TTL_MS, now))
             };
             if cached.is_some() {
                 return cached;

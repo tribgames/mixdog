@@ -1,7 +1,8 @@
 //! What the media lanes tell the user about an upstream answer, and the usage it reports.
 
 use mixdog_services::media::upstream::{
-    Headers, UsageLimit, decode_base64_media, gemini_media_download_url, node_base64, upstream_error, usage_limit_error, usage_limit_from_response, usage_limit_info,
+    Headers, UsageLimit, decode_base64_media, gemini_media_download_url, node_base64, upstream_error, usage_limit_error, usage_limit_from_response,
+    usage_limit_info,
 };
 use mixdog_services::media::usage::{gemini_usage, has_reported_usage, image_api_usage, interactions_usage, reported_usage, responses_usage, xai_usage};
 use serde_json::{Value, json};
@@ -55,7 +56,10 @@ fn headers(list: &[(&str, &str)]) -> Vec<(String, String)> {
 #[test]
 fn a_usage_limit_is_told_apart_from_other_errors_and_names_its_limit() {
     let none = headers(&[]);
-    assert_eq!(usage_limit_info(&json!({"type": "usage_limit_reached", "limit_id": "codex_image", "resets_at": 1_800_000_000}), &Headers(&none)), Some(UsageLimit { limit_id: "codex_image".into(), resets_at: Some(1_800_000_000) }));
+    assert_eq!(
+        usage_limit_info(&json!({"type": "usage_limit_reached", "limit_id": "codex_image", "resets_at": 1_800_000_000}), &Headers(&none)),
+        Some(UsageLimit { limit_id: "codex_image".into(), resets_at: Some(1_800_000_000) })
+    );
     assert_eq!(usage_limit_info(&json!({"code": "usageLimit"}), &Headers(&none)), Some(UsageLimit { limit_id: String::new(), resets_at: None }));
     assert_eq!(usage_limit_info(&json!({"type": "rate_limit"}), &Headers(&none)), None);
     // The reached-type header alone is enough, and the active-limit header names the limit.
@@ -90,7 +94,10 @@ fn only_a_429_can_be_a_usage_limit_and_its_body_may_nest_the_error() {
 #[test]
 fn the_usage_limit_error_says_when_the_window_resets() {
     let (error, resets) = usage_limit_error("Codex image", &UsageLimit { limit_id: "codex_image".into(), resets_at: Some(1_800_000_000) });
-    assert_eq!((error.message.as_str(), error.code, error.status), ("Codex image: image generation usage limit reached — resets 2027-01-15 08:00 UTC", "MEDIA_USAGE_LIMIT", 429));
+    assert_eq!(
+        (error.message.as_str(), error.code, error.status),
+        ("Codex image: image generation usage limit reached — resets 2027-01-15 08:00 UTC", "MEDIA_USAGE_LIMIT", 429)
+    );
     assert_eq!(resets.as_deref(), Some("2027-01-15T08:00:00.000Z"));
     let (error, resets) = usage_limit_error("Codex image", &UsageLimit { limit_id: "codex".into(), resets_at: None });
     assert_eq!(error.message, "Codex image: usage limit reached — try again after the usage window resets");
@@ -172,10 +179,7 @@ fn only_a_reported_output_zero_is_preserved_without_making_a_failure_billable() 
         assert_eq!(usage, Some(json!({"outputTokens": 0})), "{format}");
         assert_eq!(reported_usage(usage), None, "{format}");
     }
-    assert_eq!(
-        reported_usage(image_api_usage(&json!({"usage": {"completion_tokens": 0, "cost": 0.04}}))),
-        Some(json!({"outputTokens": 0, "costUsd": 0.04})),
-    );
+    assert_eq!(reported_usage(image_api_usage(&json!({"usage": {"completion_tokens": 0, "cost": 0.04}}))), Some(json!({"outputTokens": 0, "costUsd": 0.04})),);
 
     let input_only = Some(json!({"inputTokens": 4}));
     assert_eq!(responses_usage(&json!({"input_tokens": 4})), input_only);
@@ -208,7 +212,11 @@ fn an_image_api_cost_counts_from_usage_or_from_a_top_level_cost_paid_in_dollars(
     assert_eq!(image_api_usage(&json!({"cost": 0.5, "paymentSource": "usd"})).unwrap(), json!({"costUsd": 0.5}));
     assert_eq!(image_api_usage(&json!({"cost": 0.5, "paymentSource": "XNO"})), None);
     assert_eq!(image_api_usage(&json!({"cost": 0.5})), None);
-    assert_eq!(image_api_usage(&json!({"usage": {"cost": 0.04}, "cost": 9, "paymentSource": "USD"})).unwrap(), json!({"costUsd": 0.04}), "the usage figure wins");
+    assert_eq!(
+        image_api_usage(&json!({"usage": {"cost": 0.04}, "cost": 9, "paymentSource": "USD"})).unwrap(),
+        json!({"costUsd": 0.04}),
+        "the usage figure wins"
+    );
 }
 
 #[test]

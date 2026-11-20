@@ -30,10 +30,3 @@ impl SessionListing for Fixture {
         Ok(self.live.clone())
     }
 }
-
-
-
-
-
-
-

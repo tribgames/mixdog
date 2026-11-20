@@ -7,9 +7,7 @@ use mixdog_js::{js_to_lowercase, js_trim, json_number, number_to_string};
 use mixdog_office_base::values::clamp;
 use serde_json::{Map, Value, json};
 
-use crate::aesthetics_metrics::{
-    PageMetric, deviation, mean, metric_distance, rendered_aesthetic_metric, rounded, structure_similarity,
-};
+use crate::aesthetics_metrics::{PageMetric, deviation, mean, metric_distance, rendered_aesthetic_metric, rounded, structure_similarity};
 use crate::issue::issue_with;
 use crate::{field, is_truthy, text_or};
 
@@ -127,16 +125,12 @@ struct Composition {
 
 fn role_aware_composition(metric: &PageMetric, role: &str) -> Composition {
     let target = role_target(role);
-    let density_fit =
-        mean(&[range_fit(metric.foreground_coverage, target.foreground), range_fit(metric.spatial_coverage, target.spatial)]);
+    let density_fit = mean(&[range_fit(metric.foreground_coverage, target.foreground), range_fit(metric.spatial_coverage, target.spatial)]);
     let quadrant_fit = clamp(metric.occupied_quadrants as f64 / target.quadrants, 0.0, 1.0);
     // Balance and quadrant spread only mean something once the role's density is met; an empty page is not
     // "balanced", so both are weighted by density.
     let presence = clamp(density_fit, 0.0, 1.0).sqrt();
-    Composition {
-        density_fit,
-        score: clamp(density_fit * 0.45 + presence * (metric.spatial_balance * 0.35 + quadrant_fit * 0.2), 0.0, 1.0),
-    }
+    Composition { density_fit, score: clamp(density_fit * 0.45 + presence * (metric.spatial_balance * 0.35 + quadrant_fit * 0.2), 0.0, 1.0) }
 }
 
 fn aesthetic_issue(code: &str, path: &str, message: &str) -> Value {
@@ -163,10 +157,7 @@ fn page_gate_issues(metric: &PageMetric, format: &str, page_count: usize, role: 
         issues.push(aesthetic_issue(
             "low_visual_contrast",
             &format!("/{}[{page_text}]", if format == "pptx" { "slide" } else { "page" }),
-            &format!(
-                "Rendered foreground contrast is {}; foreground and background are too similar.",
-                to_fixed(metric.foreground_contrast, 2)
-            ),
+            &format!("Rendered foreground contrast is {}; foreground and background are too similar.", to_fixed(metric.foreground_contrast, 2)),
         ));
     }
     let inner = metric.page > 1.0 && metric.page < page_count as f64;
@@ -280,10 +271,8 @@ struct Score {
 /// The v2 score: the four dimensions the pages and the deck's rhythm read, and the weighted overall the frontier gate
 /// compares against. `palettes` and `compositions` are the per-page readings, in page order.
 fn aesthetic_score(pages: &[PageMetric], palettes: &[f64], compositions: &[f64], rhythm: &Rhythm, format: &str) -> Score {
-    let contrasts: Vec<f64> = pages
-        .iter()
-        .map(|metric| clamp((max(max(metric.contrast_span, metric.foreground_contrast), metric.ink_contrast) - 0.1) / 0.65, 0.0, 1.0))
-        .collect();
+    let contrasts: Vec<f64> =
+        pages.iter().map(|metric| clamp((max(max(metric.contrast_span, metric.foreground_contrast), metric.ink_contrast) - 0.1) / 0.65, 0.0, 1.0)).collect();
     let contrast = mean(&contrasts);
     let palette = mean(palettes);
     let composition = mean(compositions);
@@ -292,13 +281,7 @@ fn aesthetic_score(pages: &[PageMetric], palettes: &[f64], compositions: &[f64],
     } else {
         1.0
     };
-    Score {
-        contrast,
-        palette,
-        rhythm: rhythm_score,
-        composition,
-        overall: contrast * 0.32 + palette * 0.18 + rhythm_score * 0.2 + composition * 0.3,
-    }
+    Score { contrast, palette, rhythm: rhythm_score, composition, overall: contrast * 0.32 + palette * 0.18 + rhythm_score * 0.2 + composition * 0.3 }
 }
 
 fn page_value(metric: &PageMetric, role: &str, density_fit: f64, palette: f64, composition: f64) -> Value {

@@ -156,11 +156,7 @@ impl PoolLive for DirectoryPoolLive {
     /// `resolveAgentStallThresholds(agent).warn * 1000`.
     fn stall_warn_ms(&self, agent: Option<&str>) -> f64 {
         let hidden = agent.filter(|name| !name.is_empty()).and_then(hidden_agent);
-        let kind = AgentKind {
-            name: agent,
-            hidden: hidden.is_some(),
-            stall_cap_idle_seconds: agent.and_then(hidden_agent_stall_cap_idle_seconds),
-        };
+        let kind = AgentKind { name: agent, hidden: hidden.is_some(), stall_cap_idle_seconds: agent.and_then(hidden_agent_stall_cap_idle_seconds) };
         stall_warn_ms(kind, &*self.env) as f64
     }
 }

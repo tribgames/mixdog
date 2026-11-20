@@ -23,7 +23,9 @@ fn split_blocks(env: &str) -> SystemBlocks {
 }
 
 fn lead_header(tail: &str) -> Header {
-    header(json!({ "owner": "lead", "cwd": "/w", "model": "claude-opus-4", "bp3EnvSplit": true, "bp3EnvironmentContext": tail, "sessionStartMetaInjected": false }))
+    header(
+        json!({ "owner": "lead", "cwd": "/w", "model": "claude-opus-4", "bp3EnvSplit": true, "bp3EnvironmentContext": tail, "sessionStartMetaInjected": false }),
+    )
 }
 
 #[test]
@@ -79,7 +81,13 @@ fn a_session_in_the_combined_layout_keeps_one_core_message_through_a_reset() {
     session.shift_remove("bp3EnvSplit");
     session.insert("bp3CoreContext".into(), json!("CORE"));
     session.insert("sessionStartMetaInjected".into(), json!(true));
-    let blocks = SystemBlocks { base: Some("BASE".into()), stable: Some("STABLE".into()), core: Some(format!("CORE{SEP}# Session\nCwd: /w{SEP}- Shell: Bash.")), env: None, combined: true };
+    let blocks = SystemBlocks {
+        base: Some("BASE".into()),
+        stable: Some("STABLE".into()),
+        core: Some(format!("CORE{SEP}# Session\nCwd: /w{SEP}- Shell: Bash.")),
+        env: None,
+        combined: true,
+    };
     let patch = reset_environment(&session, &blocks);
     assert!(patch.blocks.combined && patch.blocks.env.is_none());
     assert_eq!(patch.blocks.core.as_deref(), Some(format!("CORE{SEP}- Shell: Bash.").as_str()));

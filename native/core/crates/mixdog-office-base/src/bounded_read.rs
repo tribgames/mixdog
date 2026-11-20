@@ -142,11 +142,22 @@ pub struct FileMeta {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoundedRead {
     Absent,
-    Present { content: Vec<u8>, meta: FileMeta },
+    Present {
+        content: Vec<u8>,
+        meta: FileMeta,
+    },
     /// No content: `size` is what was seen, `limit` the per-file limit (the budget's total for `Budget`).
-    Omitted { reason: OmitReason, meta: FileMeta, size: u64, limit: u64 },
+    Omitted {
+        reason: OmitReason,
+        meta: FileMeta,
+        size: u64,
+        limit: u64,
+    },
     /// `classify_only`: size and binary-ness were checked from a bounded read, content not returned or charged.
-    Classified { meta: FileMeta, size: u64 },
+    Classified {
+        meta: FileMeta,
+        size: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -262,15 +273,14 @@ pub enum ReviewContent {
     /// Its bytes, binary included, up to [`PATCH_EDIT_MAX_BYTES`] and within the budget.
     Bytes(Vec<u8>),
     /// Counted as changed, never diffed or restored.
-    Omitted { size: u64, reason: OmitReason },
+    Omitted {
+        size: u64,
+        reason: OmitReason,
+    },
 }
 
 /// `reviewFileContent`: the state of a file for the turn review of a tool write.
-pub fn review_file_content<P: ReadProof>(
-    proof: &P,
-    path: &Path,
-    budget: Option<&mut SnapshotBudget>,
-) -> Result<ReviewContent, BoundedReadError> {
+pub fn review_file_content<P: ReadProof>(proof: &P, path: &Path, budget: Option<&mut SnapshotBudget>) -> Result<ReviewContent, BoundedReadError> {
     let opts = BoundedReadOptions { max_bytes: PATCH_EDIT_MAX_BYTES, classify_only: false, detect_binary: false };
     Ok(match read_bounded_file(proof, path, &opts, budget)? {
         BoundedRead::Absent => ReviewContent::Absent,
@@ -316,10 +326,7 @@ mod tests {
     fn a_bom_decides_the_codec_and_nul_parity_the_rest() {
         assert_eq!(detect_text_codec(&[0xff, 0xfe, b'a', 0], false).encoding, Some(Encoding::Utf16Le));
         assert_eq!(detect_text_codec(&[0xfe, 0xff, 0, b'a'], false).encoding, Some(Encoding::Utf16Be));
-        assert_eq!(
-            detect_text_codec(&[0xef, 0xbb, 0xbf, b'a'], false),
-            TextCodec { encoding: Some(Encoding::Utf8), bom_len: 3, certain: true }
-        );
+        assert_eq!(detect_text_codec(&[0xef, 0xbb, 0xbf, b'a'], false), TextCodec { encoding: Some(Encoding::Utf8), bom_len: 3, certain: true });
         assert!(detect_text_codec(b"plain text", false).certain);
         assert!(!detect_text_codec(b"plain text", true).certain);
         // Short NUL-bearing input is undecidable; sixteen UTF-16LE units are decided.
@@ -335,9 +342,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         assert_eq!(read(&dir.path().join("none"), BoundedReadOptions::default(), None), BoundedRead::Absent);
         let text = file(dir.path(), "t.txt", b"hello");
-        let BoundedRead::Present { content, meta } = read(&text, BoundedReadOptions::default(), None) else {
-            panic!("present")
-        };
+        let BoundedRead::Present { content, meta } = read(&text, BoundedReadOptions::default(), None) else { panic!("present") };
         assert_eq!((content.as_slice(), meta.stat_size), (&b"hello"[..], 5));
         let small = BoundedReadOptions { max_bytes: 4, ..BoundedReadOptions::default() };
         assert!(matches!(read(&text, small, None), BoundedRead::Omitted { reason: OmitReason::Oversized, size: 5, limit: 4, .. }));
@@ -371,10 +376,7 @@ mod tests {
         assert_eq!(review_file_content(&Unlaned, &nul, None).expect("review"), ReviewContent::Bytes(vec![1, 0, 2]));
         assert_eq!(review_file_content(&Unlaned, &dir.path().join("none"), None).expect("review"), ReviewContent::Absent);
         let mut budget = SnapshotBudget::new(2);
-        assert_eq!(
-            review_file_content(&Unlaned, &nul, Some(&mut budget)).expect("review"),
-            ReviewContent::Omitted { size: 3, reason: OmitReason::Budget }
-        );
+        assert_eq!(review_file_content(&Unlaned, &nul, Some(&mut budget)).expect("review"), ReviewContent::Omitted { size: 3, reason: OmitReason::Budget });
     }
 
     #[test]
@@ -385,6 +387,5 @@ mod tests {
         assert_eq!(describe_omitted_file(OmitReason::Budget, 5, 3 * MIB / 2), "over the 1.5 MiB per-patch snapshot budget (5 bytes)");
     }
 }
-
 
 impl std::error::Error for BoundedReadError {}

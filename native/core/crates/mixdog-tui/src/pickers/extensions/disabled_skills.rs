@@ -55,11 +55,7 @@ impl FromIterator<String> for SkillSet {
 /// held set; a failed probe or a missing method leaves every skill enabled.
 pub fn load_disabled_skills(host: &mut dyn ExtensionsHost) {
     let Ok(result) = host.store_call("getDisabledSkills", json!([])) else { return };
-    let disabled: SkillSet = result
-        .get("disabled")
-        .and_then(Value::as_array)
-        .map(|names| names.iter().map(value_text).collect())
-        .unwrap_or_default();
+    let disabled: SkillSet = result.get("disabled").and_then(Value::as_array).map(|names| names.iter().map(value_text).collect()).unwrap_or_default();
     if !disabled.is_empty() {
         host.hold_disabled_skills(disabled);
     }

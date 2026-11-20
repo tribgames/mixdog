@@ -31,11 +31,11 @@ use webrtc::peer_connection::RTCIceTransportPolicy;
 use webrtc::peer_connection::RTCPeerConnectionIceEvent;
 use webrtc::peer_connection::RTCPeerConnectionState;
 use webrtc::peer_connection::RTCSessionDescription;
+use webrtc::peer_connection::RTCStatsReport;
+use webrtc::peer_connection::RTCStatsReportEntry;
 use webrtc::peer_connection::Registry;
 use webrtc::peer_connection::SettingEngineBuilder;
 use webrtc::peer_connection::StatsSelector;
-use webrtc::peer_connection::RTCStatsReport;
-use webrtc::peer_connection::RTCStatsReportEntry;
 
 use super::config::Candidate;
 use super::config::CandidatePair;
@@ -77,9 +77,7 @@ impl PeerBudget {
         match Scope::new().cancel(&self.cancel).within(STEP_BUDGET).run(work).await {
             Scoped::Done(out) => Ok(out),
             Scoped::Cancelled => Err(PeerFault::new(PeerFailure::PeerHostUnavailable, "connection closed")),
-            Scoped::DeadlineExceeded => {
-                Err(PeerFault::new(PeerFailure::PeerHostUnavailable, format!("{what} timed out")))
-            }
+            Scoped::DeadlineExceeded => Err(PeerFault::new(PeerFailure::PeerHostUnavailable, format!("{what} timed out"))),
         }
     }
 }
@@ -106,11 +104,7 @@ pub(crate) enum PeerEvent {
 }
 
 pub(crate) enum Raw {
-    Candidate {
-        candidate: Option<Candidate>,
-        relay_protocol: Option<RelayProtocol>,
-        url: Option<String>,
-    },
+    Candidate { candidate: Option<Candidate>, relay_protocol: Option<RelayProtocol>, url: Option<String> },
     State(RTCPeerConnectionState),
 }
 
@@ -125,33 +119,23 @@ impl PeerConnectionEventHandler for Handler {
             return;
         };
         let relay = event.candidate.typ == RTCIceCandidateType::Relay;
-        let relay_protocol = if relay { Some(match event.candidate.relay_protocol {
-            RTCIceServerTransportProtocol::Tcp => Some(RelayProtocol::Tcp),
-            RTCIceServerTransportProtocol::Tls => Some(RelayProtocol::Tls),
-            RTCIceServerTransportProtocol::Udp => Some(RelayProtocol::Udp),
-            _ => None,
-        }) } else { None };
-        let url = relay
-            .then(|| {
-                Some(event.url.clone())
-                    .filter(|url| !url.is_empty())
-                    .or(event.candidate.url.clone())
+        let relay_protocol = if relay {
+            Some(match event.candidate.relay_protocol {
+                RTCIceServerTransportProtocol::Tcp => Some(RelayProtocol::Tcp),
+                RTCIceServerTransportProtocol::Tls => Some(RelayProtocol::Tls),
+                RTCIceServerTransportProtocol::Udp => Some(RelayProtocol::Udp),
+                _ => None,
             })
-            .flatten();
-        let _ = self.tx.send(Raw::Candidate {
-            candidate: Some(Candidate::from_init(init)),
-            relay_protocol: relay_protocol.flatten(),
-            url,
-        });
+        } else {
+            None
+        };
+        let url = relay.then(|| Some(event.url.clone()).filter(|url| !url.is_empty()).or(event.candidate.url.clone())).flatten();
+        let _ = self.tx.send(Raw::Candidate { candidate: Some(Candidate::from_init(init)), relay_protocol: relay_protocol.flatten(), url });
     }
 
     async fn on_ice_gathering_state_change(&self, state: webrtc::peer_connection::RTCIceGatheringState) {
         if state == webrtc::peer_connection::RTCIceGatheringState::Complete {
-            let _ = self.tx.send(Raw::Candidate {
-                candidate: None,
-                relay_protocol: None,
-                url: None,
-            });
+            let _ = self.tx.send(Raw::Candidate { candidate: None, relay_protocol: None, url: None });
         }
     }
 
@@ -183,24 +167,10 @@ impl PeerEvents {
     /// The reportable event of a raw one (`None` for states nobody reports).
     pub(crate) async fn resolve(&self, raw: Raw) -> Option<PeerEvent> {
         match raw {
-            Raw::Candidate {
-                candidate,
-                relay_protocol,
-                url,
-            } => Some(PeerEvent::Candidate {
-                candidate,
-                relay_protocol,
-                url,
-            }),
-            Raw::State(RTCPeerConnectionState::Connected) => Some(PeerEvent::Connected {
-                remote_certificate: remote_certificate(self.pc.as_ref()).await,
-            }),
+            Raw::Candidate { candidate, relay_protocol, url } => Some(PeerEvent::Candidate { candidate, relay_protocol, url }),
+            Raw::State(RTCPeerConnectionState::Connected) => Some(PeerEvent::Connected { remote_certificate: remote_certificate(self.pc.as_ref()).await }),
             Raw::State(RTCPeerConnectionState::Failed) => {
-                let reason = if dtls_failed(self.pc.as_ref()).await {
-                    PeerFailure::DtlsFailed
-                } else {
-                    PeerFailure::IceFailed
-                };
+                let reason = if dtls_failed(self.pc.as_ref()).await { PeerFailure::DtlsFailed } else { PeerFailure::IceFailed };
                 Some(PeerEvent::Failed(PeerFault::bare(reason)))
             }
             Raw::State(_) => None,
@@ -228,20 +198,16 @@ async fn report(pc: &dyn PeerConnection) -> RTCStatsReport {
 
 async fn dtls_failed(pc: &dyn PeerConnection) -> bool {
     use rtc::peer_connection::transport::RTCDtlsTransportState;
-    report(pc)
-        .await
-        .transport()
-        .is_some_and(|t| t.dtls_state == RTCDtlsTransportState::Failed)
+    report(pc).await.transport().is_some_and(|t| t.dtls_state == RTCDtlsTransportState::Failed)
 }
 
 pub(crate) async fn remote_certificate(pc: &dyn PeerConnection) -> Option<RemoteCertificate> {
     let report = report(pc).await;
     let transport = report.transport()?;
     match report.get(&transport.remote_certificate_id)? {
-        RTCStatsReportEntry::Certificate(c) => Some(RemoteCertificate {
-            fingerprint: c.fingerprint.clone(),
-            fingerprint_algorithm: c.fingerprint_algorithm.clone(),
-        }),
+        RTCStatsReportEntry::Certificate(c) => {
+            Some(RemoteCertificate { fingerprint: c.fingerprint.clone(), fingerprint_algorithm: c.fingerprint_algorithm.clone() })
+        }
         _ => None,
     }
 }
@@ -250,9 +216,7 @@ pub(crate) async fn remote_certificate(pc: &dyn PeerConnection) -> Option<Remote
 pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePair> {
     let report = report(pc).await;
     let transport = report.transport()?;
-    let RTCStatsReportEntry::IceCandidatePair(pair) =
-        report.get(&transport.selected_candidate_pair_id)?
-    else {
+    let RTCStatsReportEntry::IceCandidatePair(pair) = report.get(&transport.selected_candidate_pair_id)? else {
         return None;
     };
     let candidate_type = |t: RTCIceCandidateType| match t {
@@ -276,11 +240,7 @@ pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePa
     Some(CandidatePair {
         local_type,
         remote_type,
-        protocol: if local.protocol.eq_ignore_ascii_case("tcp") {
-            TransportProtocol::Tcp
-        } else {
-            TransportProtocol::Udp
-        },
+        protocol: if local.protocol.eq_ignore_ascii_case("tcp") { TransportProtocol::Tcp } else { TransportProtocol::Udp },
         relay_protocol: if local_type == CandidateType::Relay {
             match local.relay_protocol {
                 RTCIceServerTransportProtocol::Tcp => Some(RelayProtocol::Tcp),
@@ -288,11 +248,11 @@ pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePa
                 RTCIceServerTransportProtocol::Udp => Some(RelayProtocol::Udp),
                 _ => None,
             }
-        } else { None },
-        current_round_trip_time_ms: (pair.current_round_trip_time > 0.0)
-            .then_some(pair.current_round_trip_time * 1_000.0),
-        available_outgoing_bitrate: (pair.available_outgoing_bitrate > 0.0)
-            .then_some(pair.available_outgoing_bitrate),
+        } else {
+            None
+        },
+        current_round_trip_time_ms: (pair.current_round_trip_time > 0.0).then_some(pair.current_round_trip_time * 1_000.0),
+        available_outgoing_bitrate: (pair.available_outgoing_bitrate > 0.0).then_some(pair.available_outgoing_bitrate),
     })
 }
 
@@ -310,7 +270,6 @@ mod tests {
         assert_eq!(PeerBudget::default().step("stats", async { 7 }).await.unwrap(), 7);
     }
 
-
     /// A machine that allows the mDNS socket builds the connection with `.local` resolution on.
     /// Only the mode is asserted: whether the driver's own join then succeeds is the machine's
     /// (this PC refuses it at times), so the build's outcome is not part of this test.
@@ -325,10 +284,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_step_that_never_finishes_ends_at_the_budget() {
         let started = tokio::time::Instant::now();
-        let fault = PeerBudget::default()
-            .step("create offer", std::future::pending::<()>())
-            .await
-            .unwrap_err();
+        let fault = PeerBudget::default().step("create offer", std::future::pending::<()>()).await.unwrap_err();
         assert_eq!(started.elapsed(), STEP_BUDGET);
         assert_eq!(fault.reason, PeerFailure::PeerHostUnavailable);
         assert_eq!(fault.detail.as_deref(), Some("create offer timed out"));
@@ -344,26 +300,14 @@ mod tests {
     }
 }
 
-
-pub(crate) async fn open(
-    config: &PeerConfig,
-    media: Option<MediaSetup>,
-) -> Result<Opened, PeerFault> {
+pub(crate) async fn open(config: &PeerConfig, media: Option<MediaSetup>) -> Result<Opened, PeerFault> {
     config.validate()?;
     let mdns = mdns_mode(config);
     #[cfg(test)]
     config.hooks.builds.lock().unwrap().push(mdns);
     let (tx, rx) = mpsc::unbounded_channel();
-    let pc = build(config, media, mdns, tx)
-        .await
-        .map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?;
-    Ok(Opened {
-        events: PeerEvents {
-            rx,
-            pc: Arc::clone(&pc),
-        },
-        pc,
-    })
+    let pc = build(config, media, mdns, tx).await.map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?;
+    Ok(Opened { events: PeerEvents { rx, pc: Arc::clone(&pc) }, pc })
 }
 /// Whether this machine lets a connection resolve a peer's mDNS `.local` candidates.
 ///
@@ -420,19 +364,14 @@ async fn build(
         .with_ice_transport_policy(RTCIceTransportPolicy::All)
         .with_bundle_policy(RTCBundlePolicy::MaxBundle)
         .build();
-    let settings = SettingEngineBuilder::new()
-        .with_include_loopback_candidate(config.include_loopback)
-        .with_multicast_dns_mode(mdns)
-        .build();
+    let settings = SettingEngineBuilder::new().with_include_loopback_candidate(config.include_loopback).with_multicast_dns_mode(mdns).build();
     let mut builder = PeerConnectionBuilder::new()
         .with_configuration(rtc_config)
         .with_setting_engine(settings)
         .with_handler(Arc::new(Handler { tx }))
         .with_udp_addrs(config.udp_bind.clone());
     if let Some(media) = media {
-        builder = builder
-            .with_media_engine(media.engine)
-            .with_interceptor_registry(media.registry);
+        builder = builder.with_media_engine(media.engine).with_interceptor_registry(media.registry);
     }
     #[cfg(test)]
     if let Some(runtime) = &config.hooks.runtime {

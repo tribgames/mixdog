@@ -111,11 +111,7 @@ pub fn theme_color(key: Key) -> Color {
 /// Every theme in display order, with the live one marked (`listThemes`).
 pub fn list_themes() -> Vec<ThemeInfo> {
     let active = *ACTIVE.read().unwrap_or_else(PoisonError::into_inner);
-    THEMES
-        .iter()
-        .enumerate()
-        .map(|(at, entry)| ThemeInfo { id: entry.id, label: entry.label, description: entry.description, current: at == active })
-        .collect()
+    THEMES.iter().enumerate().map(|(at, entry)| ThemeInfo { id: entry.id, label: entry.label, description: entry.description, current: at == active }).collect()
 }
 
 /// Applies a theme by id (`setThemeSetting` without persistence). An unknown id falls back to the default without an

@@ -13,8 +13,8 @@ use mixdog_store::fsio::WriteLane;
 use serde_json::Value;
 
 use crate::identity::roster::{MAX_OWED_KEYS, is_controller_key};
-use crate::identity::{Roster, SecretError};
 use crate::identity::secret::read_raw;
+use crate::identity::{Roster, SecretError};
 
 /// Under the data directory, where the desktop kept its own records.
 const DIR: &str = "desktop";

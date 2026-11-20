@@ -38,16 +38,14 @@ mod platform {
     use std::time::{Duration, Instant};
     use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FileIdType, GetFileInformationByHandle, GetFinalPathNameByHandleW,
-        GetVolumeInformationByHandleW, OpenFileById, BY_HANDLE_FILE_INFORMATION,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_DESCRIPTOR, FILE_ID_DESCRIPTOR_0, FILE_NAME_NORMALIZED,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-    };
-    use windows_sys::Win32::System::Ioctl::{
-        FSCTL_QUERY_USN_JOURNAL, FSCTL_READ_UNPRIVILEGED_USN_JOURNAL, FSCTL_READ_USN_JOURNAL,
-        READ_USN_JOURNAL_DATA_V0, USN_JOURNAL_DATA_V0, USN_RECORD_V2,
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_DESCRIPTOR, FILE_ID_DESCRIPTOR_0, FILE_NAME_NORMALIZED,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileIdType, GetFileInformationByHandle, GetFinalPathNameByHandleW,
+        GetVolumeInformationByHandleW, OPEN_EXISTING, OpenFileById,
     };
     use windows_sys::Win32::System::IO::DeviceIoControl;
+    use windows_sys::Win32::System::Ioctl::{
+        FSCTL_QUERY_USN_JOURNAL, FSCTL_READ_UNPRIVILEGED_USN_JOURNAL, FSCTL_READ_USN_JOURNAL, READ_USN_JOURNAL_DATA_V0, USN_JOURNAL_DATA_V0, USN_RECORD_V2,
+    };
 
     /// One second before `now`; an `Instant` too close to the process clock's
     /// origin cannot go back that far, so `now` itself stands in.
@@ -65,11 +63,7 @@ mod platform {
             assert!(restored_last_sync(now) <= now);
             // An Instant that cannot step back a second falls back to itself.
             assert!(now.checked_sub(Duration::from_secs(u64::MAX / 4)).is_none());
-            assert_eq!(
-                now.checked_sub(Duration::from_secs(u64::MAX / 4))
-                    .unwrap_or(now),
-                now
-            );
+            assert_eq!(now.checked_sub(Duration::from_secs(u64::MAX / 4)).unwrap_or(now), now);
         }
     }
 
@@ -98,17 +92,11 @@ mod platform {
     /// are a cache, and a panic elsewhere must not disable change tracking
     /// for the rest of the process.
     fn cursors() -> MutexGuard<'static, HashMap<u16, JournalCursor>> {
-        CURSORS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        CURSORS.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|error| error.into_inner())
     }
 
     fn failures() -> MutexGuard<'static, HashMap<u16, Instant>> {
-        FAILURES
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        FAILURES.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|error| error.into_inner())
     }
 
     fn note_failure(volume: u16) {
@@ -125,42 +113,17 @@ mod platform {
 
     /// Trusted, with nothing to report for this volume.
     fn unchanged(volume_serial: u32) -> SyncResult {
-        SyncResult {
-            trusted: true,
-            volume_serial: Some(volume_serial),
-            changed: HashSet::new(),
-            parents: HashSet::new(),
-        }
+        SyncResult { trusted: true, volume_serial: Some(volume_serial), changed: HashSet::new(), parents: HashSet::new() }
     }
 
     fn identity_of(info: &BY_HANDLE_FILE_INFORMATION) -> FileIdentity {
-        FileIdentity {
-            volume: info.dwVolumeSerialNumber,
-            file_id: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
-        }
+        FileIdentity { volume: info.dwVolumeSerialNumber, file_id: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64 }
     }
 
     fn open_volume(volume: u16) -> Option<OwnedHandle> {
-        let path = [
-            '\\' as u16,
-            '\\' as u16,
-            '.' as u16,
-            '\\' as u16,
-            volume,
-            ':' as u16,
-            0,
-        ];
-        let handle = unsafe {
-            CreateFileW(
-                path.as_ptr(),
-                GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                null(),
-                OPEN_EXISTING,
-                0,
-                null_mut(),
-            )
-        };
+        let path = ['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, volume, ':' as u16, 0];
+        let handle =
+            unsafe { CreateFileW(path.as_ptr(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, null(), OPEN_EXISTING, 0, null_mut()) };
         (handle != INVALID_HANDLE_VALUE).then_some(OwnedHandle(handle))
     }
 
@@ -184,27 +147,11 @@ mod platform {
 
     fn volume_serial(handle: HANDLE) -> Option<u32> {
         let mut serial = 0u32;
-        let ok = unsafe {
-            GetVolumeInformationByHandleW(
-                handle,
-                null_mut(),
-                0,
-                &mut serial,
-                null_mut(),
-                null_mut(),
-                null_mut(),
-                0,
-            )
-        };
+        let ok = unsafe { GetVolumeInformationByHandleW(handle, null_mut(), 0, &mut serial, null_mut(), null_mut(), null_mut(), 0) };
         (ok != 0).then_some(serial)
     }
 
-    fn read_changes(
-        handle: HANDLE,
-        start_usn: i64,
-        end_usn: i64,
-        journal_id: u64,
-    ) -> Option<(i64, HashSet<u64>, HashSet<u64>)> {
+    fn read_changes(handle: HANDLE, start_usn: i64, end_usn: i64, journal_id: u64) -> Option<(i64, HashSet<u64>, HashSet<u64>)> {
         let mut cursor = start_usn;
         let mut changed = HashSet::new();
         let mut parents = HashSet::new();
@@ -241,19 +188,13 @@ mod platform {
             let next = unsafe { std::ptr::read_unaligned(output.as_ptr() as *const i64) };
             let mut offset = size_of::<i64>();
             while offset + 8 <= returned as usize {
-                let record_length =
-                    unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const u32) }
-                        as usize;
+                let record_length = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const u32) } as usize;
                 if record_length == 0 || offset + record_length > returned as usize {
                     return None;
                 }
-                let major = unsafe {
-                    std::ptr::read_unaligned(output.as_ptr().add(offset + 4) as *const u16)
-                };
+                let major = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset + 4) as *const u16) };
                 if major == 2 && record_length >= size_of::<USN_RECORD_V2>() {
-                    let record = unsafe {
-                        std::ptr::read_unaligned(output.as_ptr().add(offset) as *const USN_RECORD_V2)
-                    };
+                    let record = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const USN_RECORD_V2) };
                     changed.insert(record.FileReferenceNumber);
                     parents.insert(record.ParentFileReferenceNumber);
                 }
@@ -285,23 +226,14 @@ mod platform {
     pub fn metadata_and_identity(path: &Path) -> Option<(std::fs::Metadata, Option<FileIdentity>)> {
         // Sorting only needs attributes, not permission to read file contents.
         // Keep identity and timestamps tied to the same opened object.
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .access_mode(FILE_READ_ATTRIBUTES)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(path)
-            .ok()?;
+        let file = std::fs::OpenOptions::new().read(true).access_mode(FILE_READ_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path).ok()?;
         let metadata = file.metadata().ok()?;
         let identity = file_identity(&file);
         Some((metadata, identity))
     }
 
     pub fn path_identity(path: &Path) -> Option<FileIdentity> {
-        let wide = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>();
+        let wide = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
         let handle = unsafe {
             CreateFileW(
                 wide.as_ptr(),
@@ -326,9 +258,7 @@ mod platform {
             let descriptor = FILE_ID_DESCRIPTOR {
                 dwSize: size_of::<FILE_ID_DESCRIPTOR>() as u32,
                 Type: FileIdType,
-                Anonymous: FILE_ID_DESCRIPTOR_0 {
-                    FileId: file_id as i64,
-                },
+                Anonymous: FILE_ID_DESCRIPTOR_0 { FileId: file_id as i64 },
             };
             let handle = unsafe {
                 OpenFileById(
@@ -344,35 +274,22 @@ mod platform {
                 continue;
             }
             let handle = OwnedHandle(handle);
-            let required =
-                unsafe { GetFinalPathNameByHandleW(handle.0, null_mut(), 0, FILE_NAME_NORMALIZED) };
+            let required = unsafe { GetFinalPathNameByHandleW(handle.0, null_mut(), 0, FILE_NAME_NORMALIZED) };
             if required == 0 {
                 continue;
             }
             let mut buffer = vec![0u16; required as usize + 1];
-            let written = unsafe {
-                GetFinalPathNameByHandleW(
-                    handle.0,
-                    buffer.as_mut_ptr(),
-                    buffer.len() as u32,
-                    FILE_NAME_NORMALIZED,
-                )
-            };
+            let written = unsafe { GetFinalPathNameByHandleW(handle.0, buffer.as_mut_ptr(), buffer.len() as u32, FILE_NAME_NORMALIZED) };
             if written == 0 || written as usize >= buffer.len() {
                 continue;
             }
-            paths.push(PathBuf::from(std::ffi::OsString::from_wide(
-                &buffer[..written as usize],
-            )));
+            paths.push(PathBuf::from(std::ffi::OsString::from_wide(&buffer[..written as usize])));
         }
         Some(paths)
     }
 
     pub fn sync_volume(volume: u16) -> SyncResult {
-        if failures()
-            .get(&volume)
-            .is_some_and(|failed_at| failed_at.elapsed() < Duration::from_secs(30))
-        {
+        if failures().get(&volume).is_some_and(|failed_at| failed_at.elapsed() < Duration::from_secs(30)) {
             return SyncResult::default();
         }
         let previous = cursors().get(&volume).copied();
@@ -394,44 +311,18 @@ mod platform {
         let Some(previous) = previous else {
             cursors().insert(
                 volume,
-                JournalCursor {
-                    volume_serial: serial,
-                    journal_id: journal.UsnJournalID,
-                    next_usn: journal.NextUsn,
-                    last_sync: Instant::now(),
-                },
+                JournalCursor { volume_serial: serial, journal_id: journal.UsnJournalID, next_usn: journal.NextUsn, last_sync: Instant::now() },
             );
             return unchanged(serial);
         };
-        if previous.journal_id != journal.UsnJournalID
-            || previous.next_usn < journal.FirstUsn
-            || previous.next_usn > journal.NextUsn
-        {
+        if previous.journal_id != journal.UsnJournalID || previous.next_usn < journal.FirstUsn || previous.next_usn > journal.NextUsn {
             return distrust(volume);
         }
-        let Some((next_usn, changed, parents)) = read_changes(
-            handle.0,
-            previous.next_usn,
-            journal.NextUsn,
-            journal.UsnJournalID,
-        ) else {
+        let Some((next_usn, changed, parents)) = read_changes(handle.0, previous.next_usn, journal.NextUsn, journal.UsnJournalID) else {
             return distrust(volume);
         };
-        cursors().insert(
-            volume,
-            JournalCursor {
-                volume_serial: serial,
-                journal_id: journal.UsnJournalID,
-                next_usn,
-                last_sync: Instant::now(),
-            },
-        );
-        SyncResult {
-            trusted: true,
-            volume_serial: Some(serial),
-            changed,
-            parents,
-        }
+        cursors().insert(volume, JournalCursor { volume_serial: serial, journal_id: journal.UsnJournalID, next_usn, last_sync: Instant::now() });
+        SyncResult { trusted: true, volume_serial: Some(serial), changed, parents }
     }
 
     pub fn journal_checkpoints() -> Vec<super::JournalCheckpoint> {
@@ -456,10 +347,7 @@ mod platform {
                 last_sync: restored_last_sync(Instant::now()),
             };
             match state.get_mut(&checkpoint.volume) {
-                Some(current)
-                    if current.volume_serial == restored.volume_serial
-                        && current.journal_id == restored.journal_id =>
-                {
+                Some(current) if current.volume_serial == restored.volume_serial && current.journal_id == restored.journal_id => {
                     current.next_usn = current.next_usn.min(restored.next_usn);
                     current.last_sync = restored.last_sync;
                 }
@@ -487,19 +375,14 @@ mod platform {
     }
 
     pub fn metadata_and_identity(path: &Path) -> Option<(std::fs::Metadata, Option<FileIdentity>)> {
-        std::fs::metadata(path)
-            .ok()
-            .map(|metadata| (metadata, None))
+        std::fs::metadata(path).ok().map(|metadata| (metadata, None))
     }
 
     pub fn path_identity(_path: &Path) -> Option<FileIdentity> {
         None
     }
 
-    pub fn resolve_file_ids(
-        _volume: u16,
-        _ids: &std::collections::HashSet<u64>,
-    ) -> Option<Vec<std::path::PathBuf>> {
+    pub fn resolve_file_ids(_volume: u16, _ids: &std::collections::HashSet<u64>) -> Option<Vec<std::path::PathBuf>> {
         None
     }
 
@@ -515,8 +398,7 @@ mod platform {
 }
 
 pub use platform::{
-    file_identity, journal_checkpoints, metadata_and_identity, path_identity, resolve_file_ids,
-    restore_journal_checkpoints, sync_volume, volume_for_path,
+    file_identity, journal_checkpoints, metadata_and_identity, path_identity, resolve_file_ids, restore_journal_checkpoints, sync_volume, volume_for_path,
 };
 
 #[cfg(all(test, windows))]
@@ -528,19 +410,12 @@ mod tests {
 
     #[test]
     fn journal_reports_a_closed_file_change_when_available() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "mixdog-usn-change-{}-{nonce}.txt",
-            std::process::id()
-        ));
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+        let path = std::env::temp_dir().join(format!("mixdog-usn-change-{}-{nonce}.txt", std::process::id()));
         fs::write(&path, b"before").expect("initial write");
         let file = File::open(&path).expect("open");
         let identity = file_identity(&file).expect("file identity");
-        let parent_identity =
-            path_identity(path.parent().expect("parent")).expect("parent identity");
+        let parent_identity = path_identity(path.parent().expect("parent")).expect("parent identity");
         let volume = volume_for_path(&path).expect("drive volume");
         let first = sync_volume(volume);
         if !first.trusted {
@@ -553,15 +428,13 @@ mod tests {
         assert!(second.trusted);
         assert!(second.changed.contains(&identity.file_id));
         assert!(second.parents.contains(&parent_identity.file_id));
-        let resolved =
-            resolve_file_ids(volume, &HashSet::from([identity.file_id])).expect("resolve file ids");
+        let resolved = resolve_file_ids(volume, &HashSet::from([identity.file_id])).expect("resolve file ids");
         let expected = path.to_string_lossy();
-        assert!(resolved.iter().any(|candidate| {
-            candidate
-                .to_string_lossy()
-                .trim_start_matches(r"\\?\")
-                .eq_ignore_ascii_case(expected.trim_start_matches(r"\\?\"))
-        }));
+        assert!(
+            resolved
+                .iter()
+                .any(|candidate| { candidate.to_string_lossy().trim_start_matches(r"\\?\").eq_ignore_ascii_case(expected.trim_start_matches(r"\\?\")) })
+        );
         fs::remove_file(path).expect("cleanup");
     }
 }

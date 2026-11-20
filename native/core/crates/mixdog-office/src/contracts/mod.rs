@@ -14,20 +14,19 @@ use mixdog_office_base::values::plain_object;
 use serde_json::{Map, Value};
 
 use self::aliases::{
-    allowed_operation_fields, apply_field_aliases, author_initials, hoist_compose_sheet_table,
-    hoist_freeze_pane_cell, hoist_geometry_properties, single_cell_range_fault, text_or_empty,
+    allowed_operation_fields, apply_field_aliases, author_initials, hoist_compose_sheet_table, hoist_freeze_pane_cell, hoist_geometry_properties,
+    single_cell_range_fault, text_or_empty,
 };
 use self::checks::{
-    Site, docx_style_definition_fault, docx_table_alignment_faults, required_input_fault, resolve_validation_rule,
-    supplied_field, unknown_fields_fault, unknown_properties_fault,
+    Site, docx_style_definition_fault, docx_table_alignment_faults, required_input_fault, resolve_validation_rule, supplied_field, unknown_fields_fault,
+    unknown_properties_fault,
 };
 pub(crate) use self::suggest::{did_you_mean, operation_suggestions};
 use crate::capabilities::{Signature, capabilities};
 
 /// `DESCRIBE_HINT`: the describe call each fault ends with. A batch that gets one operation wrong in six places needs
 /// that call once, not six times.
-static DESCRIBE_HINT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"\s*Call office with \{"action":"describe"[^}]*\}\."#, "g"));
+static DESCRIBE_HINT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\s*Call office with \{"action":"describe"[^}]*\}\."#, "g"));
 
 /// `describeHint(format, backend, operation)`.
 fn describe_hint(format: &str, backend: &str, operation: &str) -> String {
@@ -52,10 +51,7 @@ pub(crate) fn operation_properties(format: &str, signature: &Signature, backend:
         .map(|(name, fields)| {
             let kept = fields
                 .iter()
-                .filter(|field| {
-                    backend.is_empty()
-                        || signature.property_backends.get(*field).is_none_or(|backends| backends.iter().any(|b| b == backend))
-                })
+                .filter(|field| backend.is_empty() || signature.property_backends.get(*field).is_none_or(|backends| backends.iter().any(|b| b == backend)))
                 .cloned()
                 .collect();
             (name.clone(), kept)
@@ -89,11 +85,7 @@ struct Batch<'a> {
 
 /// The operation name the batch will run under (an alias is rewritten onto the operation), or the fault that stops it:
 /// an unknown or unsupported name is answered with the list that does hold it.
-fn resolve_contract_operation(
-    batch: &Batch,
-    operation: &mut Map<String, Value>,
-    index: usize,
-) -> Result<String, String> {
+fn resolve_contract_operation(batch: &Batch, operation: &mut Map<String, Value>, index: usize) -> Result<String, String> {
     let (format, backend) = (batch.format, batch.backend);
     let written = js_trim(&text_or_empty(operation.get("op"))).to_owned();
     if written.is_empty() {
@@ -124,11 +116,7 @@ fn resolve_contract_operation(
     }
     if !batch.available.contains(&name.as_str()) {
         let alternatives = tables.supported_backends(format, &name);
-        let supported = if alternatives.is_empty() {
-            String::new()
-        } else {
-            format!(" Supported backend(s): {}.", alternatives.join(", "))
-        };
+        let supported = if alternatives.is_empty() { String::new() } else { format!(" Supported backend(s): {}.", alternatives.join(", ")) };
         let backend_name = if backend.is_empty() { "this backend" } else { backend };
         return Err(format!(
             "{} operation \"{name}\" is unsupported by {backend_name}.{supported} {}",
@@ -164,12 +152,7 @@ fn operation_contract_faults(batch: &Batch, operation: &mut Value, index: usize)
     hoist_compose_sheet_table(format, &name, operation);
     hoist_geometry_properties(&signature, operation, &allowed);
     let property_keys = property_key_set(format, &signature, backend);
-    let missing: Vec<String> = signature
-        .required
-        .iter()
-        .filter(|field| !supplied_field(operation, field, stable_targets))
-        .cloned()
-        .collect();
+    let missing: Vec<String> = signature.required.iter().filter(|field| !supplied_field(operation, field, stable_targets)).cloned().collect();
     let site = Site { format, backend, name: &name, index };
     let mut faults: Vec<String> = Vec::new();
     faults.extend(unknown_fields_fault(&site, operation, &allowed, &property_keys, &missing));
@@ -193,12 +176,7 @@ pub fn assert_office_operation_contracts(format: &str, backend: &str, operations
         return Err(format!("Unsupported Office Use format: {format}"));
     }
     let backend_filter = (!backend.is_empty()).then_some(backend);
-    let batch = Batch {
-        format,
-        backend,
-        available: tables.operations_for_backend(format, backend_filter),
-        known: tables.operations(format),
-    };
+    let batch = Batch { format, backend, available: tables.operations_for_backend(format, backend_filter), known: tables.operations(format) };
     let mut faults: Vec<String> = Vec::new();
     for (index, operation) in operations.iter_mut().enumerate() {
         faults.extend(operation_contract_faults(&batch, operation, index));
@@ -220,11 +198,7 @@ pub fn assert_office_operation_contracts(format: &str, backend: &str, operations
         }
         let bare: Vec<String> = faults.iter().map(|fault| DESCRIBE_HINT.replace_all_with(fault, |_| String::new())).collect();
         let tail = if hints.is_empty() { String::new() } else { format!(" {}", hints.join(" ")) };
-        return Err(format!(
-            "This batch breaks {} input contracts; fix them together. {}{tail}",
-            faults.len(),
-            bare.join(" ")
-        ));
+        return Err(format!("This batch breaks {} input contracts; fix them together. {}{tail}", faults.len(), bare.join(" ")));
     }
     Ok(())
 }
@@ -364,10 +338,18 @@ mod tests {
 
     #[test]
     fn word_table_properties_are_checked_and_normalised() {
-        let message = rejected("docx", "mixdog-ooxml", json!({ "op": "add_table", "values": [["a"]], "properties": { "name": "Noto Sans KR", "size": 10, "repeatHeader": true } }));
+        let message = rejected(
+            "docx",
+            "mixdog-ooxml",
+            json!({ "op": "add_table", "values": [["a"]], "properties": { "name": "Noto Sans KR", "size": 10, "repeatHeader": true } }),
+        );
         assert!(message.contains("unknown properties: name, size."), "{message}");
         assert!(message.contains("name→fontName, size→fontSize"), "{message}");
-        let (outcome, run) = check("docx", "mixdog-ooxml", json!([{ "op": "append_text", "text": "정시 출고율", "properties": { "fontNameEastAsia": "Noto Sans KR", "fontSize": 11 } }]));
+        let (outcome, run) = check(
+            "docx",
+            "mixdog-ooxml",
+            json!([{ "op": "append_text", "text": "정시 출고율", "properties": { "fontNameEastAsia": "Noto Sans KR", "fontSize": 11 } }]),
+        );
         assert_eq!(outcome, Ok(()));
         assert_eq!(run[0]["properties"], json!({ "nameEastAsia": "Noto Sans KR", "size": 11 }));
         let (outcome, aligned) = check(
@@ -382,7 +364,8 @@ mod tests {
     #[test]
     fn properties_are_checked_against_the_backend() {
         for backend in ["microsoft-office-com", "mixdog-ooxml"] {
-            let font = json!([{ "op": "set_document_font", "properties": { "name": "Malgun Gothic", "nameEastAsia": "맑은 고딕", "size": 11, "color": "112233" } }]);
+            let font =
+                json!([{ "op": "set_document_font", "properties": { "name": "Malgun Gothic", "nameEastAsia": "맑은 고딕", "size": 11, "color": "112233" } }]);
             assert_eq!(check("docx", backend, font).0, Ok(()), "{backend}");
             for field in ["bold", "italic", "underline", "hidden"] {
                 let mut properties = Map::new();
@@ -448,7 +431,11 @@ mod tests {
         assert!(message.starts_with("This batch breaks 5 input contracts; fix them together. "), "{message}");
         assert!(message.contains("Office operation 4 must be an object"), "{message}");
         assert!(message.contains("Office operation 5 requires op"), "{message}");
-        assert_eq!(message.matches("Call office with {\"action\":\"describe\",\"format\":\"xlsx\",\"backend\":\"mixdog-ooxml\",\"operation\":\"add_chart\"}.").count(), 1, "{message}");
+        assert_eq!(
+            message.matches("Call office with {\"action\":\"describe\",\"format\":\"xlsx\",\"backend\":\"mixdog-ooxml\",\"operation\":\"add_chart\"}.").count(),
+            1,
+            "{message}"
+        );
         // The unknown name's own call lists operations and carries no operation: it is part of the sentence, not a hint.
         assert!(message.contains("to list operations."), "{message}");
     }

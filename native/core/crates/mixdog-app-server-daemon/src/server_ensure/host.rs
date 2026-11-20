@@ -8,9 +8,9 @@ use std::time::Duration;
 use serde::Serialize;
 
 use super::error::EnsureError;
+use crate::control::api::ReplacementBuild;
 use crate::lifecycle::DiscoveryPhase;
 use crate::lifecycle::RunningWork;
-use crate::control::api::ReplacementBuild;
 use crate::lifecycle::StopReason;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

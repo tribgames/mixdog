@@ -28,12 +28,8 @@ pub fn document_fingerprint_bytes(buffer: &[u8], format: &str) -> Result<String,
         return Ok(hex(&hash.finalize()));
     }
     let package = Package::load_unchecked(buffer)?;
-    let mut names: Vec<String> = package
-        .entries()
-        .into_iter()
-        .filter(|entry| !entry.dir && !VOLATILE_PARTS.contains(&entry.name.as_str()))
-        .map(|entry| entry.name.clone())
-        .collect();
+    let mut names: Vec<String> =
+        package.entries().into_iter().filter(|entry| !entry.dir && !VOLATILE_PARTS.contains(&entry.name.as_str())).map(|entry| entry.name.clone()).collect();
     names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
     let document_id = compiled(r#"\bdocumentId="[^"]*""#, "g");
     for name in &names {
@@ -119,6 +115,9 @@ mod tests {
         let mut expected = Sha256::new();
         expected.update(b"a,b\n1,2\n");
         assert_eq!(document_fingerprint_bytes(b"a,b\n1,2\n", "csv").unwrap(), hex(&expected.finalize()));
-        assert_eq!(document_fingerprint_bytes(b"not a zip, only text of some length", "docx").unwrap_err(), "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html");
+        assert_eq!(
+            document_fingerprint_bytes(b"not a zip, only text of some length", "docx").unwrap_err(),
+            "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+        );
     }
 }

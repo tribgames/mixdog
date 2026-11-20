@@ -15,8 +15,8 @@ use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::TransportFault;
-use mixdog_core_api::domain::provider::UsdTicks;
 use mixdog_core_api::domain::provider::Usage;
+use mixdog_core_api::domain::provider::UsdTicks;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_protocol::ProviderId;
 use serde_json::Map;
@@ -125,9 +125,9 @@ impl UsageAcc {
         ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
             .iter()
             .any(|name| raw.get(*name).and_then(Value::as_u64).is_some())
-            || ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"].iter().any(|name| {
-                raw.get("cache_creation").and_then(|split| split.get(*name)).and_then(Value::as_u64).is_some()
-            })
+            || ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]
+                .iter()
+                .any(|name| raw.get("cache_creation").and_then(|split| split.get(*name)).and_then(Value::as_u64).is_some())
             || raw.get("cost").and_then(reported_cost_usd).is_some()
     }
 
@@ -148,11 +148,7 @@ impl UsageAcc {
             self.cache_write = v;
         }
         // Node's turn-state: `cache_creation.ephemeral_1h_input_tokens`, same keep-or-replace rule.
-        if let Some(v) = map
-            .get("cache_creation")
-            .and_then(|c| c.get("ephemeral_1h_input_tokens"))
-            .and_then(Value::as_u64)
-        {
+        if let Some(v) = map.get("cache_creation").and_then(|c| c.get("ephemeral_1h_input_tokens")).and_then(Value::as_u64) {
             self.cache_write_1h = v;
         }
         if let Some(cost) = map.get("cost").and_then(reported_cost_usd) {
@@ -176,7 +172,8 @@ impl UsageAcc {
                 continue;
             }
             if matches!(key.as_str(), "input_tokens" | "output_tokens" | "cache_read_input_tokens" | "cache_creation_input_tokens")
-                && value.as_u64().is_none() && self.raw.get(key).and_then(Value::as_u64).is_some()
+                && value.as_u64().is_none()
+                && self.raw.get(key).and_then(Value::as_u64).is_some()
             {
                 continue;
             }
@@ -274,8 +271,8 @@ impl Shared {
         let decoder = self.decoder();
         let blocks = decoder.replay_blocks(true);
         let thinking = blocks.iter().filter(|b| replay_blocks::is_thinking(b)).cloned().collect();
-        let replay = (decoder.leaked_dispatched == 0 && !blocks.is_empty())
-            .then(|| ProviderReplay { owner: decoder.owner.clone(), items: Value::Array(blocks) });
+        let replay =
+            (decoder.leaked_dispatched == 0 && !blocks.is_empty()).then(|| ProviderReplay { owner: decoder.owner.clone(), items: Value::Array(blocks) });
         Cut { thinking, replay }
     }
 }
@@ -499,10 +496,7 @@ impl AnthropicDecoder {
             self.replay_blocks(false)
         };
         if !blocks.is_empty() {
-            out.push(StreamEvent::ReasoningReplay(ProviderReplay {
-                owner: self.owner.clone(),
-                items: Value::Array(blocks),
-            }));
+            out.push(StreamEvent::ReasoningReplay(ProviderReplay { owner: self.owner.clone(), items: Value::Array(blocks) }));
         }
         out.push(StreamEvent::Usage(self.usage.usage()));
         // `anthropicFallbackProviderMetadata(turn.fallbackEvents)` (turn-outcome.mjs:158).
@@ -511,11 +505,7 @@ impl AnthropicDecoder {
         }
         // `hasThinkingContent` / `contentBlockTypes` (turn-outcome.mjs:143-144).
         out.push(StreamEvent::ContentSummary { has_thinking: self.has_thinking, block_types: self.block_types.clone() });
-        out.push(StreamEvent::Completed {
-            pricing_model: None,
-            request_ms: None,
-            stop: stop_reason(self.stop.as_deref()),
-        });
+        out.push(StreamEvent::Completed { pricing_model: None, request_ms: None, stop: stop_reason(self.stop.as_deref()) });
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
@@ -601,11 +591,7 @@ impl AnthropicDecoder {
         match block.get("type").and_then(Value::as_str).unwrap_or("") {
             "text" => {
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Text, phase: None });
-                let citations = block
-                    .get("citations")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
+                let citations = block.get("citations").and_then(Value::as_array).cloned().unwrap_or_default();
                 self.blocks.insert(index, Block::Text { text: String::new(), citations });
                 let initial = text_of("text");
                 if !initial.is_empty() {
@@ -616,10 +602,7 @@ impl AnthropicDecoder {
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
                 // Omitted-thinking displays stream no thinking_delta until the signature: the opening is the only sign.
                 out.push(StreamEvent::Progress(ProgressKind::Reasoning));
-                self.blocks.insert(
-                    index,
-                    Block::Thinking { thinking: text_of("thinking"), signature: text_of("signature") },
-                );
+                self.blocks.insert(index, Block::Thinking { thinking: text_of("thinking"), signature: text_of("signature") });
             }
             "redacted_thinking" => {
                 self.has_thinking = true;
@@ -636,10 +619,7 @@ impl AnthropicDecoder {
             }
             kind if NATIVE_CALL_TYPES.contains(&kind) => {
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
-                self.blocks.insert(
-                    index,
-                    Block::NativeCall { block: block.clone(), json: String::new(), done: false },
-                );
+                self.blocks.insert(index, Block::NativeCall { block: block.clone(), json: String::new(), done: false });
             }
             kind if NATIVE_RESULT_TYPES.contains(&kind) => {
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
@@ -702,10 +682,7 @@ impl AnthropicDecoder {
                     thinking.push_str(piece);
                 } else {
                     // A signature may arrive before any thinking text seeded the slot.
-                    self.blocks.insert(
-                        index,
-                        Block::Thinking { thinking: piece.to_owned(), signature: String::new() },
-                    );
+                    self.blocks.insert(index, Block::Thinking { thinking: piece.to_owned(), signature: String::new() });
                 }
                 if !piece.is_empty() {
                     // Emitted thinking is an exposure boundary like text: the
@@ -728,10 +705,7 @@ impl AnthropicDecoder {
                 if let Some(Block::Thinking { signature, .. }) = self.blocks.get_mut(&index) {
                     signature.push_str(piece);
                 } else {
-                    self.blocks.insert(
-                        index,
-                        Block::Thinking { thinking: String::new(), signature: piece.to_owned() },
-                    );
+                    self.blocks.insert(index, Block::Thinking { thinking: String::new(), signature: piece.to_owned() });
                 }
                 if !piece.is_empty() {
                     out.push(StreamEvent::Progress(ProgressKind::Reasoning));
@@ -788,12 +762,7 @@ impl AnthropicDecoder {
                 // A text-leaked call of the same name and arguments already ran: this one is skipped whole.
                 if self.dedupe.should_dispatch(name, &arguments, id) {
                     self.exposure.tool_dispatched = true;
-                    out.push(StreamEvent::ToolCallDone(ToolCall {
-                        id: id.clone(),
-                        name: name.clone(),
-                        arguments,
-                        native_type: None,
-                    }));
+                    out.push(StreamEvent::ToolCallDone(ToolCall { id: id.clone(), name: name.clone(), arguments, native_type: None }));
                 } else {
                     self.skipped.insert(index);
                 }
@@ -804,10 +773,7 @@ impl AnthropicDecoder {
                 let input = if json.is_empty() {
                     current.unwrap_or_else(|| Value::Object(Map::new()))
                 } else {
-                    serde_json::from_str::<Value>(json)
-                        .ok()
-                        .filter(Value::is_object)
-                        .unwrap_or_else(|| Value::Object(Map::new()))
+                    serde_json::from_str::<Value>(json).ok().filter(Value::is_object).unwrap_or_else(|| Value::Object(Map::new()))
                 };
                 block["input"] = input;
                 *done = true;
@@ -821,10 +787,7 @@ impl AnthropicDecoder {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn message_delta(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let delta = event.get("delta");
-        let stop = delta
-            .and_then(|d| d.get("stop_reason"))
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty());
+        let stop = delta.and_then(|d| d.get("stop_reason")).and_then(Value::as_str).filter(|s| !s.is_empty());
         if let Some(stop) = stop {
             self.stop = Some(stop.to_owned());
         }
@@ -837,10 +800,7 @@ impl AnthropicDecoder {
             self.exposure.tool_input_cut = true;
             return Err(self.truncated());
         }
-        let completed_calls = self
-            .blocks
-            .values()
-            .any(|b| matches!(b, Block::ToolUse { done: Some(_), .. }));
+        let completed_calls = self.blocks.values().any(|b| matches!(b, Block::ToolUse { done: Some(_), .. }));
         if self.stop.as_deref() == Some("tool_use") && completed_calls && !self.tool_input_in_flight() {
             self.emit_completed(out);
         }
@@ -883,11 +843,7 @@ impl WireDecoder for AnthropicDecoder {
         if let Some(err) = self.pending_error.take() {
             return Err(err);
         }
-        if self.terminal {
-            Ok(Vec::new())
-        } else {
-            Err(self.truncated())
-        }
+        if self.terminal { Ok(Vec::new()) } else { Err(self.truncated()) }
     }
 
     fn terminal_seen(&self) -> bool {
@@ -934,10 +890,13 @@ mod tests {
             json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" } }),
         ];
         let events = decode(&frames).expect("a complete tool turn");
-        let calls: Vec<_> = events.iter().filter_map(|event| match event {
-            StreamEvent::ToolCallDone(call) => Some((call.id.as_str(), call.arguments.clone())),
-            _ => None,
-        }).collect();
+        let calls: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::ToolCallDone(call) => Some((call.id.as_str(), call.arguments.clone())),
+                _ => None,
+            })
+            .collect();
         assert_eq!(calls, [("call_a", json!({ "key": "opening" })), ("call_b", json!({ "key": "streamed" }))]);
         assert!(events.iter().any(|event| matches!(event, StreamEvent::ReasoningReplay(replay)
             if replay.items[0]["input"] == json!({"key": "opening"}) && replay.items[1]["input"] == json!({"key": "streamed"}))));
@@ -981,10 +940,7 @@ mod tests {
         let cut = shared.partial();
         let replay = cut.replay.expect("blocks at the cut");
         assert_eq!(cut.thinking, vec![json!({ "type": "thinking", "thinking": "hm", "signature": "sig" })]);
-        assert_eq!(
-            replay.items,
-            json!([{ "type": "thinking", "thinking": "hm", "signature": "sig" }, { "type": "text", "text": "so far" }])
-        );
+        assert_eq!(replay.items, json!([{ "type": "thinking", "thinking": "hm", "signature": "sig" }, { "type": "text", "text": "so far" }]));
     }
     /// Text between two thinking blocks, ahead of two tool calls, is in the turn's text and its replay at its place.
     #[test]
@@ -1059,8 +1015,12 @@ mod tests {
         let relayed = run(true);
         let updates: Vec<&str> = relayed.iter().filter_map(|e| if let StreamEvent::ProgressDelta(text) = e { Some(text.as_str()) } else { None }).collect();
         assert_eq!(updates, ["Reading ", "the file.", "\n\nNow the tests."]);
-        assert!(!relayed.iter().any(|e| matches!(e, StreamEvent::ReasoningDelta(_) | StreamEvent::TextDelta(_))), "an update is neither reasoning nor the reply's text");
-        let replay = relayed.iter().find_map(|e| if let StreamEvent::ReasoningReplay(replay) = e { Some(replay.items.clone()) } else { None }).expect("the blocks");
+        assert!(
+            !relayed.iter().any(|e| matches!(e, StreamEvent::ReasoningDelta(_) | StreamEvent::TextDelta(_))),
+            "an update is neither reasoning nor the reply's text"
+        );
+        let replay =
+            relayed.iter().find_map(|e| if let StreamEvent::ReasoningReplay(replay) = e { Some(replay.items.clone()) } else { None }).expect("the blocks");
         assert_eq!(replay[0], json!({ "type": "thinking", "thinking": "Reading the file.", "signature": "sig-a" }));
         let plain = run(false);
         let reasoning: Vec<&str> = plain.iter().filter_map(|e| if let StreamEvent::ReasoningDelta(text) = e { Some(text.as_str()) } else { None }).collect();

@@ -13,16 +13,10 @@ fn strings(items: &[&str]) -> Vec<String> {
 #[test]
 fn accepts_host_aliases_user_at_host_user_at_host_port_and_bracketed_ipv6() {
     assert_eq!(parse_ssh_target("devbox"), Ok(target("devbox", None, "devbox")));
-    assert_eq!(
-        parse_ssh_target(" alice@build.example.com "),
-        Ok(target("alice@build.example.com", None, "alice@build.example.com"))
-    );
+    assert_eq!(parse_ssh_target(" alice@build.example.com "), Ok(target("alice@build.example.com", None, "alice@build.example.com")));
     assert_eq!(parse_ssh_target("alice@10.0.0.5:2222"), Ok(target("alice@10.0.0.5", Some(2222), "alice@10.0.0.5:2222")));
     assert_eq!(parse_ssh_target("host:22"), Ok(target("host", Some(22), "host:22")));
-    assert_eq!(
-        parse_ssh_target("bob@[fe80::1%eth0]:2200"),
-        Ok(target("bob@fe80::1%eth0", Some(2200), "bob@[fe80::1%eth0]:2200"))
-    );
+    assert_eq!(parse_ssh_target("bob@[fe80::1%eth0]:2200"), Ok(target("bob@fe80::1%eth0", Some(2200), "bob@[fe80::1%eth0]:2200")));
     assert_eq!(parse_ssh_target("fe80::1"), Ok(target("fe80::1", None, "fe80::1")));
 }
 
@@ -57,18 +51,9 @@ fn refuses_option_injection_control_characters_and_shell_metacharacters() {
 #[test]
 fn refusals_name_the_target_variable_and_the_value() {
     assert_eq!(parse_ssh_target("").unwrap_err().to_string(), "MIXDOG_SSH_TARGET is empty.");
-    assert_eq!(
-        parse_ssh_target("-p").unwrap_err().to_string(),
-        "MIXDOG_SSH_TARGET must not start with \"-\": \"-p\""
-    );
-    assert_eq!(
-        parse_ssh_target("host:abc").unwrap_err().to_string(),
-        "MIXDOG_SSH_TARGET has an invalid port: \"host:abc\""
-    );
-    assert_eq!(
-        parse_ssh_target("alice@[::1").unwrap_err().to_string(),
-        "MIXDOG_SSH_TARGET has an unbalanced IPv6 literal: \"alice@[::1\""
-    );
+    assert_eq!(parse_ssh_target("-p").unwrap_err().to_string(), "MIXDOG_SSH_TARGET must not start with \"-\": \"-p\"");
+    assert_eq!(parse_ssh_target("host:abc").unwrap_err().to_string(), "MIXDOG_SSH_TARGET has an invalid port: \"host:abc\"");
+    assert_eq!(parse_ssh_target("alice@[::1").unwrap_err().to_string(), "MIXDOG_SSH_TARGET has an unbalanced IPv6 literal: \"alice@[::1\"");
 }
 
 #[test]

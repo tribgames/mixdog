@@ -4,8 +4,8 @@
 
 use std::io::Write;
 
-use crate::ps::Value;
 use crate::ps::ObjectKind;
+use crate::ps::Value;
 use crate::ps::convert;
 use crate::ps::json;
 use crate::ps::payload;
@@ -54,10 +54,7 @@ impl Emitter {
 
 /// `[ordered]@{ ok = $false; backend = 'microsoft-office-com'; error = <message> }`.
 pub fn error_answer(message: &str) -> Value {
-    Value::object(
-        ObjectKind::Ordered,
-        vec![("ok", Value::Bool(false)), ("backend", Value::string(BACKEND)), ("error", Value::string(message))],
-    )
+    Value::object(ObjectKind::Ordered, vec![("ok", Value::Bool(false)), ("backend", Value::string(BACKEND)), ("error", Value::string(message))])
 }
 
 /// The text of a panic, for the error line that answers it.
@@ -125,10 +122,7 @@ mod tests {
         let (mut emitter, _, err) = emitter();
         emitter.cleanup_failure(&Value::object(ObjectKind::Ordered, vec![("ok", Value::Bool(true))]));
         assert_eq!(err.text(), "");
-        emitter.cleanup_failure(&Value::object(
-            ObjectKind::Ordered,
-            vec![("ok", Value::Bool(false)), ("errors", Value::Array(vec![Value::string("x")]))],
-        ));
+        emitter.cleanup_failure(&Value::object(ObjectKind::Ordered, vec![("ok", Value::Bool(false)), ("errors", Value::Array(vec![Value::string("x")]))]));
         assert_eq!(err.text(), "MIXDOG_OFFICE_CLEANUP {\"ok\":false,\"errors\":[\"x\"]}\r\n");
     }
 

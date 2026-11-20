@@ -196,7 +196,6 @@ impl std::error::Error for RouteError {}
 mod tests {
     use std::sync::Mutex;
 
-
     use super::*;
 
     fn lead(id: Option<&str>) -> SessionIdFn {
@@ -230,6 +229,4 @@ mod tests {
         assert_eq!(unpinned.inject("event:ci", "red").await, Ok(()));
         assert_eq!(sessions.submits.lock().unwrap().len(), 1, "Node daemon parity: no session, dropped");
     }
-
-
 }

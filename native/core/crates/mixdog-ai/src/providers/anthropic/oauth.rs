@@ -37,8 +37,8 @@ use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
-use crate::oauth::is_definitive_oauth_failure;
 use crate::oauth::http;
+use crate::oauth::is_definitive_oauth_failure;
 use crate::oauth::pages;
 use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::http::HttpSend;
@@ -50,14 +50,7 @@ pub const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 /// The hosted page whose redirect shows the authorization code (`OAUTH_MANUAL_REDIRECT_URI`).
 const MANUAL_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 pub const AUTHORIZE_URL: &str = "https://claude.com/cai/oauth/authorize";
-pub const SCOPES: [&str; 6] = [
-    "org:create_api_key",
-    "user:profile",
-    "user:inference",
-    "user:sessions:claude_code",
-    "user:mcp_servers",
-    "user:file_upload",
-];
+pub const SCOPES: [&str; 6] = ["org:create_api_key", "user:profile", "user:inference", "user:sessions:claude_code", "user:mcp_servers", "user:file_upload"];
 /// A token that expires within this window is refreshed before use.
 pub const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 
@@ -126,9 +119,7 @@ impl StoredOAuth {
     }
 
     pub fn is_enterprise(&self) -> bool {
-        self.subscription_type
-            .as_deref()
-            .is_some_and(|t| t.eq_ignore_ascii_case("enterprise"))
+        self.subscription_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("enterprise"))
     }
 }
 
@@ -154,10 +145,7 @@ pub struct TokenPair {
 
 impl From<&StoredOAuth> for TokenPair {
     fn from(stored: &StoredOAuth) -> Self {
-        Self {
-            access_token: stored.access_token.clone(),
-            refresh_token: stored.refresh_token.clone(),
-        }
+        Self { access_token: stored.access_token.clone(), refresh_token: stored.refresh_token.clone() }
     }
 }
 
@@ -200,16 +188,12 @@ async fn publish(file: &CredentialFile, from: &TokenPair, next: &StoredOAuth) ->
     file.keep(&[&next.access_token, &next.refresh_token]);
     let expected = from.clone();
     let mut update = Map::new();
-    update.insert(
-        DOCUMENT_KEY.to_owned(),
-        serde_json::to_value(next).map_err(|e| file_error(&e))?,
-    );
+    update.insert(DOCUMENT_KEY.to_owned(), serde_json::to_value(next).map_err(|e| file_error(&e))?);
     file.replace_if(
         move |document| {
             document.get(DOCUMENT_KEY).is_some_and(|stored| {
                 stored.get("accessToken").and_then(Value::as_str) == Some(expected.access_token.as_str())
-                    && stored.get("refreshToken").and_then(Value::as_str)
-                        == Some(expected.refresh_token.as_str())
+                    && stored.get("refreshToken").and_then(Value::as_str) == Some(expected.refresh_token.as_str())
             })
         },
         update,
@@ -227,10 +211,7 @@ async fn mark_reauth_required(file: &CredentialFile, stored: &StoredOAuth) -> Re
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 fn auth_error(message: &str, reauth_required: bool) -> ProviderError {
@@ -260,21 +241,10 @@ fn token_request(url: &str, body: Value, cli_version: &str) -> WireRequest {
 }
 
 pub fn refresh_request(url: &str, refresh_token: &str, cli_version: &str) -> WireRequest {
-    token_request(
-        url,
-        json!({ "grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": CLIENT_ID }),
-        cli_version,
-    )
+    token_request(url, json!({ "grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": CLIENT_ID }), cli_version)
 }
 
-pub fn exchange_request(
-    url: &str,
-    code: &str,
-    redirect_uri: &str,
-    verifier: &str,
-    state: &str,
-    cli_version: &str,
-) -> WireRequest {
+pub fn exchange_request(url: &str, code: &str, redirect_uri: &str, verifier: &str, state: &str, cli_version: &str) -> WireRequest {
     token_request(
         url,
         json!({
@@ -341,22 +311,14 @@ fn token_expiry(response: &Value, now_ms: u64) -> u64 {
     if absolute != 0 {
         return absolute;
     }
-    response
-        .get("expires_in")
-        .and_then(Value::as_f64)
-        .map_or(0, |secs| (now_ms as f64 + secs * 1000.0).max(0.0) as u64)
+    response.get("expires_in").and_then(Value::as_f64).map_or(0, |secs| (now_ms as f64 + secs * 1000.0).max(0.0) as u64)
 }
 
 /// The account the token endpoint names next to the tokens
 /// (`account.uuid`, `account.email_address`, `organization.uuid`); it counts
 /// only with an id or an email.
 fn token_identity(response: &Value) -> Option<Value> {
-    let text = |value: Option<&Value>| {
-        value
-            .and_then(Value::as_str)
-            .map(|s| s.trim().chars().take(200).collect::<String>())
-            .filter(|s| !s.is_empty())
-    };
+    let text = |value: Option<&Value>| value.and_then(Value::as_str).map(|s| s.trim().chars().take(200).collect::<String>()).filter(|s| !s.is_empty());
     let id = text(response.pointer("/account/uuid"));
     let email = text(response.pointer("/account/email_address"));
     let organization = text(response.pointer("/organization/uuid"));
@@ -374,12 +336,7 @@ fn token_identity(response: &Value) -> Option<Value> {
 
 /// A successful token response applied to the credential it replaces.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-pub fn apply_token_response(
-    previous: &StoredOAuth,
-    response: &Value,
-    now_ms: u64,
-    flow: TokenFlow,
-) -> Result<StoredOAuth, ProviderError> {
+pub fn apply_token_response(previous: &StoredOAuth, response: &Value, now_ms: u64, flow: TokenFlow) -> Result<StoredOAuth, ProviderError> {
     let field = |snake: &str, camel: &str| {
         response
             .get(snake)
@@ -388,8 +345,7 @@ pub fn apply_token_response(
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
     };
-    let access = field("access_token", "accessToken")
-        .ok_or_else(|| auth_error("token response is missing access_token", false))?;
+    let access = field("access_token", "accessToken").ok_or_else(|| auth_error("token response is missing access_token", false))?;
     let refresh = match (field("refresh_token", "refreshToken"), flow) {
         (Some(refresh), _) => refresh,
         (None, TokenFlow::Refresh) => previous.refresh_token.as_str(),
@@ -400,9 +356,7 @@ pub fn apply_token_response(
     let strings = |items: &[Value]| items.iter().filter_map(Value::as_str).map(str::to_owned).collect();
     let scopes = match (response.get("scope"), flow) {
         (Some(Value::Array(items)), _) => strings(items),
-        (Some(Value::String(text)), TokenFlow::Login) => {
-            text.split(' ').filter(|p| !p.is_empty()).map(str::to_owned).collect()
-        }
+        (Some(Value::String(text)), TokenFlow::Login) => text.split(' ').filter(|p| !p.is_empty()).map(str::to_owned).collect(),
         (_, TokenFlow::Refresh) => previous.scopes.clone(),
         (_, TokenFlow::Login) => Vec::new(),
     };
@@ -579,15 +533,7 @@ pub struct OAuthSession {
 
 impl OAuthSession {
     pub fn new(file: CredentialFile, http: Arc<dyn HttpSend>) -> Self {
-        Self {
-            parts: RefreshParts {
-                file,
-                http,
-                token_url: TOKEN_URL.to_owned(),
-                cli_version: None,
-                clock: Arc::new(now_ms),
-            },
-        }
+        Self { parts: RefreshParts { file, http, token_url: TOKEN_URL.to_owned(), cli_version: None, clock: Arc::new(now_ms) } }
     }
 
     pub fn with_clock(mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
@@ -679,7 +625,10 @@ impl OAuthSession {
         let after = self.stored().await?;
         let remaining_ms = after.expires_at.saturating_sub((self.parts.clock)());
         if remaining_ms < lease_ms {
-            return Err(auth_error(&format!("Anthropic OAuth cannot satisfy the {}s credential lease (provider granted {}s)", lease_ms.div_ceil(1000), remaining_ms / 1000), false));
+            return Err(auth_error(
+                &format!("Anthropic OAuth cannot satisfy the {}s credential lease (provider granted {}s)", lease_ms.div_ceil(1000), remaining_ms / 1000),
+                false,
+            ));
         }
         Ok(LeaseOutcome { expires_at: after.expires_at, remaining_ms, refreshed })
     }
@@ -703,13 +652,7 @@ pub struct AnthropicLogin {
 
 impl AnthropicLogin {
     pub fn new(file: CredentialFile, http: Arc<dyn HttpSend>) -> Self {
-        Self {
-            file,
-            http,
-            token_url: TOKEN_URL.to_owned(),
-            cli_version: None,
-            state: Mutex::new(String::new()),
-        }
+        Self { file, http, token_url: TOKEN_URL.to_owned(), cli_version: None, state: Mutex::new(String::new()) }
     }
 
     pub fn with_token_url(mut self, url: impl Into<String>) -> Self {
@@ -734,13 +677,7 @@ const OPERATION: &str = "[anthropic-oauth] token exchange";
 impl AnthropicLogin {
     /// The code exchange's token call (`exchangeAuthorizationCode`), keeping what Node's failure page quotes: the
     /// network cause, the endpoint's status with its redacted body (`_tokenEndpointError`), or a malformed answer.
-    async fn token_exchange(
-        &self,
-        request: WireRequest,
-        base: &StoredOAuth,
-        secrets: &[&str],
-        version: &str,
-    ) -> Result<StoredOAuth, Refusal> {
+    async fn token_exchange(&self, request: WireRequest, base: &StoredOAuth, secrets: &[&str], version: &str) -> Result<StoredOAuth, Refusal> {
         let failed = |message: String| LoginFailure::Failed { code: "token_exchange_failed".into(), message };
         let unanswered = |error: ProviderError| {
             let text = http::request_failed(OPERATION, &error);
@@ -764,8 +701,7 @@ impl AnthropicLogin {
             let text = format!("{OPERATION} returned a malformed response (HTTP {status})");
             return Err(Refusal { failure: failed(text.clone()), detail: Some(text) });
         };
-        apply_token_response(base, &parsed, now_ms(), TokenFlow::Login)
-            .map_err(|err| Refusal::from(failed(err.into_message())))
+        apply_token_response(base, &parsed, now_ms(), TokenFlow::Login).map_err(|err| Refusal::from(failed(err.into_message())))
     }
 }
 
@@ -828,39 +764,24 @@ impl PkceProvider for AnthropicLogin {
         pages::ANTHROPIC
     }
 
-    async fn exchange_checked(
-        &self,
-        code: &str,
-        verifier: &str,
-        redirect_uri: &str,
-    ) -> Result<Option<String>, Refusal> {
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
         let code = code.trim();
         if code.is_empty() {
-            return Err(LoginFailure::Failed {
-                code: "invalid_callback".into(),
-                message: "[anthropic-oauth] authorization code is required".into(),
-            }
-            .into());
+            return Err(LoginFailure::Failed { code: "invalid_callback".into(), message: "[anthropic-oauth] authorization code is required".into() }.into());
         }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let version = token_version(self.cli_version.as_deref()).await;
         let request = exchange_request(&self.token_url, code, redirect_uri, verifier, &state, &version);
         // A fresh sign-in replaces the tokens and the account but keeps the
         // plan and any unknown fields of the stored credential.
-        let existing = load_stored(&self.file).await.map_err(|e| LoginFailure::Failed {
-            code: "credential_read_failed".into(),
-            message: e.into_message(),
-        })?;
+        let existing = load_stored(&self.file).await.map_err(|e| LoginFailure::Failed { code: "credential_read_failed".into(), message: e.into_message() })?;
         let base = existing.unwrap_or_else(blank_credential);
         let credential = self.token_exchange(request, &base, &[code, verifier, &state], &version).await?;
         self.file.keep(&[&credential.access_token, &credential.refresh_token]);
         self.file
             .save(&Document { oauth: credential })
             .await
-            .map_err(|e| LoginFailure::Failed {
-                code: "credential_write_failed".into(),
-                message: e.kind().to_string(),
-            })?;
+            .map_err(|e| LoginFailure::Failed { code: "credential_write_failed".into(), message: e.kind().to_string() })?;
         Ok(None)
     }
 }
@@ -885,7 +806,6 @@ mod site_tests {
         assert_thrown("anthropicRefresh", &error.message);
     }
 
-
     /// The authorization-code exchange is an `AbortSignal.timeout` fetch whose failure Node words itself
     /// (`oauthRequestError`, `sites.anthropicCodeExchange`).
     #[tokio::test(start_paused = true)]
@@ -903,7 +823,6 @@ mod site_tests {
     }
 }
 
-
 #[cfg(test)]
 mod expiry_tests {
     use super::*;
@@ -911,9 +830,8 @@ mod expiry_tests {
     /// `_normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at)`: the snake spelling, seconds and date strings read.
     #[test]
     fn a_stored_expiry_in_another_spelling_or_unit_reads_as_node_reads_it() {
-        let read = |expiry: &str| -> StoredOAuth {
-            serde_json::from_str(&format!(r#"{{"accessToken":"a","refreshToken":"r",{expiry}}}"#)).expect("a credential")
-        };
+        let read =
+            |expiry: &str| -> StoredOAuth { serde_json::from_str(&format!(r#"{{"accessToken":"a","refreshToken":"r",{expiry}}}"#)).expect("a credential") };
         assert_eq!(read(r#""expires_at":1893456000"#).expires_at, 1_893_456_000_000);
         assert_eq!(read(r#""expiresAt":"2030-01-01T00:00:00Z""#).expires_at, 1_893_456_000_000);
         // Both spellings at once (an imported file a refresh then wrote into): Node's `expiresAt` wins, nothing is

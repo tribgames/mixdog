@@ -275,9 +275,7 @@ fn a_coded_coefficient_is_added_to_or_taken_from_the_level_shift() {
 
 /// An 8 x 8 test plane with gradients and detail, so that every band has several non-zero coefficients.
 fn plane(seed: u32) -> Vec<Vec<u8>> {
-    (0..8u32)
-        .map(|y| (0..8u32).map(|x| (20 + (17 * x + 9 * y + (x * y + seed) % 5 * 11 + seed * 23) % 200) as u8).collect())
-        .collect()
+    (0..8u32).map(|y| (0..8u32).map(|x| (20 + (17 * x + 9 * y + (x * y + seed) % 5 * 11 + seed * 23) % 200) as u8).collect()).collect()
 }
 
 #[test]
@@ -297,8 +295,7 @@ fn three_components_with_the_reversible_colour_transform_decode_to_the_input() {
     assert_eq!(image.codestream.main.mct, 1);
     let pixels = output::decode(&image, Options::default()).expect("decodes").to_pixels(4);
     assert_eq!((pixels.width, pixels.height, pixels.components), (8, 8, 3));
-    let interleaved: Vec<u8> =
-        (0..64).flat_map(|i| [input[0].concat()[i], input[1].concat()[i], input[2].concat()[i]]).collect();
+    let interleaved: Vec<u8> = (0..64).flat_map(|i| [input[0].concat()[i], input[1].concat()[i], input[2].concat()[i]]).collect();
     assert_eq!(pixels.data, interleaved);
 }
 
@@ -308,9 +305,7 @@ use crate::read_jpx_encode::{Settings, encode_with, irreversible_bound};
 
 /// A 32 x 32 plane with gradients and detail.
 fn large_plane(seed: u32) -> Vec<Vec<u8>> {
-    (0..32u32)
-        .map(|y| (0..32u32).map(|x| (20 + (17 * x + 9 * y + (x * y + seed) % 5 * 11 + seed * 23) % 200) as u8).collect())
-        .collect()
+    (0..32u32).map(|y| (0..32u32).map(|x| (20 + (17 * x + 9 * y + (x * y + seed) % 5 * 11 + seed * 23) % 200) as u8).collect()).collect()
 }
 
 fn decoded(settings: Settings, input: &[Vec<Vec<u8>>]) -> (Vec<u8>, jpx::Image) {
@@ -336,8 +331,7 @@ fn quality_layers_and_small_precincts_decode_to_the_input() {
         let settings = Settings { layers, precincts: true, ..Settings::reversible(2) };
         let (pixels, image) = decoded(settings, &input);
         assert_eq!(image.codestream.main.layers as usize, layers);
-        let interleaved: Vec<u8> =
-            (0..1024).flat_map(|i| [input[0].concat()[i], input[1].concat()[i], input[2].concat()[i]]).collect();
+        let interleaved: Vec<u8> = (0..1024).flat_map(|i| [input[0].concat()[i], input[1].concat()[i], input[2].concat()[i]]).collect();
         assert_eq!(pixels, interleaved, "{layers} layers");
     }
 }
@@ -359,7 +353,7 @@ fn the_irreversible_transform_is_within_what_the_quantization_step_allows() {
 
 // ---- every coding variant of the decoder -------------------------------------------------------------------------------
 
-use crate::read_jpx_encode::{BYPASS, Packed, PREDICT, RESET, SEGSYM, TERMALL, VSC, encode_samples, synthesis_error};
+use crate::read_jpx_encode::{BYPASS, PREDICT, Packed, RESET, SEGSYM, TERMALL, VSC, encode_samples, synthesis_error};
 
 /// A plane of `rows` x `columns` samples of `precision` bits with gradients and detail (signed ones centred on 0).
 fn wave(rows: usize, columns: usize, seed: usize, precision: u32, signed: bool) -> Vec<Vec<i32>> {
@@ -381,7 +375,14 @@ fn delivered(planes: &[Vec<Vec<i32>>], precision: u32, signed: bool) -> Vec<u8> 
     let (rows, columns) = (planes[0].len(), planes[0][0].len());
     let reduce = |v: i32| -> u8 {
         let v = i64::from(v);
-        (if precision > 8 { v >> (precision - 8) } else if precision < 8 { v * 255 / ((1i64 << precision) - 1) } else { v }).clamp(0, 255) as u8
+        (if precision > 8 {
+            v >> (precision - 8)
+        } else if precision < 8 {
+            v * 255 / ((1i64 << precision) - 1)
+        } else {
+            v
+        })
+        .clamp(0, 255) as u8
             * u8::from(!signed || v >= 0)
     };
     (0..rows).flat_map(|y| (0..columns).flat_map(move |x| planes.iter().map(move |p| p[y][x]))).map(reduce).collect()
@@ -509,7 +510,15 @@ fn components_with_their_own_levels_styles_and_sampling_decode_to_the_input() {
     let planes = vec![wave(32, 32, 1, 8, false), wave(16, 16, 2, 8, false), wave(16, 16, 3, 8, false)];
     let settings = Settings { subsampling: vec![(1, 1), (2, 2), (2, 2)], ..Settings::reversible(2) };
     let (pixels, _) = decode_samples(&planes, &settings);
-    let expected: Vec<u8> = (0..32).flat_map(|y| (0..32).flat_map({ let planes = &planes; move |x| [planes[0][y][x], planes[1][y / 2][x / 2], planes[2][y / 2][x / 2]] })).map(|v| v as u8).collect();
+    let expected: Vec<u8> = (0..32)
+        .flat_map(|y| {
+            (0..32).flat_map({
+                let planes = &planes;
+                move |x| [planes[0][y][x], planes[1][y / 2][x / 2], planes[2][y / 2][x / 2]]
+            })
+        })
+        .map(|v| v as u8)
+        .collect();
     assert_eq!(pixels, expected);
 }
 
@@ -604,7 +613,12 @@ fn odd_sizes_and_image_and_tile_offsets_decode_to_the_input() {
     let settings = Settings { subsampling: vec![(1, 1), (2, 2), (2, 2)], ..Settings::reversible(1) };
     let (pixels, _) = decode_samples(&planes, &settings);
     let expected: Vec<u8> = (0..13)
-        .flat_map(|y| (0..15).flat_map({ let planes = &planes; move |x| [planes[0][y][x], planes[1][y / 2][x / 2], planes[2][y / 2][x / 2]] }))
+        .flat_map(|y| {
+            (0..15).flat_map({
+                let planes = &planes;
+                move |x| [planes[0][y][x], planes[1][y / 2][x / 2], planes[2][y / 2][x / 2]]
+            })
+        })
         .map(|v| v as u8)
         .collect();
     assert_eq!(pixels, expected);
@@ -614,7 +628,11 @@ fn odd_sizes_and_image_and_tile_offsets_decode_to_the_input() {
 fn the_irreversible_transform_over_odd_sizes_and_offsets_stays_within_its_bound() {
     // A line of one sample at an odd position is halved by the synthesis (T.800 F.3.6, for the 9-7 as for the 5-3): the
     // cases of one row or column at an odd offset are in the list.
-    for (n, (rows, columns, levels, origin)) in [(13, 11, 2, (3, 2)), (1, 9, 2, (0, 0)), (9, 1, 1, (0, 0)), (10, 7, 1, (1, 0)), (1, 1, 1, (1, 1)), (9, 1, 1, (1, 0)), (1, 9, 1, (0, 1))].into_iter().enumerate() {
+    for (n, (rows, columns, levels, origin)) in
+        [(13, 11, 2, (3, 2)), (1, 9, 2, (0, 0)), (9, 1, 1, (0, 0)), (10, 7, 1, (1, 0)), (1, 1, 1, (1, 1)), (9, 1, 1, (1, 0)), (1, 9, 1, (0, 1))]
+            .into_iter()
+            .enumerate()
+    {
         let input = [wave(rows, columns, n + 4, 8, false)];
         let settings = Settings { irreversible: true, origin, ..Settings::reversible(levels) };
         let (pixels, _) = decode_samples(&input, &settings);
@@ -671,7 +689,12 @@ fn packed_headers_in_several_markers_and_open_ended_and_listed_tile_parts_are_re
 #[test]
 fn more_than_256_components_use_two_byte_component_numbers() {
     let input: Vec<_> = (0..257).map(|k| wave(4, 4, k, 8, false)).collect();
-    let settings = Settings { roi: true, poc: vec![[0, 0, 1, 2, 257, 0], [0, 0, 1, 3, 257, 1]], components: vec![(1, 0); 1].into_iter().chain(std::iter::repeat((2, 0)).take(256)).collect(), ..Settings::reversible(2) };
+    let settings = Settings {
+        roi: true,
+        poc: vec![[0, 0, 1, 2, 257, 0], [0, 0, 1, 3, 257, 1]],
+        components: vec![(1, 0); 1].into_iter().chain(std::iter::repeat((2, 0)).take(256)).collect(),
+        ..Settings::reversible(2)
+    };
     let (pixels, image) = decode_samples(&input, &settings);
     assert_eq!(image.codestream.siz.comps.len(), 257);
     assert_eq!(image.codestream.main.comps[0].coding.levels, 1);
@@ -793,7 +816,14 @@ fn an_sycc_image_becomes_rgb_whatever_the_subsampling_of_its_chroma() {
 #[test]
 fn the_colour_space_and_the_other_boxes_of_a_jp2_file_are_reported() {
     let stream = encode_samples(&[wave(8, 8, 1, 8, false)], &Settings::reversible(1));
-    for (code, expected) in [(16, ColourSpace::Srgb), (17, ColourSpace::Gray), (12, ColourSpace::Cmyk), (24, ColourSpace::Eycc), (18, ColourSpace::Sycc), (99, ColourSpace::Unspecified)] {
+    for (code, expected) in [
+        (16, ColourSpace::Srgb),
+        (17, ColourSpace::Gray),
+        (12, ColourSpace::Cmyk),
+        (24, ColourSpace::Eycc),
+        (18, ColourSpace::Sycc),
+        (99, ColourSpace::Unspecified),
+    ] {
         let (_, decoded) = pixels_of(&jp2_file(&stream, &[colr(code)], 1), Options::default());
         assert_eq!(decoded.colour, expected, "enumerated colour space {code}");
     }

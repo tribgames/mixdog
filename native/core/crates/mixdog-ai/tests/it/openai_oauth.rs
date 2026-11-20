@@ -42,29 +42,18 @@ struct TokenEndpoint {
 
 #[async_trait]
 impl HttpSend for TokenEndpoint {
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         let window = exchange.liveness.head_deadline();
         self.windows.lock().unwrap().push((window, window.and_then(|wait| exchange.surface.timeout_text(wait))));
         self.seen.lock().unwrap().push(request);
         tokio::time::sleep(self.delay).await;
         let (status, body) = self.replies.lock().unwrap().pop_front().expect("scripted reply");
-        Ok(HttpResponse {
-            status,
-            headers: vec![],
-            body: Box::new(OneChunk(Some(Bytes::from(serde_json::to_vec(&body).unwrap())))),
-        })
+        Ok(HttpResponse { status, headers: vec![], body: Box::new(OneChunk(Some(Bytes::from(serde_json::to_vec(&body).unwrap())))) })
     }
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
 struct Fixture {
@@ -77,10 +66,7 @@ struct Fixture {
 async fn fixture(stored: Value, replies: Vec<(u16, Value)>) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let file = CredentialFile::new(
-        dir.path().join("openai-oauth.json"),
-        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-    );
+    let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     file.save(&stored).await.unwrap();
     let endpoint = Arc::new(TokenEndpoint { replies: Mutex::new(replies.into()), ..Default::default() });
     let oauth = OpenAiOAuth::new(file.clone(), endpoint.clone());
@@ -101,11 +87,7 @@ async fn a_fresh_token_is_used_without_a_refresh() {
 
 #[tokio::test]
 async fn an_expiring_token_is_refreshed_and_the_rotated_pair_is_stored() {
-    let f = fixture(
-        stored("a1", now_ms() + 1_000),
-        vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))],
-    )
-    .await;
+    let f = fixture(stored("a1", now_ms() + 1_000), vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))]).await;
     assert_eq!(f.oauth.current().await.unwrap().bearer, "a2");
     let request = f.endpoint.seen.lock().unwrap()[0].clone();
     assert_eq!(request.url, "https://auth.openai.com/oauth/token");
@@ -119,25 +101,14 @@ async fn an_expiring_token_is_refreshed_and_the_rotated_pair_is_stored() {
 
 #[tokio::test]
 async fn a_refresh_hands_its_transport_thirty_seconds_read_as_an_aborted_fetch() {
-    let f = fixture(
-        stored("a1", now_ms() + 1_000),
-        vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))],
-    )
-    .await;
+    let f = fixture(stored("a1", now_ms() + 1_000), vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))]).await;
     f.oauth.current().await.unwrap();
-    assert_eq!(
-        *f.endpoint.windows.lock().unwrap(),
-        [(Some(std::time::Duration::from_secs(30)), Some(mixdog_ai::transport::ABORTED.to_owned()))]
-    );
+    assert_eq!(*f.endpoint.windows.lock().unwrap(), [(Some(std::time::Duration::from_secs(30)), Some(mixdog_ai::transport::ABORTED.to_owned()))]);
 }
 
 #[tokio::test]
 async fn a_rejected_token_is_replaced_and_an_unchanged_one_is_not_offered_again() {
-    let f = fixture(
-        stored("a1", now_ms() + 3_600_000),
-        vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))],
-    )
-    .await;
+    let f = fixture(stored("a1", now_ms() + 3_600_000), vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))]).await;
     let rejected = f.oauth.current().await.unwrap();
     let next = f.oauth.after_rejection(&rejected).await.unwrap().expect("a new token");
     assert_eq!(next.bearer, "a2");
@@ -151,11 +122,7 @@ async fn a_rejected_token_is_replaced_and_an_unchanged_one_is_not_offered_again(
 #[tokio::test]
 async fn a_dead_grant_asks_for_a_new_login_and_a_transient_failure_coasts() {
     // The token is expired, so nothing is left to coast on (`reusableCurrentTokens`).
-    let dead = fixture(
-        stored("a1", now_ms().saturating_sub(1_000)),
-        vec![(400, json!({"error": "invalid_grant"}))],
-    )
-    .await;
+    let dead = fixture(stored("a1", now_ms().saturating_sub(1_000)), vec![(400, json!({"error": "invalid_grant"}))]).await;
     let err = dead.oauth.current().await.unwrap_err();
     assert!(err.reauth_required && err.kind == ErrorKind::Auth);
 
@@ -182,11 +149,8 @@ async fn two_processes_refreshing_at_once_spend_the_token_once() {
     file.save(&stored("a1", now_ms() + 1_000)).await.unwrap();
     let endpoint = Arc::new(TokenEndpoint {
         replies: Mutex::new(
-            vec![
-                (200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600})),
-                (401, json!({"error": {"code": "refresh_token_reused"}})),
-            ]
-            .into(),
+            vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600})), (401, json!({"error": {"code": "refresh_token_reused"}}))]
+                .into(),
         ),
         delay: std::time::Duration::from_millis(50),
         ..Default::default()
@@ -207,11 +171,7 @@ async fn two_processes_refreshing_at_once_spend_the_token_once() {
 /// usable token remains (`reusableCurrentTokens`, `:344`): an unexpired one keeps serving, an expired one asks.
 #[tokio::test]
 async fn a_dead_grant_asks_for_sign_in_only_when_no_usable_token_remains() {
-    let refusals = [
-        (401, json!("gateway page")),
-        (400, json!({"detail": "Refresh token was revoked"})),
-        (500, json!({"error": "refresh_token_reused"})),
-    ];
+    let refusals = [(401, json!("gateway page")), (400, json!({"detail": "Refresh token was revoked"})), (500, json!({"error": "refresh_token_reused"}))];
     for (status, body) in refusals {
         let expired = fixture(stored("a1", now_ms().saturating_sub(1_000)), vec![(status, body.clone())]).await;
         let error = expired.oauth.current().await.unwrap_err();
@@ -247,10 +207,10 @@ impl HttpSend for GatedEndpoint {
 /// and the lease released, so another process then proceeds without waiting on a live owner that will never finish.
 #[tokio::test]
 async fn a_refresh_whose_every_waiter_is_cancelled_still_persists_and_releases_the_lease() {
+    use mixdog_ai::oauth::SystemPace;
     use mixdog_ai::oauth::lease::LockProcess;
     use mixdog_ai::oauth::lease::REFRESH_LEASE;
     use mixdog_ai::oauth::lease::refresh_lock_path;
-    use mixdog_ai::oauth::SystemPace;
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
@@ -287,11 +247,8 @@ async fn a_refresh_whose_every_waiter_is_cancelled_still_persists_and_releases_t
 #[tokio::test]
 async fn a_stated_expiry_in_the_refresh_answer_is_stored() {
     let at_s = now_ms() / 1000 + 7200;
-    let f = fixture(
-        stored("a1", now_ms() + 1_000),
-        vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expiresAt": at_s, "expires_in": 60}))],
-    )
-    .await;
+    let f =
+        fixture(stored("a1", now_ms() + 1_000), vec![(200, json!({"access_token": "a2", "refresh_token": "r2", "expiresAt": at_s, "expires_in": 60}))]).await;
     assert_eq!(f.oauth.current().await.unwrap().bearer, "a2");
     let mixdog_ai::oauth::Probe::Present(doc) = f.file.load_document().await else { panic!("stored") };
     assert_eq!(doc["expires_at"], json!(at_s * 1000));
@@ -311,10 +268,7 @@ impl HttpSend for RawEndpoint {
 async fn no_stored_login_needs_a_login() {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let file = CredentialFile::new(
-        dir.path().join("openai-oauth.json"),
-        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-    );
+    let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     let oauth = OpenAiOAuth::new(file, Arc::new(TokenEndpoint::default()));
     assert!(oauth.current().await.unwrap_err().reauth_required);
 }
@@ -365,7 +319,11 @@ async fn hooked(stored_doc: Value, replies: Vec<(u16, Value)>) -> (tempfile::Tem
     let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     file.save(&stored_doc).await.unwrap();
     let endpoint = HookedEndpoint::new(replies);
-    let oauth = OpenAiOAuth::in_process(file.clone(), endpoint.clone(), Arc::new(mixdog_ai::oauth::lease::LockProcess::new(mixdog_statefile::LockOwner::another_in_process())));
+    let oauth = OpenAiOAuth::in_process(
+        file.clone(),
+        endpoint.clone(),
+        Arc::new(mixdog_ai::oauth::lease::LockProcess::new(mixdog_statefile::LockOwner::another_in_process())),
+    );
     (dir, file, endpoint, oauth)
 }
 
@@ -413,7 +371,11 @@ fn a_runtime_shut_down_mid_refresh_releases_the_lease_with_nothing_queued() {
     let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     std::fs::write(file.path(), serde_json::to_vec(&stored("a1", now_ms() + 1_000)).unwrap()).unwrap();
     let endpoint = HookedEndpoint::new(vec![tokens_reply("a2", "r2")]);
-    let oauth = Arc::new(OpenAiOAuth::in_process(file.clone(), endpoint.clone(), Arc::new(mixdog_ai::oauth::lease::LockProcess::new(mixdog_statefile::LockOwner::another_in_process()))));
+    let oauth = Arc::new(OpenAiOAuth::in_process(
+        file.clone(),
+        endpoint.clone(),
+        Arc::new(mixdog_ai::oauth::lease::LockProcess::new(mixdog_statefile::LockOwner::another_in_process())),
+    ));
 
     let (reached_tx, reached_rx) = std::sync::mpsc::channel::<()>();
     endpoint.on_next_send(move || {
@@ -522,7 +484,8 @@ async fn a_refresh_token_replaced_by_another_process_lifts_the_refusal() {
 /// marked, so it is refreshed later like any other.
 #[tokio::test]
 async fn a_late_refusal_of_the_old_token_does_not_poison_the_new_one() {
-    let (_dir, file, endpoint, oauth) = hooked(stored("a1", now_ms() + 1_000), vec![(401, json!({"error": {"code": "refresh_token_reused"}})), tokens_reply("a4", "r4")]).await;
+    let (_dir, file, endpoint, oauth) =
+        hooked(stored("a1", now_ms() + 1_000), vec![(401, json!({"error": {"code": "refresh_token_reused"}})), tokens_reply("a4", "r4")]).await;
     let rewrite = file.clone();
     endpoint.on_next_send(move || {
         Box::pin(async move {
@@ -561,7 +524,6 @@ async fn without_a_refresh_token_a_usable_access_token_keeps_serving() {
     assert!(expired.current().await.unwrap_err().reauth_required);
 }
 
-
 /// After a 401 the refresh is answered 2xx with no usable token: the caller is told the refresh failed, with the cause
 /// the answer gives, and the stored login is not touched.
 #[tokio::test]
@@ -580,12 +542,16 @@ async fn a_refresh_answer_that_is_no_token_is_a_failed_refresh_naming_its_cause(
         let oauth = OpenAiOAuth::new(file.clone(), Arc::new(RawEndpoint(200, body.to_vec())));
         let rejected = oauth.current().await.unwrap();
         let error = oauth.after_rejection(&rejected).await.expect_err("no token came back");
-        assert_eq!(error.message, format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login."), "{}", String::from_utf8_lossy(body));
+        assert_eq!(
+            error.message,
+            format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login."),
+            "{}",
+            String::from_utf8_lossy(body)
+        );
         let mixdog_ai::oauth::Probe::Present(doc) = file.load_document().await else { panic!("stored") };
         assert_eq!(doc["access_token"], "a1", "the stored login is kept");
     }
 }
-
 
 /// A token endpoint whose answer head arrives and whose body then fails to read.
 struct BrokenBody(u16);
@@ -638,7 +604,14 @@ async fn the_owner_of_a_successful_exchange_does_not_exchange_again_for_the_same
     let rejected = oauth.current().await.unwrap();
     assert_eq!(oauth.after_rejection(&rejected).await.unwrap().map(|next| next.bearer), Some("a1".to_owned()));
     assert_eq!(endpoint.sent(), 1, "the forced caller's own exchange is final: no second exchange spends the rotated token");
-    let (_dir, _file, endpoint, oauth) = hooked(stored("a1", now_ms() + 1_000), vec![(200, json!({"access_token": "a1", "refresh_token": "r2", "expires_in": 1})), (200, json!({"access_token": "a1", "refresh_token": "r3", "expires_in": 1}))]).await;
+    let (_dir, _file, endpoint, oauth) = hooked(
+        stored("a1", now_ms() + 1_000),
+        vec![
+            (200, json!({"access_token": "a1", "refresh_token": "r2", "expires_in": 1})),
+            (200, json!({"access_token": "a1", "refresh_token": "r3", "expires_in": 1})),
+        ],
+    )
+    .await;
     assert_eq!(oauth.current().await.unwrap().bearer, "a1");
     assert_eq!(oauth.current().await.unwrap().bearer, "a1");
     assert_eq!(endpoint.sent(), 2, "a successful renewal that returned the same bearer is not a failure to coast on");

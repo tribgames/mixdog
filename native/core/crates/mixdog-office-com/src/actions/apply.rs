@@ -58,9 +58,7 @@ fn no_change_reason(op: &Value) -> String {
     let name = op_name(op);
     if payload::names_equal(&name, "replace_text") {
         let find = convert::to_ps_string(&payload::property(op, "find"));
-        return format!(
-            "replace_text produced no change (\"{find}\" appears nowhere; read the wording as written with action:query and a word from it)"
-        );
+        return format!("replace_text produced no change (\"{find}\" appears nowhere; read the wording as written with action:query and a word from it)");
     }
     format!("{name} produced no change")
 }

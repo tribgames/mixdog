@@ -26,10 +26,10 @@ use mixdog_session_view::store::StoreError;
 use mixdog_session_view::store::StoreEvent;
 use mixdog_session_view::store::StoreOptions;
 use mixdog_term::console::RawConsole;
-use mixdog_term::reader::spawn_reader;
 use mixdog_term::guard::CleanupConfig;
 use mixdog_term::guard::Hook;
 use mixdog_term::guard::SignalCleanup;
+use mixdog_term::reader::spawn_reader;
 use mixdog_tui_style::color::Styler;
 use serde_json::Value;
 use serde_json::json;
@@ -150,7 +150,13 @@ async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: toki
         return 1;
     }
     let cwd = options.cwd.clone().or_else(|| std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned())).unwrap_or_default();
-    let store_options = StoreOptions { provider: options.provider.clone(), model: options.model.clone(), tool_mode: Some(options.tool_mode.clone()), cwd: Some(cwd.clone()), ..StoreOptions::default() };
+    let store_options = StoreOptions {
+        provider: options.provider.clone(),
+        model: options.model.clone(),
+        tool_mode: Some(options.tool_mode.clone()),
+        cwd: Some(cwd.clone()),
+        ..StoreOptions::default()
+    };
     let store = match SessionStore::connect(store_options).await {
         Ok(store) => Arc::new(store),
         Err(error) => {

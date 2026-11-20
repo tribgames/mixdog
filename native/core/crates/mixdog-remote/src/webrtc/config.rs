@@ -65,17 +65,11 @@ impl PeerConfig {
 
     pub(crate) fn validate(&self) -> Result<(), PeerFault> {
         if self.ice_servers.len() > MAX_ICE_SERVERS {
-            return Err(PeerFault::new(
-                PeerFailure::ProtocolError,
-                "too many ice servers",
-            ));
+            return Err(PeerFault::new(PeerFailure::ProtocolError, "too many ice servers"));
         }
         for server in &self.ice_servers {
             if server.urls.is_empty() || server.urls.len() > MAX_ICE_URLS {
-                return Err(PeerFault::new(
-                    PeerFailure::ProtocolError,
-                    "ice server url count",
-                ));
+                return Err(PeerFault::new(PeerFailure::ProtocolError, "ice server url count"));
             }
         }
         Ok(())
@@ -94,12 +88,7 @@ pub struct Candidate {
 
 impl Candidate {
     pub(crate) fn from_init(init: RTCIceCandidateInit) -> Self {
-        Self {
-            candidate: init.candidate,
-            sdp_mid: init.sdp_mid,
-            sdp_mline_index: init.sdp_mline_index,
-            username_fragment: init.username_fragment,
-        }
+        Self { candidate: init.candidate, sdp_mid: init.sdp_mid, sdp_mline_index: init.sdp_mline_index, username_fragment: init.username_fragment }
     }
 
     pub(crate) fn into_init(self) -> RTCIceCandidateInit {
@@ -156,11 +145,7 @@ pub struct CandidatePair {
 impl CandidatePair {
     /// `Relay` when either end is a TURN relay candidate, `Direct` otherwise.
     pub fn path(&self) -> CandidatePath {
-        if self.local_type == CandidateType::Relay || self.remote_type == CandidateType::Relay {
-            CandidatePath::Relay
-        } else {
-            CandidatePath::Direct
-        }
+        if self.local_type == CandidateType::Relay || self.remote_type == CandidateType::Relay { CandidatePath::Relay } else { CandidatePath::Direct }
     }
 }
 
@@ -206,17 +191,11 @@ pub struct PeerFault {
 impl PeerFault {
     pub fn new(reason: PeerFailure, detail: impl AsRef<str>) -> Self {
         let detail: String = detail.as_ref().chars().take(MAX_DETAIL_CHARS).collect();
-        Self {
-            reason,
-            detail: (!detail.is_empty()).then_some(detail),
-        }
+        Self { reason, detail: (!detail.is_empty()).then_some(detail) }
     }
 
     pub fn bare(reason: PeerFailure) -> Self {
-        Self {
-            reason,
-            detail: None,
-        }
+        Self { reason, detail: None }
     }
 }
 
@@ -257,20 +236,12 @@ mod tests {
 
     #[test]
     fn ice_server_bounds() {
-        let server = IceServer {
-            urls: vec!["stun:a".into()],
-            username: None,
-            credential: None,
-        };
+        let server = IceServer { urls: vec!["stun:a".into()], username: None, credential: None };
         assert!(PeerConfig::new(vec![server.clone(); 16]).validate().is_ok());
         assert!(PeerConfig::new(vec![server.clone(); 17]).validate().is_err());
-        let empty = IceServer {
-            urls: vec![],
-            ..server
-        };
+        let empty = IceServer { urls: vec![], ..server };
         assert!(PeerConfig::new(vec![empty]).validate().is_err());
     }
 }
-
 
 impl std::error::Error for PeerFault {}

@@ -353,7 +353,8 @@ impl Document {
             return Ok(Image::from_rgba(width, height, 4, vec![0; width as usize * height as usize * 4]));
         }
         let (scale, left, top) = if let Some((stated_width, stated_height)) = self.ink {
-            let (page_width, page_height) = (stated_width.map_or(f64::from(width), |side| side.of(width)), stated_height.map_or(f64::from(height), |side| side.of(height)));
+            let (page_width, page_height) =
+                (stated_width.map_or(f64::from(width), |side| side.of(width)), stated_height.map_or(f64::from(height), |side| side.of(height)));
             let scale = (f64::from(width) / page_width).min(f64::from(height) / page_height);
             (scale, (f64::from(width) - page_width * scale) / 2.0, (f64::from(height) - page_height * scale) / 2.0)
         } else {
@@ -459,10 +460,13 @@ fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, s
         let stroke = match node {
             // The box usvg keeps for an image is moved a second time by the placement of the image: the box is the image rectangle at its
             // absolute transform.
-            usvg::Node::Image(image) => image.size().to_rect(0.0, 0.0).and_then(|rect| rect.transform(image.abs_transform())).unwrap_or_else(|| node.abs_stroke_bounding_box()),
+            usvg::Node::Image(image) => {
+                image.size().to_rect(0.0, 0.0).and_then(|rect| rect.transform(image.abs_transform())).unwrap_or_else(|| node.abs_stroke_bounding_box())
+            }
             _ => node.abs_stroke_bounding_box(),
         };
-        let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::from(stroke.left()), f64::from(stroke.top()), f64::from(stroke.right()), f64::from(stroke.bottom()));
+        let (mut min_x, mut min_y, mut max_x, mut max_y) =
+            (f64::from(stroke.left()), f64::from(stroke.top()), f64::from(stroke.right()), f64::from(stroke.bottom()));
         if let (Some(bbox), false) = (layer, matches!(node, usvg::Node::Image(_))) {
             (min_x, min_y) = (min_x.min(f64::from(bbox.left())), min_y.min(f64::from(bbox.top())));
             (max_x, max_y) = (max_x.max(f64::from(bbox.right())), max_y.max(f64::from(bbox.bottom())));
@@ -481,8 +485,11 @@ fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, s
                 continue;
             }
         }
-        let mut pixmap = tiny_skia::Pixmap::new((region_width * factor) as u32, (region_height * factor) as u32).ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
-        let base = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, ((left - x0 as f64) * k) as f32, ((top - y0 as f64) * k) as f32).pre_concat(parent);
+        let mut pixmap = tiny_skia::Pixmap::new((region_width * factor) as u32, (region_height * factor) as u32)
+            .ok_or_else(|| RasterError::new("cannot allocate the SVG raster"))?;
+        let base =
+            tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, ((left - x0 as f64) * k) as f32, ((top - y0 as f64) * k) as f32)
+                .pre_concat(parent);
         // The tolerance cairo flattens a curve at, 0.1 of a device pixel, in the units the path is written in.
         let device = f64::from(parent.sx).hypot(f64::from(parent.ky)) * scale;
         let drawn = match node {
@@ -536,7 +543,10 @@ fn paint_of(paint: &usvg::Paint, opacity: usvg::Opacity, anti_alias: bool) -> Op
             .iter()
             .map(|stop| {
                 let alpha = stop.opacity() * opacity;
-                tiny_skia::GradientStop::new(stop.offset().get(), tiny_skia::Color::from_rgba8(stop.color().red, stop.color().green, stop.color().blue, alpha.to_u8()))
+                tiny_skia::GradientStop::new(
+                    stop.offset().get(),
+                    tiny_skia::Color::from_rgba8(stop.color().red, stop.color().green, stop.color().blue, alpha.to_u8()),
+                )
             })
             .collect();
         (stops, mode)
@@ -546,11 +556,24 @@ fn paint_of(paint: &usvg::Paint, opacity: usvg::Opacity, anti_alias: bool) -> Op
         usvg::Paint::Color(c) => made.set_color_rgba8(c.red, c.green, c.blue, opacity.to_u8()),
         usvg::Paint::LinearGradient(gradient) => {
             let (stops, mode) = stops_of(gradient);
-            made.shader = tiny_skia::LinearGradient::new((gradient.x1(), gradient.y1()).into(), (gradient.x2(), gradient.y2()).into(), stops, mode, gradient.transform())?;
+            made.shader = tiny_skia::LinearGradient::new(
+                (gradient.x1(), gradient.y1()).into(),
+                (gradient.x2(), gradient.y2()).into(),
+                stops,
+                mode,
+                gradient.transform(),
+            )?;
         }
         usvg::Paint::RadialGradient(gradient) => {
             let (stops, mode) = stops_of(gradient);
-            made.shader = tiny_skia::RadialGradient::new((gradient.fx(), gradient.fy()).into(), (gradient.cx(), gradient.cy()).into(), gradient.r().get(), stops, mode, gradient.transform())?;
+            made.shader = tiny_skia::RadialGradient::new(
+                (gradient.fx(), gradient.fy()).into(),
+                (gradient.cx(), gradient.cy()).into(),
+                gradient.r().get(),
+                stops,
+                mode,
+                gradient.transform(),
+            )?;
         }
         usvg::Paint::Pattern(_) => return None,
     }
@@ -1025,10 +1048,12 @@ fn cairo_path(path: &usvg::Path, transform: tiny_skia::Transform, out: &mut [[u8
             [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
         }))
     };
-    let color_of = |paint: &usvg::Paint, opacity: usvg::Opacity| -> Option<(usvg::Color, f32)> { match paint {
-        usvg::Paint::Color(c) => Some((*c, opacity.get())),
-        _ => None,
-    } };
+    let color_of = |paint: &usvg::Paint, opacity: usvg::Opacity| -> Option<(usvg::Color, f32)> {
+        match paint {
+            usvg::Paint::Color(c) => Some((*c, opacity.get())),
+            _ => None,
+        }
+    };
 
     let fill_it = |out: &mut [[u8; 4]]| {
         let Some((fill, Some(paint))) = &fill else { return };
@@ -1227,7 +1252,8 @@ fn to_pixels(number: f64, unit: Unit, dpi: f64) -> f64 {
 
 /// The size of a `viewBox` (four numbers; a width or height of nothing is no viewBox).
 fn view_box(text: &str) -> Option<(f64, f64)> {
-    let numbers: Vec<f64> = text.split(|c: char| c.is_whitespace() || c == ',').filter(|part| !part.is_empty()).map(|part| part.parse::<f64>().ok()).collect::<Option<_>>()?;
+    let numbers: Vec<f64> =
+        text.split(|c: char| c.is_whitespace() || c == ',').filter(|part| !part.is_empty()).map(|part| part.parse::<f64>().ok()).collect::<Option<_>>()?;
     match numbers[..] {
         [_, _, width, height] if width > 0.0 && height > 0.0 => Some((width, height)),
         _ => None,
@@ -1237,7 +1263,8 @@ fn view_box(text: &str) -> Option<(f64, f64)> {
 /// Whether a `viewBox` is four numbers with a width or height of zero (and neither negative): librsvg draws nothing for it.
 /// A negative side makes librsvg refuse the attribute, and the page is drawn as if it had none.
 fn view_box_without_area(text: &str) -> bool {
-    let numbers: Option<Vec<f64>> = text.split(|c: char| c.is_whitespace() || c == ',').filter(|part| !part.is_empty()).map(|part| part.parse::<f64>().ok()).collect();
+    let numbers: Option<Vec<f64>> =
+        text.split(|c: char| c.is_whitespace() || c == ',').filter(|part| !part.is_empty()).map(|part| part.parse::<f64>().ok()).collect();
     matches!(numbers.as_deref(), Some([_, _, width, height]) if *width >= 0.0 && *height >= 0.0 && (*width == 0.0 || *height == 0.0))
 }
 
@@ -1384,7 +1411,10 @@ mod tests {
         assert_eq!(error(metadata(&fonts, &svg("width=\"0.2\" height=\"0.2\"", ""), 72.0)), "Input buffer has corrupt header: svgload_buffer: bad dimensions");
         assert_eq!(error(metadata(&fonts, format!("<svg {NS}/>").as_bytes(), 72.0)), "Input buffer has corrupt header: svgload_buffer: bad dimensions");
         assert_eq!(error(metadata(&fonts, &svg("width=\"30000\" height=\"30000\"", ""), 72.0)), "Input image exceeds pixel limit");
-        assert_eq!(error(metadata(&fonts, &svg("width=\"1e10\" height=\"10\"", ""), 72.0)), "Input buffer has corrupt header: svgload_buffer: zero-sized image");
+        assert_eq!(
+            error(metadata(&fonts, &svg("width=\"1e10\" height=\"10\"", ""), 72.0)),
+            "Input buffer has corrupt header: svgload_buffer: zero-sized image"
+        );
         assert_eq!(error(metadata(&fonts, b"hello", 72.0)), "Input buffer contains unsupported image format");
         assert_eq!(error(metadata(&fonts, b"", 72.0)), "Input Buffer is empty");
         assert!(error(metadata(&fonts, format!("<svg {NS}><rect").as_bytes(), 72.0)).starts_with("Input buffer has corrupt header"));
@@ -1396,7 +1426,10 @@ mod tests {
     fn the_density_is_one_to_one_hundred_thousand() {
         let bytes = svg("width=\"10\" height=\"10\"", "");
         assert_eq!(error(rasterize(&SvgFonts::none(), &bytes, 0.5)), "Expected number between 1 and 100000 for density but received 0.5 of type number");
-        assert_eq!(error(rasterize(&SvgFonts::none(), &bytes, 100_001.0)), "Expected number between 1 and 100000 for density but received 100001 of type number");
+        assert_eq!(
+            error(rasterize(&SvgFonts::none(), &bytes, 100_001.0)),
+            "Expected number between 1 and 100000 for density but received 100001 of type number"
+        );
         assert!(error(rasterize(&SvgFonts::none(), &bytes, f64::NAN)).starts_with("Expected number between 1 and 100000 for density"));
     }
 
@@ -1507,16 +1540,16 @@ mod tests {
         assert_eq!(with_size(single, &document.root_element(), 8.5, 3.0), "<svg height=\"3\" width='8.5'/>");
     }
 
-
     #[test]
     fn thin_diagonal_strokes_are_kept_and_leave_a_faint_even_tint() {
         let mut paths = String::new();
         for x in (-120..=120).step_by(4) {
             paths.push_str(&format!("<path d=\"M{x} 0L{} 128\"/>", x + 128));
         }
-        let page = svg("width=\"128\" height=\"128\"", &format!(
-            "<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"
-        ));
+        let page = svg(
+            "width=\"128\" height=\"128\"",
+            &format!("<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"),
+        );
         let image = rasterize(&SvgFonts::none(), &page, 72.0).expect("SVG");
         assert_eq!((image.width(), image.height()), (128, 128));
         let rgba = image.rgba();
@@ -1528,5 +1561,4 @@ mod tests {
             assert!(mean < 255.0 && mean > 200.0, "band {band}: mean red {mean}");
         }
     }
-
 }

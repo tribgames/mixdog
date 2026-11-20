@@ -7,7 +7,7 @@ use objc2::rc::autoreleasepool;
 use objc2::runtime::{AnyClass, AnyObject, Sel};
 use objc2::{class, msg_send, sel};
 use objc2_foundation::NSString;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::ffi::c_void;
 
 #[link(name = "Vision", kind = "framework")]
@@ -55,13 +55,7 @@ fn word_ranges(text: &str) -> Vec<(String, Range)> {
     for c in text.chars() {
         if c.is_whitespace() {
             if !current.is_empty() {
-                out.push((
-                    std::mem::take(&mut current),
-                    Range {
-                        location: start,
-                        length: offset - start,
-                    },
-                ));
+                out.push((std::mem::take(&mut current), Range { location: start, length: offset - start }));
             }
             offset += c.len_utf16();
             start = offset;
@@ -74,13 +68,7 @@ fn word_ranges(text: &str) -> Vec<(String, Range)> {
         }
     }
     if !current.is_empty() {
-        out.push((
-            current,
-            Range {
-                location: start,
-                length: offset - start,
-            },
-        ));
+        out.push((current, Range { location: start, length: offset - start }));
     }
     out
 }
@@ -97,8 +85,7 @@ pub fn status(language: &str) -> Value {
             let request: *mut AnyObject = msg_send![request, init];
             if responds(request, sel!(supportedRecognitionLanguagesAndReturnError:)) {
                 let mut error: *mut AnyObject = std::ptr::null_mut();
-                let list: *mut AnyObject =
-                    msg_send![request, supportedRecognitionLanguagesAndReturnError: &mut error];
+                let list: *mut AnyObject = msg_send![request, supportedRecognitionLanguagesAndReturnError: &mut error];
                 if !list.is_null() {
                     let count: usize = msg_send![list, count];
                     for index in 0..count {
@@ -112,12 +99,7 @@ pub fn status(language: &str) -> Value {
     let requested = (!language.is_empty()).then(|| language.to_string());
     let available = requested.as_ref().is_none_or(|wanted| {
         installed.is_empty()
-            || installed.iter().any(|tag| {
-                tag.eq_ignore_ascii_case(wanted)
-                    || tag
-                        .to_lowercase()
-                        .starts_with(&format!("{}-", wanted.to_lowercase()))
-            })
+            || installed.iter().any(|tag| tag.eq_ignore_ascii_case(wanted) || tag.to_lowercase().starts_with(&format!("{}-", wanted.to_lowercase())))
     });
     json!({
         "text": "macOS OCR readiness",
@@ -164,14 +146,8 @@ pub fn recognize(image: &[u8], language: &str, max_words: usize) -> Result<Value
             let mut error: *mut AnyObject = std::ptr::null_mut();
             let performed: bool = msg_send![handler, performRequests: requests, error: &mut error];
             let outcome = if !performed {
-                let detail = if error.is_null() {
-                    String::new()
-                } else {
-                    nsstring(msg_send![error, localizedDescription])
-                };
-                Err(format!(
-                    "ocr_failed: Vision could not read the image: {detail}"
-                ))
+                let detail = if error.is_null() { String::new() } else { nsstring(msg_send![error, localizedDescription]) };
+                Err(format!("ocr_failed: Vision could not read the image: {detail}"))
             } else {
                 Ok(collect(request, width, height, language, max_words))
             };
@@ -184,30 +160,16 @@ pub fn recognize(image: &[u8], language: &str, max_words: usize) -> Result<Value
 
 /// # Safety
 /// `request` must be a performed VNRecognizeTextRequest.
-unsafe fn collect(
-    request: *mut AnyObject,
-    width: f64,
-    height: f64,
-    language: &str,
-    max_words: usize,
-) -> Value {
+unsafe fn collect(request: *mut AnyObject, width: f64, height: f64, language: &str, max_words: usize) -> Value {
     let results: *mut AnyObject = msg_send![request, results];
-    let count: usize = if results.is_null() {
-        0
-    } else {
-        msg_send![results, count]
-    };
+    let count: usize = if results.is_null() { 0 } else { msg_send![results, count] };
     let mut lines = Vec::new();
     let mut words = Vec::new();
     let mut total_words = 0usize;
     for index in 0..count {
         let observation: *mut AnyObject = msg_send![results, objectAtIndex: index];
         let candidates: *mut AnyObject = msg_send![observation, topCandidates: 1usize];
-        let candidate_count: usize = if candidates.is_null() {
-            0
-        } else {
-            msg_send![candidates, count]
-        };
+        let candidate_count: usize = if candidates.is_null() { 0 } else { msg_send![candidates, count] };
         if candidate_count == 0 {
             continue;
         }
@@ -220,8 +182,7 @@ unsafe fn collect(
         for (word, range) in word_ranges(&text) {
             if words.len() < max_words {
                 let mut error: *mut AnyObject = std::ptr::null_mut();
-                let rectangle: *mut AnyObject =
-                    msg_send![candidate, boundingBoxForRange: range, error: &mut error];
+                let rectangle: *mut AnyObject = msg_send![candidate, boundingBoxForRange: range, error: &mut error];
                 let (wx, wy, ww, wh) = if rectangle.is_null() {
                     (x, y, w, h)
                 } else {

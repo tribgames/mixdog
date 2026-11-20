@@ -4,8 +4,8 @@
 use std::io::{Read as _, Write as _};
 use std::sync::Arc;
 
-use mixdog_core_api::{CallContext, CoreHandle, CoreRequest, CoreState};
 use mixdog_core_api::ids::Method;
+use mixdog_core_api::{CallContext, CoreHandle, CoreRequest, CoreState};
 use mixdog_core_config::config::DESKTOP_CONFIRMATION_CALLER;
 
 const ENABLE: &[u8] = b"allow-all-actions\n";
@@ -22,12 +22,15 @@ pub(crate) fn start(core: Arc<dyn CoreHandle>, work: tokio::runtime::Handle) {
                 }
                 let method = Method("config/setDeveloperOption");
                 let Some(config) = core.domain_for(method.as_str()) else { return false };
-                config.call(CoreRequest {
-                    method,
-                    params: serde_json::json!({ "id": "allowAllActions", "enabled": true }),
-                    op: None,
-                    ctx: CallContext::internal(DESKTOP_CONFIRMATION_CALLER),
-                }).await.is_ok()
+                config
+                    .call(CoreRequest {
+                        method,
+                        params: serde_json::json!({ "id": "allowAllActions", "enabled": true }),
+                        op: None,
+                        ctx: CallContext::internal(DESKTOP_CONFIRMATION_CALLER),
+                    })
+                    .await
+                    .is_ok()
             });
             let mut output = std::io::stdout().lock();
             if output.write_all(if applied { b"Y" } else { b"N" }).and_then(|()| output.flush()).is_err() {

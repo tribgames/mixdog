@@ -114,11 +114,7 @@ fn read_progress(path: &Path) -> Result<MigrationProgress, ()> {
     let updated = value.get("updatedAt").and_then(Value::as_f64).map_or(0, |at| if at > 0.0 { 1 } else { 0 });
     let skipped = value["skipped"]
         .as_object()
-        .map(|rows| {
-            rows.iter()
-                .map(|(id, skip)| (id.clone(), skip.get("reason").and_then(Value::as_str).unwrap_or_default().to_owned()))
-                .collect()
-        })
+        .map(|rows| rows.iter().map(|(id, skip)| (id.clone(), skip.get("reason").and_then(Value::as_str).unwrap_or_default().to_owned())).collect())
         .unwrap_or_default();
     Ok((complete, updated, skipped))
 }
@@ -148,8 +144,7 @@ fn session_log_status(data_dir: &Path, lane: &mixdog_rt::InLane<InteractiveIo>) 
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(error) => return Err(error),
     };
-    let permanent: std::collections::HashSet<&str> =
-        skipped.iter().filter(|(_, reason)| reason != SKIP_BUSY).map(|(id, _)| id.as_str()).collect();
+    let permanent: std::collections::HashSet<&str> = skipped.iter().filter(|(_, reason)| reason != SKIP_BUSY).map(|(id, _)| id.as_str()).collect();
     let pending = legacy_ids_without_log(&names).iter().filter(|id| !permanent.contains(id.as_str())).count();
     let logs = names.iter().filter(|name| name.ends_with(SESSION_LOG_SUFFIX)).count();
     let skipped: Vec<Value> = skipped.iter().map(|(id, reason)| json!({ "id": id, "reason": reason })).collect();
@@ -329,17 +324,15 @@ impl DoctorHost for DaemonDoctorHost {
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
-    use serde_json::Value;
+    use serde_json::Value;
 
     const ENGINES: &str = "^22.19.0 || >=24.0.0";
 
     #[test]
     fn runtime_metadata_keeps_nodes_version_and_requirement_shape() {
-        assert_eq!(runtime_row(Some("22.20.0".to_owned()), Some(ENGINES.to_owned())),
-            json!({ "version": "22.20.0", "engines": ENGINES }));
+        assert_eq!(runtime_row(Some("22.20.0".to_owned()), Some(ENGINES.to_owned())), json!({ "version": "22.20.0", "engines": ENGINES }));
         for version in [None, Some(String::new()), Some("  ".to_owned())] {
-            assert_eq!(runtime_row(version, Some(">=22".into())),
-                json!({ "version": null, "engines": ">=22" }));
+            assert_eq!(runtime_row(version, Some(">=22".into())), json!({ "version": null, "engines": ">=22" }));
         }
     }
 
@@ -367,12 +360,23 @@ mod tests {
         assert_eq!((counts["retired"].as_u64(), counts["retained"].as_u64(), counts["dangling"].as_u64()), (Some(8), Some(2), Some(3)));
         assert_eq!(counts["quarantineDir"], dir.path().join("quarantine").display().to_string());
 
-        write_complete(dir.path(), &COMPLETE.replace("\"quarantined_unexpected\":2", "\"quarantined_unexpected\":0").replace("\"quarantined_unexpected\":1", "\"quarantined_unexpected\":0"));
+        write_complete(
+            dir.path(),
+            &COMPLETE
+                .replace("\"quarantined_unexpected\":2", "\"quarantined_unexpected\":0")
+                .replace("\"quarantined_unexpected\":1", "\"quarantined_unexpected\":0"),
+        );
         let expected_only = migration_counts(dir.path()).unwrap();
         assert_eq!(expected_only["quarantinedUnexpected"], 0);
         assert_eq!(expected_only["quarantineDir"], dir.path().join("quarantine").display().to_string(), "expected quarantine is in the folder too");
 
-        write_complete(dir.path(), &COMPLETE.replace("\"quarantined_unexpected\":2", "\"quarantined_unexpected\":0").replace("\"quarantined_unexpected\":1", "\"quarantined_unexpected\":0").replace("\"quarantined_expected\":1", "\"quarantined_expected\":0"));
+        write_complete(
+            dir.path(),
+            &COMPLETE
+                .replace("\"quarantined_unexpected\":2", "\"quarantined_unexpected\":0")
+                .replace("\"quarantined_unexpected\":1", "\"quarantined_unexpected\":0")
+                .replace("\"quarantined_expected\":1", "\"quarantined_expected\":0"),
+        );
         assert!(migration_counts(dir.path()).unwrap().get("quarantineDir").is_none(), "no folder is named when nothing is in it");
 
         write_complete(dir.path(), "{ not json");
@@ -382,7 +386,6 @@ mod tests {
         assert_eq!(with_migration_counts(status.clone(), None), status);
         assert_eq!(with_migration_counts(status, Some(json!({ "verified": 1 })))["migration"]["verified"], 1);
     }
-
 
     /// Data folders of the 1.4.5 layout and the status each reads as (a progress file that is not a record reads `{unreadable: true}`).
     fn session_log_cases() -> Value {
@@ -482,7 +485,10 @@ mod tests {
         let (name, body) = if cfg!(windows) {
             (
                 "node.cmd",
-                format!("@start \"\" /b powershell -NoProfile -Command \"Start-Sleep 4; Set-Content -Path '{}' -Value x\"\r\n@echo 18.0.1\r\n", marker.display()),
+                format!(
+                    "@start \"\" /b powershell -NoProfile -Command \"Start-Sleep 4; Set-Content -Path '{}' -Value x\"\r\n@echo 18.0.1\r\n",
+                    marker.display()
+                ),
             )
         } else {
             ("node", format!("#!/bin/sh\n(sleep 4; touch '{}') &\necho 18.0.1\n", marker.display()))

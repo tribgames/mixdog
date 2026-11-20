@@ -230,11 +230,7 @@ pub fn node_row(m: &AgentMessage) -> Value {
     }
     row.insert("content".into(), content_row(&m.message.content));
     if !m.tool_calls().is_empty() {
-        let calls = m
-            .tool_calls()
-            .iter()
-            .map(|c| serde_json::json!({"id": c.id, "name": c.name, "arguments": c.arguments}))
-            .collect();
+        let calls = m.tool_calls().iter().map(|c| serde_json::json!({"id": c.id, "name": c.name, "arguments": c.arguments})).collect();
         row.insert("toolCalls".into(), Value::Array(calls));
     }
     if let Some(id) = m.tool_call_id() {
@@ -263,12 +259,7 @@ impl PreviewArchive {
         use sha2::Digest;
         let sha256: String = sha2::Sha256::digest(content.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
         let path = format!("<DATA>/tool-results/{}/{sha256}.txt", self.session);
-        mixdog_agent::offload::Artifact {
-            display_path: path.clone(),
-            path,
-            lines: content.lines().count(),
-            sha256,
-        }
+        mixdog_agent::offload::Artifact { display_path: path.clone(), path, lines: content.lines().count(), sha256 }
     }
 }
 
@@ -296,13 +287,7 @@ impl mixdog_agent::compact::fresh::AttachmentSeam for NoAttachments {
 }
 
 impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
-    fn text_within(
-        &self,
-        hex: &str,
-        _: u64,
-    ) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+    fn text_within(&self, hex: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
         panic!("attachment read {hex} in a transcript without attachments")
     }
 }
-
-

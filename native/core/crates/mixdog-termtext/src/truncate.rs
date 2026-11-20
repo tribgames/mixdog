@@ -31,12 +31,7 @@ pub struct TruncateOptions<'a> {
 
 impl Default for TruncateOptions<'_> {
     fn default() -> Self {
-        Self {
-            position: TruncatePosition::End,
-            space: false,
-            prefer_truncation_on_space: false,
-            truncation_character: "\u{2026}",
-        }
+        Self { position: TruncatePosition::End, space: false, prefer_truncation_on_space: false, truncation_character: "\u{2026}" }
     }
 }
 
@@ -161,20 +156,12 @@ pub fn truncate_with(text: &str, columns: usize, options: TruncateOptions<'_>) -
                 let first = index_of_nearest_space(text, half_i, false);
                 let second = index_of_nearest_space(text, length_i - (columns_i - half_i) + 1, true);
                 let tail = slice_ansi(text, offset(second), Some(length));
-                return format!(
-                    "{}{ellipsis}{}",
-                    slice_ansi(text, 0, Some(offset(first))),
-                    js_trim_end(js_trim_start(&tail))
-                );
+                return format!("{}{ellipsis}{}", slice_ansi(text, 0, Some(offset(first))), js_trim_end(js_trim_start(&tail)));
             }
             format!(
                 "{}{ellipsis}{}",
                 slice_ansi(text, 0, Some(half)),
-                slice_ansi(
-                    text,
-                    offset(length_i - (columns_i - half_i) + signed(width(&ellipsis))),
-                    Some(length)
-                )
+                slice_ansi(text, offset(length_i - (columns_i - half_i) + signed(width(&ellipsis))), Some(length))
             )
         }
         TruncatePosition::End => {

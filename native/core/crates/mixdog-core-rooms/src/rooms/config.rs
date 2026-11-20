@@ -156,8 +156,7 @@ pub struct ParsedAsk {
 /// that order, by id or by name.
 pub fn parse_room_ask(text: &str, members: &[MemberName]) -> ParsedAsk {
     let raw = js_trim(text);
-    let is_ask = raw.get(..4).is_some_and(|head| head.eq_ignore_ascii_case("/ask"))
-        && raw[4..].chars().next().is_none_or(is_js_space);
+    let is_ask = raw.get(..4).is_some_and(|head| head.eq_ignore_ascii_case("/ask")) && raw[4..].chars().next().is_none_or(is_js_space);
     if !is_ask {
         return ParsedAsk { to: vec![], text: raw.to_owned(), error: None };
     }
@@ -177,26 +176,15 @@ pub fn parse_room_ask(text: &str, members: &[MemberName]) -> ParsedAsk {
         }
     }
     let message = js_trim(&rest).to_owned();
-    if message.is_empty() {
-        ParsedAsk { to, text: String::new(), error: Some(AskError::Message) }
-    } else {
-        ParsedAsk { to, text: message, error: None }
-    }
+    if message.is_empty() { ParsedAsk { to, text: String::new(), error: Some(AskError::Message) } } else { ParsedAsk { to, text: message, error: None } }
 }
 
 /// Text a mention never counts in: code, block quotes and quoted strings.
 static UNSPOKEN: LazyLock<Vec<JsRegex>> = LazyLock::new(|| {
-    [
-        (r"```[\s\S]*?(?:```|$)", "g"),
-        (r"~~~[\s\S]*?(?:~~~|$)", "g"),
-        (r"`[^`\n]*`", "g"),
-        (r"^[ \t]*>.*$", "gm"),
-        (r#""[^"\n]*""#, "g"),
-        (r"“[^”\n]*”", "g"),
-    ]
-    .iter()
-    .map(|(pattern, flags)| JsRegex::new_static(pattern, flags))
-    .collect()
+    [(r"```[\s\S]*?(?:```|$)", "g"), (r"~~~[\s\S]*?(?:~~~|$)", "g"), (r"`[^`\n]*`", "g"), (r"^[ \t]*>.*$", "gm"), (r#""[^"\n]*""#, "g"), (r"“[^”\n]*”", "g")]
+        .iter()
+        .map(|(pattern, flags)| JsRegex::new_static(pattern, flags))
+        .collect()
 });
 static MENTION: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(^|[\s(])@", "g"));
 
@@ -254,21 +242,14 @@ mod tests {
             .collect()
     }
     fn input(name: &str, members: &[&str]) -> RoomConfigInput {
-        RoomConfigInput {
-            name: name.into(),
-            members: members.iter().map(|m| (*m).into()).collect(),
-            ..Default::default()
-        }
+        RoomConfigInput { name: name.into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() }
     }
 
     #[test]
     fn normalizes_name_members_and_limits() {
-        let config = normalize_room_config(&RoomConfigInput {
-            max_rounds: Some(99.4),
-            max_messages: Some(0.0),
-            ..input("  Plan   room ", &["a", "b", "a", "Bad Id"])
-        })
-        .unwrap();
+        let config =
+            normalize_room_config(&RoomConfigInput { max_rounds: Some(99.4), max_messages: Some(0.0), ..input("  Plan   room ", &["a", "b", "a", "Bad Id"]) })
+                .unwrap();
         assert_eq!(config.name, "Plan room");
         assert_eq!(config.members, ["a", "b"]);
         assert_eq!((config.max_rounds, config.max_messages), (10, 1));
@@ -295,10 +276,7 @@ mod tests {
 
     #[test]
     fn a_label_two_members_share_matches_neither() {
-        let dup = vec![
-            MemberName { id: "a".into(), name: "Sam".into() },
-            MemberName { id: "b".into(), name: "sam".into() },
-        ];
+        let dup = vec![MemberName { id: "a".into(), name: "Sam".into() }, MemberName { id: "b".into(), name: "sam".into() }];
         assert_eq!(room_member_named("Sam", &dup), None);
         assert_eq!(room_member_named("a", &dup).as_deref(), Some("a"));
         assert_eq!(room_member_named("alpha", &members()).as_deref(), Some("alpha"));

@@ -79,14 +79,7 @@ struct Probe<'a> {
 }
 
 fn describe_call(probe: &Probe<'_>) -> String {
-    let mut text = format!(
-        "{} obj#{} \"{}\" flags={} args={}",
-        probe.kind.name(),
-        probe.id,
-        probe.member,
-        probe.flags,
-        Json::Array(probe.args.to_vec())
-    );
+    let mut text = format!("{} obj#{} \"{}\" flags={} args={}", probe.kind.name(), probe.id, probe.member, probe.flags, Json::Array(probe.args.to_vec()));
     if !probe.named.is_empty() {
         let pairs = probe.named.iter().map(|(name, value)| Json::Array(vec![Json::String(name.clone()), value.clone()])).collect();
         text.push_str(&format!(" named={}", Json::Array(pairs)));
@@ -114,11 +107,7 @@ fn describe_entry(entry: &Entry) -> String {
 
 fn mismatch(state: &State, what: &str, actual: &str) -> ! {
     let recorded = state.entries.get(state.position).map_or_else(|| "(the recording has no further call)".to_owned(), describe_entry);
-    panic!(
-        "call log mismatch at call #{} (recorded entry {}): {what}\n  recorded: {recorded}\n  actual:   {actual}",
-        state.played + 1,
-        state.position
-    );
+    panic!("call log mismatch at call #{} (recorded entry {}): {what}\n  recorded: {recorded}\n  actual:   {actual}", state.played + 1, state.position);
 }
 
 impl State {
@@ -135,11 +124,9 @@ impl State {
         let actual = describe_call(probe);
         let recorded = match self.entries.get(self.position) {
             None => mismatch(self, "the port made a call the recording does not have", &actual),
-            Some(Entry::Boundary(boundary)) => mismatch(
-                self,
-                &format!("the recording is at the boundary {} \"{}\" and the port made a call", boundary.kind, boundary.name),
-                &actual,
-            ),
+            Some(Entry::Boundary(boundary)) => {
+                mismatch(self, &format!("the recording is at the boundary {} \"{}\" and the port made a call", boundary.kind, boundary.name), &actual)
+            }
             Some(Entry::Call(call)) => call.clone(),
         };
         if recorded.kind != kind {
@@ -175,11 +162,8 @@ impl State {
     }
 
     fn skip_allowed_repeats(&mut self, consumed: &CallEntry) {
-        let Some(repeats) = self
-            .allowances
-            .iter()
-            .find(|allowance| allowance.kind == consumed.kind && allowance.member == consumed.member)
-            .map(|allowance| allowance.repeats)
+        let Some(repeats) =
+            self.allowances.iter().find(|allowance| allowance.kind == consumed.kind && allowance.member == consumed.member).map(|allowance| allowance.repeats)
         else {
             return;
         };
@@ -280,15 +264,7 @@ impl ItemSource for FakeEnum {
 impl Fake {
     /// A fake that replays `log`.
     pub fn new(log: CallLog) -> Fake {
-        Fake {
-            state: Rc::new(RefCell::new(State {
-                entries: log.entries,
-                allowances: log.allowances,
-                position: 0,
-                played: 0,
-                ignore_boundaries: false,
-            })),
-        }
+        Fake { state: Rc::new(RefCell::new(State { entries: log.entries, allowances: log.allowances, position: 0, played: 0, ignore_boundaries: false })) }
     }
 
     /// A fake over a log's JSON lines. Panics on a log that does not parse.

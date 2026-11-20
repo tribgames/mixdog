@@ -12,8 +12,8 @@ use super::*;
 use crate::accounts::AccountStore;
 use crate::oauth::CredentialIo;
 use crate::oauth::pace::FakePace;
-use crate::providers::compat::profile::CredentialKind;
 use crate::providers::compat::profile::CompatProfile;
+use crate::providers::compat::profile::CredentialKind;
 
 const PROVIDER: &str = "anthropic-oauth";
 const ID_A: &str = "11111111-1111-4111-8111-111111111111";
@@ -316,7 +316,11 @@ async fn a_recovery_goes_out_on_the_row_the_attempt_went_out_on() {
     assert_eq!((*a.recovered.lock().unwrap(), *b.recovered.lock().unwrap()), (0, 1));
     assert_eq!(b.seen.lock().unwrap()[1], None, "B is not sent A's state");
     let histories = b.histories.lock().unwrap();
-    assert_eq!((histories[0][0].thinking_blocks.as_ref(), histories[1][0].thinking_blocks.as_ref()), (None, None), "A's thinking reaches neither B's attempt nor its re-issue");
+    assert_eq!(
+        (histories[0][0].thinking_blocks.as_ref(), histories[1][0].thinking_blocks.as_ref()),
+        (None, None),
+        "A's thinking reaches neither B's attempt nor its re-issue"
+    );
     drop(histories);
     assert_eq!(owner(&reported(&events)), Some(ID_B));
     assert!(events.iter().any(|e| matches!(e, StreamEvent::AccountRouting(routing) if routing.account_id == ID_B)));
@@ -378,7 +382,6 @@ fn the_pool_forwards_every_provider_method() {
     assert!(missing.is_empty(), "not forwarded: {missing:?}");
 }
 
-
 async fn roster(dir: &tempfile::TempDir) -> (AccountStore, AccountRotation) {
     let tokens = mixdog_rt::testing::tokens();
     let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
@@ -403,7 +406,9 @@ async fn an_account_at_its_limit_hands_the_same_request_to_the_next_account() {
     let texts: Vec<&str> = events.iter().filter_map(|e| if let StreamEvent::TextDelta(text) = e { Some(text.as_str()) } else { None }).collect();
     assert_eq!(texts, ["b"]);
     assert!(
-        events.iter().any(|e| matches!(e, StreamEvent::AccountStage(AccountStage::Switching { message }) if message.ends_with("switching to the next account"))),
+        events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::AccountStage(AccountStage::Switching { message }) if message.ends_with("switching to the next account"))),
         "the caller is told the pool moves on"
     );
     assert!(
@@ -561,7 +566,8 @@ async fn a_history_node_1_4_5_stamped_is_sent_whole_after_the_upgrade() {
         let mut replayed_elsewhere = unstamped.clone();
         replayed_elsewhere.replay_account = Some(ID_B.into());
         let mut request = (*request_with(Some(state.clone()))).clone();
-        request.messages = vec![Message::new(Role::User, Content::Text("q".into())), unstamped.clone(), calling.clone(), result, replayed_here, replayed_elsewhere];
+        request.messages =
+            vec![Message::new(Role::User, Content::Text("q".into())), unstamped.clone(), calling.clone(), result, replayed_here, replayed_elsewhere];
 
         drain(pool.attempt(Arc::new(request)).await.unwrap()).await;
 

@@ -11,112 +11,112 @@ use mixdog_rt::exec::Executors;
 use mixdog_rt::exec::RtConfig;
 
 pub mod acquired;
-mod desktop_confirmation;
 pub mod agent_lifecycle;
 pub mod barrier;
-pub mod boot_coordinator;
 pub mod boot;
+pub mod boot_coordinator;
+pub mod browser_engine_service;
 pub mod catalog;
 pub mod channel_router;
+pub mod code_graph_trust;
 pub mod compat;
 pub mod compose;
-#[cfg(test)]
-mod compose_test_support;
-pub mod compose_core;
-pub mod compose_mcp;
+pub mod compose_browser_engine;
 pub mod compose_computer;
 pub mod compose_computer_bridge;
+pub mod compose_connections;
+pub mod compose_core;
+mod compose_desktop_files;
+pub mod compose_domains;
+pub mod compose_flip;
+pub mod compose_mcp;
+mod compose_media_lease;
 pub mod compose_screen;
+#[cfg(test)]
+mod compose_test_support;
 pub mod computer_control;
 pub mod computer_gate;
 pub mod computer_pointer_service;
 pub mod computer_scope_report_service;
-pub mod browser_engine_service;
-pub mod compose_browser_engine;
-pub mod compose_connections;
 pub mod connection_close;
-pub mod effort_judge_host;
-pub mod embedding_host;
-pub mod fencing_ownership;
-pub mod code_graph_trust;
-pub mod worktree_cache_cleanups;
-pub mod compose_flip;
-mod compose_desktop_files;
-mod compose_media_lease;
-#[cfg(feature = "replay-controls")]
-mod replay_stores_settled;
-#[cfg(feature = "test-hooks")]
-mod dev_computer;
-pub mod feature_probes;
-pub mod held_home_draft;
-pub mod host_runtime_draft;
-pub mod late_lifecycle;
-pub mod memory_agent_watch;
-pub mod prewarm_world;
-pub mod setup_host;
-#[cfg(test)]
-mod warmup_scheduler_tests;
-pub mod compose_domains;
-pub mod late_live_route;
-pub mod late_route_positions;
-pub mod late_setup_actions;
-pub mod late_agent_cells;
-pub mod late_session;
-pub mod late_seams;
-pub mod late_tool_surface;
-pub mod os_probe;
-pub mod restart_sweep;
 pub mod control;
 pub mod crash_record;
-pub mod stale_temps;
 pub mod daemon_log;
-pub mod telemetry;
+mod desktop_confirmation;
 pub mod desktop_defaults;
+#[cfg(feature = "test-hooks")]
+mod dev_computer;
 pub mod discovery;
 pub mod domain_seams;
-pub mod js_runtime;
+pub mod effort_judge_host;
+pub mod embedding_host;
 pub mod event_pipeline;
+pub mod exec;
+pub mod exec_events;
+pub mod feature_probes;
+pub mod fencing_ownership;
+pub mod held_home_draft;
 pub mod held_requests;
 #[cfg(test)]
 mod held_run_scenes;
-#[cfg(test)]
-mod workers_stop_tests;
-#[cfg(test)]
-mod ssh_origin_tests;
-#[cfg(test)]
-mod model_proxy_client_tests;
-#[cfg(test)]
-mod session_host_tests;
-pub mod memory_callers;
 pub mod hook_rule_setup;
-pub mod setup_status;
+pub mod host_runtime_draft;
+pub mod js_runtime;
+pub mod late_agent_cells;
+pub mod late_lifecycle;
+pub mod late_live_route;
+pub mod late_route_positions;
+pub mod late_seams;
+pub mod late_session;
+pub mod late_setup_actions;
+pub mod late_tool_surface;
 pub mod lifecycle;
-pub mod mcp_surface;
 pub mod live_view;
 pub mod live_view_streams;
+pub mod mcp_surface;
 pub mod media;
-pub mod exec;
-pub mod exec_events;
-pub mod ownership;
+pub mod memory_agent_watch;
+pub mod memory_callers;
+#[cfg(test)]
+mod model_proxy_client_tests;
 mod office_startup;
+pub mod os_probe;
+pub mod ownership;
 pub mod pair_code;
+pub mod prewarm_world;
 pub mod project_workspaces;
+#[cfg(feature = "replay-controls")]
+mod replay_stores_settled;
+pub mod restart_sweep;
 pub mod server;
-pub mod serving;
 pub mod server_ensure;
+pub mod serving;
+#[cfg(test)]
+mod session_host_tests;
 pub mod session_retention;
 pub mod session_sweep;
+pub mod setup_host;
+pub mod setup_status;
 pub mod shell_name;
 pub mod signals;
-pub mod system_proxy_claim;
-pub mod terminal_folder_release;
+#[cfg(test)]
+mod ssh_origin_tests;
+pub mod stale_temps;
 pub mod startup;
-pub mod stop_watch;
 pub mod statusline_port;
-pub mod takeover_port;
+pub mod stop_watch;
 pub mod sweep_store;
+pub mod system_proxy_claim;
+pub mod takeover_port;
+pub mod telemetry;
+pub mod terminal_folder_release;
 pub mod update_installer;
 pub mod verdict;
+#[cfg(test)]
+mod warmup_scheduler_tests;
+#[cfg(test)]
+mod workers_stop_tests;
+pub mod worktree_cache_cleanups;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServeError {
@@ -247,7 +247,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     mixdog_rt::node_log::install(log.memory_sink());
     let ready_log = log.clone();
     let sweep_dir = data_dir.clone();
-    let config = compose::ComposeConfig { rebuild: booting.discovery.rebuild_progress(),
+    let config = compose::ComposeConfig {
+        rebuild: booting.discovery.rebuild_progress(),
         user_data_dir: data_dir.join("userdata"),
         runtime_root,
         data_dir,
@@ -266,10 +267,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     // through its own cleanup: what it had acquired (PostgreSQL) is given back before the error returns. The composition is never dropped half done.
     let interrupt = tokio_util::sync::CancellationToken::new();
     let sessions_bound = tokio_util::sync::CancellationToken::new();
-    let cutover = behind.as_ref().map(|back| compose::Cutover {
-        legacy_homes: back.legacy_homes.clone(),
-        sessions_bound: sessions_bound.clone(),
-    });
+    let cutover = behind.as_ref().map(|back| compose::Cutover { legacy_homes: back.legacy_homes.clone(), sessions_bound: sessions_bound.clone() });
     let composed = watch.drive(compose::compose_for_cutover(&tokens, config, interrupt.clone(), cutover), || interrupt.cancel()).await;
     let core = match composed {
         Ok(core) => std::sync::Arc::new(core),
@@ -339,7 +337,11 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     // The webhook event queue ticks from here: it takes the proof that startup finished.
     mixdog_rt::spawn("event-pipeline", mixdog_rt::TaskClass::Work, core.event_pipeline().clone().run(started.clone(), stop.clone()));
     // Node's idle cleanup starts with the session runtime (`runtime-bootstrap.mjs:97`): first cycle one interval after the start, then every interval; it ends with the run token.
-    mixdog_rt::spawn("idle-sweep", mixdog_rt::TaskClass::Work, session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()));
+    mixdog_rt::spawn(
+        "idle-sweep",
+        mixdog_rt::TaskClass::Work,
+        session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()),
+    );
     // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
     core.start_sub_agent_retention();
     // Mixy's heartbeat (`daemon.mjs:1212`): its first check comes one `FIRST_TICK` later.

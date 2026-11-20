@@ -39,14 +39,7 @@ pub struct AdmitQuery {
 
 impl Default for AdmitQuery {
     fn default() -> Self {
-        Self {
-            pending: 0,
-            holding: false,
-            window: INGRESS_FREE_WINDOW_BYTES,
-            reservation: INGRESS_RESERVATION_BYTES,
-            reserved: 0,
-            ceiling: MAX_INGRESS_BYTES,
-        }
+        Self { pending: 0, holding: false, window: INGRESS_FREE_WINDOW_BYTES, reservation: INGRESS_RESERVATION_BYTES, reserved: 0, ceiling: MAX_INGRESS_BYTES }
     }
 }
 
@@ -195,16 +188,10 @@ mod tests {
         let base = AdmitQuery::default();
         assert_eq!(admit_ingress(&AdmitQuery { pending: 1024, ..base }), Admit::Read);
         assert_eq!(admit_ingress(&AdmitQuery { pending: 512 * 1024, ..base }), Admit::Reserve);
-        assert_eq!(
-            admit_ingress(&AdmitQuery { pending: 512 * 1024, reserved: MAX_INGRESS_BYTES - INGRESS_RESERVATION_BYTES, ..base }),
-            Admit::Reserve
-        );
+        assert_eq!(admit_ingress(&AdmitQuery { pending: 512 * 1024, reserved: MAX_INGRESS_BYTES - INGRESS_RESERVATION_BYTES, ..base }), Admit::Reserve);
         assert_eq!(admit_ingress(&AdmitQuery { pending: 512 * 1024, reserved: MAX_INGRESS_BYTES, ..base }), Admit::Wait);
         // A leg that holds its reservation reads to the end.
-        assert_eq!(
-            admit_ingress(&AdmitQuery { pending: 64 * 1024 * 1024, holding: true, reserved: MAX_INGRESS_BYTES, ..base }),
-            Admit::Read
-        );
+        assert_eq!(admit_ingress(&AdmitQuery { pending: 64 * 1024 * 1024, holding: true, reserved: MAX_INGRESS_BYTES, ..base }), Admit::Read);
         // The window itself is free.
         assert_eq!(admit_ingress(&AdmitQuery { pending: INGRESS_FREE_WINDOW_BYTES, ..base }), Admit::Read);
         assert_eq!(admit_ingress(&AdmitQuery { pending: INGRESS_FREE_WINDOW_BYTES + 1, ..base }), Admit::Reserve);

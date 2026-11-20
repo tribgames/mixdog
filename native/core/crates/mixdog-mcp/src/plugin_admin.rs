@@ -254,13 +254,7 @@ impl PluginAdmin {
         let path = self.registry_path();
         create_private_dir_all(lane, path.parent().unwrap_or(Path::new("."))).map_err(io)?;
         let mut outcome = None;
-        let opts = Opts {
-            secret: true,
-            fsync_dir: true,
-            backup: true,
-            lock_timeout: Some(REGISTRY_LOCK_TIMEOUT),
-            ..Opts::default()
-        };
+        let opts = Opts { secret: true, fsync_dir: true, backup: true, lock_timeout: Some(REGISTRY_LOCK_TIMEOUT), ..Opts::default() };
         update_json(
             lane,
             &path,
@@ -347,9 +341,7 @@ impl PluginAdmin {
         temp.push(format!(".tmp-{}-{}", std::process::id(), uuid::Uuid::new_v4()));
         let temp = PathBuf::from(temp);
         let url = source.url.clone().unwrap_or_default();
-        let outcome = self
-            .run_git(&["clone", "--depth", "1", &url, &temp.to_string_lossy()])
-            .and_then(|_| publish_managed_root(&root, &temp));
+        let outcome = self.run_git(&["clone", "--depth", "1", &url, &temp.to_string_lossy()]).and_then(|_| publish_managed_root(&root, &temp));
         if outcome.is_err() {
             let _ = remove_tree(&temp);
         }
@@ -361,9 +353,14 @@ impl PluginAdmin {
     /// registered source is updated instead.
     pub fn add_plugin(&self, lane: &InLane<MaintenanceIo>, source_input: &Value, name: Option<&Value>) -> Result<Value> {
         let source = normalize_source(lane, source_input)?;
-        let identity = if source.display_source.is_empty() { source.url.clone().or_else(|| source.path.as_ref().map(|p| p.to_string_lossy().into_owned())).unwrap_or_default() } else { source.display_source.clone() };
+        let identity = if source.display_source.is_empty() {
+            source.url.clone().or_else(|| source.path.as_ref().map(|p| p.to_string_lossy().into_owned())).unwrap_or_default()
+        } else {
+            source.display_source.clone()
+        };
         let id = stable_id_for_source(&identity);
-        let matches = |plugin: &Value| plugin.get("id").and_then(Value::as_str) == Some(id.as_str()) || clean_field(plugin, "source") == js_trim(&source.display_source);
+        let matches =
+            |plugin: &Value| plugin.get("id").and_then(Value::as_str) == Some(id.as_str()) || clean_field(plugin, "source") == js_trim(&source.display_source);
         let initial = self.load_registry(lane)?;
         let lock_id = initial.iter().find(|p| matches(p)).and_then(|p| p.get("id")).map(clean).filter(|s| !s.is_empty()).unwrap_or_else(|| id.clone());
         self.with_plugin_mutation(lane, &lock_id, || {
@@ -408,7 +405,9 @@ impl PluginAdmin {
 
     fn update_locked(&self, lane: &InLane<MaintenanceIo>, current: &Value) -> Result<Value> {
         let id = clean_field(current, "id");
-        let position = |plugins: &[Value]| plugins.iter().position(|p| p.get("id") == current.get("id")).ok_or_else(|| PluginAdminError(format!("plugin not registered: {id}")));
+        let position = |plugins: &[Value]| {
+            plugins.iter().position(|p| p.get("id") == current.get("id")).ok_or_else(|| PluginAdminError(format!("plugin not registered: {id}")))
+        };
         if current.get("sourceType").and_then(Value::as_str) == Some("local") || current.get("managed") == Some(&Value::Bool(false)) {
             return self.mutate_registry(lane, |plugins| {
                 let index = position(plugins)?;

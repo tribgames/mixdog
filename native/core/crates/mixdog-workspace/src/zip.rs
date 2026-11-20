@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! A folder as a ZIP32 archive of its work files (port of `zip-folder.ts`).
 //! Inside a git work tree the file list is git's own verdict (`ls-files -co
 //! --exclude-standard`, asked of the SCM engine; untracked files stay, ignored ones
@@ -47,8 +51,7 @@ pub trait TrackedFiles: Send + Sync {
     /// How many untracked, ignored files that work tree has (`ls-files -o -i --exclude-standard`).
     async fn ignored(&self, root: &Path, cancel: &CancellationToken) -> Option<u64>;
 }
-const GENERATED_FOLDERS: &[&str] =
-    &["node_modules", ".venv", "venv", "__pycache__", ".cache", "dist", "build", ".next", "target"];
+const GENERATED_FOLDERS: &[&str] = &["node_modules", ".venv", "venv", "__pycache__", ".cache", "dist", "build", ".next", "target"];
 const DOS_TIME: u16 = 0;
 const DOS_DATE: u16 = ((2020 - 1980) << 9) | (1 << 5) | 1;
 
@@ -157,7 +160,11 @@ impl Exclusion {
                 }
             }
             Self::Generated => {
-                if GENERATED_FOLDERS.contains(&name) { Verdict::Out } else { Verdict::Walk }
+                if GENERATED_FOLDERS.contains(&name) {
+                    Verdict::Out
+                } else {
+                    Verdict::Walk
+                }
             }
         }
     }
@@ -281,81 +288,88 @@ struct Walk<'a> {
 
 type BoxFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = WsResult<()>> + Send + 'a>>;
 
-fn walk<'b, 'a: 'b>(w: &'b mut Walk<'a>, absolute: PathBuf, rel: String, ancestors: HashSet<String>, exclusion: Option<Arc<Exclusion>>, excl_rel: String) -> BoxFuture<'b> {
-        Box::pin(async move {
-            let dir = absolute.clone();
-            let entries = run(w.lanes.maintenance, w.cancel, move || sorted_entries(&dir)).await??;
-            // Checked after the listing: entries read through a redirected directory are never kept.
-            let check = absolute.clone();
-            if !run(w.lanes.maintenance, w.cancel, move || is_canonical(&check)).await? {
-                return Ok(());
-            }
-            for (name, is_dir) in entries {
-                let child = absolute.join(&name);
-                let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
-                let child_excl = if excl_rel.is_empty() { name.clone() } else { format!("{excl_rel}/{name}") };
-                let mut inside = exclusion.clone();
-                let mut fresh = false;
-                if let Some(rule) = &exclusion {
-                    if is_dir {
-                        match rule.directory(&child_excl, &name) {
-                            Verdict::Out => {
-                                if matches!(**rule, Exclusion::Generated) {
-                                    let counted = child.clone();
-                                    w.ignored += run(w.lanes.maintenance, w.cancel, move || count_files(&counted)).await?;
-                                }
-                                continue;
+fn walk<'b, 'a: 'b>(
+    w: &'b mut Walk<'a>,
+    absolute: PathBuf,
+    rel: String,
+    ancestors: HashSet<String>,
+    exclusion: Option<Arc<Exclusion>>,
+    excl_rel: String,
+) -> BoxFuture<'b> {
+    Box::pin(async move {
+        let dir = absolute.clone();
+        let entries = run(w.lanes.maintenance, w.cancel, move || sorted_entries(&dir)).await??;
+        // Checked after the listing: entries read through a redirected directory are never kept.
+        let check = absolute.clone();
+        if !run(w.lanes.maintenance, w.cancel, move || is_canonical(&check)).await? {
+            return Ok(());
+        }
+        for (name, is_dir) in entries {
+            let child = absolute.join(&name);
+            let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+            let child_excl = if excl_rel.is_empty() { name.clone() } else { format!("{excl_rel}/{name}") };
+            let mut inside = exclusion.clone();
+            let mut fresh = false;
+            if let Some(rule) = &exclusion {
+                if is_dir {
+                    match rule.directory(&child_excl, &name) {
+                        Verdict::Out => {
+                            if matches!(**rule, Exclusion::Generated) {
+                                let counted = child.clone();
+                                w.ignored += run(w.lanes.maintenance, w.cancel, move || count_files(&counted)).await?;
                             }
-                            Verdict::Whole => fresh = true,
-                            Verdict::Walk => {}
-                        }
-                    } else {
-                        if !rule.file(&child_excl) {
                             continue;
                         }
-                        fresh = true;
+                        Verdict::Whole => fresh = true,
+                        Verdict::Walk => {}
                     }
-                }
-                let (root, probe) = (w.root.clone(), child.clone());
-                let Some(location) = run(w.lanes.maintenance, w.cancel, move || entry_location(&root, &probe)).await?? else {
-                    continue;
-                };
-                if location.is_dir {
-                    if ancestors.contains(&comparable_str(&location.at.to_string_lossy())) {
+                } else {
+                    if !rule.file(&child_excl) {
                         continue;
                     }
-                    if let Some(hook) = w.before_descend {
-                        hook(&location.at);
-                    }
-                    let mut inside_rel = child_excl;
-                    if fresh {
-                        inside = exclusion_for(w.git, w.cancel, &location.at).await.map(Arc::new);
-                        inside_rel = String::new();
-                        w.ignored += inside.as_ref().map_or(0, |i| i.ignored());
-                    }
-                    let mut deeper = ancestors.clone();
-                    deeper.insert(comparable_str(&location.at.to_string_lossy()));
-                    let at = location.at.clone();
-                    // The recursion borrows `self` for its whole run: a fresh reborrow per entry.
-                    walk(w, at, child_rel, deeper, inside, inside_rel).await?;
-                } else if location.is_file {
-                    let id = match location.id {
-                        Some(id) => id,
-                        None => {
-                            let at = location.at.clone();
-                            run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??
-                        }
-                    };
-                    w.count += 1;
-                    w.bytes += location.size;
-                    // Past a cap the walk only counts, so the refusal can say how far over.
-                    if w.count <= w.max_files as u64 && w.bytes <= w.max_bytes {
-                        w.files.push(FolderFile { rel: child_rel, absolute: location.at, size: location.size, id });
-                    }
+                    fresh = true;
                 }
             }
-            Ok(())
-        })
+            let (root, probe) = (w.root.clone(), child.clone());
+            let Some(location) = run(w.lanes.maintenance, w.cancel, move || entry_location(&root, &probe)).await?? else {
+                continue;
+            };
+            if location.is_dir {
+                if ancestors.contains(&comparable_str(&location.at.to_string_lossy())) {
+                    continue;
+                }
+                if let Some(hook) = w.before_descend {
+                    hook(&location.at);
+                }
+                let mut inside_rel = child_excl;
+                if fresh {
+                    inside = exclusion_for(w.git, w.cancel, &location.at).await.map(Arc::new);
+                    inside_rel = String::new();
+                    w.ignored += inside.as_ref().map_or(0, |i| i.ignored());
+                }
+                let mut deeper = ancestors.clone();
+                deeper.insert(comparable_str(&location.at.to_string_lossy()));
+                let at = location.at.clone();
+                // The recursion borrows `self` for its whole run: a fresh reborrow per entry.
+                walk(w, at, child_rel, deeper, inside, inside_rel).await?;
+            } else if location.is_file {
+                let id = match location.id {
+                    Some(id) => id,
+                    None => {
+                        let at = location.at.clone();
+                        run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??
+                    }
+                };
+                w.count += 1;
+                w.bytes += location.size;
+                // Past a cap the walk only counts, so the refusal can say how far over.
+                if w.count <= w.max_files as u64 && w.bytes <= w.max_bytes {
+                    w.files.push(FolderFile { rel: child_rel, absolute: location.at, size: location.size, id });
+                }
+            }
+        }
+        Ok(())
+    })
 }
 
 struct Central {
@@ -367,7 +381,6 @@ struct Central {
     method: u16,
     offset: u32,
 }
-
 
 /// The regular files under `root` (a canonical path) that make up the folder, as relative
 /// `/`-separated paths in a stable order. Fails with `FolderTooLarge` once what is left
@@ -547,7 +560,10 @@ mod tests {
     fn a_header_field_past_its_width_fails_as_nodes_write_throws() {
         assert_eq!(u16_field(65_535).unwrap(), u16::MAX);
         let name = u16_field(70_000).unwrap_err();
-        assert_eq!((name.reason.code(), name.message.as_str()), ("ERR_OUT_OF_RANGE", "The value of \"value\" is out of range. It must be >= 0 and <= 65535. Received 70000"));
+        assert_eq!(
+            (name.reason.code(), name.message.as_str()),
+            ("ERR_OUT_OF_RANGE", "The value of \"value\" is out of range. It must be >= 0 and <= 65535. Received 70000")
+        );
         let size = u32_field((1 << 32) + 5).unwrap_err();
         assert_eq!(size.message, "The value of \"value\" is out of range. It must be >= 0 and <= 4294967295. Received 4_294_967_301");
     }

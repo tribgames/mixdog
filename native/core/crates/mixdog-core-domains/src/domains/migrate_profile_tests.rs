@@ -99,16 +99,25 @@ async fn late_profile_adoption_gives_the_editor_the_same_markdown_default_as_con
     for (existing, effective) in [(None, "rich"), (Some(json!("preview")), "preview"), (Some(Value::Null), "preview")] {
         let rig = Rig::new(existing.clone()).await;
         std::fs::create_dir(rig.dir("profile").join("User")).unwrap();
-        rig.put("profile", "User/settings.json", br#"{
+        rig.put(
+            "profile",
+            "User/settings.json",
+            br#"{
             // Legacy editor settings
             "mixdog.markdown.defaultView": "rich",
-        }"#);
+        }"#,
+        );
         let answer = rig.adopt(&path(rig.dir("profile"))).await.unwrap();
         assert_eq!(answer["moved"], json!(["User/settings.json"]));
         assert_eq!(rig.config.get(DESKTOP_MARKDOWN_DEFAULT_VIEW), existing.or_else(|| Some(json!("rich"))));
         let settings = mixdog_workspace::editorcfg::read_editor_settings(
-            &rig.dir("data").join("userdata"), &rig.dir("data"), "example.md", None, rig.config.markdown_default_view(),
-        ).unwrap();
+            &rig.dir("data").join("userdata"),
+            &rig.dir("data"),
+            "example.md",
+            None,
+            rig.config.markdown_default_view(),
+        )
+        .unwrap();
         assert_eq!(settings["markdownDefaultView"], effective);
     }
 }
@@ -127,9 +136,7 @@ impl Rig {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        let service = MigrateProfileService::new(
-            data.clone(), root.path().join("home"), data.join("userdata"), config.clone(), &tokens,
-        );
+        let service = MigrateProfileService::new(data.clone(), root.path().join("home"), data.join("userdata"), config.clone(), &tokens);
         Self { root, config, service }
     }
 

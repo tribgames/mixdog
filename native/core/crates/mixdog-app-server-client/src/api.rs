@@ -11,8 +11,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::broadcast;
 
 pub use mixdog_app_protocol::{
-    ErrorData, FeedStamp, JsonRpcErrorBody, JsonRpcNotification as RpcNotification, OpScopeRule,
-    RequestClass, RequestId, ServerRequest,
+    ErrorData, FeedStamp, JsonRpcErrorBody, JsonRpcNotification as RpcNotification, OpScopeRule, RequestClass, RequestId, ServerRequest,
     limits::Limits,
     v1::{ClientInfo, InitializeCapabilities, InitializeResponse},
     v2::{
@@ -22,9 +21,7 @@ pub use mixdog_app_protocol::{
         thread::ThreadResumeResponse,
     },
 };
-pub use mixdog_protocol::{
-    BlobDescriptor, BlobRef, JsonValue as Json, OpId, SectionName, SectionUpdate, ThreadId,
-};
+pub use mixdog_protocol::{BlobDescriptor, BlobRef, JsonValue as Json, OpId, SectionName, SectionUpdate, ThreadId};
 
 pub type OpScope = String;
 
@@ -46,30 +43,19 @@ impl MethodInfo {
     /// The `op/status` scope of a mutation (§9.2): `thread:<params[field]>` when present, else the domain.
     /// The rule's `field` is a wire path; a dotted path (`args.sessionId`) walks nested objects.
     pub fn op_scope_of(&self, params: &Json) -> Option<OpScope> {
-        let thread = |field: &str| {
-            field
-                .split('.')
-                .try_fold(params, |v, seg| v.get(seg))
-                .and_then(Json::as_str)
-                .map(|id| format!("thread:{id}"))
-        };
+        let thread = |field: &str| field.split('.').try_fold(params, |v, seg| v.get(seg)).and_then(Json::as_str).map(|id| format!("thread:{id}"));
         match self.op_scope {
             OpScopeRule::None => None,
             OpScopeRule::Domain { domain } => Some(domain.wire().to_string()),
             OpScopeRule::Thread { field } => thread(field),
-            OpScopeRule::ThreadOrDomain { field, domain } => {
-                thread(field).or_else(|| Some(domain.wire().to_string()))
-            }
+            OpScopeRule::ThreadOrDomain { field, domain } => thread(field).or_else(|| Some(domain.wire().to_string())),
         }
     }
 }
 
 /// `None` for a method not in the table.
 pub fn method_info(method: &str) -> Option<MethodInfo> {
-    mixdog_app_protocol::client_method_spec(method).map(|s| MethodInfo {
-        class: s.class,
-        op_scope: s.op_scope,
-    })
+    mixdog_app_protocol::client_method_spec(method).map(|s| MethodInfo { class: s.class, op_scope: s.op_scope })
 }
 // ───────────── transport (mock-able seam) ─────────────
 
@@ -129,10 +115,7 @@ pub struct LadderConfig {
     pub cap_ms: u64,
 }
 /// SPEC H17: 250 ms → 5 s, full jitter.
-pub const DEFAULT_LADDER: LadderConfig = LadderConfig {
-    base_ms: 250,
-    cap_ms: 5000,
-};
+pub const DEFAULT_LADDER: LadderConfig = LadderConfig { base_ms: 250, cap_ms: 5000 };
 
 // ───────────── errors ─────────────
 
@@ -151,11 +134,7 @@ pub enum ClientError {
     StaleAttachment,
     /// initialize refused by the version gate; terminal, no ladder (§4.4). `reason`: clientOutdated | serverOutdated.
     #[error("version refused: {reason}")]
-    VersionRefused {
-        reason: String,
-        server_version: String,
-        client_version: String,
-    },
+    VersionRefused { reason: String, server_version: String, client_version: String },
     #[error("unknown method {0}")]
     UnknownMethod(String),
     /// `op/status` said the mutation never ran and now never will (fenced). The caller decides whether to issue a new op.
@@ -164,11 +143,7 @@ pub enum ClientError {
     /// The outcome cannot be known: `expired` or `externalUnknown` (§9.4, §9.6), or `statusFailed` when the `op/status`
     /// call itself failed for good (`cause`).
     #[error("op {op_id} outcome unknown ({state})")]
-    OpOutcomeUnknown {
-        op_id: String,
-        state: String,
-        cause: Option<Box<ClientError>>,
-    },
+    OpOutcomeUnknown { op_id: String, state: String, cause: Option<Box<ClientError>> },
     /// The blob is permanently unavailable (`blobNotFound`). Fails only the one read or stub resolution.
     #[error("blob {0} not found")]
     BlobNotFound(String),
@@ -242,13 +217,8 @@ pub struct SectionEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreChange {
-    Thread {
-        thread_id: String,
-    },
-    Section {
-        section: SectionName,
-        key: Option<String>,
-    },
+    Thread { thread_id: String },
+    Section { section: SectionName, key: Option<String> },
 }
 
 /// Read side of the fold store. `store[section][key] = value` iff `revision > stored.revision`; `removed` deletes.
@@ -303,11 +273,7 @@ pub struct ReplyAddress {
 #[derive(Debug, Clone)]
 pub enum ServerRequestAnswer {
     Result(Json),
-    Error {
-        code: i64,
-        message: String,
-        data: Option<Json>,
-    },
+    Error { code: i64, message: String, data: Option<Json> },
 }
 
 // ───────────── client ─────────────
@@ -376,12 +342,7 @@ pub trait ProtocolClient: Send + Sync {
     fn server(&self) -> InitializeResponse;
     fn status(&self) -> ConnectionStatus;
 
-    async fn call_raw(
-        &self,
-        method: &str,
-        params: Json,
-        options: CallOptions,
-    ) -> Result<Json, ClientError>;
+    async fn call_raw(&self, method: &str, params: Json, options: CallOptions) -> Result<Json, ClientError>;
     /// Client notification (`terminal/input`, `terminal/resize`, `client/perfLog`, ...). `ConnectionLost` when not ready.
     async fn notify(&self, method: &str, params: Json) -> Result<(), ClientError>;
     /// A notification for the socket `attachment` names and no other: `StaleAttachment` when that socket is gone, whatever
@@ -389,11 +350,7 @@ pub trait ProtocolClient: Send + Sync {
     async fn notify_on(&self, attachment: AttachmentId, method: &str, params: Json) -> Result<(), ClientError>;
 
     /// `thread/resume`. Registers the subscription for restore after reconnect, sending the folded position as `resumeFrom`.
-    async fn resume_thread(
-        &self,
-        thread_id: &ThreadId,
-        window: ResumeWindow,
-    ) -> Result<ThreadResumeResponse, ClientError>;
+    async fn resume_thread(&self, thread_id: &ThreadId, window: ResumeWindow) -> Result<ThreadResumeResponse, ClientError>;
     /// `thread/unsubscribe`; drops the folded thread. Never stops work (X10).
     async fn unsubscribe_thread(&self, thread_id: &ThreadId) -> Result<(), ClientError>;
     /// `app/subscribe`, restored on reconnect with `resumeFrom`.
@@ -422,18 +379,12 @@ pub trait ProtocolClient: Send + Sync {
 /// Typed calls over the raw one. Mutation detection and opId assignment stay in `call_raw`, driven by the table.
 #[async_trait]
 pub trait ProtocolClientExt: ProtocolClient {
-    async fn call_typed<P, R>(
-        &self,
-        method: &str,
-        params: &P,
-        options: CallOptions,
-    ) -> Result<R, ClientError>
+    async fn call_typed<P, R>(&self, method: &str, params: &P, options: CallOptions) -> Result<R, ClientError>
     where
         P: Serialize + Sync,
         R: DeserializeOwned,
     {
-        let params = serde_json::to_value(params)
-            .map_err(|e| ClientError::ProtocolViolation(e.to_string()))?;
+        let params = serde_json::to_value(params).map_err(|e| ClientError::ProtocolViolation(e.to_string()))?;
         let result = self.call_raw(method, params, options).await?;
         serde_json::from_value(result).map_err(|e| ClientError::ProtocolViolation(e.to_string()))
     }

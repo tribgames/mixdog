@@ -32,28 +32,16 @@ impl Reply {
     }
 
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
     }
 }
 
 pub fn failed(code: &str, message: impl Into<String>) -> LoginFailure {
-    LoginFailure::Failed {
-        code: code.into(),
-        message: message.into(),
-    }
+    LoginFailure::Failed { code: code.into(), message: message.into() }
 }
 
 /// One request under the token-exchange deadline; the failure carries code `transport`.
-pub async fn call(
-    http: &dyn HttpSend,
-    method: &str,
-    url: &str,
-    headers: Vec<(&str, String)>,
-    body: Vec<u8>,
-) -> Result<Reply, LoginFailure> {
+pub async fn call(http: &dyn HttpSend, method: &str, url: &str, headers: Vec<(&str, String)>, body: Vec<u8>) -> Result<Reply, LoginFailure> {
     call_under(http, TOKEN_EXCHANGE, method, url, headers, body).await
 }
 
@@ -66,9 +54,7 @@ pub async fn call_under(
     headers: Vec<(&str, String)>,
     body: Vec<u8>,
 ) -> Result<Reply, LoginFailure> {
-    try_call_under(http, exchange, method, url, headers, body)
-        .await
-        .map_err(|err| failed("transport", err.into_message()))
+    try_call_under(http, exchange, method, url, headers, body).await.map_err(|err| failed("transport", err.into_message()))
 }
 
 /// The hint Node's sign-in pages add to a request that got no answer (`OAUTH_NETWORK_HINT`).
@@ -90,13 +76,7 @@ pub fn request_failed(operation: &str, error: &ProviderError) -> String {
 
 /// [`call`] keeping the transport's typed error, for the sites whose Node code words the failure itself.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-pub async fn try_call(
-    http: &dyn HttpSend,
-    method: &str,
-    url: &str,
-    headers: Vec<(&str, String)>,
-    body: Vec<u8>,
-) -> Result<Reply, ProviderError> {
+pub async fn try_call(http: &dyn HttpSend, method: &str, url: &str, headers: Vec<(&str, String)>, body: Vec<u8>) -> Result<Reply, ProviderError> {
     try_call_under(http, TOKEN_EXCHANGE, method, url, headers, body).await
 }
 
@@ -116,21 +96,14 @@ pub async fn try_call_under(
                 transport: TransportKind::Http1,
                 method: method.into(),
                 url: url.into(),
-                headers: headers
-                    .into_iter()
-                    .map(|(k, v)| (k.to_owned(), v))
-                    .collect(),
+                headers: headers.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
                 body,
             },
             exchange,
         )
         .await?;
     let read = response.read_all().await?;
-    Ok(Reply {
-        status: read.status.unwrap_or(0),
-        headers: read.headers,
-        body: read.body,
-    })
+    Ok(Reply { status: read.status.unwrap_or(0), headers: read.headers, body: read.body })
 }
 
 #[cfg(test)]
@@ -167,27 +140,16 @@ pub(crate) mod testing {
 
     impl Scripted {
         pub fn new(replies: &[(u16, &str)]) -> Arc<Self> {
-            Arc::new(Self {
-                replies: Mutex::new(replies.iter().map(|(s, b)| (*s, (*b).to_owned())).collect()),
-                seen: Mutex::new(Vec::new()),
-            })
+            Arc::new(Self { replies: Mutex::new(replies.iter().map(|(s, b)| (*s, (*b).to_owned())).collect()), seen: Mutex::new(Vec::new()) })
         }
     }
 
     #[async_trait]
     impl HttpSend for Scripted {
-        async fn send(
-            &self,
-            request: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
             self.seen.lock().unwrap().push(request);
             let (status, body) = self.replies.lock().unwrap().pop_front().expect("a scripted reply");
-            Ok(HttpResponse {
-                status,
-                headers: Vec::new(),
-                body: Box::new(Once(Some(Bytes::from(body)))),
-            })
+            Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
         }
     }
 

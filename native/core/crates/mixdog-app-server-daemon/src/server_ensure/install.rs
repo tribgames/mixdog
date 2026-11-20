@@ -86,9 +86,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 pub fn find_installed(paths: &RemotePaths, spec: &InstallSpec) -> Result<Option<PathBuf>, EnsureError> {
     let dir = paths.version_dir(spec.install_id)?;
-    let marker: Option<Marker> = fs::read(dir.join(COMPLETE_MARKER))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let marker: Option<Marker> = fs::read(dir.join(COMPLETE_MARKER)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok());
     let exe = dir.join(BINARY_NAME);
     Ok(marker
         .filter(|m| m.build == spec.build && m.version == spec.version && spec.sha256.is_none_or(|sha| m.sha256 == sha))
@@ -102,12 +100,7 @@ pub const PAYLOAD_DIR: &str = "payload";
 
 /// Finds the install complete, or publishes the file `source` (the running binary, unpacked and
 /// checked by the bootstrap shell) as it, with the `payload/` directory next to it, if any.
-pub fn ensure_installed(
-    paths: &RemotePaths,
-    spec: &InstallSpec,
-    now_ms: u64,
-    source: Option<&Path>,
-) -> Result<Installed, EnsureError> {
+pub fn ensure_installed(paths: &RemotePaths, spec: &InstallSpec, now_ms: u64, source: Option<&Path>) -> Result<Installed, EnsureError> {
     if let Some(exe) = find_installed(paths, spec)? {
         return Ok(Installed { exe, fresh: false });
     }
@@ -120,9 +113,7 @@ pub fn ensure_installed(
     let mut upload = fs::File::open(source).map_err(|e| io_failed("Cannot read the runtime to install", &e))?;
     let dir = paths.version_dir(spec.install_id)?;
     fs::create_dir_all(&paths.versions).map_err(|e| io_failed("Cannot create the versions directory", &e))?;
-    let staging = paths
-        .versions
-        .join(format!(".staging-{}-{}-{:08x}", spec.install_id, std::process::id(), rand::random::<u32>()));
+    let staging = paths.versions.join(format!(".staging-{}-{}-{:08x}", spec.install_id, std::process::id(), rand::random::<u32>()));
     let payload = source.parent().map(|parent| parent.join(PAYLOAD_DIR)).filter(|path| path.is_dir());
     let result = stage_and_publish(&staging, &dir, spec, sha256, now_ms, &mut upload, payload.as_deref());
     if result.is_err() {
@@ -162,8 +153,7 @@ fn stage_and_publish(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&staged_exe, fs::Permissions::from_mode(0o755))
-            .map_err(|e| io_failed("Cannot make the binary executable", &e))?;
+        fs::set_permissions(&staged_exe, fs::Permissions::from_mode(0o755)).map_err(|e| io_failed("Cannot make the binary executable", &e))?;
     }
     // The JS runtime travels in the same bundle: `js-runtime.json`, the bundled node and the package
     // root move beside the binary (the bootstrap extracts both under one filesystem), so one rename
@@ -171,8 +161,7 @@ fn stage_and_publish(
     if let Some(payload) = payload {
         for entry in fs::read_dir(payload).map_err(|e| io_failed("Cannot read the uploaded runtime payload", &e))? {
             let entry = entry.map_err(|e| io_failed("Cannot read the uploaded runtime payload", &e))?;
-            fs::rename(entry.path(), staging.join(entry.file_name()))
-                .map_err(|e| io_failed("Cannot place the uploaded runtime payload", &e))?;
+            fs::rename(entry.path(), staging.join(entry.file_name())).map_err(|e| io_failed("Cannot place the uploaded runtime payload", &e))?;
         }
     }
     // Whatever sits at the final path has no matching marker: never trusted.
@@ -180,12 +169,7 @@ fn stage_and_publish(
         fs::remove_dir_all(dir).map_err(|e| io_failed("Cannot replace the incomplete install", &e))?;
     }
     fs::rename(staging, dir).map_err(|e| io_failed("Cannot publish the install", &e))?;
-    let marker = Marker {
-        version: spec.version.to_owned(),
-        build: spec.build.to_owned(),
-        sha256: sha256.to_owned(),
-        installed_at: now_ms,
-    };
+    let marker = Marker { version: spec.version.to_owned(), build: spec.build.to_owned(), sha256: sha256.to_owned(), installed_at: now_ms };
     let bytes = serde_json::to_vec(&marker).map_err(|e| io_failed("Cannot write the marker", &e.into()))?;
     write_atomic(&dir.join(COMPLETE_MARKER), &bytes).map_err(|e| io_failed("Cannot write the marker", &e))
 }
@@ -198,10 +182,7 @@ pub struct InstallState {
 
 /// Makes `install_id` current; the version it replaces becomes previous.
 pub fn record_current(paths: &RemotePaths, install_id: &str) -> Result<InstallState, EnsureError> {
-    let mut state: InstallState = fs::read(&paths.state)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
+    let mut state: InstallState = fs::read(&paths.state).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
     if state.current.as_deref() != Some(install_id) {
         state.previous = state.current.take();
         state.current = Some(install_id.to_owned());
@@ -357,10 +338,7 @@ mod tests {
     fn missing_install_without_upload_is_a_fact_not_a_guess() {
         let (_home, paths) = setup();
         let spec = InstallSpec { install_id: "1.4.6-abc", version: "1.4.6", build: "abc", sha256: Some("00") };
-        assert_eq!(
-            ensure_installed(&paths, &spec, 0, None),
-            Err(EnsureError::InstallMissing("1.4.6-abc".into()))
-        );
+        assert_eq!(ensure_installed(&paths, &spec, 0, None), Err(EnsureError::InstallMissing("1.4.6-abc".into())));
     }
 
     #[test]

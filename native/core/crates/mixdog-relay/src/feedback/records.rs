@@ -79,19 +79,13 @@ impl Record {
 /// `RECORD_FILE`: a lowercase uuid and `.json`.
 pub fn is_record_file(name: &str) -> bool {
     static PATTERN: OnceLock<JsRegex> = OnceLock::new();
-    PATTERN
-        .get_or_init(|| JsRegex::new_static(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$", ""))
-        .is_match(name)
+    PATTERN.get_or_init(|| JsRegex::new_static(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$", "")).is_match(name)
 }
 
 /// `UUID` (case-insensitive).
 pub fn is_uuid(text: &str) -> bool {
     let bytes = text.as_bytes();
-    bytes.len() == 36
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(at, b)| if matches!(at, 8 | 13 | 18 | 23) { *b == b'-' } else { b.is_ascii_hexdigit() })
+    bytes.len() == 36 && bytes.iter().enumerate().all(|(at, b)| if matches!(at, 8 | 13 | 18 | 23) { *b == b'-' } else { b.is_ascii_hexdigit() })
 }
 
 /// Lowercase hex of the SHA-256 of `bytes`.
@@ -109,10 +103,7 @@ pub fn payload_hash(kind: &str, message: &str, reply_to: &str, attachments: &[At
     let text = |value: &str| Value::String(value.to_owned());
     let mut parts = vec![text(kind), text(message), text(reply_to)];
     if !attachments.is_empty() {
-        let digests = attachments
-            .iter()
-            .map(|a| Value::Array(vec![text(&a.name), text(&a.mime_type), text(&sha256_hex(a.data.as_bytes()))]))
-            .collect();
+        let digests = attachments.iter().map(|a| Value::Array(vec![text(&a.name), text(&a.mime_type), text(&sha256_hex(a.data.as_bytes()))])).collect();
         parts.push(Value::Array(digests));
     }
     sha256_hex(js::wire(&Value::Array(parts)).as_bytes())
@@ -135,15 +126,7 @@ fn valid_record(name: &str, data: &Value) -> Option<Record> {
     let created_at = number(object.get("createdAt"))?;
     let attempts = number(object.get("attempts"))?;
     let next_attempt_at = number(object.get("nextAttemptAt"))?;
-    let record = |payload| Record {
-        id: id.to_owned(),
-        hash: hash.to_owned(),
-        payload,
-        created_at,
-        attempts,
-        next_attempt_at,
-        sent_at,
-    };
+    let record = |payload| Record { id: id.to_owned(), hash: hash.to_owned(), payload, created_at, attempts, next_attempt_at, sent_at };
     if sent_at != 0.0 {
         return Some(record(None));
     }
@@ -156,12 +139,7 @@ fn valid_record(name: &str, data: &Value) -> Option<Record> {
         None => None,
         Some(value) => Some(attachments::normalize(Some(value)).ok()?),
     };
-    Some(record(Some(Payload {
-        kind: kind.to_owned(),
-        message: message.to_owned(),
-        reply_to: reply_to.to_owned(),
-        attachments,
-    })))
+    Some(record(Some(Payload { kind: kind.to_owned(), message: message.to_owned(), reply_to: reply_to.to_owned(), attachments })))
 }
 
 /// What one file of the feedback directory came to.
@@ -169,9 +147,14 @@ fn valid_record(name: &str, data: &Value) -> Option<Record> {
 pub enum Loaded {
     Record(Box<Record>),
     /// The file could not be read or is not JSON: `code` is the error code Node would log (`error` when it has none).
-    Unreadable { file: String, code: String },
+    Unreadable {
+        file: String,
+        code: String,
+    },
     /// JSON that is not a record, or a record of another file.
-    Corrupt { file: String },
+    Corrupt {
+        file: String,
+    },
 }
 
 /// The code of an I/O failure as a log line writes it: Node's `error.code`, or `error`.
@@ -240,10 +223,7 @@ impl Disk {
         self.dir.join(format!("{id}.json"))
     }
 
-    async fn job<R: Send + 'static>(
-        &self,
-        body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static,
-    ) -> io::Result<R> {
+    async fn job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
         let handle = self.io.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other("lane"))?;
         handle.await.map_err(|_| io::Error::other("lane"))?
     }

@@ -376,19 +376,11 @@ pub struct ProviderKey {
 
 impl ProviderKey {
     pub fn primary(store: ApiKeyStore, provider: &str, config: KeyConfig) -> Arc<Self> {
-        Arc::new(Self {
-            store,
-            origin: Origin::Provider { provider: provider.to_owned(), config },
-            latest: Mutex::default(),
-        })
+        Arc::new(Self { store, origin: Origin::Provider { provider: provider.to_owned(), config }, latest: Mutex::default() })
     }
 
     pub fn additional(store: ApiKeyStore, provider: &str, key_id: &str) -> Arc<Self> {
-        Arc::new(Self {
-            store,
-            origin: Origin::Custom { provider: provider.to_owned(), key_id: key_id.to_owned() },
-            latest: Mutex::default(),
-        })
+        Arc::new(Self { store, origin: Origin::Custom { provider: provider.to_owned(), key_id: key_id.to_owned() }, latest: Mutex::default() })
     }
 
     fn name(&self) -> &str {
@@ -554,10 +546,7 @@ mod tests {
     async fn config_precedence_and_reload() {
         let (s, vault) = store(&[("MY_KEY", "from-env")], false);
         vault.set("agent.p.apiKey", "stored").await.unwrap();
-        let cfg = |key: Option<&str>, env: Option<&str>| KeyConfig {
-            api_key: key.map(str::to_owned),
-            api_key_env: env.map(str::to_owned),
-        };
+        let cfg = |key: Option<&str>, env: Option<&str>| KeyConfig { api_key: key.map(str::to_owned), api_key_env: env.map(str::to_owned) };
         assert_eq!(s.resolve("p", &cfg(Some("cfg"), Some("MY_KEY"))).await.unwrap(), "from-env");
         assert_eq!(s.resolve("p", &cfg(Some("cfg"), Some("UNSET"))).await.unwrap(), "");
         assert_eq!(s.resolve("p", &cfg(Some("cfg"), None)).await.unwrap(), "cfg");
@@ -647,7 +636,6 @@ mod tests {
         assert_eq!(key.reloaded().await.unwrap_err().kind, ErrorKind::Transient);
     }
 }
-
 
 /// [`Environment::key_var`] over the real process environment for a caller with no injected one, keeping `var_os`'s answer
 /// (a value that is not UTF-8 is still set). With `key_var`, the one place a credential variable is read.

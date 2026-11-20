@@ -70,29 +70,13 @@ pub struct ChatParams<'a> {
 pub fn deterministic_uuid(seed: &str) -> String {
     let digest = Sha256::digest(seed.as_bytes());
     let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    )
+    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }
 
 /// A foreign tool-call id on the Devin wire: unsupported characters to `_`,
 /// capped.
 pub fn normalize_tool_call_id(id: &str) -> String {
-    id.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .take(TOOL_CALL_ID_MAX_LENGTH)
-        .collect()
+    id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).take(TOOL_CALL_ID_MAX_LENGTH).collect()
 }
 
 fn duplicate_id(id: &str, index: usize) -> String {
@@ -146,19 +130,13 @@ fn lowered_content(content: &Content, vision: bool) -> Result<(String, Vec<Image
         match part {
             ContentPart::Text(t, _) => text.push_str(t),
             ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) if vision => {
-                images.push(ImageData {
-                    base64_data: data.clone(),
-                    mime_type: mime_type.clone(),
-                });
+                images.push(ImageData { base64_data: data.clone(), mime_type: mime_type.clone() });
             }
             ContentPart::Image(ImageSource::Url(_) | ImageSource::FileId(_)) if vision => return Err(link_refused()),
             // Never turned into text, a link or a marker: an image this wire cannot carry (a model without vision, an image
             // that was not prepared) is not sent.
             ContentPart::Image(_) => return Err(unprepared_image()),
-            ContentPart::Document {
-                source: DocumentSource::Text { data, .. },
-                ..
-            } => text.push_str(data),
+            ContentPart::Document { source: DocumentSource::Text { data, .. }, .. } => text.push_str(data),
             ContentPart::Document { .. } | ContentPart::File { .. } => match crate::providers::file_text::file_part_text(part) {
                 Some(file) => text.push_str(&file),
                 None => text.push_str(&omitted("document")),
@@ -197,9 +175,7 @@ pub fn wire_tool_call_ids(messages: Vec<Message>, provider: &ProviderId, model: 
                         message.tool_call_id = Some(wire.clone());
                     }
                 }
-                Role::Assistant
-                    if !message.tool_calls.is_empty() && same_model_replay(&message, provider, model).is_none() =>
-                {
+                Role::Assistant if !message.tool_calls.is_empty() && same_model_replay(&message, provider, model).is_none() => {
                     for call in &mut message.tool_calls {
                         let wire = normalize_tool_call_id(&call.id);
                         if wire != call.id {
@@ -299,19 +275,13 @@ pub fn paired_transcript(messages: Vec<Message>) -> Vec<Message> {
     let mut live_calls: HashSet<String> = HashSet::new();
     for (index, message) in messages.iter().enumerate() {
         match message.role {
-            Role::Tool => results
-                .entry(message.tool_call_id.clone().unwrap_or_default())
-                .or_default()
-                .push((index, false)),
+            Role::Tool => results.entry(message.tool_call_id.clone().unwrap_or_default()).or_default().push((index, false)),
             Role::Assistant => live_calls.extend(message.tool_calls.iter().map(|c| c.id.clone())),
             _ => {}
         }
     }
     let take = |results: &mut HashMap<String, Vec<(usize, bool)>>, id: &str, after: usize| -> Option<usize> {
-        let entry = results
-            .get_mut(id)?
-            .iter_mut()
-            .find(|(index, consumed)| !*consumed && *index > after)?;
+        let entry = results.get_mut(id)?.iter_mut().find(|(index, consumed)| !*consumed && *index > after)?;
         entry.1 = true;
         Some(entry.0)
     };
@@ -321,10 +291,10 @@ pub fn paired_transcript(messages: Vec<Message>) -> Vec<Message> {
     let mut pending: Vec<mixdog_core_api::domain::provider::ToolCall> = Vec::new();
     let mut pending_start = 0usize;
     let flush = |out: &mut Vec<Message>,
-                     pending: &mut Vec<mixdog_core_api::domain::provider::ToolCall>,
-                     resolved: &mut HashSet<String>,
-                     results: &mut HashMap<String, Vec<(usize, bool)>>,
-                     start: usize| {
+                 pending: &mut Vec<mixdog_core_api::domain::provider::ToolCall>,
+                 resolved: &mut HashSet<String>,
+                 results: &mut HashMap<String, Vec<(usize, bool)>>,
+                 start: usize| {
         for call in pending.drain(..) {
             if resolved.contains(&call.id) {
                 continue;
@@ -355,10 +325,7 @@ pub fn paired_transcript(messages: Vec<Message>) -> Vec<Message> {
                 if pending.iter().any(|c| c.id == id) {
                     // Answered in place by the first result at or after the call.
                     resolved.insert(id.clone());
-                    if let Some(entry) = results
-                        .get_mut(&id)
-                        .and_then(|v| v.iter_mut().find(|(i, consumed)| !*consumed && *i == index))
-                    {
+                    if let Some(entry) = results.get_mut(&id).and_then(|v| v.iter_mut().find(|(i, consumed)| !*consumed && *i == index)) {
                         entry.1 = true;
                     }
                     pending.retain(|c| c.id != id);
@@ -378,10 +345,7 @@ pub fn paired_transcript(messages: Vec<Message>) -> Vec<Message> {
                 let error_attr = if message.is_error { " is-error=\"true\"" } else { "" };
                 out.push(Message::new(
                     Role::User,
-                    Content::Text(format!(
-                        "<stale-tool-result tool=\"\" id=\"{id}\"{error_attr}>\n{}\n</stale-tool-result>",
-                        texts.join("\n")
-                    )),
+                    Content::Text(format!("<stale-tool-result tool=\"\" id=\"{id}\"{error_attr}>\n{}\n</stale-tool-result>", texts.join("\n"))),
                 ));
             }
             _ => {
@@ -394,11 +358,7 @@ pub fn paired_transcript(messages: Vec<Message>) -> Vec<Message> {
     out
 }
 
-fn assistant_prompt(
-    message: &Message,
-    params: &ChatParams<'_>,
-    message_id: String,
-) -> Option<ChatMessagePrompt> {
+fn assistant_prompt(message: &Message, params: &ChatParams<'_>, message_id: String) -> Option<ChatMessagePrompt> {
     let native = same_model_replay(message, params.provider, params.model);
     let text = plain_text(&message.content);
     let tool_calls: Vec<ChatToolCall> = message
@@ -414,20 +374,10 @@ fn assistant_prompt(
             ..ChatToolCall::default()
         })
         .collect();
-    let field = |name: &str| {
-        native
-            .and_then(|item| item.get(name))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned()
-    };
+    let field = |name: &str| native.and_then(|item| item.get(name)).and_then(Value::as_str).unwrap_or_default().to_owned();
     let thinking = field("thinking");
     let signature = field("signature");
-    let signature_type = if signature.is_empty() {
-        String::new()
-    } else {
-        field("signatureType")
-    };
+    let signature_type = if signature.is_empty() { String::new() } else { field("signatureType") };
     if text.is_empty() && thinking.is_empty() && signature.is_empty() && tool_calls.is_empty() {
         return None;
     }
@@ -494,12 +444,7 @@ fn chat_prompts(messages: &[Message], params: &ChatParams<'_>, vision: bool) -> 
 pub fn router_prompt(messages: &[Message], vision: bool) -> Result<Option<ChatMessagePrompt>, ProviderError> {
     let Some(message) = messages.iter().rev().find(|m| matches!(m.role, Role::User | Role::Developer)) else { return Ok(None) };
     let (text, images) = lowered_content(&message.content, vision)?;
-    Ok(Some(ChatMessagePrompt {
-        source: source::USER,
-        prompt: text,
-        images,
-        ..ChatMessagePrompt::default()
-    }))
+    Ok(Some(ChatMessagePrompt { source: source::USER, prompt: text, images, ..ChatMessagePrompt::default() }))
 }
 
 fn gemini_model(id: &str) -> bool {
@@ -527,7 +472,9 @@ fn gemini_parameters(schema: &Value) -> Result<Value, String> {
         for (key, value) in map {
             let lowered = match key.as_str() {
                 "$ref" => {
-                    let target = value.as_str().and_then(|reference| reference.strip_prefix('#'))
+                    let target = value
+                        .as_str()
+                        .and_then(|reference| reference.strip_prefix('#'))
                         .and_then(decode_uri_component)
                         .and_then(|pointer| root.pointer(&pointer))
                         .ok_or_else(|| "Gemini requires an inline schema or a local JSON-pointer reference".to_owned())?;
@@ -537,7 +484,10 @@ fn gemini_parameters(schema: &Value) -> Result<Value, String> {
                 "$id" if depth > 0 => return Err("Gemini cannot inline a nested schema resource".into()),
                 "$dynamicRef" | "$recursiveRef" => return Err("Gemini cannot inline a dynamic reference".into()),
                 "properties" => Value::Object(
-                    value.as_object().into_iter().flatten()
+                    value
+                        .as_object()
+                        .into_iter()
+                        .flatten()
                         .map(|(name, child)| Ok((name.clone(), lower(child, root, budget, depth + 1)?)))
                         .collect::<Result<_, String>>()?,
                 ),
@@ -560,9 +510,7 @@ fn gemini_parameters(schema: &Value) -> Result<Value, String> {
                             continue;
                         }
                     }
-                    let branches = value.as_array().into_iter().flatten()
-                        .map(|child| lower(child, root, budget, depth + 1))
-                        .collect::<Result<Vec<_>, _>>()?;
+                    let branches = value.as_array().into_iter().flatten().map(|child| lower(child, root, budget, depth + 1)).collect::<Result<Vec<_>, _>>()?;
                     if key == "allOf" {
                         conjuncts.extend(branches);
                         continue;
@@ -582,9 +530,10 @@ fn gemini_parameters(schema: &Value) -> Result<Value, String> {
                                 out.insert("nullable".into(), Value::Bool(true));
                             }
                         } else {
-                            let branches: Vec<_> = std::iter::once(first).chain(rest).map(|kind| {
-                                if nullable { json!({"type": kind, "nullable": true}) } else { json!({"type": kind}) }
-                            }).collect();
+                            let branches: Vec<_> = std::iter::once(first)
+                                .chain(rest)
+                                .map(|kind| if nullable { json!({"type": kind, "nullable": true}) } else { json!({"type": kind}) })
+                                .collect();
                             conjuncts.push(json!({"anyOf": branches}));
                         }
                     } else {
@@ -667,12 +616,7 @@ fn tool_definitions(request: &ModelRequest, params: &ChatParams<'_>) -> Vec<Tool
                 lower_openapi_nullable(&mut schema);
                 schema
             };
-            Some(ToolDefinition {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                json_schema_string: schema.to_string(),
-                strict: false,
-            })
+            Some(ToolDefinition { name: tool.name.clone(), description: tool.description.clone(), json_schema_string: schema.to_string(), strict: false })
         })
         .collect()
 }
@@ -682,17 +626,8 @@ fn tool_definitions(request: &ModelRequest, params: &ChatParams<'_>) -> Vec<Tool
 pub fn build_chat_request(request: &ModelRequest, params: &ChatParams<'_>) -> Result<ChatRequest, ProviderError> {
     let all = &request.messages;
     let start = all.iter().take_while(|m| m.role == Role::System).count();
-    let prompt = all[..start]
-        .iter()
-        .map(|m| plain_text(&m.content))
-        .filter(|t| !t.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let history = paired_transcript(wire_tool_call_ids(
-        all[start..].to_vec(),
-        params.provider,
-        params.model,
-    ));
+    let prompt = all[..start].iter().map(|m| plain_text(&m.content)).filter(|t| !t.trim().is_empty()).collect::<Vec<_>>().join("\n\n");
+    let history = paired_transcript(wire_tool_call_ids(all[start..].to_vec(), params.provider, params.model));
     let vision = params.row.is_some_and(|r| r.supports_vision);
     let max_tokens = request
         .options
@@ -764,20 +699,23 @@ mod tests {
             options: Default::default(),
         };
         for (uid, expected) in [
-            ("MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW", json!({
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "number", "nullable": true, "description": "Maximum items"},
-                    "alias": {"type": "string", "nullable": true},
-                    "choice": {"anyOf": [{"type": "string", "enum": ["fast"]}, {"type": "string", "nullable": true, "not": {"type": "string"}}]},
-                    "mode": {"type": "string", "enum": ["fast", "slow"]},
-                    "replace_all": {"type": "boolean", "default": false},
-                    "minutes": {"type": "integer", "description": "Schema hints (not enforced by this declaration): {\"enum\":[30,60,120,240]}"}
-                },
-                "required": ["limit"],
-                "description": "Schema hints (not enforced by this declaration): {\"additionalProperties\":false}",
-                "propertyOrdering": ["limit", "alias", "choice", "mode", "replace_all", "minutes"]
-            })),
+            (
+                "MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "number", "nullable": true, "description": "Maximum items"},
+                        "alias": {"type": "string", "nullable": true},
+                        "choice": {"anyOf": [{"type": "string", "enum": ["fast"]}, {"type": "string", "nullable": true, "not": {"type": "string"}}]},
+                        "mode": {"type": "string", "enum": ["fast", "slow"]},
+                        "replace_all": {"type": "boolean", "default": false},
+                        "minutes": {"type": "integer", "description": "Schema hints (not enforced by this declaration): {\"enum\":[30,60,120,240]}"}
+                    },
+                    "required": ["limit"],
+                    "description": "Schema hints (not enforced by this declaration): {\"additionalProperties\":false}",
+                    "propertyOrdering": ["limit", "alias", "choice", "mode", "replace_all", "minutes"]
+                }),
+            ),
             ("MODEL_OPENAI_GPT_5", {
                 let mut expected = schema;
                 expected["properties"]["alias"] = json!({"type": ["string", "null"]});
@@ -814,11 +752,14 @@ mod tests {
             "properties": {"value": {"$ref": "#/$defs/a%20b%7E1c%7E0d"}}
         });
         let schema = wire_input_schema(&schema, Rule::OpenAi).unwrap();
-        assert_eq!(gemini_parameters(&schema).unwrap(), json!({
-            "type": "object",
-            "properties": {"value": {"type": "string", "enum": ["ok"]}},
-            "propertyOrdering": ["value"]
-        }));
+        assert_eq!(
+            gemini_parameters(&schema).unwrap(),
+            json!({
+                "type": "object",
+                "properties": {"value": {"type": "string", "enum": ["ok"]}},
+                "propertyOrdering": ["value"]
+            })
+        );
     }
 
     fn parts(parts: Vec<ContentPart>) -> Content {

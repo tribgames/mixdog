@@ -66,9 +66,16 @@ pub struct LockOpts {
 #[derive(Debug)]
 pub enum LockError {
     /// Try-once (`timeout` 0) and another holder has it (`ELOCKCONTENDED`).
-    Contended { path: PathBuf, holder: String },
+    Contended {
+        path: PathBuf,
+        holder: String,
+    },
     /// Held by another for the whole wait (`ELOCKTIMEOUT`).
-    Timeout { path: PathBuf, timeout: Duration, holder: String },
+    Timeout {
+        path: PathBuf,
+        timeout: Duration,
+        holder: String,
+    },
     Io(io::Error),
 }
 
@@ -219,10 +226,7 @@ fn read_owner(proof: &impl ReadProof, path: &Path) -> Owner {
     let parts: Vec<&str> = text.split_whitespace().collect();
     // `parseInt`: the leading digits.
     let digits: String = parts.first().map(|p| p.chars().take_while(char::is_ascii_digit).collect()).unwrap_or_default();
-    Owner {
-        pid: digits.parse::<u32>().ok().filter(|pid| *pid > 0),
-        token: (parts.len() >= 3).then(|| parts[2].to_owned()),
-    }
+    Owner { pid: digits.parse::<u32>().ok().filter(|pid| *pid > 0), token: (parts.len() >= 3).then(|| parts[2].to_owned()) }
 }
 
 /// Whether a process with this pid exists (`process.kill(pid, 0)`): only "no such process"
@@ -339,10 +343,7 @@ fn file_id(proof: &impl ReadProof, path: &Path) -> io::Result<(u64, u64)> {
         if unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), &mut info) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok((
-            u64::from(info.dwVolumeSerialNumber),
-            (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
-        ))
+        Ok((u64::from(info.dwVolumeSerialNumber), (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow)))
     }
 }
 
@@ -382,8 +383,7 @@ fn acquire_reclaim_guard(proof: &impl WriteProof, lock: &Path, now_ns: i128) -> 
     let token = format!("{} {} {}\n", std::process::id(), now_ns.div_euclid(1_000_000), hex16());
     for attempt in 0..2 {
         let staged = PathBuf::from(format!("{}.{}.{}.tmp", guard.display(), std::process::id(), hex16()));
-        let linked =
-            create_exclusive(proof, &staged, &token, Access::Inherit).and_then(|()| mixdog_fsio::hard_link(proof, &staged, &guard));
+        let linked = create_exclusive(proof, &staged, &token, Access::Inherit).and_then(|()| mixdog_fsio::hard_link(proof, &staged, &guard));
         let _ = mixdog_fsio::remove_file(proof, &staged);
         match linked {
             Ok(()) => return Some(ReclaimGuard { path: guard, token }),
@@ -449,8 +449,7 @@ fn sweep_staged(proof: &impl WriteProof, lock: &Path, now_ns: i128) {
         let Some(rest) = file.strip_prefix(&prefix).and_then(|r| r.strip_suffix(".tmp")) else { continue };
         let rest = rest.strip_prefix("reclaim.").unwrap_or(rest);
         let Some((pid, hex)) = rest.split_once('.') else { continue };
-        let (Ok(pid), true) = (pid.parse::<u32>(), hex.len() == 16 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-        else {
+        let (Ok(pid), true) = (pid.parse::<u32>(), hex.len() == 16 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) else {
             continue;
         };
         let old = entry.metadata(proof).is_ok_and(|m| aged(&m, now_ns, STAGED_STALE));
@@ -539,24 +538,13 @@ fn take_turn(line: &Arc<Line>, try_once: bool, until: Option<std::time::Instant>
 }
 
 /// Runs `body` holding the lock at `lock`.
-pub(crate) fn locked<P: WriteProof, R>(
-    proof: &P,
-    lock: &Path,
-    opts: &LockOpts,
-    body: impl FnOnce() -> R,
-) -> Result<R, LockError> {
+pub(crate) fn locked<P: WriteProof, R>(proof: &P, lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) -> Result<R, LockError> {
     locked_on(&WallClock, proof, lock, opts, body)
 }
 
 /// [`locked`] on `clock`: `acquireLock` (file-lock.mjs:420-457) with its deadline (`Date.now() + timeoutMs`, a fraction
 /// kept), its waits and the holder's age read on `clock`.
-pub(crate) fn locked_on<P: WriteProof, R>(
-    clock: &impl LockClock,
-    proof: &P,
-    lock: &Path,
-    opts: &LockOpts,
-    body: impl FnOnce() -> R,
-) -> Result<R, LockError> {
+pub(crate) fn locked_on<P: WriteProof, R>(clock: &impl LockClock, proof: &P, lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) -> Result<R, LockError> {
     locked_in(clock, proof, lock, opts, false, body)
 }
 
@@ -677,14 +665,7 @@ pub mod steps {
 
     /// One attempt: `owner`'s record published at `lock`, a stale holder's lock reclaimed first. `access` is the lock
     /// file's (owner-only for a lock taken with `secret`).
-    pub fn attempt<L: WriteLane>(
-        lane: &InLane<L>,
-        lock: &Path,
-        opts: &LockOpts,
-        owner: &LockOwner,
-        access: Access,
-        now_ms: u64,
-    ) -> Result<Attempt, LockError> {
+    pub fn attempt<L: WriteLane>(lane: &InLane<L>, lock: &Path, opts: &LockOpts, owner: &LockOwner, access: Access, now_ms: u64) -> Result<Attempt, LockError> {
         super::try_take(lane, lock, opts, owner, access, ns(now_ms))
     }
 
@@ -808,4 +789,3 @@ fn hold_lock_in(lock_file: &Path, opts: &LockOpts, one_deadline: bool, acquired:
 #[cfg(test)]
 #[path = "lock_timing_tests.rs"]
 mod timing_tests;
-

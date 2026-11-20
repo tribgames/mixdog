@@ -82,7 +82,10 @@ pub(super) fn resolvable(surface: &ToolSurface<'_>, session: &Value) -> Vec<Valu
     if tools.is_empty() {
         tools = session.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
     }
-    filter_disallowed_tools(&tools, &strings(session, "disallowedTools")).into_iter().filter(|tool| permitted_by_session_policy(session, &tool_name(tool))).collect()
+    filter_disallowed_tools(&tools, &strings(session, "disallowedTools"))
+        .into_iter()
+        .filter(|tool| permitted_by_session_policy(session, &tool_name(tool)))
+        .collect()
 }
 
 /// `routeToolExclusionReason(session, tool)`: why the route leaves the tool out of every request,
@@ -100,7 +103,14 @@ pub(super) fn route_exclusion(header: &Header, excluded: &[(String, String)], to
 
 /// `selectDeferredTools(session, names, mode, { exact })`, `readonly` being `mode === 'readonly'`
 /// and `excluded` the route's dropped tools.
-pub(super) fn select(surface: &ToolSurface<'_>, session: &mut Value, excluded: &[(String, String)], names: &[String], readonly: bool, exact: bool) -> Selection {
+pub(super) fn select(
+    surface: &ToolSurface<'_>,
+    session: &mut Value,
+    excluded: &[(String, String)],
+    names: &[String],
+    readonly: bool,
+    exact: bool,
+) -> Selection {
     let header = session.as_object().cloned().unwrap_or_default();
     let catalog = resolvable(surface, session);
     let mut active: Vec<String> = Vec::new();
@@ -108,7 +118,8 @@ pub(super) fn select(surface: &ToolSurface<'_>, session: &mut Value, excluded: &
     for name in eager.iter().map(tool_name).filter(|name| !name.is_empty()).chain(parse_tool_selection(session.get("deferredCallableTools"))) {
         insert(&mut active, name);
     }
-    let native = session.get("deferredProviderMode").and_then(Value::as_str) == Some("native") || session.get("deferredNativeTools") == Some(&Value::Bool(true));
+    let native =
+        session.get("deferredProviderMode").and_then(Value::as_str) == Some("native") || session.get("deferredNativeTools") == Some(&Value::Bool(true));
     let mut discovered: Vec<String> = Vec::new();
     for name in session.get("deferredDiscoveredTools").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
         insert(&mut discovered, name.to_owned());
@@ -284,7 +295,10 @@ pub(super) fn pending_and_failed_mcp_servers(status: &Value) -> (Vec<String>, Ve
 /// `sessionFeatureDenies(session, name)`: a settings gate closed `name` for the session.
 fn feature_denies(session: &Value, name: &str) -> bool {
     let name = name.to_lowercase();
-    session.get("featureDeniedTools").and_then(Value::as_array).is_some_and(|denied| denied.iter().any(|d| d.as_str().is_some_and(|d| d.to_lowercase() == name)))
+    session
+        .get("featureDeniedTools")
+        .and_then(Value::as_array)
+        .is_some_and(|denied| denied.iter().any(|d| d.as_str().is_some_and(|d| d.to_lowercase() == name)))
 }
 
 /// `permittedNames(session, names)`, and only what the core can run now: the stored lists record what the session chose, and
@@ -316,7 +330,14 @@ fn pretty(value: &Value) -> String {
 /// `renderToolSearch(args, session, mode, { mcpStatus })` for a session not on the bridge: loads
 /// the named deferred tools into `session` and answers what it did. `excluded` is the route's
 /// dropped tools, `status` the `mcpStatus()` answer (anything else names no server).
-pub(super) fn render_tool_search(surface: &ToolSurface<'_>, session: &mut Value, args: &Value, mode: &str, excluded: &[(String, String)], status: &Value) -> String {
+pub(super) fn render_tool_search(
+    surface: &ToolSurface<'_>,
+    session: &mut Value,
+    args: &Value,
+    mode: &str,
+    excluded: &[(String, String)],
+    status: &Value,
+) -> String {
     let catalog = resolvable(surface, session);
     let requested = parse_tool_selection(args.get("names"));
     let (pending, failed) = pending_and_failed_mcp_servers(status);
@@ -331,11 +352,17 @@ pub(super) fn render_tool_search(surface: &ToolSurface<'_>, session: &mut Value,
     let header = session.as_object().cloned().unwrap_or_default();
     if requested.is_empty() {
         // `clean(args.query || args.q || args.text)`.
-        let stray = ["query", "q", "text"].iter().find_map(|key| args.get(*key).filter(|value| truthy(Some(*value)))).map(|value| clean(Some(value))).unwrap_or_default();
+        let stray = ["query", "q", "text"]
+            .iter()
+            .find_map(|key| args.get(*key).filter(|value| truthy(Some(*value))))
+            .map(|value| clean(Some(value)))
+            .unwrap_or_default();
         let error = if stray.is_empty() {
             "load_tool requires names:[\"exact_tool_name\", ...] (deferred tool names/aliases).".to_owned()
         } else {
-            format!("load_tool is a loader, not a search: \"{stray}\" is not an exact tool name. Pass names:[\"exact_tool_name\", ...] (deferred tool names/aliases). No keyword search.")
+            format!(
+                "load_tool is a loader, not a search: \"{stray}\" is not an exact tool name. Pass names:[\"exact_tool_name\", ...] (deferred tool names/aliases). No keyword search."
+            )
         };
         let mut out = Map::new();
         out.insert("error".to_owned(), json!(error));
@@ -364,7 +391,8 @@ pub(super) fn render_tool_search(surface: &ToolSurface<'_>, session: &mut Value,
     let provider = clean(session.get("provider"));
     // Native discovery is history-driven: an explicit re-selection emits the reference again.
     let native_base = selection.native.then(|| {
-        tool_search_native_payload(&catalog, &both, &provider).unwrap_or_else(|| json!({ "provider": provider.to_lowercase(), "toolReferences": [], "openaiTools": [], "summary": "" }))
+        tool_search_native_payload(&catalog, &both, &provider)
+            .unwrap_or_else(|| json!({ "provider": provider.to_lowercase(), "toolReferences": [], "openaiTools": [], "summary": "" }))
     });
     let already_schemas = if selection.native { Vec::new() } else { active_tool_schemas(&catalog, session, &already) };
     let mut summary: Vec<String> = Vec::new();
@@ -446,7 +474,13 @@ pub(super) fn scope_mode(session: &Value, thread_mode: &str) -> String {
         Some(Value::String(spec)) if spec == "full" || spec == "mcp" => Some("full"),
         Some(Value::Array(items)) if !items.is_empty() => {
             let has = |tag: &str| items.iter().any(|item| item.as_str() == Some(tag));
-            Some(if has("full") { "full" } else if has("tools:readonly") { "readonly" } else { "full" })
+            Some(if has("full") {
+                "full"
+            } else if has("tools:readonly") {
+                "readonly"
+            } else {
+                "full"
+            })
         }
         _ => None,
     };

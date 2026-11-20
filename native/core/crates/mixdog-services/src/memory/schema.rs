@@ -15,7 +15,8 @@ pub const ENTRY_STATUSES: [&str; 3] = ["pending", "active", "archived"];
 const BOOTSTRAP_DONE_KEY: &str = "boot.schema_bootstrap_complete";
 pub(crate) const DIMS_KEY: &str = "embedding.current_dims";
 const MODEL_KEY: &str = "embedding.current_model";
-const VECTOR_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;";
+const VECTOR_INDEX: &str =
+    "CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;";
 
 fn entries_ddl(dims: Option<usize>) -> String {
     let vector_type = dims.map_or_else(|| "halfvec".to_owned(), |n| format!("halfvec({n})"));
@@ -217,16 +218,17 @@ pub(crate) async fn record_vector_dims(client: &deadpool_postgres::Object, dims:
         return Err(MemoryError::Embedding(format!("unsupported embedding dimension: {dims}")));
     }
     let read = || async {
-        Ok::<_, tokio_postgres::Error>(client.query_opt("SELECT value FROM meta WHERE key = $1", &[&DIMS_KEY]).await?
-            .and_then(|row| vector_dims(&row.get(0))))
+        Ok::<_, tokio_postgres::Error>(client.query_opt("SELECT value FROM meta WHERE key = $1", &[&DIMS_KEY]).await?.and_then(|row| vector_dims(&row.get(0))))
     };
     let expected = match read().await? {
         Some(n) => n,
         None => {
-            client.execute(
-                "INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value WHERE meta.value = 'null'::jsonb",
-                &[&DIMS_KEY, &json!(dims)],
-            ).await?;
+            client
+                .execute(
+                    "INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value WHERE meta.value = 'null'::jsonb",
+                    &[&DIMS_KEY, &json!(dims)],
+                )
+                .await?;
             read().await?.ok_or_else(|| MemoryError::Embedding("stored embedding dimension is invalid".into()))?
         }
     };
@@ -245,16 +247,9 @@ tokio::task_local! {
 }
 
 async fn install_core_key_index(db: &Db) -> Result<()> {
-    let conflict = db
-        .query_opt(
-            "SELECT 1 FROM core_entries GROUP BY project_id, agent_id, element HAVING COUNT(*) > 1 LIMIT 1",
-            &[],
-        )
-        .await?;
+    let conflict = db.query_opt("SELECT 1 FROM core_entries GROUP BY project_id, agent_id, element HAVING COUNT(*) > 1 LIMIT 1", &[]).await?;
     if conflict.is_some() {
-        mixdog_rt::memory_stderr!(
-            "[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index"
-        );
+        mixdog_rt::memory_stderr!("[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index");
         return Ok(());
     }
     // The pool key replaces the legacy (project_id, element) key, which would refuse an agent
@@ -286,11 +281,7 @@ async fn reset_vectors_for_model(db: &Db, dims: Option<usize>, preserve_identity
         .await?
         .map(|row| row.get::<_, i32>(0));
     let typmod = dims.map_or(-1, |n| n as i32);
-    let index = if dims.is_some_and(|n| n <= 4_000) {
-        VECTOR_INDEX
-    } else {
-        ""
-    };
+    let index = if dims.is_some_and(|n| n <= 4_000) { VECTOR_INDEX } else { "" };
     match stored_dims {
         Some(stored) if stored != typmod => {
             let target = dims.map_or_else(|| "halfvec".to_owned(), |n| format!("halfvec({n})"));
@@ -324,9 +315,7 @@ pub async fn set_meta(db: &Db, key: &str, value: &serde_json::Value) -> Result<(
     // A test's fence inside the write (the connection checked out, the statement not yet answered): the shutdown's offset persistence.
     #[cfg(test)]
     crate::memory::lifecycle::fences::pass(key).await;
-    client
-        .execute("INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value", &[&key, value])
-        .await?;
+    client.execute("INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value", &[&key, value]).await?;
     Ok(())
 }
 
@@ -357,8 +346,5 @@ pub async fn is_bootstrap_complete(db: &Db) -> bool {
 }
 
 pub async fn get_meta(db: &Db, key: &str) -> Result<Option<serde_json::Value>> {
-    Ok(db
-        .query_opt("SELECT value FROM meta WHERE key = $1", &[&key])
-        .await?
-        .map(|row| row.get::<_, serde_json::Value>(0)))
+    Ok(db.query_opt("SELECT value FROM meta WHERE key = $1", &[&key]).await?.map(|row| row.get::<_, serde_json::Value>(0)))
 }

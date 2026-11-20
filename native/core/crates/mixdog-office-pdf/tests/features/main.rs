@@ -7,7 +7,3 @@ mod links;
 mod ocr;
 mod pixels;
 mod written;
-
-
-
-

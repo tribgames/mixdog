@@ -41,7 +41,9 @@ fn image_source(source: &PartSource) -> ImageSource {
         PartSource::Url(url) if url.get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:")) => ImageSource::DataUrl(url.clone()),
         PartSource::Url(url) => ImageSource::Link(url.clone()),
         PartSource::FileId(id) => match id.strip_prefix("sha256:").unwrap_or(id) {
-            digest if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) => ImageSource::Stored(StoredImageId(digest.to_owned())),
+            digest if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) => {
+                ImageSource::Stored(StoredImageId(digest.to_owned()))
+            }
             _ => ImageSource::ProviderFileId { issuer: String::new(), id: id.clone() },
         },
     }
@@ -101,7 +103,9 @@ fn recorded_image(map: &Map<String, Value>) -> Option<ImageSource> {
         Some("image") => {
             let source = map.get("source")?.as_object()?;
             match text_of(source, "type")? {
-                "base64" => Some(ImageSource::Base64 { label: text_of(source, "media_type").unwrap_or_default().to_owned(), data: text_of(source, "data")?.to_owned() }),
+                "base64" => {
+                    Some(ImageSource::Base64 { label: text_of(source, "media_type").unwrap_or_default().to_owned(), data: text_of(source, "data")?.to_owned() })
+                }
                 "url" => Some(url_source(text_of(source, "url")?)),
                 "file" => Some(ImageSource::ProviderFileId { issuer: String::new(), id: text_of(source, "file_id")?.to_owned() }),
                 _ => None,
@@ -410,10 +414,16 @@ impl PreparedRequest {
                     recorded.push(image.body());
                     continue;
                 }
-                let slot = if message.stored_parts.is_empty() { path[1] as usize } else { message.stored_parts.iter().position(|&p| p == path[1]).expect("a sealed image names a part of this message") };
+                let slot = if message.stored_parts.is_empty() {
+                    path[1] as usize
+                } else {
+                    message.stored_parts.iter().position(|&p| p == path[1]).expect("a sealed image names a part of this message")
+                };
                 let Content::Parts(parts) = &mut message.content else { unreachable!("a sealed content image sits in parts") };
                 parts[slot] = ContentPart::Image(match image.body() {
-                    Body::Inline { mime, bytes } => PartSource::Base64 { data: STANDARD.encode(bytes), mime_type: (*mime).to_owned(), width: None, height: None },
+                    Body::Inline { mime, bytes } => {
+                        PartSource::Base64 { data: STANDARD.encode(bytes), mime_type: (*mime).to_owned(), width: None, height: None }
+                    }
                     Body::Link(url) => PartSource::Url(url.clone()),
                     Body::FileId { id, .. } => PartSource::FileId(id.clone()),
                 });
@@ -536,7 +546,10 @@ mod tests {
         let sealed = batch(&plan, intents, None);
         let wire = PreparedRequest::seal(draft, plan, sealed).unwrap().wire_request();
         let message = &wire.messages[1];
-        assert_eq!(message.assistant_blocks.as_ref().unwrap()[1]["content"][0]["source"], serde_json::json!({ "type": "base64", "media_type": "image/png", "data": "AQID" }));
+        assert_eq!(
+            message.assistant_blocks.as_ref().unwrap()[1]["content"][0]["source"],
+            serde_json::json!({ "type": "base64", "media_type": "image/png", "data": "AQID" })
+        );
         let replay = &message.provider_replay()[0].items;
         assert_eq!(replay["parts"][0]["inlineData"], serde_json::json!({ "mimeType": "image/png", "data": "AQID" }));
         assert_eq!(replay["parts"][1]["inlineData"]["data"], "PDF", "what is not an image is untouched");
@@ -551,7 +564,9 @@ mod tests {
             { "type": "thinking", "thinking": "x", "signature": "s", "content": [{ "type": "input_image", "image_url": "data:image/png;base64,AAAA" }] },
         ]);
         assistant.assistant_blocks = Some(blocks.clone());
-        assistant.gemini_metadata = Some(serde_json::json!({ "textParts": [{ "functionCall": { "name": "f", "args": { "parts": [{ "inlineData": { "mimeType": "image/png", "data": "AAAA" } }] } } }] }));
+        assistant.gemini_metadata = Some(
+            serde_json::json!({ "textParts": [{ "functionCall": { "name": "f", "args": { "parts": [{ "inlineData": { "mimeType": "image/png", "data": "AAAA" } }] } } }] }),
+        );
         let draft = draft_of(vec![Message::new(Role::User, Content::Text("go".into())), assistant]);
         assert!(draft.intents().is_empty(), "{:?}", draft.intents());
     }
@@ -585,7 +600,12 @@ mod tests {
 
     #[test]
     fn a_stored_reference_and_a_data_url_are_occurrences_and_a_hex_blob_id_is_not_a_provider_file_id() {
-        let stored = ContentPart::File { source: BinarySource::AttachmentRef("a".repeat(64)), mime_type: "image/png".into(), filename: Some("scan.png".into()), text: None };
+        let stored = ContentPart::File {
+            source: BinarySource::AttachmentRef("a".repeat(64)),
+            mime_type: "image/png".into(),
+            filename: Some("scan.png".into()),
+            text: None,
+        };
         let text_file = ContentPart::File { source: BinarySource::AttachmentRef("b".repeat(64)), mime_type: "text/plain".into(), filename: None, text: None };
         let mut message = Message::new(
             Role::User,

@@ -13,9 +13,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::language::{detect_device_language, normalize_whisper_language};
 use super::runtime::{RuntimeManifest, VoiceRuntime, VoiceRuntimeInfo, resolve_voice_runtime, voice_runtime_info};
-use crate::lane::on_lane;
 use super::single_flight::SingleFlight;
 use super::wav::{ONSET_SILENCE_SECONDS, prepend_wav_silence};
+use crate::lane::on_lane;
 
 /// A user-facing failure message (for example "voice runtime not installed …").
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,15 +83,7 @@ pub struct ServerContract {
 /// Process-level audio helpers.
 #[async_trait]
 pub trait AudioTools: Send + Sync {
-    async fn convert_to_wav(
-        &self,
-        ffmpeg: &Path,
-        audio: &Path,
-        wav: &Path,
-        sample_rate: u32,
-        channels: u32,
-        threads: usize,
-    ) -> Result<(), VoiceError>;
+    async fn convert_to_wav(&self, ffmpeg: &Path, audio: &Path, wav: &Path, sample_rate: u32, channels: u32, threads: usize) -> Result<(), VoiceError>;
 
     /// Container duration; `None` when it cannot be measured, so a gate never rejects a file it
     /// could not measure.
@@ -208,15 +200,11 @@ impl VoicePipeline {
     async fn contract(&self, settings: &VoiceSettings) -> Result<(VoiceRuntime, ServerContract), VoiceError> {
         let runtime = self.runtime().await?;
         if !runtime.installed {
-            let missing: Vec<&str> = [
-                (runtime.binary, "binary"),
-                (runtime.model, "model"),
-                (runtime.ffmpeg, "ffmpeg"),
-            ]
-            .into_iter()
-            .filter(|(present, _)| !present)
-            .map(|(_, name)| name)
-            .collect();
+            let missing: Vec<&str> = [(runtime.binary, "binary"), (runtime.model, "model"), (runtime.ffmpeg, "ffmpeg")]
+                .into_iter()
+                .filter(|(present, _)| !present)
+                .map(|(_, name)| name)
+                .collect();
             return Err(VoiceError(format!(
                 "voice runtime not installed (missing: {}) — open the setup wizard and click \"Install voice\"",
                 missing.join(" + ")
@@ -236,12 +224,7 @@ impl VoicePipeline {
             self.device_language
                 .get_or_init(|| {
                     let env = |key: &str| std::env::var(key).ok();
-                    let vars = [
-                        env("MIXDOG_CHANNELS_WHISPER_LANGUAGE"),
-                        env("LC_ALL"),
-                        env("LC_MESSAGES"),
-                        env("LANG"),
-                    ];
+                    let vars = [env("MIXDOG_CHANNELS_WHISPER_LANGUAGE"), env("LC_ALL"), env("LC_MESSAGES"), env("LANG")];
                     detect_device_language(vars.iter().map(Option::as_deref))
                 })
                 .clone()
@@ -253,12 +236,7 @@ impl VoicePipeline {
     /// bounds nothing by time, so the wait ends only by the caller's `cancel`: callers of the same
     /// attachment share one run, and the run (and its whisper request) is cancelled when the last
     /// of them has left.
-    pub async fn transcribe(
-        self: &Arc<Self>,
-        audio: &Path,
-        attachment_id: Option<&str>,
-        cancel: &CancellationToken,
-    ) -> Result<Option<String>, VoiceError> {
+    pub async fn transcribe(self: &Arc<Self>, audio: &Path, attachment_id: Option<&str>, cancel: &CancellationToken) -> Result<Option<String>, VoiceError> {
         match Scope::new().cancel(cancel).run(self.transcribe_gated(audio, attachment_id)).await {
             Scoped::Done(result) => result,
             Scoped::Cancelled | Scoped::DeadlineExceeded => Err(VoiceError("transcribe: cancelled".into())),
@@ -271,9 +249,7 @@ impl VoicePipeline {
         if max_bytes > 0.0 {
             let path = audio.to_owned();
             // A size check that never ran must not wave an over-limit file through.
-            let size = on_lane(self.lane, move || file_size(&path))
-                .await
-                .map_err(|e| VoiceError(format!("the audio file size could not be checked: {e}")))?;
+            let size = on_lane(self.lane, move || file_size(&path)).await.map_err(|e| VoiceError(format!("the audio file size could not be checked: {e}")))?;
             if size.is_some_and(|size| size as f64 > max_bytes) {
                 return Ok(None);
             }
@@ -458,7 +434,14 @@ pub(crate) mod tests {
 
     fn pipeline(dir: &Path, section: Value, tools: FakeTools, engine: FakeEngine) -> (Arc<VoicePipeline>, Arc<FakeTools>, Arc<FakeEngine>) {
         let (tools, engine) = (Arc::new(tools), Arc::new(engine));
-        let p = Arc::new(VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Fixed(section)), engine.clone(), tools.clone(), mixdog_rt::testing::tokens().durability_io));
+        let p = Arc::new(VoicePipeline::new(
+            dir.to_owned(),
+            manifest(),
+            Arc::new(Fixed(section)),
+            engine.clone(),
+            tools.clone(),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
         (p, tools, engine)
     }
 
@@ -516,7 +499,14 @@ pub(crate) mod tests {
         let audio = dir.path().join("a.ogg");
         std::fs::write(&audio, b"audio").unwrap();
         let engine = Arc::new(Gated { gate: Arc::default(), runs: AtomicUsize::new(0) });
-        let p = Arc::new(VoicePipeline::new(dir.path().to_owned(), manifest(), Arc::new(Fixed(json!({}))), engine.clone(), Arc::new(FakeTools::default()), mixdog_rt::testing::tokens().durability_io));
+        let p = Arc::new(VoicePipeline::new(
+            dir.path().to_owned(),
+            manifest(),
+            Arc::new(Fixed(json!({}))),
+            engine.clone(),
+            Arc::new(FakeTools::default()),
+            mixdog_rt::testing::tokens().durability_io,
+        ));
         let (first, second) = (CancellationToken::new(), CancellationToken::new());
         let leader = tokio::spawn({
             let (p, audio, cancel) = (p.clone(), audio.clone(), first.clone());

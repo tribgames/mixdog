@@ -6,14 +6,10 @@ use mixdog_office_base::a1::{CellRef, column_number, parse_cell_ref};
 
 use crate::cells::Sheet;
 use crate::opc::{
-    add_package_relationship, ensure_content_type_override, ensure_default_content_type, part_relationship_path, posix,
-    relationship_target_by_type,
+    add_package_relationship, ensure_content_type_override, ensure_default_content_type, part_relationship_path, posix, relationship_target_by_type,
 };
 use crate::sheet_xml::upsert_worksheet_section;
-use crate::xml::{
-    DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, SPREADSHEET_DRAWING_NS, SPREADSHEET_MAIN, XML_HEADER, compiled, xml_decode,
-    xml_encode,
-};
+use crate::xml::{DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, SPREADSHEET_DRAWING_NS, SPREADSHEET_MAIN, XML_HEADER, compiled, xml_decode, xml_encode};
 use crate::zipio::Package;
 
 /// `excelPasswordHash(password)`: the 16-bit hash a worksheet's `sheetProtection password` attribute holds, four upper-case
@@ -60,7 +56,9 @@ pub fn ensure_worksheet_drawing(zip: &mut Package, sheet: &Sheet, worksheet_xml:
     let part = free_part(zip, "xl/drawings/drawing", ".xml");
     zip.set(
         &part,
-        format!("{XML_HEADER}<xdr:wsDr xmlns:xdr=\"{SPREADSHEET_DRAWING_NS}\" xmlns:a=\"{DRAWING_MAIN_NS}\" xmlns:r=\"{OFFICE_RELATIONSHIP_BASE}\"></xdr:wsDr>"),
+        format!(
+            "{XML_HEADER}<xdr:wsDr xmlns:xdr=\"{SPREADSHEET_DRAWING_NS}\" xmlns:a=\"{DRAWING_MAIN_NS}\" xmlns:r=\"{OFFICE_RELATIONSHIP_BASE}\"></xdr:wsDr>"
+        ),
     );
     ensure_content_type_override(zip, &format!("/{part}"), "application/vnd.openxmlformats-officedocument.drawing+xml");
     let relationship_id =
@@ -119,25 +117,14 @@ fn ensure_worksheet_comments(zip: &mut Package, sheet: &Sheet, worksheet_xml: &s
             format!("{XML_HEADER}<comments xmlns=\"{SPREADSHEET_MAIN}\"><authors><author>Mixdog</author></authors><commentList></commentList></comments>"),
         );
         ensure_content_type_override(zip, &format!("/{comments_part}"), SHEET_COMMENTS_CONTENT_TYPE);
-        add_package_relationship(
-            zip,
-            &relationships,
-            &format!("{OFFICE_RELATIONSHIP_BASE}/comments"),
-            &posix::relative(&directory, &comments_part),
-            "",
-        );
+        add_package_relationship(zip, &relationships, &format!("{OFFICE_RELATIONSHIP_BASE}/comments"), &posix::relative(&directory, &comments_part), "");
     }
     if vml_part.is_empty() {
         vml_part = free_part(zip, "xl/drawings/vmlDrawing", ".vml");
         zip.set(&vml_part, VML_SHELL);
         ensure_default_content_type(zip, "vml", "application/vnd.openxmlformats-officedocument.vmlDrawing");
-        let relationship_id = add_package_relationship(
-            zip,
-            &relationships,
-            &format!("{OFFICE_RELATIONSHIP_BASE}/vmlDrawing"),
-            &posix::relative(&directory, &vml_part),
-            "",
-        );
+        let relationship_id =
+            add_package_relationship(zip, &relationships, &format!("{OFFICE_RELATIONSHIP_BASE}/vmlDrawing"), &posix::relative(&directory, &vml_part), "");
         worksheet = upsert_worksheet_section(&worksheet, "legacyDrawing", &format!("<legacyDrawing r:id=\"{relationship_id}\"/>"));
     }
     WorksheetComments { comments_part, vml_part, worksheet }
@@ -175,10 +162,8 @@ pub fn write_worksheet_note(zip: &mut Package, sheet: &Sheet, worksheet_xml: &st
     let parsed = parse_cell_ref(request.cell)?;
     let context = ensure_worksheet_comments(zip, sheet, worksheet_xml);
     let mut comments = zip.text(&context.comments_part);
-    let mut authors: Vec<String> = compiled(r"<author>([\s\S]*?)<\/author>", "g")
-        .captures_iter(&comments)
-        .map(|found| xml_decode(found.get(1).unwrap_or("")))
-        .collect();
+    let mut authors: Vec<String> =
+        compiled(r"<author>([\s\S]*?)<\/author>", "g").captures_iter(&comments).map(|found| xml_decode(found.get(1).unwrap_or(""))).collect();
     let author_id = match authors.iter().position(|author| author == request.author) {
         Some(found) => found,
         None => {
@@ -273,7 +258,10 @@ mod tests {
         assert!(second.changed);
         let comments = zip.text("xl/comments1.xml");
         assert!(comments.contains("<authors><author>Mixdog</author><author>Ann</author></authors>"));
-        assert!(comments.contains(&format!("<comment ref=\"B2\" authorId=\"1\"><text><r><t xml:space=\"preserve\">{}\nsecond</t></r></text></comment>", xml_encode(DOLLARS))));
+        assert!(comments.contains(&format!(
+            "<comment ref=\"B2\" authorId=\"1\"><text><r><t xml:space=\"preserve\">{}\nsecond</t></r></text></comment>",
+            xml_encode(DOLLARS)
+        )));
         assert_eq!(comments.matches("<comment ref=").count(), 1);
         let repeat = write_worksheet_note(&mut zip, &sheet, &second.worksheet, &append).unwrap();
         assert_eq!((repeat.changed, repeat.cell), (false, None));

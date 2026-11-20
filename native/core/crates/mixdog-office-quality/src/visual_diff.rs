@@ -156,8 +156,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("directory");
         let output = directory.path().join("review.pdf");
         let notes = Recording(Mutex::new(Vec::new()));
-        let result =
-            compare_rendered_pages(&Unlaned, &notes, &[shades(2, &[0]), shades(1, &[255, 255])], &[shades(1, &[232, 231])], &output).expect("diff");
+        let result = compare_rendered_pages(&Unlaned, &notes, &[shades(2, &[0]), shades(1, &[255, 255])], &[shades(1, &[232, 231])], &output).expect("diff");
         assert_eq!(result["available"], json!(true));
         assert_eq!(
             result["pages"],

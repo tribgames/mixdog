@@ -546,7 +546,14 @@ impl ArchiveTrees {
                     members.iter().filter(|(_, _, _, _, archived)| !archived).map(|(id, ..)| (id.clone(), ArchiveEntry::Archived(stamp))).collect();
                 let ids: Vec<String> = changes.iter().map(|(id, _)| id.clone()).collect();
                 let outcome = json!({ "root": members[0].0, "archived": ids, "stamp": stamp }).to_string();
-                let row = OpRow { method: "session/autoArchive".into(), payload_digest: members[0].0.clone(), state: OpRowState::Applied, outcome: Some(outcome), created_at: now, completed_at: Some(now) };
+                let row = OpRow {
+                    method: "session/autoArchive".into(),
+                    payload_digest: members[0].0.clone(),
+                    state: OpRowState::Applied,
+                    outcome: Some(outcome),
+                    created_at: now,
+                    completed_at: Some(now),
+                };
                 tx.put_op(OP_SCOPE, &op, &row)?;
                 Ok((Ok(ids), changes))
             })

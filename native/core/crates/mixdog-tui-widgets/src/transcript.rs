@@ -131,13 +131,7 @@ pub fn render_item_flagged(item: &Value, ctx: &ItemCtx) -> (Vec<Line>, Vec<bool>
 }
 
 /// `AssistantMessage`: the answer of the model in `columns` columns. `assistant_id` keys the streaming caches.
-pub fn render_assistant_message(
-    text: &str,
-    streaming: bool,
-    columns: usize,
-    assistant_id: Option<&str>,
-    streaming_window_rows: usize,
-) -> Vec<Line> {
+pub fn render_assistant_message(text: &str, streaming: bool, columns: usize, assistant_id: Option<&str>, streaming_window_rows: usize) -> Vec<Line> {
     render_block(&message::AssistantMessage::new(text, streaming, columns, assistant_id, streaming_window_rows), columns, None)
 }
 
@@ -156,15 +150,7 @@ pub type Hint<'a> = (&'a str, &'a str, f64);
 
 /// `TurnDone`: the line that closes a turn (`elapsed_ms`, a JavaScript number, may be NaN), `margin_top` rows below the
 /// row above.
-pub fn render_turn_done(
-    elapsed_ms: f64,
-    status: &str,
-    tool_count: f64,
-    verb: &str,
-    margin_top: u16,
-    hint: Option<Hint<'_>>,
-    columns: usize,
-) -> Vec<Line> {
+pub fn render_turn_done(elapsed_ms: f64, status: &str, tool_count: f64, verb: &str, margin_top: u16, hint: Option<Hint<'_>>, columns: usize) -> Vec<Line> {
     let hint = hint.and_then(|(message, tone, width)| RightHint::new(message, tone, width));
     render_block(&turn_done::turn_done(elapsed_ms, status, tool_count, verb, margin_top, hint, columns), columns, None)
 }
@@ -278,7 +264,8 @@ mod tests {
 
     #[test]
     fn a_tool_denial_is_a_card_and_stays_visible() {
-        let item = json!({ "kind": "tool", "name": "read", "args": { "file_path": "a.txt" }, "isError": true, "result": "Error: tool \"read\" denied by hook: nope" });
+        let item =
+            json!({ "kind": "tool", "name": "read", "args": { "file_path": "a.txt" }, "isError": true, "result": "Error: tool \"read\" denied by hook: nope" });
         let lines = text(&render_item(&item, &ItemCtx::new(60)));
         assert_eq!(lines.len(), 3);
         assert!(lines[1].ends_with("Read (a.txt) \u{b7} Denied") && lines[2].ends_with("denied by hook: nope"));

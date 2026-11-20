@@ -273,10 +273,7 @@ async fn each_proxy_jump_hop_gets_its_own_resolved_block_so_the_hops_ssh_resolve
     let folder = tempfile::tempdir().expect("a folder");
     let tools = Ssh::new(&[
         ("ops@inner", dump("proxyjump jump@bastion:2200\n")),
-        (
-            "jump@bastion",
-            "user jump\nhostname bastion.example.com\nport 2200\nlocalforward [127.0.0.1]:1 [127.0.0.1]:2\nserveraliveinterval 15\n".to_owned(),
-        ),
+        ("jump@bastion", "user jump\nhostname bastion.example.com\nport 2200\nlocalforward [127.0.0.1]:1 [127.0.0.1]:2\nserveraliveinterval 15\n".to_owned()),
     ]);
     let (env, configs) = configured(folder.path(), &tools).await;
     let found = resolve(&configs, &env, &target("ops@inner")).await;
@@ -294,7 +291,17 @@ async fn one_resolution_of_the_route_is_what_the_config_is_written_from() {
     let tools = Ssh::new(&[("ops@inner", dump("proxyjump jump@bastion\n")), ("jump@bastion", "user jump\nhostname bastion.example.com\nport 22\n".to_owned())]);
     let (env, configs) = configured(folder.path(), &tools).await;
     resolve(&configs, &env, &target("ops@inner")).await;
-    let reads = |destination: &str| tools.calls().iter().filter(|call| call.first().map(String::as_str) == Some("-G") && call.get(1).map(String::as_str) != Some("-F") && call.last().map(String::as_str) == Some(destination)).count();
+    let reads = |destination: &str| {
+        tools
+            .calls()
+            .iter()
+            .filter(|call| {
+                call.first().map(String::as_str) == Some("-G")
+                    && call.get(1).map(String::as_str) != Some("-F")
+                    && call.last().map(String::as_str) == Some(destination)
+            })
+            .count()
+    };
     assert_eq!((reads("ops@inner"), reads("jump@bastion")), (1, 1), "each server of the route is resolved once");
 }
 

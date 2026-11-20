@@ -112,7 +112,13 @@ fn world(ready: bool) -> (CachedProviderSetup, Arc<Builder>, Arc<Keychain>, Arc<
     // The warm-up behind a cold read is a runtime task.
     mixdog_rt::testing::tokens();
     let builder = Arc::new(Builder::default());
-    let keychain = Arc::new(Keychain { ready: AtomicBool::new(ready), recovers: AtomicBool::new(false), changes: AtomicBool::new(false), interactive: Mutex::default(), forced: Mutex::default() });
+    let keychain = Arc::new(Keychain {
+        ready: AtomicBool::new(ready),
+        recovers: AtomicBool::new(false),
+        changes: AtomicBool::new(false),
+        interactive: Mutex::default(),
+        forced: Mutex::default(),
+    });
     let host = Arc::new(Host::default());
     let setup = CachedProviderSetup::new(builder.clone(), keychain.clone(), Arc::new(Overlays), host.clone());
     (setup, builder, keychain, host)
@@ -212,9 +218,3 @@ async fn the_proxy_mode_is_never_cached_and_a_failed_build_is_an_error() {
     assert_eq!(error.message(), "keychain unreachable");
     assert!(!setup.has_cached(), "a failure is not cached, so the next read tries again");
 }
-
-
-
-
-
-

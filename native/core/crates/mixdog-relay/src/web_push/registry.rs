@@ -49,14 +49,8 @@ impl Sealed {
         if object.get("version").and_then(Value::as_f64) != Some(1.0) {
             return None;
         }
-        let field = |name: &str, accepted: RangeInclusive<usize>| {
-            object.get(name)?.as_str().filter(|text| base64url_len(text, accepted)).map(str::to_owned)
-        };
-        Some(Self {
-            ephemeral_public_key: field("ephemeralPublicKey", 87..=87)?,
-            nonce: field("nonce", 16..=16)?,
-            ciphertext: field("ciphertext", 22..=512)?,
-        })
+        let field = |name: &str, accepted: RangeInclusive<usize>| object.get(name)?.as_str().filter(|text| base64url_len(text, accepted)).map(str::to_owned);
+        Some(Self { ephemeral_public_key: field("ephemeralPublicKey", 87..=87)?, nonce: field("nonce", 16..=16)?, ciphertext: field("ciphertext", 22..=512)? })
     }
 
     pub fn to_value(&self) -> Value {
@@ -314,8 +308,7 @@ impl Registry {
         let mut removed = Vec::new();
         for endpoint in names {
             let Some(entry) = self.endpoints.get_mut(&endpoint) else { continue };
-            let (gone, kept): (Vec<Association>, Vec<Association>) =
-                std::mem::take(&mut entry.associations).into_iter().partition(&matches);
+            let (gone, kept): (Vec<Association>, Vec<Association>) = std::mem::take(&mut entry.associations).into_iter().partition(&matches);
             entry.associations = kept;
             let emptied = entry.associations.is_empty();
             removed.extend(gone.into_iter().map(|association| Removed { endpoint: endpoint.clone(), association }));

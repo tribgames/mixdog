@@ -34,8 +34,7 @@ fn corpus() -> Vec<Case> {
     names
         .into_iter()
         .map(|name| {
-            let meta: Value =
-                serde_json::from_str(&std::fs::read_to_string(corpus_dir().join(format!("{name}.json"))).unwrap()).unwrap();
+            let meta: Value = serde_json::from_str(&std::fs::read_to_string(corpus_dir().join(format!("{name}.json"))).unwrap()).unwrap();
             let body = std::fs::read_to_string(corpus_dir().join(format!("{name}.body"))).unwrap();
             Case {
                 url: Url::parse(meta["url"].as_str().unwrap()).unwrap(),
@@ -127,11 +126,28 @@ fn missing_href_and_src_make_no_link() {
 fn public_policy_blocks_non_global_addresses() {
     let public = AddressPolicy::PublicOnly;
     for blocked in [
-        "http://127.0.0.1/", "http://localhost/", "http://10.1.2.3/", "http://172.16.0.1/", "http://192.168.1.1/",
-        "http://169.254.169.254/", "http://100.64.0.1/", "http://0.0.0.0/", "http://224.0.0.1/", "http://[::1]/",
-        "http://[::]/", "http://[fe80::1]/", "http://[fc00::1]/", "http://[::ffff:127.0.0.1]/", "http://[::ffff:7f00:1]/",
-        "http://[64:ff9b::7f00:1]/", "http://[2002:7f00:1::]/", "http://[2001:db8::1]/", "http://0x7f.1/",
-        "http://2130706433/", "ftp://example.com/", "http://user:pw@example.com/",
+        "http://127.0.0.1/",
+        "http://localhost/",
+        "http://10.1.2.3/",
+        "http://172.16.0.1/",
+        "http://192.168.1.1/",
+        "http://169.254.169.254/",
+        "http://100.64.0.1/",
+        "http://0.0.0.0/",
+        "http://224.0.0.1/",
+        "http://[::1]/",
+        "http://[::]/",
+        "http://[fe80::1]/",
+        "http://[fc00::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://[::ffff:7f00:1]/",
+        "http://[64:ff9b::7f00:1]/",
+        "http://[2002:7f00:1::]/",
+        "http://[2001:db8::1]/",
+        "http://0x7f.1/",
+        "http://2130706433/",
+        "ftp://example.com/",
+        "http://user:pw@example.com/",
     ] {
         assert!(public.check_url(&url(blocked)).is_err(), "{blocked}");
     }
@@ -213,12 +229,9 @@ mod tools {
 
     fn text(outcome: &ToolOutcome) -> String {
         match outcome {
-            Ok(output) => output
-                .parts
-                .iter()
-                .filter_map(|part| if let ToolPart::Text(t) = part { Some(t.as_str()) } else { None })
-                .collect::<Vec<_>>()
-                .join("\n"),
+            Ok(output) => {
+                output.parts.iter().filter_map(|part| if let ToolPart::Text(t) = part { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n")
+            }
             Err(error) => error.message_for_model.clone(),
         }
     }
@@ -236,7 +249,14 @@ mod tools {
     #[async_trait]
     impl PageRenderer for FakeRenderer {
         async fn render(&self, url: &Url, _budget: Duration) -> Result<StagePage, FetchError> {
-            Ok(StagePage { url: url.to_string(), title: "Rendered".into(), content: "rendered body".into(), extractor: "puppeteer".into(), excerpt_json_len: 2, ..StagePage::default() })
+            Ok(StagePage {
+                url: url.to_string(),
+                title: "Rendered".into(),
+                content: "rendered body".into(),
+                extractor: "puppeteer".into(),
+                excerpt_json_len: 2,
+                ..StagePage::default()
+            })
         }
     }
 
@@ -263,11 +283,7 @@ mod tools {
             cancel,
             deadline: None,
             progress: Arc::new(MockProgress::default()),
-            io: ToolIo {
-                interactive: tokens.interactive_io,
-                durability: tokens.durability_io,
-                maintenance: tokens.maintenance_io,
-            },
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
             approvals: Arc::new(MockApprovalGate::default()),
             files: Arc::new(MockFileService::default()),
             processes: Arc::new(MockProcessManager::default()),
@@ -276,7 +292,10 @@ mod tools {
         }
     }
     fn service(configure: impl FnOnce(&mut WebConfig)) -> Arc<WebService> {
-        let mut config = WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io });
+        let mut config = WebConfig::new(
+            "test",
+            super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+        );
         config.public_policy = AddressPolicy::AnyForTest;
         configure(&mut config);
         WebService::new(config).unwrap()
@@ -329,7 +348,11 @@ mod tools {
     async fn public_policy_refuses_loopback_before_connecting() {
         let server = MockServer::start().await;
         Mock::given(path("/x")).respond_with(html("<main>secret</main>")).expect(0).mount(&server).await;
-        let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
+        let web = WebService::new(WebConfig::new(
+            "test",
+            super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+        ))
+        .unwrap();
         let out = call(&web, "web_fetch", json!({"url": format!("{}/x", server.uri())})).await;
         let shown = text(&out);
         assert!(out.is_err());
@@ -340,17 +363,15 @@ mod tools {
     /// throws: the message, `errorCode: 'Error'` (the error's name) and no diagnostics.
     #[tokio::test]
     async fn address_policy_block_is_nodes_plain_error_item() {
-        let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
+        let web = WebService::new(WebConfig::new(
+            "test",
+            super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+        ))
+        .unwrap();
         let private = text(&call(&web, "web_fetch", json!({"url": "http://127.0.0.1:9/x"})).await);
-        assert_eq!(
-            private,
-            "[http://127.0.0.1:9/x]\n(error: Blocked request to private address: 127.0.0.1)\nerrorCode: Error"
-        );
+        assert_eq!(private, "[http://127.0.0.1:9/x]\n(error: Blocked request to private address: 127.0.0.1)\nerrorCode: Error");
         let userinfo = text(&call(&web, "web_fetch", json!({"url": "http://user:p@example.com/"})).await);
-        assert_eq!(
-            userinfo,
-            "[http://user:p@example.com/]\n(error: Blocked URL with userinfo credentials: example.com)\nerrorCode: Error"
-        );
+        assert_eq!(userinfo, "[http://user:p@example.com/]\n(error: Blocked URL with userinfo credentials: example.com)\nerrorCode: Error");
     }
     #[tokio::test]
     async fn redirects_are_followed_and_bounded() {
@@ -383,10 +404,7 @@ mod tools {
     async fn body_policies() {
         let server = MockServer::start().await;
         Mock::given(path("/img")).respond_with(ResponseTemplate::new(200).set_body_raw(vec![1u8, 2], "image/png")).mount(&server).await;
-        Mock::given(path("/big"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(vec![b'a'; 10 * 1024 * 1024 + 1], "text/plain"))
-            .mount(&server)
-            .await;
+        Mock::given(path("/big")).respond_with(ResponseTemplate::new(200).set_body_raw(vec![b'a'; 10 * 1024 * 1024 + 1], "text/plain")).mount(&server).await;
         let web = service(|_| {});
         let img = text(&call(&web, "web_fetch", json!({"url": format!("{}/img", server.uri())})).await);
         assert!(img.contains("Blocked non-text content-type: image/png"), "{img}");
@@ -397,10 +415,7 @@ mod tools {
     async fn declared_charset_is_decoded() {
         let server = MockServer::start().await;
         let (bytes, _, _) = encoding_rs::EUC_KR.encode("<main><p>한국어 문서</p></main>");
-        Mock::given(path("/k"))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(bytes.into_owned(), "text/html; charset=euc-kr"))
-            .mount(&server)
-            .await;
+        Mock::given(path("/k")).respond_with(ResponseTemplate::new(200).set_body_raw(bytes.into_owned(), "text/html; charset=euc-kr")).mount(&server).await;
         let web = service(|_| {});
         let out = text(&call(&web, "web_fetch", json!({"url": format!("{}/k", server.uri())})).await);
         assert!(out.ends_with("한국어 문서"), "{out}");
@@ -460,7 +475,11 @@ mod tools {
     async fn local_fetch_reaches_loopback_only() {
         let server = MockServer::start().await;
         Mock::given(path("/t")).respond_with(ResponseTemplate::new(200).set_body_raw("local text", "text/plain")).mount(&server).await;
-        let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
+        let web = WebService::new(WebConfig::new(
+            "test",
+            super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+        ))
+        .unwrap();
         let out = text(&call(&web, "local_fetch", json!({"url": format!("{}/t", server.uri())})).await);
         assert_eq!(out, format!("{}/t\n\nlocal text", server.uri()));
         let raw = "<html><body><h1>Hi</h1><script>var x = 1;</script></body></html>";
@@ -470,9 +489,15 @@ mod tools {
         // An empty body answers empty, as Node's raw text does, not as an unreadable page.
         Mock::given(path("/e")).respond_with(ResponseTemplate::new(200).set_body_raw("", "text/plain")).mount(&server).await;
         let empty = call(&web, "local_fetch", json!({"url": format!("{}/e", server.uri())})).await;
-        assert_eq!(text(&empty), format!("{}/e
+        assert_eq!(
+            text(&empty),
+            format!(
+                "{}/e
 
-", server.uri()));
+",
+                server.uri()
+            )
+        );
         let remote = text(&call(&web, "local_fetch", json!({"url": "http://example.com/"})).await);
         assert!(remote.contains("Blocked non-loopback local_fetch target: example.com"), "{remote}");
         let many: Vec<String> = (0..9).map(|i| format!("http://127.0.0.1:1/{i}")).collect();
@@ -520,8 +545,10 @@ mod tools {
                 assert!(matches!(parts.as_slice(), [ToolPart::Text(summary), ToolPart::Text(first), ToolPart::Text(error), ToolPart::Text(last)]
                     if summary.contains("1/3 URL slots failed") && first.ends_with("<p>first</p>") && error.contains(missing.as_str()) && last.ends_with("<p>last</p>")));
             } else {
-                assert!(matches!(parts.as_slice(), [ToolPart::Text(summary), ToolPart::Text(first), ToolPart::Image { data: ImageData::Bytes(a), .. }, ToolPart::Text(error), ToolPart::Text(last), ToolPart::Image { data: ImageData::Bytes(b), .. }]
-                    if summary.contains("1/3 URL slots failed") && first.contains("/first") && a.as_slice() == [1] && error.contains(missing.as_str()) && last.contains("/last") && b.as_slice() == [2]));
+                assert!(
+                    matches!(parts.as_slice(), [ToolPart::Text(summary), ToolPart::Text(first), ToolPart::Image { data: ImageData::Bytes(a), .. }, ToolPart::Text(error), ToolPart::Text(last), ToolPart::Image { data: ImageData::Bytes(b), .. }]
+                    if summary.contains("1/3 URL slots failed") && first.contains("/first") && a.as_slice() == [1] && error.contains(missing.as_str()) && last.contains("/last") && b.as_slice() == [2])
+                );
             }
         }
     }
@@ -534,7 +561,9 @@ mod tools {
                 return Err(Failed("provider exploded".into()));
             }
             if request.query == "limited" {
-                return Err(Failed(r#"native web search failed: openai-oauth/gpt-5.4/web_search: 429 {"error":{"message":"Rate limit reached","type":"rate_limit"}}"#.into()));
+                return Err(Failed(
+                    r#"native web search failed: openai-oauth/gpt-5.4/web_search: 429 {"error":{"message":"Rate limit reached","type":"rate_limit"}}"#.into(),
+                ));
             }
             let delay = if request.query == "slow" { 60_000 } else { 80 };
             tokio::select! {
@@ -564,10 +593,7 @@ mod tools {
     #[tokio::test]
     async fn identical_searches_share_one_provider_call_and_cache() {
         let (fake, web) = searcher();
-        let (a, b) = tokio::join!(
-            call(&web, "web_search", json!({"query": "rust"})),
-            call(&web, "web_search", json!({"query": " rust "})),
-        );
+        let (a, b) = tokio::join!(call(&web, "web_search", json!({"query": "rust"})), call(&web, "web_search", json!({"query": " rust "})),);
         let first = text(&a);
         assert_eq!(first, text(&b));
         assert_eq!(first, "answer for rust\n\n1. First\n   https://a.example/1\n   snip one\n\n2. https://b.example/2");
@@ -643,10 +669,7 @@ mod tools {
     async fn search_without_a_provider_is_unavailable() {
         let web = service(|_| {});
         let error = call(&web, "web_search", json!({"query": "x"})).await.unwrap_err();
-        assert_eq!(
-            error.message_for_model,
-            "Web search failed: web search provider unavailable: open /websearch to choose a web search provider/model"
-        );
+        assert_eq!(error.message_for_model, "Web search failed: web search provider unavailable: open /websearch to choose a web search provider/model");
         assert!(matches!(error.code, ToolErrorCode::Unavailable { .. }));
         let bad = call(&web, "web_search", json!({"query": "x", "maxResults": 99})).await.unwrap_err();
         assert!(matches!(bad.code, ToolErrorCode::InvalidArgs { .. }));
@@ -665,12 +688,7 @@ mod tools {
         let hidden: Vec<(String, bool)> = web.tools().iter().map(|t| (t.spec().name.clone(), !t.spec().public)).collect();
         assert_eq!(
             hidden,
-            [
-                ("web_search".to_string(), false),
-                ("web_fetch".to_string(), false),
-                ("local_fetch".to_string(), true),
-                ("image_fetch".to_string(), true),
-            ]
+            [("web_search".to_string(), false), ("web_fetch".to_string(), false), ("local_fetch".to_string(), true), ("image_fetch".to_string(), true),]
         );
     }
     /// Every expected text is `JSON.stringify({ error: 'Invalid arguments', details: error.issues })`
@@ -738,10 +756,7 @@ mod tools {
         assert_eq!(pattern.message_for_model, "Error: web search requires query; use glob(pattern=...) for file paths.");
     }
     fn cache_file(dir: &std::path::Path) -> crate::web::cache::CacheFile {
-        crate::web::cache::CacheFile {
-            path: dir.join("cache.local.json"),
-            lane: mixdog_rt::testing::tokens().maintenance_io,
-        }
+        crate::web::cache::CacheFile { path: dir.join("cache.local.json"), lane: mixdog_rt::testing::tokens().maintenance_io }
     }
     #[tokio::test]
     async fn caches_persist_in_nodes_file_shape_and_load_at_start() {
@@ -752,8 +767,7 @@ mod tools {
         let first = service(|c| c.cache_file = Some(cache_file(dir.path())));
         assert!(call(&first, "web_fetch", json!({"url": url})).await.is_ok());
         // `web_fetch` writes the file before it answers, as Node's `flushCacheState` does.
-        let stored: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.path().join("cache.local.json")).unwrap()).unwrap();
+        let stored: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("cache.local.json")).unwrap()).unwrap();
         let key = super::super::cache::node_cache_key("fetch:url", &json!({"url": url, "version": "document-pipeline-v3"}));
         let entry = &stored["entries"][key.as_str()];
         assert_eq!(entry["payload"]["tool"], "web_fetch");
@@ -811,17 +825,15 @@ mod tools {
         assert_eq!(again.message, "fetch failed: getaddrinfo EAI_AGAIN h.example");
         assert_eq!(failure(other).kind, FetchKind::Network);
     }
-
-
 }
 
 mod page_entry_parity {
     use url::Url;
 
+    use super::super::cache::node_entry_size;
     use super::super::extract::extract_document;
     use super::super::http::Redirect;
     use super::super::pipeline::Page;
-    use super::super::cache::node_entry_size;
     use super::super::tools::excerpt_size_gap;
     use super::super::tools::page_payload;
 
@@ -878,7 +890,6 @@ mod page_entry_parity {
     }
 }
 
-
 /// Values below were produced by Node 22 (`JSON.stringify`, `crypto`, `trim`, `/\s+/g`).
 mod search_semantics {
     use std::time::Duration;
@@ -897,14 +908,7 @@ mod search_semantics {
     use super::super::search::normalize;
 
     fn args(query: &str, site: Option<&str>) -> SearchArgs {
-        SearchArgs {
-            query: query.into(),
-            listed: false,
-            site: site.map(str::to_string),
-            locale: None,
-            context_size: "low".into(),
-            max_results: 10,
-        }
+        SearchArgs { query: query.into(), listed: false, site: site.map(str::to_string), locale: None, context_size: "low".into(), max_results: 10 }
     }
 
     #[test]
@@ -951,13 +955,7 @@ mod search_semantics {
 
     #[test]
     fn a_not_found_title_is_dropped_before_formatting() {
-        let hit = |title: &str, url: &str| SearchHit {
-            title: title.into(),
-            url: url.into(),
-            snippet: "gone".into(),
-            from_call: false,
-            published_date: None,
-        };
+        let hit = |title: &str, url: &str| SearchHit { title: title.into(), url: url.into(), snippet: "gone".into(), from_call: false, published_date: None };
         let payload = SearchPayload {
             provider: "fake".into(),
             answer: String::new(),
@@ -971,9 +969,6 @@ mod search_semantics {
             model: None,
             usage: None,
         };
-        assert_eq!(
-            format_results(&payload),
-            "1. Pagenotfound guide\n   https://a.example/3\n   gone\n\n2. Not found: 404\n   https://a.example/4\n   gone"
-        );
+        assert_eq!(format_results(&payload), "1. Pagenotfound guide\n   https://a.example/3\n   gone\n\n2. Not found: 404\n   https://a.example/4\n   gone");
     }
 }

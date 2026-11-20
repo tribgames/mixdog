@@ -5,21 +5,21 @@
 
 use std::sync::{Arc, Weak};
 
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::env::Clock;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::ToolIo;
-use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 
 use super::assemble::{HostRunParts, HostServices};
 use super::factory::RunHostFactory;
 use super::host_seams::{DirectoryParts, HostSeams, SeamParts};
-use super::settings::SettingsSources;
 use super::prewarm::StartupProbes;
 use super::reactions::ReactionTargets;
+use super::settings::SettingsSources;
 use mixdog_core_ports::ports::gate::GateEnv;
 use mixdog_core_prompt::prompt::probes::StartupObservations;
 use mixdog_core_session::session::RunFactory;
@@ -64,11 +64,41 @@ pub struct HostParts {
 }
 
 /// The session directory over `deps`, whose `runs` is the real run factory.
-pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -> SessionDeps, late: impl FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> DirectoryParts) -> Arc<SessionDirectory> {
+pub fn build_directory(
+    host: HostParts,
+    deps: impl FnOnce(Arc<dyn RunFactory>) -> SessionDeps,
+    late: impl FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> DirectoryParts,
+) -> Arc<SessionDirectory> {
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, approvals, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness, search_usage } = host;
+        let HostParts {
+            registry,
+            clock,
+            files,
+            processes,
+            io,
+            policy,
+            connectors,
+            resolver,
+            gate_env,
+            approvals,
+            blobs,
+            reaction_targets,
+            reuses,
+            effort_judge,
+            side,
+            next,
+            seams,
+            settings,
+            probes,
+            observed,
+            shells,
+            exclusions,
+            turn_settings,
+            liveness,
+            search_usage,
+        } = host;
         let services = HostServices {
             registry,
             clock,

@@ -25,9 +25,7 @@ pub struct SystemPace;
 #[async_trait]
 impl Pace for SystemPace {
     fn now_ms(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64)
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
     }
 
     async fn wait(&self, duration: Duration) {
@@ -52,7 +50,6 @@ impl Pace for FakePace {
 
     async fn wait(&self, d: Duration) {
         self.waits.lock().unwrap().push(d);
-        self.now
-            .fetch_add(d.as_millis() as u64, std::sync::atomic::Ordering::SeqCst);
+        self.now.fetch_add(d.as_millis() as u64, std::sync::atomic::Ordering::SeqCst);
     }
 }

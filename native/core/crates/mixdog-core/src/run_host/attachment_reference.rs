@@ -12,12 +12,12 @@ use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::fresh::{AttachmentSeam, Preflight};
 use mixdog_agent::compact::text_utils::StoredText;
-use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
-use mixdog_protocol::message_class::user_text::attachment_text;
 use mixdog_agent::message::AgentMessage;
+use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
 use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, DocumentSource, ImageSource};
+use mixdog_protocol::message_class::user_text::attachment_text;
 
-use super::media::{inline_file_kind, AttachmentFacts, FileKind};
+use super::media::{AttachmentFacts, FileKind, inline_file_kind};
 
 // Up to this many pages per read call: the cap the read tool enforces.
 pub use mixdog_tools::fs::READ_PDF_MAX_PAGES_PER_CALL;
@@ -158,7 +158,9 @@ pub fn is_referencable(part: &ContentPart) -> bool {
         ContentPart::Image(_) | ContentPart::Text(_, _) => false,
         ContentPart::Document { source, .. } => matches!(source, DocumentSource::Base64 { .. }),
         ContentPart::File { source, mime_type, filename, text: None } => match source {
-            BinarySource::AttachmentRef(_) => is_image_mime(mime_type) || inline_file_kind(&mime_or_pdf(mime_type), "", filename.as_deref().unwrap_or("")) == FileKind::Pdf,
+            BinarySource::AttachmentRef(_) => {
+                is_image_mime(mime_type) || inline_file_kind(&mime_or_pdf(mime_type), "", filename.as_deref().unwrap_or("")) == FileKind::Pdf
+            }
             BinarySource::Base64(data) => inline_file_kind(&mime_or_pdf(mime_type), data, filename.as_deref().unwrap_or("")) == FileKind::Pdf,
         },
         ContentPart::File { .. } => false,
@@ -250,7 +252,9 @@ impl ReferencedMedia {
                 }
                 (stored.reference, stored.size_bytes, mime_type.clone(), String::new(), true)
             }
-            ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, .. } if is_image_mime(mime_type) && self.files.refusal_of(r).await.is_some() => {
+            ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, .. }
+                if is_image_mime(mime_type) && self.files.refusal_of(r).await.is_some() =>
+            {
                 // Already the store's own form of a refused picture: the part stays exactly as it is, for a send to name.
                 return None;
             }
@@ -360,8 +364,7 @@ impl AttachmentSeam for ReferencedMedia {
         }
         let mut next = messages.to_vec();
         // (index, inline tokens) of each message carrying attachments, oldest first.
-        let mut carriers: Vec<(usize, u64)> =
-            next.iter().enumerate().map(|(i, m)| (i, self.inline_tokens(m, native_pdf))).filter(|c| c.1 > 0).collect();
+        let mut carriers: Vec<(usize, u64)> = next.iter().enumerate().map(|(i, m)| (i, self.inline_tokens(m, native_pdf))).filter(|c| c.1 > 0).collect();
         let before: u64 = carriers.iter().map(|c| c.1).sum();
         let mut inline = before;
         let mut referenced = 0;
@@ -422,7 +425,12 @@ fn attached_records(message: &AgentMessage) -> Vec<AttachedFile> {
                 name: text("name").unwrap_or_default(),
                 mime_type: text("mimeType").unwrap_or_default(),
                 size_bytes: record.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
-                original: record.get("original").and_then(|o| Some(OriginalFile { attachment_ref: o.get("attachmentRef")?.as_str()?.to_owned(), mime_type: o.get("mimeType").and_then(|m| m.as_str()).map(str::to_owned) })),
+                original: record.get("original").and_then(|o| {
+                    Some(OriginalFile {
+                        attachment_ref: o.get("attachmentRef")?.as_str()?.to_owned(),
+                        mime_type: o.get("mimeType").and_then(|m| m.as_str()).map(str::to_owned),
+                    })
+                }),
             })
         })
         .collect()
@@ -434,7 +442,7 @@ impl ReferencedMedia {
     /// whose named copy cannot be made is left out. `None` when nothing is left to name. The part's
     /// object is `{kind: "files", files: [...]}`, as Node stores it.
     pub async fn attached_files_note(&self, records: &[AttachedFile], pasted: &std::collections::HashSet<String>) -> Option<ContentPart> {
-        use serde_json::{json, Value};
+        use serde_json::{Value, json};
         let mut files: Vec<Value> = Vec::new();
         let mut lines: Vec<String> = Vec::new();
         for record in records {
@@ -536,8 +544,4 @@ mod refusal_tests {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
-
+mod tests {}

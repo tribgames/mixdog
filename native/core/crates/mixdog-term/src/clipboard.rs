@@ -20,8 +20,7 @@ use crate::os::{Env, HelperCommand, Outcome, Platform, Runner, SystemRunner, env
 /// OSC 52 is not written for more than this many bytes of text.
 pub const OSC52_MAX_BYTES: usize = 256 * 1024;
 
-const LINUX_CLIPBOARD_HINT: &str =
-    "install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`";
+const LINUX_CLIPBOARD_HINT: &str = "install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`";
 
 /// What a successful copy was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,11 +95,7 @@ pub fn native_clipboard_command(platform: Platform, env: Env<'_>, text: &str) ->
         _ if env_set(env, "WAYLAND_DISPLAY") => HelperCommand::new("wl-copy", &[]),
         _ => HelperCommand::new("xclip", &["-selection", "clipboard"]),
     };
-    command.stdin = Some(if platform == Platform::Windows {
-        text.encode_utf16().flat_map(u16::to_le_bytes).collect()
-    } else {
-        text.as_bytes().to_vec()
-    });
+    command.stdin = Some(if platform == Platform::Windows { text.encode_utf16().flat_map(u16::to_le_bytes).collect() } else { text.as_bytes().to_vec() });
     command
 }
 
@@ -132,16 +127,9 @@ pub fn copy_to_clipboard_with(
             let code = code.map_or_else(|| "null".to_owned(), |code| code.to_string());
             failed(ClipboardError(format!("{} exited with code {code}", command.program)))
         }
-        Outcome::NotFound => failed(helper_error(
-            &command.program,
-            platform,
-            true,
-            format!("spawn {} ENOENT", command.program),
-        )),
+        Outcome::NotFound => failed(helper_error(&command.program, platform, true, format!("spawn {} ENOENT", command.program))),
         Outcome::SpawnFailed(message) => failed(helper_error(&command.program, platform, false, message)),
-        Outcome::TimedOut | Outcome::Overflow => {
-            failed(ClipboardError(format!("{} did not finish", command.program)))
-        }
+        Outcome::TimedOut | Outcome::Overflow => failed(ClipboardError(format!("{} did not finish", command.program))),
     }
 }
 
@@ -202,6 +190,5 @@ mod tests {
         assert_eq!((x11.program.as_str(), x11.args), ("xclip", vec!["-selection".to_owned(), "clipboard".to_owned()]));
     }
 }
-
 
 impl std::error::Error for ClipboardError {}

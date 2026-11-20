@@ -129,7 +129,10 @@ fn the_index_is_written_once_for_a_set_and_not_again_while_nothing_in_it_changes
     let third = world.index().expect("with a third template");
     assert_eq!((third["changed"].clone(), third["count"].clone()), (json!(true), json!(2)));
     assert_ne!(third["revision"], first["revision"]);
-    assert!(third["templates"].as_array().expect("templates").iter().any(|entry| first["templates"][0] == *entry), "the first template's entry is kept as it was");
+    assert!(
+        third["templates"].as_array().expect("templates").iter().any(|entry| first["templates"][0] == *entry),
+        "the first template's entry is kept as it was"
+    );
 }
 
 #[test]

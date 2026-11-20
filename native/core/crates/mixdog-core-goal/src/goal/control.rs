@@ -10,8 +10,8 @@ use super::mutations::{CreateArgs, assert_expected_goal, goal_finished, goal_sta
 use super::runtime::{GoalRuntime, Tx};
 use super::session_title::compact_session_title;
 use super::state::{
-    NO_DEADLINE_WARNING_MS, activate_goal, assert_session_id, clear_turn_failures, parse_goal_duration, parse_user_command,
-    public_goal, resume_goal_state, set_goal_time_limit, stop_active_clock, validate_objective,
+    NO_DEADLINE_WARNING_MS, activate_goal, assert_session_id, clear_turn_failures, parse_goal_duration, parse_user_command, public_goal, resume_goal_state,
+    set_goal_time_limit, stop_active_clock, validate_objective,
 };
 use super::text::duration_label;
 
@@ -133,14 +133,10 @@ impl Tx<'_> {
                 ),
             }));
         }
-        if replace
-            && let Some(existing) = &existing {
+        if replace && let Some(existing) = &existing {
             let expected = clean(arg(args, "expectedGoalId"));
             if goal_stalled(Some(existing)) && expected.is_empty() {
-                return Err(GoalError::new(format!(
-                    "a replace must name the stalled Goal to retire (--replace={})",
-                    string(existing, "id")
-                )));
+                return Err(GoalError::new(format!("a replace must name the stalled Goal to retire (--replace={})", string(existing, "id"))));
             }
             if !expected.is_empty() {
                 assert_expected_goal(existing, &expected, "replace")?;

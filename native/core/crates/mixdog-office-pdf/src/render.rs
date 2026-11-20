@@ -27,8 +27,8 @@ use mixdog_office_base::write_note::WriteNote;
 use mixdog_pdf::PdfError;
 use mixdog_pdf::document::{Document, OpenOptions};
 use mixdog_pdf::error::CancelCheck;
-use mixdog_pdf::oplist::gstate::transform;
 use mixdog_pdf::fontdraw::PageFonts;
+use mixdog_pdf::oplist::gstate::transform;
 use mixdog_pdf::render::{RenderOptions, render_page};
 use mixdog_pdf::text;
 use mixdog_raster::canvas::{Canvas, ImageData};
@@ -63,13 +63,7 @@ pub struct RenderPagesOptions {
 
 impl Default for RenderPagesOptions {
     fn default() -> Self {
-        RenderPagesOptions {
-            pages: None,
-            max_width: DEFAULT_MAX_WIDTH,
-            maximum_scale: DEFAULT_MAXIMUM_SCALE,
-            cancel: None,
-            write_images: true,
-        }
+        RenderPagesOptions { pages: None, max_width: DEFAULT_MAX_WIDTH, maximum_scale: DEFAULT_MAXIMUM_SCALE, cancel: None, write_images: true }
     }
 }
 
@@ -305,8 +299,8 @@ fn is_page_number(text: &str) -> bool {
     };
     let literal = |at: &mut usize, expected: &str| {
         let letters: Vec<char> = expected.chars().collect();
-        let matched = core.len() >= *at + letters.len()
-            && core[*at..*at + letters.len()].iter().zip(&letters).all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()));
+        let matched =
+            core.len() >= *at + letters.len() && core[*at..*at + letters.len()].iter().zip(&letters).all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()));
         if matched {
             *at += letters.len();
         }
@@ -489,7 +483,14 @@ fn paint_page(job: &PageJob) -> Result<Painted, AnalysisError> {
 }
 
 /// The repaint of a page's numbers and its PNG, on a read lane (the text is set from the font registry).
-fn repaint_page<P: ReadProof>(proof: &P, registry: &Registry, width: u32, height: u32, rgba: Vec<u8>, numbers: &[PageNumber]) -> Result<PageImageData, AnalysisError> {
+fn repaint_page<P: ReadProof>(
+    proof: &P,
+    registry: &Registry,
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+    numbers: &[PageNumber],
+) -> Result<PageImageData, AnalysisError> {
     let fail = AnalysisError::plain;
     let mut canvas = Canvas::new(width, height).map_err(|error| fail(error.to_string()))?;
     let pixels = ImageData::from_rgba(width, height, rgba).map_err(|error| fail(error.to_string()))?;
@@ -509,7 +510,11 @@ fn lane_error(cancel: &CancellationToken, message: String) -> AnalysisError {
 ///
 /// The future is boxed here, where its `Send` is proved for any job: left as an `async fn`, a caller that has to be `Send`
 /// (the preview's page renderer) cannot prove it through the higher-ranked job closures.
-fn submit<'a, L, R, F>(lane: L, cancel: &'a CancellationToken, job: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<JobHandle<R>, AnalysisError>> + Send + 'a>>
+fn submit<'a, L, R, F>(
+    lane: L,
+    cancel: &'a CancellationToken,
+    job: F,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<JobHandle<R>, AnalysisError>> + Send + 'a>>
 where
     L: LaneToken,
     R: Send + 'static,
@@ -529,7 +534,12 @@ async fn start_page(lanes: &LaneTokens, job: PageJob) -> Result<JobHandle<Result
 }
 
 /// A started page, its numbers repainted when it has any.
-async fn finish_page(lanes: &LaneTokens, registry: &Arc<Registry>, cancel: &CancellationToken, handle: JobHandle<Result<Painted, AnalysisError>>) -> Result<PageImageData, AnalysisError> {
+async fn finish_page(
+    lanes: &LaneTokens,
+    registry: &Arc<Registry>,
+    cancel: &CancellationToken,
+    handle: JobHandle<Result<Painted, AnalysisError>>,
+) -> Result<PageImageData, AnalysisError> {
     if cancel.is_cancelled() {
         return Err(AnalysisError::plain(CANCELLED));
     }
@@ -544,7 +554,12 @@ async fn finish_page(lanes: &LaneTokens, registry: &Arc<Registry>, cancel: &Canc
 }
 
 /// The images land beside the PDF, each reported as a write first.
-async fn write_images(lanes: &LaneTokens, cancel: &CancellationToken, note: Arc<dyn WriteNote>, images: Vec<RenderedImage>) -> Result<Vec<RenderedImage>, AnalysisError> {
+async fn write_images(
+    lanes: &LaneTokens,
+    cancel: &CancellationToken,
+    note: Arc<dyn WriteNote>,
+    images: Vec<RenderedImage>,
+) -> Result<Vec<RenderedImage>, AnalysisError> {
     let job = move |lane: &InLane<DurabilityIo>| {
         let mut failure = None;
         for image in &images {
@@ -592,7 +607,13 @@ impl Beside {
 
 /// `renderPdfPages(path, options)`: see the module. `registry` is the font registry the repainted numbers and the
 /// sheet labels are set with; `note` hears of each image before it is written.
-pub async fn render_pdf_pages(lanes: LaneTokens, registry: Arc<Registry>, note: Arc<dyn WriteNote>, path: &Path, options: RenderPagesOptions) -> Result<RenderedPages, AnalysisError> {
+pub async fn render_pdf_pages(
+    lanes: LaneTokens,
+    registry: Arc<Registry>,
+    note: Arc<dyn WriteNote>,
+    path: &Path,
+    options: RenderPagesOptions,
+) -> Result<RenderedPages, AnalysisError> {
     let cancel = options.cancel.clone().unwrap_or_default();
     if cancel.is_cancelled() {
         return Err(AnalysisError::plain(CANCELLED));
@@ -625,7 +646,13 @@ pub async fn render_pdf_pages(lanes: LaneTokens, registry: Arc<Registry>, note: 
         }
         for (page, handle) in started {
             let drawn = finish_page(&lanes, &registry, &cancel, handle).await?;
-            images.push(RenderedImage::Page(PageImage { page, path: beside.file(&format!("-page-{page}.png")), width: drawn.width, height: drawn.height, png: drawn.png }));
+            images.push(RenderedImage::Page(PageImage {
+                page,
+                path: beside.file(&format!("-page-{page}.png")),
+                width: drawn.width,
+                height: drawn.height,
+                png: drawn.png,
+            }));
         }
     } else {
         let width = contact_sheets::sheet_width(options.max_width);
@@ -673,7 +700,8 @@ mod tests {
 
     #[test]
     fn other_bottom_band_text_is_left_alone() {
-        for text in ["", "Page", "Page 3", "3", "of 12", "3 of", "Source: Acme 2024", "Page 3 of 12 draft", "페이지", "1 2 페이지", "3 of 12 of 4", "p. 3"] {
+        for text in ["", "Page", "Page 3", "3", "of 12", "3 of", "Source: Acme 2024", "Page 3 of 12 draft", "페이지", "1 2 페이지", "3 of 12 of 4", "p. 3"]
+        {
             assert!(!is_page_number(text), "{text:?}");
         }
     }

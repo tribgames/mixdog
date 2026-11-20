@@ -133,12 +133,7 @@ impl PendingWaits {
     /// session and request, once; a tab nobody named (empty request id) settles nothing.
     pub fn new_tab_created(&self, session: &str, request_id: &str, page_id: &str) -> bool {
         // Node's truthiness: an empty page id still settles the wait, but names no page.
-        !request_id.is_empty()
-            && self.settle_key(
-                &WaitKey::NewTab(request_id.to_owned()),
-                Some(session),
-                Some(page_id.to_owned()).filter(|p| !p.is_empty()),
-            )
+        !request_id.is_empty() && self.settle_key(&WaitKey::NewTab(request_id.to_owned()), Some(session), Some(page_id.to_owned()).filter(|p| !p.is_empty()))
     }
 
     /// Starts waiting for a pane to claim the terminal reveal `request_id`.
@@ -155,12 +150,8 @@ impl PendingWaits {
     /// The session's browser is released: no tab it was asked for will arrive.
     pub fn cancel_session(&self, session: &str) {
         let mut state = locked(&self.state);
-        let keys: Vec<WaitKey> = state
-            .waiting
-            .iter()
-            .filter(|(key, w)| matches!(key, WaitKey::NewTab(_)) && w.session == session)
-            .map(|(key, _)| key.clone())
-            .collect();
+        let keys: Vec<WaitKey> =
+            state.waiting.iter().filter(|(key, w)| matches!(key, WaitKey::NewTab(_)) && w.session == session).map(|(key, _)| key.clone()).collect();
         for key in keys {
             if let Some(waiter) = state.waiting.remove(&key) {
                 settle(waiter, None);
@@ -233,10 +224,7 @@ struct TerminalRunClaimed {
 #[async_trait]
 impl DomainService for PendingWaits {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        Err(CoreError::InvalidParams {
-            path: "method".into(),
-            expected: format!("a notification, not the request {}", req.method.as_str()).into(),
-        })
+        Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a notification, not the request {}", req.method.as_str()).into() })
     }
 
     fn methods(&self) -> &'static [&'static str] {

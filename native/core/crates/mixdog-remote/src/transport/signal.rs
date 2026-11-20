@@ -326,12 +326,7 @@ pub enum Media {
 impl Media {
     pub fn id(&self) -> &str {
         match self {
-            Self::Request { id, .. }
-            | Self::Head { id, .. }
-            | Self::Chunk { id, .. }
-            | Self::End { id }
-            | Self::Cancel { id }
-            | Self::Error { id } => id,
+            Self::Request { id, .. } | Self::Head { id, .. } | Self::Chunk { id, .. } | Self::End { id } | Self::Cancel { id } | Self::Error { id } => id,
         }
     }
 

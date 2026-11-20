@@ -32,11 +32,7 @@ fn or_else(snapshot: &Value, key: &str, fallback: Value) -> Value {
 fn profile_meta(profile: &Value) -> String {
     let language = first_truthy_text(member(profile, "languageEntry"), &["label"]).unwrap_or_else(|| "System".to_owned());
     let experience = first_truthy_text(member(profile, "experienceLevelEntry"), &["label"]).unwrap_or_default();
-    [text_of(member(profile, "title")), experience, language]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" \u{b7} ")
+    [text_of(member(profile, "title")), experience, language].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" \u{b7} ")
 }
 
 /// The theme row's meta: the label of the active theme, else its id, else `Default` (also when the themes cannot be read).
@@ -45,10 +41,7 @@ fn theme_meta(host: &mut dyn PickerHost) -> String {
         return "Default".to_owned();
     };
     let entry = listed.as_array().and_then(|themes| themes.iter().find(|theme| theme.get("id") == Some(&id)));
-    entry
-        .and_then(|entry| first_truthy_text(entry, &["label"]))
-        .or_else(|| truthy(&id).then(|| value_text(&id)))
-        .unwrap_or_else(|| "Default".to_owned())
+    entry.and_then(|entry| first_truthy_text(entry, &["label"])).or_else(|| truthy(&id).then(|| value_text(&id))).unwrap_or_else(|| "Default".to_owned())
 }
 
 fn update_meta(update: &Value) -> String {
@@ -144,10 +137,7 @@ pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &
     let idle = duration_text(member(auto_clear, "idleMs"));
     let (auto_clear_meta, auto_clear_description) = if view.auto_clear_enabled {
         let window = if unlimited { "Never clear idle sessions".to_owned() } else { format!("Clear idle sessions after {idle}") };
-        (
-            format!("On ({})", if unlimited { "Unlimited" } else { idle.as_str() }),
-            format!("{window}{auto_clear_source}. Enter for options."),
-        )
+        (format!("On ({})", if unlimited { "Unlimited" } else { idle.as_str() }), format!("{window}{auto_clear_source}. Enter for options."))
     } else {
         ("Off".to_owned(), "Idle auto-clear disabled. Enter for options.".to_owned())
     };
@@ -162,12 +152,7 @@ pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &
     let shell_effective = text_of(member(&view.system_shell, "effective"));
     let theme = theme_meta(host);
     vec![
-        row(
-            "model",
-            "Model",
-            Some(mixdog_view_model::display::model_display::display_model_name(&state.model, "")),
-            "Main chat model.".to_owned(),
-        ),
+        row("model", "Model", Some(mixdog_view_model::display::model_display::display_model_name(&state.model, "")), "Main chat model.".to_owned()),
         row(
             "websearch",
             "Web search model",
@@ -176,12 +161,7 @@ pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &
         ),
         row("workflow", "Workflow", Some(workflow_display_name(&view.workflow)), "Active agent routing profile.".to_owned()),
         row("output-style", "Output style", Some(output_style_label), "Response tone and format.".to_owned()),
-        row(
-            "profile",
-            "Profile",
-            Some(profile_meta(member(snapshot, "profile"))),
-            "Your title, development experience, and response language.".to_owned(),
-        ),
+        row("profile", "Profile", Some(profile_meta(member(snapshot, "profile"))), "Your title, development experience, and response language.".to_owned()),
         row("theme", "Theme", Some(theme), "TUI color theme.".to_owned()),
         row(
             "web-search-enabled",
@@ -207,28 +187,14 @@ pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &
         row("mcp", "MCP servers", None, mcp_description),
         row("plugins", "Plugins", None, format!("{} detected", count(&view.plugins, "count"))),
         row("skills", "Skills", None, format!("{} available", count(&view.skills, "count"))),
-        row(
-            "voice",
-            "Voice",
-            Some(bool_label(voice_on).to_owned()),
-            "Transcribe voice input (managed Whisper runtime).".to_owned(),
-        ),
+        row("voice", "Voice", Some(bool_label(voice_on).to_owned()), "Transcribe voice input (managed Whisper runtime).".to_owned()),
         row(
             "system-shell",
             "System shell",
             Some(if shell_command.is_empty() { "Auto".to_owned() } else { shell_command }),
-            if shell_effective.is_empty() {
-                "Use the platform default shell command.".to_owned()
-            } else {
-                format!("Effective command: {shell_effective}")
-            },
+            if shell_effective.is_empty() { "Use the platform default shell command.".to_owned() } else { format!("Effective command: {shell_effective}") },
         ),
         row("developer", "Developer", None, "Developer-only options.".to_owned()),
-        row(
-            "update",
-            "Update",
-            Some(update_meta(&or_else(snapshot, "updateSettings", json!({})))),
-            "Check version and update mixdog.".to_owned(),
-        ),
+        row("update", "Update", Some(update_meta(&or_else(snapshot, "updateSettings", json!({})))), "Check version and update mixdog.".to_owned()),
     ]
 }

@@ -8,15 +8,12 @@
 //! The deck page receipt and the authoring brief live in `mixdog-office-author`, which itself uses this crate, so the
 //! readings reach the review through [`AuthorReads`]; the author crate (or the caller that holds both) answers it.
 
-use mixdog_js::{
-    is_js_space, js_to_lowercase, js_trim, math, number_to_radix, number_to_string, string_to_number, to_number_of, utf16_len, value_to_string,
-};
+use mixdog_js::{is_js_space, js_to_lowercase, js_trim, math, number_to_radix, number_to_string, string_to_number, to_number_of, utf16_len, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_office_design::composition::review_office_composition_sequence;
 use mixdog_office_design::design_system::resolve_office_design;
 use mixdog_office_design::discipline::{
-    MAX_ACCENT_HUE_FAMILIES, MAX_FONT_FAMILIES_PER_SLIDE, font_family_key, is_motif_shape, is_picture_shape, is_safe_font_family,
-    saturated_hue_families,
+    MAX_ACCENT_HUE_FAMILIES, MAX_FONT_FAMILIES_PER_SLIDE, font_family_key, is_motif_shape, is_picture_shape, is_safe_font_family, saturated_hue_families,
 };
 use mixdog_office_design::native_design::uses_native_office_design;
 use mixdog_office_design::tokens::hex;
@@ -229,11 +226,7 @@ fn com_color_hex(value: Option<&Value>) -> String {
     let blue = math::floor(number / 65_536.0) % 256.0;
     let green = math::floor(number / 256.0) % 256.0;
     let red = number % 256.0;
-    [red, green, blue]
-        .iter()
-        .map(|channel| format!("{:0>2}", number_to_radix(*channel, 16.0).unwrap_or_default()))
-        .collect::<String>()
-        .to_uppercase()
+    [red, green, blue].iter().map(|channel| format!("{:0>2}", number_to_radix(*channel, 16.0).unwrap_or_default())).collect::<String>().to_uppercase()
 }
 
 fn shape_font_families(shape: &Value) -> Vec<String> {
@@ -255,7 +248,10 @@ fn shape_colors(shape: &Value) -> Vec<String> {
     if let Some(Value::Array(colors)) = field(shape, "colors") {
         return colors.iter().map(|color| value_to_string(color).to_uppercase()).collect();
     }
-    [com_color_hex(field_of(field(shape, "font"), "color")), com_color_hex(field_of(field(shape, "fill"), "color"))].into_iter().filter(|color| !color.is_empty()).collect()
+    [com_color_hex(field_of(field(shape, "font"), "color")), com_color_hex(field_of(field(shape, "fill"), "color"))]
+        .into_iter()
+        .filter(|color| !color.is_empty())
+        .collect()
 }
 
 fn has_text(shape: &Value) -> bool {
@@ -362,7 +358,8 @@ fn review_pptx_slide(slide: &Value, slides: &[Value], design: &Value, plans: &[V
     let shapes: Vec<&Value> = shapes_of(slide).iter().filter(|shape| !is_motif_shape(shape)).collect();
     let text_shapes: Vec<&Value> = shapes.iter().copied().filter(|shape| has_text(shape)).collect();
     let pictures = shapes.iter().filter(|shape| is_picture_shape(shape)).count();
-    let rich_visuals = shapes.iter().filter(|shape| is_truthy(field(shape, "chart")) || is_truthy(field(shape, "table")) || is_truthy(field(shape, "group"))).count();
+    let rich_visuals =
+        shapes.iter().filter(|shape| is_truthy(field(shape, "chart")) || is_truthy(field(shape, "table")) || is_truthy(field(shape, "group"))).count();
     let non_text: Vec<&Value> = shapes.iter().copied().filter(|shape| !has_text(shape) && !is_truthy(field(shape, "placeholder"))).collect();
     // One statement, a band of hero numerals, or a drawn specimen (the subject itself set in three or more size/weight
     // steps down one column) is a typographic visual; an authored brief whose plan line names a statement, quote, hero,
@@ -438,14 +435,20 @@ fn review_pptx_deck_scale(slides: usize, design: &Value, signatures: &[(String, 
     }
     // Matches the authoring rule: the same skeleton may appear twice per deck.
     if card_grid_slides >= 3 && !allow_repetition {
-        issues.push(design_issue("card_grid_overuse", "/", &format!("{card_grid_slides} slides use repeated same-size text cards; vary the visual structure.")));
+        issues.push(design_issue(
+            "card_grid_overuse",
+            "/",
+            &format!("{card_grid_slides} slides use repeated same-size text cards; vary the visual structure."),
+        ));
     }
     let required_native_evidence = usize::max(1, content_count.div_ceil(3));
     if slides >= 5 && native_evidence_slides < required_native_evidence && !is_truthy(field_of(review, "allowSyntheticVisuals")) {
         issues.push(design_issue(
             "native_evidence_too_weak",
             "/",
-            &format!("Deck uses native image, chart, or table evidence on {native_evidence_slides} slide(s); at least {required_native_evidence} are required."),
+            &format!(
+                "Deck uses native image, chart, or table evidence on {native_evidence_slides} slide(s); at least {required_native_evidence} are required."
+            ),
         ));
     }
     issues

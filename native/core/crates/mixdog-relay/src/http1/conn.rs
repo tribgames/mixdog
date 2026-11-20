@@ -19,7 +19,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use super::body::{Pump, Step};
-use super::head::{self, HeadError, ParsedHead, Parse};
+use super::head::{self, HeadError, Parse, ParsedHead};
 use super::response::{ResponseMeta, ResponseWriter, has_word, status_message};
 use super::{Handler, RawIo, Request, UpgradeRequest, refusal_bytes};
 use crate::logline;
@@ -427,10 +427,7 @@ where
         let _ = wr.flush().await;
         let _ = wr.shutdown().await;
         let mut sink = [0u8; 1024];
-        let _ = timeout(LINGER, async {
-            while matches!(self.rd.read(&mut sink).await, Ok(read) if read > 0) {}
-        })
-        .await;
+        let _ = timeout(LINGER, async { while matches!(self.rd.read(&mut sink).await, Ok(read) if read > 0) {} }).await;
     }
 
     /// Gives the socket to the upgrade listener with the bytes read past the request head.
@@ -470,11 +467,12 @@ where
         // HTTP/1.1 requires Host.
         if minor == 1 && !headers.contains("host") {
             drop(body);
-            return self.answer(pump, started, epoch, meta, |response| {
-                let _ = response.write_head(400, &[("Connection", "close")]);
-                response.end(None);
-            })
-            .await;
+            return self
+                .answer(pump, started, epoch, meta, |response| {
+                    let _ = response.write_head(400, &[("Connection", "close")]);
+                    response.end(None);
+                })
+                .await;
         }
         if minor == 1 {
             if let Some(expect) = headers.get("expect") {
@@ -486,11 +484,12 @@ where
                     }
                 } else {
                     drop(body);
-                    return self.answer(pump, started, epoch, meta, |response| {
-                        let _ = response.write_head(417, &[]);
-                        response.end(None);
-                    })
-                    .await;
+                    return self
+                        .answer(pump, started, epoch, meta, |response| {
+                            let _ = response.write_head(417, &[]);
+                            response.end(None);
+                        })
+                        .await;
                 }
             }
         }

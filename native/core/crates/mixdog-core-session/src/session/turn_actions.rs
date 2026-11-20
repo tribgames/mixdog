@@ -81,12 +81,7 @@ fn thread_of(id: Option<ThreadId>) -> Result<ThreadId, CoreError> {
 }
 
 impl TurnActionsService {
-    pub fn new(
-        directory: Arc<SessionDirectory>,
-        agents: Arc<AgentRuntime>,
-        resizer: Arc<dyn ProfiledImageResizer>,
-        ops: OpScopes,
-    ) -> Self {
+    pub fn new(directory: Arc<SessionDirectory>, agents: Arc<AgentRuntime>, resizer: Arc<dyn ProfiledImageResizer>, ops: OpScopes) -> Self {
         Self { directory, agents, resizer, ops }
     }
 

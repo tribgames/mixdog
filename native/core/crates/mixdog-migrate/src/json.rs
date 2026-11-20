@@ -2,11 +2,11 @@
 //! surrogates → U+FFFD, FORMAT.md §10.9), canonical encodings for digests, and the
 //! JavaScript value semantics the 1.4.5 id rule and the corpus digests depend on.
 
-use std::borrow::Cow;
 use serde_json::Map;
 use serde_json::Value;
 use sha2::Digest as _;
 use sha2::Sha256;
+use std::borrow::Cow;
 
 pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -33,10 +33,7 @@ pub struct Parsed {
 pub fn parse_source(text: &[u8]) -> Result<Parsed, String> {
     let (fixed, replaced_surrogates) = replace_lone_surrogates(text);
     let value = serde_json::from_slice(&fixed).map_err(|e| e.to_string())?;
-    Ok(Parsed {
-        value,
-        replaced_surrogates,
-    })
+    Ok(Parsed { value, replaced_surrogates })
 }
 
 /// `JSON.parse(readFileSync(path, 'utf8'))` of a config file as Node reads it: a leading BOM skipped, invalid UTF-8 bytes read as U+FFFD,
@@ -48,10 +45,7 @@ pub fn parse_config(bytes: &[u8]) -> Result<Parsed, String> {
     let (fixed, replaced_surrogates) = replace_lone_surrogates(text.as_bytes());
     let fixed = std::str::from_utf8(&fixed).map_err(|e| e.to_string())?;
     let value = mixdog_js::json_parse(fixed).map_err(|e| e.to_string())?;
-    Ok(Parsed {
-        value,
-        replaced_surrogates,
-    })
+    Ok(Parsed { value, replaced_surrogates })
 }
 
 /// Whether the top-level object of `text` names one key twice (`hasUniqueTopLevelKeys`,
@@ -143,8 +137,7 @@ pub fn digest_of(value: &Value) -> String {
 
 /// The digest of a computed `sha256:<hex>` text.
 pub fn digest(text: &str) -> mixdog_store::schema::bounded::Digest {
-    mixdog_store::schema::bounded::Digest::try_from(text.to_string())
-        .expect("a computed sha256 digest is well formed")
+    mixdog_store::schema::bounded::Digest::try_from(text.to_string()).expect("a computed sha256 digest is well formed")
 }
 
 /// The digest of a computed bare SHA-256 hex.

@@ -43,9 +43,9 @@ use sha2::Sha256;
 mod attachment;
 mod param_refs;
 pub use attachment::AttachmentSource;
-pub use param_refs::BlobParamRefs;
 pub(crate) use attachment::lane_failure;
 pub(crate) use attachment::sanitized_file_name;
+pub use param_refs::BlobParamRefs;
 
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::invalid;
@@ -91,11 +91,7 @@ impl Staging {
     }
 
     fn get(&self, digest: &BlobDigest) -> Option<Arc<Upload>> {
-        self.uploads
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(digest)
-            .cloned()
+        self.uploads.lock().unwrap_or_else(|e| e.into_inner()).get(digest).cloned()
     }
 
     /// The upload of `digest`, created empty when none is staged.
@@ -104,12 +100,7 @@ impl Staging {
         let mut uploads = self.uploads.lock().unwrap_or_else(|e| e.into_inner());
         let upload = uploads.entry(digest.clone()).or_insert_with(|| {
             Arc::new(Upload {
-                state: Mutex::new(UploadState {
-                    buf: Vec::new(),
-                    hasher: Sha256::new(),
-                    done: false,
-                    staged: self.staged.clone(),
-                }),
+                state: Mutex::new(UploadState { buf: Vec::new(), hasher: Sha256::new(), done: false, staged: self.staged.clone() }),
                 touched: AtomicU64::new(tick),
             })
         });
@@ -118,10 +109,7 @@ impl Staging {
     }
 
     fn remove(&self, digest: &BlobDigest) {
-        self.uploads
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(digest);
+        self.uploads.lock().unwrap_or_else(|e| e.into_inner()).remove(digest);
     }
 
     /// Drops least recently touched uploads other than `keep` until `extra` more bytes fit.
@@ -241,27 +229,15 @@ pub struct BlobService {
 
 fn store_error(error: BlobError, digest: &BlobDigest) -> CoreError {
     match error {
-        BlobError::ItemTooLarge { .. } => CoreError::ItemTooLarge {
-            limit: MAX_BLOB_BYTES,
-        },
-        BlobError::Missing { .. } => CoreError::BlobNotFound {
-            digest: digest.clone(),
-        },
-        BlobError::Corrupt { .. } => CoreError::BlobCorrupt {
-            digest: digest.clone(),
-        },
-        BlobError::Io(_) => CoreError::Internal {
-            incident_id: "blob-io".into(),
-        },
+        BlobError::ItemTooLarge { .. } => CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES },
+        BlobError::Missing { .. } => CoreError::BlobNotFound { digest: digest.clone() },
+        BlobError::Corrupt { .. } => CoreError::BlobCorrupt { digest: digest.clone() },
+        BlobError::Io(_) => CoreError::Internal { incident_id: "blob-io".into() },
     }
 }
 
 fn hex_of(hasher: Sha256) -> String {
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 impl BlobService {
@@ -288,9 +264,7 @@ impl BlobService {
         }
         let store = self.store.clone();
         let wanted = digest.clone();
-        let len = on_lane(self.interactive, &req.ctx.cancel, move |lane| store.verify(lane, &wanted))
-            .await?
-            .map_err(|e| store_error(e, digest))?;
+        let len = on_lane(self.interactive, &req.ctx.cancel, move |lane| store.verify(lane, &wanted)).await?.map_err(|e| store_error(e, digest))?;
         self.verified.insert(digest.clone(), len);
         Ok(len)
     }
@@ -302,11 +276,7 @@ impl BlobService {
         self.publishing.settled(&params.digest).await;
         let size = self.verified(req, &params.digest).await?;
         let offset = params.offset.unwrap_or(0).min(size);
-        let length = params.length.map_or(self.page_bytes, |n| {
-            usize::try_from(n)
-                .unwrap_or(usize::MAX)
-                .min(self.page_bytes)
-        });
+        let length = params.length.map_or(self.page_bytes, |n| usize::try_from(n).unwrap_or(usize::MAX).min(self.page_bytes));
         let length = length.min(usize::try_from(size - offset).unwrap_or(usize::MAX));
         if length == 0 {
             return Ok(json!({ "bytesB64": "" }));
@@ -314,8 +284,7 @@ impl BlobService {
         // Only the page is read: the file was verified whole once (`verified`).
         let store = self.store.clone();
         let wanted = params.digest.clone();
-        let page = on_lane(self.interactive, &req.ctx.cancel, move |lane| store.read_range(lane, &wanted, offset, length))
-            .await?;
+        let page = on_lane(self.interactive, &req.ctx.cancel, move |lane| store.read_range(lane, &wanted, offset, length)).await?;
         let page = match page {
             Ok(page) => page,
             Err(error) => {
@@ -328,18 +297,12 @@ impl BlobService {
 
     async fn put(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: BlobPutParams = decode(req)?;
-        let chunk = STANDARD
-            .decode(&params.bytes_b64)
-            .map_err(|_| invalid("bytesB64", "standard base64"))?;
+        let chunk = STANDARD.decode(&params.bytes_b64).map_err(|_| invalid("bytesB64", "standard base64"))?;
         if chunk.len() > self.chunk_bytes {
-            return Err(invalid(
-                "bytesB64",
-                "at most limits.maxBlobPutChunkBytes raw bytes",
-            ));
+            return Err(invalid("bytesB64", "at most limits.maxBlobPutChunkBytes raw bytes"));
         }
         let digest = &params.digest;
-        let offset =
-            usize::try_from(params.offset).map_err(|_| invalid("offset", "a byte offset"))?;
+        let offset = usize::try_from(params.offset).map_err(|_| invalid("offset", "a byte offset"))?;
         let upload = match self.staging.get(digest) {
             Some(upload) => upload,
             // The chunk that completed the blob may be sent again after its answer was lost.
@@ -357,30 +320,20 @@ impl BlobService {
             // A gap or a resent chunk that differs from what was staged is refused; a resent
             // chunk that repeats it adds only the bytes past the end.
             if offset > have {
-                return Err(invalid(
-                    "offset",
-                    "the next byte after those already received",
-                ));
+                return Err(invalid("offset", "the next byte after those already received"));
             }
             let held = (have - offset).min(chunk.len());
             if state.buf[offset..offset + held] != chunk[..held] {
-                return Err(invalid(
-                    "bytesB64",
-                    "the bytes already received at this offset",
-                ));
+                return Err(invalid("bytesB64", "the bytes already received at this offset"));
             }
             let fresh = &chunk[held..];
             if (have + fresh.len()) as u64 > MAX_BLOB_BYTES {
                 drop(state);
                 self.staging.remove(digest);
-                return Err(CoreError::ItemTooLarge {
-                    limit: MAX_BLOB_BYTES,
-                });
+                return Err(CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES });
             }
             if !fresh.is_empty() && !self.staging.make_room(digest, fresh.len()) {
-                return Err(CoreError::QueueFull {
-                    queue: "blobUploads".into(),
-                });
+                return Err(CoreError::QueueFull { queue: "blobUploads".into() });
             }
             state.buf.extend_from_slice(fresh);
             state.hasher.update(fresh);
@@ -406,30 +359,19 @@ impl BlobService {
         {
             self.staging.remove(digest);
             let store = self.store.clone();
-            on_lane(self.durability, &req.ctx.cancel, move |lane| {
-                store.put(lane, &bytes)
-            })
-            .await?
-            .map_err(|e| store_error(e, digest))?;
+            on_lane(self.durability, &req.ctx.cancel, move |lane| store.put(lane, &bytes)).await?.map_err(|e| store_error(e, digest))?;
             drop(_publishing);
         }
         Ok(json!({}))
     }
 
-    async fn already_stored(
-        &self,
-        req: &CoreRequest,
-        digest: &BlobDigest,
-    ) -> Result<Value, CoreError> {
+    async fn already_stored(&self, req: &CoreRequest, digest: &BlobDigest) -> Result<Value, CoreError> {
         // A publication of this digest under way is waited for: the chunk that completed it is not the only one a competing
         // uploader may still send.
         self.publishing.settled(digest).await;
         match self.verified(req, digest).await {
             Ok(_) => Ok(json!({})),
-            Err(CoreError::BlobNotFound { .. }) => Err(invalid(
-                "offset",
-                "0: no upload of this blob is in progress",
-            )),
+            Err(CoreError::BlobNotFound { .. }) => Err(invalid("offset", "0: no upload of this blob is in progress")),
             Err(other) => Err(other),
         }
     }

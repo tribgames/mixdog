@@ -103,12 +103,7 @@ fn role_label(role: Role) -> &'static str {
 }
 
 fn transcript_line(m: &AgentMessage, index: usize, per_message_chars: usize) -> String {
-    let label = format!(
-        "{}{}{}",
-        role_label(m.role()),
-        tool_call_summary(m, tool_call_arg_budget(per_message_chars)),
-        tool_result_id(m)
-    );
+    let label = format!("{}{}{}", role_label(m.role()), tool_call_summary(m, tool_call_arg_budget(per_message_chars)), tool_result_id(m));
     let text = truncate_middle(js_trim(&extract_text(m)), per_message_chars);
     if text.is_empty() { format!("{}. {label}", index + 1) } else { format!("{}. {label}:\n{text}", index + 1) }
 }
@@ -139,12 +134,7 @@ pub fn build_compaction_prompt(head: &[AgentMessage], previous_summary: Option<&
 }
 
 /// The complete prompt when it (with the system prompt) fits `target_tokens`.
-pub fn fit_complete_compaction_prompt(
-    meter: &MessageMeter<'_>,
-    head: &[AgentMessage],
-    previous_summary: Option<&str>,
-    target_tokens: u64,
-) -> Option<String> {
+pub fn fit_complete_compaction_prompt(meter: &MessageMeter<'_>, head: &[AgentMessage], previous_summary: Option<&str>, target_tokens: u64) -> Option<String> {
     let prompt = build_compaction_prompt(head, previous_summary);
     let messages = [system_message(COMPACTION_SYSTEM_PROMPT), AgentMessage::user(prompt.clone())];
     (meter.messages(&messages) <= target_tokens).then_some(prompt)
@@ -172,12 +162,7 @@ pub fn enforce_compact_summary_schema(summary: &str, head: &[AgentMessage], tail
 
 /// The largest `size` in `[lo, hi]` whose candidate fits (`build` grows with
 /// `size`, so binary search finds the edge).
-pub(super) fn largest_fitting<T>(
-    mut lo: usize,
-    mut hi: usize,
-    build: impl Fn(usize) -> T,
-    fits: impl Fn(&T) -> bool,
-) -> Option<T> {
+pub(super) fn largest_fitting<T>(mut lo: usize, mut hi: usize, build: impl Fn(usize) -> T, fits: impl Fn(&T) -> bool) -> Option<T> {
     let mut best = None;
     while lo <= hi {
         let mid = (lo + hi) / 2;

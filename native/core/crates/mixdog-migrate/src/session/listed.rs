@@ -6,10 +6,7 @@
 //! cache, so whatever it does not answer (no file, another layout, a row that does not decode) lists nothing, and that
 //! session appears when it is converted.
 
-#![allow(
-    clippy::disallowed_types,
-    reason = "one-time migration: the earlier version's catalog database read directly on the migration thread"
-)]
+#![allow(clippy::disallowed_types, reason = "one-time migration: the earlier version's catalog database read directly on the migration thread")]
 
 use std::path::Path;
 

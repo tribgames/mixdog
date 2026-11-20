@@ -272,9 +272,7 @@ pub(crate) fn inherited(store: &ObjectStore, field: Ref, key: &str) -> Option<Ob
 }
 
 pub(crate) fn field_flags(store: &ObjectStore, field: Ref) -> i64 {
-    inherited(store, field, "Ff")
-        .and_then(|raw| store.resolve(&raw).and_then(Obj::as_num))
-        .map_or(0, |flags| flags as i64)
+    inherited(store, field, "Ff").and_then(|raw| store.resolve(&raw).and_then(Obj::as_num)).map_or(0, |flags| flags as i64)
 }
 
 pub(crate) fn has_flag(store: &ObjectStore, field: Ref, flag: i64) -> bool {
@@ -360,9 +358,7 @@ pub(crate) fn default_appearance(store: &ObjectStore, dict: &Dict) -> Option<Str
 
 pub(crate) fn is_non_terminal(store: &ObjectStore, dict: &Dict) -> bool {
     match store.lookup(dict, "Kids") {
-        Some(Obj::Array(kids)) => kids
-            .iter()
-            .any(|kid| matches!(store.resolve(kid), Some(Obj::Dict(entry)) if entry.has("T"))),
+        Some(Obj::Array(kids)) => kids.iter().any(|kid| matches!(store.resolve(kid), Some(Obj::Dict(entry)) if entry.has("T"))),
         _ => false,
     }
 }
@@ -436,19 +432,13 @@ pub(crate) fn widget_on_value(store: &ObjectStore, widget: &Widget) -> FormResul
 
 /// `acroField.getWidgets()`.
 pub(crate) fn widgets_of(store: &ObjectStore, field: Ref) -> FormResult<Vec<Widget>> {
-    let dict = store
-        .dict(field)
-        .cloned()
-        .ok_or_else(|| FormError::new("Expected instance of PDFDict, but got instance of undefined"))?;
+    let dict = store.dict(field).cloned().ok_or_else(|| FormError::new("Expected instance of PDFDict, but got instance of undefined"))?;
     let Some(Obj::Array(kids)) = store.lookup(&dict, "Kids") else {
         return Ok(vec![Widget { reference: Some(field), dict }]);
     };
     kids.iter()
         .map(|kid| match store.resolve(kid) {
-            Some(Obj::Dict(entry)) => Ok(Widget {
-                reference: kid.as_ref_value(),
-                dict: entry.clone(),
-            }),
+            Some(Obj::Dict(entry)) => Ok(Widget { reference: kid.as_ref_value(), dict: entry.clone() }),
             other => Err(mismatch("PDFDict", other)),
         })
         .collect()
@@ -460,22 +450,14 @@ pub(crate) fn widget_rectangle(store: &ObjectStore, widget: &Widget) -> FormResu
         return Err(mismatch("PDFArray", store.lookup(&widget.dict, "Rect")));
     };
     if items.len() != 4 {
-        return Err(FormError::new(format!(
-            "Attempted to convert PDFArray with {} elements to rectangle, but must have exactly 4 elements.",
-            items.len()
-        )));
+        return Err(FormError::new(format!("Attempted to convert PDFArray with {} elements to rectangle, but must have exactly 4 elements.", items.len())));
     }
     let mut numbers = [0.0; 4];
     for (slot, item) in numbers.iter_mut().zip(items.iter()) {
         let resolved = store.resolve(item);
         *slot = resolved.and_then(Obj::as_num).ok_or_else(|| mismatch("PDFNumber", resolved))?;
     }
-    Ok(Rect {
-        x: numbers[0],
-        y: numbers[1],
-        width: numbers[2] - numbers[0],
-        height: numbers[3] - numbers[1],
-    })
+    Ok(Rect { x: numbers[0], y: numbers[1], width: numbers[2] - numbers[0], height: numbers[3] - numbers[1] })
 }
 
 /// The numbers of a colour array of the appearance characteristics (`BC`, `BG`): the entries that are numbers.
@@ -527,10 +509,9 @@ pub(crate) fn button_value(store: &ObjectStore, field: Ref) -> String {
 pub(crate) fn text_value(store: &ObjectStore, field: Ref) -> FormResult<Option<String>> {
     match value_object(store, field) {
         Some(Obj::Str(bytes)) => Ok(Some(decode_text_string(&bytes))),
-        _ if has_flag(store, field, FLAG_RICH_TEXT) => Err(FormError::new(format!(
-            "Reading rich text fields is not supported: Attempted to read rich text field: {}",
-            field_name(store, field)
-        ))),
+        _ if has_flag(store, field, FLAG_RICH_TEXT) => {
+            Err(FormError::new(format!("Reading rich text fields is not supported: Attempted to read rich text field: {}", field_name(store, field))))
+        }
         _ => Ok(None),
     }
 }
@@ -539,10 +520,7 @@ pub(crate) fn text_value(store: &ObjectStore, field: Ref) -> FormResult<Option<S
 pub(crate) fn choice_values(store: &ObjectStore, field: Ref) -> Vec<String> {
     match value_object(store, field) {
         Some(Obj::Str(bytes)) => vec![decode_text_string(&bytes)],
-        Some(Obj::Array(items)) => items
-            .iter()
-            .filter_map(|item| string_text(store.resolve(item)))
-            .collect(),
+        Some(Obj::Array(items)) => items.iter().filter_map(|item| string_text(store.resolve(item))).collect(),
         _ => Vec::new(),
     }
 }
@@ -660,9 +638,8 @@ fn set_button_state(store: &mut ObjectStore, field: Ref, value: &str) -> FormRes
 
 // ---- the form ------------------------------------------------------------------------------------------------------
 
-static TF_OPERATOR: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"/([^\x00\t\n\f\r\x20]+)[\x00\t\n\f\r\x20]*(\d*\.\d+|\d+)?[\x00\t\n\f\r\x20]+Tf", "")
-});
+static TF_OPERATOR: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"/([^\x00\t\n\f\r\x20]+)[\x00\t\n\f\r\x20]*(\d*\.\d+|\d+)?[\x00\t\n\f\r\x20]+Tf", ""));
 
 /// `findLastMatch`: the last of the non-overlapping matches scanned from the start, as `(offset, length, groups)` of
 /// the whole string, and the position after it.
@@ -714,9 +691,7 @@ impl PdfForm {
         if store.dict(form).is_some_and(|dict| dict.has("XFA")) {
             delete_key(store, form, "XFA");
         }
-        let has_fields = store
-            .dict(form)
-            .is_some_and(|dict| matches!(store.lookup(dict, "Fields"), Some(Obj::Array(_))));
+        let has_fields = store.dict(form).is_some_and(|dict| matches!(store.lookup(dict, "Fields"), Some(Obj::Array(_))));
         if !has_fields {
             set_key(store, form, "Fields", Obj::Array(Arc::new(Vec::new())));
         }
@@ -834,8 +809,8 @@ impl PdfForm {
             .and_then(|dict| default_appearance(store, dict))
             .filter(|da| !da.is_empty())
             .ok_or_else(|| FormError::new(format!("No /DA (default appearance) entry found for field: {name}")))?;
-        let (start, length, groups) = find_last_match(&da, &TF_OPERATOR, 2)
-            .ok_or_else(|| FormError::new(format!("No Tf operator found for DA of field: {name}")))?;
+        let (start, length, groups) =
+            find_last_match(&da, &TF_OPERATOR, 2).ok_or_else(|| FormError::new(format!("No Tf operator found for DA of field: {name}")))?;
         let font_name = groups.get(1).cloned().flatten().unwrap_or_default();
         let before = &da[..start];
         let after = da.get(start + length..).unwrap_or("");
@@ -868,12 +843,9 @@ impl PdfForm {
         let store = doc.store_mut();
         let on_values = radio_on_values(store, field.reference)?;
         let wanted = match export_values(store, field.reference) {
-            Some(exports) => exports
-                .iter()
-                .enumerate()
-                .filter(|(_, export)| export.as_str() == option)
-                .filter_map(|(index, _)| on_values.get(index).cloned())
-                .last(),
+            Some(exports) => {
+                exports.iter().enumerate().filter(|(_, export)| export.as_str() == option).filter_map(|(index, _)| on_values.get(index).cloned()).last()
+            }
             None => on_values.iter().filter(|value| value.as_str() == option).last().cloned(),
         };
         match wanted {
@@ -942,10 +914,8 @@ impl PdfForm {
         }
         if options.len() > 1 {
             let listed = choice_options(store, reference)?;
-            let mut indices: Vec<i64> = options
-                .iter()
-                .map(|value| listed.iter().position(|(_, display)| display == value).map_or(-1, |at| at as i64))
-                .collect();
+            let mut indices: Vec<i64> =
+                options.iter().map(|value| listed.iter().position(|(_, display)| display == value).map_or(-1, |at| at as i64)).collect();
             indices.sort_by_key(|index| index.to_string());
             let items: Vec<Obj> = indices.into_iter().map(|index| Obj::Num(index as f64)).collect();
             set_key(store, reference, "I", Obj::Array(Arc::new(items)));
@@ -972,13 +942,7 @@ pub fn field_widgets(doc: &PdfDocument, field: &Field) -> Vec<WidgetBox> {
                     _ => None,
                 };
                 let page = page_ref.and_then(|page| pages.iter().position(|entry| *entry == page)).map_or(0, |at| at + 1);
-                Ok(WidgetBox {
-                    page,
-                    x: rectangle.x,
-                    y: rectangle.y,
-                    width: rectangle.width,
-                    height: rectangle.height,
-                })
+                Ok(WidgetBox { page, x: rectangle.x, y: rectangle.y, width: rectangle.width, height: rectangle.height })
             })
             .collect()
     };
@@ -1026,11 +990,9 @@ fn field_value(store: &ObjectStore, field: &Field) -> Value {
 fn field_option_list(store: &ObjectStore, field: &Field) -> Option<Vec<String>> {
     match field.kind {
         FieldKind::Radio => Some(radio_options(store, field.reference).unwrap_or_default()),
-        FieldKind::Dropdown | FieldKind::OptionList => Some(
-            choice_options(store, field.reference)
-                .map(|options| options.into_iter().map(|(_, display)| display).collect())
-                .unwrap_or_default(),
-        ),
+        FieldKind::Dropdown | FieldKind::OptionList => {
+            Some(choice_options(store, field.reference).map(|options| options.into_iter().map(|(_, display)| display).collect()).unwrap_or_default())
+        }
         _ => None,
     }
 }
@@ -1077,11 +1039,7 @@ impl PdfForm {
     /// `form.getFields().map((field, index) => describeFormField(field, document, index))`.
     pub fn describe_fields(&self, doc: &mut PdfDocument) -> FormResult<Vec<Value>> {
         let fields = self.fields(doc)?;
-        Ok(fields
-            .iter()
-            .enumerate()
-            .map(|(index, field)| describe_form_field(doc, field, index))
-            .collect())
+        Ok(fields.iter().enumerate().map(|(index, field)| describe_form_field(doc, field, index)).collect())
     }
 }
 
@@ -1135,6 +1093,5 @@ mod tests {
         }
     }
 }
-
 
 impl std::error::Error for FormError {}

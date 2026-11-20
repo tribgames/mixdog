@@ -114,13 +114,10 @@ pub struct MemoryService {
     sessions: Arc<dyn SessionSource>,
 }
 
-static IDENTITY_A: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"(?:내가|나는|나|사용자|유저|user|my|me).*(?:누구|누군|정체|이름|name|identity)|who(?:am)?i", "")
-});
-static IDENTITY_B: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(?:나누구냐|나는누구냐|내가누구냐|내이름뭐|내이름뭐야|whoami)$", "i"));
-static EMPTY_RESULT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^\(?no results\)?$|^\(?empty memory result\)?$", "i"));
+static IDENTITY_A: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"(?:내가|나는|나|사용자|유저|user|my|me).*(?:누구|누군|정체|이름|name|identity)|who(?:am)?i", ""));
+static IDENTITY_B: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:나누구냐|나는누구냐|내가누구냐|내이름뭐|내이름뭐야|whoami)$", "i"));
+static EMPTY_RESULT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\(?no results\)?$|^\(?empty memory result\)?$", "i"));
 static TERM: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[\p{L}\p{N}_./:-]{2,}", "gu"));
 
 /// `isIdentityRecallQuery`.
@@ -274,15 +271,11 @@ mod tests {
             json!({ "role": "user", "content": "thanks" }),
         ];
         let rows = current_session_recall_rows(&messages, "deploy", None);
-        assert_eq!(
-            rows,
-            "[session:2] assistant: Deploying now [{\"id\":\"c1\"}]\n[session:1] user: deploy the staging cluster"
-        );
+        assert_eq!(rows, "[session:2] assistant: Deploying now [{\"id\":\"c1\"}]\n[session:1] user: deploy the staging cluster");
         assert_eq!(current_session_recall_rows(&messages, "", Some(&json!(2))).lines().count(), 2);
         assert_eq!(current_session_recall_rows(&messages, "zzz", None), "(no results)");
         assert_eq!(current_session_recall_rows(&[], "x", None), "(no results)");
     }
-
 
     #[tokio::test]
     async fn the_memory_tool_names_an_unknown_action_and_asks_for_the_attachment_of_the_cycle_pieces() {
@@ -309,7 +302,11 @@ mod tests {
         let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| 0), lane);
         let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
         let unknown = memory.memory_reply(&json!({ "action": "format_disk" })).await;
-        assert!(unknown.is_error && unknown.text == "unknown memory action: format_disk; valid: core, status. Mutation verbs belong in op.", "{}", unknown.text);
+        assert!(
+            unknown.is_error && unknown.text == "unknown memory action: format_disk; valid: core, status. Mutation verbs belong in op.",
+            "{}",
+            unknown.text
+        );
         let unattached = memory.memory_reply(&json!({ "action": "backfill" })).await;
         assert_eq!((unattached.is_error, unattached.text.as_str()), (true, "memory maintenance is not available in this process"));
         let purge = memory.memory_reply(&json!({ "action": "purge" })).await;
@@ -323,10 +320,18 @@ mod tests {
 #[path = "service/cancellation_tests.rs"]
 mod cancellation_tests;
 
-
 impl LocalMemory {
     pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
-        Self(Arc::new(LocalParts { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane, session_uses: Mutex::default(), maintenance: std::sync::OnceLock::new() }))
+        Self(Arc::new(LocalParts {
+            db,
+            data_dir,
+            revision: Arc::new(AtomicU64::new(0)),
+            recall,
+            ingest,
+            lane,
+            session_uses: Mutex::default(),
+            maintenance: std::sync::OnceLock::new(),
+        }))
     }
 
     /// Hands the maintenance actions what they run cycle1, embed and ingest transcripts with; the first attachment stands.
@@ -358,7 +363,10 @@ impl LocalMemory {
     }
 
     pub(crate) async fn memory_reply_settled(
-        &self, args: &Value, cancel: &tokio_util::sync::CancellationToken, settlement: Option<Arc<DeleteSettlement>>,
+        &self,
+        args: &Value,
+        cancel: &tokio_util::sync::CancellationToken,
+        settlement: Option<Arc<DeleteSettlement>>,
     ) -> ToolReply {
         if cancel.is_cancelled() {
             return maintenance::failure_reply(&crate::memory::recall::aborted());
@@ -390,7 +398,12 @@ impl LocalMemory {
             Some(work) => work.await,
             None => None,
         };
-        answered.unwrap_or_else(|| RecallOutcome { text: format!("recall failed: {STOPPING}"), next_cursor: None, is_error: true, cancelled: cancel.is_cancelled() })
+        answered.unwrap_or_else(|| RecallOutcome {
+            text: format!("recall failed: {STOPPING}"),
+            next_cursor: None,
+            is_error: true,
+            cancelled: cancel.is_cancelled(),
+        })
     }
 }
 
@@ -437,7 +450,12 @@ impl MemoryService {
         if let Some(thread) = thread.filter(|thread| !thread.is_empty()) {
             self.memory.note_session_use(thread);
         }
-        self.memory.ready().await.map_err(|_| CoreError::DomainError { domain: "memory".into(), code: None, message: Some(RUNTIME_NOT_READY.into()), detail: None })
+        self.memory.ready().await.map_err(|_| CoreError::DomainError {
+            domain: "memory".into(),
+            code: None,
+            message: Some(RUNTIME_NOT_READY.into()),
+            detail: None,
+        })
     }
 
     async fn memory_control(&self, params: &Value, cancel: &tokio_util::sync::CancellationToken) -> Result<Value, CoreError> {
@@ -526,10 +544,13 @@ impl MemoryService {
     }
 }
 
-
 impl LocalParts {
     async fn run_action(
-        &self, action: Action, args: &Value, cancel: &tokio_util::sync::CancellationToken, settlement: Option<&DeleteSettlement>,
+        &self,
+        action: Action,
+        args: &Value,
+        cancel: &tokio_util::sync::CancellationToken,
+        settlement: Option<&DeleteSettlement>,
     ) -> crate::memory::error::Result<ToolReply> {
         if cancel.is_cancelled() {
             return Err(crate::memory::recall::aborted());

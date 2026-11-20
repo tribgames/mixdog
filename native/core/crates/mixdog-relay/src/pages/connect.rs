@@ -6,7 +6,8 @@ use std::sync::LazyLock;
 
 use super::{PageReply, PageRequest, fill, is_get_or_head};
 
-const CONNECT_PAGE_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'";
+const CONNECT_PAGE_CSP: &str =
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'";
 
 static PAGE: LazyLock<String> = LazyLock::new(|| fill(include_str!("../../assets/pages/connect.html"), &[]));
 

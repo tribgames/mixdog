@@ -478,18 +478,11 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
-
     use super::*;
 
     fn tokens() -> mixdog_rt::LaneTokens {
         mixdog_rt::testing::tokens()
     }
-
-
-
-
-
-
 
     /// Lines from many threads all land, each thread's in its own order.
     #[tokio::test]
@@ -529,7 +522,13 @@ mod tests {
         let big = vec![b'x'; LOG_MAX_BYTES as usize + 1];
         mixdog_fsio::write(&mixdog_fsio::Unlaned, dir.path().join("schedule.log"), &big).unwrap();
         let sink: StderrSink = Arc::new(|_| {});
-        let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink);
+        let log = DaemonLog::with_parts(
+            Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))),
+            tokens().maintenance_io,
+            CancellationToken::new(),
+            Arc::new(system_now_ms),
+            sink,
+        );
         let cancel = CancellationToken::new();
         let lane = tokens().maintenance_io;
         let data = dir.path().to_path_buf();
@@ -581,8 +580,23 @@ mod tests {
         let (release, stuck) = mpsc::channel();
         let (started_tx, started) = mpsc::channel();
         let sink: StderrSink = Arc::new(|_| {});
-        let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink.clone());
-        log.attach_topic_log("mixdog scheduler: ", DaemonLog::with_parts(Arc::new(Stuck(Mutex::new(stuck), Mutex::new(started_tx))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink));
+        let log = DaemonLog::with_parts(
+            Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))),
+            tokens().maintenance_io,
+            CancellationToken::new(),
+            Arc::new(system_now_ms),
+            sink.clone(),
+        );
+        log.attach_topic_log(
+            "mixdog scheduler: ",
+            DaemonLog::with_parts(
+                Arc::new(Stuck(Mutex::new(stuck), Mutex::new(started_tx))),
+                tokens().maintenance_io,
+                CancellationToken::new(),
+                Arc::new(system_now_ms),
+                sink,
+            ),
+        );
         log.enable_file_logging();
         let emitting = log.node_sink();
         let worker = std::thread::spawn(move || emitting(Daemon, Stderr, "mixdog scheduler: stuck"));
@@ -618,7 +632,6 @@ mod tests {
         out
     }
 
-
     /// A cancelled run leaves its drainer unstarted; flush returns instead of waiting on it.
     #[tokio::test]
     async fn flush_returns_when_the_lane_drops_the_drainer() {
@@ -630,6 +643,4 @@ mod tests {
         log.log("never written");
         mixdog_rt::time::timeout(Duration::from_secs(10), log.flush()).await.expect("flush must not hang");
     }
-
-
 }

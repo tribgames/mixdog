@@ -316,11 +316,8 @@ pub(crate) fn rendered_aesthetic_metric(image: &Value, index: usize) -> Result<O
     let spatial = structure_stats(&structure);
     let palette_threshold = max(3.0, colorful_foreground * 0.05);
     let palette_hue_count = hue_histogram.iter().filter(|count| **count >= palette_threshold).count();
-    let palette_dominance = if colorful_foreground != 0.0 {
-        hue_histogram.iter().fold(f64::NEG_INFINITY, |best, count| max(best, *count)) / colorful_foreground
-    } else {
-        0.0
-    };
+    let palette_dominance =
+        if colorful_foreground != 0.0 { hue_histogram.iter().fold(f64::NEG_INFINITY, |best, count| max(best, *count)) / colorful_foreground } else { 0.0 };
     let width = to_number_of(field(image, "width"));
     let height = to_number_of(field(image, "height"));
     // `Number(image.width) || decoded.info.width`: the fallback is the size of the resampled read.

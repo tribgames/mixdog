@@ -50,10 +50,7 @@ fn hex_bytes(hex: &str) -> Option<Vec<u8>> {
     if !hex.is_ascii() || hex.len() % 2 != 0 {
         return None;
     }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
-        .collect()
+    (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok()).collect()
 }
 
 fn ipv4_text(octets: [u8; 4]) -> String {
@@ -79,11 +76,7 @@ fn ipv6_text(groups: [u16; 8]) -> String {
     match groups {
         [0, 0, 0, 0, 0, 0, 0, 0] => "::".to_owned(),
         [0, 0, 0, 0, 0, 0, 0, 1] => "::1".to_owned(),
-        _ => groups
-            .iter()
-            .map(|g| format!("{g:x}"))
-            .collect::<Vec<_>>()
-            .join(":"),
+        _ => groups.iter().map(|g| format!("{g:x}")).collect::<Vec<_>>().join(":"),
     }
 }
 
@@ -128,12 +121,7 @@ pub fn parse_proc_net_tcp(text: &str, family: Family) -> Vec<ListeningSocket> {
             Family::V6 => ipv6_from_proc(address_hex),
         };
         let Some(address) = address else { continue };
-        sockets.push(ListeningSocket {
-            port,
-            address,
-            inode: Some(fields[9].to_owned()),
-            ..ListeningSocket::default()
-        });
+        sockets.push(ListeningSocket { port, address, inode: Some(fields[9].to_owned()), ..ListeningSocket::default() });
     }
     sockets
 }
@@ -160,10 +148,7 @@ pub fn parse_lsof_listen(text: &str) -> Vec<ListeningSocket> {
                 let Ok(port) = port.parse::<u16>() else {
                     continue;
                 };
-                let host = host
-                    .strip_prefix('[')
-                    .and_then(|h| h.strip_suffix(']'))
-                    .unwrap_or(host);
+                let host = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
                 sockets.push(ListeningSocket {
                     port,
                     address: if host == "*" { "0.0.0.0" } else { host }.to_owned(),
@@ -186,12 +171,7 @@ pub fn merge_listening_sockets(sockets: &[ListeningSocket], own_pid: u32) -> Vec
         if socket.pid == Some(own_pid) {
             continue;
         }
-        let entry = by_port.entry(socket.port).or_insert_with(|| ListeningPort {
-            port: socket.port,
-            addresses: Vec::new(),
-            process: None,
-            pid: None,
-        });
+        let entry = by_port.entry(socket.port).or_insert_with(|| ListeningPort { port: socket.port, addresses: Vec::new(), process: None, pid: None });
         if !entry.addresses.contains(&socket.address) {
             entry.addresses.push(socket.address.clone());
         }
@@ -207,10 +187,7 @@ pub fn merge_listening_sockets(sockets: &[ListeningSocket], own_pid: u32) -> Vec
 
 /// Reads the OS socket table once.
 pub fn sample_listening_ports() -> io::Result<Vec<ListeningPort>> {
-    Ok(merge_listening_sockets(
-        &os::listening_sockets()?,
-        std::process::id(),
-    ))
+    Ok(merge_listening_sockets(&os::listening_sockets()?, std::process::id()))
 }
 
 #[cfg(target_os = "linux")]
@@ -230,10 +207,7 @@ mod os {
         let Ok(entries) = fs::read_dir("/proc") else {
             return owners;
         };
-        let pids = entries
-            .flatten()
-            .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
-            .take(MAX_PROCESSES);
+        let pids = entries.flatten().filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok()).take(MAX_PROCESSES);
         for pid in pids {
             let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
                 continue;
@@ -243,21 +217,14 @@ mod os {
                 let Ok(link) = fs::read_link(fd.path()) else {
                     continue;
                 };
-                let Some(inode) = link
-                    .to_str()
-                    .and_then(|l| l.strip_prefix("socket:["))
-                    .and_then(|l| l.strip_suffix(']'))
-                else {
+                let Some(inode) = link.to_str().and_then(|l| l.strip_prefix("socket:[")).and_then(|l| l.strip_suffix(']')) else {
                     continue;
                 };
                 if !inodes.contains(inode) || owners.contains_key(inode) {
                     continue;
                 }
                 let name = name.get_or_insert_with(|| {
-                    fs::read_to_string(format!("/proc/{pid}/comm"))
-                        .ok()
-                        .map(|c| mixdog_js::js_trim(&c).to_owned())
-                        .filter(|c| !c.is_empty())
+                    fs::read_to_string(format!("/proc/{pid}/comm")).ok().map(|c| mixdog_js::js_trim(&c).to_owned()).filter(|c| !c.is_empty())
                 });
                 owners.insert(inode.to_owned(), (pid, name.clone()));
             }
@@ -270,21 +237,14 @@ mod os {
 
     pub(super) fn listening_sockets() -> io::Result<Vec<ListeningSocket>> {
         let mut sockets = Vec::new();
-        for (file, family) in [
-            ("/proc/net/tcp", Family::V4),
-            ("/proc/net/tcp6", Family::V6),
-        ] {
+        for (file, family) in [("/proc/net/tcp", Family::V4), ("/proc/net/tcp6", Family::V6)] {
             match fs::read_to_string(file) {
                 Ok(text) => sockets.extend(parse_proc_net_tcp(&text, family)),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
             }
         }
-        let inodes: HashSet<String> = sockets
-            .iter()
-            .filter_map(|s| s.inode.clone())
-            .filter(|i| i != "0")
-            .collect();
+        let inodes: HashSet<String> = sockets.iter().filter_map(|s| s.inode.clone()).filter(|i| i != "0").collect();
         let owners = socket_owners(&inodes);
         for socket in &mut sockets {
             if let Some((pid, process)) = socket.inode.as_ref().and_then(|i| owners.get(i)) {
@@ -302,9 +262,7 @@ mod os {
     use std::process::Command;
 
     pub(super) fn listening_sockets() -> io::Result<Vec<ListeningSocket>> {
-        let output = Command::new("lsof")
-            .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"])
-            .output()?;
+        let output = Command::new("lsof").args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]).output()?;
         // lsof exits 1 when nothing listens.
         if !output.status.success() && output.stdout.is_empty() {
             return match output.status.code() {
@@ -341,16 +299,7 @@ mod os {
             let mut buffer = vec![0u8; size as usize];
             // The buffer is 8-byte aligned by the allocator for sizes the OS asks for; rows
             // are read unaligned below regardless.
-            let status = unsafe {
-                GetExtendedTcpTable(
-                    buffer.as_mut_ptr().cast(),
-                    &mut size,
-                    0,
-                    family,
-                    TCP_TABLE_OWNER_PID_LISTENER,
-                    0,
-                )
-            };
+            let status = unsafe { GetExtendedTcpTable(buffer.as_mut_ptr().cast(), &mut size, 0, family, TCP_TABLE_OWNER_PID_LISTENER, 0) };
             match status {
                 NO_ERROR => return Ok(buffer),
                 ERROR_INSUFFICIENT_BUFFER => {}
@@ -393,13 +342,8 @@ mod os {
         let count = unsafe { std::ptr::read_unaligned(v4.as_ptr().cast::<u32>()) } as usize;
         let rows_at = std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table);
         for i in 0..count {
-            let row: MIB_TCPROW_OWNER_PID = unsafe {
-                std::ptr::read_unaligned(
-                    v4.as_ptr()
-                        .add(rows_at + i * std::mem::size_of::<MIB_TCPROW_OWNER_PID>())
-                        .cast(),
-                )
-            };
+            let row: MIB_TCPROW_OWNER_PID =
+                unsafe { std::ptr::read_unaligned(v4.as_ptr().add(rows_at + i * std::mem::size_of::<MIB_TCPROW_OWNER_PID>()).cast()) };
             sockets.push(ListeningSocket {
                 port: port_of(row.dwLocalPort),
                 address: ipv4_text(row.dwLocalAddr.to_ne_bytes()),
@@ -412,13 +356,8 @@ mod os {
         let count = unsafe { std::ptr::read_unaligned(v6.as_ptr().cast::<u32>()) } as usize;
         let rows_at = std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table);
         for i in 0..count {
-            let row: MIB_TCP6ROW_OWNER_PID = unsafe {
-                std::ptr::read_unaligned(
-                    v6.as_ptr()
-                        .add(rows_at + i * std::mem::size_of::<MIB_TCP6ROW_OWNER_PID>())
-                        .cast(),
-                )
-            };
+            let row: MIB_TCP6ROW_OWNER_PID =
+                unsafe { std::ptr::read_unaligned(v6.as_ptr().add(rows_at + i * std::mem::size_of::<MIB_TCP6ROW_OWNER_PID>()).cast()) };
             let mut groups = [0u16; 8];
             for (g, pair) in groups.iter_mut().zip(row.ucLocalAddr.chunks(2)) {
                 *g = u16::from_be_bytes([pair[0], pair[1]]);
@@ -432,8 +371,7 @@ mod os {
             });
         }
         let pids: HashSet<u32> = sockets.iter().filter_map(|s| s.pid).collect();
-        let names: std::collections::HashMap<u32, Option<String>> =
-            pids.into_iter().map(|p| (p, process_name(p))).collect();
+        let names: std::collections::HashMap<u32, Option<String>> = pids.into_iter().map(|p| (p, process_name(p))).collect();
         for socket in &mut sockets {
             socket.process = socket.pid.and_then(|p| names.get(&p).cloned().flatten());
         }
@@ -460,16 +398,8 @@ pub fn diff_ports(before: &[ListeningPort], after: &[ListeningPort]) -> PortsDif
     let old: BTreeMap<u16, &ListeningPort> = before.iter().map(|p| (p.port, p)).collect();
     let new: BTreeMap<u16, &ListeningPort> = after.iter().map(|p| (p.port, p)).collect();
     PortsDiff {
-        upserted: after
-            .iter()
-            .filter(|p| old.get(&p.port).is_none_or(|o| *o != *p))
-            .cloned()
-            .collect(),
-        removed: before
-            .iter()
-            .filter(|p| !new.contains_key(&p.port))
-            .map(|p| p.port)
-            .collect(),
+        upserted: after.iter().filter(|p| old.get(&p.port).is_none_or(|o| *o != *p)).cloned().collect(),
+        removed: before.iter().filter(|p| !new.contains_key(&p.port)).map(|p| p.port).collect(),
     }
 }
 
@@ -526,11 +456,7 @@ impl PortsHub {
                 interval,
                 source: Box::new(source),
                 sink: Box::new(sink),
-                state: Mutex::new(HubState {
-                    viewers: HashSet::new(),
-                    generation: 0,
-                    last: Vec::new(),
-                }),
+                state: Mutex::new(HubState { viewers: HashSet::new(), generation: 0, last: Vec::new() }),
                 wake: Condvar::new(),
                 sampler_threads: AtomicUsize::new(0),
                 #[cfg(feature = "core-test")]
@@ -551,13 +477,10 @@ impl PortsHub {
             let generation = state.generation;
             let inner = Arc::clone(&self.inner);
             inner.sampler_threads.fetch_add(1, Ordering::AcqRel);
-            if let Err(error) = thread::Builder::new()
-                .name("ports-sampler".to_owned())
-                .spawn({
-                    let inner = Arc::clone(&self.inner);
-                    move || sampler(inner, generation)
-                })
-            {
+            if let Err(error) = thread::Builder::new().name("ports-sampler".to_owned()).spawn({
+                let inner = Arc::clone(&self.inner);
+                move || sampler(inner, generation)
+            }) {
                 self.inner.sampler_threads.fetch_sub(1, Ordering::AcqRel);
                 state.viewers.remove(viewer);
                 return Err(error);
@@ -617,10 +540,7 @@ fn sampler(inner: Arc<HubInner>, generation: u64) {
             }
         }
         let state = inner.lock();
-        let (state, _) = inner
-            .wake
-            .wait_timeout_while(state, inner.interval, |s| s.generation == generation)
-            .unwrap_or_else(|e| e.into_inner());
+        let (state, _) = inner.wake.wait_timeout_while(state, inner.interval, |s| s.generation == generation).unwrap_or_else(|e| e.into_inner());
         if state.generation != generation {
             break;
         }

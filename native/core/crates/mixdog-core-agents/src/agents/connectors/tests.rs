@@ -1,4 +1,3 @@
-
 use serde_json::Value;
 use serde_json::json;
 
@@ -23,5 +22,3 @@ fn accounts_with_one_number_rank_in_the_order_the_stored_policy_lists_them() {
     let reversed = json!({ "off": [], "tools": { "gmail-02": { "send": "auto" }, "gmail-2": { "send": "disabled" } } });
     assert!(assert_not_widened(Some(&reversed), Some(&after), None).is_ok());
 }
-
-

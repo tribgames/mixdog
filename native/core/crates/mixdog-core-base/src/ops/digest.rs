@@ -82,9 +82,7 @@ fn write_canonical(out: &mut Sha256, value: &Value) {
             }
             out.update(b"]");
         }
-        scalar => {
-            serde_json::to_writer(HashWriter(out), scalar).expect("a JSON scalar always serializes")
-        }
+        scalar => serde_json::to_writer(HashWriter(out), scalar).expect("a JSON scalar always serializes"),
     }
 }
 

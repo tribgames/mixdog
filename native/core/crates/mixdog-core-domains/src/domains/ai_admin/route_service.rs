@@ -7,12 +7,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_ai::effort::normalize_effort_input;
 use mixdog_ai::service::admin_route::{
     Obj, clean, find_preset, jnum, model_meta_looks_resolved, normalize_workflow_route, persist_adopted_model_settings, resolve_route,
-    resolve_route_context_state, save_model_settings, selection_fast_capable, truthy, validate_requested_model_selector,
-    workflow_preset_id,
+    resolve_route_context_state, save_model_settings, selection_fast_capable, truthy, validate_requested_model_selector, workflow_preset_id,
 };
-use mixdog_ai::effort::normalize_effort_input;
 use mixdog_ai::service::routes::{route_chain, validate_route_chain_providers};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
@@ -204,11 +203,8 @@ impl RouteService {
         let state = resolve_route_context_state(&selected, window.as_ref());
         // An exact selection is saved clamped, and not at all when it is the default window; an
         // unknown window keeps it as requested.
-        let tokens: Option<Value> = if state.context_default_percent.is_none() {
-            selected.get("contextTokens").cloned()
-        } else {
-            state.context_tokens.map(jnum)
-        };
+        let tokens: Option<Value> =
+            if state.context_default_percent.is_none() { selected.get("contextTokens").cloned() } else { state.context_tokens.map(jnum) };
         let requested_tokens = selected.get("contextTokens").cloned();
         let mut fields = selected;
         fields.shift_remove("contextTokens");
@@ -339,7 +335,8 @@ impl RouteService {
             let mut after = before.clone();
             save_model_settings(&mut after, &selected, fast_capable);
             let live = self.writer.route(thread);
-            let lead = persist_adopted_model_settings(&mut after, &live, &persisted, Some(options.keep_main_model != Some(false)), &|p, c| self.facts.is_known(p, c))?;
+            let lead =
+                persist_adopted_model_settings(&mut after, &live, &persisted, Some(options.keep_main_model != Some(false)), &|p, c| self.facts.is_known(p, c))?;
             self.config.save_agent_config(&before, &after, options.only_if_empty && lead.is_some()).await.map_err(text)?;
             filled = lead.as_ref().and_then(Value::as_object).cloned();
             // Resolved against the config as adopted: a fill the file skipped is confirmed below.

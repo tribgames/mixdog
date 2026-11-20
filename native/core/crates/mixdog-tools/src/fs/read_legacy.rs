@@ -77,9 +77,7 @@ fn check_int_in_range(a: &mut Obj, field: &str, min: f64, max: f64) -> Option<St
     if let JsonValue::String(s) = &value
         && range_shaped(mixdog_js::js_trim(s))
     {
-        return Some(format!(
-            "Error: \"{field}\" takes one integer, not a range \"{s}\" — use offset+limit (e.g. offset:0, limit:40)"
-        ));
+        return Some(format!("Error: \"{field}\" takes one integer, not a range \"{s}\" — use offset+limit (e.g. offset:0, limit:40)"));
     }
     if !is_finite_int(&value) {
         return Some(format!("Error: \"{field}\" must be an integer (got {}) — e.g. {field}:40", describe_type(&value)));
@@ -96,17 +94,21 @@ fn check_int_in_range(a: &mut Obj, field: &str, min: f64, max: f64) -> Option<St
 fn coerce_shape_flex(value: &JsonValue) -> JsonValue {
     let JsonValue::String(s) = value else { return value.clone() };
     let t = mixdog_js::js_trim(s);
-    if t.starts_with('[') && t.ends_with(']')
+    if t.starts_with('[')
+        && t.ends_with(']')
         && let Ok(parsed @ JsonValue::Array(_)) = serde_json::from_str::<JsonValue>(t)
     {
         return parsed;
     }
-    if t.chars().count() >= 2 && t.starts_with('"') && t.ends_with('"')
+    if t.chars().count() >= 2
+        && t.starts_with('"')
+        && t.ends_with('"')
         && let Ok(parsed @ JsonValue::String(_)) = serde_json::from_str::<JsonValue>(t)
     {
         return parsed;
     }
-    if t.starts_with('{') && t.ends_with('}')
+    if t.starts_with('{')
+        && t.ends_with('}')
         && let Ok(parsed @ JsonValue::Object(_)) = serde_json::from_str::<JsonValue>(t)
     {
         let named = parsed.get("path").filter(|v| !v.is_null()).or_else(|| parsed.get("file_path"));
@@ -235,11 +237,8 @@ fn maybe_zip_path_window_arrays(a: &mut Obj) {
         JsonValue::Object(r)
     };
     let k = offs.as_ref().map_or(0, Vec::len).max(lims.as_ref().map_or(0, Vec::len));
-    let regions: Vec<JsonValue> = if paths.len() == 1 && k > 1 {
-        (0..k).map(|i| region(&paths[0], i)).collect()
-    } else {
-        paths.iter().enumerate().map(|(i, p)| region(p, i)).collect()
-    };
+    let regions: Vec<JsonValue> =
+        if paths.len() == 1 && k > 1 { (0..k).map(|i| region(&paths[0], i)).collect() } else { paths.iter().enumerate().map(|(i, p)| region(p, i)).collect() };
     a.insert("path".to_owned(), JsonValue::Array(regions));
     a.shift_remove("offset");
     a.shift_remove("limit");
@@ -291,9 +290,7 @@ fn apply_line_context_window(obj: &mut Obj, prefix: &str) -> Option<String> {
     if let JsonValue::String(s) = &line
         && range_shaped(mixdog_js::js_trim(s))
     {
-        return Some(format!(
-            "Error: \"{prefix}line\" takes one integer, not a range \"{s}\" — use offset+limit (e.g. offset:0, limit:40)"
-        ));
+        return Some(format!("Error: \"{prefix}line\" takes one integer, not a range \"{s}\" — use offset+limit (e.g. offset:0, limit:40)"));
     }
     let line_no = line.as_f64().filter(|_| is_finite_int(&line)).filter(|n| *n >= 1.0);
     let Some(line_no) = line_no else {
@@ -349,10 +346,8 @@ fn maybe_cap_unbounded_read(a: &mut Obj) -> bool {
     true
 }
 
-const STRING_LIST_ARG_KEYS: [&str; 15] = [
-    "path", "paths", "root", "file", "files", "pattern", "patterns", "query", "regex", "needle", "glob",
-    "file_pattern", "include", "type", "symbols",
-];
+const STRING_LIST_ARG_KEYS: [&str; 15] =
+    ["path", "paths", "root", "file", "files", "pattern", "patterns", "query", "regex", "needle", "glob", "file_pattern", "include", "type", "symbols"];
 
 /// What `validateBuiltinArgs` does to a `read` call before its guard: `null` means not sent, and a
 /// string-list argument is flattened one level and loses its blanks.
@@ -520,17 +515,15 @@ pub(super) struct Seen {
 }
 
 fn window_rows(lines: &[&str], start: usize, n: usize) -> (String, Option<Seen>) {
-    let rows = lines
-        .iter()
-        .enumerate()
-        .skip(start)
-        .take(n)
-        .map(|(i, l)| format!("{}{LINE_SEP}{}", i + 1, display_line(l, i)))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rows = lines.iter().enumerate().skip(start).take(n).map(|(i, l)| format!("{}{LINE_SEP}{}", i + 1, display_line(l, i))).collect::<Vec<_>>().join("\n");
     let shown = lines.len().saturating_sub(start).min(n);
     let out = cap_shell_output(&rows);
-    let seen = (out == rows && shown > 0).then(|| Seen { start: start as u64 + 1, end: (start + shown) as u64, total: lines.len() as u64, whole: shown >= lines.len() });
+    let seen = (out == rows && shown > 0).then(|| Seen {
+        start: start as u64 + 1,
+        end: (start + shown) as u64,
+        total: lines.len() as u64,
+        whole: shown >= lines.len(),
+    });
     (out, seen)
 }
 
@@ -545,11 +538,7 @@ pub(super) fn tail_rows(content: &str, n: usize) -> (String, Option<Seen>) {
 
 /// `countDisplayLines`, the words of `/\S+/g`, and the file's size on disk.
 pub(super) fn text_stats(content: &str, bytes: u64) -> String {
-    let lines = if content.is_empty() {
-        0
-    } else {
-        usize::from(!content.ends_with('\n')) + content.matches('\n').count()
-    };
+    let lines = if content.is_empty() { 0 } else { usize::from(!content.ends_with('\n')) + content.matches('\n').count() };
     let words = content.split(mixdog_js::is_js_space).filter(|w| !w.is_empty()).count();
     format!("lines\t{lines}\twords\t{words}\tbytes\t{bytes}")
 }
@@ -669,32 +658,41 @@ pub(super) fn large_tail_lines(buf: &[u8], size: u64, target: usize) -> (Vec<Str
 /// `renderTailWindowSync` without exact line numbers: a header, the rows, the cap note.
 pub(super) fn large_tail_text(lines: &[String], line_cap: Option<usize>, window_cap: Option<u64>, max_output: usize, clip: &dyn Fn(&str) -> String) -> String {
     let mut clipped = false;
-    let rendered = lines.iter().enumerate().map(|(i, l)| {
-        let line = display_line(l, i);
-        let out = clip(line);
-        clipped |= out != line;
-        out
-    }).collect::<Vec<_>>().join("\n");
+    let rendered = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let line = display_line(l, i);
+            let out = clip(line);
+            clipped |= out != line;
+            out
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let body = format!("... [tail of {} lines from end of file; line numbers omitted]\n{rendered}", lines.len());
     let shell = cap_shell_output(&body);
     let mut out = if shell.len() > max_output {
         let header = body.split_once('\n').map_or(body.as_str(), |(header, _)| header);
         let at = rendered.ceil_char_boundary(rendered.len().saturating_sub(max_output.saturating_sub(header.len() + 1)));
         let last_rows = &rendered[at..];
-        let last_rows = if at > 0 && rendered.as_bytes()[at - 1] != b'\n' {
-            last_rows.split_once('\n').map_or("", |(_, rows)| rows)
-        } else {
-            last_rows
-        };
+        let last_rows = if at > 0 && rendered.as_bytes()[at - 1] != b'\n' { last_rows.split_once('\n').map_or("", |(_, rows)| rows) } else { last_rows };
         format!("{header}\n{last_rows}")
     } else {
         shell
     };
     let mut reasons = Vec::new();
-    if let Some(cap) = line_cap { reasons.push(format!("request capped at {cap} lines")); }
-    if let Some(cap) = window_cap { reasons.push(format!("tail window capped at {} KB", cap / 1024)); }
-    if clipped { reasons.push("overlong lines clipped".into()); }
-    if out != body { reasons.push("output budget omitted text".into()); }
+    if let Some(cap) = line_cap {
+        reasons.push(format!("request capped at {cap} lines"));
+    }
+    if let Some(cap) = window_cap {
+        reasons.push(format!("tail window capped at {} KB", cap / 1024));
+    }
+    if clipped {
+        reasons.push("overlong lines clipped".into());
+    }
+    if out != body {
+        reasons.push("output budget omitted text".into());
+    }
     if !reasons.is_empty() {
         out.push_str(&format!("\n[tail incomplete: {}]", reasons.join("; ")));
     }
@@ -731,7 +729,10 @@ mod tests {
     fn a_plain_read_gets_the_default_limit_and_a_window_or_a_mode_keeps_its_own() {
         use serde_json::json;
         assert_eq!(guarded(json!({"path": "hello.txt"})), Ok((json!({"path": "hello.txt", "limit": 500}), true)));
-        assert_eq!(guarded(json!({"path": ["a.txt", "nope.txt"], "reject_partial": true})), Ok((json!({"path": ["a.txt", "nope.txt"], "reject_partial": true, "limit": 500}), true)));
+        assert_eq!(
+            guarded(json!({"path": ["a.txt", "nope.txt"], "reject_partial": true})),
+            Ok((json!({"path": ["a.txt", "nope.txt"], "reject_partial": true, "limit": 500}), true))
+        );
         for input in [
             json!({"path": "lines.txt", "offset": 10, "limit": 5}),
             json!({"path": "lines.txt", "offset": 115}),
@@ -758,8 +759,14 @@ mod tests {
         use serde_json::json;
         for (input, want) in [
             (json!({"path": "lines.txt", "offset": "5 usepath?other.txt", "limit": 2}), "Error: \"offset\" must be an integer (got string) — e.g. offset:40"),
-            (json!({"path": "lines.txt", "offset": "1,40"}), "Error: \"offset\" takes one integer, not a range \"1,40\" — use offset+limit (e.g. offset:0, limit:40)"),
-            (json!({"path": "lines.txt", "limit": "1-40"}), "Error: \"limit\" takes one integer, not a range \"1-40\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (
+                json!({"path": "lines.txt", "offset": "1,40"}),
+                "Error: \"offset\" takes one integer, not a range \"1,40\" — use offset+limit (e.g. offset:0, limit:40)",
+            ),
+            (
+                json!({"path": "lines.txt", "limit": "1-40"}),
+                "Error: \"limit\" takes one integer, not a range \"1-40\" — use offset+limit (e.g. offset:0, limit:40)",
+            ),
             (json!({"path": "lines.txt", "offset": 1.5}), "Error: \"offset\" must be an integer (got number) — e.g. offset:40"),
             (json!({"path": "lines.txt", "offset": true}), "Error: \"offset\" must be an integer (got boolean) — e.g. offset:40"),
             (json!({"path": "lines.txt", "limit": -1}), "Error: builtin arg \"limit\" must be >= 0 (got -1)"),
@@ -776,7 +783,10 @@ mod tests {
         use serde_json::json;
         for (input, want) in [
             (json!({"path": "lines.txt", "context": 3}), "Error: read arg \"context\" requires \"line\" to compute a window"),
-            (json!({"path": "lines.txt", "line": "3-5"}), "Error: \"line\" takes one integer, not a range \"3-5\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (
+                json!({"path": "lines.txt", "line": "3-5"}),
+                "Error: \"line\" takes one integer, not a range \"3-5\" — use offset+limit (e.g. offset:0, limit:40)",
+            ),
             (json!({"path": "lines.txt", "line": 0}), "Error: \"line\" must be an integer >= 1 (got number) — e.g. line:40"),
             (json!({"path": "lines.txt", "line": "x"}), "Error: \"line\" must be an integer >= 1 (got string) — e.g. line:40"),
             (json!({"path": "lines.txt", "line": 5, "context": "1,2"}), "Error: \"context\" takes one integer, not a range \"1,2\" — e.g. context:5"),
@@ -797,7 +807,10 @@ mod tests {
             (json!({"path": [{"path": "lines.txt", "context": 1}]}), "Error: read arg \"path[0].context\" requires \"path[0].line\" to compute a window"),
             (json!({"path": [{"path": "lines.txt", "line": 0}]}), "Error: \"path[0].line\" must be an integer >= 1 (got number) — e.g. line:40"),
             (json!({"path": [{"path": "lines.txt", "offset": "x"}]}), "Error: \"path[0].offset\" must be an integer (got string) — e.g. offset:40"),
-            (json!({"path": [{"path": "lines.txt", "offset": "1-3"}]}), "Error: \"path[0].offset\" takes one integer, not a range \"1-3\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (
+                json!({"path": [{"path": "lines.txt", "offset": "1-3"}]}),
+                "Error: \"path[0].offset\" takes one integer, not a range \"1-3\" — use offset+limit (e.g. offset:0, limit:40)",
+            ),
             (json!({"path": [{"path": "lines.txt", "limit": -2}]}), "Error: builtin arg \"path[0].limit\" must be >= 0 (got -2)"),
         ] {
             assert_eq!(guarded(input.clone()), Err(want.to_owned()), "{input}");

@@ -12,8 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::Scm;
 use crate::error::ScmFailure;
 
-const LIST_FIELDS: &str =
-    "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup";
+const LIST_FIELDS: &str = "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup";
 const DETAIL_FIELDS: &str = "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup,body,additions,deletions,changedFiles,files,mergeable,mergeStateStatus,createdAt,labels,comments,reviews,reviewRequests";
 
 /// The default PR tree categories; "Local Pull Request Branches" is assembled renderer-side
@@ -43,13 +42,8 @@ fn summarize_checks(rollup: Option<&Value>) -> Value {
         if !item.is_object() {
             continue;
         }
-        let verdict = item
-            .get("conclusion")
-            .filter(|value| !value.is_null())
-            .or_else(|| item.get("state"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_uppercase();
+        let verdict =
+            item.get("conclusion").filter(|value| !value.is_null()).or_else(|| item.get("state")).and_then(Value::as_str).unwrap_or("").to_uppercase();
         total += 1;
         if ["SUCCESS", "NEUTRAL", "SKIPPED"].contains(&verdict.as_str()) {
             passing += 1;
@@ -63,11 +57,7 @@ fn summarize_checks(rollup: Option<&Value>) -> Value {
 }
 
 fn to_entry(record: &Value) -> Map<String, Value> {
-    let author = record
-        .get("author")
-        .and_then(|author| author.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let author = record.get("author").and_then(|author| author.get("login")).and_then(Value::as_str).unwrap_or("");
     let Value::Object(entry) = json!({
         "number": count(record, "number"),
         "title": text(record, "title"),
@@ -122,13 +112,8 @@ fn create_text(value: Option<&Value>, name: &str, maximum: usize) -> Result<Stri
 
 /// The arguments of `gh pr create` for a pull request input, which allows no other field.
 pub fn create_args(value: &Value) -> Result<Vec<String>, ScmFailure> {
-    let input = value
-        .as_object()
-        .ok_or_else(|| ScmFailure::git("Pull request input is required."))?;
-    if input
-        .keys()
-        .any(|key| !["base", "head", "title", "body", "draft"].contains(&key.as_str()))
-    {
+    let input = value.as_object().ok_or_else(|| ScmFailure::git("Pull request input is required."))?;
+    if input.keys().any(|key| !["base", "head", "title", "body", "draft"].contains(&key.as_str())) {
         return Err(ScmFailure::git("Pull request input contains an unsupported field."));
     }
     let base = create_text(input.get("base"), "base branch", 512)?;
@@ -150,10 +135,8 @@ pub fn create_args(value: &Value) -> Result<Vec<String>, ScmFailure> {
     if base.to_lowercase() == head.to_lowercase() {
         return Err(ScmFailure::git("Base branch must differ from the head branch."));
     }
-    let mut args: Vec<String> = ["pr", "create", "--base", &base, "--head", &head, "--title", &title, "--body", &body]
-        .iter()
-        .map(|arg| (*arg).to_owned())
-        .collect();
+    let mut args: Vec<String> =
+        ["pr", "create", "--base", &base, "--head", &head, "--title", &title, "--body", &body].iter().map(|arg| (*arg).to_owned()).collect();
     if draft {
         args.push("--draft".into());
     }
@@ -161,11 +144,7 @@ pub fn create_args(value: &Value) -> Result<Vec<String>, ScmFailure> {
 }
 
 fn login_of(value: Option<&Value>) -> String {
-    value
-        .and_then(|value| value.get("login").or_else(|| value.get("name")))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned()
+    value.and_then(|value| value.get("login").or_else(|| value.get("name"))).and_then(Value::as_str).unwrap_or("").to_owned()
 }
 
 fn timeline(record: &Value) -> Vec<Value> {
@@ -176,10 +155,7 @@ fn timeline(record: &Value) -> Vec<Value> {
             continue;
         }
         let created = text(comment, "createdAt");
-        items.push((
-            created.clone(),
-            json!({ "kind": "comment", "author": login_of(comment.get("author")), "body": body, "state": "", "createdAt": created }),
-        ));
+        items.push((created.clone(), json!({ "kind": "comment", "author": login_of(comment.get("author")), "body": body, "state": "", "createdAt": created })));
     }
     for review in record.get("reviews").and_then(Value::as_array).into_iter().flatten() {
         let state = text(review, "state");
@@ -192,10 +168,8 @@ fn timeline(record: &Value) -> Vec<Value> {
             Some(_) => text(review, "submittedAt"),
             None => text(review, "createdAt"),
         };
-        items.push((
-            created.clone(),
-            json!({ "kind": "review", "author": login_of(review.get("author")), "body": body, "state": state, "createdAt": created }),
-        ));
+        items
+            .push((created.clone(), json!({ "kind": "review", "author": login_of(review.get("author")), "body": body, "state": state, "createdAt": created })));
     }
     // ISO timestamps order as text.
     items.sort_by(|left, right| left.0.cmp(&right.0));
@@ -222,10 +196,7 @@ fn reviewers(record: &Value) -> Vec<Value> {
             set(login, "PENDING".into());
         }
     }
-    by_login
-        .into_iter()
-        .map(|(login, state)| json!({ "login": login, "state": state }))
-        .collect()
+    by_login.into_iter().map(|(login, state)| json!({ "login": login, "state": state })).collect()
 }
 
 #[cfg(test)]
@@ -235,10 +206,7 @@ mod tests {
     #[test]
     fn create_args_allow_only_the_known_fields() {
         let args = create_args(&json!({"base": "main", "head": "topic", "title": "T", "body": "B", "draft": true})).unwrap();
-        assert_eq!(
-            args,
-            ["pr", "create", "--base", "main", "--head", "topic", "--title", "T", "--body", "B", "--draft"]
-        );
+        assert_eq!(args, ["pr", "create", "--base", "main", "--head", "topic", "--title", "T", "--body", "B", "--draft"]);
         assert!(create_args(&json!({"base": "main", "head": "MAIN", "title": "T"})).is_err());
         assert!(create_args(&json!({"base": "a", "head": "b", "title": "T", "extra": 1})).is_err());
     }
@@ -261,28 +229,17 @@ mod tests {
     }
 }
 
-
 fn parse(raw: &str) -> Result<Value, ScmFailure> {
-    serde_json::from_str(raw).map_err(|_| ScmFailure::Command {
-        domain: crate::error::GITHUB_DOMAIN,
-        text: "GitHub returned an unreadable response.".into(),
-    })
+    serde_json::from_str(raw).map_err(|_| ScmFailure::Command { domain: crate::error::GITHUB_DOMAIN, text: "GitHub returned an unreadable response.".into() })
 }
 impl Scm {
-    async fn gh_pane(
-        &self,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        args: &[&str],
-    ) -> Result<String, ScmFailure> {
+    async fn gh_pane(&self, cwd: &Path, cancel: &CancellationToken, args: &[&str]) -> Result<String, ScmFailure> {
         let mutation = args.first() == Some(&"pr") && matches!(args.get(1), Some(&"create" | &"checkout" | &"merge"));
         self.github.run_args(cwd, cancel, args, mutation).await
     }
 
     pub async fn gh_pr_default_branch(&self, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let raw = self
-            .gh_pane(cwd, cancel, &["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"])
-            .await?;
+        let raw = self.gh_pane(cwd, cancel, &["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]).await?;
         Ok(Value::String(create_text(Some(&Value::String(raw)), "default branch", 512)?))
     }
 
@@ -290,10 +247,8 @@ impl Scm {
         let args = create_args(value)?;
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let output = self.gh_pane(cwd, cancel, &refs).await?;
-        let number = output
-            .find("/pull/")
-            .map(|at| output[at + 6..].chars().take_while(char::is_ascii_digit).collect::<String>())
-            .filter(|digits| !digits.is_empty());
+        let number =
+            output.find("/pull/").map(|at| output[at + 6..].chars().take_while(char::is_ascii_digit).collect::<String>()).filter(|digits| !digits.is_empty());
         let mut view = vec!["pr", "view"];
         if let Some(number) = &number {
             view.push(number);
@@ -305,10 +260,7 @@ impl Scm {
 
     pub async fn gh_pr_list(&self, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let lists = futures::future::join_all(CATEGORIES.iter().map(|(key, label, search, limit)| async move {
-            let raw = match self
-                .gh_pane(cwd, cancel, &["pr", "list", "--search", search, "--limit", limit, "--json", LIST_FIELDS])
-                .await
-            {
+            let raw = match self.gh_pane(cwd, cancel, &["pr", "list", "--search", search, "--limit", limit, "--json", LIST_FIELDS]).await {
                 Ok(raw) => raw,
                 // GitHub Enterprise instances and repositories without Copilot can reject the
                 // built-in Copilot query; that optional category reads as empty.
@@ -316,13 +268,7 @@ impl Scm {
                 Err(error) => return Err(error),
             };
             let parsed = if raw.trim().is_empty() { json!([]) } else { parse(&raw)? };
-            let prs: Vec<Value> = parsed
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|item| item.is_object())
-                .map(|item| Value::Object(to_entry(item)))
-                .collect();
+            let prs: Vec<Value> = parsed.as_array().into_iter().flatten().filter(|item| item.is_object()).map(|item| Value::Object(to_entry(item))).collect();
             Ok(json!({ "key": key, "label": label, "prs": prs }))
         }))
         .await;
@@ -376,13 +322,7 @@ impl Scm {
         Ok(Value::String(self.gh_pane(cwd, cancel, &["pr", "checkout", &number]).await?))
     }
 
-    pub async fn gh_pr_merge(
-        &self,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        value: &Value,
-        method: &Value,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn gh_pr_merge(&self, cwd: &Path, cancel: &CancellationToken, value: &Value, method: &Value) -> Result<Value, ScmFailure> {
         let args = merge_args(value, method)?;
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         Ok(Value::String(self.gh_pane(cwd, cancel, &args).await?))

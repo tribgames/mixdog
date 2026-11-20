@@ -54,9 +54,7 @@ fn publish(lane: &mixdog_rt::InLane<DurabilityIo>, path: &std::path::Path, token
     let parent = path.parent().ok_or_else(|| "the marker has no folder".to_owned())?;
     mixdog_statefile::create_private_dir_all(lane, parent).map_err(|error| error.to_string())?;
     let opts = Opts { mode: 0o600, ..Opts::default() };
-    update_json(lane, path, |marker| Ok::<_, std::convert::Infallible>(with_change(marker, token)), &opts)
-        .map(drop)
-        .map_err(|error| format!("{error:?}"))
+    update_json(lane, path, |marker| Ok::<_, std::convert::Infallible>(with_change(marker, token)), &opts).map(drop).map_err(|error| format!("{error:?}"))
 }
 
 /// The `announce` closure of `PluginSeams`: it queues the marker write and returns.

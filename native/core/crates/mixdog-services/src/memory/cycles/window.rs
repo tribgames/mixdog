@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::log;
-use super::quality::{Generation, Generated, InvalidChunk, Row, assess_chunk_quality, generate_cycle1_chunks, is_below_min_source};
+use super::quality::{Generated, Generation, InvalidChunk, Row, assess_chunk_quality, generate_cycle1_chunks, is_below_min_source};
 use super::requests::spawn_in;
 use super::rows::{Plan, is_structurally_unchunkable, mark_omitted_rows, mark_terminal_rows, select_root_id};
 use super::{Cycle1Llm, Cycle1Request, CycleEmbeddings};
@@ -65,29 +65,28 @@ pub struct WindowEnv {
 async fn commit_chunk(env: &WindowEnv, chunk: &super::quality::Chunk, root_id: i64, member_ids: &[i64]) -> Result<()> {
     let project_id = infer_chunk_project_id(&chunk.members);
     transaction(&env.db, async |tx| {
-    let locked = tx
-        .query("SELECT id, ts, role, content, session_id, chunk_root FROM entries WHERE id = ANY($1::bigint[]) FOR UPDATE", &[&member_ids])
-        .await?;
-    let members: Vec<Row> = locked.iter().map(super::rows::row_of).collect();
-    let taken = locked.iter().any(|row| row.get::<_, Option<i64>>("chunk_root").is_some());
-    if taken || !assess_chunk_quality(&chunk.summary, Some(&chunk.quality), &members).usable {
-        return Err(MemoryError::Runtime("cycle1 source changed before commit".into()));
-    }
-    let now = (env.now)();
-    tx.execute(
-        "UPDATE entries
+        let locked =
+            tx.query("SELECT id, ts, role, content, session_id, chunk_root FROM entries WHERE id = ANY($1::bigint[]) FOR UPDATE", &[&member_ids]).await?;
+        let members: Vec<Row> = locked.iter().map(super::rows::row_of).collect();
+        let taken = locked.iter().any(|row| row.get::<_, Option<i64>>("chunk_root").is_some());
+        if taken || !assess_chunk_quality(&chunk.summary, Some(&chunk.quality), &members).usable {
+            return Err(MemoryError::Runtime("cycle1 source changed before commit".into()));
+        }
+        let now = (env.now)();
+        tx.execute(
+            "UPDATE entries
        SET chunk_root = $1, is_root = 1, element = $2, category = $3, summary = $4,
            status = 'pending', project_id = $5,
            last_seen_at = $7, chunk_quality = $8::jsonb, duplicate_of = NULL
        WHERE id = $6",
-        &[&root_id, &chunk.element, &chunk.category, &chunk.summary, &project_id, &root_id, &now, &chunk.quality],
-    )
-    .await?;
-    let non_root: Vec<i64> = member_ids.iter().copied().filter(|&id| id != root_id).collect();
-    if !non_root.is_empty() {
-        tx.execute("UPDATE entries SET chunk_root = $1, project_id = $2 WHERE id = ANY($3::bigint[])", &[&root_id, &project_id, &non_root]).await?;
-    }
-    Ok(())
+            &[&root_id, &chunk.element, &chunk.category, &chunk.summary, &project_id, &root_id, &now, &chunk.quality],
+        )
+        .await?;
+        let non_root: Vec<i64> = member_ids.iter().copied().filter(|&id| id != root_id).collect();
+        if !non_root.is_empty() {
+            tx.execute("UPDATE entries SET chunk_root = $1, project_id = $2 WHERE id = ANY($3::bigint[])", &[&root_id, &project_id, &non_root]).await?;
+        }
+        Ok(())
     })
     .await
 }

@@ -39,21 +39,9 @@ pub struct KeepaliveSchedule {
 impl KeepaliveSchedule {
     /// SPEC §4.9 table.
     pub const SPEC: Self = Self {
-        tcp: TcpKeepalive {
-            idle: Duration::from_secs(60),
-            interval: Duration::from_secs(60),
-            count: 5,
-        },
-        h2: PingKeepalive {
-            interval: Duration::from_secs(30),
-            timeout: Duration::from_secs(10),
-            while_idle: true,
-        },
-        ws: PingKeepalive {
-            interval: Duration::from_secs(30),
-            timeout: Duration::from_secs(10),
-            while_idle: true,
-        },
+        tcp: TcpKeepalive { idle: Duration::from_secs(60), interval: Duration::from_secs(60), count: 5 },
+        h2: PingKeepalive { interval: Duration::from_secs(30), timeout: Duration::from_secs(10), while_idle: true },
+        ws: PingKeepalive { interval: Duration::from_secs(30), timeout: Duration::from_secs(10), while_idle: true },
         ws_max_age: None,
     };
 

@@ -91,12 +91,8 @@ impl<'a> DocxWriter<'a> {
         let Some(written) = written.filter(|inner| !inner.is_empty()) else { return };
         self.state.paragraph += 1;
         let east_asia = self.ty.east_asia_for(properties.get("name"));
-        let stamped = Props::new()
-            .set("alignment", "left")
-            .set("keepWithNext", false)
-            .set("widowControl", true)
-            .opt("nameEastAsia", east_asia)
-            .spread(properties);
+        let stamped =
+            Props::new().set("alignment", "left").set("keepWithNext", false).set("widowControl", true).opt("nameEastAsia", east_asia).spread(properties);
         self.output.push(json!({ "op": "append_text", "text": written, "style": style, "properties": stamped.into_value() }));
     }
 }

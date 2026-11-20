@@ -24,10 +24,7 @@ fn arg(a: &[Value]) -> &Value {
     a.first().unwrap_or(&Value::Undefined)
 }
 pub(crate) fn is_err(v: &Value) -> bool {
-    matches!(
-        v,
-        Value::Error(E::Value | E::Ref | E::Div0 | E::Num | E::Name | E::Nil)
-    ) || matches!(v, Value::Number(n) if !n.is_finite())
+    matches!(v, Value::Error(E::Value | E::Ref | E::Div0 | E::Num | E::Name | E::Nil)) || matches!(v, Value::Number(n) if !n.is_finite())
 }
 pub(crate) fn is_error(v: &Value) -> bool {
     is_err(v) || matches!(v, Value::Error(E::Na))
@@ -61,9 +58,7 @@ pub fn isnontext(a: &[Value]) -> Result<Value, Failure> {
     Ok(Value::Bool(!arg(a).is_text()))
 }
 pub fn isnumber(a: &[Value]) -> Result<Value, Failure> {
-    Ok(Value::Bool(
-        matches!(arg(a),Value::Number(n) if n.is_finite()),
-    ))
+    Ok(Value::Bool(matches!(arg(a),Value::Number(n) if n.is_finite())))
 }
 pub fn istext(a: &[Value]) -> Result<Value, Failure> {
     Ok(Value::Bool(arg(a).is_text()))

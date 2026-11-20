@@ -40,14 +40,41 @@ const TAKEOVER_CODES: &[&str] = &["input_cleanup_unconfirmed"];
 
 /// `POINTER_ACTIONS` (`command-router.ts`): the actions that move or draw the agent's arrow, which the overlay readies first.
 const POINTER_ACTIONS: &[&str] = &[
-    "invoke", "click", "double_click", "right_click", "middle_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag", "scroll", "type", "key", "key_down",
+    "invoke",
+    "click",
+    "double_click",
+    "right_click",
+    "middle_click",
+    "triple_click",
+    "mouse_down",
+    "mouse_up",
+    "mouse_move",
+    "drag",
+    "scroll",
+    "type",
+    "key",
+    "key_down",
     "key_up",
 ];
 
 // `FIRST_STEP_ACTIONS`, `CONTINUATION_STEP_ACTIONS` and `CONTINUATION_REF_STEP_ACTIONS`.
 const FIRST_STEP_ACTIONS: &[&str] = &[
-    "invoke", "set_value", "click", "right_click", "middle_click", "double_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag", "scroll",
-    "type", "key", "key_down", "key_up",
+    "invoke",
+    "set_value",
+    "click",
+    "right_click",
+    "middle_click",
+    "double_click",
+    "triple_click",
+    "mouse_down",
+    "mouse_up",
+    "mouse_move",
+    "drag",
+    "scroll",
+    "type",
+    "key",
+    "key_down",
+    "key_up",
 ];
 const CONTINUATION_STEP_ACTIONS: &[&str] = &["type", "key", "key_down", "key_up", "wait"];
 const CONTINUATION_REF_STEP_ACTIONS: &[&str] = &["invoke", "set_value", "click", "right_click", "middle_click", "double_click", "triple_click", "scroll"];
@@ -360,7 +387,10 @@ mod tests {
         assert_eq!(reply["steps"][0]["window_transition"]["next_target"]["id"], "hwnd:0x9");
         assert_eq!(reply["steps"][1]["status"], "skipped");
         assert_eq!(reply["verdict"], json!({ "decision": "escalate", "recommended": "switch_target" }));
-        assert_eq!((reply["capture_after"]["target_reason"].clone(), reply["capture_after"]["previous_window_id"].clone()), (json!("sequence_successor"), json!("hwnd:0x2")));
+        assert_eq!(
+            (reply["capture_after"]["target_reason"].clone(), reply["capture_after"]["previous_window_id"].clone()),
+            (json!("sequence_successor"), json!("hwnd:0x2"))
+        );
         assert_eq!(reply["capture_after"]["window_id"], "hwnd:0x9");
         // observation_delta is the capture's own option (capture-finish.ts), never a field of the helper's snapshot request.
         assert!(sent(&manager, "snapshot").iter().all(|line| line["window_id"] == "hwnd:0x9"));
@@ -371,11 +401,15 @@ mod tests {
     #[tokio::test]
     async fn a_total_wait_over_ten_seconds_is_refused_before_any_write() {
         let manager = helper(|_| None);
-        let actions = json!([{ "type": "key", "keys": "a" }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 1 }]);
+        let actions =
+            json!([{ "type": "key", "keys": "a" }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 5 }, { "type": "wait", "duration": 1 }]);
         let error = backend(&manager).run(act(actions), CancellationToken::new()).await.unwrap_err();
         assert_eq!(error, refusal("sequence wait steps accept at most 10 total seconds; use verify for longer conditions"));
         let lines = manager.lines();
-        assert!(lines.iter().all(|line| !matches!(line["action"].as_str(), Some("sequence_step" | "validate_background_input" | "release_sequence_holds"))), "{lines:?}");
+        assert!(
+            lines.iter().all(|line| !matches!(line["action"].as_str(), Some("sequence_step" | "validate_background_input" | "release_sequence_holds"))),
+            "{lines:?}"
+        );
     }
 
     /// A step that ends with a takeover code is the sequence's error, and the holds are released even so.
@@ -419,7 +453,8 @@ mod tests {
     /// A background route that refuses a step is found by the preflight: no step is sent, and every row says so.
     #[tokio::test]
     async fn a_preflight_refusal_sends_nothing() {
-        let manager = helper(|request| (request["action"] == "validate_background_input").then(|| Err("background_unsupported|no route; no input sent".to_owned())));
+        let manager =
+            helper(|request| (request["action"] == "validate_background_input").then(|| Err("background_unsupported|no route; no input sent".to_owned())));
         let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
         let reply = payload(&parts);
         assert_eq!((reply["ok"].clone(), reply["stopped_reason"].clone()), (json!(false), json!("preflight_refused")));
@@ -430,7 +465,10 @@ mod tests {
     /// A dialog refusal keeps its own code in the reply, and sends nothing else.
     #[tokio::test]
     async fn a_dialog_refusal_is_a_preflight_refusal() {
-        let manager = helper(|request| (request["action"] == "validate_background_input").then(|| Err("focus_required|the dialog does not hold keyboard focus; no input was sent".to_owned())));
+        let manager = helper(|request| {
+            (request["action"] == "validate_background_input")
+                .then(|| Err("focus_required|the dialog does not hold keyboard focus; no input was sent".to_owned()))
+        });
         let parts = backend(&manager).run(act(two_keys()), CancellationToken::new()).await.unwrap();
         let reply = payload(&parts);
         assert_eq!((reply["stopped_reason"].clone(), reply["code"].clone()), (json!("preflight_refused"), json!("focus_required")));
@@ -461,7 +499,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl mixdog_core_api::HostChannel for Desk {
-        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
+        async fn request(
+            &self,
+            _: mixdog_core_api::HostCapability,
+            method: mixdog_core_api::ids::Method,
+            params: Value,
+        ) -> Result<Value, mixdog_core_api::HostError> {
             self.asked.lock().unwrap().push((method.0.to_owned(), params));
             Ok(match method.0 {
                 "host/computer/cursorPrepare" => json!({"state": "ready"}),
@@ -503,7 +546,9 @@ mod tests {
         assert_eq!(asked(&desk).len(), before);
         let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-2") };
         let bare = ProcessComputerBackend::new(config, manager.clone());
-        bare.send_step(object(json!({"action": "click", "ref": "e1", "delivery": "background"})), "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        bare.send_step(object(json!({"action": "click", "ref": "e1", "delivery": "background"})), "hwnd:0x2", "background", &CancellationToken::new())
+            .await
+            .unwrap();
         assert!(data.path().join("computer-failures").is_dir(), "an arrow that was not readied is a diagnostic row");
     }
 
@@ -554,10 +599,13 @@ mod tests {
                 Some("snapshot") => {
                     let generation = generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                     let rows: Vec<Value> = (0..8)
-                        .map(|n| json!({"mark": n + 1, "ref": format!("s{generation}:e{n}"), "role": "Button", "name": format!("Item {n}"), "value": "", "state": "",
-                                        "enabled": true, "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]}))
+                        .map(|n| {
+                            json!({"mark": n + 1, "ref": format!("s{generation}:e{n}"), "role": "Button", "name": format!("Item {n}"), "value": "", "state": "",
+                                        "enabled": true, "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]})
+                        })
                         .collect();
-                    let lines: Vec<String> = rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
+                    let lines: Vec<String> =
+                        rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
                     json!({"text": format!("Window: T [hwnd:0x2]\nElements: total=8 generation={generation}\n{}", lines.join("\n")), "window_id": "hwnd:0x2",
                            "generation": generation, "total_elements": 8, "elements": rows})
                 }
@@ -565,7 +613,10 @@ mod tests {
             })
         });
         let backend = backend(&manager);
-        let ask = || ComputerRequest { action: ComputerAction::Act, input: json!({"window_id": "hwnd:0x2", "actions": [{"type": "key", "keys": "a"}], "observe": "ax"}) };
+        let ask = || ComputerRequest {
+            action: ComputerAction::Act,
+            input: json!({"window_id": "hwnd:0x2", "actions": [{"type": "key", "keys": "a"}], "observe": "ax"}),
+        };
         let text_at = |parts: &[ToolPart], at: usize| match &parts[at] {
             ToolPart::Text(text) => text.clone(),
             other => panic!("a text part, got {other:?}"),
@@ -574,7 +625,10 @@ mod tests {
         assert!(text_at(&first, 1).contains("[s1:e0] Button \"Item 0\"") && !text_at(&first, 1).contains("Elements delta"), "{first:?}");
         let second = backend.run(ask(), CancellationToken::new()).await.unwrap();
         let shown = text_at(&second, 1);
-        assert!(shown.contains("Elements delta: ") && !shown.contains("[s2:e0] Button \"Item 0\""), "the rows that did not change are named, not listed: {shown}");
+        assert!(
+            shown.contains("Elements delta: ") && !shown.contains("[s2:e0] Button \"Item 0\""),
+            "the rows that did not change are named, not listed: {shown}"
+        );
     }
 
     /// A helper that names the action it took and shows one window when asked to observe it.
@@ -624,7 +678,6 @@ Elements: total=0", "window_id": "hwnd:0x2", "total_elements": 0, "elements": []
         assert_eq!(reply["capture_after"]["target_reason"], "original_target");
     }
 
-
     /// A key step into a window the desktop owns goes through the desktop's renderer, and is left out of the helper's background
     /// preflight; any other window, and a run with no desktop, keep the helper.
     #[tokio::test]
@@ -646,19 +699,24 @@ Elements: total=0", "window_id": "hwnd:0x2", "total_elements": 0, "elements": []
         let routed = with_desk.app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().expect("the renderer took the step");
         assert_eq!((routed["path"].clone(), routed["delivery"].clone()), (json!("electron_key_event"), json!("background")));
         let asked = desk.asked.lock().unwrap().clone();
-        assert!(asked.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"), "{asked:?}");
+        assert!(
+            asked.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"),
+            "{asked:?}"
+        );
 
         assert!(with_desk.app_owned_input(&step, "hwnd:0x2", &CancellationToken::new()).await.unwrap().is_none(), "a native window is the helper's");
         assert!(backend(&manager).app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "no desktop, no renderer");
         let foreground = object(json!({"action": "key", "keys": "^a", "delivery": "foreground"}));
-        assert!(with_desk.app_owned_input(&foreground, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "foreground delivery is the helper's");
+        assert!(
+            with_desk.app_owned_input(&foreground, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(),
+            "foreground delivery is the helper's"
+        );
 
         let planned = plan(&[json!({"action": "key", "keys": "^a"})], "hwnd:0x777", "background", "s1").unwrap();
         assert!(with_desk.preflight(&planned, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none());
         assert!(sent(&manager, "validate_background_input").is_empty(), "the helper was not asked about a step it never sees");
     }
 }
-
 
 impl ProcessComputerBackend {
     /// `runBoundedSequence`: the window the call names, its steps, and a capture of the window the sequence ended on.
@@ -807,7 +865,11 @@ impl ProcessComputerBackend {
             Ok(_) => Ok(None),
             // A grammar refusal happens before the first step, not after a possibly completed prefix.
             // The dialog refusals (`backgroundDialogInputError`) are such refusals too.
-            Err(error @ ComputerError::Failed { .. }) if matches!(lead_code(&error_text(&error)).as_str(), "background_unsupported" | "focus_required" | "dialog_key_unsupported") => Ok(Some(error)),
+            Err(error @ ComputerError::Failed { .. })
+                if matches!(lead_code(&error_text(&error)).as_str(), "background_unsupported" | "focus_required" | "dialog_key_unsupported") =>
+            {
+                Ok(Some(error))
+            }
             Err(error) => Err(error),
         }
     }
@@ -872,7 +934,13 @@ impl ProcessComputerBackend {
 
     /// One step through the helper. A background step goes through the helper's `sequence_step`, which reports the windows around
     /// it; any other is the action itself, settled as a single action is.
-    async fn send_step(&self, mut step: Map<String, Value>, window_id: &str, delivery: &str, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+    async fn send_step(
+        &self,
+        mut step: Map<String, Value>,
+        window_id: &str,
+        delivery: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Map<String, Value>, ComputerError> {
         // Node admits each step again right before its input transport (`input-dispatch.ts`): observation-only mode turned on
         // mid-sequence refuses the step in the host's words, a failed row that stops the steps left.
         computer_policy::admit(&step, self.observe_only(), &self.frames)?;
@@ -952,7 +1020,12 @@ impl ProcessComputerBackend {
     /// `canUseAppOwnedInput` + `dispatchElectronInput`: a `key`, `type` or `scroll` step into a window the desktop owns goes through its
     /// renderer's own input channel, so the window is never raised. `None` sends the step to the helper: any other window or step, a
     /// desktop that does not serve the methods or does not own the window.
-    async fn app_owned_input(&self, step: &Map<String, Value>, window_id: &str, cancel: &CancellationToken) -> Result<Option<Map<String, Value>>, ComputerError> {
+    async fn app_owned_input(
+        &self,
+        step: &Map<String, Value>,
+        window_id: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Map<String, Value>>, ComputerError> {
         let Some((_, op)) = APP_OWNED.route(step, window_id) else { return Ok(None) };
         let Ok(desktop) = self.desktop() else { return Ok(None) };
         match app_input(desktop.as_ref(), &self.config.session_id, window_id, op, cancel).await {
@@ -999,7 +1072,9 @@ impl ProcessComputerBackend {
             payload.insert("capture_after".into(), Value::Object(skipped("launch_target_unresolved", None)));
             payload.insert("verdict".into(), json!({ "decision": "verify_fresh_state", "recommended": "list_windows" }));
             let message = payload.get("message").and_then(Value::as_str).unwrap_or_default();
-            let message = format!("{message}; the shell accepted the launch, but its window is unresolved. List windows and capture the exact target; do not launch again.");
+            let message = format!(
+                "{message}; the shell accepted the launch, but its window is unresolved. List windows and capture the exact target; do not launch again."
+            );
             payload.insert("message".into(), json!(message));
             parts[0] = ToolPart::Text(Value::Object(payload).to_string());
             return Ok(());
@@ -1075,7 +1150,11 @@ impl ProcessComputerBackend {
             Err(ComputerError::Cancelled) => Err(ComputerError::Cancelled),
             Err(error) => {
                 let message = error_text(&error);
-                Ok(Some(if lead_code(&message).is_empty() { format!("input_cleanup_unconfirmed: sequence holds were not released: {message}") } else { message }))
+                Ok(Some(if lead_code(&message).is_empty() {
+                    format!("input_cleanup_unconfirmed: sequence holds were not released: {message}")
+                } else {
+                    message
+                }))
             }
         }
     }

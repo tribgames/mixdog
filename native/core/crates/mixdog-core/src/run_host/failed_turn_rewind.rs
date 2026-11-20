@@ -40,10 +40,9 @@ fn content_text(content: &Value) -> String {
 fn stripped_content(message: &Value) -> Value {
     let content = message.get("content").cloned().unwrap_or(Value::Null);
     let context = message.pointer("/meta/runtimeUserContext").filter(|_| is_role(message, "user"));
-    let (Some(prefix), Some(suffix)) = (
-        context.and_then(|context| context.get("prefix")).and_then(Value::as_str),
-        context.and_then(|context| context.get("suffix")).and_then(Value::as_str),
-    ) else {
+    let (Some(prefix), Some(suffix)) =
+        (context.and_then(|context| context.get("prefix")).and_then(Value::as_str), context.and_then(|context| context.get("suffix")).and_then(Value::as_str))
+    else {
         return content;
     };
     match &content {
@@ -138,7 +137,13 @@ mod tests {
     /// message it names, and anything else leaves the context as read.
     #[test]
     fn a_retry_turn_starts_from_the_context_without_the_stale_prompt() {
-        let history = || vec![row("a", json!({ "role": "user", "content": "first" })), row("b", json!({ "role": "assistant", "content": "ok" })), row("c", json!({ "role": "user", "content": "go", "meta": { "transcript": { "messageId": "m1", "completion": { "status": "failed" } } } }))];
+        let history = || {
+            vec![
+                row("a", json!({ "role": "user", "content": "first" })),
+                row("b", json!({ "role": "assistant", "content": "ok" })),
+                row("c", json!({ "role": "user", "content": "go", "meta": { "transcript": { "messageId": "m1", "completion": { "status": "failed" } } } })),
+            ]
+        };
         let bare = SubmitOptions { retry_failed_turn: Some(true), ..Default::default() };
         let dropped = |rows: Vec<(ItemId, Value)>| rows.into_iter().map(|(iid, _)| iid.0).collect::<Vec<_>>();
         let mut stored = history();
@@ -156,6 +161,4 @@ mod tests {
         assert_eq!(rewound(&mut history(), None, "go").map(dropped), Ok(Vec::new()));
         assert_eq!(rewound(&mut history(), Some(&SubmitOptions::default()), "go").map(dropped), Ok(Vec::new()));
     }
-
-
 }

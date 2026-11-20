@@ -127,7 +127,12 @@ impl mixdog_core_ports::ports::route::RouteSession for LateRouteSession {
         self.expect_bound().has_user_conversation(messages)
     }
 
-    async fn update_route(&self, thread: &ThreadId, fields: mixdog_core_ports::ports::route::Route, cross_provider: bool) -> Result<bool, mixdog_tools::orch::util::PortError> {
+    async fn update_route(
+        &self,
+        thread: &ThreadId,
+        fields: mixdog_core_ports::ports::route::Route,
+        cross_provider: bool,
+    ) -> Result<bool, mixdog_tools::orch::util::PortError> {
         self.bound()?.update_route(thread, fields, cross_provider).await
     }
 
@@ -139,7 +144,13 @@ impl mixdog_core_ports::ports::route::RouteSession for LateRouteSession {
         self.bound()?.rebuild_tool_surface(thread, provider).await
     }
 
-    async fn owner_fallbacks(&self, thread: &ThreadId, header: &mixdog_store::schema::record::Header, provider: &str, model: &str) -> Result<Option<Vec<Value>>, mixdog_tools::orch::util::PortError> {
+    async fn owner_fallbacks(
+        &self,
+        thread: &ThreadId,
+        header: &mixdog_store::schema::record::Header,
+        provider: &str,
+        model: &str,
+    ) -> Result<Option<Vec<Value>>, mixdog_tools::orch::util::PortError> {
         self.bound()?.owner_fallbacks(thread, header, provider, model).await
     }
 
@@ -180,7 +191,12 @@ impl LateCycleLlm {
 
 #[async_trait]
 impl mixdog_services::memory::cycles::Cycle1Llm for LateCycleLlm {
-    async fn call(&self, request: &mixdog_services::memory::cycles::Cycle1Request, cancel: &mixdog_rt::CancellationToken, prompt: &str) -> Result<String, String> {
+    async fn call(
+        &self,
+        request: &mixdog_services::memory::cycles::Cycle1Request,
+        cancel: &mixdog_rt::CancellationToken,
+        prompt: &str,
+    ) -> Result<String, String> {
         match self.0.get() {
             Some(llm) => llm.call(request, cancel, prompt).await,
             None => Err("the cycle dispatch was not bound before the server accepted connections".to_owned()),
@@ -463,13 +479,21 @@ impl LateSkills {
     }
 
     fn port(&self) -> Result<&Arc<dyn mixdog_tools::orch::skill::SkillPort>, mixdog_tools::orch::util::PortError> {
-        self.0.get().ok_or_else(|| mixdog_tools::orch::util::PortError::Unavailable { capability: "skills".to_owned(), message: "the skill port is not bound".to_owned() })
+        self.0.get().ok_or_else(|| mixdog_tools::orch::util::PortError::Unavailable {
+            capability: "skills".to_owned(),
+            message: "the skill port is not bound".to_owned(),
+        })
     }
 }
 
 #[async_trait]
 impl mixdog_tools::orch::skill::SkillPort for LateSkills {
-    async fn load(&self, thread: &ThreadId, name: &str, cwd: &mixdog_core_api::domain::common::AbsPath) -> Result<mixdog_tools::orch::skill::SkillLookup, mixdog_tools::orch::util::PortError> {
+    async fn load(
+        &self,
+        thread: &ThreadId,
+        name: &str,
+        cwd: &mixdog_core_api::domain::common::AbsPath,
+    ) -> Result<mixdog_tools::orch::skill::SkillLookup, mixdog_tools::orch::util::PortError> {
         self.port()?.load(thread, name, cwd).await
     }
 
@@ -861,15 +885,24 @@ impl mixdog_tools::git::SessionWorktrees for LateWorkspaces {
 }
 #[async_trait]
 impl mixdog_core_session::session::worktree::TurnAdmission for LateTurnAdmission {
-    async fn admit(&self, thread: &str, cwd: mixdog_core_session::session::worktree::Cwd, cancel: &mixdog_rt::CancellationToken) -> Result<Box<dyn Send>, mixdog_scm::error::ScmFailure> {
+    async fn admit(
+        &self,
+        thread: &str,
+        cwd: mixdog_core_session::session::worktree::Cwd,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<Box<dyn Send>, mixdog_scm::error::ScmFailure> {
         self.0.get().expect("turn admission bound (compose::verify_bound)").admit(thread, cwd, cancel).await
     }
 
-    async fn prepare(&self, thread: &str, start: mixdog_core_session::session::worktree::TurnStart, cancel: &mixdog_rt::CancellationToken) -> Result<(), mixdog_scm::error::ScmFailure> {
+    async fn prepare(
+        &self,
+        thread: &str,
+        start: mixdog_core_session::session::worktree::TurnStart,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_scm::error::ScmFailure> {
         self.0.get().expect("turn admission bound (compose::verify_bound)").prepare(thread, start, cancel).await
     }
 }
-
 
 /// The room summaries' publish, bound once they exist. The rooms' daemon port republishes a room log's snapshot, `RoomSummaries` reads `ThreadListService`, which reads the
 /// room rows, which read the room runner, which sits on the live rooms that hold the daemon port: a true cycle. A call before the bind cannot happen once `verify_bound`
@@ -1058,7 +1091,15 @@ impl mixdog_core::run_host::tool_pool::session_port::ThreadRequests for LateRequ
         self.bound().compact_after_turn(thread)
     }
 
-    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, mixdog_core_api::CoreError> {
+    async fn submit(
+        &self,
+        thread: &ThreadId,
+        content: &Value,
+        id: &str,
+        hop: u32,
+        bot_chain: &[String],
+        from_agent: Option<&str>,
+    ) -> Result<bool, mixdog_core_api::CoreError> {
         self.bound().submit(thread, content, id, hop, bot_chain, from_agent).await
     }
 

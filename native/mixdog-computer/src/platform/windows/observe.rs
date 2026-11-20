@@ -16,16 +16,11 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HANDLE, LPARAM, LRESULT, WAIT_OBJECT_0, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Threading::{
-    CreateEventW, GetCurrentThreadId, SetEvent, WaitForSingleObject,
-};
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO,
-};
+use windows::Win32::System::Threading::{CreateEventW, GetCurrentThreadId, SetEvent, WaitForSingleObject};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetGUIThreadInfo, GetMessageW, KillTimer, PeekMessageW, PostThreadMessageW,
-    SetTimer, SetWindowsHookExW, UnhookWindowsHookEx, GUITHREADINFO, HHOOK, KBDLLHOOKSTRUCT, MSG,
-    MSLLHOOKSTRUCT, PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_TIMER,
+    CallNextHookEx, GUITHREADINFO, GetGUIThreadInfo, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW,
+    PostThreadMessageW, SetTimer, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_TIMER,
 };
 
 const INJECTED_MOUSE: u32 = 0x1;
@@ -80,19 +75,14 @@ impl Lookup for Live {
         native::pid_thread(window)
     }
     fn capture(&self, thread: u32) -> Option<Wid> {
-        let mut info = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
+        let mut info = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
         // SAFETY: info is a valid, sized out pointer.
         unsafe { GetGUIThreadInfo(thread, &mut info) }.ok()?;
         Some(info.hwndCapture.0 as usize as Wid)
     }
     fn button_held(&self) -> bool {
         // SAFETY: plain key-state reads of the five mouse buttons.
-        [1, 2, 4, 5, 6]
-            .iter()
-            .any(|button| (unsafe { GetAsyncKeyState(*button) }) as u16 & 0x8000 != 0)
+        [1, 2, 4, 5, 6].iter().any(|button| (unsafe { GetAsyncKeyState(*button) }) as u16 & 0x8000 != 0)
     }
 }
 
@@ -106,11 +96,7 @@ fn mouse_processes(kind: u32, x: i32, y: i32, desktop: &impl Lookup) -> Option<[
     let hit = desktop.window_at(x, y);
     let root = if hit == 0 { 0 } else { desktop.root(hit) };
     let (foreground_process, thread) = desktop.pid_thread(desktop.foreground());
-    let capture = if thread == 0 {
-        None
-    } else {
-        desktop.capture(thread)
-    };
+    let capture = if thread == 0 { None } else { desktop.capture(thread) };
     let held = desktop.button_held();
     if capture.is_none() && !held {
         return None;
@@ -135,17 +121,8 @@ unsafe extern "system" fn on_mouse(code: i32, message: WPARAM, data: LPARAM) -> 
             let event = &*(data.0 as *const MSLLHOOKSTRUCT);
             let kind = message.0 as u32;
             let own = event.flags & INJECTED_MOUSE != 0 && event.dwExtraInfo == source.marker;
-            let processes = if own {
-                None
-            } else {
-                mouse_processes(kind, event.pt.x, event.pt.y, &Live)
-            };
-            source.shared.record_event(
-                own,
-                event.time,
-                true,
-                processes.as_ref().map_or(&[], |found| found.as_slice()),
-            );
+            let processes = if own { None } else { mouse_processes(kind, event.pt.x, event.pt.y, &Live) };
+            source.shared.record_event(own, event.time, true, processes.as_ref().map_or(&[], |found| found.as_slice()));
             if !own {
                 // A button's down message holds it, its up message lets go.
                 let button = match kind {
@@ -176,15 +153,11 @@ unsafe extern "system" fn on_key(code: i32, message: WPARAM, data: LPARAM) -> LR
                 // the foreground; counting it as a person's input would block
                 // every restore of the person's focus. It still moves the
                 // system's input clock, so the ledger keeps pace with it.
-                source
-                    .shared
-                    .with_ledger(|ledger| ledger.record_neutral(event.time));
+                source.shared.with_ledger(|ledger| ledger.record_neutral(event.time));
             } else {
                 let own = injected && event.dwExtraInfo == source.marker;
                 let process = if own { 0 } else { key_process(&Live) };
-                source
-                    .shared
-                    .record_event(own, event.time, false, &[process]);
+                source.shared.record_event(own, event.time, false, &[process]);
                 if !own {
                     note_foreign(event.vkCode, event.flags.0 & KEY_UP == 0);
                 }
@@ -196,14 +169,9 @@ unsafe extern "system" fn on_key(code: i32, message: WPARAM, data: LPARAM) -> LR
 
 /// InputTick (MixWin32.cs): the system's last-input clock.
 fn input_tick() -> Option<u32> {
-    let mut info = LASTINPUTINFO {
-        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
-        dwTime: 0,
-    };
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
     // SAFETY: info is a valid, sized out pointer.
-    unsafe { GetLastInputInfo(&mut info) }
-        .as_bool()
-        .then_some(info.dwTime)
+    unsafe { GetLastInputInfo(&mut info) }.as_bool().then_some(info.dwTime)
 }
 
 /// What the hook thread and its readers share.
@@ -252,9 +220,7 @@ impl Monitor for HookMonitor {
         loop {
             let left = DRAIN_WAIT.saturating_sub(started.elapsed());
             // SAFETY: the event lives as long as the process.
-            let signalled = !left.is_zero()
-                && unsafe { WaitForSingleObject(HANDLE(hub.drained as *mut _), left.as_millis() as u32) }
-                    == WAIT_OBJECT_0;
+            let signalled = !left.is_zero() && unsafe { WaitForSingleObject(HANDLE(hub.drained as *mut _), left.as_millis() as u32) } == WAIT_OBJECT_0;
             if !signalled || hub.closed.load(Ordering::SeqCst) {
                 return false;
             }
@@ -332,9 +298,7 @@ fn confirm_quiet(shared: &Shared, clock: &Instant) {
     let facts = || (desktop_ready(), any_held(), input_tick());
     let (desktop, held, tick) = facts();
     let elapsed = clock.elapsed().as_millis() as u64;
-    let quiet = shared.with_ledger(|ledger| {
-        ledger.observe_quiet(desktop && tick.is_some(), held, tick.unwrap_or(0), elapsed)
-    });
+    let quiet = shared.with_ledger(|ledger| ledger.observe_quiet(desktop && tick.is_some(), held, tick.unwrap_or(0), elapsed));
     if !quiet {
         return;
     }
@@ -373,10 +337,7 @@ unsafe fn run(shared: &Shared, hub: &Hub, started: std::sync::mpsc::Sender<()>) 
     let mut timer = 0usize;
     let mut reinstalled_for_gap = false;
     while GetMessageW(&mut message, None, 0, 0).0 > 0 {
-        let timer_tick = timer != 0
-            && message.message == WM_TIMER
-            && message.hwnd.0.is_null()
-            && message.wParam.0 == timer;
+        let timer_tick = timer != 0 && message.message == WM_TIMER && message.hwnd.0.is_null() && message.wParam.0 == timer;
         if message.message == DRAIN {
             account(shared);
             hub.answered.fetch_max(message.wParam.0, Ordering::SeqCst);
@@ -411,32 +372,23 @@ unsafe fn run(shared: &Shared, hub: &Hub, started: std::sync::mpsc::Sender<()>) 
 /// Installs both hooks and serves them from their own thread for the life of
 /// the process. Every read of the ledger drains that thread first.
 pub fn start(shared: Arc<Shared>, marker: i64) {
-    let _ = SOURCE.set(Source {
-        shared: shared.clone(),
-        marker: marker as usize,
-    });
+    let _ = SOURCE.set(Source { shared: shared.clone(), marker: marker as usize });
     let hub = Arc::new(Hub {
         thread: AtomicU32::new(0),
         // SAFETY: an unnamed auto-reset event, kept for the life of the process.
-        drained: unsafe { CreateEventW(None, false, false, None) }
-            .map_or(0, |event| event.0 as isize),
+        drained: unsafe { CreateEventW(None, false, false, None) }.map_or(0, |event| event.0 as isize),
         answered: AtomicUsize::new(0),
         closed: AtomicBool::new(false),
     });
-    shared.set_monitor(Box::new(HookMonitor {
-        hub: hub.clone(),
-        requests: AtomicUsize::new(0),
-    }));
+    shared.set_monitor(Box::new(HookMonitor { hub: hub.clone(), requests: AtomicUsize::new(0) }));
     let (started, wait) = std::sync::mpsc::channel();
-    let spawned = std::thread::Builder::new()
-        .name("input-observer".into())
-        .spawn(move || {
-            // SAFETY: hooks are installed, pumped and removed on this one thread.
-            unsafe { run(&shared, &hub, started) };
-            // A waiting reader learns at once that nobody will answer.
-            hub.closed.store(true, Ordering::SeqCst);
-            hub.signal();
-        });
+    let spawned = std::thread::Builder::new().name("input-observer".into()).spawn(move || {
+        // SAFETY: hooks are installed, pumped and removed on this one thread.
+        unsafe { run(&shared, &hub, started) };
+        // A waiting reader learns at once that nobody will answer.
+        hub.closed.store(true, Ordering::SeqCst);
+        hub.signal();
+    });
     // The first request must find the ledger already answering.
     if spawned.is_ok() {
         let _ = wait.recv_timeout(Duration::from_secs(2));
@@ -464,11 +416,7 @@ mod tests {
             }
         }
         fn root(&self, window: Wid) -> Wid {
-            if window == 11 {
-                10
-            } else {
-                window
-            }
+            if window == 11 { 10 } else { window }
         }
         fn foreground(&self) -> Wid {
             self.foreground

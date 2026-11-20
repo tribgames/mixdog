@@ -16,8 +16,8 @@ use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ErrorResponse;
-use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ImageSource as PartSource;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -108,7 +108,15 @@ impl ProviderAdapter for Recording {
     }
     async fn image_route(&self, request: &ModelRequest) -> RouteFacts {
         let (branch, vision) = *self.route.lock().unwrap();
-        RouteFacts { endpoint: "test".into(), account: "a".into(), model: request.model.clone(), branch, operation: "send".into(), capability_revision: 1, vision }
+        RouteFacts {
+            endpoint: "test".into(),
+            account: "a".into(),
+            model: request.model.clone(),
+            branch,
+            operation: "send".into(),
+            capability_revision: 1,
+            vision,
+        }
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.seen.lock().unwrap().push((*request).clone());
@@ -286,7 +294,8 @@ async fn an_unreadable_image_is_refused_naming_it_before_the_adapter_sees_anythi
     assert_eq!(refusal_of(&error).blockers.len(), 1);
     assert!(recording.seen.lock().unwrap().is_empty());
     // A payload that is not base64 is refused the same way, never sent.
-    let broken = user_with(vec![ContentPart::Image(PartSource::Base64 { data: "!!not base64!!".into(), mime_type: "image/png".into(), width: None, height: None })]);
+    let broken =
+        user_with(vec![ContentPart::Image(PartSource::Base64 { data: "!!not base64!!".into(), mime_type: "image/png".into(), width: None, height: None })]);
     assert!(provider.attempt(Arc::new(broken)).await.is_err());
     assert!(recording.seen.lock().unwrap().is_empty());
 }
@@ -297,7 +306,14 @@ async fn every_blocker_of_the_request_is_reported_together_with_its_place() {
     let mut request = user_with(vec![inline(&picture(Format::Png), "image/png"), inline(HEIC, "image/heic")]);
     let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
     assistant.tool_calls.push(ToolCall { id: "c1".into(), name: "Read".into(), arguments: Value::Null, native_type: None });
-    let mut tool = Message::new(Role::Tool, Content::Parts(vec![ContentPart::Text("x".into(), None), inline(b"junk", "image/png"), ContentPart::Image(PartSource::Url("https://example.com/a.png".into()))]));
+    let mut tool = Message::new(
+        Role::Tool,
+        Content::Parts(vec![
+            ContentPart::Text("x".into(), None),
+            inline(b"junk", "image/png"),
+            ContentPart::Image(PartSource::Url("https://example.com/a.png".into())),
+        ]),
+    );
     tool.tool_call_id = Some("c1".into());
     request.messages.push(assistant);
     request.messages.push(tool);
@@ -326,7 +342,9 @@ async fn a_non_first_tool_image_a_duplicate_and_the_order_of_images_survive_exac
 #[tokio::test]
 async fn a_route_that_cannot_see_or_is_not_known_takes_no_image() {
     let (recording, provider, _) = registered().await;
-    for (branch, vision) in [(WireBranch::AnthropicMessages, Vision::No), (WireBranch::Unknown, Vision::Yes), (WireBranch::Local, Vision::No), (WireBranch::CompatChat, Vision::No)] {
+    for (branch, vision) in
+        [(WireBranch::AnthropicMessages, Vision::No), (WireBranch::Unknown, Vision::Yes), (WireBranch::Local, Vision::No), (WireBranch::CompatChat, Vision::No)]
+    {
         *recording.route.lock().unwrap() = (branch, vision);
         let error = provider.attempt(Arc::new(with_image(&picture(Format::Png), "image/png"))).await.err().expect("refused");
         assert!(error.message.contains("cannot read images"), "{branch:?}: {}", error.message);
@@ -376,12 +394,18 @@ async fn a_stored_reference_is_resolved_by_the_guard_with_no_decoding_of_its_own
     let png = picture(Format::Png);
     let manifest = supply.put(&png, "scan.png");
     let decodes = global().stats().decodes;
-    let part = ContentPart::File { source: BinarySource::AttachmentRef(manifest.original.clone()), mime_type: "image/png".into(), filename: Some("scan.png".into()), text: None };
+    let part = ContentPart::File {
+        source: BinarySource::AttachmentRef(manifest.original.clone()),
+        mime_type: "image/png".into(),
+        filename: Some("scan.png".into()),
+        text: None,
+    };
     let _ = provider.attempt(Arc::new(user_with(vec![part]))).await;
     assert_eq!(sent_images(&recording.seen.lock().unwrap()[0]), vec![("image/png".to_owned(), png)]);
     assert_eq!(global().stats().decodes, decodes, "the send read a verdict and bytes, nothing more");
     // A reference the store does not know is a named refusal, never an unverified fallback.
-    let missing = ContentPart::File { source: BinarySource::AttachmentRef("0".repeat(64)), mime_type: "image/png".into(), filename: Some("gone.png".into()), text: None };
+    let missing =
+        ContentPart::File { source: BinarySource::AttachmentRef("0".repeat(64)), mime_type: "image/png".into(), filename: Some("gone.png".into()), text: None };
     let error = provider.attempt(Arc::new(user_with(vec![missing]))).await.err().expect("refused");
     assert!(error.message.contains("`gone.png`") && error.message.contains("missing"), "{}", error.message);
 }
@@ -419,7 +443,9 @@ async fn an_image_in_a_messages_recorded_form_is_prepared_like_any_other_and_ref
     let tiff = picture(Format::Tiff);
     let recorded = |data: &[u8], media_type: &str| {
         let mut assistant = Message::new(Role::Assistant, Content::Text("here".into()));
-        assistant.assistant_blocks = Some(json!([{ "type": "text", "text": "here" }, { "type": "image", "source": { "type": "base64", "media_type": media_type, "data": STANDARD.encode(data) } }]));
+        assistant.assistant_blocks = Some(
+            json!([{ "type": "text", "text": "here" }, { "type": "image", "source": { "type": "base64", "media_type": media_type, "data": STANDARD.encode(data) } }]),
+        );
         let mut request = user_with(vec![ContentPart::Text("draw".into(), None)]);
         request.messages.push(assistant);
         request

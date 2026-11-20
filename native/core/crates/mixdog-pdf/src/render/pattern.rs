@@ -77,12 +77,7 @@ struct TileCanvas {
 impl TilingPaint {
     fn new(cell: TilingPattern, canvas_size: (u32, u32), base_transform: Matrix) -> Self {
         let pattern_base_matrix = gstate::transform(&base_transform, &cell.matrix);
-        Self {
-            cell,
-            canvas_size,
-            base_transform,
-            pattern_base_matrix,
-        }
+        Self { cell, canvas_size, base_transform, pattern_base_matrix }
     }
 
     /// `canSkipPatternCanvas`: the first tile `[n, m]` when the shape of `dims` (`[width, height, offsetX, offsetY]` in
@@ -118,10 +113,7 @@ impl TilingPaint {
     fn combined_scales(&self) -> (f64, f64) {
         let (matrix_x, matrix_y) = singular_scales(&self.cell.matrix);
         let (base_x, base_y) = singular_scales(&self.base_transform);
-        (
-            f64::from(((f64::from(matrix_x)) * f64::from(base_x)) as f32),
-            f64::from(((f64::from(matrix_y)) * f64::from(base_y)) as f32),
-        )
+        (f64::from(((f64::from(matrix_x)) * f64::from(base_x)) as f32), f64::from(((f64::from(matrix_y)) * f64::from(base_y)) as f32))
     }
 
     /// `getSizeAndScale`.
@@ -134,10 +126,7 @@ impl TilingPaint {
         } else {
             scale = size / step;
         }
-        Dimension {
-            scale,
-            size: if size.is_nan() { 0 } else { size as u32 },
-        }
+        Dimension { scale, size: if size.is_nan() { 0 } else { size as u32 } }
     }
 }
 
@@ -157,11 +146,7 @@ pub(super) fn moved(path: &Path2D, m: &Matrix) -> Path2D {
 
 fn ceil_or_one(extent: f64) -> u32 {
     let size = extent.ceil();
-    if size == 0.0 || size.is_nan() {
-        1
-    } else {
-        size as u32
-    }
+    if size == 0.0 || size.is_nan() { 1 } else { size as u32 }
 }
 
 impl<'a> Painter<'a> {
@@ -170,15 +155,8 @@ impl<'a> Painter<'a> {
     /// `setFillColorN` and `setStrokeColorN` of a pattern colour (`getColorN_Pattern`).
     pub(super) fn set_pattern_color(&mut self, pattern: &Pattern, fill: bool) -> Result<()> {
         let paint = match pattern {
-            Pattern::Shading { shading, matrix } => PatternPaint::Shading {
-                ir: self.shading_ir(shading)?,
-                matrix: *matrix,
-            },
-            Pattern::Tiling(cell) => PatternPaint::Tiling(TilingPaint::new(
-                (**cell).clone(),
-                (self.canvas.width(), self.canvas.height()),
-                self.base_transform,
-            )),
+            Pattern::Shading { shading, matrix } => PatternPaint::Shading { ir: self.shading_ir(shading)?, matrix: *matrix },
+            Pattern::Tiling(cell) => PatternPaint::Tiling(TilingPaint::new((**cell).clone(), (self.canvas.width(), self.canvas.height()), self.base_transform)),
         };
         let tiling = matches!(paint, PatternPaint::Tiling(_));
         let paint = Arc::new(paint);
@@ -225,18 +203,10 @@ impl<'a> Painter<'a> {
     }
 
     /// `getPattern` with `ctx` the canvas the style is made for.
-    pub(super) fn get_pattern_on(
-        &self,
-        ctx: &mut Canvas,
-        pattern: &PatternPaint,
-        path_type: PathType,
-        inverse: &Matrix,
-    ) -> Result<Style> {
+    pub(super) fn get_pattern_on(&self, ctx: &mut Canvas, pattern: &PatternPaint, path_type: PathType, inverse: &Matrix) -> Result<Style> {
         match pattern {
             PatternPaint::Shading { ir, matrix } => match &**ir {
-                ShadingIr::RadialAxial(shading) => {
-                    self.radial_axial_style(shading, matrix.as_ref(), ctx, path_type, inverse)
-                }
+                ShadingIr::RadialAxial(shading) => self.radial_axial_style(shading, matrix.as_ref(), ctx, path_type, inverse),
                 ShadingIr::Mesh(mesh) => self.mesh_style(mesh, matrix.as_ref(), ctx, path_type),
                 // `DummyShadingPattern.getPattern`.
                 ShadingIr::Dummy => Ok(Style::from_css("hotpink").unwrap_or_default()),
@@ -246,14 +216,7 @@ impl<'a> Painter<'a> {
     }
 
     /// `RadialAxialShadingPattern.getPattern`.
-    fn radial_axial_style(
-        &self,
-        shading: &RadialAxial,
-        matrix: Option<&Matrix>,
-        ctx: &mut Canvas,
-        path_type: PathType,
-        inverse: &Matrix,
-    ) -> Result<Style> {
+    fn radial_axial_style(&self, shading: &RadialAxial, matrix: Option<&Matrix>, ctx: &mut Canvas, path_type: PathType, inverse: &Matrix) -> Result<Style> {
         let transfer = self.current.transfer.clone();
         if path_type != PathType::Shading {
             if shading.is_origin_based() && transfer.is_none() {
@@ -270,10 +233,7 @@ impl<'a> Painter<'a> {
                 }
             }
             let stroke_transform = widen(ctx.get_transform());
-            let owner_bbox = self
-                .current
-                .clipped_path_bbox((path_type == PathType::Stroke).then_some(&stroke_transform))
-                .unwrap_or([0.0; 4]);
+            let owner_bbox = self.current.clipped_path_bbox((path_type == PathType::Stroke).then_some(&stroke_transform)).unwrap_or([0.0; 4]);
             let transform = match matrix {
                 Some(m) => gstate::transform(&self.base_transform, m),
                 None => self.base_transform,
@@ -306,10 +266,7 @@ impl<'a> Painter<'a> {
             match matrix {
                 Some(m) => {
                     let (matrix_x, matrix_y) = singular_scales(m);
-                    (
-                        (f64::from(base_x) * f64::from(matrix_x)) as f32,
-                        (f64::from(base_y) * f64::from(matrix_y)) as f32,
-                    )
+                    ((f64::from(base_x) * f64::from(matrix_x)) as f32, (f64::from(base_y) * f64::from(matrix_y)) as f32)
                 }
                 None => (base_x, base_y),
             }
@@ -330,24 +287,13 @@ impl<'a> Painter<'a> {
 
     /// `TilingPattern.getPattern`: the tile as a repeating pattern placed by `matrix`.
     fn tiling_style(&self, tiling: &TilingPaint, path_type: PathType, inverse: &Matrix) -> Result<Style> {
-        let matrix = if path_type == PathType::Shading {
-            *inverse
-        } else {
-            gstate::transform(inverse, &tiling.pattern_base_matrix)
-        };
+        let matrix = if path_type == PathType::Shading { *inverse } else { gstate::transform(inverse, &tiling.pattern_base_matrix) };
         let tile = self.create_pattern_canvas(tiling)?;
         // `new DOMMatrix(matrix).translate(offsetX, offsetY).scale(1 / scaleX, 1 / scaleY)`.
         let placed = gstate::transform(&matrix, &[1.0, 0.0, 0.0, 1.0, tile.offset_x, tile.offset_y]);
         let placed = gstate::transform(&placed, &[1.0 / tile.scale_x, 0.0, 0.0, 1.0 / tile.scale_y, 0.0, 0.0]);
         let mut pattern = PatternStyle::smoothed(&Bitmap::from_canvas(&tile.canvas), Repetition::Repeat);
-        pattern.set_transform(
-            placed[0] as f32,
-            placed[1] as f32,
-            placed[2] as f32,
-            placed[3] as f32,
-            placed[4] as f32,
-            placed[5] as f32,
-        );
+        pattern.set_transform(placed[0] as f32, placed[1] as f32, placed[2] as f32, placed[3] as f32, placed[4] as f32, placed[5] as f32);
         Ok(Style::Pattern(pattern))
     }
 
@@ -376,13 +322,7 @@ impl<'a> Painter<'a> {
         let dimy = TilingPaint::size_and_scale(canvas_height, out_height, scale_y);
         let tile = self.render_tile_canvas(tiling, dimx, dimy)?;
         if !(redraw_horizontally || redraw_vertically) {
-            return Ok(TileCanvas {
-                canvas: tile,
-                scale_x: dimx.scale,
-                scale_y: dimy.scale,
-                offset_x: x0,
-                offset_y: y0,
-            });
+            return Ok(TileCanvas { canvas: tile, scale_x: dimx.scale, scale_y: dimy.scale, offset_x: x0, offset_y: y0 });
         }
         if redraw_horizontally {
             canvas_width = xstep;
@@ -395,59 +335,25 @@ impl<'a> Painter<'a> {
         let (x_size, y_size) = (dimx2.size, dimy2.size);
         let mut second = Canvas::new(x_size, y_size).map_err(raster)?;
         let image_width = tile.width();
-        let ii = if redraw_horizontally {
-            (width / xstep).floor().min((f64::from(image_width) / f64::from(x_size)).ceil())
-        } else {
-            0.0
-        };
-        let jj = if redraw_vertically {
-            (height / ystep).floor().min((f64::from(tile.height()) / f64::from(y_size)).ceil())
-        } else {
-            0.0
-        };
+        let ii = if redraw_horizontally { (width / xstep).floor().min((f64::from(image_width) / f64::from(x_size)).ceil()) } else { 0.0 };
+        let jj = if redraw_vertically { (height / ystep).floor().min((f64::from(tile.height()) / f64::from(y_size)).ceil()) } else { 0.0 };
         let image = Bitmap::from_canvas(&tile);
         let mut row_source = image.clone();
         if redraw_vertically {
             let mut band = Canvas::new(image_width, y_size).map_err(raster)?;
             let mut j = jj as i64;
             while j >= 0 {
-                band.draw_image_region(
-                    &image,
-                    0.0,
-                    (y_size as i64 * j) as f32,
-                    image_width as f32,
-                    y_size as f32,
-                    0.0,
-                    0.0,
-                    image_width as f32,
-                    y_size as f32,
-                );
+                band.draw_image_region(&image, 0.0, (y_size as i64 * j) as f32, image_width as f32, y_size as f32, 0.0, 0.0, image_width as f32, y_size as f32);
                 j -= 1;
             }
             row_source = Bitmap::from_canvas(&band);
         }
         let mut i = ii as i64;
         while i >= 0 {
-            second.draw_image_region(
-                &row_source,
-                (x_size as i64 * i) as f32,
-                0.0,
-                x_size as f32,
-                y_size as f32,
-                0.0,
-                0.0,
-                x_size as f32,
-                y_size as f32,
-            );
+            second.draw_image_region(&row_source, (x_size as i64 * i) as f32, 0.0, x_size as f32, y_size as f32, 0.0, 0.0, x_size as f32, y_size as f32);
             i -= 1;
         }
-        Ok(TileCanvas {
-            canvas: second,
-            scale_x: dimx2.scale,
-            scale_y: dimy2.scale,
-            offset_x: x0,
-            offset_y: y0,
-        })
+        Ok(TileCanvas { canvas: second, scale_x: dimx2.scale, scale_y: dimy2.scale, offset_x: x0, offset_y: y0 })
     }
 
     /// `_renderTileCanvas`: the pattern cell executed on a canvas of `dimx.size` by `dimy.size` pixels.
@@ -469,11 +375,7 @@ impl<'a> Painter<'a> {
     /// `setFillAndStrokeStyleToContext`: a coloured pattern paints in black until it sets its own colours, an
     /// uncoloured one in the colour the pattern was selected with.
     fn set_tile_colors(&mut self, cell: &TilingPattern) {
-        let color = if cell.paint_type == 2 {
-            cell.color.clone().unwrap_or_else(|| "#000000".to_owned())
-        } else {
-            "#000000".to_owned()
-        };
+        let color = if cell.paint_type == 2 { cell.color.clone().unwrap_or_else(|| "#000000".to_owned()) } else { "#000000".to_owned() };
         self.set_fill_color(&color);
         self.set_stroke_color(&color);
         self.current.fill_pattern = None;
@@ -498,30 +400,19 @@ impl<'a> Painter<'a> {
     fn draw_tiling_pattern(&mut self, tiling: &TilingPaint, path: &Path2D, even_odd: bool, tile: [f64; 2]) -> Result<()> {
         let [x0, y0, x1, y1] = tiling.cell.bbox;
         self.save();
-        self.canvas
-            .clip_path2d(path, if even_odd { FillRule::EvenOdd } else { FillRule::Winding });
+        self.canvas.clip_path2d(path, if even_odd { FillRule::EvenOdd } else { FillRule::Winding });
         let b = tiling.pattern_base_matrix;
-        self.canvas
-            .set_transform(b[0] as f32, b[1] as f32, b[2] as f32, b[3] as f32, b[4] as f32, b[5] as f32);
-        self.canvas
-            .translate((tile[0] * tiling.cell.xstep) as f32, (tile[1] * tiling.cell.ystep) as f32);
-        let isolated = tiling.cell.needs_isolation
-            || self.canvas.global_alpha() != 1.0
-            || self.current.blend_mode != "source-over"
-            || self.current.active_smask.is_some();
+        self.canvas.set_transform(b[0] as f32, b[1] as f32, b[2] as f32, b[3] as f32, b[4] as f32, b[5] as f32);
+        self.canvas.translate((tile[0] * tiling.cell.xstep) as f32, (tile[1] * tiling.cell.ystep) as f32);
+        let isolated =
+            tiling.cell.needs_isolation || self.canvas.global_alpha() != 1.0 || self.current.blend_mode != "source-over" || self.current.active_smask.is_some();
         let outcome = if isolated {
             let (box_width, box_height) = (x1 - x0, y1 - y0);
             let (scale_x, scale_y) = tiling.combined_scales();
             let dimx = TilingPaint::size_and_scale(box_width, tiling.canvas_size.0, scale_x);
             let dimy = TilingPaint::size_and_scale(box_height, tiling.canvas_size.1, scale_y);
             self.render_tile_canvas(tiling, dimx, dimy).map(|tile_canvas| {
-                self.canvas.draw_image_scaled(
-                    &Bitmap::from_canvas(&tile_canvas),
-                    x0 as f32,
-                    y0 as f32,
-                    box_width as f32,
-                    box_height as f32,
-                );
+                self.canvas.draw_image_scaled(&Bitmap::from_canvas(&tile_canvas), x0 as f32, y0 as f32, box_width as f32, box_height as f32);
             })
         } else {
             self.set_tile_colors(&tiling.cell);
@@ -616,11 +507,7 @@ impl<'a> Painter<'a> {
     /// The pattern of a text fill or stroke (`showText`): the style is set on the canvas and the matrix the pattern
     /// was made for is returned, so the glyphs can be drawn in it.
     pub(super) fn text_pattern(&mut self, fill: bool) -> Result<Option<Matrix>> {
-        let pattern = if fill {
-            self.current.fill_pattern.clone()
-        } else {
-            self.current.stroke_pattern.clone()
-        };
+        let pattern = if fill { self.current.fill_pattern.clone() } else { self.current.stroke_pattern.clone() };
         let Some(pattern) = pattern else {
             return Ok(None);
         };
@@ -683,12 +570,7 @@ impl<'a> Painter<'a> {
                 let (width, height) = (f64::from(self.canvas.width()), f64::from(self.canvas.height()));
                 let mut min_max = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
                 super::painter::axial_bounding_box(&[0.0, 0.0, width, height], &inverse, &mut min_max);
-                self.canvas.fill_rect(
-                    min_max[0] as f32,
-                    min_max[1] as f32,
-                    (min_max[2] - min_max[0]) as f32,
-                    (min_max[3] - min_max[1]) as f32,
-                );
+                self.canvas.fill_rect(min_max[0] as f32, min_max[1] as f32, (min_max[2] - min_max[0]) as f32, (min_max[3] - min_max[1]) as f32);
             }
             None => self.canvas.fill_rect(-1e10, -1e10, 2e10, 2e10),
         }
@@ -712,14 +594,7 @@ fn raster_pattern(
     canvas.rect(0.0, 0.0, width as f32, height as f32);
     canvas.translate(-bbox[0] as f32, -bbox[1] as f32);
     let inverse = gstate::transform(inverse, &[1.0, 0.0, 0.0, 1.0, bbox[0], bbox[1]]);
-    canvas.transform(
-        transform[0] as f32,
-        transform[1] as f32,
-        transform[2] as f32,
-        transform[3] as f32,
-        transform[4] as f32,
-        transform[5] as f32,
-    );
+    canvas.transform(transform[0] as f32, transform[1] as f32, transform[2] as f32, transform[3] as f32, transform[4] as f32, transform[5] as f32);
     apply_bounding_box(&mut canvas, shading.bbox);
     if shading.are_conic() {
         canvas.set_fill_style(Style::Gradient(shading.create_reversed_gradient(None)));
@@ -731,14 +606,7 @@ fn raster_pattern(
         apply_transfer(&mut canvas, maps)?;
     }
     let mut pattern = PatternStyle::smoothed(&Bitmap::from_canvas(&canvas), Repetition::NoRepeat);
-    pattern.set_transform(
-        inverse[0] as f32,
-        inverse[1] as f32,
-        inverse[2] as f32,
-        inverse[3] as f32,
-        inverse[4] as f32,
-        inverse[5] as f32,
-    );
+    pattern.set_transform(inverse[0] as f32, inverse[1] as f32, inverse[2] as f32, inverse[3] as f32, inverse[4] as f32, inverse[5] as f32);
     Ok(Style::Pattern(pattern))
 }
 

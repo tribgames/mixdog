@@ -3,11 +3,7 @@
 
 use super::*;
 
-pub(crate) fn apply_exact_bytes(
-    source: &[u8],
-    entry: &Entry,
-    fuzz_factor: usize,
-) -> Result<AppliedFile, String> {
+pub(crate) fn apply_exact_bytes(source: &[u8], entry: &Entry, fuzz_factor: usize) -> Result<AppliedFile, String> {
     // A UTF-8 BOM is a FILE PREFIX, not line content (JS-route parity): the
     // first line must match as `alpha`, not `<BOM>alpha`, and an insertion at
     // the top must land AFTER the prefix. Peel it, apply, put it back.
@@ -23,12 +19,7 @@ pub(crate) fn apply_exact_bytes(
         return Err(format!("{} has no hunks", entry.old_file));
     }
     let mut cursor = 0usize;
-    let mut out = Vec::with_capacity(
-        source
-            .len()
-            .saturating_add(estimate_added_hunk_bytes(entry))
-            .saturating_add(1024),
-    );
+    let mut out = Vec::with_capacity(source.len().saturating_add(estimate_added_hunk_bytes(entry)).saturating_add(1024));
     let mut hasher = Sha256::new();
     let mut line_scan = Scan { line: 0, pos: 0 };
     // (start_offset, was_insert_only) of the previously applied hunk. Two hunks
@@ -47,13 +38,9 @@ pub(crate) fn apply_exact_bytes(
             Some(value) => value,
             None => {
                 if fuzz_factor == 0 {
-                    return Err(format!(
-                        "hunk rejected in {} (exact-only, fuzz=0)",
-                        entry.old_file
-                    ));
+                    return Err(format!("hunk rejected in {} (exact-only, fuzz=0)", entry.old_file));
                 }
-                apply_fuzzy_hunk(source, hunk, &parts, cursor, fuzz_factor)
-                    .ok_or_else(|| format!("hunk rejected in {}", entry.old_file))?
+                apply_fuzzy_hunk(source, hunk, &parts, cursor, fuzz_factor).ok_or_else(|| format!("hunk rejected in {}", entry.old_file))?
             }
         };
         let applied = preserve_eof_newline_state(source, &parts, applied);
@@ -75,10 +62,7 @@ pub(crate) fn apply_exact_bytes(
 
     push_hashed(&mut out, &mut hasher, &source[cursor..]);
     let digest = hasher.finalize();
-    Ok(AppliedFile {
-        bytes: out,
-        content_hash: hex_bytes(&digest),
-    })
+    Ok(AppliedFile { bytes: out, content_hash: hex_bytes(&digest) })
 }
 
 // ---- invariant-safe char-indexed edit (--edit) ----
@@ -202,8 +186,7 @@ pub(crate) fn match_is_char_aligned(view: &NormView, m: usize, len: usize) -> bo
     }
     let start_ok = m == 0 || view.spans[m].0 != view.spans[m - 1].0;
     let end_idx = m + len - 1;
-    let end_ok =
-        end_idx + 1 == view.chars.len() || view.spans[end_idx].1 != view.spans[end_idx + 1].1;
+    let end_ok = end_idx + 1 == view.chars.len() || view.spans[end_idx].1 != view.spans[end_idx + 1].1;
     start_ok && end_ok
 }
 
@@ -218,9 +201,7 @@ pub(crate) fn count_aligned_overlapping(view: &NormView, needle: &[char]) -> usi
     let mut n = 0usize;
     let mut i = 0usize;
     while i + needle.len() <= view.chars.len() {
-        if view.chars[i..i + needle.len()] == *needle
-            && match_is_char_aligned(view, i, needle.len())
-        {
+        if view.chars[i..i + needle.len()] == *needle && match_is_char_aligned(view, i, needle.len()) {
             n += 1;
         }
         i += 1;
@@ -228,17 +209,8 @@ pub(crate) fn count_aligned_overlapping(view: &NormView, needle: &[char]) -> usi
     n
 }
 
-pub(crate) fn locate_invariant_safe_spans(
-    source: &str,
-    old: &str,
-    replace_all: bool,
-) -> Result<(EditTier, Vec<(usize, usize)>), String> {
-    for tier in [
-        EditTier::Exact,
-        EditTier::Curly,
-        EditTier::Nfc,
-        EditTier::Crlf,
-    ] {
+pub(crate) fn locate_invariant_safe_spans(source: &str, old: &str, replace_all: bool) -> Result<(EditTier, Vec<(usize, usize)>), String> {
+    for tier in [EditTier::Exact, EditTier::Curly, EditTier::Nfc, EditTier::Crlf] {
         let view = build_norm_view(source, tier);
         let needle = norm_chars(old, tier);
         if needle.is_empty() {
@@ -246,10 +218,7 @@ pub(crate) fn locate_invariant_safe_spans(
         }
         // Collect ALL occurrences, then keep only those aligned to original
         // character boundaries. Ambiguity is judged on aligned matches only.
-        let matches: Vec<usize> = find_char_occurrences(&view.chars, &needle)
-            .into_iter()
-            .filter(|&m| match_is_char_aligned(&view, m, needle.len()))
-            .collect();
+        let matches: Vec<usize> = find_char_occurrences(&view.chars, &needle).into_iter().filter(|&m| match_is_char_aligned(&view, m, needle.len())).collect();
         if matches.is_empty() {
             continue;
         }
@@ -264,27 +233,17 @@ pub(crate) fn locate_invariant_safe_spans(
             }
         }
         let chosen: &[usize] = if replace_all { &matches } else { &matches[..1] };
-        let spans = chosen
-            .iter()
-            .map(|&m| (view.spans[m].0, view.spans[m + needle.len() - 1].1))
-            .collect();
+        let spans = chosen.iter().map(|&m| (view.spans[m].0, view.spans[m + needle.len() - 1].1)).collect();
         return Ok((tier, spans));
     }
-    Err(format!(
-        "old_string not found{}",
-        nearest_line_hint(source, old)
-    ))
+    Err(format!("old_string not found{}", nearest_line_hint(source, old)))
 }
 
 /// Recovery hint for a failed match: locate the first file line containing the
 /// longest token from old_string's first line, so the model can re-anchor
 /// without a full re-read (whitespace drift is the usual culprit).
 pub(crate) fn nearest_line_hint(source: &str, old: &str) -> String {
-    let keyword = old
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .and_then(|line| line.split_whitespace().max_by_key(|token| token.len()))
-        .unwrap_or("");
+    let keyword = old.lines().find(|line| !line.trim().is_empty()).and_then(|line| line.split_whitespace().max_by_key(|token| token.len())).unwrap_or("");
     if keyword.chars().count() < 4 {
         return String::new();
     }
@@ -292,11 +251,7 @@ pub(crate) fn nearest_line_hint(source: &str, old: &str) -> String {
         if line.contains(keyword) {
             let trimmed = line.trim();
             let content: String = trimmed.chars().take(120).collect();
-            let ellipsis = if trimmed.chars().count() > 120 {
-                "…"
-            } else {
-                ""
-            };
+            let ellipsis = if trimmed.chars().count() > 120 { "…" } else { "" };
             return format!("; nearest match on line {}: {content}{ellipsis}", index + 1);
         }
     }
@@ -310,8 +265,7 @@ pub(crate) fn apply_invariant_safe_edit_to_path(
     replace_all: bool,
     dry_run: bool,
 ) -> Result<(ExactEditStats, EditTier), String> {
-    let old =
-        std::str::from_utf8(old_bytes).map_err(|_| "old_string is not valid UTF-8".to_string())?;
+    let old = std::str::from_utf8(old_bytes).map_err(|_| "old_string is not valid UTF-8".to_string())?;
     if old.is_empty() {
         return Err("old_string is empty".to_string());
     }
@@ -322,8 +276,7 @@ pub(crate) fn apply_invariant_safe_edit_to_path(
     let source_bytes = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let read_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-    let source = std::str::from_utf8(&source_bytes)
-        .map_err(|_| "source file is not valid UTF-8".to_string())?;
+    let source = std::str::from_utf8(&source_bytes).map_err(|_| "source file is not valid UTF-8".to_string())?;
 
     let t = Instant::now();
     // Ok always carries at least one span: every miss is an Err.
@@ -370,17 +323,7 @@ pub(crate) fn apply_invariant_safe_edit_to_path(
         atomic_write_replace(path, &out)?;
         write_ms = t.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok((
-        ExactEditStats {
-            replacements: spans.len(),
-            read_ms,
-            apply_ms,
-            write_ms,
-            total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
-            content_hash,
-        },
-        tier,
-    ))
+    Ok((ExactEditStats { replacements: spans.len(), read_ms, apply_ms, write_ms, total_ms: total_start.elapsed().as_secs_f64() * 1000.0, content_hash }, tier))
 }
 
 // Mirror replacementForOriginalSlice (edit-match-utils.mjs): adjust the new
@@ -396,10 +339,7 @@ pub(crate) fn preserve_eol(new_bytes: &[u8], slice: &[u8], file: &[u8]) -> Vec<u
     let has_lf = slice_str.contains('\n');
     if !has_crlf && !has_lf {
         if source_uses_cr_only(file) {
-            return new_str
-                .replace("\r\n", "\n")
-                .replace('\n', "\r")
-                .into_bytes();
+            return new_str.replace("\r\n", "\n").replace('\n', "\r").into_bytes();
         }
         // Single-line slice: only upgrade LF->CRLF when the WHOLE file is pure
         // CRLF (no bare LF); otherwise leave new untouched to avoid mixed-EOL.
@@ -411,17 +351,10 @@ pub(crate) fn preserve_eol(new_bytes: &[u8], slice: &[u8], file: &[u8]) -> Vec<u
                 return new_bytes.to_vec();
             }
         }
-        return new_str
-            .replace("\r\n", "\n")
-            .replace('\n', "\r\n")
-            .into_bytes();
+        return new_str.replace("\r\n", "\n").replace('\n', "\r\n").into_bytes();
     }
     let lf_replacement = new_str.replace("\r\n", "\n");
-    let mut result = if has_crlf {
-        lf_replacement.replace('\n', "\r\n")
-    } else {
-        lf_replacement
-    };
+    let mut result = if has_crlf { lf_replacement.replace('\n', "\r\n") } else { lf_replacement };
     if slice_str.ends_with('\r') && !result.ends_with('\r') && !result.ends_with('\n') {
         result.push('\r');
     }

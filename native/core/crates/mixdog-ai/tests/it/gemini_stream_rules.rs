@@ -347,7 +347,9 @@ fn grounding_sources_are_reported_once_per_address() {
     assert!(error.is_none(), "{error:?}");
     let sources: Vec<(String, String)> = events
         .iter()
-        .filter_map(|e| if let StreamEvent::Citation(c) = e { Some((c["url"].as_str().unwrap().to_owned(), c["title"].as_str().unwrap().to_owned())) } else { None })
+        .filter_map(|e| {
+            if let StreamEvent::Citation(c) = e { Some((c["url"].as_str().unwrap().to_owned(), c["title"].as_str().unwrap().to_owned())) } else { None }
+        })
         .collect();
     assert_eq!(sources, [("https://a.example/x".to_owned(), "A".to_owned()), ("https://b.example/y".to_owned(), "https://b.example/y".to_owned())]);
 }
@@ -384,8 +386,21 @@ fn only_the_policy_language_and_recitation_finish_reasons_have_a_refusal_code_un
         }
     }
     for reason in [
-        "", "UNSPECIFIED", "STOP", "MAX_TOKENS", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "MALFORMED_RESPONSE", "TOO_MANY_TOOL_CALLS",
-        "MISSING_THOUGHT_SIGNATURE", "CONTINUATION", "OTHER", "IMAGE_OTHER", "NO_IMAGE", "A_FUTURE_REASON", "safety",
+        "",
+        "UNSPECIFIED",
+        "STOP",
+        "MAX_TOKENS",
+        "MALFORMED_FUNCTION_CALL",
+        "UNEXPECTED_TOOL_CALL",
+        "MALFORMED_RESPONSE",
+        "TOO_MANY_TOOL_CALLS",
+        "MISSING_THOUGHT_SIGNATURE",
+        "CONTINUATION",
+        "OTHER",
+        "IMAGE_OTHER",
+        "NO_IMAGE",
+        "A_FUTURE_REASON",
+        "safety",
     ] {
         assert_eq!(policy_finish_code(reason), None, "{reason:?}");
     }

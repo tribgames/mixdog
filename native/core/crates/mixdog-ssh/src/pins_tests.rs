@@ -13,7 +13,7 @@ use super::*;
 use crate::command::parse_ssh_target;
 use crate::context::{ConfigFiles, LaneFiles, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner};
 use crate::diagnostics::Diagnostics;
-use crate::mixdog_config::{with_state_lock, MixdogSshConfig};
+use crate::mixdog_config::{MixdogSshConfig, with_state_lock};
 
 /// `MixdogSshConfig::current` is process-wide: the tests that configure it take turns.
 static TURN: Mutex<()> = Mutex::new(());
@@ -56,7 +56,10 @@ fn entries_without_an_owner_survive_byte_for_byte() {
     // Claiming a key an unmarked pin already holds appends a managed copy and leaves the original alone.
     let grown = add_claims(legacy, &[claim(&a, "box.example", "KOLD")]).unwrap().unwrap();
     assert!(grown.starts_with(legacy));
-    assert!(text(&grown).ends_with(&format!("ssh-ed25519 KLAST\nbox.example ssh-ed25519 KOLD mixdog-pin-v1={a}")), "the pin takes the last place, without an ending as the file had none");
+    assert!(
+        text(&grown).ends_with(&format!("ssh-ed25519 KLAST\nbox.example ssh-ed25519 KOLD mixdog-pin-v1={a}")),
+        "the pin takes the last place, without an ending as the file had none"
+    );
 
     // A claim never sits beside a different key for the endpoint, nor on a revoked one.
     assert_eq!(add_claims(legacy, &[claim(&a, "box.example", "KNEW")]), Err(StateError::Conflict));
@@ -310,7 +313,11 @@ async fn two_importers_racing_make_one_logical_import() {
     let (folder, config) = configured().await;
     let legacy = folder.path().join("legacy");
     std::fs::create_dir_all(legacy.join("ssh")).unwrap();
-    std::fs::write(legacy.join("ssh").join("known_hosts"), "one.example ssh-ed25519 K1\ntwo.example ssh-ed25519 K2 mixdog-pin-v1=abc\n# note\nthree.example ssh-ed25519 K3\n").unwrap();
+    std::fs::write(
+        legacy.join("ssh").join("known_hosts"),
+        "one.example ssh-ed25519 K1\ntwo.example ssh-ed25519 K2 mixdog-pin-v1=abc\n# note\nthree.example ssh-ed25519 K3\n",
+    )
+    .unwrap();
     let racers: Vec<_> = (0..2)
         .map(|_| {
             let (config, legacy, env) = (Arc::clone(&config), legacy.clone(), env_in(folder.path()));
@@ -355,7 +362,8 @@ async fn contending_transactions_never_stall_the_one_executor_thread() {
                     std::thread::sleep(Duration::from_millis(40));
                     let file = dir.join("known_hosts");
                     let held = read_state(&file)?;
-                    let next = add_claims(&held, &[claim(&owner, &format!("h{index}.example"), &format!("K{index}"))]).map_err(io::Error::other)?.unwrap_or(held);
+                    let next =
+                        add_claims(&held, &[claim(&owner, &format!("h{index}.example"), &format!("K{index}"))]).map_err(io::Error::other)?.unwrap_or(held);
                     publish_file(&file, &next)
                 })
                 .await
@@ -371,7 +379,7 @@ async fn contending_transactions_never_stall_the_one_executor_thread() {
     assert_eq!(std::fs::read_to_string(dir.join("known_hosts")).unwrap().lines().count(), 8, "a transaction was lost");
     // Eight transactions of 40 ms ran one after another (>= 320 ms); the heartbeat kept its pace meanwhile.
     assert!(elapsed >= Duration::from_millis(320));
-    assert!(beat >= 10,"the executor thread was held: {beat} beats in {elapsed:?}");
+    assert!(beat >= 10, "the executor thread was held: {beat} beats in {elapsed:?}");
 }
 
 fn tool_runs(tool: &str, args: &[&str]) -> bool {
@@ -413,7 +421,10 @@ fn openssh_reads_the_annotated_pins_and_the_generated_blocks() {
     std::fs::write(&generic, crate::mixdog_config::mixdog_ssh_config_text(&own, &[], &home)).unwrap();
     let resolved = tool_output("ssh", &["-G", "-F", &generic.to_string_lossy(), "box.example"]);
     assert!(resolved.contains("updatehostkeys false") || resolved.contains("updatehostkeys no"), "{resolved}");
-    assert!(resolved.lines().any(|line| line.starts_with("userknownhostsfile ") && line.contains("known_hosts")) && resolved.contains("stricthostkeychecking true"), "{resolved}");
+    assert!(
+        resolved.lines().any(|line| line.starts_with("userknownhostsfile ") && line.contains("known_hosts")) && resolved.contains("stricthostkeychecking true"),
+        "{resolved}"
+    );
     let first_file = resolved.lines().find(|line| line.starts_with("userknownhostsfile ")).unwrap();
     assert!(first_file.trim_start_matches("userknownhostsfile ").starts_with(&own.replace('\\', "/")), "Mixdog's file is read first: {first_file}");
 
@@ -431,7 +442,9 @@ fn openssh_reads_the_annotated_pins_and_the_generated_blocks() {
     };
     let blocks = ["gate.example", "box.example"]
         .iter()
-        .map(|name| crate::resolved_config::resolved_block_text(name, &crate::resolved_config::parse_dump(&format!("hostname {name}\nport 22\n")), &host(name), &own))
+        .map(|name| {
+            crate::resolved_config::resolved_block_text(name, &crate::resolved_config::parse_dump(&format!("hostname {name}\nport 22\n")), &host(name), &own)
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let per_target = dir.join("t-v2-test.conf");

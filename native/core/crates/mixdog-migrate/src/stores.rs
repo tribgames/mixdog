@@ -50,12 +50,7 @@ struct Store {
 }
 
 const fn store(kind: ItemKind, root: Root, spec: Spec, singleton: bool) -> Store {
-    Store {
-        kind,
-        root,
-        spec,
-        singleton,
-    }
+    Store { kind, root, spec, singleton }
 }
 
 use ItemKind as K;
@@ -65,15 +60,7 @@ const STORES: &[Store] = &[
     store(K::Goals, D, Spec::Dirs(&["goals"]), false),
     store(K::QuotaResume, D, Spec::Files(&["quota-resume.json"]), false),
     store(K::HumanGate, D, Spec::Dirs(&["human-gate"]), false),
-    store(
-        K::ConnectorAccounts,
-        D,
-        Spec::Files(&[
-            "connector-accounts-by-conversation.json",
-            "connector-accounts-in-use.json",
-        ]),
-        false,
-    ),
+    store(K::ConnectorAccounts, D, Spec::Files(&["connector-accounts-by-conversation.json", "connector-accounts-in-use.json"]), false),
     store(K::GatewaySessionRoutes, D, Spec::Files(&["gateway-session-routes.json"]), false),
     store(K::PromptCacheTouches, D, Spec::Files(&["prompt-cache-touches.json"]), false),
     store(K::PromptCacheIdleGaps, D, Spec::Files(&["prompt-cache-idle-gaps.json"]), false),
@@ -133,9 +120,7 @@ pub(crate) fn keeps_catalog(data: &std::path::Path) -> bool {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
         Err(_) => return true,
     }
-    let corrupt = |e: &rusqlite::Error| {
-        matches!(e.sqlite_error_code(), Some(ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt))
-    };
+    let corrupt = |e: &rusqlite::Error| matches!(e.sqlite_error_code(), Some(ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt));
     let Some((id, objects)) = mixdog_store::sqlite::read_only_identity(&path) else {
         return true;
     };
@@ -149,10 +134,7 @@ pub(crate) fn keeps_catalog(data: &std::path::Path) -> bool {
 /// run reuses the plan an earlier build journaled.
 pub(crate) fn keeps_catalog_item(item: &ManifestItem, data: &std::path::Path) -> bool {
     let rel = item.key.as_str().split_once("/data/").map_or("", |(_, r)| r);
-    item.kind == K::Retired
-        && RETIRED_FILES.contains(&rel)
-        && rel.starts_with(session_catalog_name())
-        && keeps_catalog(data)
+    item.kind == K::Retired && RETIRED_FILES.contains(&rel) && rel.starts_with(session_catalog_name()) && keeps_catalog(data)
 }
 
 /// 1.4.5's attachment tree, which the core never changes: it stays whole for a rollback, and its blobs are taken in by
@@ -171,12 +153,8 @@ const RETIRED_DIRS: &[&str] = &["live-sessions", "session-writer-locks", "media/
 /// `gateway-usage.local.jsonl` is not here: at 1.4.5 it is the live store the core appends to per request and the
 /// footer reads (`route-meta.mjs`), which the usage history import (`mixdog-ledger` `history`) only reads. `gateway-usage.local.json` is not
 /// either: only the store's first writer retires it (renamed to `.migrated.bak`), which the Rust writer does too.
-const LEDGER_LEGACY_INPUTS: &[&str] = &[
-    "usage-rollup.local.json",
-    "usage-rollup.local.json.migrated.bak",
-    "gateway-usage.local.jsonl.migrated.bak",
-    "gateway-usage.local.json.migrated.bak",
-];
+const LEDGER_LEGACY_INPUTS: &[&str] =
+    &["usage-rollup.local.json", "usage-rollup.local.json.migrated.bak", "gateway-usage.local.jsonl.migrated.bak", "gateway-usage.local.json.migrated.bak"];
 
 /// Root-level retire patterns (besides exact names).
 fn is_retired_pattern(name: &str) -> bool {
@@ -230,9 +208,7 @@ pub fn fold_legacy_compaction(compaction: &Map<String, Value>) -> Option<Option<
     if !json::js_truthy(next.get("summaryModel")) && json::js_truthy(next.get("semanticModel")) {
         next.insert("summaryModel".into(), next["semanticModel"].clone());
     }
-    if !json::js_truthy(next.get("memoryTimeoutMs"))
-        && json::js_truthy(next.get("recallMemoryTimeoutMs"))
-    {
+    if !json::js_truthy(next.get("memoryTimeoutMs")) && json::js_truthy(next.get("recallMemoryTimeoutMs")) {
         next.insert("memoryTimeoutMs".into(), next["recallMemoryTimeoutMs"].clone());
     }
     let off = |v: Option<&Value>| v == Some(&Value::Bool(false));
@@ -251,10 +227,7 @@ fn folded_config(doc: &Value) -> Option<Value> {
     let compaction = doc.get("agent")?.get("compaction")?.as_object()?;
     let folded = fold_legacy_compaction(compaction)?;
     let mut doc = doc.clone();
-    let agent = doc
-        .get_mut("agent")
-        .and_then(Value::as_object_mut)
-        .expect("agent is an object");
+    let agent = doc.get_mut("agent").and_then(Value::as_object_mut).expect("agent is an object");
     match folded {
         Some(map) => agent.insert("compaction".into(), Value::Object(map)),
         None => agent.shift_remove("compaction"),
@@ -274,10 +247,7 @@ pub(crate) fn read_config(data: &Path) -> Result<Option<(Vec<u8>, Value)>> {
     let Some(bytes) = durable::read_optional(&path)? else {
         return Ok(None);
     };
-    let value = json::parse_config(&bytes).map_err(|detail| Blocked::StoreSchema {
-        key: "store/settings".into(),
-        detail,
-    })?;
+    let value = json::parse_config(&bytes).map_err(|detail| Blocked::StoreSchema { key: "store/settings".into(), detail })?;
     Ok(Some((bytes, value.value)))
 }
 
@@ -303,10 +273,7 @@ fn parse_check(path: &Path, rel: &str, bytes: &[u8]) -> std::result::Result<(), 
 }
 
 pub(crate) fn store_key(kind: ItemKind) -> String {
-    let name = serde_json::to_value(kind)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default();
+    let name = serde_json::to_value(kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
     format!("store/{name}")
 }
 
@@ -318,10 +285,7 @@ fn digest(hex: &str) -> Result<Digest> {
 }
 
 fn handles(kind: ItemKind) -> bool {
-    matches!(
-        kind,
-        K::AttachmentBlobs | K::LedgerBackups | K::Retired | K::LedgerLegacyInputs
-    ) || STORES.iter().any(|s| s.kind == kind)
+    matches!(kind, K::AttachmentBlobs | K::LedgerBackups | K::Retired | K::LedgerLegacyInputs) || STORES.iter().any(|s| s.kind == kind)
 }
 
 /// A preserved store as it stands. It is its own target, verified in its wave; the core that serves while the sessions
@@ -399,18 +363,10 @@ mod tests {
         })))
         .unwrap()
         .unwrap();
-        assert_eq!(
-            Value::Object(folded),
-            serde_json::json!({"auto": false, "summaryModel": "m", "memoryTimeoutMs": 5, "onModelChange": true})
-        );
-        assert_eq!(
-            fold_legacy_compaction(&obj(serde_json::json!({"prune": true}))),
-            Some(None)
-        );
+        assert_eq!(Value::Object(folded), serde_json::json!({"auto": false, "summaryModel": "m", "memoryTimeoutMs": 5, "onModelChange": true}));
+        assert_eq!(fold_legacy_compaction(&obj(serde_json::json!({"prune": true}))), Some(None));
         assert_eq!(fold_legacy_compaction(&obj(serde_json::json!({"auto": false}))), None);
-        let kept = fold_legacy_compaction(&obj(serde_json::json!({"summaryModel": "a", "semanticModel": "b"})))
-            .unwrap()
-            .unwrap();
+        let kept = fold_legacy_compaction(&obj(serde_json::json!({"summaryModel": "a", "semanticModel": "b"}))).unwrap().unwrap();
         assert_eq!(Value::Object(kept), serde_json::json!({"summaryModel": "a"}));
     }
 
@@ -427,7 +383,6 @@ mod tests {
         assert!(parse_check(path, CONFIG_FILE, b"{\"a\":").is_err());
     }
 }
-
 
 /// SHA-256 over a preserve item's sources (`root path sha256` lines): its staged output
 /// and verified digest.
@@ -462,14 +417,7 @@ impl StoresDriver {
                         // not carried with the store it lies in.
                         if store.root == D && temp_files::is_store_leftover(&path) {
                             let source = sink.source(D, &path, false)?;
-                            sink.add_item(plan::item(
-                                &plan::retire_key(D, &path),
-                                KindGroup::Data,
-                                K::Retired,
-                                Contract::Retire,
-                                vec![source],
-                                None,
-                            )?)?;
+                            sink.add_item(plan::item(&plan::retire_key(D, &path), KindGroup::Data, K::Retired, Contract::Retire, vec![source], None)?)?;
                         } else {
                             sources.push(sink.source(store.root, &path, false)?);
                         }
@@ -480,14 +428,7 @@ impl StoresDriver {
         if sources.is_empty() {
             return Ok(());
         }
-        sink.add_item(plan::item(
-            &store_key(store.kind),
-            KindGroup::Data,
-            store.kind,
-            Contract::Preserve,
-            sources,
-            None,
-        )?)
+        sink.add_item(plan::item(&store_key(store.kind), KindGroup::Data, store.kind, Contract::Preserve, sources, None)?)
     }
 
     fn plan_ledger_backups(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
@@ -513,26 +454,12 @@ impl StoresDriver {
         if sources.is_empty() {
             return Ok(());
         }
-        sink.add_item(plan::item(
-            &store_key(K::LedgerBackups),
-            KindGroup::Data,
-            K::LedgerBackups,
-            Contract::Preserve,
-            sources,
-            None,
-        )?)
+        sink.add_item(plan::item(&store_key(K::LedgerBackups), KindGroup::Data, K::LedgerBackups, Contract::Preserve, sources, None)?)
     }
 
     fn plan_retired(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let retire = |sink: &mut PlanSink, rel: String, sources: Vec<SourceFile>| -> Result<()> {
-            sink.add_item(plan::item(
-                &plan::retire_key(D, &rel),
-                KindGroup::Data,
-                K::Retired,
-                Contract::Retire,
-                sources,
-                None,
-            )?)
+            sink.add_item(plan::item(&plan::retire_key(D, &rel), KindGroup::Data, K::Retired, Contract::Retire, sources, None)?)
         };
         let foreign_catalog = keeps_catalog(&roots.data);
         for rel in RETIRED_FILES {
@@ -555,10 +482,7 @@ impl StoresDriver {
             if files.is_empty() {
                 continue;
             }
-            let sources = files
-                .iter()
-                .map(|rel| sink.source(D, &format!("{dir}/{rel}"), false))
-                .collect::<Result<Vec<_>>>()?;
+            let sources = files.iter().map(|rel| sink.source(D, &format!("{dir}/{rel}"), false)).collect::<Result<Vec<_>>>()?;
             retire(sink, dir.to_string(), sources)?;
         }
         Ok(())
@@ -575,19 +499,8 @@ impl StoresDriver {
                 continue;
             }
             let source = sink.source(D, rel, false)?;
-            let (key, contract) = if imported {
-                (plan::retire_key(D, rel), Contract::Retire)
-            } else {
-                (plan::retain_key(D, rel), Contract::Retain)
-            };
-            sink.add_item(plan::item(
-                &key,
-                KindGroup::Data,
-                K::LedgerLegacyInputs,
-                contract,
-                vec![source],
-                None,
-            )?)?;
+            let (key, contract) = if imported { (plan::retire_key(D, rel), Contract::Retire) } else { (plan::retain_key(D, rel), Contract::Retain) };
+            sink.add_item(plan::item(&key, KindGroup::Data, K::LedgerLegacyInputs, contract, vec![source], None)?)?;
         }
         Ok(())
     }
@@ -605,35 +518,23 @@ impl StoresDriver {
             K::Settings,
             Contract::Convert,
             Vec::new(),
-            Some(Target::ConfigKey {
-                key: LEGACY_COMPACTION_TARGET.into(),
-            }),
+            Some(Target::ConfigKey { key: LEGACY_COMPACTION_TARGET.into() }),
         )?)
     }
 
     fn stage_legacy_compaction(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
-        let (_, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
-            key: item.key.as_str().into(),
-            detail: format!("{CONFIG_FILE} is gone"),
-        })?;
+        let (_, doc) =
+            read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema { key: item.key.as_str().into(), detail: format!("{CONFIG_FILE} is gone") })?;
         // Already folded (an earlier run published it): the current file is the output.
         let bytes = match folded_config(&doc) {
             Some(next) => config_bytes(&next),
             None => durable::read(&cx.roots.data.join(CONFIG_FILE))?,
         };
         durable::write_synced(&cx.stage_dir(item.key.as_str()).join(CONFIG_FILE), &bytes)?;
-        Ok(Staged::Output {
-            output_sha256: durable::sha256_hex(&bytes),
-            replaced_surrogates: 0,
-        })
+        Ok(Staged::Output { output_sha256: durable::sha256_hex(&bytes), replaced_surrogates: 0 })
     }
 
-    fn publish_legacy_compaction(
-        &self,
-        cx: &ItemContext<'_>,
-        item: &ManifestItem,
-        staged: &StagedEntry,
-    ) -> Result<()> {
+    fn publish_legacy_compaction(&self, cx: &ItemContext<'_>, item: &ManifestItem, staged: &StagedEntry) -> Result<()> {
         let target = cx.roots.data.join(CONFIG_FILE);
         let current = durable::read(&target)?;
         if durable::sha256_hex(&current) == staged.output_sha256.as_str() {
@@ -641,28 +542,18 @@ impl StoresDriver {
         }
         let stage = cx.stage_dir(item.key.as_str()).join(CONFIG_FILE);
         if !durable::exists(&stage)? {
-            return Err(Blocked::TargetConflict {
-                key: item.key.as_str().into(),
-                path: target,
-            });
+            return Err(Blocked::TargetConflict { key: item.key.as_str().into(), path: target });
         }
         durable::durable_rename(&stage, &target)
     }
 
     fn verify_legacy_compaction(&self, cx: &ItemContext<'_>) -> Result<Verdict> {
-        let (bytes, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
-            key: LEGACY_COMPACTION_ITEM.into(),
-            detail: format!("{CONFIG_FILE} is gone"),
-        })?;
+        let (bytes, doc) = read_config(&cx.roots.data)?
+            .ok_or_else(|| Blocked::StoreSchema { key: LEGACY_COMPACTION_ITEM.into(), detail: format!("{CONFIG_FILE} is gone") })?;
         if folded_config(&doc).is_some() {
-            return Ok(Verdict::Quarantine {
-                code: QuarantineCode::DigestMismatch,
-                detail: "agent.compaction still holds legacy keys".into(),
-            });
+            return Ok(Verdict::Quarantine { code: QuarantineCode::DigestMismatch, detail: "agent.compaction still holds legacy keys".into() });
         }
-        Ok(Verdict::Verified {
-            digest: Some(digest(&durable::sha256_hex(&bytes))?),
-        })
+        Ok(Verdict::Verified { digest: Some(digest(&durable::sha256_hex(&bytes))?) })
     }
 
     fn verify_store(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict> {
@@ -672,20 +563,12 @@ impl StoresDriver {
             let bytes = cx.read_source(source)?;
             if let Err(detail) = parse_check(&path, &source.path, &bytes) {
                 if singleton {
-                    return Err(Blocked::StoreSchema {
-                        key: item.key.as_str().into(),
-                        detail,
-                    });
+                    return Err(Blocked::StoreSchema { key: item.key.as_str().into(), detail });
                 }
-                return Ok(Verdict::Quarantine {
-                    code: QuarantineCode::ParseError,
-                    detail,
-                });
+                return Ok(Verdict::Quarantine { code: QuarantineCode::ParseError, detail });
             }
         }
-        Ok(Verdict::Verified {
-            digest: Some(digest(&sources_sha256(&item.sources))?),
-        })
+        Ok(Verdict::Verified { digest: Some(digest(&sources_sha256(&item.sources))?) })
     }
 }
 impl ItemDriver for StoresDriver {
@@ -716,11 +599,7 @@ impl ItemDriver for StoresDriver {
     }
 
     fn wave(&self, item: &ManifestItem) -> Wave {
-        if [LEGACY_COMPACTION_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
-            Wave::Settings
-        } else {
-            Wave::Stores
-        }
+        if [LEGACY_COMPACTION_ITEM, connectors::ITEM].contains(&item.key.as_str()) { Wave::Settings } else { Wave::Stores }
     }
 
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
@@ -735,10 +614,7 @@ impl ItemDriver for StoresDriver {
                 code: QuarantineCode::LedgerImportIncomplete,
                 detail: "the ledger has no metadata.importedThrough: kept for the usage history import".into(),
             }),
-            _ => Ok(Staged::Output {
-                output_sha256: sources_sha256(&item.sources),
-                replaced_surrogates: 0,
-            }),
+            _ => Ok(Staged::Output { output_sha256: sources_sha256(&item.sources), replaced_surrogates: 0 }),
         }
     }
 

@@ -1,8 +1,4 @@
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -30,14 +26,7 @@ fn copy_to_temp(src: &Path) -> (tempfile::TempDir, PathBuf) {
 }
 
 fn counts(conn: &Connection) -> (i64, i64, i64, i64) {
-    let n = |t: &str| -> i64 {
-        conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type=?1 AND sql IS NOT NULL",
-            [t],
-            |r| r.get(0),
-        )
-        .unwrap()
-    };
+    let n = |t: &str| -> i64 { conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type=?1 AND sql IS NOT NULL", [t], |r| r.get(0)).unwrap() };
     (n("table"), n("index"), n("view"), n("trigger"))
 }
 
@@ -54,21 +43,14 @@ fn assert_sums_match_events(conn: &Connection) {
             |r| r.get(0),
         )
         .unwrap();
-    let extra: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM usage_session_days WHERE turns<=0 OR route NOT IN (SELECT id FROM usage_routes)",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
+    let extra: i64 =
+        conn.query_row("SELECT COUNT(*) FROM usage_session_days WHERE turns<=0 OR route NOT IN (SELECT id FROM usage_routes)", [], |r| r.get(0)).unwrap();
     assert_eq!((diff, extra), (0, 0));
 }
 
 fn upgrade_and_build(path: &Path, expect: Prepared) -> Connection {
     let mut conn = Connection::open(path).unwrap();
-    let events: i64 = conn
-        .query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))
-        .unwrap();
+    let events: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0)).unwrap();
     assert_eq!(prepare(&mut conn).unwrap(), expect);
     assert_eq!(counts(&conn), (20, 7, 1, 32));
     assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
@@ -124,23 +106,13 @@ fn v3_routes_split_by_the_1h_count_merge_into_one() {
     assert_eq!(prepare(&mut conn).unwrap(), Prepared::UpgradedV3);
     assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
     assert_eq!(counts(&conn), (20, 7, 1, 32));
-    let routes: Vec<String> = conn
-        .prepare("SELECT signature FROM usage_routes")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
+    let routes: Vec<String> =
+        conn.prepare("SELECT signature FROM usage_routes").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
     assert_eq!(routes, vec![route(None)]);
     let events: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events WHERE route=4", [], |r| r.get(0)).unwrap();
     assert_eq!(events, 8);
-    let counts_1h: Vec<f64> = conn
-        .prepare("SELECT tokens FROM usage_event_cache_1h ORDER BY id")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
+    let counts_1h: Vec<f64> =
+        conn.prepare("SELECT tokens FROM usage_event_cache_1h ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
     // Events 0..8 used routes 1,2,3,4,1,2,3,4: the six on routes 1-3 keep their counts.
     assert_eq!(counts_1h, vec![100.0, 200.0, 300.0, 100.0, 200.0, 300.0]);
     assert_sums_match_events(&conn);
@@ -153,11 +125,9 @@ fn v3_routes_split_by_the_1h_count_merge_into_one() {
     .unwrap();
     assert_eq!(append_batch(&mut conn, std::slice::from_ref(&record)).unwrap(), 1);
     let (routes, last): (i64, f64) = conn
-        .query_row(
-            "SELECT (SELECT COUNT(*) FROM usage_routes), (SELECT tokens FROM usage_event_cache_1h WHERE id=x'01722d31')",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
+        .query_row("SELECT (SELECT COUNT(*) FROM usage_routes), (SELECT tokens FROM usage_event_cache_1h WHERE id=x'01722d31')", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
         .unwrap();
     assert_eq!((routes, last), (1, 5.0));
     assert_sums_match_events(&conn);
@@ -174,14 +144,10 @@ fn dev_shape_upgrades_and_append_after_is_counted_once() {
         conn.execute_batch(LEDGER_V2_DEV).unwrap();
         conn.execute_batch("PRAGMA user_version = 2").unwrap();
         conn.execute("INSERT INTO usage_routes(signature) VALUES ('[\"p\",\"m\",\"k\",\"s\",\"provider\",null,\"live\",0]')", []).unwrap();
-        conn.execute("INSERT INTO usage_sessions(value) VALUES ('a'),('b')", [])
-            .unwrap();
+        conn.execute("INSERT INTO usage_sessions(value) VALUES ('a'),('b')", []).unwrap();
         for i in 0..5 {
-            conn.execute(
-                "INSERT INTO usage_events VALUES (?1, 1000, 20260101, 1, ?2, 1,2,3,4,0.5,10)",
-                rusqlite::params![vec![1u8, i as u8], 1 + i % 2],
-            )
-            .unwrap();
+            conn.execute("INSERT INTO usage_events VALUES (?1, 1000, 20260101, 1, ?2, 1,2,3,4,0.5,10)", rusqlite::params![vec![1u8, i as u8], 1 + i % 2])
+                .unwrap();
         }
     }
     let mut conn = upgrade_and_build(&path, Prepared::Upgraded(LedgerShape::Dev146));
@@ -191,14 +157,8 @@ fn dev_shape_upgrades_and_append_after_is_counted_once() {
         "costUsd": 0.1, "costSource": "provider", "origin": "live", "durationMs": 5
     }))
     .unwrap();
-    assert_eq!(
-        append_batch(&mut conn, std::slice::from_ref(&record)).unwrap(),
-        1
-    );
-    assert_eq!(
-        append_batch(&mut conn, std::slice::from_ref(&record)).unwrap(),
-        0
-    );
+    assert_eq!(append_batch(&mut conn, std::slice::from_ref(&record)).unwrap(), 1);
+    assert_eq!(append_batch(&mut conn, std::slice::from_ref(&record)).unwrap(), 0);
     assert_sums_match_events(&conn);
 }
 
@@ -217,7 +177,6 @@ fn corpus_ledger_upgrades() {
     upgrade_and_build(&path, Prepared::Upgraded(shape));
 }
 
-
 #[tokio::test]
 async fn a_145_ledger_upgrades_keeps_its_requests_and_answers_its_queries() {
     let dir = tempfile::tempdir().unwrap();
@@ -229,17 +188,9 @@ async fn a_145_ledger_upgrades_keeps_its_requests_and_answers_its_queries() {
     let rollup = reader.rollup(RollupQuery::default()).await.unwrap();
     assert_eq!(rollup["days"].as_object().unwrap().len(), 2, "both days of the ledger");
     assert_eq!(conn.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
-    let sessions: Vec<String> = conn
-        .prepare("SELECT value FROM usage_sessions LIMIT 3")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
+    let sessions: Vec<String> =
+        conn.prepare("SELECT value FROM usage_sessions LIMIT 3").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
     let before = reader.usage_token(sessions.clone(), vec![]).await.unwrap();
-    reader
-        .session_usage(sessions.clone(), vec![])
-        .await
-        .unwrap();
+    reader.session_usage(sessions.clone(), vec![]).await.unwrap();
     assert_eq!(reader.usage_token(sessions, vec![]).await.unwrap(), before);
 }

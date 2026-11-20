@@ -3,11 +3,11 @@
 //! storage), replies come back on oneshots. The run selects each await against its token.
 
 use async_trait::async_trait;
+use bytes::Bytes;
 pub use mixdog_agent::env::DrainRequest;
 pub use mixdog_agent::env::DrainStage;
 pub use mixdog_agent::env::Priority;
 pub use mixdog_agent::env::SteerMode;
-use bytes::Bytes;
 use mixdog_app_protocol::v2::thread::ItemDeltaParams;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
@@ -93,13 +93,7 @@ impl ModelContext {
         let token = CancellationToken::new();
         self.store.unheld().await;
         let (store, thread) = (self.store.clone(), self.thread.clone());
-        self.lanes
-            .io
-            .submit_wait(&token, move |lane| store.context_len(lane, &thread))
-            .await
-            .map_err(context_refused)?
-            .await
-            .map_err(|_| context_dropped())?
+        self.lanes.io.submit_wait(&token, move |lane| store.context_len(lane, &thread)).await.map_err(context_refused)?.await.map_err(|_| context_dropped())?
     }
 
     /// [`len`](Self::len) for a caller that shows the number and reads no row by it (a status pass asks it of every
@@ -148,21 +142,12 @@ fn context_refused(error: mixdog_rt::SubmitWaitError) -> CoreError {
 
 /// The model context of `thread`: its lineage's model rows since the last compaction, oldest
 /// first, as of the rows acked so far.
-pub(crate) async fn read_context(
-    store: &Arc<dyn ThreadStore>,
-    lanes: &SessionLanes,
-    thread: &ThreadId,
-) -> Result<Vec<(ItemId, Value)>, CoreError> {
+pub(crate) async fn read_context(store: &Arc<dyn ThreadStore>, lanes: &SessionLanes, thread: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError> {
     read_context_from(store, lanes, thread, 0).await
 }
 
 /// [`read_context`] without the first `skip` rows.
-async fn read_context_from(
-    store: &Arc<dyn ThreadStore>,
-    lanes: &SessionLanes,
-    thread: &ThreadId,
-    skip: usize,
-) -> Result<Vec<(ItemId, Value)>, CoreError> {
+async fn read_context_from(store: &Arc<dyn ThreadStore>, lanes: &SessionLanes, thread: &ThreadId, skip: usize) -> Result<Vec<(ItemId, Value)>, CoreError> {
     fold_context(store, lanes, thread, skip, |out: &mut Vec<_>, rows| out.extend(rows)).await
 }
 
@@ -294,12 +279,7 @@ fn a_next_drain_leaves_later_entries_queued() {
     let goal = super::goal_lane::continuation_entry("p", None, 1);
     assert!(!within_priority(&goal, Priority::Next));
     assert!(within_priority(&goal, Priority::Later));
-    for (priority, next, later) in [
-        (Some("now"), true, true),
-        (Some("next"), true, true),
-        (None, true, true),
-        (Some("later"), false, true),
-    ] {
+    for (priority, next, later) in [(Some("now"), true, true), (Some("next"), true, true), (None, true, true), (Some("later"), false, true)] {
         assert_eq!(within_priority(&entry(priority), Priority::Next), next, "{priority:?}");
         assert_eq!(within_priority(&entry(priority), Priority::Later), later, "{priority:?}");
     }
@@ -560,10 +540,6 @@ mod cancel_tests {
     }
 }
 
-
-
-
-
 pub(crate) enum ProducerMsg {
     Section(Section),
     ItemStarted {
@@ -699,7 +675,13 @@ pub(crate) enum RunShown {
     /// One provider request of the turn (`thread/modelRequest/updated`).
     ModelRequest { request_index: u32, phase: mixdog_app_protocol::v2::thread::ModelRequestPhase, tool_calls: Option<Vec<Value>> },
     /// The tool batch of a request (`thread/toolBatch/updated`).
-    ToolBatch { request_index: u32, phase: mixdog_app_protocol::v2::thread::ToolBatchPhase, iteration: Option<u32>, calls: Option<u32>, duration_ms: Option<u64> },
+    ToolBatch {
+        request_index: u32,
+        phase: mixdog_app_protocol::v2::thread::ToolBatchPhase,
+        iteration: Option<u32>,
+        calls: Option<u32>,
+        duration_ms: Option<u64>,
+    },
     /// A mark of the model call the spinner follows (`streamHandlers`, `turn-live-call.mjs`).
     Call(CallMark),
 }
@@ -724,7 +706,6 @@ impl UsageReport {
         }
     }
 }
-
 
 #[derive(Clone)]
 pub struct RunPort {
@@ -791,7 +772,11 @@ impl RunPort {
 
     /// The session's reading of the request the loop is about to send (`messages`, `tools`): the pressure its provider
     /// reading gives it, the figure that send's check records, and whether its transcript is unanchored after a restart.
-    pub async fn session_pressure(&self, messages: Vec<mixdog_agent::message::AgentMessage>, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>) -> Result<mixdog_agent::env::SessionPressure, RunError> {
+    pub async fn session_pressure(
+        &self,
+        messages: Vec<mixdog_agent::message::AgentMessage>,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    ) -> Result<mixdog_agent::env::SessionPressure, RunError> {
         self.prepare_meters(&messages).await;
         let (reply, rx) = oneshot::channel();
         self.call(ProducerMsg::ProviderPressure { turn: self.turn.clone(), messages, tools, reply }, rx).await
@@ -835,10 +820,7 @@ impl RunPort {
     /// Resolves once the run's input rows are durable (the first model call waits on it).
     pub async fn input_durable(&self) -> Result<(), RunError> {
         let mut input = self.input.clone();
-        let state = input
-            .wait_for(|state| *state != InputState::Pending)
-            .await
-            .map_err(|_| RunError::Closed)?;
+        let state = input.wait_for(|state| *state != InputState::Pending).await.map_err(|_| RunError::Closed)?;
         match *state {
             InputState::Durable => Ok(()),
             _ => Err(RunError::NotApplied),
@@ -851,11 +833,7 @@ impl RunPort {
 
     /// `item/started` (not persisted).
     pub async fn item_started(&self, item: ThreadItem) -> Result<(), RunError> {
-        self.send(ProducerMsg::ItemStarted {
-            turn: self.turn.clone(),
-            item,
-        })
-        .await
+        self.send(ProducerMsg::ItemStarted { turn: self.turn.clone(), item }).await
     }
 
     /// `item/agentMessage/delta` (not persisted; ≤ 16 KiB, encoded here, RL §5.6).
@@ -870,13 +848,8 @@ impl RunPort {
     }
 
     async fn item_delta(&self, item: ItemId, text: String, method: &'static str) -> Result<(), RunError> {
-        let params = encode(&ItemDeltaParams {
-            thread_id: self.thread.clone(),
-            turn_id: self.turn.clone(),
-            item_id: item.clone(),
-            delta: text.clone(),
-            index: None,
-        });
+        let params =
+            encode(&ItemDeltaParams { thread_id: self.thread.clone(), turn_id: self.turn.clone(), item_id: item.clone(), delta: text.clone(), index: None });
         self.send(ProducerMsg::Delta { item, text, method, params }).await
     }
 
@@ -986,13 +959,23 @@ impl RunPort {
 
     /// The turn's provider request `request_index` (from 1) started, or completed with the tool calls its response
     /// streamed: `thread/modelRequest/updated`.
-    pub async fn model_request(&self, request_index: u32, phase: mixdog_app_protocol::v2::thread::ModelRequestPhase, tool_calls: Option<Vec<Value>>) -> Result<(), RunError> {
+    pub async fn model_request(
+        &self,
+        request_index: u32,
+        phase: mixdog_app_protocol::v2::thread::ModelRequestPhase,
+        tool_calls: Option<Vec<Value>>,
+    ) -> Result<(), RunError> {
         self.shown(RunShown::ModelRequest { request_index, phase, tool_calls }).await
     }
 
     /// The tool batch of the turn's provider request `request_index` started, or completed (`iteration`, the calls it
     /// ran, its length): `thread/toolBatch/updated`.
-    pub async fn tool_batch(&self, request_index: u32, phase: mixdog_app_protocol::v2::thread::ToolBatchPhase, completed: Option<(u32, u32, u64)>) -> Result<(), RunError> {
+    pub async fn tool_batch(
+        &self,
+        request_index: u32,
+        phase: mixdog_app_protocol::v2::thread::ToolBatchPhase,
+        completed: Option<(u32, u32, u64)>,
+    ) -> Result<(), RunError> {
         let (iteration, calls, duration_ms) = match completed {
             Some((iteration, calls, duration_ms)) => (Some(iteration), Some(calls), Some(duration_ms)),
             None => (None, None, None),

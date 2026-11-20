@@ -181,7 +181,6 @@ pub(crate) fn recording_push() -> UsagePush {
 #[cfg(test)]
 mod feed_tests;
 
-
 /// Starts both feeds of one opened ledger. The statistics feed holds the ledger weakly (it never keeps a
 /// closed ledger alive); both end when the writer is gone.
 pub fn spawn_feeds(ledger: &Arc<UsageLedger>, changes: watch::Receiver<u64>, push: &UsagePush) {
@@ -191,7 +190,14 @@ pub fn spawn_feeds(ledger: &Arc<UsageLedger>, changes: watch::Receiver<u64>, pus
 /// Publishes `source`'s answer under `key`: once at startup (a client that subscribes later is handed the entry
 /// the section holds, so the first value never waits for a ledger change), again whenever `changes` says the figures
 /// moved, and when `bindings` says the source became readable; until the writer or the source is gone.
-pub fn spawn<S: SectionSource>(source: Weak<S>, key: &'static str, interval: Duration, changes: watch::Receiver<u64>, bindings: Option<watch::Receiver<u64>>, push: UsagePush) {
+pub fn spawn<S: SectionSource>(
+    source: Weak<S>,
+    key: &'static str,
+    interval: Duration,
+    changes: watch::Receiver<u64>,
+    bindings: Option<watch::Receiver<u64>>,
+    push: UsagePush,
+) {
     tokio::spawn(run(source, key, changes, bindings, push, interval));
 }
 /// A read is due from the start, once the source can be read. Node cleared its dirty state when a re-read started and

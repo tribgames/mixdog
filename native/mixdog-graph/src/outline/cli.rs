@@ -8,14 +8,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_core::AstGrep;
+use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_outline::extractor::SerializableOutlineRule;
 use ast_grep_outline::model::SymbolType;
 use serde::Serialize;
 
-use super::extractors::{extractors_for, LangExtractors, WalkedItem};
-use super::rules::{parse_rule_stream, rule_errors, DeclaredKind, RULES};
+use super::extractors::{LangExtractors, WalkedItem, extractors_for};
+use super::rules::{DeclaredKind, RULES, parse_rule_stream, rule_errors};
 use super::symbols::map_items;
 use crate::scan::{PositionJson, RangeJson};
 use crate::scan_lang::ScanLang;
@@ -159,75 +159,37 @@ fn load_extra_rules(
 
 /// One file's outline: its JSON items, the call sites the same walk produced,
 /// and the read or parse failure that leaves both empty.
-fn outline_file(
-    path: &Path,
-    lang: ScanLang,
-    graph_lang: &str,
-    extractors: &LangExtractors,
-) -> (Vec<OutlineItem>, Vec<crate::calls::CallInfo>, Option<String>) {
+fn outline_file(path: &Path, lang: ScanLang, graph_lang: &str, extractors: &LangExtractors) -> (Vec<OutlineItem>, Vec<crate::calls::CallInfo>, Option<String>) {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
-        Err(error) => {
-            return (
-                Vec::new(),
-                Vec::new(),
-                Some(format!("read failed: {error}")),
-            )
-        }
+        Err(error) => return (Vec::new(), Vec::new(), Some(format!("read failed: {error}"))),
     };
     let ast = match AstGrep::<StrDoc<ScanLang>>::try_new(&text, lang) {
         Ok(ast) => ast,
-        Err(error) => {
-            return (
-                Vec::new(),
-                Vec::new(),
-                Some(format!("parse failed: {error}")),
-            )
-        }
+        Err(error) => return (Vec::new(), Vec::new(), Some(format!("parse failed: {error}"))),
     };
     let walked = extractors.extract(ast.root(), &text);
     let json = outline_json(&walked.items);
-    let calls = map_items(walked, &text, graph_lang)
-        .calls
-        .unwrap_or_default();
+    let calls = map_items(walked, &text, graph_lang).calls.unwrap_or_default();
     (json, calls, None)
 }
 
 /// The summary line every `--outline` run ends with, and the flush that makes
 /// the whole dump readable by the caller.
-fn write_summary(
-    handle: &mut impl std::io::Write,
-    file_count: usize,
-    item_count: usize,
-    errors: Vec<String>,
-) -> Result<(), crate::scan::ScanError> {
+fn write_summary(handle: &mut impl std::io::Write, file_count: usize, item_count: usize, errors: Vec<String>) -> Result<(), crate::scan::ScanError> {
     use crate::scan::ScanError;
 
-    let summary = OutlineSummaryLine {
-        summary: OutlineSummaryBody {
-            files: file_count,
-            items: item_count,
-            errors,
-        },
-    };
-    let line = serde_json::to_string(&summary)
-        .map_err(|error| ScanError::Internal(format!("serialize failed: {error}")))?;
-    writeln!(handle, "{line}")
-        .map_err(|error| ScanError::Internal(format!("stdout write failed: {error}")))?;
-    handle
-        .flush()
-        .map_err(|error| ScanError::Internal(format!("stdout flush failed: {error}")))
+    let summary = OutlineSummaryLine { summary: OutlineSummaryBody { files: file_count, items: item_count, errors } };
+    let line = serde_json::to_string(&summary).map_err(|error| ScanError::Internal(format!("serialize failed: {error}")))?;
+    writeln!(handle, "{line}").map_err(|error| ScanError::Internal(format!("stdout write failed: {error}")))?;
+    handle.flush().map_err(|error| ScanError::Internal(format!("stdout flush failed: {error}")))
 }
 
 /// The outline of `rels` (project-relative paths; all scannable files under `root` when empty).
 /// `rules` is an optional extra rule file (a path or `-`) compiled for this call only, ahead of
 /// the bundle. Never writes files. This is what `--outline` prints, as records: the CLI
 /// serialises exactly this report.
-pub fn outline_files(
-    root: &Path,
-    rels: &[String],
-    rules: Option<&str>,
-) -> Result<OutlineReport, crate::scan::ScanError> {
+pub fn outline_files(root: &Path, rels: &[String], rules: Option<&str>) -> Result<OutlineReport, crate::scan::ScanError> {
     use crate::scan::ScanError;
 
     let mut errors: Vec<String> = rule_errors().to_vec();
@@ -254,11 +216,8 @@ pub fn outline_files(
         let extractors = match per_lang.get(&file.lang) {
             Some(found) => Arc::clone(found),
             None => {
-                let compiled = if combined.is_empty() {
-                    extractors_for(file.lang)
-                } else {
-                    Arc::new(LangExtractors::compile(file.lang, &combined, &extra_kinds))
-                };
+                let compiled =
+                    if combined.is_empty() { extractors_for(file.lang) } else { Arc::new(LangExtractors::compile(file.lang, &combined, &extra_kinds)) };
                 // Rules that parsed but cannot run are the rule author's
                 // problem: report them once per language.
                 errors.extend(compiled.errors.iter().cloned());
@@ -269,30 +228,15 @@ pub fn outline_files(
         if extractors.is_empty() {
             continue;
         }
-        let graph_lang = file
-            .path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .and_then(crate::scan_lang::graph_lang_for_ext)
-            .unwrap_or_default();
+        let graph_lang = file.path.extension().and_then(|ext| ext.to_str()).and_then(crate::scan_lang::graph_lang_for_ext).unwrap_or_default();
         let (items, calls, error) = outline_file(&file.path, file.lang, graph_lang, &extractors);
         if let Some(error) = &error {
             errors.push(format!("{}: {error}", file.rel));
         }
         item_count += items.len();
-        records.push(FileOutline {
-            file: file.rel.clone(),
-            lang: file.lang.id(),
-            items,
-            calls,
-            error,
-        });
+        records.push(FileOutline { file: file.rel.clone(), lang: file.lang.id(), items, calls, error });
     }
-    Ok(OutlineReport {
-        files: records,
-        item_count,
-        errors,
-    })
+    Ok(OutlineReport { files: records, item_count, errors })
 }
 
 /// `--outline` entry point: dump the raw outline items per file so rule
@@ -308,17 +252,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
     let mut handle = std::io::BufWriter::new(stdout.lock());
     let file_count = report.files.len();
     for file in report.files {
-        let record = FileJson {
-            file: file.file,
-            lang: file.lang,
-            items: file.items,
-            calls: file.calls.iter().map(Into::into).collect(),
-            error: file.error,
-        };
-        let line = serde_json::to_string(&record)
-            .map_err(|error| ScanError::Internal(format!("serialize failed: {error}")))?;
-        writeln!(handle, "{line}")
-            .map_err(|error| ScanError::Internal(format!("stdout write failed: {error}")))?;
+        let record = FileJson { file: file.file, lang: file.lang, items: file.items, calls: file.calls.iter().map(Into::into).collect(), error: file.error };
+        let line = serde_json::to_string(&record).map_err(|error| ScanError::Internal(format!("serialize failed: {error}")))?;
+        writeln!(handle, "{line}").map_err(|error| ScanError::Internal(format!("stdout write failed: {error}")))?;
     }
     write_summary(&mut handle, file_count, report.item_count, report.errors)
 }
@@ -327,14 +263,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), crate::scan::ScanError> {
 /// its rule matched — so one renderer serves both.
 fn range_json(range: &ast_grep_outline::model::SourceRange) -> RangeJson {
     RangeJson {
-        start: PositionJson {
-            line: range.start.line,
-            column: range.start.column,
-        },
-        end: PositionJson {
-            line: range.end.line,
-            column: range.end.column,
-        },
+        start: PositionJson { line: range.start.line, column: range.start.column },
+        end: PositionJson { line: range.end.line, column: range.end.column },
         byte_offset: [range.byte_offset.start, range.byte_offset.end],
     }
 }
@@ -344,8 +274,7 @@ fn outline_json(items: &[WalkedItem<'_>]) -> Vec<OutlineItem> {
         .iter()
         .map(|walked| {
             let item = &walked.item;
-            let mut members: Vec<&ast_grep_outline::model::OutlineMember<'_>> =
-                item.members.iter().collect();
+            let mut members: Vec<&ast_grep_outline::model::OutlineMember<'_>> = item.members.iter().collect();
             members.sort_by_key(|member| member.entry.range.byte_offset.start);
             OutlineItem {
                 symbol_type: item.entry.symbol_type,

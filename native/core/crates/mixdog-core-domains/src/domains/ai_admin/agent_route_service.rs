@@ -151,9 +151,7 @@ impl AgentRouteSetter {
         }
         let explicit_fallbacks = requested.contains_key("fallbacks");
         let mut head = requested.clone();
-        if !explicit_fallbacks
-            && let Some(f) = stored.get("fallbacks")
-        {
+        if !explicit_fallbacks && let Some(f) = stored.get("fallbacks") {
             head.insert("fallbacks".into(), f.clone());
         }
         let chain = route_chain(&Value::Object(head))?;
@@ -178,9 +176,7 @@ impl AgentRouteSetter {
         let mut rest = resolved.into_iter();
         let mut with_fallbacks = rest.next().map(object).unwrap_or_default();
         with_fallbacks.insert("fallbacks".into(), Value::Array(rest.collect()));
-        let route_to_save = normalized(&Value::Object(with_fallbacks))?
-            .map(object)
-            .ok_or_else(|| "agent route requires provider and model".to_owned())?;
+        let route_to_save = normalized(&Value::Object(with_fallbacks))?.map(object).ok_or_else(|| "agent route requires provider and model".to_owned())?;
         if only_if_empty && self.routes.home(&id).await.map_err(text)? == RouteHome::Config {
             self.config.reload_full_config().await.map_err(text)?;
         }

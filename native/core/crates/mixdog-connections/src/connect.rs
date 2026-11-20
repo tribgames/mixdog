@@ -8,23 +8,23 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{
-    SshConfigSummary, SshConnectRequest, SshConnectResult, SshFailure, SshFailureKind, SshHopStatus, SshHost, SshHostKeyCheck,
-    SshInspection, SshMissing, SshPhase, SshProgress,
+    SshConfigSummary, SshConnectRequest, SshConnectResult, SshFailure, SshFailureKind, SshHopStatus, SshHost, SshHostKeyCheck, SshInspection, SshMissing,
+    SshPhase, SshProgress,
 };
 use mixdog_core_api::ids::ConnectionId;
-use mixdog_ssh::command::{parse_ssh_target, SshError, SshTarget};
+use mixdog_ssh::command::{SshError, SshTarget, parse_ssh_target};
 use mixdog_ssh::connect_failure::failure_of;
 use mixdog_ssh::context::{AttemptContext, HostSettings, ModelLogin, Platform, SshEnv};
-use mixdog_ssh::diagnostics::{diagnostics_key_for, DiagnosticKind, Diagnostics};
-use mixdog_ssh::host_key::{inspect_host_key, pin_host_key, replace_host_key, HostKeyInspection};
+use mixdog_ssh::diagnostics::{DiagnosticKind, Diagnostics, diagnostics_key_for};
+use mixdog_ssh::host_key::{HostKeyInspection, inspect_host_key, pin_host_key, replace_host_key};
 use mixdog_ssh::resolved_config::ResolvedConfigs;
 use mixdog_ssh::session::{Progress, SessionPhase};
 use serde_json::json;
 
 use crate::attempts::{Attempt, AttemptError, AttemptState, Attempts};
-use crate::host_store::{parse_host_settings, SshHostRecord, SshHostSettings, SshHostStore, DEFAULT_GRACE_MINUTES};
+use crate::host_store::{DEFAULT_GRACE_MINUTES, SshHostRecord, SshHostSettings, SshHostStore, parse_host_settings};
 use crate::link::{LinkOpen, LinkSpec};
-use crate::login::{with_login_retry, LoginHelpers};
+use crate::login::{LoginHelpers, with_login_retry};
 
 /// The id of the window `connections/ssh/openEphemeral` opens: a development window that is never saved.
 pub const EPHEMERAL_ID: &str = "ssh-env-target";
@@ -160,9 +160,7 @@ fn status_name(check: &SshHostKeyCheck) -> &'static str {
 
 /// Refuses an attempt that already ran, and one whose port forwards the user has not accepted.
 fn assert_can_connect(state: AttemptState, summary: Option<&SshConfigSummary>, request: &SshConnectRequest) -> Result<(), AttemptError> {
-    if matches!(state, AttemptState::Connecting | AttemptState::Committed)
-        || (state == AttemptState::Restartable && request.force_restart != Some(true))
-    {
+    if matches!(state, AttemptState::Connecting | AttemptState::Committed) || (state == AttemptState::Restartable && request.force_restart != Some(true)) {
         return Err(AttemptError::new("This connection attempt already ran. Check the address again."));
     }
     // Only when Mixdog could not build a config without the user's forwards: they apply, so the user must have accepted them.
@@ -226,13 +224,7 @@ pub(crate) fn host_settings(settings: &SshHostSettings) -> HostSettings {
 fn context_for(record: &SshHostRecord, target: &SshTarget, force_restart: bool) -> AttemptContext {
     let mut settings = record.settings.as_ref().map(host_settings).unwrap_or_default();
     settings.grace_minutes = Some(settings.grace_minutes.unwrap_or(DEFAULT_GRACE_MINUTES));
-    AttemptContext {
-        settings: Some(settings),
-        force_restart,
-        diagnostics_key: Some(diagnostics_key_for(target)),
-        askpass: None,
-        reviewed: None,
-    }
+    AttemptContext { settings: Some(settings), force_restart, diagnostics_key: Some(diagnostics_key_for(target)), askpass: None, reviewed: None }
 }
 
 fn parse_target(raw: &str) -> Result<SshTarget, AttemptError> {
@@ -265,15 +257,7 @@ fn failed(kind: SshFailureKind, code: &str) -> SshConnectResult {
 
 impl Connect {
     pub fn new(deps: ConnectDeps) -> Self {
-        Self {
-            attempts: deps.attempts,
-            machine: deps.machine,
-            login: deps.login,
-            hosts: deps.hosts,
-            windows: deps.windows,
-            view: deps.view,
-            clock: deps.clock,
-        }
+        Self { attempts: deps.attempts, machine: deps.machine, login: deps.login, hosts: deps.hosts, windows: deps.windows, view: deps.view, clock: deps.clock }
     }
 
     pub fn attempts(&self) -> &Arc<Attempts> {
@@ -294,11 +278,7 @@ impl Connect {
             (self.clock)(),
         );
         let attempt = self.attempts.register(admission, inspection)?;
-        Ok(SshInspection {
-            attempt_id: attempt.id().to_owned(),
-            check: attempt.inspection().check.clone(),
-            summary: attempt.inspection().summary.clone(),
-        })
+        Ok(SshInspection { attempt_id: attempt.id().to_owned(), check: attempt.inspection().check.clone(), summary: attempt.inspection().summary.clone() })
     }
 
     /// Cancels the caller's own attempt.
@@ -479,7 +459,10 @@ impl Connect {
         context: AttemptContext,
     ) -> Result<LinkOpen, SshFailure> {
         let spec = LinkSpec { id: record.id.clone(), name: record.name.clone(), target: target.clone() };
-        self.attempts.links().open(spec, context, progress, attempt.map(|attempt| &attempt.cancel_signal)).await
+        self.attempts
+            .links()
+            .open(spec, context, progress, attempt.map(|attempt| &attempt.cancel_signal))
+            .await
             .map_err(|error| failure_of(&error, target, self.machine.platform()).into_failure())
     }
 
@@ -544,7 +527,8 @@ impl Connect {
     pub async fn open_ephemeral(&self, raw_target: &str, name: &str) -> Result<SshConnectResult, AttemptError> {
         let target = parse_target(raw_target)?;
         let remote_cwd = self.machine.var(REMOTE_CWD_VAR).map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
-        let record = SshHostRecord { id: EPHEMERAL_ID.to_owned(), name: name.to_owned(), target: target.display.clone(), last_connected_at: None, settings: None };
+        let record =
+            SshHostRecord { id: EPHEMERAL_ID.to_owned(), name: name.to_owned(), target: target.display.clone(), last_connected_at: None, settings: None };
         let context = AttemptContext {
             settings: remote_cwd.map(|remote_cwd| HostSettings { remote_cwd: Some(remote_cwd), ..HostSettings::default() }),
             diagnostics_key: Some(diagnostics_key_for(&target)),

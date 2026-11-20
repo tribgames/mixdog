@@ -111,10 +111,7 @@ pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
     // `featureDeniedTools` is not written here: only the first turn's gate staging sets it (`stageToolAvailability`), so a
     // call to a switched-off tool before then is refused as unavailable in the session, as Node's exec recording shows.
     // `sourceType`: a headless run is an exec run, kept out of the resumable list.
-    header.insert(
-        "sourceType".into(),
-        json!(if profile == ToolProfile::Headless { "exec" } else { "lead" }),
-    );
+    header.insert("sourceType".into(), json!(if profile == ToolProfile::Headless { "exec" } else { "lead" }));
     if options.approval_mode == Some(ApprovalMode::Implicit) {
         header.insert("approvalMode".into(), json!("implicit"));
     }
@@ -235,16 +232,9 @@ mod tests {
         assert!(memory_off(&header));
         let surface = SessionSurface::from_header(&header, Vec::new());
         assert_eq!(refusal(&surface, "read"), None);
-        assert_eq!(
-            refusal(&surface, "browser").as_deref(),
-            Some("Error: tool \"browser\" is not available on this session's schema allowlist.")
-        );
-        assert_eq!(
-            refusal(&surface, "web_search").as_deref(),
-            Some("Error: tool \"web_search\" is not available in this session.")
-        );
+        assert_eq!(refusal(&surface, "browser").as_deref(), Some("Error: tool \"browser\" is not available on this session's schema allowlist."));
+        assert_eq!(refusal(&surface, "web_search").as_deref(), Some("Error: tool \"web_search\" is not available in this session."));
     }
-
 
     #[test]
     fn a_lead_record_keeps_the_schema_allowlist_a_profile_wrote() {
@@ -258,8 +248,7 @@ mod tests {
     #[test]
     fn delegation_and_goal_tools_are_denied_and_readonly_comes_from_the_tool_mode() {
         let mut header = Header::new();
-        let options: ThreadSessionOptions =
-            serde_json::from_value(json!({ "toolMode": "readonly", "disallowDelegation": true })).expect("options");
+        let options: ThreadSessionOptions = serde_json::from_value(json!({ "toolMode": "readonly", "disallowDelegation": true })).expect("options");
         write_header(&options, &mut header);
         assert_eq!(header["toolSpec"], json!(["tools:readonly"]));
         assert_eq!(header["sourceType"], "lead");
@@ -267,12 +256,7 @@ mod tests {
         let surface = SessionSurface::from_header(&header, Vec::new());
         assert!(surface.readonly);
         for tool in ["agent", "create_goal"] {
-            assert_eq!(
-                refusal(&surface, tool),
-                Some(format!("Error: tool \"{tool}\" is not available in this session."))
-            );
+            assert_eq!(refusal(&surface, tool), Some(format!("Error: tool \"{tool}\" is not available in this session.")));
         }
     }
-
-
 }

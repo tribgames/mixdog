@@ -243,7 +243,6 @@ mod tests {
         assert!(server.received_requests().await.unwrap().is_empty());
     }
 
-
     #[test]
     fn an_address_that_is_not_public_is_refused_in_every_spelling_of_it() {
         let blocked = |url: &str, shown: &str| {
@@ -251,19 +250,40 @@ mod tests {
             assert_eq!((said(&got).as_str(), got.code()), (format!("Blocked request to private address: {shown}").as_str(), None), "{url}");
         };
         for (url, shown) in [
-            ("http://localhost/", "localhost"), ("http://LOCALHOST:8080/x", "localhost"), ("https://localhost:3000", "localhost"),
-            ("http://127.0.0.1/", "127.0.0.1"), ("http://127.255.255.254/", "127.255.255.254"), ("http://10.0.0.1/", "10.0.0.1"),
-            ("http://0.0.0.0/", "0.0.0.0"), ("http://172.16.0.1/", "172.16.0.1"), ("http://172.31.255.255/", "172.31.255.255"),
-            ("http://192.168.0.1/", "192.168.0.1"), ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
-            ("http://100.64.0.1/", "100.64.0.1"), ("http://100.127.255.255/", "100.127.255.255"), ("http://198.18.0.1/", "198.18.0.1"),
-            ("http://192.0.2.1/", "192.0.2.1"), ("http://198.51.100.1/", "198.51.100.1"), ("http://203.0.113.1/", "203.0.113.1"),
-            ("http://224.0.0.1/", "224.0.0.1"), ("http://240.0.0.1/", "240.0.0.1"), ("http://255.255.255.255/", "255.255.255.255"),
+            ("http://localhost/", "localhost"),
+            ("http://LOCALHOST:8080/x", "localhost"),
+            ("https://localhost:3000", "localhost"),
+            ("http://127.0.0.1/", "127.0.0.1"),
+            ("http://127.255.255.254/", "127.255.255.254"),
+            ("http://10.0.0.1/", "10.0.0.1"),
+            ("http://0.0.0.0/", "0.0.0.0"),
+            ("http://172.16.0.1/", "172.16.0.1"),
+            ("http://172.31.255.255/", "172.31.255.255"),
+            ("http://192.168.0.1/", "192.168.0.1"),
+            ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
+            ("http://100.64.0.1/", "100.64.0.1"),
+            ("http://100.127.255.255/", "100.127.255.255"),
+            ("http://198.18.0.1/", "198.18.0.1"),
+            ("http://192.0.2.1/", "192.0.2.1"),
+            ("http://198.51.100.1/", "198.51.100.1"),
+            ("http://203.0.113.1/", "203.0.113.1"),
+            ("http://224.0.0.1/", "224.0.0.1"),
+            ("http://240.0.0.1/", "240.0.0.1"),
+            ("http://255.255.255.255/", "255.255.255.255"),
             // The same loopback and private addresses spelled as one number, in hex, in octal or short.
-            ("http://2130706433/", "127.0.0.1"), ("http://0x7f.0.0.1/", "127.0.0.1"), ("http://0x7f000001/", "127.0.0.1"),
-            ("http://127.1/", "127.0.0.1"), ("http://017700000001/", "127.0.0.1"), ("http://0177.0.0.1/", "127.0.0.1"),
+            ("http://2130706433/", "127.0.0.1"),
+            ("http://0x7f.0.0.1/", "127.0.0.1"),
+            ("http://0x7f000001/", "127.0.0.1"),
+            ("http://127.1/", "127.0.0.1"),
+            ("http://017700000001/", "127.0.0.1"),
+            ("http://0177.0.0.1/", "127.0.0.1"),
             ("http://3232235521/", "192.168.0.1"),
-            ("http://[::1]/", "[::1]"), ("http://[::]/", "[::]"), ("http://[0:0:0:0:0:0:0:1]/", "[::1]"),
-            ("http://[fe80::1]/", "[fe80::1]"), ("http://[febf::1]/", "[febf::1]"), ("http://[fec0::1]/", "[fec0::1]"),
+            ("http://[::1]/", "[::1]"),
+            ("http://[::]/", "[::]"),
+            ("http://[0:0:0:0:0:0:0:1]/", "[::1]"),
+            ("http://[fe80::1]/", "[fe80::1]"),
+            ("http://[febf::1]/", "[febf::1]"),
+            ("http://[fec0::1]/", "[fec0::1]"),
         ] {
             blocked(url, shown);
         }
@@ -272,11 +292,30 @@ mod tests {
     #[test]
     fn a_public_address_or_name_is_allowed_including_the_neighbours_of_every_blocked_range() {
         for url in [
-            "https://example.com/a.png", "http://example.com:8080/x?y=1#z", "https://EXAMPLE.com/", "http://8.8.8.8/", "https://1.1.1.1/dns-query",
-            "http://[2606:4700:4700::1111]/", "http://[2001:4860:4860::8888]:443/", "http://foo.localhost/", "http://notlocalhost/",
-            "http://172.15.255.255/", "http://172.32.0.1/", "http://192.167.0.1/", "http://169.253.0.1/", "http://100.63.255.255/",
-            "http://100.128.0.1/", "http://198.17.255.255/", "http://198.20.0.1/", "http://203.0.114.1/", "http://223.255.255.255/",
-            "http://134744072/", "http://[fe7f::1]/", "http://[fb00::1]/", "http://[2606:4700::1111]/", "http://[::ffff:8.8.8.8]/",
+            "https://example.com/a.png",
+            "http://example.com:8080/x?y=1#z",
+            "https://EXAMPLE.com/",
+            "http://8.8.8.8/",
+            "https://1.1.1.1/dns-query",
+            "http://[2606:4700:4700::1111]/",
+            "http://[2001:4860:4860::8888]:443/",
+            "http://foo.localhost/",
+            "http://notlocalhost/",
+            "http://172.15.255.255/",
+            "http://172.32.0.1/",
+            "http://192.167.0.1/",
+            "http://169.253.0.1/",
+            "http://100.63.255.255/",
+            "http://100.128.0.1/",
+            "http://198.17.255.255/",
+            "http://198.20.0.1/",
+            "http://203.0.114.1/",
+            "http://223.255.255.255/",
+            "http://134744072/",
+            "http://[fe7f::1]/",
+            "http://[fb00::1]/",
+            "http://[2606:4700::1111]/",
+            "http://[::ffff:8.8.8.8]/",
         ] {
             let got = guard_url(AddressPolicy::PublicOnly, url);
             assert!(got.is_ok(), "{url}: {got:?}");
@@ -285,11 +324,22 @@ mod tests {
 
     #[test]
     fn a_url_that_is_not_http_or_carries_credentials_is_refused_before_any_address_is_considered() {
-        for (url, scheme) in [("ftp://example.com/file", "ftp:"), ("file:///etc/passwd", "file:"), ("data:text/plain,hello", "data:"), ("javascript:alert(1)", "javascript:"), ("ws://example.com/", "ws:")] {
+        for (url, scheme) in [
+            ("ftp://example.com/file", "ftp:"),
+            ("file:///etc/passwd", "file:"),
+            ("data:text/plain,hello", "data:"),
+            ("javascript:alert(1)", "javascript:"),
+            ("ws://example.com/", "ws:"),
+        ] {
             let got = guard_url(AddressPolicy::PublicOnly, url).expect_err(url);
             assert_eq!(said(&got), format!("Blocked non-HTTP protocol: {scheme}"), "{url}");
         }
-        for (url, host) in [("http://user:pass@example.com/", "example.com"), ("https://user@example.com/", "example.com"), ("http://:pw@example.com/", "example.com"), ("http://user@localhost/", "localhost")] {
+        for (url, host) in [
+            ("http://user:pass@example.com/", "example.com"),
+            ("https://user@example.com/", "example.com"),
+            ("http://:pw@example.com/", "example.com"),
+            ("http://user@localhost/", "localhost"),
+        ] {
             let got = guard_url(AddressPolicy::PublicOnly, url).expect_err(url);
             assert_eq!(said(&got), format!("Blocked URL with userinfo credentials: {host}"), "{url}");
         }
@@ -302,8 +352,13 @@ mod tests {
             assert_eq!(AddressPolicy::PublicOnly.validate_resolved("media.example.com", &ips(list)).unwrap().len(), list.len());
         }
         for (list, shown) in [
-            (&["8.8.8.8", "10.0.0.5"][..], "10.0.0.5"), (&["10.0.0.5", "8.8.8.8"], "10.0.0.5"), (&["127.0.0.1"], "127.0.0.1"),
-            (&["169.254.169.254"], "169.254.169.254"), (&["100.64.0.1"], "100.64.0.1"), (&["0.0.0.0"], "0.0.0.0"), (&["8.8.8.8", "::1"], "::1"),
+            (&["8.8.8.8", "10.0.0.5"][..], "10.0.0.5"),
+            (&["10.0.0.5", "8.8.8.8"], "10.0.0.5"),
+            (&["127.0.0.1"], "127.0.0.1"),
+            (&["169.254.169.254"], "169.254.169.254"),
+            (&["100.64.0.1"], "100.64.0.1"),
+            (&["0.0.0.0"], "0.0.0.0"),
+            (&["8.8.8.8", "::1"], "::1"),
         ] {
             let error = AddressPolicy::PublicOnly.validate_resolved("rebind.example.com", &ips(list)).unwrap_err();
             assert_eq!(error.message, format!("Blocked request to private address: {shown}"), "{list:?}");

@@ -173,9 +173,7 @@ async fn bootstrap(db: &Db) -> Result<()> {
             .await;
             if let Err(error) = waited {
                 let _ = client.rollback().await;
-                return Err(MemoryError::Runtime(format!(
-                    "trace-store bootstrap advisory lock timed out (30s): {error}"
-                )));
+                return Err(MemoryError::Runtime(format!("trace-store bootstrap advisory lock timed out (30s): {error}")));
             }
         }
         let steps = async {
@@ -279,11 +277,8 @@ async fn insert_trace_events(db: &Db, events: &[Event], now_ms: i64) -> Result<u
     if events.is_empty() {
         return Ok(0);
     }
-    let cells: Vec<TraceEventCells> = events
-        .iter()
-        .map(|ev| TraceEventRow::from_event(ev, now_ms).and_then(|row| row.cells()))
-        .collect::<std::result::Result<_, _>>()
-        .map_err(row_error)?;
+    let cells: Vec<TraceEventCells> =
+        events.iter().map(|ev| TraceEventRow::from_event(ev, now_ms).and_then(|row| row.cells())).collect::<std::result::Result<_, _>>().map_err(row_error)?;
     let mut params: Vec<Box<dyn ToSql + Sync + Send + '_>> = Vec::with_capacity(cells.len() * 20);
     for c in &cells {
         params.push(Box::new(c.ts));
@@ -552,12 +547,7 @@ pub enum RecordReply {
 impl TraceStore {
     /// `openTraceDatabase`: `None` when tracing is off (any leftover `trace` schema is dropped).
     /// `now_ms` is the owner's clock; the retention pass repeats every 12 hours from here.
-    pub async fn open(
-        db: Arc<Db>,
-        enabled: bool,
-        retention_days: i64,
-        now_ms: i64,
-    ) -> Result<Option<Self>> {
+    pub async fn open(db: Arc<Db>, enabled: bool, retention_days: i64, now_ms: i64) -> Result<Option<Self>> {
         if !enabled {
             if drop_when_disabled(&db).await? {
                 mixdog_rt::memory_stderr!("[trace-store] disabled; removed existing trace diagnostics");
@@ -718,12 +708,8 @@ fn spawn_flush(inner: Arc<Inner>, now_ms: i64, delayed: bool) {
 /// The statements Node's bootstrap sends, in its order, for the first-boot
 /// path (`isBootstrapComplete` false, no legacy table).
 pub fn first_boot_statements() -> Vec<String> {
-    let mut out = vec![
-        sql::SET_SEARCH_PATH.to_string(),
-        sql::TRY_LOCK.to_string(),
-        sql::IS_BOOTSTRAP_COMPLETE.to_string(),
-        sql::LEGACY_TABLE_LOOKUP.to_string(),
-    ];
+    let mut out =
+        vec![sql::SET_SEARCH_PATH.to_string(), sql::TRY_LOCK.to_string(), sql::IS_BOOTSTRAP_COMPLETE.to_string(), sql::LEGACY_TABLE_LOOKUP.to_string()];
     out.extend(sql::INIT_TABLES.iter().map(|s| (*s).to_string()));
     out.extend(sql::DRIFT.iter().map(|s| (*s).to_string()));
     out.extend(sql::INIT_INDEXES.iter().map(|s| (*s).to_string()));

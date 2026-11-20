@@ -26,12 +26,7 @@ fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str)
             .map(|entry| entry.path())
             .filter(|path| {
                 path.is_file()
-                    && path
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| {
-                            ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml")
-                        })
+                    && path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml"))
             })
             .collect(),
         // No directory yet (or unreadable): bundle nothing.
@@ -45,10 +40,7 @@ fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str)
     for path in &sources {
         println!("cargo:rerun-if-changed={}", path.display());
         let Ok(text) = std::fs::read_to_string(path) else {
-            println!(
-                "cargo:warning=mixdog-graph {kind} rules skipped (unreadable): {}",
-                path.display()
-            );
+            println!("cargo:warning=mixdog-graph {kind} rules skipped (unreadable): {}", path.display());
             continue;
         };
         // A UTF-8 BOM would end up inside the first YAML key.

@@ -188,12 +188,6 @@ fn follow_computer_control(config: Config, pool: Arc<ComputerSessionPool>, cance
     });
 }
 
-
-
-
-
-
-
 /// Builds the pool over the resolved helper (or the desktop host), binds the desktop channel to it, tells `presence` whether the helper resolved, and starts the follower of
 /// `desktop.computerControl` that installs and enables Mixy's GNOME shell extension.
 pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
@@ -217,7 +211,6 @@ pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
         dev,
     }
 }
-
 
 /// GNOME window control comes from Mixdog's own shell extension: it is kept installed and enabled exactly while Computer Use is on
 /// (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
@@ -284,7 +277,12 @@ mod tests {
 
     #[async_trait]
     impl HostChannel for Desk {
-        async fn request(&self, _: HostCapability, _: mixdog_core_api::ids::Method, _: serde_json::Value) -> Result<serde_json::Value, mixdog_core_api::HostError> {
+        async fn request(
+            &self,
+            _: HostCapability,
+            _: mixdog_core_api::ids::Method,
+            _: serde_json::Value,
+        ) -> Result<serde_json::Value, mixdog_core_api::HostError> {
             Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::Cancelled { by: "test".into() }))
         }
 
@@ -326,13 +324,9 @@ mod tests {
         bridges.present("computer") && bridges.registered("computer")
     }
 
-
-
-
     fn store_in(dir: &std::path::Path) -> (BlobStore, LaneTokens) {
         (BlobStore::new(dir), mixdog_rt::testing::tokens())
     }
-
 
     /// The desktop host's reply names a stored image by digest: the bytes come back as stored.
     #[tokio::test]
@@ -341,14 +335,14 @@ mod tests {
         let (store, tokens) = store_in(dir.path());
         let bytes = b"\x89PNG not really".to_vec();
         let (put_store, put_bytes) = (store.clone(), bytes.clone());
-        let digest = on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| put_store.put(lane, &put_bytes).map(|digest| digest.as_str().to_owned()))
-            .await
-            .unwrap()
-            .unwrap();
+        let digest =
+            on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| put_store.put(lane, &put_bytes).map(|digest| digest.as_str().to_owned()))
+                .await
+                .unwrap()
+                .unwrap();
         let blobs = CoreComputerBlobs::new(store, tokens.interactive_io);
         assert_eq!(blobs.read(&digest).await.unwrap(), bytes);
     }
-
 
     /// A digest the store does not hold, and text that is no digest, are the helper's `blob_missing`.
     #[tokio::test]
@@ -363,7 +357,6 @@ mod tests {
         }
     }
 
-
     /// The rig of a core as it stood at start: a pool made with whatever the machine had, the gate over the live claim registry.
     async fn core(
         helper_file: &Arc<AtomicBool>,
@@ -373,13 +366,22 @@ mod tests {
     ) -> (Arc<ComputerSessionPool>, Arc<ComputerHostPresence>, crate::mcp_surface::ToolBridges) {
         let tokens = mixdog_rt::testing::tokens();
         let manager: Arc<dyn ProcessManager> = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-        let paths = Arc::new(NativeToolPaths::new(Arc::new(|_: &str| None::<String>), PathBuf::from("/pkg"), Arc::new(Files(helper_file.clone())), None).with_exe_dir(None));
+        let paths = Arc::new(
+            NativeToolPaths::new(Arc::new(|_: &str| None::<String>), PathBuf::from("/pkg"), Arc::new(Files(helper_file.clone())), None).with_exe_dir(None),
+        );
         let mut settings = ComputerSettings::new(std::env::temp_dir().join("mixdog-compose-computer-test"), Arc::new(|| false), tokens.interactive_io);
         if host_backend {
             settings.backend = Arc::new(|| mixdog_core_config::config::ComputerBackendChoice::DesktopHost);
             settings.host_blobs = Some(Arc::new(NoBlobs));
         }
-        let pool = paths.computer_sessions(manager, Arc::new(|_: &str, inner: Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>| inner), Arc::new(Quiet), settings).await;
+        let pool = paths
+            .computer_sessions(
+                manager,
+                Arc::new(|_: &str, inner: Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>| inner),
+                Arc::new(Quiet),
+                settings,
+            )
+            .await;
         let presence = Arc::new(ComputerHostPresence::new(desk.clone()));
         assert!(presence.pool.set(pool.clone()).is_ok(), "the pool is bound once");
         let late = Arc::new(crate::late_session::LateComputerHosts::default());
@@ -395,7 +397,6 @@ mod tests {
         };
         (pool, presence, bridges)
     }
-
 
     /// The core started from a terminal: no desktop, and (on Windows) the desktop host the chosen backend. A desktop that attaches later
     /// with the setting on makes `computer` available, and one that leaves takes it away, with no restart of the core.
@@ -416,7 +417,6 @@ mod tests {
         desk.0.store(false, Ordering::SeqCst);
         assert!(!offered(&bridges), "the desktop left");
     }
-
 
     /// A helper that is not there at start but is found when the settings next change is served from then on, and the gate's own fact
     /// of it follows; the helper going away is read the same way.

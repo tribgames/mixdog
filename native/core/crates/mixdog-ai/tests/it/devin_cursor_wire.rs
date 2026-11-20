@@ -142,7 +142,12 @@ impl HttpSend for Wire {
 }
 #[async_trait]
 impl BidiOpen for Wire {
-    async fn open(&self, request: WireRequest, first: Vec<u8>, _exchange: mixdog_ai::transport::Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(
+        &self,
+        request: WireRequest,
+        first: Vec<u8>,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         self.sent.lock().unwrap().push((request.url.clone(), first));
         Ok((response(200, std::mem::take(&mut *self.frames.lock().unwrap())), Arc::new(Sink)))
     }
@@ -227,9 +232,16 @@ async fn devin_writes_a_gzip_connect_request_and_maps_the_response_frames() {
     let mut chat = Vec::new();
     flate2::read::GzDecoder::new(&sent[5..]).read_to_end(&mut chat).unwrap();
     let top = fields(&chat).unwrap();
-    let tools: Vec<String> = top.iter().filter(|(n, _, _)| *n == 10).map(|(_, b, _)| String::from_utf8(fields(b).unwrap().into_iter().find(|(m, _, _)| *m == 1).unwrap().1).unwrap()).collect();
+    let tools: Vec<String> = top
+        .iter()
+        .filter(|(n, _, _)| *n == 10)
+        .map(|(_, b, _)| String::from_utf8(fields(b).unwrap().into_iter().find(|(m, _, _)| *m == 1).unwrap().1).unwrap())
+        .collect();
     assert_eq!(tools, ["lookup"], "tool definitions are field 10, the name its field 1");
-    assert!(top.iter().any(|(n, b, _)| *n == 3 && fields(b).unwrap().iter().any(|(m, t, _)| *m == 3 && t == ASKED.as_bytes())), "the user's text is the prompt (field 3) of a chat message (field 3)");
+    assert!(
+        top.iter().any(|(n, b, _)| *n == 3 && fields(b).unwrap().iter().any(|(m, t, _)| *m == 3 && t == ASKED.as_bytes())),
+        "the user's text is the prompt (field 3) of a chat message (field 3)"
+    );
     assert!(top.iter().any(|(n, b, _)| *n == 21 && !b.is_empty()), "the chat model uid is field 21");
 }
 

@@ -138,14 +138,7 @@ pub trait SendFlow: Send + Sync {
 
 #[async_trait]
 pub trait SpawnFlow: Send + Sync {
-    async fn start_deferred_spawn_job(
-        &self,
-        args: &Value,
-        caller_cwd: &str,
-        caller: &Caller,
-        notify: &Caller,
-        options: SpawnOptions,
-    ) -> Result<Job, String>;
+    async fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, caller: &Caller, notify: &Caller, options: SpawnOptions) -> Result<Job, String>;
 }
 
 pub trait TerminalTrace: Send + Sync {

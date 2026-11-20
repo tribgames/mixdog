@@ -21,12 +21,12 @@ pub mod error;
 pub mod format_table;
 mod heif;
 pub mod jpeg_enc;
+pub mod os_heic;
 pub mod policy;
 pub mod resize;
 pub mod still;
 pub mod svg_limits;
 pub mod tool_jpeg;
-pub mod os_heic;
 pub mod validate;
 
 pub use cache::CacheStats;
@@ -122,9 +122,20 @@ fn render_rendition<'a>(bytes: &[u8], decoded: &'a Decoded, profile: Profile) ->
     if needs_resize || carried != decoded.format || bytes.len() as u64 > IMAGE_TARGET_RAW_SIZE {
         let resized = fit_inside_view(&decoded.raster, target.width, target.height, !target.allow_enlargement);
         let data = encode_in_format(&resized, carried)?;
-        return Ok((Rendition { data, media_type: carried.media_type().to_owned(), display: (resized.width, resized.height), branch: Branch::Rendition }, Some(resized)));
+        return Ok((
+            Rendition { data, media_type: carried.media_type().to_owned(), display: (resized.width, resized.height), branch: Branch::Rendition },
+            Some(resized),
+        ));
     }
-    Ok((Rendition { data: bytes.to_vec(), media_type: decoded.format.media_type().to_owned(), display: (decoded.width, decoded.height), branch: Branch::Original }, None))
+    Ok((
+        Rendition {
+            data: bytes.to_vec(),
+            media_type: decoded.format.media_type().to_owned(),
+            display: (decoded.width, decoded.height),
+            branch: Branch::Original,
+        },
+        None,
+    ))
 }
 
 /// The token-budget gate: recompress to JPEG q50 at the (already resized) display size, then the 400x400 JPEG q20

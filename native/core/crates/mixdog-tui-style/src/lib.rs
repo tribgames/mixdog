@@ -22,6 +22,6 @@ pub mod time_format;
 
 pub use palette::Key;
 pub use theme::{
-    Color, Palette, ThemeEntry, ThemeInfo, ThemeSelection, get_theme_setting, get_theme_version, list_themes,
-    osc_background_sequence, set_theme, terminal_background_sequence, current_palette, theme_color,
+    Color, Palette, ThemeEntry, ThemeInfo, ThemeSelection, current_palette, get_theme_setting, get_theme_version, list_themes, osc_background_sequence,
+    set_theme, terminal_background_sequence, theme_color,
 };

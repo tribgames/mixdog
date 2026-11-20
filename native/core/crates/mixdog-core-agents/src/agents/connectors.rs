@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 
 use mixdog_mcp::connectors::group_id;
 use mixdog_mcp::permissions::Permission;
-use mixdog_mcp::permissions::RawPolicy;
 use mixdog_mcp::permissions::Policy;
+use mixdog_mcp::permissions::RawPolicy;
 use mixdog_mcp::permissions::parse_connector_policy;
 use serde_json::Map;
 use serde_json::Value;

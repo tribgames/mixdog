@@ -65,11 +65,7 @@ pub(super) fn finite(value: Option<&Value>) -> Option<f64> {
 }
 
 pub(super) fn number_value(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9.0e15 {
-        Value::Number(Number::from(n as i64))
-    } else {
-        Number::from_f64(n).map_or(Value::Null, Value::Number)
-    }
+    if n.fract() == 0.0 && n.abs() < 9.0e15 { Value::Number(Number::from(n as i64)) } else { Number::from_f64(n).map_or(Value::Null, Value::Number) }
 }
 
 fn text(map: &Map<String, Value>, key: &str) -> String {
@@ -199,7 +195,14 @@ impl Devices {
 
     /// `registerClient` with the token, its digest and the time already drawn: a browser of a known device under a routing id,
     /// at most [`MAX_PAIRED_CLIENTS_PER_DEVICE`] of them, replacing the credential of the same id.
-    pub(super) fn register_client(&mut self, device_id: &str, client_id: &str, profile: &ProfileInput, token_hash: &str, now: i64) -> Change<Option<BrowserClient>> {
+    pub(super) fn register_client(
+        &mut self,
+        device_id: &str,
+        client_id: &str,
+        profile: &ProfileInput,
+        token_hash: &str,
+        now: i64,
+    ) -> Change<Option<BrowserClient>> {
         if !self.is_known(device_id) || !is_routing_id(client_id) {
             return Change::Keep(None);
         }
@@ -232,7 +235,13 @@ impl Devices {
     /// `touchClient`: the browser was seen now, and a profile field that is set replaces the stored one. In memory only: the
     /// store persists it on its debounced beat.
     pub(super) fn touch_client(&mut self, device_id: &str, client_id: &str, profile: &ProfileInput, now: i64) -> bool {
-        let Some(client) = self.row_mut(device_id).and_then(|row| row.get_mut("clients")).and_then(Value::as_object_mut).and_then(|clients| clients.get_mut(client_id)).and_then(Value::as_object_mut) else {
+        let Some(client) = self
+            .row_mut(device_id)
+            .and_then(|row| row.get_mut("clients"))
+            .and_then(Value::as_object_mut)
+            .and_then(|clients| clients.get_mut(client_id))
+            .and_then(Value::as_object_mut)
+        else {
             return false;
         };
         client.insert("lastSeenAt".to_owned(), Value::Number(Number::from(now)));
@@ -268,11 +277,8 @@ impl Devices {
 
     /// `revokeClient`.
     pub(super) fn revoke_client(&mut self, device_id: &str, client_id: &str) -> Change<bool> {
-        let removed = self
-            .row_mut(device_id)
-            .and_then(|row| row.get_mut("clients"))
-            .and_then(Value::as_object_mut)
-            .and_then(|clients| clients.shift_remove(client_id));
+        let removed =
+            self.row_mut(device_id).and_then(|row| row.get_mut("clients")).and_then(Value::as_object_mut).and_then(|clients| clients.shift_remove(client_id));
         match removed {
             Some(Value::Object(client)) => {
                 self.client_token_index.remove(&text(&client, "tokenHash"));

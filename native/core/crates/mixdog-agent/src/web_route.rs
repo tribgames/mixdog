@@ -15,8 +15,7 @@ use mixdog_protocol::JsonValue;
 use crate::env::GateCall;
 
 static JSON_ARRAY_START: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*\[", ""));
-static IMAGE_PATH: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\.(?:png|jpe?g|gif|webp)(?:$|[?#])", "i"));
+static IMAGE_PATH: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\.(?:png|jpe?g|gif|webp)(?:$|[?#])", "i"));
 
 /// A non-blank string, trimmed.
 fn trimmed(value: &JsonValue) -> Option<String> {
@@ -29,9 +28,7 @@ fn trimmed(value: &JsonValue) -> Option<String> {
 fn call_urls(args: &JsonValue) -> Vec<String> {
     match args.get("url") {
         Some(value @ JsonValue::String(_)) => trimmed(value).into_iter().collect(),
-        Some(JsonValue::Array(items)) if !items.is_empty() => {
-            items.iter().map(trimmed).collect::<Option<Vec<_>>>().unwrap_or_default()
-        }
+        Some(JsonValue::Array(items)) if !items.is_empty() => items.iter().map(trimmed).collect::<Option<Vec<_>>>().unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -51,9 +48,7 @@ fn is_loopback_http_url(value: &str) -> bool {
     }
     // `^(\d{1,3})(?:\.(\d{1,3})){3}$` with the first group 127.
     let parts: Vec<&str> = host.split('.').collect();
-    parts.len() == 4
-        && parts.iter().all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()))
-        && parts[0].parse::<u32>() == Ok(127)
+    parts.len() == 4 && parts.iter().all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit())) && parts[0].parse::<u32>() == Ok(127)
 }
 
 /// Routes a `web_fetch` call in place. A JSON-stringified array in `url` (a common provider

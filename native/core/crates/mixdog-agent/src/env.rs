@@ -9,14 +9,14 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ToolCall;
-use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::Usage;
-use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::domain::retry::RetryReason;
+use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
@@ -350,11 +350,24 @@ pub enum RunEvent {
     /// A progress update of the turn (`StreamEvent::ProgressDelta`): shown where its text is, no part of the reply's content.
     ProgressDelta(String),
     /// Mid-turn assistant text surfaced before a tool card, or a kept answer.
-    AssistantText { text: String, committed: bool },
-    ToolCalls { iteration: u32, calls: Vec<ToolCall> },
-    ToolResult { call_id: String, kind: ToolKind },
+    AssistantText {
+        text: String,
+        committed: bool,
+    },
+    ToolCalls {
+        iteration: u32,
+        calls: Vec<ToolCall>,
+    },
+    ToolResult {
+        call_id: String,
+        kind: ToolKind,
+    },
     SteerInjected(SteerInjected),
-    Usage { iteration: u32, usage: Usage, delta: UsageDelta },
+    Usage {
+        iteration: u32,
+        usage: Usage,
+        delta: UsageDelta,
+    },
     ContextPressure {
         used_tokens: u64,
         trigger_tokens: u64,
@@ -387,13 +400,25 @@ pub enum RunEvent {
     /// A boundary of an attempt's response, published when it was observed (`SendIdentity`'s attempt clock): the watchdog's
     /// progress record takes its phase from these and from nothing else. `attempt` is unique over the process, so the late event
     /// of a retired attempt never moves its successor.
-    Boundary { submission: u64, attempt: u64, boundary: mixdog_core_api::domain::provider::Boundary },
+    Boundary {
+        submission: u64,
+        attempt: u64,
+        boundary: mixdog_core_api::domain::provider::Boundary,
+    },
     /// The send loop began a unit of provider work (`submission`: a logical request, a route's first work, or one exchange with the
     /// provider, whether or not the provider goes through the driver): the run's record of the attempt it owned is no longer current.
-    SubmissionStarted { id: u64 },
+    SubmissionStarted {
+        id: u64,
+    },
     /// The summary model's usage of a compaction pass (`accumulateCompactUsage`): one usage report of the turn,
     /// at the loop's next iteration index, with the reasoning figure `reasoningUsage(usage)` reads of it.
-    CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool, input_excludes_cache: bool },
+    CompactUsage {
+        iteration: u32,
+        usage: Usage,
+        reasoning_tokens: Option<u64>,
+        reasoning_tokens_complete: bool,
+        input_excludes_cache: bool,
+    },
     /// A call that ran settled (Node's early notice, `notifyEarlyResult`: `onToolResult` with `__earlyNotify`), the
     /// instant it does and in completion order, before its result commits in call order: the UI's live row and the
     /// interruption (which keeps what the stop left uncommitted) both read it. `Error` kind only for a thrown call.
@@ -799,7 +824,12 @@ pub trait Yielder: Send + Sync {
     /// re-acquisition's reason.
     async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&crate::cancel::Cancel>) -> Result<(), String>;
 
-    async fn run_yielded_reporting(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&crate::cancel::Cancel>, _waiting: &(dyn Fn() + Send + Sync)) -> Result<(), String> {
+    async fn run_yielded_reporting(
+        &self,
+        task: futures::future::BoxFuture<'_, bool>,
+        cancel: Option<&crate::cancel::Cancel>,
+        _waiting: &(dyn Fn() + Send + Sync),
+    ) -> Result<(), String> {
         self.run_yielded(task, cancel).await
     }
 }
@@ -935,11 +965,7 @@ pub trait ToolGate: Send + Sync {
     }
 
     /// An approved ask may carry the user's edit of the call.
-    fn apply_approval(
-        &self,
-        call: &GateCall,
-        decision: &mixdog_protocol::ToolApprovalDecision,
-    ) -> GateCall {
+    fn apply_approval(&self, call: &GateCall, decision: &mixdog_protocol::ToolApprovalDecision) -> GateCall {
         let _ = decision;
         call.clone()
     }
@@ -1177,7 +1203,6 @@ pub trait GateSession: Send + Sync {
     }
 }
 
-
 /// `ApprovalGate` seen from the loop: while the person decides the run is waiting on them
 /// (`Stage::ApprovalWait`), and a "no" (or a timeout) lets the turn end waiting on them.
 struct WaitingApprovals {
@@ -1252,11 +1277,7 @@ impl PolicyGate {
             session: parts.session,
             tools: parts.tools,
             grants: parts.grants,
-            approvals: WaitingApprovals {
-                inner: parts.approvals,
-                observer: parts.observer,
-                guards: parts.guards,
-            },
+            approvals: WaitingApprovals { inner: parts.approvals, observer: parts.observer, guards: parts.guards },
             thread_id: parts.thread_id,
             cwd: parts.cwd,
             cancel: parts.cancel,
@@ -1276,15 +1297,19 @@ impl PolicyGate {
 #[async_trait]
 impl mixdog_tools::policy::pipeline::AccountResolver for PolicyGate {
     async fn resolve_account(&self, name: &str, args: &JsonValue) -> Result<Option<mixdog_tools::policy::pipeline::CallAccount>, String> {
-        self.session.account(&GateCall::new(name, args.clone())).await?.map(|account| {
-            if account.name.is_empty() || account.id.is_empty() {
-                return Err("The connector account has no stable identity.".to_owned());
-            }
-            Ok(mixdog_tools::policy::pipeline::CallAccount {
-                binding: mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id },
-                label: account.label,
+        self.session
+            .account(&GateCall::new(name, args.clone()))
+            .await?
+            .map(|account| {
+                if account.name.is_empty() || account.id.is_empty() {
+                    return Err("The connector account has no stable identity.".to_owned());
+                }
+                Ok(mixdog_tools::policy::pipeline::CallAccount {
+                    binding: mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id },
+                    label: account.label,
+                })
             })
-        }).transpose()
+            .transpose()
     }
 }
 
@@ -1297,31 +1322,31 @@ impl ToolGate for PolicyGate {
         let call_id = ToolCallId::from(call_id);
         let authorized = self
             .policy
-            .authorize_with_accounts(mixdog_tools::policy::AuthorizeRequest {
-                call_id: &call_id,
-                thread_id: &self.thread_id,
-                name: &call.name,
-                args: call.args.clone(),
-                cwd: call.cwd.as_deref().unwrap_or(&self.cwd),
-                facts: &facts,
-                surface: &surface,
-                schema_name: call.schema_name.as_deref(),
-                settings: self.session.settings(),
-                account: None,
-                session_grants: &self.grants,
-                tools: self.tools.as_ref(),
-                approvals: &self.approvals,
-                cancel: &self.cancel,
-            }, self)
+            .authorize_with_accounts(
+                mixdog_tools::policy::AuthorizeRequest {
+                    call_id: &call_id,
+                    thread_id: &self.thread_id,
+                    name: &call.name,
+                    args: call.args.clone(),
+                    cwd: call.cwd.as_deref().unwrap_or(&self.cwd),
+                    facts: &facts,
+                    surface: &surface,
+                    schema_name: call.schema_name.as_deref(),
+                    settings: self.session.settings(),
+                    account: None,
+                    session_grants: &self.grants,
+                    tools: self.tools.as_ref(),
+                    approvals: &self.approvals,
+                    cancel: &self.cancel,
+                },
+                self,
+            )
             .await;
         match authorized {
             Err(error) => GateDecision::Deny(error.message_for_model),
             Ok((authorized, connector_account)) => {
                 if authorized.allow_not_saved {
-                    self.approvals.observer.event(RunEvent::Stage(Stage::Notice {
-                        message: ALLOW_NOT_SAVED_NOTICE.to_owned(),
-                        tone: Tone::Warn,
-                    }));
+                    self.approvals.observer.event(RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.to_owned(), tone: Tone::Warn }));
                 }
                 let args = authorized.args;
                 if authorized.name == call.name && args == call.args && connector_account.is_none() {
@@ -1343,9 +1368,7 @@ impl ToolGate for PolicyGate {
     fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
         // Judged under the schema name, as `preDispatchDenyForSession` does.
         let schema = call.schema_name.as_deref().unwrap_or(&call.name);
-        self.surface_for(schema)
-            .refusal_for_call(&call.name, call.schema_name.as_deref(), &call.args)
-            .map(|error| error.message_for_model)
+        self.surface_for(schema).refusal_for_call(&call.name, call.schema_name.as_deref(), &call.args).map(|error| error.message_for_model)
     }
 
     fn deferred_call_denial(&self, call: &GateCall) -> Option<String> {
@@ -1539,9 +1562,6 @@ pub struct RunEnv {
 }
 
 /// Awaits `fut`, or returns `None` when the run's token is cancelled first.
-pub async fn or_cancelled<F: std::future::Future>(
-    cancel: &CancellationToken,
-    fut: F,
-) -> Option<F::Output> {
+pub async fn or_cancelled<F: std::future::Future>(cancel: &CancellationToken, fut: F) -> Option<F::Output> {
     mixdog_rt::Scope::new().cancel(cancel).run(fut).await.done()
 }

@@ -16,12 +16,13 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 
-use super::{GmailAppPassword, Target, Timeouts, describe};
 use super::wire::Failure;
+use super::{GmailAppPassword, Target, Timeouts, describe};
 
 pub(crate) const EMAIL: &str = "user@gmail.com";
 pub(crate) const SECRET: &str = "abcdwxyzabcdwxyz";
-const ID_LINE: &str = "ID (\"name\" \"imapflow\" \"version\" \"2.5.7\" \"vendor\" \"Postal Systems\" \"support-url\" \"https://github.com/postalsys/imapflow/issues\")";
+const ID_LINE: &str =
+    "ID (\"name\" \"imapflow\" \"version\" \"2.5.7\" \"vendor\" \"Postal Systems\" \"support-url\" \"https://github.com/postalsys/imapflow/issues\")";
 
 pub(crate) type Log = Arc<Mutex<Vec<String>>>;
 
@@ -306,7 +307,9 @@ async fn an_app_password_requirement_is_the_unavailable_sentence() {
 #[tokio::test]
 async fn smtp_535_is_rejected_and_534_is_unavailable() {
     let mut smtp = Smtp::gmail();
-    smtp.auth = "535-5.7.8 Username and Password not accepted. For more information, go to\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials abc - gsmtp".into();
+    smtp.auth =
+        "535-5.7.8 Username and Password not accepted. For more information, go to\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials abc - gsmtp"
+            .into();
     let rig = rig(Imap::gmail(), smtp, quick()).await;
     assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), texts("REJECTED"));
 
@@ -369,7 +372,6 @@ fn the_classifier_follows_the_node_order_and_clips_the_detail() {
     assert_eq!(describe(&Failure::new("", ""), "pw"), "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request.");
 }
 
-
 /// The server sees QUIT after the check has already returned.
 async fn until(log: &Log, line: &str) {
     while !lines(log).iter().any(|l| l == line) {
@@ -406,13 +408,7 @@ async fn a_server_offering_only_login_gets_auth_login() {
     until(&rig.smtp_log, "QUIT").await;
     assert_eq!(
         lines(&rig.smtp_log),
-        [
-            "EHLO test.example".to_owned(),
-            "AUTH LOGIN".to_owned(),
-            STANDARD.encode(EMAIL),
-            STANDARD.encode(SECRET),
-            "QUIT".to_owned(),
-        ]
+        ["EHLO test.example".to_owned(), "AUTH LOGIN".to_owned(), STANDARD.encode(EMAIL), STANDARD.encode(SECRET), "QUIT".to_owned(),]
     );
 }
 #[tokio::test]
@@ -451,10 +447,7 @@ async fn a_bye_greeting_and_an_idle_session_are_failed_with_nodes_details() {
     let mut imap = Imap::gmail();
     imap.greeting = "* BYE Too many connections".into();
     let rig = rig(imap, Smtp::gmail(), quick()).await;
-    assert_eq!(
-        rig.verifier.check(EMAIL, SECRET).await.unwrap_err(),
-        "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (Unexpected close)"
-    );
+    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), "GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (Unexpected close)");
 
     // Greeting, then nothing: the socket timeout fires while the session is being set up.
     let pki = pki();

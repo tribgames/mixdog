@@ -6,8 +6,7 @@ use mixdog_fsio::Unlaned;
 use mixdog_office_base::write_note::NoWriteNote;
 use mixdog_ooxml::package::load_package;
 use mixdog_ooxml::portable::{
-    CreateOptions, ValidateOptions, apply_portable_ooxml_batch, create_portable_ooxml_document, snapshot_portable_ooxml,
-    validate_portable_ooxml,
+    CreateOptions, ValidateOptions, apply_portable_ooxml_batch, create_portable_ooxml_document, snapshot_portable_ooxml, validate_portable_ooxml,
 };
 use mixdog_ooxml::text_metrics::TextMeasurer;
 use mixdog_ooxml::zipio::Package;

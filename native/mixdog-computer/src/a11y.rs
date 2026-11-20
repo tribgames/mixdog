@@ -38,13 +38,7 @@ pub enum Stale {
     Identity,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the ref checks, MSAA refs and value guards that call the defaults after `range_value` are not ported yet"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the ref checks, MSAA refs and value guards that call the defaults after `range_value` are not ported yet"))]
 pub trait Element {
     /// A key that stays equal while this is the same element.
     fn identity(&self) -> String;
@@ -73,8 +67,7 @@ pub trait Element {
     fn select(&self) -> Result<(), String>;
     /// Scrolls the element's own scroll range; `None` when it has none.
     /// Returns the positions before and after.
-    fn scroll(&self, horizontal: bool, increments: i32)
-        -> Result<Option<(String, String)>, String>;
+    fn scroll(&self, horizontal: bool, increments: i32) -> Result<Option<(String, String)>, String>;
     /// Where the element sits in its tree, for structured captures.
     fn structure(&self) -> Obj;
     fn range_value(&self) -> Option<String> {
@@ -218,11 +211,7 @@ pub struct PredicateRead {
 
 impl PredicateRead {
     pub fn new(max: usize) -> PredicateRead {
-        PredicateRead {
-            observations: Vec::new(),
-            complete: true,
-            max,
-        }
+        PredicateRead { observations: Vec::new(), complete: true, max }
     }
 
     /// Whether `max` is reached; reaching it with more left to read leaves the
@@ -265,20 +254,10 @@ pub trait Accessibility {
     /// accessibility from this process.
     fn available(&self) -> Result<(), String>;
     /// Every element of the window in document order, up to `limit`.
-    fn snapshot(
-        &self,
-        window: &WindowInfo,
-        include_noninteractive: bool,
-        limit: usize,
-    ) -> Result<Vec<Node>, String>;
+    fn snapshot(&self, window: &WindowInfo, include_noninteractive: bool, limit: usize) -> Result<Vec<Node>, String>;
     /// The element that currently has keyboard focus, if it hides typed text.
     fn focused_masked(&self) -> bool;
-    fn invoke_menu(
-        &self,
-        window: &WindowInfo,
-        path: &[String],
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String>;
+    fn invoke_menu(&self, window: &WindowInfo, path: &[String], authorize: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String>;
     /// Gives the snapshot being read one budget of `deadline_ms` from now for
     /// every provider call (Snapshot-Window's MixUiaDeadline); `None` reads
     /// without one.
@@ -307,19 +286,12 @@ pub trait Accessibility {
     /// ("" is the desktop's own), or `None` when it exposes none
     /// (Probe-WindowAccessibility).
     fn probe(&self, window: &WindowInfo) -> Result<Option<&'static str>, String> {
-        let interactive = self
-            .snapshot(window, false, 400)?
-            .iter()
-            .any(|node| is_interactive(&node.role));
+        let interactive = self.snapshot(window, false, 400)?.iter().any(|node| is_interactive(&node.role));
         Ok(interactive.then_some(""))
     }
     /// Every name and value a window predicate can match, up to `max`, and
     /// whether the read saw all of them (Get-WindowPredicates).
-    fn predicate_read(
-        &self,
-        window: &WindowInfo,
-        max: usize,
-    ) -> Result<(Vec<PredicateObservation>, bool), String> {
+    fn predicate_read(&self, window: &WindowInfo, max: usize) -> Result<(Vec<PredicateObservation>, bool), String> {
         let nodes = self.snapshot(window, true, CANDIDATE_LIMIT)?;
         let mut read = PredicateRead::new(max);
         read.complete = nodes.len() < CANDIDATE_LIMIT;
@@ -407,11 +379,7 @@ pub fn normalize_menu_label(label: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut index = 0;
     while index < chars.len() {
-        if chars[index] == '('
-            && index + 2 < chars.len()
-            && chars[index + 2] == ')'
-            && chars[index + 1].is_ascii_alphanumeric()
-        {
+        if chars[index] == '(' && index + 2 < chars.len() && chars[index + 2] == ')' && chars[index + 1].is_ascii_alphanumeric() {
             while out.ends_with(char::is_whitespace) {
                 out.pop();
             }
@@ -422,10 +390,7 @@ pub fn normalize_menu_label(label: &str) -> String {
         index += 1;
     }
     let trimmed = out.trim_end();
-    let trimmed = trimmed
-        .strip_suffix("...")
-        .or_else(|| trimmed.strip_suffix('\u{2026}'))
-        .unwrap_or(trimmed);
+    let trimmed = trimmed.strip_suffix("...").or_else(|| trimmed.strip_suffix('\u{2026}')).unwrap_or(trimmed);
     trimmed.trim().to_lowercase()
 }
 
@@ -523,7 +488,7 @@ pub mod testing {
 
 #[cfg(test)]
 mod tests {
-    use super::testing::{node, Inert};
+    use super::testing::{Inert, node};
     use super::*;
 
     /// A window whose accessibility tree is a fixed list of nodes.
@@ -539,12 +504,7 @@ mod tests {
         fn focused_masked(&self) -> bool {
             false
         }
-        fn invoke_menu(
-            &self,
-            _: &WindowInfo,
-            _: &[String],
-            _: crate::platform::Authorize<'_>,
-        ) -> Result<MenuOutcome, String> {
+        fn invoke_menu(&self, _: &WindowInfo, _: &[String], _: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
             Err("no menu".into())
         }
     }
@@ -588,12 +548,8 @@ mod tests {
         let window = WindowInfo::default();
         let mut hidden = node("Text", "hidden", (0.0, 0.0, 5.0, 5.0));
         hidden.offscreen = true;
-        let tree = Tree(vec![
-            hidden,
-            node("Text", " ", (0.0, 0.0, 5.0, 5.0)),
-            node("Text", "a", (0.0, 0.0, 5.0, 5.0)),
-            node("Button", "b", (0.0, 0.0, 5.0, 5.0)),
-        ]);
+        let tree =
+            Tree(vec![hidden, node("Text", " ", (0.0, 0.0, 5.0, 5.0)), node("Text", "a", (0.0, 0.0, 5.0, 5.0)), node("Button", "b", (0.0, 0.0, 5.0, 5.0))]);
         let (observations, complete) = tree.predicate_read(&window, 5).unwrap();
         let names: Vec<&str> = observations.iter().map(|seen| seen.name.as_str()).collect();
         assert_eq!(names, ["a", "b"]);
@@ -625,12 +581,7 @@ mod tests {
 
     #[test]
     fn refusals_name_both_integrity_levels() {
-        let rank = |own_rid, target_rid| Integrity {
-            own_rid,
-            target_rid,
-            own_name: "medium",
-            target_name: "high",
-        };
+        let rank = |own_rid, target_rid| Integrity { own_rid, target_rid, own_name: "medium", target_name: "high" };
         assert_eq!(
             integrity_refusal(&rank(0x2000, 0x3000)).unwrap(),
             "accessibility_blocked_by_integrity: this window runs at high integrity, above this host (medium), and Windows hides its controls from lower processes; read it with pixels or OCR, and act on frame coordinates with explicit foreground delivery, which asks for elevation"

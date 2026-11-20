@@ -179,9 +179,7 @@ impl HostPacer {
         }
         // Idle hosts whose gap has passed carry no state worth keeping.
         hosts.retain(|_, gate| {
-            Arc::strong_count(gate) > 1
-                || gate.turn.is_busy()
-                || *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) > Instant::now()
+            Arc::strong_count(gate) > 1 || gate.turn.is_busy() || *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) > Instant::now()
         });
         let gate = Arc::new(HostGate { turn: mixdog_rt::Gate::new(), ready_at: Mutex::new(Instant::now()) });
         hosts.insert(host.to_string(), gate.clone());
@@ -189,11 +187,7 @@ impl HostPacer {
     }
 
     /// Runs `operation` once it is this caller's turn on `host`.
-    async fn run<T>(
-        &self,
-        host: &str,
-        operation: impl std::future::Future<Output = Result<T, FetchError>>,
-    ) -> Result<T, FetchError> {
+    async fn run<T>(&self, host: &str, operation: impl std::future::Future<Output = Result<T, FetchError>>) -> Result<T, FetchError> {
         let gate = self.gate(host);
         gate.turn
             // Node's pacer has no shutdown; the caller's own cancel (`Pipeline::run`) ends the wait and the operation.
@@ -253,11 +247,7 @@ fn is_challenge(error: &FetchError) -> bool {
 
 impl Pipeline {
     pub fn new(fetcher: Arc<Fetcher>, renderer: Option<Arc<dyn PageRenderer>>) -> Self {
-        Self {
-            fetcher,
-            renderer,
-            pacer: HostPacer::default(),
-        }
+        Self { fetcher, renderer, pacer: HostPacer::default() }
     }
 
     /// Runs the stages within `budget`. A caller cancel or the total deadline cuts the running attempt, which is
@@ -268,11 +258,7 @@ impl Pipeline {
         let mut trace = Trace::default();
         let outcome = self.run_stages(url, &cut, &mut trace).await;
         match outcome {
-            Ok(page) => Ok(Page {
-                failures: trace.failures,
-                attempts: trace.attempts,
-                ..page
-            }),
+            Ok(page) => Ok(Page { failures: trace.failures, attempts: trace.attempts, ..page }),
             Err(mut error) => {
                 if cancel.is_cancelled() {
                     error = FetchError::new(FetchKind::Cancelled, cut.aborted().message);
@@ -283,12 +269,7 @@ impl Pipeline {
                 {
                     error = cut.total();
                 }
-                Err(PipelineFailure {
-                    code: error.code(),
-                    error,
-                    failures: trace.failures,
-                    attempts: trace.attempts,
-                })
+                Err(PipelineFailure { code: error.code(), error, failures: trace.failures, attempts: trace.attempts })
             }
         }
     }
@@ -316,8 +297,7 @@ impl Pipeline {
                     {
                         return Err(error);
                     }
-                    let transient = error.kind == FetchKind::NetworkTransient
-                        || error.status.is_some_and(retryable_status);
+                    let transient = error.kind == FetchKind::NetworkTransient || error.status.is_some_and(retryable_status);
                     let delay = error.retry_after.max(RETRY_FLOOR);
                     if !transient || retry == 1 {
                         last = Some(error);
@@ -357,18 +337,18 @@ impl Pipeline {
         let started = Instant::now();
         let host = url.host_str().unwrap_or_default().to_string();
         let work = self.pacer.run(&host, async {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let budget = if stage == HTTP_STAGE {
-                    Duration::from_millis(12_000.min((remaining.as_millis() as f64 * 0.45).floor() as u64).max(1))
-                } else {
-                    remaining.max(Duration::from_millis(1))
-                };
-                let page = mixdog_rt::time::timeout(budget, self.execute(stage, url, budget))
-                    .await
-                    .map_err(|_| FetchError::new(FetchKind::StageTimeout, format!("{stage} timed out")))??;
-                assert_readable(&page.content)?;
-                Ok(page)
-            });
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let budget = if stage == HTTP_STAGE {
+                Duration::from_millis(12_000.min((remaining.as_millis() as f64 * 0.45).floor() as u64).max(1))
+            } else {
+                remaining.max(Duration::from_millis(1))
+            };
+            let page = mixdog_rt::time::timeout(budget, self.execute(stage, url, budget))
+                .await
+                .map_err(|_| FetchError::new(FetchKind::StageTimeout, format!("{stage} timed out")))??;
+            assert_readable(&page.content)?;
+            Ok(page)
+        });
         // Node's abort wins over a stage result arriving in the same tick; a stage budget ending with the total one
         // fires first (its timer was armed later but due at the same instant, and the stage reports it).
         let result = tokio::select! {
@@ -380,12 +360,7 @@ impl Pipeline {
         let elapsed_ms = started.elapsed().as_millis();
         match result {
             Ok(page) => {
-                trace.attempts.push(Attempt {
-                    stage: stage.to_string(),
-                    ok: true,
-                    elapsed_ms,
-                    code: None,
-                });
+                trace.attempts.push(Attempt { stage: stage.to_string(), ok: true, elapsed_ms, code: None });
                 Ok(Page {
                     url: page.url,
                     title: page.title,
@@ -407,12 +382,7 @@ impl Pipeline {
                     code: error.code().to_string(),
                     status: error.status,
                 });
-                trace.attempts.push(Attempt {
-                    stage: stage.to_string(),
-                    ok: false,
-                    elapsed_ms,
-                    code: Some(error.code().to_string()),
-                });
+                trace.attempts.push(Attempt { stage: stage.to_string(), ok: false, elapsed_ms, code: Some(error.code().to_string()) });
                 Err(error)
             }
         }
@@ -439,19 +409,13 @@ impl Pipeline {
             if hop >= MAX_META_REFRESH {
                 return Err(FetchError::policy("Too many redirects (meta refresh)"));
             }
-            redirects.push(Redirect {
-                url: document.url.to_string(),
-                status: None,
-                location: target.to_string(),
-            });
+            redirects.push(Redirect { url: document.url.to_string(), status: None, location: target.to_string() });
             document = self.fetcher.fetch_document(&target, &session).await?;
         }
         let final_url = document.url.clone();
-        let extracted = lanes::run(self.fetcher.lanes().extract, move |_| {
-            extract_document(&document.url, &document.body, &document.content_type)
-        })
-        .await
-        .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??;
+        let extracted = lanes::run(self.fetcher.lanes().extract, move |_| extract_document(&document.url, &document.body, &document.content_type))
+            .await
+            .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??;
         Ok(StagePage {
             url: final_url.to_string(),
             title: extracted.title,

@@ -19,8 +19,7 @@ use super::Clock;
 const TTL_MS: i64 = 6 * 60 * 60 * 1000;
 const MAX_ENTRIES: usize = 512;
 
-static LABELLED_ID: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(?:> )?(?:\[?task_id:|agent task:)\s*([^\s\]]+)", "im"));
+static LABELLED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:> )?(?:\[?task_id:|agent task:)\s*([^\s\]]+)", "im"));
 static ASYNC_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Async \S+ task (\S+) ", "i"));
 
 /// `taskNotificationId`: the task a completion text names, empty when it names none.

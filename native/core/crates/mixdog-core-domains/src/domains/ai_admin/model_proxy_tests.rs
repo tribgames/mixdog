@@ -34,7 +34,12 @@ fn provider_state() -> p::ProviderState {
 
 fn request() -> p::ModelRequest {
     let mut assistant = p::Message::new(p::Role::Assistant, p::Content::Text("calling".into()));
-    assistant.tool_calls.push(p::ToolCall { id: "c1".into(), name: "read".into(), arguments: json!({ "path": "a" }), native_type: Some("custom_tool_call".into()) });
+    assistant.tool_calls.push(p::ToolCall {
+        id: "c1".into(),
+        name: "read".into(),
+        arguments: json!({ "path": "a" }),
+        native_type: Some("custom_tool_call".into()),
+    });
     assistant.phase = Some(p::Phase::Commentary);
     assistant.thinking_blocks = Some(json!([{ "type": "thinking" }]));
     assistant.turn_reminder = Some("remember".into());
@@ -76,7 +81,13 @@ fn request() -> p::ModelRequest {
     p::ModelRequest {
         model: "gpt-5".into(),
         messages: vec![user, assistant],
-        tools: vec![p::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true, freeform: None }],
+        tools: vec![p::ToolDefinition {
+            name: "read".into(),
+            description: "d".into(),
+            input_schema: json!({ "type": "object" }),
+            defer_loading: true,
+            freeform: None,
+        }],
         options,
     }
 }
@@ -95,25 +106,39 @@ fn proxied_text_blocks_keep_cache_markers_at_their_original_positions() {
     use mixdog_core_api::domain::provider::WireCodec;
 
     let mut sent = request();
-    sent.messages = vec![p::Message::new(p::Role::System, p::Content::Parts(vec![
-        p::ContentPart::Text("before".into(), None),
-        p::ContentPart::Text("marked".into(), Some(json!({
-            "cache_control": { "type": "ephemeral", "ttl": "1h" },
-            "localOnly": "not forwarded",
-        }).as_object().unwrap().clone())),
-        p::ContentPart::Text("after".into(), None),
-    ]))];
+    sent.messages = vec![p::Message::new(
+        p::Role::System,
+        p::Content::Parts(vec![
+            p::ContentPart::Text("before".into(), None),
+            p::ContentPart::Text(
+                "marked".into(),
+                Some(
+                    json!({
+                        "cache_control": { "type": "ephemeral", "ttl": "1h" },
+                        "localOnly": "not forwarded",
+                    })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                ),
+            ),
+            p::ContentPart::Text("after".into(), None),
+        ]),
+    )];
     let wire = serde_json::to_string(&request_out(&sent)).unwrap();
     assert!(!wire.contains("localOnly"));
     assert!(wire.contains(r#""cacheControl":{"type":"ephemeral","ttl":"1h"}"#));
     let got = request_in(serde_json::from_str(&wire).unwrap()).unwrap();
     let encoded = CompatChatCodec::new(CompatProfile::openrouter(), CompatConfig::default()).encode(&got).unwrap();
     let body: Value = serde_json::from_slice(&encoded.body).unwrap();
-    assert_eq!(body["messages"][0]["content"], json!([
-        { "type": "text", "text": "before" },
-        { "type": "text", "text": "marked", "cache_control": { "type": "ephemeral", "ttl": "1h" } },
-        { "type": "text", "text": "after" },
-    ]));
+    assert_eq!(
+        body["messages"][0]["content"],
+        json!([
+            { "type": "text", "text": "before" },
+            { "type": "text", "text": "marked", "cache_control": { "type": "ephemeral", "ttl": "1h" } },
+            { "type": "text", "text": "after" },
+        ])
+    );
 }
 
 /// The account that served an answer rides on the history the server sends back, so the PC's pool keeps the next turn on it
@@ -123,17 +148,10 @@ fn proxied_text_blocks_keep_cache_markers_at_their_original_positions() {
 fn the_account_that_served_an_answer_rides_on_the_history() {
     let mut sent = request();
     let mut served = p::Message::new(p::Role::Assistant, p::Content::Text("ok".into()));
-    served.account_routing = Some(p::AccountRouting {
-        provider: "custom-x".into(),
-        account_id: "k2".into(),
-        session_account_id: Some("k1".into()),
-    });
+    served.account_routing = Some(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k1".into()) });
     sent.messages.push(served);
     let text = serde_json::to_string(&request_out(&sent)).unwrap();
-    assert!(
-        text.contains(r#""accountRouting":{"provider":"custom-x","accountId":"k2","sessionAccountId":"k1"}"#),
-        "{text}"
-    );
+    assert!(text.contains(r#""accountRouting":{"provider":"custom-x","accountId":"k2","sessionAccountId":"k1"}"#), "{text}");
     let got = request_in(serde_json::from_str(&text).unwrap()).unwrap();
     assert_eq!(got.messages.last().unwrap().account_routing, sent.messages.last().unwrap().account_routing);
 }
@@ -143,7 +161,12 @@ fn the_senders_scope_and_unresolved_references_stay_home() {
     let mut sent = request();
     sent.messages[0] = p::Message::new(
         p::Role::User,
-        p::Content::Parts(vec![p::ContentPart::File { source: p::BinarySource::AttachmentRef("blob-1".into()), mime_type: "application/pdf".into(), filename: Some("C:\\x\\y.pdf".into()), text: None }]),
+        p::Content::Parts(vec![p::ContentPart::File {
+            source: p::BinarySource::AttachmentRef("blob-1".into()),
+            mime_type: "application/pdf".into(),
+            filename: Some("C:\\x\\y.pdf".into()),
+            text: None,
+        }]),
     );
     sent.options.transport_scope = Some("sender-scope".into());
     sent.options.model_max_output_tokens = Some(9);
@@ -177,7 +200,9 @@ fn a_listed_model_keeps_its_name_window_and_wire_over_the_wire() {
     listed.picker.default_model_parameters = [("context".to_owned(), "272k".to_owned())].into();
     listed.picker.default_fast = true;
     listed.picker.supports_max_mode = true;
-    for wire in [None, Some(p::WireIds::One("sol-wire".into())), Some(p::WireIds::Tiers(vec![("high".into(), "sol-high".into()), ("low".into(), "sol-low".into())]))] {
+    for wire in
+        [None, Some(p::WireIds::One("sol-wire".into())), Some(p::WireIds::Tiers(vec![("high".into(), "sol-high".into()), ("low".into(), "sol-low".into())]))]
+    {
         listed.wire = wire;
         let text = serde_json::to_string(&model_out(&listed)).unwrap();
         assert_eq!(model_in(serde_json::from_str(&text).unwrap()), listed);
@@ -312,11 +337,7 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
         p::StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": [{ "trigger": "refusal" }] })),
         p::StreamEvent::ResponseId("resp_1".into()),
-        p::StreamEvent::AccountRouting(p::AccountRouting {
-            provider: "custom-x".into(),
-            account_id: "k2".into(),
-            session_account_id: Some("k2".into()),
-        }),
+        p::StreamEvent::AccountRouting(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k2".into()) }),
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: "Quota exhausted — switching to the next account".into() }),
         p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 1 }),
         p::StreamEvent::WireRerouted(json!({ "provider": "openrouter", "model": "m", "wire": "chat", "source": "reroute", "loweredAssistantCount": 0 })),
@@ -389,7 +410,8 @@ fn the_provider_state_crosses_the_wire_whole() {
 
 #[test]
 fn events_and_failures_survive_the_wire() {
-    let usage = p::Usage { input_tokens: 5, output_tokens: 2, cache_read_tokens: 1, raw: Some(json!({ "x": 1 })), cost: Some(p::UsdTicks(7)), ..Default::default() };
+    let usage =
+        p::Usage { input_tokens: 5, output_tokens: 2, cache_read_tokens: 1, raw: Some(json!({ "x": 1 })), cost: Some(p::UsdTicks(7)), ..Default::default() };
     for event in [
         p::StreamEvent::ItemStart { kind: p::ItemKind::Reasoning, phase: Some(p::Phase::FinalAnswer) },
         p::StreamEvent::TextDelta("a".into()),
@@ -516,20 +538,18 @@ struct Offline;
 
 #[async_trait]
 impl mixdog_ai::transport::HttpSend for Offline {
-    async fn send(
-        &self,
-        _: p::WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<mixdog_ai::transport::HttpResponse, p::ProviderError> {
-        Err(p::ProviderError::new(
-            p::ErrorKind::Transient,
-            p::DeliveryState::NotSent,
-        ))
+    async fn send(&self, _: p::WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<mixdog_ai::transport::HttpResponse, p::ProviderError> {
+        Err(p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::NotSent))
     }
 }
 
 pub(in crate::domains::ai_admin) fn hi() -> p::ModelRequest {
-    p::ModelRequest { model: "m".into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))], tools: Vec::new(), options: p::RequestOptions::default() }
+    p::ModelRequest {
+        model: "m".into(),
+        messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))],
+        tools: Vec::new(),
+        options: p::RequestOptions::default(),
+    }
 }
 
 pub(in crate::domains::ai_admin) fn rejected(status: u16) -> MockAttempt {
@@ -554,10 +574,6 @@ fn a_pc_lost_mid_call_leaves_the_delivery_unknown() {
     assert_eq!(error.message, text);
     assert_eq!((error.kind, error.delivery), (p::ErrorKind::Transient, p::DeliveryState::Ambiguous));
 }
-
-
-
-
 
 async fn catalog(models: &[(&str, &str)]) -> Arc<mixdog_ai::catalog::CatalogService> {
     use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelRecord, ModelsDevSource};
@@ -624,7 +640,10 @@ async fn a_session_send_with_no_way_back_to_its_owner_is_refused_unsent() {
 fn a_manifest_crosses_the_wire_whole_and_a_malformed_one_is_refused() {
     use mixdog_core_api::domain::cache_tail::{Digest, Marker, WireManifest, Zone};
     let manifest = WireManifest {
-        markers: vec![Marker { zone: Zone::System, ttl_ms: 3_600_000, block: 0, digest: Digest([1; 32]) }, Marker { zone: Zone::Messages, ttl_ms: 300_000, block: 2, digest: Digest([0xab; 32]) }],
+        markers: vec![
+            Marker { zone: Zone::System, ttl_ms: 3_600_000, block: 0, digest: Digest([1; 32]) },
+            Marker { zone: Zone::Messages, ttl_ms: 300_000, block: 2, digest: Digest([0xab; 32]) },
+        ],
         boundaries: vec![Digest([1; 32]), Digest([2; 32]), Digest([0xab; 32])],
         tail: Some(1),
     };
@@ -641,13 +660,19 @@ fn a_manifest_crosses_the_wire_whole_and_a_malformed_one_is_refused() {
 #[tokio::test(start_paused = true)]
 async fn the_other_calls_are_answered_on_the_pc() {
     let pc = loopback([]).await;
-    let ask = |call| async {
-        pc.0.run(call, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await
-    };
+    let ask = |call| async { pc.0.run(call, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await };
     let w::ProxyAnswer::Usable { usable } = ask(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }).await.unwrap() else { panic!() };
     assert!(usable);
-    let route = ask(w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true, legacy: false } }).await.unwrap();
-    assert_eq!(route, w::ProxyAnswer::Route { route: Some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() }) });
+    let route =
+        ask(w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true, legacy: false } })
+            .await
+            .unwrap();
+    assert_eq!(
+        route,
+        w::ProxyAnswer::Route {
+            route: Some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() })
+        }
+    );
     assert!(matches!(ask(w::ProxyCall::ProviderConfig).await.unwrap(), w::ProxyAnswer::ProviderConfig { ready: Some(true), .. }));
     assert!(ask(w::ProxyCall::QuotaUsable { provider: "absent".into(), model: "x".into() }).await.is_err());
     // A measurement that failed fails the call with its message, as a plain error with no code.
@@ -656,7 +681,10 @@ async fn the_other_calls_are_answered_on_the_pc() {
     // A call the server gave up reads nothing of the PC's.
     let given_up = CancellationToken::new();
     given_up.cancel();
-    let failure = pc.0.run(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }, None, &Collect(&Mutex::new(Vec::new())), &given_up).await.unwrap_err();
+    let failure =
+        pc.0.run(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }, None, &Collect(&Mutex::new(Vec::new())), &given_up)
+            .await
+            .unwrap_err();
     assert_eq!(failure.message, "The remote session cancelled the model call.");
     // A cached listing answers from the PC's catalog.
     let w::ProxyAnswer::Models { models, .. } = ask(w::ProxyCall::ListModels { provider: "mock".into(), refresh: false }).await.unwrap() else { panic!() };
@@ -717,6 +745,4 @@ async fn the_store_serves_attachments_by_their_digest() {
     assert!(matches!(attachments.read("not-a-digest").await, Err(ReadError::Other(_))));
 }
 
-
 // -- against Node's recording of a proxied run (record-model-proxy-pc.mjs) -------------------
-

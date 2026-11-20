@@ -24,13 +24,13 @@ use futures::future::{BoxFuture, Shared};
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ProviderReadiness};
-use mixdog_ai::registry::effective::EffectiveProviders;
-use mixdog_ai::registry::providers::NO_ENABLED_PROVIDERS;
 use mixdog_ai::effort::effort_items_for;
 use mixdog_ai::effort::effort_options_for;
+use mixdog_ai::registry::effective::EffectiveProviders;
+use mixdog_ai::registry::providers::NO_ENABLED_PROVIDERS;
 use mixdog_ai::service::admin_models::{
-    HydrationFacts, hydrate_provider_model_row, is_selectable_llm_model, model_proxy_client_mode, provider_available,
-    provider_model_cache_row, sort_provider_models, with_catalog_state,
+    HydrationFacts, hydrate_provider_model_row, is_selectable_llm_model, model_proxy_client_mode, provider_available, provider_model_cache_row,
+    sort_provider_models, with_catalog_state,
 };
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::effort_configuration::{UnsupportedEfforts, custom_auto_effort_capable, effort_configuration_mode};
@@ -214,7 +214,6 @@ impl ListHost {
         cache.sync(self.readiness.catalog_revision());
         cache.loaded
     }
-
 
     /// The sequence a load starts under, the revision synced first.
     pub(super) fn begin(&self) -> u64 {
@@ -408,9 +407,9 @@ impl HydrationFacts for RowFacts<'_> {
                 let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
                 self.rejections.get_or_init(|| self.catalog.effort_rejections()).get(&mixdog_ai::effort::rejection_key(provider, id))
             })
-                .into_iter()
-                .map(|item| json!({ "value": item.value, "label": item.label, "description": item.description }))
-                .collect(),
+            .into_iter()
+            .map(|item| json!({ "value": item.value, "label": item.label, "description": item.description }))
+            .collect(),
         )
     }
 
@@ -421,7 +420,8 @@ impl HydrationFacts for RowFacts<'_> {
         let rejected = rejected.get(&mixdog_ai::effort::rejection_key(provider, model));
         if matches!(provider, "anthropic" | "anthropic-oauth") {
             let flag = std::env::var("MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT").ok();
-            let levels = mixdog_ai::providers::anthropic::catalog_caps::CatalogCaps::with_flag(self.catalog_arc.clone(), flag.as_deref()).effort_levels_for(model);
+            let levels =
+                mixdog_ai::providers::anthropic::catalog_caps::CatalogCaps::with_flag(self.catalog_arc.clone(), flag.as_deref()).effort_levels_for(model);
             return Some(effort_options_for(provider, &mixdog_ai::effort::anthropic_ladder_row(model, levels), rejected));
         }
         let stored = self.catalog.cached_row(provider, model).and_then(|row| row.as_object().cloned());
@@ -498,14 +498,11 @@ impl ModelListService {
         }
     }
 
-
     /// `Array.isArray(caches.providerModelsCache.models)` after `syncCatalogRevision()`. A host without a
     /// provider registry has no cache of its own: the catalog is loaded once something was listed into it.
     pub fn cache_loaded(&self) -> bool {
         match &self.host {
-            Some(host) => {
-                host.loaded_now()
-            }
+            Some(host) => host.loaded_now(),
             None => {
                 let snapshot = self.catalog.snapshot();
                 snapshot.generation != 0 || !snapshot.status.is_empty()
@@ -560,10 +557,7 @@ impl ModelListService {
                     // (`warmProviderModelCache({ loadSecrets: true })`, joining a load already in flight).
                     self.warm_cache(true);
                     let Loaded { agent, providers } = host.loaded().await?;
-                    return Ok(CatalogRead {
-                        models: self.quick_rows(&snapshot, &providers, &agent, &(host.route)()),
-                        complete_providers: Vec::new(),
-                    });
+                    return Ok(CatalogRead { models: self.quick_rows(&snapshot, &providers, &agent, &(host.route)()), complete_providers: Vec::new() });
                 }
                 // The one load in flight is joined, never raced (`startSharedLoad`); a read that finds none starts it.
                 match host.shared_load(&self.catalog, true, false).await? {
@@ -586,7 +580,9 @@ impl ModelListService {
         let snapshot = self.catalog.snapshot();
         let mut rows = self.from_cache_rows(&snapshot, &self.cache_rows(&snapshot));
         let complete_providers = if authoritative_read {
-            snapshot.status.iter()
+            snapshot
+                .status
+                .iter()
                 .filter(|(_, status)| matches!(status, mixdog_ai::catalog::ProviderStatus::Ok))
                 .map(|(id, _)| id.as_str().to_owned())
                 .collect()
@@ -632,11 +628,7 @@ impl ModelListService {
     }
     /// The catalog flattened into deduplicated cache rows; a hidden custom model leaves the picker.
     pub fn cache_rows(&self, snapshot: &CatalogSnapshot) -> Vec<Value> {
-        loaded_rows(&self.catalog, snapshot)
-            .into_iter()
-            .filter(|row| row.get("hidden") != Some(&Value::Bool(true)))
-            .map(Value::Object)
-            .collect()
+        loaded_rows(&self.catalog, snapshot).into_iter().filter(|row| row.get("hidden") != Some(&Value::Bool(true))).map(Value::Object).collect()
     }
 
     /// `providerModelsFromCacheRows`: availability applied at read time, then hydrated and sorted.
@@ -644,7 +636,14 @@ impl ModelListService {
         let config = self.config.agent();
         let developer = config.get("developer").cloned().unwrap_or(Value::Null);
         let client_mode = model_proxy_client_mode(&|name| std::env::var(name).ok());
-        let facts = RowFacts { catalog: &self.catalog, catalog_arc: &self.catalog, snapshot, unsupported: &self.unsupported, config: &config, rejections: Default::default() };
+        let facts = RowFacts {
+            catalog: &self.catalog,
+            catalog_arc: &self.catalog,
+            snapshot,
+            unsupported: &self.unsupported,
+            config: &config,
+            rejections: Default::default(),
+        };
         let mut rows: Vec<Value> = rows
             .iter()
             .filter(|row| provider_available(row.get("provider").and_then(Value::as_str).unwrap_or_default(), client_mode, &developer))
@@ -703,10 +702,12 @@ impl DomainService for ModelListService {
         let params: ModelListParams = serde_json::from_value(req.params).map_err(|e| invalid(&e.to_string()))?;
         // `refresh` is the setup tool's name for `force`.
         let force = params.force == Some(true) || params.refresh == Some(true);
-        let read = self
-            .read_catalog(force, params.quick == Some(true), None)
-            .await
-            .map_err(|message| CoreError::DomainError { domain: "providers".into(), code: None, message: Some(message.into()), detail: None })?;
+        let read = self.read_catalog(force, params.quick == Some(true), None).await.map_err(|message| CoreError::DomainError {
+            domain: "providers".into(),
+            code: None,
+            message: Some(message.into()),
+            detail: None,
+        })?;
         let value = if params.with_catalog_state == Some(true) {
             json!({ "models": read.models, "completeProviders": read.complete_providers })
         } else {

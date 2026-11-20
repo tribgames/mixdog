@@ -35,7 +35,8 @@ fn layout(path: &Path) -> mixdog_office_pdf::PdfLayout {
 
 #[test]
 fn a_search_finds_text_regardless_of_case_and_reports_its_page_line_and_box() {
-    let path = document("search", vec![paragraph("Grand total due: 120 USD."), json!({ "type": "pagebreak" }), paragraph("The second page mentions the total once.")]);
+    let path =
+        document("search", vec![paragraph("Grand total due: 120 USD."), json!({ "type": "pagebreak" }), paragraph("The second page mentions the total once.")]);
     let found = find_pdf_text(&layout(&path), "TOTAL due", &SearchOptions::default()).expect("searched");
     assert_eq!(found.matches.len(), 1);
     let hit = &found.matches[0];

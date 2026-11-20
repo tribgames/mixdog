@@ -19,9 +19,7 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
-use super::plan::{
-    CacheStrategy, Gap, LEAD_MS, Plan, PlanInput, Prices, TurnKind, entry_lapsed, plan_cache_warm, warm_delay_ms, warm_rewrote,
-};
+use super::plan::{CacheStrategy, Gap, LEAD_MS, Plan, PlanInput, Prices, TurnKind, entry_lapsed, plan_cache_warm, warm_delay_ms, warm_rewrote};
 use super::stores::{GapStore, Touch, TouchStore};
 use super::stream::{WarmFailure, WarmUsage};
 use crate::accounts::ACCOUNT_PROVIDERS;
@@ -342,12 +340,7 @@ impl Warmer {
         if session_id.is_empty() {
             return None;
         }
-        let turn = Arc::new(Turn {
-            kind,
-            started_at: self.deps.now(),
-            returning: Mutex::new(kind == TurnKind::Return),
-            suspended: Mutex::new(None),
-        });
+        let turn = Arc::new(Turn { kind, started_at: self.deps.now(), returning: Mutex::new(kind == TurnKind::Return), suspended: Mutex::new(None) });
         self.state().turns.insert(session_id.to_owned(), turn.clone());
         let chain = self.state().chains.get(session_id).cloned();
         if let Some(chain) = chain {
@@ -423,12 +416,7 @@ impl Warmer {
         let c = chain.inner();
         self.touches.record(
             session_id,
-            Touch {
-                touch_at: c.touch_at,
-                ttl_ms: c.ttl_ms,
-                prompt_tokens: c.prompt_tokens,
-                account_id: Some(c.account_id.clone()).filter(|a| !a.is_empty()),
-            },
+            Touch { touch_at: c.touch_at, ttl_ms: c.ttl_ms, prompt_tokens: c.prompt_tokens, account_id: Some(c.account_id.clone()).filter(|a| !a.is_empty()) },
         );
     }
 
@@ -527,14 +515,7 @@ impl Warmer {
         }
         let chain = self.start_chain(
             session_id,
-            Suspended {
-                request,
-                ttl_ms,
-                touch_at,
-                prompt_tokens,
-                account_id: response.account_id.clone().unwrap_or_default(),
-                latency_ms: None,
-            },
+            Suspended { request, ttl_ms, touch_at, prompt_tokens, account_id: response.account_id.clone().unwrap_or_default(), latency_ms: None },
         );
         self.record_touch(session_id, &chain);
     }

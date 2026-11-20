@@ -3,11 +3,7 @@
 //! location, whose holder is probed for liveness so a crashed process never wedges its path.
 //! Every `std::fs` call is the body of a durability-lane job, except the release in `Drop`,
 //! which cannot await one.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "every std::fs call is a durability-lane job body, bar the one unlink in Drop"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every std::fs call is a durability-lane job body, bar the one unlink in Drop")]
 
 use std::ffi::OsString;
 use std::fs;
@@ -161,10 +157,7 @@ fn failure(error: &io::Error, syscall: &str, path: &Path) -> ToolError {
 }
 
 fn timeout_error(target: &Path, lock_file: &Path, holder: i64) -> ToolError {
-    fail(
-        ToolErrorCode::Io { os_code: None },
-        format!("Error: advisory lock timeout: {} ({}) held by pid {holder}", target.display(), lock_file.display()),
-    )
+    fail(ToolErrorCode::Io { os_code: None }, format!("Error: advisory lock timeout: {} ({}) held by pid {holder}", target.display(), lock_file.display()))
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]

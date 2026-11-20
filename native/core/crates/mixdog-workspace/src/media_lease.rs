@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run); the service never calls them on an async thread"
+)]
 //! The media leases of a paired device's project-file previews (Node `main/media-leases.ts`, minted by `authorizedMediaFile` of
 //! `remote-file-preview.ts`, served by the relay media lane): an unguessable id for a file that is no gallery asset, so a phone
 //! streams a preview's image, audio or video by ranged requests instead of reading the whole file.
@@ -24,15 +28,15 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::WsResult;
-use crate::lease_end::EndOnDrop;
-use crate::lease_end::Sleeper;
-use crate::lease_end::TokioSleeper;
-use crate::lease_end::run_deadlines;
 use crate::ident::FileId;
 use crate::ident::file_version;
 use crate::ident::mtime_ms;
 use crate::inplace::open_authorized_ro;
 use crate::lanes::Lanes;
+use crate::lease_end::EndOnDrop;
+use crate::lease_end::Sleeper;
+use crate::lease_end::TokioSleeper;
+use crate::lease_end::run_deadlines;
 use crate::pathguard::project_entry_path;
 
 /// `LEASE_TTL_MS`.
@@ -201,7 +205,9 @@ impl DownloadFile {
         match read.and_then(|inner| inner) {
             Ok(bytes) => Ok(bytes),
             Err(error) => match error.reason {
-                Reason::DownloadExpired | Reason::NotFound | Reason::Download("file-download:expired") => Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+                Reason::DownloadExpired | Reason::NotFound | Reason::Download("file-download:expired") => {
+                    Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+                }
                 Reason::Changed | Reason::Download("file-download:changed") => Ok(Vec::new()),
                 _ => Err(std::io::Error::other(error.message)),
             },
@@ -288,7 +294,16 @@ impl ProjectFileLeases {
         leases.retain(|(_, lease)| lease.expires_at > now);
         leases.push((
             id.clone(),
-            Lease { root: root.to_path_buf(), path, id: opened.id, mime: mime.to_owned(), device: device.to_owned(), authorize, expires_at: now + LEASE_TTL_MS, end: EndOnDrop::new() },
+            Lease {
+                root: root.to_path_buf(),
+                path,
+                id: opened.id,
+                mime: mime.to_owned(),
+                device: device.to_owned(),
+                authorize,
+                expires_at: now + LEASE_TTL_MS,
+                end: EndOnDrop::new(),
+            },
         ));
         while leases.len() > MAX_LEASES {
             leases.remove(0);
@@ -336,8 +351,8 @@ impl ProjectFileLeases {
         let valid: Valid = {
             let (leases, asset, device) = (Arc::clone(self), asset_id.to_owned(), device.to_owned());
             Arc::new(move || {
-                leases.holds(&asset, &device) &&
-                    open_authorized_ro(&check_path, &check_root).is_ok_and(|current| file_version(&current.file).is_ok_and(|current| current == version))
+                leases.holds(&asset, &device)
+                    && open_authorized_ro(&check_path, &check_root).is_ok_and(|current| file_version(&current.file).is_ok_and(|current| current == version))
             })
         };
         let commit: Commit = {
@@ -345,8 +360,14 @@ impl ProjectFileLeases {
             Arc::new(move |write: &mut dyn FnMut()| leases.commit(&asset, &device, write))
         };
         Some(LeasedFile {
-            file: Arc::new(opened.0), lanes, size: version.size, mime, version: crate::transfer::version_string(&version),
-            valid, authorize, lease: Some(LeaseHandle { commit, ended: end }),
+            file: Arc::new(opened.0),
+            lanes,
+            size: version.size,
+            mime,
+            version: crate::transfer::version_string(&version),
+            valid,
+            authorize,
+            lease: Some(LeaseHandle { commit, ended: end }),
         })
     }
 

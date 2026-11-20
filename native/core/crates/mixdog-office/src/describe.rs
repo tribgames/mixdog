@@ -96,10 +96,7 @@ pub fn describe_office_capabilities(request: &DescribeRequest) -> Result<Value, 
         }
         let mut formats = Map::new();
         for (name, catalog) in &tables.catalog {
-            formats.insert(
-                name.clone(),
-                json!({ "paths": strings(&catalog.paths), "operationCount": tables.operations(name).len() }),
-            );
+            formats.insert(name.clone(), json!({ "paths": strings(&catalog.paths), "operationCount": tables.operations(name).len() }));
         }
         let mut summary = common();
         summary.insert("designs".to_owned(), office_design_catalog("", None)?);
@@ -128,11 +125,8 @@ pub fn describe_office_capabilities(request: &DescribeRequest) -> Result<Value, 
     }
     let backend_filter = (!backend.is_empty()).then_some(backend);
     let operations = tables.operations_for_backend(format, backend_filter);
-    let unsupported: Vec<&str> = if backend.is_empty() {
-        Vec::new()
-    } else {
-        tables.operations(format).into_iter().filter(|name| !operations.contains(name)).collect()
-    };
+    let unsupported: Vec<&str> =
+        if backend.is_empty() { Vec::new() } else { tables.operations(format).into_iter().filter(|name| !operations.contains(name)).collect() };
     let mut properties = Map::new();
     for (name, fields) in &catalog.properties {
         properties.insert(name.clone(), strings(fields));
@@ -148,9 +142,7 @@ pub fn describe_office_capabilities(request: &DescribeRequest) -> Result<Value, 
     description.insert("designs".to_owned(), office_design_catalog(format, None)?);
     description.insert(
         "nextAction".to_owned(),
-        Value::from(
-            "If exact fields are unknown, add operation for its compact contract; otherwise call create/open/batch directly.",
-        ),
+        Value::from("If exact fields are unknown, add operation for its compact contract; otherwise call create/open/batch directly."),
     );
     Ok(Value::Object(description))
 }
@@ -189,8 +181,19 @@ mod tests {
         assert_eq!(
             texts(&xlsx["properties"]["cellStyle"]),
             [
-                "fontName", "fontSize", "bold", "italic", "color", "fillColor", "numberFormat", "horizontalAlignment",
-                "verticalAlignment", "wrapText", "indent", "locked", "borders"
+                "fontName",
+                "fontSize",
+                "bold",
+                "italic",
+                "color",
+                "fillColor",
+                "numberFormat",
+                "horizontalAlignment",
+                "verticalAlignment",
+                "wrapText",
+                "indent",
+                "locked",
+                "borders"
             ]
         );
         assert_eq!(xlsx["target"], "/");
@@ -235,10 +238,7 @@ mod tests {
     #[test]
     fn validation_notes_name_the_operators() {
         for backend in ["microsoft-office-com", "mixdog-ooxml"] {
-            let notes = describe("xlsx", backend, "add_validation").expect("validation")["operation"]["notes"]
-                .as_str()
-                .expect("notes")
-                .to_owned();
+            let notes = describe("xlsx", backend, "add_validation").expect("validation")["operation"]["notes"].as_str().expect("notes").to_owned();
             for operator in mixdog_office_base::xlsx_validation::XLSX_VALIDATION_OPERATORS {
                 assert!(notes.contains(operator), "{operator}");
             }
@@ -250,12 +250,10 @@ mod tests {
     fn word_properties_follow_the_backend() {
         for backend in ["microsoft-office-com", "mixdog-ooxml"] {
             let font = describe("docx", backend, "set_document_font").expect("font");
-            let fields: Vec<&str> =
-                font["operation"]["properties"].as_object().expect("sets").values().flat_map(texts).collect();
+            let fields: Vec<&str> = font["operation"]["properties"].as_object().expect("sets").values().flat_map(texts).collect();
             assert_eq!(fields, ["name", "nameEastAsia", "size", "color"], "{backend}");
             let table = describe("docx", backend, "set_table_style").expect("table");
-            let fields: Vec<&str> =
-                table["operation"]["properties"].as_object().expect("sets").values().flat_map(texts).collect();
+            let fields: Vec<&str> = table["operation"]["properties"].as_object().expect("sets").values().flat_map(texts).collect();
             assert!(fields.contains(&"columnAlignments"));
             assert_eq!(fields.contains(&"columnWidths"), backend == "microsoft-office-com", "{backend}");
             assert!(!fields.contains(&"fontSize"));

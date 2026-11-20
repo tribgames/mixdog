@@ -44,9 +44,9 @@ use mixdog_ai::transport::deadlines::GROK_DISCOVERY;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::login::{LoginError, LoginFailure, LoginFlow, LoginSession, LoginTarget};
 use mixdog_core_api::domain::provider::WireRequest;
-use mixdog_rt::{CancellationToken, LaneToken};
 use mixdog_core_config::config::Config;
 use mixdog_protocol::ProviderId;
+use mixdog_rt::{CancellationToken, LaneToken};
 use serde_json::{Map, Value, json};
 
 use super::admin::ProviderAdmin;
@@ -189,16 +189,9 @@ impl FileOAuth {
             "openai-oauth" => {
                 let login = Arc::new(OpenAiLogin::new(file, Arc::clone(&http)));
                 let browser = pkce(self.id, login.clone());
-                if with_browser {
-                    browser
-                } else {
-                    Arc::new(OpenAiDeviceLogin::new(login, http, pace, browser)) as Arc<dyn LoginFlow>
-                }
+                if with_browser { browser } else { Arc::new(OpenAiDeviceLogin::new(login, http, pace, browser)) as Arc<dyn LoginFlow> }
             }
-            "anthropic-oauth" => pkce(
-                self.id,
-                Arc::new(AnthropicLogin::new(file, http).with_cli_version_source(wiring.versions.claude())),
-            ),
+            "anthropic-oauth" => pkce(self.id, Arc::new(AnthropicLogin::new(file, http).with_cli_version_source(wiring.versions.claude()))),
             "grok-oauth" => Arc::new(GrokFlow { http, file, target: target(self.id), device: (!with_browser).then_some(pace) }),
             "antigravity-oauth" => {
                 let now = Arc::clone(&wiring.now_ms);
@@ -242,14 +235,14 @@ impl OAuthProvider for FileOAuth {
         // The credential file is read on the lane, as the other credential readers do. A read the
         // lane did not run describes the provider as not signed in, as an unreadable file does.
         let loaded = match path {
-            Some(path) => match LaneToken::submit_wait(self.wiring.io.read, &CancellationToken::new(), move |_| {
-                load_oauth_credentials(id, &path, now, token.as_deref())
-            })
-            .await
-            {
-                Ok(job) => job.await.ok().flatten(),
-                Err(_) => None,
-            },
+            Some(path) => {
+                match LaneToken::submit_wait(self.wiring.io.read, &CancellationToken::new(), move |_| load_oauth_credentials(id, &path, now, token.as_deref()))
+                    .await
+                {
+                    Ok(job) => job.await.ok().flatten(),
+                    Err(_) => None,
+                }
+            }
             None => None,
         };
         describe_oauth(id, loaded.as_ref(), now).unwrap_or_else(|| json!({}))

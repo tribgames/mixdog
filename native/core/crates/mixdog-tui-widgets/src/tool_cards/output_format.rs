@@ -47,8 +47,7 @@ const MARKDOWN_WIDTH: usize = 80;
 static READ_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\s*)(\d+)(\u2192)(.*)$", ""));
 /// `<n>:<content>` or `<path>:<n>:<content>` (grep). A Windows absolute path has `X:\` so its drive colon does not end the
 /// path prefix.
-static GREP_LINE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(\s*)((?:[A-Za-z]:[\\/](?:[^\n:])*|[^\n:]*):\d+:|\d+:)(\s?)(.*)$", ""));
+static GREP_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\s*)((?:[A-Za-z]:[\\/](?:[^\n:])*|[^\n:]*):\d+:|\d+:)(\s?)(.*)$", ""));
 /// http(s) URLs not wrapped in quotes, brackets or whitespace (conservative).
 static URL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"https?://[^\s"'<>\x1b\\)\]]+"#, "g"));
 
@@ -672,7 +671,6 @@ mod tests {
         assert_eq!(infer_lang_family(""), None);
     }
 }
-
 
 /// [`resolve_max_render_lines`] of this process's environment.
 pub fn max_render_lines_from_env() -> usize {

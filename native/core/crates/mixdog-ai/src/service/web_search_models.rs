@@ -236,11 +236,7 @@ pub fn add_quick(facts: &dyn QuickFacts, rows: &mut Vec<Value>, seen: &mut HashS
 
 /// `webSearchModelsFromRows`: the rows that can search, provider ids normalized, sorted.
 pub fn rows_from(facts: &dyn QuickFacts, rows: &[Value]) -> Vec<Value> {
-    let kept = rows
-        .iter()
-        .filter(|row| row.get("supportsWebSearch") == Some(&Value::Bool(true)))
-        .map(|row| tagged(row.clone(), provider_of(row)))
-        .collect();
+    let kept = rows.iter().filter(|row| row.get("supportsWebSearch") == Some(&Value::Bool(true))).map(|row| tagged(row.clone(), provider_of(row))).collect();
     facts.sort(kept)
 }
 
@@ -398,9 +394,7 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
             return Vec::new();
         }
         let mut models = None;
-        if force
-            && let Some(Ok(refreshed)) = self.facts.refresh_models(name).await
-        {
+        if force && let Some(Ok(refreshed)) = self.facts.refresh_models(name).await {
             models = Some(refreshed);
         }
         let listed = match models.filter(Value::is_array) {
@@ -473,4 +467,3 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
         Ok(self.adopt(rows_with_default(quick, &quick_provider_rows(quick))))
     }
 }
-

@@ -15,9 +15,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use mixdog_js::js_trim;
 use mixdog_js::json_number;
 use mixdog_js::json_parse;
-use mixdog_js::js_trim;
 use mixdog_js::time::date_parse;
 use mixdog_js::to_number_of;
 use mixdog_js::value_to_string;
@@ -157,12 +157,7 @@ fn list_open_shell_jobs(names: &[String]) -> OpenJobs {
     // two never intersect, so every id is listed and the owner-wide aggregate alone honours the pid, keeping the CLI
     // statusline and keep-awake counting only their own process. Session ids are globally unique, so bucketing by session
     // needs no pid axis at all.
-    let mut ids: Vec<String> = names
-        .iter()
-        .filter_map(|name| name.strip_suffix(".json"))
-        .filter(|id| !done.contains(id))
-        .map(str::to_owned)
-        .collect();
+    let mut ids: Vec<String> = names.iter().filter_map(|name| name.strip_suffix(".json")).filter(|id| !done.contains(id)).map(str::to_owned).collect();
     ids.sort_by(|a, b| job_stamp_ms(b).partial_cmp(&job_stamp_ms(a)).unwrap_or(std::cmp::Ordering::Equal));
     // Scanning both scopes from one list doubles the worst-case window, so the per-refresh cap doubles with it; a live
     // record set is a handful in practice and terminal ones age out on their own.
@@ -298,10 +293,7 @@ impl StatuslineSegments {
         job.insert("taskId".to_owned(), Value::String(id.to_owned()));
         job.insert("command".to_owned(), Value::String(text_of(detail.get("command"))));
         job.insert("cwd".to_owned(), Value::String(text_of(detail.get("cwd"))));
-        job.insert(
-            "startedAt".to_owned(),
-            started.cloned().unwrap_or_else(|| if job_ms.is_finite() { json_number(job_ms) } else { Value::Null }),
-        );
+        job.insert("startedAt".to_owned(), started.cloned().unwrap_or_else(|| if job_ms.is_finite() { json_number(job_ms) } else { Value::Null }));
         if unconfirmed {
             job.insert("terminationUnconfirmed".to_owned(), Value::Bool(true));
         }
@@ -333,11 +325,7 @@ impl StatuslineSegments {
             // survivors even after the owner session closes; only the owning runtime can confirm termination, so its
             // liveness decides, not the root's.
             let unconfirmed = is_true(detail.get("terminationUnconfirmed"));
-            let alive = if unconfirmed {
-                owner_by_job.get(id).is_some_and(|pid| self.source.pid_alive(*pid))
-            } else {
-                self.is_shell_job_alive(&detail, id)
-            };
+            let alive = if unconfirmed { owner_by_job.get(id).is_some_and(|pid| self.source.pid_alive(*pid)) } else { self.is_shell_job_alive(&detail, id) };
             if !alive {
                 continue;
             }
@@ -403,7 +391,10 @@ impl StatuslineSegments {
             record.insert("command".to_owned(), Value::String(text_of(detail.get("command"))));
             record.insert("cwd".to_owned(), Value::String(text_of(detail.get("cwd"))));
             record.insert("startedAt".to_owned(), present(field(Some(&detail), "startedAt")).cloned().unwrap_or(Value::Null));
-            record.insert("status".to_owned(), Value::String(if truthy(detail.get("status")) { detail.get("status").map(value_to_string).unwrap_or_default() } else { String::new() }));
+            record.insert(
+                "status".to_owned(),
+                Value::String(if truthy(detail.get("status")) { detail.get("status").map(value_to_string).unwrap_or_default() } else { String::new() }),
+            );
             record.insert("exitCode".to_owned(), exit_code);
             record.insert("finishedAt".to_owned(), finished_at.cloned().unwrap_or(Value::Null));
             bucket_of(&mut by_session, &owner_session).finished.push(Value::Object(record));
@@ -498,10 +489,7 @@ impl StatuslineSegments {
 
 /// `unconfirmedShellCount(status)`: the listed jobs held only because their termination is unconfirmed.
 pub fn unconfirmed_shell_count(status: &Value) -> usize {
-    status
-        .get("jobs")
-        .and_then(Value::as_array)
-        .map_or(0, |jobs| jobs.iter().filter(|job| is_true(job.get("terminationUnconfirmed"))).count())
+    status.get("jobs").and_then(Value::as_array).map_or(0, |jobs| jobs.iter().filter(|job| is_true(job.get("terminationUnconfirmed"))).count())
 }
 
 /// `shellJobVisibleFrom(job, sessionCwd)`: whether an orphaned held shell belongs in the list of a session working in

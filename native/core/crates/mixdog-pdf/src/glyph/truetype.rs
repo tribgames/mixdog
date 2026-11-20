@@ -1,7 +1,7 @@
 //! TrueType and OpenType outlines: the sfnt table directory, `cmap` segments and `glyf` contours, following pdf.js
 //! `font_renderer.js` (`parseCmap`, `parseGlyfTable`, `compileGlyf`).
 
-use super::{error, CmapRange, Commands, Result, LINE_TO, MOVE_TO, QUADRATIC_CURVE_TO};
+use super::{CmapRange, Commands, LINE_TO, MOVE_TO, QUADRATIC_CURVE_TO, Result, error};
 
 const OUT_OF_BOUNDS: &str = "Offset is outside the bounds of the DataView";
 
@@ -74,11 +74,7 @@ pub fn read_sfnt(data: &[u8]) -> Result<SfntTables> {
 /// pdf.js `parseCmap`: the segments of the first subtable (one-table cmap) or of the one at the second record's offset,
 /// format 4 or 12. Any other format is an error.
 fn parse_cmap(data: &[u8], start: usize) -> Result<Vec<CmapRange>> {
-    let offset = if u16_at(data, start + 2)? == 1 {
-        u32_at(data, start + 8)?
-    } else {
-        u32_at(data, start + 16)?
-    } as usize;
+    let offset = if u16_at(data, start + 2)? == 1 { u32_at(data, start + 8)? } else { u32_at(data, start + 16)? } as usize;
     let base = start + offset;
     let format = u16_at(data, base)?;
     if format == 4 {
@@ -86,12 +82,7 @@ fn parse_cmap(data: &[u8], start: usize) -> Result<Vec<CmapRange>> {
         let mut p = base + 14;
         let mut ranges: Vec<CmapRange> = Vec::with_capacity(seg_count);
         for _ in 0..seg_count {
-            ranges.push(CmapRange {
-                start: 0,
-                end: u32::from(u16_at(data, p)?),
-                id_delta: 0,
-                ids: None,
-            });
+            ranges.push(CmapRange { start: 0, end: u32::from(u16_at(data, p)?), id_delta: 0, ids: None });
             p += 2;
         }
         p += 2;
@@ -125,12 +116,7 @@ fn parse_cmap(data: &[u8], start: usize) -> Result<Vec<CmapRange>> {
             let start = u32_at(data, p)?;
             let end = u32_at(data, p + 4)?;
             let glyph = u32_at(data, p + 8)?;
-            ranges.push(CmapRange {
-                start,
-                end,
-                id_delta: i64::from(glyph) - i64::from(start),
-                ids: None,
-            });
+            ranges.push(CmapRange { start, end, id_delta: i64::from(glyph) - i64::from(start), ids: None });
             p += 12;
         }
         Ok(ranges)
@@ -148,13 +134,8 @@ pub struct TrueTypeFont {
 impl TrueTypeFont {
     /// pdf.js `parseGlyfTable`; `long_offsets` is `indexToLocFormat`.
     pub fn new(glyf: &[u8], loca: &[u8], long_offsets: bool) -> Result<Self> {
-        let decode = |at: usize| -> Result<usize> {
-            if long_offsets {
-                u32_at(loca, at).map(|v| v as usize)
-            } else {
-                u16_at(loca, at).map(|v| 2 * usize::from(v))
-            }
-        };
+        let decode =
+            |at: usize| -> Result<usize> { if long_offsets { u32_at(loca, at).map(|v| v as usize) } else { u16_at(loca, at).map(|v| 2 * usize::from(v)) } };
         let item = if long_offsets { 4 } else { 2 };
         let mut glyphs = Vec::new();
         let mut start = decode(0)?;
@@ -223,14 +204,9 @@ impl TrueTypeFont {
                     arg2 = byte_f(i + 1);
                     i += 2;
                 }
-                let (x, y) = if flags & 0x02 != 0 {
-                    (arg1, arg2)
-                } else {
-                    (0.0, 0.0)
-                };
+                let (x, y) = if flags & 0x02 != 0 { (arg1, arg2) } else { (0.0, 0.0) };
                 let (mut scale_x, mut scale_y, mut scale01, mut scale10) = (1.0, 1.0, 0.0, 0.0);
-                let float214 =
-                    |at: usize| -> Result<f64> { Ok(f64::from(i16_at(code, at)?) / 16384.0) };
+                let float214 = |at: usize| -> Result<f64> { Ok(f64::from(i16_at(code, at)?) / 16384.0) };
                 if flags & 0x08 != 0 {
                     scale_x = float214(i)?;
                     scale_y = scale_x;
@@ -348,15 +324,7 @@ impl TrueTypeFont {
                             cmds.add(QUADRATIC_CURVE_TO, &[point.1, point.2, next.1, next.2]);
                             j += 1;
                         } else {
-                            cmds.add(
-                                QUADRATIC_CURVE_TO,
-                                &[
-                                    point.1,
-                                    point.2,
-                                    (point.1 + next.1) / 2.0,
-                                    (point.2 + next.2) / 2.0,
-                                ],
-                            );
+                            cmds.add(QUADRATIC_CURVE_TO, &[point.1, point.2, (point.1 + next.1) / 2.0, (point.2 + next.2) / 2.0]);
                         }
                     }
                     j += 1;
@@ -396,9 +364,7 @@ mod tests {
     #[test]
     fn simple_glyph_closes_the_contour_with_a_line_back_to_the_start_point_only_for_the_next_one() {
         let mut cmds = Commands::new();
-        let font = TrueTypeFont {
-            glyphs: vec![triangle()],
-        };
+        let font = TrueTypeFont { glyphs: vec![triangle()] };
         font.compile(0, &mut cmds).unwrap();
         cmds.close_path();
         let path = cmds.into_path();
@@ -422,7 +388,7 @@ mod tests {
     #[test]
     fn a_format_4_cmap_maps_through_segments_and_id_arrays() {
         let mut t = vec![0, 0, 0, 1, 0, 3, 0, 1, 0, 0, 0, 12]; // header, one record at offset 12
-                                                               // format 4, length, language, segCountX2 = 4, searchRange.. (6 bytes)
+        // format 4, length, language, segCountX2 = 4, searchRange.. (6 bytes)
         t.extend_from_slice(&[0, 4, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0]);
         t.extend_from_slice(&[0, 0x42, 0xff, 0xff]); // endCode 0x42, 0xffff
         t.extend_from_slice(&[0, 0]); // reserved

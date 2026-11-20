@@ -235,10 +235,36 @@ fn is_word(byte: u8) -> bool {
 
 /// The ASCII characters HTML names (`&sol;`, `&plus;`, …).
 const ENTITIES: [(&str, u8); 30] = [
-    ("amp", b'&'), ("lt", b'<'), ("gt", b'>'), ("quot", b'"'), ("apos", b'\''), ("sol", b'/'), ("bsol", b'\\'), ("plus", b'+'),
-    ("equals", b'='), ("percnt", b'%'), ("num", b'#'), ("colon", b':'), ("semi", b';'), ("lowbar", b'_'), ("period", b'.'),
-    ("comma", b','), ("excl", b'!'), ("quest", b'?'), ("dollar", b'$'), ("lpar", b'('), ("rpar", b')'), ("ast", b'*'),
-    ("commat", b'@'), ("lsqb", b'['), ("rsqb", b']'), ("lcub", b'{'), ("rcub", b'}'), ("verbar", b'|'), ("grave", b'`'), ("Hat", b'^'),
+    ("amp", b'&'),
+    ("lt", b'<'),
+    ("gt", b'>'),
+    ("quot", b'"'),
+    ("apos", b'\''),
+    ("sol", b'/'),
+    ("bsol", b'\\'),
+    ("plus", b'+'),
+    ("equals", b'='),
+    ("percnt", b'%'),
+    ("num", b'#'),
+    ("colon", b':'),
+    ("semi", b';'),
+    ("lowbar", b'_'),
+    ("period", b'.'),
+    ("comma", b','),
+    ("excl", b'!'),
+    ("quest", b'?'),
+    ("dollar", b'$'),
+    ("lpar", b'('),
+    ("rpar", b')'),
+    ("ast", b'*'),
+    ("commat", b'@'),
+    ("lsqb", b'['),
+    ("rsqb", b']'),
+    ("lcub", b'{'),
+    ("rcub", b'}'),
+    ("verbar", b'|'),
+    ("grave", b'`'),
+    ("Hat", b'^'),
 ];
 /// The longest HTML reference read (`&#x0010FFFF;`).
 const MAX_REFERENCE: usize = 12;
@@ -308,7 +334,11 @@ fn escape_at(bytes: &[u8], i: usize) -> Escape {
         b'&' => {
             let body = &rest[1..rest.len().min(MAX_REFERENCE)];
             let Some(end) = body.iter().position(|b| *b == b';') else {
-                return if rest.len() < MAX_REFERENCE && body.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'#') { Escape::Unfinished } else { Escape::None };
+                return if rest.len() < MAX_REFERENCE && body.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'#') {
+                    Escape::Unfinished
+                } else {
+                    Escape::None
+                };
             };
             let name = &body[..end];
             let value = match name {
@@ -580,7 +610,8 @@ fn plains_of(secret: &str) -> Vec<String> {
     }
     // A JWT's segments, each echoed alone.
     let segments: Vec<&str> = secret.split('.').collect();
-    if segments.len() == 3 && segments[0].starts_with("eyJ") && segments.iter().all(|s| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')) {
+    if segments.len() == 3 && segments[0].starts_with("eyJ") && segments.iter().all(|s| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+    {
         plain.extend(segments.iter().map(|s| (*s).to_owned()));
     }
     let mut distinct: Vec<String> = Vec::with_capacity(plain.len());
@@ -1010,9 +1041,8 @@ impl Index {
     fn verify(&self, bucket: u64, ends: (u64, u64), start: usize, len: usize, bytes: &[u8], found: &mut Vec<Found>) {
         let text = &bytes[start..start + len];
         self.forms.visit_prefixed(bucket, 32, &mut |_, entry| {
-            let whole = entry.len as usize == len
-                && (entry.first, entry.last) == ends
-                && (len <= 2 * PRINT || form_of(&entry.secret, usize::from(entry.form)) == text);
+            let whole =
+                entry.len as usize == len && (entry.first, entry.last) == ends && (len <= 2 * PRINT || form_of(&entry.secret, usize::from(entry.form)) == text);
             if whole {
                 found.push((start, start + len, entry.kind));
             }

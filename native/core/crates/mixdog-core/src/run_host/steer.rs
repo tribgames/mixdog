@@ -83,7 +83,6 @@ mod tests {
         assert_eq!(entry.ids, ["q1"]);
     }
 
-
     #[test]
     fn a_steered_prompt_keeps_its_image_part() {
         let reference = "a".repeat(64);
@@ -118,8 +117,9 @@ mod tests {
         for content in [&injected.message.content, &stored.message.content] {
             let Content::Parts(parts) = content else { panic!("parts") };
             assert_eq!(parts.len(), 3);
-            assert!(matches!(&parts[2], ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef(r), .. } if *r == reference));
+            assert!(
+                matches!(&parts[2], ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef(r), .. } if *r == reference)
+            );
         }
     }
 }
-

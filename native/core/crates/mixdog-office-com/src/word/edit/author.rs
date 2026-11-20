@@ -28,8 +28,7 @@ pub(super) fn with_author(document: &Obj, op: &Value, run: impl FnOnce() -> Resu
     let previous_local_info = application.member("Options").and_then(|options| options.member("UseLocalUserInfo")).ok().map(|value| super::truth(&value));
     let initials = prop(op, "initials");
     let initials_label = if initials.is_null() { String::new() } else { text_of(&initials) };
-    let previous_initials =
-        if blank(&initials_label) { None } else { application.member("UserInitials").ok().map(|value| super::string(&value)) };
+    let previous_initials = if blank(&initials_label) { None } else { application.member("UserInitials").ok().map(|value| super::string(&value)) };
     let outcome = (|| -> Result<Value> {
         application.set_member("UserName", Com::from(label.as_str()))?;
         if previous_initials.is_some() {

@@ -98,7 +98,8 @@ fn window_of(bucket: &Value) -> Option<&str> {
 /// pair, each gating only the models it covers, then any other bucket under the name the response gives it.
 pub fn quota_windows(summary: &Value) -> Vec<Value> {
     let groups = summary.get("groups").and_then(Value::as_array).into_iter().flatten().filter(|g| g.is_object() || g.is_array());
-    let buckets: Vec<&Value> = groups.flat_map(|g| g.get("buckets").and_then(Value::as_array).into_iter().flatten()).filter(|b| b.is_object() || b.is_array()).collect();
+    let buckets: Vec<&Value> =
+        groups.flat_map(|g| g.get("buckets").and_then(Value::as_array).into_iter().flatten()).filter(|b| b.is_object() || b.is_array()).collect();
     // The Gemini pair covers Gemini models only: a model it does not name has unknown coverage, which
     // is not exhaustion. The Argon bucket, when reported, meters Argon on its own.
     let reported = |id: &str, window: &str| buckets.iter().copied().find(|b| id_of(b) == Some(id) && window_of(b) == Some(window));
@@ -134,4 +135,3 @@ pub fn snapshot(summary: &Value) -> Value {
     out.insert("quotaWindows".into(), Value::Array(quota_windows(summary)));
     Value::Object(out)
 }
-

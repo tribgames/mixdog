@@ -10,9 +10,7 @@
 use std::collections::HashMap;
 
 use mixdog_tui::panels::btw::{BtwAsk, BtwController, BtwHost};
-use mixdog_tui::panels::context::{
-    begin_context_open, finish_context_open, inspect_preview, open_context_panel, read_context_status,
-};
+use mixdog_tui::panels::context::{begin_context_open, finish_context_open, inspect_preview, open_context_panel, read_context_status};
 use mixdog_tui::panels::context_model::{ContextModelInput, build_context_panel_model};
 use mixdog_tui::panels::context_refresh::{ContextPanelRefresh, ContextRefreshFields};
 use mixdog_tui::panels::doctor::run_doctor;
@@ -25,8 +23,6 @@ use mixdog_tui::surface::owner::{PanelSurface, SurfaceEvent};
 use mixdog_tui_widgets::panels::context_inspector::InspectOutcome;
 use mixdog_tui_widgets::picker::IndexMode;
 use serde_json::{Value, json};
-
-
 
 // ---------------------------------------------------------------- the host
 
@@ -198,11 +194,8 @@ fn the_context_rows_follow_the_runtime_status_getters() {
     assert_eq!(fake.log[2], json!(["picker", null]));
     let panel = fake.surface.context().expect("the context panel is open").clone();
     assert_eq!(panel.title, "Context Usage");
-    let rows: Vec<Vec<String>> = panel
-        .rows
-        .iter()
-        .map(|row| ["value", "label", "description", "_action"].iter().map(|key| row[key].as_str().unwrap().to_owned()).collect())
-        .collect();
+    let rows: Vec<Vec<String>> =
+        panel.rows.iter().map(|row| ["value", "label", "description", "_action"].iter().map(|key| row[key].as_str().unwrap().to_owned()).collect()).collect();
     let want = [
         ["summary", "Context Usage", "50k/180k (27.8%) \u{b7} 130k free \u{b7} Last measured input \u{b7} effective"],
         ["compaction", "Compaction", "Compact complete (overflow recovery) \u{b7} 5s \u{b7} 60k pressure \u{b7} 20k reserve"],
@@ -238,14 +231,8 @@ fn the_context_rows_follow_the_runtime_status_getters() {
             "lastChanged": true
         })
     );
-    assert_eq!(
-        panel.detail["mcp"],
-        json!({ "connected": 1, "configured": 2, "failed": 1, "tools": 5, "activeTools": 3, "schemaTokens": 2_500 })
-    );
-    assert_eq!(
-        panel.detail["lastApi"],
-        json!({ "contextTokens": 50_000, "inputTokens": 6_000, "rawInputTokens": 6_000, "outputTokens": 900 })
-    );
+    assert_eq!(panel.detail["mcp"], json!({ "connected": 1, "configured": 2, "failed": 1, "tools": 5, "activeTools": 3, "schemaTokens": 2_500 }));
+    assert_eq!(panel.detail["lastApi"], json!({ "contextTokens": 50_000, "inputTokens": 6_000, "rawInputTokens": 6_000, "outputTokens": 900 }));
     assert_eq!(panel.detail["inspection"], status["inspection"]);
     assert_eq!(panel.detail["speed"], json!({ "outputTokensPerSecond": null }));
 
@@ -274,10 +261,7 @@ fn a_running_compaction_shows_no_duration_and_a_finished_one_shows_its_last_dura
     // The previous compaction's 4.2s must not read as the running one's time.
     assert_eq!(description(json!({ "lastStage": "compacting", "lastDurationMs": 4200 })), "Compacting conversation");
     assert_eq!(description(json!({ "inProgress": true, "lastDurationMs": 4200 })), "Compacting conversation");
-    assert_eq!(
-        description(json!({ "lastStage": "pre_send", "lastChanged": true, "lastDurationMs": 4200 })),
-        "Compact complete \u{b7} 5s"
-    );
+    assert_eq!(description(json!({ "lastStage": "pre_send", "lastChanged": true, "lastDurationMs": 4200 })), "Compact complete \u{b7} 5s");
     assert_eq!(description(json!({ "lastStage": "pre_send_check", "lastDurationMs": 4200 })), "Compact checked \u{b7} 5s");
 }
 
@@ -385,7 +369,6 @@ fn an_open_context_panel_is_rebuilt_when_a_summarised_field_changes() {
 }
 
 // ---------------------------------------------------------------- the usage dashboard
-
 
 #[test]
 fn the_usage_dashboard_streams_through_the_claim_and_a_newer_open_ends_the_old_one() {
@@ -546,4 +529,3 @@ fn a_btw_answer_lives_only_in_the_panel_and_a_replaced_ask_is_ignored() {
     run.step(&[json!("close")]);
     assert_eq!(run.controller.panel(), None);
 }
-

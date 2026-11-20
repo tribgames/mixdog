@@ -61,10 +61,7 @@ fn issue(severity: &str, code: &str, part: &str, message: String) -> Value {
 fn stacked_label_faults(part: &str, block: &str, name: &str) -> Vec<Value> {
     let grouping = compiled(r#"<c:grouping\b[^>]*\bval="(\w+)""#, "").captures(block).and_then(|found| found.get(1).map(str::to_owned));
     let Some(grouping) = grouping.filter(|value| STACKED.contains(&value.as_str())) else { return Vec::new() };
-    let outside = compiled(r#"<c:dLblPos\b[^>]*\bval="(\w+)""#, "g")
-        .captures_iter(block)
-        .filter(|found| found.get(1) == Some("outEnd"))
-        .count();
+    let outside = compiled(r#"<c:dLblPos\b[^>]*\bval="(\w+)""#, "g").captures_iter(block).filter(|found| found.get(1) == Some("outEnd")).count();
     if outside == 0 {
         return Vec::new();
     }
@@ -81,8 +78,7 @@ fn stacked_label_faults(part: &str, block: &str, name: &str) -> Vec<Value> {
 
 fn axis_reference_faults(part: &str, block: &str, name: &str, declared: &HashSet<String>) -> Vec<Value> {
     let Some(&(_, minimum)) = AXIS_MINIMUM.iter().find(|(known, _)| *known == name) else { return Vec::new() };
-    let ids: Vec<String> =
-        compiled(r#"<c:axId\b[^>]*\bval="(-?\d+)""#, "g").captures_iter(block).map(|found| found.get(1).unwrap_or("").to_owned()).collect();
+    let ids: Vec<String> = compiled(r#"<c:axId\b[^>]*\bval="(-?\d+)""#, "g").captures_iter(block).map(|found| found.get(1).unwrap_or("").to_owned()).collect();
     let live = ids.iter().filter(|id| declared.contains(*id)).count();
     if live >= 2 {
         return Vec::new();
@@ -202,7 +198,13 @@ mod tests {
     fn summary(issues: &[Value]) -> Vec<(String, String, String)> {
         issues
             .iter()
-            .map(|issue| (issue["code"].as_str().unwrap_or("").to_owned(), issue["severity"].as_str().unwrap_or("").to_owned(), issue["path"].as_str().unwrap_or("").to_owned()))
+            .map(|issue| {
+                (
+                    issue["code"].as_str().unwrap_or("").to_owned(),
+                    issue["severity"].as_str().unwrap_or("").to_owned(),
+                    issue["path"].as_str().unwrap_or("").to_owned(),
+                )
+            })
             .collect()
     }
 

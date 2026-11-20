@@ -15,18 +15,18 @@ pub mod bounded;
 pub mod capabilities;
 pub mod digest;
 
-/// The CSV/TSV backend: parsing, edits, snapshots and validation.
-pub mod tabular;
+pub mod actions;
+pub mod author;
+pub mod batch;
 pub mod contracts;
 pub mod describe;
-pub mod session;
-pub mod snapshot;
+pub mod dispatch;
+pub mod engine;
 pub mod inline_audit;
 pub mod inspect;
 pub mod render;
-pub mod author;
-pub mod batch;
+pub mod session;
+pub mod snapshot;
+/// The CSV/TSV backend: parsing, edits, snapshots and validation.
+pub mod tabular;
 pub mod transactions;
-pub mod actions;
-pub mod dispatch;
-pub mod engine;

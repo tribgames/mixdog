@@ -81,21 +81,38 @@ pub fn rank_candidates_with_k(rows: &[Row], k: f64) -> Vec<Ranked> {
 }
 
 const LATEST_CONTEXT_TERMS: [&str; 24] = [
-    "latest", "current", "recent", "most", "now", "final", "result", "status", "statu", "decision", "complete",
-    "completed", "최신", "현재", "최근", "지금", "방금", "최종", "결과", "상태", "값", "확정값", "결정", "완료",
+    "latest",
+    "current",
+    "recent",
+    "most",
+    "now",
+    "final",
+    "result",
+    "status",
+    "statu",
+    "decision",
+    "complete",
+    "completed",
+    "최신",
+    "현재",
+    "최근",
+    "지금",
+    "방금",
+    "최종",
+    "결과",
+    "상태",
+    "값",
+    "확정값",
+    "결정",
+    "완료",
 ];
 
 static ENTITY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[A-Za-z0-9_./:-]", ""));
-static LATEST_INTENT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"최신|현재|최근|방금|latest|current|most\s+recent", ""));
-static VAGUE_LATEST: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"방금.*(?:작업|결과)|(?:latest|recent|most\s+recent).*(?:work|result)", ""));
-static TIMELINE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"처음(?:부터)?|나중|변천|히스토리|과정|history|timeline|from\s+the\s+start", "")
-});
+static LATEST_INTENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"최신|현재|최근|방금|latest|current|most\s+recent", ""));
+static VAGUE_LATEST: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"방금.*(?:작업|결과)|(?:latest|recent|most\s+recent).*(?:work|result)", ""));
+static TIMELINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"처음(?:부터)?|나중|변천|히스토리|과정|history|timeline|from\s+the\s+start", ""));
 static DATED_UNIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d{1,4}(?:년|월|일|시|분)$", ""));
-static ATTACHED_ASCII: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"([A-Za-z0-9_./:-]{2,})\p{Script=Hangul}", "u"));
+static ATTACHED_ASCII: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"([A-Za-z0-9_./:-]{2,})\p{Script=Hangul}", "u"));
 static IDENTIFIER_SHAPE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[_./:-]|\d", ""));
 static LOWER_WORD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[a-z][a-z0-9_-]*$", ""));
 static EXPLICIT_IDENTIFIER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[A-Za-z][A-Za-z0-9_]*", ""));
@@ -139,15 +156,10 @@ pub fn latest_recall_topic_terms(text: &str) -> Vec<String> {
 
 pub fn latest_recall_search_terms(text: &str) -> Vec<String> {
     let topic = latest_recall_topic_terms(text);
-    let attached: HashSet<String> =
-        ATTACHED_ASCII.captures_iter(text).flat_map(|m| session_recall_terms(m.get(1).unwrap_or_default())).collect();
+    let attached: HashSet<String> = ATTACHED_ASCII.captures_iter(text).flat_map(|m| session_recall_terms(m.get(1).unwrap_or_default())).collect();
     let identifiers: Vec<String> = topic
         .iter()
-        .filter(|term| {
-            IDENTIFIER_SHAPE.is_match(term)
-                || attached.contains(term.as_str())
-                || (!attached.is_empty() && LOWER_WORD.is_match(term))
-        })
+        .filter(|term| IDENTIFIER_SHAPE.is_match(term) || attached.contains(term.as_str()) || (!attached.is_empty() && LOWER_WORD.is_match(term)))
         .cloned()
         .collect();
     if identifiers.is_empty() { topic } else { identifiers }
@@ -177,11 +189,7 @@ pub fn rank_latest_rows(rows: Vec<Row>, query: &str) -> Vec<Row> {
     let strict_entity_coverage = EXPLICIT_IDENTIFIER
         .find_iter(query)
         .map(|range| &query[range])
-        .filter(|term| {
-            ALL_CAPS.is_match(term)
-                || term.chars().skip(1).any(|c| c.is_ascii_uppercase())
-                || UNDERSCORE_OR_DIGIT.is_match(term)
-        })
+        .filter(|term| ALL_CAPS.is_match(term) || term.chars().skip(1).any(|c| c.is_ascii_uppercase()) || UNDERSCORE_OR_DIGIT.is_match(term))
         .count()
         > 1;
     let normalized_query = js_trim(&query.nfkc().collect::<String>()).to_lowercase();
@@ -227,13 +235,7 @@ pub fn rank_latest_rows(rows: Vec<Row>, query: &str) -> Vec<Row> {
 }
 
 /// Primary rows with the novel historical roots reserved among them.
-pub fn merge_historical_rows(
-    primary_rows: Vec<Row>,
-    root_rows: &[Row],
-    limit: usize,
-    include_matched_root_summary: bool,
-    root_reserve: usize,
-) -> Vec<Row> {
+pub fn merge_historical_rows(primary_rows: Vec<Row>, root_rows: &[Row], limit: usize, include_matched_root_summary: bool, root_reserve: usize) -> Vec<Row> {
     let cap = limit.max(1);
     let mut root_by_id: HashMap<i64, &Row> = HashMap::new();
     for row in root_rows {
@@ -247,11 +249,10 @@ pub fn merge_historical_rows(
         }
         let source = root_by_id.get(&row.id).copied().or(if row.is_root == 1 { Some(&row) } else { None });
         let mut row = row.clone();
-        if include_matched_root_summary
-            && let Some(source) = source {
-                row.historical_root_element = source.element.clone();
-                row.historical_root_summary = source.summary.clone();
-            }
+        if include_matched_root_summary && let Some(source) = source {
+            row.historical_root_element = source.element.clone();
+            row.historical_root_summary = source.summary.clone();
+        }
         primary.push(row);
     }
     let reserve = root_reserve.min(cap);
@@ -425,8 +426,7 @@ pub fn sample_timeline(rows: Vec<Row>, limit: usize) -> Vec<Row> {
 
 /// Drops a root whose duplicate representative is also present in the same project.
 pub fn collapse_history_duplicates(rows: Vec<Row>) -> Vec<Row> {
-    let by_id: HashMap<i64, Option<String>> =
-        rows.iter().filter(|r| r.is_root == 1).map(|r| (r.id, r.project_id.clone())).collect();
+    let by_id: HashMap<i64, Option<String>> = rows.iter().filter(|r| r.is_root == 1).map(|r| (r.id, r.project_id.clone())).collect();
     rows.into_iter()
         .filter(|row| {
             let (1, Some(duplicate_of)) = (row.is_root, row.duplicate_of) else { return true };

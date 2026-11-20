@@ -6,9 +6,7 @@ use serde_json::{Value, json};
 
 use super::jwt::{ProviderTokenCache, apns_provider_token};
 use super::keys::{ApnsConfig, js_string, truthy};
-use super::{
-    Clock, HttpRequest, HttpTransport, NOTIFICATION_TTL_SECONDS, Origins, PushMessage, SendResult, TransportError,
-};
+use super::{Clock, HttpRequest, HttpTransport, NOTIFICATION_TTL_SECONDS, Origins, PushMessage, SendResult, TransportError};
 use crate::js;
 
 pub struct ApnsSender {
@@ -33,9 +31,7 @@ impl ApnsSender {
     }
 
     fn authorization(&self, now_ms: i64) -> String {
-        let token = self.provider_token.get_or_mint(now_ms, || {
-            apns_provider_token(&self.config.key, &self.config.key_id, &self.config.team_id, now_ms)
-        });
+        let token = self.provider_token.get_or_mint(now_ms, || apns_provider_token(&self.config.key, &self.config.key_id, &self.config.team_id, now_ms));
         format!("bearer {token}")
     }
 

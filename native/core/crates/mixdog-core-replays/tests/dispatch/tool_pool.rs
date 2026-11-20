@@ -40,23 +40,18 @@ use tokio_util::sync::CancellationToken;
 use mixdog_core::run_host::tool_pool::callers::ThreadCallers;
 use mixdog_core::run_host::tool_pool::session_output::ListPage;
 use mixdog_core::run_host::tool_pool::session_port::AiTitleSetting;
-use mixdog_core::run_host::tool_pool::session_port::LiveWork;
-use mixdog_core::run_host::tool_pool::session_port::ThreadCatalog;
 use mixdog_core::run_host::tool_pool::session_port::BotIds;
 use mixdog_core::run_host::tool_pool::session_port::BotRow;
 use mixdog_core::run_host::tool_pool::session_port::BotWorld;
-use mixdog_core::run_host::tool_pool::session_port::SessionWork;
 use mixdog_core::run_host::tool_pool::session_port::DirectorySessionPort;
+use mixdog_core::run_host::tool_pool::session_port::LiveWork;
 use mixdog_core::run_host::tool_pool::session_port::ProjectList;
 use mixdog_core::run_host::tool_pool::session_port::SessionPortParts;
+use mixdog_core::run_host::tool_pool::session_port::SessionWork;
 use mixdog_core::run_host::tool_pool::session_port::Suggestions;
+use mixdog_core::run_host::tool_pool::session_port::ThreadCatalog;
 use mixdog_core::run_host::tool_pool::session_port::ThreadRequests;
 use mixdog_core::run_host::unattended::UnattendedRunRegistry;
-
-
-
-
-
 
 /// A thread store of headers, with the compare-and-set patch the session actor does.
 #[derive(Default)]
@@ -124,8 +119,6 @@ impl RunStamps for NoStamps {
     }
 }
 
-
-
 #[tokio::test]
 async fn a_user_is_available_unless_the_session_has_no_approval_surface() {
     let marks = HeartbeatSessions::new();
@@ -137,15 +130,6 @@ async fn a_user_is_available_unless_the_session_has_no_approval_surface() {
     assert!(!callers.user_available(&ThreadId::from("sess_b")).await);
     assert!(!callers.user_available(&ThreadId::from("sess_gone")).await);
 }
-
-
-
-
-
-
-
-
-
 
 fn ctx() -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
@@ -167,7 +151,6 @@ fn ctx() -> ToolContext {
         review: None,
     }
 }
-
 
 // --- the session port ---------------------------------------------------------------------------
 
@@ -195,7 +178,8 @@ impl ThreadRequests for Requests {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
         // A page of the stored transcript, newest first, as `thread/items/list` answers it.
         if method == "thread/items/list" {
-            let items: Vec<mixdog_protocol::ThreadItem> = self.transcript.iter().map(|item| serde_json::from_value(item.clone()).expect("a protocol item")).collect();
+            let items: Vec<mixdog_protocol::ThreadItem> =
+                self.transcript.iter().map(|item| serde_json::from_value(item.clone()).expect("a protocol item")).collect();
             let end = match params.get("cursor").and_then(Value::as_str) {
                 Some(cursor) => items.iter().position(|item| item.id().as_str() == cursor).expect("cursor row"),
                 None => items.len(),
@@ -204,7 +188,14 @@ impl ThreadRequests for Requests {
             let data = items[start..end].to_vec();
             let has_older = start > 0;
             let next_cursor = has_older.then(|| data[0].id().as_str().to_owned());
-            return Ok(serde_json::to_value(mixdog_app_protocol::v2::thread::ThreadItemsListResponse { data, has_older, has_newer: end < items.len(), next_cursor, backwards_cursor: None }).expect("page"));
+            return Ok(serde_json::to_value(mixdog_app_protocol::v2::thread::ThreadItemsListResponse {
+                data,
+                has_older,
+                has_newer: end < items.len(),
+                next_cursor,
+                backwards_cursor: None,
+            })
+            .expect("page"));
         }
         // A fork carries the conversation compacted when asked, and answers that it did.
         let compacted = (method == "thread/fork").then(|| params.get("compact").cloned().unwrap_or(Value::Bool(false)));
@@ -367,12 +358,7 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         bot_sources: Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default()),
         io: mixdog_rt::testing::tokens().interactive_io,
     }));
-    Port {
-        port,
-        callers,
-        threads,
-        requests,
-    }
+    Port { port, callers, threads, requests }
 }
 
 fn thread(id: &str) -> ThreadId {
@@ -427,22 +413,29 @@ async fn a_bot_id_resolves_to_its_home_chat() {
 #[tokio::test]
 async fn the_status_is_the_sessions_route_and_project() {
     let p = port(
-        &[(
-            "sess_a",
-            json!({
-                "title": "Fix it", "titleSource": "ai", "provider": "anthropic", "model": "claude-sonnet-4", "effort": "high",
-                "autoEffort": false, "fast": true, "workspace": { "projectPath": "/proj" }
-            }),
-        ), ("sess_b", json!({ "desktopSession": { "projectPath": "/desk" } })), ("sess_c", json!({}))],
+        &[
+            (
+                "sess_a",
+                json!({
+                    "title": "Fix it", "titleSource": "ai", "provider": "anthropic", "model": "claude-sonnet-4", "effort": "high",
+                    "autoEffort": false, "fast": true, "workspace": { "projectPath": "/proj" }
+                }),
+            ),
+            ("sess_b", json!({ "desktopSession": { "projectPath": "/desk" } })),
+            ("sess_c", json!({})),
+        ],
         Requests::default(),
     );
     let cwd = AbsPath::new(std::env::temp_dir()).expect("absolute");
     let shown = cwd.as_path().to_string_lossy().into_owned();
     let a = p.port.status(&thread("sess_a"), &cwd).await;
-    assert_eq!(serde_json::to_value(&a).expect("json"), json!({
-        "sessionId": "sess_a", "title": "Fix it", "titleSource": "ai", "cwd": shown, "project": "/proj",
-        "provider": "anthropic", "model": "claude-sonnet-4", "effort": "high", "autoEffort": false, "fast": true
-    }));
+    assert_eq!(
+        serde_json::to_value(&a).expect("json"),
+        json!({
+            "sessionId": "sess_a", "title": "Fix it", "titleSource": "ai", "cwd": shown, "project": "/proj",
+            "provider": "anthropic", "model": "claude-sonnet-4", "effort": "high", "autoEffort": false, "fast": true
+        })
+    );
     assert_eq!(p.port.status(&thread("sess_b"), &cwd).await.project, "/desk");
     let c = p.port.status(&thread("sess_c"), &cwd).await;
     assert_eq!((c.project.as_str(), c.title, c.provider, c.auto_effort, c.fast), (shown.as_str(), None, None, true, false));
@@ -522,9 +515,7 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     assert!(matches!(p.port.control(control("zap")).await, Err(PortError::Unavailable { .. })));
 }
 
-
 // --- `session action=list|read` quoting ------------------------------------------------------------
-
 
 /// `session action=read` through the tool and the port: another session's stored transcript is quoted from its newest
 /// row (offset 0), each row by Node's row kinds, with Node's argument refusals and its unavailable-session sentence.
@@ -542,11 +533,15 @@ async fn read_quotes_the_stored_transcript_from_its_newest_row() {
     let out: Value = serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other", "limit": 2 })).await.expect("read")).expect("json");
     assert_eq!(out["sessionId"], "sess_other");
     assert_eq!(out["items"][0], json!({ "kind": "assistant", "offset": 1, "id": "a1", "text": "done" }));
-    assert_eq!((out["items"][1]["kind"].clone(), out["items"][1]["offset"].clone(), out["items"][1]["status"].clone()), (json!("turndone"), json!(0), json!("done")));
+    assert_eq!(
+        (out["items"][1]["kind"].clone(), out["items"][1]["offset"].clone(), out["items"][1]["status"].clone()),
+        (json!("turndone"), json!(0), json!("done"))
+    );
     assert_eq!(out["nextOffset"], 2, "an older row is left");
     let whole: Value = serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other" })).await.expect("read")).expect("json");
     assert_eq!((whole["items"].as_array().map(Vec::len), whole["nextOffset"].clone()), (Some(3), Value::Null));
-    let past: Value = serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other", "offset": 2, "limit": 5 })).await.expect("read")).expect("json");
+    let past: Value =
+        serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other", "offset": 2, "limit": 5 })).await.expect("read")).expect("json");
     assert_eq!((past["items"][0]["text"].clone(), past["offset"].clone()), (json!("fix it"), json!(2)));
     for (args, want) in [
         (json!({ "action": "read", "session_id": "sess_other", "limit": 0 }), "session: limit must be an integer from 1 to 100"),
@@ -561,56 +556,7 @@ async fn read_quotes_the_stored_transcript_from_its_newest_row() {
 
 // --- `session action=list|send|create|status|bots` (`fixtures/session-control-cases`) ------------------------------------------
 
-
-
-
-
 // --- the production listing (`fixtures/session-listing`) -------------------------------------------------------------------
 // The session-control sets script the catalog (the recorder answered `listSessions` / `readRow` itself), so `session action=list` is
 // compared there through [`ScriptedListing`]; the listing the product binds, [`StoreListing`] over the store, is compared here against
 // Node's real catalog over the same sessions.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

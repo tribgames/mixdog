@@ -13,7 +13,6 @@ use super::{AssetDownloader, GraphBinary, bin_suffix, sha256_file};
 use crate::memory::ingest::system_now;
 use crate::model_install::fsio;
 
-
 /// `options.download` of the Node recording: writes what the scenario serves, or fails.
 struct Stub {
     durability: DurabilityIo,
@@ -35,7 +34,6 @@ impl AssetDownloader for Stub {
     }
 }
 
-
 /// Node's platform list (`NATIVE_ASSET_PLATFORMS`) is what the bundled manifest publishes, Windows on ARM included.
 #[test]
 fn the_bundled_manifest_publishes_every_release_platform() {
@@ -44,7 +42,6 @@ fn the_bundled_manifest_publishes_every_release_platform() {
     keys.sort_unstable();
     assert_eq!(keys, ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"]);
 }
-
 
 /// A manifest of version 1.2.3 whose trusted assets are `keys`, each with the digest of `bytes`.
 async fn manifest_for(keys: &[&str], bytes: &str) -> Value {
@@ -80,7 +77,8 @@ async fn windows_on_arm_installs_the_x64_asset_it_runs_under_emulation() {
     let dir = data.path().join("graph-bin");
     let downloads = stub(&dir, "graph");
     let manifest = manifest_for(&["win32-x64", "linux-x64"], "graph").await;
-    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("windows", "aarch64");
+    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now())
+        .on_host("windows", "aarch64");
     let installed = binary.ensure().await.expect("the x64 asset installs");
     assert_eq!(installed, dir.join(format!("mixdog-graph-1.2.3{}", bin_suffix())));
     let urls: Vec<String> = downloads.calls.lock().expect("calls").iter().map(|(url, _)| url.clone()).collect();
@@ -96,11 +94,10 @@ async fn an_unsupported_host_is_refused_before_any_download() {
     let downloads = stub(&dir, "graph");
     let published = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"];
     let manifest = manifest_for(&published, "graph").await;
-    let binary = GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("freebsd", "x86_64");
+    let binary =
+        GraphBinary::new(data.path().to_owned(), manifest, tokens.durability_io, tokens.cpu_bulk, downloads.clone(), system_now()).on_host("freebsd", "x86_64");
     let refused = binary.ensure().await.expect_err("freebsd-x64 has no asset");
     assert!(refused.contains("no prebuilt mixdog-graph binary for platform freebsd-x64"), "{refused}");
     assert!(downloads.calls.lock().expect("calls").is_empty(), "nothing is downloaded");
     assert!(!fsio::exists(tokens.durability_io, &dir).await.expect("exists"), "no install directory");
 }
-
-

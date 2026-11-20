@@ -27,12 +27,7 @@ pub fn edit_distance(left: &str, right: &str) -> usize {
 /// `subjectTokens(name)`: what a name is about, ignoring the verb it starts with. `add_toc` and `insert_toc` are the
 /// same subject under two verbs, which is how a caller usually misses a name.
 fn subject_tokens(name: &str) -> HashSet<String> {
-    js_to_lowercase(name)
-        .split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()))
-        .filter(|part| !part.is_empty())
-        .skip(1)
-        .map(str::to_owned)
-        .collect()
+    js_to_lowercase(name).split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit())).filter(|part| !part.is_empty()).skip(1).map(str::to_owned).collect()
 }
 
 /// `operationSuggestions(operation, operations)`: up to three candidates that read as a typo of `operation` or name its

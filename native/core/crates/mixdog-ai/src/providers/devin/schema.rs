@@ -355,12 +355,7 @@ impl ChatResponse {
 }
 
 /// `AssignModelRequest` / `AssignModelResponse`.
-pub fn encode_assign_model(
-    metadata: &Metadata,
-    router_uid: &str,
-    cascade_id: &str,
-    prompt: Option<&ChatMessagePrompt>,
-) -> Vec<u8> {
+pub fn encode_assign_model(metadata: &Metadata, router_uid: &str, cascade_id: &str, prompt: Option<&ChatMessagePrompt>) -> Vec<u8> {
     let mut w = Writer::new();
     w.message(1, metadata.body());
     w.string_if(2, router_uid);

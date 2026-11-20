@@ -7,11 +7,7 @@
 //! All file I/O runs as lane jobs: reads on io-interactive, writes and locks
 //! on io-durability.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "every std::fs call in this module is the body of a lane job"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every std::fs call in this module is the body of a lane job")]
 
 use std::fs;
 use std::io;
@@ -57,26 +53,14 @@ pub struct CredentialIo {
 
 impl CredentialIo {
     /// Runs `body` as a read-lane job.
-    pub(crate) async fn read_job<R: Send + 'static>(
-        &self,
-        body: impl FnOnce(&InLane<InteractiveIo>) -> io::Result<R> + Send + 'static,
-    ) -> io::Result<R> {
-        let job = self
-            .read
-            .submit(&CancellationToken::new(), body)
-            .map_err(|_| io::Error::other(LaneUnrun))?;
+    pub(crate) async fn read_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<InteractiveIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
+        let job = self.read.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other(LaneUnrun))?;
         job.await.map_err(|_| io::Error::other(LaneUnrun))?
     }
 
     /// Runs `body` as a durability-lane job; it takes its own file locks.
-    pub(crate) async fn write_job<R: Send + 'static>(
-        &self,
-        body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static,
-    ) -> io::Result<R> {
-        let job = self
-            .write
-            .submit(&CancellationToken::new(), body)
-            .map_err(|_| io::Error::other(LaneUnrun))?;
+    pub(crate) async fn write_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
+        let job = self.write.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other(LaneUnrun))?;
         job.await.map_err(|_| io::Error::other(LaneUnrun))?
     }
 }
@@ -128,12 +112,10 @@ fn read_document(path: &Path) -> Probe<Document> {
 /// caller holds the lock already.
 fn publish(lane: &InLane<DurabilityIo>, path: &Path, document: &Document) -> io::Result<()> {
     let opts = Opts { secret: true, fsync_dir: true, ..Opts::default() };
-    mixdog_statefile::write_json(lane, path, &Value::Object(document.clone()), &opts)
-        .map(drop)
-        .map_err(|error| match error {
-            mixdog_statefile::StateError::Io(error) => error,
-            other => io::Error::other(other.to_string()),
-        })
+    mixdog_statefile::write_json(lane, path, &Value::Object(document.clone()), &opts).map(drop).map_err(|error| match error {
+        mixdog_statefile::StateError::Io(error) => error,
+        other => io::Error::other(other.to_string()),
+    })
 }
 
 /// A busy lock is a timeout (`ELOCKTIMEOUT`); a write cannot go on without it.
@@ -204,11 +186,7 @@ impl CredentialFile {
             return Probe::Absent;
         }
         let path = self.path_now().await;
-        match self
-            .io
-            .read
-            .submit(&CancellationToken::new(), move |_| read_document(&path))
-        {
+        match self.io.read.submit(&CancellationToken::new(), move |_| read_document(&path)) {
             Ok(job) => job.await.unwrap_or(Probe::Unreadable),
             Err(_) => Probe::Unreadable,
         }
@@ -231,10 +209,7 @@ impl CredentialFile {
         }
     }
 
-    async fn write_job<R: Send + 'static>(
-        &self,
-        body: impl FnOnce(&InLane<DurabilityIo>, &Path) -> io::Result<R> + Send + 'static,
-    ) -> io::Result<R> {
+    async fn write_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<DurabilityIo>, &Path) -> io::Result<R> + Send + 'static) -> io::Result<R> {
         if self.remote_client {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -246,8 +221,7 @@ impl CredentialFile {
             .io
             .write
             .submit(&CancellationToken::new(), move |lane| {
-                mixdog_statefile::with_lock(lane, &path, &LockOpts::default(), || body(lane, &path))
-                    .map_err(lock_error)?
+                mixdog_statefile::with_lock(lane, &path, &LockOpts::default(), || body(lane, &path)).map_err(lock_error)?
             })
             .map_err(io::Error::other)?;
         job.await.map_err(io::Error::other)?
@@ -258,8 +232,7 @@ impl CredentialFile {
         let Value::Object(update) = serde_json::to_value(value).map_err(io::Error::other)? else {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         };
-        self.write_job(move |lane, path| publish(lane, path, &merged(path, update)))
-            .await
+        self.write_job(move |lane, path| publish(lane, path, &merged(path, update))).await
     }
 
     /// Stores `document` as the whole file, dropping the fields it lacks (Node's `forget…` writes
@@ -272,11 +245,7 @@ impl CredentialFile {
     /// refresher that read the pair before another process refreshed it must
     /// not overwrite the newer login. A missing file is offered as an empty
     /// document. Returns whether it published.
-    pub async fn replace_if(
-        &self,
-        unchanged: impl FnOnce(&Document) -> bool + Send + 'static,
-        update: Document,
-    ) -> io::Result<bool> {
+    pub async fn replace_if(&self, unchanged: impl FnOnce(&Document) -> bool + Send + 'static, update: Document) -> io::Result<bool> {
         self.replace_if_without(unchanged, update, &[]).await
     }
 
@@ -322,11 +291,7 @@ impl CredentialFile {
 
     /// Stores `document` as the whole file for a refresh of the stored login, only if `unchanged` accepts the stored
     /// document (the generation the refresh exchanged is still the one stored). Returns whether it published.
-    pub async fn replace_refreshed(
-        &self,
-        unchanged: impl FnOnce(&Document) -> bool + Send + 'static,
-        document: Document,
-    ) -> io::Result<bool> {
+    pub async fn replace_refreshed(&self, unchanged: impl FnOnce(&Document) -> bool + Send + 'static, document: Document) -> io::Result<bool> {
         self.write_job(move |lane, path| {
             let current = match read_document(path) {
                 Probe::Present(map) => map,
@@ -366,13 +331,7 @@ mod tests {
 
     fn file(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("x-oauth.json"),
-            CredentialIo {
-                read: tokens.interactive_io,
-                write: tokens.durability_io,
-            },
-        )
+        CredentialFile::new(dir.path().join("x-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
 
     #[tokio::test]
@@ -381,30 +340,14 @@ mod tests {
         let f = file(&dir);
         assert_eq!(f.load::<Tokens>().await, Probe::Absent);
         fs::write(f.path(), r#"{"access":"a","refresh":"r","future":{"k":1}}"#).unwrap();
-        f.save(&Tokens {
-            access: "a2".into(),
-            refresh: "r2".into(),
-        })
-        .await
-        .unwrap();
-        let Probe::Present(doc) = f.load_document().await else {
-            panic!("present")
-        };
+        f.save(&Tokens { access: "a2".into(), refresh: "r2".into() }).await.unwrap();
+        let Probe::Present(doc) = f.load_document().await else { panic!("present") };
         assert_eq!(doc["future"], json!({"k": 1}));
         assert_eq!(doc["access"], "a2");
-        assert_eq!(
-            f.load::<Tokens>().await,
-            Probe::Present(Tokens {
-                access: "a2".into(),
-                refresh: "r2".into()
-            })
-        );
+        assert_eq!(f.load::<Tokens>().await, Probe::Present(Tokens { access: "a2".into(), refresh: "r2".into() }));
         fs::write(f.path(), "{ half").unwrap();
         assert_eq!(f.load::<Tokens>().await, Probe::Unreadable);
-        assert!(
-            f.replace_if(|_| true, Map::new()).await.is_err(),
-            "an unreadable file is never overwritten as if absent"
-        );
+        assert!(f.replace_if(|_| true, Map::new()).await.is_err(), "an unreadable file is never overwritten as if absent");
     }
 
     #[tokio::test]
@@ -422,9 +365,7 @@ mod tests {
         assert!(f.replace_if(read_pair, fresh("new", "r2")).await.unwrap());
         // A second refresher that read the same old pair loses.
         assert!(!f.replace_if(read_pair, fresh("stale", "r9")).await.unwrap());
-        let Probe::Present(doc) = f.load_document().await else {
-            panic!("present")
-        };
+        let Probe::Present(doc) = f.load_document().await else { panic!("present") };
         assert_eq!(doc["access"], "new");
         f.remove().await.unwrap();
         assert_eq!(f.load_document().await, Probe::Absent);
@@ -440,9 +381,7 @@ mod tests {
         let mut update = Map::new();
         update.insert("expires_at".into(), 5_000_000_000_000_u64.into());
         assert!(f.replace_if_without(|_| true, update, &["expiresAt"]).await.unwrap());
-        let Probe::Present(doc) = f.load_document().await else {
-            panic!("present")
-        };
+        let Probe::Present(doc) = f.load_document().await else { panic!("present") };
         assert!(doc.get("expiresAt").is_none(), "{doc:?}");
         assert_eq!(doc["expires_at"], 5_000_000_000_000_u64);
         assert_eq!(doc["future"], true, "unknown fields stay");

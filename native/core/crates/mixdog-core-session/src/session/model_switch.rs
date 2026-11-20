@@ -27,10 +27,8 @@ use mixdog_core_ports::ports::route::model_switch_anchor_index;
 /// there is no stored message to mark; `true` also when the anchor already holds the same
 /// switch (same time and model).
 pub async fn record_model_switch(directory: &SessionDirectory, thread: &ThreadId, boundary: &Value) -> Result<bool, CoreError> {
-    let entry: ModelSwitchEntry = serde_json::from_value(boundary.clone()).map_err(|_| CoreError::InvalidParams {
-        path: "boundary".into(),
-        expected: "{provider, modelId, at}".into(),
-    })?;
+    let entry: ModelSwitchEntry = serde_json::from_value(boundary.clone())
+        .map_err(|_| CoreError::InvalidParams { path: "boundary".into(), expected: "{provider, modelId, at}".into() })?;
     let context = directory.model_context(thread).read().await?;
     let messages: Vec<Value> = context.iter().map(|(_, message)| message.clone()).collect();
     let Some(index) = model_switch_anchor_index(&messages) else {
@@ -39,9 +37,9 @@ pub async fn record_model_switch(directory: &SessionDirectory, thread: &ThreadId
     let iid = context[index].0.as_str().to_owned();
     // `same`: the anchor as read carries its recorded boundaries in `meta.modelSwitches`.
     let same = |body: &Value| {
-        body.pointer("/meta/modelSwitches").and_then(Value::as_array).is_some_and(|switches| {
-            switches.iter().any(|s| s.get("at") == Some(&json!(entry.at)) && s.get("modelId") == Some(&json!(entry.model_id)))
-        })
+        body.pointer("/meta/modelSwitches")
+            .and_then(Value::as_array)
+            .is_some_and(|switches| switches.iter().any(|s| s.get("at") == Some(&json!(entry.at)) && s.get("modelId") == Some(&json!(entry.model_id))))
     };
     let (ordinal, turn, item) = match directory.history_row(thread, &iid).await? {
         Some((ordinal, anchor)) => {

@@ -45,5 +45,3 @@ async fn concurrent_changes_notify_in_commit_order_and_each_listener_sees_its_ow
         assert_eq!(*generation, Some(own.generation), "{id} saw another change's state");
     }
 }
-
-

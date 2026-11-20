@@ -34,9 +34,15 @@ pub enum Event {
         locked: Option<bool>,
     },
     /// A condition the helper reports; `code` is stable.
-    Error { code: String, message: String },
+    Error {
+        code: String,
+        message: String,
+    },
     /// A grant challenge for the paired phone to sign.
-    GrantChallenge { nonce: String, challenge: String },
+    GrantChallenge {
+        nonce: String,
+        challenge: String,
+    },
 }
 
 /// Performs the mutual challenge-response as the client. The on-disk secret
@@ -45,72 +51,36 @@ pub enum Event {
 /// squatter that lacks the secret learns nothing usable.
 pub fn authenticate(io: &mut ipc::PipeIo, state: &InstallState) -> Result<Hello, String> {
     let client_nonce_b64 = security::generate_nonce();
-    let client_nonce =
-        security::decode_nonce(&client_nonce_b64).ok_or("failed to generate a client nonce")?;
-    protocol::write_all(
-        io,
-        &protocol::encode_control(&Message::ClientHello {
-            protocol: PROTOCOL_VERSION,
-            client_nonce: client_nonce_b64,
-        }),
-    )
-    .map_err(|error| format!("failed to send client-hello: {error}"))?;
+    let client_nonce = security::decode_nonce(&client_nonce_b64).ok_or("failed to generate a client nonce")?;
+    protocol::write_all(io, &protocol::encode_control(&Message::ClientHello { protocol: PROTOCOL_VERSION, client_nonce: client_nonce_b64 }))
+        .map_err(|error| format!("failed to send client-hello: {error}"))?;
 
     // The server proves knowledge of the secret before we send ours.
     let (server_nonce, server_mac) = match protocol::read_frame(io) {
-        Ok(Decoded::Control(Message::ServerAuth {
-            protocol,
-            server_nonce,
-            mac,
-        })) => {
+        Ok(Decoded::Control(Message::ServerAuth { protocol, server_nonce, mac })) => {
             if protocol != PROTOCOL_VERSION {
-                return Err(format!(
-                    "server speaks protocol {protocol}, expected {PROTOCOL_VERSION}"
-                ));
+                return Err(format!("server speaks protocol {protocol}, expected {PROTOCOL_VERSION}"));
             }
             (server_nonce, mac)
         }
-        Ok(Decoded::Control(Message::Error { code, message })) => {
-            return Err(format!("handshake rejected code={code} message={message}"))
-        }
+        Ok(Decoded::Control(Message::Error { code, message })) => return Err(format!("handshake rejected code={code} message={message}")),
         Ok(other) => return Err(format!("unexpected handshake reply: {other:?}")),
         Err(error) => return Err(format!("reading server-auth: {error}")),
     };
-    let server_nonce_bytes =
-        security::decode_nonce(&server_nonce).ok_or("server sent a malformed nonce")?;
+    let server_nonce_bytes = security::decode_nonce(&server_nonce).ok_or("server sent a malformed nonce")?;
     let expected = security::server_auth_tag(&state.secret, &client_nonce, &server_nonce_bytes);
     if !security::secret_matches(&expected, &server_mac) {
-        return Err(
-            "server authentication failed (not the real helper); aborting before sending our proof"
-                .into(),
-        );
+        return Err("server authentication failed (not the real helper); aborting before sending our proof".into());
     }
 
     // Only after the server is proven do we reveal our own proof.
     let client_mac = security::client_auth_tag(&state.secret, &server_nonce_bytes, &client_nonce);
-    protocol::write_all(
-        io,
-        &protocol::encode_control(&Message::ClientAuth { mac: client_mac }),
-    )
-    .map_err(|error| format!("failed to send client-auth: {error}"))?;
+    protocol::write_all(io, &protocol::encode_control(&Message::ClientAuth { mac: client_mac }))
+        .map_err(|error| format!("failed to send client-auth: {error}"))?;
 
     match protocol::read_frame(io) {
-        Ok(Decoded::Control(Message::ServerHello {
-            protocol,
-            version,
-            session,
-            desktop,
-            locked,
-        })) => Ok(Hello {
-            protocol,
-            version,
-            session,
-            desktop,
-            locked,
-        }),
-        Ok(Decoded::Control(Message::Error { code, message })) => {
-            Err(format!("handshake rejected code={code} message={message}"))
-        }
+        Ok(Decoded::Control(Message::ServerHello { protocol, version, session, desktop, locked })) => Ok(Hello { protocol, version, session, desktop, locked }),
+        Ok(Decoded::Control(Message::Error { code, message })) => Err(format!("handshake rejected code={code} message={message}")),
         Ok(other) => Err(format!("unexpected reply after client-auth: {other:?}")),
         Err(error) => Err(format!("reading server-hello: {error}")),
     }
@@ -128,18 +98,8 @@ impl Link {
         let state = std::fs::read_to_string(paths::state_file())
             .ok()
             .and_then(|text| InstallState::from_json(&text).ok())
-            .ok_or_else(|| {
-                format!(
-                    "secure_desktop_not_installed: no readable state at {}",
-                    paths::state_file().display()
-                )
-            })?;
-        let pipe = ipc::connect(&state.pipe_name).map_err(|error| {
-            format!(
-                "secure_desktop_unreachable: cannot connect to {}: {error}",
-                state.pipe_name
-            )
-        })?;
+            .ok_or_else(|| format!("secure_desktop_not_installed: no readable state at {}", paths::state_file().display()))?;
+        let pipe = ipc::connect(&state.pipe_name).map_err(|error| format!("secure_desktop_unreachable: cannot connect to {}: {error}", state.pipe_name))?;
         let hello = authenticate(&mut ipc::PipeIo(pipe.get()), &state)?;
         Ok(Link { pipe, hello })
     }
@@ -170,11 +130,7 @@ impl Link {
 
     /// Hands the helper the paired phone's signature over a grant challenge.
     pub fn grant(&mut self, challenge: String, epoch: u64, signature: String) -> io::Result<()> {
-        self.send(&Message::Grant {
-            challenge,
-            epoch,
-            signature,
-        })
+        self.send(&Message::Grant { challenge, epoch, signature })
     }
 
     /// One input action in desktop pixels. The helper applies it only while
@@ -191,8 +147,7 @@ impl Link {
     fn available(&self) -> io::Result<bool> {
         let mut bytes = 0u32;
         // SAFETY: a plain availability probe on the owned pipe handle.
-        unsafe { PeekNamedPipe(self.pipe.get(), None, 0, None, Some(&mut bytes), None) }
-            .map_err(|error| io::Error::other(error.message()))?;
+        unsafe { PeekNamedPipe(self.pipe.get(), None, 0, None, Some(&mut bytes), None) }.map_err(|error| io::Error::other(error.message()))?;
         Ok(bytes > 0)
     }
 
@@ -208,25 +163,10 @@ impl Link {
         }
         Ok(Some(match protocol::read_frame(&mut self.io())? {
             Decoded::Video(header, pixels) => Event::Frame(header, pixels),
-            Decoded::Control(Message::DesktopChanged {
-                desktop,
-                session,
-                locked,
-            }) => Event::DesktopChanged {
-                desktop,
-                session,
-                locked,
-            },
+            Decoded::Control(Message::DesktopChanged { desktop, session, locked }) => Event::DesktopChanged { desktop, session, locked },
             Decoded::Control(Message::Error { code, message }) => Event::Error { code, message },
-            Decoded::Control(Message::GrantChallenge { nonce, challenge }) => {
-                Event::GrantChallenge { nonce, challenge }
-            }
-            Decoded::Control(other) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("unexpected message from the helper: {other:?}"),
-                ))
-            }
+            Decoded::Control(Message::GrantChallenge { nonce, challenge }) => Event::GrantChallenge { nonce, challenge },
+            Decoded::Control(other) => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unexpected message from the helper: {other:?}"))),
         }))
     }
 }

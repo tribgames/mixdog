@@ -2,9 +2,9 @@
 //! each compositor answers through its own interface.
 
 use crate::platform::{Wid, WinState, WindowInfo};
+use crate::port::linux::{self as port, Program};
 use serde_json::Value;
 use std::process::Command;
-use crate::port::linux::{self as port, Program};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Compositor {
@@ -18,11 +18,7 @@ pub enum Compositor {
 
 fn json_command(program: &str, args: &[&str]) -> Option<Value> {
     let output = Command::new(program).args(args).output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| serde_json::from_slice(&output.stdout).ok())
-        .flatten()
+    output.status.success().then(|| serde_json::from_slice(&output.stdout).ok()).flatten()
 }
 
 const GNOME_PATH: &str = "/io/mixdog/Windows";
@@ -33,51 +29,24 @@ where
     B: serde::Serialize + zbus::zvariant::DynamicType,
 {
     let bus = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
-    bus.call_method(
-        Some("org.gnome.Shell"),
-        GNOME_PATH,
-        Some(GNOME_INTERFACE),
-        method,
-        body,
-    )
-    .map_err(|error| error.to_string())
+    bus.call_method(Some("org.gnome.Shell"), GNOME_PATH, Some(GNOME_INTERFACE), method, body).map_err(|error| error.to_string())
 }
 
-fn gnome_json(
-    method: &str,
-    body: &(impl serde::Serialize + zbus::zvariant::DynamicType),
-) -> Option<Value> {
+fn gnome_json(method: &str, body: &(impl serde::Serialize + zbus::zvariant::DynamicType)) -> Option<Value> {
     let reply = gnome_call(method, body).ok()?;
     let text: String = reply.body().deserialize().ok()?;
     serde_json::from_str(&text).ok()
 }
 
 fn int(value: &Value, key: &str) -> i32 {
-    value
-        .get(key)
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        .round() as i32
+    value.get(key).and_then(Value::as_f64).unwrap_or(0.0).round() as i32
 }
 
 fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
+    value.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
 }
 
-fn window(
-    handle: Wid,
-    title: String,
-    app: String,
-    pid: i64,
-    focused: bool,
-    minimized: bool,
-    maximized: bool,
-    rect: (i32, i32, i32, i32),
-) -> WindowInfo {
+fn window(handle: Wid, title: String, app: String, pid: i64, focused: bool, minimized: bool, maximized: bool, rect: (i32, i32, i32, i32)) -> WindowInfo {
     WindowInfo {
         handle,
         title,
@@ -99,11 +68,7 @@ fn window(
 }
 
 fn sway_windows(node: &Value, out: &mut Vec<WindowInfo>) {
-    let is_window = node.get("pid").and_then(Value::as_i64).is_some()
-        && matches!(
-            node.get("type").and_then(Value::as_str),
-            Some("con") | Some("floating_con")
-        );
+    let is_window = node.get("pid").and_then(Value::as_i64).is_some() && matches!(node.get("type").and_then(Value::as_str), Some("con") | Some("floating_con"));
     if is_window {
         let rect = node.get("rect").cloned().unwrap_or_default();
         let inner = node.get("window_rect").cloned().unwrap_or_default();
@@ -111,40 +76,20 @@ fn sway_windows(node: &Value, out: &mut Vec<WindowInfo>) {
             .get("app_id")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .unwrap_or_else(|| {
-                node.pointer("/window_properties/class")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string()
-            });
+            .unwrap_or_else(|| node.pointer("/window_properties/class").and_then(Value::as_str).unwrap_or_default().to_string());
         out.push(window(
             node.get("id").and_then(Value::as_u64).unwrap_or(0),
             text(node, "name"),
             app,
             node.get("pid").and_then(Value::as_i64).unwrap_or(0),
-            node.get("focused")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            node.get("focused").and_then(Value::as_bool).unwrap_or(false),
             !node.get("visible").and_then(Value::as_bool).unwrap_or(true),
-            node.get("fullscreen_mode")
-                .and_then(Value::as_i64)
-                .unwrap_or(0)
-                != 0,
-            (
-                int(&rect, "x") + int(&inner, "x"),
-                int(&rect, "y") + int(&inner, "y"),
-                int(&inner, "width"),
-                int(&inner, "height"),
-            ),
+            node.get("fullscreen_mode").and_then(Value::as_i64).unwrap_or(0) != 0,
+            (int(&rect, "x") + int(&inner, "x"), int(&rect, "y") + int(&inner, "y"), int(&inner, "width"), int(&inner, "height")),
         ));
     }
     for key in ["nodes", "floating_nodes"] {
-        for child in node
-            .get(key)
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
+        for child in node.get(key).and_then(Value::as_array).into_iter().flatten() {
             sway_windows(child, out);
         }
     }
@@ -162,10 +107,7 @@ impl Compositor {
         if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
             return Compositor::Hyprland;
         }
-        if std::env::var("XDG_CURRENT_DESKTOP")
-            .is_ok_and(|desktop| desktop.to_uppercase().contains("GNOME"))
-            && gnome_json("List", &()).is_some()
-        {
+        if std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktop| desktop.to_uppercase().contains("GNOME")) && gnome_json("List", &()).is_some() {
             return Compositor::Gnome;
         }
         Compositor::None
@@ -175,42 +117,15 @@ impl Compositor {
     pub fn windows(&self) -> Option<Vec<WindowInfo>> {
         let mut windows = Vec::new();
         match self {
-            Compositor::Sway => sway_windows(
-                &json_command("swaymsg", &["-t", "get_tree", "-r"])?,
-                &mut windows,
-            ),
+            Compositor::Sway => sway_windows(&json_command("swaymsg", &["-t", "get_tree", "-r"])?, &mut windows),
             Compositor::Hyprland => {
-                let active = json_command("hyprctl", &["-j", "activewindow"])
-                    .map(|value| hypr_address(&value))
-                    .unwrap_or(0);
-                let mut clients = json_command("hyprctl", &["-j", "clients"])?
-                    .as_array()?
-                    .clone();
-                clients.sort_by_key(|client| {
-                    client
-                        .get("focusHistoryID")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(i64::MAX)
-                });
-                for client in clients.iter().filter(|client| {
-                    client
-                        .get("mapped")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true)
-                }) {
-                    let at = client
-                        .get("at")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
-                    let size = client
-                        .get("size")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
-                    let number = |list: &Vec<Value>, index: usize| {
-                        list.get(index).and_then(Value::as_f64).unwrap_or(0.0) as i32
-                    };
+                let active = json_command("hyprctl", &["-j", "activewindow"]).map(|value| hypr_address(&value)).unwrap_or(0);
+                let mut clients = json_command("hyprctl", &["-j", "clients"])?.as_array()?.clone();
+                clients.sort_by_key(|client| client.get("focusHistoryID").and_then(Value::as_i64).unwrap_or(i64::MAX));
+                for client in clients.iter().filter(|client| client.get("mapped").and_then(Value::as_bool).unwrap_or(true)) {
+                    let at = client.get("at").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let size = client.get("size").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let number = |list: &Vec<Value>, index: usize| list.get(index).and_then(Value::as_f64).unwrap_or(0.0) as i32;
                     let handle = hypr_address(client);
                     windows.push(window(
                         handle,
@@ -218,19 +133,9 @@ impl Compositor {
                         text(client, "class"),
                         client.get("pid").and_then(Value::as_i64).unwrap_or(0),
                         handle == active,
-                        client
-                            .get("hidden")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false),
-                        client.get("fullscreen").is_some_and(|value| {
-                            value.as_bool().unwrap_or(false) || value.as_i64().unwrap_or(0) != 0
-                        }),
-                        (
-                            number(&at, 0),
-                            number(&at, 1),
-                            number(&size, 0),
-                            number(&size, 1),
-                        ),
+                        client.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                        client.get("fullscreen").is_some_and(|value| value.as_bool().unwrap_or(false) || value.as_i64().unwrap_or(0) != 0),
+                        (number(&at, 0), number(&at, 1), number(&size, 0), number(&size, 1)),
                     ));
                 }
             }
@@ -245,12 +150,7 @@ impl Compositor {
                         flag("focus"),
                         flag("minimized"),
                         flag("maximized"),
-                        (
-                            int(item, "x"),
-                            int(item, "y"),
-                            int(item, "width"),
-                            int(item, "height"),
-                        ),
+                        (int(item, "x"), int(item, "y"), int(item, "width"), int(item, "height")),
                     ));
                 }
                 windows.sort_by_key(|window| !window.focused);
@@ -268,42 +168,16 @@ impl Compositor {
             Compositor::Sway => json_command("swaymsg", &["-t", "get_outputs", "-r"])?
                 .as_array()?
                 .iter()
-                .filter(|output| {
-                    output
-                        .get("active")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true)
-                })
-                .filter_map(|output| {
-                    output.get("rect").map(|rect| {
-                        (
-                            int(rect, "x"),
-                            int(rect, "y"),
-                            int(rect, "width"),
-                            int(rect, "height"),
-                        )
-                    })
-                })
+                .filter(|output| output.get("active").and_then(Value::as_bool).unwrap_or(true))
+                .filter_map(|output| output.get("rect").map(|rect| (int(rect, "x"), int(rect, "y"), int(rect, "width"), int(rect, "height"))))
                 .collect(),
             Compositor::Hyprland => json_command("hyprctl", &["-j", "monitors"])?
                 .as_array()?
                 .iter()
                 .map(|monitor| {
-                    let scale = monitor
-                        .get("scale")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(1.0)
-                        .max(0.1);
-                    let size = |key: &str| {
-                        (monitor.get(key).and_then(Value::as_f64).unwrap_or(0.0) / scale).round()
-                            as i32
-                    };
-                    (
-                        int(monitor, "x"),
-                        int(monitor, "y"),
-                        size("width"),
-                        size("height"),
-                    )
+                    let scale = monitor.get("scale").and_then(Value::as_f64).unwrap_or(1.0).max(0.1);
+                    let size = |key: &str| (monitor.get(key).and_then(Value::as_f64).unwrap_or(0.0) / scale).round() as i32;
+                    (int(monitor, "x"), int(monitor, "y"), size("width"), size("height"))
                 })
                 .collect(),
             _ => Vec::new(),
@@ -329,62 +203,24 @@ impl Compositor {
     pub fn focus(&self, handle: Wid) -> Result<(), String> {
         match self {
             Compositor::Sway => port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "focus"]),
-            Compositor::Hyprland => port::compositor_command(Program::Hyprctl,
-                &["dispatch", "focuswindow", &format!("address:0x{handle:x}")],
-            ),
+            Compositor::Hyprland => port::compositor_command(Program::Hyprctl, &["dispatch", "focuswindow", &format!("address:0x{handle:x}")]),
             Compositor::Gnome => port::gnome_window("Activate", &(handle,)),
             Compositor::None => self.supported(),
         }
     }
 
-    pub fn move_window(
-        &self,
-        handle: Wid,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-    ) -> Result<(), String> {
+    pub fn move_window(&self, handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
         match self {
             Compositor::Sway => {
                 let target = format!("[con_id={handle}]");
                 port::compositor_command(Program::Swaymsg, &[&target, "floating", "enable"])?;
-                port::compositor_command(Program::Swaymsg,
-                    &[
-                        &target,
-                        "resize",
-                        "set",
-                        &format!("{width}"),
-                        &format!("{height}"),
-                    ],
-                )?;
-                port::compositor_command(Program::Swaymsg,
-                    &[
-                        &target,
-                        "move",
-                        "absolute",
-                        "position",
-                        &format!("{x}"),
-                        &format!("{y}"),
-                    ],
-                )
+                port::compositor_command(Program::Swaymsg, &[&target, "resize", "set", &format!("{width}"), &format!("{height}")])?;
+                port::compositor_command(Program::Swaymsg, &[&target, "move", "absolute", "position", &format!("{x}"), &format!("{y}")])
             }
             Compositor::Hyprland => {
                 let address = format!("address:0x{handle:x}");
-                port::compositor_command(Program::Hyprctl,
-                    &[
-                        "dispatch",
-                        "resizewindowpixel",
-                        &format!("exact {width} {height},{address}"),
-                    ],
-                )?;
-                port::compositor_command(Program::Hyprctl,
-                    &[
-                        "dispatch",
-                        "movewindowpixel",
-                        &format!("exact {x} {y},{address}"),
-                    ],
-                )
+                port::compositor_command(Program::Hyprctl, &["dispatch", "resizewindowpixel", &format!("exact {width} {height},{address}")])?;
+                port::compositor_command(Program::Hyprctl, &["dispatch", "movewindowpixel", &format!("exact {x} {y},{address}")])
             }
             Compositor::Gnome => port::gnome_window("MoveResize", &(handle, x, y, width as u32, height as u32)),
             Compositor::None => self.supported(),
@@ -393,46 +229,28 @@ impl Compositor {
 
     pub fn set_state(&self, handle: Wid, state: WinState) -> Result<(), String> {
         match (self, state) {
-            (Compositor::Gnome, WinState::Minimize) => {
-                port::gnome_window("Minimize", &(handle,))
-            }
-            (Compositor::Gnome, WinState::Maximize) => {
-                port::gnome_window("Maximize", &(handle,))
-            }
+            (Compositor::Gnome, WinState::Minimize) => port::gnome_window("Minimize", &(handle,)),
+            (Compositor::Gnome, WinState::Maximize) => port::gnome_window("Maximize", &(handle,)),
             (Compositor::Gnome, WinState::Restore) => {
                 let _ = port::gnome_window("Unminimize", &(handle,));
                 port::gnome_window("Unmaximize", &(handle,))
             }
-            (Compositor::Sway, WinState::Minimize) => port::compositor_command(Program::Swaymsg,
-                &[&format!("[con_id={handle}]"), "move", "scratchpad"],
-            ),
-            (Compositor::Sway, WinState::Maximize) => port::compositor_command(Program::Swaymsg,
-                &[&format!("[con_id={handle}]"), "fullscreen", "enable"],
-            ),
+            (Compositor::Sway, WinState::Minimize) => port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "move", "scratchpad"]),
+            (Compositor::Sway, WinState::Maximize) => port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "fullscreen", "enable"]),
             (Compositor::Sway, WinState::Restore) => {
                 let target = format!("[con_id={handle}]");
                 let _ = port::compositor_command(Program::Swaymsg, &[&target, "scratchpad", "show"]);
                 port::compositor_command(Program::Swaymsg, &[&target, "fullscreen", "disable"])
             }
-            (Compositor::Hyprland, WinState::Minimize) => port::compositor_command(Program::Hyprctl,
-                &[
-                    "dispatch",
-                    "movetoworkspacesilent",
-                    &format!("special:minimized,address:0x{handle:x}"),
-                ],
-            ),
+            (Compositor::Hyprland, WinState::Minimize) => {
+                port::compositor_command(Program::Hyprctl, &["dispatch", "movetoworkspacesilent", &format!("special:minimized,address:0x{handle:x}")])
+            }
             (Compositor::Hyprland, WinState::Maximize) => {
                 self.focus(handle)?;
                 port::compositor_command(Program::Hyprctl, &["dispatch", "fullscreen", "1"])
             }
             (Compositor::Hyprland, WinState::Restore) => {
-                let _ = port::compositor_command(Program::Hyprctl,
-                    &[
-                        "dispatch",
-                        "movetoworkspacesilent",
-                        &format!("e+0,address:0x{handle:x}"),
-                    ],
-                );
+                let _ = port::compositor_command(Program::Hyprctl, &["dispatch", "movetoworkspacesilent", &format!("e+0,address:0x{handle:x}")]);
                 self.focus(handle)?;
                 port::compositor_command(Program::Hyprctl, &["dispatch", "fullscreenstate", "0 0"])
             }
@@ -442,13 +260,8 @@ impl Compositor {
 
     pub fn close(&self, handle: Wid) -> Result<bool, String> {
         match self {
-            Compositor::Sway => {
-                port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "kill"]).map(|_| true)
-            }
-            Compositor::Hyprland => port::compositor_command(Program::Hyprctl,
-                &["dispatch", "closewindow", &format!("address:0x{handle:x}")],
-            )
-            .map(|_| true),
+            Compositor::Sway => port::compositor_command(Program::Swaymsg, &[&format!("[con_id={handle}]"), "kill"]).map(|_| true),
+            Compositor::Hyprland => port::compositor_command(Program::Hyprctl, &["dispatch", "closewindow", &format!("address:0x{handle:x}")]).map(|_| true),
             Compositor::Gnome => port::gnome_window("Close", &(handle,)).map(|_| true),
             Compositor::None => self.supported().map(|_| false),
         }
@@ -457,8 +270,7 @@ impl Compositor {
 
 pub fn union(rects: &[(i32, i32, i32, i32)]) -> Option<(i32, i32, i32, i32)> {
     let first = rects.first()?;
-    let (mut left, mut top, mut right, mut bottom) =
-        (first.0, first.1, first.0 + first.2, first.1 + first.3);
+    let (mut left, mut top, mut right, mut bottom) = (first.0, first.1, first.0 + first.2, first.1 + first.3);
     for (x, y, width, height) in rects {
         left = left.min(*x);
         top = top.min(*y);
@@ -485,18 +297,12 @@ mod tests {
         let mut windows = Vec::new();
         sway_windows(&tree, &mut windows);
         assert_eq!(windows.len(), 1);
-        assert_eq!(
-            (windows[0].x, windows[0].y, windows[0].width),
-            (102, 70, 796)
-        );
+        assert_eq!((windows[0].x, windows[0].y, windows[0].width), (102, 70, 796));
         assert!(windows[0].focused);
     }
 
     #[test]
     fn union_spans_every_output() {
-        assert_eq!(
-            union(&[(0, 0, 1920, 1080), (1920, -200, 1280, 1024)]),
-            Some((0, -200, 3200, 1280))
-        );
+        assert_eq!(union(&[(0, 0, 1920, 1080), (1920, -200, 1280, 1024)]), Some((0, -200, 3200, 1280)));
     }
 }

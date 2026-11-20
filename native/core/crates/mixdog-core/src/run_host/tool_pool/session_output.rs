@@ -62,7 +62,11 @@ pub(super) fn number_of(value: Option<&Value>) -> f64 {
 }
 
 fn is_js_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+    )
 }
 
 /// `truncateToolText(value, max)`: trimmed, and cut to `max` UTF-16 units with `...` after it.
@@ -299,7 +303,10 @@ pub fn row_of(item: &ThreadItem) -> Option<Value> {
     put("id", json!(item.id().as_str()));
     match item {
         ThreadItem::UserMessage { display_text, details, meta, .. } => {
-            let user = matches!(details.source, None | Some(mixdog_protocol::MessageSource::Import | mixdog_protocol::MessageSource::RoutineTrigger | mixdog_protocol::MessageSource::Steering));
+            let user = matches!(
+                details.source,
+                None | Some(mixdog_protocol::MessageSource::Import | mixdog_protocol::MessageSource::RoutineTrigger | mixdog_protocol::MessageSource::Steering)
+            );
             put("kind", json!(if user { "user" } else { "notice" }));
             put("text", json!(display_text));
             if let Some(detail) = &meta.detail {
@@ -341,11 +348,14 @@ pub fn row_of(item: &ThreadItem) -> Option<Value> {
         }
         ThreadItem::TurnEnd { status, detail, .. } => {
             put("kind", json!("turndone"));
-            put("status", json!(match status {
-                TurnEndStatus::Done => "done",
-                TurnEndStatus::Failed => "failed",
-                TurnEndStatus::Cancelled => "cancelled",
-            }));
+            put(
+                "status",
+                json!(match status {
+                    TurnEndStatus::Done => "done",
+                    TurnEndStatus::Failed => "failed",
+                    TurnEndStatus::Cancelled => "cancelled",
+                }),
+            );
             if let Some(detail) = detail {
                 put("detail", json!(detail));
             }

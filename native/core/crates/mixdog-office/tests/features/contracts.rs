@@ -32,7 +32,9 @@ fn a_single_cell_written_as_a_range_is_taken_as_the_cell_and_a_wide_range_is_ref
     assert_eq!(leaf["element"]["value"], 620);
     assert_eq!(
         batch_text(&office, &session, json!([{ "op": "set_cell", "range": "B2:E2", "value": 4 }])),
-        format!("Error: XLSX operation \"set_cell\" at operation 1 writes one cell: pass cell instead of range. For B2:E2 use set_range (values) or set_style (formatting). {SET_CELL_HINT}")
+        format!(
+            "Error: XLSX operation \"set_cell\" at operation 1 writes one cell: pass cell instead of range. For B2:E2 use set_range (values) or set_style (formatting). {SET_CELL_HINT}"
+        )
     );
     assert!(!written_refs(&office, &session).contains(&"B2".to_owned()), "a refused batch wrote nothing");
 }
@@ -41,7 +43,8 @@ fn a_single_cell_written_as_a_range_is_taken_as_the_cell_and_a_wide_range_is_ref
 fn a_field_the_operation_does_not_take_is_named_and_the_fault_says_which_operation_of_the_batch_it_is() {
     let office = Harness::new();
     let session = created(&office, "fields.xlsx", json!([{ "op": "set_cell", "cell": "A1", "value": 1 }]));
-    let text = batch_text(&office, &session, json!([{ "op": "set_cell", "cell": "A2", "value": 2 }, { "op": "set_cell", "cell": "A3", "value": 3, "frob": true }]));
+    let text =
+        batch_text(&office, &session, json!([{ "op": "set_cell", "cell": "A2", "value": 2 }, { "op": "set_cell", "cell": "A3", "value": 3, "frob": true }]));
     assert!(text.starts_with("Error: XLSX operation \"set_cell\" at operation 2 has unknown field(s): frob."), "{text}");
     assert!(text.ends_with(SET_CELL_HINT), "{text}");
     assert_eq!(written_refs(&office, &session), ["A1"], "the valid first operation was not applied either");
@@ -51,13 +54,17 @@ fn a_field_the_operation_does_not_take_is_named_and_the_fault_says_which_operati
 fn an_operation_without_a_name_is_refused_by_its_place() {
     let office = Harness::new();
     let session = created(&office, "named.xlsx", json!([{ "op": "set_cell", "cell": "A1", "value": 1 }]));
-    assert_eq!(batch_text(&office, &session, json!([{ "op": "set_cell", "cell": "A2", "value": 2 }, { "cell": "A3" }])), "Error: Office operation 2 requires op");
+    assert_eq!(
+        batch_text(&office, &session, json!([{ "op": "set_cell", "cell": "A2", "value": 2 }, { "cell": "A3" }])),
+        "Error: Office operation 2 requires op"
+    );
 }
 
 #[test]
 fn every_answer_reports_how_long_it_took_and_a_written_file_is_named_as_an_artifact() {
     let office = Harness::new();
-    let made = office.call(json!({ "action": "create", "path": "art.xlsx", "mode": "portable", "operations": [{ "op": "set_cell", "cell": "A1", "value": 1 }] }));
+    let made =
+        office.call(json!({ "action": "create", "path": "art.xlsx", "mode": "portable", "operations": [{ "op": "set_cell", "cell": "A1", "value": 1 }] }));
     assert!(made["metrics"]["durationMs"].as_f64().expect("a duration") >= 0.0, "{made}");
     let artifact = &made["artifacts"][0];
     assert_eq!((artifact["operation"].as_str(), artifact["format"].as_str()), (Some("create"), Some("xlsx")), "{made}");
@@ -95,7 +102,11 @@ fn a_delimited_file_carries_no_design_in_any_answer() {
     assert!(edited.get("design").is_none(), "{edited}");
 }
 fn deck(office: &Harness) -> String {
-    created(office, "contract.pptx", json!([{ "op": "add_slide" }, { "op": "add_textbox", "slide": 1, "text": "Hello deck", "left": 60, "top": 60, "width": 400, "height": 60, "fontSize": 24 }]))
+    created(
+        office,
+        "contract.pptx",
+        json!([{ "op": "add_slide" }, { "op": "add_textbox", "slide": 1, "text": "Hello deck", "left": 60, "top": 60, "width": 400, "height": 60, "fontSize": 24 }]),
+    )
 }
 
 fn describe_call(format: &str, operation: Option<&str>) -> String {
@@ -113,7 +124,14 @@ fn an_unknown_operation_is_refused_by_its_place_in_a_deck_and_in_a_document_alik
     let words = created(&office, "contract.docx", json!([{ "op": "append_text", "text": "first" }]));
     for (session, format) in [(&slides, "pptx"), (&words, "docx")] {
         let text = batch_text(&office, session, json!([{ "op": "zzzzzz" }]));
-        assert_eq!(text, format!("Error: Unknown {} operation \"zzzzzz\" at operation 1. Call office with {} to list operations.", format.to_uppercase(), describe_call(format, None)));
+        assert_eq!(
+            text,
+            format!(
+                "Error: Unknown {} operation \"zzzzzz\" at operation 1. Call office with {} to list operations.",
+                format.to_uppercase(),
+                describe_call(format, None)
+            )
+        );
     }
 }
 
@@ -153,7 +171,9 @@ fn a_word_snapshot_leaves_out_what_it_holds_none_of_and_does_not_repeat_the_body
     }
     if let Some(parts) = document.get("parts").and_then(Value::as_array) {
         assert!(
-            !parts.iter().any(|part| part["part"] == "word/document.xml" && part.as_object().is_some_and(|part| part.keys().all(|key| key == "part" || key == "text"))),
+            !parts
+                .iter()
+                .any(|part| part["part"] == "word/document.xml" && part.as_object().is_some_and(|part| part.keys().all(|key| key == "part" || key == "text"))),
             "{parts:?}"
         );
     }

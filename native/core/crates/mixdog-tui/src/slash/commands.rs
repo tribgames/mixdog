@@ -44,52 +44,22 @@ const fn with_aliases(
 /// The registry, in the order of `SLASH_COMMANDS`.
 pub static SLASH_COMMANDS: &[SlashCommand] = &[
     with_aliases(command("clear", "/clear", "Start a fresh chat"), &["new"], &["new"], None),
-    with_params(
-        with_aliases(
-            command("project", "/project", "Switch working directory (project)"),
-            &["projects"],
-            &["projects"],
-            Some(false),
-        ),
-        "[path]",
-    ),
+    with_params(with_aliases(command("project", "/project", "Switch working directory (project)"), &["projects"], &["projects"], Some(false)), "[path]"),
     command("compact", "/compact", "Compact older conversation context"),
-    with_params(
-        command("btw", "/btw", "Ask a quick side question without interrupting the current work"),
-        "<question>",
-    ),
-    with_params(
-        command("goal", "/goal", "Run and manage a durable session Goal"),
-        "[objective --time 1h|status|pause|resume|edit|stop]",
-    ),
-    with_params(
-        command("autoclear", "/autoclear", "Reduce cache-miss cost after long idle gaps"),
-        "[on|off|duration|unlimited]",
-    ),
+    with_params(command("btw", "/btw", "Ask a quick side question without interrupting the current work"), "<question>"),
+    with_params(command("goal", "/goal", "Run and manage a durable session Goal"), "[objective --time 1h|status|pause|resume|edit|stop]"),
+    with_params(command("autoclear", "/autoclear", "Reduce cache-miss cost after long idle gaps"), "[on|off|duration|unlimited]"),
     with_params(command("resume", "/resume", "Resume a saved chat"), "[id]"),
     command("context", "/context", "Show current context surface"),
-    with_params(
-        command("shells", "/shells", "List shells; release one whose termination is unconfirmed"),
-        "[release <task_id> [--confirm]]",
-    ),
+    with_params(command("shells", "/shells", "List shells; release one whose termination is unconfirmed"), "[release <task_id> [--confirm]]"),
     command("stop", "/stop", "Stop every background shell of this session"),
-    with_aliases(
-        command("fork", "/fork", "Fork this conversation into a new session on the current model"),
-        &["inherit"],
-        &["inherit"],
-        Some(false),
-    ),
+    with_aliases(command("fork", "/fork", "Fork this conversation into a new session on the current model"), &["inherit"], &["inherit"], Some(false)),
     with_params(command("usage", "/usage", "Show total provider quota / balance"), "[refresh]"),
     with_params(command("model", "/model", "Switch model for subsequent turns"), "[name|refresh]"),
     command("websearch", "/websearch", "Set the web search provider/model"),
     with_params(command("workflow", "/workflow", "Switch the active workflow"), "[name]"),
     with_params(
-        with_aliases(
-            command("outputstyle", "/OutputStyle", "Switch Lead output style"),
-            &["output-style", "style"],
-            &["style"],
-            Some(false),
-        ),
+        with_aliases(command("outputstyle", "/OutputStyle", "Switch Lead output style"), &["output-style", "style"], &["style"], Some(false)),
         "[name]",
     ),
     with_params(command("theme", "/theme", "Change the TUI color theme"), "[id]"),
@@ -101,12 +71,7 @@ pub static SLASH_COMMANDS: &[SlashCommand] = &[
     with_params(command("memory", "/memory", "List and edit core memories"), "[status|core ...]"),
     command("plugins", "/plugins", "Manage local plugin integrations"),
     command("providers", "/providers", "Manage auth, API keys, OAuth, and local endpoints"),
-    with_aliases(
-        command("settings", "/setting", "Open runtime settings"),
-        &["setting", "config"],
-        &["settings", "config"],
-        Some(false),
-    ),
+    with_aliases(command("settings", "/setting", "Open runtime settings"), &["setting", "config"], &["settings", "config"], Some(false)),
     command("profile", "/profile", "Set your title, development experience, and response language"),
     command("update", "/update", "Check version and update mixdog"),
     command("doctor", "/doctor", "Diagnose installation health"),
@@ -210,13 +175,9 @@ pub fn normalize_slash_command_name(cmd: &str) -> String {
 /// when it is the name or an alias (so `/new` stays `/new`), else the canonical name.
 pub fn slash_command_token_for_palette_accept(command: &SlashCommand, draft_value: &str) -> String {
     let text = js_trim(draft_value);
-    let typed = text
-        .strip_prefix('/')
-        .map(|rest| js_to_lowercase(rest.split(is_js_space).next().unwrap_or("")))
-        .unwrap_or_default();
+    let typed = text.strip_prefix('/').map(|rest| js_to_lowercase(rest.split(is_js_space).next().unwrap_or(""))).unwrap_or_default();
     let canonical = js_to_lowercase(command.name);
-    if !typed.is_empty() && (typed == canonical || command.aliases.iter().any(|alias| js_to_lowercase(alias) == typed))
-    {
+    if !typed.is_empty() && (typed == canonical || command.aliases.iter().any(|alias| js_to_lowercase(alias) == typed)) {
         return typed;
     }
     command.name.to_owned()

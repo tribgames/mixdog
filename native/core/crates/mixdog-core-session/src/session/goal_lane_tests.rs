@@ -29,10 +29,10 @@ use super::actor::Inbox;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 use mixdog_core_goal::goal::Admission;
 use mixdog_core_goal::goal::Continuation;
 use mixdog_core_goal::goal::ContinuationInput;
@@ -429,7 +429,7 @@ async fn the_goal_route_serves_goal_control() {
     let spy = Spy::new(&rig);
     let directory = directory(&rig, &spy);
     let handle = start_thread(&directory).await;
-    let ask =|method: &'static str, params: Value, op: &str| {
+    let ask = |method: &'static str, params: Value, op: &str| {
         let (handle, op) = (&handle, op.to_owned());
         async move { handle.request(request(method, params, &op)).await }
     };
@@ -442,7 +442,9 @@ async fn the_goal_route_serves_goal_control() {
     assert_eq!((created["ok"].clone(), created["action"].clone()), (json!(true), json!("create")), "{created}");
     assert!(created["message"].as_str().unwrap().starts_with("Goal active · Ship the feature"), "{created}");
 
-    let edited = value(ask("thread/goal/control", json!({ "threadId": handle.id, "opId": "g-2", "action": "edit", "args": { "objective": "Ship it faster" } }), "g-2").await);
+    let edited = value(
+        ask("thread/goal/control", json!({ "threadId": handle.id, "opId": "g-2", "action": "edit", "args": { "objective": "Ship it faster" } }), "g-2").await,
+    );
     assert_eq!(edited["action"], "edit", "{edited}");
     assert_eq!(spy.resets(), 1, "an edit marks the reminder");
 
@@ -479,9 +481,12 @@ async fn a_thread_opened_on_an_active_goal_continues_it() {
     let handle = second.open_handle(&id, &CallContext::internal("goal-recovery")).await.expect("open");
     eventually_on!(&[&handle.cell.stepped], || sources(&seen).iter().any(|source| source == "goal-continuation").then_some(())).await;
     let goal = handle.cell.view.load_full().state.goal.clone();
-    assert_eq!(goal.as_ref().and_then(|goal| goal.get("objective")).and_then(Value::as_str), Some("Ship the feature"), "the lane shows the stored Goal: {goal:?}");
+    assert_eq!(
+        goal.as_ref().and_then(|goal| goal.get("objective")).and_then(Value::as_str),
+        Some("Ship the feature"),
+        "the lane shows the stored Goal: {goal:?}"
+    );
 }
-
 
 /// `goal-facade-api.mjs` `goalContinuation`: the continuation carries the session's todo list,
 /// and it waits while the session waits on an agent or an awaited background job.
@@ -561,7 +566,8 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
     // The script never drains steers, so the warning queued behind the turn runs as a turn of its
     // own: both turns have ended once two runs finished, and the thread is idle for good after.
     mixdog_rt::time::timeout(Duration::from_secs(60), finished.wait_for(|count| *count == 2)).await.expect("both turns end").expect("the script is alive");
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(()))
+        .await;
     changed(&spy, &handle, goal("g1", "active", 2, 120_000)).await;
     eventually_on!(&[&spy.called, &handle.cell.stepped], || (spy.resets() == 1).then_some(())).await;
     assert_eq!(*finished.borrow(), 2, "no further turn ran");
@@ -618,7 +624,10 @@ async fn a_queued_closeout_runs_only_while_its_goal_is_at_its_duration() {
         if still_due {
             eventually_on!(&[&handle.cell.stepped], || (sources(&seen) == ["user", "goal-closeout"]).then_some(())).await;
         }
-        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty())).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (idle(&handle)
+            && handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty()))
+        .then_some(()))
+        .await;
         mixdog_rt::time::sleep(Duration::from_millis(150)).await;
         let expected: &[&str] = if still_due { &["user", "goal-closeout"] } else { &["user"] };
         assert_eq!(sources(&seen), expected, "still due: {still_due}");

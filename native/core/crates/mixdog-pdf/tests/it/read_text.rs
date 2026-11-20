@@ -21,7 +21,8 @@ fn near(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
 }
 
-const DESCRIPTOR: &str = "<< /Type /FontDescriptor /FontName /CustomFont /Flags 32 /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >>";
+const DESCRIPTOR: &str =
+    "<< /Type /FontDescriptor /FontName /CustomFont /Flags 32 /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >>";
 
 /// A font of codes 1 to 3 with widths 500, 600, 700 whose characters come from `map` (`bfchar` lines).
 fn mapped_font(map: &str) -> Vec<(u32, Vec<u8>)> {
@@ -97,11 +98,7 @@ fn an_encoding_with_differences_renames_the_codes_it_lists() {
 #[test]
 fn the_named_encodings_map_the_upper_half_differently() {
     let mac = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /MacRomanEncoding >>".to_vec();
-    let text = extract(
-        "BT /F1 12 Tf 20 100 Td (\\200\\225) Tj /F2 12 Tf (\\212\\245) Tj ET",
-        "<< /Font << /F1 5 0 R /F2 6 0 R >> >>",
-        &[(6, mac)],
-    );
+    let text = extract("BT /F1 12 Tf 20 100 Td (\\200\\225) Tj /F2 12 Tf (\\212\\245) Tj ET", "<< /Font << /F1 5 0 R /F2 6 0 R >> >>", &[(6, mac)]);
     // WinAnsi: 0x80 is the euro sign, 0x95 a bullet. MacRoman: 0x8A is a with diaeresis, 0xA5 a bullet.
     // Both shows continue on one line, so they make one item.
     assert_eq!(strings(&text).concat(), "\u{20ac}\u{2022}\u{e4}\u{2022}");
@@ -149,18 +146,13 @@ fn the_text_and_current_matrices_place_the_item() {
 
 #[test]
 fn items_come_in_the_order_of_the_content_not_of_the_page() {
-    let text = extract(
-        "BT /F1 12 Tf 20 20 Td (bottom) Tj 0 150 Td (top) Tj ET BT /F1 12 Tf 20 100 Td (middle) Tj ET",
-        FONT_RESOURCES,
-        &[],
-    );
+    let text = extract("BT /F1 12 Tf 20 20 Td (bottom) Tj 0 150 Td (top) Tj ET BT /F1 12 Tf 20 100 Td (middle) Tj ET", FONT_RESOURCES, &[]);
     assert_eq!(strings(&text), vec!["bottom", "top", "middle"]);
 }
 
 #[test]
 fn text_of_an_embedded_truetype_program_is_read_through_its_character_map() {
-    let program = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/standard_fonts/LiberationSans-Regular.ttf"))
-        .expect("the tracked font");
+    let program = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/standard_fonts/LiberationSans-Regular.ttf")).expect("the tracked font");
     let extra = vec![
         (
             6,

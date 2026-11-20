@@ -173,4 +173,3 @@ mod tests {
         assert_eq!(*told.lock().unwrap(), ["catalog"]);
     }
 }
-

@@ -22,12 +22,12 @@ use mixdog_core_api::state::StatePublisher;
 use mixdog_core_base::state::change_of;
 use mixdog_core_config::section_watch::FolderTrigger;
 use mixdog_core_config::section_watch::Watched;
-use tokio::sync::Notify;
-use tokio::sync::watch;
 use mixdog_ledger::quota::QuotaHistoryOptions;
 use mixdog_protocol::SectionName;
 use serde_json::Value;
 use serde_json::json;
+use tokio::sync::Notify;
+use tokio::sync::watch;
 
 use super::admin::ProviderAdmin;
 use super::collaborators::CustomProviders;
@@ -130,10 +130,8 @@ fn str_param<'a>(params: &'a Value, key: &str) -> &'a str {
 /// The provider and lease of an `account/refreshProviderSetup` that renews a credential first.
 fn renewal_of(params: &Value) -> Result<Option<(&str, u64)>, CoreError> {
     let Some(provider) = params.get("renewCredential").and_then(Value::as_str) else { return Ok(None) };
-    let minimum = params
-        .get("minimumValidityMs")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| invalid("minimumValidityMs", "a number of milliseconds with renewCredential"))?;
+    let minimum =
+        params.get("minimumValidityMs").and_then(Value::as_u64).ok_or_else(|| invalid("minimumValidityMs", "a number of milliseconds with renewCredential"))?;
     Ok(Some((provider, minimum)))
 }
 
@@ -190,8 +188,7 @@ impl AccountService {
 
     /// `getQuotaHistory`: the ledger's history, labelled with each account's place in its pool.
     async fn get_quota_history(&self, options: Value) -> Result<Value, CoreError> {
-        let options: QuotaHistoryOptions =
-            serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
+        let options: QuotaHistoryOptions = serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
         // The account each subscription is used through now: the one a question naming no
         // account is about.
         let mut in_use = BTreeMap::new();
@@ -232,23 +229,14 @@ impl AccountService {
                         Ok(list) => Value::Object(
                             list["accounts"]
                                 .as_array()
-                                .map(|rows| {
-                                    rows.iter()
-                                        .map(|r| (r["id"].as_str().unwrap_or("").to_owned(), r["email"].clone()))
-                                        .collect()
-                                })
+                                .map(|rows| rows.iter().map(|r| (r["id"].as_str().unwrap_or("").to_owned(), r["email"].clone())).collect())
                                 .unwrap_or_default(),
                         ),
                         Err(_) => json!({}),
                     };
                     emails.insert(provider.clone(), map);
                 }
-                email = emails
-                    .get(&provider)
-                    .and_then(|m| m.get(&account))
-                    .and_then(Value::as_str)
-                    .map(|s| mixdog_js::slice_utf16(s, 200))
-                    .unwrap_or_default();
+                email = emails.get(&provider).and_then(|m| m.get(&account)).and_then(Value::as_str).map(|s| mixdog_js::slice_utf16(s, 200)).unwrap_or_default();
             }
             // History of an account that left the roster stays stored, but the picker must not
             // offer it. The implicit `default` account of a provider with no stored roster is
@@ -292,67 +280,44 @@ impl AccountService {
                 if let Some(prior) = self.flows.supersede(provider) {
                     prior.released().await;
                 }
-                let (session, settle) =
-                    admin.begin_oauth_provider_login(provider, &options_of(params), local).await.map_err(into)?;
+                let (session, settle) = admin.begin_oauth_provider_login(provider, &options_of(params), local).await.map_err(into)?;
                 self.flows.register(provider, session, settle).map_err(into)?
             }
-            "account/completeOAuthProviderLogin" => self
-                .flows
-                .complete(str_param(params, "flowId"), str_param(params, "callbackUrl"))
-                .await
-                .map_err(into)?,
+            "account/completeOAuthProviderLogin" => self.flows.complete(str_param(params, "flowId"), str_param(params, "callbackUrl")).await.map_err(into)?,
             "account/cancelOAuthProviderLogin" => self.flows.cancel(str_param(params, "flowId")).await.map_err(into)?,
             "account/forgetProviderAuth" => {
                 let account = params.get("accountId").and_then(Value::as_str);
                 admin.forget_provider_auth(provider, account).await.map_err(into)?;
                 ok
             }
-            "account/updateProviderAccounts" => admin
-                .update_provider_accounts(provider, params.get("change").unwrap_or(&Value::Null))
-                .await
-                .map_err(into)?,
+            "account/updateProviderAccounts" => admin.update_provider_accounts(provider, params.get("change").unwrap_or(&Value::Null)).await.map_err(into)?,
             "account/saveProviderApiKey" => {
-                admin
-                    .save_provider_api_key(provider, str_param(params, "secret"), &options_of(params))
-                    .await
-                    .map_err(into)?;
+                admin.save_provider_api_key(provider, str_param(params, "secret"), &options_of(params)).await.map_err(into)?;
                 ok
             }
             "account/saveCustomProvider" => self.custom.save(params["input"].clone(), body_lone_units).await.map_err(into)?,
-            "account/saveCustomProviderKey" => {
-                self.custom.save_key(provider, &params["secret"]).await.map_err(into)?
-            }
+            "account/saveCustomProviderKey" => self.custom.save_key(provider, &params["secret"]).await.map_err(into)?,
             "account/removeCustomProvider" => self.custom.remove(provider).await.map_err(into)?,
-            "account/updateCustomProviderModel" => self
-                .custom
-                .update_model(provider, str_param(params, "modelId"), params.get("patch").cloned())
-                .await
-                .map_err(into)?,
+            "account/updateCustomProviderModel" => {
+                self.custom.update_model(provider, str_param(params, "modelId"), params.get("patch").cloned()).await.map_err(into)?
+            }
             "account/testCustomProvider" => self.custom.test(params["input"].clone(), body_lone_units).await.map_err(into)?,
-            "account/checkCustomProviderKeyEnv" => {
-                ProviderAdmin::check_custom_provider_key_env(str_param(params, "name")).map_err(into)?
-            }
-            "account/discoverCustomProviderModels" => {
-                self.custom.discover_models(params["input"].clone(), body_lone_units).await.map_err(into)?
-            }
+            "account/checkCustomProviderKeyEnv" => ProviderAdmin::check_custom_provider_key_env(str_param(params, "name")).map_err(into)?,
+            "account/discoverCustomProviderModels" => self.custom.discover_models(params["input"].clone(), body_lone_units).await.map_err(into)?,
             "account/saveOpenAIUsageSessionKey" => {
                 admin.save_openai_usage_session_key(str_param(params, "secret")).await.map_err(into)?;
                 ok
             }
-            "account/consumeCodexRateLimitResetCredit" => admin
-                .consume_codex_reset_credit(&options_of(params), &self.dashboards, self.sources.as_ref())
-                .await
-                .map_err(into)?,
+            "account/consumeCodexRateLimitResetCredit" => {
+                admin.consume_codex_reset_credit(&options_of(params), &self.dashboards, self.sources.as_ref()).await.map_err(into)?
+            }
             "account/refreshProviderSetup" => {
                 let flag = |k: &str| params.get(k) == Some(&Value::Bool(true));
                 // The credential is renewed first, so the setup read below reports its new expiry.
                 if let Some((provider, minimum)) = renewal_of(params)? {
                     admin.renew_provider_credential(provider, minimum).await.map_err(into)?;
                 }
-                self.setup
-                    .get(flag("force"), flag("refresh"), flag("unlockKeychain"), flag("recheckKeychain"))
-                    .await
-                    .map_err(into)?;
+                self.setup.get(flag("force"), flag("refresh"), flag("unlockKeychain"), flag("recheckKeychain")).await.map_err(into)?;
                 json!({})
             }
             other => return Err(wrong_method(DOMAIN, other)),
@@ -365,9 +330,7 @@ impl AccountService {
 fn external_effect(method: &str, params: &Value) -> Option<(&'static str, String)> {
     let target = || str_param(params, "providerId").to_owned();
     match method {
-        "account/authenticateProvider" | "account/loginOAuthProvider" | "account/beginOAuthProviderLogin" => {
-            Some(("providerLogin", target()))
-        }
+        "account/authenticateProvider" | "account/loginOAuthProvider" | "account/beginOAuthProviderLogin" => Some(("providerLogin", target())),
         "account/testCustomProvider" | "account/discoverCustomProviderModels" => Some(("providerProbe", target())),
         "account/consumeCodexRateLimitResetCredit" => Some(("codexResetCredit", "openai-oauth".into())),
         _ => None,
@@ -395,12 +358,7 @@ impl DomainService for AccountService {
                 let external = external_effect(method, &req.params);
                 let reply = self
                     .ops
-                    .run(
-                        &req,
-                        external,
-                        || async { self.dispatch(method, &req.params, body_lone_units, local).await },
-                        || async { Ok(Value::Null) },
-                    )
+                    .run(&req, external, || async { self.dispatch(method, &req.params, body_lone_units, local).await }, || async { Ok(Value::Null) })
                     .await?;
                 if !leaves_sections(method) {
                     self.publish_sections().await;
@@ -487,7 +445,13 @@ mod section_tests {
         for method in ["account/getQuotaHistory", "account/beginOAuthProviderLogin", "account/testCustomProvider"] {
             assert!(leaves_sections(method), "{method}");
         }
-        for method in ["account/authenticateProvider", "account/updateProviderAccounts", "account/refreshProviderSetup", "account/forgetProviderAuth", "account/completeOAuthProviderLogin"] {
+        for method in [
+            "account/authenticateProvider",
+            "account/updateProviderAccounts",
+            "account/refreshProviderSetup",
+            "account/forgetProviderAuth",
+            "account/completeOAuthProviderLogin",
+        ] {
             assert!(!leaves_sections(method), "{method}");
         }
     }

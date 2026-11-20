@@ -22,10 +22,7 @@ pub fn pack_plaintext(body: &[u8], compress: bool) -> Result<Vec<u8>, E2eeError>
         return Ok(body.to_vec());
     }
     let mut encoder = DeflateEncoder::new(Vec::with_capacity(body.len() / 2), Compression::default());
-    let deflated = encoder
-        .write_all(body)
-        .and_then(|()| encoder.finish())
-        .map_err(|_| E2eeError::Invalid("deflate failed"))?;
+    let deflated = encoder.write_all(body).and_then(|()| encoder.finish()).map_err(|_| E2eeError::Invalid("deflate failed"))?;
     if deflated.len() + 1 >= body.len() {
         return Ok(body.to_vec());
     }
@@ -43,10 +40,7 @@ pub fn unpack_plaintext(bytes: &[u8], max_output: usize) -> Result<Vec<u8>, E2ee
         return Ok(bytes.to_vec());
     }
     let mut out = Vec::new();
-    let read = DeflateDecoder::new(&bytes[1..])
-        .take(max_output as u64 + 1)
-        .read_to_end(&mut out)
-        .map_err(|_| E2eeError::Invalid("inflate failed"))?;
+    let read = DeflateDecoder::new(&bytes[1..]).take(max_output as u64 + 1).read_to_end(&mut out).map_err(|_| E2eeError::Invalid("inflate failed"))?;
     if read > max_output {
         return Err(E2eeError::TooLarge);
     }

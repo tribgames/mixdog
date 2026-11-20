@@ -6,7 +6,8 @@ use mixdog_agent::boundary::ContextReading;
 #[test]
 fn a_calls_usage_becomes_the_last_measured_context() {
     let mut reading = ContextReading::default();
-    let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 100, cache_read_tokens: 40, cache_write_tokens: 10, output_tokens: 5, ..Default::default() };
+    let usage =
+        mixdog_core_api::domain::provider::Usage { input_tokens: 100, cache_read_tokens: 40, cache_write_tokens: 10, output_tokens: 5, ..Default::default() };
     // An input that counts the cache is the footprint as it stands.
     reading.measure(&usage, false);
     assert_eq!(reading, ContextReading { tokens: Some(100), stale_after_compact: false });
@@ -18,5 +19,3 @@ fn a_calls_usage_becomes_the_last_measured_context() {
     assert_eq!(reading, ContextReading { tokens: None, stale_after_compact: true });
     assert_eq!(reading.display_before(42), 42);
 }
-
-

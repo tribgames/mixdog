@@ -16,9 +16,7 @@ use url::Url;
 
 use super::device_route::{DeviceRoute, bare, parse_device_route, serve_device_route};
 use super::files::{StaticOptions, StaticResolution, resolve_static_target, send_static_file};
-use super::headers::{
-    ResponseHeaders, device_cookie_headers, merge_cookie_headers, pairing_cookie_headers, parse_cookie_device, request_cookie_token,
-};
+use super::headers::{ResponseHeaders, device_cookie_headers, merge_cookie_headers, pairing_cookie_headers, parse_cookie_device, request_cookie_token};
 use super::preview::{PREVIEW_FRAME_PATH, send_preview_frame};
 use super::releases::{DeviceReport, RendererCatalog};
 use crate::http1::util::{decoded_request_path, end_text, reject_unauthorized_text};
@@ -29,8 +27,7 @@ use crate::rate_limit::RateLimiter;
 use crate::store::DeviceStore;
 
 /// `PUBLIC_APP_ASSETS`: the installability metadata and its icons.
-pub const PUBLIC_APP_ASSETS: [&str; 5] =
-    ["/manifest.webmanifest", "/mixdog.svg", "/mixdog-logo-titanium.svg", "/mixdog-192.png", "/mixdog-512.png"];
+pub const PUBLIC_APP_ASSETS: [&str; 5] = ["/manifest.webmanifest", "/mixdog.svg", "/mixdog-logo-titanium.svg", "/mixdog-192.png", "/mixdog-512.png"];
 
 // The installed worker must be able to replace itself even without a matching renderer.
 const WORKER_SCRIPTS: [&str; 4] = ["/sw.js", "/sw-shell.js", "/sw-media.js", "/ui-language.js"];
@@ -155,8 +152,7 @@ impl StaticGate {
         if unavailable && document && !access.route.as_ref().is_some_and(|route| route.redirect) {
             return write_page_reply(response, &renderer_unavailable_page(&request.method)).map_err(|error| error.to_string());
         }
-        if unavailable && !allow_default_asset && matches!(&resolution, StaticResolution::Missing)
-            && !access.route.as_ref().is_some_and(|route| route.redirect)
+        if unavailable && !allow_default_asset && matches!(&resolution, StaticResolution::Missing) && !access.route.as_ref().is_some_and(|route| route.redirect)
         {
             response.write_head(404, &[("Cache-Control", "no-store")]).map_err(|error| error.to_string())?;
             response.end(None);
@@ -210,11 +206,8 @@ impl StaticGate {
                     if mixdog_fsio::canonicalize(lane, dir.join("index.html")).is_ok_and(|index| index == *target));
             let update_min_version = if update_page && document { catalog.legacy_for(&report).map(|legacy| legacy.min_version) } else { None };
             let unavailable = selected.is_none();
-            let resolution = if unavailable && !allow_default_asset && !matches!(&resolution, StaticResolution::Forbidden) {
-                StaticResolution::Missing
-            } else {
-                resolution
-            };
+            let resolution =
+                if unavailable && !allow_default_asset && !matches!(&resolution, StaticResolution::Forbidden) { StaticResolution::Missing } else { resolution };
             Ok(Some(Lookup { resolution, unavailable, document, update_min_version }))
         };
         let handle = self.io.submit(&CancellationToken::new(), job).map_err(|_| io::Error::other("lane"))?;
@@ -235,12 +228,10 @@ impl StaticGate {
             StaticResolution::Missing => return end_text(response, 404, "Not found.", &[]),
             StaticResolution::Found(target) => target,
         };
-        let persisted =
-            if access.persist_query_token { pairing_cookie_headers(&access.query_token, request.encrypted) } else { ResponseHeaders::new() };
+        let persisted = if access.persist_query_token { pairing_cookie_headers(&access.query_token, request.encrypted) } else { ResponseHeaders::new() };
         // A root asset request proves the container still belongs to this route; refreshing the cookie keeps a long-lived
         // install from aging out of it.
-        let refreshed =
-            if access.route_allowed { device_cookie_headers(&access.route_device, request.encrypted) } else { ResponseHeaders::new() };
+        let refreshed = if access.route_allowed { device_cookie_headers(&access.route_device, request.encrypted) } else { ResponseHeaders::new() };
         let cookies = merge_cookie_headers(&[&persisted, &refreshed]);
         send_static_file(&self.io, request, response, &target, &cookies, StaticOptions { vary_on_cookie: true }).await;
         Ok(())

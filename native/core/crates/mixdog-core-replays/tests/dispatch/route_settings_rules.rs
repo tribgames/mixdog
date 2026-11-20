@@ -71,7 +71,10 @@ fn model_parameters_are_saved_trimmed_without_empty_entries_and_an_array_saves_n
     assert_eq!(saved(&save(json!({}), route(json!({ " a ": 1, "b": "", "c": null, " ": "x" })), true))["modelParameters"], json!({ "a": "1" }));
     assert_eq!(saved(&save(json!({}), route(json!([1])), true))["modelParameters"], json!({}));
     let kept = json!({ "modelSettings": { "openai/gpt-5": { "modelParameters": { "a": "1" } } } });
-    assert!(saved(&save(kept, json!({ "provider": "openai", "model": "gpt-5" }), true)).get("modelParameters").is_none(), "a route without parameters clears them");
+    assert!(
+        saved(&save(kept, json!({ "provider": "openai", "model": "gpt-5" }), true)).get("modelParameters").is_none(),
+        "a route without parameters clears them"
+    );
 }
 
 #[test]
@@ -85,11 +88,19 @@ fn a_context_share_is_saved_only_when_it_differs_from_the_models_default() {
 
 #[test]
 fn a_token_count_replaces_a_saved_share_and_a_share_replaces_a_saved_token_count() {
-    let tokens = save(json!({ "modelSettings": { "openai/gpt-5": { "contextPercent": 50 } } }), json!({ "provider": "openai", "model": "gpt-5", "contextTokens": 300000.4 }), true);
+    let tokens = save(
+        json!({ "modelSettings": { "openai/gpt-5": { "contextPercent": 50 } } }),
+        json!({ "provider": "openai", "model": "gpt-5", "contextTokens": 300000.4 }),
+        true,
+    );
     let after = saved(&tokens);
     assert_eq!(number(&after["contextTokens"]), 300000.0);
     assert!(after.get("contextPercent").is_none());
-    let share = save(json!({ "modelSettings": { "openai/gpt-5": { "contextTokens": 300000 } } }), json!({ "provider": "openai", "model": "gpt-5", "contextPercent": 30, "contextDefaultPercent": 100 }), true);
+    let share = save(
+        json!({ "modelSettings": { "openai/gpt-5": { "contextTokens": 300000 } } }),
+        json!({ "provider": "openai", "model": "gpt-5", "contextPercent": 30, "contextDefaultPercent": 100 }),
+        true,
+    );
     let after = saved(&share);
     assert_eq!(number(&after["contextPercent"]), 30.0);
     assert!(after.get("contextTokens").is_none());
@@ -102,7 +113,8 @@ fn a_route_without_a_provider_or_model_saves_nothing() {
 
 #[test]
 fn fast_is_preferred_only_when_it_was_saved_as_true() {
-    let config = obj(json!({ "modelSettings": { "openai/gpt-5": { "fast": true }, "openai/mini": { "fast": "true" }, "openai/off": { "fast": false }, "bad/m": 3 } }));
+    let config =
+        obj(json!({ "modelSettings": { "openai/gpt-5": { "fast": true }, "openai/mini": { "fast": "true" }, "openai/off": { "fast": false }, "bad/m": 3 } }));
     assert!(fast_preference_for(&config, "openai", "gpt-5"));
     for model in ["mini", "off", "missing"] {
         assert!(!fast_preference_for(&config, "openai", model), "{model}");
@@ -117,12 +129,24 @@ fn fast_is_preferred_only_when_it_was_saved_as_true() {
 fn placeholder_model_metadata_is_unknown_not_no_fast_and_the_catalog_is_asked_only_for_a_resolved_row() {
     let mut asked = 0;
     for placeholder in [None, Some(json!({})), Some(json!({ "id": "gpt-5", "provider": "openai" }))] {
-        assert!(selection_fast_capable(placeholder.as_ref(), || { asked += 1; false }), "{placeholder:?}");
+        assert!(
+            selection_fast_capable(placeholder.as_ref(), || {
+                asked += 1;
+                false
+            }),
+            "{placeholder:?}"
+        );
     }
     assert_eq!(asked, 0);
     let resolved = json!({ "id": "gpt-5", "provider": "openai", "contextWindow": 400000 });
-    assert!(!selection_fast_capable(Some(&resolved), || { asked += 1; false }));
-    assert!(selection_fast_capable(Some(&resolved), || { asked += 1; true }));
+    assert!(!selection_fast_capable(Some(&resolved), || {
+        asked += 1;
+        false
+    }));
+    assert!(selection_fast_capable(Some(&resolved), || {
+        asked += 1;
+        true
+    }));
     assert_eq!(asked, 2);
 }
 
@@ -137,7 +161,8 @@ fn a_rows_own_windows_win_over_the_cached_ones_only_when_it_states_one() {
 
 #[test]
 fn retuning_the_live_model_is_not_a_main_model_choice() {
-    let (live, main, other) = (obj(json!({ "provider": "a", "model": "m" })), obj(json!({ "provider": "b", "model": "n" })), obj(json!({ "provider": "a", "model": "m" })));
+    let (live, main, other) =
+        (obj(json!({ "provider": "a", "model": "m" })), obj(json!({ "provider": "b", "model": "n" })), obj(json!({ "provider": "a", "model": "m" })));
     assert!(tunes_non_main_model(&live, &other, &main));
     assert!(!tunes_non_main_model(&live, &other, &live), "the live model is the main one");
     assert!(!tunes_non_main_model(&live, &main, &main));

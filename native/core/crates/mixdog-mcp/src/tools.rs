@@ -33,16 +33,12 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
     };
     let message = server.scrub(&message);
     match error {
-        CallError::NotReady { .. } => ToolError::new(
-            ToolErrorCode::Unavailable { capability, reason: message.clone() },
-            message,
-        ),
+        CallError::NotReady { .. } => ToolError::new(ToolErrorCode::Unavailable { capability, reason: message.clone() }, message),
         CallError::UnknownTool { tool, .. } => ToolError::new(ToolErrorCode::NotFound { target: tool }, message),
         CallError::Admission(AdmissionError::Cancelled) => ToolError::new(ToolErrorCode::Cancelled, "cancelled"),
-        CallError::Admission(_) | CallError::Overloaded(_) | CallError::Recovery { outcome_unknown: false, .. } => ToolError::new(
-            ToolErrorCode::Unavailable { capability, reason: message.clone() },
-            message,
-        ),
+        CallError::Admission(_) | CallError::Overloaded(_) | CallError::Recovery { outcome_unknown: false, .. } => {
+            ToolError::new(ToolErrorCode::Unavailable { capability, reason: message.clone() }, message)
+        }
         // The call was handed to a connection that then failed: it may have run.
         CallError::Recovery { .. } => {
             let mut e = ToolError::new(ToolErrorCode::OutcomeUnknown, message);
@@ -65,20 +61,12 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
             e
         }
         CallError::Rpc(RpcError::Server { code, message: reason, data }) => ToolError::new(
-            ToolErrorCode::McpError {
-                server: server.name().to_owned(),
-                rpc_code: Some(code),
-                data: data.map(|d| Box::new(scrub_json(server, d))),
-            },
+            ToolErrorCode::McpError { server: server.name().to_owned(), rpc_code: Some(code), data: data.map(|d| Box::new(scrub_json(server, d))) },
             // The SDK's `McpError` text, thrown, which Node's executor answers `Error: <message>` (`execute-call.mjs:69`).
             server.scrub(&format!("Error: MCP error {code}: {reason}")),
         ),
         CallError::Reported(reported) => ToolError::new(
-            ToolErrorCode::McpError {
-                server: server.name().to_owned(),
-                rpc_code: None,
-                data: reported.data.map(|d| Box::new(scrub_json(server, d))),
-            },
+            ToolErrorCode::McpError { server: server.name().to_owned(), rpc_code: None, data: reported.data.map(|d| Box::new(scrub_json(server, d))) },
             server.scrub(&reported.text),
         ),
     }
@@ -145,18 +133,16 @@ impl Tool for McpTool {
             server,
             &self.entry.tool,
             args,
-            Hints {
-                read_only: self.entry.annotations.read_only_hint == Some(true),
-                outbound: self.entry.outbound_hint,
-            },
+            Hints { read_only: self.entry.annotations.read_only_hint == Some(true), outbound: self.entry.outbound_hint },
         )
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let owner = ctx.thread_id.to_string();
-        let called = self.server.call_tool_bound_in(
-            self.scope.as_deref(), &owner, &self.entry.tool, args, &ctx.cancel, ctx.deadline, ctx.options.connector_account.as_ref(),
-        ).await;
+        let called = self
+            .server
+            .call_tool_bound_in(self.scope.as_deref(), &owner, &self.entry.tool, args, &ctx.cancel, ctx.deadline, ctx.options.connector_account.as_ref())
+            .await;
         let output = called.map_err(|error| tool_error(&self.server, error))?;
         // The links of a mail the core's own Gmail connector read, for the session that read it: Browser Use may open them.
         crate::mail_reads::record(self.server.config(), &self.entry.tool, ctx.thread_id.as_str(), &output, mixdog_tools::desktop::mail_links::now_ms());
@@ -176,13 +162,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub(crate) const ALL: [Feature; 5] = [
-        Self::ListResources,
-        Self::ListResourceTemplates,
-        Self::ReadResource,
-        Self::ListPrompts,
-        Self::GetPrompt,
-    ];
+    pub(crate) const ALL: [Feature; 5] = [Self::ListResources, Self::ListResourceTemplates, Self::ReadResource, Self::ListPrompts, Self::GetPrompt];
 
     /// The capability that offers it (`capabilities.resources`, `capabilities.prompts`).
     pub(crate) fn capability(self) -> &'static str {
@@ -300,5 +280,3 @@ mod tests {
         assert_eq!(error.message_for_model, expected);
     }
 }
-
-

@@ -4,8 +4,7 @@
 //! truthiness), so a value of any JSON type behaves as it did.
 
 use mixdog_js::{
-    JsRegex, is_js_space, js_to_lowercase, js_trim, json_number, math, number_to_string, string_to_number, to_number, to_number_of,
-    value_to_string,
+    JsRegex, is_js_space, js_to_lowercase, js_trim, json_number, math, number_to_string, string_to_number, to_number, to_number_of, value_to_string,
 };
 use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value, json};
@@ -124,8 +123,7 @@ const GEOMETRY: [(&str, &str); 31] = [
     ("callout", "wedgeRectCallout"),
 ];
 
-const ALIGNMENT: [(&str, &str); 6] =
-    [("left", "l"), ("center", "ctr"), ("centre", "ctr"), ("right", "r"), ("justify", "just"), ("distributed", "dist")];
+const ALIGNMENT: [(&str, &str); 6] = [("left", "l"), ("center", "ctr"), ("centre", "ctr"), ("right", "r"), ("justify", "just"), ("distributed", "dist")];
 
 const ANCHOR: [(&str, &str); 5] = [("top", "t"), ("center", "ctr"), ("centre", "ctr"), ("middle", "ctr"), ("bottom", "b")];
 
@@ -289,10 +287,7 @@ pub fn text_body_xml(options: &Value) -> String {
         paragraphs.iter().map(|paragraph| paragraph_xml(paragraph, defaults)).collect()
     };
     let anchor_attribute = if anchor_value.is_empty() { String::new() } else { format!(" anchor=\"{anchor_value}\"") };
-    format!(
-        "<a:bodyPr wrap=\"{}\"{inset}{anchor_attribute}>{fit}</a:bodyPr><a:lstStyle/>{body}",
-        if wrap { "square" } else { "none" }
-    )
+    format!("<a:bodyPr wrap=\"{}\"{inset}{anchor_attribute}>{fit}</a:bodyPr><a:lstStyle/>{body}", if wrap { "square" } else { "none" })
 }
 
 fn frame(left: f64, top: f64, width: f64, height: f64, rotation: Option<&Value>) -> String {
@@ -309,12 +304,7 @@ fn frame(left: f64, top: f64, width: f64, height: f64, rotation: Option<&Value>)
 
 /// The `left, top, width, height` a builder reads, each defaulting when absent.
 fn box_of(options: &Value, width: f64, height: f64) -> (f64, f64, f64, f64) {
-    (
-        number_or(options.get("left"), 0.0),
-        number_or(options.get("top"), 0.0),
-        number_or(options.get("width"), width),
-        number_or(options.get("height"), height),
-    )
+    (number_or(options.get("left"), 0.0), number_or(options.get("top"), 0.0), number_or(options.get("width"), width), number_or(options.get("height"), height))
 }
 
 /// `shapeXml({ id, name, geometry, left, top, width, height, properties, textBody, textBox })`.
@@ -398,11 +388,7 @@ fn table_line(side: &str, rule: Option<(&str, &str)>) -> String {
 }
 
 fn table_cell_lines(header: bool) -> String {
-    let bottom = if header {
-        table_line("lnB", Some((TABLE_HEADER_RULE, "12700")))
-    } else {
-        table_line("lnB", Some((TABLE_ROW_RULE, "6350")))
-    };
+    let bottom = if header { table_line("lnB", Some((TABLE_HEADER_RULE, "12700"))) } else { table_line("lnB", Some((TABLE_ROW_RULE, "6350"))) };
     format!("{}{}{}{bottom}", table_line("lnL", None), table_line("lnR", None), table_line("lnT", None))
 }
 
@@ -452,8 +438,7 @@ pub fn table_xml(options: &Value) -> Result<String, String> {
     let (left, top, width, height) = box_of(options, 400.0, 200.0);
     // columnWidths (points, one per column) share the frame's width in their proportions; without them the columns are
     // equal.
-    let declared: Vec<f64> =
-        properties.get("columnWidths").and_then(Value::as_array).map(|widths| widths.iter().map(to_number).collect()).unwrap_or_default();
+    let declared: Vec<f64> = properties.get("columnWidths").and_then(Value::as_array).map(|widths| widths.iter().map(to_number).collect()).unwrap_or_default();
     let shares: Vec<f64> = if declared.len() == columns && declared.iter().all(|value| *value > 0.0) {
         let total = declared.iter().fold(0.0, |sum, entry| sum + entry);
         declared.iter().map(|value| value / total).collect()
@@ -462,21 +447,14 @@ pub fn table_xml(options: &Value) -> Result<String, String> {
     };
     let header_height = number_or_zero(properties.get("headerRowHeight"));
     let body_height = number_or_zero(properties.get("bodyRowHeight"));
-    let grid: String = shares
-        .iter()
-        .map(|share| format!("<a:gridCol w=\"{}\"/>", num(math::max(1.0, math::round(to_emu(width) * share)))))
-        .collect();
+    let grid: String = shares.iter().map(|share| format!("<a:gridCol w=\"{}\"/>", num(math::max(1.0, math::round(to_emu(width) * share))))).collect();
     let header_fill = normalize_hex(properties.get("headerFillColor"));
     let body_fill = normalize_hex(properties.get("bodyFillColor"));
     let figure = compiled(TABLE_FIGURE, "");
     let alignments: Vec<&str> = (0..columns)
         .map(|column| {
-            let cells: Vec<String> = rows
-                .iter()
-                .skip(1)
-                .map(|row| js_trim(&text_or_empty(row.get(column))).to_owned())
-                .filter(|cell| !cell.is_empty())
-                .collect();
+            let cells: Vec<String> =
+                rows.iter().skip(1).map(|row| js_trim(&text_or_empty(row.get(column))).to_owned()).filter(|cell| !cell.is_empty()).collect();
             if column > 0 && !cells.is_empty() && cells.iter().all(|cell| figure.is_match(cell)) { "right" } else { "left" }
         })
         .collect();
@@ -563,11 +541,7 @@ fn shadow_xml(shadow: &Value) -> String {
     let offset_y = read("offsetY", 2.08);
     let degrees = (math::atan2(offset_y, offset_x) * 180.0 / std::f64::consts::PI + 360.0) % 360.0;
     let transparency = math::max(0.0, math::min(1.0, number_or_zero(spec.get("transparency"))));
-    let alpha = if transparency != 0.0 {
-        format!("<a:alpha val=\"{}\"/>", num(math::round((1.0 - transparency) * 100_000.0)))
-    } else {
-        String::new()
-    };
+    let alpha = if transparency != 0.0 { format!("<a:alpha val=\"{}\"/>", num(math::round((1.0 - transparency) * 100_000.0))) } else { String::new() };
     let color = normalize_hex(spec.get("color"));
     format!(
         "<a:outerShdw blurRad=\"{}\" dist=\"{}\" dir=\"{}\" rotWithShape=\"0\"><a:srgbClr val=\"{}\">{alpha}</a:srgbClr></a:outerShdw>",
@@ -585,10 +559,7 @@ fn with_shadow(shape: &str, shadow: &Value) -> String {
     let whole = found.range();
     let inside = found.get(1).unwrap_or("");
     let existing = compiled(r"<a:effectLst\b[^>]*?(?:/>|>([\s\S]*?)</a:effectLst>)", "").captures(inside);
-    let kept = remove_first(
-        &compiled(r"<a:outerShdw\b[\s\S]*?</a:outerShdw>", ""),
-        existing.as_ref().and_then(|found| found.get(1)).unwrap_or(""),
-    );
+    let kept = remove_first(&compiled(r"<a:outerShdw\b[\s\S]*?</a:outerShdw>", ""), existing.as_ref().and_then(|found| found.get(1)).unwrap_or(""));
     let at = compiled(r"<a:(?:prstShdw|reflection|softEdge)\b", "").find(&kept).map_or(kept.len(), |later| later.start);
     let list = format!("<a:effectLst>{}{}{}</a:effectLst>", &kept[..at], shadow_xml(shadow), &kept[at..]);
     let inner = match &existing {
@@ -597,8 +568,7 @@ fn with_shadow(shape: &str, shadow: &Value) -> String {
             format!("{}{list}{}", &inside[..range.start], &inside[range.end..])
         }
         None => {
-            let position =
-                compiled(r"<a:(?:effectDag|scene3d|sp3d|extLst)\b", "").find(inside).map_or(inside.len(), |after| after.start);
+            let position = compiled(r"<a:(?:effectDag|scene3d|sp3d|extLst)\b", "").find(inside).map_or(inside.len(), |after| after.start);
             format!("{}{list}{}", &inside[..position], &inside[position..])
         }
     };
@@ -612,14 +582,11 @@ fn with_shadow(shape: &str, shadow: &Value) -> String {
 /// outline.
 pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
     let mut next = shape.to_owned();
-    let sp_pr = compiled(r"<p:spPr\b[^>]*>([\s\S]*?)</p:spPr>", "")
-        .captures(&next)
-        .map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()));
+    let sp_pr = compiled(r"<p:spPr\b[^>]*>([\s\S]*?)</p:spPr>", "").captures(&next).map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()));
     // A width or transparency alone restyles the outline the shape has, and a new colour keeps its width, as the Office
     // backend's Line does; both were dropped here unless a colour came with them.
     let line_element = compiled(r"<a:ln\b[^>]*?(?:/>|>[\s\S]*?</a:ln>)", "");
-    let existing_line =
-        sp_pr.as_ref().and_then(|(_, inside)| line_element.find(inside).map(|range| inside[range].to_owned())).unwrap_or_default();
+    let existing_line = sp_pr.as_ref().and_then(|(_, inside)| line_element.find(inside).map(|range| inside[range].to_owned())).unwrap_or_default();
     let existing_alpha = first_group(&compiled(r#"<a:alpha val="(\d+)""#, ""), &existing_line);
     let mut line = Map::new();
     match properties.get("lineColor") {
@@ -660,9 +627,7 @@ pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
         if line_requested && (!normalize_hex(line.get("lineColor")).is_empty() || line.get("lineColor") == Some(&Value::Null)) {
             // The outline follows the fill and precedes any effects in the shape properties.
             let stripped = remove_first(&line_element, inside);
-            let at = compiled(r"<a:(?:effectLst|effectDag|scene3d|sp3d|extLst)\b", "")
-                .find(&stripped)
-                .map_or(stripped.len(), |effects| effects.start);
+            let at = compiled(r"<a:(?:effectLst|effectDag|scene3d|sp3d|extLst)\b", "").find(&stripped).map_or(stripped.len(), |effects| effects.start);
             let inner = format!("{}{}{}", &stripped[..at], outline(&line), &stripped[at..]);
             let opening = &next[range.start..range.end];
             let start = range.start + opening.find('>').unwrap_or(0) + 1;
@@ -672,9 +637,8 @@ pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
     if let Some(shadow) = properties.get("shadow").filter(|value| truthy(value)) {
         next = with_shadow(&next, shadow);
     }
-    let Some((body_range, body)) = compiled(r"<p:txBody>([\s\S]*?)</p:txBody>", "")
-        .captures(&next)
-        .map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()))
+    let Some((body_range, body)) =
+        compiled(r"<p:txBody>([\s\S]*?)</p:txBody>", "").captures(&next).map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()))
     else {
         return next;
     };
@@ -694,14 +658,9 @@ pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
     let spacing = to_number_of(properties.get("paragraphSpacing"));
     if is_set(properties.get("paragraphSpacing")) && spacing.is_finite() {
         // Space before every paragraph, as add_shape writes it and the Office backend sets it; set_shape ignored it.
-        let before = if spacing > 0.0 {
-            format!("<a:spcBef><a:spcPts val=\"{}\"/></a:spcBef>", num(math::round(spacing * 100.0)))
-        } else {
-            String::new()
-        };
+        let before = if spacing > 0.0 { format!("<a:spcBef><a:spcPts val=\"{}\"/></a:spcBef>", num(math::round(spacing * 100.0))) } else { String::new() };
         inner = compiled(r"<a:p>(?!<a:pPr)", "g").replace_all_with(&inner, |_| "<a:p><a:pPr/>".to_owned());
-        inner = compiled(r"<a:pPr\b([^>]*?)/>", "g")
-            .replace_all_with(&inner, |found| format!("<a:pPr{}></a:pPr>", found.get(1).unwrap_or("")));
+        inner = compiled(r"<a:pPr\b([^>]*?)/>", "g").replace_all_with(&inner, |found| format!("<a:pPr{}></a:pPr>", found.get(1).unwrap_or("")));
         inner = compiled(r"(<a:pPr\b[^>]*>)([\s\S]*?)</a:pPr>", "g").replace_all_with(&inner, |found| {
             let rest = remove_first(&compiled(r"<a:spcBef>[\s\S]*?</a:spcBef>", ""), found.get(2).unwrap_or(""));
             // lnSpc is the one child the schema puts before spcBef.
@@ -720,15 +679,13 @@ pub fn restyled_paragraphs(inner: &str, properties: &Value) -> String {
     let align_key = js_to_lowercase(&text_if_truthy(properties.get("alignment")));
     if let Some(align) = lookup(&ALIGNMENT, &align_key) {
         next = compiled(r"<a:p>(?!<a:pPr)", "g").replace_all_with(&next, |_| "<a:p><a:pPr/>".to_owned());
-        next = compiled(r"<a:pPr\b([^>]*?)(/?)>", "g").replace_all_with(&next, |found| {
-            format!("<a:pPr{}{}>", with_attribute(found.get(1).unwrap_or(""), "algn", align), found.get(2).unwrap_or(""))
-        });
+        next = compiled(r"<a:pPr\b([^>]*?)(/?)>", "g")
+            .replace_all_with(&next, |found| format!("<a:pPr{}{}>", with_attribute(found.get(1).unwrap_or(""), "algn", align), found.get(2).unwrap_or("")));
     }
     if ["fontName", "fontSize", "bold", "italic", "color"].iter().any(|name| is_set(properties.get(*name))) {
         next = compiled(r"<a:r>(?!<a:rPr)", "g").replace_all_with(&next, |_| "<a:r><a:rPr/>".to_owned());
-        next = compiled(r"<a:(rPr|endParaRPr)\b([^>]*?)(?:/>|>([\s\S]*?)</a:\1>)", "g").replace_all_with(&next, |found| {
-            restyled_run(found.get(1).unwrap_or(""), found.get(2).unwrap_or(""), found.get(3).unwrap_or(""), properties)
-        });
+        next = compiled(r"<a:(rPr|endParaRPr)\b([^>]*?)(?:/>|>([\s\S]*?)</a:\1>)", "g")
+            .replace_all_with(&next, |found| restyled_run(found.get(1).unwrap_or(""), found.get(2).unwrap_or(""), found.get(3).unwrap_or(""), properties));
     }
     next
 }

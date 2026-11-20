@@ -86,7 +86,6 @@ fn production_lines(path: &Path) -> Vec<String> {
     out
 }
 
-
 /// (file, text of the line, why that read is not a counted credential read).
 const ALLOWED: &[(&str, &str, &str)] = &[
     // The counting funnels and the implementations behind them.
@@ -100,7 +99,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core-domains/src/domains/ai_account/custom_admin.rs", "self.vault.get(&account)", "the store behind the vault performs and counts the read"),
     ("mixdog-core-config/src/config/secret_changes.rs", "self.inner.get(account)", "a wrapper that delegates to the SecretStore, which counts"),
     ("mixdog-ai/src/accounts/rotation.rs", "state.last_probe.get(", "a map of probe times, not a secret store"),
-    ("mixdog-ai/src/accounts/mod.rs", "env.var(variable)", "a provider's *_OAUTH_CREDENTIALS_PATH: the path of a credential file, not a secret; the file read is counted"),
+    (
+        "mixdog-ai/src/accounts/mod.rs",
+        "env.var(variable)",
+        "a provider's *_OAUTH_CREDENTIALS_PATH: the path of a credential file, not a secret; the file read is counted",
+    ),
     ("mixdog-ai/src/providers/compat/xai_cache.rs", "self.var(", "the cache-routing switches (scope, shards, auto), not a credential"),
     ("mixdog-ai/src/providers/compat/xai_cache.rs", "env.var(name)", "the cache-routing switches (scope, shards, auto), not a credential"),
     ("mixdog-core-domains/src/domains/ai_account/setup_world.rs", "self.vault.get(account)", "the store behind the vault performs and counts the read"),
@@ -118,44 +121,124 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/registry/builder.rs", ".find_map(|name| env.var(name)", "vertex::PROJECT_ENV: project identifiers"),
     ("mixdog-ai/src/service/api_usage.rs", "XAI_TEAM_ID", "a team identifier, not a secret"),
     ("mixdog-ai/src/catalog/listing.rs", "MIXDOG_MODEL_STALE_MONTHS", "a staleness bound (code after an inline test module, unscanned before this round)"),
-    ("mixdog-ai/src/providers/google/mod.rs", "std::env::var(name).ok()", "cache tuning variables (code after an inline test module, unscanned before this round)"),
+    (
+        "mixdog-ai/src/providers/google/mod.rs",
+        "std::env::var(name).ok()",
+        "cache tuning variables (code after an inline test module, unscanned before this round)",
+    ),
     // The OpenAI wire's process settings (the process settings of the Codex transport): four switches, read through `WireContext::var`.
-    ("mixdog-ai/src/providers/openai/config.rs", "std::env::var(name).ok()", "WireContext::var: the wire's settings reader (keep-alive, request compression, cache-key switches)"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "var: Box::new(|name| std::env::var(name).ok())", "Sources::var: the adapter's WireContext::var over the process environment"),
+    (
+        "mixdog-ai/src/providers/openai/config.rs",
+        "std::env::var(name).ok()",
+        "WireContext::var: the wire's settings reader (keep-alive, request compression, cache-key switches)",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "var: Box::new(|name| std::env::var(name).ok())",
+        "Sources::var: the adapter's WireContext::var over the process environment",
+    ),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
     ("mixdog-ai/src/providers/grok/auth.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
-    ("mixdog-ai/src/transport/node_http.rs", "REPLAY_PROVIDER_PIN\")", "the replay's pin of a spawned binary: the stand-in provider's address, not a credential"),
-    ("mixdog-ai/src/transport/node_http.rs", "REPLAY_PROVIDER_PIN_CERT", "the replay's pin of a spawned binary: the stand-in's certificate path, not a credential"),
-    ("mixdog-ai/src/transport/replay_bytes.rs", "std::env::var(ENV).ok()?", "MIXDOG_REPLAY_BYTES: the address of a replay's byte-barrier listener, not a credential"),
+    (
+        "mixdog-ai/src/transport/node_http.rs",
+        "REPLAY_PROVIDER_PIN\")",
+        "the replay's pin of a spawned binary: the stand-in provider's address, not a credential",
+    ),
+    (
+        "mixdog-ai/src/transport/node_http.rs",
+        "REPLAY_PROVIDER_PIN_CERT",
+        "the replay's pin of a spawned binary: the stand-in's certificate path, not a credential",
+    ),
+    (
+        "mixdog-ai/src/transport/replay_bytes.rs",
+        "std::env::var(ENV).ok()?",
+        "MIXDOG_REPLAY_BYTES: the address of a replay's byte-barrier listener, not a credential",
+    ),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_OPENAI_REQ_ZSTD", "the request-compression switch"),
-    ("mixdog-ai/src/providers/openai/body.rs", "|name: &str| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
-    ("mixdog-ai/src/providers/openai/cache_key.rs", "std::env::var(name).ok()", "process_var: the cache-key switches for a caller with no injected environment"),
+    (
+        "mixdog-ai/src/providers/openai/body.rs",
+        "|name: &str| config.context.var(name)",
+        "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/cache_key.rs",
+        "std::env::var(name).ok()",
+        "process_var: the cache-key switches for a caller with no injected environment",
+    ),
     // The Anthropic wire's process settings (the process settings of the Anthropic transport): switches, none a credential.
     ("mixdog-ai/src/providers/anthropic/codec.rs", "MIXDOG_ANTHROPIC_MESSAGE_THREADS", "the message-threads switch"),
     ("mixdog-ai/src/providers/anthropic/threads.rs", "MIXDOG_QUIET_PROVIDER_LOG", "the switch that silences the provider's stderr line"),
     ("mixdog-ai/src/providers/anthropic/catalog_caps.rs", "MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT", "a feature flag"),
     // The Gemini wire's process settings: the cache tuning variables (`semantic_idle_ms` and the cache policy) and the
     // Antigravity function-calling mode, none a credential.
-    ("mixdog-ai/src/providers/google/adapter.rs", "var: Arc::new(|name| std::env::var(name).ok())", "the adapter's settings reader over the process environment (cache tuning variables)"),
+    (
+        "mixdog-ai/src/providers/google/adapter.rs",
+        "var: Arc::new(|name| std::env::var(name).ok())",
+        "the adapter's settings reader over the process environment (cache tuning variables)",
+    ),
     ("mixdog-ai/src/providers/google/codec.rs", "MIXDOG_ANTIGRAVITY_FC_MODE", "Antigravity's function-calling mode"),
-    ("mixdog-ai/src/registry/builder.rs", "Arc::new(move |name| env.var(name))", "the Gemini adapter's settings reader (with_settings): the cache tuning variables"),
-    ("mixdog-ai/src/registry/builder.rs", "Arc::new(move |name| context.var(name))", "the wire settings reader over the process's request context (WireContext::var), the same switches"),
+    (
+        "mixdog-ai/src/registry/builder.rs",
+        "Arc::new(move |name| env.var(name))",
+        "the Gemini adapter's settings reader (with_settings): the cache tuning variables",
+    ),
+    (
+        "mixdog-ai/src/registry/builder.rs",
+        "Arc::new(move |name| context.var(name))",
+        "the wire settings reader over the process's request context (WireContext::var), the same switches",
+    ),
     ("mixdog-ai/src/admission/settings.rs", "MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE", "a queue bound"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "http_response_ms(|name| links.context.var(name))", "the HTTP initial-response window (MIXDOG_PROVIDER_HTTP_RESPONSE_TIMEOUT_MS, STALL_TIMEOUT_S): a duration"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "let http_idle_ms = crate::providers::google::cache::policy::semantic_idle_ms(|name| links.context.var(name))", "the HTTP stream's idle window (MIXDOG_ENABLE_STREAM_WATCHDOG, MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, STALL_TIMEOUT_S): a switch and a duration"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "ws_semantic_idle_ms(|name| links.context.var(name))", "the WebSocket stream's idle window (MIXDOG_ENABLE_STREAM_WATCHDOG, MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS): a switch and a duration"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "first_output_ms(|name| links.context.var(name)", "the HTTP and WebSocket first-output windows (STALL_TIMEOUT_S and the idle windows): durations, not credentials"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "ws_pre_stream_ms(|name| links.context.var(name))", "the WebSocket pre-response-created window and watchdog settings: durations and switches, not credentials"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "policy::ws_ping(|name| links.context.var(name)", "the WebSocket liveness ping (MIXDOG_PROVIDER_WS_PING_INTERVAL_MS, MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS): durations"),
-    ("mixdog-ai/src/providers/openai/adapter.rs", "hedge::Window::from_settings(|name| self.context.var(name))", "the WebSocket hedge and acquire windows (MIXDOG_PROVIDER_WS_HEDGE_MS, MIXDOG_PROVIDER_WS_ACQUIRE_TIMEOUT_MS): durations"),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "http_response_ms(|name| links.context.var(name))",
+        "the HTTP initial-response window (MIXDOG_PROVIDER_HTTP_RESPONSE_TIMEOUT_MS, STALL_TIMEOUT_S): a duration",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "let http_idle_ms = crate::providers::google::cache::policy::semantic_idle_ms(|name| links.context.var(name))",
+        "the HTTP stream's idle window (MIXDOG_ENABLE_STREAM_WATCHDOG, MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, STALL_TIMEOUT_S): a switch and a duration",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "ws_semantic_idle_ms(|name| links.context.var(name))",
+        "the WebSocket stream's idle window (MIXDOG_ENABLE_STREAM_WATCHDOG, MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS): a switch and a duration",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "first_output_ms(|name| links.context.var(name)",
+        "the HTTP and WebSocket first-output windows (STALL_TIMEOUT_S and the idle windows): durations, not credentials",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "ws_pre_stream_ms(|name| links.context.var(name))",
+        "the WebSocket pre-response-created window and watchdog settings: durations and switches, not credentials",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "policy::ws_ping(|name| links.context.var(name)",
+        "the WebSocket liveness ping (MIXDOG_PROVIDER_WS_PING_INTERVAL_MS, MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS): durations",
+    ),
+    (
+        "mixdog-ai/src/providers/openai/adapter.rs",
+        "hedge::Window::from_settings(|name| self.context.var(name))",
+        "the WebSocket hedge and acquire windows (MIXDOG_PROVIDER_WS_HEDGE_MS, MIXDOG_PROVIDER_WS_ACQUIRE_TIMEOUT_MS): durations",
+    ),
     ("mixdog-ai/src/providers/openai/config.rs", "self.var(name).is_some_and(", "WireContext::flag: an on/off switch read through the wire's settings reader"),
     ("mixdog-ai/src/registry/builder.rs", "MIXDOG_ANTIGRAVITY_FC_MODE", "the function-calling mode switch"),
-    ("mixdog-ai/src/providers/first_byte.rs", "Self::once(&AT_START, |name| std::env::var(name).ok())", "the first-response budgets (stall, first-byte and Antigravity retry variables): durations and counts"),
+    (
+        "mixdog-ai/src/providers/first_byte.rs",
+        "Self::once(&AT_START, |name| std::env::var(name).ok())",
+        "the first-response budgets (stall, first-byte and Antigravity retry variables): durations and counts",
+    ),
     ("mixdog-ai/src/catalog/sources.rs", "let env = |name: &str| std::env::var(name).ok()", "the model floor's variables: model names"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_DISABLE_LIVE_CLI_VERSIONS", "a feature flag"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_ANTIGRAVITY_VERSION", "a client version"),
     ("mixdog-ai/src/client_versions.rs", "let text = |name: &str| env.var(name)", "client version overrides"),
-    ("mixdog-ai/src/netproxy/route.rs", "std::env::var_os(name).map(|value| value.to_string_lossy()", "the proxy route variables (HTTP_PROXY, NO_PROXY): endpoints"),
+    (
+        "mixdog-ai/src/netproxy/route.rs",
+        "std::env::var_os(name).map(|value| value.to_string_lossy()",
+        "the proxy route variables (HTTP_PROXY, NO_PROXY): endpoints",
+    ),
     ("mixdog-ai/src/netproxy/system.rs", "std::env::var(\"SystemRoot\")", "the Windows directory"),
     ("mixdog-ai/src/providers/compat/login/command_code.rs", "std::env::var_os(\"USERPROFILE\")", "the home directory"),
     ("mixdog-ai/src/providers/compat/login/command_code.rs", "std::env::var_os(\"HOME\")", "the home directory"),
@@ -167,7 +250,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-core-domains/src/domains/ai_account/admin.rs", "std::env::var(MODEL_PROXY_ENV)", "the model-proxy mode switch"),
     ("mixdog-core/src/run_host/process.rs", "model_proxy_client_mode(&|name| env.var(name))", "the model-proxy mode switch"),
     ("mixdog-core/src/run_host/process.rs", "MIXDOG_CODEX_INSTALLATION_ID", "an installation identifier"),
-    ("mixdog-core/src/run_host/builder_env.rs", "env.var(name).map(|v| mixdog_js::js_trim(&v)", "set(): MIXDOG_CODEX_USER_AGENT, _ORIGINATOR, _VERSION, TERM_PROGRAM: header texts"),
+    (
+        "mixdog-core/src/run_host/builder_env.rs",
+        "env.var(name).map(|v| mixdog_js::js_trim(&v)",
+        "set(): MIXDOG_CODEX_USER_AGENT, _ORIGINATOR, _VERSION, TERM_PROGRAM: header texts",
+    ),
     ("mixdog-core/src/run_host/builder_env.rs", "MIXDOG_CODEX_BETA_FEATURES", "a feature list"),
     ("mixdog-ai/src/providers/anthropic/codec.rs", "std::env::var(\"ANTHROPIC_MSG_SLOTS\")", "the message-tail cache breakpoint cap: a count"),
     ("mixdog-ai/src/providers/compat/xai_transport.rs", "MIXDOG_XAI_RESPONSES_TRANSPORT", "the xAI Responses transport choice"),

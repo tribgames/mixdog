@@ -29,8 +29,8 @@ use serde_json::{Map, Value, json};
 use super::{BatchContext, BatchHost};
 use crate::contracts::assert_office_operation_contracts;
 use crate::session::registry::lock;
-use crate::session::{Backend, SessionHandle, merge_office_design_request};
 use crate::session::working_copy::{dirname, full_path};
+use crate::session::{Backend, SessionHandle, merge_office_design_request};
 use crate::snapshot::ComHost;
 
 /// PowerPoint's cell margins, left and right together, in points.
@@ -39,7 +39,8 @@ const SLIDE_CELL_PADDING: f64 = 14.4;
 const DOCUMENT_CHART_WIDTH: f64 = 420.0;
 
 /// Operations whose `path` names a file the caller supplied relative to its folder.
-const PATH_OPERATIONS: [&str; 9] = ["add_image", "replace_image", "stamp_image", "add_attachment", "merge_pdf", "apply_theme", "import_slides", "use_template_page", "add_media"];
+const PATH_OPERATIONS: [&str; 9] =
+    ["add_image", "replace_image", "stamp_image", "add_attachment", "merge_pdf", "apply_theme", "import_slides", "use_template_page", "add_media"];
 const FONT_PATH_OPERATIONS: [&str; 6] = ["add_text", "watermark", "ocr_pages", "fill_form", "add_form_field", "flatten_form"];
 const OUTPUT_PATH_OPERATIONS: [&str; 3] = ["extract_pages", "split_pages", "extract_attachment"];
 
@@ -99,11 +100,7 @@ pub fn with_shared_chart_defaults(format: &str, operations: &[Value]) -> Vec<Val
         .iter()
         .map(|operation| {
             let named = operation.get("seriesColors").and_then(Value::as_array).is_some_and(|colors| !colors.is_empty());
-            if op_of(operation) == "add_chart" && !named {
-                with_field(operation, "seriesColors", json!(DEFAULT_SERIES_COLORS))
-            } else {
-                operation.clone()
-            }
+            if op_of(operation) == "add_chart" && !named { with_field(operation, "seriesColors", json!(DEFAULT_SERIES_COLORS)) } else { operation.clone() }
         })
         .collect()
 }
@@ -147,7 +144,8 @@ fn with_template_particles(operations: &[Value]) -> Vec<Value> {
                 return operation.clone();
             }
             let tokens = operation.get("tokens").cloned().unwrap_or(Value::Null);
-            let particles: Vec<Value> = korean_particle_replacements(&tokens).into_iter().map(|each| json!({ "key": each.key, "find": each.find, "replace": each.replace })).collect();
+            let particles: Vec<Value> =
+                korean_particle_replacements(&tokens).into_iter().map(|each| json!({ "key": each.key, "find": each.find, "replace": each.replace })).collect();
             with_field(operation, "particles", Value::Array(particles))
         })
         .collect()
@@ -216,11 +214,14 @@ fn with_figure_column_alignments(format: &str, operations: Vec<Value>) -> Vec<Va
     operations
         .into_iter()
         .map(|operation| {
-            let Some(values) = operation.get("values").and_then(Value::as_array).filter(|values| op_of(&operation) == "add_table" && values.len() >= 2) else { return operation };
+            let Some(values) = operation.get("values").and_then(Value::as_array).filter(|values| op_of(&operation) == "add_table" && values.len() >= 2) else {
+                return operation;
+            };
             if operation.get("properties").and_then(|properties| properties.get("columnAlignments")).is_some_and(Value::is_array) {
                 return operation;
             }
-            let rows: Vec<Vec<String>> = values.iter().map(|row| row.as_array().map_or_else(|| vec![cell_text(row)], |cells| cells.iter().map(cell_text).collect())).collect();
+            let rows: Vec<Vec<String>> =
+                values.iter().map(|row| row.as_array().map_or_else(|| vec![cell_text(row)], |cells| cells.iter().map(cell_text).collect())).collect();
             let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
             let alignments = figure_column_alignments(&rows, columns, &[], true);
             if !alignments.iter().any(|alignment| alignment == "right") {
@@ -251,11 +252,19 @@ fn with_image_proportions<P: mixdog_fsio::ReadProof>(proof: &P, format: &str, op
             let fit = text_of(operation.get("fit"));
             let stretch = js_to_lowercase(if fit.is_empty() { "stretch" } else { &fit }) == "stretch";
             let path = text_of(operation.get("path"));
-            if op_of(&operation) != "add_image" || path.is_empty() || (width != 0.0 && height != 0.0) || !stretch || (format == "docx" && width == 0.0 && height == 0.0) {
+            if op_of(&operation) != "add_image"
+                || path.is_empty()
+                || (width != 0.0 && height != 0.0)
+                || !stretch
+                || (format == "docx" && width == 0.0 && height == 0.0)
+            {
                 return operation;
             }
             // A file that cannot be read is left to the backend, which names it in its own refusal.
-            let Some(pixels) = mixdog_fsio::read(proof, &path).ok().and_then(|data| image_pixel_size(&data)).filter(|size| size.width > 0 && size.height > 0) else { return operation };
+            let Some(pixels) = mixdog_fsio::read(proof, &path).ok().and_then(|data| image_pixel_size(&data)).filter(|size| size.width > 0 && size.height > 0)
+            else {
+                return operation;
+            };
             let ratio = f64::from(pixels.height) / f64::from(pixels.width);
             let (out_width, out_height) = if width != 0.0 {
                 (width, width * ratio)
@@ -277,7 +286,8 @@ fn with_image_proportions<P: mixdog_fsio::ReadProof>(proof: &P, format: &str, op
 /// A built-in Excel table style in the name Excel stores (`TableStyleMedium2`), however the author spaced or cased it. A custom
 /// style's name stays as written.
 fn table_style_name(style: &Value) -> Option<String> {
-    let compact: String = value_to_string(style).chars().filter(|character| !(mixdog_js::is_js_space(*character) || *character == '_' || *character == '-')).collect();
+    let compact: String =
+        value_to_string(style).chars().filter(|character| !(mixdog_js::is_js_space(*character) || *character == '_' || *character == '-')).collect();
     if compact.is_empty() {
         return Some("none".to_owned());
     }
@@ -333,7 +343,12 @@ fn with_slide_table_widths<P: mixdog_fsio::ReadProof>(measurer: &TextMeasurer<'_
         }
         let name = text_of(properties.and_then(|properties| properties.get("fontName")));
         let size = properties.and_then(|properties| properties.get("fontSize")).map_or(f64::NAN, to_number);
-        let font = FontSpec { font_name: Some(if name.is_empty() { "Calibri".to_owned() } else { name }), font_size: Some(if size > 0.0 { size } else { 18.0 }), bold: false, italic: false };
+        let font = FontSpec {
+            font_name: Some(if name.is_empty() { "Calibri".to_owned() } else { name }),
+            font_size: Some(if size > 0.0 { size } else { 18.0 }),
+            bold: false,
+            italic: false,
+        };
         let rows: Vec<Vec<String>> = values.iter().filter_map(Value::as_array).map(|row| row.iter().map(cell_text).collect()).collect();
         let available = operation.get("width").map_or(f64::NAN, to_number);
         let mut failure: Option<String> = None;
@@ -473,7 +488,9 @@ fn chart_description(block: &Value) -> String {
             categories
                 .iter()
                 .enumerate()
-                .map(|(index, category)| format!("{} {}{unit}", value_to_string(category), en_us_number(values.and_then(|values| values.get(index)).map_or(f64::NAN, to_number))))
+                .map(|(index, category)| {
+                    format!("{} {}{unit}", value_to_string(category), en_us_number(values.and_then(|values| values.get(index)).map_or(f64::NAN, to_number)))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -491,10 +508,11 @@ fn with_imported_slide_backgrounds<P: WriteProof, H, B>(cx: &BatchContext<'_, P,
     let mut out = Vec::with_capacity(operations.len());
     for operation in operations {
         let after = operation.get("after").filter(|after| !after.is_null());
-        let placed = op_of(&operation) == "import_slides" && after.is_some_and(|after| {
-            let number = to_number(after);
-            number.is_finite() && number.fract() == 0.0
-        });
+        let placed = op_of(&operation) == "import_slides"
+            && after.is_some_and(|after| {
+                let number = to_number(after);
+                number.is_finite() && number.fract() == 0.0
+            });
         out.push(operation.clone());
         if !placed {
             continue;
@@ -563,7 +581,8 @@ mod tests {
 
     #[test]
     fn an_xlsx_chart_without_colours_takes_the_portable_palette_and_a_named_one_stays() {
-        let operations = [json!({ "op": "add_chart" }), json!({ "op": "add_chart", "seriesColors": ["112233"] }), json!({ "op": "add_chart", "seriesColors": [] })];
+        let operations =
+            [json!({ "op": "add_chart" }), json!({ "op": "add_chart", "seriesColors": ["112233"] }), json!({ "op": "add_chart", "seriesColors": [] })];
         let shaped = with_shared_chart_defaults("xlsx", &operations);
         assert_eq!(shaped[0]["seriesColors"], json!(DEFAULT_SERIES_COLORS));
         assert_eq!(shaped[1]["seriesColors"], json!(["112233"]));
@@ -572,10 +591,14 @@ mod tests {
 
     #[test]
     fn a_slide_chart_colours_a_series_and_a_pie_colours_its_slices() {
-        let bars = with_shared_chart_defaults("pptx", &[json!({ "op": "add_chart", "chartType": "bar", "series": [{ "values": [1, 2] }, { "color": "AA0000" }] })]);
+        let bars =
+            with_shared_chart_defaults("pptx", &[json!({ "op": "add_chart", "chartType": "bar", "series": [{ "values": [1, 2] }, { "color": "AA0000" }] })]);
         assert_eq!(bars[0]["series"][0]["color"], json!(DEFAULT_SERIES_COLORS[0]));
         assert_eq!(bars[0]["series"][1]["color"], json!("AA0000"));
-        let pie = with_shared_chart_defaults("pptx", &[json!({ "op": "add_chart", "chartType": " Pie ", "series": [{ "values": [1, 2, 3] }, { "values": [1], "pointColors": ["FFFFFF"] }] })]);
+        let pie = with_shared_chart_defaults(
+            "pptx",
+            &[json!({ "op": "add_chart", "chartType": " Pie ", "series": [{ "values": [1, 2, 3] }, { "values": [1], "pointColors": ["FFFFFF"] }] })],
+        );
         assert_eq!(pie[0]["series"][0]["pointColors"], json!(DEFAULT_SERIES_COLORS[..3].to_vec()));
         assert_eq!(pie[0]["series"][1]["pointColors"], json!(["FFFFFF"]));
     }
@@ -602,11 +625,14 @@ mod tests {
 
     #[test]
     fn a_title_without_leading_holds_its_lines_one_and_a_quarter_times_its_size_apart() {
-        let shaped = with_title_leading("docx", vec![
-            json!({ "op": "append_text", "style": " Title ", "properties": { "size": 25 } }),
-            json!({ "op": "append_text", "style": "Title", "properties": { "size": 20, "lineSpacing": 30 } }),
-            json!({ "op": "append_text", "style": "Heading1", "properties": { "size": 20 } }),
-        ]);
+        let shaped = with_title_leading(
+            "docx",
+            vec![
+                json!({ "op": "append_text", "style": " Title ", "properties": { "size": 25 } }),
+                json!({ "op": "append_text", "style": "Title", "properties": { "size": 20, "lineSpacing": 30 } }),
+                json!({ "op": "append_text", "style": "Heading1", "properties": { "size": 20 } }),
+            ],
+        );
         assert_eq!(shaped[0]["properties"], json!({ "size": 25, "lineSpacing": 31.5, "lineSpacingRule": "exact" }));
         assert_eq!(shaped[1]["properties"], json!({ "size": 20, "lineSpacing": 30 }));
         assert_eq!(shaped[2]["properties"], json!({ "size": 20 }));
@@ -660,12 +686,12 @@ mod tests {
         assert_eq!(round_to_hundredths(3.0), json!(3));
     }
 
-
     #[test]
     fn paths_resolve_against_the_callers_folder() {
         let base = std::env::temp_dir().to_string_lossy().into_owned();
         let at = |name: &str| full_path(name, &base).expect("path");
-        let localised = localize_operation(&json!({ "op": "merge_pdf", "path": "a.pdf", "sources": ["b.pdf", { "path": "c.pdf" }, { "label": "x" }] }), &base).expect("localised");
+        let localised = localize_operation(&json!({ "op": "merge_pdf", "path": "a.pdf", "sources": ["b.pdf", { "path": "c.pdf" }, { "label": "x" }] }), &base)
+            .expect("localised");
         assert_eq!(localised["path"], json!(at("a.pdf")));
         assert_eq!(localised["sources"], json!([at("b.pdf"), { "path": at("c.pdf") }, { "label": "x" }]));
         let output = localize_operation(&json!({ "op": "split_pages", "output": "out" }), &base).expect("localised");
@@ -675,12 +701,16 @@ mod tests {
     }
 }
 
-
 /// A Word document's chart is the picture the PDF writer draws for the same block: Word draws no chart without Excel behind it,
 /// and a report's figure had come in as a hand-made picture with no names or values on it. `add_chart` turns into `add_image` of
 /// that picture before either backend sees it, so both place the same one. The pictures are written into a scratch folder the
 /// batch removes once it is done.
-async fn with_document_charts<P: WriteProof, H, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, format: &str, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<Vec<Value>, String> {
+async fn with_document_charts<P: WriteProof, H, B: BatchHost>(
+    cx: &BatchContext<'_, P, H, B>,
+    format: &str,
+    operations: Vec<Value>,
+    scratch: &mut Vec<PathBuf>,
+) -> Result<Vec<Value>, String> {
     if format != "docx" || !operations.iter().any(|operation| op_of(operation) == "add_chart") {
         return Ok(operations);
     }
@@ -720,7 +750,11 @@ async fn with_document_charts<P: WriteProof, H, B: BatchHost>(cx: &BatchContext<
 /// `prepareBatchOperations(session, args)`: the design-expanded, cwd-localised, contract-checked operation list and the design plan
 /// it came from. The session takes the merged design request, the design in force and, for a Word document or workbook written to a
 /// brief, that brief.
-pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Prepared, String> {
+pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(
+    cx: &BatchContext<'_, P, H, B>,
+    handle: &SessionHandle,
+    args: &Value,
+) -> Result<Prepared, String> {
     let facts = Facts::of(handle);
     let design_request = merge_office_design_request(facts.design_request.as_ref(), args.get("design"));
     let mut requested: Vec<Value> = args.get("operations").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -758,7 +792,10 @@ pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(c
     if operations.is_empty() {
         return Err("batch requires at least one operation".to_owned());
     }
-    if facts.format == "pptx" && operations.iter().any(|operation| op_of(operation) == "import_slides") && operations.iter().any(|operation| op_of(operation) == "keep_slides") {
+    if facts.format == "pptx"
+        && operations.iter().any(|operation| op_of(operation) == "import_slides")
+        && operations.iter().any(|operation| op_of(operation) == "keep_slides")
+    {
         return Err("Run keep_slides in a later batch after import_slides has been saved".to_owned());
     }
     assert_office_operation_contracts(&facts.format, facts.backend.as_str(), &mut operations)?;
@@ -775,7 +812,12 @@ pub async fn prepare_batch_operations<P: WriteProof, H: ComHost, B: BatchHost>(c
 }
 /// The rest of the preparation, after the contract: template pages, imported backgrounds, Word charts, filled formulas, the sheet
 /// contract and the shared defaults.
-async fn finish_operations<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, operations: Vec<Value>, scratch: &mut Vec<PathBuf>) -> Result<(Vec<Value>, Vec<Value>), String> {
+async fn finish_operations<P: WriteProof, H: ComHost, B: BatchHost>(
+    cx: &BatchContext<'_, P, H, B>,
+    facts: &Facts,
+    operations: Vec<Value>,
+    scratch: &mut Vec<PathBuf>,
+) -> Result<(Vec<Value>, Vec<Value>), String> {
     let snapshot = &cx.inspect.snapshot;
     let proof: &P = snapshot.proof;
     // A template page is chosen and filled before any backend sees the batch: it arrives as the import of that one page and the writes

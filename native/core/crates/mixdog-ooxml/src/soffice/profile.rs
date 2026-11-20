@@ -59,10 +59,7 @@ pub fn redact_directories(text: &str, directories: &[&Path]) -> String {
 }
 
 fn io_failure(error: &io::Error, syscall: &str, path: &Path, hidden: &Path) -> ProfileError {
-    ProfileError {
-        message: redact_directories(&os_message(error, syscall, path), &[hidden]),
-        code: error_code(error).map(str::to_owned),
-    }
+    ProfileError { message: redact_directories(&os_message(error, syscall, path), &[hidden]), code: error_code(error).map(str::to_owned) }
 }
 
 #[cfg(unix)]
@@ -108,13 +105,7 @@ pub(crate) fn remove_quietly<P: WriteProof>(proof: &P, path: &Path) {
 /// `removeDirectoryWithRetry(dir, { remove, log })`: removes a private scratch folder. A process that just exited can still hold
 /// its files for a moment on Windows, so a busy folder is retried briefly; a failure that persists is logged (never swallowed)
 /// and does not fail the caller.
-pub fn remove_directory_with_retry<P: WriteProof>(
-    proof: &P,
-    dir: &Path,
-    remove: &dyn Fn(&Path) -> io::Result<()>,
-    log: &dyn Fn(&str),
-    retry: Duration,
-) {
+pub fn remove_directory_with_retry<P: WriteProof>(proof: &P, dir: &Path, remove: &dyn Fn(&Path) -> io::Result<()>, log: &dyn Fn(&str), retry: Duration) {
     let mut attempt = 1;
     loop {
         let error = match remove(dir) {
@@ -289,7 +280,9 @@ mod tests {
 
     fn failing_at(step: Step) -> impl Fn(Step, &Path) -> io::Result<()> {
         let failures = AtomicUsize::new(1);
-        move |at, _| if at == step && failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_ok() { Err(disk_full()) } else { Ok(()) }
+        move |at, _| {
+            if at == step && failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_ok() { Err(disk_full()) } else { Ok(()) }
+        }
     }
 
     fn folders_of(parent: &Path) -> Vec<PathBuf> {
@@ -408,6 +401,5 @@ mod tests {
         assert!(redacted.contains("could not copy"), "{redacted}");
     }
 }
-
 
 impl std::error::Error for ProfileError {}

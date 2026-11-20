@@ -11,8 +11,7 @@ macro_rules! lazy_re {
         lazy_re!($name, $source, "");
     };
     ($name:ident, $source:expr, $flags:expr) => {
-        static $name: std::sync::LazyLock<$crate::lexer::rules::Re> =
-            std::sync::LazyLock::new(|| $crate::lexer::rules::Re::new($source, $flags));
+        static $name: std::sync::LazyLock<$crate::lexer::rules::Re> = std::sync::LazyLock::new(|| $crate::lexer::rules::Re::new($source, $flags));
     };
 }
 
@@ -109,13 +108,7 @@ fn fill_inline(tokens: &mut [Token], filled: &mut HashMap<usize, Vec<Token>>) {
 
 impl Lexer {
     fn new() -> Self {
-        Self {
-            rules: &RULES,
-            links: BTreeMap::new(),
-            state: State { in_link: false, in_raw_block: false, top: true },
-            queue: Vec::new(),
-            next_id: 0,
-        }
+        Self { rules: &RULES, links: BTreeMap::new(), state: State { in_link: false, in_raw_block: false, top: true }, queue: Vec::new(), next_id: 0 }
     }
 
     /// `lexer.inline(src)`: queues `src` and returns the id its tokens are filled in under.
@@ -324,10 +317,7 @@ mod tests {
     #[test]
     fn escape_keeps_an_entity_unless_everything_is_encoded() {
         assert_eq!(escape_html("a & b <c> \"d\" 'e'", false), "a &amp; b &lt;c&gt; &quot;d&quot; &#39;e&#39;");
-        assert_eq!(
-            escape_html("&amp; &#38; &#x26; &copy; &#12345678; &x;y &", false),
-            "&amp; &#38; &#x26; &copy; &amp;#12345678; &x;y &amp;"
-        );
+        assert_eq!(escape_html("&amp; &#38; &#x26; &copy; &#12345678; &x;y &", false), "&amp; &#38; &#x26; &copy; &amp;#12345678; &x;y &amp;");
         assert_eq!(escape_html("&amp;", true), "&amp;amp;");
         assert_eq!(escape_html("&#x1234567;", false), "&amp;#x1234567;");
     }

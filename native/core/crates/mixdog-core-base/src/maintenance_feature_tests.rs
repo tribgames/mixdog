@@ -78,7 +78,13 @@ async fn a_busy_process_holds_a_due_task_back_until_it_is_idle() {
     let cleanup: &[&str] = &["worktree-cleanup"];
     let (ran, _) = timeline(
         &[("worktree-cleanup", 3_600_000, 180_000, false)],
-        &[(180_000, false, none, true), (240_000, false, none, true), (300_000, true, cleanup, false), (360_000, true, none, false), (3_900_000, true, cleanup, false)],
+        &[
+            (180_000, false, none, true),
+            (240_000, false, none, true),
+            (300_000, true, cleanup, false),
+            (360_000, true, none, false),
+            (3_900_000, true, cleanup, false),
+        ],
     )
     .await;
     assert_eq!(ran, ["worktree-cleanup"; 2], "it ran when the process went idle, and again an interval later");
@@ -88,7 +94,11 @@ async fn a_busy_process_holds_a_due_task_back_until_it_is_idle() {
 async fn a_task_that_fails_is_reported_and_still_runs_on_its_next_interval() {
     let none: &[&str] = &[];
     let cleanup: &[&str] = &["worktree-cleanup"];
-    let (ran, errors) = timeline(&[("worktree-cleanup", 3_600_000, 180_000, true)], &[(180_000, true, cleanup, false), (180_001, true, none, false), (3_780_000, true, cleanup, false)]).await;
+    let (ran, errors) = timeline(
+        &[("worktree-cleanup", 3_600_000, 180_000, true)],
+        &[(180_000, true, cleanup, false), (180_001, true, none, false), (3_780_000, true, cleanup, false)],
+    )
+    .await;
     assert_eq!(ran, ["worktree-cleanup"; 2]);
     assert_eq!(errors, ["worktree-cleanup"; 2], "each failure is reported");
 }

@@ -6,11 +6,7 @@
 //!
 //! `MIXDOG_MIGRATION_CORPUS` overrides the corpus path, as for the corpus gates.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "a one-shot recorder copies the corpus and writes its dump with blocking std::fs"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a one-shot recorder copies the corpus and writes its dump with blocking std::fs")]
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -69,35 +65,22 @@ fn copy_tree(from: &Path, to: &Path) {
 
 fn main() {
     let out = std::env::var_os("MIXDOG_RESTORE_DUMP").expect("MIXDOG_RESTORE_DUMP names the dump file");
-    let corpus = std::env::var_os("MIXDOG_MIGRATION_CORPUS")
-        .map(PathBuf::from)
-        .expect("MIXDOG_MIGRATION_CORPUS names the migration corpus");
+    let corpus = std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus");
     let mut dump = serde_json::Map::new();
     let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
     let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
     for (scenario, data_rel) in SCENARIOS {
         let dir = tempfile::tempdir().unwrap();
-        let roots = MigrationRoots {
-            data: dir.path().join("data"),
-            home: dir.path().join("home"),
-            profile: None,
-        };
+        let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
         copy_tree(&corpus.join(data_rel), &roots.data);
         copy_tree(&corpus.join("home"), &roots.home);
         let drivers = product_drivers(Arc::new(StoreProjector), office.clone());
-        let complete = Migrator::new(roots.clone(), drivers, MigrateOptions::default())
-            .run()
-            .unwrap();
+        let complete = Migrator::new(roots.clone(), drivers, MigrateOptions::default()).run().unwrap();
         let sessions: serde_json::Map<String, Value> = read_sessions(&roots, &complete.manifest_sha256)
             .unwrap()
             .into_iter()
             .map(|(id, folded)| {
-                let bodies = folded
-                    .rows
-                    .into_iter()
-                    .filter(|r| r.form == Form::Message && r.archive.is_none())
-                    .map(|r| r.body)
-                    .collect();
+                let bodies = folded.rows.into_iter().filter(|r| r.form == Form::Message && r.archive.is_none()).map(|r| r.body).collect();
                 (id, Value::Array(bodies))
             })
             .collect();

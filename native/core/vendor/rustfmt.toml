@@ -1,0 +1,2 @@
+# Third-party sources stay byte-for-byte as vendored; the workspace-wide format check skips them.
+disable_all_formatting = true

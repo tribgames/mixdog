@@ -11,13 +11,7 @@ static ASAR_SEGMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"
 pub fn physical_asar_path(path: &str) -> String {
     let Some(caps) = ASAR_SEGMENT.captures(path) else { return path.to_owned() };
     let range = caps.range();
-    format!(
-        "{}{}.unpacked{}{}",
-        &path[..range.start],
-        caps.get(1).unwrap_or_default(),
-        caps.get(2).unwrap_or_default(),
-        &path[range.end..]
-    )
+    format!("{}{}.unpacked{}{}", &path[..range.start], caps.get(1).unwrap_or_default(), caps.get(2).unwrap_or_default(), &path[range.end..])
 }
 
 #[cfg(test)]

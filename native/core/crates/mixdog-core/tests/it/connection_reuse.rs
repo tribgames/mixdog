@@ -26,7 +26,13 @@ enum Answer {
 const LONG_BODY: usize = 16 * 1024 * 1024;
 
 fn request(url: &str, tag: &str) -> WireRequest {
-    WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: url.to_owned(), headers: vec![("x-req".to_owned(), tag.to_owned())], body: b"{}".to_vec() }
+    WireRequest {
+        transport: TransportKind::Http1,
+        method: "POST".into(),
+        url: url.to_owned(),
+        headers: vec![("x-req".to_owned(), tag.to_owned())],
+        body: b"{}".to_vec(),
+    }
 }
 
 /// The tag of the next request on `stream` (its `x-req` header), after reading its two-byte body; `None` at the end of the connection.

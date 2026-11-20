@@ -3,9 +3,9 @@ use std::sync::Arc;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ListedRoster;
 use mixdog_core_api::domain::provider::ModelListing;
+use mixdog_core_api::domain::provider::Provenance;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::Provenance;
 use mixdog_core_api::domain::provider::RosterIdentity;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
@@ -213,7 +213,6 @@ mod tests {
     }
 }
 
-
 fn tri(value: Option<bool>) -> Capability {
     match value {
         Some(true) => Capability::Yes,
@@ -245,12 +244,7 @@ pub trait SourceFactory: Send + Sync {
 
 /// One source per enabled provider the factory knows.
 pub fn build_sources(config: &FullProviderConfig, factory: &dyn SourceFactory) -> Vec<ModelSource> {
-    config
-        .providers
-        .iter()
-        .filter(|entry| entry.enabled)
-        .filter_map(|entry| Some(ModelSource::new(entry.id.clone(), factory.source(entry)?)))
-        .collect()
+    config.providers.iter().filter(|entry| entry.enabled).filter_map(|entry| Some(ModelSource::new(entry.id.clone(), factory.source(entry)?))).collect()
 }
 #[cfg(test)]
 mod floor_tests {
@@ -293,10 +287,7 @@ mod floor_tests {
         assert!(rows.iter().all(|r| r.context_window == Some(1_048_576) && r.family.is_none()));
         assert!(source("openai", None).list().await.is_err());
     }
-
-
 }
-
 
 impl ModelSource {
     pub fn new(provider: ProviderId, listing: Arc<dyn ModelListing>) -> Self {
@@ -324,7 +315,6 @@ impl ModelSource {
         }
         Self { answer: Some(answer), ..Self::new(provider, Arc::new(Unused)) }
     }
-
 
     /// Gives an OAuth route that keeps a live roster its disk cache (`anthropic-oauth-models.json`,
     /// `openai-oauth-models.json`); any other provider has none.
@@ -528,8 +518,7 @@ fn uncached_stale(provenance: Provenance) -> Option<String> {
 }
 
 fn proxy_stale(provenance: Provenance) -> Option<String> {
-    matches!(provenance, Provenance::Proxied { complete: false })
-        .then(|| "The desktop did not return a complete model listing.".to_owned())
+    matches!(provenance, Provenance::Proxied { complete: false }).then(|| "The desktop did not return a complete model listing.".to_owned())
 }
 
 /// An adapter's listed record as a catalog record: what the provider states,

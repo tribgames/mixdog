@@ -71,7 +71,8 @@ mod tests {
 
     #[test]
     fn an_expanded_body_hangs_every_row_under_one_rail() {
-        let body = ResultBody { lines: &[], raw_text: "first\nsecond", path_arg: "", is_shell: true, columns: 80, color: Key::Text, raw: true, max_render_lines: 600 };
+        let body =
+            ResultBody { lines: &[], raw_text: "first\nsecond", path_arg: "", is_shell: true, columns: 80, color: Key::Text, raw: true, max_render_lines: 600 };
         assert_eq!(plain(&render_result_body(&body)), vec![format!("{RESULT_GUTTER}first"), format!("{RESULT_GUTTER_CONT}second")]);
     }
 

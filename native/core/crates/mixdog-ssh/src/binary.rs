@@ -37,9 +37,7 @@ fn join(platform: Platform, directory: &str, file: &str) -> String {
     let text = format!("{directory}{separator}{file}");
     let text = if windows { text.replace('/', "\\") } else { text };
     let bytes = text.as_bytes();
-    let (prefix, rest) = if windows
-        && ((bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()) || text.starts_with("\\\\"))
-    {
+    let (prefix, rest) = if windows && ((bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()) || text.starts_with("\\\\")) {
         text.split_at(2)
     } else {
         ("", text.as_str())
@@ -95,9 +93,5 @@ pub fn resolve_ssh_tool(name: &str, env: &SshEnv) -> Option<PathBuf> {
 /// What to spawn for a tool: the resolved path, or the bare name so the spawn failure carries the usual "not
 /// found" error the dialog explains. A command that is not one of the OpenSSH tools is returned as given.
 pub fn ssh_tool_command(name: &str, env: &SshEnv) -> PathBuf {
-    if SSH_TOOL_NAMES.contains(&name) {
-        resolve_ssh_tool(name, env).unwrap_or_else(|| PathBuf::from(name))
-    } else {
-        PathBuf::from(name)
-    }
+    if SSH_TOOL_NAMES.contains(&name) { resolve_ssh_tool(name, env).unwrap_or_else(|| PathBuf::from(name)) } else { PathBuf::from(name) }
 }

@@ -63,7 +63,9 @@ fn authenticated_sender(head: &Value) -> Option<String> {
     let host = host_of(address.rsplit_once('@')?.1)?;
     let authentication = head.get("authentication");
     let dmarc = authentication.and_then(|a| a.get("dmarc"));
-    if dmarc.and_then(|d| d.get("result")).and_then(Value::as_str) == Some("pass") && host_of(&text(dmarc.and_then(|d| d.get("from")))).as_deref() == Some(host.as_str()) {
+    if dmarc.and_then(|d| d.get("result")).and_then(Value::as_str) == Some("pass")
+        && host_of(&text(dmarc.and_then(|d| d.get("from")))).as_deref() == Some(host.as_str())
+    {
         return Some(host);
     }
     let site = registrable_domain(&host)?;
@@ -128,8 +130,6 @@ pub fn link_for(session: &str, url: &str, now: i64) -> Option<MailLink> {
     links.get(session)?.iter().find(|link| link.url == href).cloned()
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,15 +185,27 @@ mod tests {
         let authenticated = json!({ "dmarc": passed("example.com"), "dkim": [] });
         // Unauthenticated, failing and misaligned verdicts record nothing.
         record_for("mb-none", json!({ "fromAddresses": [{ "address": "a@example.com" }], "links": links }));
-        record_for("mb-fail", json!({ "fromAddresses": [{ "address": "a@example.com" }], "authentication": { "dmarc": { "result": "fail", "from": "example.com" }, "dkim": [] }, "links": links }));
-        record_for("mb-misaligned", json!({ "fromAddresses": [{ "address": "a@example.com" }], "authentication": { "dmarc": passed("other.org"), "dkim": [] }, "links": links }));
+        record_for(
+            "mb-fail",
+            json!({ "fromAddresses": [{ "address": "a@example.com" }], "authentication": { "dmarc": { "result": "fail", "from": "example.com" }, "dkim": [] }, "links": links }),
+        );
+        record_for(
+            "mb-misaligned",
+            json!({ "fromAddresses": [{ "address": "a@example.com" }], "authentication": { "dmarc": passed("other.org"), "dkim": [] }, "links": links }),
+        );
         // Two mailboxes in From: one verdict cannot vouch for the one a link names.
-        record_for("mb-two", json!({ "fromAddresses": [{ "address": "a@example.com" }, { "address": "b@example.com" }], "authentication": authenticated, "links": links }));
+        record_for(
+            "mb-two",
+            json!({ "fromAddresses": [{ "address": "a@example.com" }, { "address": "b@example.com" }], "authentication": authenticated, "links": links }),
+        );
         for session in ["mb-none", "mb-fail", "mb-misaligned", "mb-two"] {
             assert!(link_for(session, "https://example.com/go", NOW).is_none(), "{session}");
         }
         // A passing DKIM signature aligned with the sender in relaxed mode (same organizational domain) vouches for it.
-        record_for("mb-dkim", json!({ "fromAddresses": [{ "address": "a@mail.example.com" }], "authentication": { "dkim": [{ "result": "pass", "domain": "example.com" }] }, "links": links }));
+        record_for(
+            "mb-dkim",
+            json!({ "fromAddresses": [{ "address": "a@mail.example.com" }], "authentication": { "dkim": [{ "result": "pass", "domain": "example.com" }] }, "links": links }),
+        );
         assert_eq!(link_for("mb-dkim", "https://example.com/go", NOW).map(|l| l.from_domain), Some("mail.example.com".to_owned()));
     }
 

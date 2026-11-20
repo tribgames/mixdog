@@ -12,7 +12,7 @@
 //! Messages are the stored bodies (`Value`); every function replaces changed messages and never
 //! mutates, and reports whether anything changed.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const THINKING_BLOCK_TYPES: [&str; 2] = ["thinking", "redacted_thinking"];
 
@@ -199,7 +199,4 @@ mod tests {
         let (same, changed, closing) = super::rebind_to_changed_prefix_at(&rows[..1]);
         assert!(!changed && closing.is_none() && same == rows[..1]);
     }
-
 }
-
-

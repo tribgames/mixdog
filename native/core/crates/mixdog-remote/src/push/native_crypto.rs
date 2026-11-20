@@ -92,12 +92,7 @@ struct Envelope {
 pub struct NativeKeyError;
 
 /// `ephemeral` and `iv` are injectable so a test reproduces a vector.
-pub fn encrypt_native_push(
-    device_public_key: &str,
-    content: &NativePushContent,
-    ephemeral: &p256::SecretKey,
-    iv: [u8; 12],
-) -> Result<String, NativeKeyError> {
+pub fn encrypt_native_push(device_public_key: &str, content: &NativePushContent, ephemeral: &p256::SecretKey, iv: [u8; 12]) -> Result<String, NativeKeyError> {
     let raw = URL_SAFE_NO_PAD.decode(device_public_key).map_err(|_| NativeKeyError)?;
     let device = PublicKey::from_sec1_bytes(&raw).map_err(|_| NativeKeyError)?;
     let shared = diffie_hellman(ephemeral.to_nonzero_scalar(), device.as_affine());

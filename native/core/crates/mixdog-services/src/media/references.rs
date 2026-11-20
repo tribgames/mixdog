@@ -141,7 +141,12 @@ fn refused(not_sent: NotSent) -> AdapterError {
 }
 
 fn unavailable(why: &str) -> AdapterError {
-    LaneError { message: format!("Nothing was sent. The reference images could not be checked just now ({why}). Try again in a moment."), code: "MEDIA_REFERENCE_UNAVAILABLE", status: 503 }.into()
+    LaneError {
+        message: format!("Nothing was sent. The reference images could not be checked just now ({why}). Try again in a moment."),
+        code: "MEDIA_REFERENCE_UNAVAILABLE",
+        status: 503,
+    }
+    .into()
 }
 
 impl References {

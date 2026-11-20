@@ -6,7 +6,7 @@ use mixdog_tui_style::Key;
 
 use super::MetaPart;
 use crate::panel_cell_text::{cells, pad_panel_cells, truncate_panel_text};
-use crate::{paint_runs, selected_style, themed, Run};
+use crate::{Run, paint_runs, selected_style, themed};
 
 /// The props of a row, the way the picker derives them from an item and the layout.
 pub struct ItemRow<'a> {

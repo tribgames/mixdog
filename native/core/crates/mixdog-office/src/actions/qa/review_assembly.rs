@@ -97,7 +97,11 @@ pub fn assemble_qa_review(input: &Assembly<'_>) -> Assembled {
     };
     let page_count = preview.get("pageCount").cloned().unwrap_or(Value::Null);
     let page_total = to_number_of(Some(&page_count));
-    let plan_coverage = if *format == "pptx" && page_total != 0.0 && !page_total.is_nan() { json_number(design.review_slide_plans.len() as f64 / page_total) } else { json!(1) };
+    let plan_coverage = if *format == "pptx" && page_total != 0.0 && !page_total.is_nan() {
+        json_number(design.review_slide_plans.len() as f64 / page_total)
+    } else {
+        json!(1)
+    };
     let quality = score_office_release_quality(&json!({
         "format": format,
         "aesthetics": render_review.get("aesthetics").cloned().unwrap_or(Value::Null),

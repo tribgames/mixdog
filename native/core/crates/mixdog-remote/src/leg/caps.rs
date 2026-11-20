@@ -78,11 +78,7 @@ impl RelayCaps {
 
     /// The smallest known ceiling, so this leg's own check is never more permissive than the relay's.
     pub fn frame_limit(&self) -> u64 {
-        [self.declared_limit, self.noticed_limit]
-            .into_iter()
-            .flatten()
-            .min()
-            .unwrap_or(RELAY_DEFAULT_MAX_FRAME_BYTES)
+        [self.declared_limit, self.noticed_limit].into_iter().flatten().min().unwrap_or(RELAY_DEFAULT_MAX_FRAME_BYTES)
     }
 
     pub fn binary_frames(&self) -> bool {

@@ -31,8 +31,7 @@ pub fn room_summary(room: &RoomRecord, names: &HashMap<String, String>, running:
     if let Some(preview) = room.last_preview.as_deref().filter(|p| !p.is_empty()) {
         out.insert("lastPreview".into(), json!(preview));
     }
-    let member_names: Map<String, Value> =
-        room.config.members.iter().map(|id| (id.clone(), json!(names.get(id).unwrap_or(id)))).collect();
+    let member_names: Map<String, Value> = room.config.members.iter().map(|id| (id.clone(), json!(names.get(id).unwrap_or(id)))).collect();
     out.insert("memberNames".into(), Value::Object(member_names));
     if running {
         out.insert("running".into(), json!(true));

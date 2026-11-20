@@ -74,7 +74,10 @@ mod tests {
         assert_eq!(call(&java, "A.java", &["--skip-javadoc-formatting"]).await, "--skip-javadoc-formatting -");
         let kotlin = StdinFormatter { id: "ktfmt", call: ktfmt };
         assert_eq!(call(&kotlin, "app/Main.kt", &[]).await, "--kotlinlang-style --enable-editorconfig --stdin-name=app/Main.kt -");
-        assert_eq!(call(&kotlin, "b.gradle.kts", &["-jar", "tools/ktfmt.jar", "--google-style"]).await, "-jar tools/ktfmt.jar --google-style --stdin-name=b.gradle.kts -");
+        assert_eq!(
+            call(&kotlin, "b.gradle.kts", &["-jar", "tools/ktfmt.jar", "--google-style"]).await,
+            "-jar tools/ktfmt.jar --google-style --stdin-name=b.gradle.kts -"
+        );
         let zig_fmt = StdinFormatter { id: "zig", call: zig };
         assert_eq!(call(&zig_fmt, "src/main.zig", &["fmt"]).await, "fmt --stdin");
     }

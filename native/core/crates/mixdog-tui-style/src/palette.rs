@@ -301,9 +301,7 @@ pub const BASE: Palette = Palette([
 pub const DEFAULT_THEME_ID: &str = "basic";
 
 /// Ids accepted from older persisted configs, with the id they stand for.
-pub const THEME_ALIASES: [(&str, &str); 1] = [
-    ("basicIndigo", "indigo"),
-];
+pub const THEME_ALIASES: [(&str, &str); 1] = [("basicIndigo", "indigo")];
 
 /// The registry in display order.
 pub static THEMES: [ThemeEntry; 14] = [

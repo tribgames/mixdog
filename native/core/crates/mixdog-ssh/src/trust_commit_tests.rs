@@ -5,8 +5,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
@@ -177,7 +177,8 @@ fn a_consulted_file_that_cannot_be_read_refuses_and_one_that_is_not_there_holds_
     let a = owner("a@one");
     let files = Files::new("", "");
     let claim = claim_of(&a, SPEC, "KB");
-    let endpoint = |file: PathBuf| vec![EndpointTrust::of(SPEC, vec![files.own.clone(), file], Vec::new(), Some(&files.own), |file| fs::read_to_string(file).ok())];
+    let endpoint =
+        |file: PathBuf| vec![EndpointTrust::of(SPEC, vec![files.own.clone(), file], Vec::new(), Some(&files.own), |file| fs::read_to_string(file).ok())];
 
     commit_in(&files.own, &endpoint(files.dir().join("not-there")), std::slice::from_ref(&claim)).expect("a missing optional source is no evidence");
 

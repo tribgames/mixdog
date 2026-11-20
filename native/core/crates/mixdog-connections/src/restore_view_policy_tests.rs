@@ -362,7 +362,6 @@ fn value_of(notes: &[Value], key: &str) -> Option<Value> {
     latest
 }
 
-
 fn io() -> DurabilityIo {
     mixdog_rt::testing::tokens().durability_io
 }
@@ -390,7 +389,11 @@ async fn restore_view_policy_reopens_remembered_saved_servers_in_batch_mode() {
     restore.run(links.clone(), windows.clone()).await.unwrap();
 
     let opened = sorted(links.opened.lock().unwrap().clone());
-    assert_eq!(opened, [("a".to_owned(), true, Some("~/work".to_owned())), ("b".to_owned(), true, None)], "every remembered saved server, batch mode, its settings");
+    assert_eq!(
+        opened,
+        [("a".to_owned(), true, Some("~/work".to_owned())), ("b".to_owned(), true, None)],
+        "every remembered saved server, batch mode, its settings"
+    );
     assert_eq!(sorted(windows.opened.lock().unwrap().clone()), [("a".to_owned(), "name-a".to_owned()), ("b".to_owned(), "name-b".to_owned())]);
     assert!(restore.progress().borrow().is_empty(), "a ready reopening leaves the list");
     assert_eq!(store.list().await.unwrap(), ["a", "b"], "a server no longer saved is forgotten");
@@ -437,17 +440,16 @@ async fn restore_view_policy_failed_reopening_stays_with_its_message() {
         dir.path(),
         vec![record("a", "one.example.com"), record("b", "two.example.com"), record("c", "three.example.com"), record("d", "four.example.com")],
         &["a", "b", "c", "d"],
-    ).await;
+    )
+    .await;
     let links = Arc::new(Links {
         fail: HashMap::from([("a".to_owned(), "Permission denied".to_owned())]),
         existing: BTreeSet::from(["d".to_owned()]),
         ..Links::default()
     });
     let refused = "The window did not open.";
-    let windows = Arc::new(Windows {
-        refuse: HashMap::from([("c".to_owned(), refused.to_owned()), ("d".to_owned(), refused.to_owned())]),
-        ..Windows::default()
-    });
+    let windows =
+        Arc::new(Windows { refuse: HashMap::from([("c".to_owned(), refused.to_owned()), ("d".to_owned(), refused.to_owned())]), ..Windows::default() });
     let restore = Restore::new(store.clone(), hosts.clone());
 
     restore.run(links.clone(), windows.clone()).await.unwrap();
@@ -551,9 +553,7 @@ async fn restore_view_policy_feed_for_one_connection_hears_the_host_list_change(
 
     rig.links.links.lock().unwrap().remove("a");
     rig.feed.reconcile();
-    let notes = tap
-        .notifications_until(|notes| notes.iter().any(|note| note["params"]["key"] == "hosts" && note["params"]["value"][0]["open"] == false))
-        .await;
+    let notes = tap.notifications_until(|notes| notes.iter().any(|note| note["params"]["key"] == "hosts" && note["params"]["value"][0]["open"] == false)).await;
     assert!(notes.iter().any(|note| note["params"]["key"] == "hosts"));
 }
 #[tokio::test]

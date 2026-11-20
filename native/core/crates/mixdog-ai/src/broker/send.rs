@@ -55,7 +55,10 @@ pub enum SendError {
     /// Retries are spent.
     Exhausted(ProviderError),
     /// Repeated overload: send again with `model`.
-    Fallback { model: String, last: ProviderError },
+    Fallback {
+        model: String,
+        last: ProviderError,
+    },
 }
 
 pub struct ModelBroker {
@@ -156,9 +159,11 @@ impl ModelBroker {
             let mut streamed = false;
             send.request.options.send_identity.begin_submission();
             let failure = match mixdog_rt::node_log::provider_work(
-                log_identity(&send.request, attempts), "prepared",
+                log_identity(&send.request, attempts),
+                "prepared",
                 self.attempt(adapter, &send.request, sink, cancel, (&mut streamed, stages.ladder_by_connection), liveness.as_deref()),
-            ).await
+            )
+            .await
             {
                 Ok(()) => {
                     permit.finish(Outcome::Success);
@@ -190,10 +195,7 @@ impl ModelBroker {
             // one (`gemini-retry-policy.mjs:151`), whether or not the stream ladder re-issues it.
             let exhausted = matches!(decision.verdict, Verdict::Exhausted) || failure.recovery_exhausted || (streamed && stages.ladder_by_connection);
             let end = |permit: crate::admission::Permit, error: ProviderError| {
-                permit.finish(Outcome::Failure {
-                    status: error.status,
-                    retry_after: error.retry_after,
-                });
+                permit.finish(Outcome::Failure { status: error.status, retry_after: error.retry_after });
                 error
             };
             match decision.verdict {
@@ -244,7 +246,9 @@ impl ModelBroker {
                                 mixdog_rt::node_stderr!("{} retry attempt {attempt}/{max} after {reason}, backoff {}ms{advised}", line.tag, delay.as_millis());
                             }
                             RetryLineStyle::Plain => mixdog_rt::node_stderr!("{} retry {attempt} after {cause}", line.tag),
-                            RetryLineStyle::AnthropicApi if midstream_ladder && failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream) => {
+                            RetryLineStyle::AnthropicApi
+                                if midstream_ladder && failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream) =>
+                            {
                                 mixdog_rt::node_stderr!("{} truncated stream — retry {attempt}/{max}", line.tag);
                             }
                             RetryLineStyle::AnthropicApi => {
@@ -261,7 +265,16 @@ impl ModelBroker {
                         sink.abandoned(usage, failure.partial_model.as_deref());
                     }
                     sink.discard();
-                    trace(&send.request, attempts, "retry-scheduled", format_args!("delay_ms={} reason={reason:?} status={}", delay.as_millis(), failure.status.map_or_else(|| "-".to_owned(), |s| s.to_string())));
+                    trace(
+                        &send.request,
+                        attempts,
+                        "retry-scheduled",
+                        format_args!(
+                            "delay_ms={} reason={reason:?} status={}",
+                            delay.as_millis(),
+                            failure.status.map_or_else(|| "-".to_owned(), |s| s.to_string())
+                        ),
+                    );
                     // The wait holds no capacity: the slot goes back to the lane for it, and the next attempt queues for one
                     // again behind the lane's shared cooldown and its fair order, like any other send.
                     let reported = permit.suspend();
@@ -274,8 +287,13 @@ impl ModelBroker {
                 // A ladder that goes by the connection re-issues only a stream that opened (`runGeminiStreamAttempts`);
                 // the Chat Completions send re-issues whatever its ladder ended on (`recoverCompatNonStreaming`).
                 Verdict::Surface | Verdict::Exhausted
-                    if !failure.unsafe_to_retry && !failure.exposure.text_emitted && !failure.exposure.tool_dispatched && !failure.exposure.tool_input_cut
-                        && (streamed || !stages.ladder_by_connection) && !cancel.is_cancelled() && adapter.recovers_spent(&model, &failure) =>
+                    if !failure.unsafe_to_retry
+                        && !failure.exposure.text_emitted
+                        && !failure.exposure.tool_dispatched
+                        && !failure.exposure.tool_input_cut
+                        && (streamed || !stages.ladder_by_connection)
+                        && !cancel.is_cancelled()
+                        && adapter.recovers_spent(&model, &failure) =>
                 {
                     // The provider's last re-issue of a stream that died with nothing shown. The ladder's error
                     // still surfaces unless the adapter marks the unary answer as terminal.
@@ -283,12 +301,18 @@ impl ModelBroker {
                         sink.stage("requesting", None);
                     }
                     sink.discard();
-                    match mixdog_rt::node_log::provider_work(log_identity(&send.request, attempts + 1), "recovering", self.recovered(adapter, &send.request, sink, cancel, liveness.as_deref())).await {
+                    match mixdog_rt::node_log::provider_work(
+                        log_identity(&send.request, attempts + 1),
+                        "recovering",
+                        self.recovered(adapter, &send.request, sink, cancel, liveness.as_deref()),
+                    )
+                    .await
+                    {
                         Ok(()) => {
                             permit.finish(Outcome::Success);
                             // The dead stream's text repeats what the endpoint answered, as the retry line's does.
-                            let cause = crate::oauth::carried::remembered()
-                                .redact_str(failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message));
+                            let cause =
+                                crate::oauth::carried::remembered().redact_str(failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message));
                             match adapter.recovery_line(&model, &failure) {
                                 Some(line) => mixdog_rt::node_stderr!("{line}"),
                                 None => mixdog_rt::node_stderr!("[gemini] stream failed ({cause}); recovered via non-streaming generateContent"),
@@ -313,10 +337,7 @@ impl ModelBroker {
                 Verdict::Surface | Verdict::Exhausted if exhausted => return Err(SendError::Exhausted(end(permit, failure))),
                 Verdict::Surface | Verdict::Exhausted => return Err(SendError::Provider(end(permit, failure))),
                 Verdict::Fallback { model } => {
-                    return Err(SendError::Fallback {
-                        model,
-                        last: end(permit, failure),
-                    });
+                    return Err(SendError::Fallback { model, last: end(permit, failure) });
                 }
             }
         }
@@ -327,7 +348,9 @@ impl ModelBroker {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn capacity(&self, send: &SendRequest, attempt: u32, cancel: &CancellationToken) -> Result<crate::admission::Permit, SendError> {
         let mut admission = send.admission.clone();
-        if admission.owner.is_empty() && let Some(session) = &send.request.options.session_id {
+        if admission.owner.is_empty()
+            && let Some(session) = &send.request.options.session_id
+        {
             admission.owner = Arc::from(session.as_str());
         }
         let mut acquire = std::pin::pin!(self.admission.acquire(&send.lane, admission, cancel));
@@ -338,12 +361,24 @@ impl ModelBroker {
                 trace(&send.request, attempt, "capacity-queued", format_args!("lane={}", send.lane.key()));
                 acquire.await
             }
-        }.map_err(|err| match err {
+        }
+        .map_err(|err| match err {
             AdmissionError::Cancelled => SendError::Cancelled,
             other => SendError::Admission(other),
         })?;
         let metrics = permit.metrics();
-        trace(&send.request, attempt, "capacity-granted", format_args!("lane={} waited_ms={} active={} limit={}", send.lane.key(), metrics.queue_wait.as_millis(), metrics.active, metrics.limit.map_or_else(|| "-".to_owned(), |l| l.to_string())));
+        trace(
+            &send.request,
+            attempt,
+            "capacity-granted",
+            format_args!(
+                "lane={} waited_ms={} active={} limit={}",
+                send.lane.key(),
+                metrics.queue_wait.as_millis(),
+                metrics.active,
+                metrics.limit.map_or_else(|| "-".to_owned(), |l| l.to_string())
+            ),
+        );
         Ok(permit)
     }
 
@@ -492,10 +527,7 @@ enum Stop {
 }
 
 fn truncated(delivery: mixdog_core_api::domain::provider::DeliveryState) -> ProviderError {
-    ProviderError::transport(
-        mixdog_core_api::domain::provider::TransportFault::TruncatedStream,
-        delivery,
-    )
+    ProviderError::transport(mixdog_core_api::domain::provider::TransportFault::TruncatedStream, delivery)
 }
 
 /// One line of a send's log: the session and send it belongs to, the attempt and what happened, so one send's wait can be

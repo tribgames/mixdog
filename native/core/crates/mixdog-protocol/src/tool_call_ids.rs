@@ -27,9 +27,7 @@ const HASH_CHARS: usize = 10;
 
 impl IdRule {
     pub fn is_valid(self, id: &str) -> bool {
-        !id.is_empty()
-            && id.len() <= self.max_len
-            && id.bytes().all(|b| b.is_ascii_alphanumeric() || self.extra.contains(&b))
+        !id.is_empty() && id.len() <= self.max_len && id.bytes().all(|b| b.is_ascii_alphanumeric() || self.extra.contains(&b))
     }
 
     /// `standIn(id, rule, salt)`.
@@ -47,16 +45,8 @@ impl IdRule {
                 in_run = true;
             }
         }
-        let stem: String = stem
-            .trim_matches('_')
-            .chars()
-            .take(self.max_len.saturating_sub(HASH_CHARS + 1))
-            .collect();
-        if stem.is_empty() {
-            format!("call_{hash}").chars().take(self.max_len).collect()
-        } else {
-            format!("{stem}_{hash}")
-        }
+        let stem: String = stem.trim_matches('_').chars().take(self.max_len.saturating_sub(HASH_CHARS + 1)).collect();
+        if stem.is_empty() { format!("call_{hash}").chars().take(self.max_len).collect() } else { format!("{stem}_{hash}") }
     }
 }
 

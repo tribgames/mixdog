@@ -17,7 +17,9 @@ async fn a_failed_open_over_a_running_cluster_stops_the_cluster() {
     use crate::memory::boot::release_on_failure;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let stopped = AtomicUsize::new(0);
-    let release = || async { stopped.fetch_add(1, Ordering::SeqCst); };
+    let release = || async {
+        stopped.fetch_add(1, Ordering::SeqCst);
+    };
 
     let failed: Result<(), &str> = release_on_failure(async { Err("schema") }, release()).await;
     assert_eq!(failed, Err("schema"), "the open's own error is the one returned");
@@ -102,7 +104,6 @@ const OPENED: &str = "the killed core's database is open";
 
 mod stop_target;
 
-
 /// A custom model with no saved dimension does not block schema opening.
 #[tokio::test(flavor = "multi_thread")]
 async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
@@ -152,7 +153,10 @@ fn boot_over(dir: &std::path::Path, source: PgRuntimeSource) -> MemoryBoot {
 /// An install that counts its entries, announces each on the returned channel and then runs `run` with the stack's cancel.
 fn install_of<F>(run: F) -> (PgInstall, Arc<AtomicUsize>, tokio::sync::mpsc::UnboundedReceiver<()>)
 where
-    F: Fn(usize, tokio_util::sync::CancellationToken) -> futures::future::BoxFuture<'static, crate::memory::error::Result<std::path::PathBuf>> + Send + Sync + 'static,
+    F: Fn(usize, tokio_util::sync::CancellationToken) -> futures::future::BoxFuture<'static, crate::memory::error::Result<std::path::PathBuf>>
+        + Send
+        + Sync
+        + 'static,
 {
     let entries = Arc::new(AtomicUsize::new(0));
     let (entered, announced) = tokio::sync::mpsc::unbounded_channel();
@@ -393,7 +397,12 @@ async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_the_forced_
             let _ = held.await;
         })
     });
-    let start = crate::memory::pg::cluster::Start { health: Arc::new(Silent), recovery_wait: std::time::Duration::ZERO, lock_wait: std::time::Duration::ZERO, before_spawn: Some(before_spawn) };
+    let start = crate::memory::pg::cluster::Start {
+        health: Arc::new(Silent),
+        recovery_wait: std::time::Duration::ZERO,
+        lock_wait: std::time::Duration::ZERO,
+        before_spawn: Some(before_spawn),
+    };
     let stack = MemoryStack::start_with(boot_over(dir.path(), PgRuntimeSource::Dir(dir.path().join("runtime"))), start).await.expect("built");
     let db = stack.db();
     let using = tokio::spawn(async move { db.client().await.map(drop) });
@@ -430,7 +439,12 @@ async fn the_spawn_lock_is_nodes_file_beside_the_cluster() {
         let _ = taken.send(outcome);
     });
     awaiting("the holder to take the spawn lock", held).await.unwrap().expect("the lock is taken");
-    let start = crate::memory::pg::cluster::Start { health: Arc::new(Silent), recovery_wait: std::time::Duration::ZERO, lock_wait: std::time::Duration::ZERO, before_spawn: None };
+    let start = crate::memory::pg::cluster::Start {
+        health: Arc::new(Silent),
+        recovery_wait: std::time::Duration::ZERO,
+        lock_wait: std::time::Duration::ZERO,
+        before_spawn: None,
+    };
     let stack = MemoryStack::start_with(boot_over(dir.path(), PgRuntimeSource::Dir(dir.path().join("runtime"))), start).await.expect("built");
     let refused = message(awaiting("the use while Node's lock is held", stack.db().client()).await);
     hold.release_and_wait();
@@ -590,10 +604,20 @@ async fn at_the_forced_point_held_work_is_revoked_before_postgres_is_signalled_w
     stack.arm_forced_stop(&tokio::runtime::Handle::current());
     let scope = stack.db().scope().clone();
     let transaction = Noted(stack.clone(), "embedding-transaction-dropped");
-    let _transaction = scope.spawn("test-embedding-transaction", async move { let _held = transaction; std::future::pending::<()>().await }).expect("admitted");
+    let _transaction = scope
+        .spawn("test-embedding-transaction", async move {
+            let _held = transaction;
+            std::future::pending::<()>().await
+        })
+        .expect("admitted");
     let trace = scope.sub_scope();
     let insert = Noted(stack.clone(), "analytics-insert-dropped");
-    let _insert = trace.spawn("test-analytics-insert", async move { let _held = insert; std::future::pending::<()>().await }).expect("admitted");
+    let _insert = trace
+        .spawn("test-analytics-insert", async move {
+            let _held = insert;
+            std::future::pending::<()>().await
+        })
+        .expect("admitted");
     tokio::time::advance(std::time::Duration::from_secs(3)).await;
     let mut stopping = Box::pin(stack.stop());
     assert!(futures::poll!(&mut stopping).is_pending(), "the stop waits for the held work");
@@ -606,7 +630,7 @@ async fn at_the_forced_point_held_work_is_revoked_before_postgres_is_signalled_w
     assert_eq!(tokio::time::Instant::now() - began, std::time::Duration::from_millis(4_200), "no wait after the forced point");
     dispatched(stopped);
     let steps = stack.stop_seam().trail();
-    let at =|step: &str| steps.iter().position(|seen| *seen == step).unwrap_or_else(|| panic!("{step} missing from {steps:?}"));
+    let at = |step: &str| steps.iter().position(|seen| *seen == step).unwrap_or_else(|| panic!("{step} missing from {steps:?}"));
     // Revocation requested, then the dispatch at once (never after the acknowledgement); the stop reported only after both held pieces were destroyed.
     assert!(at("revoked") < at("release-begun"), "the revocation request precedes the PostgreSQL dispatch: {steps:?}");
     assert!(steps.contains(&"embedding-transaction-dropped") && steps.contains(&"analytics-insert-dropped"), "{steps:?}");
@@ -630,7 +654,12 @@ pub(super) fn idle_cycles() -> crate::memory::boot::CycleBoot {
     struct NoAgent;
     #[async_trait::async_trait]
     impl crate::memory::cycles::Cycle1Llm for NoAgent {
-        async fn call(&self, _request: &crate::memory::cycles::Cycle1Request, _cancel: &tokio_util::sync::CancellationToken, _prompt: &str) -> Result<String, String> {
+        async fn call(
+            &self,
+            _request: &crate::memory::cycles::Cycle1Request,
+            _cancel: &tokio_util::sync::CancellationToken,
+            _prompt: &str,
+        ) -> Result<String, String> {
             Err("no agent in this test".to_owned())
         }
     }
@@ -650,7 +679,13 @@ async fn opened_stack_with_a_held_cycle(dir: &std::path::Path) -> (Arc<MemorySta
     std::fs::create_dir_all(&pgdata).expect("pgdata");
     pid_file(&pgdata, std::process::id(), 55_999);
     let lane = mixdog_rt::testing::tokens().durability_io;
-    let cluster = crate::memory::pg::cluster::PgCluster::over(crate::memory::pg::cluster::PgRuntime::new(dir.join("runtime")), dir, 55_999, lane, crate::tidy::process::Processes::for_tests());
+    let cluster = crate::memory::pg::cluster::PgCluster::over(
+        crate::memory::pg::cluster::PgRuntime::new(dir.join("runtime")),
+        dir,
+        55_999,
+        lane,
+        crate::tidy::process::Processes::for_tests(),
+    );
     stack.opened_over(cluster);
     let release = stack.cycles().expect("cycles").hold_run();
     (stack, release)
@@ -709,7 +744,12 @@ async fn the_fallback_stops_postgres_at_the_forced_point_though_no_stop_step_rea
     tokio::task::yield_now().await;
     assert!(stack.is_open(), "nothing stops it before the forced point");
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
-    awaiting("the fallback stop", async { while stack.is_open() { tokio::task::yield_now().await } }).await;
+    awaiting("the fallback stop", async {
+        while stack.is_open() {
+            tokio::task::yield_now().await
+        }
+    })
+    .await;
 }
 /// A teardown that ends before the forced point changes nothing: the cycle run ends at 1 s and the stop goes straight on to `pg_ctl stop`, at 1 s.
 #[tokio::test(start_paused = true)]
@@ -750,7 +790,9 @@ async fn a_stop_ends_the_opening_that_waits_for_an_alive_postmaster() {
     let db = stack.db();
     let using = tokio::spawn(async move { db.client().await.map(|_| ()) });
     for question in 1..=3 {
-        awaiting_for(std::time::Duration::from_secs(10), &format!("the probe's question {question} of the start"), connections.recv()).await.expect("accepting");
+        awaiting_for(std::time::Duration::from_secs(10), &format!("the probe's question {question} of the start"), connections.recv())
+            .await
+            .expect("accepting");
     }
     let stopped = awaiting_for(std::time::Duration::from_secs(5), "the stop to end the wait", stack.stop()).await;
     let ended = awaiting_for(std::time::Duration::from_secs(5), "the use to end", using).await.unwrap();
@@ -787,10 +829,8 @@ async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
         json!({ "role": "user", "content": "Please remember that the build uses the g-tools target." }),
         json!({ "role": "assistant", "content": "Noted: the build uses the g-tools target." }),
     ];
-    let text = stack
-        .module()
-        .memory(json!({ "action": "ingest_session", "sessionId": "boot-1", "cwd": dir.path().to_string_lossy(), "messages": messages }))
-        .await;
+    let text =
+        stack.module().memory(json!({ "action": "ingest_session", "sessionId": "boot-1", "cwd": dir.path().to_string_lossy(), "messages": messages })).await;
     assert!(text.starts_with("ingest_session:"), "{text}");
     stack.search().ingest_turn(IngestSession { id: "boot-1".into(), messages, agent_only: false });
     stack.search().settle("boot-1").await;
@@ -884,9 +924,18 @@ async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_nex
         }
         Box::pin(async {})
     }));
-    let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &start, &|| true)
-        .await
-        .expect("the start moves on to the next port");
+    let cluster = PgCluster::ensure(
+        PgRuntime::new(&runtime),
+        dir.path(),
+        preferred,
+        mixdog_rt::testing::tokens().durability_io,
+        crate::tidy::process::Processes::for_tests(),
+        &tokio_util::sync::CancellationToken::new(),
+        &start,
+        &|| true,
+    )
+    .await
+    .expect("the start moves on to the next port");
     let first = taken.lock().expect("holder").as_ref().expect("the start reached its spawn").0;
     assert!(cluster.port() > first, "the start used the port that was taken ({first}): {}", cluster.port());
     cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
@@ -904,7 +953,17 @@ async fn a_start_ended_during_initdb_leaves_no_cluster_and_the_next_start_makes_
         let (runtime, profile) = (PgRuntime::new(&runtime), dir.path().to_owned());
         async move {
             let processes = crate::tidy::process::Processes::for_tests();
-            PgCluster::ensure(runtime, &profile, super::support::preferred_port(), mixdog_rt::testing::tokens().durability_io, processes, &cancel, &Start::node(), &|| true).await
+            PgCluster::ensure(
+                runtime,
+                &profile,
+                super::support::preferred_port(),
+                mixdog_rt::testing::tokens().durability_io,
+                processes,
+                &cancel,
+                &Start::node(),
+                &|| true,
+            )
+            .await
         }
     };
     let cancel = tokio_util::sync::CancellationToken::new();

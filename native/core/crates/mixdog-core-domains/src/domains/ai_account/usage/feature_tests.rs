@@ -18,9 +18,17 @@ fn only_a_registered_oauth_provider_refreshes_the_reading() {
         statusline_target(&route(json!({ "provider": "openai-oauth", "model": "gpt-x" })), &registered),
         Some(("openai-oauth".to_owned(), "gpt-x".to_owned()))
     );
-    assert_eq!(statusline_target(&route(json!({ "provider": " openai-oauth ", "model": " m " })), &registered), Some(("openai-oauth".to_owned(), "m".to_owned())), "names are trimmed");
+    assert_eq!(
+        statusline_target(&route(json!({ "provider": " openai-oauth ", "model": " m " })), &registered),
+        Some(("openai-oauth".to_owned(), "m".to_owned())),
+        "names are trimmed"
+    );
     assert_eq!(statusline_target(&route(json!({ "provider": "openai", "model": "m" })), &|_| true), None, "an API-key provider has no reading");
-    assert_eq!(statusline_target(&route(json!({ "provider": "anthropic-oauth", "model": "m" })), &registered), None, "an unregistered one has nothing to refresh");
+    assert_eq!(
+        statusline_target(&route(json!({ "provider": "anthropic-oauth", "model": "m" })), &registered),
+        None,
+        "an unregistered one has nothing to refresh"
+    );
     assert_eq!(statusline_target(&route(json!({})), &|_| true), None);
 }
 

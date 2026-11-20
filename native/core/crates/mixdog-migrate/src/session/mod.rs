@@ -5,11 +5,11 @@
 pub mod archived;
 pub mod context_blobs;
 pub mod ids;
+pub mod listed;
 pub mod model;
 pub mod observe;
 mod pending;
 pub mod restore;
-pub mod listed;
 pub mod source;
 pub mod splice;
 pub mod target;
@@ -59,14 +59,8 @@ const CHECKPOINT_DIR: &str = "turn-checkpoints";
 /// because it could not be read (the session converts and opens without it).
 pub const ARCHIVE_DAMAGE_DIR: &str = "archive-damage";
 /// Shared files under `<D>` that session items read.
-const SHARED_FILES: [&str; 6] = [
-    source::LEGACY_SPOOL,
-    source::AGENT_WORKERS,
-    source::LEAD_WORKERS,
-    source::AGENT_RELEASED,
-    archived::SESSION_SUMMARIES,
-    archived::SESSION_SUMMARIES_LOG,
-];
+const SHARED_FILES: [&str; 6] =
+    [source::LEGACY_SPOOL, source::AGENT_WORKERS, source::LEAD_WORKERS, source::AGENT_RELEASED, archived::SESSION_SUMMARIES, archived::SESSION_SUMMARIES_LOG];
 
 /// What a file directly under `sessions/` is to the migration.
 #[derive(Debug, PartialEq, Eq)]
@@ -115,10 +109,7 @@ fn classify(name: &str) -> Entry {
         return Entry::Tmp;
     }
     let set_aside = |base: &str, tail: &dyn Fn(&str) -> bool| {
-        name.find(base)
-            .filter(|at| is_session_id(&name[..*at]))
-            .and_then(|at| name[at + base.len()..].strip_prefix('.'))
-            .is_some_and(tail)
+        name.find(base).filter(|at| is_session_id(&name[..*at])).and_then(|at| name[at + base.len()..].strip_prefix('.')).is_some_and(tail)
     };
     if set_aside(JSON_SUFFIX, &|t| t.starts_with("corrupt-"))
         || set_aside(PENDING_SUFFIX, &|t| t.starts_with("corrupt-"))
@@ -204,19 +195,13 @@ fn target_origin(dir: &std::path::Path) -> Result<Option<(String, String)>> {
         return Ok(None);
     };
     match serde_json::from_slice::<Record>(&bytes[frame.payload.clone()]) {
-        Ok(Record::Session(s)) => Ok(s.origin.map(|o| {
-            (
-                o.migration.manifest_sha256.as_str().to_string(),
-                o.migration.item_key.as_str().to_string(),
-            )
-        })),
+        Ok(Record::Session(s)) => Ok(s.origin.map(|o| (o.migration.manifest_sha256.as_str().to_string(), o.migration.item_key.as_str().to_string()))),
         _ => Ok(None),
     }
 }
 
 fn ours(cx: &ItemContext<'_>, item: &ManifestItem, dir: &std::path::Path) -> Result<bool> {
-    Ok(target_origin(dir)?
-        == Some((cx.manifest_sha256.to_string(), item.key.as_str().to_string())))
+    Ok(target_origin(dir)? == Some((cx.manifest_sha256.to_string(), item.key.as_str().to_string())))
 }
 
 #[cfg(test)]
@@ -306,10 +291,7 @@ impl ItemDriver for SessionDriver {
         }
         // A reaped agent child (no session of its own) is read through the parents its links name: each parent
         // that migrates consumes the link files; a child none of whose parents migrates is dropped, counted.
-        let links: Vec<Option<Vec<u8>>> = archived::LINK_FILES
-            .iter()
-            .map(|name| durable::read_optional(&roots.data.join(name)))
-            .collect::<Result<_>>()?;
+        let links: Vec<Option<Vec<u8>>> = archived::LINK_FILES.iter().map(|name| durable::read_optional(&roots.data.join(name))).collect::<Result<_>>()?;
         let reaped = archived::parents(links[0].as_deref(), links[1].as_deref(), links[2].as_deref());
         // A worker row whose session record is gone is listed with no header, but a reaped child's row is not a session: its
         // result lives in the parents that migrate, and a child none of whose parents is anywhere is dropped (the loop below).
@@ -368,12 +350,7 @@ impl ItemDriver for SessionDriver {
             .filter(|(n, d)| !d && n.ends_with(".json"))
             .map(|(n, _)| format!("{}/{n}", source::SPOOL_DIR))
             .collect();
-        shared.extend(
-            SHARED_FILES
-                .iter()
-                .filter(|n| durable::is_file(&roots.data.join(n)))
-                .map(|n| n.to_string()),
-        );
+        shared.extend(SHARED_FILES.iter().filter(|n| durable::is_file(&roots.data.join(n))).map(|n| n.to_string()));
         let mut link_parents: BTreeSet<String> = BTreeSet::new();
         for (child, parents) in reaped {
             if sessions.contains_key(&child) || parents.is_empty() {
@@ -391,11 +368,8 @@ impl ItemDriver for SessionDriver {
         for rel in shared {
             let file = sink.source(data, &rel, false)?;
             let bytes = durable::read(&roots.resolve(data, &rel)?)?;
-            let named = if archived::LINK_FILES[1..].contains(&rel.as_str()) {
-                Some((Vec::new(), Vec::new()))
-            } else {
-                source::shared_session_ids(&rel, &bytes)
-            };
+            let named =
+                if archived::LINK_FILES[1..].contains(&rel.as_str()) { Some((Vec::new(), Vec::new())) } else { source::shared_session_ids(&rel, &bytes) };
             match named {
                 None => add(sink, plan::retain_key(data, &rel), ItemKind::Retired, Contract::Retain, vec![file.clone()])?,
                 Some((mut ids, ownerless)) => {
@@ -418,8 +392,7 @@ impl ItemDriver for SessionDriver {
                         let all = candidates.as_deref().unwrap_or_default();
                         ids.extend(ownerless.iter().filter_map(|t| source::recover_owner(t, all)).map(|c| c.id().to_string()));
                     }
-                    let consumers: BTreeSet<String> =
-                        ids.into_iter().filter(|id| sessions.contains_key(id)).collect();
+                    let consumers: BTreeSet<String> = ids.into_iter().filter(|id| sessions.contains_key(id)).collect();
                     if consumers.is_empty() {
                         add(sink, plan::retire_key(data, &rel), ItemKind::Retired, Contract::Retire, vec![file.clone()])?;
                     }
@@ -438,35 +411,23 @@ impl ItemDriver for SessionDriver {
                 ItemKind::Session | ItemKind::OrphanCheckpoint | ItemKind::OrphanArchivedAgent | ItemKind::SetAside => true,
                 ItemKind::Retired => {
                     let rel = item.key.as_str().split_once("/data/").map_or("", |(_, r)| r);
-                    rel.starts_with("sessions/")
-                        || rel.starts_with("session-pending/")
-                        || SHARED_FILES.contains(&rel)
+                    rel.starts_with("sessions/") || rel.starts_with("session-pending/") || SHARED_FILES.contains(&rel)
                 }
                 _ => false,
             }
     }
 
     fn wave(&self, item: &ManifestItem) -> Wave {
-        if item.kind == ItemKind::Session {
-            Wave::Sessions
-        } else {
-            Wave::Stores
-        }
+        if item.kind == ItemKind::Session { Wave::Sessions } else { Wave::Stores }
     }
 
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         match item.contract {
             Contract::Retain if item.kind == ItemKind::SetAside => {
-                return Ok(Staged::Quarantine {
-                    code: QuarantineCode::CarriedSetAside,
-                    detail: "set aside by Mixdog before the update; never loaded".into(),
-                });
+                return Ok(Staged::Quarantine { code: QuarantineCode::CarriedSetAside, detail: "set aside by Mixdog before the update; never loaded".into() });
             }
             Contract::Retain => {
-                return Ok(Staged::Quarantine {
-                    code: QuarantineCode::ParseError,
-                    detail: "a shared session file does not parse".into(),
-                });
+                return Ok(Staged::Quarantine { code: QuarantineCode::ParseError, detail: "a shared session file does not parse".into() });
             }
             _ => {}
         }
@@ -500,10 +461,7 @@ impl ItemDriver for SessionDriver {
             let bytes = serde_json::to_vec_pretty(&note).map_err(|e| Blocked::journal(format!("{id}: archive damage note: {e}")))?;
             durable::publish_file(&cx.roots.data.join(ARCHIVE_DAMAGE_DIR).join(format!("{id}.json")), &bytes)?;
         }
-        Ok(Staged::Output {
-            output_sha256: durable::sha256_hex(&all),
-            replaced_surrogates: model.replaced_surrogates,
-        })
+        Ok(Staged::Output { output_sha256: durable::sha256_hex(&all), replaced_surrogates: model.replaced_surrogates })
     }
 
     fn listed_meta(&self, cx: &ItemContext<'_>, session: &str) -> Result<serde_json::Map<String, serde_json::Value>> {
@@ -520,10 +478,7 @@ impl ItemDriver for SessionDriver {
             if ours(cx, item, &target)? {
                 return Ok(());
             }
-            return Err(Blocked::TargetConflict {
-                key: item.key.as_str().into(),
-                path: target,
-            });
+            return Err(Blocked::TargetConflict { key: item.key.as_str().into(), path: target });
         }
         // The migration runs behind a serving core: a session folder appearing is a change of that session's log.
         let _writing = mixdog_store::log_epoch::writing_dir(&target);
@@ -534,10 +489,7 @@ impl ItemDriver for SessionDriver {
         if item.contract == Contract::Retire {
             return Ok(Verdict::Verified { digest: None });
         }
-        let mismatch = |detail: String| Verdict::Quarantine {
-            code: QuarantineCode::DigestMismatch,
-            detail,
-        };
+        let mismatch = |detail: String| Verdict::Quarantine { code: QuarantineCode::DigestMismatch, detail };
         let folded = match target::read_session(cx, &target_dir(cx, session_id(item))) {
             Ok(f) => f,
             Err(detail) => return Ok(mismatch(detail)),
@@ -545,27 +497,22 @@ impl ItemDriver for SessionDriver {
         let Some(origin) = &folded.origin else {
             return Ok(mismatch("the target has no migration origin".into()));
         };
-        if origin.item_key.as_str() != item.key.as_str()
-            || origin.manifest_sha256.as_str() != cx.manifest_sha256
-            || folded.id != session_id(item)
-        {
+        if origin.item_key.as_str() != item.key.as_str() || origin.manifest_sha256.as_str() != cx.manifest_sha256 || folded.id != session_id(item) {
             return Ok(mismatch("the target names another item".into()));
         }
         let digest = folded.observable(cx)?.digest();
         if digest != origin.source_digest.as_str() {
             return Ok(mismatch(format!("target {digest} ≠ source {}", origin.source_digest.as_str())));
         }
-        Ok(Verdict::Verified {
-            digest: Some(crate::json::digest(&digest)),
-        })
+        Ok(Verdict::Verified { digest: Some(crate::json::digest(&digest)) })
     }
 
     fn dangling(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<u64> {
         if item.kind != ItemKind::Session {
             return Ok(0);
         }
-        let folded = target::read_session(cx, &target_dir(cx, session_id(item)))
-            .map_err(|detail| Blocked::journal(format!("{}: {detail}", item.key.as_str())))?;
+        let folded =
+            target::read_session(cx, &target_dir(cx, session_id(item))).map_err(|detail| Blocked::journal(format!("{}: {detail}", item.key.as_str())))?;
         let mut refs: BTreeSet<String> = folded.rows.iter().flat_map(|r| r.refs.iter().cloned()).collect();
         for (_, entry) in &folded.queue {
             observe::attachment_refs(entry, &mut refs);

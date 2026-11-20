@@ -8,7 +8,8 @@ use mixdog_js::JsRegex;
 use mixdog_js::utf16_len;
 use url::Url;
 
-const SECRET_KEYS: &str = r"access[_-]?token|api[_-]?key|apikey|authorization|id[_-]?token|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token";
+const SECRET_KEYS: &str =
+    r"access[_-]?token|api[_-]?key|apikey|authorization|id[_-]?token|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token";
 
 /// Credential shapes recognised anywhere in text, with the marker each one is replaced by.
 static TOKEN_REDACTIONS: LazyLock<Vec<(JsRegex, &'static str)>> = LazyLock::new(|| {
@@ -98,9 +99,7 @@ pub fn url_contains_secret(raw: &str) -> bool {
     }
     // The caller owns URL syntax validation; the raw token detection above still applies to what does not parse.
     let Ok(parsed) = Url::parse(raw) else { return false };
-    parsed.query_pairs().any(|(key, value)| {
-        !value.is_empty() && (SECRET_PARAMETER.is_match(&key) || (key.to_lowercase() == "code" && utf16_len(&value) >= 8))
-    })
+    parsed.query_pairs().any(|(key, value)| !value.is_empty() && (SECRET_PARAMETER.is_match(&key) || (key.to_lowercase() == "code" && utf16_len(&value) >= 8)))
 }
 
 /// A `Set-Cookie` or `Cookie` header line (`Name: value`) with its whole value replaced; every such line of a multi-line text.
@@ -110,8 +109,7 @@ pub fn redact_set_cookie(text: &str) -> String {
 
 /// The text with credentials in URLs, token shapes, secret-named query parameters and assignments, and cookie lines replaced.
 pub fn redact_browser_text(value: &str) -> String {
-    let mut text = URL_CREDENTIALS
-        .replace_all_with(value, |caps| format!("{}{}:***@", caps.get(1).unwrap_or_default(), caps.get(2).unwrap_or_default()));
+    let mut text = URL_CREDENTIALS.replace_all_with(value, |caps| format!("{}{}:***@", caps.get(1).unwrap_or_default(), caps.get(2).unwrap_or_default()));
     // Consume the complete auth value before an assignment can remove just its scheme and leave an opaque credential behind.
     for (pattern, marker) in TOKEN_REDACTIONS.iter() {
         text = pattern.replace_all_with(&text, |_| (*marker).to_owned());

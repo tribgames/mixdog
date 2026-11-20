@@ -572,10 +572,7 @@ mod tests {
             "<a href=\"mailto:x@y.org\">m</a>",
             "<a href=\"https://cut.example/\"",
         );
-        assert_eq!(
-            html_links(html),
-            ["https://a.example/?x=1&y=2", "https://b.example/", "https://c.example/", "mailto:x@y.org"]
-        );
+        assert_eq!(html_links(html), ["https://a.example/?x=1&y=2", "https://b.example/", "https://c.example/", "mailto:x@y.org"]);
     }
 
     #[test]
@@ -612,7 +609,6 @@ mod tests {
         assert_eq!(clip("abc", 3), "abc");
     }
 
-
     #[test]
     fn dates_are_iso_in_utc_and_empty_when_they_are_none() {
         assert_eq!(iso_date("Mon, 7 Feb 2022 21:52:25 -0800"), "2022-02-08T05:52:25.000Z");
@@ -621,7 +617,6 @@ mod tests {
         assert_eq!(iso_from_ms(0.0), "1970-01-01T00:00:00.000Z");
     }
 }
-
 
 // ── Dates ───────────────────────────────────────────────────────────────────
 

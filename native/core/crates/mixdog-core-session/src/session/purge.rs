@@ -164,7 +164,19 @@ fn remove_all(lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
 impl PurgeHooks {
     /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
     pub fn new(owners: PurgeOwners) -> Self {
-        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, transcripts: writers, providers, worker_turns, agents, retention } = owners;
+        let PurgeOwners {
+            data_dir,
+            mixdog_home,
+            maintenance,
+            read_state,
+            warm,
+            ingest_offsets,
+            transcripts: writers,
+            providers,
+            worker_turns,
+            agents,
+            retention,
+        } = owners;
         let lane = maintenance;
         let data = data_dir.clone();
         let transcript_export = hook(move |id, _| {
@@ -353,12 +365,8 @@ impl DeleteSeams for SessionDeletion {
 
     async fn release_session_work(&self, session_id: &str, reason: &str) {
         self.shells.cancel_owned(&ThreadId::from(session_id));
-        let cancel = CancelAll {
-            reason: reason.to_owned(),
-            execution_session_id: Some(session_id.to_owned()),
-            notice: CancelNotice::Never,
-            ..CancelAll::default()
-        };
+        let cancel =
+            CancelAll { reason: reason.to_owned(), execution_session_id: Some(session_id.to_owned()), notice: CancelNotice::Never, ..CancelAll::default() };
         self.board.cancel_all(&cancel);
         self.gateway_routes.clear(session_id).await;
     }

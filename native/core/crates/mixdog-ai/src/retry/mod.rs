@@ -7,8 +7,8 @@
 
 pub mod advice;
 pub mod classify;
-pub mod stage;
 mod decider;
+pub mod stage;
 
 pub use decider::StandardRetryDecider;
 pub use decider::random_samples;

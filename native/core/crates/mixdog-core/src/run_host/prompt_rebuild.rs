@@ -167,19 +167,15 @@ impl PromptRebuild for ComposedPrompt {
         let delegation_free = !owner_is_agent && header.get("workflow").is_some_and(|workflow| workflow_disallows_agent_tool(workflow, agent_mode));
         let core_memory = if owner_is_agent { String::new() } else { self.core_memory.load(&cwd, agent.as_deref().unwrap_or_default()).await };
         // `opts.cwd || captureOriginalUserCwd()`.
-        let prompt_cwd = if cwd.is_empty() {
-            self.user_cwd.captured_cwd(None).await.map_err(|error| error.to_string())?.unwrap_or_default()
-        } else {
-            cwd.clone()
-        };
-        let skill_manifest = if tool_free_role || request.allow.as_ref().is_some_and(Vec::is_empty) { String::new() } else { self.skills.manifest(&cwd).await? };
+        let prompt_cwd =
+            if cwd.is_empty() { self.user_cwd.captured_cwd(None).await.map_err(|error| error.to_string())?.unwrap_or_default() } else { cwd.clone() };
+        let skill_manifest =
+            if tool_free_role || request.allow.as_ref().is_some_and(Vec::is_empty) { String::new() } else { self.skills.manifest(&cwd).await? };
         let mut omit = request.denied.clone();
         omit.push(unused_model_edit_tool_name(&request.model).to_owned());
         // `summary?.name || summary?.id || null`: the workflow the notice names.
-        let workflow_name = ["name", "id"]
-            .iter()
-            .find_map(|key| request.target.summary.get(*key).and_then(Value::as_str).filter(|name| !name.is_empty()))
-            .map(str::to_owned);
+        let workflow_name =
+            ["name", "id"].iter().find_map(|key| request.target.summary.get(*key).and_then(Value::as_str).filter(|name| !name.is_empty())).map(str::to_owned);
         let owned = Arc::new(Owned {
             session_id: text("id"),
             system_prompt: identity.get("systemPrompt").and_then(Value::as_str).unwrap_or_default().to_owned(),
@@ -246,7 +242,12 @@ mod tests {
     fn the_prompt_lists_the_visible_skills_as_node_does() {
         assert_eq!(manifest_of(&[]), "");
         let two = manifest_of(&[skill("pdf", "Read or create PDF files."), skill("Tidy", "Clean up code.")]);
-        assert!(two.starts_with("# available-skills\nSelection triggers and linked tools.\n<available_skills>\n- pdf: Read or create PDF files.\n- Tidy: Clean up code.\n"), "{two}");
+        assert!(
+            two.starts_with(
+                "# available-skills\nSelection triggers and linked tools.\n<available_skills>\n- pdf: Read or create PDF files.\n- Tidy: Clean up code.\n"
+            ),
+            "{two}"
+        );
         let many: Vec<Skill> = (0..90).map(|n| skill(&format!("skill-{n:03}"), "use it when asked")).collect();
         let listed = manifest_of(&many);
         assert!(listed.contains("- ... 10 more skills omitted") && !listed.contains("skill-089"));

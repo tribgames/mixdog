@@ -19,8 +19,7 @@ use crate::memory::pg::db::{Db, transaction};
 
 /// The category vocabulary shared by curated memory, recall filters and the
 /// score table, in display order.
-pub const VALID_CATEGORIES: [&str; 8] =
-    ["rule", "constraint", "decision", "fact", "goal", "preference", "task", "issue"];
+pub const VALID_CATEGORIES: [&str; 8] = ["rule", "constraint", "decision", "fact", "goal", "preference", "task", "issue"];
 
 const ELEMENT_DERIVE_LENGTH: usize = 40;
 const LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '5s'";
@@ -93,12 +92,9 @@ pub struct Require {
 /// the synonym they would use in prose, and accepting them removes a measured
 /// class of bounced calls. The element defaults to the first 40 characters.
 pub fn normalize_input(input: &Value, require: Require) -> CoreInput {
-    let first = ["summary", "content", "text", "value", "note"]
-        .iter()
-        .find_map(|key| input.get(*key).filter(|value| !value.is_null()));
+    let first = ["summary", "content", "text", "value", "note"].iter().find_map(|key| input.get(*key).filter(|value| !value.is_null()));
     let summary = trim_or_null(first);
-    let element = trim_or_null(input.get("element"))
-        .or_else(|| summary.as_deref().map(|text| slice_utf16(text, ELEMENT_DERIVE_LENGTH)));
+    let element = trim_or_null(input.get("element")).or_else(|| summary.as_deref().map(|text| slice_utf16(text, ELEMENT_DERIVE_LENGTH)));
     let supplied_category = trim_or_null(input.get("category"));
     let category = supplied_category.clone().unwrap_or_else(|| "fact".to_owned()).to_lowercase();
     let mut errors = Vec::new();
@@ -128,13 +124,7 @@ async fn lock_pool(tx: &Client, keys: &[String]) -> Result<()> {
 /// Rows already holding `element` in the pool (`findCoreKeyRows`, core-memory-uniqueness.mjs:37, its statement text).
 /// Called under the pool lock; this also protects writes while a legacy store still has key conflicts and cannot
 /// carry the unique index.
-async fn key_rows(
-    tx: &Client,
-    project_id: Option<&str>,
-    agent_id: Option<&str>,
-    element: &str,
-    except_id: Option<i64>,
-) -> Result<Vec<(i64, Option<String>)>> {
+async fn key_rows(tx: &Client, project_id: Option<&str>, agent_id: Option<&str>, element: &str, except_id: Option<i64>) -> Result<Vec<(i64, Option<String>)>> {
     let rows = tx
         .query(
             "
@@ -158,13 +148,7 @@ fn already_exists(pool: Pool<'_>, element: &str) -> MemoryError {
 }
 
 /// Adds an entry to a pool; an archived entry of the same key is revived.
-pub async fn add(
-    db: &Db,
-    input: &Value,
-    project_id: Option<&str>,
-    agent_id: Option<&str>,
-    caller: &MemoryCaller,
-) -> Result<CoreEntry> {
+pub async fn add(db: &Db, input: &Value, project_id: Option<&str>, agent_id: Option<&str>, caller: &MemoryCaller) -> Result<CoreEntry> {
     add_cancellable(db, input, project_id, agent_id, caller, None).await
 }
 
@@ -250,16 +234,10 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
         .map(|row| CoreEntry::from_row(&row))
         .ok_or_else(|| MemoryError::rejected(format!("no entry with id={id}")))?;
     if request.expected_project_id != current.project_id.as_deref() {
-        return Err(MemoryError::rejected(format!(
-            "entry id={id} is not in project {}",
-            request.expected_project_id.unwrap_or("COMMON")
-        )));
+        return Err(MemoryError::rejected(format!("entry id={id} is not in project {}", request.expected_project_id.unwrap_or("COMMON"))));
     }
     if request.expected_agent_id != current.agent_id.as_deref() {
-        return Err(MemoryError::rejected(format!(
-            "entry id={id} is not in {}",
-            Pool { project_id: None, agent_id: request.expected_agent_id }.label()
-        )));
+        return Err(MemoryError::rejected(format!("entry id={id} is not in {}", Pool { project_id: None, agent_id: request.expected_agent_id }.label())));
     }
     let agent_id = current.agent_id.as_deref();
     let incoming = normalize_input(request.input, Require::default());
@@ -312,8 +290,7 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
         }
         return Ok(edited(current));
     }
-    let mut lock_keys =
-        vec![pool_lock_key(current.project_id.as_deref(), agent_id), pool_lock_key(target_project, agent_id)];
+    let mut lock_keys = vec![pool_lock_key(current.project_id.as_deref(), agent_id), pool_lock_key(target_project, agent_id)];
     lock_keys.sort();
     lock_keys.dedup();
     transaction(db, async |tx| {
@@ -335,9 +312,7 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
         {
             return Err(MemoryError::rejected(format!("core entry id={id} changed concurrently — re-read and retry")));
         }
-        if (element != current.element || project_changed)
-            && !key_rows(tx, target_project, agent_id, &element, Some(id)).await?.is_empty()
-        {
+        if (element != current.element || project_changed) && !key_rows(tx, target_project, agent_id, &element, Some(id)).await?.is_empty() {
             return Err(already_exists(Pool { project_id: target_project, agent_id }, &element));
         }
         check_write_start(cancel)?;
@@ -355,13 +330,7 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
 }
 
 /// Deletes one entry of the pool the caller named and was authorised for.
-pub async fn delete(
-    db: &Db,
-    id: i64,
-    expected_project_id: Option<&str>,
-    expected_agent_id: Option<&str>,
-    caller: &MemoryCaller,
-) -> Result<CoreEntry> {
+pub async fn delete(db: &Db, id: i64, expected_project_id: Option<&str>, expected_agent_id: Option<&str>, caller: &MemoryCaller) -> Result<CoreEntry> {
     delete_cancellable(db, id, expected_project_id, expected_agent_id, caller, None, None).await
 }
 
@@ -408,9 +377,7 @@ pub(crate) async fn delete_cancellable(
     cancel: Option<&CancellationToken>,
     settlement: Option<&DeleteSettlement>,
 ) -> Result<CoreEntry> {
-    let current = db
-        .query_opt("SELECT project_id, agent_id FROM core_entries WHERE id = $1", &[&id])
-        .await?;
+    let current = db.query_opt("SELECT project_id, agent_id FROM core_entries WHERE id = $1", &[&id]).await?;
     let missing = || MemoryError::rejected(format!("no entry with id={id}"));
     let current = current.ok_or_else(missing)?;
     let (project, agent): (Option<String>, Option<String>) = (current.get(0), current.get(1));
@@ -432,7 +399,8 @@ pub(crate) async fn delete_cancellable(
                 check_write_start(cancel)?;
             }
             Ok(removed)
-        }).await?
+        })
+        .await?
     } else {
         db.query_opt(sql, &[&id, &project, &agent]).await?
     };
@@ -450,8 +418,5 @@ pub fn now_ms() -> i64 {
     if let Some(now) = NOW_MS.with(std::cell::Cell::get) {
         return now;
     }
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)).unwrap_or(0)
 }

@@ -274,7 +274,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_capture_says_once_that_its_first_picture_is_on_its_way_and_skips_a_torn_one() {
-        let torn = VideoFrame { width: 8, height: 8, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from_static(&[0; 10]), seq: 0, captured_at: Duration::ZERO };
+        let torn =
+            VideoFrame { width: 8, height: 8, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from_static(&[0; 10]), seq: 0, captured_at: Duration::ZERO };
         let scripted = Scripted { frames: vec![Ok(torn), Ok(solid(8, 8, [5, 6, 7])), Ok(solid(8, 8, [5, 6, 7]))].into() };
         let said = Arc::new(Mutex::new(0));
         let counter = said.clone();
@@ -308,13 +309,7 @@ mod tests {
         let (sink, mut source) = drawn_feed(Arc::new(move |epoch| log.lock().unwrap().push(epoch)));
         assert_eq!(source.kind(), FrameSourceKind::SecureDesktop);
         assert!(source.next_frame().now_or_never().is_none(), "nothing is drawn before a picture arrives");
-        let picture = helper_picture(
-            4,
-            4,
-            [200, 100, 50],
-            Area { x: 0.0, y: 0.0, width: 4.0, height: 4.0 },
-            Area { x: 2.0, y: 2.0, width: 4.0, height: 4.0 },
-        );
+        let picture = helper_picture(4, 4, [200, 100, 50], Area { x: 0.0, y: 0.0, width: 4.0, height: 4.0 }, Area { x: 2.0, y: 2.0, width: 4.0, height: 4.0 });
         sink.push(DrawnPicture { epoch: 9, size: LockedSize { width: 8, height: 8 }, picture });
         let frame = source.next_frame().await.unwrap().unwrap();
         assert_eq!((frame.width, frame.height, frame.seq), (8, 8, 0));
@@ -353,7 +348,6 @@ mod tests {
         assert!(source.next_frame().await.unwrap().is_some());
     }
 
-
     #[test]
     fn a_picture_of_another_size_is_scaled_onto_the_locked_one() {
         let locked = lock_frame(&solid(8, 6, [10, 20, 30]), LockedSize { width: 4, height: 2 }).unwrap();
@@ -388,15 +382,16 @@ mod tests {
     }
     #[test]
     fn a_torn_picture_and_a_size_out_of_bounds_are_refused() {
-        let torn = VideoFrame { width: 8, height: 8, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from_static(&[0; 10]), seq: 0, captured_at: Duration::ZERO };
+        let torn =
+            VideoFrame { width: 8, height: 8, stride: 32, format: PixelFormat::Bgrx, data: Bytes::from_static(&[0; 10]), seq: 0, captured_at: Duration::ZERO };
         assert!(lock_frame(&torn, LockedSize { width: 4, height: 4 }).is_err());
         assert!(lock_frame(&solid(2, 2, [0; 3]), LockedSize { width: 0, height: 4 }).is_err());
         assert!(lock_frame(&solid(2, 2, [0; 3]), LockedSize { width: MAX_DIMENSION + 2, height: 4 }).is_err());
-        let jpeg = VideoFrame { width: 4, height: 4, stride: 0, format: PixelFormat::Jpeg, data: Bytes::from_static(&[1, 2, 3]), seq: 0, captured_at: Duration::ZERO };
+        let jpeg =
+            VideoFrame { width: 4, height: 4, stride: 0, format: PixelFormat::Jpeg, data: Bytes::from_static(&[1, 2, 3]), seq: 0, captured_at: Duration::ZERO };
         assert!(lock_frame(&jpeg, LockedSize { width: 2, height: 2 }).is_err());
     }
 }
-
 
 fn bgrx_frame(pixels: Vec<u8>, size: LockedSize, seq: u64, captured_at: std::time::Duration) -> VideoFrame {
     VideoFrame { width: size.width, height: size.height, stride: size.width * 4, format: PixelFormat::Bgrx, data: Bytes::from(pixels), seq, captured_at }

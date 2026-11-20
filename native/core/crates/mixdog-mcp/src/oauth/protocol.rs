@@ -56,9 +56,7 @@ impl Discovery {
         match advertised {
             Some(url) => Url::parse(url).ok(),
             // A server with no metadata uses the legacy default paths.
-            None if self.authorization_server_metadata.is_none() => {
-                Url::parse(&self.authorization_server_url).ok()?.join(fallback_path).ok()
-            }
+            None if self.authorization_server_metadata.is_none() => Url::parse(&self.authorization_server_url).ok()?.join(fallback_path).ok(),
             None => None,
         }
     }
@@ -171,11 +169,8 @@ pub fn random_state() -> String {
 
 impl Protocol {
     pub fn new() -> Result<Self, String> {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .map_err(|e| e.without_url().to_string())?;
+        let client =
+            reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(REQUEST_TIMEOUT).build().map_err(|e| e.without_url().to_string())?;
         Ok(Self { client })
     }
 
@@ -371,11 +366,10 @@ mod tests {
         };
         assert_eq!(with.token_endpoint().unwrap().as_str(), "https://as.example/t");
         assert!(with.registration_endpoint().is_none(), "advertised metadata without registration means none");
-        assert!(with.supports_s256() && !Discovery {
-            authorization_server_metadata: Some(json!({"code_challenge_methods_supported": ["plain"]})),
-            ..bare
-        }
-        .supports_s256());
+        assert!(
+            with.supports_s256()
+                && !Discovery { authorization_server_metadata: Some(json!({"code_challenge_methods_supported": ["plain"]})), ..bare }.supports_s256()
+        );
     }
 
     #[test]

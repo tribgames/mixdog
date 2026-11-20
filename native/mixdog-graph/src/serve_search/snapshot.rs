@@ -14,25 +14,18 @@ pub(super) fn inventory_snapshot_path() -> Option<PathBuf> {
 pub(super) fn read_snapshot_string<R: Read>(reader: &mut R) -> io::Result<String> {
     let len = read_snapshot_u32(reader)? as usize;
     if len == 0 || len > INVENTORY_SNAPSHOT_MAX_STRING_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "inventory string length",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "inventory string length"));
     }
     let mut bytes = vec![0u8; len];
     reader.read_exact(&mut bytes)?;
-    String::from_utf8(bytes)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "inventory utf8"))
+    String::from_utf8(bytes).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "inventory utf8"))
 }
 
 pub(super) fn write_snapshot_string<W: Write>(writer: &mut W, value: &Path) -> io::Result<()> {
     let value = value.to_string_lossy();
     let bytes = value.as_bytes();
     if bytes.is_empty() || bytes.len() > INVENTORY_SNAPSHOT_MAX_STRING_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "inventory path length",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "inventory path length"));
     }
     writer.write_all(&(bytes.len() as u32).to_le_bytes())?;
     writer.write_all(bytes)
@@ -70,10 +63,7 @@ pub(super) fn read_snapshot_i64<R: Read>(reader: &mut R) -> io::Result<i64> {
 
 /// The journal checkpoints a snapshot carries, in file order. Both on-disk
 /// caches frame them identically, so they are decoded in one place.
-pub(super) fn read_snapshot_checkpoints<R: Read>(
-    reader: &mut R,
-    count: usize,
-) -> io::Result<Vec<crate::serve_search_usn::JournalCheckpoint>> {
+pub(super) fn read_snapshot_checkpoints<R: Read>(reader: &mut R, count: usize) -> io::Result<Vec<crate::serve_search_usn::JournalCheckpoint>> {
     let mut checkpoints = Vec::with_capacity(count);
     for _ in 0..count {
         checkpoints.push(crate::serve_search_usn::JournalCheckpoint {
@@ -87,10 +77,7 @@ pub(super) fn read_snapshot_checkpoints<R: Read>(
 }
 
 /// Encode `checkpoints` in the framing `read_snapshot_checkpoints` decodes.
-pub(super) fn write_snapshot_checkpoints<W: Write>(
-    writer: &mut W,
-    checkpoints: &[crate::serve_search_usn::JournalCheckpoint],
-) -> io::Result<()> {
+pub(super) fn write_snapshot_checkpoints<W: Write>(writer: &mut W, checkpoints: &[crate::serve_search_usn::JournalCheckpoint]) -> io::Result<()> {
     for checkpoint in checkpoints {
         writer.write_all(&checkpoint.volume.to_le_bytes())?;
         writer.write_all(&checkpoint.volume_serial.to_le_bytes())?;
@@ -103,14 +90,9 @@ pub(super) fn write_snapshot_checkpoints<W: Write>(
 /// Write a snapshot through a sibling temp file, then move it over `path`.
 /// `write` must flush what it wrote. Returns false — with the temp file
 /// removed and the previous snapshot untouched — when any step fails.
-pub(super) fn replace_snapshot_file(
-    path: &Path,
-    write: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
-) -> bool {
+pub(super) fn replace_snapshot_file(path: &Path, write: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>) -> bool {
     let temp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let written = File::create(&temp)
-        .and_then(|file| write(&mut BufWriter::new(file)))
-        .is_ok();
+    let written = File::create(&temp).and_then(|file| write(&mut BufWriter::new(file))).is_ok();
     // Rename replaces an existing destination atomically, so a crash never
     // leaves the directory without a snapshot.
     if !written || fs::rename(&temp, path).is_err() {
@@ -126,21 +108,13 @@ pub(super) fn replace_snapshot_file(
 fn read_inventory_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> {
     let mut magic = [0u8; 8];
     reader.read_exact(&mut magic)?;
-    if &magic != INVENTORY_SNAPSHOT_MAGIC
-        || read_snapshot_u32(reader)? != INVENTORY_SNAPSHOT_VERSION
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "inventory header",
-        ));
+    if &magic != INVENTORY_SNAPSHOT_MAGIC || read_snapshot_u32(reader)? != INVENTORY_SNAPSHOT_VERSION {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "inventory header"));
     }
     let checkpoint_count = read_snapshot_u32(reader)? as usize;
     let entry_count = read_snapshot_u32(reader)? as usize;
     if checkpoint_count > 256 || entry_count > FILE_LIST_CACHE_MAX {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "inventory counts",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "inventory counts"));
     }
     Ok((checkpoint_count, entry_count))
 }
@@ -148,16 +122,9 @@ fn read_inventory_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> 
 /// One cached inventory: the walk key it answers, its sorted file list and the
 /// accounting a restored cache entry carries. Sorting here keeps a restored
 /// inventory in the same deterministic order the walk published.
-fn read_inventory_entry<R: Read>(
-    reader: &mut R,
-    now: Instant,
-    ttl: Duration,
-) -> io::Result<(WalkKey, ReadyEntry)> {
+fn read_inventory_entry<R: Read>(reader: &mut R, now: Instant, ttl: Duration) -> io::Result<(WalkKey, ReadyEntry)> {
     let operand = PathBuf::from(wire_path(Path::new(&read_snapshot_string(reader)?)));
-    let root_identity = Some(crate::serve_search_usn::FileIdentity {
-        volume: read_snapshot_u32(reader)?,
-        file_id: read_snapshot_u64(reader)?,
-    });
+    let root_identity = Some(crate::serve_search_usn::FileIdentity { volume: read_snapshot_u32(reader)?, file_id: read_snapshot_u64(reader)? });
     let mut flags = [0u8; 1];
     reader.read_exact(&mut flags)?;
     let max_depth = read_snapshot_u32(reader)?;
@@ -165,10 +132,7 @@ fn read_inventory_entry<R: Read>(
     let iglob_count = read_snapshot_u32(reader)? as usize;
     let file_count = read_snapshot_u32(reader)? as usize;
     if prune_count > 4096 || iglob_count > 4096 || file_count > 2_000_000 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "inventory entry counts",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "inventory entry counts"));
     }
     let mut prune = Vec::with_capacity(prune_count);
     for _ in 0..prune_count {
@@ -180,9 +144,7 @@ fn read_inventory_entry<R: Read>(
     }
     let mut files = Vec::with_capacity(file_count);
     for _ in 0..file_count {
-        files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(
-            reader,
-        )?))));
+        files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(reader)?))));
     }
     files.par_sort_unstable();
     files.dedup();
@@ -210,10 +172,7 @@ fn read_inventory_entry<R: Read>(
     ))
 }
 
-pub(super) fn load_file_list_snapshot() -> (
-    HashMap<WalkKey, ReadyEntry>,
-    Option<Vec<crate::serve_search_usn::JournalCheckpoint>>,
-) {
+pub(super) fn load_file_list_snapshot() -> (HashMap<WalkKey, ReadyEntry>, Option<Vec<crate::serve_search_usn::JournalCheckpoint>>) {
     ensure_content_signature_cache_loaded();
     let Some(ttl) = file_list_ttl() else {
         return (HashMap::new(), None);
@@ -221,10 +180,7 @@ pub(super) fn load_file_list_snapshot() -> (
     let Some(path) = inventory_snapshot_path() else {
         return (HashMap::new(), None);
     };
-    if fs::metadata(&path)
-        .ok()
-        .is_none_or(|metadata| metadata.len() > INVENTORY_SNAPSHOT_MAX_BYTES)
-    {
+    if fs::metadata(&path).ok().is_none_or(|metadata| metadata.len() > INVENTORY_SNAPSHOT_MAX_BYTES) {
         return (HashMap::new(), None);
     }
     let Ok(file) = File::open(path) else {
@@ -267,11 +223,7 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
     let entries = lock_recover(ready_cache)
         .iter()
         .filter(|(_, entry)| entry.directory_failures.is_empty())
-        .filter_map(|(key, entry)| {
-            entry
-                .root_identity
-                .map(|identity| (key.clone(), Arc::clone(&entry.files), identity))
-        })
+        .filter_map(|(key, entry)| entry.root_identity.map(|identity| (key.clone(), Arc::clone(&entry.files), identity)))
         .collect::<Vec<_>>();
     let Some(parent) = path.parent() else {
         return;
@@ -290,17 +242,9 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
             write_snapshot_string(writer, &key.operand)?;
             writer.write_all(&root_identity.volume.to_le_bytes())?;
             writer.write_all(&root_identity.file_id.to_le_bytes())?;
-            let flags = u8::from(key.hidden)
-                | (u8::from(key.no_ignore) << 1)
-                | (u8::from(key.no_require_git) << 2)
-                | (u8::from(key.directories) << 3);
+            let flags = u8::from(key.hidden) | (u8::from(key.no_ignore) << 1) | (u8::from(key.no_require_git) << 2) | (u8::from(key.directories) << 3);
             writer.write_all(&[flags])?;
-            writer.write_all(
-                &key.max_depth
-                    .map(|depth| depth as u32)
-                    .unwrap_or(u32::MAX)
-                    .to_le_bytes(),
-            )?;
+            writer.write_all(&key.max_depth.map(|depth| depth as u32).unwrap_or(u32::MAX).to_le_bytes())?;
             writer.write_all(&(key.prune.len() as u32).to_le_bytes())?;
             writer.write_all(&(key.iglobs.len() as u32).to_le_bytes())?;
             writer.write_all(&(files.len() as u32).to_le_bytes())?;
@@ -327,10 +271,7 @@ pub(super) static INVENTORY_SNAPSHOT_WRITING: AtomicBool = AtomicBool::new(false
 
 pub(super) fn schedule_file_list_snapshot(ready: Arc<Mutex<HashMap<WalkKey, ReadyEntry>>>) {
     INVENTORY_SNAPSHOT_DIRTY.store(true, Ordering::Release);
-    if INVENTORY_SNAPSHOT_WRITING
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
+    if INVENTORY_SNAPSHOT_WRITING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
         return;
     }
     std::thread::spawn(move || {

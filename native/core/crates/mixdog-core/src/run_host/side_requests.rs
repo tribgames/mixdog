@@ -11,9 +11,9 @@ use mixdog_agent::compact::summary::forked_compaction_prompt;
 use mixdog_agent::compact::summary_run::{SummaryFailure, SummaryResponse, SummaryRoute};
 use mixdog_agent::env::{Clock, SendTap, SendTicket};
 use mixdog_agent::fork::{forked_request, prompt_tokens, send_forked};
-use mixdog_agent::response::ModelResponse;
 use mixdog_agent::kept_messages;
 use mixdog_agent::one_shot::on_own_task;
+use mixdog_agent::response::ModelResponse;
 use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter, Usage};
@@ -165,7 +165,6 @@ impl ForkSender for RequestFork {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use mixdog_agent::compact::summary_run::{RouteStep, SummaryCall, SummarySender};
@@ -311,11 +310,14 @@ mod tests {
     }
 }
 
-
 impl RequestFork {
     /// The compaction's fork of the saved request, sent on its provider.
     pub(crate) async fn send_fork(&self) -> Result<SummaryResponse, SummaryFailure> {
-        let reply = self.reply.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        let reply = self
+            .reply
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
             .ok_or_else(|| SummaryFailure::Failed("saved compaction request has no settled reply".to_owned()))?;
         let mut fork = forked_request(&self.request, Some(&reply), &forked_compaction_prompt());
         // The ledger source, and a transport scope of its own: no pooled socket or response chain of the
@@ -335,7 +337,13 @@ impl RequestFork {
         match sent.unwrap_or(Ok(None)) {
             Ok(Some(response)) => {
                 let reported = response.usage != Usage::default();
-                Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), stop: response.stop.clone(), usage: reported.then_some(response.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
+                Ok(SummaryResponse {
+                    text: response.content,
+                    tool_call: !response.tool_calls.is_empty(),
+                    stop: response.stop.clone(),
+                    usage: reported.then_some(response.usage),
+                    input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider),
+                })
             }
             Ok(None) => Err(SummaryFailure::Aborted),
             Err(error) => Err(SummaryFailure::Failed(error.into_message())),

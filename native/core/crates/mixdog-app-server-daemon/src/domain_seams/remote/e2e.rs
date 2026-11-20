@@ -14,10 +14,11 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
-use mixdog_app_protocol::limits::Limits;
 use bytes::Bytes;
 use mixdog_app_protocol::limits::CloseCode;
+use mixdog_app_protocol::limits::Limits;
 use mixdog_app_server::AppServer;
+use mixdog_app_server::HostMedia;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_app_server_transport::ConnectionOrigin;
@@ -25,9 +26,8 @@ use mixdog_app_server_transport::Incoming;
 use mixdog_app_server_transport::SocketClosed;
 use mixdog_app_server_transport::SocketRead;
 use mixdog_app_server_transport::SocketWrite;
-use mixdog_app_server::HostMedia;
-use mixdog_core_api::CoreError;
 use mixdog_core_api::ConnectionNotifier;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
@@ -80,18 +80,18 @@ use crate::live_view::LiveViewService;
 use crate::live_view::PairedScreenAccess;
 use crate::live_view::PhoneScreens;
 use crate::live_view::ScreenEnd;
-#[cfg(windows)]
-use mixdog_core_api::domain::media::MediaFrameSource;
-#[cfg(windows)]
-use mixdog_tools::desktop::screen_source::ScreenSink;
-#[cfg(windows)]
-use mixdog_tools::desktop::screen_source::ScreenViewer;
 use common::Event;
 use common::LegEnd;
 use common::Phone;
 use common::Relay;
 use common::driven_relay_with;
 use common::on_lane;
+#[cfg(windows)]
+use mixdog_core_api::domain::media::MediaFrameSource;
+#[cfg(windows)]
+use mixdog_tools::desktop::screen_source::ScreenSink;
+#[cfg(windows)]
+use mixdog_tools::desktop::screen_source::ScreenViewer;
 
 const CRED: &str = "aaaaaaa1";
 const OTHER_CRED: &str = "bbbbbbb2";
@@ -191,10 +191,6 @@ fn wire_of(node: &Value) -> Value {
     Value::Object(frame)
 }
 
-
-
-
-
 /// The frame Node's phone received for the core's wire frame: the inverse of `wire_of`, with the error code Node's frame carries.
 fn node_of(wire: &Value) -> Value {
     let mut frame = wire.as_object().unwrap().clone();
@@ -211,9 +207,6 @@ fn node_of(wire: &Value) -> Value {
     }
     Value::Object(frame)
 }
-
-
-
 
 /// The core the server sees: the mock directory for threads, the production `ScreenSessions` for the phone's screen report, and the
 /// registry hooks `ComposedCore` runs when a connection starts (`register_local`) and ends (`ConnectionOwners`).
@@ -241,7 +234,9 @@ impl Desktop {
             .unwrap()
             .iter()
             .map(|(method, params)| match method.as_str() {
-                "host/browser/viewFrames" => json!(["request", params["tabId"], if params["on"] == json!(true) { params["request"].clone() } else { Value::Null }]),
+                "host/browser/viewFrames" => {
+                    json!(["request", params["tabId"], if params["on"] == json!(true) { params["request"].clone() } else { Value::Null }])
+                }
                 other => json!([other, params]),
             })
             .collect()
@@ -555,7 +550,10 @@ impl HostChannel for Desktop {
         Ok(())
     }
 }
-#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+)]
 fn identity_in(path: std::path::PathBuf) -> ServerIdentity {
     std::fs::create_dir_all(&path).unwrap();
     on_lane(move |lane| load_or_create_e2ee_identity(lane, &path).unwrap())
@@ -567,7 +565,10 @@ impl Harness {
     }
 
     /// [`Harness::start`] where `displays` says whether a window supplies the display list.
-    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+    )]
     async fn start_with(revoke_ok: bool, displays: bool) -> Self {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
@@ -652,7 +653,10 @@ impl Harness {
             upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
         })
         .unwrap();
-        let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions(dir.path().to_string_lossy().into_owned()))));
+        let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(
+            Arc::new(mixdog_workspace::transfer::SystemClock),
+            Arc::new(AllSessions(dir.path().to_string_lossy().into_owned())),
+        ));
         workspace.set_phone_grants(grants.clone(), phone_credential(remote.registry.clone()));
         let live_view_slot: Arc<std::sync::OnceLock<std::sync::Weak<LiveViewService>>> = Arc::default();
         remote
@@ -688,7 +692,11 @@ impl Harness {
             HostMedia::new(1 << 20),
             remote.runtime.clone(),
             tokens.media_thread,
-            Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()), super::screen_revoked(remote.registry.clone()), super::peer_attached(remote.registry.clone()))),
+            Arc::new(PairedScreenAccess::new(
+                phone_credential(remote.registry.clone()),
+                super::screen_revoked(remote.registry.clone()),
+                super::peer_attached(remote.registry.clone()),
+            )),
         ));
         let _ = live_view_slot.set(Arc::downgrade(&live));
         assert!(live.bind_screens(Arc::new(DesktopScreens(desktop.clone()))).is_ok(), "the screens are bound once");
@@ -696,18 +704,36 @@ impl Harness {
         let hub = ConnectionHub::new(Limits::default()).unwrap();
         let origins = hub.clone();
         let own_hub = hub.clone();
-        let server = AppServer::new(core.clone(), Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), crate::server::server_config(Limits::default(), Default::default())).unwrap();
+        let server = AppServer::new(
+            core.clone(),
+            Outgoing::new(),
+            Arc::new(move |id| origins.origin_of(id)),
+            crate::server::server_config(Limits::default(), Default::default()),
+        )
+        .unwrap();
         let own_server = server.clone();
-        late_dialer
-            .bind(hub, Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)), remote.registry.clone())
-            .unwrap();
+        late_dialer.bind(hub, Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)), remote.registry.clone()).unwrap();
         start_remote(&remote, published.clone()).await;
 
         // The relay answers the boot's leg, the roster names the paired device.
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, hub: own_hub, server: own_server }
+        Self {
+            dir,
+            core,
+            registry: remote.registry,
+            runtime: remote.runtime,
+            published,
+            relay,
+            identity,
+            desktop,
+            reads,
+            turns,
+            closed,
+            hub: own_hub,
+            server: own_server,
+        }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -764,7 +790,10 @@ async fn an_unpaired_peer_is_refused_before_any_session_read_or_turn() {
     // is dropped, not answered and not forwarded.
     let plain = h.relay.open_peer("u1", OTHER_CRED);
     plain.challenge().await;
-    plain.send_frame(&json!({ "id": 0, "method": "initialize", "params": { "clientInfo": { "name": "x", "version": "1", "kind": "phone" }, "capabilities": {} } }).to_string());
+    plain.send_frame(
+        &json!({ "id": 0, "method": "initialize", "params": { "clientInfo": { "name": "x", "version": "1", "kind": "phone" }, "capabilities": {} } })
+            .to_string(),
+    );
     plain.send_frame(&json!({ "id": 1, "method": "thread/list", "params": {} }).to_string());
     plain.send_frame(&json!({ "id": 2, "method": "turn/start", "params": { "threadId": "t1", "opId": "op-x", "input": { "prompt": "hi" } } }).to_string());
 
@@ -900,11 +929,7 @@ async fn a_local_client_naming_itself_after_a_paired_device_gets_no_grant_and_no
     }
 
     // Its screen report is the desktop's own set, never a phone viewing a panel.
-    h.core.screen.notify(
-        Method("ui/screenSessions/changed"),
-        json!({ "sessionIds": ["t1"], "visualizeSessionIds": ["t1"], "foreground": true }),
-        named,
-    );
+    h.core.screen.notify(Method("ui/screenSessions/changed"), json!({ "sessionIds": ["t1"], "visualizeSessionIds": ["t1"], "foreground": true }), named);
     assert!(h.core.screen.shows("t1"));
     assert!(h.registry.visualize_viewed_sessions().is_empty(), "no paired device views anything");
     h.runtime.close().await;
@@ -989,7 +1014,10 @@ fn download_gone() -> Value {
 /// Remote access switched off closes the relay handle, and with it every download the paired phones held: a phone that pairs again once
 /// remote access is back finds its unbegun grant and its transfer gone (the begin of the unbegun grant, then the range of the transfer).
 #[tokio::test(flavor = "multi_thread")]
-#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+)]
 async fn switching_remote_access_off_ends_every_download_of_the_phones() {
     let mut h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;

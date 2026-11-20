@@ -12,10 +12,7 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-use super::turns::{
-    IMAGE_OMITTED_TEXT, Part, RawTurn, Role, Stamp, WARNING_IMAGE_OMITTED, is_whole_element, string_or_null,
-    title_from_text, utf16_len,
-};
+use super::turns::{IMAGE_OMITTED_TEXT, Part, RawTurn, Role, Stamp, WARNING_IMAGE_OMITTED, is_whole_element, string_or_null, title_from_text, utf16_len};
 
 const ENVELOPE_TAGS: [&str; 10] = [
     "local-command-stdout",
@@ -89,12 +86,7 @@ pub fn unwrap_claude_pastes(text: &str) -> String {
         return text.to_owned();
     }
     pieces.push(mixdog_js::js_trim_start(&text[cursor..]));
-    let unwrapped: Vec<&str> = pieces
-        .iter()
-        .enumerate()
-        .filter(|(i, piece)| i % 2 == 1 || !piece.is_empty())
-        .map(|(_, p)| *p)
-        .collect();
+    let unwrapped: Vec<&str> = pieces.iter().enumerate().filter(|(i, piece)| i % 2 == 1 || !piece.is_empty()).map(|(_, p)| *p).collect();
     let unwrapped = unwrapped.join("\n");
     if mixdog_js::js_trim(&unwrapped).is_empty() { text.to_owned() } else { unwrapped }
 }
@@ -192,10 +184,7 @@ fn active_chain(entries: &[Entry]) -> (Vec<usize>, HashSet<usize>) {
         }
         let parent = entries[i].parent_uuid.as_deref().and_then(|p| by_uuid.get(p).copied());
         let logical = if parent.is_none() {
-            entries[i]
-                .logical_parent_uuid
-                .as_deref()
-                .and_then(|p| by_uuid.get(p).copied().or_else(|| preceding_main(entries, entries[i].seq)))
+            entries[i].logical_parent_uuid.as_deref().and_then(|p| by_uuid.get(p).copied().or_else(|| preceding_main(entries, entries[i].seq)))
         } else {
             None
         };
@@ -294,9 +283,7 @@ fn skipped_entry(record: &Value) -> bool {
     if record.get("isCompactSummary") == Some(&Value::Bool(true)) {
         return false;
     }
-    ["isMeta", "isVisibleInTranscriptOnly", "isApiErrorMessage"]
-        .iter()
-        .any(|k| record.get(*k) == Some(&Value::Bool(true)))
+    ["isMeta", "isVisibleInTranscriptOnly", "isApiErrorMessage"].iter().any(|k| record.get(*k) == Some(&Value::Bool(true)))
 }
 
 pub struct ClaudeResult {
@@ -387,11 +374,8 @@ impl ClaudeReducer {
             local_output: false,
         };
         let len = |s: &Option<String>| s.as_deref().map_or(0, utf16_len);
-        self.metadata_bytes += ENTRY_OVERHEAD_BYTES
-            + len(&entry.uuid)
-            + len(&entry.parent_uuid)
-            + len(&entry.logical_parent_uuid)
-            + entry.at.as_ref().map_or(0, Stamp::text_len);
+        self.metadata_bytes +=
+            ENTRY_OVERHEAD_BYTES + len(&entry.uuid) + len(&entry.parent_uuid) + len(&entry.logical_parent_uuid) + entry.at.as_ref().map_or(0, Stamp::text_len);
         if main && !skipped_entry(record) {
             let body = record.get("message").filter(|m| m.is_object());
             let role = match body.and_then(|b| b.get("role")).and_then(Value::as_str) {
@@ -479,10 +463,7 @@ mod tests {
         r.push(&rec("user", "a", None, json!("hello")));
         r.push(&rec("assistant", "b", Some("a"), json!([{"type": "text", "text": "old branch"}])));
         r.push(&rec("assistant", "c", Some("a"), json!([{"type": "text", "text": "new"}, {"type": "tool_use", "name": "Read"}])));
-        assert_eq!(
-            texts(&r),
-            vec![(Role::User, "hello".into()), (Role::Assistant, "new|[ran tool: Read]".into())]
-        );
+        assert_eq!(texts(&r), vec![(Role::User, "hello".into()), (Role::Assistant, "new|[ran tool: Read]".into())]);
         assert_eq!(r.result().foreign_session_id.as_deref(), Some("s1"));
     }
 
@@ -490,12 +471,7 @@ mod tests {
     fn envelopes_are_dropped_and_slash_commands_kept() {
         let mut r = ClaudeReducer::default();
         r.push(&rec("user", "a", None, json!("<system-reminder>x</system-reminder>")));
-        r.push(&rec(
-            "user",
-            "b",
-            Some("a"),
-            json!("<command-name>/model</command-name><command-args>opus</command-args>"),
-        ));
+        r.push(&rec("user", "b", Some("a"), json!("<command-name>/model</command-name><command-args>opus</command-args>")));
         let turns = r.result().raw_turns;
         assert_eq!(turns.len(), 1);
         assert!(turns[0].parts[0].command && turns[0].parts[0].text == "/model opus");

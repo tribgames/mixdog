@@ -28,10 +28,7 @@ pub fn deflate(data: &[u8]) -> Vec<u8> {
 /// `Length` is written on save. This is how a content stream is made.
 pub fn flate_stream(mut dict: Dict, contents: &[u8]) -> Obj {
     dict.set("Filter", Obj::name("FlateDecode"));
-    let chain = vec![FilterSpec {
-        name: "FlateDecode".to_owned(),
-        params: None,
-    }];
+    let chain = vec![FilterSpec { name: "FlateDecode".to_owned(), params: None }];
     stream_object(dict, deflate(contents), chain)
 }
 
@@ -62,18 +59,9 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
 
     let mut chunks: Vec<Vec<(Ref, &Obj)>> = Vec::new();
     for (r, obj) in store.iter() {
-        let stays = encrypted
-            || store.trailer.encrypt == Some(r)
-            || matches!(obj, Obj::Stream(_))
-            || r.generation != 0;
+        let stays = encrypted || store.trailer.encrypt == Some(r) || matches!(obj, Obj::Stream(_)) || r.generation != 0;
         if stays {
-            placed.insert(
-                r.num,
-                Placed::Plain {
-                    offset: out.len(),
-                    generation: r.generation,
-                },
-            );
+            placed.insert(r.num, Placed::Plain { offset: out.len(), generation: r.generation });
             write_indirect(&mut out, r, obj);
         } else {
             if chunks.last().is_none_or(|chunk| chunk.len() == OBJECTS_PER_STREAM) {
@@ -95,13 +83,7 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
             header.push_str(&format!("{} {} ", r.num, body.len()));
             write_obj(&mut body, obj);
             body.push(b'\n');
-            placed.insert(
-                r.num,
-                Placed::Packed {
-                    stream: stream_num,
-                    index,
-                },
-            );
+            placed.insert(r.num, Placed::Packed { stream: stream_num, index });
         }
         let mut dict = Dict::new();
         dict.set("Type", Obj::name("ObjStm"));
@@ -109,25 +91,13 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
         dict.set("First", Obj::Num(header.len() as f64));
         let mut contents = header.into_bytes();
         contents.extend_from_slice(&body);
-        placed.insert(
-            stream_num,
-            Placed::Plain {
-                offset: out.len(),
-                generation: 0,
-            },
-        );
+        placed.insert(stream_num, Placed::Plain { offset: out.len(), generation: 0 });
         write_indirect(&mut out, Ref::new(stream_num, 0), &flate_stream(dict, &contents));
     }
 
     let xref_num = next_num;
     let xref_offset = out.len();
-    placed.insert(
-        xref_num,
-        Placed::Plain {
-            offset: xref_offset,
-            generation: 0,
-        },
-    );
+    placed.insert(xref_num, Placed::Plain { offset: xref_offset, generation: 0 });
 
     let fields: Vec<(i64, [u64; 3])> = placed
         .iter()
@@ -140,9 +110,7 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
             (*num, triple)
         })
         .collect();
-    let widths = [0, 1, 2].map(|column| {
-        width_of(fields.iter().map(|(_, triple)| triple[column]).max().unwrap_or(0))
-    });
+    let widths = [0, 1, 2].map(|column| width_of(fields.iter().map(|(_, triple)| triple[column]).max().unwrap_or(0)));
     let mut contents = Vec::with_capacity(fields.len() * widths.iter().sum::<usize>());
     for (_, triple) in &fields {
         for (value, width) in triple.iter().zip(widths) {
@@ -166,10 +134,7 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
     for (key, value) in trailer_dict(store, xref_num + 1).iter() {
         dict.set(key, value.clone());
     }
-    dict.set(
-        "W",
-        Obj::Array(std::sync::Arc::new(widths.iter().map(|w| Obj::Num(*w as f64)).collect())),
-    );
+    dict.set("W", Obj::Array(std::sync::Arc::new(widths.iter().map(|w| Obj::Num(*w as f64)).collect())));
     dict.set("Index", Obj::Array(std::sync::Arc::new(index)));
     write_indirect(&mut out, Ref::new(xref_num, 0), &flate_stream(dict, &contents));
     out.extend_from_slice(format!("startxref\n{xref_offset}\n%%EOF\n").as_bytes());

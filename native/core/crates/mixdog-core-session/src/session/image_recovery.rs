@@ -26,11 +26,18 @@ pub enum Action {
     /// "Continue without selected images": the named images leave every projection (the person has confirmed, naming them).
     ContinueWithout(Vec<PartKey>),
     /// "Replace image": a file already imported into the attachment store stands in the same position.
-    ReplaceWithStored { key: PartKey, reference: String, mime_type: String, name: String },
+    ReplaceWithStored {
+        key: PartKey,
+        reference: String,
+        mime_type: String,
+        name: String,
+    },
     /// Put the named images back.
     Undo(Vec<PartKey>),
     /// "Continue in a new branch without prior context": the history before `from_message` leaves every projection.
-    NewBranchWithoutContext { from_message: String },
+    NewBranchWithoutContext {
+        from_message: String,
+    },
     UndoNewBranch,
 }
 
@@ -218,7 +225,13 @@ mod tests {
     fn each_action_persists_and_undo_puts_the_original_back_across_a_restart() {
         let data = tempfile::tempdir().unwrap();
         apply(data.path(), "sess_a", &history(), Action::ContinueWithout(vec![key("m1", 1), key("m2", 0)])).unwrap();
-        apply(data.path(), "sess_a", &history(), Action::ReplaceWithStored { key: key("m3", 0), reference: "a".repeat(64), mime_type: "image/png".into(), name: "new.png".into() }).unwrap();
+        apply(
+            data.path(),
+            "sess_a",
+            &history(),
+            Action::ReplaceWithStored { key: key("m3", 0), reference: "a".repeat(64), mime_type: "image/png".into(), name: "new.png".into() },
+        )
+        .unwrap();
         // A restart is a fresh load of the file.
         let overlay = load(data.path(), "sess_a").unwrap();
         assert_eq!(overlay.edits().count(), 3);

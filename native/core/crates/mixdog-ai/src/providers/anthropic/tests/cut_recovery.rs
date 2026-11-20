@@ -96,11 +96,9 @@ fn tool_use(id: &str, input: Value) -> Value {
 #[tokio::test]
 async fn signed_thinking_survives_a_cut_after_a_text_recovered_tool_call() {
     let leaked = r#"<invoke name="lookup"><parameter name="key">answer</parameter></invoke>"#;
-    let (calls, failure) = cut(vec![
-        signed(0, "hm", "sig"),
-        vec![open(1, json!({ "type": "text", "text": "" })), delta(1, json!({ "type": "text_delta", "text": leaked }))],
-    ])
-    .await;
+    let (calls, failure) =
+        cut(vec![signed(0, "hm", "sig"), vec![open(1, json!({ "type": "text", "text": "" })), delta(1, json!({ "type": "text_delta", "text": leaked }))]])
+            .await;
     assert_eq!(calls.len(), 1, "the recovered call is dispatched once");
     assert!(failure.partial_replay.is_none(), "a call with no content block leaves no exact replay");
     assert_eq!(failure.partial_thinking_blocks, vec![thinking_hm()]);
@@ -162,7 +160,10 @@ async fn redacted_thinking_is_carried_verbatim_in_block_order() {
 
 #[tokio::test]
 async fn a_tool_input_still_streaming_is_not_replayed_and_the_completed_call_runs_once() {
-    let client = vec![open(2, json!({ "type": "tool_use", "id": "toolu_b", "name": "lookup" })), delta(2, json!({ "type": "input_json_delta", "partial_json": "{\"ke" }))];
+    let client = vec![
+        open(2, json!({ "type": "tool_use", "id": "toolu_b", "name": "lookup" })),
+        delta(2, json!({ "type": "input_json_delta", "partial_json": "{\"ke" })),
+    ];
     let native = vec![
         open(2, json!({ "type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {} })),
         delta(2, json!({ "type": "input_json_delta", "partial_json": "{\"qu" })),
@@ -184,7 +185,10 @@ async fn a_tool_input_still_streaming_is_not_replayed_and_the_completed_call_run
 /// `tool_dispatched` to never replay past a call that ran.
 #[tokio::test]
 async fn a_body_fault_reports_the_tool_input_it_cut_and_the_call_it_dispatched() {
-    let unfinished = vec![open(1, json!({ "type": "tool_use", "id": "toolu_b", "name": "lookup" })), delta(1, json!({ "type": "input_json_delta", "partial_json": "{\"ke" }))];
+    let unfinished = vec![
+        open(1, json!({ "type": "tool_use", "id": "toolu_b", "name": "lookup" })),
+        delta(1, json!({ "type": "input_json_delta", "partial_json": "{\"ke" })),
+    ];
 
     let (calls, failure) = cut(vec![signed(0, "hm", "sig"), unfinished.clone()]).await;
     assert!(calls.is_empty());

@@ -17,9 +17,9 @@ use mixdog_core_base::support::io_failure;
 use mixdog_scm::error::ScmFailure;
 use mixdog_store::schema::record::Header;
 
-use crate::session::search_backfill::StoredSearchSessions;
 use super::worktree_host::LiveSession;
 use super::worktree_state::plain;
+use crate::session::search_backfill::StoredSearchSessions;
 
 const ACTIVE_STAGES: [&str; 6] = ["connecting", "requesting", "streaming", "tool_running", "running", "cancelling"];
 
@@ -69,4 +69,3 @@ fn consumer(id: String, header: &Header) -> LiveSession {
         owner: text("owner").map(str::to_owned),
     }
 }
-

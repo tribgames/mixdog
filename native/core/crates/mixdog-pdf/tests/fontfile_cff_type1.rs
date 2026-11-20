@@ -13,9 +13,7 @@ use std::collections::BTreeMap;
 
 use cases::{CFF_CASES, TYPE1_CASES};
 use mixdog_pdf::error::PdfError;
-use mixdog_pdf::fontfile::cff::{
-    Cff, CffProperties, CharsetEntry, read_cff_font, read_standard_font, standard_font_data,
-};
+use mixdog_pdf::fontfile::cff::{Cff, CffProperties, CharsetEntry, read_cff_font, read_standard_font, standard_font_data};
 use mixdog_pdf::fontfile::type1::{Type1Font, Type1Properties};
 use mixdog_pdf::fonts::data::encodings::{SYMBOL_SET_ENCODING, ZAPF_DINGBATS_ENCODING};
 
@@ -40,21 +38,12 @@ fn optional(value: Option<f64>) -> String {
 }
 
 fn seacs(map: &BTreeMap<usize, Vec<f64>>) -> String {
-    map.iter()
-        .map(|(g, s)| format!("{g}:{}", list(s)))
-        .collect::<Vec<_>>()
-        .join(";")
+    map.iter().map(|(g, s)| format!("{g}:{}", list(s))).collect::<Vec<_>>().join(";")
 }
 
 fn built_in(map: Option<&BTreeMap<u32, String>>) -> String {
     match map {
-        Some(map) => format!(
-            "builtIn={}",
-            map.iter()
-                .map(|(c, n)| format!("{c}:{n}"))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
+        Some(map) => format!("builtIn={}", map.iter().map(|(c, n)| format!("{c}:{n}")).collect::<Vec<_>>().join(",")),
         None => "builtIn=none".to_owned(),
     }
 }
@@ -71,25 +60,15 @@ fn error_line(error: &PdfError) -> String {
 
 /// The lines of an expected text that are inputs (`#name=value`).
 fn inputs(expected: &str) -> BTreeMap<&str, &str> {
-    expected
-        .lines()
-        .filter_map(|l| l.strip_prefix('#'))
-        .filter_map(|l| l.split_once('='))
-        .collect()
+    expected.lines().filter_map(|l| l.strip_prefix('#')).filter_map(|l| l.split_once('=')).collect()
 }
 
 fn numbers(text: &str) -> Vec<f64> {
-    text.split(',')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.parse().unwrap())
-        .collect()
+    text.split(',').filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect()
 }
 
 fn render_cff(data: &[u8], bbox: Option<Vec<f64>>) -> Vec<String> {
-    let mut properties = CffProperties {
-        bbox,
-        ..Default::default()
-    };
+    let mut properties = CffProperties { bbox, ..Default::default() };
     let cff = match read_cff_font(data, &mut properties) {
         Ok(cff) => cff,
         Err(e) => return vec![error_line(&e)],
@@ -111,35 +90,11 @@ fn render_cff(data: &[u8], bbox: Option<Vec<f64>>) -> Vec<String> {
         })
         .collect();
     out.push(format!("charset={}", charset.join(",")));
-    out.push(format!(
-        "charsetFormat={}{}",
-        if cff.charset.predefined {
-            "predefined"
-        } else {
-            "custom"
-        },
-        cff.charset.format
-    ));
+    out.push(format!("charsetFormat={}{}", if cff.charset.predefined { "predefined" } else { "custom" }, cff.charset.format));
     match &cff.encoding {
         Some(encoding) => {
-            out.push(format!(
-                "encoding={}",
-                encoding
-                    .encoding
-                    .iter()
-                    .map(|(c, g)| format!("{c}:{g}"))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ));
-            out.push(format!(
-                "encodingFormat={}{}",
-                if encoding.predefined {
-                    "predefined"
-                } else {
-                    "custom"
-                },
-                encoding.format
-            ));
+            out.push(format!("encoding={}", encoding.encoding.iter().map(|(c, g)| format!("{c}:{g}")).collect::<Vec<_>>().join(",")));
+            out.push(format!("encodingFormat={}{}", if encoding.predefined { "predefined" } else { "custom" }, encoding.format));
         }
         None => out.push("encoding=none".to_owned()),
     }
@@ -148,49 +103,22 @@ fn render_cff(data: &[u8], bbox: Option<Vec<f64>>) -> Vec<String> {
     out.push(format!("seacs={}", seacs(&cff.seacs)));
     let private = |d: &mixdog_pdf::fontfile::cff::CffDict| {
         let p = d.private_dict.as_ref().expect("a private dictionary");
-        format!(
-            "{}/{}",
-            optional(p.number("defaultWidthX")),
-            optional(p.number("nominalWidthX"))
-        )
+        format!("{}/{}", optional(p.number("defaultWidthX")), optional(p.number("nominalWidthX")))
     };
     out.push(format!("topPrivate={}", private(&cff.top_dict)));
-    out.push(format!(
-        "fdArray={}",
-        cff.fd_array
-            .iter()
-            .map(private)
-            .collect::<Vec<_>>()
-            .join(";")
-    ));
+    out.push(format!("fdArray={}", cff.fd_array.iter().map(private).collect::<Vec<_>>().join(";")));
     out.push(match &cff.fd_select {
-        Some(select) => format!(
-            "fdSelect={}",
-            select
-                .entries()
-                .iter()
-                .map(|e| e.map_or_else(String::new, |v| v.to_string()))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
+        Some(select) => format!("fdSelect={}", select.entries().iter().map(|e| e.map_or_else(String::new, |v| v.to_string())).collect::<Vec<_>>().join(",")),
         None => "fdSelect=none".to_owned(),
     });
     out.push(match &properties.font_matrix {
         Some(m) => format!("fontMatrix={}", list(m)),
         None => "fontMatrix=none".to_owned(),
     });
-    out.push(format!(
-        "fontBBox={}",
-        list(&cff.top_dict.list("FontBBox").unwrap_or_default())
-    ));
+    out.push(format!("fontBBox={}", list(&cff.top_dict.list("FontBBox").unwrap_or_default())));
     out.push(format!("ascent={}", optional(properties.ascent)));
     out.push(format!("descent={}", optional(properties.descent)));
-    out.push(format!(
-        "hasGlyph={}",
-        (0..=num_glyphs as i64)
-            .map(|i| if cff.has_glyph_id(i) { "1" } else { "0" })
-            .collect::<String>()
-    ));
+    out.push(format!("hasGlyph={}", (0..=num_glyphs as i64).map(|i| if cff.has_glyph_id(i) { "1" } else { "0" }).collect::<String>()));
     out
 }
 
@@ -205,9 +133,7 @@ fn render_type1(data: &[u8], input: &BTreeMap<&str, &str>) -> Vec<String> {
     };
     for entry in input["widths"].split(',').filter(|s| !s.is_empty()) {
         let (code, width) = entry.split_once(':').unwrap();
-        properties
-            .widths
-            .insert(code.parse().unwrap(), width.parse().unwrap());
+        properties.widths.insert(code.parse().unwrap(), width.parse().unwrap());
     }
     let font = match Type1Font::parse(data, &mut properties) {
         Ok(font) => font,
@@ -215,14 +141,7 @@ fn render_type1(data: &[u8], input: &BTreeMap<&str, &str>) -> Vec<String> {
     };
     let mut out = Vec::new();
     out.push(format!("numGlyphs={}", font.num_glyphs()));
-    out.push(format!(
-        "charset={}",
-        font.charset()
-            .into_iter()
-            .map(|n| n.unwrap_or_else(|| "null".to_owned()))
-            .collect::<Vec<_>>()
-            .join(",")
-    ));
+    out.push(format!("charset={}", font.charset().into_iter().map(|n| n.unwrap_or_else(|| "null".to_owned())).collect::<Vec<_>>().join(",")));
     out.push(format!(
         "glyphs={}",
         font.charstrings
@@ -240,27 +159,14 @@ fn render_type1(data: &[u8], input: &BTreeMap<&str, &str>) -> Vec<String> {
     ));
     out.push(format!("seacs={}", seacs(&font.seacs)));
     out.push(built_in(properties.built_in_encoding.as_ref()));
-    out.push(format!(
-        "widths={}",
-        properties
-            .widths
-            .iter()
-            .map(|(c, w)| format!("{c}:{}", num(*w)))
-            .collect::<Vec<_>>()
-            .join(",")
-    ));
+    out.push(format!("widths={}", properties.widths.iter().map(|(c, w)| format!("{c}:{}", num(*w))).collect::<Vec<_>>().join(",")));
     out.push(match &properties.font_matrix {
         Some(m) => format!("fontMatrix={}", list(m)),
         None => "fontMatrix=none".to_owned(),
     });
     out.push(format!("ascent={}", optional(properties.ascent)));
     out.push(format!("descent={}", optional(properties.descent)));
-    out.push(format!(
-        "hasGlyph={}",
-        (0..=font.num_glyphs() as i64)
-            .map(|i| if font.has_glyph_id(i) { "1" } else { "0" })
-            .collect::<String>()
-    ));
+    out.push(format!("hasGlyph={}", (0..=font.num_glyphs() as i64).map(|i| if font.has_glyph_id(i) { "1" } else { "0" }).collect::<String>()));
     out
 }
 
@@ -295,11 +201,7 @@ fn type1_cases_read_as_pdfjs_reads_them() {
 }
 
 fn case<'a>(cases: &'a [(&str, &'a [u8], &str)], name: &str) -> &'a [u8] {
-    cases
-        .iter()
-        .find(|(n, _, _)| *n == name)
-        .unwrap_or_else(|| panic!("no case {name}"))
-        .1
+    cases.iter().find(|(n, _, _)| *n == name).unwrap_or_else(|| panic!("no case {name}")).1
 }
 
 // ---- the standard fonts -------------------------------------------------------------------------------------------
@@ -308,11 +210,7 @@ fn case<'a>(cases: &'a [(&str, &'a [u8], &str)], name: &str) -> &'a [u8] {
 /// font's default encoding, then the name through the program's charset).
 fn width_of(cff: &Cff, encoding: &[&str; 256], code: usize) -> Option<f64> {
     let name = encoding[code];
-    let glyph = cff
-        .charset
-        .charset
-        .iter()
-        .position(|e| matches!(e, CharsetEntry::Name(Some(n)) if n == name))?;
+    let glyph = cff.charset.charset.iter().position(|e| matches!(e, CharsetEntry::Name(Some(n)) if n == name))?;
     cff.widths.get(glyph).copied()
 }
 
@@ -329,25 +227,10 @@ fn only_symbol_and_zapfdingbats_have_standard_font_data() {
 #[test]
 fn symbol_code_to_glyph_to_width() {
     let mut properties = CffProperties::default();
-    let cff = read_standard_font("Symbol", &mut properties)
-        .expect("a program")
-        .expect("a font");
+    let cff = read_standard_font("Symbol", &mut properties).expect("a program").expect("a font");
     // The Adobe Symbol core font metrics: space, universal, Alpha, Beta, alpha, beta, chi, phi.
-    for (code, width) in [
-        (0x20, 250.0),
-        (0x22, 713.0),
-        (0x41, 722.0),
-        (0x42, 667.0),
-        (0x61, 631.0),
-        (0x62, 549.0),
-        (0x63, 549.0),
-        (0x66, 521.0),
-    ] {
-        assert_eq!(
-            width_of(&cff, &SYMBOL_SET_ENCODING, code),
-            Some(width),
-            "Symbol code {code:#x}"
-        );
+    for (code, width) in [(0x20, 250.0), (0x22, 713.0), (0x41, 722.0), (0x42, 667.0), (0x61, 631.0), (0x62, 549.0), (0x63, 549.0), (0x66, 521.0)] {
+        assert_eq!(width_of(&cff, &SYMBOL_SET_ENCODING, code), Some(width), "Symbol code {code:#x}");
     }
     assert_eq!(cff.char_strings.count(), cff.char_string_count + 1);
     assert!(properties.built_in_encoding.is_some());
@@ -356,24 +239,10 @@ fn symbol_code_to_glyph_to_width() {
 #[test]
 fn zapfdingbats_code_to_glyph_to_width() {
     let mut properties = CffProperties::default();
-    let cff = read_standard_font("ZapfDingbats", &mut properties)
-        .expect("a program")
-        .expect("a font");
+    let cff = read_standard_font("ZapfDingbats", &mut properties).expect("a program").expect("a font");
     // The Adobe ZapfDingbats core font metrics: space, a1, a2, a202, a3, a4, a5.
-    for (code, width) in [
-        (0x20, 278.0),
-        (0x21, 974.0),
-        (0x22, 961.0),
-        (0x23, 974.0),
-        (0x24, 980.0),
-        (0x25, 719.0),
-        (0x26, 789.0),
-    ] {
-        assert_eq!(
-            width_of(&cff, &ZAPF_DINGBATS_ENCODING, code),
-            Some(width),
-            "ZapfDingbats code {code:#x}"
-        );
+    for (code, width) in [(0x20, 278.0), (0x21, 974.0), (0x22, 961.0), (0x23, 974.0), (0x24, 980.0), (0x25, 719.0), (0x26, 789.0)] {
+        assert_eq!(width_of(&cff, &ZAPF_DINGBATS_ENCODING, code), Some(width), "ZapfDingbats code {code:#x}");
     }
 }
 
@@ -385,10 +254,7 @@ fn cff_composite_glyph_mapping_follows_the_charset_of_a_cid_font() {
     let cff = read_cff_font(case(CFF_CASES, "cff-cid-fdselect3"), &mut properties).unwrap();
     // charset 0,1,2,3,10,11 at glyph ids 0..5.
     let map = cff.composite_glyph_mapping(|cid| i64::from(cid) + 100, None);
-    assert_eq!(
-        map.into_iter().collect::<Vec<_>>(),
-        vec![(100, 0), (101, 1), (102, 2), (103, 3), (110, 4), (111, 5)]
-    );
+    assert_eq!(map.into_iter().collect::<Vec<_>>(), vec![(100, 0), (101, 1), (102, 2), (103, 3), (110, 4), (111, 5)]);
     // A CIDToGIDMap that sends cid 1 to glyph 101 is inverted: the character code 101 (of cid 1) becomes 1.
     let cid_to_gid = BTreeMap::from([(1_i64, 101_i64)]);
     let map = cff.composite_glyph_mapping(|cid| i64::from(cid) + 100, Some(&cid_to_gid));
@@ -411,19 +277,11 @@ fn cff_glyph_ids_beyond_the_program_are_absent() {
 #[test]
 fn type1_glyph_mapping_helpers() {
     let data = case(TYPE1_CASES, "t1-raw-binary");
-    let mut properties = Type1Properties {
-        length1: Some(351.0),
-        first_char: 0,
-        last_char: 255,
-        ..Default::default()
-    };
+    let mut properties = Type1Properties { length1: Some(351.0), first_char: 0, last_char: 255, ..Default::default() };
     let font = Type1Font::parse(data, &mut properties).unwrap();
     let ids = font.built_in_glyph_ids(&properties).unwrap();
     // .notdef is glyph 0 and is the first charstring; A is glyph id 2, B 3, C 4, a 5.
-    assert_eq!(
-        ids.into_iter().collect::<Vec<_>>(),
-        vec![(50, 4), (65, 2), (66, 3), (97, 5)]
-    );
+    assert_eq!(ids.into_iter().collect::<Vec<_>>(), vec![(50, 4), (65, 2), (66, 3), (97, 5)]);
     let map = font.composite_glyph_mapping(|glyph| i64::from(glyph) * 2);
     assert_eq!(map.get(&0), Some(&1));
     assert_eq!(map.get(&2), Some(&2));
@@ -440,19 +298,13 @@ fn a_charset_that_ends_inside_its_ranges_is_an_error_where_pdfjs_loops_for_ever(
     let font = case(CFF_CASES, "cff-charset1-encoding1");
     // The Top DICT's `charset` operand is `29 <int32> 15`: point it at three bytes appended to the file (format 1,
     // one range start, and no count).
-    let operator = font
-        .windows(6)
-        .position(|w| w[0] == 29 && w[5] == 15)
-        .expect("the charset operator");
+    let operator = font.windows(6).position(|w| w[0] == 29 && w[5] == 15).expect("the charset operator");
     let mut patched = font.to_vec();
     let at = patched.len() as u32;
     patched[operator + 1..operator + 5].copy_from_slice(&at.to_be_bytes());
     patched.extend_from_slice(&[1, 0, 34]);
     let error = read_cff_font(&patched, &mut CffProperties::default()).unwrap_err();
-    assert_eq!(
-        error,
-        PdfError::Format("CFF charset ends inside its ranges".to_owned())
-    );
+    assert_eq!(error, PdfError::Format("CFF charset ends inside its ranges".to_owned()));
 }
 
 #[test]
@@ -465,10 +317,6 @@ fn a_font_with_no_cff_header_is_a_format_error() {
 
 #[test]
 fn a_type1_file_without_a_font_program_is_a_format_error() {
-    let error =
-        Type1Font::parse(b"%!PS-AdobeFont-1.0\n", &mut Type1Properties::default()).unwrap_err();
-    assert_eq!(
-        error,
-        PdfError::Format("getEexecBlock - no font program found.".to_owned())
-    );
+    let error = Type1Font::parse(b"%!PS-AdobeFont-1.0\n", &mut Type1Properties::default()).unwrap_err();
+    assert_eq!(error, PdfError::Format("getEexecBlock - no font program found.".to_owned()));
 }

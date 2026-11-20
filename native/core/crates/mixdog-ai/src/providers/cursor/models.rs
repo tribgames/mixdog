@@ -16,10 +16,10 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::request::ModelSelection;
+use super::variants;
 use crate::providers::connect::pb::PbError;
 use crate::providers::connect::pb::Reader;
 use crate::providers::connect::pb::Writer;
-use super::variants;
 
 pub const DEFAULT_CONTEXT_WINDOW: u64 = 200_000;
 
@@ -42,11 +42,7 @@ pub fn is_effort_parameter_id(id: &str) -> bool {
 /// parameter's `extra-high` is `xhigh`.
 pub fn normalize_parameter_value(id: &str, value: &str) -> String {
     let text = js_trim(value).to_lowercase();
-    if is_effort_parameter_id(id) && text == "extra-high" {
-        "xhigh".to_owned()
-    } else {
-        text
-    }
+    if is_effort_parameter_id(id) && text == "extra-high" { "xhigh".to_owned() } else { text }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,14 +92,7 @@ impl CursorModel {
 
     /// The efforts the model offers, normalized.
     pub fn efforts(&self) -> Vec<String> {
-        self.effort_definition()
-            .map(|d| {
-                d.values
-                    .iter()
-                    .map(|v| normalize_parameter_value(&d.id, &v.value))
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.effort_definition().map(|d| d.values.iter().map(|v| normalize_parameter_value(&d.id, &v.value)).collect()).unwrap_or_default()
     }
 
     pub fn fast_capable(&self) -> bool {
@@ -113,10 +102,7 @@ impl CursorModel {
     /// Whether the server describes the model by parameters or modes; a model
     /// it describes by neither is listed as the plain row it is.
     pub fn is_parameterized(&self) -> bool {
-        !self.definitions.is_empty()
-            || self.supports_max_mode
-            || self.supports_non_max_mode
-            || self.max_context_window > 0
+        !self.definitions.is_empty() || self.supports_max_mode || self.supports_non_max_mode || self.max_context_window > 0
     }
 }
 
@@ -136,12 +122,7 @@ pub fn available_models_request() -> Vec<u8> {
 }
 
 fn decode_definition(bytes: &[u8]) -> Result<ParameterDefinition, PbError> {
-    let mut out = ParameterDefinition {
-        id: String::new(),
-        name: String::new(),
-        boolean: false,
-        values: Vec::new(),
-    };
+    let mut out = ParameterDefinition { id: String::new(), name: String::new(), boolean: false, values: Vec::new() };
     // Boolean values come before enum values, whatever order the lists arrive in.
     let (mut booleans, mut enums) = (Vec::new(), Vec::new());
     let mut boolean_listed = false;
@@ -203,13 +184,7 @@ fn decode_definition(bytes: &[u8]) -> Result<ParameterDefinition, PbError> {
 }
 
 fn decode_variant(bytes: &[u8]) -> Result<Variant, PbError> {
-    let mut out = Variant {
-        parameters: Vec::new(),
-        max_mode: false,
-        default_max: false,
-        default_non_max: false,
-        legacy_slug: String::new(),
-    };
+    let mut out = Variant { parameters: Vec::new(), max_mode: false, default_max: false, default_non_max: false, legacy_slug: String::new() };
     let mut r = Reader::new(bytes);
     while let Some((n, v)) = r.next_field()? {
         match n {
@@ -323,10 +298,7 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
             } else {
                 id.clone()
             },
-            description: [tagline, tooltip.2, tooltip.1]
-                .into_iter()
-                .find(|s| !s.is_empty())
-                .unwrap_or_default(),
+            description: [tagline, tooltip.2, tooltip.1].into_iter().find(|s| !s.is_empty()).unwrap_or_default(),
             context_window: [ctx, auto_ctx].into_iter().find(|n| *n > 0).unwrap_or(0),
             max_context_window: [ctx_max, auto_ctx_max].into_iter().find(|n| *n > 0).unwrap_or(0),
             supports_max_mode: max_mode,
@@ -339,8 +311,7 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
             id: id.clone(),
         };
         let rank = |m: &CursorModel| {
-            usize::from(!m.definitions.is_empty()) * 2
-                + usize::from(m.supports_max_mode || m.supports_non_max_mode || m.max_context_window > 0)
+            usize::from(!m.definitions.is_empty()) * 2 + usize::from(m.supports_max_mode || m.supports_non_max_mode || m.max_context_window > 0)
         };
         match position.get(&id) {
             Some(&at) if rank(&next) >= rank(&models[at]) => models[at] = next,
@@ -408,10 +379,8 @@ pub fn decode_usable_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError> {
             continue;
         }
         let id = canonical_model_id(&raw_id);
-        let name = [display, short, display_id, aliases.into_iter().next().unwrap_or_default()]
-            .into_iter()
-            .find(|s| !s.is_empty())
-            .unwrap_or_else(|| id.clone());
+        let name =
+            [display, short, display_id, aliases.into_iter().next().unwrap_or_default()].into_iter().find(|s| !s.is_empty()).unwrap_or_else(|| id.clone());
         let name = if is_auto_model_id(&raw_id) { "Auto".to_owned() } else { name };
         let row = plain_model(&id, &name, 0, thinking);
         match models.iter().position(|m| m.id == id) {
@@ -471,19 +440,10 @@ fn set(parameters: &mut Vec<(String, String)>, id: &str, value: String) {
 
 /// The wire selection for a parameterized model.
 pub fn select_variant(model: &CursorModel, ask: &ParameterAsk<'_>) -> Result<ModelSelection, ProviderError> {
-    let max_mode = model.supports_max_mode
-        && (!model.supports_non_max_mode || ask.selected_context_window.unwrap_or(0) > model.context_window);
+    let max_mode = model.supports_max_mode && (!model.supports_non_max_mode || ask.selected_context_window.unwrap_or(0) > model.context_window);
     let mode_variants: Vec<&Variant> = model.variants.iter().filter(|v| v.max_mode == max_mode).collect();
-    let available: Vec<&Variant> = if mode_variants.is_empty() {
-        model.variants.iter().collect()
-    } else {
-        mode_variants
-    };
-    let default_variant = available
-        .iter()
-        .find(|v| if max_mode { v.default_max } else { v.default_non_max })
-        .or_else(|| available.first())
-        .copied();
+    let available: Vec<&Variant> = if mode_variants.is_empty() { model.variants.iter().collect() } else { mode_variants };
+    let default_variant = available.iter().find(|v| if max_mode { v.default_max } else { v.default_non_max }).or_else(|| available.first()).copied();
     let mut parameters: Vec<(String, String)> = default_variant.map(|v| v.parameters.clone()).unwrap_or_default();
     let default_context = parameters.iter().find(|(k, _)| k == "context").map(|(_, v)| v.clone());
     let route = ask.route.cloned().unwrap_or_default();
@@ -509,16 +469,9 @@ pub fn select_variant(model: &CursorModel, ask: &ParameterAsk<'_>) -> Result<Mod
         set(&mut parameters, "fast", if ask.fast { "true" } else { "false" }.to_owned());
     }
     let matches = |parameters: &[(String, String)]| {
-        available.iter().any(|variant| {
-            parameters.iter().all(|(id, value)| {
-                variant
-                    .parameters
-                    .iter()
-                    .find(|(k, _)| k == id)
-                    .map_or("", |(_, v)| v.as_str())
-                    == value
-            })
-        })
+        available
+            .iter()
+            .any(|variant| parameters.iter().all(|(id, value)| variant.parameters.iter().find(|(k, _)| k == id).map_or("", |(_, v)| v.as_str()) == value))
     };
     let mut ok = matches(&parameters);
     // A persisted context can exist in this mode but conflict with the
@@ -532,28 +485,16 @@ pub fn select_variant(model: &CursorModel, ask: &ParameterAsk<'_>) -> Result<Mod
         ok = matches(&parameters);
     }
     if !ok && !available.is_empty() {
-        return Err(invalid(format!(
-            "Cursor model {} does not offer the selected parameter combination",
-            model.id
-        )));
+        return Err(invalid(format!("Cursor model {} does not offer the selected parameter combination", model.id)));
     }
-    Ok(ModelSelection {
-        model_id: model.id.clone(),
-        parameters,
-        max_mode,
-        pricing_model: None,
-    })
+    Ok(ModelSelection { model_id: model.id.clone(), parameters, max_mode, pricing_model: None })
 }
 
 /// The selection for `requested` (`_resolveCursorModel`): the variant of a
 /// parameterized model; an alias or an id the catalog lists as it is, unless
 /// the request asks for an effort or speed; else one of the id-named variants
 /// sharing its base. An id the catalog does not describe is sent as it is.
-pub fn resolve_selection(
-    catalog: &[CursorModel],
-    requested: &str,
-    ask: &ParameterAsk<'_>,
-) -> Result<ModelSelection, ProviderError> {
+pub fn resolve_selection(catalog: &[CursorModel], requested: &str, ask: &ParameterAsk<'_>) -> Result<ModelSelection, ProviderError> {
     let mut selection = resolve_variant(catalog, requested, ask)?;
     selection.pricing_model = pricing_model(catalog, requested);
     Ok(selection)
@@ -563,15 +504,10 @@ pub fn resolve_selection(
 /// model; the Fast part is carried by the request's tier, not the id.
 fn pricing_model(catalog: &[CursorModel], model: &str) -> Option<String> {
     let pinned = variants::parse_variant_id(&canonical_model_id(js_trim(model)));
-    (pinned.base_id != pinned.id && variants::slug_groups(catalog).iter().any(|g| g.base_id == pinned.base_id))
-        .then_some(pinned.base_id)
+    (pinned.base_id != pinned.id && variants::slug_groups(catalog).iter().any(|g| g.base_id == pinned.base_id)).then_some(pinned.base_id)
 }
 
-fn resolve_variant(
-    catalog: &[CursorModel],
-    requested: &str,
-    ask: &ParameterAsk<'_>,
-) -> Result<ModelSelection, ProviderError> {
+fn resolve_variant(catalog: &[CursorModel], requested: &str, ask: &ParameterAsk<'_>) -> Result<ModelSelection, ProviderError> {
     let requested = canonical_model_id(if requested.trim().is_empty() { "auto" } else { requested });
     if let Some(model) = catalog.iter().find(|m| m.id == requested && m.is_parameterized()) {
         return select_variant(model, ask);
@@ -607,13 +543,7 @@ mod tests {
             id: id.to_owned(),
             name: id.to_owned(),
             boolean: id == "fast",
-            values: values
-                .iter()
-                .map(|v| ParameterValue {
-                    value: (*v).to_owned(),
-                    label: (*v).to_owned(),
-                })
-                .collect(),
+            values: values.iter().map(|v| ParameterValue { value: (*v).to_owned(), label: (*v).to_owned() }).collect(),
         }
     }
 

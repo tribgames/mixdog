@@ -358,12 +358,7 @@ pub fn byline_runs(props: &BylineProps<'_>) -> Vec<Run> {
     }
 
     let thinking = Thinking { thinking: props.thinking, thinking_since: props.thinking_active_since, thinking_ms: props.thinking_ms, effort: props.effort };
-    let meta = build_spinner_meta(&SpinnerMetaInput {
-        output_tokens: props.displayed_output_tokens,
-        thinking,
-        quiet: props.quiet.clone(),
-        now: props.now,
-    });
+    let meta = build_spinner_meta(&SpinnerMetaInput { output_tokens: props.displayed_output_tokens, thinking, quiet: props.quiet.clone(), now: props.now });
     let token_glyph = token_mode_glyph(props.mode);
     let token_text = if meta.tokens_text.is_empty() {
         String::new()
@@ -409,7 +404,15 @@ pub fn byline_runs(props: &BylineProps<'_>) -> Vec<Run> {
         let span = (thinking_status_w + THINKING_GLIMMER_TRAIL).max(1.0);
         let head = ((props.raw_elapsed_ms - THINKING_DELAY_MS).max(0.0) / THINKING_GLIMMER_SPEED_MS).floor() % span;
         segments.push(if meta.thinking_active && !props.reduced_motion {
-            shimmer_runs(&thinking_status_text, head, THINKING_GLIMMER_TRAIL, Some(colors.thinking_inactive), Some(colors.thinking_shimmer), themed(Key::ThinkingBase), span)
+            shimmer_runs(
+                &thinking_status_text,
+                head,
+                THINKING_GLIMMER_TRAIL,
+                Some(colors.thinking_inactive),
+                Some(colors.thinking_shimmer),
+                themed(Key::ThinkingBase),
+                span,
+            )
         } else {
             vec![(thinking_status_text, themed(Key::StatusSubtle))]
         });
@@ -455,11 +458,8 @@ pub fn spinner_runs(progress: &mut SpinnerProgress, props: &SpinnerProps, now: f
     });
     let glyph = SPINNER_FRAMES[(frame % FRAME_COUNT as f64) as usize];
     // The glyph colour reddens toward the error colour when stalled.
-    let glyph_style = if display.stalled_intensity > 0.0 {
-        rgb_style(interpolate(colors.glyph, colors.stall, display.stalled_intensity))
-    } else {
-        themed(Key::SpinnerGlyph)
-    };
+    let glyph_style =
+        if display.stalled_intensity > 0.0 { rgb_style(interpolate(colors.glyph, colors.stall, display.stalled_intensity)) } else { themed(Key::SpinnerGlyph) };
 
     // One common pool, one phrase per 30 s window, anchored to the turn's start so a mode flip cannot rewrite the label
     // and the desktop shows the same word at the same second.
@@ -550,8 +550,8 @@ pub fn is_completed_transcript_tail_appended_this_commit(latest: Option<Transcri
 /// `isLiveSpinnerMetaVisible(...)`: whether the live spinner row shows. A command spinner shows through a finished turn
 /// and through a streaming answer; a turn's own spinner gives way to both.
 pub fn is_live_spinner_meta_visible(input: &SpinnerVisibility<'_>) -> bool {
-    let visible_streaming_assistant = !input.transcript_view_active
-        && input.streaming_tail.is_some_and(|tail| tail.kind == "assistant" && tail.streaming && !js_trim(tail.text).is_empty());
+    let visible_streaming_assistant =
+        !input.transcript_view_active && input.streaming_tail.is_some_and(|tail| tail.kind == "assistant" && tail.streaming && !js_trim(tail.text).is_empty());
     !input.input_box_hidden
         && !input.slash_palette_open
         && input.live_spinner

@@ -47,11 +47,7 @@ pub(super) fn add_note(book: &Com, op: &Value) -> Result<Value> {
         cell.member("Comment")?.call_member("Delete", &[])?;
     }
     let comment = cell.call_member("AddComment", &[com_text(text_of(op, "text"))])?;
-    Ok(record_of(
-        "add_note",
-        true,
-        vec![("cell", Value::String(address_of(&cell)?)), ("author", Value::String(string_of_com(&comment.member("Author")?)))],
-    ))
+    Ok(record_of("add_note", true, vec![("cell", Value::String(address_of(&cell)?)), ("author", Value::String(string_of_com(&comment.member("Author")?)))]))
 }
 
 /// `Provenance-Text`: the citation of the operation.
@@ -102,15 +98,7 @@ fn repeat_on_line(book: &Com, op: &Value, collection: &str, key: &str, action: &
             None => line.call_member(action, &[])?,
         };
     }
-    Ok(record_of(
-        name,
-        true,
-        vec![
-            (key, Value::Int(int_cast(&prop(op, key))?)),
-            ("count", Value::Int(count)),
-            ("referenceAware", Value::Bool(true)),
-        ],
-    ))
+    Ok(record_of(name, true, vec![(key, Value::Int(int_cast(&prop(op, key))?)), ("count", Value::Int(count)), ("referenceAware", Value::Bool(true))]))
 }
 
 /// `insert_rows`.
@@ -171,11 +159,7 @@ pub(super) fn set_row_visibility(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "set_row_visibility",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("visible", Value::Bool(visible)),
-            ("rows", number_span(first, last)),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("visible", Value::Bool(visible)), ("rows", number_span(first, last))],
     ))
 }
 
@@ -196,11 +180,7 @@ pub(super) fn set_column_visibility(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "set_column_visibility",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("visible", Value::Bool(visible)),
-            ("columns", number_span(first, last)),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("visible", Value::Bool(visible)), ("columns", number_span(first, last))],
     ))
 }
 
@@ -221,11 +201,7 @@ pub(super) fn set_row_height(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "set_row_height",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("rows", number_span(first, last)),
-            ("height", Value::Double(height)),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("rows", number_span(first, last)), ("height", Value::Double(height))],
     ))
 }
 
@@ -246,11 +222,7 @@ pub(super) fn set_column_width(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "set_column_width",
         true,
-        vec![
-            ("sheet", Value::String(string_of_com(&sheet.member("Name")?))),
-            ("columns", number_span(first, last)),
-            ("width", Value::Double(width)),
-        ],
+        vec![("sheet", Value::String(string_of_com(&sheet.member("Name")?))), ("columns", number_span(first, last)), ("width", Value::Double(width))],
     ))
 }
 
@@ -262,13 +234,7 @@ pub(super) fn set_hyperlink(book: &Com, op: &Value) -> Result<Value> {
     let display = if present(op, "text") { text_of(op, "text") } else { string_of_com(&target.member("Text")?) };
     let link = sheet.member("Hyperlinks")?.call_member(
         "Add",
-        &[
-            target.clone(),
-            com_text(text_of(op, "address")),
-            com_text(text_of(op, "subAddress")),
-            com_text(text_of(op, "screenTip")),
-            com_text(display),
-        ],
+        &[target.clone(), com_text(text_of(op, "address")), com_text(text_of(op, "subAddress")), com_text(text_of(op, "screenTip")), com_text(display)],
     )?;
     Ok(record_of(
         "set_hyperlink",

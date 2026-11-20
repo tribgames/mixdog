@@ -102,7 +102,10 @@ fn run_in_process(env: &Env<'_>, scenario: &Json, work: PathBuf, watching: &Atom
                     Ok(mut state) => {
                         let opened = open_session_response(&mut state, env).map(|value| emit_json(&value));
                         states.insert(id.clone(), state);
-                        opened.map_or_else(|message| serde_json::json!({"ok": false, "error": message}), |text| serde_json::from_str(&text).expect("the answer is JSON"))
+                        opened.map_or_else(
+                            |message| serde_json::json!({"ok": false, "error": message}),
+                            |text| serde_json::from_str(&text).expect("the answer is JSON"),
+                        )
                     }
                     Err(message) => serde_json::json!({"ok": false, "error": message}),
                 }
@@ -183,7 +186,11 @@ fn the_editor_meets_what_every_scenario_expects_and_leaves_no_process() {
     }
     stop.store(true, Ordering::SeqCst);
     poller.join().expect("the poll ends");
-    assert!(violations.lock().expect("the list").is_empty(), "a window of the owned applications was visible during a background batch: {:?}", violations.lock().expect("the list"));
+    assert!(
+        violations.lock().expect("the list").is_empty(),
+        "a window of the owned applications was visible during a background batch: {:?}",
+        violations.lock().expect("the list")
+    );
 
     // No process is left that was not there before (the applications quit on their own: the wait is bounded).
     let deadline = Instant::now() + Duration::from_secs(20);

@@ -20,7 +20,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mixdog_js::{json_stringify, js_trim_start, number_to_string, value_to_string};
+use mixdog_js::{js_trim_start, json_stringify, number_to_string, value_to_string};
 use serde_json::{Map, Value};
 
 use crate::memory::session_search::ingest::SensitiveValues;
@@ -31,13 +31,11 @@ pub const SAVED_LOGIN_MARKER: &str = "[saved login]";
 const MARKERS: [&str; 2] = [MARKER, SAVED_LOGIN_MARKER];
 
 /// Message fields a provider adapter replays or re-reads as native state.
-const REPLAY_FIELDS: [&str; 7] =
-    ["providerReplay", "reasoning", "thinkingBlocks", "assistantBlocks", "reasoningItems", "reasoningContent", "providerMetadata"];
+const REPLAY_FIELDS: [&str; 7] = ["providerReplay", "reasoning", "thinkingBlocks", "assistantBlocks", "reasoningItems", "reasoningContent", "providerMetadata"];
 /// Opaque provider tokens a tool call may carry.
 const SIGNATURE_FIELDS: [&str; 2] = ["thoughtSignature", "thought_signature"];
 /// Part types that are encodings, never text.
-const MEDIA_TYPES: [&str; 9] =
-    ["image", "image_url", "input_image", "file", "input_file", "document", "audio", "input_audio", "video"];
+const MEDIA_TYPES: [&str; 9] = ["image", "image_url", "input_image", "file", "input_file", "document", "audio", "input_audio", "video"];
 
 #[derive(Default)]
 struct Known {
@@ -378,9 +376,10 @@ fn map_part_text(store: &SensitiveStore, session: &str, part: &Value) -> Value {
 fn has_replay_state(message: &Value) -> bool {
     let Some(map) = message.as_object() else { return false };
     REPLAY_FIELDS.iter().any(|f| map.contains_key(*f))
-        || map.get("toolCalls").and_then(Value::as_array).is_some_and(|calls| {
-            calls.iter().any(|c| c.as_object().is_some_and(|o| SIGNATURE_FIELDS.iter().any(|f| o.contains_key(*f))))
-        })
+        || map
+            .get("toolCalls")
+            .and_then(Value::as_array)
+            .is_some_and(|calls| calls.iter().any(|c| c.as_object().is_some_and(|o| SIGNATURE_FIELDS.iter().any(|f| o.contains_key(*f)))))
 }
 
 fn replay_state_text(message: &Value) -> String {
@@ -548,8 +547,7 @@ impl SensitiveStore {
         let (version, listeners, carries) = {
             let mut inner = self.lock();
             let version = inner.by_session.entry(session.to_owned()).or_default().gain(values)?;
-            let listeners: Vec<Listener> =
-                inner.listeners.get(session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
+            let listeners: Vec<Listener> = inner.listeners.get(session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
             let carries: Vec<String> = inner.carries.get(session).map(|to| to.iter().cloned().collect()).unwrap_or_default();
             (version, listeners, carries)
         };

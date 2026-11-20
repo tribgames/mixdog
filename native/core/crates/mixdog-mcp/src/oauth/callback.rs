@@ -24,8 +24,7 @@ use super::page;
 pub const CALLBACK_MAX_BYTES: usize = 64 * 1024;
 /// A pasted URL carries the authorization code and is never echoed into an error, a log or a
 /// status.
-pub const INVALID_CALLBACK_PASTE: &str =
-    "The pasted sign-in URL is invalid. Paste the full address the browser was redirected to after signing in.";
+pub const INVALID_CALLBACK_PASTE: &str = "The pasted sign-in URL is invalid. Paste the full address the browser was redirected to after signing in.";
 pub const CALLBACK_NOT_PENDING: &str = "MCP OAuth sign-in is not waiting for a callback";
 pub const CALLBACK_PATH: &str = "/oauth/callback";
 
@@ -37,9 +36,7 @@ const OUTCOME_WAIT: Duration = Duration::from_secs(5 * 60);
 pub fn same_state(supplied: Option<&str>, expected: &str) -> bool {
     let supplied = supplied.unwrap_or_default().as_bytes();
     let expected = expected.as_bytes();
-    !expected.is_empty()
-        && supplied.len() == expected.len()
-        && supplied.iter().zip(expected).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    !expected.is_empty() && supplied.len() == expected.len() && supplied.iter().zip(expected).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
 /// What a pasted redirect URL carries.
@@ -99,7 +96,9 @@ pub fn parse_pasted(pasted: &str, redirect_url: &str, state: &str) -> Result<Pas
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PageOutcome {
     Done,
-    Failed { scope_not_granted: bool },
+    Failed {
+        scope_not_granted: bool,
+    },
     /// Nobody is waiting for this callback any more.
     Stale,
 }
@@ -137,7 +136,9 @@ pub mod seam {
     }
 
     impl Default for Tick {
-        fn default() -> Self { Self::new() }
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl Tick {
@@ -176,7 +177,9 @@ pub mod seam {
     }
 
     impl Default for Clock {
-        fn default() -> Self { Self::new() }
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl Clock {
@@ -254,7 +257,10 @@ pub static LISTENER_CLOSED: tokio::sync::Notify = tokio::sync::Notify::const_new
 
 /// The listener's handle: stops it from accepting and destroys the connections it owns.
 #[derive(Clone)]
-#[allow(clippy::disallowed_types, reason = "the lock is held for the wait itself: every shutdown waits on the one receiver until the connection tasks have ended")]
+#[allow(
+    clippy::disallowed_types,
+    reason = "the lock is held for the wait itself: every shutdown waits on the one receiver until the connection tasks have ended"
+)]
 pub struct Stopper {
     stop: CancellationToken,
     closed: CancellationToken,
@@ -323,7 +329,6 @@ mod tests {
             assert_eq!(ok(&bad), Err(INVALID_CALLBACK_PASTE), "{bad}");
         }
     }
-
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_loopback_holds_the_page_until_the_outcome_and_refuses_other_requests() {
@@ -471,7 +476,6 @@ mod tests {
         assert_eq!(registered.elapsed(), Duration::from_secs(1), "shutdown destroyed the connections at 1 s, not 2 s");
     }
 }
-
 
 /// The flush of a held page: done once the page was written, or its connection went away. Waiting for it is bounded,
 /// as Node bounds the flush it awaits at a second (`oauth-callback.mjs` `settle`): one promise, so one deadline,
@@ -634,10 +638,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
     let mut lines = head.lines();
     let mut first = lines.next()?.split(' ');
     let (method, target) = (first.next()?.to_owned(), first.next()?.to_owned());
-    let host = lines
-        .filter_map(|l| l.split_once(':'))
-        .find(|(k, _)| k.trim().eq_ignore_ascii_case("host"))
-        .map(|(_, v)| v.trim().to_owned());
+    let host = lines.filter_map(|l| l.split_once(':')).find(|(k, _)| k.trim().eq_ignore_ascii_case("host")).map(|(_, v)| v.trim().to_owned());
     Some(Request { method, target, host })
 }
 async fn answer(mut stream: TcpStream, port: u16, state: String, server: String, tx: mpsc::UnboundedSender<Callback>, answered: Arc<AtomicBool>) {
@@ -720,12 +721,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
 /// `state`; valid callbacks arrive on `tx`. The listener owns the connections it accepted: it stops accepting and
 /// destroys them through its [`Stopper`].
 #[allow(clippy::disallowed_types, reason = "makes the Stopper's drain lock (see Stopper)")]
-pub async fn listen(
-    port: u16,
-    state: String,
-    server: String,
-    tx: mpsc::UnboundedSender<Callback>,
-) -> std::io::Result<Listener> {
+pub async fn listen(port: u16, state: String, server: String, tx: mpsc::UnboundedSender<Callback>) -> std::io::Result<Listener> {
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
     let port = listener.local_addr()?.port();
     let (alive, drained) = mpsc::channel::<()>(1);

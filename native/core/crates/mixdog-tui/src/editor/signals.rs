@@ -5,9 +5,7 @@
 //! arrive as raw input and are matched here. The report classifiers are the decoder's own (`mixdog_term::input`).
 
 use mixdog_term::KeyFlags;
-pub use mixdog_term::input::{
-    is_csi_private_reply, is_discarded_control_input, is_mouse_report_sequence, printable_from_input,
-};
+pub use mixdog_term::input::{is_csi_private_reply, is_discarded_control_input, is_mouse_report_sequence, printable_from_input};
 
 /// The arrow, shift and ctrl+shift signals of one `(input, key)` event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -42,11 +40,7 @@ pub fn decode_arrow_signals(raw: &str, key: &KeyFlags) -> ArrowSignals {
     let raw_ctrl_shift_right = matches!(raw, "\x1b[1;6C" | "[1;6C");
     let raw_ctrl_shift_left = matches!(raw, "\x1b[1;6D" | "[1;6D");
     let any_arrow = key.left_arrow || key.right_arrow || key.up_arrow || key.down_arrow;
-    let ctrl_shift_held = raw_ctrl_shift_up
-        || raw_ctrl_shift_down
-        || raw_ctrl_shift_left
-        || raw_ctrl_shift_right
-        || (key.shift && key.ctrl && any_arrow);
+    let ctrl_shift_held = raw_ctrl_shift_up || raw_ctrl_shift_down || raw_ctrl_shift_left || raw_ctrl_shift_right || (key.shift && key.ctrl && any_arrow);
     let raw_shift_arrow_for_grid = raw_shift_up
         || raw_shift_down
         || raw_shift_right

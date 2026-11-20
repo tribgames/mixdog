@@ -207,12 +207,7 @@ fn install_spec(platform: Platform) -> Result<InstallSpec, CodedError> {
             manager: "winget",
             manager_name: "winget",
         }),
-        Platform::Mac => Ok(InstallSpec {
-            program: "brew",
-            args: args(&["install", "--cask", "libreoffice"]),
-            manager: "brew",
-            manager_name: "Homebrew",
-        }),
+        Platform::Mac => Ok(InstallSpec { program: "brew", args: args(&["install", "--cask", "libreoffice"]), manager: "brew", manager_name: "Homebrew" }),
         Platform::Other => Err(CodedError::new(
             "install_unsupported",
             "Automatic LibreOffice installation is not supported on Linux. Install it with your package manager \
@@ -395,11 +390,21 @@ mod tests {
         let quiet = soffice(
             Platform::Mac,
             &["soffice"],
-            scripted(|file, _| if file == "brew" { RunOutput { code: 7, stdout: String::new(), stderr: " \n".to_owned() } } else { RunOutput { code: -1, stdout: String::new(), stderr: String::new() } }),
+            scripted(|file, _| {
+                if file == "brew" {
+                    RunOutput { code: 7, stdout: String::new(), stderr: " \n".to_owned() }
+                } else {
+                    RunOutput { code: -1, stdout: String::new(), stderr: String::new() }
+                }
+            }),
         );
         let error = quiet.install(Box::pin(async {})).await.unwrap_err();
         assert_eq!(error.message, "brew could not install LibreOffice: exit code 7");
-        let not_found = soffice(Platform::Mac, &["soffice"], scripted(|file, _| if file == "brew" { ok("") } else { RunOutput { code: -1, stdout: String::new(), stderr: String::new() } }));
+        let not_found = soffice(
+            Platform::Mac,
+            &["soffice"],
+            scripted(|file, _| if file == "brew" { ok("") } else { RunOutput { code: -1, stdout: String::new(), stderr: String::new() } }),
+        );
         let error = not_found.install(Box::pin(async {})).await.unwrap_err();
         assert_eq!(
             (error.code.as_str(), error.message.as_str()),
@@ -417,7 +422,6 @@ mod tests {
         assert_eq!(Platform::Other.join(&["/home/a", ".local", "x"]), "/home/a/.local/x");
     }
 
-
     #[tokio::test]
     async fn a_program_that_is_not_there_runs_as_code_minus_one() {
         let missing = std::env::temp_dir().join("mixdog-no-such-program-for-soffice-tests");
@@ -425,7 +429,6 @@ mod tests {
         assert_eq!(output, RunOutput { code: -1, stdout: String::new(), stderr: "ENOENT".to_owned() });
     }
 }
-
 
 impl Runner for ChildRunner {
     fn run(&self, file: &str, args: &[String], timeout: Duration) -> BoxFuture<RunOutput> {
@@ -461,11 +464,7 @@ async fn run_child(file: &str, args: &[String], timeout: Duration) -> RunOutput 
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
             match output.status.code() {
                 Some(0) => RunOutput { code: 0, stdout, stderr },
-                code => RunOutput {
-                    code: code.unwrap_or(1),
-                    stdout,
-                    stderr: if stderr.is_empty() { failed() } else { stderr },
-                },
+                code => RunOutput { code: code.unwrap_or(1), stdout, stderr: if stderr.is_empty() { failed() } else { stderr } },
             }
         }
         Ok(Err(error)) => RunOutput { code: 1, stdout: String::new(), stderr: error.to_string() },
@@ -560,11 +559,7 @@ impl Soffice {
             let detail = output.trim().split('\n').rfind(|line| !line.is_empty()).map(str::to_owned);
             return Err(CodedError::new(
                 "install_failed",
-                format!(
-                    "{} could not install {LABEL}: {}",
-                    spec.manager,
-                    detail.unwrap_or_else(|| format!("exit code {}", result.code))
-                ),
+                format!("{} could not install {LABEL}: {}", spec.manager, detail.unwrap_or_else(|| format!("exit code {}", result.code))),
             ));
         }
         let status = self.status(true).await;

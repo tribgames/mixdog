@@ -195,7 +195,6 @@ mod tests {
         assert_eq!(receive("the escaping task's draw", &outcome), [9; 8]);
     }
 
-
     /// Awaits `task` for the deadline; a timeout names `what`.
     async fn within<T>(what: &str, task: impl std::future::Future<Output = T>) -> T {
         mixdog_rt::time::timeout(DEADLINE, task).await.unwrap_or_else(|_| panic!("timed out after {DEADLINE:?} waiting for {what}"))

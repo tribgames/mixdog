@@ -55,9 +55,7 @@ impl AttachmentBytes for ContextBlobs<'_, '_> {
         match crate::durable::read_within(&path, MAX_ATTACHMENT_BLOB_BYTES) {
             Ok(Some(bytes)) if crate::durable::sha256_hex(&bytes) == reference => Ok(bytes),
             Ok(_) => Err(BlobError::Permanent),
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidData) => {
-                Err(BlobError::Permanent)
-            }
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidData) => Err(BlobError::Permanent),
             Err(e) => Err(BlobError::Transient(Blocked::io("read", &path, e))),
         }
     }
@@ -78,8 +76,7 @@ pub(crate) mod testing {
 
     use super::*;
 
-    static RUNTIME: LazyLock<tokio::runtime::Runtime> =
-        LazyLock::new(|| tokio::runtime::Builder::new_current_thread().build().expect("a test runtime"));
+    static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| tokio::runtime::Builder::new_current_thread().build().expect("a test runtime"));
 
     /// Answers `text of <filename>`, or fails for `broken.docx`; records `(thread, filename, data)`.
     #[derive(Default)]

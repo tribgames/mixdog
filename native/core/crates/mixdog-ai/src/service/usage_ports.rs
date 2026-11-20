@@ -31,39 +31,39 @@ use super::usage_command_code;
 use super::usage_cursor;
 use super::usage_muse_code;
 use super::usage_opencode_go;
-use sha2::Digest;
-use sha2::Sha256;
-use crate::oauth::Probe;
-use crate::oauth::scrub::scrub_oauth_secrets;
-use crate::oauth::Pace;
-use crate::oauth::SystemPace;
-use crate::providers::compat::creds::CommandCodeCredentials;
-use crate::providers::cursor::AccessToken;
-use crate::providers::cursor::auth::{ApiKeyAccess, FileAccess as CursorAccess};
-use crate::registry::keys::{ApiKeyStore, KeyConfig};
-use crate::providers::google::auth::RequestAuth as _;
-use crate::providers::google::auth::antigravity::AntigravityAuth;
-use crate::providers::google::auth::antigravity::FileTokenStore;
-use crate::providers::google::auth::antigravity::VERSION_FALLBACK as ANTIGRAVITY_VERSION_FALLBACK;
-use crate::providers::compat::creds::MuseCodeCredentials;
-use crate::providers::compat::creds::OpenCodeGoCredentials;
-use crate::providers::compat::login::opencode_go::OpenCodeGoAuth;
-use crate::providers::compat::login::opencode_go::RefreshError;
 use crate::accounts::AccountStore;
 use crate::client_versions::ClientVersions;
 use crate::client_versions::Dialect;
 use crate::oauth::CredentialFile;
+use crate::oauth::Pace;
+use crate::oauth::Probe;
+use crate::oauth::SystemPace;
+use crate::oauth::scrub::scrub_oauth_secrets;
 use crate::providers::anthropic::OAuthSession;
+use crate::providers::compat::creds::CommandCodeCredentials;
+use crate::providers::compat::creds::MuseCodeCredentials;
+use crate::providers::compat::creds::OpenCodeGoCredentials;
+use crate::providers::compat::login::opencode_go::OpenCodeGoAuth;
+use crate::providers::compat::login::opencode_go::RefreshError;
+use crate::providers::connect::rewrite::Credential as _;
+use crate::providers::cursor::AccessToken;
+use crate::providers::cursor::auth::{ApiKeyAccess, FileAccess as CursorAccess};
+use crate::providers::google::auth::RequestAuth as _;
+use crate::providers::google::auth::antigravity::AntigravityAuth;
+use crate::providers::google::auth::antigravity::FileTokenStore;
+use crate::providers::google::auth::antigravity::VERSION_FALLBACK as ANTIGRAVITY_VERSION_FALLBACK;
 use crate::providers::grok::auth::GrokCredential;
 use crate::providers::openai::adapter::CredentialSource;
 use crate::providers::openai::oauth::OpenAiOAuth;
-use crate::providers::connect::rewrite::Credential as _;
+use crate::registry::keys::{ApiKeyStore, KeyConfig};
 use crate::transport::Exchange;
 use crate::transport::FETCH_FAILED;
 use crate::transport::Redirect;
 use crate::transport::Surface;
 use crate::transport::http::HttpSend;
 use mixdog_rt::Liveness;
+use sha2::Digest;
+use sha2::Sha256;
 
 /// [`UsageHttp`] over the routed link. The exchange is Node's `fetchOptions`: a redirect is a network
 /// error (`redirect: 'error'`) and the timeout covers the head and the body (`AbortSignal.timeout`),
@@ -91,13 +91,7 @@ impl RoutedUsageHttp {
     }
 
     async fn exchange(&self, method: &str, url: &str, headers: &[(String, String)], body: Vec<u8>, timeout: Duration) -> Result<UsageResponse, UsageError> {
-        let request = WireRequest {
-            transport: TransportKind::Http1,
-            method: method.to_owned(),
-            url: url.to_owned(),
-            headers: headers.to_vec(),
-            body,
-        };
+        let request = WireRequest { transport: TransportKind::Http1, method: method.to_owned(), url: url.to_owned(), headers: headers.to_vec(), body };
         let exchange = Exchange::new(Liveness::unary(timeout), self.redirect, self.surface);
         let failed = |error: ProviderError| {
             // A transport fault already carries the call site's Node text (`fetch failed`, or the
@@ -108,7 +102,8 @@ impl RoutedUsageHttp {
         let head = self.http.send(request, exchange).await.map_err(failed)?;
         let status = head.status;
         let whole = head.read_all().await.map_err(failed)?;
-        Ok(UsageResponse { status, body: String::from_utf8_lossy(&whole.body).into_owned() })    }
+        Ok(UsageResponse { status, body: String::from_utf8_lossy(&whole.body).into_owned() })
+    }
 }
 
 #[async_trait]
@@ -197,14 +192,21 @@ struct CursorApiReading {
 
 #[async_trait]
 impl super::oauth_usage::CursorApiPlan for CursorApiReading {
-    fn key_identity(&self) -> [u8; 32] { self.key }
+    fn key_identity(&self) -> [u8; 32] {
+        self.key
+    }
 
     async fn read(&self) -> Result<Value, UsageError> {
         read_cursor(usage_cursor::API_PROVIDER_ID, self.http.clone(), self.versions.as_ref(), self.access.clone()).await
     }
 }
 
-async fn read_cursor(provider: &str, http: Arc<dyn HttpSend>, versions: Option<&Arc<ClientVersions>>, access: Arc<dyn AccessToken>) -> Result<Value, UsageError> {
+async fn read_cursor(
+    provider: &str,
+    http: Arc<dyn HttpSend>,
+    versions: Option<&Arc<ClientVersions>>,
+    access: Arc<dyn AccessToken>,
+) -> Result<Value, UsageError> {
     let version = match versions {
         Some(versions) => {
             versions.warm(Dialect::Cursor).await;
@@ -234,7 +236,16 @@ impl ProviderUsageSource {
 
     /// The clock the OpenCode Go token expiry is judged by.
     pub fn with_pace(accounts: AccountStore, http: Arc<dyn HttpSend>, pace: Arc<dyn Pace>) -> Self {
-        Self { accounts, http, held: Mutex::new(HashMap::new()), pace, muse: Mutex::new(HashMap::new()), jitter: Arc::new(rand::random::<f64>), versions: None, cursor_api: None }
+        Self {
+            accounts,
+            http,
+            held: Mutex::new(HashMap::new()),
+            pace,
+            muse: Mutex::new(HashMap::new()),
+            jitter: Arc::new(rand::random::<f64>),
+            versions: None,
+            cursor_api: None,
+        }
     }
 
     /// Reuse the process's client versions rather than pinning those identities to their fallback.
@@ -276,10 +287,16 @@ impl ProviderUsageSource {
             "grok-oauth" => Held::Grok(Arc::new(GrokCredential::new(self.http.clone(), self.file(provider, account_id)?))),
             usage_antigravity::PROVIDER_ID => {
                 let pace = self.pace.clone();
-                Held::Antigravity(Arc::new(AntigravityAuth::new(self.http.clone(), Arc::new(FileTokenStore(self.file(provider, account_id)?)), Box::new(move || pace.now_ms()))))
+                Held::Antigravity(Arc::new(AntigravityAuth::new(
+                    self.http.clone(),
+                    Arc::new(FileTokenStore(self.file(provider, account_id)?)),
+                    Box::new(move || pace.now_ms()),
+                )))
             }
             usage_cursor::PROVIDER_ID => Held::Cursor(Arc::new(CursorAccess::new(self.http.clone(), self.file(provider, account_id)?))),
-            usage_opencode_go::PROVIDER_ID => Held::OpenCode(Arc::new(OpenCodeGoAuth::new(self.http.clone(), self.pace.clone(), self.file(provider, account_id)?))),
+            usage_opencode_go::PROVIDER_ID => {
+                Held::OpenCode(Arc::new(OpenCodeGoAuth::new(self.http.clone(), self.pace.clone(), self.file(provider, account_id)?)))
+            }
             _ => return Ok(None),
         };
         // Two builders racing keep the first: both read the same file.
@@ -304,7 +321,10 @@ const OPENCODE_SIGNED_OUT: &str = "[opencode-go-oauth] credentials not found —
 /// `openCodeGoReauthError(detail, status)`.
 fn opencode_reauth(detail: &str, status: u16) -> UsageError {
     let shown = if detail.is_empty() { String::new() } else { format!(" ({detail})") };
-    UsageError { status: Some(status), message: format!("[opencode-go-oauth] invalid_grant: OpenCode sign-in expired{shown} — open /providers in mixdog to sign in again") }
+    UsageError {
+        status: Some(status),
+        message: format!("[opencode-go-oauth] invalid_grant: OpenCode sign-in expired{shown} — open /providers in mixdog to sign in again"),
+    }
 }
 
 fn opencode_failure(error: RefreshError) -> UsageError {
@@ -334,7 +354,8 @@ impl ProviderUsageSource {
         // `ensureAccessToken` throws a plain `Error` (no status) when nothing is signed in. The turn path's auth types
         // that same failure as a 401 re-auth, so the usage read tells it apart by asking for the sign-in first.
         auth.current().await.map_err(|error| UsageError::new(format!("[antigravity-oauth] {}", error.message)))?;
-        let authorization = auth.authorize().await.map_err(|error| UsageError { status: error.status, message: format!("[antigravity-oauth] {}", error.message) })?;
+        let authorization =
+            auth.authorize().await.map_err(|error| UsageError { status: error.status, message: format!("[antigravity-oauth] {}", error.message) })?;
         let bearer = authorization.headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, value)| value).unwrap_or_default();
         let headers = vec![
             ("Authorization".to_owned(), bearer.clone()),
@@ -348,11 +369,15 @@ impl ProviderUsageSource {
             let detail = slice_utf16(&scrub_oauth_secrets(&reply.body, &[]), 300);
             return Err(UsageError::new(format!("[antigravity-oauth] retrieveUserQuotaSummary failed: {} {detail}", reply.status)));
         }
-        let summary: Value = serde_json::from_str(&reply.body).map_err(|error| UsageError::new(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
+        let summary: Value = serde_json::from_str(&reply.body)
+            .map_err(|error| UsageError::new(mixdog_js::v8_json_parse_error(&reply.body).unwrap_or_else(|| error.to_string())))?;
         let mut reading = usage_antigravity::snapshot(&summary);
         // Stamped with the bearer and project this request carried.
         let credential = json!({ "access_token": bearer.strip_prefix("Bearer ").unwrap_or(&bearer), "project_id": authorization.identity });
-        super::oauth_usage::stamp_reading(&mut reading, credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_antigravity::PROVIDER_ID, doc)));
+        super::oauth_usage::stamp_reading(
+            &mut reading,
+            credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_antigravity::PROVIDER_ID, doc)),
+        );
         Ok(Some(reading))
     }
 
@@ -369,7 +394,8 @@ impl ProviderUsageSource {
         let slot = api.keys.slot(provider, &config);
         let digest: [u8; 32] = Sha256::digest(key.as_bytes()).into();
         let access = if let Some((held_slot, held_digest, tokens)) = cached.as_ref()
-            && held_slot == &slot && held_digest == &digest
+            && held_slot == &slot
+            && held_digest == &digest
         {
             tokens.clone()
         } else {
@@ -502,7 +528,11 @@ impl ProviderUsageSource {
         let timeout = Duration::from_millis(usage_opencode_go::FETCH_TIMEOUT_MS);
         let reply = RoutedUsageHttp::aborting(self.http.clone()).get(usage_opencode_go::STATUS_URL, &headers, timeout).await?;
         if !(200..300).contains(&reply.status) {
-            let message = if reply.status == 401 { "OpenCode console credential was rejected".to_owned() } else { format!("OpenCode Go usage fetch failed ({})", reply.status) };
+            let message = if reply.status == 401 {
+                "OpenCode console credential was rejected".to_owned()
+            } else {
+                format!("OpenCode Go usage fetch failed ({})", reply.status)
+            };
             return Err(UsageError { status: Some(reply.status), message });
         }
         let body: Value = serde_json::from_str(&reply.body).unwrap_or(Value::Null);
@@ -518,7 +548,9 @@ impl ProviderUsageSource {
             Err(error) if error.status == Some(401) => {
                 let Some(Held::OpenCode(auth)) = self.held(usage_opencode_go::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
                 let next = auth.ensure_fresh(true).await.map_err(opencode_failure)?;
-                if identity(next.account_id.as_deref()) != identity(tokens.account_id.as_deref()) || identity(next.org_id.as_deref()) != identity(tokens.org_id.as_deref()) {
+                if identity(next.account_id.as_deref()) != identity(tokens.account_id.as_deref())
+                    || identity(next.org_id.as_deref()) != identity(tokens.org_id.as_deref())
+                {
                     return Err(UsageError::new("[opencode-go-oauth] the OpenCode sign-in changed during the request"));
                 }
                 sent = next.clone();
@@ -532,7 +564,10 @@ impl ProviderUsageSource {
         let mut reading = usage_opencode_go::snapshot(parsed, identity(tokens.email.as_deref()), identity(tokens.account_id.as_deref()), now_ms());
         // Stamped with the credential whose request answered: the refreshed one after a rejected first try.
         let credential = json!({ "access_token": sent.access_token, "account_id": identity(sent.account_id.as_deref()) });
-        super::oauth_usage::stamp_reading(&mut reading, credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_opencode_go::PROVIDER_ID, doc)));
+        super::oauth_usage::stamp_reading(
+            &mut reading,
+            credential.as_object().and_then(|doc| super::oauth_usage::credential_stamp(usage_opencode_go::PROVIDER_ID, doc)),
+        );
         Ok(Some(reading))
     }
 
@@ -548,7 +583,9 @@ impl ProviderUsageSource {
         }
         file.keep(&[key]);
         let headers = vec![("Accept".to_owned(), "application/json".to_owned()), ("Authorization".to_owned(), format!("Bearer {key}"))];
-        let reply = RoutedUsageHttp::new(self.http.clone()).get(usage_command_code::CREDITS_URL, &headers, Duration::from_millis(usage_command_code::REQUEST_TIMEOUT_MS)).await?;
+        let reply = RoutedUsageHttp::new(self.http.clone())
+            .get(usage_command_code::CREDITS_URL, &headers, Duration::from_millis(usage_command_code::REQUEST_TIMEOUT_MS))
+            .await?;
         if !(200..300).contains(&reply.status) {
             let detail = slice_utf16(js_trim(&scrub_oauth_secrets(&reply.body, &[key])), 300);
             let detail = if detail.is_empty() { String::new() } else { format!(": {detail}") };
@@ -559,7 +596,8 @@ impl ProviderUsageSource {
             };
             return Err(UsageError { status: Some(reply.status), message });
         }
-        let body: Value = serde_json::from_str(&reply.body).map_err(|_| UsageError::new("[command-code-oauth] /alpha/billing/credits returned invalid JSON"))?;
+        let body: Value =
+            serde_json::from_str(&reply.body).map_err(|_| UsageError::new("[command-code-oauth] /alpha/billing/credits returned invalid JSON"))?;
         Ok(usage_command_code::snapshot(&body, js_trim(&stored.user_id), now_ms()))
     }
 }

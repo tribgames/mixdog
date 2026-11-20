@@ -24,18 +24,38 @@ use super::js_value::truthy;
 const MAX_CAUSE_DEPTH: usize = 8;
 
 const LOST_CODES: &[&str] = &[
-    "ECONNRESET", "EPIPE", "ECONNABORTED", "ENETRESET", "EPROTO", "UND_ERR_SOCKET", "UND_ERR_DESTROYED", "UND_ERR_CLOSED",
-    "UND_ERR_ABORTED", "ERR_STREAM_DESTROYED", "ERR_STREAM_PREMATURE_CLOSE", "ERR_HTTP2_STREAM_ERROR", "ERR_HTTP2_SESSION_ERROR",
-    "ERR_HTTP2_INVALID_SESSION", "ERR_HTTP2_GOAWAY_SESSION", "ERR_HTTP2_STREAM_CANCEL",
+    "ECONNRESET",
+    "EPIPE",
+    "ECONNABORTED",
+    "ENETRESET",
+    "EPROTO",
+    "UND_ERR_SOCKET",
+    "UND_ERR_DESTROYED",
+    "UND_ERR_CLOSED",
+    "UND_ERR_ABORTED",
+    "ERR_STREAM_DESTROYED",
+    "ERR_STREAM_PREMATURE_CLOSE",
+    "ERR_HTTP2_STREAM_ERROR",
+    "ERR_HTTP2_SESSION_ERROR",
+    "ERR_HTTP2_INVALID_SESSION",
+    "ERR_HTTP2_GOAWAY_SESSION",
+    "ERR_HTTP2_STREAM_CANCEL",
 ];
 const UNREACHABLE_CODES: &[&str] = &[
-    "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "ENETDOWN", "EADDRNOTAVAIL", "ENOTFOUND", "EAI_AGAIN", "EAI_NODATA", "EAI_FAIL",
-    "EAI_NONAME", "UND_ERR_CONNECT",
+    "ECONNREFUSED",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "ENETDOWN",
+    "EADDRNOTAVAIL",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "EAI_NODATA",
+    "EAI_FAIL",
+    "EAI_NONAME",
+    "UND_ERR_CONNECT",
 ];
-const TIMEOUT_CODES: &[&str] = &[
-    "ETIMEDOUT", "ESOCKETTIMEDOUT", "ERR_SOCKET_CONNECTION_TIMEOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT",
-    "UND_ERR_BODY_TIMEOUT",
-];
+const TIMEOUT_CODES: &[&str] =
+    &["ETIMEDOUT", "ESOCKETTIMEDOUT", "ERR_SOCKET_CONNECTION_TIMEOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"];
 const UNAVAILABLE_STATUSES: &[f64] = &[502.0, 503.0, 504.0, 521.0, 522.0, 523.0, 524.0];
 const WS_LOST_CLOSE_CODES: &[f64] = &[1000.0, 1001.0, 1005.0, 1006.0, 1011.0, 1012.0];
 
@@ -56,10 +76,8 @@ static LOST_PHRASE: LazyLock<JsRegex> = LazyLock::new(|| {
 });
 static UNREACHABLE_PHRASE: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"\b(?:connection refused|getaddrinfo|dns lookup failed|host (?:not found|unreachable))\b", "i"));
-static TIMEOUT_PHRASE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\b(?:connect(?:ion)? timed? ?out|headers timeout|body timeout)\b", "i"));
-static GATEWAY_STATUS_MESSAGE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\b(?:API|HTTP(?: fallback)?)\s+(50[234]|52[1-4])\b", ""));
+static TIMEOUT_PHRASE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\b(?:connect(?:ion)? timed? ?out|headers timeout|body timeout)\b", "i"));
+static GATEWAY_STATUS_MESSAGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\b(?:API|HTTP(?: fallback)?)\s+(50[234]|52[1-4])\b", ""));
 // Exact provider messages survive persistence/IPC without wsCloseCode.
 static WS_CLOSE_MESSAGE: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(

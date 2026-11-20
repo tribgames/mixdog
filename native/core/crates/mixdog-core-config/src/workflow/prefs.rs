@@ -32,8 +32,7 @@ struct Change {
 /// `CUSTOM_ID_RE`.
 fn is_custom_provider_id(id: &str) -> bool {
     static RE: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| JsRegex::new_static(r"^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", ""))
-        .is_match(id)
+    RE.get_or_init(|| JsRegex::new_static(r"^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "")).is_match(id)
 }
 
 /// `modelPreferenceChanges(raw)`.

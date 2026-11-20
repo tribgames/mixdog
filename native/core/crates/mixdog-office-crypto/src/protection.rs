@@ -49,9 +49,7 @@ pub fn read_encrypted_ooxml<P: ReadProof>(proof: &P, path: &Path) -> Option<Encr
 
 /// Only the `\EncryptionInfo` stream, enough to tell whether the encryption is one a preview can unlock.
 pub fn read_ooxml_encryption_info<P: ReadProof>(proof: &P, path: &Path) -> Option<Vec<u8>> {
-    inspect(proof, path, None, |file| {
-        file.read_stream("EncryptionInfo", MAX_ENCRYPTION_INFO_BYTES).map(Some)
-    })
+    inspect(proof, path, None, |file| file.read_stream("EncryptionInfo", MAX_ENCRYPTION_INFO_BYTES).map(Some))
 }
 
 /// [MS-DOC] 2.5.1 FibBase, at the start of the "WordDocument" stream: wIdent 0xA5EC, and fEncrypted (bit 0x0100 of the
@@ -66,9 +64,7 @@ pub fn is_encrypted_word_document<P: ReadProof>(proof: &P, path: &Path) -> bool 
 /// [MS-OFFCRYPTO] 2.3.4 (ECMA-376 Document Encryption): an encrypted OOXML document is a CFB container holding the
 /// root-level streams `\EncryptionInfo` (2.3.4.5) and `\EncryptedPackage` (2.3.4.4).
 pub fn is_encrypted_ooxml<P: ReadProof>(proof: &P, path: &Path) -> bool {
-    inspect(proof, path, false, |file| {
-        Ok(file.has_stream("EncryptionInfo") && file.has_stream("EncryptedPackage"))
-    })
+    inspect(proof, path, false, |file| Ok(file.has_stream("EncryptionInfo") && file.has_stream("EncryptedPackage")))
 }
 
 /// [MS-PPT] binary presentation: an "EncryptedSummary" stream (2.1.6) exists only in an encrypted document, and an
@@ -80,7 +76,6 @@ pub fn is_encrypted_binary_presentation<P: ReadProof>(proof: &P, path: &Path) ->
             return Ok(true);
         }
         let atom = file.read_stream_head("Current User", 16)?;
-        Ok(u16::from_le_bytes([atom[2], atom[3]]) == 0x0ff6
-            && u32::from_le_bytes([atom[12], atom[13], atom[14], atom[15]]) == 0xf3d1_c4df)
+        Ok(u16::from_le_bytes([atom[2], atom[3]]) == 0x0ff6 && u32::from_le_bytes([atom[12], atom[13], atom[14], atom[15]]) == 0xf3d1_c4df)
     })
 }

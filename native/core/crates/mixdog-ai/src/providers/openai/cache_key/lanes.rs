@@ -40,49 +40,52 @@ fn nonnegative(value: Option<&Value>) -> Option<u64> {
 }
 
 fn auto_flag(value: &Value) -> bool {
-    value.as_bool() == Some(true) || value.as_f64() == Some(0.0)
-        || value.as_str().is_some_and(|s| matches!(
-            mixdog_js::js_trim(s).to_ascii_lowercase().as_str(), "0" | "auto" | "unbounded" | "unlimited" | "none" | "off"
-        ))
+    value.as_bool() == Some(true)
+        || value.as_f64() == Some(0.0)
+        || value
+            .as_str()
+            .is_some_and(|s| matches!(mixdog_js::js_trim(s).to_ascii_lowercase().as_str(), "0" | "auto" | "unbounded" | "unlimited" | "none" | "off"))
 }
 
 impl LaneConfig {
     pub(in crate::providers::openai) fn from_provider(config: &Value) -> Self {
-        Self(AUTO.iter().chain(SHARDS).chain(ALIASES).copied().chain([IGNORE_ALIASES])
-            .filter_map(|key| Some((key.to_owned(), config.get(key)?.clone())))
-            .collect())
+        Self(
+            AUTO.iter()
+                .chain(SHARDS)
+                .chain(ALIASES)
+                .copied()
+                .chain([IGNORE_ALIASES])
+                .filter_map(|key| Some((key.to_owned(), config.get(key)?.clone())))
+                .collect(),
+        )
     }
 
-    pub(super) fn resolve(
-        &self,
-        provider: &str,
-        namespace: &str,
-        options: &RequestOptions,
-        var: &dyn Fn(&str) -> Option<String>,
-    ) -> Lane {
+    pub(super) fn resolve(&self, provider: &str, namespace: &str, options: &RequestOptions, var: &dyn Fn(&str) -> Option<String>) -> Lane {
         let param = |key| non_null(options.model_parameters.as_ref().and_then(|p| p.get(key)));
         let lane = |key| non_null(param("promptCacheLane").and_then(|lane| lane.get(key)));
         let config = |key| non_null(self.0.get(key));
-        let env = |oauth, public| {
-            (provider == "openai-oauth").then(|| var(oauth)).flatten()
-                .or_else(|| var(public)).map(Value::String)
-        };
-        let automatic = lane("auto").is_some_and(auto_flag)
-            || AUTO.iter().any(|&k| param(k).is_some_and(auto_flag) || config(k).is_some_and(auto_flag));
+        let env = |oauth, public| (provider == "openai-oauth").then(|| var(oauth)).flatten().or_else(|| var(public)).map(Value::String);
+        let automatic = lane("auto").is_some_and(auto_flag) || AUTO.iter().any(|&k| param(k).is_some_and(auto_flag) || config(k).is_some_and(auto_flag));
         let count = if automatic {
             0
         } else {
-            let shards = param(SHARDS[0]).or_else(|| lane("shards")).or_else(|| param(SHARDS[1]))
-                .or_else(|| config(SHARDS[0])).or_else(|| config(SHARDS[1])).cloned()
+            let shards = param(SHARDS[0])
+                .or_else(|| lane("shards"))
+                .or_else(|| param(SHARDS[1]))
+                .or_else(|| config(SHARDS[0]))
+                .or_else(|| config(SHARDS[1]))
+                .cloned()
                 .or_else(|| env("MIXDOG_OPENAI_OAUTH_CACHE_LANE_SHARDS", "MIXDOG_OPENAI_CACHE_LANE_SHARDS"));
             let raw = shards.or_else(|| {
-                if param(IGNORE_ALIASES).and_then(Value::as_bool) == Some(true)
-                    || config(IGNORE_ALIASES).and_then(Value::as_bool) == Some(true)
-                {
+                if param(IGNORE_ALIASES).and_then(Value::as_bool) == Some(true) || config(IGNORE_ALIASES).and_then(Value::as_bool) == Some(true) {
                     return None;
                 }
-                param(ALIASES[0]).or_else(|| lane("maxParallel")).or_else(|| param(ALIASES[1]))
-                    .or_else(|| config(ALIASES[0])).or_else(|| config(ALIASES[1])).cloned()
+                param(ALIASES[0])
+                    .or_else(|| lane("maxParallel"))
+                    .or_else(|| param(ALIASES[1]))
+                    .or_else(|| config(ALIASES[0]))
+                    .or_else(|| config(ALIASES[1]))
+                    .cloned()
                     .or_else(|| env("MIXDOG_OPENAI_OAUTH_CACHE_MAX_PARALLEL", "MIXDOG_OPENAI_CACHE_MAX_PARALLEL"))
             });
             match raw.as_ref() {
@@ -99,7 +102,8 @@ impl LaneConfig {
             Some(slot) if count != 0 => slot % count,
             Some(slot) => slot,
             None => {
-                let seed = param("promptCacheLaneSeed").map(|v| v.as_str().unwrap_or_default())
+                let seed = param("promptCacheLaneSeed")
+                    .map(|v| v.as_str().unwrap_or_default())
                     .or(options.session_id.as_deref())
                     .or_else(|| param("providerCacheKey").and_then(Value::as_str))
                     .or_else(|| param("promptCacheKey").and_then(Value::as_str))
@@ -123,7 +127,9 @@ fn assign(provider: &str, namespace: &str, count: u64, seed: &str) -> u64 {
     group.next = if count == 0 { group.next + 1 } else { (group.next + 1) % count };
     group.slots.insert(seed.to_owned(), slot);
     group.order.push_back(seed.to_owned());
-    if group.slots.len() > 4096 && let Some(oldest) = group.order.pop_front() {
+    if group.slots.len() > 4096
+        && let Some(oldest) = group.order.pop_front()
+    {
         group.slots.remove(&oldest);
     }
     slot
@@ -150,9 +156,13 @@ impl Lane {
         loop {
             digits.push(b"0123456789abcdefghijklmnopqrstuvwxyz"[(n % 36) as usize] as char);
             n /= 36;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
         }
-        if digits.len() == 1 { digits.push('0'); }
+        if digits.len() == 1 {
+            digits.push('0');
+        }
         let digits: String = digits.into_iter().rev().collect();
         (json!(slot), if count == 0 { json!("auto") } else { json!(count) }, format!("-s{digits}"))
     }

@@ -25,7 +25,10 @@ enum Route {
     Malformed,
     NotFound,
     /// A webhook for this routing id: `path` is what the agent is told (`(rest or '/') + search`).
-    Hook { id: String, path: String },
+    Hook {
+        id: String,
+        path: String,
+    },
 }
 
 /// `url.pathname.match(/^\/hook\/([^/]+)(\/.*)?$/)` with `isRoutingId`, and the path the agent gets.
@@ -111,7 +114,9 @@ mod tests {
     #[test]
     fn what_is_not_a_hook_route_is_not_found_and_what_is_not_a_url_is_malformed() {
         assert_eq!(route("http://["), Route::Malformed);
-        for target in ["/nope", "/hook", "/hook/", "/hookx/aaaaaaaa", &format!("/hooks/{ID}"), "/hook//x", "/hook/short/x", "/hook/AAAAAAAA-BBBB/x", "/hook/zzzzzzzz/x"] {
+        for target in
+            ["/nope", "/hook", "/hook/", "/hookx/aaaaaaaa", &format!("/hooks/{ID}"), "/hook//x", "/hook/short/x", "/hook/AAAAAAAA-BBBB/x", "/hook/zzzzzzzz/x"]
+        {
             assert_eq!(route(target), Route::NotFound, "{target}");
         }
         // Dot segments are resolved before the match, as the URL parser resolves them.
@@ -119,7 +124,6 @@ mod tests {
         assert_eq!(route(&format!("/other/../hook/{ID}/y")), hook("/y"));
     }
 }
-
 
 impl HookHub {
     /// `handleHookRequest`: answers the whole request.

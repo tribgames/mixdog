@@ -135,10 +135,9 @@ fn sent_tools(codec: &OpenAiCodec, tools: Vec<ToolDefinition>) -> (Vec<Value>, V
 
 #[test]
 fn a_freeform_tool_goes_out_as_a_custom_tool_on_both_routes_with_its_own_description_and_grammar() {
-    for (route, codec) in [
-        ("codex", codex(TransportKind::Http1, Ctx::default(), Facts::default())),
-        ("api key", api_key(TransportKind::Http1, Ctx::default(), Facts::default())),
-    ] {
+    for (route, codec) in
+        [("codex", codex(TransportKind::Http1, Ctx::default(), Facts::default())), ("api key", api_key(TransportKind::Http1, Ctx::default(), Facts::default()))]
+    {
         let (tools, left_out) = sent_tools(&codec, vec![lookup(), freeform("apply_patch", json!({"type": "object"}), "Edit files with a patch", lark())]);
         assert!(left_out.is_empty(), "{route}");
         assert_eq!(tools.len(), 2, "{route}");
@@ -287,7 +286,16 @@ fn a_frames_client_metadata_carries_the_turn_its_start_and_the_turn_state_it_was
     let meta = frame_metadata(&codec, &request("m", options.clone()), Some("state-token"));
     assert_eq!(
         meta.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["x-codex-installation-id", "session_id", "thread_id", "turn_id", "x-codex-window-id", "x-codex-turn-metadata", "x-codex-ws-stream-request-start-ms", "x-codex-turn-state"]
+        [
+            "x-codex-installation-id",
+            "session_id",
+            "thread_id",
+            "turn_id",
+            "x-codex-window-id",
+            "x-codex-turn-metadata",
+            "x-codex-ws-stream-request-start-ms",
+            "x-codex-turn-state"
+        ]
     );
     assert_eq!(meta["x-codex-installation-id"], "inst-1");
     assert_eq!(meta["turn_id"], codex_uuid_v7("turn-9").as_str());

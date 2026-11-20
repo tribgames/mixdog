@@ -10,10 +10,10 @@ use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 fn calls(rig: &Rig) -> Vec<String> {
     lock(&rig.code_graph.calls).clone()
@@ -71,11 +71,7 @@ async fn every_cwd_apply_warms_unless_lazy_before_the_first_turn() {
     // A turn after the applies: the control lane took them first.
     turn(&handle, "one", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert!(
-        !calls(&rig).iter().any(|call| call.starts_with("schedule:cwd")),
-        "lazy: no cwd warm before the first turn: {:?}",
-        calls(&rig)
-    );
+    assert!(!calls(&rig).iter().any(|call| call.starts_with("schedule:cwd")), "lazy: no cwd warm before the first turn: {:?}", calls(&rig));
     take(&rig);
 
     handle.cwd_applied(true).expect("applied");

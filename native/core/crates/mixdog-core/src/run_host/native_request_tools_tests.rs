@@ -58,9 +58,15 @@ fn a_native_deferred_anthropic_session_adds_the_discovered_catalog_tools_as_defe
 fn a_tool_the_transcript_referenced_is_deferred_too_but_only_for_the_provider_that_searched() {
     let session = deferred_session();
     let row = |provider: &str| json!({ "role": "tool", "nativeToolSearch": { "provider": provider, "toolReferences": ["mcp__srv__ping"] } });
-    let names = |rows: &[Value], provider: &str| request_definitions(&session, &[tool("read")], rows, provider).iter().map(|definition| definition.name.clone()).collect::<Vec<_>>();
+    let names = |rows: &[Value], provider: &str| {
+        request_definitions(&session, &[tool("read")], rows, provider).iter().map(|definition| definition.name.clone()).collect::<Vec<_>>()
+    };
     assert_eq!(names(&[row("anthropic")], "anthropic"), ["read", "grep", "mcp__srv__ping"]);
-    assert_eq!(names(&[row("anthropic")], "anthropic-oauth"), ["read", "grep", "mcp__srv__ping"], "the two first-party Anthropic providers share their searches");
+    assert_eq!(
+        names(&[row("anthropic")], "anthropic-oauth"),
+        ["read", "grep", "mcp__srv__ping"],
+        "the two first-party Anthropic providers share their searches"
+    );
     assert_eq!(names(&[row("openai")], "anthropic"), ["read", "grep"], "another provider's search says nothing here");
 }
 

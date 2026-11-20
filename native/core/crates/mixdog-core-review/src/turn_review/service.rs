@@ -385,9 +385,10 @@ impl Inner {
                         raw.path = self.worktrees.canonical_path(&raw.path);
                     }
                     if let Some(new_path) = &raw.new_path
-                        && nodepath::is_absolute_host(clean(new_path)) {
-                            raw.new_path = Some(self.worktrees.canonical_path(new_path));
-                        }
+                        && nodepath::is_absolute_host(clean(new_path))
+                    {
+                        raw.new_path = Some(self.worktrees.canonical_path(new_path));
+                    }
                     raw
                 })
                 .collect()
@@ -409,7 +410,14 @@ impl Inner {
     /// Hand each change's first-seen state to the session baselines of `session_id` and the Lead
     /// it works for. A path inside the turn's Git root is skipped: the baseline tree already
     /// vouches for it.
-    fn capture_review_baselines(&self, session_id: &str, tracker: &Tracker, owner_root: Option<&str>, snapshot: Option<&Arc<dyn WorktreeBase>>, list: &[TrackedChange]) {
+    fn capture_review_baselines(
+        &self,
+        session_id: &str,
+        tracker: &Tracker,
+        owner_root: Option<&str>,
+        snapshot: Option<&Arc<dyn WorktreeBase>>,
+        list: &[TrackedChange],
+    ) {
         let git_root = snapshot.map(|s| s.root()).unwrap_or_default();
         let git_root = clean(&git_root);
         let root = if clean(&tracker.meta.worktree_root).is_empty() { clean(owner_root.unwrap_or("")) } else { clean(&tracker.meta.worktree_root) }.to_owned();
@@ -423,7 +431,8 @@ impl Inner {
             if path.is_empty() || !nodepath::is_absolute_host(path) {
                 continue;
             }
-            let new_path = raw.new_path.as_deref().map(clean).filter(|p| nodepath::is_absolute_host(p)).map(|p| nodepath::resolve_host(&[p])).unwrap_or_default();
+            let new_path =
+                raw.new_path.as_deref().map(clean).filter(|p| nodepath::is_absolute_host(p)).map(|p| nodepath::resolve_host(&[p])).unwrap_or_default();
             if !git_root.is_empty() && inside(git_root, path) && (new_path.is_empty() || inside(git_root, &new_path)) {
                 continue;
             }
@@ -447,9 +456,10 @@ impl Inner {
     /// A parked review owns its worker's bound tracker content (`release`).
     pub(super) fn release_parked(review: &Review) {
         if review.release
-            && let Some(source) = &review.source {
-                source.release_content();
-            }
+            && let Some(source) = &review.source
+        {
+            source.release_content();
+        }
     }
 
     pub(super) fn drop_parked(reg: &mut Reg, owner: &str) {
@@ -530,7 +540,12 @@ impl Inner {
     /// The synchronous half of a turn start: reopen (completion wake) or install the turn's
     /// tracker. The tracker is returned only for a new turn, whose Git baseline the caller
     /// captures next.
-    fn open_turn_snapshot(self: &Arc<Self>, worktree: &str, owner: &str, open: &mixdog_core_api::turn_review::TurnOpen) -> (mixdog_core_api::turn_review::TurnToken, Option<Arc<Tracker>>) {
+    fn open_turn_snapshot(
+        self: &Arc<Self>,
+        worktree: &str,
+        owner: &str,
+        open: &mixdog_core_api::turn_review::TurnOpen,
+    ) -> (mixdog_core_api::turn_review::TurnToken, Option<Arc<Tracker>>) {
         use mixdog_core_api::turn_review::TurnToken;
         let mut reg = self.reg();
         if open.continue_turn && Self::continue_turn_snapshot(&mut reg, owner) {
@@ -542,11 +557,13 @@ impl Inner {
         // A turn replaced before it sealed (an abort whose delayed cleanup has not run yet) still
         // keeps its edits as a record. Its capture is queued ahead of this turn's baseline.
         if let Some(prior) = reg.trackers.get(owner).cloned()
-            && prior.meta.owner_generation > 0 && !prior.sealed() {
-                // `void sealTurn(...)`: the seal runs on its own.
-                let step = self.seal_begin(&mut reg, owner, &prior);
-                mixdog_rt::spawn("turn_review.seal_prior", mixdog_rt::TaskClass::Work, self.seal_finish(owner.to_owned(), prior, step));
-            }
+            && prior.meta.owner_generation > 0
+            && !prior.sealed()
+        {
+            // `void sealTurn(...)`: the seal runs on its own.
+            let step = self.seal_begin(&mut reg, owner, &prior);
+            mixdog_rt::spawn("turn_review.seal_prior", mixdog_rt::TaskClass::Work, self.seal_finish(owner.to_owned(), prior, step));
+        }
         // Workers still running keep their bound trackers across the new turn: their edits join
         // whichever turn is running when they complete.
         reg.turns.shift_remove(owner);
@@ -685,7 +702,8 @@ impl Inner {
             return true;
         }
         let prior_row = turn.agents.shift_remove(&review.key);
-        let patch = if review.tracked { review.patch.clone() } else { Self::merge_patches(&[prior_row.as_ref().map_or("", |p| p.patch.as_str()), &review.patch]) };
+        let patch =
+            if review.tracked { review.patch.clone() } else { Self::merge_patches(&[prior_row.as_ref().map_or("", |p| p.patch.as_str()), &review.patch]) };
         turn.agents.insert(
             review.key.clone(),
             AgentRow {
@@ -728,15 +746,7 @@ impl Inner {
         } else {
             Self::merge_patches(&[&prior.patch, &review.patch])
         };
-        Review {
-            key: review.key,
-            tracked,
-            patch,
-            agent: review.agent.or(prior.agent),
-            tag: review.tag.or(prior.tag),
-            release: source.is_some(),
-            source,
-        }
+        Review { key: review.key, tracked, patch, agent: review.agent.or(prior.agent), tag: review.tag.or(prior.tag), release: source.is_some(), source }
     }
 
     /// Park a completed worker review for its Lead's next turn.
@@ -815,7 +825,9 @@ impl Inner {
     /// The Lead turn is running: not sealed, not sealing.
     fn turn_running(turn: Option<&Turn>, tracker: Option<&Arc<Tracker>>) -> bool {
         match (turn, tracker) {
-            (Some(turn), Some(tracker)) => tracker.meta.owner_generation == turn.generation && !tracker.sealed() && tracker.freezing().is_none() && !tracker.discarded(),
+            (Some(turn), Some(tracker)) => {
+                tracker.meta.owner_generation == turn.generation && !tracker.sealed() && tracker.freezing().is_none() && !tracker.discarded()
+            }
             _ => false,
         }
     }
@@ -830,10 +842,8 @@ impl Inner {
         let key = if clean(&handle.session_id).is_empty() { handle.id.clone() } else { clean(&handle.session_id).to_owned() };
         let mut reg = self.reg();
         let tracker = reg.trackers.get(&key).cloned();
-        let matching = tracker
-            .as_ref()
-            .filter(|t| t.meta.owner_session_id.as_deref() == Some(owner.as_str()) && t.meta.owner_generation == handle.generation)
-            .cloned();
+        let matching =
+            tracker.as_ref().filter(|t| t.meta.owner_session_id.as_deref() == Some(owner.as_str()) && t.meta.owner_generation == handle.generation).cloned();
         // This execution is over: its bound tracker leaves the registry, so a next execution of
         // the worker starts its own.
         if matching.is_some() {
@@ -907,11 +917,8 @@ impl Inner {
         if owned.is_empty() {
             return;
         }
-        let generation = if tracker.meta.owner_generation != 0 {
-            tracker.meta.owner_generation
-        } else {
-            self.reg().turns.get(owner).map_or(0, |t| t.generation)
-        };
+        let generation =
+            if tracker.meta.owner_generation != 0 { tracker.meta.owner_generation } else { self.reg().turns.get(owner).map_or(0, |t| t.generation) };
         let mut turn = Obj::new();
         turn.insert("generation".into(), Value::from(generation));
         turn.insert("checkpointId".into(), Value::String(tracker.meta.checkpoint_id.clone()));
@@ -1125,7 +1132,6 @@ impl Inner {
             self.discard_session_change_state(owner);
         }
     }
-
 }
 
 /// What a seal request found: nothing to do, a seal already running to wait for, or the seal it
@@ -1158,4 +1164,3 @@ impl mixdog_core_api::turn_review::AgentReview for OwnedAgentReview {
         self.inner.complete_agent_review(&self.handle, &patches)
     }
 }
-

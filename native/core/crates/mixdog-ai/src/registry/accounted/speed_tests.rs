@@ -143,7 +143,8 @@ fn adapter(plan: Vec<(&'static str, Script)>) -> (std::sync::Arc<dyn ProviderAda
     let sink: std::sync::Arc<dyn UsageSink> = ledger.clone();
     let pricing = std::sync::Arc::new(Pricing::default());
     let deps = AccountingDeps::new(pricing.clone(), std::sync::Arc::new(move || Some(sink.clone())));
-    let inner = Provider { id: ProviderId::from("openai"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, plan: Mutex::new(plan.into()) };
+    let inner =
+        Provider { id: ProviderId::from("openai"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, plan: Mutex::new(plan.into()) };
     (AccountedAdapter::wrap(std::sync::Arc::new(inner), "openai", std::sync::Arc::new(deps)), ledger, pricing)
 }
 

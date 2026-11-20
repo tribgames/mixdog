@@ -2,11 +2,11 @@
 //! slicing and truncating never exceed their budget or lose the text.
 
 use mixdog_termtext::slice::slice_ansi;
+use mixdog_termtext::strip_ansi;
 use mixdog_termtext::truncate::{TruncatePosition, truncate};
 use mixdog_termtext::width::{StringWidthOptions, string_width};
 use mixdog_termtext::width_tables::{AMBIGUOUS, EXTENDED_PICTOGRAPHIC, NOT_VISIBLE, RGI_SINGLE, SPACING_MARK, WIDE};
 use mixdog_termtext::wrap::{WrapOptions, wrap_ansi};
-use mixdog_termtext::strip_ansi;
 
 fn width(text: &str) -> usize {
     string_width(text, StringWidthOptions::default())
@@ -42,7 +42,11 @@ fn text_is_measured_in_terminal_cells() {
 #[test]
 fn escape_sequences_take_no_cells_unless_counted_as_text() {
     assert_eq!(width("\x1b[31mred\x1b[39m"), 3);
-    assert_eq!(string_width("\x1b[31m", StringWidthOptions { count_ansi_escape_codes: true, ..StringWidthOptions::default() }), 4, "the bracket and digits count, the escape byte is a zero-width control");
+    assert_eq!(
+        string_width("\x1b[31m", StringWidthOptions { count_ansi_escape_codes: true, ..StringWidthOptions::default() }),
+        4,
+        "the bracket and digits count, the escape byte is a zero-width control"
+    );
     assert_eq!(strip_ansi("\x1b[1mbold\x1b[22m \x1b]8;;http://x\x07link\x1b]8;;\x07"), "bold link");
 }
 

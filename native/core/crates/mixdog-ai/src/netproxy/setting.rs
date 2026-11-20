@@ -127,9 +127,7 @@ pub(crate) fn parse_entry(raw: &str) -> Option<Entry> {
         let network = cidr.get(1).unwrap_or_default();
         if let Some(family) = Family::of(is_ip(network)) {
             let prefix = number(cidr.get(2).unwrap_or_default());
-            let rule = (prefix.fract() == 0.0 && prefix >= 0.0)
-                .then(|| Rule::subnet(network, prefix as u32, family))
-                .flatten();
+            let rule = (prefix.fract() == 0.0 && prefix >= 0.0).then(|| Rule::subnet(network, prefix as u32, family)).flatten();
             return rule.map(|rule| Entry::List { rule });
         }
     }
@@ -214,10 +212,7 @@ pub fn exceptions_cover(text: &str, url: &Url) -> bool {
     let hostname = host.strip_suffix('.').unwrap_or(host).to_lowercase();
     let port = url.port().map(f64::from).unwrap_or(if url.scheme() == "https" { 443.0 } else { 80.0 });
     let family = Family::of(is_ip(&hostname));
-    split_entries(text)
-        .into_iter()
-        .filter_map(parse_entry)
-        .any(|entry| entry_matches(&entry, &hostname, port, family))
+    split_entries(text).into_iter().filter_map(parse_entry).any(|entry| entry_matches(&entry, &hostname, port, family))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -277,11 +272,7 @@ pub fn normalize_network_proxy(stored: &Value) -> NetworkProxySetting {
         Some(value @ Value::String(text)) if exceptions_error(value).is_none() => canonical_exceptions(text),
         _ => DEFAULT_PROXY_EXCEPTIONS.to_owned(),
     };
-    NetworkProxySetting {
-        mode: source.get("mode").and_then(Value::as_str).and_then(Mode::of).unwrap_or(Mode::System),
-        url,
-        exceptions,
-    }
+    NetworkProxySetting { mode: source.get("mode").and_then(Value::as_str).and_then(Mode::of).unwrap_or(Mode::System), url, exceptions }
 }
 
 /// `Object.entries` order: array-index keys ascending, then the rest as written.
@@ -290,14 +281,9 @@ fn js_entries(object: &Map<String, Value>) -> Vec<(&String, &Value)> {
         let canonical = key == "0" || (!key.starts_with('0') && key.bytes().all(|b| b.is_ascii_digit()) && !key.is_empty());
         canonical.then(|| key.parse::<u64>().ok()).flatten().filter(|n| *n < u64::from(u32::MAX))
     };
-    let mut indexed: Vec<(u64, (&String, &Value))> =
-        object.iter().filter_map(|(key, value)| index(key).map(|n| (n, (key, value)))).collect();
+    let mut indexed: Vec<(u64, (&String, &Value))> = object.iter().filter_map(|(key, value)| index(key).map(|n| (n, (key, value)))).collect();
     indexed.sort_by_key(|(n, _)| *n);
-    indexed
-        .into_iter()
-        .map(|(_, pair)| pair)
-        .chain(object.iter().filter(|(key, _)| index(key).is_none()))
-        .collect()
+    indexed.into_iter().map(|(_, pair)| pair).chain(object.iter().filter(|(key, _)| index(key).is_none())).collect()
 }
 
 /// Applies a user patch strictly: an unknown key, an invalid value, or a manual
@@ -311,16 +297,10 @@ pub fn apply_network_proxy_patch(current: &Value, patch: &Value) -> Result<Netwo
     for (key, value) in js_entries(patch) {
         match key.as_str() {
             "mode" => {
-                next.mode = value.as_str().and_then(Mode::of).ok_or_else(|| {
-                    format!("networkProxy.mode must be one of {}.", NETWORK_PROXY_MODES.join(", "))
-                })?;
+                next.mode = value.as_str().and_then(Mode::of).ok_or_else(|| format!("networkProxy.mode must be one of {}.", NETWORK_PROXY_MODES.join(", ")))?;
             }
             "url" => {
-                let parsed = if value.as_str() == Some("") {
-                    Ok(String::new())
-                } else {
-                    parse_proxy_url(value, &PROXY_SCHEMES, false)
-                };
+                let parsed = if value.as_str() == Some("") { Ok(String::new()) } else { parse_proxy_url(value, &PROXY_SCHEMES, false) };
                 next.url = parsed.map_err(|error| format!("networkProxy.url {error}."))?;
             }
             "exceptions" => {

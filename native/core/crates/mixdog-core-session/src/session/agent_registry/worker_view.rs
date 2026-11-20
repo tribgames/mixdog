@@ -8,7 +8,8 @@
 use super::*;
 
 /// `BUSY_WORKER_STATES`: `ACTIVE_STAGES` and the states of a worker not started yet.
-const BUSY_WORKER_STATES: [&str; 10] = ["connecting", "requesting", "streaming", "tool_running", "running", "cancelling", "starting", "spawning", "queued", "pending"];
+const BUSY_WORKER_STATES: [&str; 10] =
+    ["connecting", "requesting", "streaming", "tool_running", "running", "cancelling", "starting", "spawning", "queued", "pending"];
 
 /// One listed worker session: the `status` and `stage` of its list row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,7 +67,8 @@ impl AgentRegistry {
                 let text = |key: &str| session.get(key).filter(|v| truthy(Some(v))).map(mixdog_js::value_to_string);
                 // `rowState`: a closed session reads `closed`; a stage of its own wins; a finished
                 // status is its own stage; otherwise the live runtime's.
-                let status = if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { text("status").unwrap_or_else(|| "idle".to_owned()) };
+                let status =
+                    if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { text("status").unwrap_or_else(|| "idle".to_owned()) };
                 let stage = text("stage").unwrap_or_else(|| {
                     if matches!(status.as_str(), "idle" | "error" | "closed") {
                         status.clone()
@@ -84,4 +86,3 @@ impl AgentRegistry {
         self.worker_states(scope).await.iter().filter(|w| is_busy_worker_state(&w.status) || is_busy_worker_state(&w.stage)).count() as u64
     }
 }
-

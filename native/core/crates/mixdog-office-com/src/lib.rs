@@ -8,26 +8,26 @@
 //!
 //! Answers are the hosts' JSON, as `serde_json::Value`, with the transport's own failures in the same shape.
 
-mod cleanup;
-pub mod com;
-pub mod identity;
-pub mod platform;
-pub mod ps;
-pub mod host;
-pub mod sweep;
-pub mod office;
-pub mod state;
 pub mod actions;
+mod cleanup;
 pub mod color;
+pub mod com;
 pub mod drivers;
-pub mod format;
-pub mod issues;
-pub mod template;
 pub mod excel;
-pub mod ppt;
-pub mod word;
+pub mod format;
+pub mod host;
+pub mod identity;
+pub mod issues;
+pub mod office;
 mod oneshot;
+pub mod platform;
+pub mod ppt;
+pub mod ps;
 mod session;
+pub mod state;
+pub mod sweep;
+pub mod template;
+pub mod word;
 
 #[cfg(any(test, feature = "test-support"))]
 use std::ffi::OsString;
@@ -235,9 +235,7 @@ impl OfficeCom {
             return self.inner.call_once(payload, &options).await;
         }
         let Some(client) = self.inner.sessions.get(&session_id) else {
-            return OfficeReply::plain(
-                json!({"ok": false, "backend": BACKEND, "error": format!("Unknown Microsoft Office session: {session_id}")}),
-            );
+            return OfficeReply::plain(json!({"ok": false, "backend": BACKEND, "error": format!("Unknown Microsoft Office session: {session_id}")}));
         };
         OfficeReply::plain(client.request(payload, options.timeout, &options.cancel).await)
     }
@@ -325,9 +323,7 @@ impl OfficeCom {
             }
             self.inner.sessions.remove(session_id);
             client.end_stdin();
-            let graceful = client.is_closed()
-                || client.has_exited()
-                || mixdog_rt::time::timeout(options.close_timeout, client.wait_closed()).await.is_ok();
+            let graceful = client.is_closed() || client.has_exited() || mixdog_rt::time::timeout(options.close_timeout, client.wait_closed()).await.is_ok();
             client.mark_closed();
             if !graceful {
                 client.kill();

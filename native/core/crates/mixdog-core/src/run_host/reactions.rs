@@ -62,10 +62,8 @@ impl MessageFacts for NoMessageFacts {
 impl MessageFacts for StoredRows {
     /// `roomRowOf` (`no-tool-turn.mjs`): `meta.transcript.roomRow`.
     fn room_row(&self, message_id: &str) -> Option<String> {
-        self.with_body(message_id, |body| {
-            body.get("meta").and_then(|meta| meta.pointer("/transcript/roomRow")).and_then(Value::as_str).map(str::to_owned)
-        })
-        .flatten()
+        self.with_body(message_id, |body| body.get("meta").and_then(|meta| meta.pointer("/transcript/roomRow")).and_then(Value::as_str).map(str::to_owned))
+            .flatten()
     }
 
     /// `isRoomRowMessage` (`meta.source === 'agent-room' && Boolean(meta.room?.kind)`), then
@@ -184,9 +182,7 @@ impl LoopReactions {
 impl Reactions for LoopReactions {
     /// Direct, or bridged through `call_tool`.
     fn is_reaction_call(&self, call: &ToolCall) -> bool {
-        call.name == REACTION_TOOL_NAME
-            || (call.name == "call_tool"
-                && call.arguments.get("name").and_then(|n| n.as_str()) == Some(REACTION_TOOL_NAME))
+        call.name == REACTION_TOOL_NAME || (call.name == "call_tool" && call.arguments.get("name").and_then(|n| n.as_str()) == Some(REACTION_TOOL_NAME))
     }
 
     fn take_target(&self, call_id: &str) -> Option<ReactionTarget> {

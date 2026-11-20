@@ -42,15 +42,7 @@ pub fn prompt_status_key(tone: &str) -> Key {
 /// `ItemRightHintOverprint`: puts the hint on the last of the `children_rows` rows the item took from row `y`,
 /// flush with the right edge of `area` and `width` cells wide (24 when `width` is zero) with a cell of margin on each
 /// side. Nothing is painted for a blank message; no row is taken. Returns the rows of the item, unchanged.
-pub fn paint_item_right_hint(
-    painter: &mut Painter,
-    area: Rect,
-    y: u16,
-    children_rows: u16,
-    right_message: &str,
-    tone: &str,
-    width: u16,
-) -> u16 {
+pub fn paint_item_right_hint(painter: &mut Painter, area: Rect, y: u16, children_rows: u16, right_message: &str, tone: &str, width: u16) -> u16 {
     let text = clean_right_message(right_message);
     if !text.is_empty() && children_rows > 0 {
         let box_width = if width == 0 { DEFAULT_RIGHT_MESSAGE_WIDTH } else { width };

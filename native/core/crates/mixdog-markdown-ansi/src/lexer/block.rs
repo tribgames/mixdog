@@ -391,11 +391,7 @@ impl Lexer {
         let ordered = bull.chars().count() > 1;
         let mut list = Token::new(TokenKind::List, "");
         list.ordered = Some(ordered);
-        list.start = Some(if ordered {
-            ListStart::Number(prefix(bull, bull.len() - 1).parse().unwrap_or(0))
-        } else {
-            ListStart::None
-        });
+        list.start = Some(if ordered { ListStart::Number(prefix(bull, bull.len() - 1).parse().unwrap_or(0)) } else { ListStart::None });
         let item_re = item_rule(bull);
         let mut src = src;
         let mut items: Vec<Token> = Vec::new();
@@ -572,11 +568,8 @@ impl Lexer {
         let stripped = DELIMITER_ENDS.replace_all(delimiter, |_| String::new());
         let aligns: Vec<&str> = stripped.split('|').collect();
         let body = cap.get(3).unwrap_or("");
-        let rows: Vec<String> = if js_trim(body).is_empty() {
-            Vec::new()
-        } else {
-            CELL_TAIL_BLANK.replace_all(body, |_| String::new()).split('\n').map(str::to_owned).collect()
-        };
+        let rows: Vec<String> =
+            if js_trim(body).is_empty() { Vec::new() } else { CELL_TAIL_BLANK.replace_all(body, |_| String::new()).split('\n').map(str::to_owned).collect() };
         // header and align columns must be equal, rows can be different.
         if headers.len() != aligns.len() {
             return None;

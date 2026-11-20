@@ -71,9 +71,8 @@ impl SessionActor {
                 // A cold transcript is compacted before the question only while nothing else runs on the session.
                 let idle = !self.turn_busy() && self.compactions == 0;
                 tokio::spawn(async move {
-                    let result = super::super::turn_ops::ask_side_question(side.as_ref(), &thread, &params.question, idle)
-                        .await
-                        .map(|text| json!({ "text": text }));
+                    let result =
+                        super::super::turn_ops::ask_side_question(side.as_ref(), &thread, &params.question, idle).await.map(|text| json!({ "text": text }));
                     let _ = jobs.send(JobDone::Replied { op, tx, result });
                 });
                 return Ok(());
@@ -252,10 +251,7 @@ impl SessionActor {
         }
         let synced = self.deps.compaction.synced_compaction(header, false);
         let settings = synced.as_ref().or_else(|| header.get("compaction"));
-        if settings.and_then(|settings| settings.get("onModelChange")) == Some(&Value::Bool(false))
-            || self.compactions > 0
-            || self.compaction_blocked()
-        {
+        if settings.and_then(|settings| settings.get("onModelChange")) == Some(&Value::Bool(false)) || self.compactions > 0 || self.compaction_blocked() {
             return RouteSwitchCompaction::NotNeeded;
         }
         RouteSwitchCompaction::Compact
@@ -270,7 +266,10 @@ impl SessionActor {
         use super::super::idle_auto_clear::idle_window_elapsed;
         use super::super::idle_auto_clear::session_activity_timestamp;
         let options = input.options.as_ref();
-        if options.is_some_and(|options| options.kickoff == Some(true) || options.retry_failed_turn == Some(true) || options.retry_turn_id.is_some()) || self.deleting || self.cell.closed.load(SeqCst) {
+        if options.is_some_and(|options| options.kickoff == Some(true) || options.retry_failed_turn == Some(true) || options.retry_turn_id.is_some())
+            || self.deleting
+            || self.cell.closed.load(SeqCst)
+        {
             return None;
         }
         if !wake {
@@ -449,7 +448,11 @@ impl SessionActor {
 
     /// `retryFailedTurn(key)`'s entry: the retained failed message resent as stored (already on
     /// screen), else the prompt the failed turn replays.
-    fn retry_turn(retained: Option<super::super::quota_lane::Retained>, prompt: Option<String>, provenance: Option<Value>) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
+    fn retry_turn(
+        retained: Option<super::super::quota_lane::Retained>,
+        prompt: Option<String>,
+        provenance: Option<Value>,
+    ) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
         if let Some(retained) = retained {
             let prior = retained.prior();
             let cannot_resend = || super::super::turn_ops::failure("The failed message holds content this daemon cannot resend");
@@ -461,15 +464,21 @@ impl SessionActor {
                 retry_attempt_id: retained.attempt_id,
                 ..Default::default()
             };
-            return Ok(Some(super::super::quota_lane::RetryTurn { input: TurnInput { prompt, options: Some(options) }, hidden: true, provenance, prior: Some(prior) }));
+            return Ok(Some(super::super::quota_lane::RetryTurn {
+                input: TurnInput { prompt, options: Some(options) },
+                hidden: true,
+                provenance,
+                prior: Some(prior),
+            }));
         }
         Ok(prompt.map(|prompt| {
-            let options = mixdog_protocol::thread::SubmitOptions {
-                display_text: Some(prompt.clone()),
-                retry_failed_turn: Some(true),
-                ..Default::default()
-            };
-            super::super::quota_lane::RetryTurn { input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) }, hidden: false, provenance, prior: None }
+            let options = mixdog_protocol::thread::SubmitOptions { display_text: Some(prompt.clone()), retry_failed_turn: Some(true), ..Default::default() };
+            super::super::quota_lane::RetryTurn {
+                input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) },
+                hidden: false,
+                provenance,
+                prior: None,
+            }
         }))
     }
 
@@ -492,7 +501,14 @@ impl SessionActor {
 
     /// The rest of `retryFailedTurn`: the claim, then either the retry turn starts at once (and
     /// the resume entry it answered is finished) or a suspended Goal is revived first.
-    pub(super) fn retry_checked(&mut self, op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::super::quota_lane::Retained>, provenance: Option<Value>) {
+    pub(super) fn retry_checked(
+        &mut self,
+        op: Option<OpId>,
+        tx: Waiter,
+        key: String,
+        retained: Option<super::super::quota_lane::Retained>,
+        provenance: Option<Value>,
+    ) {
         let items = self.failed_turn_items();
         let goal_id = self.deps.quota.goals.suspended(self.id.as_str(), &key);
         let prompt = mixdog_core_goal::quota_settlement::failed_turn_retry_prompt(&items, &key);
@@ -610,12 +626,25 @@ impl SessionActor {
 
     /// The rest of `fireQuotaResume`, synchronous from the generation check to the admitted retry
     /// (no cancellation lands between them), as in Node.
-    pub(super) fn quota_fire_checked(&mut self, generation: u64, tx: FireReply, retained: Option<super::super::quota_lane::Retained>, provenance: Option<Value>) {
+    pub(super) fn quota_fire_checked(
+        &mut self,
+        generation: u64,
+        tx: FireReply,
+        retained: Option<super::super::quota_lane::Retained>,
+        provenance: Option<Value>,
+    ) {
         let step = self.fire_step(generation, retained.is_some());
         self.quota_fire_act(generation, step, retained, provenance, tx);
     }
 
-    fn quota_fire_act(&mut self, generation: u64, step: super::super::quota_lane::FireStep, retained: Option<super::super::quota_lane::Retained>, provenance: Option<Value>, tx: FireReply) {
+    fn quota_fire_act(
+        &mut self,
+        generation: u64,
+        step: super::super::quota_lane::FireStep,
+        retained: Option<super::super::quota_lane::Retained>,
+        provenance: Option<Value>,
+        tx: FireReply,
+    ) {
         use super::super::quota_lane::FireStep;
         use super::super::quota_resume_scheduler::FireOutcome;
         let (turn_key, goal_id) = match step {
@@ -665,7 +694,15 @@ impl SessionActor {
     /// `resumeGoal`: the Goal runtime revives the suspended Goal through the lane's admission;
     /// the retry is let through only while the failed turn is still the latest, unsuperseded
     /// and its queued resume (by generation) is the one answered.
-    fn resume_goal(&mut self, op: Option<OpId>, tx: Waiter, key: String, goal_id: String, generation: Option<u64>, retry: Option<super::super::quota_lane::RetryTurn>) {
+    fn resume_goal(
+        &mut self,
+        op: Option<OpId>,
+        tx: Waiter,
+        key: String,
+        goal_id: String,
+        generation: Option<u64>,
+        retry: Option<super::super::quota_lane::RetryTurn>,
+    ) {
         let token = Arc::new(super::super::quota_lane::ResumeToken::default());
         let (settlement, goals, cell, id) = (self.quota.settlement.clone(), self.deps.quota.goals.clone(), self.cell.clone(), self.id.as_str().to_owned());
         let epoch = settlement.epoch();
@@ -675,7 +712,8 @@ impl SessionActor {
                 let view = cell.view.load();
                 !cell.closed.load(SeqCst)
                     && settlement.epoch() == epoch
-                    && super::super::quota_lane::latest_failed_turn_key(&super::super::quota_lane::transcript_rows(view.items.iter().map(|item| item.as_ref()))) == key
+                    && super::super::quota_lane::latest_failed_turn_key(&super::super::quota_lane::transcript_rows(view.items.iter().map(|item| item.as_ref())))
+                        == key
                     && goals.entry_generation(&id) == generation
             })
         };

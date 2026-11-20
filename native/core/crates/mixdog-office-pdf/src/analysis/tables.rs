@@ -78,11 +78,7 @@ pub struct TableSet {
 
 /// `a || b` of two comparator terms: the second decides when the first is zero or NaN.
 fn then_by(first: f64, second: impl FnOnce() -> f64) -> f64 {
-    if first != 0.0 && !first.is_nan() {
-        first
-    } else {
-        second()
-    }
+    if first != 0.0 && !first.is_nan() { first } else { second() }
 }
 
 // ---- unruled: rows of runs -----------------------------------------------------------------------------------------
@@ -102,9 +98,7 @@ struct Row {
 fn merge_row_runs(items: &[&LayoutItem]) -> Vec<Cell> {
     let mut cells: Vec<Cell> = Vec::new();
     for item in items {
-        let gap = cells
-            .last()
-            .map_or(f64::INFINITY, |last| item.x - (last.x + last.width));
+        let gap = cells.last().map_or(f64::INFINITY, |last| item.x - (last.x + last.width));
         if let Some(last) = cells.last_mut()
             && gap <= INTRA_CELL_GAP_RATIO * js_max(last.height, item.height)
         {
@@ -116,30 +110,20 @@ fn merge_row_runs(items: &[&LayoutItem]) -> Vec<Cell> {
             last.height = js_max(last.height, item.height);
             continue;
         }
-        cells.push(Cell {
-            text: item.text.clone(),
-            x: item.x,
-            width: item.width,
-            height: item.height,
-        });
+        cells.push(Cell { text: item.text.clone(), x: item.x, width: item.width, height: item.height });
     }
     cells
 }
 
 fn cluster_rows(items: &[LayoutItem], tolerance: f64) -> Vec<Row> {
     let mut sorted: Vec<&LayoutItem> = items.iter().collect();
-    js_sort_by(&mut sorted, |left, right| {
-        then_by(left.top - right.top, || left.x - right.x)
-    });
+    js_sort_by(&mut sorted, |left, right| then_by(left.top - right.top, || left.x - right.x));
     let mut rows: Vec<(f64, Vec<&LayoutItem>)> = Vec::new();
     for item in sorted {
         if js_trim(&item.text).is_empty() {
             continue;
         }
-        let at = match rows
-            .iter()
-            .position(|entry| (entry.0 - item.top).abs() <= tolerance)
-        {
+        let at = match rows.iter().position(|entry| (entry.0 - item.top).abs() <= tolerance) {
             Some(at) => at,
             None => {
                 rows.push((item.top, Vec::new()));
@@ -156,13 +140,7 @@ fn cluster_rows(items: &[LayoutItem], tolerance: f64) -> Vec<Row> {
             js_sort_by(&mut cells, |left, right| left.x - right.x);
             Row {
                 top: round2(top),
-                cells: merge_row_runs(&cells)
-                    .into_iter()
-                    .map(|cell| Cell {
-                        text: js_trim(&collapse_spaces(&cell.text)).to_owned(),
-                        ..cell
-                    })
-                    .collect(),
+                cells: merge_row_runs(&cells).into_iter().map(|cell| Cell { text: js_trim(&collapse_spaces(&cell.text)).to_owned(), ..cell }).collect(),
             }
         })
         .collect()
@@ -170,10 +148,7 @@ fn cluster_rows(items: &[LayoutItem], tolerance: f64) -> Vec<Row> {
 
 /// Tables of an unruled page, read from how its text runs line up in columns.
 fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
-    let rows: Vec<Row> = cluster_rows(&page.items, 3.0)
-        .into_iter()
-        .filter(|row| row.cells.len() >= 2)
-        .collect();
+    let rows: Vec<Row> = cluster_rows(&page.items, 3.0).into_iter().filter(|row| row.cells.len() >= 2).collect();
     if rows.len() < 2 {
         return Vec::new();
     }
@@ -182,20 +157,9 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
     // table's rows follow each other by about a line, so the block ends where that stops being true.
     let mut blocks: Vec<(Vec<Row>, f64)> = Vec::new();
     for row in rows {
-        let height = row.cells.iter().fold(1.0, |height, cell| {
-            js_max(
-                height,
-                if cell.height.is_nan() {
-                    0.0
-                } else {
-                    cell.height
-                },
-            )
-        });
+        let height = row.cells.iter().fold(1.0, |height, cell| js_max(height, if cell.height.is_nan() { 0.0 } else { cell.height }));
         let bottom = row.top + height;
-        let joins = blocks
-            .last()
-            .is_some_and(|current| row.top - current.1 <= height * ALIGNMENT_ROW_GAP);
+        let joins = blocks.last().is_some_and(|current| row.top - current.1 <= height * ALIGNMENT_ROW_GAP);
         if joins && let Some(current) = blocks.last_mut() {
             current.0.push(row);
             current.1 = bottom;
@@ -216,16 +180,9 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
             }
         }
         // The most common row width; the first met wins a tie (the sort is stable).
-        let (columns, repeated) =
-            counts.iter().fold(
-                (0, 0),
-                |best, entry| if entry.1 > best.1 { *entry } else { best },
-            );
+        let (columns, repeated) = counts.iter().fold((0, 0), |best, entry| if entry.1 > best.1 { *entry } else { best });
         let total = block.len();
-        let selected: Vec<&Row> = block
-            .iter()
-            .filter(|row| row.cells.len().abs_diff(columns) <= 1)
-            .collect();
+        let selected: Vec<&Row> = block.iter().filter(|row| row.cells.len().abs_diff(columns) <= 1).collect();
         if columns < 2 || selected.len() < 2 {
             continue;
         }
@@ -236,10 +193,7 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
             source: TableSource::Alignment,
             header: false,
             merges: Vec::new(),
-            rows: selected
-                .iter()
-                .map(|row| row.cells.iter().map(|cell| cell.text.clone()).collect())
-                .collect(),
+            rows: selected.iter().map(|row| row.cells.iter().map(|cell| cell.text.clone()).collect()).collect(),
             geometry: selected
                 .iter()
                 .map(|row| GeometryRow {
@@ -247,12 +201,7 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
                     cells: row
                         .cells
                         .iter()
-                        .map(|cell| GeometryCell {
-                            text: Some(cell.text.clone()),
-                            x: cell.x,
-                            width: cell.width,
-                            height: cell.height,
-                        })
+                        .map(|cell| GeometryCell { text: Some(cell.text.clone()), x: cell.x, width: cell.width, height: cell.height })
                         .collect(),
                 })
                 .collect(),
@@ -271,15 +220,10 @@ fn text_in_box(items: &[LayoutItem], cell: &BoxShape) -> String {
         .filter(|item| {
             let center_x = item.x + item.width / 2.0;
             let center_y = item.top + item.height / 2.0;
-            center_x >= cell.x
-                && center_x <= cell.x + cell.width
-                && center_y >= cell.top
-                && center_y <= cell.top + cell.height
+            center_x >= cell.x && center_x <= cell.x + cell.width && center_y >= cell.top && center_y <= cell.top + cell.height
         })
         .collect();
-    js_sort_by(&mut inside, |left, right| {
-        then_by(left.top - right.top, || left.x - right.x)
-    });
+    js_sort_by(&mut inside, |left, right| then_by(left.top - right.top, || left.x - right.x));
     struct Line {
         top: f64,
         text: String,
@@ -287,38 +231,22 @@ fn text_in_box(items: &[LayoutItem], cell: &BoxShape) -> String {
     }
     let mut lines: Vec<Line> = Vec::new();
     for item in inside {
-        let at = match lines
-            .iter()
-            .position(|entry| (entry.top - item.top).abs() <= 2.0)
-        {
+        let at = match lines.iter().position(|entry| (entry.top - item.top).abs() <= 2.0) {
             Some(at) => at,
             None => {
-                lines.push(Line {
-                    top: item.top,
-                    text: String::new(),
-                    end: None,
-                });
+                lines.push(Line { top: item.top, text: String::new(), end: None });
                 lines.len() - 1
             }
         };
         let line = &mut lines[at];
         let gap = line.end.map_or(0.0, |end| item.x - end);
-        if !line.text.is_empty()
-            && gap > 1.0
-            && !line.text.ends_with(' ')
-            && !item.text.starts_with(' ')
-        {
+        if !line.text.is_empty() && gap > 1.0 && !line.text.ends_with(' ') && !item.text.starts_with(' ') {
             line.text.push(' ');
         }
         line.text.push_str(&item.text);
         line.end = Some(item.x + item.width);
     }
-    lines
-        .iter()
-        .map(|line| js_trim(&collapse_spaces(&line.text)).to_owned())
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    lines.iter().map(|line| js_trim(&collapse_spaces(&line.text)).to_owned()).filter(|line| !line.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
 /// The same column edge drawn on two rows can differ by a fraction of a point, and comparing raw coordinates splits
@@ -328,21 +256,14 @@ fn snap_positions(values: &[f64]) -> Vec<f64> {
     js_sort_by(&mut sorted, |left, right| left - right);
     let mut clusters: Vec<Vec<f64>> = Vec::new();
     for value in sorted {
-        let joins = clusters
-            .last()
-            .is_some_and(|last| value - last[last.len() - 1] <= TABLE_SNAP_TOLERANCE);
+        let joins = clusters.last().is_some_and(|last| value - last[last.len() - 1] <= TABLE_SNAP_TOLERANCE);
         if joins && let Some(last) = clusters.last_mut() {
             last.push(value);
         } else {
             clusters.push(vec![value]);
         }
     }
-    clusters
-        .iter()
-        .map(|cluster| {
-            cluster.iter().fold(0.0, |total, value| total + value) / cluster.len() as f64
-        })
-        .collect()
+    clusters.iter().map(|cluster| cluster.iter().fold(0.0, |total, value| total + value) / cluster.len() as f64).collect()
 }
 
 /// The index of the edge `value` sits on, or `None` when it sits on none of them.
@@ -356,19 +277,14 @@ fn snap_to(edges: &[f64], value: f64) -> Option<usize> {
             best = Some(index);
         }
     }
-    if distance <= TABLE_SNAP_TOLERANCE {
-        best
-    } else {
-        None
-    }
+    if distance <= TABLE_SNAP_TOLERANCE { best } else { None }
 }
 
 /// A row belongs to the table when its edges sit on the table's grid (a merged cell simply omits the edges it spans)
 /// or when the grid sits on the row's edges (the row is finer, so the grid grows instead of a second table starting).
 /// Anything else is a different table.
 fn fits_grid(grid: &[f64], starts: &[f64]) -> bool {
-    starts.iter().all(|value| snap_to(grid, *value).is_some())
-        || grid.iter().all(|value| snap_to(starts, *value).is_some())
+    starts.iter().all(|value| snap_to(grid, *value).is_some()) || grid.iter().all(|value| snap_to(starts, *value).is_some())
 }
 
 struct RuledRow<'a> {
@@ -398,22 +314,13 @@ fn ruled_table(page: &PageLayout, draft: &Draft<'_>) -> PdfTable {
             let span = end.unwrap_or(columns).saturating_sub(start).max(1);
             values[start] = text_in_box(&page.items, cell);
             if span > 1 {
-                merges.push(Merge {
-                    row: row_index,
-                    column: start,
-                    span,
-                });
+                merges.push(Merge { row: row_index, column: start, span });
             }
         }
         rows.push(values);
     }
     // A shaded first row over unshaded body rows is the header the document drew.
-    let header = draft.rows[0].cells.iter().all(|cell| cell.filled)
-        && draft
-            .rows
-            .iter()
-            .skip(1)
-            .any(|row| row.cells.iter().any(|cell| !cell.filled));
+    let header = draft.rows[0].cells.iter().all(|cell| cell.filled) && draft.rows.iter().skip(1).any(|row| row.cells.iter().any(|cell| !cell.filled));
     PdfTable {
         page: page.page,
         columns,
@@ -427,16 +334,7 @@ fn ruled_table(page: &PageLayout, draft: &Draft<'_>) -> PdfTable {
             .iter()
             .map(|row| GeometryRow {
                 top: row.top,
-                cells: row
-                    .cells
-                    .iter()
-                    .map(|cell| GeometryCell {
-                        text: None,
-                        x: cell.x,
-                        width: cell.width,
-                        height: cell.height,
-                    })
-                    .collect(),
+                cells: row.cells.iter().map(|cell| GeometryCell { text: None, x: cell.x, width: cell.width, height: cell.height }).collect(),
             })
             .collect(),
     }
@@ -449,40 +347,22 @@ fn ruled_tables(page: &PageLayout) -> Vec<PdfTable> {
     let mut cells: Vec<&BoxShape> = page
         .boxes
         .iter()
-        .filter(|shape| {
-            !shape.checkbox
-                && shape.width >= 8.0
-                && shape.height >= 6.0
-                && shape.width < page.width * 0.98
-                && shape.height < page.height * 0.5
-        })
+        .filter(|shape| !shape.checkbox && shape.width >= 8.0 && shape.height >= 6.0 && shape.width < page.width * 0.98 && shape.height < page.height * 0.5)
         .collect();
     if cells.len() < 4 {
         return Vec::new();
     }
-    js_sort_by(&mut cells, |left, right| {
-        then_by(left.top - right.top, || left.x - right.x)
-    });
+    js_sort_by(&mut cells, |left, right| then_by(left.top - right.top, || left.x - right.x));
     let mut rows: Vec<RuledRow<'_>> = Vec::new();
     for cell in cells {
-        let at = match rows
-            .iter()
-            .position(|entry| (entry.top - cell.top).abs() <= TABLE_SNAP_TOLERANCE)
-        {
+        let at = match rows.iter().position(|entry| (entry.top - cell.top).abs() <= TABLE_SNAP_TOLERANCE) {
             Some(at) => at,
             None => {
-                rows.push(RuledRow {
-                    top: cell.top,
-                    cells: Vec::new(),
-                });
+                rows.push(RuledRow { top: cell.top, cells: Vec::new() });
                 rows.len() - 1
             }
         };
-        if !rows[at]
-            .cells
-            .iter()
-            .any(|existing| (existing.x - cell.x).abs() <= 1.0)
-        {
+        if !rows[at].cells.iter().any(|existing| (existing.x - cell.x).abs() <= 1.0) {
             rows[at].cells.push(cell);
         }
     }
@@ -490,14 +370,8 @@ fn ruled_tables(page: &PageLayout) -> Vec<PdfTable> {
     for mut row in rows {
         js_sort_by(&mut row.cells, |left, right| left.x - right.x);
         let starts: Vec<f64> = row.cells.iter().map(|cell| cell.x).collect();
-        let bottom = row.top
-            + row.cells.iter().fold(f64::NEG_INFINITY, |height, cell| {
-                js_max(height, cell.height)
-            });
-        let joins = drafts.last().is_some_and(|current| {
-            (current.bottom - row.top).abs() <= TABLE_SNAP_TOLERANCE
-                && fits_grid(&current.grid, &starts)
-        });
+        let bottom = row.top + row.cells.iter().fold(f64::NEG_INFINITY, |height, cell| js_max(height, cell.height));
+        let joins = drafts.last().is_some_and(|current| (current.bottom - row.top).abs() <= TABLE_SNAP_TOLERANCE && fits_grid(&current.grid, &starts));
         if joins && let Some(current) = drafts.last_mut() {
             let mut edges = current.grid.clone();
             edges.extend(&starts);
@@ -505,18 +379,10 @@ fn ruled_tables(page: &PageLayout) -> Vec<PdfTable> {
             current.rows.push(row);
             current.bottom = bottom;
         } else {
-            drafts.push(Draft {
-                grid: snap_positions(&starts),
-                rows: vec![row],
-                bottom,
-            });
+            drafts.push(Draft { grid: snap_positions(&starts), rows: vec![row], bottom });
         }
     }
-    drafts
-        .iter()
-        .filter(|draft| draft.rows.len() >= 2 && draft.grid.len() >= 2)
-        .map(|draft| ruled_table(page, draft))
-        .collect()
+    drafts.iter().filter(|draft| draft.rows.len() >= 2 && draft.grid.len() >= 2).map(|draft| ruled_table(page, draft)).collect()
 }
 
 /// `inferPdfTables(layout)`: a page with ruled tables reports those; otherwise the tables its text lines up in.
@@ -530,11 +396,7 @@ pub fn infer_pdf_tables(layout: &PdfLayout) -> TableSet {
         }
         tables.extend(aligned_tables(page));
     }
-    TableSet {
-        page_count: layout.page_count,
-        tables,
-        truncated: layout.truncated,
-    }
+    TableSet { page_count: layout.page_count, tables, truncated: layout.truncated }
 }
 
 // ---- the JSON Node returns -------------------------------------------------------------------------------------------
@@ -554,21 +416,11 @@ impl PdfTable {
             let merges = self
                 .merges
                 .iter()
-                .map(|merge| {
-                    object(vec![
-                        ("row", Value::from(merge.row)),
-                        ("column", Value::from(merge.column)),
-                        ("span", Value::from(merge.span)),
-                    ])
-                })
+                .map(|merge| object(vec![("row", Value::from(merge.row)), ("column", Value::from(merge.column)), ("span", Value::from(merge.span))]))
                 .collect();
             pairs.push(("merges", Value::Array(merges)));
         }
-        let rows = self
-            .rows
-            .iter()
-            .map(|row| Value::Array(row.iter().map(|cell| Value::from(cell.clone())).collect()))
-            .collect();
+        let rows = self.rows.iter().map(|row| Value::Array(row.iter().map(|cell| Value::from(cell.clone())).collect())).collect();
         pairs.push(("rows", Value::Array(rows)));
         let geometry = self
             .geometry
@@ -588,10 +440,7 @@ impl PdfTable {
                         object(parts)
                     })
                     .collect();
-                object(vec![
-                    ("top", json_number(row.top)),
-                    ("cells", Value::Array(cells)),
-                ])
+                object(vec![("top", json_number(row.top)), ("cells", Value::Array(cells))])
             })
             .collect();
         pairs.push(("geometry", Value::Array(geometry)));
@@ -604,10 +453,7 @@ impl TableSet {
         object(vec![
             ("pageCount", Value::from(self.page_count)),
             ("tableCount", Value::from(self.tables.len())),
-            (
-                "tables",
-                Value::Array(self.tables.iter().map(PdfTable::to_json).collect()),
-            ),
+            ("tables", Value::Array(self.tables.iter().map(PdfTable::to_json).collect())),
             ("truncated", Value::Bool(self.truncated)),
         ])
     }
@@ -618,29 +464,11 @@ mod tests {
     use super::*;
 
     fn item(text: &str, x: f64, top: f64, width: f64) -> LayoutItem {
-        LayoutItem {
-            text: text.to_owned(),
-            x,
-            top,
-            width,
-            height: 10.0,
-            vertical: false,
-            reversed: false,
-            direction: "ltr".to_owned(),
-            font: String::new(),
-        }
+        LayoutItem { text: text.to_owned(), x, top, width, height: 10.0, vertical: false, reversed: false, direction: "ltr".to_owned(), font: String::new() }
     }
 
     fn shape(x: f64, top: f64, width: f64, height: f64, filled: bool) -> BoxShape {
-        BoxShape {
-            x,
-            top,
-            width,
-            height,
-            filled,
-            stroked: true,
-            checkbox: false,
-        }
+        BoxShape { x, top, width, height, filled, stroked: true, checkbox: false }
     }
 
     fn page(items: Vec<LayoutItem>, boxes: Vec<BoxShape>) -> PageLayout {
@@ -659,11 +487,7 @@ mod tests {
     }
 
     fn layout(page: PageLayout) -> PdfLayout {
-        PdfLayout {
-            page_count: 1,
-            pages: vec![page],
-            truncated: false,
-        }
+        PdfLayout { page_count: 1, pages: vec![page], truncated: false }
     }
 
     #[test]
@@ -679,10 +503,7 @@ mod tests {
         let tables = infer_pdf_tables(&layout(page(items, boxes)));
         assert_eq!(tables.tables.len(), 1);
         let table = &tables.tables[0];
-        assert_eq!(
-            (table.columns, table.source, table.confidence),
-            (3, TableSource::Ruled, 1.0)
-        );
+        assert_eq!((table.columns, table.source, table.confidence), (3, TableSource::Ruled, 1.0));
         assert!(table.header);
         assert_eq!(table.rows[1], ["r1c0", "r1c1", "r1c2"]);
         assert!(table.merges.is_empty());
@@ -698,20 +519,10 @@ mod tests {
         }
         boxes.push(shape(50.0, 140.0, 100.0, 20.0, false));
         boxes.push(shape(150.0, 140.0, 200.0, 20.0, false));
-        let items = vec![
-            item("left", 54.0, 145.0, 20.0),
-            item("wide", 154.0, 145.0, 20.0),
-        ];
+        let items = vec![item("left", 54.0, 145.0, 20.0), item("wide", 154.0, 145.0, 20.0)];
         let tables = infer_pdf_tables(&layout(page(items, boxes)));
         let table = &tables.tables[0];
-        assert_eq!(
-            table.merges,
-            [Merge {
-                row: 2,
-                column: 1,
-                span: 2
-            }]
-        );
+        assert_eq!(table.merges, [Merge { row: 2, column: 1, span: 2 }]);
         assert_eq!(table.rows[2], ["left", "wide", ""]);
     }
 
@@ -719,16 +530,8 @@ mod tests {
     fn checkboxes_and_page_wide_boxes_are_not_cells() {
         let mut checkbox = shape(10.0, 10.0, 10.0, 10.0, false);
         checkbox.checkbox = true;
-        let boxes = vec![
-            checkbox,
-            shape(0.0, 0.0, 612.0, 100.0, false),
-            shape(10.0, 200.0, 100.0, 20.0, false),
-        ];
-        assert!(
-            infer_pdf_tables(&layout(page(Vec::new(), boxes)))
-                .tables
-                .is_empty()
-        );
+        let boxes = vec![checkbox, shape(0.0, 0.0, 612.0, 100.0, false), shape(10.0, 200.0, 100.0, 20.0, false)];
+        assert!(infer_pdf_tables(&layout(page(Vec::new(), boxes))).tables.is_empty());
     }
 
     #[test]
@@ -742,10 +545,7 @@ mod tests {
         let tables = infer_pdf_tables(&layout(page(items, Vec::new())));
         assert_eq!(tables.tables.len(), 1);
         let table = &tables.tables[0];
-        assert_eq!(
-            (table.columns, table.source, table.confidence),
-            (3, TableSource::Alignment, 1.0)
-        );
+        assert_eq!((table.columns, table.source, table.confidence), (3, TableSource::Alignment, 1.0));
         assert_eq!(table.rows.len(), 4);
         assert_eq!(table.geometry[0].cells[1].text.as_deref(), Some("v01"));
     }
@@ -761,10 +561,7 @@ mod tests {
             item("9", 300.0, 112.0, 10.0),
         ];
         let tables = infer_pdf_tables(&layout(page(items, Vec::new())));
-        assert_eq!(
-            tables.tables[0].rows,
-            [["Total amount", "12"], ["Net amount", "9"]]
-        );
+        assert_eq!(tables.tables[0].rows, [["Total amount", "12"], ["Net amount", "9"]]);
     }
 
     #[test]
@@ -774,18 +571,9 @@ mod tests {
             item("Ann", 200.0, 100.0, 30.0),
             item("Page", 50.0, 700.0, 30.0),
             item("2", 200.0, 700.0, 10.0),
-            item(
-                "A single line of prose with no columns at all",
-                50.0,
-                300.0,
-                300.0,
-            ),
+            item("A single line of prose with no columns at all", 50.0, 300.0, 300.0),
         ];
-        assert!(
-            infer_pdf_tables(&layout(page(items, Vec::new())))
-                .tables
-                .is_empty()
-        );
+        assert!(infer_pdf_tables(&layout(page(items, Vec::new()))).tables.is_empty());
     }
 
     #[test]
@@ -815,9 +603,6 @@ mod tests {
         let json = infer_pdf_tables(&layout(page(Vec::new(), boxes))).to_json();
         assert_eq!(json["tableCount"], 1);
         assert_eq!(json["tables"][0]["source"], "ruled");
-        assert_eq!(
-            json["tables"][0]["geometry"][0]["cells"][0],
-            serde_json::json!({ "x": 50, "width": 100, "height": 20 })
-        );
+        assert_eq!(json["tables"][0]["geometry"][0]["cells"][0], serde_json::json!({ "x": 50, "width": 100, "height": 20 }));
     }
 }

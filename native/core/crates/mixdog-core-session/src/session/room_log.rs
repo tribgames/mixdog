@@ -47,10 +47,7 @@ pub(crate) fn fresh_rows<'a>(held: impl Iterator<Item = &'a Value>, messages: Ve
         None => "undefined".to_owned(),
         Some(id) => id.to_string(),
     };
-    let mut posted: HashSet<String> = held
-        .filter(|message| message.pointer("/meta/transcript/messageId").is_some_and(truthy))
-        .map(key)
-        .collect();
+    let mut posted: HashSet<String> = held.filter(|message| message.pointer("/meta/transcript/messageId").is_some_and(truthy)).map(key).collect();
     messages.into_iter().filter(|message| posted.insert(key(message))).collect()
 }
 
@@ -92,7 +89,10 @@ impl SessionRoomLog {
         };
         let Some(handle) = handle else { return Ok(()) };
         let params = json!({ "roomView": view });
-        handle.request(CoreRequest { method: mixdog_core_api::ids::Method("thread/roomView/set"), params, op: None, ctx: CallContext::internal("room-view") }).await.map(drop)
+        handle
+            .request(CoreRequest { method: mixdog_core_api::ids::Method("thread/roomView/set"), params, op: None, ctx: CallContext::internal("room-view") })
+            .await
+            .map(drop)
     }
 }
 

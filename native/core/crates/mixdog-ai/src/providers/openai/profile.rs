@@ -20,9 +20,9 @@ use super::continuation::Continuation;
 use super::continuation::ContinuationSpec;
 use super::continuation::StatelessOnly;
 use super::continuation::resume;
-use super::decoder::StateReport;
 use super::decoder::Framing;
 use super::decoder::ResponsesDecoder;
+use super::decoder::StateReport;
 use super::effort::EffortProjection;
 use super::input::LowerExtras;
 use super::input::LowerOptions;
@@ -123,10 +123,7 @@ pub enum SystemPlacement {
     /// fallback omits the key. With `environment_message`, system messages of
     /// the `Env` cache tier move to a leading developer message so the shared
     /// instruction prefix stays stable.
-    Instructions {
-        fallback: Option<String>,
-        environment_message: bool,
-    },
+    Instructions { fallback: Option<String>, environment_message: bool },
     /// Items of `input` (`LowerOptions::system_in_input` must be set).
     InputItems,
 }
@@ -229,13 +226,7 @@ impl ResponsesProfile {
     /// `BuildInputs.continuation`. Errors where the route serves no
     /// server-side state and the state names some.
     pub fn resume(&self, request: &ModelRequest) -> Result<Continuation, StatelessOnly> {
-        resume(
-            &self.continuation,
-            self.input.replay_owner.as_str(),
-            request.options.provider_state.as_ref(),
-            &request.model,
-            &request.messages,
-        )
+        resume(&self.continuation, self.input.replay_owner.as_str(), request.options.provider_state.as_ref(), &request.model, &request.messages)
     }
 
     /// A minimal dialect: gateway order, system in `input`, function tools,
@@ -272,12 +263,7 @@ impl ResponsesProfile {
             tool_label: "[responses] tool".to_owned(),
             honor_parallel_override: false,
             instructions_with_previous_response: true,
-            continuation: ContinuationSpec {
-                state_key: "compatResponses".to_owned(),
-                tag_history_owner: true,
-                stateless_only: None,
-                marker: None,
-            },
+            continuation: ContinuationSpec { state_key: "compatResponses".to_owned(), tag_history_owner: true, stateless_only: None, marker: None },
         }
     }
 }
@@ -301,14 +287,7 @@ pub struct BuildInputs<'a> {
 
 impl<'a> BuildInputs<'a> {
     pub fn new(request: &'a ModelRequest) -> Self {
-        Self {
-            request,
-            continuation: None,
-            effort: None,
-            schemas: None,
-            prompt_cache_key: None,
-            keep_full_tool_outputs: false,
-        }
+        Self { request, continuation: None, effort: None, schemas: None, prompt_cache_key: None, keep_full_tool_outputs: false }
     }
 }
 
@@ -323,37 +302,16 @@ fn is_env_tier(message: &Message) -> bool {
 }
 
 fn joined(messages: &[&Message], separator: &str) -> String {
-    messages
-        .iter()
-        .map(|m| content_text(&m.content))
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join(separator)
+    messages.iter().map(|m| content_text(&m.content)).filter(|text| !text.is_empty()).collect::<Vec<_>>().join(separator)
 }
 
 /// `(instructions, environment)` text for [`SystemPlacement::Instructions`].
-fn instructions_and_environment(
-    messages: &[Message],
-    fallback: Option<&str>,
-    environment_message: bool,
-) -> (Option<String>, String) {
+fn instructions_and_environment(messages: &[Message], fallback: Option<&str>, environment_message: bool) -> (Option<String>, String) {
     let system: Vec<&Message> = messages.iter().filter(|m| m.role == Role::System).collect();
-    let environment: Vec<&Message> = if environment_message {
-        system.iter().copied().filter(|m| is_env_tier(m)).collect()
-    } else {
-        Vec::new()
-    };
-    let prefix: Vec<&Message> = if environment.is_empty() {
-        system
-    } else {
-        system.into_iter().filter(|m| !is_env_tier(m)).collect()
-    };
+    let environment: Vec<&Message> = if environment_message { system.iter().copied().filter(|m| is_env_tier(m)).collect() } else { Vec::new() };
+    let prefix: Vec<&Message> = if environment.is_empty() { system } else { system.into_iter().filter(|m| !is_env_tier(m)).collect() };
     let instructions = joined(&prefix, "\n\n");
-    let instructions = if instructions.is_empty() {
-        fallback.map(str::to_owned)
-    } else {
-        Some(instructions)
-    };
+    let instructions = if instructions.is_empty() { fallback.map(str::to_owned) } else { Some(instructions) };
     (instructions, joined(&environment, "\n\n---\n\n"))
 }
 
@@ -369,10 +327,7 @@ fn environment_item(text: &str, codex_parity: bool) -> Value {
         }]),
     );
     if codex_parity {
-        item.insert(
-            "internal_chat_message_metadata_passthrough".into(),
-            json!({}),
-        );
+        item.insert("internal_chat_message_metadata_passthrough".into(), json!({}));
     }
     Value::Object(item)
 }
@@ -480,17 +435,8 @@ fn declare_tools(lowering: ToolLowering, custom: bool, tools: &[ToolDefinition])
 
 fn wire_effort(spec: &ReasoningSpec, requested: Option<&str>) -> Option<String> {
     let requested = requested.unwrap_or("").trim().to_ascii_lowercase();
-    let effort = if requested.is_empty() {
-        spec.default_effort.clone()?
-    } else {
-        requested
-    };
-    Some(
-        spec.effort_aliases
-            .iter()
-            .find(|(from, _)| from == &effort)
-            .map_or(effort, |(_, to)| to.clone()),
-    )
+    let effort = if requested.is_empty() { spec.default_effort.clone()? } else { requested };
+    Some(spec.effort_aliases.iter().find(|(from, _)| from == &effort).map_or(effort, |(_, to)| to.clone()))
 }
 
 /// The request body for `profile`, keys in `profile.order`.
@@ -507,13 +453,8 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     let previous_response_id = inputs.continuation.and_then(|c| c.previous_response_id.clone());
     let mut input = lower_from(&request.messages, &profile.input, &extras);
     let mut instructions = None;
-    if let SystemPlacement::Instructions {
-        fallback,
-        environment_message,
-    } = &profile.system
-    {
-        let (text, environment) =
-            instructions_and_environment(&request.messages, fallback.as_deref(), *environment_message);
+    if let SystemPlacement::Instructions { fallback, environment_message } = &profile.system {
+        let (text, environment) = instructions_and_environment(&request.messages, fallback.as_deref(), *environment_message);
         instructions = text;
         if !environment.is_empty() {
             input.insert(0, environment_item(&environment, profile.input.codex_parity));
@@ -541,11 +482,7 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
         (None, Some(spec)) => wire_effort(spec, options.effort.as_deref()).map(|e| effort_field(&e, summary)),
         (None, None) => None,
     };
-    let parallel = if profile.honor_parallel_override {
-        options.parallel_tool_calls.unwrap_or(true)
-    } else {
-        true
-    };
+    let parallel = if profile.honor_parallel_override { options.parallel_tool_calls.unwrap_or(true) } else { true };
     let derived = inputs.prompt_cache_key.map(|derive| {
         derive(&super::cache_key::Prefix {
             model: &request.model,
@@ -564,24 +501,16 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
             BodyField::Model => ("model", Some(json!(request.model))),
             BodyField::Instructions => (
                 "instructions",
-                instructions
-                    .take()
-                    .filter(|_| previous_response_id.is_none() || profile.instructions_with_previous_response)
-                    .map(Value::String),
+                instructions.take().filter(|_| previous_response_id.is_none() || profile.instructions_with_previous_response).map(Value::String),
             ),
-            BodyField::PreviousResponseId => (
-                "previous_response_id",
-                previous_response_id.as_ref().map(|id| json!(id)),
-            ),
+            BodyField::PreviousResponseId => ("previous_response_id", previous_response_id.as_ref().map(|id| json!(id))),
             BodyField::Input => ("input", input.take().map(Value::Array)),
             BodyField::Tools => ("tools", (!tools.is_empty()).then(|| Value::Array(tools.clone()))),
             BodyField::ToolChoice => (
                 "tool_choice",
                 match profile.tool_choice {
                     ToolChoicePolicy::AutoDefault => Some(wire_tool_choice(options.tool_choice.as_deref())),
-                    ToolChoicePolicy::NoneOnly => (!tools.is_empty()
-                        && options.tool_choice.as_deref() == Some("none"))
-                    .then(|| json!("none")),
+                    ToolChoicePolicy::NoneOnly => (!tools.is_empty() && options.tool_choice.as_deref() == Some("none")).then(|| json!("none")),
                 },
             ),
             BodyField::ParallelToolCalls => (
@@ -610,31 +539,19 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
                 (!include.is_empty()).then(|| json!(include))
             }),
             BodyField::ServiceTier => ("service_tier", profile.service_tier.as_ref().map(|t| json!(t))),
-            BodyField::PromptCacheKey => (
-                "prompt_cache_key",
-                cache_key.filter(|_| profile.prompt_cache_key).map(|k| json!(k)),
-            ),
+            BodyField::PromptCacheKey => ("prompt_cache_key", cache_key.filter(|_| profile.prompt_cache_key).map(|k| json!(k))),
             BodyField::Text => (
                 "text",
                 profile.text_verbosity.as_ref().map(|default| {
-                    let verbosity = options
-                        .verbosity
-                        .as_deref()
-                        .map(|v| v.trim().to_ascii_lowercase())
-                        .filter(|v| !v.is_empty())
-                        .unwrap_or_else(|| default.clone());
+                    let verbosity =
+                        options.verbosity.as_deref().map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty()).unwrap_or_else(|| default.clone());
                     json!({"verbosity": verbosity})
                 }),
             ),
             BodyField::AccessPrograms => ("access_programs", profile.access_programs.clone()),
-            BodyField::MaxOutputTokens => (
-                "max_output_tokens",
-                options
-                    .max_output_tokens_override
-                    .filter(|n| *n > 0)
-                    .filter(|_| profile.max_output_tokens)
-                    .map(|n| json!(n)),
-            ),
+            BodyField::MaxOutputTokens => {
+                ("max_output_tokens", options.max_output_tokens_override.filter(|n| *n > 0).filter(|_| profile.max_output_tokens).map(|n| json!(n)))
+            }
             BodyField::PromptCacheLifetime => {
                 match profile.cache_lifetime {
                     PromptCacheLifetime::Options30m => {

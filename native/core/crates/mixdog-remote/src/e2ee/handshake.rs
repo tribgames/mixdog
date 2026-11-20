@@ -41,11 +41,7 @@ pub fn secret_from_jwk(jwk: &Value) -> Option<SecretKey> {
 impl ServerIdentity {
     pub fn generate() -> Self {
         let secret = SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-        Self {
-            server_public_key: public_key_b64(&secret.public_key()),
-            pairing_secret: b64(&random::<32>()),
-            secret,
-        }
+        Self { server_public_key: public_key_b64(&secret.public_key()), pairing_secret: b64(&random::<32>()), secret }
     }
 
     /// `None` for anything that is not a valid identity: the caller replaces it.
@@ -55,13 +51,8 @@ impl ServerIdentity {
             return None;
         }
         let secret = secret_from_jwk(&file.private_key_jwk)?;
-        let valid = public_key_b64(&secret.public_key()) == file.server_public_key
-            && unb64(&file.pairing_secret).ok()?.len() == 32;
-        valid.then_some(Self {
-            server_public_key: file.server_public_key,
-            pairing_secret: file.pairing_secret,
-            secret,
-        })
+        let valid = public_key_b64(&secret.public_key()) == file.server_public_key && unb64(&file.pairing_secret).ok()?.len() == 32;
+        valid.then_some(Self { server_public_key: file.server_public_key, pairing_secret: file.pairing_secret, secret })
     }
 
     pub fn to_json(&self) -> String {
@@ -77,11 +68,7 @@ impl ServerIdentity {
     }
 
     pub fn pairing(&self) -> PairingMaterial {
-        PairingMaterial {
-            version: VERSION,
-            server_public_key: self.server_public_key.clone(),
-            pairing_secret: self.pairing_secret.clone(),
-        }
+        PairingMaterial { version: VERSION, server_public_key: self.server_public_key.clone(), pairing_secret: self.pairing_secret.clone() }
     }
 
     pub(crate) fn secret(&self) -> &SecretKey {
@@ -110,9 +97,7 @@ impl Challenge {
     }
 
     pub fn parse(value: Value) -> Result<Self, E2eeError> {
-        let ok = value["type"] == "e2ee-challenge"
-            && value["version"] == VERSION
-            && value["challenge"].as_str().is_some_and(|c| is_b64url_len(c, 43));
+        let ok = value["type"] == "e2ee-challenge" && value["version"] == VERSION && value["challenge"].as_str().is_some_and(|c| is_b64url_len(c, 43));
         if ok { Ok(Self { raw: value }) } else { Err(E2eeError::Invalid("Unsupported relay encryption handshake.")) }
     }
 
@@ -147,19 +132,13 @@ pub fn is_hello(hello: &Value) -> bool {
     valid_hello(hello)
 }
 
-pub fn accept_client_hello(
-    identity: &ServerIdentity,
-    challenge: &Challenge,
-    hello: &Value,
-) -> Result<Channel, E2eeError> {
+pub fn accept_client_hello(identity: &ServerIdentity, challenge: &Challenge, hello: &Value) -> Result<Channel, E2eeError> {
     if !valid_hello(hello) || hello["challenge"] != challenge.challenge() {
         return Err(E2eeError::Auth);
     }
     let offered = challenge.flag("transportWebrtc");
     let selected = !hello["transportWebrtc"].is_null();
-    if selected
-        && !(offered && challenge.flag("binaryFrames") && hello["transportWebrtc"] == 1 && hello["binaryFrames"] == 1)
-    {
+    if selected && !(offered && challenge.flag("binaryFrames") && hello["transportWebrtc"] == 1 && hello["binaryFrames"] == 1) {
         return Err(E2eeError::Auth);
     }
     let transcript = (offered || selected).then(|| handshake_transcript(challenge.as_value(), hello));
@@ -183,14 +162,7 @@ pub fn accept_client_hello(
     let key = material.key("key")?;
     let media = if challenge.flag("mediaE2ee") { Some(material.key("media")?) } else { None };
     let transport = if selected { Some(transport_keys(&material, Role::Server)?) } else { None };
-    Ok(Channel::new(
-        Role::Server,
-        key,
-        hello["deflate"] == 1,
-        media,
-        transport,
-        HandshakeState { send: if offered { transcript } else { None }, expect: None },
-    ))
+    Ok(Channel::new(Role::Server, key, hello["deflate"] == 1, media, transport, HandshakeState { send: if offered { transcript } else { None }, expect: None }))
 }
 
 fn transport_keys(material: &SessionMaterial<'_>, role: Role) -> Result<TransportKeys, E2eeError> {
@@ -217,17 +189,11 @@ pub struct ClientHandshakeOptions {
 }
 
 /// The browser side: the hello to send and the channel it opens.
-pub fn create_client_handshake(
-    pairing: &PairingMaterial,
-    challenge: &Challenge,
-    options: ClientHandshakeOptions,
-) -> Result<(Value, Channel), E2eeError> {
+pub fn create_client_handshake(pairing: &PairingMaterial, challenge: &Challenge, options: ClientHandshakeOptions) -> Result<(Value, Channel), E2eeError> {
     if pairing.version != VERSION {
         return Err(E2eeError::Invalid("Unsupported relay encryption handshake."));
     }
-    let pair = options
-        .client_key
-        .unwrap_or_else(|| SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng));
+    let pair = options.client_key.unwrap_or_else(|| SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng));
     let client_public = public_key_b64(&pair.public_key());
     let select = options.transport && challenge.flag("transportWebrtc") && challenge.flag("binaryFrames");
     let deflate = challenge.flag("deflate");
@@ -264,9 +230,6 @@ pub fn create_client_handshake(
     let key = material.key("key")?;
     let media = if challenge.flag("mediaE2ee") { Some(material.key("media")?) } else { None };
     let transport = if select { Some(transport_keys(&material, Role::Client)?) } else { None };
-    let handshake = HandshakeState {
-        send: None,
-        expect: transcript.map(|t| (t, challenge.flag("transportWebrtc"))),
-    };
+    let handshake = HandshakeState { send: None, expect: transcript.map(|t| (t, challenge.flag("transportWebrtc"))) };
     Ok((hello, Channel::new(Role::Client, key, deflate, media, transport, handshake)))
 }

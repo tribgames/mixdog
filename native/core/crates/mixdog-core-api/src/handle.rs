@@ -45,13 +45,7 @@ pub trait CoreHandle: Send + Sync + 'static {
     /// its kind) and came in through `origin`. The owners that need the client's identity (the paired-device registry's local rows)
     /// record it here, and release it at [`connection_closed`](Self::connection_closed). Required, with no default, so an implementor
     /// cannot ignore connection starts by omission.
-    fn connection_opened(
-        &self,
-        connection: crate::ids::ConnectionId,
-        origin: mixdog_protocol::Origin,
-        device: &str,
-        kind: mixdog_protocol::ConnectionKind,
-    );
+    fn connection_opened(&self, connection: crate::ids::ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: mixdog_protocol::ConnectionKind);
 
     /// The server admitted a request (took an in-flight slot of its class): the returned guard lives until the slot is freed. A core that
     /// counts service calls (Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`) holds the count in the guard. Required, with no

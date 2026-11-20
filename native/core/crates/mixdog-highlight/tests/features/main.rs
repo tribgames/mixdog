@@ -2,9 +2,7 @@
 
 use std::collections::HashMap;
 
-use mixdog_highlight::{
-    HighlightError, HighlightTheme, SgrStyle, highlight, highlight_ansi, highlight_auto, list_languages, supports_language,
-};
+use mixdog_highlight::{HighlightError, HighlightTheme, SgrStyle, highlight, highlight_ansi, highlight_auto, list_languages, supports_language};
 
 fn html(code: &str, language: &str) -> String {
     highlight(code, language, true).expect("a carried language").value
@@ -26,14 +24,8 @@ fn visible_text(html: &str) -> String {
 
 #[test]
 fn keywords_numbers_and_strings_get_their_classes() {
-    assert_eq!(
-        html("const n = 42;", "javascript"),
-        "<span class=\"hljs-keyword\">const</span> n = <span class=\"hljs-number\">42</span>;"
-    );
-    assert_eq!(
-        html("let s = 'a';", "javascript"),
-        "<span class=\"hljs-keyword\">let</span> s = <span class=\"hljs-string\">&#x27;a&#x27;</span>;"
-    );
+    assert_eq!(html("const n = 42;", "javascript"), "<span class=\"hljs-keyword\">const</span> n = <span class=\"hljs-number\">42</span>;");
+    assert_eq!(html("let s = 'a';", "javascript"), "<span class=\"hljs-keyword\">let</span> s = <span class=\"hljs-string\">&#x27;a&#x27;</span>;");
 }
 
 #[test]

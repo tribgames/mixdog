@@ -204,10 +204,7 @@ fn is_non_alphanumeric_key(name: &str) -> bool {
 }
 
 fn is_shift_code(code: &str) -> bool {
-    matches!(
-        code,
-        "[a" | "[b" | "[c" | "[d" | "[e" | "[2$" | "[3$" | "[5$" | "[6$" | "[7$" | "[8$" | "[Z"
-    )
+    matches!(code, "[a" | "[b" | "[c" | "[d" | "[e" | "[2$" | "[3$" | "[5$" | "[6$" | "[7$" | "[8$" | "[Z")
 }
 
 fn is_ctrl_code(code: &str) -> bool {
@@ -240,14 +237,7 @@ fn match_fn_key_tail<'a>(s: &'a str, from: usize, intro: &'a str) -> Option<FnKe
         }
         if matches!(sc.peek(), Some(b'~' | b'^' | b'$')) {
             let at = sc.i;
-            return Some(FnKeyMatch {
-                intro,
-                number: Some(number),
-                modifier_a: modifier,
-                final_a: Some(sc.slice(at, at + 1)),
-                modifier_b: None,
-                letter: None,
-            });
+            return Some(FnKeyMatch { intro, number: Some(number), modifier_a: modifier, final_a: Some(sc.slice(at, at + 1)), modifier_b: None, letter: None });
         }
     }
     // Second alternative: optional `1;`, optional number, one letter.
@@ -262,14 +252,7 @@ fn match_fn_key_tail<'a>(s: &'a str, from: usize, intro: &'a str) -> Option<FnKe
         let modifier = sc.digits();
         if sc.peek().is_some_and(|b| b.is_ascii_alphabetic()) {
             let at = sc.i;
-            return Some(FnKeyMatch {
-                intro,
-                number: None,
-                modifier_a: None,
-                final_a: None,
-                modifier_b: modifier,
-                letter: Some(sc.slice(at, at + 1)),
-            });
+            return Some(FnKeyMatch { intro, number: None, modifier_a: None, final_a: None, modifier_b: modifier, letter: Some(sc.slice(at, at + 1)) });
         }
     }
     None
@@ -314,11 +297,7 @@ pub fn parse_keypress(s: &str) -> Keypress {
     // A sequence of the kitty CSI u shape that was rejected (an invalid codepoint) gets a safe empty keypress instead of
     // falling through to the legacy parsing.
     if kitty::match_kitty_key(s).is_some() {
-        return Keypress {
-            sequence: s.to_string(),
-            is_kitty: true,
-            ..Keypress::default()
-        };
+        return Keypress { sequence: s.to_string(), is_kitty: true, ..Keypress::default() };
     }
 
     let mut key = Keypress { sequence: s.to_string(), ..Keypress::default() };
@@ -369,8 +348,7 @@ pub fn parse_keypress(s: &str) -> Keypress {
             key.meta = true;
         }
         // Reassemble the key code leaving out the leading ESCs, the modifier parameter and any meaningless "1;".
-        let code: String = [parts.intro, parts.number.unwrap_or(""), parts.final_a.unwrap_or(""), parts.letter.unwrap_or("")]
-            .concat();
+        let code: String = [parts.intro, parts.number.unwrap_or(""), parts.final_a.unwrap_or(""), parts.letter.unwrap_or("")].concat();
         let modifier_field = parts.modifier_a.or(parts.modifier_b);
         let modifier = to_int32(modifier_field.map_or(1.0, digits_value) - 1.0);
         key.ctrl = modifier & 4 != 0;

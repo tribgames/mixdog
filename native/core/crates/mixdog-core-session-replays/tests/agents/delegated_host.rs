@@ -2,22 +2,11 @@
 //! `delegated-approval-host.mjs`: each scripted step's return value and the offers and
 //! withdrawals the fake queues saw, in order.
 
-
 use serde_json::json;
 
 use mixdog_services::bots::delivery::queue::Handoffs;
 
 use mixdog_core_session::session::delegated_host::{DelegatedApprovalHost, HostHandoffs};
-
-
-
-
-
-
-
-
-
-
 
 /// The report-watch store keeps the host in step through `Handoffs`: a watch added notes its hand-off,
 /// a watch gone ends it for good (the host's scripted steps above are `noteHandoff` / `endHandoff`).
@@ -33,5 +22,3 @@ async fn the_report_watch_store_notes_and_ends_hand_offs_through_the_adapter() {
     handoffs.note(&watch);
     assert!(host.handoff_chats_of("task").is_empty(), "an ended run is not noted again");
 }
-
-

@@ -28,24 +28,14 @@ pub struct TraceConfig {
 }
 
 fn truthy_env(value: Option<String>) -> bool {
-    value.is_some_and(|v| {
-        matches!(
-            mixdog_js::js_to_lowercase(mixdog_js::js_trim(&v)).as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
+    value.is_some_and(|v| matches!(mixdog_js::js_to_lowercase(mixdog_js::js_trim(&v)).as_str(), "1" | "true" | "yes" | "on"))
 }
 
 /// `parseInt(v, 10)` kept only when it is a positive finite number (the shape of every knob here).
 fn positive_int(value: Option<String>) -> Option<i64> {
     let text = value?;
     let text = mixdog_js::js_trim_start(&text);
-    let digits: String = text
-        .strip_prefix('+')
-        .unwrap_or(text)
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
+    let digits: String = text.strip_prefix('+').unwrap_or(text).chars().take_while(char::is_ascii_digit).collect();
     digits.parse::<i64>().ok().filter(|n| *n > 0)
 }
 
@@ -72,26 +62,15 @@ fn diagnostic_io(get: &dyn Fn(&str) -> Option<String>, from_source_checkout: boo
 }
 
 impl TraceConfig {
-    pub fn from_env(
-        data_dir: &Path,
-        get: &dyn Fn(&str) -> Option<String>,
-        from_source_checkout: bool,
-    ) -> Self {
+    pub fn from_env(data_dir: &Path, get: &dyn Fn(&str) -> Option<String>, from_source_checkout: bool) -> Self {
         let explicit = non_empty(get("MIXDOG_AGENT_TRACE_PATH"));
         let history = data_dir.join("history");
-        let local = if get("MIXDOG_AGENT_TRACE_LOCAL_DISABLE").as_deref() == Some("1")
-            || (explicit.is_none() && !diagnostic_io(get, from_source_checkout)) {
+        let local = if get("MIXDOG_AGENT_TRACE_LOCAL_DISABLE").as_deref() == Some("1") || (explicit.is_none() && !diagnostic_io(get, from_source_checkout)) {
             None
         } else {
             Some(match &explicit {
-                Some(path) => LocalTrace {
-                    path: PathBuf::from(path),
-                    explicit: true,
-                },
-                None => LocalTrace {
-                    path: history.join("agent-trace.jsonl"),
-                    explicit: false,
-                },
+                Some(path) => LocalTrace { path: PathBuf::from(path), explicit: true },
+                None => LocalTrace { path: history.join("agent-trace.jsonl"), explicit: false },
             })
         };
         let failure_path = if get("MIXDOG_TOOL_FAILURE_LOG_DISABLE").as_deref() == Some("1") {
@@ -109,9 +88,7 @@ impl TraceConfig {
             rotate_keep: positive_int(get("MIXDOG_AGENT_TRACE_ROTATE_KEEP")).unwrap_or(3) as usize,
             rotate_check_ms: positive_int(get("MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS")).unwrap_or(60_000),
             slow_tool: crate::SlowTool::from_env(get),
-            loop_rows: get("MIXDOG_AGENT_TRACE_VERBOSE").as_deref() == Some("1")
-                || get("MIXDOG_AGENT_TRACE_TIMING").as_deref() == Some("1"),
+            loop_rows: get("MIXDOG_AGENT_TRACE_VERBOSE").as_deref() == Some("1") || get("MIXDOG_AGENT_TRACE_TIMING").as_deref() == Some("1"),
         }
     }
 }
-

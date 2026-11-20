@@ -1,10 +1,6 @@
 //! A scripted repository read and mutated through the engine, and the worktree and GitHub features over it.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "tests build their fixture repositories and run git on the test thread"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "tests build their fixture repositories and run git on the test thread")]
 
 use std::path::Path;
 use std::process::Command;
@@ -104,11 +100,7 @@ fn build_fixture_repo(repo: &std::path::Path) {
 }
 
 fn scm() -> std::sync::Arc<Scm> {
-    Scm::new(
-        TestProcesses::shared(),
-        mixdog_rt::testing::tokens().maintenance_io,
-        std::env::temp_dir().join(format!("mixdog-scm-test-{}", std::process::id())),
-    )
+    Scm::new(TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-test-{}", std::process::id())))
 }
 
 /// Drops what depends on the clock or the recorded paths.
@@ -181,11 +173,8 @@ async fn concurrent_status_reads_share_one_inspection_and_evidence_refreshes() {
     let open = scm.open(&repo, &cancel).await.unwrap();
     let reference = open.repo_ref().unwrap();
     let lane = scm.lane;
-    let (a, b, c) = tokio::join!(
-        scm.inspector.scan(lane, reference.clone()),
-        scm.inspector.scan(lane, reference.clone()),
-        scm.inspector.scan(lane, reference.clone()),
-    );
+    let (a, b, c) =
+        tokio::join!(scm.inspector.scan(lane, reference.clone()), scm.inspector.scan(lane, reference.clone()), scm.inspector.scan(lane, reference.clone()),);
     assert!(a.is_ok() && b.is_ok() && c.is_ok());
     assert_eq!(scm.inspector.flights_started(), 1);
     // Cached until evidence arrives.
@@ -209,9 +198,7 @@ async fn a_credential_request_reads_as_node_words_it() {
             let Ok(mut stream) = stream else { break };
             let mut buf = [0u8; 4096];
             let _ = stream.read(&mut buf);
-            let _ = stream.write_all(
-                b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"x\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"x\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         }
     });
     let (_guard, repo, _head) = fixture_repo();
@@ -290,11 +277,7 @@ impl mixdog_core_api::domain::process::ProcessManager for SlowStatus {
         self.inner.subscribe(handle, from_seq)
     }
 
-    async fn write_stdin(
-        &self,
-        handle: &mixdog_protocol::ProcessHandle,
-        bytes: Vec<u8>,
-    ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+    async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.write_stdin(handle, bytes).await
     }
 
@@ -321,11 +304,11 @@ impl mixdog_core_api::domain::process::ProcessManager for SlowStatus {
 
 #[tokio::test]
 async fn g9_a_slow_inspection_delays_neither_a_review_page_nor_a_merge() {
+    use crate::worktree::branches::CheckoutRequest;
     use mixdog_core_api::domain::repo::Cached;
     use mixdog_core_api::domain::repo::RepoInspector;
     use mixdog_core_api::domain::repo::ReviewRequest;
     use mixdog_core_api::domain::repo::ReviewScope;
-    use crate::worktree::branches::CheckoutRequest;
     let (_guard, repo, _head) = fixture_repo();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
@@ -333,20 +316,12 @@ async fn g9_a_slow_inspection_delays_neither_a_review_page_nor_a_merge() {
     let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
     let slow_pm: std::sync::Arc<dyn mixdog_core_api::domain::process::ProcessManager> =
         std::sync::Arc::new(SlowStatus { inner: TestProcesses::shared(), gate: gate.clone() });
-    let scm = Scm::new(
-        slow_pm,
-        mixdog_rt::testing::tokens().maintenance_io,
-        std::env::temp_dir().join("mixdog-scm-g9"),
-    );
+    let scm = Scm::new(slow_pm, mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join("mixdog-scm-g9"));
     let cancel = CancellationToken::new();
     let reference = scm.open(&repo, &cancel).await.unwrap().repo_ref().unwrap();
     // The review summary of an earlier key is cached; the slow status scan starts now.
     let base = mixdog_core_api::domain::repo::ObjectId(git(&repo, &["rev-parse", "HEAD"]));
-    let request = ReviewRequest {
-        repo: reference.clone(),
-        scope: ReviewScope::Session { thread_id: mixdog_protocol::ThreadId::from("t") },
-        base,
-    };
+    let request = ReviewRequest { repo: reference.clone(), scope: ReviewScope::Session { thread_id: mixdog_protocol::ThreadId::from("t") }, base };
     let summary = scm.inspector.review_summary(scm.lane, request).await.unwrap();
     let inspecting = {
         let scm = scm.clone();
@@ -360,10 +335,7 @@ async fn g9_a_slow_inspection_delays_neither_a_review_page_nor_a_merge() {
     assert!(started.elapsed() < std::time::Duration::from_millis(500));
     // A merge takes the repository lock and does not wait for the inspection.
     let worktrees = crate::worktree::manager::Worktrees::new(scm.clone(), std::env::temp_dir().join("mixdog-g9-data"));
-    let merged = worktrees
-        .merge_branch_into_project(&repo, "topic", "main", true, &cancel)
-        .await
-        .unwrap();
+    let merged = worktrees.merge_branch_into_project(&repo, "topic", "main", true, &cancel).await.unwrap();
     assert_eq!(merged["merged"], true);
     assert!(!inspecting.is_finished(), "the merge waited for the inspection");
     gate.add_permits(1);
@@ -373,10 +345,10 @@ async fn g9_a_slow_inspection_delays_neither_a_review_page_nor_a_merge() {
 
 #[tokio::test]
 async fn a_captured_review_base_diffs_only_what_changed_since() {
+    use crate::service::ReviewBases;
     use mixdog_core_api::domain::repo::RepoInspector;
     use mixdog_core_api::domain::repo::ReviewRequest;
     use mixdog_core_api::domain::repo::ReviewScope;
-    use crate::service::ReviewBases;
     let (_guard, repo, _head) = fixture_repo();
     let scm = scm();
     let cancel = CancellationToken::new();
@@ -387,21 +359,11 @@ async fn a_captured_review_base_diffs_only_what_changed_since() {
     let bases = crate::worktree::review_bases::CapturedBases::new();
     let thread = mixdog_protocol::ThreadId::from("t1");
     bases.record(&thread, mixdog_app_protocol::v2::domain::ReviewScope::Turn, Some("cp1"), repo.clone(), base);
-    let (cwd, found) = bases
-        .base(&thread, mixdog_app_protocol::v2::domain::ReviewScope::Turn, Some("cp1"))
-        .await
-        .unwrap();
+    let (cwd, found) = bases.base(&thread, mixdog_app_protocol::v2::domain::ReviewScope::Turn, Some("cp1")).await.unwrap();
     assert_eq!(cwd, repo);
     let summary = scm
         .inspector
-        .review_summary(
-            scm.lane,
-            ReviewRequest {
-                repo: open.repo_ref().unwrap(),
-                scope: ReviewScope::Session { thread_id: thread.clone() },
-                base: found,
-            },
-        )
+        .review_summary(scm.lane, ReviewRequest { repo: open.repo_ref().unwrap(), scope: ReviewScope::Session { thread_id: thread.clone() }, base: found })
         .await
         .unwrap();
     let paths: Vec<_> = summary.files.iter().map(|f| f.path.as_str()).collect();
@@ -499,18 +461,12 @@ async fn creation_asks_before_a_large_repo_and_before_pending_changes_and_carrie
 
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     // `ask` refuses while the project folder has changes, naming them.
-    let asked = worktrees
-        .create_full(CreateRequest { carry: Some("ask".into()), ..request.clone() }, &cancel)
-        .await
-        .unwrap_err();
+    let asked = worktrees.create_full(CreateRequest { carry: Some("ask".into()), ..request.clone() }, &cancel).await.unwrap_err();
     assert_eq!(asked.code(), Some("WORKTREE_DIRTY_CHOICE"));
 
     let before_status = git(&repo, &["status", "--porcelain"]);
     assert!(before_status.contains("a.txt") && before_status.contains("new.txt"));
-    let created = worktrees
-        .create_full(CreateRequest { carry: Some("carry".into()), ..request }, &cancel)
-        .await
-        .unwrap();
+    let created = worktrees.create_full(CreateRequest { carry: Some("carry".into()), ..request }, &cancel).await.unwrap();
     let changes = created.changes.clone().unwrap();
     assert_eq!(changes["mode"], "carried");
     assert_eq!(changes["count"], 3);
@@ -550,11 +506,7 @@ impl crate::gh::client::GhRunner for AuthOk {
         _cwd: &std::path::Path,
         _cancel: &CancellationToken,
     ) -> Result<crate::gh::client::GhOutput, crate::error::ScmFailure> {
-        Ok(crate::gh::client::GhOutput {
-            code: Some(0),
-            stdout: "Logged in to github.com account octo (keyring)".into(),
-            stderr: String::new(),
-        })
+        Ok(crate::gh::client::GhOutput { code: Some(0), stdout: "Logged in to github.com account octo (keyring)".into(), stderr: String::new() })
     }
 }
 
@@ -620,9 +572,7 @@ fn login_with(program: String, runner: std::sync::Arc<dyn crate::gh::client::GhR
     scm.github_login()
 }
 
-async fn next_state(
-    session: &dyn mixdog_core_api::domain::login::LoginSession,
-) -> mixdog_core_api::domain::login::LoginState {
+async fn next_state(session: &dyn mixdog_core_api::domain::login::LoginSession) -> mixdog_core_api::domain::login::LoginState {
     session.next().await.expect("a state")
 }
 
@@ -754,11 +704,7 @@ async fn an_old_gh_without_the_active_flag_is_still_signed_in() {
 struct OpenAdmission;
 #[async_trait::async_trait]
 impl crate::worktree::branches::FolderAdmission for OpenAdmission {
-    async fn admit(
-        &self,
-        _folders: &[std::path::PathBuf],
-        _removing: bool,
-    ) -> Result<crate::worktree::branches::Admitted, crate::error::ScmFailure> {
+    async fn admit(&self, _folders: &[std::path::PathBuf], _removing: bool) -> Result<crate::worktree::branches::Admitted, crate::error::ScmFailure> {
         Ok(crate::worktree::branches::Admitted { retained_session_ids: Vec::new(), hold: None })
     }
 }
@@ -835,8 +781,12 @@ async fn the_branch_menu_checks_out_merges_and_deletes_through_one_guarded_path(
 
 struct NoRetention;
 impl crate::worktree::manager::Retention for NoRetention {
-    fn owner_live(&self, _: &crate::worktree::registry::WorktreeRecord) -> bool { false }
-    fn retained(&self, _: &crate::worktree::registry::WorktreeRecord) -> bool { false }
+    fn owner_live(&self, _: &crate::worktree::registry::WorktreeRecord) -> bool {
+        false
+    }
+    fn retained(&self, _: &crate::worktree::registry::WorktreeRecord) -> bool {
+        false
+    }
 }
 
 #[tokio::test]
@@ -851,13 +801,8 @@ async fn a_managed_worktree_is_created_refused_while_unmerged_then_merged_and_re
     let scm = scm();
     let worktrees = Worktrees::new(scm.clone(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
-    let request = CreateRequest {
-        project_path: repo.clone(),
-        session_id: "s1".into(),
-        tx_id: "t1".into(),
-        name_hint: "Add feature".into(),
-        ..CreateRequest::default()
-    };
+    let request =
+        CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t1".into(), name_hint: "Add feature".into(), ..CreateRequest::default() };
     let made = worktrees.create(request.clone(), &cancel).await.unwrap();
     assert_eq!(made.id, "add-feature");
     assert_eq!(made.state, "ready");
@@ -885,7 +830,8 @@ async fn a_managed_worktree_is_created_refused_while_unmerged_then_merged_and_re
     assert!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().is_empty());
 }
 
-async fn two_worktrees() -> (tempfile::TempDir, tempfile::TempDir, crate::worktree::manager::Worktrees, Vec<crate::worktree::registry::WorktreeRecord>, CancellationToken) {
+async fn two_worktrees()
+-> (tempfile::TempDir, tempfile::TempDir, crate::worktree::manager::Worktrees, Vec<crate::worktree::registry::WorktreeRecord>, CancellationToken) {
     use crate::worktree::manager::CreateRequest;
     use crate::worktree::manager::Worktrees;
     let (guard, repo, _head) = fixture_repo();
@@ -896,7 +842,13 @@ async fn two_worktrees() -> (tempfile::TempDir, tempfile::TempDir, crate::worktr
     let cancel = CancellationToken::new();
     let mut made = Vec::new();
     for (session, name) in [("s1", "first"), ("s2", "second")] {
-        let request = CreateRequest { project_path: repo.clone(), session_id: session.into(), tx_id: format!("t-{name}"), name_hint: name.into(), ..CreateRequest::default() };
+        let request = CreateRequest {
+            project_path: repo.clone(),
+            session_id: session.into(),
+            tx_id: format!("t-{name}"),
+            name_hint: name.into(),
+            ..CreateRequest::default()
+        };
         made.push(worktrees.create(request, &cancel).await.unwrap());
     }
     (guard, data, worktrees, made, cancel)
@@ -936,7 +888,8 @@ async fn a_store_spelled_through_a_link_removes_its_worktree_and_git_registratio
     link_dir(&real, &linked);
     let worktrees = Worktrees::new(scm(), linked.clone());
     let cancel = CancellationToken::new();
-    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t-link".into(), name_hint: "through".into(), ..CreateRequest::default() };
+    let request =
+        CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t-link".into(), name_hint: "through".into(), ..CreateRequest::default() };
     let made = worktrees.create(request, &cancel).await.unwrap();
     assert!(Path::new(&made.path).starts_with(&linked), "{}", made.path);
     let removed = worktrees.remove(&made.id, true, Some("s1"), &cancel).await.unwrap();
@@ -1128,12 +1081,24 @@ async fn a_registered_recovery_store_keeps_its_worktree_through_a_restart_until_
     let sessions: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions { stored: Default::default(), jobs: Vec::new() });
     let options = CleanupOptions { settings: Some(crate::worktree::settings::WorktreeSettings::default()), ..CleanupOptions::default() };
     let report = worktrees.reconcile_at_startup(&sessions, &options, &cancel).await.unwrap();
-    assert!(report["errors"].as_array().unwrap().iter().any(|e| e["id"] == entry.id.as_str() && e["error"].as_str().unwrap().contains("Retained file recovery")), "{report}");
+    assert!(
+        report["errors"].as_array().unwrap().iter().any(|e| e["id"] == entry.id.as_str() && e["error"].as_str().unwrap().contains("Retained file recovery")),
+        "{report}"
+    );
     assert!(checkout.exists());
     let forced = worktrees.remove(&entry.id, true, Some("s1"), &cancel).await.unwrap_err();
     assert_eq!(forced.code(), Some(crate::worktree::errors::WORKTREE_FILE_RECOVERY));
     // Once the host discarded its record the worktree is removable; the store itself stays.
-    worktrees.with_recovery_store(checkout, &directory, RecoveryAction::Discard, || async { Ok(std::fs::remove_file(directory.join("retained-record")).unwrap()) }, &cancel).await.unwrap();
+    worktrees
+        .with_recovery_store(
+            checkout,
+            &directory,
+            RecoveryAction::Discard,
+            || async { Ok(std::fs::remove_file(directory.join("retained-record")).unwrap()) },
+            &cancel,
+        )
+        .await
+        .unwrap();
     assert_eq!(worktrees.remove(&entry.id, true, Some("s1"), &cancel).await.unwrap()["removed"], true);
     assert!(directory.exists());
     // A checkout that is gone leaves its reserved namespace unusable for ordinary projects.
@@ -1314,13 +1279,20 @@ async fn an_automatic_removal_runs_its_checks_outside_the_repository_lock() {
     let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
     let mut dirty = worktrees.record(&cancel, &made[0].id).await.unwrap().unwrap();
     let mut clean = worktrees.record(&cancel, &made[1].id).await.unwrap().unwrap();
-    std::fs::write(std::path::Path::new(&dirty.path).join("late.txt"), "x
-").unwrap();
+    std::fs::write(
+        std::path::Path::new(&dirty.path).join("late.txt"),
+        "x
+",
+    )
+    .unwrap();
     let opened = worktrees.scm().open(std::path::Path::new(&dirty.project_path), &cancel).await.unwrap();
     let lock = opened.lock_repository().await.unwrap();
     // Kept on the checks alone: answered while another writer holds the lock.
     let options = AutoOptions::default();
-    let kept = tokio::time::timeout(std::time::Duration::from_secs(60), worktrees.remove_automatically(&mut dirty, &options, &cancel)).await.expect("the checks do not wait for the lock").unwrap();
+    let kept = tokio::time::timeout(std::time::Duration::from_secs(60), worktrees.remove_automatically(&mut dirty, &options, &cancel))
+        .await
+        .expect("the checks do not wait for the lock")
+        .unwrap();
     assert!(matches!(&kept, Auto::Kept(verdict) if verdict["reason"] == "dirty"));
     // Clean and merged: the removal waits for the lock, and runs once it is free.
     let removal = worktrees.remove_automatically(&mut clean, &options, &cancel);
@@ -1363,7 +1335,11 @@ fn an_ownerless_directory_ages_out_after_an_hour() {
 /// A commit sweeps before it builds its own scratch, in the OS temp folder.
 #[tokio::test]
 async fn a_commit_sweeps_the_temp_folder_it_builds_in() {
-    let scm = Scm::new(TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-review-{}", std::process::id())));
+    let scm = Scm::new(
+        TestProcesses::shared(),
+        mixdog_rt::testing::tokens().maintenance_io,
+        std::env::temp_dir().join(format!("mixdog-scm-review-{}", std::process::id())),
+    );
     assert_eq!(scm.commit_scratch_root(), std::env::temp_dir());
     let orphan = scm.commit_scratch_root().join(format!("mixdog-commit-2147483646-{}", std::process::id()));
     std::fs::create_dir(&orphan).unwrap();
@@ -1417,11 +1393,7 @@ async fn review_pages_come_from_the_cache_and_follow_the_work_tree() {
     let scm = scm();
     let cancel = CancellationToken::new();
     let reference = scm.open(&repo, &cancel).await.unwrap().repo_ref().unwrap();
-    let request = ReviewRequest {
-        repo: reference.clone(),
-        scope: ReviewScope::Session { thread_id: mixdog_protocol::ThreadId::from("t") },
-        base,
-    };
+    let request = ReviewRequest { repo: reference.clone(), scope: ReviewScope::Session { thread_id: mixdog_protocol::ThreadId::from("t") }, base };
     let summary = scm.inspector.review_summary(scm.lane, request.clone()).await.unwrap();
     let paths: Vec<_> = summary.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, ["a.txt", "new.txt", "src/b.mjs"]);
@@ -1469,7 +1441,12 @@ async fn g10_a_replayed_day_has_no_periodic_review_reads_and_inspects_only_on_ch
     for edit in 0..24 {
         trace.push(Event::Edit(edit));
         for step in 0..40 {
-            trace.push(match step % 4 { 0 => Event::Focus, 1 => Event::Idle, 2 => Event::TurnEnd, _ => Event::Focus });
+            trace.push(match step % 4 {
+                0 => Event::Focus,
+                1 => Event::Idle,
+                2 => Event::TurnEnd,
+                _ => Event::Focus,
+            });
         }
     }
     let edits = trace.iter().filter(|e| matches!(e, Event::Edit(_))).count() as u64;
@@ -1545,7 +1522,6 @@ async fn is_repository_reports_a_probe_that_never_ran() {
     assert!(scm.is_repository(&folder, &cancel).await.is_err());
 }
 
-
 #[tokio::test]
 async fn a_failed_creation_is_rolled_back_whole_and_its_own_failure_is_the_one_surfaced() {
     use crate::worktree::manager::CreateRequest;
@@ -1560,7 +1536,14 @@ async fn a_failed_creation_is_rolled_back_whole_and_its_own_failure_is_the_one_s
     let root = crate::worktree::names::managed_root(data.path(), &facts.common_dir);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join(".owners"), "in the way").unwrap();
-    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), runtime_token: "rt".into(), tx_id: "t1".into(), name_hint: "doomed".into(), ..CreateRequest::default() };
+    let request = CreateRequest {
+        project_path: repo.clone(),
+        session_id: "s1".into(),
+        runtime_token: "rt".into(),
+        tx_id: "t1".into(),
+        name_hint: "doomed".into(),
+        ..CreateRequest::default()
+    };
     let failure = worktrees.create_full(request, &cancel).await.unwrap_err();
     assert!(!failure.to_string().is_empty());
     assert_eq!(git(&repo, &["branch", "--list", "mixdog/*"]), "", "the branch the creation made went with it");
@@ -1568,7 +1551,6 @@ async fn a_failed_creation_is_rolled_back_whole_and_its_own_failure_is_the_one_s
     assert!(!root.join("doomed").exists());
     assert!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().is_empty(), "the record is gone");
 }
-
 
 /// Another process taking the worktree folder after the name was reserved and before git's checkout
 /// add (the first `n` adds find it taken), over the real process manager.
@@ -1579,7 +1561,10 @@ struct TakesTheFolder {
 
 #[async_trait::async_trait]
 impl mixdog_core_api::domain::process::ProcessManager for TakesTheFolder {
-    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+    async fn spawn(
+        &self,
+        request: mixdog_core_api::domain::process::SpawnRequest,
+    ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
         use std::sync::atomic::Ordering::SeqCst;
         if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
             && let Some(add) = args.windows(2).position(|pair| pair[0] == "worktree" && pair[1] == "add")
@@ -1596,7 +1581,10 @@ impl mixdog_core_api::domain::process::ProcessManager for TakesTheFolder {
         &self,
         handle: &mixdog_protocol::ProcessHandle,
         from_seq: Option<u64>,
-    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
         self.inner.subscribe(handle, from_seq)
     }
     async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -1605,7 +1593,11 @@ impl mixdog_core_api::domain::process::ProcessManager for TakesTheFolder {
     fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.close_stdin(handle)
     }
-    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+    fn resize_pty(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        size: mixdog_core_api::domain::process::PtySize,
+    ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.resize_pty(handle, size)
     }
     fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -1655,7 +1647,9 @@ async fn taken_folder_outcome(clashes: usize, branch: Option<&str>) -> Value {
             serde_json::json!({ "created": false, "alreadyExists": text.contains("already exists") || text.contains("exists; cannot create") })
         }
     };
-    let heads = |prefix: &str| git(&repo, &["for-each-ref", "--format=%(refname:short)", prefix]).lines().filter(|l| !l.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let heads = |prefix: &str| {
+        git(&repo, &["for-each-ref", "--format=%(refname:short)", prefix]).lines().filter(|l| !l.is_empty()).map(str::to_owned).collect::<Vec<_>>()
+    };
     let mut branches = heads("refs/heads/mixdog/");
     branches.extend(heads("refs/heads/feature/"));
     branches.sort();
@@ -1734,10 +1728,18 @@ async fn a_merge_target_with_only_the_identity_marker_untracked_is_clean() {
     // An untracked folder is named once, as Node's `uncommittedPaths` names it, not file by file.
     std::fs::remove_file(repo.join(".mixdog/other")).unwrap();
     std::fs::create_dir_all(repo.join("newdir")).unwrap();
-    std::fs::write(repo.join("newdir/x.txt"), "x
-").unwrap();
-    std::fs::write(repo.join("newdir/y.txt"), "y
-").unwrap();
+    std::fs::write(
+        repo.join("newdir/x.txt"),
+        "x
+",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.join("newdir/y.txt"),
+        "y
+",
+    )
+    .unwrap();
     let dirty = scm.merge_branch_into_checkout(&cancel, &repo, "feature", Some("main"), true, None).await.unwrap_err();
     let crate::error::ScmFailure::Coded { detail, .. } = dirty else { panic!("coded") };
     let shown = format!("{detail:?}");
@@ -1779,7 +1781,10 @@ struct HangsOnLock {
 
 #[async_trait::async_trait]
 impl mixdog_core_api::domain::process::ProcessManager for HangsOnLock {
-    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+    async fn spawn(
+        &self,
+        request: mixdog_core_api::domain::process::SpawnRequest,
+    ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
         if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
             && args.windows(2).any(|pair| pair[0] == "worktree" && pair[1] == "lock")
             && self.hang.load(std::sync::atomic::Ordering::SeqCst)
@@ -1792,7 +1797,10 @@ impl mixdog_core_api::domain::process::ProcessManager for HangsOnLock {
         &self,
         handle: &mixdog_protocol::ProcessHandle,
         from_seq: Option<u64>,
-    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
         self.inner.subscribe(handle, from_seq)
     }
     async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -1801,7 +1809,11 @@ impl mixdog_core_api::domain::process::ProcessManager for HangsOnLock {
     fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.close_stdin(handle)
     }
-    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+    fn resize_pty(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        size: mixdog_core_api::domain::process::PtySize,
+    ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.resize_pty(handle, size)
     }
     fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -1829,9 +1841,11 @@ async fn a_creation_that_dies_midway_leaves_a_ledger_and_the_sessions_next_creat
     let data = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
     let processes = std::sync::Arc::new(HangsOnLock { inner: TestProcesses::shared(), hang: true.into() });
-    let scm = Scm::new(processes.clone(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-test-{}", std::process::id())));
+    let scm =
+        Scm::new(processes.clone(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-test-{}", std::process::id())));
     let worktrees = std::sync::Arc::new(Worktrees::new(scm, data.path().to_path_buf()));
-    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t1".into(), name_hint: "doomed".into(), ..CreateRequest::default() };
+    let request =
+        CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t1".into(), name_hint: "doomed".into(), ..CreateRequest::default() };
     let creation = tokio::spawn({
         let (worktrees, cancel, request) = (worktrees.clone(), cancel.clone(), request.clone());
         async move { worktrees.create_full(request, &cancel).await.map(drop) }
@@ -1871,11 +1885,13 @@ async fn a_new_transaction_of_a_session_that_retains_a_worktree_returns_it() {
     let data = tempfile::tempdir().unwrap();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
-    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t1".into(), name_hint: "first".into(), ..CreateRequest::default() };
+    let request =
+        CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t1".into(), name_hint: "first".into(), ..CreateRequest::default() };
     let first = worktrees.create(request.clone(), &cancel).await.unwrap();
     let again = worktrees.create(CreateRequest { tx_id: "t2".into(), name_hint: "second".into(), ..request.clone() }, &cancel).await.unwrap();
     assert_eq!(again.id, first.id);
-    let exact = worktrees.create(CreateRequest { tx_id: "t3".into(), name_hint: "third".into(), branch: Some("topic".into()), ..request }, &cancel).await.unwrap();
+    let exact =
+        worktrees.create(CreateRequest { tx_id: "t3".into(), name_hint: "third".into(), branch: Some("topic".into()), ..request }, &cancel).await.unwrap();
     assert_ne!(exact.id, first.id, "an exact branch settles only its own transaction");
     assert_eq!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().len(), 2);
 }
@@ -1944,7 +1960,14 @@ async fn ownership_survives_a_project_folder_that_is_gone() {
     let data = tempfile::tempdir().unwrap();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
-    let request = CreateRequest { project_path: linked.clone(), session_id: "s1".into(), runtime_token: "rt".into(), tx_id: "t1".into(), name_hint: "kept".into(), ..CreateRequest::default() };
+    let request = CreateRequest {
+        project_path: linked.clone(),
+        session_id: "s1".into(),
+        runtime_token: "rt".into(),
+        tx_id: "t1".into(),
+        name_hint: "kept".into(),
+        ..CreateRequest::default()
+    };
     let made = worktrees.create(request, &cancel).await.unwrap();
     std::fs::remove_dir_all(&linked).unwrap();
     let guest = Owner { session_id: "guest".into(), runtime_token: "rt".into(), pid: None };
@@ -1993,8 +2016,6 @@ fn a_review_revision_names_the_file_identity_or_deleted() {
     assert_eq!(crate::inspect::status::worktree_revision(dir.path(), "gone.txt"), "deleted");
 }
 
-
-
 /// What a dirty repository reads as: the status rows with their staged and unstaged counts, the branches, the log with its refs,
 /// one commit's files, and a diff of an untracked file.
 #[tokio::test]
@@ -2025,9 +2046,7 @@ async fn a_dirty_repository_reads_its_status_branches_log_commit_and_diff() {
     assert_eq!(comparable(branches), serde_json::json!([branch("main", true), branch("feature", false)]));
 
     let log = scm.git_log(&repo, &cancel, "", 0, 40).await.unwrap();
-    let commit = |subject: &str, refs: &[&str], parents: usize| {
-        serde_json::json!({ "author": "Fixture", "branches": refs, "parents": vec!["<H40>"; parents], "pushed": false, "refs": refs, "remotes": [], "subject": subject, "tags": [] })
-    };
+    let commit = |subject: &str, refs: &[&str], parents: usize| serde_json::json!({ "author": "Fixture", "branches": refs, "parents": vec!["<H40>"; parents], "pushed": false, "refs": refs, "remotes": [], "subject": subject, "tags": [] });
     assert_eq!(comparable(log), serde_json::json!([commit("second: edit a", &["main", "feature"], 1), commit("first", &[], 0)]));
     let filtered = scm.git_log(&repo, &cancel, "second", 0, 40).await.unwrap();
     assert_eq!(comparable(filtered), serde_json::json!([commit("second: edit a", &["main", "feature"], 1)]));
@@ -2055,7 +2074,12 @@ async fn staging_unstaging_reverting_and_tagging_change_the_repository_as_asked(
     let cancel = CancellationToken::new();
     let open = scm.open(&repo, &cancel).await.unwrap();
     let rows = |status: Value| -> Vec<(String, String, String)> {
-        status["files"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_owned(), f["index"].as_str().unwrap().to_owned(), f["worktree"].as_str().unwrap().to_owned())).collect()
+        status["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| (f["path"].as_str().unwrap().to_owned(), f["index"].as_str().unwrap().to_owned(), f["worktree"].as_str().unwrap().to_owned()))
+            .collect()
     };
     let row = |path: &str, index: &str, worktree: &str| (path.to_owned(), index.to_owned(), worktree.to_owned());
 
@@ -2087,7 +2111,10 @@ async fn a_snapshot_is_locked_for_its_holder_and_leased_to_it() {
     let record = worktrees.snapshot_held(&repo, &holder, "HEAD", "tx-1", false, &cancel).await.unwrap();
     let resources = &record.extra["resources"];
     assert_eq!(record.extra["kind"], "snapshot");
-    assert_eq!((record.state.as_str(), &record.extra["existingBranch"], &record.extra["disposable"]), ("ready", &serde_json::json!(true), &serde_json::json!(true)));
+    assert_eq!(
+        (record.state.as_str(), &record.extra["existingBranch"], &record.extra["disposable"]),
+        ("ready", &serde_json::json!(true), &serde_json::json!(true))
+    );
     assert_eq!((record.owner_session_id.as_deref(), &record.extra["holderSessionId"]), (None, &serde_json::json!("holder-1")));
     assert_eq!(
         (&resources["worktree"], &resources["lock"], &resources["owner"]),
@@ -2131,7 +2158,13 @@ async fn a_transaction_of_another_session_is_refused_with_a_revision_conflict() 
     let data = tempfile::tempdir().unwrap();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
-    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "s-quit-worktree".into(), name_hint: "first".into(), ..CreateRequest::default() };
+    let request = CreateRequest {
+        project_path: repo.clone(),
+        session_id: "s1".into(),
+        tx_id: "s-quit-worktree".into(),
+        name_hint: "first".into(),
+        ..CreateRequest::default()
+    };
     worktrees.create(request.clone(), &cancel).await.unwrap();
     let refused = worktrees.create(CreateRequest { session_id: "s2".into(), ..request }, &cancel).await.unwrap_err();
     assert_eq!(refused.code(), Some("WORKTREE_REVISION_CONFLICT"));
@@ -2201,7 +2234,8 @@ async fn github_requests_spawn_the_gh_commands_they_stand_for() {
     let list = serde_json::json!([{ "number": 1, "state": "open", "title": "fixture" }]);
     let item = serde_json::json!({ "number": 1, "title": "fixture" });
     let merge_body = format!(r#"{{"merge_method":"merge","sha":"{sha}"}}"#);
-    let listed = |action: &str| serde_json::json!({ "action": action, "data": list, "hasMore": false, "hostname": "github.com", "page": 1, "repo": "owner/name" });
+    let listed =
+        |action: &str| serde_json::json!({ "action": action, "data": list, "hasMore": false, "hostname": "github.com", "page": 1, "repo": "owner/name" });
     let one = |action: &str| serde_json::json!({ "action": action, "data": item, "hostname": "github.com", "repo": "owner/name" });
     let cases = [
         (
@@ -2209,7 +2243,11 @@ async fn github_requests_spawn_the_gh_commands_they_stand_for() {
             listed("pr.list"),
             vec![call(get("repos/owner/name/pulls?per_page=5&page=1&state=open"), None, true, false)],
         ),
-        (serde_json::json!({ "action": "pr.view", "number": 1, "repo": "owner/name" }), one("pr.view"), vec![call(get("repos/owner/name/pulls/1"), None, false, false)]),
+        (
+            serde_json::json!({ "action": "pr.view", "number": 1, "repo": "owner/name" }),
+            one("pr.view"),
+            vec![call(get("repos/owner/name/pulls/1"), None, false, false)],
+        ),
         (
             serde_json::json!({ "action": "issue.comment", "body": "fixture comment", "number": 3, "repo": "owner/name" }),
             one("issue.comment"),
@@ -2223,7 +2261,10 @@ async fn github_requests_spawn_the_gh_commands_they_stand_for() {
         (
             serde_json::json!({ "action": "pr.list" }),
             listed("pr.list"),
-            vec![call(vec!["repo", "view", "--json", "nameWithOwner"], None, false, false), call(get("repos/owner/name/pulls?per_page=30&page=1&state=open"), None, true, false)],
+            vec![
+                call(vec!["repo", "view", "--json", "nameWithOwner"], None, false, false),
+                call(get("repos/owner/name/pulls?per_page=30&page=1&state=open"), None, true, false),
+            ],
         ),
     ];
     for (input, response, spawned) in cases {
@@ -2267,7 +2308,8 @@ async fn a_taken_folder_reserves_the_next_free_name_once() {
             "worktrees": 2,
         })
     );
-    let refused = |branch: &str| serde_json::json!({ "outcome": { "created": false, "alreadyExists": true }, "branches": [branch], "registryIds": [], "worktrees": 1 });
+    let refused =
+        |branch: &str| serde_json::json!({ "outcome": { "created": false, "alreadyExists": true }, "branches": [branch], "registryIds": [], "worktrees": 1 });
     assert_eq!(taken_folder_outcome(2, None).await, refused("mixdog/fix-the-login-page"));
     assert_eq!(taken_folder_outcome(1, Some("feature/login")).await, refused("feature/login"));
 }
@@ -2322,8 +2364,15 @@ async fn every_spelling_of_a_folder_resolves_to_its_one_canonical_path() {
     std::env::set_current_dir(&base).unwrap();
     let (repo_text, linked_text) = (format!("{base_text}\\repo"), format!("{base_text}\\linked"));
     let mut same_repo = vec![
-        format!("{base_text}\\repo"), "repo".to_owned(), "linked\\..\\repo".to_owned(), ".\\repo\\.".to_owned(), format!("{base_text}/repo/sub/.."),
-        format!("{base_text}/repo\\sub\\.."), format!("{}\\REPO", base_text.to_uppercase()), format!("{base_text}\\junc"), format!("{base_text}\\junc\\..\\repo"),
+        format!("{base_text}\\repo"),
+        "repo".to_owned(),
+        "linked\\..\\repo".to_owned(),
+        ".\\repo\\.".to_owned(),
+        format!("{base_text}/repo/sub/.."),
+        format!("{base_text}/repo\\sub\\.."),
+        format!("{}\\REPO", base_text.to_uppercase()),
+        format!("{base_text}\\junc"),
+        format!("{base_text}\\junc\\..\\repo"),
         format!("{base_text}\\repo\\"),
     ];
     if has_short {
@@ -2336,19 +2385,32 @@ async fn every_spelling_of_a_folder_resolves_to_its_one_canonical_path() {
         let spelled = std::path::PathBuf::from(&input);
         assert_eq!(canonical_path(&spelled).to_string_lossy(), repo_text, "{input}: canonical path");
         let got = worktrees.inspect_repo(&spelled, &cancel).await.unwrap();
-        assert_eq!((got.project_path.to_string_lossy().into_owned(), got.top_level.to_string_lossy().into_owned()), (repo_text.clone(), repo_text.clone()), "{input}");
+        assert_eq!(
+            (got.project_path.to_string_lossy().into_owned(), got.top_level.to_string_lossy().into_owned()),
+            (repo_text.clone(), repo_text.clone()),
+            "{input}"
+        );
         assert_eq!(got.common_dir.to_string_lossy(), format!("{repo_text}\\.git"), "{input}");
         assert_eq!(got.current_branch.as_deref(), Some("main"), "{input}");
-        let rows: Vec<String> = worktrees.list_git_worktrees(&mixdog_workspace::pathguard::resolve(&spelled), &cancel).await.unwrap().into_iter().map(|row| row.path).collect();
+        let rows: Vec<String> =
+            worktrees.list_git_worktrees(&mixdog_workspace::pathguard::resolve(&spelled), &cancel).await.unwrap().into_iter().map(|row| row.path).collect();
         assert_eq!(rows, [repo_text.clone(), linked_text.clone()], "{input}: worktree rows");
     }
     let linked = worktrees.inspect_repo(&std::path::PathBuf::from(format!("{base_text}\\junc\\sub\\..\\..\\linked")), &cancel).await.unwrap();
     assert_eq!((linked.project_path.to_string_lossy().into_owned(), linked.current_branch.as_deref()), (linked_text, Some("side")));
     let inside = worktrees.inspect_repo(&std::path::PathBuf::from(format!("{base_text}\\repo\\sub")), &cancel).await.unwrap();
-    assert_eq!((inside.project_path.to_string_lossy().into_owned(), inside.top_level.to_string_lossy().into_owned()), (format!("{repo_text}\\sub"), repo_text.clone()));
-    for (input, named) in [(format!("{base_text}\\repo\\nope\\deeper\\..\\x"), format!("{repo_text}\\nope\\x")), (format!("{base_text}\\junc\\nope"), format!("{repo_text}\\nope"))] {
+    assert_eq!(
+        (inside.project_path.to_string_lossy().into_owned(), inside.top_level.to_string_lossy().into_owned()),
+        (format!("{repo_text}\\sub"), repo_text.clone())
+    );
+    for (input, named) in [
+        (format!("{base_text}\\repo\\nope\\deeper\\..\\x"), format!("{repo_text}\\nope\\x")),
+        (format!("{base_text}\\junc\\nope"), format!("{repo_text}\\nope")),
+    ] {
         let failure = worktrees.inspect_repo(&std::path::PathBuf::from(&input), &cancel).await.unwrap_err();
-        let mixdog_core_api::CoreError::DomainError { code, detail, .. } = mixdog_core_api::CoreError::from(failure) else { panic!("{input}: not a domain error") };
+        let mixdog_core_api::CoreError::DomainError { code, detail, .. } = mixdog_core_api::CoreError::from(failure) else {
+            panic!("{input}: not a domain error")
+        };
         assert_eq!(code.as_deref(), Some("WORKTREE_PROJECT_UNKNOWN"), "{input}");
         let path = serde_json::to_value(detail).unwrap()["projectPath"].as_str().map(str::to_owned);
         assert_eq!(path.as_deref(), Some(named.as_str()), "{input}");

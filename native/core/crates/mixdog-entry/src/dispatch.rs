@@ -79,14 +79,12 @@ mod tests {
         assert!(!line(&[]) && !line(&["--help"]) && !line(&["--bogus"]) && !line(&["--plain"]));
     }
 
-
     #[test]
     fn the_removed_react_flag_says_so_with_exit_1() {
         let (code, out, err) = answer(&Kind::React);
         assert_eq!((code, out.as_str(), err.as_str()), (Some(1), "", "mixdog: --react was removed; run `mixdog` for the canonical TUI.\n"));
     }
 }
-
 
 /// Runs the command on `argv` (the words after the program's name) and returns the exit code.
 pub fn run(argv: &[String]) -> i32 {

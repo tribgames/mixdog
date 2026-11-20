@@ -40,11 +40,7 @@ impl Fake {
 
     fn frames_of(&self, kind: &str) -> Vec<Value> {
         let texts = self.lock().clone();
-        texts
-            .iter()
-            .filter_map(|text| mixdog_relay::js::parse(text).ok())
-            .filter(|value| value.get("type").and_then(Value::as_str) == Some(kind))
-            .collect()
+        texts.iter().filter_map(|text| mixdog_relay::js::parse(text).ok()).filter(|value| value.get("type").and_then(Value::as_str) == Some(kind)).collect()
     }
 }
 

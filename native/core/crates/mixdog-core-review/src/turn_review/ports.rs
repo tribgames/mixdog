@@ -51,7 +51,15 @@ pub trait ReviewWorktrees: Send + Sync {
     /// `resumeTurnWorktreeSnapshot`: a recorded baseline tree re-opened; `None` when it is gone.
     async fn resume(&self, worktree: &str, baseline_tree: &str, scope: &ResumeScope) -> Option<Arc<dyn WorktreeBase>>;
     /// `resumeTurnWorktreeFilePatch`: one file of a recorded baseline against the worktree now.
-    async fn resume_file_patch(&self, worktree: &str, baseline_tree: &str, scope: &ResumeScope, path: &str, old_path: &str, max_bytes: usize) -> Option<crate::turn_review::review_diff::Obj>;
+    async fn resume_file_patch(
+        &self,
+        worktree: &str,
+        baseline_tree: &str,
+        scope: &ResumeScope,
+        path: &str,
+        old_path: &str,
+        max_bytes: usize,
+    ) -> Option<crate::turn_review::review_diff::Obj>;
     /// `forgetTurnWorktreeRoot(root)`: the removed and the kept shadow paths.
     async fn forget_root(&self, root: &str) -> (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>);
     /// `createTurnWorktreeSnapshot(worktree)`: `None` outside a repository.

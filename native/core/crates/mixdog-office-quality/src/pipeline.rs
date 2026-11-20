@@ -93,8 +93,14 @@ const POLISH_GUIDANCE: &[(&str, &str)] = &[
     ("formula_error", "Trace the formula to its source cells, fix the calculation, recalculate, and verify the displayed value."),
     ("unquoted_sheet_reference", "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."),
     ("external_link_reference", "Copy the linked value into a sourced input cell and reference that cell; the external workbook is not available here."),
-    ("percentage_stored_as_whole", "Store the percentage as a fraction (0.15 for 15%) or change the number format; a whole number under a % format renders ×100."),
-    ("number_stored_as_text", "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."),
+    (
+        "percentage_stored_as_whole",
+        "Store the percentage as a fraction (0.15 for 15%) or change the number format; a whole number under a % format renders ×100.",
+    ),
+    (
+        "number_stored_as_text",
+        "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number.",
+    ),
     ("header_not_frozen", "Freeze the header row (freeze_panes) so the column names stay in view while the reader scrolls."),
     ("numeric_column_unformatted", "Give the numeric column an explicit number format (#,##0, 0.0%, yyyy-mm-dd) through set_style or columnFormats."),
     ("year_with_thousands_separator", "Format year cells as text or 0 so 2024 does not render as 2,024."),
@@ -109,40 +115,94 @@ const POLISH_GUIDANCE: &[(&str, &str)] = &[
     ("chart_stops_short_of_data", "Widen the series range to the last data row, or move the rows the chart leaves out if they do not belong to it."),
     ("worksheet_print_too_small", "Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed."),
     ("worksheet_print_fit_missing", "Set a deliberate print area, landscape orientation when useful, and one-page-wide fitting."),
-    ("drawing_outside_print_area", "Set a print area that contains the chart or picture (set_page_setup with fitToContent, or an explicit printArea); an export otherwise splits or drops it."),
-    ("drawing_overlap", "Anchor the second chart or picture below or beside the first (its cell past the rows or columns the first one spans — a 230 pt chart covers about 15 rows); one drawing over another hides both."),
-    ("drawing_covers_cells", "Move the chart or picture clear of the filled cells (set_drawing, or a cell past the rows it spans — a 230 pt chart covers about 15 rows), or move the cells; the page shows the drawing and hides what is under it."),
+    (
+        "drawing_outside_print_area",
+        "Set a print area that contains the chart or picture (set_page_setup with fitToContent, or an explicit printArea); an export otherwise splits or drops it.",
+    ),
+    (
+        "drawing_overlap",
+        "Anchor the second chart or picture below or beside the first (its cell past the rows or columns the first one spans — a 230 pt chart covers about 15 rows); one drawing over another hides both.",
+    ),
+    (
+        "drawing_covers_cells",
+        "Move the chart or picture clear of the filled cells (set_drawing, or a cell past the rows it spans — a 230 pt chart covers about 15 rows), or move the cells; the page shows the drawing and hides what is under it.",
+    ),
     ("label_truncated", "Widen the column (autofit_range) or shorten the label; the cell beside it has content, so the reader sees only part of the text."),
-    ("protected_input_locked", "Unlock the entry range (set_style with properties { locked: false }) before protect_sheet; a protected sheet locks every cell by default, so the form cannot be filled in."),
+    (
+        "protected_input_locked",
+        "Unlock the entry range (set_style with properties { locked: false }) before protect_sheet; a protected sheet locks every cell by default, so the form cannot be filled in.",
+    ),
     ("heading_hierarchy_missing", "Create a clear title and heading hierarchy that matches the document reading path."),
     ("orphan_heading", "Keep the heading with the paragraph or table it introduces."),
-    ("heading_not_distinct", "Set the heading apart from the body by size, weight, colour, letter-spacing or caps, or spacing; a heading the reader cannot see is not a heading."),
+    (
+        "heading_not_distinct",
+        "Set the heading apart from the body by size, weight, colour, letter-spacing or caps, or spacing; a heading the reader cannot see is not a heading.",
+    ),
     ("heading_style_inconsistent", "Set every heading of one level in the same type; a level that changes size mid-document reads as two levels."),
     ("short_table_split", "Keep the short table together or move it intact to the next page."),
-    ("table_label_oversized", "Set the table's labels at caption size and keep display size for its figures: add_table properties.rowStyles, or set_table_cell_style on the label row."),
-    ("total_row_unmarked", "Set the total apart from the rows it sums: add_table properties.totalRow:true in Word, set_style bold with borders.top on the row in Excel."),
-    ("header_alignment_mismatch", "Align the header with its column: a column of figures stands on its right edge, so its header takes horizontalAlignment:'right'."),
+    (
+        "table_label_oversized",
+        "Set the table's labels at caption size and keep display size for its figures: add_table properties.rowStyles, or set_table_cell_style on the label row.",
+    ),
+    (
+        "total_row_unmarked",
+        "Set the total apart from the rows it sums: add_table properties.totalRow:true in Word, set_style bold with borders.top on the row in Excel.",
+    ),
+    (
+        "header_alignment_mismatch",
+        "Align the header with its column: a column of figures stands on its right edge, so its header takes horizontalAlignment:'right'.",
+    ),
     ("shape_overlap", "Move or resize the reported shapes while preserving a consistent alignment grid."),
     ("text_overflow", "Shorten the copy or enlarge the text area before reducing type size."),
     ("small_font", "Reduce content density or split the slide; keep presentation body text at least 12 pt."),
     ("meaningful_visual_missing", "Replace generic text blocks with a chart, table, image, or subject-specific diagram that proves the claim."),
     ("native_evidence_too_weak", "Add source-bound native evidence to the slides carrying material claims."),
-    ("art_direction_candidates_missing", "Compare two or more subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck."),
+    (
+        "art_direction_candidates_missing",
+        "Compare two or more subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck.",
+    ),
     ("flat_visual_rhythm", "Vary background roles, density, focal scale, and evidence treatment while preserving the selected art direction."),
-    ("font_family_overuse", "Advisory: keep the page to the display, body, and data faces (fontRole in a deck); drop every extra typeface unless the concept calls for it."),
-    ("slide_hierarchy_flat", "Give the page one voice the eye reaches first — set its claim above the rest of the type — or carry it with a chart, table, or picture."),
-    ("slide_text_dense", "Split the page or cut it to its claim and its evidence; a page of prose is read, not presented, and shrinking the type only hides it."),
-    ("peer_style_inconsistent", "Set the boxes of one row in the same size and face; make an odd one deliberate by changing what it says, never by a stray size."),
-    ("unsafe_font_family", "Advisory: the face is fine if it is installed, but recipients without it see a substitute in Word, PowerPoint, or Excel; use a safe-list face, or embed or ship the font. Not raised for PDF."),
-    ("accent_hue_overuse", "Advisory: if the palette is not deliberately multi-hued, recolor cards, labels, and chips to palette roles so one accent dominates; chart series colours are not counted."),
+    (
+        "font_family_overuse",
+        "Advisory: keep the page to the display, body, and data faces (fontRole in a deck); drop every extra typeface unless the concept calls for it.",
+    ),
+    (
+        "slide_hierarchy_flat",
+        "Give the page one voice the eye reaches first — set its claim above the rest of the type — or carry it with a chart, table, or picture.",
+    ),
+    (
+        "slide_text_dense",
+        "Split the page or cut it to its claim and its evidence; a page of prose is read, not presented, and shrinking the type only hides it.",
+    ),
+    (
+        "peer_style_inconsistent",
+        "Set the boxes of one row in the same size and face; make an odd one deliberate by changing what it says, never by a stray size.",
+    ),
+    (
+        "unsafe_font_family",
+        "Advisory: the face is fine if it is installed, but recipients without it see a substitute in Word, PowerPoint, or Excel; use a safe-list face, or embed or ship the font. Not raised for PDF.",
+    ),
+    (
+        "accent_hue_overuse",
+        "Advisory: if the palette is not deliberately multi-hued, recolor cards, labels, and chips to palette roles so one accent dominates; chart series colours are not counted.",
+    ),
     ("emphasis_mismatch", "Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it."),
     ("low_visual_contrast", "Increase figure-ground contrast without adding decoration; verify the rendered page again."),
     ("repeated_layout_grammar", "Replace repeated spatial grammar with a different evidence-led composition."),
-    ("repeated_decoration", "Draw the next device of the deck's set on the later page (`motif(slide, '', …)` takes it), or leave that page undecorated; one drawing on consecutive pages reads as the same page twice."),
-    ("consecutive_composition_repeat", "Change the structure where the meaning changes (a different relationship takes a different kit structure), or merge the pages that say the same thing; a deliberate series declares design.review.allowRepetition."),
+    (
+        "repeated_decoration",
+        "Draw the next device of the deck's set on the later page (`motif(slide, '', …)` takes it), or leave that page undecorated; one drawing on consecutive pages reads as the same page twice.",
+    ),
+    (
+        "consecutive_composition_repeat",
+        "Change the structure where the meaning changes (a different relationship takes a different kit structure), or merge the pages that say the same thing; a deliberate series declares design.review.allowRepetition.",
+    ),
     ("repeated_render_composition", "Recompose the repeated slides so their rendered reading paths and evidence structures are visibly distinct."),
     ("slide_visual_density_low", "Add claim-bearing evidence or strengthen the focal hierarchy instead of filling the slide with ornament."),
-    ("visual_role_variety_low", "Use at least three evidence roles across the deck, such as image, chart, process, comparison, table, or typographic statement."),
+    (
+        "visual_role_variety_low",
+        "Use at least three evidence roles across the deck, such as image, chart, process, comparison, table, or typographic statement.",
+    ),
     ("creative_direction_missing", "Define the thesis, narrative arc, evidence map, motif, and per-slide creative brief before authoring the deck."),
     ("semantic_visual_plan_missing", "Assign a semantic visual treatment that directly explains the slide claim."),
     ("generic_visual_treatment", "Replace the generic chart, table, process, metric, or comparison treatment with a subject-specific annotated visual."),
@@ -160,50 +220,101 @@ const POLISH_GUIDANCE: &[(&str, &str)] = &[
     ("number_without_source", "Add a source note that identifies the workbook cell, range, or external document."),
     ("number_without_fact", "Add the figure to the brief facts line with its source (F<n> <value> — <source>), or remove it from the slide."),
     ("facts_missing", "Write the brief facts line: every figure the deck shows, each with a source, before authoring again."),
-    ("fact_without_locator", "Advisory: the brief names sources, so each fact cites where to open it — a page, a cell, a section, or a URL; say so in the line if a figure comes from somewhere else."),
+    (
+        "fact_without_locator",
+        "Advisory: the brief names sources, so each fact cites where to open it — a page, a cell, a section, or a URL; say so in the line if a figure comes from somewhere else.",
+    ),
     ("facts_illustrative", "Advisory: the brief declares the figures illustrative (facts: sample); say so in the delivery and never present them as measured."),
-    ("plan_promise_missing", "Draw the carrier the plan line names, or change the line to what the page carries; author refuses a deck whose page does not carry what its own plan named."),
+    (
+        "plan_promise_missing",
+        "Draw the carrier the plan line names, or change the line to what the page carries; author refuses a deck whose page does not carry what its own plan named.",
+    ),
     ("plan_count_mismatch", "Advisory: the slide plan and the deck disagree on the slide count; update whichever is stale."),
     ("plan_missing", "Write the brief slide plan before authoring again: one line per slide, each naming the job the page does and what carries it."),
-    ("plan_slide_unplanned", "Give every slide in the deck its own plan line, or drop the slides the plan does not want; a page nobody planned is a page nobody designed."),
+    (
+        "plan_slide_unplanned",
+        "Give every slide in the deck its own plan line, or drop the slides the plan does not want; a page nobody planned is a page nobody designed.",
+    ),
     ("plan_incomplete", "Name the job and the carriers on every plan line, so the page is decided before it is drawn."),
     ("chart_stacked_label_position", "Set dataLabelPosition to ctr, inEnd, or inBase on the stacked chart; outEnd makes PowerPoint refuse the file."),
-    ("chart_axis_undeclared", "Give the combo chart valAxes and catAxes with two entries each, or drop secondaryValAxis / secondaryCatAxis from the series; PowerPoint discards the chart otherwise."),
-    ("text_fragmentation", "Merge the stacked single-line text boxes into one text box with paragraphs (breakLine between items) so the copy reflows and edits as a unit."),
+    (
+        "chart_axis_undeclared",
+        "Give the combo chart valAxes and catAxes with two entries each, or drop secondaryValAxis / secondaryCatAxis from the series; PowerPoint discards the chart otherwise.",
+    ),
+    (
+        "text_fragmentation",
+        "Merge the stacked single-line text boxes into one text box with paragraphs (breakLine between items) so the copy reflows and edits as a unit.",
+    ),
     ("dead_vector_chart", "Replace the rectangles with a native chart (addChart / the kit chart()) so the values stay editable and re-sortable."),
-    ("number_format_inconsistent", "Give the whole table column one number format (set_style numberFormat over the column) so every row shows the quantity the same way."),
+    (
+        "number_format_inconsistent",
+        "Give the whole table column one number format (set_style numberFormat over the column) so every row shows the quantity the same way.",
+    ),
     ("table_header_not_repeated", "Mark the header row to repeat (add_table properties.repeatHeader) so a table that crosses a page keeps its column labels."),
     ("subtotal_double_counted", "Sum the detail rows only (=SUM(B2:B9) beside the subtotal, not over it), or exclude the subtotal cell from the range."),
     ("chart_data_unlinked", "Write the chart with add_chart / set_chart_data so its embedded workbook stays in the package and Edit Data opens the numbers."),
-    ("chart_series_unnamed", "Name the series where the reader looks: turn the chart's legend on, label the series names, or write the names on the page beside the colours they stand for."),
+    (
+        "chart_series_unnamed",
+        "Name the series where the reader looks: turn the chart's legend on, label the series names, or write the names on the page beside the colours they stand for.",
+    ),
     ("text_clipped", "Enlarge the box or shorten the copy; text cut at a box edge is always visible to the reader."),
     ("text_box_too_narrow", "Widen the text box so lines wrap at a readable measure instead of one or two words per line."),
     ("shape_out_of_bounds", "Move or resize the shape inside the slide canvas; nothing past the edge is shown."),
-    ("oversized_heading_text", "Set the paragraph in the body style, or lift its first line out as a heading over body text: prose at heading size reads as one shouted block."),
+    (
+        "oversized_heading_text",
+        "Set the paragraph in the body style, or lift its first line out as a heading over body text: prose at heading size reads as one shouted block.",
+    ),
     ("shapes_too_close", "Open the gap between the shapes to at least 0.3 in, or merge them into one block."),
     ("vertical_imbalance", "Move the content down into the field or enlarge the containers so the canvas is filled with intent, not a hollow bottom."),
     ("stat_label_detached", "Bring the label to within 36 pt of its numeral so the pair reads as one unit."),
-    ("low_contrast", "Raise the text or its field to 4.5:1 (3:1 at 18 pt or bold 14 pt): the on-dark ink on a dark fill, a darker ink on a light one, or a scrim under text on a picture."),
+    (
+        "low_contrast",
+        "Raise the text or its field to 4.5:1 (3:1 at 18 pt or bold 14 pt): the on-dark ink on a dark fill, a darker ink on a light one, or a scrim under text on a picture.",
+    ),
     ("font_unavailable", "Use a face from the safe list so the fit review and the recipient render the same widths."),
     ("placeholder_text", "Replace or delete the leftover template wording; placeholder copy never ships."),
     ("unfilled_token", "Fill or remove the unresolved template token before finalize."),
-    ("literal_bullet", "Remove the typed bullet character and give the paragraph list formatting (listKind on append_text, or set_list) so the marker is real."),
+    (
+        "literal_bullet",
+        "Remove the typed bullet character and give the paragraph list formatting (listKind on append_text, or set_list) so the marker is real.",
+    ),
     ("newline_in_text", "Split the text at the newline into separate paragraphs; a newline inside a paragraph renders as a space."),
     ("image_aspect_distorted", "Crop the picture to the frame ratio (the kit picture() does) instead of stretching it."),
-    ("blank_image", "Replace the picture with the artwork it was meant to carry, or remove the frame and its caption; an empty circle reads as a page that failed to finish."),
-    ("image_low_resolution", "Use a picture with about 150 pixels per inch at the size it is placed, or place it smaller; enlarging a small raster only softens it."),
-    ("content_touches_page_edge", "Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band)."),
+    (
+        "blank_image",
+        "Replace the picture with the artwork it was meant to carry, or remove the frame and its caption; an empty circle reads as a page that failed to finish.",
+    ),
+    (
+        "image_low_resolution",
+        "Use a picture with about 150 pixels per inch at the size it is placed, or place it smaller; enlarging a small raster only softens it.",
+    ),
+    (
+        "content_touches_page_edge",
+        "Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band).",
+    ),
     ("edge_margin", "Keep at least 0.5 in between content and the canvas edge, or make the element a deliberate bleed."),
-    ("axis_drift", "Snap the element to the axis its neighbours share (the kit mid()/band() of the same spans() result), or move it clear enough that the offset reads as a decision."),
-    ("cjk_letter_spacing", "Drop charSpacing on the Hangul or CJK run (the kit kicker() adds tracking to Latin only); tracking separates the syllables of a word."),
-    ("peer_gap_uneven", "Place the row from one set of columns (the kit spans() result) so every gap is the same, or make the odd gap large enough to read as a break between groups."),
+    (
+        "axis_drift",
+        "Snap the element to the axis its neighbours share (the kit mid()/band() of the same spans() result), or move it clear enough that the offset reads as a decision.",
+    ),
+    (
+        "cjk_letter_spacing",
+        "Drop charSpacing on the Hangul or CJK run (the kit kicker() adds tracking to Latin only); tracking separates the syllables of a word.",
+    ),
+    (
+        "peer_gap_uneven",
+        "Place the row from one set of columns (the kit spans() result) so every gap is the same, or make the odd gap large enough to read as a break between groups.",
+    ),
     ("text_spacing_tight", "Raise the line spacing to at least 1.05× the size (the kit leading: dense 1.4, body 1.5)."),
     ("text_crosses_edge", "Move the text clear of the surface edge it dips over, or set it wholly inside that surface."),
     ("dense_paragraph", "Split the paragraph, cut the copy, or give it a slide of its own as prose; a wall of text is not evidence."),
     ("heading_hierarchy_jump", "Restore the skipped heading level so the outline reads in order."),
     ("worksheet_hierarchy_missing", "Give the sheet a title row, labelled headers, and one reading order before the data."),
     ("theme_background_drift", "Use only the ladder backgrounds (paper, paperAlt, dark, darkAlt); recolor the drifting slide."),
-    ("theme_body_backgrounds", "Advisory: body slides use several background colours; keep them to the concept's declared palette ladder, or declare the concept or palette in the brief when the colour fields are the design."),
+    (
+        "theme_body_backgrounds",
+        "Advisory: body slides use several background colours; keep them to the concept's declared palette ladder, or declare the concept or palette in the brief when the colour fields are the design.",
+    ),
     ("excessive_slide_text", "Cut the copy to the reading mode's budget (composition.md §4) or split the slide."),
     ("decorative_stripe", "Remove the ornamental bar; a stripe that encodes nothing is decoration (composition.md §10)."),
     ("visual_critique_incomplete", "Give every slide five 1-5 scores, a slide-specific note of 40+ characters, and three checks derived from its plan line."),
@@ -220,9 +331,15 @@ const POLISH_GUIDANCE: &[(&str, &str)] = &[
     ("visual_reference_selection_missing", "Select and record the visual style the deck follows (direction.md §3-§4) before composing."),
     ("source_specific_asset_missing", "Add the subject-specific asset (picture, diagram, chart from the source) where the plan promised one."),
     ("adaptive_layout_rhythm_flat", "Alternate composition moves and densities across adjacent slides so the deck has rhythm."),
-    ("beat_share_high", "Keep the dark or field pages for the cover, the section marks, and the closing; give every other page its chart, table, picture, or structure at half the canvas."),
+    (
+        "beat_share_high",
+        "Keep the dark or field pages for the cover, the section marks, and the closing; give every other page its chart, table, picture, or structure at half the canvas.",
+    ),
     ("consecutive_beats", "Replace the middle beat of the run with the content page it stands in for, or merge the three into one section mark."),
-    ("page_underfill", "Give the page its payload: a chart, table, picture, or structure with the readings beside it (composition.md §8) — or fold the sentence into the page it introduces."),
+    (
+        "page_underfill",
+        "Give the page its payload: a chart, table, picture, or structure with the readings beside it (composition.md §8) — or fold the sentence into the page it introduces.",
+    ),
     ("post_save_reopen_missing", "Reopen the saved file and verify the review evidence after saving."),
     ("visual_coverage_incomplete", "Render and inspect every page before finalize; the visual coverage must be complete."),
 ];
@@ -309,12 +426,7 @@ pub fn normalize_office_review_issues(entries: &[Value]) -> Vec<Value> {
             severity = "info".to_owned();
         }
         record.insert("severity".to_owned(), Value::String(severity.clone()));
-        let key = format!(
-            "{severity}\0{}\0{}\0{}",
-            template_text(record.get("code")),
-            template_text(record.get("path")),
-            template_text(record.get("message"))
-        );
+        let key = format!("{severity}\0{}\0{}\0{}", template_text(record.get("code")), template_text(record.get("path")), template_text(record.get("message")));
         if seen.insert(key) {
             output.push(Value::Object(record));
         }
@@ -402,13 +514,7 @@ pub fn evaluate_office_submission_gate(issues: &[Value], persisted: &Value, visu
         ));
     }
     if is_truthy(Some(visual_coverage)) && field(visual_coverage, "complete") != Some(&Value::Bool(true)) {
-        blocking.push(issue_with(
-            "visual_coverage_incomplete",
-            "/",
-            "Not every rendered page or slide was reviewed.",
-            "render-review",
-            "error",
-        ));
+        blocking.push(issue_with("visual_coverage_incomplete", "/", "Not every rendered page or slide was reviewed.", "render-review", "error"));
     }
     let mut gate = Map::new();
     gate.insert("ok".to_owned(), Value::Bool(blocking.is_empty()));
@@ -497,10 +603,13 @@ mod tests {
         assert_eq!(plan["targets"][0]["actions"][0], "Correct made_up at /p, then render and inspect the affected page again.");
         let unnamed = build_office_polish_plan("docx", &[json!({ "path": "/p" }), json!({ "code": null, "path": "/p" })]);
         assert_eq!(unnamed["targets"][0]["codes"], json!([null, null]));
-        assert_eq!(unnamed["targets"][0]["actions"], json!([
-            "Correct undefined at /p, then render and inspect the affected page again.",
-            "Correct null at /p, then render and inspect the affected page again."
-        ]));
+        assert_eq!(
+            unnamed["targets"][0]["actions"],
+            json!([
+                "Correct undefined at /p, then render and inspect the affected page again.",
+                "Correct null at /p, then render and inspect the affected page again."
+            ])
+        );
     }
 
     #[test]

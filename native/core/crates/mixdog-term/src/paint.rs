@@ -107,10 +107,7 @@ impl<'g> Painter<'g> {
     }
 
     fn inside(&self, x: i32, y: i32) -> bool {
-        x >= i32::from(self.clip.x)
-            && y >= i32::from(self.clip.y)
-            && (x as i64) < i64::from(self.clip.right())
-            && (y as i64) < i64::from(self.clip.bottom())
+        x >= i32::from(self.clip.x) && y >= i32::from(self.clip.y) && (x as i64) < i64::from(self.clip.right()) && (y as i64) < i64::from(self.clip.bottom())
     }
 
     /// Fills a rectangle with blanks of one style (a box's background).

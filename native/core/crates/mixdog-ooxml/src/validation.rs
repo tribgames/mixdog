@@ -394,10 +394,8 @@ struct Placed<'a> {
 fn low_resolution_issue(placed: &Placed<'_>) -> Option<Value> {
     let inches_wide = placed.cx / EMU_PER_INCH;
     let inches_tall = placed.cy / EMU_PER_INCH;
-    let drawn_at = math::min(
-        (placed.width * placed.visible.0) / math::max(inches_wide, 0.01),
-        (placed.height * placed.visible.1) / math::max(inches_tall, 0.01),
-    );
+    let drawn_at =
+        math::min((placed.width * placed.visible.0) / math::max(inches_wide, 0.01), (placed.height * placed.visible.1) / math::max(inches_tall, 0.01));
     let enlarged = !placed.picture.contains("svgBlip") && placed.width >= IMAGE_SPACER_PX && placed.height >= IMAGE_SPACER_PX && drawn_at < IMAGE_MIN_PPI;
     if !enlarged {
         return None;
@@ -462,7 +460,8 @@ fn image_placement_issues(zip: &Package, format: &str) -> Vec<Value> {
         for (index, picture) in pictures.iter().enumerate() {
             let ordinal = index + 1;
             let Some(embed) = capture(r#"<a:blip\b[^>]*\br:embed="([^"]+)""#, picture) else { continue };
-            let extent_pattern = if format == "pptx" { r#"<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""# } else { r#"<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""# };
+            let extent_pattern =
+                if format == "pptx" { r#"<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""# } else { r#"<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""# };
             let Some(extent) = compiled(extent_pattern, "").captures(picture) else { continue };
             let (cx, cy) = (string_to_number(extent.get(1).unwrap_or("")), string_to_number(extent.get(2).unwrap_or("")));
             let Some(target) = relationships.get(&embed) else { continue };
@@ -626,7 +625,11 @@ fn package_provenance_issues(validation: &Value) -> Vec<Value> {
     let error = |code: &str, path: String, message: &str| finding("error", code, &path, message, None);
     let warning = |code: &str, path: String, message: String| finding("warning", code, &path, &message, None);
     for part in list(baseline.and_then(|found| found.get("lostProtectedParts"))) {
-        issues.push(error("lost_protected_part", format!("/{}", js_text(Some(part))), "A macro, master, layout, or theme part from the source package was removed."));
+        issues.push(error(
+            "lost_protected_part",
+            format!("/{}", js_text(Some(part))),
+            "A macro, master, layout, or theme part from the source package was removed.",
+        ));
     }
     for part in list(baseline.and_then(|found| found.get("changedProtectedParts"))) {
         issues.push(error(
@@ -636,7 +639,11 @@ fn package_provenance_issues(validation: &Value) -> Vec<Value> {
         ));
     }
     if truthy(security.and_then(|found| found.get("digitalSignatureInvalidated"))) {
-        issues.push(error("digital_signature_invalidated", "/".to_owned(), "The source package was digitally signed and document changes invalidate that signature."));
+        issues.push(error(
+            "digital_signature_invalidated",
+            "/".to_owned(),
+            "The source package was digitally signed and document changes invalidate that signature.",
+        ));
     }
     for macro_part in list(validation.get("macros")) {
         issues.push(warning(
@@ -750,7 +757,8 @@ fn table_cell_contrast(cell_xml: &str, body: &str, slide_surface: &str) -> Optio
     let properties = compiled(r"<a:tcPr\b[^>]*>[\s\S]*?<\/a:tcPr>", "").find(cell_xml).map_or("", |range| &cell_xml[range]);
     // The cell's own fill follows its border definitions, and each border carries a colour of its own: read the fill after
     // the lines are out.
-    let pairs = compiled(r"<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*>[\s\S]*?<\/a:ln(?:L|R|T|B|TlToBr|BlToTr)>", "g").replace_all_with(properties, |_| String::new());
+    let pairs =
+        compiled(r"<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*>[\s\S]*?<\/a:ln(?:L|R|T|B|TlToBr|BlToTr)>", "g").replace_all_with(properties, |_| String::new());
     let surface = compiled(r"<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*\/>", "g").replace_all_with(&pairs, |_| String::new());
     let fill = capture(r#"<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})""#, &surface).unwrap_or_else(|| slide_surface.to_owned());
     let ink = capture(r#"<a:rPr\b[^>]*>[\s\S]*?<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})""#, body).unwrap_or_default();
@@ -842,7 +850,8 @@ fn table_cell_overflow_issues<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip:
             let table = &frame[range];
             table_ordinal += 1;
             let frame_top = number_or_zero(r#"<p:xfrm>[\s\S]*?<a:off\b[^>]*\by="(-?\d+)""#, &frame);
-            let widths: Vec<f64> = compiled(r#"<a:gridCol\b[^>]*\bw="(\d+)""#, "g").captures_iter(table).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
+            let widths: Vec<f64> =
+                compiled(r#"<a:gridCol\b[^>]*\bw="(\d+)""#, "g").captures_iter(table).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
             if widths.is_empty() {
                 continue;
             }
@@ -972,7 +981,8 @@ struct BrokenWord {
 /// LibreOffice both do it without a warning, so the column reads as a typo on the printed page.
 fn broken_cell_word<P: ReadProof>(measurer: &TextMeasurer<'_, P>, table: &str) -> Result<Option<BrokenWord>, String> {
     let grid = compiled(r"<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>", "").find(table).map_or("", |range| &table[range]);
-    let columns: Vec<f64> = compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
+    let columns: Vec<f64> =
+        compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
     if columns.is_empty() {
         return Ok(None);
     }
@@ -1003,7 +1013,8 @@ fn broken_cell_word<P: ReadProof>(measurer: &TextMeasurer<'_, P>, table: &str) -
                     italic: false,
                 };
                 let indent = capture(r"<w:pPr\b[^>]*>[\s\S]*?<w:ind\b([^>]*)\/>", &paragraph).unwrap_or_default();
-                let inset: f64 = ["left", "start", "right", "end", "firstLine"].iter().map(|name| number_or_zero(&format!(r#"\bw:{name}="(\d+)""#), &indent)).sum();
+                let inset: f64 =
+                    ["left", "start", "right", "end", "firstLine"].iter().map(|name| number_or_zero(&format!(r#"\bw:{name}="(\d+)""#), &indent)).sum();
                 let text = paragraph_texts(&paragraph, "w:t").join("");
                 let mut widest: Option<(String, f64)> = None;
                 for word in text.split(is_js_space).filter(|word| !word.is_empty() && unbreakable.is_match(word)) {
@@ -1059,7 +1070,8 @@ fn document_table_issues<P: ReadProof>(measurer: &TextMeasurer<'_, P>, document:
             ));
         }
         let grid = compiled(r"<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>", "").find(&table.xml).map_or("", |range| &table.xml[range]);
-        let columns: Vec<f64> = compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
+        let columns: Vec<f64> =
+            compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
         if columns.is_empty() {
             continue;
         }
@@ -1100,7 +1112,8 @@ fn review_state_issues(snapshot: &Value) -> Vec<Value> {
     }
     // A resolved thread is settled and its replies belong to it: counting them as outstanding tells a reviewer to answer
     // comments Word already closed.
-    let open: Vec<&Value> = list(snapshot.get("comments")).iter().filter(|comment| !truthy(comment.get("replyTo")) && !truthy(comment.get("resolved"))).collect();
+    let open: Vec<&Value> =
+        list(snapshot.get("comments")).iter().filter(|comment| !truthy(comment.get("replyTo")) && !truthy(comment.get("resolved"))).collect();
     if let Some(first) = open.first() {
         let path = if truthy(first.get("path")) { js_text(first.get("path")) } else { "/body".to_owned() };
         issues.push(finding("info", "unresolved_comments", &path, &format!("{} comment thread(s) remain unresolved.", open.len()), None));
@@ -1223,7 +1236,13 @@ fn sheet_value_issues(sheet: &Value) -> Vec<Value> {
         }
         let value = if truthy(cell.get("value")) { js_text(cell.get("value")) } else { String::new() };
         if error_pattern.is_match(&value) {
-            issues.push(finding("error", "formula_error", &text_of(cell, "path"), &format!("Cell contains formula error {}", js_text(cell.get("value"))), None));
+            issues.push(finding(
+                "error",
+                "formula_error",
+                &text_of(cell, "path"),
+                &format!("Cell contains formula error {}", js_text(cell.get("value"))),
+                None,
+            ));
         }
     }
     if !uncached.is_empty() {
@@ -1415,7 +1434,12 @@ mod tests {
         let run = "<w:p><w:r><w:rPr><w:rFonts w:ascii=\"Cambria\"/></w:rPr><w:t>2024 매출</w:t></w:r></w:p>";
         let issues = document_font_pairing_issues(&body(run), "");
         assert_eq!(codes(&issues), ["font_pairing_mismatch"]);
-        assert!(issues[0]["message"].as_str().unwrap_or("").starts_with("1 block sets Hangul in Malgun Gothic beside Latin and digits in Cambria, a sans and a serif"));
+        assert!(
+            issues[0]["message"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("1 block sets Hangul in Malgun Gothic beside Latin and digits in Cambria, a sans and a serif")
+        );
         let paired = "<w:p><w:r><w:rPr><w:rFonts w:ascii=\"Cambria\" w:eastAsia=\"Batang\"/></w:rPr><w:t>2024 매출</w:t></w:r></w:p>";
         assert!(document_font_pairing_issues(&body(paired), "").is_empty());
     }
@@ -1460,7 +1484,10 @@ mod tests {
         package.set("ppt/presentation.xml", "<p/>");
         package.set("ppt/media/stray.png", "x");
         package.set("ppt/charts/chart1.xml", "<c/>");
-        package.set("ppt/charts/_rels/chart1.xml.rels", "<Relationships><Relationship Id=\"rId1\" Type=\"t/image\" Target=\"../media/chained.png\"/></Relationships>");
+        package.set(
+            "ppt/charts/_rels/chart1.xml.rels",
+            "<Relationships><Relationship Id=\"rId1\" Type=\"t/image\" Target=\"../media/chained.png\"/></Relationships>",
+        );
         package.set("ppt/media/chained.png", "x");
         package.set("[Content_Types].xml", "<Types><Override PartName=\"/ppt/charts/chart1.xml\" ContentType=\"c\"/></Types>");
         let sweep = remove_orphan_package_parts(&mut package).expect("a sweep");

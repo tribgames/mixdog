@@ -60,24 +60,17 @@ fn pages_read(conn: &Connection, reset: bool) -> i64 {
     let (mut current, mut highest) = (0, 0);
     // SAFETY: the handle is the live connection's, used on the thread that owns it for the call's duration; the two
     // out-parameters are valid for writes.
-    let status = unsafe {
-        rusqlite::ffi::sqlite3_db_status(conn.handle(), rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS, &mut current, &mut highest, i32::from(reset))
-    };
+    let status =
+        unsafe { rusqlite::ffi::sqlite3_db_status(conn.handle(), rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS, &mut current, &mut highest, i32::from(reset)) };
     if status == rusqlite::ffi::SQLITE_OK { i64::from(current) } else { 0 }
 }
 
 mod stats_reads;
 use stats_reads::{Claim, ReadKey, StatsReads};
 
-#[allow(
-    clippy::disallowed_methods,
-    reason = "opens a connection inside a lane job; never on an async task"
-)]
+#[allow(clippy::disallowed_methods, reason = "opens a connection inside a lane job; never on an async task")]
 pub(crate) fn open_reader(path: &Path) -> Result<Connection> {
-    let conn = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
     // Reads by mapping the file (shared with the OS page cache) instead of copying pages into a private 2 MB cache: the
     // usage scans read the same pages again and again.
     conn.execute_batch("PRAGMA query_only=1; PRAGMA mmap_size=268435456")?;
@@ -130,10 +123,7 @@ pub struct UsageReader {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "test fixture: a second connection plays the writer"
-)]
+#[allow(clippy::disallowed_methods, reason = "test fixture: a second connection plays the writer")]
 mod tests {
     use super::*;
 
@@ -144,13 +134,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite");
         let writer = Connection::open(&path).unwrap();
-        writer
-            .execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES (1)")
-            .unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES (1)").unwrap();
         let pool = Pool::default();
-        let count = |conn: &Connection| {
-            conn.query_row("SELECT COUNT(*) FROM t", [], |r| r.get::<_, i64>(0))
-        };
+        let count = |conn: &Connection| conn.query_row("SELECT COUNT(*) FROM t", [], |r| r.get::<_, i64>(0));
 
         let (before, after) = pool
             .with(&path, |conn| {
@@ -164,9 +150,7 @@ mod tests {
         // The next job, on the same pooled connection, opens a fresh snapshot.
         assert_eq!(pool.with(&path, |conn| Ok(count(conn)?)).unwrap(), 2);
     }
-
 }
-
 
 /// A read this long or longer is logged by name ([`UsageReader::run_named`]).
 const SLOW_READ: std::time::Duration = std::time::Duration::from_millis(250);
@@ -207,7 +191,8 @@ impl UsageReader {
         self.on_lane(lane, move || match lane {
             ReadLane::Interactive => me.interactive_pool.with(&me.path, read),
             ReadLane::Maintenance => me.maintenance_pool.with(&me.path, read),
-        }).await?
+        })
+        .await?
     }
 
     async fn on_lane<T: Send + 'static>(&self, lane: ReadLane, work: impl FnOnce() -> T + Send + 'static) -> Result<T> {
@@ -215,21 +200,11 @@ impl UsageReader {
         match lane {
             ReadLane::Interactive => {
                 let job = move |_: &InLane<InteractiveIo>| work();
-                self.interactive
-                    .submit(&cancel, job)
-                    .map_err(|_| LedgerError::Busy {
-                        queue: "io-interactive",
-                    })?
-                    .await
+                self.interactive.submit(&cancel, job).map_err(|_| LedgerError::Busy { queue: "io-interactive" })?.await
             }
             ReadLane::Maintenance => {
                 let job = move |_: &InLane<MaintenanceIo>| work();
-                self.maintenance
-                    .submit(&cancel, job)
-                    .map_err(|_| LedgerError::Busy {
-                        queue: "io-maintenance",
-                    })?
-                    .await
+                self.maintenance.submit(&cancel, job).map_err(|_| LedgerError::Busy { queue: "io-maintenance" })?.await
             }
         }
         .map_err(|_| LedgerError::Stopped)
@@ -238,20 +213,13 @@ impl UsageReader {
     /// The lane a rollup runs on: a window cut below whole days, or an hourly day, folds the
     /// period's events.
     pub fn rollup_lane(query: &RollupQuery) -> ReadLane {
-        if query.from_ms.is_some() || query.hourly_day.is_some() {
-            ReadLane::Maintenance
-        } else {
-            ReadLane::Interactive
-        }
+        if query.from_ms.is_some() || query.hourly_day.is_some() { ReadLane::Maintenance } else { ReadLane::Interactive }
     }
 
     /// The lane `getUsageStats` runs on: the hour view and clock-narrowed ranges fold events.
     pub fn stats_lane(options: &UsageStatsOptions) -> ReadLane {
         let clock = |t: &Option<String>| t.as_deref().is_some_and(|t| !t.is_empty());
-        if options.view.as_deref() == Some("hour")
-            || clock(&options.start_time)
-            || clock(&options.end_time)
-        {
+        if options.view.as_deref() == Some("hour") || clock(&options.start_time) || clock(&options.end_time) {
             ReadLane::Maintenance
         } else {
             ReadLane::Interactive
@@ -259,16 +227,13 @@ impl UsageReader {
     }
 
     /// `getUsageStats`.
-    pub async fn usage_stats(
-        self: &Arc<Self>,
-        options: UsageStatsOptions,
-        now: i64,
-    ) -> Result<Value> {
+    pub async fn usage_stats(self: &Arc<Self>, options: UsageStatsOptions, now: i64) -> Result<Value> {
         let lane = Self::stats_lane(&options);
         self.run_named("usage_stats", lane, move |conn| {
             let period = stats_period(&options, now)?;
             Ok(StatsData::read(conn, &rollup_query_for(period.as_ref()), now)?.snapshot(&options, period.as_ref(), now))
-        }).await
+        })
+        .await
     }
 
     pub(crate) async fn stamped_stats(self: &Arc<Self>, stamp: String, options: UsageStatsOptions, now: i64) -> Result<Value> {
@@ -288,11 +253,13 @@ impl UsageReader {
             Claim::Read(flight) => {
                 #[cfg(test)]
                 let reader = self.clone();
-                let result = self.run_named("usage_stats", lane, move |conn| {
-                    #[cfg(test)]
-                    reader.probe.count_read();
-                    StatsData::read(conn, &query, now)
-                }).await;
+                let result = self
+                    .run_named("usage_stats", lane, move |conn| {
+                        #[cfg(test)]
+                        reader.probe.count_read();
+                        StatsData::read(conn, &query, now)
+                    })
+                    .await;
                 #[cfg(test)]
                 self.probe.pause("publish").await;
                 flight.finish(result)?
@@ -303,11 +270,7 @@ impl UsageReader {
 
     /// `getUsageRequests`: one page of the request log (requests unlabelled by session); the
     /// first page runs on the maintenance lane (see [`Self::requests_lane`]).
-    pub async fn usage_requests(
-        self: &Arc<Self>,
-        options: UsageRequestsOptions,
-        real_now: i64,
-    ) -> Result<Value> {
+    pub async fn usage_requests(self: &Arc<Self>, options: UsageRequestsOptions, real_now: i64) -> Result<Value> {
         let plan = requests_plan(&options, real_now)?;
         let page = self.requests_page(plan.query.clone()).await?;
         Ok(plan.envelope(&page))
@@ -319,11 +282,7 @@ impl UsageReader {
         let lane = Self::requests_lane(&query);
         self.run_named("requests_page", lane, move |conn| {
             let mut page = read_request_rows(conn, &query)?;
-            page["models"] = if query.is_first_page() {
-                read_request_models(conn, query.from_ms, query.to_ms)?
-            } else {
-                Value::Null
-            };
+            page["models"] = if query.is_first_page() { read_request_models(conn, query.from_ms, query.to_ms)? } else { Value::Null };
             Ok(page)
         })
         .await
@@ -333,81 +292,42 @@ impl UsageReader {
     /// page also lists the models, which visits every route, so it is one maintenance job: its
     /// rows and its models list come from one snapshot.
     pub fn requests_lane(query: &RequestQuery) -> ReadLane {
-        if query.is_first_page() {
-            ReadLane::Maintenance
-        } else {
-            ReadLane::Interactive
-        }
+        if query.is_first_page() { ReadLane::Maintenance } else { ReadLane::Interactive }
     }
 
     /// A rollup document (`{days, hourly?}`).
     pub async fn rollup(self: &Arc<Self>, query: RollupQuery) -> Result<Value> {
         let lane = Self::rollup_lane(&query);
-        self.run_named("rollup", lane, move |conn| Ok(rollup_usage(conn, &query)?.to_value()))
-            .await
+        self.run_named("rollup", lane, move |conn| Ok(rollup_usage(conn, &query)?.to_value())).await
     }
 
     /// The totals of the sessions named, and of the sessions recorded as run for `owner_ids`.
-    pub async fn session_usage(
-        self: &Arc<Self>,
-        session_ids: Vec<String>,
-        owner_ids: Vec<String>,
-    ) -> Result<Value> {
-        self.run_named("session_usage", ReadLane::Interactive, move |conn| {
-            read_session_usage(conn, &session_ids, &owner_ids)
-        })
-        .await
+    pub async fn session_usage(self: &Arc<Self>, session_ids: Vec<String>, owner_ids: Vec<String>) -> Result<Value> {
+        self.run_named("session_usage", ReadLane::Interactive, move |conn| read_session_usage(conn, &session_ids, &owner_ids)).await
     }
 
     /// Unpriced records up to `now` (a maintenance read: it scans them all).
     pub async fn unpriced_pending(self: &Arc<Self>, now: i64) -> Result<Pending> {
-        self.run_named("unpriced_pending", ReadLane::Maintenance, move |conn| {
-            unpriced_pending(conn, now)
-        })
-        .await
+        self.run_named("unpriced_pending", ReadLane::Maintenance, move |conn| unpriced_pending(conn, now)).await
     }
 
     /// Unpriced records appended after `latest`.
     pub async fn unpriced_after(self: &Arc<Self>, now: i64, latest: i64) -> Result<i64> {
-        self.run_named("unpriced_after", ReadLane::Maintenance, move |conn| {
-            unpriced_after(conn, now, latest)
-        })
-        .await
+        self.run_named("unpriced_after", ReadLane::Maintenance, move |conn| unpriced_after(conn, now, latest)).await
     }
 
     /// The rows a repair examines (`selectUsageRepairCandidates`).
-    pub async fn repair_candidates(
-        self: &Arc<Self>,
-        options: RepairOptions,
-    ) -> Result<Vec<Candidate>> {
-        self.run_named("repair_candidates", ReadLane::Maintenance, move |conn| {
-            select_candidates(conn, &options)
-        })
-        .await
+    pub async fn repair_candidates(self: &Arc<Self>, options: RepairOptions) -> Result<Vec<Candidate>> {
+        self.run_named("repair_candidates", ReadLane::Maintenance, move |conn| select_candidates(conn, &options)).await
     }
 
     /// The change token of a group of sessions (see [`read_usage_token`]).
-    pub async fn usage_token(
-        self: &Arc<Self>,
-        session_ids: Vec<String>,
-        owner_ids: Vec<String>,
-    ) -> Result<String> {
-        self.run_named("usage_token", ReadLane::Interactive, move |conn| {
-            read_usage_token(conn, &session_ids, &owner_ids)
-        })
-        .await
+    pub async fn usage_token(self: &Arc<Self>, session_ids: Vec<String>, owner_ids: Vec<String>) -> Result<String> {
+        self.run_named("usage_token", ReadLane::Interactive, move |conn| read_usage_token(conn, &session_ids, &owner_ids)).await
     }
 
     /// `getQuotaHistory` (before the account service adds its labels).
-    pub async fn quota_history(
-        self: &Arc<Self>,
-        options: QuotaHistoryOptions,
-        in_use: std::collections::BTreeMap<String, String>,
-        now: i64,
-    ) -> Result<Value> {
-        self.run_named("quota_history", ReadLane::Maintenance, move |conn| {
-            get_quota_history(conn, &options, &in_use, now)
-        })
-        .await
+    pub async fn quota_history(self: &Arc<Self>, options: QuotaHistoryOptions, in_use: std::collections::BTreeMap<String, String>, now: i64) -> Result<Value> {
+        self.run_named("quota_history", ReadLane::Maintenance, move |conn| get_quota_history(conn, &options, &in_use, now)).await
     }
 }

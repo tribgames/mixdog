@@ -34,9 +34,9 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
+use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::on_lane;
 use mixdog_core_base::support::on_lane_wait;
-use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_config::config::Config;
 use mixdog_migrate::desktop_profile::desktop_profile_dir_with;
@@ -130,8 +130,7 @@ fn status(data: &Path) -> Result<MigrateProfileStatus, CoreError> {
 /// Validates the named directory against the recorded profile and runs the supplement pass.
 fn adopt(mut roots: MigrationRoots, adopting: &Mutex<()>) -> Result<MigrateProfileAdopted, CoreError> {
     // Absolute only; then spelled as the launcher's profile is (`locate`), so the journal records the same form.
-    let Some(named) = roots.profile.as_deref().filter(|path| path.is_absolute()).and_then(|path| desktop_profile_dir_with(Some(path), &|_| None))
-    else {
+    let Some(named) = roots.profile.as_deref().filter(|path| path.is_absolute()).and_then(|path| desktop_profile_dir_with(Some(path), &|_| None)) else {
         return Err(invalid("userData", "an absolute path"));
     };
     roots.profile = Some(named.clone());
@@ -141,7 +140,8 @@ fn adopt(mut roots: MigrationRoots, adopting: &Mutex<()>) -> Result<MigrateProfi
     let _one = adopting.lock().unwrap_or_else(PoisonError::into_inner);
     let (_, recorded) = recorded(&roots.data).map_err(|error| failed(DOMAIN, error))?;
     if let Some(recorded) = recorded
-        && !same_directory(&named, Path::new(&recorded)) {
+        && !same_directory(&named, Path::new(&recorded))
+    {
         return Err(invalid("userData", "the profile directory already recorded for this data directory"));
     }
     let outcome = supplement::run(&roots).map_err(|error| failed(DOMAIN, error.to_string()))?;
@@ -173,8 +173,7 @@ impl DomainService for MigrateProfileService {
                 let roots = MigrationRoots { data: self.data.clone(), home: self.home.clone(), profile: Some(PathBuf::from(params.user_data)) };
                 let adopting = self.adopting.clone();
                 let outcome = on_lane_wait(self.durability, &req.ctx.cancel, move |_| adopt(roots, &adopting)).await??;
-                self.config.adopt_legacy_markdown_view(self.user_data.clone()).await
-                    .map_err(|error| failed(DOMAIN, error.to_string()))?;
+                self.config.adopt_legacy_markdown_view(self.user_data.clone()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
                 reply(&outcome)
             }
             other => Err(wrong_method(DOMAIN, other)),

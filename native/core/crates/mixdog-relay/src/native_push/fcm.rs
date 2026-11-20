@@ -91,10 +91,7 @@ impl FcmSender {
             .transport
             .post(HttpRequest {
                 url: format!("{}/v1/projects/{}/messages:send", self.origin, self.config.project_id),
-                headers: vec![
-                    ("authorization".to_owned(), format!("Bearer {access_token}")),
-                    ("content-type".to_owned(), "application/json".to_owned()),
-                ],
+                headers: vec![("authorization".to_owned(), format!("Bearer {access_token}")), ("content-type".to_owned(), "application/json".to_owned())],
                 body: js::node_utf8(&js::wire(&body)),
                 http2_only: false,
             })
@@ -108,9 +105,10 @@ impl FcmSender {
         }
         let error = js::parse_bytes(&response.body).ok().and_then(|body| body.get("error").cloned()).unwrap_or(Value::Null);
         let status_name = error.get("status").cloned().unwrap_or(Value::Null);
-        let listed_unregistered = error.get("details").and_then(Value::as_array).is_some_and(|details| {
-            details.iter().any(|detail| detail.get("errorCode").and_then(Value::as_str) == Some("UNREGISTERED"))
-        });
+        let listed_unregistered = error
+            .get("details")
+            .and_then(Value::as_array)
+            .is_some_and(|details| details.iter().any(|detail| detail.get("errorCode").and_then(Value::as_str) == Some("UNREGISTERED")));
         let unregistered = response.status == 404 && (status_name.as_str() == Some("NOT_FOUND") || listed_unregistered);
         Ok(SendResult {
             ok: false,

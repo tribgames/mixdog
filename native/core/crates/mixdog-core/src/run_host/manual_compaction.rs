@@ -17,12 +17,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use mixdog_agent::cancel::Cancel;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::compact::estimate::MessageMeter;
 use mixdog_agent::compact::pressure::{
-    Archived, CommitInput, CompactionPlan, Route, StatusInput, SummaryFacts, TRANSCRIPT_MOVED_ERROR, TranscriptSigner, UsageSnapshotArgs, commit_compaction, compaction_plan,
-    failed_compaction, invalidate_provider_context_baseline, record_context_usage_snapshot, usage_totals,
+    Archived, CommitInput, CompactionPlan, Route, StatusInput, SummaryFacts, TRANSCRIPT_MOVED_ERROR, TranscriptSigner, UsageSnapshotArgs, commit_compaction,
+    compaction_plan, failed_compaction, invalidate_provider_context_baseline, record_context_usage_snapshot, usage_totals,
 };
-use mixdog_agent::cancel::Cancel;
 use mixdog_agent::compact::tool_schema::RequestTools;
 use mixdog_agent::env::{Clock, CompactError, CompactRequest, CompactTrigger};
 use mixdog_agent::message::AgentMessage;
@@ -38,7 +39,6 @@ use mixdog_core_session::session::route_session::ContextStatusCache;
 use mixdog_core_session::session::run::{Compaction, Dropped};
 use mixdog_core_session::session::thread_context::{ContextSnapshot, ContextWorld};
 use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, CompactionHeader, ManualCompaction, OffloadCopies};
-use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Value, json};
 
@@ -245,8 +245,15 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
         let transcript: Vec<AgentMessage> = compacted.iter().chain(&appended_messages).cloned().collect();
         invalidate_provider_context_baseline().apply(&mut working);
         if let Some(policy) = &committed.policy {
-            let args = UsageSnapshotArgs { used_tokens: committed.after.tokens, message_tokens_est: Some(committed.after.message_tokens), source: "post_compact", updated_at: Some(facts.now), now: facts.now };
-            let patch = with_status(snapshot, &working, &transcript, |status| record_context_usage_snapshot(&working, policy, &transcript, status.signer, &args));
+            let args = UsageSnapshotArgs {
+                used_tokens: committed.after.tokens,
+                message_tokens_est: Some(committed.after.message_tokens),
+                source: "post_compact",
+                updated_at: Some(facts.now),
+                now: facts.now,
+            };
+            let patch =
+                with_status(snapshot, &working, &transcript, |status| record_context_usage_snapshot(&working, policy, &transcript, status.signer, &args));
             if let Some(patch) = patch {
                 patch.apply(&mut working);
             }
@@ -279,7 +286,15 @@ pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, 
 }
 
 /// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
-pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
+pub(crate) async fn prune_offloads(
+    io: &ToolIo,
+    data_dir: &std::path::Path,
+    clock: &dyn Clock,
+    thread: &ThreadId,
+    candidates: Vec<std::path::PathBuf>,
+    transcripts: String,
+    copies: OffloadCopies,
+) {
     let now = u64::try_from(clock.now_ms()).unwrap_or(0);
     ToolResultArtifacts::new(*io, data_dir, thread.as_str()).prune(candidates, transcripts, copies, now).await;
 }
@@ -301,7 +316,15 @@ impl HostManualCompaction {
 
     /// `recordFailedCompaction` and the save after it: the thread keeps its conversation; its
     /// `compaction` record says what happened.
-    async fn record_failure(&self, thread: &ThreadId, snapshot: &ContextSnapshot, messages: &[AgentMessage], plan: &CompactionPlan, usage: Option<&Value>, errors: (&str, Option<&str>)) -> Result<Value, CoreError> {
+    async fn record_failure(
+        &self,
+        thread: &ThreadId,
+        snapshot: &ContextSnapshot,
+        messages: &[AgentMessage],
+        plan: &CompactionPlan,
+        usage: Option<&Value>,
+        errors: (&str, Option<&str>),
+    ) -> Result<Value, CoreError> {
         let (error, fresh_error) = errors;
         // A session that closed, was deleted or shut down under the compaction (its abort is why this records a failure) is gone
         // from the directory: Node holds the session it loaded, its save is dropped by the close's generation, and the result
@@ -356,7 +379,15 @@ impl PassTranscript for mixdog_core_session::session::SessionDirectory {
 impl HostManualCompaction {
     /// The manual pass over `snapshot`'s thread (`runSessionCompaction` with `force`), reading and committing through
     /// `transcript`.
-    pub(crate) async fn pass(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, snapshot: ContextSnapshot, transcript: &dyn PassTranscript, cancel: &Cancel) -> Result<Option<Value>, CoreError> {
+    pub(crate) async fn pass(
+        &self,
+        thread: &ThreadId,
+        trigger: &str,
+        require_reduction: bool,
+        snapshot: ContextSnapshot,
+        transcript: &dyn PassTranscript,
+        cancel: &Cancel,
+    ) -> Result<Option<Value>, CoreError> {
         let parts = &self.parts;
         let context = transcript.context(thread).await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
@@ -370,7 +401,9 @@ impl HostManualCompaction {
         let Some(plan) = plan else { return Ok(None) };
 
         // The compactor of the thread's route: `runSessionHandoff`.
-        let Some(mut settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
+        let Some(mut settings) = parts.config.run_settings(thread, &snapshot.header).compact else {
+            return Err(failed(DOMAIN, "no compaction policy for this session"));
+        };
         settings.handoff_timeout_ms = handoff_summary_timeout_ms(&snapshot.header);
         // What left is reported only when its stored row shows (`prepareCompactionArchive`): the pass reads them here.
         let input = CompactorInput {
@@ -379,13 +412,23 @@ impl HostManualCompaction {
             archive: Arc::new(ToolResultArtifacts::new(parts.io, &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
-        let Some(compactor) = parts.compactors.compactor(thread, &snapshot.header, &rows, input).await else { return Err(failed(DOMAIN, "no compactor for this session")) };
+        let Some(compactor) = parts.compactors.compactor(thread, &snapshot.header, &rows, input).await else {
+            return Err(failed(DOMAIN, "no compactor for this session"));
+        };
         // `plan.requireReduction`: an explicit request (a manual pass is not automatic) unless the
         // request's media alone would need the compaction.
         compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
         // `runHandoffCompaction` passes no Goal reminder: a compaction outside a turn marks it for the next turn instead.
-        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
+        let request = |require_reduction: bool| CompactRequest {
+            messages: &messages,
+            budget_tokens: plan.budget as u64,
+            trigger: CompactTrigger::Auto,
+            require_reduction,
+            reference_latest_attachments: false,
+            active_turn: false,
+            latest_user_prefix: "",
+        };
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
@@ -438,7 +481,10 @@ impl HostManualCompaction {
             .map(|(message, row)| (message.message_id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()))
             .collect();
         let dropped = output.dropped.as_ref().map(|d| Dropped { message_ids: d.message_ids.clone(), call_ids: d.call_ids.clone() });
-        let archived = Archived { dropped: output.dropped_count, identities: output.dropped.as_ref().map(|d| json!({ "messageIds": d.message_ids, "callIds": d.call_ids })) };
+        let archived = Archived {
+            dropped: output.dropped_count,
+            identities: output.dropped.as_ref().map(|d| json!({ "messageIds": d.message_ids, "callIds": d.call_ids })),
+        };
         let now = self.now();
         let compaction = Compaction { replacement, at: now as i64, dropped_count: output.dropped_count, dropped };
         let clock = parts.clock.clone();
@@ -471,8 +517,8 @@ impl HostManualCompaction {
         // The books the session's store holds open; with no directory bound yet no session of it is open, and the
         // header's book is the whole record.
         let books = self.parts.directory.directory().map(|directory| directory.deps().cache_tail.clone()).unwrap_or_default();
-        let adopted: Vec<_> = mixdog_agent::skill_update::latest_skill_bodies(&facts.compacted)
-            .into_iter().map(|skill| facts.compacted[skill.index].clone()).collect();
+        let adopted: Vec<_> =
+            mixdog_agent::skill_update::latest_skill_bodies(&facts.compacted).into_iter().map(|skill| facts.compacted[skill.index].clone()).collect();
         let header: CompactionHeader = Box::new(move |header, appended| {
             let (mut working, result) = committed_header(&facts, header, appended);
             manual_tail(&mut working, facts.now);
@@ -492,7 +538,9 @@ impl HostManualCompaction {
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }
             // The conversation moved: nothing was applied, the summary's usage still counts.
-            CompactionCommit::Moved => self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), (TRANSCRIPT_MOVED_ERROR, None)).await.map(Some),
+            CompactionCommit::Moved => {
+                self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), (TRANSCRIPT_MOVED_ERROR, None)).await.map(Some)
+            }
         }
     }
 }
@@ -535,7 +583,15 @@ impl ManualCompaction for HostManualCompaction {
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
+        let request = CompactRequest {
+            messages: &messages,
+            budget_tokens,
+            trigger: CompactTrigger::Auto,
+            require_reduction: false,
+            reference_latest_attachments: false,
+            active_turn: false,
+            latest_user_prefix: "",
+        };
         let output = compactor.compact(request).await.map_err(|error| match error {
             CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),
@@ -605,8 +661,14 @@ impl ManualCompaction for HostManualCompaction {
     fn books(&self, thread: &ThreadId, header: &Header) -> Option<Books> {
         let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
         // Only the meters whose facts were read: an unprepared lowering would price stored media cold.
-        let (media, images) = self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&(thread.as_str().to_owned(), provider.to_owned())).cloned()?;
-        Some(Books { media, images, native: native_request_tools(&Value::Object(header.clone())), agent_mode: super::session_cache_opts::is_agent_mode_session(header) })
+        let (media, images) =
+            self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&(thread.as_str().to_owned(), provider.to_owned())).cloned()?;
+        Some(Books {
+            media,
+            images,
+            native: native_request_tools(&Value::Object(header.clone())),
+            agent_mode: super::session_cache_opts::is_agent_mode_session(header),
+        })
     }
 }
 

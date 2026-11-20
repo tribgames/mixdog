@@ -28,12 +28,7 @@ pub enum ProxyError {
 /// response is the result.
 #[async_trait]
 pub trait ModelProxyTransport: Send + Sync {
-    async fn execute(
-        &self,
-        call: JsonValue,
-        events: &mut (dyn FnMut(JsonValue) + Send),
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, ProxyError>;
+    async fn execute(&self, call: JsonValue, events: &mut (dyn FnMut(JsonValue) + Send), cancel: &CancellationToken) -> Result<JsonValue, ProxyError>;
 
     /// [`Self::execute`] whose caller also answers the PC while the call runs: each value `back` yields is the params of one
     /// `model/proxy/tail` to the PC running this call (its request id added). A transport that cannot carry the answers

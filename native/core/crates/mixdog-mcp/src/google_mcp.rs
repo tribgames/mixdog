@@ -166,14 +166,22 @@ impl Calls<'_> {
     async fn send(&self, url: &str, call: Call) -> Result<GoogleReply, Failure> {
         let reply = self
             .fetch
-            .fetch(GoogleRequest { method: call.method, url: url.to_owned(), authorization: Some(format!("Bearer {}", self.token)), content_type: call.content_type, body: call.body })
+            .fetch(GoogleRequest {
+                method: call.method,
+                url: url.to_owned(),
+                authorization: Some(format!("Bearer {}", self.token)),
+                content_type: call.content_type,
+                body: call.body,
+            })
             .await
             .map_err(Failure::Tool)?;
         if reply.status == 401 {
             return Err(Failure::Unauthorized);
         }
         if !(200..300).contains(&reply.status) {
-            let detail = serde_json::from_str::<Value>(&reply.body).ok().and_then(|d| d.pointer("/error/message").and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_owned));
+            let detail = serde_json::from_str::<Value>(&reply.body)
+                .ok()
+                .and_then(|d| d.pointer("/error/message").and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_owned));
             return Err(Failure::Tool(detail.unwrap_or_else(|| format!("Google answered {}", reply.status))));
         }
         Ok(reply)
@@ -294,7 +302,9 @@ fn event_body(args: &Value) -> Value {
     put("end", when(args.get("end"), &time_zone));
     put(
         "attendees",
-        args.get("attendees").and_then(Value::as_array).map(|list| Value::Array(list.iter().map(|email| text(Some(email))).filter(|email| !email.is_empty()).map(|email| json!({ "email": email })).collect())),
+        args.get("attendees").and_then(Value::as_array).map(|list| {
+            Value::Array(list.iter().map(|email| text(Some(email))).filter(|email| !email.is_empty()).map(|email| json!({ "email": email })).collect())
+        }),
     );
     Value::Object(body)
 }
@@ -312,7 +322,13 @@ fn event_line(event: &Value) -> String {
     put("start", moment("start"));
     put("end", moment("end"));
     put("location", event.get("location").cloned());
-    put("attendees", event.get("attendees").and_then(Value::as_array).map(|rows| Value::Array(rows.iter().map(|row| row.get("email").cloned().unwrap_or(Value::Null)).collect())));
+    put(
+        "attendees",
+        event
+            .get("attendees")
+            .and_then(Value::as_array)
+            .map(|rows| Value::Array(rows.iter().map(|row| row.get("email").cloned().unwrap_or(Value::Null)).collect())),
+    );
     put("link", event.get("htmlLink").cloned());
     Value::Object(out).to_string()
 }
@@ -332,7 +348,8 @@ fn export_as(mime: &str) -> Option<&'static str> {
 
 /// `/^text\/|^application\/(?:json|xml|javascript|x-yaml|csv)/`.
 fn is_text_like(mime: &str) -> bool {
-    mime.starts_with("text/") || ["json", "xml", "javascript", "x-yaml", "csv"].iter().any(|kind| mime.strip_prefix("application/").is_some_and(|rest| rest.starts_with(kind)))
+    mime.starts_with("text/")
+        || ["json", "xml", "javascript", "x-yaml", "csv"].iter().any(|kind| mime.strip_prefix("application/").is_some_and(|rest| rest.starts_with(kind)))
 }
 
 fn quote_query(value: &str) -> String {
@@ -490,7 +507,11 @@ fn collection<'a>(response: &'a Value, key: &str) -> Result<&'a [Value], Failure
     if response.is_object() && response.get(key).is_none() {
         return Ok(&[]);
     }
-    response.get(key).and_then(Value::as_array).filter(|items| items.iter().all(Value::is_object)).map(Vec::as_slice)
+    response
+        .get(key)
+        .and_then(Value::as_array)
+        .filter(|items| items.iter().all(Value::is_object))
+        .map(Vec::as_slice)
         .ok_or_else(|| Failure::Tool(format!("Google returned an invalid {key} collection")))
 }
 
@@ -505,7 +526,12 @@ async fn send_email(args: &Value, calls: &Calls<'_>) -> Result<String, Failure> 
 
 async fn list_events(args: &Value, calls: &Calls<'_>) -> Result<String, Failure> {
     let time_min = Some(text(args.get("timeMin"))).filter(|t| !t.is_empty()).unwrap_or_else(|| iso(calls.now_ms));
-    let mut pairs = vec![("singleEvents", "true".to_owned()), ("orderBy", "startTime".to_owned()), ("timeMin", time_min), ("maxResults", page_size(args.get("maxResults")))];
+    let mut pairs = vec![
+        ("singleEvents", "true".to_owned()),
+        ("orderBy", "startTime".to_owned()),
+        ("timeMin", time_min),
+        ("maxResults", page_size(args.get("maxResults"))),
+    ];
     for (key, param) in [("timeMax", "timeMax"), ("query", "q")] {
         let value = text(args.get(key));
         if !value.is_empty() {
@@ -541,7 +567,12 @@ async fn search_files(args: &Value, calls: &Calls<'_>) -> Result<String, Failure
     if !query.is_empty() {
         terms.push(format!("name contains '{}'", quote_query(&query)));
     }
-    let pairs = [("q", terms.join(" and ")), ("fields", format!("files({FILE_FIELDS})")), ("orderBy", "modifiedTime desc".to_owned()), ("pageSize", page_size(args.get("pageSize")))];
+    let pairs = [
+        ("q", terms.join(" and ")),
+        ("fields", format!("files({FILE_FIELDS})")),
+        ("orderBy", "modifiedTime desc".to_owned()),
+        ("pageSize", page_size(args.get("pageSize"))),
+    ];
     let list = calls.json(&format!("{DRIVE}?{}", form(&pairs)), Call::get()).await?;
     let files = collection(&list, "files")?;
     Ok(if files.is_empty() { "No files.".to_owned() } else { files.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") })
@@ -673,7 +704,9 @@ async fn rpc(service: &str, calls: &Calls<'_>, message: &Value) -> Result<Value,
 /// authorization server. `None` for any other URL.
 pub fn protected_resource(url: &Url) -> Option<Value> {
     let service = service(url)?;
-    url.path().starts_with("/.well-known/oauth-protected-resource").then(|| json!({ "resource": mcp_url(service), "authorization_servers": [GOOGLE_ISSUER], "bearer_methods_supported": ["header"] }))
+    url.path()
+        .starts_with("/.well-known/oauth-protected-resource")
+        .then(|| json!({ "resource": mcp_url(service), "authorization_servers": [GOOGLE_ISSUER], "bearer_methods_supported": ["header"] }))
 }
 
 /// Answers a request to a built-in Google service like a remote MCP server. `Err` when the network failed.
@@ -689,7 +722,10 @@ pub async fn answer(url: &Url, method: &str, authorization: Option<&str>, body: 
     if !method.eq_ignore_ascii_case("POST") {
         return Ok(Answer { status: 405, allow: Some("POST"), www_authenticate: None, body: None });
     }
-    let unauthorized = || Answer { www_authenticate: Some(format!("Bearer resource_metadata=\"https://{host}/.well-known/oauth-protected-resource/mcp\"")), ..Answer::json(401, json!({ "error": "invalid_token" })) };
+    let unauthorized = || Answer {
+        www_authenticate: Some(format!("Bearer resource_metadata=\"https://{host}/.well-known/oauth-protected-resource/mcp\"")),
+        ..Answer::json(401, json!({ "error": "invalid_token" }))
+    };
     let Some(token) = bearer_of(authorization) else { return Ok(unauthorized()) };
     let Ok(message) = serde_json::from_slice::<Value>(body) else {
         return Ok(Answer::json(400, json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": "Parse error" } })));

@@ -166,7 +166,6 @@ pub fn keep_native(native: &[ModelRecord], enriched: Vec<ModelRecord>) -> Vec<Mo
 mod tests {
     use super::*;
 
-
     #[test]
     fn only_a_stated_cache_read_price_marks_prompt_caching() {
         let lookup = ListingLookup::with_models_dev(&json!({"openai": {"models": {
@@ -260,10 +259,7 @@ mod tests {
         let kept = keep_native(std::slice::from_ref(&native), vec![enriched]).remove(0);
         assert_eq!((kept.context_window, kept.max_output_tokens, kept.mode.as_deref()), (Some(1000), Some(77), Some("responses")));
     }
-
-
 }
-
 
 impl ListingLookup {
     pub fn new() -> Self {
@@ -340,9 +336,7 @@ impl ListingLookup {
     /// `getModelMetadataSync(model, provider)?.supportsPromptCaching`: the flag of the resident
     /// tables for a model no provider row states. Only a stated `true` marks caching.
     pub fn supports_prompt_caching(&self, provider: &str, model: &str) -> bool {
-        self.with(|lookup, _| {
-            lookup.lookup(model, provider, None).is_some_and(|meta| meta.get("supportsPromptCaching") == Some(&Value::Bool(true)))
-        })
+        self.with(|lookup, _| lookup.lookup(model, provider, None).is_some_and(|meta| meta.get("supportsPromptCaching") == Some(&Value::Bool(true))))
     }
 
     /// `getModelMetadataSync(model, provider)?.outputTokens`: the model's declared output limit in the resident
@@ -357,9 +351,7 @@ impl ListingLookup {
         self.with(|_, models_dev| {
             let ctx = Context {
                 models_dev,
-                now_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as i64),
+                now_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64),
                 stale_months: stale_months(std::env::var("MIXDOG_MODEL_STALE_MONTHS").ok().as_deref()),
             };
             sanitize_model_list(rows, provider, &ctx)

@@ -41,18 +41,13 @@ use serde_json::json;
 use super::connectors::ProjectConnectors;
 use crate::session::worktree::LiveSessions;
 use crate::session::worktree::SessionWorkspaces;
-use crate::session::worktree::scm_error;
 use crate::session::worktree::Workspace;
+use crate::session::worktree::scm_error;
 
 const DOMAIN: &str = "project";
 
-const READS: [&str; 5] = [
-    "project/inspectProjectBranch",
-    "project/getProjectBranchMenu",
-    "project/getProjectConnectors",
-    "project/listWorktrees",
-    "project/previewWorktreeCleanup",
-];
+const READS: [&str; 5] =
+    ["project/inspectProjectBranch", "project/getProjectBranchMenu", "project/getProjectConnectors", "project/listWorktrees", "project/previewWorktreeCleanup"];
 
 const MUTATIONS: [&str; 8] = [
     "project/selectProjectBranch",
@@ -181,10 +176,7 @@ impl ProjectService {
         let path = require_text(value, "projectPath")?;
         match self.projects.registered(&path).await.map_err(plain)? {
             Some(registered) => Ok(registered),
-            None => Err(ScmFailure::coded(
-                errors::WORKTREE_PROJECT_UNKNOWN,
-                DomainErrorDetail::WorktreeProjectUnknown { project_path: None, reason: None },
-            )),
+            None => Err(ScmFailure::coded(errors::WORKTREE_PROJECT_UNKNOWN, DomainErrorDetail::WorktreeProjectUnknown { project_path: None, reason: None })),
         }
     }
 
@@ -245,7 +237,14 @@ impl ProjectService {
             return self
                 .worktrees
                 .checkout_project_branch(
-                    CheckoutRequest { project_path: project.to_path_buf(), branch: None, create: false, remote: false, start_point: None, detach: Some(commit) },
+                    CheckoutRequest {
+                        project_path: project.to_path_buf(),
+                        branch: None,
+                        create: false,
+                        remote: false,
+                        start_point: None,
+                        detach: Some(commit),
+                    },
                     cancel,
                 )
                 .await;
@@ -265,7 +264,10 @@ impl ProjectService {
         let start_point = start_point.map(|point| require_text(Some(point), "startPoint")).transpose()?;
         let _held = self.workspaces.hold_project_folder(&path_text(&facts.top_level))?;
         self.worktrees
-            .checkout_project_branch(CheckoutRequest { project_path: project.to_path_buf(), branch: Some(name), create, remote, start_point, detach: None }, cancel)
+            .checkout_project_branch(
+                CheckoutRequest { project_path: project.to_path_buf(), branch: Some(name), create, remote, start_point, detach: None },
+                cancel,
+            )
             .await
     }
 
@@ -350,10 +352,7 @@ impl ProjectService {
         // The scope is read again under the admission, as the callback of `withManagementFolders` does.
         let live = (self.live)();
         let retained = self.sessions.stored_session_ids().await?;
-        let removed = self
-            .worktrees
-            .remove_orphaned(entry_id.as_deref().unwrap_or_default(), flag(&input, "force"), &live, &retained, true, cancel)
-            .await?;
+        let removed = self.worktrees.remove_orphaned(entry_id.as_deref().unwrap_or_default(), flag(&input, "force"), &live, &retained, true, cancel).await?;
         Ok(json!({ "removed": removed, "entryId": entry_id, "path": folder }))
     }
 
@@ -361,7 +360,8 @@ impl ProjectService {
     /// worktrees become disposable.
     async fn set_archived(&self, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let input = fields(input, "sessionIds")?;
-        let ids: HashSet<String> = input.get("sessionIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        let ids: HashSet<String> =
+            input.get("sessionIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
         self.worktrees.set_archived_session_worktrees(&ids, flag(&input, "archived"), cancel).await
     }
 

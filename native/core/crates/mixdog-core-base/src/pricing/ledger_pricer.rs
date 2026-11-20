@@ -88,9 +88,9 @@ impl CatalogPricer {
 #[allow(clippy::disallowed_methods, reason = "a test seeds the catalog cache files on the test thread")]
 mod tests {
     use mixdog_ai::catalog::CatalogSnapshot;
-    use mixdog_ai::catalog::ModelsDevSource;
     use mixdog_ai::catalog::LITELLM_CACHE_FILE;
     use mixdog_ai::catalog::MODELS_DEV_CACHE_FILE;
+    use mixdog_ai::catalog::ModelsDevSource;
     use mixdog_ai::oauth::CredentialIo;
     use mixdog_ai::transport::http::HttpResponse;
     use mixdog_ai::transport::http::HttpSend;
@@ -104,15 +104,8 @@ mod tests {
     struct Offline;
     #[async_trait::async_trait]
     impl HttpSend for Offline {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: mixdog_ai::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
+        async fn send(&self, _: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
         }
     }
 
@@ -132,7 +125,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(CatalogPricer::new(&catalog(dir.path()).await).is_err(), "cold");
 
-        let row = r#"{"fetchedAt":1,"data":{"gpt-x":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}}"#;
+        let row =
+            r#"{"fetchedAt":1,"data":{"gpt-x":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}}"#;
         std::fs::write(dir.path().join(LITELLM_CACHE_FILE), row).unwrap();
         std::fs::write(dir.path().join(MODELS_DEV_CACHE_FILE), r#"{"fetchedAt":1,"data":{}}"#).unwrap();
         let service = catalog(dir.path()).await;
@@ -171,6 +165,4 @@ mod tests {
         assert_eq!(got.cost_usd, direct.cost_usd);
         assert_eq!(got.rates.as_deref(), Some(direct.rates_json().as_str()));
     }
-
-
 }

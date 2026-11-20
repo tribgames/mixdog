@@ -104,8 +104,7 @@ impl TransferSource for ExportSource {
             return Err(WsError::new(Reason::Io, "The export did not produce a file."));
         }
         let path = rendered.path;
-        let (file, canonical) =
-            on_lane(self.interactive, cancel, move |lane| open_export(lane, &path)).await.map_err(lane_failure)??;
+        let (file, canonical) = on_lane(self.interactive, cancel, move |lane| open_export(lane, &path)).await.map_err(lane_failure)??;
         let base = canonical.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let mime_type = if format == "png" { "image/png" } else { "application/pdf" };
         // `dropExport`: the export's own temp folder goes when the transfer ends.
@@ -147,17 +146,10 @@ mod tests {
     #[tokio::test]
     async fn a_rendered_export_is_offered_named_and_typed_by_its_format() {
         let tmp = tempfile::tempdir().unwrap();
-        let renderer = Arc::new(Renderer {
-            folder: tmp.path().join("mixdog-visualize-export-a1B2"),
-            name: "-.chart v2.png",
-            seen: Mutex::default(),
-        });
+        let renderer = Arc::new(Renderer { folder: tmp.path().join("mixdog-visualize-export-a1B2"), name: "-.chart v2.png", seen: Mutex::default() });
         let export = ExportSource::new(renderer.clone(), &mixdog_rt::testing::tokens());
         let cancel = CancellationToken::new();
-        let opened = export
-            .open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "png", "pane": 1, "extra": true })), &cancel)
-            .await
-            .unwrap();
+        let opened = export.open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "png", "pane": 1, "extra": true })), &cancel).await.unwrap();
         assert_eq!((opened.name.as_str(), opened.mime_type.as_str()), ("chart v2.png", "image/png"));
         let staged = opened.cleanup.clone().expect("the export folder is removed when the transfer ends");
         assert_eq!(staged, std::fs::canonicalize(tmp.path().join("mixdog-visualize-export-a1B2")).unwrap());
@@ -168,10 +160,7 @@ mod tests {
         // The host gets the validated command only.
         assert_eq!(
             renderer.seen.lock().unwrap()[0],
-            json!({ "sessionId": "sess_1", "tabId": "t1", "action": "export", "format": "png", "pane": 1 })
-                .as_object()
-                .cloned()
-                .unwrap()
+            json!({ "sessionId": "sess_1", "tabId": "t1", "action": "export", "format": "png", "pane": 1 }).as_object().cloned().unwrap()
         );
 
         let pdf = export.open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "pdf" })), &cancel).await.unwrap();
@@ -189,9 +178,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let renderer = Arc::new(Renderer { folder: tmp.path().join("elsewhere"), name: "x.png", seen: Mutex::default() });
         let export = ExportSource::new(renderer, &mixdog_rt::testing::tokens());
-        let refused = export
-            .open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "png" })), &CancellationToken::new())
-            .await;
+        let refused = export.open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "png" })), &CancellationToken::new()).await;
         let error = refused.err().expect("refused");
         assert_eq!(error.reason, Reason::NotAFile);
     }

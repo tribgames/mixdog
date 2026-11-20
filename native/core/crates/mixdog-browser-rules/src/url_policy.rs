@@ -186,10 +186,7 @@ fn is_private_network_address(address: &str) -> bool {
 
 fn is_cloud_metadata_host(hostname: &str) -> bool {
     let host = mapped_ipv4(hostname).unwrap_or_else(|| normalized_hostname(hostname));
-    matches!(
-        host.as_str(),
-        "169.254.169.254" | "169.254.170.2" | "100.100.100.200" | "metadata.google.internal" | "metadata.goog" | "fd00:ec2::254"
-    )
+    matches!(host.as_str(), "169.254.169.254" | "169.254.170.2" | "100.100.100.200" | "metadata.google.internal" | "metadata.goog" | "fd00:ec2::254")
 }
 
 fn allowed_by_domain_policy(hostname: &str, allowed_domains: &[&str]) -> bool {

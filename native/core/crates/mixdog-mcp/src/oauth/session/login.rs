@@ -373,12 +373,7 @@ impl McpOAuth {
 }
 
 impl Run<'_> {
-    async fn attempt(
-        &mut self,
-        mut callback_rx: mpsc::UnboundedReceiver<Callback>,
-        held: &Held,
-        code_received: &mut bool,
-    ) -> Result<Option<String>, Stop> {
+    async fn attempt(&mut self, mut callback_rx: mpsc::UnboundedReceiver<Callback>, held: &Held, code_received: &mut bool) -> Result<Option<String>, Stop> {
         self.abort.check()?;
         let authorized = self.auth(None).await.map_err(AuthError::into_stop)?;
         if let Authorized::Redirect = authorized {
@@ -430,9 +425,7 @@ impl Run<'_> {
         // A switch can replace a grant that refreshed while the browser was open. It must not
         // replace a newer explicit sign-in or undo sign-out. A non-transactional login carries the
         // whole previous entry, so it must not overwrite even a concurrent refresh.
-        if self.login_version != self.oauth.credential.login_version.load(Ordering::Relaxed)
-            || (!self.in_memory && self.generation != generation)
-        {
+        if self.login_version != self.oauth.credential.login_version.load(Ordering::Relaxed) || (!self.in_memory && self.generation != generation) {
             return Err(OAuthError::LoginFailed);
         }
         Ok(())
@@ -566,11 +559,8 @@ impl Run<'_> {
                     return Err(OAuthError::LoginFailed.into());
                 }
                 let redirect = self.redirect_url.clone();
-                let registered = self
-                    .abort
-                    .guard(oauth.protocol.register(&discovery, &redirect, scope.as_deref()))
-                    .await?
-                    .map_err(|_| OAuthError::LoginFailed)?;
+                let registered =
+                    self.abort.guard(oauth.protocol.register(&discovery, &redirect, scope.as_deref())).await?.map_err(|_| OAuthError::LoginFailed)?;
                 let mut registered = registered;
                 registered["issuer"] = Value::String(issuer.clone());
                 let stored = registered.clone();
@@ -684,19 +674,13 @@ impl Run<'_> {
         form: Vec<(&str, String)>,
         resource: Option<String>,
     ) -> Result<Value, AuthError> {
-        let tokens = self
-            .abort
-            .guard(self.oauth.protocol.token(discovery, credentials, form, resource))
-            .await?
-            .map_err(token_failure)?;
+        let tokens = self.abort.guard(self.oauth.protocol.token(discovery, credentials, form, resource)).await?.map_err(token_failure)?;
         self.identity = identity_from_token_response(&tokens);
         Ok(tokens)
     }
 
     /// Node's `provider.saveTokens`.
-    async fn save_tokens(
-        &mut self, cache: &mut Cache, mut tokens: Value, issuer: &str, mut unstamped: Option<Value>, rotated: bool,
-    ) -> Result<(), AuthError> {
+    async fn save_tokens(&mut self, cache: &mut Cache, mut tokens: Value, issuer: &str, mut unstamped: Option<Value>, rotated: bool) -> Result<(), AuthError> {
         tokens["issuer"] = Value::String(issuer.to_owned());
         if !rotated {
             self.abort.check()?;

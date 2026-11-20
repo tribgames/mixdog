@@ -314,7 +314,8 @@ fn scroll_text_apply_expression(token: &str) -> String {
 async fn collect_frames<T: DeserializeOwned>(cx: &ActionContext<'_>, expression: &str) -> Result<Vec<T>, ActionError> {
     let facts = cx.page.facts();
     let mut frames: Vec<Option<FrameRef>> = vec![None];
-    frames.extend(facts.child_sessions.iter().map(|child| Some(FrameRef { session_id: Some(child.session_id.clone()), frame_id: Some(child.frame_id.clone()) })));
+    frames
+        .extend(facts.child_sessions.iter().map(|child| Some(FrameRef { session_id: Some(child.session_id.clone()), frame_id: Some(child.frame_id.clone()) })));
     if frames.len() > MAX_FRAME_TARGETS {
         return Err(ActionError::Failed("too many frame targets for a complete observation".to_string()));
     }
@@ -335,7 +336,10 @@ async fn collect_frames<T: DeserializeOwned>(cx: &ActionContext<'_>, expression:
         if let Some(exception) = answer.exception {
             return Err(ActionError::Failed(exception.text));
         }
-        out.push(serde_json::from_value(answer.value.unwrap_or(Value::Null)).map_err(|_| ActionError::Failed("a frame did not answer the observation".to_string()))?);
+        out.push(
+            serde_json::from_value(answer.value.unwrap_or(Value::Null))
+                .map_err(|_| ActionError::Failed("a frame did not answer the observation".to_string()))?,
+        );
     }
     Ok(out)
 }
@@ -495,7 +499,10 @@ mod tests {
     const URL: &str = "https://a.test/";
 
     fn refs(snapshot_id: &str) -> RefSet {
-        RefSet::from_payload(snapshot_id, &payload(snapshot_id, vec![element(&format!("{snapshot_id}-e1"), "button", "Save"), element(&format!("{snapshot_id}-e2"), "region", "Done")], URL))
+        RefSet::from_payload(
+            snapshot_id,
+            &payload(snapshot_id, vec![element(&format!("{snapshot_id}-e1"), "button", "Save"), element(&format!("{snapshot_id}-e2"), "region", "Done")], URL),
+        )
     }
 
     fn page() -> TestPage {
@@ -529,7 +536,14 @@ mod tests {
                 let command: Value = $command;
                 let mut rig = Rig::new(Some(refs("p1-s1")));
                 let view = rig.source.view();
-                let mut cx = ActionContext { host: $host, page: $page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+                let mut cx = ActionContext {
+                    host: $host,
+                    page: $page,
+                    command: &command,
+                    cancel: &view,
+                    recovery: &mut rig.recovery,
+                    effect_baseline: &mut rig.baseline,
+                };
                 $handler(&mut cx).await
             }
         };
@@ -566,7 +580,8 @@ mod tests {
         run!(&page, &host, command, click).await.expect("double clicked");
         host.finish().expect("done");
 
-        let host = FakeHost::scripted(vec![probe(1.0, 2.0), batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "tap", "x": 1.0, "y": 2.0}]}))]);
+        let host =
+            FakeHost::scripted(vec![probe(1.0, 2.0), batch("completed").with_params(json!({"steps": [{"op": "pointer", "kind": "tap", "x": 1.0, "y": 2.0}]}))]);
         run!(&page, &host, json!({"ref": "p1-s1-e1", "pointer": "touch"}), click).await.expect("tapped");
         host.finish().expect("done");
     }
@@ -603,11 +618,15 @@ mod tests {
         let cases: [(&str, Value, Result<(), &str>); 5] = [
             ("dialog", page_facts("p1", 3), Ok(())),
             ("hitGuard", page_facts("p1", 3), Err("input target changed or could not be verified; input was not replayed, observe before continuing")),
-            ("hitGuard", {
-                let mut moved = page_facts("p1", 3);
-                moved["url"] = json!("https://a.test/next");
-                moved
-            }, Ok(())),
+            (
+                "hitGuard",
+                {
+                    let mut moved = page_facts("p1", 3);
+                    moved["url"] = json!("https://a.test/next");
+                    moved
+                },
+                Ok(()),
+            ),
             ("userInput", page_facts("p1", 3), Err("the person holds the page")),
             ("cancelled", page_facts("p1", 3), Err("browser command cancelled")),
         ];
@@ -643,7 +662,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_key_press_is_one_press_step() {
-        let host = FakeHost::scripted(vec![batch("completed").with_params(json!({"steps": [{"op": "press", "key": "Control+A"}], "expect": {"documentId": "p1:1"}}))]);
+        let host =
+            FakeHost::scripted(vec![batch("completed").with_params(json!({"steps": [{"op": "press", "key": "Control+A"}], "expect": {"documentId": "p1:1"}}))]);
         let page = page();
         let output = run!(&page, &host, json!({"key": "Control+A"}), press).await.expect("pressed");
         assert!(!output.decorate_recovery);
@@ -686,7 +706,11 @@ mod tests {
 
     fn frame_facts() -> PageFacts {
         let mut facts: PageFacts = serde_json::from_value(page_facts("p1", 1)).expect("facts");
-        facts.child_sessions = vec![mixdog_app_protocol::v2::browser_engine::BrowserChildSession { session_id: "c1".into(), frame_id: "f1".into(), url: "https://b.test/".into() }];
+        facts.child_sessions = vec![mixdog_app_protocol::v2::browser_engine::BrowserChildSession {
+            session_id: "c1".into(),
+            frame_id: "f1".into(),
+            url: "https://b.test/".into(),
+        }];
         facts
     }
 
@@ -767,10 +791,13 @@ mod tests {
         assert!(!scroll_text_match_expression("a \"b\" c").contains("__MIXDOG_"));
         assert!(scroll_text_apply_expression("tok").contains("=== \"tok\""));
         let declaration = scroll_within_ref_declaration(0, None);
-        assert!(declaration.contains("const wantsY = true;") && declaration.contains("const wantsX = false;") && declaration.contains("Math.round(scroller.clientHeight * 0.8)"));
+        assert!(
+            declaration.contains("const wantsY = true;")
+                && declaration.contains("const wantsX = false;")
+                && declaration.contains("Math.round(scroller.clientHeight * 0.8)")
+        );
         assert!(scroll_within_ref_declaration(5, Some(0)).contains("const wantsY = false;"));
     }
-
 
     fn grounded(page: &TestPage) {
         let set = refs("p1-s2").with_document("p1:1", 7);

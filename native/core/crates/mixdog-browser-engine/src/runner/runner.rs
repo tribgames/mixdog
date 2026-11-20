@@ -93,13 +93,13 @@ use crate::approval::classify::ApprovalError;
 use crate::approval::classify::StepFacts;
 use crate::approval::classify::TargetFacts;
 use crate::approval::classify::browser_not_approved;
-use crate::approval::classify::origin_of_url;
 use crate::approval::classify::classify;
+use crate::approval::classify::origin_of_url;
 use crate::approval::classify::plan;
 use crate::approval::payment::page_has_payment_evidence;
 use crate::error::HostCallError;
-use crate::ledger::ingest::PageLedgers;
 use crate::lane::mirror::Mirror;
+use crate::ledger::ingest::PageLedgers;
 use crate::limits::COMMAND_TIMEOUT;
 use crate::limits::CUSTOM_DROPDOWN_POLL;
 use crate::limits::CUSTOM_DROPDOWN_TIMEOUT;
@@ -129,19 +129,19 @@ use crate::queue::user_wait::UserWait;
 use crate::refs::access::ActionabilityReason;
 use crate::refs::access::RefError;
 use crate::refs::grounding::VisualGrounding;
+use crate::refs::ref_actions::RefActions;
+use crate::refs::ref_set::RefSet;
 use crate::refs::reply_recovery::FreshSnapshot;
 use crate::refs::reply_recovery::RecoveryFailure;
 use crate::refs::reply_recovery::RecoveryHost;
 use crate::refs::reply_recovery::RefRecoveryContext;
 use crate::refs::reply_recovery::decorate_recovery;
 use crate::refs::reply_recovery::with_ref_recovery;
-use crate::refs::ref_actions::RefActions;
-use crate::refs::ref_set::RefSet;
 use crate::refs::target_resolve::ResolvedTarget;
 use crate::refs::target_resolve::TargetContext;
-use crate::refs::target_resolve::css_element;
 use crate::refs::target_resolve::TargetError;
 use crate::refs::target_resolve::TargetSpec;
+use crate::refs::target_resolve::css_element;
 use crate::refs::target_resolve::resolve_targets;
 use crate::reply::dialog_text::blocking_dialog_reply;
 use crate::reply::downloads_text::DownloadFiles;
@@ -293,7 +293,8 @@ impl FactsStore {
 
     fn record_snapshot(&self, result: &HostBrowserSnapshotResult) {
         let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision);
-        locked(&self.snapshots).insert(result.facts.page_id.clone(), Arc::new(Observation { refs, payload: result.payload.clone(), scroll_y: result.payload.scroll_y }));
+        locked(&self.snapshots)
+            .insert(result.facts.page_id.clone(), Arc::new(Observation { refs, payload: result.payload.clone(), scroll_y: result.payload.scroll_y }));
     }
 
     /// Selector matches the snapshot did not list, given refs minted by the host (`registerCssRef`): they join the page's ref set of
@@ -312,7 +313,9 @@ impl FactsStore {
         if payload.elements.len() == before {
             return;
         }
-        let mut refs = RefSet::from_payload(snapshot_id, &payload).with_document(&held.refs.document_id, held.refs.revision.unwrap_or_default()).with_observation(held.refs.observation.as_deref());
+        let mut refs = RefSet::from_payload(snapshot_id, &payload)
+            .with_document(&held.refs.document_id, held.refs.revision.unwrap_or_default())
+            .with_observation(held.refs.observation.as_deref());
         // The snapshot still covered what it covered: a minted match is not part of what the page's scan reported.
         refs.covered_elements = held.refs.covered_elements;
         let scroll_y = held.scroll_y;
@@ -393,12 +396,23 @@ impl Observed for HostBrowserRefMintResult {
         // A minted ref is `<snapshot>-t<n>`: the snapshot it belongs to is the page's latest when that prefix is its id.
         let Some(snapshot_id) = store.latest_snapshot_id(&self.facts.page_id) else { return };
         let prefix = format!("{snapshot_id}-t");
-        let minted: Vec<BrowserSnapshotElement> =
-            self.matches.iter().filter(|found| found.ref_id.starts_with(&prefix)).map(|found| css_element(found.ref_id.clone(), found.role.clone(), found.name.clone())).collect();
+        let minted: Vec<BrowserSnapshotElement> = self
+            .matches
+            .iter()
+            .filter(|found| found.ref_id.starts_with(&prefix))
+            .map(|found| css_element(found.ref_id.clone(), found.role.clone(), found.name.clone()))
+            .collect();
         store.register_minted(&self.facts.page_id, &snapshot_id, &minted);
     }
 }
-observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult, HostBrowserTurnResult);
+observed_nothing!(
+    HostBrowserPagesCloseResult,
+    HostBrowserInitScriptsResult,
+    HostBrowserInterceptResult,
+    HostBrowserPerformanceResult,
+    HostBrowserDownloadsResult,
+    HostBrowserTurnResult
+);
 
 impl Observed for HostBrowserSignInResult {
     fn observe(&self, store: &FactsStore) {
@@ -682,9 +696,9 @@ impl From<HostCallError> for RunError {
             HostCallError::PageGone => Self::Failed("the page is gone; call list_tabs to see what is open, then navigate or use background:true".to_owned()),
             HostCallError::UserInput { .. } => Self::Failed(LOCAL_INPUT_TAKEOVER.to_owned()),
             HostCallError::StaleSnapshot => Self::Failed("the snapshot is stale; take a fresh snapshot before continuing".to_owned()),
-            HostCallError::PreconditionFailed { reason, .. } => {
-                Self::Failed(format!("the page changed before the action was sent ({reason:?}); nothing was dispatched. Take a fresh snapshot before continuing."))
-            }
+            HostCallError::PreconditionFailed { reason, .. } => Self::Failed(format!(
+                "the page changed before the action was sent ({reason:?}); nothing was dispatched. Take a fresh snapshot before continuing."
+            )),
             HostCallError::Refused { reason } => Self::Failed(reason),
             other => Self::Failed(other.to_string()),
         }
@@ -786,7 +800,9 @@ impl RunError {
                 let message = guarded(&reply.text);
                 ToolError::new(ToolErrorCode::Failed { reason: message.clone() }, message)
             }
-            Self::Cancelled(reason) => ToolError::new(ToolErrorCode::Cancelled, reason.map_or_else(|| "browser command cancelled".to_owned(), |reason| reason.to_string())),
+            Self::Cancelled(reason) => {
+                ToolError::new(ToolErrorCode::Cancelled, reason.map_or_else(|| "browser command cancelled".to_owned(), |reason| reason.to_string()))
+            }
             Self::TimedOut(message) => ToolError::new(ToolErrorCode::DeadlineExceeded { partial: false }, message),
             Self::Tool(error) => error,
             Self::ConnectionLost => {
@@ -935,7 +951,8 @@ impl Inner {
         let store = self.store.clone();
         let closing = tasks.finish(thread.as_str(), turn, aborted, |page| !store.get(page).is_some_and(|facts| facts.pending_dialog.is_some()));
         drop(tasks);
-        let in_flight: Vec<CancellationToken> = locked(&self.in_flight).get(thread.as_str()).map(|held| held.iter().map(|(_, done)| done.clone()).collect()).unwrap_or_default();
+        let in_flight: Vec<CancellationToken> =
+            locked(&self.in_flight).get(thread.as_str()).map(|held| held.iter().map(|(_, done)| done.clone()).collect()).unwrap_or_default();
         Some(EndedTurn { turn, closing, in_flight })
     }
 
@@ -974,7 +991,8 @@ impl Inner {
     /// A turn-level note to the host (the turn ended, the session was released). The host keeps only memory for them, so a host
     /// that cannot answer changes nothing the agent reads.
     async fn turn_note(&self, thread: &ThreadId, op: BrowserTurnOp, turn: Option<u64>, aborted: bool) {
-        let params = HostBrowserTurnParams { session_id: thread.as_str().to_owned(), op, turn: turn.and_then(|turn| i64::try_from(turn).ok()), aborted: Some(aborted) };
+        let params =
+            HostBrowserTurnParams { session_id: thread.as_str().to_owned(), op, turn: turn.and_then(|turn| i64::try_from(turn).ok()), aborted: Some(aborted) };
         let _ = self.host.turn(params, &CancellationToken::new()).await;
     }
 
@@ -990,13 +1008,23 @@ impl Inner {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn run_command(self: &Arc<Self>, thread: &ThreadId, turn: u64, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, Failed> {
+    async fn run_command(
+        self: &Arc<Self>,
+        thread: &ThreadId,
+        turn: u64,
+        action: &str,
+        input: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<ToolReply, Failed> {
         let session = thread.as_str();
         let prepared = prepare(action, input, session, turn).map_err(RunError::Failed)?;
         let _flight = self.track(session);
         let key = {
             let directory = locked(&self.directory);
-            QueueKey::for_command(&*directory, &KeyInput { session: Some(session), action: prepared.action.name(), tab: &prepared.tab, background: prepared.background })
+            QueueKey::for_command(
+                &*directory,
+                &KeyInput { session: Some(session), action: prepared.action.name(), tab: &prepared.tab, background: prepared.background },
+            )
         }
         .map_err(|error| RunError::Failed(error.to_string()))?;
         let kind = Kind::of_action(prepared.action.name());
@@ -1032,7 +1060,14 @@ impl Inner {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn execute(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
+    async fn execute(
+        self: &Arc<Self>,
+        thread: &ThreadId,
+        turn: u64,
+        prepared: Prepared,
+        ctx: &RunContext,
+        timer: &Arc<CommandTimer>,
+    ) -> Result<ToolReply, RunError> {
         // Keep the large action-dispatch future out of every enclosing queue/scope future.
         // The production executor uses a 2 MB stack, as does the browser ceiling regression.
         match self.execute_resolved_boxed(thread, turn, prepared, ctx, timer).await {
@@ -1045,12 +1080,26 @@ impl Inner {
     /// future leaves it in the frame of whoever called, so boxing at the call site still keeps its whole size on the stack of every
     /// poll above it. The caller holds the pointer only.
     #[inline(never)]
-    fn execute_resolved_boxed<'a>(self: &'a Arc<Self>, thread: &'a ThreadId, turn: u64, prepared: Prepared, ctx: &'a RunContext, timer: &'a Arc<CommandTimer>) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+    fn execute_resolved_boxed<'a>(
+        self: &'a Arc<Self>,
+        thread: &'a ThreadId,
+        turn: u64,
+        prepared: Prepared,
+        ctx: &'a RunContext,
+        timer: &'a Arc<CommandTimer>,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
         Box::pin(self.execute_resolved(thread, turn, prepared, ctx, timer))
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn execute_resolved(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
+    async fn execute_resolved(
+        self: &Arc<Self>,
+        thread: &ThreadId,
+        turn: u64,
+        prepared: Prepared,
+        ctx: &RunContext,
+        timer: &Arc<CommandTimer>,
+    ) -> Result<ToolReply, RunError> {
         let Prepared { action, mut command, background, background_asked, tab, expected, has_screenshot_options } = prepared;
         let session = thread.as_str();
         if action.is_tabless() {
@@ -1177,7 +1226,9 @@ impl Inner {
                 locked(&self.directory).observe_list(session, &listed.pages, listed.active_page_id.as_deref());
                 // A page id and a visible `vN` match in any case (`PAGE_ID` and `VISIBLE_POSITION` are `/i`); a name is exact.
                 let Some(found) = listed.pages.iter().find(|page| {
-                    page.page_id.eq_ignore_ascii_case(tab) || page.tab_id == tab.trim() || (is_visible_tab_id(&page.tab_id) && page.tab_id.eq_ignore_ascii_case(tab))
+                    page.page_id.eq_ignore_ascii_case(tab)
+                        || page.tab_id == tab.trim()
+                        || (is_visible_tab_id(&page.tab_id) && page.tab_id.eq_ignore_ascii_case(tab))
                 }) else {
                     return Err(RunError::Failed(unknown_background_tab(tab)));
                 };
@@ -1212,7 +1263,11 @@ impl Inner {
             self.host.downloads(params, cancel.token()).await.map(|answer| answer.items)
         };
         let mut selected = command.get("downloadId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
-        let timeout_ms = command.get("timeoutMs").and_then(Value::as_f64).filter(|ms| ms.is_finite()).map_or(DEFAULT_WAIT_MS, |ms| (ms.trunc() as i64).clamp(MIN_WAIT_MS, MAX_WAIT_MS));
+        let timeout_ms = command
+            .get("timeoutMs")
+            .and_then(Value::as_f64)
+            .filter(|ms| ms.is_finite())
+            .map_or(DEFAULT_WAIT_MS, |ms| (ms.trunc() as i64).clamp(MIN_WAIT_MS, MAX_WAIT_MS));
         throw_if_cancelled(cancel)?;
         if truthy(command.get("wait")) {
             let started = Instant::now();
@@ -1256,7 +1311,6 @@ impl Inner {
         reply.file = Some(file);
         Ok(reply)
     }
-
 }
 
 /// What the agent may tell the user about an `open`: shown, or pending because the conversation is not on screen.
@@ -1639,7 +1693,8 @@ impl FormContext for FormCtx<'_> {
 
     async fn fill_stored(&mut self, account: &str) -> Result<StoredLoginFill, RefError> {
         // The desktop holds the vault: it matches the account to the page's origin and writes the password into the page itself.
-        let params = HostBrowserCredentialsFillParams { page_id: self.page.page_id.clone(), account: account.to_owned(), expect: Some(self.page.page_precondition()) };
+        let params =
+            HostBrowserCredentialsFillParams { page_id: self.page.page_id.clone(), account: account.to_owned(), expect: Some(self.page.page_precondition()) };
         let filled = self.page.host().credentials_fill(params, self.page.token()).await.map_err(RefError::Host)?;
         Ok(StoredLoginFill { password_filled: filled.password_filled, reason: filled.reason })
     }
@@ -1743,7 +1798,11 @@ fn approval_command(thread: &ThreadId, command: &Value, identity: &str) -> Appro
         session_id: thread.as_str().to_owned(),
         session_life: command.get("session_life").and_then(Value::as_str).unwrap_or_default().to_owned(),
         unattended,
-        unattended_agent: if unattended { command.get("unattended_agent").and_then(Value::as_str).unwrap_or_default().trim().to_owned() } else { String::new() },
+        unattended_agent: if unattended {
+            command.get("unattended_agent").and_then(Value::as_str).unwrap_or_default().trim().to_owned()
+        } else {
+            String::new()
+        },
         paths: listed("paths").iter().map(|path| text_of(Some(path))).collect(),
     }
 }
@@ -2045,7 +2104,8 @@ mod tests {
     #[tokio::test]
     async fn the_snapshot_after_a_failed_multi_field_fill_keeps_the_callers_max_chars() {
         let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
-        let error = run(&engine(&host, None), "fill", json!({"fields": [{"ref": "p1-s1-e9", "text": "x"}], "maxChars": 123})).await.expect_err("the ref is unknown");
+        let error =
+            run(&engine(&host, None), "fill", json!({"fields": [{"ref": "p1-s1-e9", "text": "x"}], "maxChars": 123})).await.expect_err("the ref is unknown");
         assert!(error.message_for_model.contains("Fill stopped at field 1 of 1"), "{}", error.message_for_model);
         let snapshots: Vec<Value> = host.calls().into_iter().filter(|call| call.method == "host/browser/snapshot").map(|call| call.params).collect();
         assert!(snapshots.iter().any(|params| params["textChars"] == 123), "{snapshots:?}");
@@ -2078,7 +2138,8 @@ mod tests {
     #[tokio::test]
     async fn the_first_command_after_a_turn_ended_is_the_next_turns_even_before_the_ended_turns_pages_are_closed() {
         let close = Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p1", "reason": "turnEnd"}));
-        let host = Arc::new(FakeHost::scripted(vec![resolved_new("p1"), snapshot_answer(), no_downloads(), resolved("p1"), snapshot_answer(), no_downloads(), close]));
+        let host =
+            Arc::new(FakeHost::scripted(vec![resolved_new("p1"), snapshot_answer(), no_downloads(), resolved("p1"), snapshot_answer(), no_downloads(), close]));
         let engine = engine(&host, None);
         run(&engine, "snapshot", json!({})).await.expect("snapshot");
         // What `turn_ended` does before it hands the closing to a task.
@@ -2109,8 +2170,10 @@ mod tests {
 
     #[tokio::test]
     async fn the_document_revision_of_a_page_is_read_from_the_host_now_and_unknown_when_the_host_cannot_say() {
-        let revision = |value: i64| Expect::ok("host/browser/revision", json!({"revision": value, "facts": page_facts("p1", 3)})).with_params(json!({"pageId": "p1"}));
-        let host = Arc::new(FakeHost::scripted(vec![revision(7), Expect::err("host/browser/revision", HostCallError::Failed { message: "page is gone".into() })]));
+        let revision =
+            |value: i64| Expect::ok("host/browser/revision", json!({"revision": value, "facts": page_facts("p1", 3)})).with_params(json!({"pageId": "p1"}));
+        let host =
+            Arc::new(FakeHost::scripted(vec![revision(7), Expect::err("host/browser/revision", HostCallError::Failed { message: "page is gone".into() })]));
         let engine = engine(&host, None);
         let page = PageCtx {
             inner: engine.inner.clone(),
@@ -2142,7 +2205,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_command_that_failed_after_it_ran_carries_its_timing_and_an_invalid_request_none() {
-        let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() })]));
+        let host = Arc::new(FakeHost::scripted(vec![
+            resolved("p1"),
+            Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() }),
+        ]));
         let engine = engine(&host, None);
         let failure = engine.run(&thread(), "snapshot", &Map::new(), &CancellationToken::new()).await.expect_err("the snapshot fails");
         assert_eq!(failure.error.message_for_model, "page is unavailable");
@@ -2167,7 +2233,10 @@ mod tests {
         assert_eq!(error.message_for_model, "page is unavailable. The blank tab this command opened was closed.");
         host.finish().expect("resolve, snapshot, discard");
         // A page that was not the command's own is left alone, and so is one the host kept (it answers not closed).
-        let kept = Arc::new(FakeHost::scripted(vec![resolved("p1"), Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() })]));
+        let kept = Arc::new(FakeHost::scripted(vec![
+            resolved("p1"),
+            Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() }),
+        ]));
         let error = run(&engine(&kept, None), "snapshot", json!({})).await.expect_err("fails");
         assert_eq!(error.message_for_model, "page is unavailable");
         kept.finish().expect("no discard");
@@ -2219,7 +2288,9 @@ mod tests {
             resolved_blank("p1", "live").with_params(json!({"background": true, "tab": {"pageId": "live"}, "open": {"reveal": false}})),
             Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 2, "p1:2")})).with_params(json!({"pageId": "p1", "kind": "url"})),
         ]));
-        let reply = run(&engine(&host, None), "navigate", json!({"url": "https://b.test/app", "background": true, "tab": "live"})).await.expect("the navigation is sent");
+        let reply = run(&engine(&host, None), "navigate", json!({"url": "https://b.test/app", "background": true, "tab": "live"}))
+            .await
+            .expect("the navigation is sent");
         assert!(reply.text.contains("Arrived"), "{}", reply.text);
         host.finish().expect("resolve, navigate");
         // The blank page's own first load commits `about:blank` after the host described it: the address is not part of the guard, so
@@ -2237,7 +2308,8 @@ mod tests {
                 snapshot_answer(),
                 no_downloads(),
                 resolved("p1"),
-                Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 3, "p1:2")})).with_params(json!({"pageId": "p1", "kind": kind})),
+                Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 3, "p1:2")}))
+                    .with_params(json!({"pageId": "p1", "kind": kind})),
             ]));
             let engine = engine(&host, None);
             run(&engine, "snapshot", json!({})).await.expect("snapshot");
@@ -2252,21 +2324,32 @@ mod tests {
         let refused = |document: &str, seq: u64| {
             let mut facts = page_facts("p1", seq);
             facts["documentId"] = json!(document);
-            Expect::err("host/browser/page/navigate", HostCallError::PreconditionFailed { reason: BrowserPreconditionReason::Document, facts: Box::new(serde_json::from_value(facts).expect("facts")) })
+            Expect::err(
+                "host/browser/page/navigate",
+                HostCallError::PreconditionFailed {
+                    reason: BrowserPreconditionReason::Document,
+                    facts: Box::new(serde_json::from_value(facts).expect("facts")),
+                },
+            )
         };
         let host = Arc::new(FakeHost::scripted(vec![
             resolved("p1"),
             refused("p1:2", 5).with_params(json!({"expect": {"documentId": "p1:1"}})),
-            Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 6, "p1:3")})).with_params(json!({"expect": {"documentId": "p1:2"}})),
+            Expect::ok("host/browser/page/navigate", json!({"facts": facts_with_dialog("p1", 6, "p1:3")}))
+                .with_params(json!({"expect": {"documentId": "p1:2"}})),
         ]));
         let reply = run(&engine(&host, None), "navigate", json!({"url": "https://b.test/app"})).await.expect("the second send moves the page");
         assert!(reply.text.contains("Arrived"), "{}", reply.text);
         host.finish().expect("resolve, navigate refused, navigate");
 
         // A page that replaced its document again before the second send is the failure, in the words of a page that changed.
-        let racing = Arc::new(FakeHost::scripted(vec![resolved("p1"), refused("p1:2", 5), refused("p1:3", 6).with_params(json!({"expect": {"documentId": "p1:2"}}))]));
+        let racing =
+            Arc::new(FakeHost::scripted(vec![resolved("p1"), refused("p1:2", 5), refused("p1:3", 6).with_params(json!({"expect": {"documentId": "p1:2"}}))]));
         let error = run(&engine(&racing, None), "navigate", json!({"url": "https://b.test/app"})).await.expect_err("refused twice");
-        assert_eq!(error.message_for_model, "the page changed before the action was sent (Document); nothing was dispatched. Take a fresh snapshot before continuing.");
+        assert_eq!(
+            error.message_for_model,
+            "the page changed before the action was sent (Document); nothing was dispatched. Take a fresh snapshot before continuing."
+        );
         racing.finish().expect("two sends, no third");
     }
 
@@ -2315,11 +2398,11 @@ mod tests {
         assert_eq!(open.calls().len(), 1);
 
         // A host that cannot close the tab (its claim ended meanwhile) changes nothing of the refusal the agent reads.
-        let closing = Arc::new(FakeHost::scripted(vec![
-            resolved_blank("p1", "policy"),
-            Expect::err("host/browser/pages/close", HostCallError::ConnectionLost),
-        ]));
-        let error = run(&engine(&closing, None), "navigate", json!({"url": "file:///C:/Windows/win.ini", "background": true, "tab": "policy"})).await.expect_err("refused");
+        let closing =
+            Arc::new(FakeHost::scripted(vec![resolved_blank("p1", "policy"), Expect::err("host/browser/pages/close", HostCallError::ConnectionLost)]));
+        let error = run(&engine(&closing, None), "navigate", json!({"url": "file:///C:/Windows/win.ini", "background": true, "tab": "policy"}))
+            .await
+            .expect_err("refused");
         assert_eq!(error.message_for_model, "only http(s) navigation is allowed (got file:)");
         closing.finish().expect("resolve, the close that failed");
     }
@@ -2337,7 +2420,8 @@ mod tests {
         ];
         for (answer, message) in answers {
             let host = Arc::new(FakeHost::scripted(vec![resolved_blank("p1", "policy"), answer, discarded("p1")]));
-            let error = run(&engine(&host, None), "navigate", json!({"url": "https://intranet.test/", "background": true, "tab": "policy"})).await.expect_err(message);
+            let error =
+                run(&engine(&host, None), "navigate", json!({"url": "https://intranet.test/", "background": true, "tab": "policy"})).await.expect_err(message);
             assert_eq!(error.message_for_model, format!("{message}. The blank tab this command opened was closed."));
             host.finish().expect(message);
             assert_eq!(sent(&host, "host/browser/page/navigate").len(), 1, "{message}: one send");
@@ -2359,7 +2443,10 @@ mod tests {
         let mut committed = page_facts("p1", 2);
         committed["url"] = json!("about:blank");
         engine.inner.store.record(&serde_json::from_value(committed).expect("facts"));
-        assert_eq!(serde_json::to_value(page.page_precondition()).expect("precondition"), json!({"documentId": "p1:1", "url": "about:blank", "childSessions": []}));
+        assert_eq!(
+            serde_json::to_value(page.page_precondition()).expect("precondition"),
+            json!({"documentId": "p1:1", "url": "about:blank", "childSessions": []})
+        );
         engine.inner.store.record(&serde_json::from_value(page_facts("p1", 3)).expect("facts"));
         let bound = serde_json::to_value(page.page_precondition()).expect("precondition");
         assert_eq!(bound, json!({"documentId": "p1:1", "origin": "https://a.test", "url": "https://a.test/", "childSessions": []}));
@@ -2388,17 +2475,27 @@ mod tests {
             snapshot_answer(),
             no_downloads(),
             resolved("p1"),
-            Expect::err("host/browser/page/eval", HostCallError::PreconditionFailed { reason: BrowserPreconditionReason::Url, facts: Box::new(serde_json::from_value(moved).expect("facts")) }),
+            Expect::err(
+                "host/browser/page/eval",
+                HostCallError::PreconditionFailed { reason: BrowserPreconditionReason::Url, facts: Box::new(serde_json::from_value(moved).expect("facts")) },
+            ),
         ]));
         let engine = engine(&host, None);
         run(&engine, "snapshot", json!({})).await.expect("snapshot");
         let error = run(&engine, "evaluate", json!({"script": "document.title"})).await.expect_err("the page moved on");
-        assert_eq!(error.message_for_model, "the page changed before the action was sent (Url); nothing was dispatched. Take a fresh snapshot before continuing.");
+        assert_eq!(
+            error.message_for_model,
+            "the page changed before the action was sent (Url); nothing was dispatched. Take a fresh snapshot before continuing."
+        );
         host.finish().expect("one eval, not sent again");
         // The call carried everything the observation was made of: the document, the address and origin, the frames and the snapshot.
         let expect = &sent(&host, "host/browser/page/eval")[0]["expect"];
         assert_eq!(*expect, json!({"documentId": "p1:1", "origin": "https://a.test", "url": "https://a.test/", "childSessions": [], "snapshotId": "p1-s1"}));
-        assert_eq!(engine.inner.store.get("p1").map(|facts| facts.url), Some("https://a.test/elsewhere".to_owned()), "the refusal's facts are the page's present ones");
+        assert_eq!(
+            engine.inner.store.get("p1").map(|facts| facts.url),
+            Some("https://a.test/elsewhere".to_owned()),
+            "the refusal's facts are the page's present ones"
+        );
     }
 
     #[tokio::test]
@@ -2470,7 +2567,8 @@ mod tests {
         assert!(matches!(RunError::from(HostCallError::Cancelled), RunError::Cancelled(None)));
         assert!(matches!(RunError::from(HostCallError::UserInput { until: None }), RunError::Failed(text) if text == LOCAL_INPUT_TAKEOVER));
         assert!(matches!(RunError::from(HostCallError::Refused { reason: "blocked scheme".into() }), RunError::Failed(text) if text == "blocked scheme"));
-        let dialog: BrowserPendingDialog = serde_json::from_value(json!({"type": "alert", "message": "Sure?", "openedAt": 1, "bridge": false})).expect("dialog");
+        let dialog: BrowserPendingDialog =
+            serde_json::from_value(json!({"type": "alert", "message": "Sure?", "openedAt": 1, "bridge": false})).expect("dialog");
         match RunError::from(HostCallError::DialogBlocking { dialog: Box::new(dialog) }) {
             RunError::Reply(reply) => assert_eq!(reply.outcome, Some(ReplyOutcome::Blocked)),
             other => panic!("{other:?}"),
@@ -2667,7 +2765,8 @@ mod tests {
         let background = json!({"pageId": "p2", "tabId": "research", "sessionId": "s1", "background": true, "facts": page_facts("p2", 1)});
         // A tab the person opened with "+": shown (`background: false`) but named, so it is no visible `vN`.
         let user = json!({"pageId": "p3", "tabId": "user-tab-1", "sessionId": "s1", "background": false, "facts": page_facts("p3", 1)});
-        let listing = || Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), background.clone(), user.clone()], "activePageId": "p1"}));
+        let listing =
+            || Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), background.clone(), user.clone()], "activePageId": "p1"}));
         let host = Arc::new(FakeHost::scripted(vec![
             listing(),
             Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p2", "reason": "agent"})),
@@ -2699,7 +2798,8 @@ mod tests {
     #[tokio::test]
     async fn status_without_a_tab_reports_the_background_pages_when_no_visible_page_is_open() {
         let background = |id: &str, name: &str| json!({"pageId": id, "tabId": name, "sessionId": "s1", "background": true, "facts": page_facts(id, 1)});
-        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [background("p1", "alpha"), background("p2", "beta")]}))]));
+        let host =
+            Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [background("p1", "alpha"), background("p2", "beta")]}))]));
         let reply = run(&engine(&host, None), "status", json!({})).await.expect("reports the session's pages");
         assert!(!reply.text.contains("No browser page is open"), "{}", reply.text);
         assert!(reply.text.contains("- p1 [\"alpha\"] (background):") && reply.text.contains("- p2 [\"beta\"] (background):"), "{}", reply.text);
@@ -2718,7 +2818,10 @@ mod tests {
 
     #[tokio::test]
     async fn status_without_a_tab_still_reads_the_page_when_a_visible_one_is_open() {
-        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1")], "activePageId": "p1"})), resolved("p1")]));
+        let host = Arc::new(FakeHost::scripted(vec![
+            Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1")], "activePageId": "p1"})),
+            resolved("p1"),
+        ]));
         let reply = run(&engine(&host, None), "status", json!({})).await.expect("status");
         assert!(reply.text.contains("Page: p1"), "{}", reply.text);
     }
@@ -2726,9 +2829,14 @@ mod tests {
     #[tokio::test]
     async fn list_tabs_numbers_only_the_visible_tab_and_names_a_user_opened_one() {
         let user = json!({"pageId": "p3", "tabId": "user-tab-1", "sessionId": "s1", "background": false, "facts": page_facts("p3", 1)});
-        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), user], "activePageId": "p3"}))]));
+        let host =
+            Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/list", json!({"pages": [page_row("p1", "v1"), user], "activePageId": "p3"}))]));
         let reply = run(&engine(&host, None), "list_tabs", json!({})).await.expect("lists");
-        assert!(reply.text.contains("- p1 [v1]:") && reply.text.contains("- p3 [\"user-tab-1\"] (background):") && !reply.text.contains("(active)"), "{}", reply.text);
+        assert!(
+            reply.text.contains("- p1 [v1]:") && reply.text.contains("- p3 [\"user-tab-1\"] (background):") && !reply.text.contains("(active)"),
+            "{}",
+            reply.text
+        );
         host.finish().expect("one call");
     }
 
@@ -2745,7 +2853,8 @@ mod tests {
 
     #[tokio::test]
     async fn hide_asks_the_host_to_put_the_panel_away() {
-        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/surface", json!({})).with_params(json!({"sessionId": "s1", "op": "hide"}))]));
+        let host =
+            Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/surface", json!({})).with_params(json!({"sessionId": "s1", "op": "hide"}))]));
         let reply = run(&engine(&host, None), "hide", json!({})).await.expect("hides");
         assert_eq!(reply.text, "Browser panel hide requested; tabs and page state are preserved.");
         host.finish().expect("one call");
@@ -2851,7 +2960,6 @@ mod tests {
         assert!(store.snapshot("p1", "p1-s1").expect("kept").refs.get("p1-s9-t1").is_none());
     }
 
-
     #[tokio::test]
     async fn an_upload_is_handed_to_the_approval_port_with_its_files_before_they_move_whatever_folder_they_are_in_from_every_session() {
         let file = std::env::temp_dir().join("mixdog-live-upload").join("live-upload.txt").to_string_lossy().into_owned();
@@ -2870,7 +2978,8 @@ mod tests {
             assert_eq!((prompt.action.as_str(), prompt.url.as_str(), prompt.target.as_str()), ("upload", LOOPBACK_PAGE, "p1-s1-e1"), "{session}");
             assert_eq!((prompt.session_id.as_str(), prompt.thread_id.as_ref().map(ThreadId::as_str)), (session, Some(session)), "{session}");
             assert_eq!(prompt.paths, [file.clone()], "{session}");
-            let named: Vec<(&str, &str, i64, bool)> = prompt.files.iter().map(|file| (file.name.as_str(), file.path.as_str(), file.size, file.outside)).collect();
+            let named: Vec<(&str, &str, i64, bool)> =
+                prompt.files.iter().map(|file| (file.name.as_str(), file.path.as_str(), file.size, file.outside)).collect();
             assert_eq!(named, [("live-upload.txt", file.as_str(), 16, false)], "{session}");
             assert_eq!(prompt.receiver_origin, "http://127.0.0.1:5173", "{session}");
             assert!(!prompt.payment, "{session}: an upload reads no payment evidence");
@@ -2913,7 +3022,6 @@ mod tests {
         }
     }
 }
-
 
 impl BrowserEngine {
     /// An engine over the host lane `host`, with the services of the core around it.
@@ -3123,7 +3231,13 @@ impl PageCtx {
     /// One sign-in question to the host about this page. The hooks add to a command that already ran, so a host that cannot answer
     /// them (a failure of its own) says nothing; a command the caller cancelled, or a person who took the page, still ends it.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn sign_in(&self, op: BrowserSignInOp, action: Option<&str>, command: Option<Value>, explicit_fill: Option<bool>) -> Result<Option<HostBrowserSignInResult>, RunError> {
+    async fn sign_in(
+        &self,
+        op: BrowserSignInOp,
+        action: Option<&str>,
+        command: Option<Value>,
+        explicit_fill: Option<bool>,
+    ) -> Result<Option<HostBrowserSignInResult>, RunError> {
         let params = HostBrowserSignInParams {
             session_id: self.session().to_owned(),
             page_id: self.page_id.clone(),
@@ -3147,7 +3261,8 @@ impl PageCtx {
         if !matches!(action, Action::Click | Action::Fill | Action::Type) {
             return Ok(());
         }
-        let named: Map<String, Value> = ["ref", "target", "text", "fields"].into_iter().filter_map(|key| command.get(key).map(|value| (key.to_owned(), value.clone()))).collect();
+        let named: Map<String, Value> =
+            ["ref", "target", "text", "fields"].into_iter().filter_map(|key| command.get(key).map(|value| (key.to_owned(), value.clone()))).collect();
         self.sign_in(BrowserSignInOp::BeforeAction, Some(action.name()), Some(Value::Object(named)), None).await?;
         Ok(())
     }
@@ -3156,7 +3271,14 @@ impl PageCtx {
     /// note leads a fresh observation that replaces the reply (`autoSignIn.afterCommand`); the identity a provider flow last used
     /// is a line ahead of the reply (`linkedSignIn.replyLine`). An `open` answers with its placement, the note and the line.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn after_command(&self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &SignInHints, mut reply: ToolReply) -> Result<ToolReply, RunError> {
+    async fn after_command(
+        &self,
+        action: Action,
+        background: bool,
+        placement: Option<BrowserPlacement>,
+        hints: &SignInHints,
+        mut reply: ToolReply,
+    ) -> Result<ToolReply, RunError> {
         let said = self.sign_in(BrowserSignInOp::AfterCommand, None, None, Some(hints.explicit_fill)).await?;
         let note = said.as_ref().and_then(|said| said.note.clone()).filter(|note| !note.is_empty());
         let line = said.as_ref().and_then(|said| said.line.clone()).filter(|line| !line.is_empty());
@@ -3334,7 +3456,10 @@ impl PageCtx {
         };
         let wait = self
             .timer
-            .phase(Phase::Wait, await_reply_ready(&self.settle_page(), &SettlePolicy::default(), command.get("settleMs"), command.get("expect"), &wait_options, &self.cancel))
+            .phase(
+                Phase::Wait,
+                await_reply_ready(&self.settle_page(), &SettlePolicy::default(), command.get("settleMs"), command.get("expect"), &wait_options, &self.cancel),
+            )
             .await?;
         let facts = self.page_facts();
         if let Some(reply) = blocked(&facts) {
@@ -3345,7 +3470,9 @@ impl PageCtx {
         }
         let params = self.snapshot_params(command);
         let result = self.timer.phase(Phase::Snapshot, self.host().snapshot(params, self.token())).await?;
-        let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision).with_observation(result.observation.as_deref());
+        let refs = RefSet::from_payload(&result.snapshot_id, &result.payload)
+            .with_document(&result.document_id, result.revision)
+            .with_observation(result.observation.as_deref());
         {
             let mut state = self.state_lock();
             state.refs = Some(refs.clone());
@@ -3457,13 +3584,26 @@ impl PageCtx {
 
     /// `act` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
     #[inline(never)]
-    fn act_boxed<'a>(&'a self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+    fn act_boxed<'a>(
+        &'a self,
+        action: Action,
+        command: Value,
+        expected: Option<Postcondition>,
+        has_screenshot_options: bool,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
         Box::pin(self.act(action, command, expected, has_screenshot_options))
     }
 
     /// `after_command` behind a box made in a frame that is gone when this returns (see `execute_resolved_boxed`).
     #[inline(never)]
-    fn after_command_boxed<'a>(&'a self, action: Action, background: bool, placement: Option<BrowserPlacement>, hints: &'a SignInHints, reply: ToolReply) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+    fn after_command_boxed<'a>(
+        &'a self,
+        action: Action,
+        background: bool,
+        placement: Option<BrowserPlacement>,
+        hints: &'a SignInHints,
+        reply: ToolReply,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
         Box::pin(self.after_command(action, background, placement, hints, reply))
     }
 
@@ -3477,14 +3617,23 @@ impl PageCtx {
         // The latest observation of this page is what the gesture starts from; a target resolution moves it to a fresher one.
         let mut baseline = self.latest_refs();
         let preexisting = match &expected {
-            Some(condition) if action != Action::Navigate && facts.pending_dialog.is_none() => postcondition_matches_page(&self.settle_page(), condition, &self.cancel).await?,
+            Some(condition) if action != Action::Navigate && facts.pending_dialog.is_none() => {
+                postcondition_matches_page(&self.settle_page(), condition, &self.cancel).await?
+            }
             _ => false,
         };
         if action == Action::Upload && !internal && !truthy(command.get("ref")) {
             // An upload resolves its real target before the person is asked: a `target` becomes the ref the handler then uses.
             if let Some(target) = command.get("target").filter(|target| !target.is_null()).cloned() {
                 let resolved = self.resolve_targets(std::slice::from_ref(&target)).await?;
-                let mut cx = ActionContext { host: self.host(), page: self, command: &command, cancel: &self.cancel, recovery: &mut recovery, effect_baseline: &mut baseline };
+                let mut cx = ActionContext {
+                    host: self.host(),
+                    page: self,
+                    command: &command,
+                    cancel: &self.cancel,
+                    recovery: &mut recovery,
+                    effect_baseline: &mut baseline,
+                };
                 adopt_resolved_targets(&mut cx, &resolved);
                 if let Some(first) = resolved.first() {
                     command["ref"] = Value::String(first.ref_id.clone());
@@ -3520,12 +3669,16 @@ impl PageCtx {
             Action::Intercept => self.intercept_boxed(&command).await,
             Action::InitScript => self.init_script_boxed(&command).await,
             Action::Performance => self.performance_boxed(&command).await,
-            Action::Click | Action::Hover | Action::Drag | Action::Press | Action::Scroll | Action::Sequence => self.gesture_boxed(action, &command, &mut recovery, &mut baseline, &options).await,
+            Action::Click | Action::Hover | Action::Drag | Action::Press | Action::Scroll | Action::Sequence => {
+                self.gesture_boxed(action, &command, &mut recovery, &mut baseline, &options).await
+            }
             Action::Fill | Action::Type | Action::Select | Action::HandleDialog => {
                 self.form_boxed(action, &command, &mut recovery, &mut baseline, &expected, preexisting, &report_baseline).await
             }
             Action::Upload => self.upload_boxed(&command, &facts, approved.as_ref(), &mut recovery, &mut baseline, &options).await,
-            Action::ListTabs | Action::CloseTab | Action::Downloads | Action::Hide => Err(RunError::Failed(format!("{} addresses the session, not a page", action.name()))),
+            Action::ListTabs | Action::CloseTab | Action::Downloads | Action::Hide => {
+                Err(RunError::Failed(format!("{} addresses the session, not a page", action.name())))
+            }
         }
     }
 
@@ -3552,7 +3705,13 @@ impl PageCtx {
     }
 
     #[inline(never)]
-    fn evaluate_boxed<'a>(&'a self, command: &'a Value, has_postcondition: bool, has_screenshot_options: bool, options: &'a ReplyOptions) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
+    fn evaluate_boxed<'a>(
+        &'a self,
+        command: &'a Value,
+        has_postcondition: bool,
+        has_screenshot_options: bool,
+        options: &'a ReplyOptions,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>> {
         Box::pin(self.evaluate_action(command, has_postcondition, has_screenshot_options, options))
     }
 
@@ -3633,13 +3792,21 @@ impl PageCtx {
     }
 
     #[inline(never)]
-    fn gesture_boxed<'a, F>(&'a self, action: Action, command: &'a Value, recovery: &'a mut RefRecoveryContext, baseline: &'a mut Option<RefSet>, options: &'a F) -> BoxedFuture<'a, Result<ToolReply, RunError>>
+    fn gesture_boxed<'a, F>(
+        &'a self,
+        action: Action,
+        command: &'a Value,
+        recovery: &'a mut RefRecoveryContext,
+        baseline: &'a mut Option<RefSet>,
+        options: &'a F,
+    ) -> BoxedFuture<'a, Result<ToolReply, RunError>>
     where
         F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
     {
         Box::pin(async move {
             let output = {
-                let mut cx = ActionContext { host: self.host(), page: self, command, cancel: &self.cancel, recovery: &mut *recovery, effect_baseline: &mut *baseline };
+                let mut cx =
+                    ActionContext { host: self.host(), page: self, command, cancel: &self.cancel, recovery: &mut *recovery, effect_baseline: &mut *baseline };
                 match action {
                     Action::Click => pointer::click(&mut cx).await,
                     Action::Hover => pointer::hover(&mut cx).await,
@@ -3691,14 +3858,17 @@ impl PageCtx {
         F: Fn(bool, &Option<RefSet>) -> ReplyOptions + Sync,
     {
         Box::pin(async move {
-            let paths: Vec<String> = command.get("paths").and_then(Value::as_array).map(|paths| paths.iter().map(|path| text_of(Some(path))).collect()).unwrap_or_default();
+            let paths: Vec<String> =
+                command.get("paths").and_then(Value::as_array).map(|paths| paths.iter().map(|path| text_of(Some(path))).collect()).unwrap_or_default();
             let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
-            let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
+            let snapshot_id =
+                ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
             let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
             let outcome = upload::upload_files(self.host(), &*self.inner.ports.files, &target, &paths, facts, approved, self.token()).await?;
             self.invalidate();
             let summary = outcome.summary();
-            let output = ActionOutput { lead: if summary.is_empty() { String::new() } else { format!("{summary}\n\n") }, decorate_recovery: true, input: Vec::new() };
+            let output =
+                ActionOutput { lead: if summary.is_empty() { String::new() } else { format!("{summary}\n\n") }, decorate_recovery: true, input: Vec::new() };
             self.gesture_reply(output, command, recovery, &options(true, baseline)).await
         })
     }
@@ -3806,10 +3976,22 @@ impl PageCtx {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured browser failure and reply by value without boxing or changing this API")]
-    async fn evaluate_action(&self, command: &Value, has_postcondition: bool, has_screenshot_options: bool, options: &ReplyOptions) -> Result<ToolReply, RunError> {
+    async fn evaluate_action(
+        &self,
+        command: &Value,
+        has_postcondition: bool,
+        has_screenshot_options: bool,
+        options: &ReplyOptions,
+    ) -> Result<ToolReply, RunError> {
         let input = command.as_object().cloned().unwrap_or_default();
         let refs = self.latest_refs();
-        let request = page::EvaluateRequest { input: &input, refs: refs.as_ref(), precondition: Some(self.page_precondition()), has_postcondition, has_screenshot_options };
+        let request = page::EvaluateRequest {
+            input: &input,
+            refs: refs.as_ref(),
+            precondition: Some(self.page_precondition()),
+            has_postcondition,
+            has_screenshot_options,
+        };
         let redact = |text: &str| self.redact(text);
         let ctx = ReplyContext { redact: &redact, files: &*self.inner.ports.files };
         match page::evaluate(&self.call(), &ctx, &request).await {
@@ -3834,7 +4016,8 @@ impl PageCtx {
     /// The frame document that would receive an upload's files now, for the approval to bind.
     async fn upload_receiver(&self, command: &Value) -> Result<upload::Receiver, UploadError> {
         let ref_id = truthy(command.get("ref")).then(|| text_of(command.get("ref")));
-        let snapshot_id = ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
+        let snapshot_id =
+            ref_id.as_deref().map(|id| snapshot_of_ref(id).to_owned()).or_else(|| self.latest_refs().map(|refs| refs.snapshot_id)).unwrap_or_default();
         let target = UploadTarget { page_id: &self.page_id, snapshot_id: &snapshot_id, ref_id: ref_id.as_deref() };
         upload::receiver(self.host(), &target, &self.page_facts(), self.token()).await
     }

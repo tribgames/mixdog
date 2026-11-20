@@ -101,8 +101,22 @@ async fn the_snapshot_holds_every_row_of_the_settings_picker() {
     let mut got: Vec<&str> = snapshot.as_object().unwrap().keys().map(String::as_str).collect();
     got.sort_unstable();
     let mut expected = vec![
-        "autoClear", "channelWorker", "channels", "compaction", "mcp", "outputStyle", "plugins", "profile", "recap", "sessionTitles", "skills",
-        "systemShell", "toolModules", "updateSettings", "voice", "webSearchRoute",
+        "autoClear",
+        "channelWorker",
+        "channels",
+        "compaction",
+        "mcp",
+        "outputStyle",
+        "plugins",
+        "profile",
+        "recap",
+        "sessionTitles",
+        "skills",
+        "systemShell",
+        "toolModules",
+        "updateSettings",
+        "voice",
+        "webSearchRoute",
     ];
     expected.sort_unstable();
     assert_eq!(got, expected);
@@ -163,7 +177,13 @@ impl ThreadState for Sections {
         Err(PortError::NotFound { target: thread.as_str().to_owned(), message: "no header".into() })
     }
 
-    async fn patch_header_if(&self, thread: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+    async fn patch_header_if(
+        &self,
+        thread: &ThreadId,
+        _: Map<String, Value>,
+        _: Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
         Err(PortError::NotFound { target: thread.as_str().to_owned(), message: "no header".into() })
     }
 
@@ -199,13 +219,7 @@ async fn a_hint_is_published_on_the_thread_that_asked_and_an_empty_one_clears_it
     assert_eq!(value(&service, SET_PROGRESS_HINT, json!({ "threadId": "t1", "text": "Installing voice", "percent": 12.4 })).await.unwrap(), Value::Null);
     assert_eq!(value(&service, SET_PROGRESS_HINT, json!({ "threadId": "t1", "text": "" })).await.unwrap(), Value::Null);
     let published = sections.0.lock().unwrap().clone();
-    assert_eq!(
-        published,
-        vec![
-            ("t1".to_owned(), Some(json!({ "text": "Installing voice", "tone": "info", "percent": 12 }))),
-            ("t1".to_owned(), None),
-        ]
-    );
+    assert_eq!(published, vec![("t1".to_owned(), Some(json!({ "text": "Installing voice", "tone": "info", "percent": 12 }))), ("t1".to_owned(), None),]);
 }
 
 #[tokio::test]
@@ -243,7 +257,8 @@ async fn the_voice_member_is_the_switch_of_the_voice_runtime_or_null() {
             if method == "voice/getVoiceStatus" { Ok(self.0.clone()) } else { Ok(Value::Null) }
         }
     }
-    let read = |status: Value| async move { settings_snapshot(&SettingsReads::new(Arc::new(Voice(status)), || Ok(Value::Null)), &json!({})).await["voice"].clone() };
+    let read =
+        |status: Value| async move { settings_snapshot(&SettingsReads::new(Arc::new(Voice(status)), || Ok(Value::Null)), &json!({})).await["voice"].clone() };
     assert_eq!(read(json!({ "enabled": true, "busy": false })).await, json!({ "enabled": true }));
     assert_eq!(read(json!({ "enabled": false })).await, json!({ "enabled": false }));
     assert_eq!(read(Value::Null).await, Value::Null);

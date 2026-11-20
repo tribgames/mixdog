@@ -16,23 +16,13 @@ pub fn read(child: Wid, action: &str) -> Option<String> {
     if !is_window(child) {
         return None;
     }
-    describe(
-        &class_name(child),
-        action,
-        || edit_text(child),
-        || read_value(child, ReadMessage::Check).ok(),
-    )
+    describe(&class_name(child), action, || edit_text(child), || read_value(child, ReadMessage::Check).ok())
 }
 
 /// Picks what to read by the control's class and the action: an edit's text
 /// after keys, a button's check after a click. Each read answers `None` when
 /// the control did not.
-fn describe(
-    class: &str,
-    action: &str,
-    text: impl FnOnce() -> Option<String>,
-    check: impl FnOnce() -> Option<usize>,
-) -> Option<String> {
+fn describe(class: &str, action: &str, text: impl FnOnce() -> Option<String>, check: impl FnOnce() -> Option<usize>) -> Option<String> {
     let class = class.to_uppercase();
     let action = action.to_lowercase();
     if matches!(action.as_str(), "key" | "type") && class.contains("EDIT") {

@@ -127,7 +127,10 @@ impl StepClock {
 enum Step {
     /// A turn: its input row and its answer; `drafted`: the run drafts the secret first; `fail`: the log's next writes fail
     /// from its answer on.
-    Turn { drafted: bool, fail: usize },
+    Turn {
+        drafted: bool,
+        fail: usize,
+    },
     /// A room post of two rows (a unit kept whole for the next write when its own fails).
     Post,
     /// An imported conversation of three rows, appended as the importer appends it.
@@ -141,7 +144,10 @@ enum Step {
     /// The log's next `fails` writes fail (0, 1, 2 or many), and the session closes while an open of it races the close:
     /// its last subscriber leaves and its idle delay passes (`leave`), or Node's close detaches it (`closeSession(id, reason,
     /// { tombstone: false })`).
-    Close { leave: bool, fails: usize },
+    Close {
+        leave: bool,
+        fails: usize,
+    },
     /// `thread/delete`, its delete mark's write failing.
     Delete,
     /// Core shutdown with the disk well, then the session opens in a new directory: the open recovers the runs whose
@@ -232,7 +238,14 @@ fn script(plans: Arc<Mutex<HashMap<String, TurnPlan>>>, answered: Arc<Mutex<Hash
             if plan.fail > 0 {
                 LOG_FAILS.store(plan.fail, SeqCst);
             }
-            let item = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": plan.answer }), prompt: None };
+            let item = ItemCommit {
+                iid: ItemId::from(format!("a-{}", run.turn)),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": plan.answer }),
+                prompt: None,
+            };
             if run.port.commit_item(item).await.is_ok() {
                 lock(&answered).insert(plan.answer);
             }
@@ -253,14 +266,27 @@ impl super::RunFactory for DraftedCrash {
     fn crashed(&self, run: super::CrashedRun) -> super::CrashedRows {
         let rows = Some(run.draft.text)
             .filter(|text| !text.is_empty())
-            .map(|text| ItemCommit { iid: super::run::new_item_id(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": text }), prompt: None })
+            .map(|text| ItemCommit {
+                iid: super::run::new_item_id(),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "role": "assistant", "content": text }),
+                prompt: None,
+            })
             .into_iter()
             .collect();
         super::CrashedRows { rows, ..Default::default() }
     }
 }
 
-fn directory(rig: &Rig, threads: &Arc<super::StoreThreads>, marks: &Arc<super::store::SensitiveMarksOf>, clock: &Arc<StepClock>, drafted_crash: bool) -> Arc<SessionDirectory> {
+fn directory(
+    rig: &Rig,
+    threads: &Arc<super::StoreThreads>,
+    marks: &Arc<super::store::SensitiveMarksOf>,
+    clock: &Arc<StepClock>,
+    drafted_crash: bool,
+) -> Arc<SessionDirectory> {
     let mut deps = rig.deps_parts(threads.clone());
     deps.clock = clock.clone();
     deps.sensitive = marks.clone();
@@ -304,7 +330,10 @@ async fn a_draft_left_by_a_run_open_at_shutdown_is_recovered_then_removed_and_th
     world.directory().shutdown().await;
     crate::eventually_on!(&[&world.rig.snapshots.1], || (world.stops() > stops).then_some(())).await;
     assert!(!world.holding().is_empty(), "the session ended with its draft holding the value in clear");
-    let ended = world.records().iter().any(|record| matches!(record, Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted)));
+    let ended = world
+        .records()
+        .iter()
+        .any(|record| matches!(record, Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted)));
     assert!(!ended, "the run's end is not on disk");
 
     LOG_FAILS.store(0, SeqCst);
@@ -320,7 +349,6 @@ async fn a_draft_left_by_a_run_open_at_shutdown_is_recovered_then_removed_and_th
     world.check_secret();
     assert!(world.failures.is_empty(), "{}", world.failures.join("\n"));
 }
-
 
 impl World {
     async fn new(seed: u64, drafted_crash: bool) -> Self {
@@ -339,7 +367,9 @@ impl World {
         .expect("job ran")
         .expect("index");
         let index = data.index(index);
-        let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+        let threads = Arc::new(
+            super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"),
+        );
         let rig = Rig::new();
         let marks = Arc::new(super::store::SensitiveMarksOf::new(rig.sensitive.clone()));
         assert!(threads.redact_with(marks.clone()).is_ok());
@@ -442,7 +472,12 @@ impl World {
         let accepted = match directory.model_context(&self.handle.id).read().await {
             Ok(context) => {
                 let snapshot = context.into_iter().map(|(iid, _)| iid).collect();
-                let compaction = Compaction { replacement: vec![(ItemId::from(format!("s{n}")), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 1, dropped: None };
+                let compaction = Compaction {
+                    replacement: vec![(ItemId::from(format!("s{n}")), json!({ "role": "user", "content": "summary" }))],
+                    at: 5,
+                    dropped_count: 1,
+                    dropped: None,
+                };
                 let mut set = serde_json::Map::new();
                 set.insert("compaction".into(), json!({ "compactCount": n, "lastStage": "manual", "tag": tag }));
                 let header: super::turn_ops::CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new() });
@@ -579,7 +614,9 @@ impl World {
                 Slot::Inline(body) => body.get("text").or_else(|| body.get("content")).and_then(Value::as_str),
                 Slot::Blob(_) => None,
             },
-            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => change.set.get("compaction").and_then(|compaction| compaction.get("tag")).and_then(Value::as_str),
+            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => {
+                change.set.get("compaction").and_then(|compaction| compaction.get("tag")).and_then(Value::as_str)
+            }
             _ => None,
         }?;
         self.known.contains(text).then(|| text.to_owned())

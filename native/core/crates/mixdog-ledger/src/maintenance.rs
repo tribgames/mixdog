@@ -26,16 +26,8 @@ use crate::time::day_key;
 pub const RECOMPUTE_STEP_DAYS: usize = 8;
 
 /// Every day with any stored rollup input, with its revision fingerprint.
-pub fn day_fingerprints(
-    conn: &Connection,
-    from_day: &str,
-    to_day: &str,
-) -> Result<BTreeMap<String, String>> {
-    let global: i64 = conn.query_row(
-        "SELECT COALESCE((SELECT rev FROM day_revisions WHERE day=''),0)",
-        [],
-        |r| r.get(0),
-    )?;
+pub fn day_fingerprints(conn: &Connection, from_day: &str, to_day: &str) -> Result<BTreeMap<String, String>> {
+    let global: i64 = conn.query_row("SELECT COALESCE((SELECT rev FROM day_revisions WHERE day=''),0)", [], |r| r.get(0))?;
     let revisions: BTreeMap<String, i64> = conn
         .prepare("SELECT day,rev FROM day_revisions WHERE day<>'' AND day BETWEEN ?1 AND ?2")?
         .query_map(params![from_day, to_day], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -79,18 +71,12 @@ pub fn recompute_rollup_days(conn: &mut Connection, now_ms: i64) -> Result<Recom
     let today = day_key(now_ms);
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let fingerprints = day_fingerprints(&tx, FIRST_DAY, LAST_DAY)?;
-    let cached: BTreeMap<String, String> = tx
-        .prepare("SELECT day,fingerprint FROM rollup_days")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<std::result::Result<_, _>>()?;
+    let cached: BTreeMap<String, String> =
+        tx.prepare("SELECT day,fingerprint FROM rollup_days")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
     for day in cached.keys().filter(|d| !fingerprints.contains_key(*d)) {
         tx.execute("DELETE FROM rollup_days WHERE day=?1", [day])?;
     }
-    let stale: Vec<&String> = fingerprints
-        .iter()
-        .filter(|(day, fp)| **day < today && cached.get(*day) != Some(*fp))
-        .map(|(day, _)| day)
-        .collect();
+    let stale: Vec<&String> = fingerprints.iter().filter(|(day, fp)| **day < today && cached.get(*day) != Some(*fp)).map(|(day, _)| day).collect();
     for day in stale.iter().take(RECOMPUTE_STEP_DAYS) {
         let value = day_value(&tx, day)?;
         tx.execute(
@@ -101,10 +87,7 @@ pub fn recompute_rollup_days(conn: &mut Connection, now_ms: i64) -> Result<Recom
     let recomputed = stale.len().min(RECOMPUTE_STEP_DAYS);
     let remaining = stale.len() - recomputed;
     tx.commit()?;
-    Ok(Recompute {
-        recomputed,
-        remaining,
-    })
+    Ok(Recompute { recomputed, remaining })
 }
 
 /// The all-time rollup answered from the day cache: completed days come from `rollup_days`
@@ -114,11 +97,8 @@ pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64)
     let today = day_key(now_ms);
     let fingerprints = day_fingerprints(conn, &query.from_day, &query.to_day)?;
     let mut cached: BTreeMap<String, (String, String)> = BTreeMap::new();
-    let mut stmt =
-        conn.prepare("SELECT day,fingerprint,value FROM rollup_days WHERE day BETWEEN ?1 AND ?2")?;
-    for row in stmt.query_map(params![query.from_day, query.to_day], |r| {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-    })? {
+    let mut stmt = conn.prepare("SELECT day,fingerprint,value FROM rollup_days WHERE day BETWEEN ?1 AND ?2")?;
+    for row in stmt.query_map(params![query.from_day, query.to_day], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))? {
         let (day, fp, value): (String, String, String) = row?;
         cached.insert(day, (fp, value));
     }
@@ -139,11 +119,7 @@ pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64)
     let mut days = Map::new();
     for (day, fp) in &fingerprints {
         let value = match cached.get(day) {
-            Some((held, value))
-                if held == fp && day.as_str() < today.as_str() && Some(day.as_str()) != hourly =>
-            {
-                serde_json::from_str(value)?
-            }
+            Some((held, value)) if held == fp && day.as_str() < today.as_str() && Some(day.as_str()) != hourly => serde_json::from_str(value)?,
             _ => match &hourly_day_value {
                 Some(value) if Some(day.as_str()) == hourly => value.clone(),
                 _ => day_value(conn, day)?,

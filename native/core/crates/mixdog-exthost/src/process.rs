@@ -3,11 +3,11 @@
 //! always reads (RL §11.2): it delivers chunks and results the moment they arrive, so a slow
 //! consumer of one call never holds up another call's frames or a worker's exit.
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitStatus;
 use std::process::Stdio;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -31,14 +31,14 @@ use crate::browser::BrowserLease;
 use crate::containment::Containment;
 use crate::containment::exit_of;
 use crate::exits::ChildExits;
-use crate::owner;
-use crate::owner::ChildOps;
-use crate::owner::Kill;
-use crate::owner::Owner;
 use crate::frame;
 use crate::frame::CALL_WINDOW_BYTES;
 use crate::frame::FrameReader;
 use crate::frame::Inbound;
+use crate::owner;
+use crate::owner::ChildOps;
+use crate::owner::Kill;
+use crate::owner::Owner;
 use crate::shared::Event;
 use crate::shared::Slot;
 
@@ -49,12 +49,7 @@ pub(crate) struct Proc {
 
 /// Spawns `program args…` with piped stdio under containment. Runs on the io-spawn lane; `rt` is
 /// the async runtime the child's pipes register with.
-pub(crate) fn spawn_command(
-    program: &Path,
-    args: &[OsString],
-    envs: &[(&str, &str)],
-    rt: &Handle,
-) -> std::io::Result<Proc> {
+pub(crate) fn spawn_command(program: &Path, args: &[OsString], envs: &[(&str, &str)], rt: &Handle) -> std::io::Result<Proc> {
     let _entered = rt.enter();
     spawn_contained(worker_command(program, args, envs)).map_err(|(error, _child)| error)
 }
@@ -171,13 +166,7 @@ pub(crate) struct WorkerIo {
     pub(crate) stopped: Arc<AtomicBool>,
 }
 
-pub(crate) fn start_worker(
-    worker: u32,
-    proc: Proc,
-    events: UnboundedSender<Event>,
-    browser: BrowserHandle,
-    exits: ChildExits,
-) -> WorkerIo {
+pub(crate) fn start_worker(worker: u32, proc: Proc, events: UnboundedSender<Event>, browser: BrowserHandle, exits: ChildExits) -> WorkerIo {
     let mut proc = proc;
     let stdin = proc.child.stdin.take();
     let stdout = proc.child.stdout.take();
@@ -208,27 +197,14 @@ pub(crate) fn start_worker(
         }
     });
 
-    let reader = Reader {
-        worker,
-        slot: slot.clone(),
-        writer: writer.clone(),
-        events,
-        browser,
-        leases: Arc::default(),
-        kill: kill.clone(),
-    };
+    let reader = Reader { worker, slot: slot.clone(), writer: writer.clone(), events, browser, leases: Arc::default(), kill: kill.clone() };
     let stopped_flag = stopped.clone();
     mixdog_rt::spawn("exthost.worker.read", TaskClass::Work, async move {
         let Some(stdout) = stdout else { return };
         reader.run(owner, FrameReader::new(stdout), stopped_flag).await;
     });
 
-    WorkerIo {
-        writer,
-        slot,
-        kill,
-        stopped,
-    }
+    WorkerIo { writer, slot, kill, stopped }
 }
 
 struct Reader {
@@ -247,12 +223,7 @@ struct Reader {
 struct Violation(&'static str);
 
 impl Reader {
-    async fn run(
-        self,
-        mut owner: Owner<ProcOps>,
-        mut frames: FrameReader<tokio::process::ChildStdout>,
-        stopped: Arc<AtomicBool>,
-    ) {
+    async fn run(self, mut owner: Owner<ProcOps>, mut frames: FrameReader<tokio::process::ChildStdout>, stopped: Arc<AtomicBool>) {
         let mut reading = true;
         let wait = owner.until_exit();
         tokio::pin!(wait);
@@ -285,15 +256,9 @@ impl Reader {
                 }
             }
         }
-        let exit = if stopped.load(Ordering::Acquire) {
-            ExtExit::Stopped
-        } else {
-            status.map_or(ExtExit::Code(-1), exit_of)
-        };
+        let exit = if stopped.load(Ordering::Acquire) { ExtExit::Stopped } else { status.map_or(ExtExit::Code(-1), exit_of) };
         if let Some(out) = self.slot.take_any() {
-            let _ = out
-                .frames
-                .send(ExtFrame::Done(Err(ExtError::HostExited { exit })));
+            let _ = out.frames.send(ExtFrame::Done(Err(ExtError::HostExited { exit })));
         }
         let _ = self.events.send(Event::Exited(self.worker));
     }
@@ -318,18 +283,11 @@ impl Reader {
                 let done = match outcome {
                     Ok(value) => Ok(value),
                     Err(error) if error.code == frame::CANCELLED_CODE => Err(ExtError::Cancelled),
-                    Err(error) => Err(ExtError::Failed {
-                        code: error.code,
-                        message: error.message,
-                    }),
+                    Err(error) => Err(ExtError::Failed { code: error.code, message: error.message }),
                 };
                 self.leases.lock().unwrap_or_else(|e| e.into_inner()).remove(&call);
                 let _ = out.frames.send(ExtFrame::Done(done));
-                let _ = self.events.send(Event::Finished {
-                    worker: self.worker,
-                    call,
-                    pin,
-                });
+                let _ = self.events.send(Event::Finished { worker: self.worker, call, pin });
             }
             Inbound::NeedBrowser { call } => {
                 self.slot.current(call).ok_or(Violation("browser request outside a call"))?;
@@ -379,7 +337,6 @@ mod tests {
         worker_command(Path::new(program), &args, &[])
     }
 
-
     /// A worker that starts a grandchild at its first instruction is ended, grandchild included, when its containment
     /// ends: the grandchild holds the worker's stdout, so the pipe reaches its end only once the whole tree is gone.
     #[tokio::test]
@@ -407,10 +364,7 @@ mod tests {
             .await
             .expect("the grandchild ended with the job: its end of the stdout pipe closed in 30 s")
             .unwrap();
-        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), proc.child.wait())
-            .await
-            .expect("the worker ended in 30 s")
-            .unwrap();
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), proc.child.wait()).await.expect("the worker ended in 30 s").unwrap();
     }
     /// A worker the job refuses is not started: the start fails and the child, created suspended and never resumed, is
     /// ended.

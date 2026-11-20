@@ -11,7 +11,9 @@ use mixdog_js::{js_trim, js_trim_end};
 use mixdog_term::selection::{CellSpan, SelectedRow, SelectionMode, SelectionRect};
 use mixdog_term::{MouseKind, MouseReport};
 use mixdog_tui::mouse::scroll::SelectionScroll;
-use mixdog_tui::mouse::{HintTone, Mouse, MouseConfig, MouseHost, Point, PromptBoxRect, PromptSelection, Region, RenderStore, SelectionIo, SlashPalette, SpanKind};
+use mixdog_tui::mouse::{
+    HintTone, Mouse, MouseConfig, MouseHost, Point, PromptBoxRect, PromptSelection, Region, RenderStore, SelectionIo, SlashPalette, SpanKind,
+};
 use mixdog_tui::slash::commands::OverlayOwner;
 use mixdog_tui::transcript::scroll::anchor::Geometry;
 use mixdog_tui::transcript::scroll::coalesce::ScrollCoalescer;
@@ -303,10 +305,7 @@ impl World {
     /// `scrollTranscriptRows`: scrolls now, the selection following.
     fn scroll_now(&mut self, mouse: &mut Mouse, rows: f64) {
         let mut inner = NoHistory;
-        let mut tracked = Tracked {
-            target: &self.target,
-            selection: SelectionScroll { mouse, store: &mut self.store, inner: &mut inner, now_ms: self.now },
-        };
+        let mut tracked = Tracked { target: &self.target, selection: SelectionScroll { mouse, store: &mut self.store, inner: &mut inner, now_ms: self.now } };
         self.scroll.scroll_rows(&mut tracked, rows, false);
         self.target.set(self.scroll.target);
     }
@@ -381,7 +380,6 @@ impl MouseHost for World {
 
 // ── the recording ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-
 fn rect_json(rect: &SelectionRect) -> Value {
     let mut out = Map::new();
     out.insert("mode".into(), json!(if rect.mode == SelectionMode::Linear { "linear" } else { "block" }));
@@ -401,17 +399,9 @@ fn rect_json(rect: &SelectionRect) -> Value {
     Value::Object(out)
 }
 
-
-
-
-
-
-
-
 fn config(windows_terminal: bool) -> MouseConfig {
     MouseConfig::from_lookup(|name| (windows_terminal && name == "WT_SESSION").then(|| "recorded-wt-session".to_owned()), STATUSLINE_BAND_ROWS)
 }
-
 
 // ── use-mouse-input.test.mjs ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -844,4 +834,3 @@ fn an_overlay_that_owns_the_keys_blocks_the_transcript_scroll() {
     flush_scrolls(&mut world, &mut mouse);
     assert_eq!(world.scroll.target, 5.0);
 }
-

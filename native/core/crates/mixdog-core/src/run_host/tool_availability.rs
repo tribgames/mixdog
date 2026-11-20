@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::gate::connector_policy_agent;
 use mixdog_core_session::session::thread_switches::merge_deferred_delta;
-use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_store::schema::record::Header;
+use mixdog_tools::policy::ConnectorPermissions;
 use serde_json::Value;
 use serde_json::json;
 
@@ -74,11 +74,8 @@ fn gates(session: &Header, feature_denied: &[String]) -> Gates {
         fixed.insert("react".to_owned());
     }
     let closed = live.iter().filter(|name| !disallowed.contains(name)).cloned().collect();
-    let opened = disallowed
-        .iter()
-        .filter(|name| FEATURE_GATED_TOOL_NAMES.contains(&name.as_str()) && !live.contains(name) && !fixed.contains(*name))
-        .cloned()
-        .collect();
+    let opened =
+        disallowed.iter().filter(|name| FEATURE_GATED_TOOL_NAMES.contains(&name.as_str()) && !live.contains(name) && !fixed.contains(*name)).cloned().collect();
     Gates { live, disallowed, closed, opened }
 }
 
@@ -174,11 +171,15 @@ pub fn stage_connector_availability(session: &mut Header, thread: &ThreadId, per
     }
     let known = known_tools(session);
     let agent = connector_policy_agent(session);
-    let mut permitted: Vec<String> =
-        known.keys().filter(|name| name.starts_with("mcp__") && !permissions.disabled(&agent, name) && !permissions.project_disabled(thread, name)).cloned().collect();
+    let mut permitted: Vec<String> = known
+        .keys()
+        .filter(|name| name.starts_with("mcp__") && !permissions.disabled(&agent, name) && !permissions.project_disabled(thread, name))
+        .cloned()
+        .collect();
     // JavaScript's default sort: by UTF-16 code unit.
     permitted.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-    let previous: Option<Vec<String>> = session.get("agentConnectorTools").and_then(Value::as_array).map(|items| items.iter().map(mixdog_js::value_to_string).collect());
+    let previous: Option<Vec<String>> =
+        session.get("agentConnectorTools").and_then(Value::as_array).map(|items| items.iter().map(mixdog_js::value_to_string).collect());
     session.insert("agentConnectorTools".to_owned(), json!(permitted));
     let previous = previous?;
     let added: Vec<String> = permitted.iter().filter(|name| !previous.contains(name)).cloned().collect();
@@ -196,7 +197,4 @@ pub fn stage_connector_availability(session: &mut Header, thread: &ThreadId, per
 }
 
 #[cfg(test)]
-mod tests {
-}
-
-
+mod tests {}

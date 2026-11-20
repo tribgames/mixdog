@@ -98,9 +98,7 @@ fn stats_of(lf: &[Live], session: &str) -> crate::summary::MessageStats {
     let mut epoch = 0;
     for x in lf {
         match &x.f {
-            F::Item(iid, row) => {
-                entries.push(Entry { ordinal: x.ordinal, idx: 0, iid: iid.clone(), row: row.clone(), owner: x.owner })
-            }
+            F::Item(iid, row) => entries.push(Entry { ordinal: x.ordinal, idx: 0, iid: iid.clone(), row: row.clone(), owner: x.owner }),
             F::Compact(_, rows) => {
                 epoch = entries.len();
                 for (idx, (iid, row)) in rows.iter().enumerate() {
@@ -108,9 +106,7 @@ fn stats_of(lf: &[Live], session: &str) -> crate::summary::MessageStats {
                 }
             }
             F::Amend(iid, new) => {
-                if let Some(e) =
-                    entries.iter_mut().filter(|e| e.iid == *iid && e.owner == x.owner).max_by_key(|e| (e.ordinal, e.idx))
-                {
+                if let Some(e) = entries.iter_mut().filter(|e| e.iid == *iid && e.owner == x.owner).max_by_key(|e| (e.ordinal, e.idx)) {
                     let counted = e.row.counted;
                     e.row = MessageRow { counted, incoming: new.incoming && counted, ..new.clone() };
                 }
@@ -154,8 +150,7 @@ impl World {
     fn new(seed: u64) -> World {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("i.sqlite");
-        let (append_rows, step_rows) =
-            if seed.is_multiple_of(7) { (APPEND_ROWS, STEP_ROWS) } else { (1 + (seed % 3) as usize, 1 + ((seed / 3) % 3) as usize) };
+        let (append_rows, step_rows) = if seed.is_multiple_of(7) { (APPEND_ROWS, STEP_ROWS) } else { (1 + (seed % 3) as usize, 1 + ((seed / 3) % 3) as usize) };
         // The writer opens only a built index (an empty file is rebuilt from the logs): build the empty one first.
         drop(open_writer(&path, Some(&runtime_ddl())).expect("index"));
         let mut w = Writer::start(&path).expect("writer");
@@ -179,11 +174,7 @@ impl World {
 
     fn head(&self, i: usize, upto: usize) -> CatalogHead {
         let s = &self.model[i];
-        let title = s.frames[..upto]
-            .iter()
-            .rev()
-            .find_map(|f| if let F::Title(t) = f { Some(t.clone()) } else { None })
-            .unwrap_or_else(|| "t0".into());
+        let title = s.frames[..upto].iter().rev().find_map(|f| if let F::Title(t) = f { Some(t.clone()) } else { None }).unwrap_or_else(|| "t0".into());
         let mut header = serde_json::Map::new();
         header.insert("title".into(), json!(title));
         header.insert("updatedAt".into(), json!(1000.0));
@@ -222,10 +213,7 @@ impl World {
         let kind = match &s.frames[k] {
             F::Session(b) => FrameKind::Session {
                 base: b.map(|(b, end)| {
-                    serde_json::from_value(
-                        json!({"session": self.model[b].id, "log_id": LOG_ID, "end_ordinal_exclusive": end}),
-                    )
-                    .expect("base")
+                    serde_json::from_value(json!({"session": self.model[b].id, "log_id": LOG_ID, "end_ordinal_exclusive": end})).expect("base")
                 }),
             },
             F::Item(iid, row) => FrameKind::Item {
@@ -303,11 +291,7 @@ impl World {
         w.step_rows = self.step_rows;
         self.w = w;
         for i in 0..self.model.len() {
-            let projected: i64 = self
-                .w
-                .conn
-                .query_row("SELECT projected_ordinal FROM sessions WHERE id = ?1", [&self.model[i].id], |r| r.get(0))
-                .expect("row");
+            let projected: i64 = self.w.conn.query_row("SELECT projected_ordinal FROM sessions WHERE id = ?1", [&self.model[i].id], |r| r.get(0)).expect("row");
             self.model[i].submitted = if projected == 0 { 0 } else { (projected - self.model[i].start) as usize };
             // A rewind cut off mid-way left partial effects behind; the open-time
             // reconcile re-projects from the cursor, which completes it.
@@ -360,18 +344,12 @@ impl World {
             let lf = live(&self.model, i, s.start + s.submitted as i64);
             let head = self.head(i, s.submitted.max(1));
             let want = crate::summary::catalog_row(&head, &stats_of(&lf, &s.id), 0.0).summary;
-            let got: String =
-                self.w.conn.query_row("SELECT summary FROM sessions WHERE id = ?1", [&s.id], |r| r.get(0)).expect("row");
-            let (want, got): (serde_json::Value, serde_json::Value) =
-                (serde_json::from_str(&want).expect("json"), serde_json::from_str(&got).expect("json"));
+            let got: String = self.w.conn.query_row("SELECT summary FROM sessions WHERE id = ?1", [&s.id], |r| r.get(0)).expect("row");
+            let (want, got): (serde_json::Value, serde_json::Value) = (serde_json::from_str(&want).expect("json"), serde_json::from_str(&got).expect("json"));
             if got != want {
                 let (g, w) = (got.as_object().expect("object"), want.as_object().expect("object"));
-                let keys: Vec<String> = w
-                    .keys()
-                    .chain(g.keys())
-                    .filter(|k| g.get(*k) != w.get(*k))
-                    .map(|k| format!("{k}: got {:?} want {:?}", g.get(k), w.get(k)))
-                    .collect();
+                let keys: Vec<String> =
+                    w.keys().chain(g.keys()).filter(|k| g.get(*k) != w.get(*k)).map(|k| format!("{k}: got {:?} want {:?}", g.get(k), w.get(k))).collect();
                 panic!("{}: catalog row differs after {} submitted frames: {keys:?}", s.id, s.submitted);
             }
         }
@@ -499,36 +477,31 @@ fn run(seed: u64) {
         world.compare(false);
         world.finish();
     }));
-    if outcome.is_err() && std::env::var("MIXDOG_MODEL_DUMP").is_ok() && let Ok(w) = world.try_borrow() {
+    if outcome.is_err()
+        && std::env::var("MIXDOG_MODEL_DUMP").is_ok()
+        && let Ok(w) = world.try_borrow()
+    {
         {
             let w = w.as_ref().expect("set");
-            let mut stmt = w
-                .w
-                .conn
-                .prepare(
-                    "SELECT session, valid_from, base, position, cut, state, scanning, hop_session, hop_time, hop_cut,
+            let mut stmt =
+                w.w.conn
+                    .prepare(
+                        "SELECT session, valid_from, base, position, cut, state, scanning, hop_session, hop_time, hop_cut,
                      cur_ordinal, cur_idx FROM message_views",
-                )
-                .expect("views");
-            let rows = stmt
-                .query_map([], |r| {
-                    Ok(format!(
-                        "view {:?}",
-                        (0..12).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>()
-                    ))
-                })
-                .expect("rows");
+                    )
+                    .expect("views");
+            let rows =
+                stmt.query_map([], |r| Ok(format!("view {:?}", (0..12).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>()))).expect("rows");
             for r in rows {
                 eprintln!("{}", r.expect("row"));
             }
-            for (id, p) in w
-                .w
-                .conn
-                .prepare("SELECT id, projected_ordinal FROM sessions")
-                .expect("sessions")
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-                .expect("rows")
-                .map(|r| r.expect("row"))
+            for (id, p) in
+                w.w.conn
+                    .prepare("SELECT id, projected_ordinal FROM sessions")
+                    .expect("sessions")
+                    .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                    .expect("rows")
+                    .map(|r| r.expect("row"))
             {
                 eprintln!("session {id} projected {p}");
             }

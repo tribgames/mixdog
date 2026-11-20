@@ -45,9 +45,9 @@ use ignore::WalkBuilder;
 use mixdog_core_api::domain::fs::EntryKind;
 
 pub use gate::Asked;
-pub use gate::Listed;
 use gate::Call;
 use gate::Decision;
+pub use gate::Listed;
 use gate::Told;
 
 /// The filesystem calls a walk makes, each on what [`gate::probe`] hands over: the tests put a gate in front of them.
@@ -191,9 +191,17 @@ pub mod gate {
     enum State {
         Root(PathBuf),
         /// Let in; its type once told.
-        Admitted { listed: Listed, kind: Option<EntryKind> },
+        Admitted {
+            listed: Listed,
+            kind: Option<EntryKind>,
+        },
         /// Read differently for a folder than for a file, its listing having given no type: only its type may be asked.
-        Undecided { listed: Listed, kind: Option<EntryKind>, as_dir: Verdict, as_file: Verdict },
+        Undecided {
+            listed: Listed,
+            kind: Option<EntryKind>,
+            as_dir: Verdict,
+            as_file: Verdict,
+        },
     }
 
     impl Decision {
@@ -225,7 +233,13 @@ pub mod gate {
         let (as_dir, as_file) = (rules.verdict(&listed.path, true), rules.verdict(&listed.path, false));
         let verdict = match (as_dir == as_file, listed.kind) {
             (true, _) => as_dir,
-            (false, Some(kind)) => if kind == EntryKind::Dir { as_dir } else { as_file },
+            (false, Some(kind)) => {
+                if kind == EntryKind::Dir {
+                    as_dir
+                } else {
+                    as_file
+                }
+            }
             (false, None) => return Some(Decision(State::Undecided { listed, kind: None, as_dir, as_file })),
         };
         let kind = listed.kind;
@@ -418,7 +432,9 @@ impl Tree {
 
     fn is_bare(&self, dir: &Decision) -> bool {
         let Some(name) = dir.path().file_name().map(|n| n.to_string_lossy()) else { return false };
-        (self.bare_dotted && name.starts_with('.')) || self.bare.iter().any(|b| *b == *name) || self.guard.as_ref().is_some_and(|guard| guard.fails(&self.root, dir.path()))
+        (self.bare_dotted && name.starts_with('.'))
+            || self.bare.iter().any(|b| *b == *name)
+            || self.guard.as_ref().is_some_and(|guard| guard.fails(&self.root, dir.path()))
     }
 
     fn probe(&mut self, decision: &mut Decision, call: Call) -> io::Result<Told> {
@@ -462,7 +478,14 @@ struct Guard {
 impl Guard {
     fn of(rule: &mixdog_core_api::domain::fs::NameGuard) -> Result<Self, regex::Error> {
         let compile = |source: &Option<String>| source.as_deref().map(regex::Regex::new).transpose();
-        Ok(Self { whole: compile(&rule.whole)?, rest: compile(&rule.rest)?, fragment: rule.fragment.clone(), path: rule.path, noise: rule.noise.clone(), dotted: rule.dotted })
+        Ok(Self {
+            whole: compile(&rule.whole)?,
+            rest: compile(&rule.rest)?,
+            fragment: rule.fragment.clone(),
+            path: rule.path,
+            noise: rule.noise.clone(),
+            dotted: rule.dotted,
+        })
     }
 
     /// Whether the folder at `dir` fails the ancestor rule, read over its components below `root` as the caller reads them.
@@ -516,7 +539,11 @@ impl Iterator for Tree {
                 Ok(None) => continue,
                 Err(error) => return Some(Err(error)),
             };
-            if kind == EntryKind::Dir && self.max_depth.is_none_or(|max| depth < max) && !self.is_bare(&decision) && let Err(error) = self.enter(&mut decision) {
+            if kind == EntryKind::Dir
+                && self.max_depth.is_none_or(|max| depth < max)
+                && !self.is_bare(&decision)
+                && let Err(error) = self.enter(&mut decision)
+            {
                 return Some(Err(error));
             }
             return Some(Ok(Entry { path: decision.into_path(), kind, depth }));

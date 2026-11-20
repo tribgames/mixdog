@@ -131,7 +131,8 @@ impl Conn {
             if let Some(at) = find(&self.buf, b"\r\n.\r\n") {
                 let raw: Vec<u8> = self.buf.drain(..at + 5).collect();
                 let text = String::from_utf8_lossy(&raw[..at + 2]).into_owned();
-                let stored = text.split("\r\n").map(|line| line.strip_prefix('.').filter(|rest| rest.starts_with('.')).unwrap_or(line)).collect::<Vec<_>>().join("\r\n");
+                let stored =
+                    text.split("\r\n").map(|line| line.strip_prefix('.').filter(|rest| rest.starts_with('.')).unwrap_or(line)).collect::<Vec<_>>().join("\r\n");
                 return Some((raw[..at + 2].to_vec(), stored.into_bytes()));
             }
             if !self.fill().await {
@@ -529,7 +530,8 @@ async fn a_non_ascii_sender_asks_for_smtputf8_when_the_server_offers_it() {
 async fn attachments_reach_the_server_as_a_multipart_message() {
     let fixture = start(Script::new(TlsMode::Implicit)).await;
     let mut message = sample();
-    message.attachments = vec![Attachment { filename: "shot.png".to_owned(), content: vec![0x89, b'P', b'N', b'G', 13, 10, 26, 10], content_type: "image/png".to_owned() }];
+    message.attachments =
+        vec![Attachment { filename: "shot.png".to_owned(), content: vec![0x89, b'P', b'N', b'G', 13, 10, 26, 10], content_type: "image/png".to_owned() }];
     fixture.send(&message).await.expect("sent");
     let body = String::from_utf8(fixture.seen.bodies.lock().unwrap()[0].clone()).unwrap();
     assert!(body.contains("Content-Type: multipart/mixed; boundary=\""), "{body}");
@@ -676,7 +678,6 @@ async fn the_password_is_not_in_the_debug_text_of_the_config_or_of_an_error() {
     let error = failure(&fixture).await;
     assert!(!format!("{:?} {error:?} {error}", fixture.config()).contains("s3cret"));
 }
-
 
 impl Fixture {
     fn config(&self) -> MailConfig {

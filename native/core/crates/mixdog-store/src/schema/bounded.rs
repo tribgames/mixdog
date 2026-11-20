@@ -41,11 +41,7 @@ impl<const MAX: usize> TryFrom<String> for Text<MAX> {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.len() <= MAX {
-            Ok(Self(value))
-        } else {
-            Err(format!("text of {} bytes exceeds {MAX}", value.len()))
-        }
+        if value.len() <= MAX { Ok(Self(value)) } else { Err(format!("text of {} bytes exceeds {MAX}", value.len())) }
     }
 }
 
@@ -81,11 +77,7 @@ impl<T, const MAX: usize> TryFrom<Vec<T>> for List<T, MAX> {
     type Error = String;
 
     fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
-        if value.len() <= MAX {
-            Ok(Self(value))
-        } else {
-            Err(format!("list of {} elements exceeds {MAX}", value.len()))
-        }
+        if value.len() <= MAX { Ok(Self(value)) } else { Err(format!("list of {} elements exceeds {MAX}", value.len())) }
     }
 }
 
@@ -136,11 +128,7 @@ impl<const MAX: usize> TryFrom<Value> for Json<MAX> {
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         let len = encoded_len(&value);
-        if len <= MAX {
-            Ok(Self(value))
-        } else {
-            Err(format!("value of {len} encoded bytes exceeds {MAX}"))
-        }
+        if len <= MAX { Ok(Self(value)) } else { Err(format!("value of {len} encoded bytes exceeds {MAX}")) }
     }
 }
 

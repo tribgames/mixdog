@@ -95,9 +95,7 @@ fn the_fake_finds_a_running_file_by_any_spelling_of_its_path() {
     let platform = FakePlatform::new();
     platform.add_running_file("C:\\Docs\\Book.xlsx", "excel-book");
     platform.add_running_file("C:\\Docs\\Report.docx", "word-report");
-    let label = |path: &str| {
-        platform.try_get_running_file(path).and_then(|object| object.downcast::<String>().ok())
-    };
+    let label = |path: &str| platform.try_get_running_file(path).and_then(|object| object.downcast::<String>().ok());
     assert_eq!(label("c:\\docs\\BOOK.XLSX").as_deref(), Some("excel-book"));
     assert_eq!(label("file:///C:/Docs/Report.docx").as_deref(), Some("word-report"));
     assert_eq!(label("!C:\\Docs\\Book.xlsx\\").as_deref(), Some("excel-book"));
@@ -130,10 +128,7 @@ fn the_fake_counts_describes_and_hides_the_visible_windows_of_one_process() {
     assert_eq!(platform.visible_window_count_for_process(100), 2);
     assert_eq!(platform.visible_window_count_for_process(0), 0);
     assert_eq!(platform.visible_window_count_for_process(-3), 0);
-    assert_eq!(
-        platform.visible_window_descriptions_for_process(100),
-        vec!["XLMAIN|Book1 - Excel".to_string(), "EXCEL7|Book1".to_string()]
-    );
+    assert_eq!(platform.visible_window_descriptions_for_process(100), vec!["XLMAIN|Book1 - Excel".to_string(), "EXCEL7|Book1".to_string()]);
     assert_eq!(platform.hide_visible_windows_for_process(100), 2);
     assert_eq!(platform.visible_window_count_for_process(100), 0);
     assert_eq!(platform.hide_visible_windows_for_process(100), 0);

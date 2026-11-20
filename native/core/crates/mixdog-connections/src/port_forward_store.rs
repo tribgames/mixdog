@@ -40,9 +40,7 @@ fn parsed(value: &Value) -> Forwards {
         let Some(list) = list.as_array() else { continue };
         let forwards: Vec<SavedPortForward> = list
             .iter()
-            .filter_map(|entry| {
-                Some(SavedPortForward { remote_port: valid_port(entry.get("remotePort"))?, local_port: valid_port(entry.get("localPort"))? })
-            })
+            .filter_map(|entry| Some(SavedPortForward { remote_port: valid_port(entry.get("remotePort"))?, local_port: valid_port(entry.get("localPort"))? }))
             .take(MAX_FORWARDS_PER_HOST)
             .collect();
         if !forwards.is_empty() {

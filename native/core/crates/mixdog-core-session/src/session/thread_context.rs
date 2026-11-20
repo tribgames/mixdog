@@ -23,10 +23,10 @@ use mixdog_agent::message::AgentMessage;
 use mixdog_app_protocol::v2::params::ThreadContextStatusParams;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
+use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
-use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
@@ -178,29 +178,29 @@ impl ContextStatusHost for LiveContextStatus {
 impl LiveContextStatus {
     /// `context_status` over one snapshot, with the inspections the caller's options ask for attached.
     fn status_of(&self, snapshot: &ContextSnapshot, options: Option<&Value>) -> Value {
-    let meter = MessageMeter { media: &*snapshot.media, replay_owner: &snapshot.replay_owner };
-    let signer = TranscriptSigner { meter: &meter, images: &*snapshot.images, rows: &*snapshot.rows };
-    let request_tools = RequestTools { native: &snapshot.request_native, defined: &snapshot.request_defined };
-    let session_tools = RequestTools { native: &[], defined: &snapshot.session_defined };
-    let breakdown = tool_schema_breakdown(&request_tools, &|name| snapshot.annotations.get(name).cloned().unwrap_or_default());
-    let input = StatusInput {
-        session: &snapshot.header,
-        route: Route { provider: &snapshot.provider, model: &snapshot.model, context_window: snapshot.context_window.clone() },
-        cwd: snapshot.cwd.clone(),
-        mode: snapshot.mode.clone(),
-        messages: &snapshot.messages,
-        active: snapshot.active,
-        request_tools,
-        session_tools,
-        tool_breakdown: &breakdown,
-        agent_mode: snapshot.agent_mode,
-        meter: &meter,
-        signer: &signer,
-        env: &mixdog_ai::registry::keys::ProcessEnv,
-    };
-    let annotations_of = |name: &str| snapshot.annotations.get(name).cloned().unwrap_or_default();
-    self.inspections.attach(context_status(&input), &input, &annotations_of, options)
-}
+        let meter = MessageMeter { media: &*snapshot.media, replay_owner: &snapshot.replay_owner };
+        let signer = TranscriptSigner { meter: &meter, images: &*snapshot.images, rows: &*snapshot.rows };
+        let request_tools = RequestTools { native: &snapshot.request_native, defined: &snapshot.request_defined };
+        let session_tools = RequestTools { native: &[], defined: &snapshot.session_defined };
+        let breakdown = tool_schema_breakdown(&request_tools, &|name| snapshot.annotations.get(name).cloned().unwrap_or_default());
+        let input = StatusInput {
+            session: &snapshot.header,
+            route: Route { provider: &snapshot.provider, model: &snapshot.model, context_window: snapshot.context_window.clone() },
+            cwd: snapshot.cwd.clone(),
+            mode: snapshot.mode.clone(),
+            messages: &snapshot.messages,
+            active: snapshot.active,
+            request_tools,
+            session_tools,
+            tool_breakdown: &breakdown,
+            agent_mode: snapshot.agent_mode,
+            meter: &meter,
+            signer: &signer,
+            env: &mixdog_ai::registry::keys::ProcessEnv,
+        };
+        let annotations_of = |name: &str| snapshot.annotations.get(name).cloned().unwrap_or_default();
+        self.inspections.attach(context_status(&input), &input, &annotations_of, options)
+    }
 }
 
 #[cfg(test)]
@@ -246,9 +246,6 @@ mod tests {
             panic!("row of a message in an empty-transcript golden: {message:?}")
         }
     }
-
-
-
 
     /// A loaded session whose header is the one a model call's usage leaves (`usage_books::usage_change`, the producer of the persisted
     /// reading), with a conversation in it.
@@ -309,7 +306,8 @@ mod tests {
                 reasoning_tokens_complete: false,
                 outgoing: Vec::new().into(),
                 sent_at_ms: 4_000,
-                input_excludes_cache: false, tail_book: None,
+                input_excludes_cache: false,
+                tail_book: None,
             },
             5_000,
         );
@@ -317,11 +315,10 @@ mod tests {
         header.extend(change.set);
         let stored = header["lastContextTokens"].as_f64().expect("the response's reading is stored");
         assert!(stored >= 1200.0, "the reading holds the prompt: {stored}");
-        let status = LiveContextStatus::new(Arc::new(StoredWorld(header.clone()))).context_status(Some(ThreadId::from("s".to_owned())), None).await.expect("status");
+        let status =
+            LiveContextStatus::new(Arc::new(StoredWorld(header.clone()))).context_status(Some(ThreadId::from("s".to_owned())), None).await.expect("status");
         assert_eq!(status["measurement"]["source"], "last_api_request");
         assert_eq!(status["measurement"]["tokens"].as_f64(), Some(stored));
         assert_eq!(status["measurement"]["updatedAt"], header["lastContextTokensUpdatedAt"]);
     }
-
-
 }

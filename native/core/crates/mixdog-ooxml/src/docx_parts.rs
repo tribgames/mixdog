@@ -14,16 +14,16 @@ use mixdog_js::{JsRegex, js_trim, js_trim_end, math, number_to_string, to_number
 use serde_json::Value;
 
 use crate::opc::{
-    IMAGE_CONTENT_TYPES, PixelSize, add_package_relationship, ensure_content_type_override, ensure_default_content_type,
-    image_content_type, image_pixel_size, part_from_target, part_relationship_path,
+    IMAGE_CONTENT_TYPES, PixelSize, add_package_relationship, ensure_content_type_override, ensure_default_content_type, image_content_type, image_pixel_size,
+    part_from_target, part_relationship_path,
 };
 use crate::package::os_message;
 use crate::slide_shapes::{EMU_PER_POINT, remove_first, replace_first_text, replace_first_with};
 use crate::snapshot_docx::{DocxBodyModel, docx_body_model, numbering_level_format};
 pub use crate::xml::WORD_MAIN_NS;
 use crate::xml::{
-    DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, SECTION_PROPERTIES_SOURCE, WORD_RUN_SOURCE, XML_HEADER, compiled, settings_track_changes,
-    tag_pattern, trailing_section_pattern, upsert_ordered_child, xml_encode,
+    DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, SECTION_PROPERTIES_SOURCE, WORD_RUN_SOURCE, XML_HEADER, compiled, settings_track_changes, tag_pattern,
+    trailing_section_pattern, upsert_ordered_child, xml_encode,
 };
 use crate::zipio::Package;
 
@@ -67,11 +67,7 @@ pub fn add_document_image<P: ReadProof>(proof: &P, zip: &mut Package, source: &s
     let extension = image_extension(source);
     let Some(content_type) = image_content_type(&extension) else {
         let known: Vec<&str> = IMAGE_CONTENT_TYPES.iter().map(|(name, _)| *name).collect();
-        return Err(format!(
-            "Unsupported image type: .{}. Use {}",
-            if extension.is_empty() { "unknown" } else { &extension },
-            known.join(", ")
-        ));
+        return Err(format!("Unsupported image type: .{}. Use {}", if extension.is_empty() { "unknown" } else { &extension }, known.join(", ")));
     };
     let data = mixdog_fsio::read(proof, Path::new(source)).map_err(|error| os_message(&error, "open", Path::new(source)))?;
     let mut ordinal = 1_u64;
@@ -214,10 +210,7 @@ pub fn document_section_spans(document_xml: &str) -> Result<(DocxBodyModel, Vec<
     let model = docx_body_model(document_xml);
     let body = model.body.as_ref().ok_or_else(|| NO_BODY.to_owned())?;
     let pattern = compiled(SECTION_PROPERTIES_SOURCE, "g");
-    let spans = pattern
-        .find_iter(&body.inner)
-        .map(|range| SectionSpan { start: range.start, end: range.end, xml: body.inner[range].to_owned() })
-        .collect();
+    let spans = pattern.find_iter(&body.inner).map(|range| SectionSpan { start: range.start, end: range.end, xml: body.inner[range].to_owned() }).collect();
     Ok((model, spans))
 }
 
@@ -420,12 +413,7 @@ pub fn ensure_note_part(zip: &mut Package, kind: &str) -> Result<NotePart, Strin
     );
     let xml = ensure_part(
         zip,
-        &PartDefinition {
-            part: definition.part,
-            xml: &created,
-            content_type: definition.content_type,
-            relationship: definition.relationship,
-        },
+        &PartDefinition { part: definition.part, xml: &created, content_type: definition.content_type, relationship: definition.relationship },
     );
     Ok(NotePart { definition, xml })
 }
@@ -451,15 +439,8 @@ pub struct PartText {
 fn ensure_comments_extended_part(zip: &mut Package) -> PartText {
     let part = "word/commentsExtended.xml";
     let created = format!("{XML_HEADER}<w15:commentsEx xmlns:w15=\"{WORD_2012_NS}\"></w15:commentsEx>");
-    let xml = ensure_part(
-        zip,
-        &PartDefinition {
-            part,
-            xml: &created,
-            content_type: COMMENTS_EXTENDED_CONTENT_TYPE,
-            relationship: COMMENTS_EXTENDED_RELATIONSHIP,
-        },
-    );
+    let xml =
+        ensure_part(zip, &PartDefinition { part, xml: &created, content_type: COMMENTS_EXTENDED_CONTENT_TYPE, relationship: COMMENTS_EXTENDED_RELATIONSHIP });
     PartText { part: part.to_owned(), xml }
 }
 
@@ -486,12 +467,7 @@ pub fn ensure_comments_part(zip: &mut Package) -> PartText {
     let created = format!("{XML_HEADER}<w:comments xmlns:w=\"{WORD_MAIN_NS}\" xmlns:r=\"{OFFICE_RELATIONSHIP_BASE}\"></w:comments>");
     let xml = ensure_part(
         zip,
-        &PartDefinition {
-            part,
-            xml: &created,
-            content_type: COMMENTS_CONTENT_TYPE,
-            relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/comments"),
-        },
+        &PartDefinition { part, xml: &created, content_type: COMMENTS_CONTENT_TYPE, relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/comments") },
     );
     PartText { part: part.to_owned(), xml }
 }
@@ -532,10 +508,7 @@ fn ensure_comment_sidecar(zip: &mut Package, sidecar: &CommentSidecar) -> PartTe
         prefix = sidecar.prefix,
         ns = sidecar.ns
     );
-    let xml = ensure_part(
-        zip,
-        &PartDefinition { part: sidecar.part, xml: &created, content_type: sidecar.content_type, relationship: sidecar.relationship },
-    );
+    let xml = ensure_part(zip, &PartDefinition { part: sidecar.part, xml: &created, content_type: sidecar.content_type, relationship: sidecar.relationship });
     PartText { part: sidecar.part.to_owned(), xml }
 }
 
@@ -559,11 +532,8 @@ pub fn register_comment_identity(zip: &mut Package, comment_id: u64, date: &str)
     }
     let extensible = ensure_comment_sidecar(zip, &SIDECAR_EXTENSIBLE);
     if !extensible.xml.contains(&format!("w16cex:durableId=\"{durable_id}\"")) {
-        let entry = format!(
-            "<w16cex:commentExtensible w16cex:durableId=\"{durable_id}\" w16cex:dateUtc=\"{}\"/></{}>",
-            xml_encode(date),
-            SIDECAR_EXTENSIBLE.root
-        );
+        let entry =
+            format!("<w16cex:commentExtensible w16cex:durableId=\"{durable_id}\" w16cex:dateUtc=\"{}\"/></{}>", xml_encode(date), SIDECAR_EXTENSIBLE.root);
         zip.set(&extensible.part, replace_first_text(&extensible.xml, &format!("</{}>", SIDECAR_EXTENSIBLE.root), &entry));
     }
     (para_id, durable_id)
@@ -642,9 +612,7 @@ fn first_matching<'t>(finder: &JsRegex, text: &'t str, pattern: &JsRegex) -> Opt
 pub fn write_header_footer_part(zip: &mut Package, request: &HeaderFooter<'_>) -> HeaderFooterPart {
     let tag = if request.header { "hdr" } else { "ftr" };
     let prefix = if request.header { "header" } else { "footer" };
-    let document = |content: &str| {
-        format!("{XML_HEADER}<w:{tag} xmlns:w=\"{WORD_MAIN_NS}\" xmlns:r=\"{OFFICE_RELATIONSHIP_BASE}\">{content}</w:{tag}>")
-    };
+    let document = |content: &str| format!("{XML_HEADER}<w:{tag} xmlns:w=\"{WORD_MAIN_NS}\" xmlns:r=\"{OFFICE_RELATIONSHIP_BASE}\">{content}</w:{tag}>");
     let compose = request.body;
     // A story this section already references is rewritten where it lives. Writing a new part for every call left the
     // previous one orphaned in the package while the section pointed at whichever was written last.
@@ -656,9 +624,7 @@ pub fn write_header_footer_part(zip: &mut Package, request: &HeaderFooter<'_>) -
         None
     };
     let id_pattern = compiled(r#"\br:id="([^"]+)""#, "");
-    let referenced_id = reference
-        .and_then(|element| id_pattern.captures(element).and_then(|found| found.get(1).map(str::to_owned)))
-        .unwrap_or_default();
+    let referenced_id = reference.and_then(|element| id_pattern.captures(element).and_then(|found| found.get(1).map(str::to_owned))).unwrap_or_default();
     if !referenced_id.is_empty() {
         let relationships = zip.text(&part_relationship_path(DOCUMENT_PART));
         let own_id = compiled(&format!(r#"\bId="{}""#, tag_pattern(&referenced_id)), "");
@@ -674,12 +640,7 @@ pub fn write_header_footer_part(zip: &mut Package, request: &HeaderFooter<'_>) -
             let story = zip.text(&existing);
             let root_pattern = compiled(&format!(r"(<w:{tag}\b[^>]*>)([\s\S]*)</w:{tag}>"), "");
             let written = match root_pattern.captures(&story) {
-                Some(root) => format!(
-                    "{}{}{}</w:{tag}>",
-                    &story[..root.range().start],
-                    root.get(1).unwrap_or(""),
-                    compose(root.get(2).unwrap_or(""))
-                ),
+                Some(root) => format!("{}{}{}</w:{tag}>", &story[..root.range().start], root.get(1).unwrap_or(""), compose(root.get(2).unwrap_or(""))),
                 None => document(&compose("")),
             };
             zip.set(&existing, written);
@@ -746,12 +707,7 @@ pub fn ensure_docx_update_fields(zip: &mut Package) -> String {
     let created = format!("{XML_HEADER}<w:settings xmlns:w=\"{WORD_MAIN_NS}\"></w:settings>");
     let settings = ensure_part(
         zip,
-        &PartDefinition {
-            part,
-            xml: &created,
-            content_type: SETTINGS_CONTENT_TYPE,
-            relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/settings"),
-        },
+        &PartDefinition { part, xml: &created, content_type: SETTINGS_CONTENT_TYPE, relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/settings") },
     );
     zip.set(part, upsert_ordered_child(&settings, &SETTINGS_ORDER, "w:updateFields", "<w:updateFields w:val=\"true\"/>"));
     part.to_owned()
@@ -790,8 +746,7 @@ pub fn revision_attributes(id: u64, author: &str) -> String {
 /// `nextRevisionId(documentXml)`: one more than the highest `w:id` of an insertion or deletion.
 pub fn next_revision_id(document_xml: &str) -> u64 {
     let ids = compiled(r#"<w:(?:ins|del)\b[^>]*\bw:id="(\d+)""#, "g");
-    ids.captures_iter(document_xml).map(|found| found.get(1).and_then(|digits| digits.parse::<u64>().ok()).unwrap_or(0)).fold(0, u64::max)
-        + 1
+    ids.captures_iter(document_xml).map(|found| found.get(1).and_then(|digits| digits.parse::<u64>().ok()).unwrap_or(0)).fold(0, u64::max) + 1
 }
 
 /// `markRunsDeleted(paragraphXml, id, author)`: every run of the paragraph wrapped as a tracked deletion, one id per run. A
@@ -1102,7 +1057,6 @@ mod tests {
         let part = numbering_after(&mut zip, "<w:numId w:val=\"9\"/>", &NumberingChoice { continued: true, scheme: "number" });
         assert!(part.created);
     }
-
 
     #[test]
     fn revision_dates_are_utc_whatever_the_local_zone() {

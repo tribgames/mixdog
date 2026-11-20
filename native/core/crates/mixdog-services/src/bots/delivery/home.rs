@@ -20,8 +20,8 @@ use tokio::sync::{Semaphore, watch};
 use super::env::{DeliveryConfig, HomeAgent, HomeDirectory, HomeThreads, LiveSlot, Presence, RetryTimer, RoomRelay, ThreadSnapshot};
 use super::queue::{AddOptions, RoutineResultQueue, WatchError, answer_key};
 use super::rows::{
-    QueuedRow, bounded_reply, delivered_row, js_str, message_id_of, posted_message, routine_omitted_message, routine_result_notice,
-    routine_run_notice, routine_summary, str_of, truthy, wakes_agent,
+    QueuedRow, bounded_reply, delivered_row, js_str, message_id_of, posted_message, routine_omitted_message, routine_result_notice, routine_run_notice,
+    routine_summary, str_of, truthy, wakes_agent,
 };
 use crate::bots::host::{AnnouncedRun, DeliveryItem};
 use crate::bots::ids::{MIXY_AGENT_ID, agent_home_session_id, schedule_owner_agent_id};
@@ -165,7 +165,6 @@ pub struct AgentHomeDelivery {
     #[cfg(test)]
     drain_calls: watch::Sender<u64>,
 }
-
 
 impl AgentHomeDelivery {
     #[allow(clippy::too_many_arguments)] // the Node options bag: one seam per field
@@ -490,7 +489,8 @@ impl AgentHomeDelivery {
             return false;
         }
         let kind = if run.item.kind == RoutineKind::Webhook { "webhook" } else { "schedule" };
-        let notice = routine_run_notice(kind, name, &run.item.run_id, run.state, run.item.ok, run.item.run_session_id.as_deref(), &message_id_of(&run.item.run_id));
+        let notice =
+            routine_run_notice(kind, name, &run.item.run_id, run.state, run.item.ok, run.item.run_session_id.as_deref(), &message_id_of(&run.item.run_id));
         self.notice_live(&home, notice).await
     }
 
@@ -522,7 +522,12 @@ impl AgentHomeDelivery {
     /// now or before).
     async fn post_rows(&self, home: &str, thread: &ThreadSnapshot, items: &[Value], omitted: Option<&Value>) -> Result<Vec<String>, String> {
         let now = self.now_ms();
-        let posted: HashSet<&str> = thread.messages.iter().filter_map(|message| message.pointer("/meta/transcript/messageId").and_then(Value::as_str)).filter(|id| !id.is_empty()).collect();
+        let posted: HashSet<&str> = thread
+            .messages
+            .iter()
+            .filter_map(|message| message.pointer("/meta/transcript/messageId").and_then(Value::as_str))
+            .filter(|id| !id.is_empty())
+            .collect();
         let mut fresh: Vec<(Value, Value)> = Vec::new();
         if let Some(omitted) = omitted {
             let omitted_id = message_id_of(&mixdog_js::value_to_string(omitted.get("id").unwrap_or(&Value::Null)));

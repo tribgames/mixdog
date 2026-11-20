@@ -11,7 +11,10 @@ fn every_conversation_message_is_a_row_at_its_position_in_the_transcript() {
         json!({"role": "assistant", "content": "an answer"}),
     ];
     let rows = search_rows("s1", &messages);
-    assert_eq!(rows.iter().map(|r| (r.ordinal, r.role, r.content.as_str(), r.ts)).collect::<Vec<_>>(), [(0, "user", "first question", Some(1_700_000_000_123)), (2, "assistant", "an answer", None)]);
+    assert_eq!(
+        rows.iter().map(|r| (r.ordinal, r.role, r.content.as_str(), r.ts)).collect::<Vec<_>>(),
+        [(0, "user", "first question", Some(1_700_000_000_123)), (2, "assistant", "an answer", None)]
+    );
     assert!(rows.iter().all(|r| r.session_id == "s1" && r.source_ref.starts_with("session:s1:")));
 }
 

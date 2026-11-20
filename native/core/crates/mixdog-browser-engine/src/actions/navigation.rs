@@ -84,7 +84,12 @@ pub async fn back(call: &NavigateCall<'_>) -> Result<NavigateOutcome, ActionErro
     moved(call, BrowserNavigateKind::Back, None, None).await
 }
 
-async fn moved(call: &NavigateCall<'_>, kind: BrowserNavigateKind, url: Option<String>, mail_link: Option<BrowserMailLink>) -> Result<NavigateOutcome, ActionError> {
+async fn moved(
+    call: &NavigateCall<'_>,
+    kind: BrowserNavigateKind,
+    url: Option<String>,
+    mail_link: Option<BrowserMailLink>,
+) -> Result<NavigateOutcome, ActionError> {
     let params = HostBrowserPageNavigateParams { page_id: call.page_id.to_owned(), kind, url, mail_link, expect: call.expect.clone() };
     let answer = call.host.page_navigate(params, call.cancel.token()).await?;
     Ok(match answer.refused {
@@ -132,7 +137,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_url_is_admitted_and_sent_normalised_with_the_guard() {
-        let host = FakeHost::scripted(vec![navigated(None).with_params(json!({"pageId": "p1", "kind": "url", "url": "https://example.com/a", "expect": {"documentId": "p1:1"}}))]);
+        let host = FakeHost::scripted(vec![
+            navigated(None).with_params(json!({"pageId": "p1", "kind": "url", "url": "https://example.com/a", "expect": {"documentId": "p1:1"}})),
+        ]);
         let outcome = run(&host, json!({"url": "example.com/a"})).await.expect("navigates");
         assert!(matches!(outcome, NavigateOutcome::Moved(facts) if facts.page_id == "p1"));
         host.finish().expect("one call");
@@ -141,7 +148,9 @@ mod tests {
     #[tokio::test]
     async fn a_refused_url_never_reaches_the_host() {
         let host = FakeHost::scripted(Vec::new());
-        for url in ["file:///etc/passwd", "https://user:pw@example.com/", "http://169.254.169.254/latest", "https://example.com/?api_key=abcdefabcdefabcdefabcd1234"] {
+        for url in
+            ["file:///etc/passwd", "https://user:pw@example.com/", "http://169.254.169.254/latest", "https://example.com/?api_key=abcdefabcdefabcdefabcd1234"]
+        {
             let error = run(&host, json!({"url": url})).await.expect_err(url);
             assert!(matches!(error, ActionError::Failed(_)), "{url}: {error:?}");
         }
@@ -201,7 +210,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_load_is_the_hosts_failure_as_it_is() {
-        let host = FakeHost::scripted(vec![Expect::err("host/browser/page/navigate", HostCallError::Failed { message: "navigation failed: net::ERR_NAME_NOT_RESOLVED".into() })]);
+        let host = FakeHost::scripted(vec![Expect::err(
+            "host/browser/page/navigate",
+            HostCallError::Failed { message: "navigation failed: net::ERR_NAME_NOT_RESOLVED".into() },
+        )]);
         let error = run(&host, json!({"url": "https://nowhere.example/"})).await.expect_err("fails");
         assert_eq!(error, ActionError::Host(HostCallError::Failed { message: "navigation failed: net::ERR_NAME_NOT_RESOLVED".into() }));
     }

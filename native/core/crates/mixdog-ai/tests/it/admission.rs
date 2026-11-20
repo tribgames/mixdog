@@ -16,19 +16,11 @@ fn key(provider: &str, account: &str) -> LaneKey {
 }
 
 fn req(owner: &str, priority: Priority) -> AdmissionRequest {
-    AdmissionRequest {
-        owner: Arc::from(owner),
-        priority,
-        on_cooldown_wait: None,
-        liveness: None,
-    }
+    AdmissionRequest { owner: Arc::from(owner), priority, on_cooldown_wait: None, liveness: None }
 }
 
 fn limited(n: usize) -> LaneSettings {
-    LaneSettings {
-        concurrency: Some(n),
-        ..LaneSettings::default()
-    }
+    LaneSettings { concurrency: Some(n), ..LaneSettings::default() }
 }
 
 #[tokio::test]
@@ -54,15 +46,10 @@ async fn waiters_go_by_priority_then_round_robin_by_owner() {
     let order = Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut tasks = Vec::new();
     // Queue in this order; each task holds until released by finishing.
-    for (owner, priority) in [
-        ("a", Priority::BestEffort),
-        ("a", Priority::UserVisible),
-        ("a", Priority::UserVisible),
-        ("b", Priority::UserVisible),
-        ("c", Priority::UserBlocking),
-    ] {
-        let (admission, lane, cancel, order) =
-            (admission.clone(), lane.clone(), cancel.clone(), order.clone());
+    for (owner, priority) in
+        [("a", Priority::BestEffort), ("a", Priority::UserVisible), ("a", Priority::UserVisible), ("b", Priority::UserVisible), ("c", Priority::UserBlocking)]
+    {
+        let (admission, lane, cancel, order) = (admission.clone(), lane.clone(), cancel.clone(), order.clone());
         let label = format!("{owner}{priority:?}");
         tasks.push(tokio::spawn(async move {
             let permit = admission.acquire(&lane, req(owner, priority), &cancel).await.unwrap();
@@ -76,25 +63,14 @@ async fn waiters_go_by_priority_then_round_robin_by_owner() {
     for task in tasks {
         task.await.unwrap();
     }
-    assert_eq!(
-        *order.lock().unwrap(),
-        ["cUserBlocking", "aUserVisible", "bUserVisible", "aUserVisible", "aBestEffort"]
-    );
+    assert_eq!(*order.lock().unwrap(), ["cUserBlocking", "aUserVisible", "bUserVisible", "aUserVisible", "aBestEffort"]);
 }
 
 #[tokio::test(start_paused = true)]
 async fn queue_bound_and_cancellation() {
     mixdog_rt::testing::tokens();
     let admission = Arc::new(Admission::new());
-    let lane = admission.lane(
-        &key("p", "a"),
-        LaneSettings {
-            concurrency: Some(1),
-            max_queue: 1,
-            adaptive: false,
-            unattended_lease: None,
-        },
-    );
+    let lane = admission.lane(&key("p", "a"), LaneSettings { concurrency: Some(1), max_queue: 1, adaptive: false, unattended_lease: None });
     let cancel = CancellationToken::new();
     let held = admission.acquire(&lane, req("x", Priority::default()), &cancel).await.unwrap();
     let waiting_cancel = CancellationToken::new();
@@ -103,10 +79,7 @@ async fn queue_bound_and_cancellation() {
         tokio::spawn(async move { admission.acquire(&lane, req("y", Priority::default()), &c).await.map(|_| ()) })
     };
     mixdog_rt::time::sleep(Duration::from_millis(20)).await;
-    assert!(matches!(
-        admission.acquire(&lane, req("z", Priority::default()), &cancel).await,
-        Err(AdmissionError::QueueFull { .. })
-    ));
+    assert!(matches!(admission.acquire(&lane, req("z", Priority::default()), &cancel).await, Err(AdmissionError::QueueFull { .. })));
     waiting_cancel.cancel();
     assert_eq!(waiter.await.unwrap(), Err(AdmissionError::Cancelled));
     assert_eq!(admission.snapshot()[0].queued, 0, "the cancelled waiter left");
@@ -118,27 +91,14 @@ async fn queue_bound_and_cancellation() {
 async fn adaptive_lane_halves_cools_down_and_recovers() {
     mixdog_rt::testing::tokens();
     let admission = Admission::new();
-    let lane = admission.lane(
-        &key("anthropic", "a"),
-        LaneSettings {
-            concurrency: Some(4),
-            adaptive: true,
-            ..LaneSettings::default()
-        },
-    );
+    let lane = admission.lane(&key("anthropic", "a"), LaneSettings { concurrency: Some(4), adaptive: true, ..LaneSettings::default() });
     let cancel = CancellationToken::new();
     let permit = admission.acquire(&lane, req("s", Priority::default()), &cancel).await.unwrap();
-    permit.finish(Outcome::Failure {
-        status: Some(429),
-        retry_after: Some(Duration::from_secs(10)),
-    });
+    permit.finish(Outcome::Failure { status: Some(429), retry_after: Some(Duration::from_secs(10)) });
     let snap = &admission.snapshot()[0];
     assert_eq!(snap.limit, Some(2));
     assert_eq!(snap.cooldown, Duration::from_secs(10));
-    assert_eq!(
-        admission.immediate_block(&lane),
-        Some(mixdog_ai::admission::Block::Cooldown)
-    );
+    assert_eq!(admission.immediate_block(&lane), Some(mixdog_ai::admission::Block::Cooldown));
     // A request parks until the cooldown ends.
     let started = tokio::time::Instant::now();
     let p = admission.acquire(&lane, req("s", Priority::default()), &cancel).await.unwrap();
@@ -158,18 +118,11 @@ async fn adaptive_lane_halves_cools_down_and_recovers() {
 const LEASE: Duration = Duration::from_secs(60);
 
 fn leased(n: usize) -> LaneSettings {
-    LaneSettings {
-        concurrency: Some(n),
-        unattended_lease: Some(LEASE),
-        ..LaneSettings::default()
-    }
+    LaneSettings { concurrency: Some(n), unattended_lease: Some(LEASE), ..LaneSettings::default() }
 }
 
 fn run_req(run: &Arc<RunLiveness>) -> AdmissionRequest {
-    AdmissionRequest {
-        liveness: Some(run.clone()),
-        ..req("run", Priority::default())
-    }
+    AdmissionRequest { liveness: Some(run.clone()), ..req("run", Priority::default()) }
 }
 
 /// Moves paused time forward one second at a time, letting every task it woke
@@ -203,11 +156,7 @@ async fn an_unattended_silent_run_returns_its_permit_after_the_lease() {
     let permit = admission.acquire(&lane, run_req(&run), &abort).await.unwrap();
     let other = {
         let (admission, lane) = (admission.clone(), lane.clone());
-        tokio::spawn(async move {
-            admission
-                .acquire(&lane, req("other", Priority::default()), &CancellationToken::new())
-                .await
-        })
+        tokio::spawn(async move { admission.acquire(&lane, req("other", Priority::default()), &CancellationToken::new()).await })
     };
     settle(LEASE - Duration::from_secs(1)).await;
     assert!(!other.is_finished(), "the lease has not run out");
@@ -232,11 +181,7 @@ async fn an_attended_silent_run_keeps_its_permit_until_it_is_unattended() {
     let permit = admission.acquire(&lane, run_req(&run), &CancellationToken::new()).await.unwrap();
     let other = {
         let (admission, lane) = (admission.clone(), lane.clone());
-        tokio::spawn(async move {
-            admission
-                .acquire(&lane, req("other", Priority::default()), &CancellationToken::new())
-                .await
-        })
+        tokio::spawn(async move { admission.acquire(&lane, req("other", Priority::default()), &CancellationToken::new()).await })
     };
     settle(LEASE * 10).await;
     assert!(!other.is_finished(), "no content timer for an attended run");
@@ -268,10 +213,7 @@ async fn a_run_without_a_progress_fact_keeps_its_permit() {
     mixdog_rt::testing::tokens();
     let admission = Arc::new(Admission::new());
     let lane = admission.lane(&key("p", "a"), leased(1));
-    let _permit = admission
-        .acquire(&lane, req("run", Priority::default()), &CancellationToken::new())
-        .await
-        .unwrap();
+    let _permit = admission.acquire(&lane, req("run", Priority::default()), &CancellationToken::new()).await.unwrap();
     settle(LEASE * 10).await;
     assert_eq!(active(&admission), 1);
 }

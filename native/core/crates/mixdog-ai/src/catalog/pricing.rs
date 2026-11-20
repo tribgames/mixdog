@@ -90,7 +90,8 @@ impl CatalogService {
                 let meta = self.sync_meta(&id, owner);
                 let has = |key: &str| meta.as_ref().and_then(|m| m.get(key)).is_some_and(|v| !v.is_null());
                 let caches = meta.as_ref().is_some_and(|m| truthy(m.get("supportsPromptCaching")));
-                let required: &[&'static str] = if caches { &["inputCostPerM", "outputCostPerM", "cacheReadCostPerM"] } else { &["inputCostPerM", "outputCostPerM"] };
+                let required: &[&'static str] =
+                    if caches { &["inputCostPerM", "outputCostPerM", "cacheReadCostPerM"] } else { &["inputCostPerM", "outputCostPerM"] };
                 let missing_rates = required.iter().copied().filter(|key| !has(key)).collect();
                 rows.push(AuditRow { provider: owner.to_owned(), model: id, missing_rates });
             }
@@ -102,10 +103,8 @@ impl CatalogService {
     /// once per table revision (`lastAuditedRevision`). Returns the report it logged.
     pub fn audit_cached_pricing(self: &Arc<Self>) -> Option<String> {
         let revision = self.pricing_unchecked().revision();
-        let rows: Vec<AuditRow> = super::rosters::ROSTER_PROVIDERS
-            .iter()
-            .flat_map(|provider| self.audit_rows(&self.rosters.load().cached_models(provider), provider))
-            .collect();
+        let rows: Vec<AuditRow> =
+            super::rosters::ROSTER_PROVIDERS.iter().flat_map(|provider| self.audit_rows(&self.rosters.load().cached_models(provider), provider)).collect();
         let unpriced: Vec<&AuditRow> = rows.iter().filter(|row| !row.priced()).collect();
         let mut audited = self.audited.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let report = (audited.as_deref() != Some(revision.as_str()) && !unpriced.is_empty()).then(|| {
@@ -325,9 +324,7 @@ impl PricingCatalog {
         // `resolveModelPricingIdentity`: the transport's explicit SKU wins, then
         // Grok's requested SKU, then the model.
         let requested = non_empty(&args.requested_model);
-        let selected = non_empty(&args.pricing_model)
-            .or_else(|| requested.filter(|_| args.provider == "grok-oauth"))
-            .unwrap_or(&args.model);
+        let selected = non_empty(&args.pricing_model).or_else(|| requested.filter(|_| args.provider == "grok-oauth")).unwrap_or(&args.model);
         let pricing_model = self.service.with_lookup(|lookup| lookup.pricing_model(&args.provider, selected));
         let meta = self.service.sync_meta(&pricing_model, &args.provider);
 
@@ -369,8 +366,8 @@ impl PricingCatalog {
         // The tier the request carried decides its rate; only the OpenAI API
         // bills a ramp-downgraded Priority request at Standard rates.
         let sent_tier = args.request_service_tier.as_deref().unwrap_or("");
-        let premium = matches!(sent_tier, "priority" | "ultrafast" | "fast")
-            && !(args.kind.as_deref() == Some("api") && args.service_tier.as_deref() == Some("default"));
+        let premium =
+            matches!(sent_tier, "priority" | "ultrafast" | "fast") && !(args.kind.as_deref() == Some("api") && args.service_tier.as_deref() == Some("default"));
         // Anthropic fast mode is a flat 2x on fast-capable Opus; every other
         // premium request needs the model's published Fast/Priority rates.
         let anthropic_fast = premium && sent_tier == "fast" && self.service.supports_anthropic_fast_mode(&pricing_model);
@@ -416,7 +413,8 @@ impl PricingCatalog {
         if let Some(rate) = cache_write_1h {
             rates.insert("cacheWrite1hCostPerM".into(), rate.map_or(Value::Null, jnum));
         }
-        let mut missing: Vec<&str> = RATE_KEYS.iter().zip(tokens).zip(priced).filter(|((_, amount), rate)| *amount > 0.0 && rate.is_none()).map(|((key, _), _)| *key).collect();
+        let mut missing: Vec<&str> =
+            RATE_KEYS.iter().zip(tokens).zip(priced).filter(|((_, amount), rate)| *amount > 0.0 && rate.is_none()).map(|((key, _), _)| *key).collect();
         if cache_write_1h == Some(None) {
             missing.push("cacheWrite1hCostPerM");
         }
@@ -443,13 +441,7 @@ impl PricingCatalog {
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "fixture files")]
-mod tests {
-
-
-
-
-}
-
+mod tests {}
 
 impl crate::registry::accounting::UsagePricing for CatalogPricing {
     fn price_usage(&self, args: &UsageArgs) -> PricedUsage {

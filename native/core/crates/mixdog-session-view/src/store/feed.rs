@@ -87,7 +87,8 @@ mod tests {
     use super::*;
 
     fn notification(meta: serde_json::Value, content: &str) -> RpcNotification {
-        serde_json::from_value(json!({ "method": "thread/notification", "params": { "threadId": "t", "content": content, "meta": meta } })).expect("a notification")
+        serde_json::from_value(json!({ "method": "thread/notification", "params": { "threadId": "t", "content": content, "meta": meta } }))
+            .expect("a notification")
     }
 
     fn heard(notifications: &[RpcNotification]) -> Vec<StoreEvent> {
@@ -114,10 +115,7 @@ mod tests {
         ]);
         assert_eq!(
             events,
-            vec![
-                StoreEvent::UiOpenRequest { command: "settings".to_owned(), seq: 1 },
-                StoreEvent::UiOpenRequest { command: "settings".to_owned(), seq: 2 },
-            ]
+            vec![StoreEvent::UiOpenRequest { command: "settings".to_owned(), seq: 1 }, StoreEvent::UiOpenRequest { command: "settings".to_owned(), seq: 2 },]
         );
     }
 

@@ -166,10 +166,7 @@ impl FormatEditor for Editor {
         match name.as_str() {
             "boom" => Err(Error::host("boom")),
             "none" => Ok(None),
-            "same" | "replace_text" => Ok(Some(Value::object(
-                ObjectKind::Ordered,
-                vec![("op", Value::String(name.clone())), ("changed", Value::Bool(false))],
-            ))),
+            "same" | "replace_text" => Ok(Some(Value::object(ObjectKind::Ordered, vec![("op", Value::String(name.clone())), ("changed", Value::Bool(false))]))),
             _ => Ok(Some(Value::object(ObjectKind::Ordered, vec![("op", Value::String(name.clone())), ("changed", Value::Bool(true))]))),
         }
     }
@@ -425,7 +422,10 @@ fn post_save_validate_reopens_an_owned_background_word_document_and_reads_it_bac
             session_head(&state, 1)
         )
     );
-    assert_eq!(world.stdout.text(), "{\"ok\":true,\"session\":\"s1\",\"ownership\":\"owned\",\"ownsApplication\":true,\"appPid\":500,\"lifecycle\":\"initializing\"}\r\n");
+    assert_eq!(
+        world.stdout.text(),
+        "{\"ok\":true,\"session\":\"s1\",\"ownership\":\"owned\",\"ownsApplication\":true,\"appPid\":500,\"lifecycle\":\"initializing\"}\r\n"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -467,7 +467,6 @@ fn an_ole_container_with_a_package_extension_is_refused_as_password_protected_an
     // A legacy extension is not a package: it is not read at all, so a file that does not exist passes.
     assert_eq!(assert_preview_not_encrypted(&actions, &path("absent.doc")), Ok(()));
 }
-
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("mixdog-office-actions-{}-{name}", std::process::id()));
@@ -604,9 +603,7 @@ fn a_batch_that_changed_nothing_is_refused_with_the_phrase_that_matched_nothing_
     let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
     let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
     let (mut out, _, _) = emitter();
-    let failure = handler
-        .handle(&mut out, &live_batch(&path, json!([{"op": "replace_text", "find": "hello"}]), json!({"requireChanges": true})))
-        .unwrap_err();
+    let failure = handler.handle(&mut out, &live_batch(&path, json!([{"op": "replace_text", "find": "hello"}]), json!({"requireChanges": true}))).unwrap_err();
     let expected = "replace_text produced no change (\"hello\" appears nowhere; read the wording as written with action:query and a word from it)";
     assert!(failure.starts_with("replace_text failed at apply.rs:") && failure.ends_with(&format!(": {expected}")), "{failure}");
     fake.finish();
@@ -622,9 +619,8 @@ fn allow_no_change_lets_an_unchanged_operation_through_and_leaves_no_undo_unit()
     let editors: [(&str, &dyn FormatEditor); 1] = [("docx", &Editor)];
     let mut handler = one_shot(word_drivers(&[], &editors), Some(fake.object(1)));
     let (mut out, _, _) = emitter();
-    let answer = handler
-        .handle(&mut out, &live_batch(&path, json!([{"op": "same", "allowNoChange": true}]), json!({"requireChanges": true})))
-        .expect("an answer");
+    let answer =
+        handler.handle(&mut out, &live_batch(&path, json!([{"op": "same", "allowNoChange": true}]), json!({"requireChanges": true}))).expect("an answer");
     assert!(line(&answer).ends_with("\"results\":[{\"op\":\"same\",\"changed\":false}],\"undoUnits\":0}"), "{}", line(&answer));
     fake.finish();
 }

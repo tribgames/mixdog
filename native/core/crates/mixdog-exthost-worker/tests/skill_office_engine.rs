@@ -115,13 +115,13 @@ fn qc_pages_measures_a_real_deck_and_asks_no_model_when_nothing_is_wrong() {
     let path = deck(&engine, dir.path());
     let output = dir.path().join("out").join("qc.json").to_string_lossy().into_owned();
     let host = OfficeHost { engine: Some(&engine), exec: &NoExec, cwd: dir.path() };
-    let args: Vec<String> = [path.as_str(), "--provider", "p", "--model", "m", "--output", output.as_str(), "--no-vision"].iter().map(|arg| (*arg).to_owned()).collect();
+    let args: Vec<String> =
+        [path.as_str(), "--provider", "p", "--model", "m", "--output", output.as_str(), "--no-vision"].iter().map(|arg| (*arg).to_owned()).collect();
     let out = run_qc_pages(&Unlaned, &args, &host);
     assert_eq!(out.code, 0, "{} {}", out.stdout, out.stderr);
     let report: Value = serde_json::from_slice(&mixdog_testkit::read(&output)).expect("the report is JSON");
     assert_eq!(report["pages"].as_array().map(Vec::len), Some(2), "{report}");
 }
-
 
 #[test]
 fn a_session_is_opened_snapshotted_and_closed_over_a_real_deck() {

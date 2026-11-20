@@ -62,8 +62,8 @@ fn utf16_len(text: &str) -> usize {
 fn js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
-            | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
     )
 }
 
@@ -86,11 +86,7 @@ pub fn num_json(number: f64) -> Value {
 }
 
 fn num(number: f64) -> Value {
-    if number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER {
-        json!(number as i64)
-    } else {
-        json!(number)
-    }
+    if number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER { json!(number as i64) } else { json!(number) }
 }
 
 /// `String(value)`.
@@ -100,11 +96,7 @@ pub(crate) fn js_string(value: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.clone(),
-        Value::Array(items) => items
-            .iter()
-            .map(|item| if item.is_null() { String::new() } else { js_string(item) })
-            .collect::<Vec<_>>()
-            .join(","),
+        Value::Array(items) => items.iter().map(|item| if item.is_null() { String::new() } else { js_string(item) }).collect::<Vec<_>>().join(","),
         Value::Object(_) => "[object Object]".into(),
     }
 }
@@ -160,12 +152,9 @@ static DOCUMENT_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^p[1-9][0-9]
 static PAGE_DOCUMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^p[0-9]+:[0-9]+$").expect("page document"));
 static CODEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^video/[A-Za-z0-9.+-]{1,32}$").expect("codec"));
 static ICE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"^(?:stuns?|turns?):[^{JS_SPACE_CLASS}]+$")).expect("ice url"));
-static FINGERPRINT_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"^a=fingerprint:([^{JS_SPACE_CLASS}]+) ([^{JS_SPACE_CLASS}]+)[{JS_SPACE_CLASS}]*$")).expect("fingerprint line")
-});
-static MDNS_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.){1,4}local$").expect("mdns name")
-});
+static FINGERPRINT_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"^a=fingerprint:([^{JS_SPACE_CLASS}]+) ([^{JS_SPACE_CLASS}]+)[{JS_SPACE_CLASS}]*$")).expect("fingerprint line"));
+static MDNS_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.){1,4}local$").expect("mdns name"));
 
 fn opaque_id(value: &Value, what: &str) -> Result<String, Refusal> {
     match value {
@@ -364,8 +353,8 @@ impl Fingerprint {
             _ => return fail("fingerprint algorithm"),
         };
         let hex = field(input, "value").as_str().map(str::to_uppercase).unwrap_or_default();
-        let shaped = hex.len() == bytes * 3 - 1
-            && hex.bytes().enumerate().all(|(i, b)| if i % 3 == 2 { b == b':' } else { matches!(b, b'0'..=b'9' | b'A'..=b'F') });
+        let shaped =
+            hex.len() == bytes * 3 - 1 && hex.bytes().enumerate().all(|(i, b)| if i % 3 == 2 { b == b':' } else { matches!(b, b'0'..=b'9' | b'A'..=b'F') });
         if !shaped {
             return fail("fingerprint value");
         }
@@ -431,10 +420,9 @@ pub(crate) fn parse_sdp(value: &Value) -> Result<String, Refusal> {
         return fail("sdp");
     }
     // `/^a=ice-lite\b/mu`: a line start follows \n, \r, U+2028 and U+2029.
-    let ice_lite = text.split(['\n', '\r', '\u{2028}', '\u{2029}']).any(|line| {
-        line.strip_prefix("a=ice-lite")
-            .is_some_and(|rest| !rest.chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_'))
-    });
+    let ice_lite = text
+        .split(['\n', '\r', '\u{2028}', '\u{2029}'])
+        .any(|line| line.strip_prefix("a=ice-lite").is_some_and(|rest| !rest.chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')));
     if ice_lite {
         return fail("sdp ice-lite");
     }
@@ -486,10 +474,7 @@ fn no_space(token: &str) -> bool {
 /// a candidate line.
 pub fn is_candidate_line(line: &str) -> bool {
     let tokens: Vec<&str> = line.split(' ').collect();
-    let Some(foundation) = tokens
-        .first()
-        .and_then(|t| t.get(..10).filter(|head| head.eq_ignore_ascii_case("candidate:")).map(|_| &t[10..]))
-    else {
+    let Some(foundation) = tokens.first().and_then(|t| t.get(..10).filter(|head| head.eq_ignore_ascii_case("candidate:")).map(|_| &t[10..])) else {
         return false;
     };
     if tokens.len() < 8 || !(1..=32).contains(&foundation.len()) || !foundation.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/') {
@@ -512,7 +497,10 @@ pub fn is_candidate_line(line: &str) -> bool {
     let mut at = 8;
     let mut related = None;
     if tokens.get(at).is_some_and(|t| t.eq_ignore_ascii_case("raddr")) {
-        let (Some(related_address), Some(rport)) = (tokens.get(at + 1), tokens.get(at + 2).zip(tokens.get(at + 3)).filter(|(name, _)| name.eq_ignore_ascii_case("rport")).and_then(|(_, p)| digits(p, 5))) else {
+        let (Some(related_address), Some(rport)) = (
+            tokens.get(at + 1),
+            tokens.get(at + 2).zip(tokens.get(at + 3)).filter(|(name, _)| name.eq_ignore_ascii_case("rport")).and_then(|(_, p)| digits(p, 5)),
+        ) else {
             return false;
         };
         if !no_space(related_address) {
@@ -530,9 +518,7 @@ pub fn is_candidate_line(line: &str) -> bool {
         let (name, value) = (pair[0], pair[1]);
         let name_ok = {
             let mut chars = name.chars();
-            chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-                && name.len() <= 32
-                && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic()) && name.len() <= 32 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
         };
         let reserved = ["raddr", "rport", "typ"].iter().any(|word| name.eq_ignore_ascii_case(word));
         let value_ok = (1..=256).contains(&value.len()) && value.bytes().all(|b| (0x21..=0x7e).contains(&b));
@@ -666,16 +652,7 @@ pub enum TransportState {
 }
 
 impl TransportState {
-    pub const ALL: [Self; 8] = [
-        Self::Relay,
-        Self::Negotiating,
-        Self::Connected,
-        Self::Promoting,
-        Self::Webrtc,
-        Self::Demoting,
-        Self::Cooldown,
-        Self::Closed,
-    ];
+    pub const ALL: [Self; 8] = [Self::Relay, Self::Negotiating, Self::Connected, Self::Promoting, Self::Webrtc, Self::Demoting, Self::Cooldown, Self::Closed];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -797,17 +774,55 @@ pub struct VideoLimit {
 /// A phone's signal, as the service receives it from the relay.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClientSignal {
-    Ready { source: Source, receive_codecs: Vec<String>, video_limit: Option<VideoLimit>, viewer_attempt: Option<u64> },
+    Ready {
+        source: Source,
+        receive_codecs: Vec<String>,
+        video_limit: Option<VideoLimit>,
+        viewer_attempt: Option<u64>,
+    },
     /// Uses the existing viewer-left wire shape, with a peer ref only if one was offered.
-    CancelScreen { source: Source, viewer_attempt: u64, connection: Option<ConnectionRef> },
-    GeometryAck { source: Source, geometry_generation: u64 },
-    ResizeRequest { source: Source, resize: Resize },
-    Answer { connection: ConnectionRef, sdp: String, fingerprints: Vec<Fingerprint> },
-    Candidate { connection: ConnectionRef, candidate: Option<Candidate> },
-    MediaReady { connection: ConnectionRef, document_id: Option<String>, geometry_generation: u64, pixel_width: u64, pixel_height: u64 },
-    PromoteAck { connection: ConnectionRef, input_epoch: u64 },
-    DemoteAck { connection: ConnectionRef, input_epoch: u64 },
-    Close { connection: ConnectionRef, reason: CloseReason, detail: Option<String> },
+    CancelScreen {
+        source: Source,
+        viewer_attempt: u64,
+        connection: Option<ConnectionRef>,
+    },
+    GeometryAck {
+        source: Source,
+        geometry_generation: u64,
+    },
+    ResizeRequest {
+        source: Source,
+        resize: Resize,
+    },
+    Answer {
+        connection: ConnectionRef,
+        sdp: String,
+        fingerprints: Vec<Fingerprint>,
+    },
+    Candidate {
+        connection: ConnectionRef,
+        candidate: Option<Candidate>,
+    },
+    MediaReady {
+        connection: ConnectionRef,
+        document_id: Option<String>,
+        geometry_generation: u64,
+        pixel_width: u64,
+        pixel_height: u64,
+    },
+    PromoteAck {
+        connection: ConnectionRef,
+        input_epoch: u64,
+    },
+    DemoteAck {
+        connection: ConnectionRef,
+        input_epoch: u64,
+    },
+    Close {
+        connection: ConnectionRef,
+        reason: CloseReason,
+        detail: Option<String>,
+    },
 }
 
 impl ClientSignal {
@@ -925,11 +940,7 @@ impl ClientSignal {
                     if CloseReason::parse(field(input, "reason"))? != CloseReason::ViewerLeft {
                         return fail("close reason");
                     }
-                    let connection = if input.contains_key("connectionId") || input.contains_key("generation") {
-                        Some(connection_ref(input)?)
-                    } else {
-                        None
-                    };
+                    let connection = if input.contains_key("connectionId") || input.contains_key("generation") { Some(connection_ref(input)?) } else { None };
                     return Ok(Self::CancelScreen { source, viewer_attempt, connection });
                 }
                 let connection = connection_ref(input)?;
@@ -1019,7 +1030,10 @@ fn screen_viewer_attempt(source: &Source, value: &Value) -> Result<u64, Refusal>
 /// The desktop's signal, as the phone receives it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DesktopSignal {
-    Geometry { source: Source, geometry: Geometry },
+    Geometry {
+        source: Source,
+        geometry: Geometry,
+    },
     Offer {
         connection: ConnectionRef,
         sdp: String,
@@ -1029,10 +1043,25 @@ pub enum DesktopSignal {
         geometry: Geometry,
         input_epoch: u64,
     },
-    Candidate { connection: ConnectionRef, candidate: Option<Candidate> },
-    Promote { connection: ConnectionRef, input_epoch: u64, geometry_generation: u64 },
-    Demote { connection: ConnectionRef, input_epoch: u64, reason: CloseReason },
-    Close { connection: ConnectionRef, reason: CloseReason, retry_after_ms: Option<u64> },
+    Candidate {
+        connection: ConnectionRef,
+        candidate: Option<Candidate>,
+    },
+    Promote {
+        connection: ConnectionRef,
+        input_epoch: u64,
+        geometry_generation: u64,
+    },
+    Demote {
+        connection: ConnectionRef,
+        input_epoch: u64,
+        reason: CloseReason,
+    },
+    Close {
+        connection: ConnectionRef,
+        reason: CloseReason,
+        retry_after_ms: Option<u64>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1112,10 +1141,7 @@ impl DesktopSignal {
             Some("close") => {
                 let connection = connection_ref(input)?;
                 let reason = CloseReason::parse(field(input, "reason"))?;
-                let retry_after_ms = input
-                    .get("retryAfterMs")
-                    .map(|v| bounded_integer(v, 0.0, MAX_SAFE_INTEGER, "retry after"))
-                    .transpose()?;
+                let retry_after_ms = input.get("retryAfterMs").map(|v| bounded_integer(v, 0.0, MAX_SAFE_INTEGER, "retry after")).transpose()?;
                 Ok(Self::Close { connection, reason, retry_after_ms })
             }
             _ => fail("signal type"),
@@ -1456,7 +1482,9 @@ fn stats(value: &Value) -> Result<Value, Refusal> {
     };
     optional(&mut out, "codec", &|v| label(v).map(Value::from))?;
     optional(&mut out, "decoderImplementation", &|v| label(v).map(Value::from))?;
-    for (name, what) in [("framesReceived", "frames received"), ("framesDecoded", "frames decoded"), ("framesDropped", "frames dropped"), ("totalDecodeTimeMs", "decode time")] {
+    for (name, what) in
+        [("framesReceived", "frames received"), ("framesDecoded", "frames decoded"), ("framesDropped", "frames dropped"), ("totalDecodeTimeMs", "decode time")]
+    {
         out.insert(name.into(), num(count(field(input, name), what)?));
     }
     for (name, what) in [

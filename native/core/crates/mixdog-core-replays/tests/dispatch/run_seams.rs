@@ -7,14 +7,14 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockStatePublisher;
 use serde_json::{Value, json};
 
-use mixdog_core::run_host::run_seams::*;
 use mixdog_core::run_host::host_seams::ConfigSeams as _;
+use mixdog_core::run_host::run_seams::*;
 use mixdog_core_agents::agents::AgentDefinitions;
-use mixdog_core_config::config::Config;
-use mixdog_store::schema::record::Header;
 use mixdog_core_agents::agents::AgentEvidence;
 use mixdog_core_config::config::AgentRoutes;
+use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
+use mixdog_store::schema::record::Header;
 
 struct NoEvidence;
 
@@ -110,11 +110,9 @@ async fn a_resumed_lead_session_takes_the_cache_ttl_of_the_saved_auto_clear() {
     // is the override whatever the window, and a header already on it is left alone.
     let forced = std::env::var("MIXDOG_CACHE_MESSAGES_TTL").unwrap_or_default();
     let forced = Some(forced.trim()).filter(|ttl| matches!(*ttl, "1h" | "5m" | "none"));
-    for (auto_clear, saved) in [
-        (json!({ "enabled": false }), "1h"),
-        (json!({ "enabled": true, "idleMs": 3_600_000 }), "1h"),
-        (json!({ "enabled": true, "idleMs": 600_000 }), "5m"),
-    ] {
+    for (auto_clear, saved) in
+        [(json!({ "enabled": false }), "1h"), (json!({ "enabled": true, "idleMs": 3_600_000 }), "1h"), (json!({ "enabled": true, "idleMs": 600_000 }), "5m")]
+    {
         let tail = forced.unwrap_or(saved);
         let want = (tail != "5m").then(|| json!(tail));
         let (_dir, seams) = seams(Some(json!({ "agent": { "autoClear": auto_clear } })), HashMap::new()).await;
@@ -124,8 +122,6 @@ async fn a_resumed_lead_session_takes_the_cache_ttl_of_the_saved_auto_clear() {
         assert_eq!(seams.synced_cache_opts(&own), None, "an explicit policy is kept");
     }
 }
-
-
 
 async fn compact_of(session: Value, env: &[(&str, &str)]) -> mixdog_agent::boundary::CompactSettings {
     let env = env.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect();

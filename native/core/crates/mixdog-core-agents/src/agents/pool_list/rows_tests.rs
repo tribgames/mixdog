@@ -147,10 +147,13 @@ async fn a_child_route_is_empty_until_send_and_switches_as_one_tuple_on_fallback
         workers: vec![queued, running],
         headers: HashMap::from([
             ("queued".into(), object(json!({ "provider": "unrelated", "model": "preset", "fast": true }))),
-            ("busy".into(), object(json!({
-                "provider": "openai-oauth", "model": "gpt-6.2-sol", "effort": "high",
-                "fast": true, "modelParameters": { "serviceTier": "ultrafast" },
-            }))),
+            (
+                "busy".into(),
+                object(json!({
+                    "provider": "openai-oauth", "model": "gpt-6.2-sol", "effort": "high",
+                    "fast": true, "modelParameters": { "serviceTier": "ultrafast" },
+                })),
+            ),
         ]),
         running: HashSet::from(["busy".into(), "queued".into()]),
         entries: HashMap::from([("queued".into(), RuntimeEntry { liveness: object(json!({ "stage": "resource_wait" })), controller_live: true })]),
@@ -166,17 +169,16 @@ async fn a_child_route_is_empty_until_send_and_switches_as_one_tuple_on_fallback
         json!([busy["provider"], busy["model"], busy["effort"], busy["fast"], busy["modelParameters"], busy["routeObserved"], busy["autoEffort"]])
     };
     assert_eq!(route_of(pool.list().await.unwrap()), json!([null, null, null, null, null, null, null]));
-    let publish = |route| { rig.routes.lock().unwrap().insert("busy".into(), Arc::new(object(route))); };
+    let publish = |route| {
+        rig.routes.lock().unwrap().insert("busy".into(), Arc::new(object(route)));
+    };
     publish(json!({ "provider": "anthropic-oauth", "model": "claude-sonnet-5-5", "effort": "medium", "fast": false }));
     assert_eq!(route_of(pool.list().await.unwrap()), json!(["anthropic-oauth", "claude-sonnet-5-5", "medium", false, null, true, null]));
     publish(json!({
         "provider": "openai-oauth", "model": "gpt-6.2-sol", "effort": "high",
         "fast": true, "modelParameters": { "serviceTier": "ultrafast" },
     }));
-    assert_eq!(
-        route_of(pool.list().await.unwrap()),
-        json!(["openai-oauth", "gpt-6.2-sol", "high", true, { "serviceTier": "ultrafast" }, true, true]),
-    );
+    assert_eq!(route_of(pool.list().await.unwrap()), json!(["openai-oauth", "gpt-6.2-sol", "high", true, { "serviceTier": "ultrafast" }, true, true]),);
 }
 
 #[tokio::test]

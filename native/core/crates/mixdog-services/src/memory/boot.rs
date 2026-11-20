@@ -16,9 +16,10 @@ use futures::future::BoxFuture;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_js::to_number;
 use mixdog_rt::{DurabilityIo, MaintenanceIo, TaskClass};
-use serde_json::Value;
 use mixdog_workspace::watcher::FolderWatcher;
+use serde_json::Value;
 
+use crate::bots::delivery::env::RetryTimer;
 use crate::memory::cycles::embeddings::FlushEmbeddings;
 use crate::memory::cycles::requests::wait;
 use crate::memory::cycles::scheduler::SchedulerDeps;
@@ -28,8 +29,9 @@ use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::embed_flush::{RawEmbedFlush, start_root_embed_sweep};
 use crate::memory::ingest::{SessionIngest, system_now};
-use crate::memory::pg::cluster::{DEFAULT_PORT, PgCluster, PgRuntime, Start, StopRecord};
+use crate::memory::lifecycle::{Owned, Scope};
 pub use crate::memory::pg::cluster::StopDispatch;
+use crate::memory::pg::cluster::{DEFAULT_PORT, PgCluster, PgRuntime, Start, StopRecord};
 use crate::memory::pg::db::{Db, Schema};
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{QueryEmbedder, Recall, RecallDeps};
@@ -38,13 +40,11 @@ use crate::memory::runtime::{MemoryRuntime, RuntimeFlags};
 use crate::memory::schema::ensure_memory_schema_with_dims;
 use crate::memory::sensitive::SensitiveStore;
 use crate::memory::service::{LocalMemory, MemoryModule, MemoryService, SessionSource};
-use crate::memory::tool::MemoryCallers;
 use crate::memory::session_search::db::SessionSearchDb;
 use crate::memory::session_search::ingest::{SessionSearchIngest, StoredSessions};
-use crate::memory::lifecycle::{Owned, Scope};
+use crate::memory::tool::MemoryCallers;
 use crate::memory::transcript::watcher::{TranscriptSink, TranscriptWatcher};
 use crate::memory::transcript::{TranscriptIngest, TranscriptIo};
-use crate::bots::delivery::env::RetryTimer;
 use crate::model_install::{ProgressSink, fsio};
 use crate::tidy::process::Processes;
 use tokio_util::sync::CancellationToken;
@@ -120,7 +120,10 @@ pub struct TranscriptWatch {
 const EMBEDDING_META: &str = "embedding-meta.json";
 
 /// Awaits `open`; when it fails, runs `release` (what gives back the resource `open` worked over) before the error is returned.
-pub(crate) async fn release_on_failure<T, E>(open: impl std::future::Future<Output = std::result::Result<T, E>>, release: impl std::future::Future<Output = ()>) -> std::result::Result<T, E> {
+pub(crate) async fn release_on_failure<T, E>(
+    open: impl std::future::Future<Output = std::result::Result<T, E>>,
+    release: impl std::future::Future<Output = ()>,
+) -> std::result::Result<T, E> {
     match open.await {
         Ok(opened) => Ok(opened),
         Err(error) => {
@@ -239,7 +242,6 @@ fn refusal(opening: &Opening) -> &'static str {
     if opening.stop_running { STOPPING } else { REFUSED_AFTER_STOP }
 }
 
-
 /// One use waiting for the opening in flight. Dropped before the opening ends, the use has withdrawn: the opening is cancelled when no use is left
 /// waiting and none cannot withdraw (`createSharedAbortable`'s `onAbort`, `abort-race.mjs:111-123`). Dropped after the opening ended, it does nothing.
 struct Waiting<'a> {
@@ -254,7 +256,8 @@ impl Drop for Waiting<'_> {
             return;
         }
         opening.waiters = opening.waiters.saturating_sub(1);
-        if opening.waiters == 0 && !opening.pinned
+        if opening.waiters == 0
+            && !opening.pinned
             && let Some(token) = &opening.token
         {
             token.cancel();
@@ -479,7 +482,22 @@ impl MemoryStack {
 
     /// [`MemoryStack::start`] whose cluster start asks and waits on `start` (a test holds the probe and the waits).
     pub(crate) async fn start_with(boot: MemoryBoot, start: Start) -> Result<Arc<Self>> {
-        let MemoryBoot { data_dir, pg_runtime, embedder, embedding_provider, flags, progress, sensitive, lane, maintenance, transcripts: watch, cycles, backfill, processes, cancel } = boot;
+        let MemoryBoot {
+            data_dir,
+            pg_runtime,
+            embedder,
+            embedding_provider,
+            flags,
+            progress,
+            sensitive,
+            lane,
+            maintenance,
+            transcripts: watch,
+            cycles,
+            backfill,
+            processes,
+            cancel,
+        } = boot;
         let (model_id, dtype) = match &embedder {
             Some(provider) => (provider.model_id().to_owned(), provider.dtype().map(str::to_owned)),
             None => (DEFAULT_MODEL_ID.to_owned(), None),
@@ -513,7 +531,8 @@ impl MemoryStack {
             let (memory_db, search_db) = (deferred(Schema::Memory), deferred(Schema::SessionSearch));
             let search = SessionSearchIngest::new(SessionSearchDb::over(search_db.clone()), sensitive.clone());
             let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| {
-                Arc::new(crate::memory::recall::readiness::RecallEmbedder::new(provider, flags.secondary).with_schema(memory_db.clone())) as Arc<dyn QueryEmbedder>
+                Arc::new(crate::memory::recall::readiness::RecallEmbedder::new(provider, flags.secondary).with_schema(memory_db.clone()))
+                    as Arc<dyn QueryEmbedder>
             });
             let recall = Recall::new(RecallDeps {
                 db: memory_db.clone(),
@@ -675,10 +694,14 @@ impl MemoryStack {
         &self.stop_seam
     }
 
-
     /// Installs the opening in its reserved slot: it runs to its end whatever its callers do (Node's shared promise does), as the owner's work, which
     /// the stop's drain waits for and the cutoff revokes. A refused activation (the cut won) runs nothing; its flight answers [`STOPPING`].
-    fn launch(&self, reservation: crate::memory::lifecycle::Reservation, cancel: CancellationToken, done: tokio::sync::oneshot::Sender<std::result::Result<(), String>>) {
+    fn launch(
+        &self,
+        reservation: crate::memory::lifecycle::Reservation,
+        cancel: CancellationToken,
+        done: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    ) {
         let Some(me) = self.me.upgrade() else { return };
         let _opening = reservation.activate("services.memory.open", async move {
             use futures::FutureExt as _;
@@ -747,10 +770,8 @@ impl MemoryStack {
     /// a postmaster.
     #[cfg(test)]
     pub(crate) fn opened_over(&self, cluster: PgCluster) {
-        let (memory_db, search_db) = (
-            Db::unconnected(cluster.port(), Schema::Memory, self.scope.clone()),
-            Db::unconnected(cluster.port(), Schema::SessionSearch, self.scope.clone()),
-        );
+        let (memory_db, search_db) =
+            (Db::unconnected(cluster.port(), Schema::Memory, self.scope.clone()), Db::unconnected(cluster.port(), Schema::SessionSearch, self.scope.clone()));
         self.record.reached(cluster.runtime(), None);
         assert!(self.opened.set(Opened { cluster, memory_db, search_db }).is_ok(), "one opening");
     }
@@ -773,7 +794,17 @@ impl MemoryStack {
         let runtime = PgRuntime::new(runtime_dir);
         // The start reports to the stop record synchronously where each fact becomes true: its admission before the spawn, the attach or the
         // readiness before `ensure` returns (`StackLaunch`). No await separates an established cluster from its record.
-        let ensured = PgCluster::ensure(runtime.clone(), &self.data_dir, DEFAULT_PORT, self.lane, self.processes.clone(), cancel, &self.start, &StackLaunch { stack: self, runtime: &runtime }).await;
+        let ensured = PgCluster::ensure(
+            runtime.clone(),
+            &self.data_dir,
+            DEFAULT_PORT,
+            self.lane,
+            self.processes.clone(),
+            cancel,
+            &self.start,
+            &StackLaunch { stack: self, runtime: &runtime },
+        )
+        .await;
         let cluster = match ensured {
             Ok(cluster) => {
                 // A test's fence between the recorded attach (or start) and the pid read, which the stop's cancel does not end: only the cutoff's
@@ -1144,7 +1175,9 @@ impl MemoryStack {
                 // executor the host is already winding down still drives it to its end.
                 async move { me.run_stop(began, shutdown).await }.boxed().shared()
             }
-            None => async { StopReport { forced: false, dispatch: StopDispatch::NothingOpened, postmaster_exited: None, flushed: false, late_dispatch: None } }.boxed().shared(),
+            None => async { StopReport { forced: false, dispatch: StopDispatch::NothingOpened, postmaster_exited: None, flushed: false, late_dispatch: None } }
+                .boxed()
+                .shared(),
         };
         *stop = Some(flight.clone());
         flight

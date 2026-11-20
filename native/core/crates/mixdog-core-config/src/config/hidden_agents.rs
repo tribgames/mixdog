@@ -159,7 +159,6 @@ mod tests {
         assert_eq!(super::permission("  "), None);
     }
 
-
     #[test]
     fn an_internal_agent_may_carry_its_own_idle_budget_in_seconds() {
         assert_eq!(hidden_agent_stall_cap_idle_seconds("cycle1-agent"), Some(300));

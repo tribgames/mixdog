@@ -122,12 +122,8 @@ async fn os_socket_table_lists_another_programs_listener() {
 /// (the thread count returns to its baseline).
 #[test]
 fn ports_sampler_pushes_diffs_and_stops_with_the_last_viewer() {
-    let table: Arc<Mutex<Vec<ListeningPort>>> = Arc::new(Mutex::new(vec![ListeningPort {
-        port: 3000,
-        addresses: vec!["0.0.0.0".into()],
-        process: Some("node".into()),
-        pid: Some(100),
-    }]));
+    let table: Arc<Mutex<Vec<ListeningPort>>> =
+        Arc::new(Mutex::new(vec![ListeningPort { port: 3000, addresses: vec!["0.0.0.0".into()], process: Some("node".into()), pid: Some(100) }]));
     let diffs: Arc<Mutex<Vec<PortsDiff>>> = Arc::new(Mutex::new(Vec::new()));
     let (source_table, sink_diffs) = (Arc::clone(&table), Arc::clone(&diffs));
     let hub = PortsHub::with_source(
@@ -146,12 +142,7 @@ fn ports_sampler_pushes_diffs_and_stops_with_the_last_viewer() {
     wait_for(|| diffs.lock().unwrap().len() == 1);
     assert_eq!(diffs.lock().unwrap()[0].upserted[0].port, 3000);
 
-    table.lock().unwrap().push(ListeningPort {
-        port: 5173,
-        addresses: vec!["127.0.0.1".into()],
-        process: Some("vite".into()),
-        pid: Some(200),
-    });
+    table.lock().unwrap().push(ListeningPort { port: 5173, addresses: vec!["127.0.0.1".into()], process: Some("vite".into()), pid: Some(200) });
     wait_for(|| diffs.lock().unwrap().len() == 2);
     assert_eq!(diffs.lock().unwrap()[1].upserted.len(), 1);
     assert_eq!(diffs.lock().unwrap()[1].upserted[0].port, 5173);
@@ -230,9 +221,7 @@ async fn job_strip_follows_twenty_jobs_without_polling() {
     let clock = Arc::new(AtomicU64::new(1_000_000));
     let recorder = Arc::new(Recorder::default());
     let tick = Arc::clone(&clock);
-    let registry = TaskRegistry::new(Arc::clone(&recorder) as Arc<dyn TaskPublisher>, move || {
-        tick.load(Ordering::SeqCst)
-    });
+    let registry = TaskRegistry::new(Arc::clone(&recorder) as Arc<dyn TaskPublisher>, move || tick.load(Ordering::SeqCst));
     let manager = manager();
 
     // Twenty background jobs, the last three backed by real processes.
@@ -286,11 +275,7 @@ async fn job_strip_follows_twenty_jobs_without_polling() {
         assert_eq!(state.finished.len(), i + 1);
     }
     let state = registry.thread_state("th");
-    let finished: Vec<(&str, Option<TaskStatus>, Option<i32>)> = state
-        .finished
-        .iter()
-        .map(|r| (r.task_id.as_str(), r.status, r.exit_code))
-        .collect();
+    let finished: Vec<(&str, Option<TaskStatus>, Option<i32>)> = state.finished.iter().map(|r| (r.task_id.as_str(), r.status, r.exit_code)).collect();
     assert_eq!(
         finished,
         vec![
@@ -426,13 +411,11 @@ fn job_strip_equals_the_node_poller_at_every_step() {
             let want = &node["threads"][*owner];
             let have = told.get(*owner).cloned().unwrap_or_default();
             let jobs: Vec<(String, bool)> = have.jobs.iter().map(|j| (j.task_id.clone(), j.termination_unconfirmed)).collect();
-            let want_jobs: Vec<(String, bool)> = want["jobs"].as_array().unwrap().iter().map(|j| (j["id"].as_str().unwrap().to_owned(), j["unconfirmed"] == json!(true))).collect();
+            let want_jobs: Vec<(String, bool)> =
+                want["jobs"].as_array().unwrap().iter().map(|j| (j["id"].as_str().unwrap().to_owned(), j["unconfirmed"] == json!(true))).collect();
             assert_eq!(jobs, want_jobs, "step {n} ({}) jobs of {owner}", step["op"]);
-            let finished: Vec<Value> = have
-                .finished
-                .iter()
-                .map(|f| json!([f.task_id, f.status.map(TaskStatus::as_str), f.exit_code, f.finished_at_ms]))
-                .collect();
+            let finished: Vec<Value> =
+                have.finished.iter().map(|f| json!([f.task_id, f.status.map(TaskStatus::as_str), f.exit_code, f.finished_at_ms])).collect();
             assert_eq!(Value::Array(finished), want["finished"], "step {n} ({}) finished of {owner}", step["op"]);
         }
         let host_jobs: Vec<&str> = host.jobs.iter().map(|j| j.task_id.as_str()).collect();

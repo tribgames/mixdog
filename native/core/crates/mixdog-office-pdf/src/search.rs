@@ -6,9 +6,7 @@
 
 use std::sync::LazyLock;
 
-use mixdog_js::{
-    JsRegex, is_js_space, js_sort_by, js_to_lowercase, js_trim, slice_utf16, utf16_len,
-};
+use mixdog_js::{JsRegex, is_js_space, js_sort_by, js_to_lowercase, js_trim, slice_utf16, utf16_len};
 use serde_json::Value;
 
 use crate::analysis::layout::{LayoutItem, PageLayout, PdfLayout};
@@ -55,11 +53,7 @@ pub struct SearchOptions {
 
 impl Default for SearchOptions {
     fn default() -> Self {
-        SearchOptions {
-            limit: DEFAULT_SEARCH_LIMIT,
-            whole_word: false,
-            regex: false,
-        }
+        SearchOptions { limit: DEFAULT_SEARCH_LIMIT, whole_word: false, regex: false }
     }
 }
 
@@ -80,55 +74,32 @@ fn layout_lines(page: &PageLayout) -> Vec<Line<'_>> {
             continue;
         }
         let key = if item.vertical { item.x } else { item.top };
-        let found = lines.iter().position(|entry| {
-            entry.vertical == item.vertical
-                && entry.reversed == item.reversed
-                && (entry.key - key).abs() <= SEARCH_LINE_TOLERANCE
-        });
+        let found = lines
+            .iter()
+            .position(|entry| entry.vertical == item.vertical && entry.reversed == item.reversed && (entry.key - key).abs() <= SEARCH_LINE_TOLERANCE);
         match found {
             Some(at) => lines[at].items.push(item),
-            None => lines.push(Line {
-                key,
-                vertical: item.vertical,
-                reversed: item.reversed,
-                items: vec![item],
-            }),
+            None => lines.push(Line { key, vertical: item.vertical, reversed: item.reversed, items: vec![item] }),
         }
     }
     for line in &mut lines {
         let (vertical, reversed) = (line.vertical, line.reversed);
         let along = move |item: &LayoutItem| if vertical { item.top } else { item.x };
-        js_sort_by(&mut line.items, |left, right| {
-            if reversed {
-                along(*right) - along(*left)
-            } else {
-                along(*left) - along(*right)
-            }
-        });
+        js_sort_by(&mut line.items, |left, right| if reversed { along(*right) - along(*left) } else { along(*left) - along(*right) });
     }
     // Row order follows the normal to the reading direction, not display y: rotating a page must not turn its last
     // row into the first match.
     let row_position = |line: &Line<'_>| {
-        if line.vertical {
-            line.key * if line.reversed { 1.0 } else { -1.0 }
-        } else {
-            line.key * if line.reversed { -1.0 } else { 1.0 }
-        }
+        if line.vertical { line.key * if line.reversed { 1.0 } else { -1.0 } } else { line.key * if line.reversed { -1.0 } else { 1.0 } }
     };
-    js_sort_by(&mut lines, |left, right| {
-        row_position(left) - row_position(right)
-    });
+    js_sort_by(&mut lines, |left, right| row_position(left) - row_position(right));
     lines
 }
 
 /// Space between two consecutive runs along the reading direction.
 fn run_gap(previous: &LayoutItem, item: &LayoutItem, line: &Line<'_>) -> f64 {
     if line.vertical {
-        if line.reversed {
-            previous.top - (item.top + item.height)
-        } else {
-            item.top - (previous.top + previous.height)
-        }
+        if line.reversed { previous.top - (item.top + item.height) } else { item.top - (previous.top + previous.height) }
     } else if line.reversed {
         previous.x - (item.x + item.width)
     } else {
@@ -138,22 +109,17 @@ fn run_gap(previous: &LayoutItem, item: &LayoutItem, line: &Line<'_>) -> f64 {
 
 /// The glyph height that scales a gap.
 fn glyph_height(item: &LayoutItem, line: &Line<'_>) -> f64 {
-    if line.vertical {
-        item.width
-    } else {
-        item.height
-    }
+    if line.vertical { item.width } else { item.height }
 }
 
 /// Helvetica advance widths (per 1000 em) for U+0020..U+007E. A text run comes back as one box, so a match inside it
 /// is placed by the share of the run's width its characters take; equal shares put a mark a letter off in
 /// proportional type, and these metrics are close to any Latin body face.
 const HELVETICA_WIDTHS: [u32; 95] = [
-    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556,
-    556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667,
-    611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667,
-    667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500,
-    222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584,
+    556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278,
+    469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260,
+    334, 584,
 ];
 
 /// Hangul, CJK, and fullwidth forms take a full em; other scripts about a Latin letter.
@@ -189,9 +155,7 @@ fn code_point_at(units: &[u16], index: usize) -> u32 {
 }
 
 fn run_weight(units: &[u16], from: usize, to: usize) -> u32 {
-    (from..to)
-        .map(|index| glyph_weight(code_point_at(units, index)))
-        .sum()
+    (from..to).map(|index| glyph_weight(code_point_at(units, index))).sum()
 }
 
 /// A run of a line: the item, its text as UTF-16 units and where it sits in the line's text.
@@ -203,12 +167,7 @@ struct Span<'a> {
 }
 
 fn match_box(spans: &[Span<'_>], start: usize, end: usize, vertical: bool, reversed: bool) -> Rect {
-    let (mut left, mut right, mut top, mut bottom) = (
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-    );
+    let (mut left, mut right, mut top, mut bottom) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
     for span in spans {
         let from = start.max(span.start);
         let to = end.min(span.end);
@@ -217,21 +176,10 @@ fn match_box(spans: &[Span<'_>], start: usize, end: usize, vertical: bool, rever
         }
         let item = span.item;
         let total = f64::from(run_weight(&span.units, 0, span.units.len()).max(1));
-        let shares = [
-            f64::from(run_weight(&span.units, 0, from - span.start)) / total,
-            f64::from(run_weight(&span.units, 0, to - span.start)) / total,
-        ];
+        let shares = [f64::from(run_weight(&span.units, 0, from - span.start)) / total, f64::from(run_weight(&span.units, 0, to - span.start)) / total];
         // The match's share of the run, measured along the reading direction (from the far end when the run is
         // reversed); the other axis is the run's.
-        let along = |origin: f64, length: f64| {
-            shares.map(|share| {
-                if reversed {
-                    origin + length - length * share
-                } else {
-                    origin + length * share
-                }
-            })
-        };
+        let along = |origin: f64, length: f64| shares.map(|share| if reversed { origin + length - length * share } else { origin + length * share });
         if vertical {
             let [first, second] = along(item.top, item.height);
             top = js_min(top, js_min(first, second));
@@ -246,12 +194,7 @@ fn match_box(spans: &[Span<'_>], start: usize, end: usize, vertical: bool, rever
             bottom = js_max(bottom, item.top + item.height);
         }
     }
-    Rect {
-        x: round2(left),
-        top: round2(top),
-        width: round2(right - left),
-        height: round2(bottom - top),
-    }
+    Rect { x: round2(left), top: round2(top), width: round2(right - left), height: round2(bottom - top) }
 }
 
 /// UTF-16 offsets of the byte offsets of a string.
@@ -278,20 +221,10 @@ impl Utf16Index {
 
 /// Literal occurrences by search on the case-folded line; a pattern runs on the original text, case-insensitively.
 /// Empty pattern matches are skipped.
-fn occurrences<'a>(
-    text: &'a str,
-    haystack: &'a str,
-    target: &'a str,
-    pattern: Option<&'a JsRegex>,
-) -> Box<dyn Iterator<Item = (usize, usize)> + 'a> {
+fn occurrences<'a>(text: &'a str, haystack: &'a str, target: &'a str, pattern: Option<&'a JsRegex>) -> Box<dyn Iterator<Item = (usize, usize)> + 'a> {
     if let Some(pattern) = pattern {
         let index = Utf16Index::new(text);
-        return Box::new(
-            pattern
-                .find_iter(text)
-                .filter(|found| found.end > found.start)
-                .map(move |found| (index.unit(found.start), index.unit(found.end))),
-        );
+        return Box::new(pattern.find_iter(text).filter(|found| found.end > found.start).map(move |found| (index.unit(found.start), index.unit(found.end))));
     }
     let index = Utf16Index::new(haystack);
     let mut from = 0usize;
@@ -324,32 +257,19 @@ fn row_of<'a>(line: &Line<'a>) -> Row<'a> {
         // A gap wider than a third of the glyph height is a word break the runs did not carry.
         if let Some(previous) = spans.last() {
             let gap = run_gap(previous.item, item, line);
-            if gap > glyph_height(item, line) / 3.0
-                && !text.chars().next_back().is_some_and(is_js_space)
-                && !item.text.chars().next().is_some_and(is_js_space)
+            if gap > glyph_height(item, line) / 3.0 && !text.chars().next_back().is_some_and(is_js_space) && !item.text.chars().next().is_some_and(is_js_space)
             {
                 text.push(' ');
                 length += 1;
             }
         }
         let units: Vec<u16> = item.text.encode_utf16().collect();
-        spans.push(Span {
-            item,
-            start: length,
-            end: length + units.len(),
-            units,
-        });
+        spans.push(Span { item, start: length, end: length + units.len(), units });
         length += spans.last().map_or(0, |span| span.units.len());
         text.push_str(&item.text);
     }
     let units = text.encode_utf16().collect();
-    Row {
-        vertical: line.vertical,
-        reversed: line.reversed,
-        text,
-        units,
-        spans,
-    }
+    Row { vertical: line.vertical, reversed: line.reversed, text, units, spans }
 }
 
 const REGEXP_SPECIAL: &str = ".*+?^${}()|[]\\";
@@ -390,13 +310,11 @@ fn wrap_tolerant_pattern(needle: &str) -> Result<JsRegex, AnalysisError> {
     JsRegex::new(&source, "giu").map_err(AnalysisError::plain)
 }
 
-static WORD_CHARACTER: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"[\p{L}\p{N}]", "u"));
+static WORD_CHARACTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[\p{L}\p{N}]", "u"));
 
 /// `/[\p{L}\p{N}]/u.test(text[i])`: the test sees one code unit, so half of a surrogate pair is no letter.
 fn is_word_unit(unit: u16) -> bool {
-    char::from_u32(u32::from(unit))
-        .is_some_and(|c| WORD_CHARACTER.is_match(c.encode_utf8(&mut [0; 4])))
+    char::from_u32(u32::from(unit)).is_some_and(|c| WORD_CHARACTER.is_match(c.encode_utf8(&mut [0; 4])))
 }
 
 /// Matches that cross a line break, measured one box per line, the shape a highlighter draws. Lines join with a newline
@@ -444,46 +362,28 @@ fn cross_line_matches(
             continue;
         }
         let text = collapse_spaces(matched);
-        found.push(SearchMatch {
-            page: page.page,
-            line: slice_utf16(&text, 200),
-            text,
-            rect: rects[0],
-            rects: Some(rects),
-        });
+        found.push(SearchMatch { page: page.page, line: slice_utf16(&text, 200), text, rect: rects[0], rects: Some(rects) });
     }
     Ok(found)
 }
 
 /// `findPdfText(layout, query, { limit, wholeWord, regex })`: substring (case-insensitive), whole word, or a regular
 /// expression, over the lines of every page; a phrase that wraps across lines is found with one box per line.
-pub fn find_pdf_text(
-    layout: &PdfLayout,
-    query: &str,
-    options: &SearchOptions,
-) -> Result<SearchResult, AnalysisError> {
+pub fn find_pdf_text(layout: &PdfLayout, query: &str, options: &SearchOptions) -> Result<SearchResult, AnalysisError> {
     let raw = js_trim(query);
-    let needle = if options.regex {
-        raw.to_owned()
-    } else {
-        collapse_spaces(raw)
-    };
+    let needle = if options.regex { raw.to_owned() } else { collapse_spaces(raw) };
     if needle.is_empty() {
         return Err(AnalysisError::plain("PDF text search needs query text"));
     }
     let pattern = if options.regex {
-        Some(JsRegex::new(&needle, "giu").map_err(|message| {
-            AnalysisError::plain(format!("PDF text search pattern is invalid: {message}"))
-        })?)
+        Some(JsRegex::new(&needle, "giu").map_err(|message| AnalysisError::plain(format!("PDF text search pattern is invalid: {message}")))?)
     } else {
         None
     };
     let needle_lower = js_to_lowercase(&needle);
     let whole_word = options.whole_word;
     let bounded = move |units: &[u16], start: usize, end: usize| {
-        !whole_word
-            || ((start == 0 || !is_word_unit(units[start - 1]))
-                && (end >= units.len() || !is_word_unit(units[end])))
+        !whole_word || ((start == 0 || !is_word_unit(units[start - 1])) && (end >= units.len() || !is_word_unit(units[end])))
     };
     let mut matches: Vec<SearchMatch> = Vec::new();
     let mut truncated = false;
@@ -493,11 +393,7 @@ pub fn find_pdf_text(
             // Lower-casing can change a string's length (İ becomes i and a combining dot); match exactly when it does.
             let folded = js_to_lowercase(&row.text);
             let exact = utf16_len(&folded) != row.units.len();
-            let (haystack, target) = if exact {
-                (row.text.as_str(), needle.as_str())
-            } else {
-                (folded.as_str(), needle_lower.as_str())
-            };
+            let (haystack, target) = if exact { (row.text.as_str(), needle.as_str()) } else { (folded.as_str(), needle_lower.as_str()) };
             for (start, end) in occurrences(&row.text, haystack, target, pattern.as_ref()) {
                 if matches.len() >= options.limit {
                     truncated = true;
@@ -534,21 +430,12 @@ pub fn find_pdf_text(
             break;
         }
     }
-    Ok(SearchResult {
-        query: needle,
-        matches,
-        truncated,
-    })
+    Ok(SearchResult { query: needle, matches, truncated })
 }
 
 impl Rect {
     fn pairs(&self) -> Vec<(&'static str, Value)> {
-        vec![
-            ("x", json_number(self.x)),
-            ("top", json_number(self.top)),
-            ("width", json_number(self.width)),
-            ("height", json_number(self.height)),
-        ]
+        vec![("x", json_number(self.x)), ("top", json_number(self.top)), ("width", json_number(self.width)), ("height", json_number(self.height))]
     }
 
     pub fn to_json(&self) -> Value {
@@ -558,17 +445,10 @@ impl Rect {
 
 impl SearchMatch {
     pub fn to_json(&self) -> Value {
-        let mut pairs = vec![
-            ("page", Value::from(self.page)),
-            ("text", Value::from(self.text.clone())),
-            ("line", Value::from(self.line.clone())),
-        ];
+        let mut pairs = vec![("page", Value::from(self.page)), ("text", Value::from(self.text.clone())), ("line", Value::from(self.line.clone()))];
         pairs.extend(self.rect.pairs());
         if let Some(rects) = &self.rects {
-            pairs.push((
-                "rects",
-                Value::Array(rects.iter().map(Rect::to_json).collect()),
-            ));
+            pairs.push(("rects", Value::Array(rects.iter().map(Rect::to_json).collect())));
         }
         object(pairs)
     }
@@ -579,10 +459,7 @@ impl SearchResult {
         object(vec![
             ("query", Value::from(self.query.clone())),
             ("matchCount", Value::from(self.matches.len())),
-            (
-                "matches",
-                Value::Array(self.matches.iter().map(SearchMatch::to_json).collect()),
-            ),
+            ("matches", Value::Array(self.matches.iter().map(SearchMatch::to_json).collect())),
             ("truncated", Value::Bool(self.truncated)),
         ])
     }
@@ -593,17 +470,7 @@ mod tests {
     use super::*;
 
     fn run(text: &str, x: f64, top: f64, width: f64) -> LayoutItem {
-        LayoutItem {
-            text: text.to_owned(),
-            x,
-            top,
-            width,
-            height: 10.0,
-            vertical: false,
-            reversed: false,
-            direction: "ltr".to_owned(),
-            font: String::new(),
-        }
+        LayoutItem { text: text.to_owned(), x, top, width, height: 10.0, vertical: false, reversed: false, direction: "ltr".to_owned(), font: String::new() }
     }
 
     fn layout(items: Vec<LayoutItem>) -> PdfLayout {
@@ -619,11 +486,7 @@ mod tests {
             shapes_unavailable: None,
             links: Vec::new(),
         };
-        PdfLayout {
-            page_count: 1,
-            pages: vec![page],
-            truncated: false,
-        }
+        PdfLayout { page_count: 1, pages: vec![page], truncated: false }
     }
 
     fn find(layout: &PdfLayout, query: &str) -> SearchResult {
@@ -645,102 +508,56 @@ mod tests {
 
     #[test]
     fn a_literal_match_is_case_insensitive_and_placed_by_glyph_widths() {
-        let result = find(
-            &layout(vec![run("Hello World", 100.0, 50.0, 110.0)]),
-            "world",
-        );
+        let result = find(&layout(vec![run("Hello World", 100.0, 50.0, 110.0)]), "world");
         assert_eq!(result.query, "world");
         assert_eq!(result.matches.len(), 1);
         let hit = &result.matches[0];
-        assert_eq!(
-            (hit.text.as_str(), hit.line.as_str()),
-            ("World", "Hello World")
-        );
+        assert_eq!((hit.text.as_str(), hit.line.as_str()), ("World", "Hello World"));
         // The match starts where "Hello " ends: its share of the run's width is the share of the glyph weights.
-        let total: f64 = "Hello World"
-            .chars()
-            .map(|c| f64::from(glyph_weight(u32::from(c))))
-            .sum();
-        let before: f64 = "Hello "
-            .chars()
-            .map(|c| f64::from(glyph_weight(u32::from(c))))
-            .sum();
+        let total: f64 = "Hello World".chars().map(|c| f64::from(glyph_weight(u32::from(c)))).sum();
+        let before: f64 = "Hello ".chars().map(|c| f64::from(glyph_weight(u32::from(c)))).sum();
         assert_eq!(hit.rect.x, round2(100.0 + 110.0 * (before / total)));
         assert_eq!((hit.rect.top, hit.rect.height), (50.0, 10.0));
     }
 
     #[test]
     fn runs_with_a_gap_are_joined_with_a_space_so_a_phrase_spans_them() {
-        let items = vec![
-            run("annual", 100.0, 50.0, 40.0),
-            run("report", 150.0, 50.0, 40.0),
-        ];
+        let items = vec![run("annual", 100.0, 50.0, 40.0), run("report", 150.0, 50.0, 40.0)];
         let result = find(&layout(items), "annual report");
         assert_eq!(result.matches.len(), 1);
         let rect = result.matches[0].rect;
         assert_eq!((rect.x, rect.width), (100.0, 90.0));
         // No gap: the runs are one word.
-        let touching = vec![
-            run("annual", 100.0, 50.0, 40.0),
-            run("report", 140.0, 50.0, 40.0),
-        ];
-        assert!(
-            find(&layout(touching.clone()), "annual report")
-                .matches
-                .is_empty()
-        );
+        let touching = vec![run("annual", 100.0, 50.0, 40.0), run("report", 140.0, 50.0, 40.0)];
+        assert!(find(&layout(touching.clone()), "annual report").matches.is_empty());
         assert_eq!(find(&layout(touching), "annualreport").matches.len(), 1);
     }
 
     #[test]
     fn a_whole_word_match_needs_non_letters_around_it() {
         let items = vec![run("cat concatenate cat.", 10.0, 10.0, 200.0)];
-        let options = SearchOptions {
-            whole_word: true,
-            ..SearchOptions::default()
-        };
+        let options = SearchOptions { whole_word: true, ..SearchOptions::default() };
         let result = find_pdf_text(&layout(items.clone()), "cat", &options).unwrap();
         assert_eq!(result.matches.len(), 2);
         assert_eq!(find(&layout(items), "cat").matches.len(), 3);
         let accented = vec![run("café", 10.0, 10.0, 40.0)];
-        assert!(
-            find_pdf_text(&layout(accented), "caf", &options)
-                .unwrap()
-                .matches
-                .is_empty()
-        );
+        assert!(find_pdf_text(&layout(accented), "caf", &options).unwrap().matches.is_empty());
     }
 
     #[test]
     fn a_regular_expression_runs_on_the_original_text_without_a_wrapped_pass() {
-        let items = vec![run(
-            "Invoice 2024-001 and invoice 2025-002",
-            10.0,
-            10.0,
-            300.0,
-        )];
-        let options = SearchOptions {
-            regex: true,
-            ..SearchOptions::default()
-        };
+        let items = vec![run("Invoice 2024-001 and invoice 2025-002", 10.0, 10.0, 300.0)];
+        let options = SearchOptions { regex: true, ..SearchOptions::default() };
         let result = find_pdf_text(&layout(items), r"invoice \d{4}-\d+", &options).unwrap();
         let found: Vec<&str> = result.matches.iter().map(|m| m.text.as_str()).collect();
         assert_eq!(found, ["Invoice 2024-001", "invoice 2025-002"]);
         let bad = find_pdf_text(&layout(Vec::new()), "(", &options).unwrap_err();
-        assert!(
-            bad.message
-                .starts_with("PDF text search pattern is invalid: Invalid regular expression"),
-            "{}",
-            bad.message
-        );
+        assert!(bad.message.starts_with("PDF text search pattern is invalid: Invalid regular expression"), "{}", bad.message);
     }
 
     #[test]
     fn a_phrase_wrapped_over_two_lines_has_one_box_per_line() {
-        let items = vec![
-            run("the quick brown", 72.0, 100.0, 90.0),
-            run("fox jumps over", 72.0, 112.0, 85.0),
-        ];
+        let items = vec![run("the quick brown", 72.0, 100.0, 90.0), run("fox jumps over", 72.0, 112.0, 85.0)];
         let result = find(&layout(items), "brown fox");
         assert_eq!(result.matches.len(), 1);
         let hit = &result.matches[0];
@@ -754,10 +571,7 @@ mod tests {
 
     #[test]
     fn a_wrap_between_wide_characters_needs_no_space() {
-        let items = vec![
-            run("\u{d55c}\u{ad6d}", 72.0, 100.0, 20.0),
-            run("\u{c5b4}\u{d55c}", 72.0, 112.0, 20.0),
-        ];
+        let items = vec![run("\u{d55c}\u{ad6d}", 72.0, 100.0, 20.0), run("\u{c5b4}\u{d55c}", 72.0, 112.0, 20.0)];
         let result = find(&layout(items), "\u{d55c}\u{ad6d}\u{c5b4}");
         assert_eq!(result.matches.len(), 1);
         assert_eq!(result.matches[0].rects.as_ref().map(Vec::len), Some(2));
@@ -766,33 +580,18 @@ mod tests {
     #[test]
     fn the_limit_stops_the_search_and_says_so() {
         let items = vec![run("a a a a a", 10.0, 10.0, 90.0)];
-        let options = SearchOptions {
-            limit: 2,
-            ..SearchOptions::default()
-        };
+        let options = SearchOptions { limit: 2, ..SearchOptions::default() };
         let result = find_pdf_text(&layout(items.clone()), "a", &options).unwrap();
         assert_eq!((result.matches.len(), result.truncated), (2, true));
-        let exact = find_pdf_text(
-            &layout(items),
-            "a",
-            &SearchOptions {
-                limit: 5,
-                ..SearchOptions::default()
-            },
-        )
-        .unwrap();
+        let exact = find_pdf_text(&layout(items), "a", &SearchOptions { limit: 5, ..SearchOptions::default() }).unwrap();
         assert_eq!((exact.matches.len(), exact.truncated), (5, false));
     }
 
     #[test]
     fn an_empty_query_is_an_error_and_inner_white_space_is_one_space() {
-        let error =
-            find_pdf_text(&layout(Vec::new()), " \u{a0} ", &SearchOptions::default()).unwrap_err();
+        let error = find_pdf_text(&layout(Vec::new()), " \u{a0} ", &SearchOptions::default()).unwrap_err();
         assert_eq!(error.message, "PDF text search needs query text");
-        let result = find(
-            &layout(vec![run("second line", 10.0, 10.0, 80.0)]),
-            "  second \n  line ",
-        );
+        let result = find(&layout(vec![run("second line", 10.0, 10.0, 80.0)]), "  second \n  line ");
         assert_eq!(result.query, "second line");
         assert_eq!(result.matches.len(), 1);
     }

@@ -59,9 +59,8 @@ pub fn is_stale_ref_error(message: &str) -> bool {
 
 fn has_word(text: &str, word: &str) -> bool {
     let word_char = |c: char| c.is_alphanumeric() || c == '_';
-    text.match_indices(word).any(|(at, _)| {
-        !text[..at].chars().next_back().is_some_and(word_char) && !text[at + word.len()..].chars().next().is_some_and(word_char)
-    })
+    text.match_indices(word)
+        .any(|(at, _)| !text[..at].chars().next_back().is_some_and(word_char) && !text[at + word.len()..].chars().next().is_some_and(word_char))
 }
 
 #[cfg(test)]

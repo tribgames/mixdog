@@ -131,12 +131,7 @@ fn parse_hunk_header(line: &str) -> Option<Hunk> {
     let (ranges, tail) = rest.split_once(" @@")?;
     let (old, new) = ranges.split_once(" +")?;
     let start = |range: &str| range.split(',').next().and_then(|s| s.parse::<u64>().ok());
-    Some(Hunk {
-        old_start: start(old)?,
-        new_start: start(new)?,
-        tail: tail.to_owned(),
-        entries: Vec::new(),
-    })
+    Some(Hunk { old_start: start(old)?, new_start: start(new)?, tail: tail.to_owned(), entries: Vec::new() })
 }
 
 fn finish_file(files: &mut Vec<DiffFile>, file: Option<DiffFile>) {
@@ -158,12 +153,7 @@ fn parse_files(raw: &str) -> Vec<DiffFile> {
     for line in raw.split('\n') {
         if line.starts_with("diff --git ") {
             finish_file(&mut files, file.take());
-            file = Some(DiffFile {
-                path: display_path(line),
-                diff_line: line.to_owned(),
-                lines: vec![line.to_owned()],
-                ..DiffFile::default()
-            });
+            file = Some(DiffFile { path: display_path(line), diff_line: line.to_owned(), lines: vec![line.to_owned()], ..DiffFile::default() });
             in_hunk = false;
             continue;
         }
@@ -197,8 +187,15 @@ fn parse_files(raw: &str) -> Vec<DiffFile> {
         } else if line.starts_with("new file mode ") {
             current.kind = Some("new_file");
         } else if [
-            "deleted file mode ", "old mode ", "new mode ", "similarity index ", "rename from ",
-            "rename to ", "copy from ", "copy to ", "GIT binary patch",
+            "deleted file mode ",
+            "old mode ",
+            "new mode ",
+            "similarity index ",
+            "rename from ",
+            "rename to ",
+            "copy from ",
+            "copy to ",
+            "GIT binary patch",
         ]
         .iter()
         .any(|prefix| line.starts_with(prefix))
@@ -300,11 +297,7 @@ pub fn build_selected_patch(raw: &str, requested: &[String]) -> Selected {
             wanted.push(id);
         }
     }
-    let missing: Vec<String> = wanted
-        .iter()
-        .filter(|id| !changes.iter().any(|c| c.id == **id))
-        .map(|id| (*id).to_owned())
-        .collect();
+    let missing: Vec<String> = wanted.iter().filter(|id| !changes.iter().any(|c| c.id == **id)).map(|id| (*id).to_owned()).collect();
     if !missing.is_empty() {
         return Selected { patch: String::new(), changes: Vec::new(), missing };
     }
@@ -312,11 +305,7 @@ pub fn build_selected_patch(raw: &str, requested: &[String]) -> Selected {
     let mut parts: Vec<String> = Vec::new();
     let mut selected: Vec<Change> = Vec::new();
     for file in files.iter().filter(|file| file.stageable) {
-        let file_changes: Vec<(usize, &Change)> = changes
-            .iter()
-            .enumerate()
-            .filter(|(i, c)| c.path == file.path && is_wanted(*i))
-            .collect();
+        let file_changes: Vec<(usize, &Change)> = changes.iter().enumerate().filter(|(i, c)| c.path == file.path && is_wanted(*i)).collect();
         if file_changes.is_empty() {
             continue;
         }
@@ -345,12 +334,7 @@ pub fn build_selected_patch(raw: &str, requested: &[String]) -> Selected {
             let old_count = body.iter().filter(|l| l.starts_with([' ', '-'])).count();
             let new_count = body.iter().filter(|l| l.starts_with([' ', '+'])).count();
             let new_start = hunk.old_start as i64 + delta + i64::from(old_count == 0) - i64::from(new_count == 0);
-            hunks.push(format!(
-                "@@ -{} +{} @@{}",
-                range(hunk.old_start as i64, old_count),
-                range(new_start, new_count),
-                hunk.tail
-            ));
+            hunks.push(format!("@@ -{} +{} @@{}", range(hunk.old_start as i64, old_count), range(new_start, new_count), hunk.tail));
             hunks.extend(body);
             delta += new_count as i64 - old_count as i64;
         }
@@ -361,29 +345,22 @@ pub fn build_selected_patch(raw: &str, requested: &[String]) -> Selected {
         parts.extend(hunks);
         selected.extend(file_changes.iter().map(|(_, c)| (*c).clone()));
     }
-    let missing = wanted
-        .iter()
-        .filter(|id| !selected.iter().any(|c| c.id == **id))
-        .map(|id| (*id).to_owned())
-        .collect();
-    Selected {
-        patch: if parts.is_empty() { String::new() } else { format!("{}\n", parts.join("\n")) },
-        changes: selected,
-        missing,
-    }
+    let missing = wanted.iter().filter(|id| !selected.iter().any(|c| c.id == **id)).map(|id| (*id).to_owned()).collect();
+    Selected { patch: if parts.is_empty() { String::new() } else { format!("{}\n", parts.join("\n")) }, changes: selected, missing }
 }
 
 fn listed_path(path: &str) -> String {
-    if path.chars().any(|c| (c as u32) < 0x20 || c == '"') {
-        serde_json::to_string(path).unwrap_or_else(|_| path.to_owned())
-    } else {
-        path.to_owned()
-    }
+    if path.chars().any(|c| (c as u32) < 0x20 || c == '"') { serde_json::to_string(path).unwrap_or_else(|_| path.to_owned()) } else { path.to_owned() }
 }
 
 /// The lines appended to a stageable diff: its id and the id range per file.
 pub fn listing(diff_id: &str, changes: &[Change]) -> String {
-    struct Row<'a> { path: &'a str, start: &'a str, end: &'a str, whole: bool }
+    struct Row<'a> {
+        path: &'a str,
+        start: &'a str,
+        end: &'a str,
+        whole: bool,
+    }
     let mut rows: Vec<Row> = Vec::new();
     for change in changes {
         match rows.last_mut() {
@@ -391,9 +368,7 @@ pub fn listing(diff_id: &str, changes: &[Change]) -> String {
             _ => rows.push(Row { path: &change.path, start: &change.id, end: &change.id, whole: change.kind.is_some() }),
         }
     }
-    let mut lines = vec![format!(
-        "diff_id: {diff_id} (ids number the +/- runs in diff order; [whole file] ids stage the entire file)"
-    )];
+    let mut lines = vec![format!("diff_id: {diff_id} (ids number the +/- runs in diff order; [whole file] ids stage the entire file)")];
     for row in rows {
         let span = if row.start == row.end { row.start.to_owned() } else { format!("{}-{}", row.start, row.end) };
         lines.push(format!("{}: {span}{}", listed_path(row.path), if row.whole { " [whole file]" } else { "" }));
@@ -459,7 +434,10 @@ pub struct StageableDiff {
 pub enum StageOutcome {
     Staged(Value),
     /// `expired_diff`, `scope_mismatch` or `stale_diff`, with the hint the tool shows.
-    NotStaged { reason: &'static str, hint: &'static str },
+    NotStaged {
+        reason: &'static str,
+        hint: &'static str,
+    },
 }
 
 /// Validated `action:stage` input.
@@ -517,16 +495,13 @@ mod tests {
     }
 }
 
-
 impl DiffSnapshots {
     pub fn new() -> Arc<Self> {
         Arc::default()
     }
 
     fn remember(&self, snapshot: Snapshot) -> String {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         let seed = format!("{nanos}:{}:{}", std::process::id(), self.counter.fetch_add(1, Ordering::Relaxed));
         let id = format!("diff_{}", &digest(&seed)[..20]);
         let mut guard = self.inner.lock().expect("snapshots");
@@ -568,11 +543,8 @@ impl Repo {
         }
         let mut not_utf8 = std::str::from_utf8(&first.stdout).is_err();
         let mut raw = first.stdout_text();
-        let paths: Vec<&str> = diff_args
-            .iter()
-            .position(|arg| arg == "--")
-            .map(|at| diff_args[at + 1..].iter().map(String::as_str).collect())
-            .unwrap_or_default();
+        let paths: Vec<&str> =
+            diff_args.iter().position(|arg| arg == "--").map(|at| diff_args[at + 1..].iter().map(String::as_str).collect()).unwrap_or_default();
         let mut others = vec!["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "--full-name", "-z", "--"];
         others.extend(paths);
         let listed = git.read(&self.cancel, &root, &others).await?;
@@ -582,8 +554,18 @@ impl Repo {
                     &self.cancel,
                     &root,
                     &[
-                        "--no-optional-locks", "diff", "--no-index", "--binary", "--no-ext-diff", "--no-textconv",
-                        "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--", "/dev/null", path,
+                        "--no-optional-locks",
+                        "diff",
+                        "--no-index",
+                        "--binary",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        "--no-color",
+                        "--src-prefix=a/",
+                        "--dst-prefix=b/",
+                        "--",
+                        "/dev/null",
+                        path,
                     ],
                     &RunOptions::read(),
                 )
@@ -602,33 +584,17 @@ impl Repo {
     }
 
     /// `git diff` for the tool with `include_stage_ids`: the text plus the ids it can be staged by.
-    pub async fn stageable_diff(
-        &self,
-        snapshots: &DiffSnapshots,
-        scope: &Path,
-        diff_args: &[String],
-    ) -> Result<StageableDiff, ScmFailure> {
+    pub async fn stageable_diff(&self, snapshots: &DiffSnapshots, scope: &Path, diff_args: &[String]) -> Result<StageableDiff, ScmFailure> {
         let (raw, not_utf8) = self.read_stageable_diff(diff_args).await?;
         let changes = list_changes(&raw);
-        let diff_id = (!changes.is_empty() && !not_utf8).then(|| {
-            snapshots.remember(Snapshot {
-                scope: scope.to_path_buf(),
-                argv: diff_args.to_vec(),
-                raw_hash: digest(&raw),
-            })
-        });
+        let diff_id = (!changes.is_empty() && !not_utf8)
+            .then(|| snapshots.remember(Snapshot { scope: scope.to_path_buf(), argv: diff_args.to_vec(), raw_hash: digest(&raw) }));
         Ok(StageableDiff { raw, diff_id, changes, not_utf8 })
     }
 
     /// `action:stage`: applies the selected runs of the diff `diff_id` names, if that diff is
     /// still the working diff.
-    pub async fn stage_changes(
-        &self,
-        snapshots: &DiffSnapshots,
-        scope: &Path,
-        diff_id: &str,
-        change_ids: &[String],
-    ) -> Result<StageOutcome, ScmFailure> {
+    pub async fn stage_changes(&self, snapshots: &DiffSnapshots, scope: &Path, diff_id: &str, change_ids: &[String]) -> Result<StageOutcome, ScmFailure> {
         let (diff_id, ids) = stage_request(diff_id, change_ids)?;
         let Some(snapshot) = snapshots.get(&diff_id) else {
             return Ok(StageOutcome::NotStaged {

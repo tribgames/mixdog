@@ -56,7 +56,9 @@ pub fn codex_uuid_v7(value: &str) -> String {
 fn session_started_at(session: &str, now_ms: u64) -> u64 {
     let compact: String = session.trim().chars().filter(|c| *c != '-').collect();
     let cb = compact.as_bytes();
-    if cb.len() == 32 && cb[12] == b'7' && cb.iter().all(u8::is_ascii_hexdigit)
+    if cb.len() == 32
+        && cb[12] == b'7'
+        && cb.iter().all(u8::is_ascii_hexdigit)
         && let Ok(stamp) = u64::from_str_radix(&compact[..12], 16)
         && stamp > 0
     {
@@ -96,22 +98,17 @@ impl Metadata {
             .unwrap_or(MESSAGE);
         let thread = options.thread.as_ref();
         let thread_id_raw = thread.map(|t| t.id.to_string().trim().to_owned()).filter(|s| !s.is_empty());
-        let raw_thread = thread_id_raw
-            .as_deref()
-            .or(Some(cache_key).filter(|s| !s.is_empty()))
-            .unwrap_or(raw_session);
+        let raw_thread = thread_id_raw.as_deref().or(Some(cache_key).filter(|s| !s.is_empty())).unwrap_or(raw_session);
         let session_id = codex_uuid_v7(raw_session);
         let thread_id = codex_uuid_v7(raw_thread);
-        let kind = Some(clean(options.request_kind.as_deref()))
-            .filter(|k| !k.is_empty())
-            .unwrap_or(if raw_session.contains(":compact") { "compaction" } else { "turn" });
+        let kind = Some(clean(options.request_kind.as_deref())).filter(|k| !k.is_empty()).unwrap_or(if raw_session.contains(":compact") {
+            "compaction"
+        } else {
+            "turn"
+        });
         let prewarm = kind == "prewarm" || handshake;
         let explicit_turn = thread.and_then(|t| t.turn.as_ref()).map(|t| t.as_str().trim()).filter(|s| !s.is_empty());
-        let turn_id = if prewarm {
-            String::new()
-        } else {
-            codex_uuid_v7(&explicit_turn.map_or_else(|| format!("{raw_session}:turn"), str::to_owned))
-        };
+        let turn_id = if prewarm { String::new() } else { codex_uuid_v7(&explicit_turn.map_or_else(|| format!("{raw_session}:turn"), str::to_owned)) };
         let window_id = thread.map_or_else(|| format!("{thread_id}:0"), |t| format!("{}:{}", t.id, t.window));
         let started_at = thread.and_then(|t| t.turn_started_at_ms).unwrap_or_else(|| session_started_at(raw_session, now_ms));
         let mut turn = Map::new();

@@ -50,9 +50,7 @@ fn row_of(provider: &str) -> Option<Row> {
         "vertex-ai" => Row { models_dev: Some("google-vertex"), ..BASE },
         "grok-oauth" => Row { models_dev: Some("xai"), same_endpoint: false, limits_authoritative: true, ..BASE },
         "muse-code-oauth" => Row { models_dev: Some("meta"), limits_authoritative: true, seed: Some(Seed::Muse), ..BASE },
-        "mimo-oauth" => {
-            Row { models_dev: Some("xiaomi"), same_endpoint: false, limits_authoritative: true, seed: Some(Seed::Mimo), ..BASE }
-        }
+        "mimo-oauth" => Row { models_dev: Some("xiaomi"), same_endpoint: false, limits_authoritative: true, seed: Some(Seed::Mimo), ..BASE },
         "antigravity-oauth" => Row { relay: true, ladder_final: true, ..BASE },
         "command-code-oauth" => Row { relay: true, limits_authoritative: true, ..BASE },
         "cursor-oauth" | "devin-oauth" | "cursor-api" | "opencode-go" => Row { relay: true, ..BASE },

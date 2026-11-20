@@ -18,9 +18,7 @@ pub(super) fn head_chars(value: &str, n: usize) -> &str {
 /// Dictionary order of paths and names: case-insensitive first, lowercase before uppercase on
 /// a tie.
 pub(super) fn name_cmp(a: &str, b: &str) -> Ordering {
-    a.to_lowercase()
-        .cmp(&b.to_lowercase())
-        .then_with(|| b.cmp(a))
+    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
 }
 
 /// A list bounded for the model, with the truncation announced.
@@ -50,14 +48,8 @@ pub(super) fn identifier_occurrences(text: &str, symbol: &str, lang: Option<&str
         return out;
     }
     for (start, _) in text.match_indices(symbol) {
-        let before_ok = text[..start]
-            .chars()
-            .next_back()
-            .is_none_or(|c| !is_ident_char(c, dollar));
-        let after_ok = text[start + symbol.len()..]
-            .chars()
-            .next()
-            .is_none_or(|c| !is_ident_char(c, dollar));
+        let before_ok = text[..start].chars().next_back().is_none_or(|c| !is_ident_char(c, dollar));
+        let after_ok = text[start + symbol.len()..].chars().next().is_none_or(|c| !is_ident_char(c, dollar));
         if before_ok && after_ok {
             out.push(start);
         }

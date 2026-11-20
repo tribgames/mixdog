@@ -13,14 +13,14 @@ use mixdog_core_api::domain::ext::BrowserEndpoint;
 use mixdog_fonts::registry::Registry as FontRegistry;
 use mixdog_fsio::WriteProof;
 use mixdog_js::value_to_string;
+use mixdog_office_author::docx_html_runner::{DocxRunOptions, run_docx_html_authoring};
 use mixdog_office_author::html_browser::{AuthorLanes, RunError};
+use mixdog_office_author::measure_deck::Prepare;
 use mixdog_office_author::pdf_print::{PrintOptions, frame_canvas, print_html_pdf};
 use mixdog_office_author::pptx_html_runner::{HTML_DRIFT_PX, RunOptions, measure_html_drift, run_pptx_html_authoring, write_html_comparisons};
-use mixdog_office_author::docx_html_runner::{DocxRunOptions, run_docx_html_authoring};
-use mixdog_office_author::xlsx_html_runner::{XlsxRunOptions, run_xlsx_html_authoring};
-use mixdog_office_author::measure_deck::Prepare;
 use mixdog_office_author::receipt::{DeliveredReceipt, PageRead, attach_rendered_air, composition_receipt, receipt_for_delivery};
 use mixdog_office_author::review_artifacts::Receipts;
+use mixdog_office_author::xlsx_html_runner::{XlsxRunOptions, run_xlsx_html_authoring};
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_office_design::library::iso_string;
 use mixdog_office_pdf::adapter::{SnapshotOptions, snapshot_pdf};
@@ -146,7 +146,8 @@ impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> 
 
     async fn read_text(&self, path: &Path) -> Result<String, String> {
         let path = path.to_path_buf();
-        lane_job(self.lanes.interactive_io, move |lane| mixdog_fsio::read_to_string(lane, &path).map_err(|error| format!("{}: {error}", path.display()))).await?
+        lane_job(self.lanes.interactive_io, move |lane| mixdog_fsio::read_to_string(lane, &path).map_err(|error| format!("{}: {error}", path.display())))
+            .await?
     }
 
     async fn make_directory(&self, parent: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -169,7 +170,8 @@ impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> 
 
     async fn copy_file(&self, from: &Path, to: &Path) -> Result<(), String> {
         let (from, to) = (from.to_path_buf(), to.to_path_buf());
-        lane_job(self.lanes.durability_io, move |lane| mixdog_fsio::copy(lane, &from, &to).map(drop).map_err(|error| format!("{}: {error}", to.display()))).await?
+        lane_job(self.lanes.durability_io, move |lane| mixdog_fsio::copy(lane, &from, &to).map(drop).map_err(|error| format!("{}: {error}", to.display())))
+            .await?
     }
 
     async fn remove_file(&self, path: &Path) {
@@ -259,7 +261,15 @@ impl<P: WriteProof, H: OfficeHost + ComHost, C: SessionCloser, R: RenderEngine> 
         run_xlsx_html_authoring(self.endpoint, self.lanes, Arc::clone(&self.fonts), Arc::clone(&self.note), html, output, options).await
     }
 
-    async fn print_pdf(&self, html: &str, output: &Path, source_path: &Path, properties: &Value, frame: bool, signal: Option<&CancellationToken>) -> Result<Value, RunError> {
+    async fn print_pdf(
+        &self,
+        html: &str,
+        output: &Path,
+        source_path: &Path,
+        properties: &Value,
+        frame: bool,
+        signal: Option<&CancellationToken>,
+    ) -> Result<Value, RunError> {
         let mut options = PrintOptions::new(source_path);
         options.properties = document_properties(properties);
         options.frame = frame;

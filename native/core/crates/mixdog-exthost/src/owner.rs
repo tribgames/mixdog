@@ -147,7 +147,6 @@ mod tests {
         assert_signal_then_reap(&rig.log);
     }
 
-
     async fn settle() {
         mixdog_rt::time::sleep(Duration::from_millis(20)).await;
     }

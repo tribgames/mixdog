@@ -6,7 +6,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde::Serializer;
 
-
 /// Digest text form, everywhere a digest is written: `sha256:` + 64 lowercase hex.
 pub const DIGEST_PREFIX: &str = "sha256:";
 /// Blob files live at `<D>/blobs/sha256/<first two hex>/<64 hex>`: the core's own directory, which no 1.4.5 code names,

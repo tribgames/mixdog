@@ -69,12 +69,27 @@ mod tests {
     use super::*;
 
     fn context<'a>(live: &'a LiveSpinner) -> SpinnerContext<'a> {
-        SpinnerContext { live, thinking: false, effort: "high", web_search_active: false, approval_pending: false, busy: true, spinner_active: true, columns: 60 }
+        SpinnerContext {
+            live,
+            thinking: false,
+            effort: "high",
+            web_search_active: false,
+            approval_pending: false,
+            busy: true,
+            spinner_active: true,
+            columns: 60,
+        }
     }
 
     #[test]
     fn the_props_carry_the_turn_state_and_the_row_width() {
-        let live = LiveSpinner { verb: Some("Thinking".to_owned()), started_at: 5.0, output_tokens: Some(7.0), mode: "responding".to_owned(), ..LiveSpinner::default() };
+        let live = LiveSpinner {
+            verb: Some("Thinking".to_owned()),
+            started_at: 5.0,
+            output_tokens: Some(7.0),
+            mode: "responding".to_owned(),
+            ..LiveSpinner::default()
+        };
         let props = spinner_props(&context(&live));
         assert_eq!((props.verb.as_str(), props.started_at, props.output_tokens, props.columns, props.margin_top), ("Thinking", 5.0, 7.0, 60.0, 0));
         assert!(props.interruptible && !props.paused && !props.thinking);

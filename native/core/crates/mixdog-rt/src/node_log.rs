@@ -10,7 +10,6 @@
 //! The process installs one [`Sink`] ([`install`]); the daemon's writes the rows above. Until one is installed (the CLI, a
 //! test process) a line is written bare to the process's stderr, newline-terminated, as Node prints it before any redirect.
 
-
 /// A line the daemon writes with `process.stderr.write`.
 #[macro_export]
 macro_rules! node_stderr {
@@ -231,7 +230,6 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), vec![(Origin::Daemon, Channel::ConsoleError, "[x] y".to_owned())]);
     }
 }
-
 
 /// Writes one Node stderr line (`line` has no newline).
 pub fn emit(origin: Origin, channel: Channel, line: &str) {

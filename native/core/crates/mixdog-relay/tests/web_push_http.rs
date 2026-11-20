@@ -388,7 +388,13 @@ async fn each_pc_delivers_through_its_own_association_and_unauthorized_senders_a
     assert_eq!(cross_site.status, 403);
     // Neither is the pairing cookie a credential.
     let cookie = relay
-        .request("POST", "/webpush/register", &[("Origin", format!("http://127.0.0.1:{}", relay.addr.port())), ("Cookie", format!("mixdog_client={token_a}"))], "", Some(&register_body("a")))
+        .request(
+            "POST",
+            "/webpush/register",
+            &[("Origin", format!("http://127.0.0.1:{}", relay.addr.port())), ("Cookie", format!("mixdog_client={token_a}"))],
+            "",
+            Some(&register_body("a")),
+        )
         .await;
     assert_eq!(cookie.status, 401);
 
@@ -468,7 +474,8 @@ async fn associations_are_persisted_and_a_retired_subscription_is_dropped_for_ev
     leg_b.frames("webpush-subscriptions", 2).await;
 
     // Persisted beside devices.json: both associations are on disk.
-    let saved = mixdog_relay::js::parse(&String::from_utf8(mixdog_fsio::read(&mixdog_fsio::Unlaned, dir.path().join(SUBSCRIPTIONS_FILE)).unwrap()).unwrap()).unwrap();
+    let saved =
+        mixdog_relay::js::parse(&String::from_utf8(mixdog_fsio::read(&mixdog_fsio::Unlaned, dir.path().join(SUBSCRIPTIONS_FILE)).unwrap()).unwrap()).unwrap();
     assert_eq!(saved["subscriptions"][0]["associations"].as_array().unwrap().len(), 2);
 
     relay.push.respond(410);

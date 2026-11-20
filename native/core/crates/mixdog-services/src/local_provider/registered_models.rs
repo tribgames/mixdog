@@ -138,7 +138,6 @@ pub(crate) mod tests {
         assert_eq!(hugging_face_file_url("o/n", "rev", "d/a b.gguf"), "https://huggingface.co/o/n/resolve/rev/d/a%20b.gguf");
     }
 
-
     pub(crate) fn lane() -> DurabilityIo {
         mixdog_rt::testing::tokens().durability_io
     }
@@ -180,7 +179,6 @@ pub(crate) mod tests {
     }
 }
 
-
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
     if !path.exists() {
@@ -190,7 +188,8 @@ fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
         return Err(RegistryError::TooLarge);
     }
     // A newer schema parses as "valid" for read_state so it is left in place, then reads as empty.
-    let state = read_state(path, |v| parse_registry(v).is_ok() || v.get("schema").and_then(Value::as_i64).is_some_and(|s| s > 1)).map_err(|e| RegistryError::Io(e.to_string()))?;
+    let state = read_state(path, |v| parse_registry(v).is_ok() || v.get("schema").and_then(Value::as_i64).is_some_and(|s| s > 1))
+        .map_err(|e| RegistryError::Io(e.to_string()))?;
     Ok(match state {
         Some(v) => parse_registry(&v).unwrap_or_default(),
         None => Vec::new(),
@@ -200,7 +199,8 @@ fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
 fn write_blocking(path: &Path, models: &[Value]) -> Result<(), RegistryError> {
     // A newer build's index makes the write refuse instead of replacing it.
     if let Ok(bytes) = std::fs::read(path)
-        && let Some(schema) = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v.get("schema").and_then(Value::as_i64)).filter(|s| *s > 1) {
+        && let Some(schema) = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v.get("schema").and_then(Value::as_i64)).filter(|s| *s > 1)
+    {
         return Err(RegistryError::NewerSchema(schema));
     }
     let bytes = serde_json::to_vec(&json!({"schema": 1, "models": models})).map_err(|e| RegistryError::Io(e.to_string()))?;

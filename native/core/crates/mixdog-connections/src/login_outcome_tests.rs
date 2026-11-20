@@ -10,7 +10,7 @@ use mixdog_ssh::askpass::{AskpassKind, AskpassPrompter, AskpassQuestion};
 use mixdog_ssh::context::{AskpassEnv, AttemptContext};
 
 use super::after_cancel;
-use crate::login::{with_login_retry, AskpassControl, LoginHelpers, StartedAskpass};
+use crate::login::{AskpassControl, LoginHelpers, StartedAskpass, with_login_retry};
 
 struct NoEnv;
 
@@ -95,7 +95,11 @@ async fn a_login_with_no_evidence_against_a_secret_keeps_the_login_failure_and_n
 
 #[test]
 fn a_cancelled_attempt_that_did_not_connect_answers_cancelled() {
-    let closed = SshConnectResult::failed(SshFailure { kind: SshFailureKind::Failed { message: "The connection to Box was closed.".to_owned() }, notice: None, code: Some("ssh-terminal".to_owned()) });
+    let closed = SshConnectResult::failed(SshFailure {
+        kind: SshFailureKind::Failed { message: "The connection to Box was closed.".to_owned() },
+        notice: None,
+        code: Some("ssh-terminal".to_owned()),
+    });
     assert_eq!(failure_kind(after_cancel(closed.clone(), true)), SshFailureKind::Cancelled);
     assert_eq!(after_cancel(closed.clone(), false), closed);
 }

@@ -112,32 +112,19 @@ fn parse() -> Data {
         let mut parts = line.split(' ');
         match parts.next() {
             Some("encoding") => {
-                encoding = parts
-                    .next()
-                    .and_then(|name| ENCODING_NAMES.iter().position(|known| *known == name));
+                encoding = parts.next().and_then(|name| ENCODING_NAMES.iter().position(|known| *known == name));
             }
             Some("c") => {
-                let (Some(index), Some(point), Some(code), Some(name)) =
-                    (encoding, parts.next(), parts.next(), parts.next())
-                else {
+                let (Some(index), Some(point), Some(code), Some(name)) = (encoding, parts.next(), parts.next(), parts.next()) else {
                     continue;
                 };
-                encodings[index].insert(
-                    point.parse().unwrap_or(0),
-                    (code.parse().unwrap_or(0), name),
-                );
+                encodings[index].insert(point.parse().unwrap_or(0), (code.parse().unwrap_or(0), name));
             }
             Some("font") => {
                 encoding = None;
                 fonts.push((
                     parts.next().unwrap_or(""),
-                    Metrics {
-                        ascender: None,
-                        descender: None,
-                        bbox: [0.0; 4],
-                        widths: HashMap::new(),
-                        kerning: HashMap::new(),
-                    },
+                    Metrics { ascender: None, descender: None, bbox: [0.0; 4], widths: HashMap::new(), kerning: HashMap::new() },
                 ));
             }
             Some("m") => {
@@ -148,18 +135,11 @@ fn parse() -> Data {
                 if values.len() == 6 {
                     metrics.ascender = (values[0] != "-").then(|| number(values[0]));
                     metrics.descender = (values[1] != "-").then(|| number(values[1]));
-                    metrics.bbox = [
-                        number(values[2]),
-                        number(values[3]),
-                        number(values[4]),
-                        number(values[5]),
-                    ];
+                    metrics.bbox = [number(values[2]), number(values[3]), number(values[4]), number(values[5])];
                 }
             }
             Some("w") => {
-                let (Some((_, metrics)), Some(name), Some(width)) =
-                    (fonts.last_mut(), parts.next(), parts.next())
-                else {
+                let (Some((_, metrics)), Some(name), Some(width)) = (fonts.last_mut(), parts.next(), parts.next()) else {
                     continue;
                 };
                 metrics.widths.insert(name, number(width));
@@ -213,12 +193,7 @@ impl StandardFont {
     }
 
     fn metrics(&self) -> &'static Metrics {
-        &data()
-            .fonts
-            .iter()
-            .find(|(name, _)| *name == self.name.name())
-            .expect("every standard font is in the data file")
-            .1
+        &data().fonts.iter().find(|(name, _)| *name == self.name.name()).expect("every standard font is in the data file").1
     }
 
     fn table(&self) -> &'static Encoding {
@@ -237,29 +212,18 @@ impl StandardFont {
             None => {
                 // `String.fromCharCode(codePoint)` keeps the low 16 bits: a surrogate half cannot be a Rust character.
                 let shown = char::from_u32(code_point & 0xFFFF).unwrap_or('\u{FFFD}');
-                Err(EmbedError::new(format!(
-                    "{} cannot encode \"{}\" (0x{:04x})",
-                    ENCODING_NAMES[self.name.encoding()],
-                    shown,
-                    code_point
-                )))
+                Err(EmbedError::new(format!("{} cannot encode \"{}\" (0x{:04x})", ENCODING_NAMES[self.name.encoding()], shown, code_point)))
             }
         }
     }
 
     fn glyphs(&self, text: &str) -> Result<Vec<(u8, &'static str)>, EmbedError> {
-        text.chars()
-            .map(|character| self.glyph(character))
-            .collect()
+        text.chars().map(|character| self.glyph(character)).collect()
     }
 
     /// `encodeText`: one byte per character (pdf-lib writes them as a hex string).
     pub fn encode_text(&self, text: &str) -> Result<Vec<u8>, EmbedError> {
-        Ok(self
-            .glyphs(text)?
-            .into_iter()
-            .map(|(code, _)| code)
-            .collect())
+        Ok(self.glyphs(text)?.into_iter().map(|(code, _)| code).collect())
     }
 
     /// `widthOfTextAtSize`: the AFM widths plus the kerning of each pair, a missing width counted as 250.
@@ -268,11 +232,7 @@ impl StandardFont {
         let metrics = self.metrics();
         let mut total = 0.0;
         for (index, (_, left)) in glyphs.iter().enumerate() {
-            let kerning = glyphs
-                .get(index + 1)
-                .and_then(|(_, right)| metrics.kerning.get(&(*left, *right)))
-                .copied()
-                .unwrap_or(0.0);
+            let kerning = glyphs.get(index + 1).and_then(|(_, right)| metrics.kerning.get(&(*left, *right))).copied().unwrap_or(0.0);
             total += or(metrics.widths.get(left).copied(), 250.0) + kerning;
         }
         Ok(total * (size / 1000.0))
@@ -329,29 +289,12 @@ mod tests {
     #[test]
     fn winansi_codes_and_refusals() {
         let font = StandardFont::new(StandardFontName::Helvetica);
-        assert_eq!(
-            font.encode_text("a\u{20ac}\u{2013}").unwrap(),
-            vec![0x61, 0x80, 0x96]
-        );
-        assert_eq!(
-            font.encode_text("한").unwrap_err().to_string(),
-            "WinAnsi cannot encode \"한\" (0xd55c)"
-        );
-        assert_eq!(
-            font.encode_text("\u{1F600}").unwrap_err().to_string(),
-            "WinAnsi cannot encode \"\u{F600}\" (0x1f600)"
-        );
+        assert_eq!(font.encode_text("a\u{20ac}\u{2013}").unwrap(), vec![0x61, 0x80, 0x96]);
+        assert_eq!(font.encode_text("한").unwrap_err().to_string(), "WinAnsi cannot encode \"한\" (0xd55c)");
+        assert_eq!(font.encode_text("\u{1F600}").unwrap_err().to_string(), "WinAnsi cannot encode \"\u{F600}\" (0x1f600)");
         let symbol = StandardFont::new(StandardFontName::Symbol);
         assert!(symbol.encode_text("\u{3b1}").is_ok());
-        assert_eq!(
-            symbol
-                .encode_text("a\u{20ac}")
-                .unwrap_err()
-                .to_string()
-                .split('"')
-                .next(),
-            Some("Symbol cannot encode ")
-        );
+        assert_eq!(symbol.encode_text("a\u{20ac}").unwrap_err().to_string().split('"').next(), Some("Symbol cannot encode "));
     }
 
     #[test]
@@ -365,27 +308,15 @@ mod tests {
 
     #[test]
     fn the_dictionary_names_the_encoding_of_the_winansi_fonts_only() {
-        assert!(
-            StandardFont::new(StandardFontName::TimesRoman)
-                .dictionary()
-                .has("Encoding")
-        );
-        assert!(
-            !StandardFont::new(StandardFontName::ZapfDingbats)
-                .dictionary()
-                .has("Encoding")
-        );
+        assert!(StandardFont::new(StandardFontName::TimesRoman).dictionary().has("Encoding"));
+        assert!(!StandardFont::new(StandardFontName::ZapfDingbats).dictionary().has("Encoding"));
     }
 
     #[test]
     fn every_font_is_in_the_data_file() {
         for name in StandardFontName::ALL {
             assert_eq!(StandardFontName::from_name(name.name()), Some(name));
-            assert!(
-                StandardFont::new(name)
-                    .width_of_text_at_size(" ", 1.0)
-                    .is_ok()
-            );
+            assert!(StandardFont::new(name).width_of_text_at_size(" ", 1.0).is_ok());
         }
     }
 }

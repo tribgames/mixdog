@@ -54,9 +54,7 @@ fn valid_publisher(publisher: &str) -> bool {
 
 fn valid_id(id: &str) -> bool {
     let bytes = id.as_bytes();
-    (1..=128).contains(&bytes.len())
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes.iter().all(|b| b.is_ascii_alphanumeric() || b"._@:-".contains(b))
+    (1..=128).contains(&bytes.len()) && bytes[0].is_ascii_alphanumeric() && bytes.iter().all(|b| b.is_ascii_alphanumeric() || b"._@:-".contains(b))
 }
 
 fn starts_with_ignore_case(text: &str, prefix: &str) -> bool {
@@ -150,10 +148,7 @@ pub fn wire(request: &ModelRequest, model: &VertexModel, base: &str) -> Result<W
 /// `vertexErrorBody`: an error answered as a JSON array of error objects reads as its first entry, when the response
 /// says it is JSON; then the engine's classification.
 pub fn classify(response: &ErrorResponse) -> ProviderError {
-    let json = response
-        .headers
-        .iter()
-        .any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.to_lowercase().contains("json"));
+    let json = response.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value.to_lowercase().contains("json"));
     let first = json
         .then(|| serde_json::from_slice::<Value>(&response.body).ok())
         .flatten()
@@ -184,8 +179,7 @@ pub fn decoder(request: &ModelRequest, model: &VertexModel) -> MaasDecoder {
     let sent = engine_request(request, model);
     let known = body_tool_names(&engine, &sent, ToolNames::Chat);
     MaasDecoder {
-        inner: ChatDecoder::new(engine.profile().clone(), mixdog_protocol::ProviderId::from("vertex-ai"))
-            .with_known_tools(known),
+        inner: ChatDecoder::new(engine.profile().clone(), mixdog_protocol::ProviderId::from("vertex-ai")).with_known_tools(known),
         pricing_model: model.qualified(),
     }
 }
@@ -196,9 +190,7 @@ impl MaasDecoder {
             .into_iter()
             .map(|event| match event {
                 StreamEvent::Usage(usage) => StreamEvent::Usage(exclusive(usage)),
-                StreamEvent::Completed { stop, request_ms, .. } => {
-                    StreamEvent::Completed { stop, pricing_model: Some(self.pricing_model.clone()), request_ms }
-                }
+                StreamEvent::Completed { stop, request_ms, .. } => StreamEvent::Completed { stop, pricing_model: Some(self.pricing_model.clone()), request_ms },
                 other => other,
             })
             .collect()

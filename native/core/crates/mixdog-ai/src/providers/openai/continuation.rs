@@ -59,11 +59,7 @@ pub struct StatelessOnly {
 
 impl std::fmt::Display for StatelessOnly {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} Responses is stateless: imported previous_response_id / store:true continuation state is not supported",
-            self.route
-        )
+        write!(f, "{} Responses is stateless: imported previous_response_id / store:true continuation state is not supported", self.route)
     }
 }
 
@@ -90,12 +86,7 @@ pub struct Continuation {
 }
 
 fn integer(value: &Value) -> Option<i64> {
-    value.as_i64().or_else(|| {
-        value
-            .as_f64()
-            .filter(|n| n.fract() == 0.0 && n.abs() < 9e15)
-            .map(|n| n as i64)
-    })
+    value.as_i64().or_else(|| value.as_f64().filter(|n| n.fract() == 0.0 && n.abs() < 9e15).map(|n| n as i64))
 }
 
 /// The slot's reasoning history as `(message index, items)`, owner-filtered.
@@ -152,11 +143,7 @@ pub fn resume(
     let Some(slot) = slot(state, spec) else {
         return Ok(Continuation::default());
     };
-    let mut previous = slot
-        .get("previousResponseId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned);
+    let mut previous = slot.get("previousResponseId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
     let mut stateless = slot.get("store") == Some(&json!(false));
     if let Some(route) = &spec.stateless_only
         && (previous.is_some() || slot.get("store") == Some(&json!(true)))
@@ -171,16 +158,10 @@ pub fn resume(
         reset_reason = Some(ResetReason::ModelChanged);
     }
     let seen = slot.get("seenMessageCount").and_then(integer);
-    if (previous.is_some() || stateless)
-        && !seen.is_some_and(|s| s >= 0 && usize::try_from(s).is_ok_and(|s| s <= messages.len()))
-    {
+    if (previous.is_some() || stateless) && !seen.is_some_and(|s| s >= 0 && usize::try_from(s).is_ok_and(|s| s <= messages.len())) {
         previous = None;
         stateless = false;
-        reset_reason = Some(if seen.is_none() {
-            ResetReason::MissingSeenMessageCount
-        } else {
-            ResetReason::SeenMessageCountOutOfRange
-        });
+        reset_reason = Some(if seen.is_none() { ResetReason::MissingSeenMessageCount } else { ResetReason::SeenMessageCountOutOfRange });
     }
     let mut start_index = 0;
     if previous.is_some() {
@@ -215,10 +196,7 @@ pub fn encrypted_reasoning_items(output: &[Value]) -> Vec<Value> {
         .iter()
         .filter(|item| {
             item.get("type").and_then(Value::as_str) == Some("reasoning")
-                && item
-                    .get("encrypted_content")
-                    .and_then(Value::as_str)
-                    .is_some_and(|e| !e.is_empty())
+                && item.get("encrypted_content").and_then(Value::as_str).is_some_and(|e| !e.is_empty())
         })
         .cloned()
         .collect()
@@ -226,18 +204,10 @@ pub fn encrypted_reasoning_items(output: &[Value]) -> Vec<Value> {
 
 /// The route's slot after `turn`: earlier history carried forward, this
 /// turn's encrypted reasoning appended at the turn's message index.
-pub fn next_slot(
-    spec: &ContinuationSpec,
-    replay_owner: &str,
-    prior: Option<&ProviderState>,
-    turn: &TurnResult<'_>,
-) -> Value {
+pub fn next_slot(spec: &ContinuationSpec, replay_owner: &str, prior: Option<&ProviderState>, turn: &TurnResult<'_>) -> Value {
     let items = encrypted_reasoning_items(turn.output);
-    let mut history: Vec<Value> = slot(prior, spec)
-        .and_then(|slot| slot.get("encryptedReasoningHistory"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let mut history: Vec<Value> =
+        slot(prior, spec).and_then(|slot| slot.get("encryptedReasoningHistory")).and_then(Value::as_array).cloned().unwrap_or_default();
     if !items.is_empty() {
         let mut entry = Map::new();
         entry.insert("messageIndex".into(), json!(turn.message_count));

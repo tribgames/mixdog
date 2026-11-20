@@ -11,8 +11,8 @@ use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_js::js_trim;
 use mixdog_js::string_to_number;
 use mixdog_js::to_number;
-use mixdog_js::value_to_string;
 use mixdog_js::utf16_len;
+use mixdog_js::value_to_string;
 use serde_json::Value;
 use url::Url;
 
@@ -176,13 +176,16 @@ impl LogQueue {
 
 /// The queue of the daemon log (the process's Node stderr sink).
 pub fn daemon_log() -> Option<Arc<LogQueue>> {
-    static QUEUE: std::sync::LazyLock<Option<Arc<LogQueue>>> =
-        std::sync::LazyLock::new(|| LogQueue::start(|line: &str| mixdog_rt::node_stderr!("{}", line)));
+    static QUEUE: std::sync::LazyLock<Option<Arc<LogQueue>>> = std::sync::LazyLock::new(|| LogQueue::start(|line: &str| mixdog_rt::node_stderr!("{}", line)));
     QUEUE.clone()
 }
 
 fn one_line_redacted(line: &str) -> String {
-    line.split(mixdog_js::is_js_space).filter(|word| !word.is_empty()).map(|word| if word.contains('@') { "<address>" } else { word }).collect::<Vec<_>>().join(" ")
+    line.split(mixdog_js::is_js_space)
+        .filter(|word| !word.is_empty())
+        .map(|word| if word.contains('@') { "<address>" } else { word })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -370,9 +373,8 @@ fn lstat(path: &std::path::Path) -> Option<libc::stat> {
 /// owned by `uid`, private to it, naming a live pid.
 #[cfg(unix)]
 fn live_legacy_root(root: &std::path::Path, uid: u32) -> bool {
-    let owned = |stat: &libc::stat, kind: libc::mode_t, open: libc::mode_t| {
-        (stat.st_mode & libc::S_IFMT) == kind && stat.st_uid == uid && (stat.st_mode & open) == 0
-    };
+    let owned =
+        |stat: &libc::stat, kind: libc::mode_t, open: libc::mode_t| (stat.st_mode & libc::S_IFMT) == kind && stat.st_uid == uid && (stat.st_mode & open) == 0;
     let discovery = root.join("daemon.json");
     if !lstat(root).is_some_and(|dir| owned(&dir, libc::S_IFDIR, 0o022)) || !lstat(&discovery).is_some_and(|file| owned(&file, libc::S_IFREG, 0o077)) {
         return false;
@@ -481,10 +483,7 @@ pub fn expand_env(text: &str, env: &Env, missing: &mut Vec<String>) -> String {
 fn parse_reference(after: &str) -> Option<(&str, Option<&str>, usize)> {
     let body = after.strip_prefix("env:").unwrap_or(after);
     let skipped = after.len() - body.len();
-    let name_len = body
-        .char_indices()
-        .take_while(|(i, c)| c.is_ascii_alphabetic() || *c == '_' || (*i > 0 && c.is_ascii_digit()))
-        .count();
+    let name_len = body.char_indices().take_while(|(i, c)| c.is_ascii_alphabetic() || *c == '_' || (*i > 0 && c.is_ascii_digit())).count();
     if name_len == 0 {
         return None;
     }
@@ -499,13 +498,7 @@ fn parse_reference(after: &str) -> Option<(&str, Option<&str>, usize)> {
 }
 
 fn env_lookup<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
-    if cfg!(windows) {
-        env.iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
-    } else {
-        env.get(name).map(String::as_str)
-    }
+    if cfg!(windows) { env.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str()) } else { env.get(name).map(String::as_str) }
 }
 
 const STDIO_BASE_ENV: &[&str] = if cfg!(windows) {
@@ -548,10 +541,7 @@ fn string_map(value: Option<&Value>) -> Vec<(String, String)> {
 /// The child environment: the whole process environment plus `env`, unless `env_vars` is
 /// given, in which case only the base keys, the named keys and `env`.
 fn stdio_environment(entry: &Value, env: &Env, missing: &mut Vec<String>) -> BTreeMap<String, String> {
-    let explicit: Vec<(String, String)> = string_map(entry.get("env"))
-        .into_iter()
-        .map(|(k, v)| (k, expand_env(&v, env, missing)))
-        .collect();
+    let explicit: Vec<(String, String)> = string_map(entry.get("env")).into_iter().map(|(k, v)| (k, expand_env(&v, env, missing))).collect();
     let mut out: BTreeMap<String, String> = match entry.get("env_vars").and_then(Value::as_array) {
         None => env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         Some(named) => {
@@ -562,10 +552,7 @@ fn stdio_environment(entry: &Value, env: &Env, missing: &mut Vec<String>) -> BTr
                 .chain(named.iter().filter_map(Value::as_str).map(|s| js_trim(s).to_owned()))
                 .filter(|s| !s.is_empty());
             for key in wanted {
-                if let Some((actual, value)) = env
-                    .iter()
-                    .find(|(k, _)| if cfg!(windows) { k.eq_ignore_ascii_case(&key) } else { **k == key })
-                {
+                if let Some((actual, value)) = env.iter().find(|(k, _)| if cfg!(windows) { k.eq_ignore_ascii_case(&key) } else { **k == key }) {
                     inherited.insert(actual.clone(), value.clone());
                 }
             }
@@ -598,19 +585,14 @@ fn http_headers(entry: &Value, env: &Env, missing: &mut Vec<String>) -> BTreeMap
 /// empty: the server then fails as configured instead of turning into an OAuth login.
 fn has_configured_auth(entry: &Value) -> bool {
     let configured = |key: &str| entry.get(key).and_then(Value::as_object).is_some_and(|m| !m.is_empty());
-    entry
-        .get("bearer_token_env_var")
-        .and_then(Value::as_str)
-        .is_some_and(|name| !js_trim(name).is_empty())
+    entry.get("bearer_token_env_var").and_then(Value::as_str).is_some_and(|name| !js_trim(name).is_empty())
         || configured("headers")
         || configured("env_http_headers")
 }
 
 fn is_loopback(host: &str) -> bool {
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    host.eq_ignore_ascii_case("localhost")
-        || host == "::1"
-        || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
+    host.eq_ignore_ascii_case("localhost") || host == "::1" || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 /// Validates an HTTP/SSE/WebSocket URL: no credentials; TLS except for loopback.
@@ -621,23 +603,10 @@ pub fn normalize_url(raw: &str, websocket: bool) -> Result<Url, ConfigError> {
     }
     let loopback = url.host_str().is_some_and(is_loopback);
     let scheme = url.scheme();
-    let encrypted = if websocket {
-        matches!(scheme, "wss" | "https")
-    } else {
-        scheme == "https"
-    };
-    let local_plaintext = loopback
-        && if websocket {
-            matches!(scheme, "ws" | "http")
-        } else {
-            scheme == "http"
-        };
+    let encrypted = if websocket { matches!(scheme, "wss" | "https") } else { scheme == "https" };
+    let local_plaintext = loopback && if websocket { matches!(scheme, "ws" | "http") } else { scheme == "http" };
     if !encrypted && !local_plaintext {
-        return Err(if websocket {
-            ConfigError::InsecureWebSocketUrl
-        } else {
-            ConfigError::InsecureUrl
-        });
+        return Err(if websocket { ConfigError::InsecureWebSocketUrl } else { ConfigError::InsecureUrl });
     }
     url.set_fragment(None);
     Ok(url)
@@ -665,9 +634,7 @@ const MAX_TIMER_MS: f64 = 2_147_483_647.0;
 /// `none` or `false` in it disables the budget (`None`), and anything unusable in it is the default.
 fn startup_timeout(entry: &Value, env: &Env) -> Option<Duration> {
     // `a ?? b`, then `!= null && !== ''`.
-    let set = |a: &str, b: &str| {
-        entry.get(a).filter(|v| !v.is_null()).or_else(|| entry.get(b)).filter(|v| !v.is_null() && v.as_str() != Some("")).cloned()
-    };
+    let set = |a: &str, b: &str| entry.get(a).filter(|v| !v.is_null()).or_else(|| entry.get(b)).filter(|v| !v.is_null() && v.as_str() != Some("")).cloned();
     let (raw, scale) = if let Some(ms) = set("startupTimeoutMs", "startup_timeout_ms") {
         (ms, 1.0)
     } else if let Some(seconds) = set("startupTimeoutSec", "startup_timeout_sec") {
@@ -722,9 +689,7 @@ fn number_or_off(value: &Value) -> Option<Option<u64>> {
 
 /// `a ?? b ?? env.NAME`: the entry's first key that is set (not null), else the environment's variable.
 fn first_set(entry: &Value, keys: &[&str], env: &Env, name: &str) -> Option<Value> {
-    keys.iter()
-        .find_map(|key| entry.get(*key).filter(|v| !v.is_null()).cloned())
-        .or_else(|| env.get(name).map(|text| Value::String(text.clone())))
+    keys.iter().find_map(|key| entry.get(*key).filter(|v| !v.is_null()).cloned()).or_else(|| env.get(name).map(|text| Value::String(text.clone())))
 }
 
 /// `Number(value)` for the values a config entry or an environment variable holds.
@@ -765,10 +730,7 @@ fn max_total_cap(entry: &Value, env: &Env) -> Option<Duration> {
 }
 
 fn positive(value: Option<&Value>) -> Option<usize> {
-    value
-        .and_then(number_or_off)
-        .flatten()
-        .and_then(|n| usize::try_from(n).ok())
+    value.and_then(number_or_off).flatten().and_then(|n| usize::try_from(n).ok())
 }
 
 impl McpServerConfig {
@@ -784,29 +746,17 @@ impl McpServerConfig {
         let transport = match kind {
             _ if auto => auto_detect_transport(entry, env)?,
             TransportKind::Stdio => {
-                let command = entry
-                    .get("command")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|c| !c.is_empty())
-                    .ok_or(ConfigError::MissingCommand)?;
+                let command = entry.get("command").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).ok_or(ConfigError::MissingCommand)?;
                 let args = entry
                     .get("args")
                     .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .map(|v| expand_env(v.as_str().unwrap_or_default(), env, &mut missing))
-                            .collect()
-                    })
+                    .map(|a| a.iter().map(|v| expand_env(v.as_str().unwrap_or_default(), env, &mut missing)).collect())
                     .unwrap_or_default();
                 TransportConfig::Stdio {
                     command: expand_env(command, env, &mut missing),
                     args,
                     env: stdio_environment(entry, env, &mut missing),
-                    cwd: entry
-                        .get("cwd")
-                        .and_then(Value::as_str)
-                        .map(|c| expand_env(c, env, &mut missing)),
+                    cwd: entry.get("cwd").and_then(Value::as_str).map(|c| expand_env(c, env, &mut missing)),
                     stderr: entry.get("stderr").and_then(Value::as_str).unwrap_or("pipe").to_owned(),
                 }
             }
@@ -816,11 +766,7 @@ impl McpServerConfig {
                     TransportKind::Sse => "sse",
                     _ => "ws",
                 };
-                let raw = entry
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .filter(|u| !js_trim(u).is_empty())
-                    .ok_or(ConfigError::MissingUrl(label))?;
+                let raw = entry.get("url").and_then(Value::as_str).filter(|u| !js_trim(u).is_empty()).ok_or(ConfigError::MissingUrl(label))?;
                 let url = normalize_url(&expand_env(raw, env, &mut missing), kind == TransportKind::WebSocket)?;
                 let headers = http_headers(entry, env, &mut missing);
                 match kind {
@@ -830,14 +776,13 @@ impl McpServerConfig {
                 }
             }
         };
-        let connector = entry
-            .get("connector")
-            .and_then(Value::as_str)
-            .filter(|id| crate::connectors::connector(id).is_some())
-            .map(str::to_owned);
+        let connector = entry.get("connector").and_then(Value::as_str).filter(|id| crate::connectors::connector(id).is_some()).map(str::to_owned);
         let stored_accounts = crate::connector_model::accounts_of(entry);
         // `createMcpTransport`: an http/sse server whose accounts are all switched off is neither connected nor routed to.
-        let all_disabled = !auto && matches!(kind, TransportKind::Http | TransportKind::Sse) && !stored_accounts.is_empty() && !stored_accounts.iter().any(crate::connector_model::account_enabled);
+        let all_disabled = !auto
+            && matches!(kind, TransportKind::Http | TransportKind::Sse)
+            && !stored_accounts.is_empty()
+            && !stored_accounts.iter().any(crate::connector_model::account_enabled);
         let accounts = stored_accounts
             .into_iter()
             .filter(crate::connector_model::account_enabled)
@@ -871,23 +816,12 @@ impl McpServerConfig {
             }
             warnings.push(ConfigError::MissingEnv(names).to_string());
         }
-        let call_timeout = duration_ms(
-            entry,
-            &["timeoutMs", "timeout_ms", "callTimeoutMs", "call_timeout_ms"],
-            &[],
-        )
-        .or_else(|| {
-            env.get("MIXDOG_MCP_CALL_TIMEOUT_MS")
-                .and_then(|v| number_or_off(&Value::String(v.clone())))
-                .map(|p| p.map(Duration::from_millis))
-        })
-        .unwrap_or(Some(DEFAULT_CALL_TIMEOUT));
+        let call_timeout = duration_ms(entry, &["timeoutMs", "timeout_ms", "callTimeoutMs", "call_timeout_ms"], &[])
+            .or_else(|| env.get("MIXDOG_MCP_CALL_TIMEOUT_MS").and_then(|v| number_or_off(&Value::String(v.clone()))).map(|p| p.map(Duration::from_millis)))
+            .unwrap_or(Some(DEFAULT_CALL_TIMEOUT));
         let startup_timeout = startup_timeout(entry, env);
         let max_concurrency = positive(entry.get("maxConcurrency").or_else(|| entry.get("max_concurrency")))
-            .or_else(|| {
-                env.get("MIXDOG_MCP_MAX_INFLIGHT")
-                    .and_then(|v| positive(Some(&Value::String(v.clone()))))
-            });
+            .or_else(|| env.get("MIXDOG_MCP_MAX_INFLIGHT").and_then(|v| positive(Some(&Value::String(v.clone())))));
         // `resolveMcpRequestTimeouts` (client-config.mjs:362): a call without a timeout has no ceiling either, and the
         // ceiling is never below the call timeout.
         let max_total_timeout = call_timeout.and_then(|call| max_total_cap(entry, env).map(|cap| cap.max(call)));
@@ -924,10 +858,7 @@ impl McpServerConfig {
             blocked: all_disabled.then(|| format!("Every account of \"{name}\" is disabled")),
             accounts,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
-            outbound_kinds: string_map(entry.get("outbound"))
-                .into_iter()
-                .filter_map(|(tool, kind)| Some((tool, parse_action_kind(&kind)?)))
-                .collect(),
+            outbound_kinds: string_map(entry.get("outbound")).into_iter().filter_map(|(tool, kind)| Some((tool, parse_action_kind(&kind)?))).collect(),
             connector,
             oauth,
             plugin_id: entry.pointer("/_mixdogPlugin/id").and_then(Value::as_str).map(js_trim).filter(|id| !id.is_empty()).map(str::to_owned),
@@ -1078,12 +1009,7 @@ mod tests {
     #[test]
     fn env_vars_allowlist_limits_inherited_environment() {
         let e = env(&[("PATH", "/bin"), ("SECRET", "s"), ("KEEP", "k")]);
-        let cfg = McpServerConfig::from_entry(
-            "s",
-            &json!({"command": "c", "env_vars": ["KEEP"], "env": {"X": "${KEEP}"}}),
-            &e,
-        )
-        .unwrap();
+        let cfg = McpServerConfig::from_entry("s", &json!({"command": "c", "env_vars": ["KEEP"], "env": {"X": "${KEEP}"}}), &e).unwrap();
         let TransportConfig::Stdio { env, .. } = cfg.transport else { panic!() };
         assert_eq!(env.get("KEEP").map(String::as_str), Some("k"));
         assert_eq!(env.get("X").map(String::as_str), Some("k"));
@@ -1137,7 +1063,10 @@ mod tests {
         let half_hour = Some(Duration::from_secs(30 * 60));
         assert_eq!(of(base(), &[]).max_total_timeout, half_hour);
         assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "600000")]).max_total_timeout, Some(Duration::from_secs(600)));
-        assert_eq!(of(with(json!({"maxTotalTimeoutMs": 900000})), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "600000")]).max_total_timeout, Some(Duration::from_secs(900)));
+        assert_eq!(
+            of(with(json!({"maxTotalTimeoutMs": 900000})), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "600000")]).max_total_timeout,
+            Some(Duration::from_secs(900))
+        );
         for off in ["0", "off", "NONE", "false"] {
             assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", off)]).max_total_timeout, None, "{off}");
         }
@@ -1226,12 +1155,7 @@ mod tests {
     #[test]
     fn env_variable_names_of_http_auth_ignore_case_only_on_windows() {
         let e = env(&[("Tok", "abc"), ("h", "hv")]);
-        let cfg = McpServerConfig::from_entry(
-            "s",
-            &json!({"url": "https://x", "bearer_token_env_var": "TOK", "env_http_headers": {"X-H": "H"}}),
-            &e,
-        )
-        .unwrap();
+        let cfg = McpServerConfig::from_entry("s", &json!({"url": "https://x", "bearer_token_env_var": "TOK", "env_http_headers": {"X-H": "H"}}), &e).unwrap();
         let TransportConfig::Http { headers, .. } = cfg.transport else { panic!() };
         assert_eq!(headers.get("Authorization").map(String::as_str), cfg!(windows).then_some("Bearer abc"));
         assert_eq!(headers.get("X-H").map(String::as_str), cfg!(windows).then_some("hv"));

@@ -69,12 +69,7 @@ pub(crate) struct Outbound {
 
 impl Outbound {
     /// `failed` runs once, with the error, when a write fails; the writer ends there.
-    pub(crate) fn new(
-        name: &'static str,
-        outlet: Arc<dyn Outlet>,
-        cap: usize,
-        failed: impl FnOnce(String) + Send + 'static,
-    ) -> Self {
+    pub(crate) fn new(name: &'static str, outlet: Arc<dyn Outlet>, cap: usize, failed: impl FnOnce(String) + Send + 'static) -> Self {
         let (queue, mut frames) = mpsc::unbounded_channel::<Frame>();
         let queued = Arc::new(AtomicUsize::new(0));
         let writer = {
@@ -92,13 +87,7 @@ impl Outbound {
                 }
             })
         };
-        Self {
-            outlet,
-            queue,
-            queued,
-            cap,
-            writer,
-        }
+        Self { outlet, queue, queued, cap, writer }
     }
 
     /// Never waits. A frame after the writer ended is dropped: the failure was already reported.
@@ -226,10 +215,7 @@ mod tests {
         mixdog_rt::testing::tokens();
         let entered = Arc::new(AtomicBool::new(false));
         let released = Arc::new(AtomicBool::new(false));
-        let outlet = Pinned {
-            entered: Arc::clone(&entered),
-            released: Arc::clone(&released),
-        };
+        let outlet = Pinned { entered: Arc::clone(&entered), released: Arc::clone(&released) };
         let outbound = Outbound::new("test-writer", Arc::new(outlet), 100, |_| {});
         outbound.push(frame(1)).unwrap();
         mixdog_rt::time::sleep(Duration::from_millis(1)).await;

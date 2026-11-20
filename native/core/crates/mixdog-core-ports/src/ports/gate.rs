@@ -68,12 +68,7 @@ pub struct SessionGate {
 }
 
 impl SessionGate {
-    pub fn new(
-        thread: ThreadId,
-        header: Arc<dyn LiveHeader>,
-        surface: watch::Receiver<Arc<SessionSurface>>,
-        env: Arc<dyn GateEnv>,
-    ) -> Self {
+    pub fn new(thread: ThreadId, header: Arc<dyn LiveHeader>, surface: watch::Receiver<Arc<SessionSurface>>, env: Arc<dyn GateEnv>) -> Self {
         Self { thread, header, surface, env }
     }
 
@@ -83,10 +78,7 @@ impl SessionGate {
             return run.agent_id;
         }
         let id = self.thread.as_str();
-        room_member_of_session(id)
-            .map(|member| member.agent_id)
-            .or_else(|| agent_id_of_home_session(id))
-            .unwrap_or_default()
+        room_member_of_session(id).map(|member| member.agent_id).or_else(|| agent_id_of_home_session(id)).unwrap_or_default()
     }
 
     /// `actingBotId`.
@@ -121,11 +113,7 @@ pub fn life_mark(header: &Header) -> Option<String> {
     if header.get("closed") == Some(&Value::Bool(true)) {
         return None;
     }
-    Some(format!(
-        "{}:{}",
-        number_text(header.get("createdAt")),
-        number_text(header.get("compaction").and_then(|c| c.get("lastClearAt"))),
-    ))
+    Some(format!("{}:{}", number_text(header.get("createdAt")), number_text(header.get("compaction").and_then(|c| c.get("lastClearAt"))),))
 }
 
 #[async_trait]

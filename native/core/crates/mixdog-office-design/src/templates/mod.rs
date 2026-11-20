@@ -19,8 +19,8 @@ pub use self::fill::{Group, TemplateFill, expand_template_page_operations, selec
 pub use self::index::{OfficeTemplateIndexer, index_office_templates, inspect_office_template};
 pub use self::induct::{Roles, annotate_pptx_snapshot_roles, induce_pptx_sample_roles, role_key};
 pub use self::inspect::{
-    ShapeBlock, SlideEntry, create_pptx_slide_selection, direct_pptx_shape_blocks, infer_pptx_sample_kind, number_from_path, office_template_coverage, pptx_sample_capacity, pptx_shape_metadata,
-    pptx_slide_entries, pptx_slot, walk_template_directory, xml_attribute,
+    ShapeBlock, SlideEntry, create_pptx_slide_selection, direct_pptx_shape_blocks, infer_pptx_sample_kind, number_from_path, office_template_coverage,
+    pptx_sample_capacity, pptx_shape_metadata, pptx_slide_entries, pptx_slot, walk_template_directory, xml_attribute,
 };
 
 /// `JSZip.loadAsync(bytes)`: jszip words a file that does not begin as a zip with a pointer to its documentation.

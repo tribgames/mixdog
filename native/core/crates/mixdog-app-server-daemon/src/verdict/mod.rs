@@ -136,16 +136,11 @@ fn record_owner(bytes: &[u8]) -> Option<(u64, Option<u16>)> {
 }
 
 fn is_barrier_record(bytes: &[u8]) -> bool {
-    serde_json::from_slice::<serde_json::Value>(bytes).is_ok_and(|value| {
-        value["kind"] == "mixdog-daemon" && value["protocol"] == 2 && value["pid"].is_string()
-    })
+    serde_json::from_slice::<serde_json::Value>(bytes).is_ok_and(|value| value["kind"] == "mixdog-daemon" && value["protocol"] == 2 && value["pid"].is_string())
 }
 
 fn port(value: &serde_json::Value) -> Option<u16> {
-    value
-        .as_u64()
-        .filter(|port| (1..=65_535).contains(port))
-        .map(|port| port as u16)
+    value.as_u64().filter(|port| (1..=65_535).contains(port)).map(|port| port as u16)
 }
 
 /// The pid and session port a 1.4.5 discovery names. A discovery with a
@@ -156,33 +151,20 @@ fn legacy_discovery(bytes: &[u8]) -> Option<(u64, Option<u16>)> {
         return None;
     }
     let pid = value.get("pid")?.as_u64().filter(|pid| *pid > 0)?;
-    let session = value
-        .get("endpoints")
-        .and_then(|e| e.get("session"))
-        .and_then(|s| s.get("port"));
+    let session = value.get("endpoints").and_then(|e| e.get("session")).and_then(|s| s.get("port"));
     Some((pid, session.and_then(port)))
 }
 
 /// `pid` as a running prior owner: never this core, never a released identity.
-fn running(
-    procs: &dyn ProcessTable,
-    released: &[ProcessIdentity],
-    pid: u64,
-) -> io::Result<Option<ProcessInfo>> {
+fn running(procs: &dyn ProcessTable, released: &[ProcessIdentity], pid: u64) -> io::Result<Option<ProcessInfo>> {
     if pid == u64::from(std::process::id()) {
         return Ok(None);
     }
-    Ok(procs
-        .query(pid)?
-        .filter(|info| !released.contains(&info.identity)))
+    Ok(procs.query(pid)?.filter(|info| !released.contains(&info.identity)))
 }
 
 /// LR §3.1, the rows on `B`, judged first.
-pub(crate) fn judge_claim(
-    claim: &ClaimLock,
-    procs: &dyn ProcessTable,
-    released: &[ProcessIdentity],
-) -> io::Result<ClaimJudgement> {
+pub(crate) fn judge_claim(claim: &ClaimLock, procs: &dyn ProcessTable, released: &[ProcessIdentity]) -> io::Result<ClaimJudgement> {
     Ok(match claim {
         ClaimLock::Barrier => ClaimJudgement::Barrier,
         ClaimLock::Held(owner) => {
@@ -190,22 +172,14 @@ pub(crate) fn judge_claim(
                 && let Some(info) = running(procs, released, pid)?
             {
                 // Started after it acquired B: not its writer, whose pid was reused.
-                let reused = owner
-                    .acquired_ms
-                    .is_some_and(|ms| info.identity.start_ms > ms);
-                return Ok(ClaimJudgement::Blocked(if reused {
-                    Verdict::Undecidable(info)
-                } else {
-                    Verdict::WaitClaim(info)
-                }));
+                let reused = owner.acquired_ms.is_some_and(|ms| info.identity.start_ms > ms);
+                return Ok(ClaimJudgement::Blocked(if reused { Verdict::Undecidable(info) } else { Verdict::WaitClaim(info) }));
             }
             ClaimJudgement::Free(Take::DeadHolder(owner.bytes.clone()))
         }
         ClaimLock::Absent => ClaimJudgement::Free(Take::Absent),
         ClaimLock::Dir { empty: true } => ClaimJudgement::Free(Take::EmptyDir),
-        ClaimLock::Dir { empty: false } | ClaimLock::Other => {
-            ClaimJudgement::Blocked(Verdict::Unusable)
-        }
+        ClaimLock::Dir { empty: false } | ClaimLock::Other => ClaimJudgement::Blocked(Verdict::Unusable),
     })
 }
 
@@ -224,10 +198,7 @@ pub(crate) fn judge_owner(
         return Ok(match liveness_port {
             // The writer binds its liveness listener before it writes the record and
             // closes it only by exiting; sockets are not inherited.
-            Some(port) if procs.listens(info.identity.pid, port)? => Some(Verdict::WaitExit {
-                process: info,
-                proven: true,
-            }),
+            Some(port) if procs.listens(info.identity.pid, port)? => Some(Verdict::WaitExit { process: info, proven: true }),
             Some(_) => None,
             None => Some(Verdict::Undecidable(info)),
         });
@@ -240,10 +211,7 @@ pub(crate) fn judge_owner(
             Some(port) => procs.listens(info.identity.pid, port)?,
             None => false,
         };
-        return Ok(Some(Verdict::WaitExit {
-            process: info,
-            proven,
-        }));
+        return Ok(Some(Verdict::WaitExit { process: info, proven }));
     }
     Ok(None)
 }
@@ -271,11 +239,7 @@ pub struct Blocked {
 
 impl fmt::Debug for Blocked {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Blocked")
-            .field("kind", &self.kind)
-            .field("process", &self.process)
-            .field("releasable", &self.releasable)
-            .finish()
+        f.debug_struct("Blocked").field("kind", &self.kind).field("process", &self.process).field("releasable", &self.releasable).finish()
     }
 }
 
@@ -333,14 +297,8 @@ impl fmt::Display for GateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(f, "prior-owner verdict failed: {error}"),
-            Self::ClaimLockUnusable => {
-                f.write_str("daemon-owner.json.claim.lock is not a file Mixdog can replace")
-            }
-            Self::ExitUnwatchable { process, .. } => write!(
-                f,
-                "prior owner pid {} is running, but this user cannot wait for its exit",
-                process.identity.pid
-            ),
+            Self::ClaimLockUnusable => f.write_str("daemon-owner.json.claim.lock is not a file Mixdog can replace"),
+            Self::ExitUnwatchable { process, .. } => write!(f, "prior owner pid {} is running, but this user cannot wait for its exit", process.identity.pid),
         }
     }
 }
@@ -394,38 +352,18 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub fn new(
-        ownership: Arc<CoreOwnership>,
-        discovery_path: PathBuf,
-        record: BarrierRecord,
-    ) -> io::Result<Self> {
+    pub fn new(ownership: Arc<CoreOwnership>, discovery_path: PathBuf, record: BarrierRecord) -> io::Result<Self> {
         Self::with_table(ownership, discovery_path, record, Box::new(OsProcessTable))
     }
 
-    pub(crate) fn with_table(
-        ownership: Arc<CoreOwnership>,
-        discovery_path: PathBuf,
-        record: BarrierRecord,
-        procs: Box<dyn ProcessTable>,
-    ) -> io::Result<Self> {
-        let mut gate = Self {
-            ownership,
-            record,
-            discovery_path,
-            discovery: None,
-            procs,
-            released: Vec::new(),
-            blocked: None,
-        };
+    pub(crate) fn with_table(ownership: Arc<CoreOwnership>, discovery_path: PathBuf, record: BarrierRecord, procs: Box<dyn ProcessTable>) -> io::Result<Self> {
+        let mut gate = Self { ownership, record, discovery_path, discovery: None, procs, released: Vec::new(), blocked: None };
         gate.refresh_discovery()?;
         Ok(gate)
     }
 
     /// Keeps the newest discovery that is not a 1.4.6+ core's.
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "the startup gate is synchronous and runs before any async worker exists"
-    )]
+    #[allow(clippy::disallowed_methods, reason = "the startup gate is synchronous and runs before any async worker exists")]
     fn refresh_discovery(&mut self) -> io::Result<()> {
         match std::fs::read(&self.discovery_path) {
             Ok(bytes) => self.discovery = legacy_discovery(&bytes).or(self.discovery),
@@ -474,11 +412,8 @@ impl Gate {
                 ClaimJudgement::Free(take) => {
                     let record = self.ownership.data_dir().read(RECORD_FILE)?;
                     self.preserve_discovery(lane)?;
-                    let displaced = if record.as_deref().is_some_and(is_barrier_record) {
-                        self.ownership.data_dir().read(barrier::PRIOR_RECORD_FILE)?
-                    } else {
-                        None
-                    };
+                    let displaced =
+                        if record.as_deref().is_some_and(is_barrier_record) { self.ownership.data_dir().read(barrier::PRIOR_RECORD_FILE)? } else { None };
                     let evidence = displaced.as_deref().or(record.as_deref());
                     if let Some(verdict) = judge_owner(evidence, self.discovery, &*self.procs, &self.released)? {
                         verdict
@@ -489,13 +424,7 @@ impl Gate {
                             continue;
                         }
                         barrier::hook(Step::Linking);
-                        match barrier::take(
-                            lane,
-                            &self.ownership,
-                            take,
-                            record.as_deref(),
-                            &*self.procs,
-                        )? {
+                        match barrier::take(lane, &self.ownership, take, record.as_deref(), &*self.procs)? {
                             Taken::Held(held) => {
                                 let save = record.as_deref().filter(|bytes| record_owner(bytes).is_some());
                                 held.install(lane, &self.record, save)?;
@@ -511,12 +440,8 @@ impl Gate {
                 }
             };
             let (kind, process, releasable, dir) = match verdict {
-                Verdict::WaitExit { process, proven } => {
-                    (BlockedKind::WaitExit, process, !proven, None)
-                }
-                Verdict::WaitClaim(process) => {
-                    (BlockedKind::WaitClaim, process, false, Some(dir_watch))
-                }
+                Verdict::WaitExit { process, proven } => (BlockedKind::WaitExit, process, !proven, None),
+                Verdict::WaitClaim(process) => (BlockedKind::WaitClaim, process, false, Some(dir_watch)),
                 Verdict::Undecidable(process) => (BlockedKind::Undecidable, process, true, None),
                 Verdict::Unusable => return Err(GateError::ClaimLockUnusable),
             };
@@ -530,22 +455,12 @@ impl Gate {
                 // `T:daemon.mjs:577-583`). Neither does the core.
                 Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
                     self.blocked = Some((process.clone(), releasable));
-                    return Err(GateError::ExitUnwatchable {
-                        kind,
-                        process,
-                        releasable,
-                    });
+                    return Err(GateError::ExitUnwatchable { kind, process, releasable });
                 }
                 Err(error) => return Err(error.into()),
             };
             self.blocked = Some((process.clone(), releasable));
-            return Ok(GateStep::Blocked(Blocked {
-                kind,
-                process,
-                releasable,
-                dir,
-                exit,
-            }));
+            return Ok(GateStep::Blocked(Blocked { kind, process, releasable, dir, exit }));
         }
     }
 
@@ -554,39 +469,28 @@ impl Gate {
     /// [`Gate::step`] treats that process identity as not an owner.
     pub fn release(&mut self, pid: u32) -> Result<ProcessInfo, ReleaseError> {
         let (process, releasable) = match &self.blocked {
-            Some((process, releasable)) if process.identity.pid == pid => {
-                (process.clone(), *releasable)
-            }
+            Some((process, releasable)) if process.identity.pid == pid => (process.clone(), *releasable),
             _ => return Err(ReleaseError::NotBlockedOn(pid)),
         };
         if !releasable {
             return Err(ReleaseError::NotReleasable(pid));
         }
         let entry = ReleaseEntry {
-            at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as u64),
+            at: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64),
             decision: "release",
             instance_id: self.ownership.instance_id(),
             pid,
             process_start_ms: process.identity.start_ms,
-            image: process
-                .image
-                .as_ref()
-                .map(|image| image.to_string_lossy().into_owned()),
+            image: process.image.as_ref().map(|image| image.to_string_lossy().into_owned()),
             command_line: process.command_line.as_deref(),
         };
         let line = serde_json::to_string(&entry).map_err(|error| ReleaseError::Io(error.into()))?;
-        self.ownership
-            .data_dir()
-            .append_line(JOURNAL_DIR, JOURNAL_FILE, &line)
-            .map_err(ReleaseError::Io)?;
+        self.ownership.data_dir().append_line(JOURNAL_DIR, JOURNAL_FILE, &line).map_err(ReleaseError::Io)?;
         self.released.push(process.identity);
         self.blocked = None;
         Ok(process)
     }
 }
-
 
 impl std::error::Error for GateError {}
 impl std::error::Error for ReleaseError {}

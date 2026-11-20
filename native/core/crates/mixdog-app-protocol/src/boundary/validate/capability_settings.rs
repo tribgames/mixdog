@@ -41,9 +41,7 @@ const MAX_USAGE_REQUEST_CURSOR_LENGTH: usize = 200;
 const MAX_USAGE_REQUEST_MODEL_LENGTH: usize = 300;
 const USAGE_REQUEST_STATUSES: &[&str] = &["completed", "substituted", "retried", "failed"];
 const USAGE_PERIOD_VIEWS: &[&str] = &["hour", "7d", "day", "week", "month", "year", "all", "custom"];
-const USAGE_REQUEST_KEYS: &[&str] = &[
-    "view", "anchor", "startDay", "endDay", "startTime", "endTime", "status", "model", "cursor", "limit", "asOf",
-];
+const USAGE_REQUEST_KEYS: &[&str] = &["view", "anchor", "startDay", "endDay", "startTime", "endTime", "status", "model", "cursor", "limit", "asOf"];
 const MAX_SESSION_USAGE_IDS: usize = 64;
 const MAX_SESSION_ID_LENGTH: usize = 256;
 
@@ -61,15 +59,10 @@ pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorDat
         "thread/getSessionUsage" => session_usage(&p),
         "usage/getUsageRequests" => usage_requests(&p),
         "config/setHeartbeatInterval" => heartbeat_interval(&p),
-        "instructions/setInstructionFiles" => one_of(
-            &p,
-            "mode",
-            &["all", "agents", "claude", "off"],
-            "setInstructionFiles requires all, agents, claude, or off.",
-        ),
-        "config/setAutoEffortBase" => {
-            one_of(&p, "level", &["low", "medium", "high"], "setAutoEffortBase requires low, medium, or high.")
+        "instructions/setInstructionFiles" => {
+            one_of(&p, "mode", &["all", "agents", "claude", "off"], "setInstructionFiles requires all, agents, claude, or off.")
         }
+        "config/setAutoEffortBase" => one_of(&p, "level", &["low", "medium", "high"], "setAutoEffortBase requires low, medium, or high."),
         "config/setBuiltinToolEnabled" => builtin_tool(&p, method),
         "config/setDeveloperOption" => developer_option(&p, method),
         "config/setNetworkProxy" => network_proxy_set(&p),
@@ -176,10 +169,7 @@ fn boolean_switch(p: &Fields, method: &str) -> Result<(), ErrorData> {
 }
 
 fn heartbeat_interval(p: &Fields) -> Result<(), ErrorData> {
-    let listed = p
-        .get("minutes")
-        .and_then(Value::as_f64)
-        .is_some_and(|minutes| HEARTBEAT_INTERVAL_CHOICES.contains(&minutes));
+    let listed = p.get("minutes").and_then(Value::as_f64).is_some_and(|minutes| HEARTBEAT_INTERVAL_CHOICES.contains(&minutes));
     if listed {
         return Ok(());
     }
@@ -191,10 +181,7 @@ fn builtin_tool(p: &Fields, method: &str) -> Result<(), ErrorData> {
     boolean_switch(p, method)?;
     match p.get("name") {
         Some(Value::String(name)) if TOGGLEABLE_BUILTIN_TOOLS.contains(&name.as_str()) => Ok(()),
-        _ => Err(invalid(
-            "/name",
-            "setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, or media.",
-        )),
+        _ => Err(invalid("/name", "setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, or media.")),
     }
 }
 
@@ -240,21 +227,14 @@ fn install_builtin_feature(p: &Fields) -> Result<(), ErrorData> {
     }
     let Some(options) = p.get("options") else { return Ok(()) };
     let engines = options.get("engines").and_then(Value::as_array);
-    let listed = name == Some("tidy")
-        && engines.is_some_and(|ids| {
-            !ids.is_empty() && ids.len() <= 16 && ids.iter().all(|id| id.as_str().is_some_and(engine_id))
-        });
-    if listed {
-        Ok(())
-    } else {
-        Err(invalid("/options", "installBuiltinFeature options accept only engines:[ids] for tidy."))
-    }
+    let listed =
+        name == Some("tidy") && engines.is_some_and(|ids| !ids.is_empty() && ids.len() <= 16 && ids.iter().all(|id| id.as_str().is_some_and(engine_id)));
+    if listed { Ok(()) } else { Err(invalid("/options", "installBuiltinFeature options accept only engines:[ids] for tidy.")) }
 }
 
 /// `/^[a-z0-9_-]{1,64}$/`.
 fn engine_id(id: &str) -> bool {
-    (1..=64).contains(&id.len())
-        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+    (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 fn session_usage(p: &Fields) -> Result<(), ErrorData> {
@@ -283,9 +263,8 @@ fn session_ids(ids: &Value) -> Result<(), ErrorData> {
             return Err(invalid(&path, "session id must be a string."));
         };
         let trimmed = js_trim(raw);
-        let well_formed = !trimmed.is_empty()
-            && utf16_len(trimmed) <= MAX_SESSION_ID_LENGTH
-            && trimmed.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+        let well_formed =
+            !trimmed.is_empty() && utf16_len(trimmed) <= MAX_SESSION_ID_LENGTH && trimmed.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
         if !well_formed {
             return Err(invalid(&path, "session id is invalid."));
         }
@@ -296,15 +275,13 @@ fn session_ids(ids: &Value) -> Result<(), ErrorData> {
 /// `/^\d{4}-\d{2}-\d{2}$/`.
 fn period_day(text: &str) -> bool {
     let bytes = text.as_bytes();
-    bytes.len() == 10
-        && bytes.iter().enumerate().all(|(at, b)| if at == 4 || at == 7 { *b == b'-' } else { b.is_ascii_digit() })
+    bytes.len() == 10 && bytes.iter().enumerate().all(|(at, b)| if at == 4 || at == 7 { *b == b'-' } else { b.is_ascii_digit() })
 }
 
 /// `/^\d{2}:\d{2}(?::\d{2})?$/`.
 fn period_clock(text: &str) -> bool {
     let bytes = text.as_bytes();
-    (bytes.len() == 5 || bytes.len() == 8)
-        && bytes.iter().enumerate().all(|(at, b)| if at == 2 || at == 5 { *b == b':' } else { b.is_ascii_digit() })
+    (bytes.len() == 5 || bytes.len() == 8) && bytes.iter().enumerate().all(|(at, b)| if at == 2 || at == 5 { *b == b':' } else { b.is_ascii_digit() })
 }
 
 fn usage_requests(p: &Fields) -> Result<(), ErrorData> {
@@ -325,9 +302,7 @@ fn usage_requests(p: &Fields) -> Result<(), ErrorData> {
         Some(_) => Err(invalid(&format!("/options/{key}"), message)),
     };
     let shaped = |key: &str, shape: fn(&str) -> bool, what: &str| match request.get(key) {
-        Some(value) if !value.as_str().is_some_and(shape) => {
-            Err(invalid(&format!("/options/{key}"), format!("request log {key} must be a {what}.")))
-        }
+        Some(value) if !value.as_str().is_some_and(shape) => Err(invalid(&format!("/options/{key}"), format!("request log {key} must be a {what}."))),
         _ => Ok(()),
     };
     choice("view", USAGE_PERIOD_VIEWS, "request log view is unknown.")?;
@@ -411,11 +386,7 @@ fn local_provider_context(p: &Fields) -> Result<(), ErrorData> {
         Some(tokens) => safe_integer(tokens).is_some_and(|tokens| tokens >= 16384.0),
         None => false,
     };
-    if sized {
-        Ok(())
-    } else {
-        Err(invalid("/tokens", "Context size must be null (automatic) or an integer of at least 16384 tokens."))
-    }
+    if sized { Ok(()) } else { Err(invalid("/tokens", "Context size must be null (automatic) or an integer of at least 16384 tokens.")) }
 }
 
 fn model_maintenance(p: &Fields) -> Result<(), ErrorData> {
@@ -461,18 +432,14 @@ fn save_provider_api_key(p: &Fields) -> Result<(), ErrorData> {
     // No location (or an empty one) leaves it unset: the environment's region, then global.
     if let Some(location) = options.get("location").filter(|location| location.as_str() != Some("")) {
         required_string(Some(location), "/options/location", "Vertex AI location", 63)?;
-        let known = location
-            .as_str()
-            .is_some_and(|text| text.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
+        let known = location.as_str().is_some_and(|text| text.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
         if !known {
             return Err(invalid("/options/location", "Vertex AI location is invalid."));
         }
     }
     if let Some(project) = options.get("projectId").filter(|project| project.as_str() != Some("")) {
         required_string(Some(project), "/options/projectId", "Vertex AI project ID", 128)?;
-        let known = project.as_str().is_some_and(|text| {
-            text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
-        });
+        let known = project.as_str().is_some_and(|text| text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-')));
         if !known {
             return Err(invalid("/options/projectId", "Vertex AI project ID is invalid."));
         }
@@ -483,11 +450,7 @@ fn save_provider_api_key(p: &Fields) -> Result<(), ErrorData> {
 /// `/^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/`, after the `custom-` prefix.
 fn custom_provider_uuid(id: &str) -> bool {
     let mut parts = id.split('-');
-    let mut hex = |len: usize| {
-        parts.next().is_some_and(|part| {
-            part.len() == len && part.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        })
-    };
+    let mut hex = |len: usize| parts.next().is_some_and(|part| part.len() == len && part.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
     let groups = [8, 4, 4, 4, 12].iter().all(|len| hex(*len));
     groups && parts.next().is_none()
 }

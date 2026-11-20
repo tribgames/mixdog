@@ -18,13 +18,7 @@ pub struct WebLanes {
 
 /// Runs `work` as a job of `lane` and waits for its result; `Err` when the job was not queued or
 /// was dropped.
-pub(super) async fn run<L: LaneToken, T: Send + 'static>(
-    lane: L,
-    work: impl FnOnce(&InLane<L>) -> T + Send + 'static,
-) -> Result<T, String> {
-    let handle = lane
-        .submit_wait(&CancellationToken::new(), work)
-        .await
-        .map_err(|error| format!("lane job was not queued: {error:?}"))?;
+pub(super) async fn run<L: LaneToken, T: Send + 'static>(lane: L, work: impl FnOnce(&InLane<L>) -> T + Send + 'static) -> Result<T, String> {
+    let handle = lane.submit_wait(&CancellationToken::new(), work).await.map_err(|error| format!("lane job was not queued: {error:?}"))?;
     handle.await.map_err(|_| "lane job was dropped".to_string())
 }

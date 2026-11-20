@@ -7,7 +7,6 @@
 mod reduce;
 pub use reduce::positive_env_int;
 
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -69,7 +68,6 @@ impl Tool for GithubTool {
     }
 }
 
-
 /// `githubRequestMutates`: whether a `github` request may change something; an unknown action counts as a change.
 pub fn github_call_mutates(args: &JsonValue) -> bool {
     args.get("action").and_then(JsonValue::as_str).and_then(contract::definition).is_none_or(|def| def.write)
@@ -120,8 +118,6 @@ impl GithubTool {
         if ctx.thread_id.as_str().is_empty() || ctx.call_id.as_str().is_empty() {
             return None;
         }
-        crate::exec::archive::persist(ctx.io.durability, &ctx.cancel, data_dir, ctx.thread_id.as_str(), "github-raw", content)
-            .await
-            .map(|stored| stored.path)
+        crate::exec::archive::persist(ctx.io.durability, &ctx.cancel, data_dir, ctx.thread_id.as_str(), "github-raw", content).await.map(|stored| stored.path)
     }
 }

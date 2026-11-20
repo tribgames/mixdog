@@ -30,25 +30,15 @@ pub struct RepoIdentity {
 }
 
 /// Runs `job` on the maintenance lane; the caller's cancellation drops it at dequeue.
-pub async fn on_lane<R: Send + 'static>(
-    lane: MaintenanceIo,
-    cancel: &CancellationToken,
-    job: impl FnOnce() -> R + Send + 'static,
-) -> Result<R, ScmFailure> {
+pub async fn on_lane<R: Send + 'static>(lane: MaintenanceIo, cancel: &CancellationToken, job: impl FnOnce() -> R + Send + 'static) -> Result<R, ScmFailure> {
     admit(lane, cancel, job)?.await.map_err(|_| ScmFailure::Cancelled)
 }
 
 /// Queues `job` on the maintenance lane without waiting for it: a lane that refuses it answers `QueueFull` at once, so a
 /// caller can change its own state only after the job that goes with the change is admitted. The caller's cancellation drops
 /// it at dequeue.
-pub fn admit<R: Send + 'static>(
-    lane: MaintenanceIo,
-    cancel: &CancellationToken,
-    job: impl FnOnce() -> R + Send + 'static,
-) -> Result<JobHandle<R>, ScmFailure> {
-    lane.submit(cancel, move |_proof| job()).map_err(|full| ScmFailure::QueueFull {
-        queue: full.lane.name().to_owned(),
-    })
+pub fn admit<R: Send + 'static>(lane: MaintenanceIo, cancel: &CancellationToken, job: impl FnOnce() -> R + Send + 'static) -> Result<JobHandle<R>, ScmFailure> {
+    lane.submit(cancel, move |_proof| job()).map_err(|full| ScmFailure::QueueFull { queue: full.lane.name().to_owned() })
 }
 
 fn open(path: &Path) -> Result<gix::Repository, ScmFailure> {
@@ -58,20 +48,13 @@ fn open(path: &Path) -> Result<gix::Repository, ScmFailure> {
 /// The repository containing `cwd`.
 pub fn discover(cwd: &Path) -> Result<RepoIdentity, ScmFailure> {
     let repo = open(cwd)?;
-    Ok(RepoIdentity {
-        work_tree: repo.workdir().map(Path::to_path_buf),
-        git_dir: repo.git_dir().to_path_buf(),
-        common_dir: repo.common_dir().to_path_buf(),
-    })
+    Ok(RepoIdentity { work_tree: repo.workdir().map(Path::to_path_buf), git_dir: repo.git_dir().to_path_buf(), common_dir: repo.common_dir().to_path_buf() })
 }
 
 /// HEAD's commit id; `None` on an unborn branch.
 pub fn head_oid(identity: &RepoIdentity) -> Result<Option<ObjectId>, ScmFailure> {
     let repo = open(&identity.git_dir)?;
-    Ok(repo
-        .head_id()
-        .ok()
-        .map(|id| ObjectId(id.to_hex().to_string())))
+    Ok(repo.head_id().ok().map(|id| ObjectId(id.to_hex().to_string())))
 }
 
 /// The checksum that ends the index file (its content address), read without loading it.
@@ -104,28 +87,14 @@ pub fn hex(bytes: &[u8]) -> String {
 /// `(HEAD oid, index checksum, worktree token)`. The token is the generation of the repo's
 /// change evidence, so it moves exactly when the watcher saw the work tree change.
 pub fn key(identity: &RepoIdentity, generation: u64) -> Result<InspectorKey, ScmFailure> {
-    Ok(InspectorKey {
-        head: head_oid(identity)?,
-        index_checksum: index_checksum(identity)?,
-        worktree_token: generation.to_string(),
-    })
+    Ok(InspectorKey { head: head_oid(identity)?, index_checksum: index_checksum(identity)?, worktree_token: generation.to_string() })
 }
 
 /// Current id of each ref (`None` = absent). `HEAD`, full ref names and `<rev>^{commit}` all
 /// resolve.
-pub fn resolve_refs(
-    identity: &RepoIdentity,
-    refs: &[String],
-) -> Result<Vec<Option<ObjectId>>, ScmFailure> {
+pub fn resolve_refs(identity: &RepoIdentity, refs: &[String]) -> Result<Vec<Option<ObjectId>>, ScmFailure> {
     let repo = open(&identity.git_dir)?;
-    Ok(refs
-        .iter()
-        .map(|name| {
-            repo.rev_parse_single(name.as_str())
-                .ok()
-                .map(|id| ObjectId(id.to_hex().to_string()))
-        })
-        .collect())
+    Ok(refs.iter().map(|name| repo.rev_parse_single(name.as_str()).ok().map(|id| ObjectId(id.to_hex().to_string()))).collect())
 }
 
 /// The operation in progress in this work tree, from git's own state markers.
@@ -145,16 +114,8 @@ pub fn operation_in_progress(git_dir: &Path) -> Option<RepoOperation> {
         // A multi-commit pick between two commits has no CHERRY_PICK_HEAD; its todo list
         // names the verb.
         let todo = std::fs::read_to_string(git_dir.join("sequencer").join("todo")).unwrap_or_default();
-        let first = todo
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty() && !line.starts_with('#'))
-            .unwrap_or("");
-        if first.split_whitespace().next() == Some("revert") {
-            Some(RepoOperation::Revert)
-        } else {
-            Some(RepoOperation::CherryPick)
-        }
+        let first = todo.lines().map(str::trim).find(|line| !line.is_empty() && !line.starts_with('#')).unwrap_or("");
+        if first.split_whitespace().next() == Some("revert") { Some(RepoOperation::Revert) } else { Some(RepoOperation::CherryPick) }
     } else {
         None
     }

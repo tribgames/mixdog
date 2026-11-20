@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! Traversal- and symlink-guarded project paths (port of `projectEntryPathIn`).
 
 use std::io;
@@ -11,11 +15,7 @@ use crate::error::WsResult;
 
 /// Case-folded on Windows, where paths compare case-insensitively.
 pub fn comparable(path: &Path) -> PathBuf {
-    if cfg!(windows) {
-        PathBuf::from(path.to_string_lossy().to_lowercase())
-    } else {
-        path.to_path_buf()
-    }
+    if cfg!(windows) { PathBuf::from(path.to_string_lossy().to_lowercase()) } else { path.to_path_buf() }
 }
 
 /// `path` is `root` or under it, component-wise.
@@ -52,7 +52,8 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
         return PathBuf::from(format!(r"\\{rest}"));
     }
     if let Some(rest) = text.strip_prefix(r"\\?\")
-        && rest.as_bytes().get(1) == Some(&b':') {
+        && rest.as_bytes().get(1) == Some(&b':')
+    {
         return PathBuf::from(rest);
     }
     path
@@ -266,7 +267,6 @@ mod tests {
         assert_eq!(err.message, format!("ENOENT: no such file or directory, lstat '{}'", root.join("gone").display()));
     }
 
-
     /// `absoluteLocalPath` under the Windows rules, with the working directory's drive standing in for `{drive}` in a rooted path
     /// (`path.resolve` puts it on that drive). Non-string inputs are answered by the service's param check (tests/it/service.rs), not by
     /// this helper.
@@ -347,7 +347,8 @@ mod tests {
             ("/a\u{0}b", Err("path is invalid.")),
         ];
         for (text, want) in cases {
-            let got = absolute_local_path_in(mixdog_js::nodepath::Style::Posix, text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message);
+            let got =
+                absolute_local_path_in(mixdog_js::nodepath::Style::Posix, text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message);
             assert_eq!(got, want.map(str::to_owned).map_err(str::to_owned), "{text:?}");
         }
         // The limit is 16384 UTF-16 units.
@@ -386,7 +387,6 @@ mod tests {
         }
     }
 }
-
 
 /// The refusal of [`project_entry_path`] for a path beyond the project. Every caller gets the permission refusal; the phone's calls (which
 /// ask for `nodeErrors`) are answered with Node's plain `Error` of the same text (service.rs `map_error`).

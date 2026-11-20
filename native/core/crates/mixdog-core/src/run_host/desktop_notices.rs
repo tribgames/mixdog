@@ -47,7 +47,4 @@ impl SignInNotices for ConnectorDesktopNotices {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
-
+mod tests {}

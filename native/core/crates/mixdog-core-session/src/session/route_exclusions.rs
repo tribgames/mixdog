@@ -241,6 +241,4 @@ mod tests {
         assert_eq!(store.record(&thread, ExcludedTool { reason: "now".into(), ..broken() }), None);
         assert!(store.excluded(&thread, &gemini)[0].1.contains("(now)"));
     }
-
-
 }

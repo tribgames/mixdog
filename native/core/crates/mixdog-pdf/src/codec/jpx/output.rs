@@ -154,12 +154,7 @@ struct TileSamples {
     samples: Samples,
 }
 
-fn decode_tile(
-    tile: &TileStructure,
-    comps: &[CompSiz],
-    planes: &mut [Plane],
-    t1: &mut Tier1,
-) -> Result<(), JpxError> {
+fn decode_tile(tile: &TileStructure, comps: &[CompSiz], planes: &mut [Plane], t1: &mut Tier1) -> Result<(), JpxError> {
     let mut decoded = Vec::with_capacity(tile.components.len());
     for (c, tc) in tile.components.iter().enumerate() {
         decoded.push(decode_component(tile, c, tc, t1)?);
@@ -190,12 +185,7 @@ fn level_range(precision: u8, signed: bool) -> (i64, i64, i64) {
     if signed { (-half, half - 1, 0) } else { (0, (1i64 << precision) - 1, half) }
 }
 
-fn decode_component(
-    tile: &TileStructure,
-    c: usize,
-    tc: &TileComponent,
-    t1: &mut Tier1,
-) -> Result<TileSamples, JpxError> {
+fn decode_component(tile: &TileStructure, c: usize, tc: &TileComponent, t1: &mut Tier1) -> Result<TileSamples, JpxError> {
     let params = &tile.params.comps[c];
     let reversible = params.coding.reversible;
     let (w, h) = ((tc.x1 - tc.x0) as usize, (tc.y1 - tc.y0) as usize);
@@ -214,8 +204,7 @@ fn decode_component(
             (0, 0)
         };
         for band in &res.bands {
-            let (offset_x, offset_y) =
-                (if band.orient & 1 != 0 { prev_w } else { 0 }, if band.orient & 2 != 0 { prev_h } else { 0 });
+            let (offset_x, offset_y) = (if band.orient & 1 != 0 { prev_w } else { 0 }, if band.orient & 2 != 0 { prev_h } else { 0 });
             let step = 0.5f32 * band.stepsize;
             for precinct in &band.precincts {
                 for block in &precinct.blocks {
@@ -244,8 +233,7 @@ fn decode_component(
             }
         }
     }
-    let boxes: Vec<ResBox> =
-        tc.resolutions.iter().map(|r| ResBox { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 }).collect();
+    let boxes: Vec<ResBox> = tc.resolutions.iter().map(|r| ResBox { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 }).collect();
     let samples = if reversible {
         inverse_reversible(&mut ints, w, &boxes);
         Samples::Int(ints)
@@ -295,26 +283,16 @@ impl DecodedImage {
     fn apply_palette(&mut self, palette: &Palette, map: &[ComponentMap]) -> Result<(), JpxError> {
         let columns = palette.column_depths.len();
         let corrected: Vec<ComponentMap>;
-        let map = if self.planes.len() == 1
-            && (0..columns).any(|c| !map.iter().take(columns).any(|m| m.palette_column as usize == c))
-        {
-            corrected = (0..columns)
-                .map(|c| ComponentMap {
-                    component: map.get(c).map_or(0, |m| m.component),
-                    mapping_type: 1,
-                    palette_column: c as u8,
-                })
-                .collect();
+        let map = if self.planes.len() == 1 && (0..columns).any(|c| !map.iter().take(columns).any(|m| m.palette_column as usize == c)) {
+            corrected =
+                (0..columns).map(|c| ComponentMap { component: map.get(c).map_or(0, |m| m.component), mapping_type: 1, palette_column: c as u8 }).collect();
             &corrected[..]
         } else {
             map
         };
         let mut out: Vec<Option<Plane>> = vec![None; columns];
         for (i, m) in map.iter().enumerate().take(columns) {
-            let source = self
-                .planes
-                .get(m.component as usize)
-                .ok_or_else(|| JpxError::new("a component mapping names a component that does not exist"))?;
+            let source = self.planes.get(m.component as usize).ok_or_else(|| JpxError::new("a component mapping names a component that does not exist"))?;
             if m.mapping_type == 0 {
                 let depth = palette.column_depths[i];
                 out[i] = Some(Plane { precision: (depth & 0x7f) + 1, signed: depth & 0x80 != 0, ..source.clone() });
@@ -489,11 +467,7 @@ mod tests {
     #[test]
     fn pixels_interleave_and_stop_at_the_requested_components() {
         let image = DecodedImage {
-            planes: vec![
-                plane(8, false, 2, 1, vec![1, 2]),
-                plane(8, false, 2, 1, vec![3, 4]),
-                plane(8, false, 2, 1, vec![5, 6]),
-            ],
+            planes: vec![plane(8, false, 2, 1, vec![1, 2]), plane(8, false, 2, 1, vec![3, 4]), plane(8, false, 2, 1, vec![5, 6])],
             colour: ColourSpace::Srgb,
         };
         assert_eq!(image.to_pixels(3).data, [1, 3, 5, 2, 4, 6]);
@@ -514,9 +488,7 @@ mod tests {
     fn a_palette_maps_indices_to_columns() {
         let mut image = DecodedImage { planes: vec![plane(8, false, 2, 1, vec![0, 1])], colour: ColourSpace::Unspecified };
         let palette = Palette { entries: 2, column_depths: vec![7, 7, 7], values: vec![1, 2, 3, 4, 5, 6] };
-        let map: Vec<ComponentMap> = (0..3)
-            .map(|c| ComponentMap { component: 0, mapping_type: 1, palette_column: c })
-            .collect();
+        let map: Vec<ComponentMap> = (0..3).map(|c| ComponentMap { component: 0, mapping_type: 1, palette_column: c }).collect();
         image.apply_palette(&palette, &map).unwrap();
         assert_eq!(image.planes.len(), 3);
         assert_eq!(image.planes[1].data, [2, 5]);
@@ -527,22 +499,15 @@ mod tests {
     fn a_single_component_mapping_without_palette_columns_is_corrected_to_the_palette() {
         let mut image = DecodedImage { planes: vec![plane(8, false, 2, 1, vec![0, 1])], colour: ColourSpace::Unspecified };
         let palette = Palette { entries: 2, column_depths: vec![7, 7, 7], values: vec![1, 2, 3, 4, 5, 6] };
-        let map: Vec<ComponentMap> =
-            (0..3).map(|_| ComponentMap { component: 0, mapping_type: 0, palette_column: 0 }).collect();
+        let map: Vec<ComponentMap> = (0..3).map(|_| ComponentMap { component: 0, mapping_type: 0, palette_column: 0 }).collect();
         image.apply_palette(&palette, &map).unwrap();
         assert_eq!((image.planes[0].data.clone(), image.planes[2].data.clone()), (vec![1, 4], vec![3, 6]));
     }
 
     #[test]
     fn channel_definitions_swap_colour_channels_into_place() {
-        let mut image = DecodedImage {
-            planes: vec![plane(8, false, 1, 1, vec![1]), plane(8, false, 1, 1, vec![2])],
-            colour: ColourSpace::Unspecified,
-        };
-        let defs = [
-            ChannelDef { channel: 0, kind: 0, association: 2 },
-            ChannelDef { channel: 1, kind: 0, association: 1 },
-        ];
+        let mut image = DecodedImage { planes: vec![plane(8, false, 1, 1, vec![1]), plane(8, false, 1, 1, vec![2])], colour: ColourSpace::Unspecified };
+        let defs = [ChannelDef { channel: 0, kind: 0, association: 2 }, ChannelDef { channel: 1, kind: 0, association: 1 }];
         image.apply_channel_defs(&defs);
         assert_eq!((image.planes[0].data[0], image.planes[1].data[0]), (2, 1));
     }

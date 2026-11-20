@@ -56,10 +56,10 @@ use crate::author::SystemAuthor;
 use crate::batch::{BatchContext, BatchHost};
 use crate::inspect::{InspectContext, ReviewSnapshots};
 use crate::render::SystemRender;
+use crate::session::SessionHandle;
 use crate::session::create::CreateTools;
 use crate::session::open::{SessionCloser, SessionEnv, SofficeConverter};
 use crate::session::registry::{Registry, ThreadPins, lock};
-use crate::session::SessionHandle;
 use crate::snapshot::SnapshotContext;
 
 /// What a process supplies to the engine.
@@ -161,7 +161,11 @@ fn drive<F: Future>(future: F) -> F::Output {
 
 /// What a call answers when its signal was aborted before it started.
 fn cancelled_result() -> Value {
-    tool_result(&json!({ "ok": false, "code": "cancelled", "message": "Office Use operation was cancelled", "detail": "Office Use operation was cancelled" }), true, &[])
+    tool_result(
+        &json!({ "ok": false, "code": "cancelled", "message": "Office Use operation was cancelled", "detail": "Office Use operation was cancelled" }),
+        true,
+        &[],
+    )
 }
 
 /// The engine of a process.
@@ -201,7 +205,6 @@ mod tests {
     }
 }
 
-
 /// `MIXDOG_OFFICE_TRACE`: one line per call (`<action>\t<ms>\t<path or session>`) so a slow run maps itself. `1` writes to stderr, any
 /// other value names a file.
 fn trace(proof: &impl WriteProof, args: &Value, started: Instant) {
@@ -210,7 +213,12 @@ fn trace(proof: &impl WriteProof, args: &Value, started: Instant) {
         return;
     }
     let text = |key: &str| args.get(key).filter(|value| truthy(value)).map(value_to_string);
-    let line = format!("{}\t{}\t{}\n", text("action").unwrap_or_else(|| "?".to_owned()), (started.elapsed().as_secs_f64() * 1000.0).round(), text("path").or_else(|| text("session")).unwrap_or_default());
+    let line = format!(
+        "{}\t{}\t{}\n",
+        text("action").unwrap_or_else(|| "?".to_owned()),
+        (started.elapsed().as_secs_f64() * 1000.0).round(),
+        text("path").or_else(|| text("session")).unwrap_or_default()
+    );
     if target == "1" {
         eprint!("[office-trace] {line}");
         return;
@@ -249,7 +257,14 @@ impl<P: Platform> Engine<P> {
     /// `executeOfficeTool(args, { cwd, dataDir, sessionId, signal })`: the tool result of one call, and the files its write routes
     /// changed. `ledger` is the call's write ledger when it belongs to a session's turn (its changes are returned for the turn
     /// review); without one nothing is recorded. An empty `cwd` is the process's folder, no `data_dir` the Office data folder.
-    pub async fn execute(self: &Arc<Self>, args: Value, cwd: PathBuf, data_dir: Option<PathBuf>, ledger: Option<Arc<CallLedger>>, cancel: CancellationToken) -> (Value, Vec<FileChange>) {
+    pub async fn execute(
+        self: &Arc<Self>,
+        args: Value,
+        cwd: PathBuf,
+        data_dir: Option<PathBuf>,
+        ledger: Option<Arc<CallLedger>>,
+        cancel: CancellationToken,
+    ) -> (Value, Vec<FileChange>) {
         let started = Instant::now();
         let failed = |message: String| (tool_result(&Value::String(format!("Error: {message}")), true, &[]), Vec::new());
         let cwd = if cwd.as_os_str().is_empty() {
@@ -296,7 +311,16 @@ impl<P: Platform> Engine<P> {
     /// One call, on the call's own thread: the contexts of the call built from the platform and the engine's sessions, and the call
     /// run. `started` is when the call reached the engine, so the traced time includes the wait for its thread.
     #[allow(clippy::too_many_arguments)]
-    fn run_call(&self, args: &Value, cwd: &str, data_dir: &Path, note: &Arc<dyn WriteNote>, cancel: &CancellationToken, runtime: &tokio::runtime::Handle, started: Instant) -> Value {
+    fn run_call(
+        &self,
+        args: &Value,
+        cwd: &str,
+        data_dir: &Path,
+        note: &Arc<dyn WriteNote>,
+        cancel: &CancellationToken,
+        runtime: &tokio::runtime::Handle,
+        started: Instant,
+    ) -> Value {
         let lane = &Unlaned;
         let platform = &self.platform;
         let lanes = platform.lanes();
@@ -337,7 +361,8 @@ impl<P: Platform> Engine<P> {
             note: Arc::clone(note),
             deliveries: Mutex::new(held),
         };
-        let batch = BatchContext { inspect: &inspect, note: note.as_ref(), registry: &self.registry, env: platform.design_environment(), host: platform.batch_host() };
+        let batch =
+            BatchContext { inspect: &inspect, note: note.as_ref(), registry: &self.registry, env: platform.design_environment(), host: platform.batch_host() };
         let tools = CreateTools { closer: &closer, fonts: platform.font_env(), svg_fonts: platform.svg_fonts() };
         let machine = Machine { author: &author, batch: &batch, tools: &tools, reads: &AuthoringReads };
         let result = drive(machine.run_office_tool(args, Some(cancel)));

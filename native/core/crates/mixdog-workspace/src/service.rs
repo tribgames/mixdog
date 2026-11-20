@@ -21,10 +21,10 @@ use mixdog_core_api::call::Subscribe;
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::error::Precondition;
 use mixdog_core_api::feed::ScopedFeeds;
+use mixdog_core_api::feed::Window;
 use mixdog_core_api::host::HostCapability;
 use mixdog_core_api::host::HostChannel;
 use mixdog_core_api::host::HostError;
-use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
@@ -36,8 +36,6 @@ use std::collections::HashMap;
 
 use crate::catalog::Catalog;
 use crate::catalog::OpRecord;
-use mixdog_store::state::OpRow;
-use mixdog_store::state::OpRowState;
 use crate::claims::Claims;
 use crate::claims::path_claims;
 use crate::error::Reason;
@@ -67,6 +65,8 @@ use crate::transfer::Transfers;
 use crate::watcher::ChangeKind;
 use crate::watcher::ChangeSink;
 use crate::watcher::FolderWatcher;
+use mixdog_store::state::OpRow;
+use mixdog_store::state::OpRowState;
 
 /// Publishes file watches. Search checks freshness at the shared watcher root,
 /// before events are batched for individual subscribers.
@@ -381,9 +381,18 @@ fn text_query(options: &Value, lone: bool) -> WsResult<TextQuery> {
 fn op_scope(method: &str) -> Option<&'static str> {
     Some(match method {
         "project/create" | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" => "project",
-        "projectFs/writeText" | "projectFs/writeTextBatch" | "projectFs/create" | "projectFs/rename" | "projectFs/move"
-        | "projectFs/copy" | "projectFs/trash" | "projectFs/replaceText" | "projectFs/recovery" | "projectFs/backup/write"
-        | "projectFs/backup/delete" | "projectFs/workspaceFile/write" => "projectFs",
+        "projectFs/writeText"
+        | "projectFs/writeTextBatch"
+        | "projectFs/create"
+        | "projectFs/rename"
+        | "projectFs/move"
+        | "projectFs/copy"
+        | "projectFs/trash"
+        | "projectFs/replaceText"
+        | "projectFs/recovery"
+        | "projectFs/backup/write"
+        | "projectFs/backup/delete"
+        | "projectFs/workspaceFile/write" => "projectFs",
         "transfer/beginWrite" | "transfer/commit" | "transfer/trash/entry" => "transfer",
         "lsp/request" => "lsp",
         _ => return None,
@@ -568,7 +577,12 @@ mod serverdownload_calls {
         let tokens = mixdog_rt::testing::tokens();
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.join("core.sqlite")).unwrap();
         WorkspaceService::new(Deps {
-            lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
+            lanes: Lanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                cpu_bulk: tokens.cpu_bulk,
+            },
             feeds: Arc::new(MockScopedFeeds::new(MockLimits::default())),
             processes: Arc::new(MockProcessManager::default()),
             tracked: Arc::new(NoGit),
@@ -658,12 +672,10 @@ mod serverdownload_calls {
     }
 }
 
-
 impl WorkspaceService {
     pub fn new(deps: Deps) -> WsResult<Arc<Self>> {
         Self::build(deps, Arc::new(Transfers::default()))
     }
-
 
     fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
         let router = Arc::new(Router { fs: Mutex::default() });
@@ -816,11 +828,7 @@ impl WorkspaceService {
 
     /// Connects the paired devices' one-file grants (`transfer/grant/mint` and the `granted` read source): the
     /// store, and the credential a relay connection is paired as. Without it both answer `unsupported`. Set once.
-    pub fn set_phone_grants(
-        &self,
-        store: Arc<crate::grants::GrantStore>,
-        credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
-    ) {
+    pub fn set_phone_grants(&self, store: Arc<crate::grants::GrantStore>, credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>) {
         // A device that unpairs loses its downloads in the same step as its grants, whether or not any connection of it is attached.
         let transfers = self.transfers.clone();
         let previews = self.project_leases.clone();
@@ -872,10 +880,7 @@ impl WorkspaceService {
 
     /// The grant store and the paired device the request comes from.
     fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String, u64)> {
-        let grants = self
-            .phone_grants
-            .get()
-            .ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device file grants are not available."))?;
+        let grants = self.phone_grants.get().ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device file grants are not available."))?;
         let (credential, connection) = match &req.ctx.caller {
             mixdog_core_api::call::Caller::Connection(id) => ((grants.credential_of)(*id), id.0),
             mixdog_core_api::call::Caller::Internal(_) => (None, 0),
@@ -934,13 +939,11 @@ impl WorkspaceService {
         if let Some(grants) = self.phone_grants.get() {
             grants.store.release(connection.0);
         }
-        let watches: Vec<String> =
-            self.watches.lock().expect("watches").iter().filter(|(_, w)| w.connection == owner).map(|(k, _)| k.clone()).collect();
+        let watches: Vec<String> = self.watches.lock().expect("watches").iter().filter(|(_, w)| w.connection == owner).map(|(k, _)| k.clone()).collect();
         for id in watches {
             self.unwatch(&id);
         }
-        let sessions: Vec<String> =
-            self.search_owner.lock().expect("search owners").iter().filter(|(_, c)| **c == owner).map(|(k, _)| k.clone()).collect();
+        let sessions: Vec<String> = self.search_owner.lock().expect("search owners").iter().filter(|(_, c)| **c == owner).map(|(k, _)| k.clone()).collect();
         for id in sessions {
             self.search_owner.lock().expect("search owners").remove(&id);
             self.search.stop(&id);
@@ -963,7 +966,9 @@ impl WorkspaceService {
     pub fn revoke_device(&self, connection: &str) {
         let Ok(id) = connection.parse::<u64>() else { return };
         self.transfers.revoke_owner(&Owner::connection(id));
-        if let Some(credential) = self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))).filter(|credential| !credential.is_empty()) {
+        if let Some(credential) =
+            self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))).filter(|credential| !credential.is_empty())
+        {
             self.transfers.revoke_owner(&Owner::device(&credential));
             self.project_leases.revoke_device(&credential);
         }
@@ -1003,19 +1008,26 @@ impl WorkspaceService {
     fn map_error(&self, req: &CoreRequest, error: WsError) -> CoreError {
         // The phone's adapter asks for `nodeErrors`: an entry beyond the project is Node's plain `Error` there (a code-less `domainError`);
         // every other caller keeps the permission refusal.
-        let error = if req.params.get("nodeErrors") == Some(&Value::Bool(true)) && crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error };
+        let error = if req.params.get("nodeErrors") == Some(&Value::Bool(true)) && crate::pathguard::is_beyond_project(&error) {
+            WsError::plain(error.message)
+        } else {
+            error
+        };
         match error.reason {
             Reason::InvalidParams => CoreError::InvalidParams { path: "params".into(), expected: error.message.into() },
-            Reason::PermissionDenied => {
-                CoreError::PermissionDenied { method: req.method.as_str().into(), origin: req.ctx.origin }
-            }
+            Reason::PermissionDenied => CoreError::PermissionDenied { method: req.method.as_str().into(), origin: req.ctx.origin },
             Reason::PreconditionFailed { expected, actual } => CoreError::PreconditionFailed {
                 precondition: Precondition::Content { expected: Some(Bytes::from(expected)), actual: Some(Bytes::from(actual)) },
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
             Reason::Plain => CoreError::DomainError { domain: "workspace".into(), code: None, message: Some(error.message.clone().into()), detail: None },
-            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: Some(error.message.clone().into()), detail: None },
+            ref other => CoreError::DomainError {
+                domain: "workspace".into(),
+                code: Some(other.code().into()),
+                message: Some(error.message.clone().into()),
+                detail: None,
+            },
         }
     }
 
@@ -1119,8 +1131,7 @@ impl WorkspaceService {
                         return false;
                     }
                     let (Some(token), Ok(root), Ok(rel)) = (token.as_str(), s(&given, "root"), s(&given, "rel")) else { return false };
-                    return grants.store.redeem(&device, connection.0, token, root, rel).await
-                        .is_ok_and(|granted| (granted.root, granted.rel) == expected);
+                    return grants.store.redeem(&device, connection.0, token, root, rel).await.is_ok_and(|granted| (granted.root, granted.rel) == expected);
                 }
                 service.root(mixdog_protocol::Origin::Relay, &given).await.is_ok_and(|root| root == expected.0)
             })
@@ -1143,8 +1154,16 @@ impl WorkspaceService {
 
     /// A paired phone's range read of a visualize pane's file (`visualize_pane::range`): the tab's own panes decide what is
     /// servable, so no project registration or grant is asked.
-    pub async fn visualize_pane_range(&self, req: &CoreRequest, scope: crate::visualize_pane::PaneScope, rel: String, offset: u64, length: u64) -> Result<Value, CoreError> {
-        let length = if (1..=crate::preview::RANGE_MAX).contains(&length) { length } else { return Err(self.map_error(req, WsError::invalid("length is invalid."))) };
+    pub async fn visualize_pane_range(
+        &self,
+        req: &CoreRequest,
+        scope: crate::visualize_pane::PaneScope,
+        rel: String,
+        offset: u64,
+        length: u64,
+    ) -> Result<Value, CoreError> {
+        let length =
+            if (1..=crate::preview::RANGE_MAX).contains(&length) { length } else { return Err(self.map_error(req, WsError::invalid("length is invalid."))) };
         run_fallible(self.lanes.interactive, &req.ctx.cancel, move || crate::visualize_pane::range(&scope, &rel, offset, length))
             .await
             .map_err(|error| self.map_error(req, error))
@@ -1250,8 +1269,7 @@ impl WorkspaceService {
                 let mut removed = self.catalog.remove(path, op).await?;
                 let failures = self.releases.release_under(Path::new(path)).await;
                 if !failures.is_empty() {
-                    removed["releaseFailures"] =
-                        failures.iter().map(|f| json!({ "name": f.name, "error": f.error })).collect();
+                    removed["releaseFailures"] = failures.iter().map(|f| json!({ "name": f.name, "error": f.error })).collect();
                 }
                 value(removed)
             }
@@ -1285,7 +1303,8 @@ impl WorkspaceService {
                 }
             }
             "projectFs/grant/describe" => {
-                let paths: Vec<String> = serde_json::from_value(params.get("paths").cloned().unwrap_or(Value::Null)).map_err(|_| WsError::invalid("paths are invalid."))?;
+                let paths: Vec<String> =
+                    serde_json::from_value(params.get("paths").cloned().unwrap_or(Value::Null)).map_err(|_| WsError::invalid("paths are invalid."))?;
                 let mint = params.get("mint").and_then(Value::as_bool).unwrap_or(true);
                 let projects: Vec<PathBuf> = self.catalog.list().await?.into_iter().map(|row| PathBuf::from(row.path)).collect();
                 value(json!(self.desktop_grants()?.describe(&paths, mint, &projects).await?))
@@ -1336,7 +1355,8 @@ impl WorkspaceService {
             "project/recoveryDirectory" => {
                 let root = self.catalog.resolve(s(params, "path")?).await?;
                 value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))
-            }            "projectFs/listDir" => {
+            }
+            "projectFs/listDir" => {
                 let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
                 let items = run_fallible(self.lanes.interactive, &cancel, move || fsops::list_dir(&root, &rel)).await?;
                 value(json!(items))
@@ -1383,10 +1403,12 @@ impl WorkspaceService {
                 // `authorizedMediaFile`); a pdf, a call of a window and a connection that is no paired device get none and
                 // read ranges.
                 let lease = (req.ctx.origin == mixdog_protocol::Origin::Relay)
-                    .then(|| self.phone_grants_for(req).ok().map(|(_, credential, _)| {
-                        let authorize = self.preview_authority(req, &root, &rel, &credential);
-                        (self.project_leases.clone(), credential, authorize)
-                    }))
+                    .then(|| {
+                        self.phone_grants_for(req).ok().map(|(_, credential, _)| {
+                            let authorize = self.preview_authority(req, &root, &rel, &credential);
+                            (self.project_leases.clone(), credential, authorize)
+                        })
+                    })
                     .flatten();
                 value(
                     run_fallible(self.lanes.interactive, &cancel, move || {
@@ -1405,7 +1427,11 @@ impl WorkspaceService {
             "projectFs/previewRange" => {
                 let (root, rel) = self.file_target(req, params).await?;
                 let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
-                let length = params.get("length").and_then(Value::as_u64).filter(|n| (1..=crate::preview::RANGE_MAX).contains(n)).ok_or_else(|| WsError::invalid("length is invalid."))?;
+                let length = params
+                    .get("length")
+                    .and_then(Value::as_u64)
+                    .filter(|n| (1..=crate::preview::RANGE_MAX).contains(n))
+                    .ok_or_else(|| WsError::invalid("length is invalid."))?;
                 value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_range(&root, &rel, offset, length)).await?)
             }
             "projectFs/readLocal" => {
@@ -1444,8 +1470,7 @@ impl WorkspaceService {
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
                 let fs = self.fs.clone();
                 let (note_root, note_rel) = (root.clone(), rel.clone());
-                let mtime =
-                    run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, lone)).await?;
+                let mtime = run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, lone)).await?;
                 self.note_written(&note_root, &[&note_rel]);
                 value(json!({ "mtimeMs": mtime }))
             }
@@ -1509,10 +1534,7 @@ impl WorkspaceService {
                 }
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[rel])?).await;
                 let moved = target.clone();
-                run_fallible(self.lanes.durability, &cancel, move || {
-                    trash::delete(&moved).map_err(|e| WsError::new(Reason::Io, e.to_string()))
-                })
-                .await?;
+                run_fallible(self.lanes.durability, &cancel, move || trash::delete(&moved).map_err(|e| WsError::new(Reason::Io, e.to_string()))).await?;
                 self.note_written(&root, &[rel]);
                 value(json!({}))
             }
@@ -1520,10 +1542,7 @@ impl WorkspaceService {
                 let root = self.root(req.ctx.origin, params).await?;
                 let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::held_lone(req, "/options/query"))?;
                 let token = cancel.clone();
-                let found = run_fallible(self.lanes.maintenance, &cancel, move || {
-                    crate::textsearch::search(&root, &query, &|| token.is_cancelled())
-                })
-                .await?;
+                let found = run_fallible(self.lanes.maintenance, &cancel, move || crate::textsearch::search(&root, &query, &|| token.is_cancelled())).await?;
                 value(json!(found))
             }
             "projectFs/replaceText" => {
@@ -1583,11 +1602,8 @@ impl WorkspaceService {
                 let task_cancel = cancel.clone();
                 let run: std::pin::Pin<Box<dyn std::future::Future<Output = WsResult<Value>> + Send>> = Box::pin(async move {
                     let job = move || this2.fs.recovery.execute(&lane_root, action);
-                    let response = if mutating {
-                        run_fallible(durability, &task_cancel, job).await?
-                    } else {
-                        run_fallible(interactive, &task_cancel, job).await?
-                    };
+                    let response =
+                        if mutating { run_fallible(durability, &task_cancel, job).await? } else { run_fallible(interactive, &task_cancel, job).await? };
                     Ok(json!(response))
                 });
                 let response = match self.managed.get() {
@@ -1685,9 +1701,8 @@ impl WorkspaceService {
                     }
                     Some("granted") => {
                         let (grants, credential, connection) = self.phone_grants_for(req)?;
-                        let granted = grants
-                            .redeem(&credential, connection, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
-                            .await?;
+                        let granted =
+                            grants.redeem(&credential, connection, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?).await?;
                         let (root, rel) = (granted.root, granted.rel);
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
                     }
@@ -1783,18 +1798,23 @@ impl WorkspaceService {
                         } else {
                             owner
                         };
-                        let render = self.sources.iter().find(|x| x.kind() == "export")
+                        let render = self
+                            .sources
+                            .iter()
+                            .find(|x| x.kind() == "export")
                             .ok_or_else(|| WsError::new(Reason::Unsupported, "Visualize exports are not available."))?;
                         // The catalog-validated conversation, not any session named inside the render input, owns the grant.
                         input.insert("sessionId".into(), json!(&session));
-                        let file = render.open(&json!({ "kind": "export", "input": input }), &cancel).await
-                            .map_err(crate::transfer::source_refusal)?;
+                        let file = render.open(&json!({ "kind": "export", "input": input }), &cancel).await.map_err(crate::transfer::source_refusal)?;
                         // Once the host has rendered a file, authorization takes cleanup ownership even on refusal.
                         return value(json!(t.authorize_source(&owner, &session, mark, file)?));
                     }
                     crate::transfer::DownloadRequest::Project(rel) => {
-                        let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
+                        let root = project.ok_or_else(|| {
+                            WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project.")
+                        })?;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point)))
+                            .await?
                     }
                     crate::transfer::DownloadRequest::Session(path) => {
                         let cwd = row.cwd.clone();
@@ -1806,11 +1826,13 @@ impl WorkspaceService {
                     crate::transfer::DownloadRequest::Media(asset) => {
                         // Node's `authorizeMediaAsset`: the conversation is in the catalog (above), the asset is the media store's.
                         let entry = grants.store.media(&asset).await?;
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point))).await?
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point)))
+                            .await?
                     }
                     crate::transfer::DownloadRequest::Link(href) => {
                         // Node's `authorizeLinkedFile`: the link decoded as the desktop decodes it, then opened as a path the conversation names.
-                        let path = crate::transfer::link_path(&href).ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
+                        let path = crate::transfer::link_path(&href)
+                            .ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
                         let cwd = row.cwd.clone();
                         run_fallible(self.lanes.interactive, &cancel, move || {
                             crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
@@ -1819,8 +1841,13 @@ impl WorkspaceService {
                     }
                     crate::transfer::DownloadRequest::Attachment(id) => {
                         // Node's `authorizeAttachment`: an id the conversation the core resolved names, staged by the attachment domain.
-                        let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
-                        let read = source.bytes(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await.map_err(crate::transfer::source_refusal)?;
+                        let source = self
+                            .sources
+                            .iter()
+                            .find(|x| x.kind() == "attachment")
+                            .ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                        let read =
+                            source.bytes(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await.map_err(crate::transfer::source_refusal)?;
                         let (owner, session) = (owner.clone(), session.clone());
                         run_fallible(self.lanes.interactive, &cancel, move || t.stage(&owner, &session, &read.bytes, read.name, read.mime_type)).await?
                     }
@@ -1828,10 +1855,21 @@ impl WorkspaceService {
                         // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
                         let cwd = row.cwd.clone();
                         let (root, given) = (project.clone(), given.clone());
-                        let folder = run_fallible(self.lanes.maintenance, &cancel, move || crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())).await?;
-                        let scan = crate::zip::scan_folder(self.tracked.as_ref(), self.lanes, &cancel, &folder, crate::transfer::ZIP_MAX_BYTES, crate::transfer::ZIP_MAX_FILES, None)
-                            .await
-                            .map_err(crate::transfer::phone_folder_refusal)?;
+                        let folder = run_fallible(self.lanes.maintenance, &cancel, move || {
+                            crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())
+                        })
+                        .await?;
+                        let scan = crate::zip::scan_folder(
+                            self.tracked.as_ref(),
+                            self.lanes,
+                            &cancel,
+                            &folder,
+                            crate::transfer::ZIP_MAX_BYTES,
+                            crate::transfer::ZIP_MAX_FILES,
+                            None,
+                        )
+                        .await
+                        .map_err(crate::transfer::phone_folder_refusal)?;
                         left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
                         let (t, owner, session) = (self.transfers.clone(), owner.clone(), session.clone());
                         run_fallible(self.lanes.cpu_bulk, &cancel, move || {
@@ -1847,11 +1885,13 @@ impl WorkspaceService {
                 value(json!(authorized))
             }
             "transfer/redeemGrant" => {
-                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);
+                let (owner, t, id) =
+                    (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
             }
             "transfer/finishRead" => {
-                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("transferId"), "transfer id")?);
+                let (owner, t, id) =
+                    (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("transferId"), "transfer id")?);
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
             }
             "transfer/endRead" => {
@@ -1938,7 +1978,11 @@ impl WorkspaceService {
                     // PC's temp folder (`stageSessionAttachment`) and opened through a one-file grant of that conversation.
                     // Node's `requiredSessionId` first, then the attachment.
                     let session = crate::transfer::required_session_id(params.get("sessionId"))?;
-                    let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                    let source = self
+                        .sources
+                        .iter()
+                        .find(|x| x.kind() == "attachment")
+                        .ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
                     let read = source.bytes(params, &cancel).await.map_err(crate::transfer::source_refusal)?;
                     let id = s(params, "attachmentId")?.to_owned();
                     let (bytes, name) = (read.bytes, read.name);
@@ -2038,11 +2082,7 @@ impl WorkspaceService {
                 if query.is_empty() || query.encode_utf16().count() > if symbols { 1_024 } else { 256 } {
                     return Err(WsError::invalid(if symbols { "File path is invalid." } else { "Symbol is invalid." }));
                 }
-                let args = if symbols {
-                    json!({ "mode": mode, "files": query, "limit": 200 })
-                } else {
-                    json!({ "mode": mode, "symbols": query, "limit": 20 })
-                };
+                let args = if symbols { json!({ "mode": mode, "files": query, "limit": 200 }) } else { json!({ "mode": mode, "symbols": query, "limit": 20 }) };
                 let root = self.root_of(req.ctx.origin, params, "path").await?;
                 let graph = self.code_graph.as_ref().ok_or_else(|| WsError::new(Reason::Unsupported, "The code graph is not available."))?;
                 value(Value::String(graph.query(&root, args, &cancel).await?))
@@ -2067,18 +2107,7 @@ impl WorkspaceService {
                 let project = s(params, "projectPath")?;
                 let root = self.root(req.ctx.origin, params).await?;
                 let r = params.get("request").unwrap_or(&Value::Null);
-                value(
-                    self.lsp
-                        .request(
-                            project,
-                            &root,
-                            s(r, "relPath")?,
-                            s(r, "languageId")?,
-                            s(r, "method")?,
-                            r.get("params").unwrap_or(&Value::Null),
-                        )
-                        .await?,
-                )
+                value(self.lsp.request(project, &root, s(r, "relPath")?, s(r, "languageId")?, s(r, "method")?, r.get("params").unwrap_or(&Value::Null)).await?)
             }
             _ => Err(WsError::new(Reason::Unsupported, "This method is served by the desktop host.")),
         }
@@ -2141,8 +2170,9 @@ impl WorkspaceService {
             return match state {
                 OpState::Applied { result, .. } => Ok(Reply::Value(result.unwrap_or_else(|| json!({})))),
                 OpState::Rejected { error } => Err(error),
-                OpState::ExternalPending { effect, target } | OpState::ExternalUnknown { effect, target } =>
-                    Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect, target }),
+                OpState::ExternalPending { effect, target } | OpState::ExternalUnknown { effect, target } => {
+                    Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect, target })
+                }
             };
         }
         let now = crate::catalog::now_ms();
@@ -2171,12 +2201,9 @@ impl WorkspaceService {
             let settled = match &result {
                 Ok(Reply::Value(value)) => OpState::Applied { seq: None, result: Some(value.clone()) },
                 Ok(Reply::Subscribe(_)) => OpState::Applied { seq: None, result: Some(json!({})) },
-                Err(error) => OpState::Rejected { error: CoreError::DomainError {
-                    domain: "workspace".into(),
-                    code: Some(error.reason.code().into()),
-                    message: None,
-                    detail: None,
-                }},
+                Err(error) => OpState::Rejected {
+                    error: CoreError::DomainError { domain: "workspace".into(), code: Some(error.reason.code().into()), message: None, detail: None },
+                },
             };
             set_op_row_outcome(&mut record.row, Some(&record.audience), &settled, crate::catalog::now_ms());
             self.state.write(move |tx| tx.put_op(&record.scope, &record.op_id, &record.row)).await.map_err(state_error)?;

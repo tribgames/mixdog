@@ -49,7 +49,6 @@ mod tests {
         assert!(!chats.is_bound());
     }
 
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_bound_directory_answers_the_home_and_room_member_sessions_of_the_bot() {
         let rig = Rig::new();

@@ -134,7 +134,16 @@ impl SessionDirectory {
     /// steering it joins, is in that chain (`bot-hops.mjs:52,70`). The receiver answers the turn's
     /// end as `onSettled` hands it; `None` when the thread did not accept it.
     #[allow(clippy::too_many_arguments)]
-    pub async fn submit_chained_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], meta: &Map<String, Value>, room_row: &str) -> Option<oneshot::Receiver<SendSettle>> {
+    pub async fn submit_chained_turn(
+        &self,
+        thread: &ThreadId,
+        content: &Value,
+        id: &str,
+        hop: u32,
+        bot_chain: &[String],
+        meta: &Map<String, Value>,
+        room_row: &str,
+    ) -> Option<oneshot::Receiver<SendSettle>> {
         self.submit_message(thread, content, id, hop, bot_chain, meta, room_row, None).await
     }
 
@@ -147,7 +156,17 @@ impl SessionDirectory {
 
     /// `sender`: `Some(from_agent)` stamps `sender: 'lead'` (and `fromAgent`); `None` stamps neither.
     #[allow(clippy::too_many_arguments)]
-    async fn submit_message(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], meta: &Map<String, Value>, room_row: &str, sender: Option<Option<&str>>) -> Option<oneshot::Receiver<SendSettle>> {
+    async fn submit_message(
+        &self,
+        thread: &ThreadId,
+        content: &Value,
+        id: &str,
+        hop: u32,
+        bot_chain: &[String],
+        meta: &Map<String, Value>,
+        room_row: &str,
+        sender: Option<Option<&str>>,
+    ) -> Option<oneshot::Receiver<SendSettle>> {
         let ctx = CallContext::internal("room-turn");
         let handle = self.open_handle(thread, &ctx).await.ok()?;
         let (done, outcome) = oneshot::channel();
@@ -257,8 +276,8 @@ mod tests {
 
     use super::*;
     use crate::eventually_on;
-        use crate::session::tests::{idle, start_thread, turn};
     use crate::session::testing::Rig;
+    use crate::session::tests::{idle, start_thread, turn};
 
     fn routine(id: &str, thread: &ThreadId) -> RoutineTurn {
         RoutineTurn {
@@ -355,7 +374,12 @@ mod tests {
         assert_eq!(body["content"], json!("From a bot"));
         assert_eq!(body["meta"]["transcript"]["submissionIds"], json!(["atask_1"]));
         assert_eq!(
-            (&body["meta"]["transcript"]["sender"], &body["meta"]["transcript"]["fromAgent"], &body["meta"]["transcript"]["hop"], &body["meta"]["transcript"]["botChain"]),
+            (
+                &body["meta"]["transcript"]["sender"],
+                &body["meta"]["transcript"]["fromAgent"],
+                &body["meta"]["transcript"]["hop"],
+                &body["meta"]["transcript"]["botChain"]
+            ),
             (&json!("lead"), &json!("ann"), &json!(2), &json!(["bob", "ann"]))
         );
         assert!(!directory.submit_session_message(&ThreadId::from("sess_none"), &json!("x"), "send_2", 0, &[], None).await);
@@ -401,7 +425,6 @@ mod tests {
         assert_eq!(runs.lock().unwrap().len(), 1, "the dropped fire never ran");
     }
 
-
     /// A record read that the lane refuses is an error: not a closed or missing thread.
     #[tokio::test]
     async fn a_home_thread_record_that_was_not_read_is_an_error_not_a_closed_thread() {
@@ -416,4 +439,3 @@ mod tests {
         assert!(directory.stored_header(&id).await.is_none());
     }
 }
-

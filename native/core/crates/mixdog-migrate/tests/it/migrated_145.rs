@@ -2,11 +2,7 @@
 //! context (the system prefix is the header's prompt blocks, never a row), and what the catalog lists. The data directory
 //! is written here in the formats 1.4.5 wrote.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the data directory is written with blocking std::fs before the store reads it"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the data directory is written with blocking std::fs before the store reads it")]
 
 use std::path::Path;
 
@@ -43,7 +39,10 @@ fn system(text: &str, tier: Option<&str>) -> Value {
 /// A session of 1.4.5 that split its environment from its core (`bp3EnvSplit`), with two turns.
 fn write_session(data: &Path) {
     let messages = vec![
-        system("rules", None), system("stable", None), system("core", Some("tier3")), system("env", Some("env")),
+        system("rules", None),
+        system("stable", None),
+        system("core", Some("tier3")),
+        system("env", Some("env")),
         json!({"role": "user", "content": "first question"}),
         json!({"role": "assistant", "content": "first answer"}),
         json!({"role": "user", "content": "second question"}),
@@ -82,12 +81,8 @@ async fn context_rows(data: &Path, store: &SqliteStore, id: &str) -> Vec<(String
     let mut cursor = None;
     loop {
         let (store, sessions, lv) = (store.clone(), sessions.clone(), levels.clone());
-        let page = io
-            .submit(&CancellationToken::new(), move |l| store.context_page_on_lane(l, &sessions, &lv, None, cursor, 2))
-            .unwrap()
-            .await
-            .unwrap()
-            .unwrap();
+        let page =
+            io.submit(&CancellationToken::new(), move |l| store.context_page_on_lane(l, &sessions, &lv, None, cursor, 2)).unwrap().await.unwrap().unwrap();
         let decoded = cpu.submit(&CancellationToken::new(), move |l| decode_context(l, page)).unwrap().await.unwrap().unwrap();
         let next = decoded.next;
         let (decoded, blobs) = if decoded.needs_blobs() {
@@ -143,10 +138,8 @@ async fn a_migrated_session_sends_its_system_prefix_from_the_header_and_keeps_no
 async fn a_session_without_the_split_flag_keeps_one_combined_environment_message() {
     let dir = tempfile::tempdir().unwrap();
     let roots = roots_at(dir.path());
-    let messages = vec![
-        system("rules", None), system("stable", None), system("core\n\n---\n\n- Cwd: C:/p", Some("tier3")),
-        json!({"role": "user", "content": "hi"}),
-    ];
+    let messages =
+        vec![system("rules", None), system("stable", None), system("core\n\n---\n\n- Cwd: C:/p", Some("tier3")), json!({"role": "user", "content": "hi"})];
     let mut record = v145_record("sess_b", "B", messages);
     let fields = record.as_object_mut().unwrap();
     fields.remove("bp3EnvSplit");

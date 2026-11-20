@@ -18,14 +18,7 @@ pub struct CcittParams {
 
 impl Default for CcittParams {
     fn default() -> Self {
-        CcittParams {
-            k: 0,
-            end_of_line: false,
-            encoded_byte_align: false,
-            columns: 1728,
-            rows: 0,
-            black_is_1: false,
-        }
+        CcittParams { k: 0, end_of_line: false, encoded_byte_align: false, columns: 1728, rows: 0, black_is_1: false }
     }
 }
 
@@ -156,11 +149,7 @@ fn get_run(runs: &[(u16, u16)], len_start: &[usize], src: &[u8], bit_pos: &mut u
 }
 
 fn run_of(color_white: bool, src: &[u8], bit_pos: &mut usize, bit_size: usize) -> i32 {
-    if color_white {
-        get_run(&WHITE_RUNS, &WHITE_LEN_START, src, bit_pos, bit_size)
-    } else {
-        get_run(&BLACK_RUNS, &BLACK_LEN_START, src, bit_pos, bit_size)
-    }
+    if color_white { get_run(&WHITE_RUNS, &WHITE_LEN_START, src, bit_pos, bit_size) } else { get_run(&BLACK_RUNS, &BLACK_LEN_START, src, bit_pos, bit_size) }
 }
 
 /// `FaxG4GetRow`.
@@ -377,14 +366,7 @@ impl<'a> FaxDecoder<'a> {
         }
         self.scanline.fill(0xff);
         if self.encoding < 0 {
-            g4_row(
-                self.src,
-                bit_size,
-                &mut self.bit_pos,
-                &mut self.scanline,
-                &self.reference,
-                self.width,
-            );
+            g4_row(self.src, bit_size, &mut self.bit_pos, &mut self.scanline, &self.reference, self.width);
             self.reference.copy_from_slice(&self.scanline);
         } else if self.encoding == 0 {
             row_1d(self.src, bit_size, &mut self.bit_pos, &mut self.scanline, self.width);
@@ -392,14 +374,7 @@ impl<'a> FaxDecoder<'a> {
             if next_bit(self.src, &mut self.bit_pos) {
                 row_1d(self.src, bit_size, &mut self.bit_pos, &mut self.scanline, self.width);
             } else {
-                g4_row(
-                    self.src,
-                    bit_size,
-                    &mut self.bit_pos,
-                    &mut self.scanline,
-                    &self.reference,
-                    self.width,
-                );
+                g4_row(self.src, bit_size, &mut self.bit_pos, &mut self.scanline, &self.reference, self.width);
             }
             self.reference.copy_from_slice(&self.scanline);
         }
@@ -654,12 +629,7 @@ mod tests {
     use super::*;
 
     fn params(k: i32) -> CcittParams {
-        CcittParams {
-            k,
-            columns: 8,
-            rows: 2,
-            ..CcittParams::default()
-        }
+        CcittParams { k, columns: 8, rows: 2, ..CcittParams::default() }
     }
 
     #[test]
@@ -667,14 +637,8 @@ mod tests {
         // V0 for each row, then EOFB
         let out = decode(&[0xc0, 0x00, 0x10, 0x01], 8, 2, &params(-1)).unwrap();
         assert_eq!(out, [0xff, 0xff]);
-        let inverted = CcittParams {
-            black_is_1: true,
-            ..params(-1)
-        };
-        assert_eq!(
-            decode(&[0xc0, 0x00, 0x10, 0x01], 8, 2, &inverted).unwrap(),
-            [0x00, 0x00]
-        );
+        let inverted = CcittParams { black_is_1: true, ..params(-1) };
+        assert_eq!(decode(&[0xc0, 0x00, 0x10, 0x01], 8, 2, &inverted).unwrap(), [0x00, 0x00]);
     }
 
     #[test]
@@ -695,46 +659,10 @@ mod tests {
 
     #[test]
     fn the_decoder_is_refused_for_impossible_sizes() {
-        assert_eq!(
-            decode(
-                &[0x80],
-                8,
-                2,
-                &CcittParams {
-                    columns: -1,
-                    ..params(0)
-                }
-            ),
-            Err(CodecError::Unknown)
-        );
-        assert_eq!(
-            decode(
-                &[0x80],
-                8,
-                2,
-                &CcittParams {
-                    columns: 65536,
-                    ..params(0)
-                }
-            ),
-            Err(CodecError::Unknown)
-        );
-        assert_eq!(
-            decode(
-                &[0x80],
-                0,
-                2,
-                &CcittParams {
-                    columns: 0,
-                    ..params(0)
-                }
-            ),
-            Err(CodecError::Unknown)
-        );
-        assert_eq!(
-            decode(&[0x80], 8, 0, &CcittParams { rows: 0, ..params(0) }),
-            Err(CodecError::Unknown)
-        );
+        assert_eq!(decode(&[0x80], 8, 2, &CcittParams { columns: -1, ..params(0) }), Err(CodecError::Unknown));
+        assert_eq!(decode(&[0x80], 8, 2, &CcittParams { columns: 65536, ..params(0) }), Err(CodecError::Unknown));
+        assert_eq!(decode(&[0x80], 0, 2, &CcittParams { columns: 0, ..params(0) }), Err(CodecError::Unknown));
+        assert_eq!(decode(&[0x80], 8, 0, &CcittParams { rows: 0, ..params(0) }), Err(CodecError::Unknown));
         assert_eq!(decode(&[0x80], 0, 5, &params(0)).unwrap(), Vec::<u8>::new());
         // a negative width and height multiply to a positive size: no row is decoded into it
         assert_eq!(decode(&[0xc0, 0x00, 0x10, 0x01], -16, -2, &params(-1)).unwrap(), [0; 4]);
@@ -742,25 +670,15 @@ mod tests {
 
     #[test]
     fn the_run_tables_are_complete_prefix_codes() {
-        for (runs, starts, count) in [
-            (&WHITE_RUNS[..], &WHITE_LEN_START[..], 104),
-            (&BLACK_RUNS[..], &BLACK_LEN_START[..], 104),
-        ] {
+        for (runs, starts, count) in [(&WHITE_RUNS[..], &WHITE_LEN_START[..], 104), (&BLACK_RUNS[..], &BLACK_LEN_START[..], 104)] {
             assert_eq!(runs.len(), count);
             assert_eq!(starts[starts.len() - 1], count);
             for (i, &(code, run)) in runs.iter().enumerate() {
-                let len = (1..starts.len() - 1)
-                    .find(|&l| i >= starts[l] && i < starts[l + 1])
-                    .unwrap();
-                assert!(
-                    u32::from(code) < 1 << len,
-                    "code {code:#x} of run {run} is longer than {len} bits"
-                );
+                let len = (1..starts.len() - 1).find(|&l| i >= starts[l] && i < starts[l + 1]).unwrap();
+                assert!(u32::from(code) < 1 << len, "code {code:#x} of run {run} is longer than {len} bits");
                 // no code is the prefix of another
                 for (j, &(other, _)) in runs.iter().enumerate() {
-                    let other_len = (1..starts.len() - 1)
-                        .find(|&l| j >= starts[l] && j < starts[l + 1])
-                        .unwrap();
+                    let other_len = (1..starts.len() - 1).find(|&l| j >= starts[l] && j < starts[l + 1]).unwrap();
                     if j != i && other_len >= len {
                         assert_ne!(u32::from(other) >> (other_len - len), u32::from(code));
                     }

@@ -87,7 +87,9 @@ fn failed(detail: Option<&str>) -> Result<Option<String>, Refusal> {
 
 #[tokio::test]
 async fn a_callback_with_the_logins_code_and_state_is_redeemed_and_ends_the_login_on_a_success_page() {
-    for (pages, name) in [(pages::ANTHROPIC, "Claude"), (pages::OPENAI, "OpenAI"), (pages::GROK, "Grok"), (pages::DEVIN, "Devin"), (pages::ANTIGRAVITY, "Antigravity")] {
+    for (pages, name) in
+        [(pages::ANTHROPIC, "Claude"), (pages::OPENAI, "OpenAI"), (pages::GROK, "Grok"), (pages::DEVIN, "Devin"), (pages::ANTIGRAVITY, "Antigravity")]
+    {
         let served = serve(pages, account()).await;
         let answer = request(served.port, "GET", &good()).await;
         assert_eq!(answer.status, "HTTP/1.1 200 OK", "{name}");
@@ -127,7 +129,7 @@ async fn standard_servers_answer_a_wrong_path_with_404_and_a_wrong_state_or_miss
     let served = serve(pages::ANTHROPIC, account()).await;
     let wrong_path = request(served.port, "GET", &format!("/other?code=C1&state={STATE}")).await;
     assert_eq!((wrong_path.status.as_str(), wrong_path.body.as_str()), ("HTTP/1.1 404 Not Found", ""));
-    for query in ["code=C1&state=other".to_owned(),"code=C1".to_owned(), format!("state={STATE}"), format!("code=&state={STATE}")] {
+    for query in ["code=C1&state=other".to_owned(), "code=C1".to_owned(), format!("state={STATE}"), format!("code=&state={STATE}")] {
         let answer = request(served.port, "GET", &callback(&query)).await;
         assert_eq!(answer.status, "HTTP/1.1 400 Bad Request", "{query}");
         assert!(answer.body.contains("The sign-in callback was invalid or did not match this login."), "{query}");

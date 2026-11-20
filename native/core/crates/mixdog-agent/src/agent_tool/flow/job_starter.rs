@@ -6,9 +6,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use crate::cancel::{Cancel, JOB_CANCELLED};
 use mixdog_rt::TaskClass;
 use mixdog_tools::orch::agent::TaskResult;
-use crate::cancel::{Cancel, JOB_CANCELLED};
 
 use super::notify::NotifyContext;
 use super::reconcile::JobHandle;
@@ -78,14 +78,16 @@ impl JobStarter {
             client_host_pid: context.client_host_pid.filter(|p| *p > 0),
             hop: context.hop.clone(),
         };
-        let label = meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| meta.session_id.clone().filter(|s| !s.is_empty())).unwrap_or_else(|| operation.to_owned());
+        let label =
+            meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| meta.session_id.clone().filter(|s| !s.is_empty())).unwrap_or_else(|| operation.to_owned());
         let admission_cancel = Cancel::new();
         let session = meta.session_id.clone().filter(|s| !s.is_empty());
         let handle: Arc<OnceLock<Arc<JobHandle>>> = Arc::default();
         // The session a cancel closes is the one the job holds when it is cancelled: a spawn gets its session while it
         // runs (`mergeJobMeta`), so the one it started with is none (`task?.meta || jobMeta`, job-start.mjs).
         let cancel: Arc<dyn Fn() + Send + Sync> = {
-            let (token, sessions, session, changed, handle) = (admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone(), handle.clone());
+            let (token, sessions, session, changed, handle) =
+                (admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone(), handle.clone());
             Arc::new(move || {
                 token.abort(JOB_CANCELLED);
                 let current = handle.get().and_then(|job| job.snapshot()).and_then(|s| s.meta.session_id).filter(|s| !s.is_empty());

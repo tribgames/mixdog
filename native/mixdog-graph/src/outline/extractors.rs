@@ -14,12 +14,10 @@ use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_core::{Matcher, Node};
 use ast_grep_outline::extractor::{ItemExtractor, MemberExtractor, SerializableOutlineRule};
 use ast_grep_outline::model::OutlineItem;
-use ast_grep_outline::options::{
-    OutlineEntryDetail, OutlineExtractorOptions, OutlineMemberOptions,
-};
+use ast_grep_outline::options::{OutlineEntryDetail, OutlineExtractorOptions, OutlineMemberOptions};
 
 use super::rules::{DeclaredKind, RULES};
-use crate::scan_lang::{cached_for_lang, ScanLang};
+use crate::scan_lang::{ScanLang, cached_for_lang};
 use crate::tokens::{GrammarKinds, KindRole, MetaField};
 
 /// One matched item with the rule-declared kinds resolved alongside it.
@@ -99,22 +97,14 @@ impl FileMeta {
 /// Item rules indexed by the node kinds they can match, in rule order: the
 /// walk looks one node kind up here instead of trying every rule. `role`
 /// (`item` or `call`) names the rule family in the diagnostics.
-pub(crate) fn index_by_kind(
-    lang: ScanLang,
-    role: &str,
-    items: &[ItemExtractor<ScanLang>],
-    errors: &mut Vec<String>,
-) -> Vec<Vec<usize>> {
+pub(crate) fn index_by_kind(lang: ScanLang, role: &str, items: &[ItemExtractor<ScanLang>], errors: &mut Vec<String>) -> Vec<Vec<usize>> {
     let mut item_by_kind: Vec<Vec<usize>> = Vec::new();
     for (index, extractor) in items.iter().enumerate() {
         // The walk indexes rules by node kind, so a rule without one (a
         // bare pattern rule) can never be reached and is a rule-authoring
         // error, not a silent no-op.
         let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
-            errors.push(format!(
-                "{lang}: {role} rule `{}` has no `kind:` to index on; it can never match",
-                extractor.common.rule.id
-            ));
+            errors.push(format!("{lang}: {role} rule `{}` has no `kind:` to index on; it can never match", extractor.common.rule.id));
             continue;
         };
         for kind in &kinds {
@@ -140,10 +130,7 @@ fn index_member_scopes<'a>(
     let mut member_scopes: MemberScopes = Vec::new();
     for (index, extractor) in members.iter().enumerate() {
         let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
-            errors.push(format!(
-                "{lang}: member rule `{}` has no `kind:` to index on; it can never match",
-                extractor.common.rule.id
-            ));
+            errors.push(format!("{lang}: member rule `{}` has no `kind:` to index on; it can never match", extractor.common.rule.id));
             continue;
         };
         for parent in &member_parents[index] {
@@ -157,10 +144,7 @@ fn index_member_scopes<'a>(
                 }
             };
             for kind in &kinds {
-                member_scopes[scope]
-                    .entry(kind as u16)
-                    .or_default()
-                    .push(index);
+                member_scopes[scope].entry(kind as u16).or_default().push(index);
             }
         }
     }
@@ -168,20 +152,13 @@ fn index_member_scopes<'a>(
 }
 
 impl LangExtractors {
-    pub(super) fn compile(
-        lang: ScanLang,
-        rules: &[SerializableOutlineRule<ScanLang>],
-        declared: &HashMap<String, DeclaredKind>,
-    ) -> Self {
+    pub(super) fn compile(lang: ScanLang, rules: &[SerializableOutlineRule<ScanLang>], declared: &HashMap<String, DeclaredKind>) -> Self {
         let globals = GlobalRules::default();
         // Names only: signatures are not part of the FileRecord contract and
         // rendering them would cost a template expansion per symbol.
         let options = OutlineExtractorOptions {
             detail: OutlineEntryDetail::Name,
-            members: Some(OutlineMemberOptions {
-                detail: OutlineEntryDetail::Name,
-                ..Default::default()
-            }),
+            members: Some(OutlineMemberOptions { detail: OutlineEntryDetail::Name, ..Default::default() }),
             ..Default::default()
         };
         let mut items = Vec::new();
@@ -200,17 +177,13 @@ impl LangExtractors {
             let kind = declared.get(&rule.common().id).copied();
             let id = rule.common().id.clone();
             match rule.clone() {
-                SerializableOutlineRule::Item(item) => {
-                    match ItemExtractor::try_from(item, &globals, options.detail) {
-                        Ok(extractor) => {
-                            items.push(extractor);
-                            item_kinds.push(kind);
-                        }
-                        Err(error) => errors.push(format!(
-                            "{lang}: item rule `{id}` does not compile: {error}"
-                        )),
+                SerializableOutlineRule::Item(item) => match ItemExtractor::try_from(item, &globals, options.detail) {
+                    Ok(extractor) => {
+                        items.push(extractor);
+                        item_kinds.push(kind);
                     }
-                }
+                    Err(error) => errors.push(format!("{lang}: item rule `{id}` does not compile: {error}")),
+                },
                 SerializableOutlineRule::Member(member) => {
                     let parents = member.parent_rule_ids.clone();
                     match MemberExtractor::try_from(member, &globals, options.detail) {
@@ -219,21 +192,15 @@ impl LangExtractors {
                             member_kinds.push(kind);
                             member_parents.push(parents);
                         }
-                        Err(error) => errors.push(format!(
-                            "{lang}: member rule `{id}` does not compile: {error}"
-                        )),
+                        Err(error) => errors.push(format!("{lang}: member rule `{id}` does not compile: {error}")),
                     }
                 }
             }
         }
 
         let item_by_kind = index_by_kind(lang, "item", &items, &mut errors);
-        let (member_scopes, scope_by_parent) =
-            index_member_scopes(lang, &members, &member_parents, &mut errors);
-        let item_scope = items
-            .iter()
-            .map(|item| scope_by_parent.get(item.common.rule.id.as_str()).copied())
-            .collect();
+        let (member_scopes, scope_by_parent) = index_member_scopes(lang, &members, &member_parents, &mut errors);
+        let item_scope = items.iter().map(|item| scope_by_parent.get(item.common.rule.id.as_str()).copied()).collect();
 
         Self {
             items,
@@ -256,14 +223,7 @@ impl LangExtractors {
     /// Identifier tokens and the file's package/namespace declaration from one
     /// visited node: they ride the same walk, one table lookup per node, with
     /// no second pass over the source.
-    fn harvest_node<'t>(
-        &self,
-        node: &Node<'t, StrDoc<ScanLang>>,
-        kind: u16,
-        text: &'t str,
-        tokens: &mut HashSet<&'t str>,
-        meta: &mut FileMeta,
-    ) {
+    fn harvest_node<'t>(&self, node: &Node<'t, StrDoc<ScanLang>>, kind: u16, text: &'t str, tokens: &mut HashSet<&'t str>, meta: &mut FileMeta) {
         match self.kinds.role(kind) {
             KindRole::None => {}
             // NO NAMED CHILDREN: a few composite kinds share an identifier
@@ -311,11 +271,7 @@ impl LangExtractors {
     /// Item/member/call rules for one file, in rule order. `text` is the very
     /// source the tree was parsed from: node ranges index into it, so tokens
     /// and metadata are borrowed slices rather than copies.
-    pub(super) fn extract<'t>(
-        &self,
-        root: Node<'t, StrDoc<ScanLang>>,
-        text: &'t str,
-    ) -> Walked<'t> {
+    pub(super) fn extract<'t>(&self, root: Node<'t, StrDoc<ScanLang>>, text: &'t str) -> Walked<'t> {
         let mut items: Vec<WalkedItem<'t>> = Vec::new();
         let mut calls: Vec<crate::calls::RawCall> = Vec::new();
         let mut tokens: HashSet<&'t str> = HashSet::new();
@@ -323,8 +279,7 @@ impl LangExtractors {
         let has_calls = !self.calls.is_empty();
         // Explicit stack: source files nest deeply enough that recursion is a
         // stack-overflow risk on generated code.
-        let mut stack: Vec<(Node<'t, StrDoc<ScanLang>>, Option<(usize, usize)>)> =
-            vec![(root, None)];
+        let mut stack: Vec<(Node<'t, StrDoc<ScanLang>>, Option<(usize, usize)>)> = vec![(root, None)];
         while let Some((node, scope)) = stack.pop() {
             let kind = node.kind_id();
             let mut next_scope = scope;
@@ -334,10 +289,7 @@ impl LangExtractors {
                     for &index in indices {
                         if let Some(node_match) = self.members[index].match_node(&node) {
                             let owner_item = &mut items[owner];
-                            owner_item
-                                .item
-                                .members
-                                .push(self.members[index].extract(&node_match));
+                            owner_item.item.members.push(self.members[index].extract(&node_match));
                             owner_item.member_declared.push(self.member_kinds[index]);
                             matched_member = true;
                             break;
@@ -354,8 +306,7 @@ impl LangExtractors {
                                 declared: self.item_kinds[index],
                                 member_declared: Vec::new(),
                             });
-                            next_scope =
-                                self.item_scope[index].map(|scope| (scope, items.len() - 1));
+                            next_scope = self.item_scope[index].map(|scope| (scope, items.len() - 1));
                             break;
                         }
                     }
@@ -374,12 +325,7 @@ impl LangExtractors {
                 stack.push((child, next_scope));
             }
         }
-        Walked {
-            items,
-            calls,
-            tokens,
-            meta,
-        }
+        Walked { items, calls, tokens, meta }
     }
 }
 
@@ -401,14 +347,11 @@ fn meta_name(node: &Node<'_, StrDoc<ScanLang>>, text: &str) -> Option<String> {
     None
 }
 
-static COMPILED: LazyLock<RwLock<HashMap<ScanLang, Arc<LangExtractors>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static COMPILED: LazyLock<RwLock<HashMap<ScanLang, Arc<LangExtractors>>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Compiled extractors for `lang`, compiled on first use and shared after.
 pub fn extractors_for(lang: ScanLang) -> Arc<LangExtractors> {
-    cached_for_lang(&COMPILED, lang, "outline cache", || {
-        LangExtractors::compile(lang, &RULES.rules, &RULES.kinds)
-    })
+    cached_for_lang(&COMPILED, lang, "outline cache", || LangExtractors::compile(lang, &RULES.rules, &RULES.kinds))
 }
 
 #[cfg(test)]
@@ -444,10 +387,7 @@ mod tests {
         // node kind, and the rule ast-grep cannot reduce to a set of kinds
         // (which is exactly the rule shape the kind-indexed walk cannot reach).
         let reported = compiled.errors.join("\n");
-        assert!(
-            reported.contains("broken-kind") && reported.contains("unindexable"),
-            "both broken rules must be reported: {reported}"
-        );
+        assert!(reported.contains("broken-kind") && reported.contains("unindexable"), "both broken rules must be reported: {reported}");
     }
 
     /// An identifier that the grammar does not spell as a plain leaf is still
@@ -459,59 +399,34 @@ mod tests {
 
         // Kotlin soft keywords are identifier nodes wrapping ONE anonymous
         // token: `value`, `expect` and friends are ordinary names here.
-        let kotlin = tokens(
-            "kotlin",
-            "kt",
-            "class Holder {\n  fun nested(value: String) = value.trim()\n  data class Pair2(val expect: Int, val actual: Int)\n}\n",
-        );
+        let kotlin =
+            tokens("kotlin", "kt", "class Holder {\n  fun nested(value: String) = value.trim()\n  data class Pair2(val expect: Int, val actual: Int)\n}\n");
         for name in ["value", "expect", "actual", "Pair2", "nested"] {
-            assert!(
-                has(&kotlin, name),
-                "kotlin tokens miss `{name}`: {kotlin:?}"
-            );
+            assert!(has(&kotlin, name), "kotlin tokens miss `{name}`: {kotlin:?}");
         }
 
         // A ruby symbol literal NAMES a declaration (`attr_accessor :label`,
         // `send(:run)`), so it is a mention of that name.
-        let ruby = tokens(
-            "ruby",
-            "rb",
-            "class Holder\n  attr_accessor :label\n  def run\n    send(:run)\n    { key_sym: 1 }\n  end\nend\n",
-        );
+        let ruby = tokens("ruby", "rb", "class Holder\n  attr_accessor :label\n  def run\n    send(:run)\n    { key_sym: 1 }\n  end\nend\n");
         for name in ["label", "run", "key_sym"] {
             assert!(has(&ruby, name), "ruby tokens miss `{name}`: {ruby:?}");
         }
 
         // Elixir atoms are the same construct.
-        let elixir = tokens(
-            "elixir",
-            "ex",
-            "defmodule Holder do\n  def run(arg), do: apply(Mod, :callable, [arg, :tagged])\nend\n",
-        );
+        let elixir = tokens("elixir", "ex", "defmodule Holder do\n  def run(arg), do: apply(Mod, :callable, [arg, :tagged])\nend\n");
         for name in ["callable", "tagged"] {
-            assert!(
-                has(&elixir, name),
-                "elixir tokens miss `{name}`: {elixir:?}"
-            );
+            assert!(has(&elixir, name), "elixir tokens miss `{name}`: {elixir:?}");
         }
 
         // PHP spells the sigil form as a parent of the bare `name`, and a PHP
         // reference search asks for `$count`; both forms are carried.
-        let php = tokens(
-            "php",
-            "php",
-            "<?php\nclass Holder {\n  public $count = 0;\n  function bump($step) { return $this->count + $step; }\n}\n",
-        );
+        let php = tokens("php", "php", "<?php\nclass Holder {\n  public $count = 0;\n  function bump($step) { return $this->count + $step; }\n}\n");
         for name in ["$count", "count", "$step", "step", "bump"] {
             assert!(has(&php, name), "php tokens miss `{name}`: {php:?}");
         }
 
         // …and a comment or a string body is still not a mention.
-        let ts = tokens(
-            "typescript",
-            "ts",
-            "// commentOnly\nconst label = 'stringOnly';\nconst t = `${interpolated}`;\n",
-        );
+        let ts = tokens("typescript", "ts", "// commentOnly\nconst label = 'stringOnly';\nconst t = `${interpolated}`;\n");
         assert!(has(&ts, "interpolated"), "{ts:?}");
         assert!(!has(&ts, "commentOnly"), "{ts:?}");
         assert!(!has(&ts, "stringOnly"), "{ts:?}");

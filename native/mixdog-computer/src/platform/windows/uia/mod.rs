@@ -10,6 +10,7 @@ mod selection;
 mod snapshot;
 
 use super::background::WinBackground;
+use super::bounded::{self, Deadline};
 use super::native::hwnd;
 use crate::a11y::{Accessibility, Element, MenuOutcome, Node, PredicateObservation};
 use crate::observer::Shared;
@@ -20,11 +21,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
-use super::bounded::{self, Deadline};
-use windows::core::{BSTR, Interface};
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
+use windows::core::{BSTR, Interface};
 
 fn role_of(control_type: i32) -> &'static str {
     match control_type {
@@ -74,9 +74,7 @@ fn role_of(control_type: i32) -> &'static str {
 }
 
 fn control_type_id(role: &str) -> i32 {
-    (50000..=50040)
-        .find(|id| role_of(*id) == role)
-        .unwrap_or(50025)
+    (50000..=50040).find(|id| role_of(*id) == role).unwrap_or(50025)
 }
 
 fn text(value: windows::core::Result<BSTR>) -> String {
@@ -102,11 +100,7 @@ fn any_of(automation: &IUIAutomation, conditions: Vec<IUIAutomationCondition>) -
 /// Test-RecordMasked): UIA's IsPassword first, then MSAA's PROTECTED state of
 /// the field's own window, which a legacy edit raises instead. `None` is a
 /// read that failed, and anything unreadable counts as a password.
-pub(super) fn masked(
-    password: Option<bool>,
-    native: impl FnOnce() -> Option<Wid>,
-    protected: impl Fn(Wid) -> Option<bool>,
-) -> bool {
+pub(super) fn masked(password: Option<bool>, native: impl FnOnce() -> Option<Wid>, protected: impl Fn(Wid) -> Option<bool>) -> bool {
     // The native window is read only once IsPassword said no, as both
     // PowerShell tests do.
     match password {
@@ -132,24 +126,14 @@ pub struct Uia {
 impl Uia {
     pub fn new(shared: Arc<Shared>, port: Arc<WinPort>) -> Result<Uia, String> {
         // SAFETY: COM is initialised on this thread by the desktop.
-        let automation: IUIAutomation =
-            unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
-                .map_err(|error| format!("accessibility_unavailable: UI Automation did not start ({})", error.message()))?;
-        Ok(Uia {
-            automation,
-            background: WinBackground::new(shared, port.clone()),
-            port,
-            deadline: Cell::new(None),
-        })
+        let automation: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|error| format!("accessibility_unavailable: UI Automation did not start ({})", error.message()))?;
+        Ok(Uia { automation, background: WinBackground::new(shared, port.clone()), port, deadline: Cell::new(None) })
     }
 
     /// Runs one provider read against the snapshot's deadline, on a thread of
     /// its own when there is one (MixBoundedUia.Run).
-    fn bounded<T: Send + 'static>(
-        &self,
-        stage: &str,
-        work: impl FnOnce() -> Result<T, String> + Send + 'static,
-    ) -> Result<T, String> {
+    fn bounded<T: Send + 'static>(&self, stage: &str, work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
         bounded::run(self.deadline.get().as_ref(), stage, work)
     }
 
@@ -162,13 +146,8 @@ impl Uia {
 /// its own thread, as the window's provider answers it (MixBoundedUia.FindAll).
 fn root_from(automation: &IUIAutomation, window: Wid) -> Result<IUIAutomationElement, String> {
     // SAFETY: a plain lookup by window handle.
-    unsafe { automation.ElementFromHandle(hwnd(window)) }.map_err(|error| {
-        format!(
-            "window has no UI Automation root: {} ({})",
-            crate::platform::window_id(window),
-            error.message()
-        )
-    })
+    unsafe { automation.ElementFromHandle(hwnd(window)) }
+        .map_err(|error| format!("window has no UI Automation root: {} ({})", crate::platform::window_id(window), error.message()))
 }
 
 impl Accessibility for Uia {
@@ -185,12 +164,7 @@ impl Accessibility for Uia {
         unsafe { self.automation.GetFocusedElement() }.map_or(true, |element| element::masked(&element))
     }
 
-    fn invoke_menu(
-        &self,
-        window: &WindowInfo,
-        path: &[String],
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String> {
+    fn invoke_menu(&self, window: &WindowInfo, path: &[String], authorize: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
         self.menu(window, path, authorize)
     }
 
@@ -198,11 +172,7 @@ impl Accessibility for Uia {
         self.readiness(window)
     }
 
-    fn predicate_read(
-        &self,
-        window: &WindowInfo,
-        max: usize,
-    ) -> Result<(Vec<PredicateObservation>, bool), String> {
+    fn predicate_read(&self, window: &WindowInfo, max: usize) -> Result<(Vec<PredicateObservation>, bool), String> {
         self.predicates(window, max)
     }
 

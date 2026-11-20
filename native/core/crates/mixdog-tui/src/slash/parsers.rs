@@ -66,22 +66,16 @@ pub fn parse_memory_command(text: &str) -> Value {
         }
         let raw = rest.join("=");
         let number = string_to_number(&raw);
-        let value =
-            if number.is_finite() && !js_trim(&raw).is_empty() { json_number(number) } else { Value::String(raw) };
+        let value = if number.is_finite() && !js_trim(&raw).is_empty() { json_number(number) } else { Value::String(raw) };
         out.insert(key.to_owned(), value);
     }
     Value::Object(out)
 }
 
-static METADATA: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+(?: index_revision=(\S+))?\s+",
-        "",
-    )
-});
-static METADATA_STRIP: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"\s+source=curated project=\S+ status=\S+ injection=\S+(?: index_revision=\S+)?", "")
-});
+static METADATA: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+(?: index_revision=(\S+))?\s+", ""));
+static METADATA_STRIP: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"\s+source=curated project=\S+ status=\S+ injection=\S+(?: index_revision=\S+)?", ""));
 static ENTRY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$", ""));
 
 fn encode_uri_component(text: &str) -> String {
@@ -125,10 +119,7 @@ pub fn parse_memory_core_rows(text: &str) -> Vec<Value> {
         let element = entry.get(2).unwrap_or("");
         let summary = entry.get(3).unwrap_or("");
         let mut row = Map::new();
-        row.insert(
-            "value".into(),
-            format!("core-{}-{id}", encode_uri_component(current_project_id.as_deref().unwrap_or("common"))).into(),
-        );
+        row.insert("value".into(), format!("core-{}-{id}", encode_uri_component(current_project_id.as_deref().unwrap_or("common"))).into());
         row.insert("label".into(), format!("#{id}").into());
         row.insert("meta".into(), current_project_id.clone().unwrap_or_default().into());
         row.insert("description".into(), if summary.is_empty() { element } else { summary }.into());
@@ -153,10 +144,8 @@ pub fn parse_memory_core_rows(text: &str) -> Vec<Value> {
 /// `memoryCoreResultErrorText(text)`: a core-memory service reply that is a failure, recovered from its shape (the store
 /// flattens `isError` away), else `None`.
 pub fn memory_core_result_error_text(text: &str) -> Option<String> {
-    static OP_FAILURE: LazyLock<JsRegex> =
-        LazyLock::new(|| JsRegex::new_static(r"^core (add|edit|delete)(:| failed)", "i"));
-    static CORE_FAILURE: LazyLock<JsRegex> =
-        LazyLock::new(|| JsRegex::new_static(r"^core:.*(not initialized|failed|error)", "i"));
+    static OP_FAILURE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^core (add|edit|delete)(:| failed)", "i"));
+    static CORE_FAILURE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^core:.*(not initialized|failed|error)", "i"));
     static LEAD_IN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(error|failed)\b", "i"));
     let value = js_trim(text);
     (OP_FAILURE.is_match(value) || CORE_FAILURE.is_match(value) || LEAD_IN.is_match(value)).then(|| value.to_owned())
@@ -172,14 +161,8 @@ mod tests {
             parse_mcp_server_input(" graph | node | --stdio   --safe | C:/project | ignored "),
             Ok(json!({"name": "graph", "command": "node", "args": ["--stdio", "--safe"], "cwd": "C:/project"}))
         );
-        assert_eq!(
-            parse_mcp_server_input("graph | node"),
-            Ok(json!({"name": "graph", "command": "node", "args": [], "cwd": ""}))
-        );
-        assert_eq!(
-            parse_mcp_server_input("graph | node | | C:/project"),
-            Ok(json!({"name": "graph", "command": "node", "args": [], "cwd": "C:/project"}))
-        );
+        assert_eq!(parse_mcp_server_input("graph | node"), Ok(json!({"name": "graph", "command": "node", "args": [], "cwd": ""})));
+        assert_eq!(parse_mcp_server_input("graph | node | | C:/project"), Ok(json!({"name": "graph", "command": "node", "args": [], "cwd": "C:/project"})));
         let missing = Err(MCP_USAGE.to_owned());
         assert_eq!(parse_mcp_server_input(""), missing);
         assert_eq!(parse_mcp_server_input(" | node"), missing);
@@ -192,10 +175,7 @@ mod tests {
             parse_mcp_server_input(" web | WSS://example.test/socket | ignored | ignored "),
             Ok(json!({"name": "web", "url": "WSS://example.test/socket"}))
         );
-        assert_eq!(
-            parse_mcp_server_input("web | ftp://example.test"),
-            Ok(json!({"name": "web", "command": "ftp://example.test", "args": [], "cwd": ""}))
-        );
+        assert_eq!(parse_mcp_server_input("web | ftp://example.test"), Ok(json!({"name": "web", "command": "ftp://example.test", "args": [], "cwd": ""})));
     }
 
     #[test]
@@ -238,14 +218,8 @@ mod tests {
 
     #[test]
     fn core_result_errors_are_recognised_by_their_shape() {
-        assert_eq!(
-            memory_core_result_error_text("core add: project_id required").as_deref(),
-            Some("core add: project_id required")
-        );
-        assert_eq!(
-            memory_core_result_error_text("core edit failed: no entry").as_deref(),
-            Some("core edit failed: no entry")
-        );
+        assert_eq!(memory_core_result_error_text("core add: project_id required").as_deref(), Some("core add: project_id required"));
+        assert_eq!(memory_core_result_error_text("core edit failed: no entry").as_deref(), Some("core edit failed: no entry"));
         assert!(memory_core_result_error_text("core: memory data dir is not initialized").is_some());
         assert!(memory_core_result_error_text("Error: x").is_some());
         assert_eq!(memory_core_result_error_text("core added"), None);

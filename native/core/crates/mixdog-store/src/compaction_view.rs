@@ -57,10 +57,7 @@ pub struct IdSets {
 
 impl IdSets {
     pub fn of(dropped: &CompactedDropped) -> IdSets {
-        IdSets {
-            messages: dropped.message_ids.iter().cloned().collect(),
-            calls: dropped.call_ids.iter().cloned().collect(),
-        }
+        IdSets { messages: dropped.message_ids.iter().cloned().collect(), calls: dropped.call_ids.iter().cloned().collect() }
     }
 }
 
@@ -187,12 +184,7 @@ impl<I: Identities> ArchivedRows<I> {
             return row.clone();
         }
         let mut next = row.clone();
-        next.members = Some(
-            members
-                .iter()
-                .map(|m| if hit(m) && !m.archived { Member { id: m.id.clone(), archived: true } } else { m.clone() })
-                .collect(),
-        );
+        next.members = Some(members.iter().map(|m| if hit(m) && !m.archived { Member { id: m.id.clone(), archived: true } } else { m.clone() }).collect());
         next
     }
 }
@@ -211,11 +203,7 @@ pub fn archive_items_for_compaction(
     let mut archived = ArchivedRows::new(Dropped::of_record(count, dropped));
     let classify = |row: &ArchiveRow, archived: &mut ArchivedRows<IdSets>| {
         if archived.archived(row) {
-            if row.archived || row.divider {
-                row.clone()
-            } else {
-                ArchiveRow { archived: true, ..row.clone() }
-            }
+            if row.archived || row.divider { row.clone() } else { ArchiveRow { archived: true, ..row.clone() } }
         } else {
             archived.mark_dropped_members(row)
         }
@@ -242,24 +230,13 @@ mod tests {
     }
 
     fn ids(messages: &[&str], calls: &[&str]) -> CompactedDropped {
-        CompactedDropped {
-            message_ids: messages.iter().map(|s| s.to_string()).collect(),
-            call_ids: calls.iter().map(|s| s.to_string()).collect(),
-        }
+        CompactedDropped { message_ids: messages.iter().map(|s| s.to_string()).collect(), call_ids: calls.iter().map(|s| s.to_string()).collect() }
     }
 
     #[test]
     fn rows_follow_their_ids_and_an_auxiliary_row_follows_its_prompt() {
         let d = ids(&["u1"], &["c1"]);
-        let rows = [
-            row("user", Some("u1")),
-            row("status", None),
-            row("assistant", None),
-            tool("c1"),
-            tool("c2"),
-            row("user", Some("u2")),
-            row("status", None),
-        ];
+        let rows = [row("user", Some("u1")), row("status", None), row("assistant", None), tool("c1"), tool("c2"), row("user", Some("u2")), row("status", None)];
         let mut p = ArchivedRows::new(Dropped::of_record(None, Some(&d)));
         let got: Vec<bool> = rows.iter().map(|r| p.archived(r)).collect();
         assert_eq!(got, [true, true, false, true, false, false, false]);
@@ -286,10 +263,7 @@ mod tests {
         let agg = ArchiveRow {
             kind: "tool".into(),
             aggregate: true,
-            members: Some(vec![
-                Member { id: Some("a".into()), archived: false },
-                Member { id: Some("b".into()), archived: false },
-            ]),
+            members: Some(vec![Member { id: Some("a".into()), archived: false }, Member { id: Some("b".into()), archived: false }]),
             ..ArchiveRow::default()
         };
         let (out, at) = archive_items_for_compaction(&[agg], None, None, Some(&d), false);

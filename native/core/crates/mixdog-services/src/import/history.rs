@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use serde_json::Value;
 
 use super::candidate::Candidate;
-use super::codex::{rollout_id_of};
+use super::codex::rollout_id_of;
 use super::convert::{Conversion, Converter, Limits, Source};
 use super::fsutil::{ImportError, Opened, StreamOpts, case_fold, is_compressed, open_verified, real_path, stream_jsonl_lines};
 use super::turns::{WARNING_HISTORY_PARTIAL, WARNING_HISTORY_SIZE_LIMIT, WARNING_HISTORY_UNAVAILABLE};
@@ -20,8 +20,7 @@ pub const IMPORT_CHUNK_BYTES: usize = 256 * 1024;
 
 fn is_uuid(text: &str) -> bool {
     static RE: OnceLock<mixdog_js::JsRegex> = OnceLock::new();
-    RE.get_or_init(|| mixdog_js::JsRegex::new_static(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i"))
-        .is_match(text)
+    RE.get_or_init(|| mixdog_js::JsRegex::new_static(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i")).is_match(text)
 }
 
 /// Rollout file with this rollout id under the live, then the archived, sessions folder
@@ -244,12 +243,7 @@ pub fn convert_candidate_file(candidate: &Candidate, home: &Path, limits: Limits
     let read = stream_jsonl_lines(
         &mut opened,
         &mut |line| converter.push_line(line, false),
-        StreamOpts {
-            max_line_bytes: limits.max_line_bytes,
-            chunk_bytes,
-            max_bytes: limits.max_file_bytes.saturating_sub(inherited_bytes),
-            on_chunk: None,
-        },
+        StreamOpts { max_line_bytes: limits.max_line_bytes, chunk_bytes, max_bytes: limits.max_file_bytes.saturating_sub(inherited_bytes), on_chunk: None },
     )
     .map_err(|_| ImportError::new("unreadable"))?;
     if read.overflow || read.truncated {

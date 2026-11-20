@@ -7,15 +7,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::HostChannel;
+use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_mcp::hook_bus::HookBus;
+use mixdog_mcp::hub::McpHub;
 use mixdog_mcp::permissions::ConnectorPolicy;
 use mixdog_mcp::permissions::PolicyIo;
-use mixdog_mcp::hub::McpHub;
-use mixdog_mcp::server::McpIo;
 use mixdog_mcp::result::OutputPolicy;
+use mixdog_mcp::server::McpIo;
 use mixdog_rt::LaneTokens;
 use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_tools::policy::FileGrantStore;
@@ -86,7 +86,12 @@ mod tests {
     async fn the_policy_and_the_hub_are_built_over_the_data_directory() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
-        let mcp = build_mcp(&tokens, dir.path(), Arc::new(MockProcessManager::default()), crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()));
+        let mcp = build_mcp(
+            &tokens,
+            dir.path(),
+            Arc::new(MockProcessManager::default()),
+            crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()),
+        );
         assert!(Arc::strong_count(&mcp.hub) >= 2, "the hook bus dispatches through the hub");
         let policy = build_policy(&tokens, dir.path());
         assert!(Arc::strong_count(&policy.connectors) >= 2, "the policy holds the same connector policy");
@@ -102,13 +107,22 @@ mod tests {
     /// A legacy rule in `<data>/hooks.json` that asks before a read is asked about by the policy over the hook bus, composed as
     /// `compose_flip.rs` composes it, as Node's tool gate asks the hook bus before every call (hook-bus/tool-gate.mjs `decisionFromRule`).
     #[tokio::test]
-    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+    )]
     async fn a_hook_rule_that_asks_puts_the_call_to_the_person() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         std::fs::write(dir.path().join("hooks.json"), r#"[{"tool":"read","match":"asked.json","action":"ask"}]"#).unwrap();
-        let mcp = build_mcp(&tokens, dir.path(), Arc::new(MockProcessManager::default()), crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()));
-        let hook = mixdog_mcp::pre_tool::BusPreToolHook::new(mcp.hook_bus, Arc::new(|_: &mixdog_protocol::ThreadId| mixdog_mcp::hook_bus::HookCommon::default()));
+        let mcp = build_mcp(
+            &tokens,
+            dir.path(),
+            Arc::new(MockProcessManager::default()),
+            crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()),
+        );
+        let hook =
+            mixdog_mcp::pre_tool::BusPreToolHook::new(mcp.hook_bus, Arc::new(|_: &mixdog_protocol::ThreadId| mixdog_mcp::hook_bus::HookCommon::default()));
         let parts = build_policy(&tokens, dir.path());
         let policy = ToolPolicy::new(parts.grants, parts.connectors).with_hook(Arc::new(hook));
         let gate = mixdog_core_api::domain::mock::MockApprovalGate::default();

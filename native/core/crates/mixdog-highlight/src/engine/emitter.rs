@@ -26,14 +26,7 @@ pub(crate) struct Emitter {
 
 impl Emitter {
     pub(crate) fn new() -> Self {
-        Self {
-            nodes: vec![TreeNode {
-                kind: None,
-                sublanguage: false,
-                children: Vec::new(),
-            }],
-            stack: vec![0],
-        }
+        Self { nodes: vec![TreeNode { kind: None, sublanguage: false, children: Vec::new() }], stack: vec![0] }
     }
 
     fn top(&self) -> usize {
@@ -47,11 +40,7 @@ impl Emitter {
 
     pub(crate) fn open_node(&mut self, kind: &str) {
         let id = self.nodes.len();
-        self.nodes.push(TreeNode {
-            kind: Some(kind.to_string()),
-            sublanguage: false,
-            children: Vec::new(),
-        });
+        self.nodes.push(TreeNode { kind: Some(kind.to_string()), sublanguage: false, children: Vec::new() });
         self.add(Child::Node(id));
         self.stack.push(id);
     }
@@ -171,10 +160,7 @@ mod tests {
         e.add_keyword(&u("if"), "keyword");
         e.close_node();
         e.close_all_nodes();
-        assert_eq!(
-            html(&e),
-            "a &lt; b <span class=\"hljs-string\">&quot;x&quot; &amp; &#x27;y&#x27;<span class=\"hljs-keyword\">if</span></span>"
-        );
+        assert_eq!(html(&e), "a &lt; b <span class=\"hljs-string\">&quot;x&quot; &amp; &#x27;y&#x27;<span class=\"hljs-keyword\">if</span></span>");
     }
 
     #[test]

@@ -77,7 +77,8 @@ fn page_roles_for(format: &str, plans: &[Value], document: Option<&Value>) -> Va
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `reviewQaDesign(session, args)`.
     pub(crate) async fn review_qa_design(&self, handle: &SessionHandle, args: &Value) -> DesignStage {
-        let profile = lock(handle).design.as_ref().and_then(|design| design.get("profile")).filter(|profile| truthy(profile)).map(value_to_string).unwrap_or_default();
+        let profile =
+            lock(handle).design.as_ref().and_then(|design| design.get("profile")).filter(|profile| truthy(profile)).map(value_to_string).unwrap_or_default();
         let mut current_snapshot: Option<Value> = None;
         let mut review_slide_plans: Vec<Value> = Vec::new();
         let design_review;
@@ -89,11 +90,8 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
                 let (format, request, library) = {
                     let session = lock(handle);
                     let state_plans = session.design_state.slide_plans.clone().unwrap_or_default();
-                    review_slide_plans = if state_plans.is_empty() {
-                        requested_slide_plans(session.design_request.as_ref(), session.design.as_ref())
-                    } else {
-                        state_plans
-                    };
+                    review_slide_plans =
+                        if state_plans.is_empty() { requested_slide_plans(session.design_request.as_ref(), session.design.as_ref()) } else { state_plans };
                     let mut request = Map::new();
                     spread(&mut request, session.design.as_ref().unwrap_or(&Value::Null));
                     spread(&mut request, session.design_request.as_ref().unwrap_or(&Value::Null));

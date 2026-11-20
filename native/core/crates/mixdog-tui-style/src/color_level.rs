@@ -121,9 +121,7 @@ impl ColorEnvironment {
             if ["GITHUB_ACTIONS", "GITEA_ACTIONS", "CIRCLECI"].iter().any(|key| self.has(key)) {
                 return 3;
             }
-            if ["TRAVIS", "APPVEYOR", "GITLAB_CI", "BUILDKITE", "DRONE"].iter().any(|key| self.has(key))
-                || self.var("CI_NAME") == Some("codeship")
-            {
+            if ["TRAVIS", "APPVEYOR", "GITLAB_CI", "BUILDKITE", "DRONE"].iter().any(|key| self.has(key)) || self.var("CI_NAME") == Some("codeship") {
                 return 1;
             }
             return min;

@@ -6,7 +6,7 @@
 
 pub(crate) mod receipt;
 
-use crate::keys::{glyph_key, Key, Mod, Named};
+use crate::keys::{Key, Mod, Named, glyph_key};
 use crate::platform::Button;
 use crate::port::windows::WinPort;
 use receipt::{Event, Receipt};
@@ -14,32 +14,21 @@ use std::os::windows::io::AsRawHandle;
 use std::sync::atomic::AtomicU8;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
-    CloseHandle, DuplicateHandle, GetLastError, DUPLICATE_SAME_ACCESS, ERROR_ALREADY_EXISTS,
-    HANDLE, INVALID_HANDLE_VALUE, WAIT_ABANDONED, WAIT_OBJECT_0,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, INVALID_HANDLE_VALUE, WAIT_ABANDONED, WAIT_OBJECT_0,
 };
 use windows::Win32::System::Memory::{
-    CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_ALL_ACCESS,
-    MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE,
+    CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW, PAGE_READWRITE, UnmapViewOfFile,
 };
-use windows::Win32::System::StationsAndDesktops::{
-    CloseDesktop, OpenInputDesktop, DESKTOP_READOBJECTS,
-};
-use windows::Win32::System::Threading::{
-    CreateMutexW, GetCurrentProcess, OpenProcess, ReleaseMutex, WaitForSingleObject,
-    PROCESS_DUP_HANDLE,
-};
+use windows::Win32::System::StationsAndDesktops::{CloseDesktop, DESKTOP_READOBJECTS, OpenInputDesktop};
+use windows::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, OpenProcess, PROCESS_DUP_HANDLE, ReleaseMutex, WaitForSingleObject};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, MapVirtualKeyW, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
-    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK,
-    MOUSEEVENTF_WHEEL, MAPVK_VK_TO_VSC,
+    GetAsyncKeyState, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MapVirtualKeyW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN,
-};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN};
+use windows::core::PCWSTR;
 
 /// Virtual-key codes whose events carry the extended-key flag (IsExtendedKey).
 fn extended(vk: u16) -> bool {
@@ -124,9 +113,7 @@ impl NamedMutex {
     fn open(name: &str) -> Option<NamedMutex> {
         let name = wide(name);
         // SAFETY: the name is NUL-terminated; the handle is closed on drop.
-        unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }
-            .ok()
-            .map(NamedMutex)
+        unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }.ok().map(NamedMutex)
     }
 }
 
@@ -231,14 +218,7 @@ impl Section {
                 let _ = CloseHandle(mapping);
                 return None;
             }
-            Some(Section {
-                marker,
-                mapping,
-                view,
-                lock,
-                fresh,
-                _file: file,
-            })
+            Some(Section { marker, mapping, view, lock, fresh, _file: file })
         }
     }
 
@@ -254,20 +234,11 @@ impl Section {
         // belong to the parent, which keeps them, and the process handle is
         // closed on every path.
         unsafe {
-            let process = OpenProcess(PROCESS_DUP_HANDLE, false, parent)
-                .map_err(|error| format!("cannot open the parent process: {error}"))?;
+            let process = OpenProcess(PROCESS_DUP_HANDLE, false, parent).map_err(|error| format!("cannot open the parent process: {error}"))?;
             let mut outcome = Ok(());
             for source in [self.mapping, self.lock.0] {
                 let mut copy = HANDLE::default();
-                if let Err(error) = DuplicateHandle(
-                    GetCurrentProcess(),
-                    source,
-                    process,
-                    &mut copy,
-                    0,
-                    false,
-                    DUPLICATE_SAME_ACCESS,
-                ) {
+                if let Err(error) = DuplicateHandle(GetCurrentProcess(), source, process, &mut copy, 0, false, DUPLICATE_SAME_ACCESS) {
                     outcome = Err(format!("cannot duplicate a handle into the parent: {error}"));
                     break;
                 }
@@ -401,12 +372,7 @@ impl Sender {
                 glyph
                     .encode_utf16(&mut units)
                     .iter()
-                    .flat_map(|&unit| {
-                        [
-                            Event::key(0, unit, KEYEVENTF_UNICODE.0),
-                            Event::key(0, unit, (KEYEVENTF_UNICODE | KEYEVENTF_KEYUP).0),
-                        ]
-                    })
+                    .flat_map(|&unit| [Event::key(0, unit, KEYEVENTF_UNICODE.0), Event::key(0, unit, (KEYEVENTF_UNICODE | KEYEVENTF_KEYUP).0)])
                     .collect()
             };
             self.deliver(&events)?;
@@ -436,12 +402,7 @@ impl Sender {
         }
         let dx = ((x - left) as f64 * 65535.0 / (width - 1) as f64).round() as i32;
         let dy = ((y - top) as f64 * 65535.0 / (height - 1) as f64).round() as i32;
-        self.deliver(&[Event::Mouse {
-            flags: (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK).0,
-            dx,
-            dy,
-            data: 0,
-        }])
+        self.deliver(&[Event::Mouse { flags: (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK).0, dx, dy, data: 0 }])
     }
 
     pub fn button(&self, button: Button, down: bool) -> Result<(), String> {
@@ -471,17 +432,8 @@ impl Sender {
 
     /// `clicks` are wheel notches: positive scrolls the content down (or right).
     pub fn wheel(&self, clicks: i32, horizontal: bool) -> Result<(), String> {
-        let (flag, data) = if horizontal {
-            (MOUSEEVENTF_HWHEEL, clicks * 120)
-        } else {
-            (MOUSEEVENTF_WHEEL, -clicks * 120)
-        };
-        self.deliver(&[Event::Mouse {
-            flags: flag.0,
-            dx: 0,
-            dy: 0,
-            data,
-        }])
+        let (flag, data) = if horizontal { (MOUSEEVENTF_HWHEEL, clicks * 120) } else { (MOUSEEVENTF_WHEEL, -clicks * 120) };
+        self.deliver(&[Event::Mouse { flags: flag.0, dx: 0, dy: 0, data }])
     }
 }
 
@@ -511,11 +463,7 @@ pub fn release_owned(marker: i64) -> Result<(), String> {
 /// With the host's receipt gone nothing says what it held, so nothing is sent:
 /// the keys may all come up within two seconds, or the release is unconfirmed.
 pub(crate) fn release_without_receipt(keys: &receipt::KeyState<'_>) -> Result<(), String> {
-    if receipt::settle(keys) {
-        Ok(())
-    } else {
-        Err("input_cleanup_unconfirmed: ownership receipt is unavailable while input is held".into())
-    }
+    if receipt::settle(keys) { Ok(()) } else { Err("input_cleanup_unconfirmed: ownership receipt is unavailable while input is held".into()) }
 }
 
 #[cfg(test)]
@@ -607,10 +555,7 @@ mod tests {
     #[test]
     fn without_a_receipt_a_held_key_is_refused_and_nothing_is_sent() {
         assert_eq!(release_without_receipt(&|_| false), Ok(()));
-        assert_eq!(
-            release_without_receipt(&|vk| vk == 0x41),
-            Err("input_cleanup_unconfirmed: ownership receipt is unavailable while input is held".into())
-        );
+        assert_eq!(release_without_receipt(&|vk| vk == 0x41), Err("input_cleanup_unconfirmed: ownership receipt is unavailable while input is held".into()));
     }
 
     /// A reopened section reads the receipt its creator wrote.
@@ -618,11 +563,7 @@ mod tests {
     fn a_reopened_section_reads_the_same_receipt() {
         let name = test_name("section");
         let created = Section::map(0, &name, true).expect("the section is created");
-        let pressed = created.receipt().deliver_tracked(
-            &[key_event(0x41, true)],
-            &mut |events| Ok(events.len() as u32),
-            &|_| false,
-        );
+        let pressed = created.receipt().deliver_tracked(&[key_event(0x41, true)], &mut |events| Ok(events.len() as u32), &|_| false);
         assert_eq!(pressed, Ok(1));
         let reopened = Section::map(0, &name, false).expect("the section reopens by name");
         let mut released = Vec::new();

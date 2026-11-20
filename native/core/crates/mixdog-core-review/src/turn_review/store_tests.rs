@@ -24,13 +24,9 @@ fn changes_dir(data: &Path) -> PathBuf {
     data.join("turn-snapshots").join("changes")
 }
 
-
-
-
 async fn read_back(store: &Store, session: &str) -> Vec<Value> {
     store.load_turn_change_records(session).await.iter().map(|r| Value::Object((**r).clone())).collect()
 }
-
 
 fn big(checkpoint: &str, patch_bytes: usize, tag: &str) -> Value {
     json!({"checkpointId": checkpoint, "kind": "git", "root": "/work/repo", "files": [{"path": "big.txt", "patch": format!("{tag}{}", "x".repeat(patch_bytes))}]})
@@ -101,7 +97,11 @@ async fn an_upsert_whose_line_the_file_does_not_show_whole_fails_and_leaves_noth
     let data = tempfile::tempdir().unwrap();
     let (store, disk) = store_with_faults(data.path());
     let jsonl = || {
-        let name = std::fs::read_dir(changes_dir(data.path())).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).find(|n| n.ends_with(".jsonl")).unwrap();
+        let name = std::fs::read_dir(changes_dir(data.path()))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .find(|n| n.ends_with(".jsonl"))
+            .unwrap();
         changes_dir(data.path()).join(name)
     };
     store.upsert_turn_change_record("short", turn("one").as_object().unwrap()).await.unwrap();
@@ -174,7 +174,6 @@ fn upsert_in_another_process(data: &Path, session: &str, checkpoint: &str, wait_
         .unwrap_or_else(|| panic!("the child printed no upsert-result (status {:?}):\n{stdout}\n{}", output.status, String::from_utf8_lossy(&output.stderr)))
 }
 
-
 /// Two processes write one session's file under its lock and lose no record. This process stops inside its write, holding the lock, as a writer slow on its disk does; a real second process that tries the lock
 /// then gives up and stores nothing (it would otherwise write at once, and this process's rewrite from what it read before would
 /// take the record away); once this one is done, the same upsert of the second process lands beside the rest.
@@ -217,7 +216,8 @@ async fn two_processes_writing_one_sessions_file_lose_no_record() {
 }
 
 fn jsonl_of(data: &Path) -> PathBuf {
-    let name = std::fs::read_dir(changes_dir(data)).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).find(|n| n.ends_with(".jsonl")).unwrap();
+    let name =
+        std::fs::read_dir(changes_dir(data)).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).find(|n| n.ends_with(".jsonl")).unwrap();
     changes_dir(data).join(name)
 }
 

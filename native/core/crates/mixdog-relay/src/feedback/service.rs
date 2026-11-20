@@ -163,9 +163,7 @@ struct Input {
 
 fn is_email(text: &str) -> bool {
     static PATTERN: OnceLock<JsRegex> = OnceLock::new();
-    PATTERN
-        .get_or_init(|| JsRegex::new_static(r#"^[^\s@<>(),;:\\"]+@[^\s@<>(),;:\\"]+\.[^\s@<>(),;:\\"]+$"#, ""))
-        .is_match(text)
+    PATTERN.get_or_init(|| JsRegex::new_static(r#"^[^\s@<>(),;:\\"]+@[^\s@<>(),;:\\"]+\.[^\s@<>(),;:\\"]+$"#, "")).is_match(text)
 }
 
 /// `normalizeFeedback(body)`; `body` is parsed JSON.
@@ -190,13 +188,7 @@ fn normalize(body: &Value) -> Result<Input, FeedbackError> {
         }
     };
     let attachments = attachments::normalize(object.get("attachments")).map_err(|_| bad)?;
-    Ok(Input {
-        id: id.to_ascii_lowercase(),
-        kind: kind.to_owned(),
-        message: message.to_owned(),
-        reply_to: reply_to.to_owned(),
-        attachments,
-    })
+    Ok(Input { id: id.to_ascii_lowercase(), kind: kind.to_owned(), message: message.to_owned(), reply_to: reply_to.to_owned(), attachments })
 }
 
 struct Entry {
@@ -408,9 +400,7 @@ fn build_mail(options: &FeedbackOptions, id: &str, payload: &Payload) -> Option<
         .attachments
         .iter()
         .flatten()
-        .map(|a| {
-            Some(MailAttachment { filename: a.name.clone(), content: STANDARD.decode(&a.data).ok()?, content_type: a.mime_type.clone() })
-        })
+        .map(|a| Some(MailAttachment { filename: a.name.clone(), content: STANDARD.decode(&a.data).ok()?, content_type: a.mime_type.clone() }))
         .collect::<Option<Vec<_>>>()?;
     Some(FeedbackMail {
         from: options.from.clone(),
@@ -450,16 +440,9 @@ pub struct FeedbackService {
 impl FeedbackService {
     /// Creates `<data_dir>/feedback` (0700, also when mail is not configured), loads the records and starts delivering what is
     /// due. A record that cannot be read or is not valid leaves the storage unavailable: every submission then answers 503.
-    pub async fn start(
-        data_dir: &Path,
-        io: DurabilityIo,
-        sender: Option<Arc<dyn FeedbackSender>>,
-        options: FeedbackOptions,
-    ) -> Self {
-        let limiters = (
-            RateLimiter::new(options.ip_limit, options.ip_window_ms),
-            RateLimiter::with_max_keys(options.global_limit, options.global_window_ms, 1),
-        );
+    pub async fn start(data_dir: &Path, io: DurabilityIo, sender: Option<Arc<dyn FeedbackSender>>, options: FeedbackOptions) -> Self {
+        let limiters =
+            (RateLimiter::new(options.ip_limit, options.ip_window_ms), RateLimiter::with_max_keys(options.global_limit, options.global_window_ms, 1));
         let inner = Arc::new(Inner {
             options,
             disk: Disk::new(data_dir, io),

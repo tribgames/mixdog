@@ -39,10 +39,7 @@ impl CapturedBases {
 
     /// Remembers the tree a scope started from. A turn is addressed by its checkpoint id.
     pub fn record(&self, thread: &ThreadId, scope: ReviewScope, checkpoint: Option<&str>, cwd: PathBuf, base: ObjectId) {
-        self.bases.lock().expect("bases").insert(
-            (thread.as_str().to_owned(), scope_tag(scope), checkpoint.map(str::to_owned)),
-            (cwd, base),
-        );
+        self.bases.lock().expect("bases").insert((thread.as_str().to_owned(), scope_tag(scope), checkpoint.map(str::to_owned)), (cwd, base));
     }
 
     /// Forgets everything of a thread (it was deleted).
@@ -54,11 +51,7 @@ impl CapturedBases {
 #[async_trait]
 impl ReviewBases for CapturedBases {
     async fn base(&self, thread: &ThreadId, scope: ReviewScope, checkpoint: Option<&str>) -> Option<(PathBuf, ObjectId)> {
-        self.bases
-            .lock()
-            .expect("bases")
-            .get(&(thread.as_str().to_owned(), scope_tag(scope), checkpoint.map(str::to_owned)))
-            .cloned()
+        self.bases.lock().expect("bases").get(&(thread.as_str().to_owned(), scope_tag(scope), checkpoint.map(str::to_owned))).cloned()
     }
 }
 
@@ -70,14 +63,7 @@ impl Repo {
         let root = self.root()?.to_path_buf();
         let git = &self.scm.git;
         // One builder for both sides of a review, so their scratch index names cannot collide.
-        let tree = crate::inspect::review::work_tree_tree(
-            git,
-            self.scm.lane,
-            &self.cancel,
-            &root,
-            &self.scm.scratch_dir().join("review"),
-        )
-        .await?;
+        let tree = crate::inspect::review::work_tree_tree(git, self.scm.lane, &self.cancel, &root, &self.scm.scratch_dir().join("review")).await?;
         let pin = format!("refs/mixdog/review/{tree}");
         git.text(&self.cancel, &root, &["update-ref", &pin, &tree], &RunOptions::default()).await?;
         Ok(ObjectId(tree))

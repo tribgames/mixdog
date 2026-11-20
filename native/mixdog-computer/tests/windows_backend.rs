@@ -8,20 +8,18 @@
 //! machine nobody is using.
 #![cfg(windows)]
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Condvar, Mutex};
-use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
+use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::{PCWSTR, w};
 
 /// Whether this run may drive the desktop at all.
 fn live() -> bool {
@@ -160,10 +158,7 @@ impl Fixture {
     }
 
     fn focused(&self) -> isize {
-        let mut info = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
+        let mut info = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
         let thread = unsafe { GetWindowThreadProcessId(HWND(self.window as _), None) };
         unsafe { GetGUIThreadInfo(thread, &mut info) }.unwrap();
         info.hwndFocus.0 as isize
@@ -267,12 +262,7 @@ fn windows_backend_serves_the_computer_protocol() {
 
     // Observation.
     let listing = host.ok(json!({ "action": "list_windows" }));
-    let row = listing["windows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["id"] == json!(fixture.id()))
-        .expect("fixture is listed");
+    let row = listing["windows"].as_array().unwrap().iter().find(|row| row["id"] == json!(fixture.id())).expect("fixture is listed");
     assert_eq!(row["title"], json!(title));
     assert_eq!(row["class_name"], json!("MixdogComputerFixture"));
     assert_eq!(row["pid"], json!(std::process::id()));
@@ -292,9 +282,7 @@ fn windows_backend_serves_the_computer_protocol() {
     // A window narrower than the default 1280 cap is delivered unscaled, as JPEG.
     assert_eq!(capture["image"]["mimeType"], json!("image/jpeg"));
     assert_eq!(capture["image_width"], json!(460));
-    let jpeg = base64::engine::general_purpose::STANDARD
-        .decode(capture["image"]["data"].as_str().unwrap())
-        .unwrap();
+    let jpeg = base64::engine::general_purpose::STANDARD.decode(capture["image"]["data"].as_str().unwrap()).unwrap();
     assert_eq!(&jpeg[..2], b"\xff\xd8");
 
     let status = host.ok(json!({ "action": "ocr_status" }));
@@ -363,16 +351,9 @@ fn abort_cleanup_and_probe_run_from_a_fresh_process() {
     if !live() {
         return;
     }
-    let status = Command::new(env!("CARGO_BIN_EXE_mixdog-computer"))
-        .arg("--abort-cleanup")
-        .env("MIXDOG_COMPUTER_INPUT_MARKER", "4343")
-        .status()
-        .unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_mixdog-computer")).arg("--abort-cleanup").env("MIXDOG_COMPUTER_INPUT_MARKER", "4343").status().unwrap();
     assert!(status.success());
-    let probe = Command::new(env!("CARGO_BIN_EXE_mixdog-computer"))
-        .arg("--probe")
-        .output()
-        .unwrap();
+    let probe = Command::new(env!("CARGO_BIN_EXE_mixdog-computer")).arg("--probe").output().unwrap();
     let report: Value = serde_json::from_slice(&probe.stdout).unwrap();
     assert_eq!(report["platform"], json!("windows"));
     assert_eq!(report["observer_ready"], json!(true), "{report}");

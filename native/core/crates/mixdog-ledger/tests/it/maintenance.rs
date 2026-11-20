@@ -1,8 +1,4 @@
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -26,14 +22,7 @@ use mixdog_ledger::sums::build_sums_step;
 /// 2026-01-01T12:00:00Z: the same calendar day in every time zone from UTC-12 to UTC+11.
 const NOON_JAN_1: i64 = 1_767_225_600_000 + 43_200_000;
 
-fn record(
-    id: &str,
-    ts: i64,
-    day: &str,
-    provider: &str,
-    cost: Option<f64>,
-    source: &str,
-) -> UsageRecord {
+fn record(id: &str, ts: i64, day: &str, provider: &str, cost: Option<f64>, source: &str) -> UsageRecord {
     serde_json::from_value(serde_json::json!({
         "id": id, "ts": ts, "day": day, "provider": provider, "model": "m", "kind": "api",
         "sessionId": "s1", "sourceType": "user", "input": 10, "output": 5, "cacheRead": 1, "cacheWrite": 2,
@@ -51,58 +40,31 @@ fn ledger(dir: &Path) -> Connection {
 }
 
 fn options(backup: bool) -> RepairOptions {
-    RepairOptions {
-        through_ts: 10_000_000_000_000,
-        only_unpriced: true,
-        backup,
-        ..RepairOptions::default()
-    }
+    RepairOptions { through_ts: 10_000_000_000_000, only_unpriced: true, backup, ..RepairOptions::default() }
 }
 
 #[test]
 fn repair_reprices_keeps_records_and_backs_up_the_prior_state() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
-    let rows = [
-        record("a", 1_000, "2026-01-01", "p", None, "unpriced"),
-        record("b", 2_000, "2026-01-01", "p", Some(0.5), "catalog"),
-    ];
+    let rows = [record("a", 1_000, "2026-01-01", "p", None, "unpriced"), record("b", 2_000, "2026-01-01", "p", Some(0.5), "catalog")];
     append_batch(&mut conn, &rows).unwrap();
     let before = integrity(&conn).unwrap();
 
-    let mut price = |_: &_| {
-        Ok(Priced {
-            cost_usd: Some(0.25),
-            rates: None,
-        })
-    };
+    let mut price = |_: &_| Ok(Priced { cost_usd: Some(0.25), rates: None });
     let report = repair_usage_ledger(&mut conn, &options(true), 5_000, &mut price).unwrap();
-    assert_eq!(
-        (report.repriced, report.still_unpriced, report.reattributed),
-        (1, 0, 0)
-    );
+    assert_eq!((report.repriced, report.still_unpriced, report.reattributed), (1, 0, 0));
     assert_eq!(report.integrity.as_ref(), Some(&before));
     assert_eq!(integrity(&conn).unwrap(), before);
 
-    let costs: Vec<Option<f64>> = conn
-        .prepare("SELECT cost_usd FROM usage_events ORDER BY ts")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
+    let costs: Vec<Option<f64>> =
+        conn.prepare("SELECT cost_usd FROM usage_events ORDER BY ts").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
     assert_eq!(costs, [Some(0.25), Some(0.5)]);
-    let daily: f64 = conn
-        .query_row("SELECT SUM(cost_usd) FROM daily", [], |r| r.get(0))
-        .unwrap();
+    let daily: f64 = conn.query_row("SELECT SUM(cost_usd) FROM daily", [], |r| r.get(0)).unwrap();
     assert_eq!(daily, 0.75);
 
     let backup = Connection::open(report.backup_path.unwrap()).unwrap();
-    let old: Option<f64> = backup
-        .query_row("SELECT cost_usd FROM usage_events WHERE ts=1000", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
+    let old: Option<f64> = backup.query_row("SELECT cost_usd FROM usage_events WHERE ts=1000", [], |r| r.get(0)).unwrap();
     assert_eq!(old, None);
 
     // A second repair has nothing to do and writes nothing.
@@ -121,9 +83,7 @@ async fn repricing_keeps_missing_output_unknown_in_the_request_list() {
     unmeasured.cache_write = 0.0;
     unmeasured.rates = Some(r#"{"inputTokensKnown":false,"outputTokensKnown":false}"#.into());
     append_batch(&mut conn, &[unmeasured]).unwrap();
-    repair_usage_ledger(&mut conn, &options(false), 5_000, &mut |_| {
-        Ok(Priced { cost_usd: None, rates: None })
-    }).unwrap();
+    repair_usage_ledger(&mut conn, &options(false), 5_000, &mut |_| Ok(Priced { cost_usd: None, rates: None })).unwrap();
 
     let tokens = mixdog_rt::testing::tokens();
     let reader = UsageReader::new(&dir.path().join("ledger.sqlite"), tokens.interactive_io, tokens.maintenance_io);
@@ -136,28 +96,14 @@ async fn repricing_keeps_missing_output_unknown_in_the_request_list() {
 fn repair_rejects_an_invalid_price_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
-    append_batch(
-        &mut conn,
-        &[record("a", 1_000, "2026-01-01", "p", None, "unpriced")],
-    )
-    .unwrap();
-    let mut price = |_: &_| {
-        Ok(Priced {
-            cost_usd: Some(-1.0),
-            rates: None,
-        })
-    };
+    append_batch(&mut conn, &[record("a", 1_000, "2026-01-01", "p", None, "unpriced")]).unwrap();
+    let mut price = |_: &_| Ok(Priced { cost_usd: Some(-1.0), rates: None });
     let error = repair_usage_ledger(&mut conn, &options(false), 5_000, &mut price).unwrap_err();
     assert!(matches!(error, LedgerError::RepairPrice));
-    let cost: Option<f64> = conn
-        .query_row("SELECT cost_usd FROM usage_events", [], |r| r.get(0))
-        .unwrap();
+    let cost: Option<f64> = conn.query_row("SELECT cost_usd FROM usage_events", [], |r| r.get(0)).unwrap();
     assert_eq!(cost, None);
 
-    let bad = RepairOptions {
-        through_ts: 0,
-        ..RepairOptions::default()
-    };
+    let bad = RepairOptions { through_ts: 0, ..RepairOptions::default() };
     assert!(repair_usage_ledger(&mut conn, &bad, 1, &mut price).is_err());
 }
 
@@ -165,18 +111,7 @@ fn repair_rejects_an_invalid_price_and_writes_nothing() {
 fn repair_moves_a_provider_and_updates_the_route() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
-    append_batch(
-        &mut conn,
-        &[record(
-            "a",
-            1_000,
-            "2026-01-01",
-            "old",
-            Some(0.5),
-            "catalog",
-        )],
-    )
-    .unwrap();
+    append_batch(&mut conn, &[record("a", 1_000, "2026-01-01", "old", Some(0.5), "catalog")]).unwrap();
     let before = integrity(&conn).unwrap();
     let opts = RepairOptions {
         through_ts: 10_000_000_000_000,
@@ -184,46 +119,22 @@ fn repair_moves_a_provider_and_updates_the_route() {
         ..RepairOptions::default()
     };
     let mut price = |request: &mixdog_ledger::repair::PriceRequest| {
-        assert_eq!(
-            (request.provider.as_str(), request.kind.as_str()),
-            ("new-oauth", "oauth")
-        );
-        Ok(Priced {
-            cost_usd: Some(0.0),
-            rates: None,
-        })
+        assert_eq!((request.provider.as_str(), request.kind.as_str()), ("new-oauth", "oauth"));
+        Ok(Priced { cost_usd: Some(0.0), rates: None })
     };
     let report = repair_usage_ledger(&mut conn, &opts, 5_000, &mut price).unwrap();
     assert_eq!(report.reattributed, 1);
     assert_eq!(integrity(&conn).unwrap(), before);
-    let (provider, source): (String, String) = conn
-        .query_row("SELECT provider,cost_source FROM events", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .unwrap();
-    assert_eq!(
-        (provider.as_str(), source.as_str()),
-        ("new-oauth", "subscription")
-    );
+    let (provider, source): (String, String) = conn.query_row("SELECT provider,cost_source FROM events", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!((provider.as_str(), source.as_str()), ("new-oauth", "subscription"));
 }
-
 
 #[tokio::test]
 async fn stale_days_recompute_in_bounded_steps_and_the_cache_answers_the_rollup() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
-    let rows: Vec<_> = (0..20)
-        .map(|i| {
-            record(
-                &format!("r{i}"),
-                NOON_JAN_1 + i * 86_400_000,
-                &format!("2026-01-{:02}", i + 1),
-                "p",
-                Some(0.1),
-                "catalog",
-            )
-        })
-        .collect();
+    let rows: Vec<_> =
+        (0..20).map(|i| record(&format!("r{i}"), NOON_JAN_1 + i * 86_400_000, &format!("2026-01-{:02}", i + 1), "p", Some(0.1), "catalog")).collect();
     append_batch(&mut conn, &rows).unwrap();
     // Well after every stored day (they are named 2026-01-xx), so all of them are completed.
     let now = 1_800_000_000_000_i64;
@@ -239,37 +150,18 @@ async fn stale_days_recompute_in_bounded_steps_and_the_cache_answers_the_rollup(
 
     // The day cache answers what the ledger computes directly.
     let tokens = mixdog_rt::testing::tokens();
-    let reader = UsageReader::new(
-        &dir.path().join("ledger.sqlite"),
-        tokens.interactive_io,
-        tokens.maintenance_io,
-    );
+    let reader = UsageReader::new(&dir.path().join("ledger.sqlite"), tokens.interactive_io, tokens.maintenance_io);
     let cached = reader.rollup(RollupQuery::default()).await.unwrap();
     let cached_days = cached["days"].as_object().unwrap();
     assert_eq!(cached_days.len(), 20);
     for i in 0..20 {
         let day = format!("2026-01-{:02}", i + 1);
-        let stored: String = conn
-            .query_row("SELECT value FROM rollup_days WHERE day=?1", [&day], |r| {
-                r.get(0)
-            })
-            .unwrap();
+        let stored: String = conn.query_row("SELECT value FROM rollup_days WHERE day=?1", [&day], |r| r.get(0)).unwrap();
         let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
         assert_eq!(&cached_days[&day], &stored, "day {day}");
     }
 
     // A new record moves its day's fingerprint: the next step recomputes exactly that day.
-    append_batch(
-        &mut conn,
-        &[record(
-            "late",
-            NOON_JAN_1 + 500,
-            "2026-01-01",
-            "p",
-            Some(0.2),
-            "catalog",
-        )],
-    )
-    .unwrap();
+    append_batch(&mut conn, &[record("late", NOON_JAN_1 + 500, "2026-01-01", "p", Some(0.2), "catalog")]).unwrap();
     assert_eq!(recompute_rollup_days(&mut conn, now).unwrap().recomputed, 1);
 }

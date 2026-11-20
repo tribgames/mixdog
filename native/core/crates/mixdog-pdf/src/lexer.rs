@@ -63,19 +63,8 @@ impl Lexer {
         Lexer::with_known_commands(stream, guard, None)
     }
 
-    pub fn with_known_commands(
-        stream: ByteStream,
-        guard: Arc<Guard>,
-        known_commands: Option<Arc<KnownCommands>>,
-    ) -> Self {
-        let mut lexer = Lexer {
-            stream,
-            current_char: -1,
-            known_commands,
-            hex_string_num_warn: 0,
-            begin_inline_image_pos: None,
-            guard,
-        };
+    pub fn with_known_commands(stream: ByteStream, guard: Arc<Guard>, known_commands: Option<Arc<KnownCommands>>) -> Self {
+        let mut lexer = Lexer { stream, current_char: -1, known_commands, hex_string_num_warn: 0, begin_inline_image_pos: None, guard };
         lexer.next_char();
         lexer
     }
@@ -129,16 +118,10 @@ impl Lexer {
         }
         if !(0x30..=0x39).contains(&ch) {
             if is_white_space(ch) || ch == 0x28 || ch == 0x3c || ch == -1 {
-                tracing::debug!(
-                    "Lexer.getNumber - \"Invalid number: {} (charCode {ch})\".",
-                    char_of(ch)
-                );
+                tracing::debug!("Lexer.getNumber - \"Invalid number: {} (charCode {ch})\".", char_of(ch));
                 return Ok(Obj::Num(0.0));
             }
-            return Err(PdfError::format(format!(
-                "Invalid number: {} (charCode {ch})",
-                char_of(ch)
-            )));
+            return Err(PdfError::format(format!("Invalid number: {} (charCode {ch})", char_of(ch))));
         }
         let mut base_value = f64::from(ch - 0x30);
         loop {
@@ -257,9 +240,7 @@ impl Lexer {
             if ch == 0x23 {
                 ch = self.next_char();
                 if special_char(ch) != 0 {
-                    tracing::warn!(
-                        "Lexer_getName: NUMBER SIGN (#) should be followed by a hexadecimal number."
-                    );
+                    tracing::warn!("Lexer_getName: NUMBER SIGN (#) should be followed by a hexadecimal number.");
                     buf.push('#');
                     break;
                 }
@@ -269,10 +250,7 @@ impl Lexer {
                     ch = self.next_char();
                     let x2 = to_hex_digit(ch);
                     if x2 == -1 {
-                        tracing::warn!(
-                            "Lexer_getName: Illegal digit ({}) in hexadecimal number.",
-                            char_of(ch)
-                        );
+                        tracing::warn!("Lexer_getName: Illegal digit ({}) in hexadecimal number.", char_of(ch));
                         buf.push('#');
                         buf.push(char_of(previous_ch));
                         if special_char(ch) != 0 {
@@ -291,10 +269,7 @@ impl Lexer {
             }
         }
         if buf.chars().count() > 127 {
-            tracing::warn!(
-                "Name token is longer than allowed by the spec: {}",
-                buf.chars().count()
-            );
+            tracing::warn!("Name token is longer than allowed by the spec: {}", buf.chars().count());
         }
         Ok(Obj::Name(Arc::from(buf)))
     }
@@ -430,10 +405,7 @@ impl Lexer {
                 break;
             }
             if token.chars().count() == 128 {
-                return Err(PdfError::format(format!(
-                    "Command token too long: {}",
-                    token.chars().count()
-                )));
+                return Err(PdfError::format(format!("Command token too long: {}", token.chars().count())));
             }
             token = possible;
             known_command_found = is_known(&token);

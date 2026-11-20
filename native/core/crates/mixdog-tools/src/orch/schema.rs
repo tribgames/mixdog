@@ -24,9 +24,7 @@ fn type_error(schema_type: &str, value: &Value, schema: &Value, path: &str) -> O
         }
         "boolean" if !value.is_boolean() => Some(format!("{path} must be a boolean")),
         "number" if !value.as_f64().is_some_and(f64::is_finite) => Some(format!("{path} must be a finite number")),
-        "integer" if !value.as_f64().is_some_and(|n| n.is_finite() && n.fract() == 0.0) => {
-            Some(format!("{path} must be an integer"))
-        }
+        "integer" if !value.as_f64().is_some_and(|n| n.is_finite() && n.fract() == 0.0) => Some(format!("{path} must be an integer")),
         "array" => {
             let Some(items) = value.as_array() else { return Some(format!("{path} must be an array")) };
             if schema.get("minItems").and_then(Value::as_u64).is_some_and(|m| (items.len() as u64) < m) {
@@ -49,14 +47,8 @@ fn type_error(schema_type: &str, value: &Value, schema: &Value, path: &str) -> O
             let Some(object) = value.as_object() else { return Some(format!("{path} must be an object")) };
             let empty = serde_json::Map::new();
             let properties = schema.get("properties").and_then(Value::as_object).unwrap_or(&empty);
-            let missing: Vec<&str> = schema
-                .get("required")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .filter(|n| !object.contains_key(*n))
-                .collect();
+            let missing: Vec<&str> =
+                schema.get("required").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|n| !object.contains_key(*n)).collect();
             if !missing.is_empty() {
                 return Some(format!("{path} requires field(s): {}", missing.join(", ")));
             }
@@ -89,13 +81,8 @@ pub fn value_error(value: &Value, schema: &Value, path: &str) -> Option<String> 
     }
     let mut result = match schema.get("type") {
         Some(Value::Array(types)) => {
-            let errors: Vec<Option<String>> =
-                types.iter().filter_map(Value::as_str).map(|t| type_error(t, value, schema, path)).collect();
-            if errors.iter().any(Option::is_none) {
-                None
-            } else {
-                Some(errors.into_iter().flatten().collect::<Vec<_>>().join(" or "))
-            }
+            let errors: Vec<Option<String>> = types.iter().filter_map(Value::as_str).map(|t| type_error(t, value, schema, path)).collect();
+            if errors.iter().any(Option::is_none) { None } else { Some(errors.into_iter().flatten().collect::<Vec<_>>().join(" or ")) }
         }
         Some(Value::String(t)) => type_error(t, value, schema, path),
         _ => None,
@@ -126,9 +113,6 @@ mod tests {
         assert_eq!(value_error(&json!({"s":"zz"}), &schema, "x"), Some("x.s must be one of: ab, cd".into()));
         assert_eq!(value_error(&json!({"q":1}), &schema, "x"), Some("x does not accept field(s): q".into()));
         assert_eq!(value_error(&json!({"n":3,"s":"ab"}), &schema, "x"), None);
-        assert_eq!(
-            value_error(&json!(["a", 1]), &json!({"type":"array","items":{"type":"string"}}), "v"),
-            Some("v[1] must be a string".into())
-        );
+        assert_eq!(value_error(&json!(["a", 1]), &json!({"type":"array","items":{"type":"string"}}), "v"), Some("v[1] must be a string".into()));
     }
 }

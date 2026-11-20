@@ -56,7 +56,11 @@ fn fake_pg_ctl(dir: &Path, status: Status) -> Option<(PathBuf, PathBuf)> {
             Status::Hang => "set /p line=\r\nexit /b 3".to_owned(),
         };
         let path = dir.join("pg_ctl.cmd");
-        std::fs::write(&path, format!("@echo off\r\nif \"%1\"==\"status\" goto status\r\necho the test's pg_ctl refuses to stop 1>&2\r\nexit /b 1\r\n:status\r\n{body}\r\n")).unwrap();
+        std::fs::write(
+            &path,
+            format!("@echo off\r\nif \"%1\"==\"status\" goto status\r\necho the test's pg_ctl refuses to stop 1>&2\r\nexit /b 1\r\n:status\r\n{body}\r\n"),
+        )
+        .unwrap();
         path
     };
     #[cfg(unix)]
@@ -109,7 +113,8 @@ fn a_stop_that_fails_keeps_the_directory_and_names_it() {
     clean(&report);
     assert!(report.failures.iter().any(|failure| failure.contains(&format!("a cluster was still running in {}", pgdata.display()))), "{shown}");
     assert!(
-        report.failures.iter().any(|failure| failure.contains(&format!("{} is not proven stopped: pg_ctl stop failed", pgdata.display())) && failure.contains("the test's pg_ctl refuses to stop")),
+        report.failures.iter().any(|failure| failure.contains(&format!("{} is not proven stopped: pg_ctl stop failed", pgdata.display()))
+            && failure.contains("the test's pg_ctl refuses to stop")),
         "{shown}"
     );
     assert!(kept && !report.removed, "{shown}");
@@ -132,7 +137,10 @@ fn every_data_directory_is_examined_and_an_undecided_one_is_kept() {
     let pgdata = report.dir.join("a").join("b").join("c").join("pgdata");
     let kept = report.dir.exists();
     clean(&report);
-    assert!(report.failures.iter().any(|failure| failure.contains(&format!("{} is not proven stopped: its state cannot be decided", pgdata.display()))), "{shown}");
+    assert!(
+        report.failures.iter().any(|failure| failure.contains(&format!("{} is not proven stopped: its state cannot be decided", pgdata.display()))),
+        "{shown}"
+    );
     assert!(kept && !report.removed, "{shown}");
 }
 
@@ -164,8 +172,14 @@ fn a_link_is_listed_unexamined_and_the_walk_goes_on() {
     let pgdata = report.dir.join("b").join("pgdata");
     let kept = report.dir.exists();
     clean(&report);
-    assert!(report.failures.iter().any(|failure| failure.contains(&format!("not examined: {} is a link or junction (not followed)", link.display()))), "{shown}");
-    assert!(report.failures.iter().any(|failure| failure.contains(&format!("{} is not proven stopped: its state cannot be decided", pgdata.display()))), "{shown}");
+    assert!(
+        report.failures.iter().any(|failure| failure.contains(&format!("not examined: {} is a link or junction (not followed)", link.display()))),
+        "{shown}"
+    );
+    assert!(
+        report.failures.iter().any(|failure| failure.contains(&format!("{} is not proven stopped: its state cannot be decided", pgdata.display()))),
+        "{shown}"
+    );
     assert!(kept && !report.removed, "{shown}");
 }
 
@@ -185,9 +199,19 @@ fn the_clusters_step_shares_one_budget_and_names_the_step() {
     let clusters = KILL_GRACE.as_secs() + 2;
     let report = run(&this(NAME), &setup(Budget { clusters, ..AMPLE }, fake_pg_ctl(fake.path(), Status::Hang), None));
     let shown = report.to_string();
-    let killed = report.failures.iter().filter(|failure| failure.contains("pg_ctl status") && failure.contains("did not end by its step's deadline and was killed")).count();
-    let unexamined =
-        report.failures.iter().filter(|failure| failure.starts_with("the clusters step: ") && failure.ends_with(&format!("was not examined: the step's time ran out (share {clusters} s, or the run's end)"))).count();
+    let killed = report
+        .failures
+        .iter()
+        .filter(|failure| failure.contains("pg_ctl status") && failure.contains("did not end by its step's deadline and was killed"))
+        .count();
+    let unexamined = report
+        .failures
+        .iter()
+        .filter(|failure| {
+            failure.starts_with("the clusters step: ")
+                && failure.ends_with(&format!("was not examined: the step's time ran out (share {clusters} s, or the run's end)"))
+        })
+        .count();
     let kept = report.dir.exists();
     clean(&report);
     assert_eq!((killed, unexamined), (1, 1), "{shown}");
@@ -214,7 +238,10 @@ fn a_step_gets_no_more_than_what_remains_of_the_run() {
     let shown = report.to_string();
     clean(&report);
     assert!(took <= remains + Duration::from_secs(1), "the run took {took:?}, past what remained of it ({remains:?}): {shown}");
-    assert!(report.failures.iter().any(|failure| failure.contains("pg_ctl status") && failure.contains("did not end by its step's deadline and was killed")), "{shown}");
+    assert!(
+        report.failures.iter().any(|failure| failure.contains("pg_ctl status") && failure.contains("did not end by its step's deadline and was killed")),
+        "{shown}"
+    );
 }
 
 /// A child that cannot be put in its tree, and whose kill does nothing, is reported by the ending step and not waited for again: the run returns at
@@ -251,14 +278,17 @@ fn every_composed_test_is_run_by_the_pg_profile_with_its_time() {
     let nextest = std::fs::read_to_string(crate_dir.join("../../.config/nextest.toml")).unwrap();
     let profile = predicates(positive(filter_after(&nextest, "[profile.pg]")));
     let time = predicates(positive(filter_before(&nextest, "slow-timeout = { period = \"120s\", terminate-after = 6 }")));
-    let unmatched = |predicates: &[String]| tests.iter().filter(|test| !predicates.iter().any(|predicate| matches(predicate, test))).cloned().collect::<Vec<_>>();
+    let unmatched =
+        |predicates: &[String]| tests.iter().filter(|test| !predicates.iter().any(|predicate| matches(predicate, test))).cloned().collect::<Vec<_>>();
     assert_eq!(unmatched(&profile), Vec::<String>::new(), "composed tests the `pg` profile's filter does not run (found: {tests:?})");
     assert_eq!(unmatched(&time), Vec::<String>::new(), "composed tests without the 720 s override (found: {tests:?})");
 }
 
 #[test]
 fn the_scan_reads_a_call_however_it_is_spaced_and_refuses_a_use_it_cannot_read() {
-    let read = |source: &str| std::panic::catch_unwind(|| runner_calls(source, "source")).ok().map(|calls| calls.into_iter().map(|(_, name)| name).collect::<Vec<_>>());
+    let read = |source: &str| {
+        std::panic::catch_unwind(|| runner_calls(source, "source")).ok().map(|calls| calls.into_iter().map(|(_, name)| name).collect::<Vec<_>>())
+    };
     assert_eq!(read("x::in_child(module_path!(), \"a\", runtime, body);"), Some(vec!["a".to_owned()]));
     assert_eq!(read("in_child (\n    module_path!() ,\n    \"b\",\n);"), Some(vec!["b".to_owned()]));
     assert_eq!(read("/// see `in_child`\npub fn in_child<F>() {}\nfn not_in_child_at_all() {}"), Some(Vec::new()));
@@ -298,7 +328,12 @@ fn runner_calls(source: &str, shown: &str) -> Vec<(usize, String)> {
             .and_then(|rest| rest.strip_prefix('"'))
             .and_then(|rest| rest.split_once('"'))
             .map(|(name, _)| name)
-            .unwrap_or_else(|| panic!("{shown}: line {}: a use of the runner this scan cannot read (not `in_child(module_path!(), \"<name>\"`)", source[..at].matches('\n').count() + 1));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{shown}: line {}: a use of the runner this scan cannot read (not `in_child(module_path!(), \"<name>\"`)",
+                    source[..at].matches('\n').count() + 1
+                )
+            });
         calls.push((at, name.to_owned()));
     }
     calls
@@ -348,7 +383,8 @@ fn composed_tests(src: &Path, dir: &Path, found: &mut Vec<String>) {
             continue;
         }
         let source = std::fs::read_to_string(&path).unwrap();
-        let mut module: Vec<String> = path.strip_prefix(src).unwrap().with_extension("").components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect();
+        let mut module: Vec<String> =
+            path.strip_prefix(src).unwrap().with_extension("").components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect();
         if module.last().is_some_and(|last| ["mod", "lib", "main"].contains(&last.as_str())) {
             module.pop();
         }
@@ -462,7 +498,6 @@ fn prefixes(regex: &str) -> Vec<String> {
         }
     }
 }
-
 
 /// A process the child starts: this test again, as a sink that reads its stdin to the end.
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test: a process the child starts")]

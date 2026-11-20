@@ -34,13 +34,7 @@ pub struct UserActivity {
 
 impl UserActivity {
     pub fn new(store: Arc<HeartbeatStore>, clock: Arc<dyn Clock>) -> Arc<Self> {
-        Arc::new(Self {
-            store,
-            clock,
-            last_user_turn_at: AtomicI64::new(0),
-            last_app_input_at: AtomicI64::new(0),
-            writes: Mutex::new(AppWrites::default()),
-        })
+        Arc::new(Self { store, clock, last_user_turn_at: AtomicI64::new(0), last_app_input_at: AtomicI64::new(0), writes: Mutex::new(AppWrites::default()) })
     }
 
     /// The latest turn the user sent, in this process.

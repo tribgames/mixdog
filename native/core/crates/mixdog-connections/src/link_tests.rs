@@ -18,9 +18,9 @@ use mixdog_rt::DurabilityIo;
 use mixdog_ssh::bootstrap::{BootstrapPhase, RemoteDiscovery, RemoteReport};
 use mixdog_ssh::command::parse_ssh_target;
 use mixdog_ssh::context::AskpassEnv;
-use mixdog_ssh::session::{TunnelHandle, Transport};
+use mixdog_ssh::session::{Transport, TunnelHandle};
 use mixdog_ssh::tunnel::{TunnelSpec, TunnelState};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -236,7 +236,13 @@ impl LinkDialer for FakeDialer {
     }
 
     fn forwards(&self, host_id: &str, _context: ContextSource, store: Arc<PortForwardStore>) -> ServerPortForwards {
-        ServerPortForwards::with_parts(host_id.to_owned(), store, self.forwards.clone(), Arc::new(FreePorts(AtomicU16::new(50_200))), Duration::from_millis(200))
+        ServerPortForwards::with_parts(
+            host_id.to_owned(),
+            store,
+            self.forwards.clone(),
+            Arc::new(FreePorts(AtomicU16::new(50_200))),
+            Duration::from_millis(200),
+        )
     }
 
     fn diagnostics(&self) -> Arc<Diagnostics> {
@@ -433,7 +439,6 @@ fn kept_settings(link: &ServerLink) -> Option<HostSettings> {
     locked(&link.under.bound).context.settings.clone()
 }
 
-
 pub(crate) async fn within<T>(work: impl Future<Output = T>) -> T {
     mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
 }
@@ -539,11 +544,7 @@ async fn a_link_opens_names_the_desktop_core_and_reports_its_view() {
 async fn open_dedupes() {
     let rig = rig().await;
     let (first, second, _) = within(async {
-        tokio::join!(
-            rig.pool.open(spec(), AttemptContext::default(), None),
-            rig.pool.open(spec(), AttemptContext::default(), None),
-            handshake(&rig.net, "s1")
-        )
+        tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), rig.pool.open(spec(), AttemptContext::default(), None), handshake(&rig.net, "s1"))
     })
     .await;
     let (first, second) = (first.unwrap(), second.unwrap());
@@ -750,7 +751,9 @@ async fn the_servers_listening_ports_reach_the_link_from_the_ports_feed() {
     // A snapshot of a server that has sampled nothing is an empty list.
     conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 3, "value": [{ "port": 1, "addresses": [], "process": null, "pid": null }] }, "feed": { "id": "ports", "epoch": "e1", "seq": 2 } }));
     within(ports.changed()).await.unwrap();
-    conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
+    conn.server_send(
+        &json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }),
+    );
     within(ports.changed()).await.unwrap();
     assert!(ports.borrow().is_empty());
 }

@@ -154,15 +154,7 @@ fn bsd_info(pid: u32) -> io::Result<Option<libc::proc_bsdinfo>> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = size_of::<libc::proc_bsdinfo>() as c_int;
     // SAFETY: the buffer is `size` bytes.
-    let ret = unsafe {
-        libc::proc_pidinfo(
-            pid as c_int,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            (&raw mut info).cast::<c_void>(),
-            size,
-        )
-    };
+    let ret = unsafe { libc::proc_pidinfo(pid as c_int, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast::<c_void>(), size) };
     if ret == size {
         return Ok(Some(info));
     }
@@ -176,13 +168,7 @@ fn bsd_info(pid: u32) -> io::Result<Option<libc::proc_bsdinfo>> {
 fn image(pid: u32) -> Option<PathBuf> {
     let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     // SAFETY: the buffer is its length in bytes.
-    let len = unsafe {
-        libc::proc_pidpath(
-            pid as c_int,
-            buffer.as_mut_ptr().cast(),
-            buffer.len() as u32,
-        )
-    };
+    let len = unsafe { libc::proc_pidpath(pid as c_int, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
     (len > 0).then(|| PathBuf::from(String::from_utf8_lossy(&buffer[..len as usize]).into_owned()))
 }
 
@@ -191,32 +177,12 @@ fn command_line(pid: u32) -> Option<String> {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as c_int];
     let mut size: libc::size_t = 0;
     // SAFETY: size query with a null buffer.
-    if unsafe {
-        libc::sysctl(
-            mib.as_mut_ptr(),
-            3,
-            std::ptr::null_mut(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    } != 0
-    {
+    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0) } != 0 {
         return None;
     }
     let mut buffer = vec![0u8; size];
     // SAFETY: the buffer is `size` bytes.
-    if unsafe {
-        libc::sysctl(
-            mib.as_mut_ptr(),
-            3,
-            buffer.as_mut_ptr().cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    } != 0
-    {
+    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, buffer.as_mut_ptr().cast(), &mut size, std::ptr::null_mut(), 0) } != 0 {
         return None;
     }
     buffer.truncate(size);
@@ -225,11 +191,7 @@ fn command_line(pid: u32) -> Option<String> {
     let exec_end = rest.iter().position(|b| *b == 0)?;
     rest = &rest[exec_end..];
     let args_start = rest.iter().position(|b| *b != 0)?;
-    let args: Vec<String> = rest[args_start..]
-        .split(|b| *b == 0)
-        .take(argc)
-        .map(|arg| String::from_utf8_lossy(arg).into_owned())
-        .collect();
+    let args: Vec<String> = rest[args_start..].split(|b| *b == 0).take(argc).map(|arg| String::from_utf8_lossy(arg).into_owned()).collect();
     Some(args.join(" "))
 }
 
@@ -239,11 +201,7 @@ pub(super) fn query(pid: u32) -> io::Result<Option<ProcessInfo>> {
         Ok(None) => return Ok(None),
         // Another user's process: it exists; its details are not ours to read.
         Err(error) if error.raw_os_error() == Some(libc::EPERM) => {
-            return Ok(Some(ProcessInfo {
-                identity: ProcessIdentity { pid, start_ms: 0 },
-                image: None,
-                command_line: None,
-            }));
+            return Ok(Some(ProcessInfo { identity: ProcessIdentity { pid, start_ms: 0 }, image: None, command_line: None }));
         }
         Err(error) => return Err(error),
     };
@@ -251,24 +209,12 @@ pub(super) fn query(pid: u32) -> io::Result<Option<ProcessInfo>> {
         return Ok(None);
     }
     let start_ms = info.pbi_start_tvsec * 1000 + info.pbi_start_tvusec / 1000;
-    Ok(Some(ProcessInfo {
-        identity: ProcessIdentity { pid, start_ms },
-        image: image(pid),
-        command_line: command_line(pid),
-    }))
+    Ok(Some(ProcessInfo { identity: ProcessIdentity { pid, start_ms }, image: image(pid), command_line: command_line(pid) }))
 }
 
 pub(super) fn listens(pid: u32, port: u16) -> io::Result<bool> {
     // SAFETY: size query with a null buffer.
-    let needed = unsafe {
-        libc::proc_pidinfo(
-            pid as c_int,
-            libc::PROC_PIDLISTFDS,
-            0,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
+    let needed = unsafe { libc::proc_pidinfo(pid as c_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     if needed <= 0 {
         let error = io::Error::last_os_error();
         return match error.raw_os_error() {
@@ -280,36 +226,17 @@ pub(super) fn listens(pid: u32, port: u16) -> io::Result<bool> {
     // SAFETY: zeroed proc_fdinfo values are valid.
     let mut fds: Vec<libc::proc_fdinfo> = vec![unsafe { std::mem::zeroed() }; count];
     // SAFETY: the buffer holds `count` entries.
-    let got = unsafe {
-        libc::proc_pidinfo(
-            pid as c_int,
-            libc::PROC_PIDLISTFDS,
-            0,
-            fds.as_mut_ptr().cast(),
-            (count * size_of::<libc::proc_fdinfo>()) as c_int,
-        )
-    };
+    let got = unsafe { libc::proc_pidinfo(pid as c_int, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), (count * size_of::<libc::proc_fdinfo>()) as c_int) };
     if got <= 0 {
         return Ok(false);
     }
     fds.truncate(got as usize / size_of::<libc::proc_fdinfo>());
-    for fd in fds
-        .iter()
-        .filter(|fd| fd.proc_fdtype == libc::PROX_FDTYPE_SOCKET as u32)
-    {
+    for fd in fds.iter().filter(|fd| fd.proc_fdtype == libc::PROX_FDTYPE_SOCKET as u32) {
         // SAFETY: zeroed SocketFdInfo is a valid out-buffer.
         let mut info: SocketFdInfo = unsafe { std::mem::zeroed() };
         let size = size_of::<SocketFdInfo>() as c_int;
         // SAFETY: the buffer is `size` bytes.
-        let ret = unsafe {
-            libc::proc_pidfdinfo(
-                pid as c_int,
-                fd.proc_fd,
-                PROC_PIDFDSOCKETINFO,
-                (&raw mut info).cast(),
-                size,
-            )
-        };
+        let ret = unsafe { libc::proc_pidfdinfo(pid as c_int, fd.proc_fd, PROC_PIDFDSOCKETINFO, (&raw mut info).cast(), size) };
         if ret <= 0 || info.psi.soi_kind != SOCKINFO_TCP {
             continue;
         }

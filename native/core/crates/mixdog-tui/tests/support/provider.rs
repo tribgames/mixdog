@@ -142,7 +142,8 @@ fn read_request(stream: &mut TcpStream) -> Option<String> {
 
 fn answer(mut stream: TcpStream, script: &Mutex<VecDeque<Reply>>, served: &AtomicUsize) {
     let Some(line) = read_request(&mut stream) else { return };
-    let messages = line.starts_with("post ") && line.split_whitespace().nth(1).is_some_and(|path| path.split('?').next().unwrap_or_default().ends_with("/v1/messages"));
+    let messages =
+        line.starts_with("post ") && line.split_whitespace().nth(1).is_some_and(|path| path.split('?').next().unwrap_or_default().ends_with("/v1/messages"));
     if !messages {
         let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 9\r\nconnection: close\r\n\r\nno script");
         return;
@@ -177,8 +178,16 @@ fn stream_reply(stream: &mut TcpStream, reply: &Reply, index: usize) -> std::io:
         block += 1;
     }
     for (id, name, input) in &reply.calls {
-        send(stream, "content_block_start", &json!({ "type": "content_block_start", "index": block, "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } }))?;
-        send(stream, "content_block_delta", &json!({ "type": "content_block_delta", "index": block, "delta": { "type": "input_json_delta", "partial_json": input.to_string() } }))?;
+        send(
+            stream,
+            "content_block_start",
+            &json!({ "type": "content_block_start", "index": block, "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } }),
+        )?;
+        send(
+            stream,
+            "content_block_delta",
+            &json!({ "type": "content_block_delta", "index": block, "delta": { "type": "input_json_delta", "partial_json": input.to_string() } }),
+        )?;
         send(stream, "content_block_stop", &json!({ "type": "content_block_stop", "index": block }))?;
         block += 1;
     }

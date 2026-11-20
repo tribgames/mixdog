@@ -3,21 +3,21 @@
 //! verified corrections, offline seeds and the vendor-row guess. Pure over
 //! resident tables; the sources fill the tables when the catalog refreshes.
 
+#[cfg(test)]
+mod layers_tests;
 mod projection;
 mod rates;
 mod registry;
 mod resolve;
-#[cfg(test)]
-mod layers_tests;
 
 pub(crate) use projection::litellm_row;
 pub(crate) use projection::models_dev_row;
 #[cfg(test)]
 pub use projection::project_litellm;
-pub use rates::Obj;
-pub use rates::RATE_KEYS;
 #[cfg(test)]
 pub use projection::project_models_dev;
+pub use rates::Obj;
+pub use rates::RATE_KEYS;
 pub use registry::ANTIGRAVITY_FALLBACK;
 pub use registry::models_dev_provider_id;
 pub use registry::seed_display_name;

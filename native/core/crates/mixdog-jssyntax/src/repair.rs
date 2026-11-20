@@ -120,8 +120,7 @@ fn collect(node: Node<'_>, source: &str, wraps: &mut Vec<(usize, usize)>, letter
 
 fn is_tagged(template: Node<'_>) -> bool {
     template.parent().is_some_and(|parent| {
-        parent.kind() == "call_expression"
-            && parent.child_by_field_name("arguments").map(|arguments| arguments.id()) == Some(template.id())
+        parent.kind() == "call_expression" && parent.child_by_field_name("arguments").map(|arguments| arguments.id()) == Some(template.id())
     })
 }
 
@@ -129,11 +128,7 @@ fn is_tagged(template: Node<'_>) -> bool {
 /// the grammar could not read.
 fn is_target(call: Node<'_>, source: &str) -> bool {
     let after = source.get(call.end_byte()..).unwrap_or("").trim_start();
-    let operator = [
-        "**=", "<<=", ">>>=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
-    ]
-    .iter()
-    .any(|op| after.starts_with(op));
+    let operator = ["**=", "<<=", ">>>=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="].iter().any(|op| after.starts_with(op));
     let plain = after.starts_with('=') && !after.starts_with("==") && !after.starts_with("=>");
     if operator || plain {
         // The logical assignments start with two characters of their own and match none of these.
@@ -172,9 +167,7 @@ fn bad_escapes(source: &str, start: usize, end: usize, out: &mut Vec<usize>) {
                         let rest = &bytes[next + 1..end.min(bytes.len())];
                         let braced = rest.first() == Some(&b'{');
                         let ok = if braced {
-                            rest.iter().position(|b| *b == b'}').is_some_and(|close| {
-                                close > 1 && rest[1..close].iter().all(u8::is_ascii_hexdigit)
-                            })
+                            rest.iter().position(|b| *b == b'}').is_some_and(|close| close > 1 && rest[1..close].iter().all(u8::is_ascii_hexdigit))
                         } else {
                             rest.len() >= 4 && rest[..4].iter().all(u8::is_ascii_hexdigit)
                         };
@@ -236,8 +229,7 @@ fn blank_pattern_parens(source: &str) -> (String, Vec<usize>) {
                     let before = source[..at].trim_end();
                     let after = source[cursor + 1..].trim_start();
                     let opens = before.ends_with(['[', ',', ':', '{']) || before.ends_with("...");
-                    let closes = after.starts_with([']', ',', '}'])
-                        || (after.starts_with('=') && !after.starts_with("==") && !after.starts_with("=>"));
+                    let closes = after.starts_with([']', ',', '}']) || (after.starts_with('=') && !after.starts_with("==") && !after.starts_with("=>"));
                     if opens && closes {
                         out[at] = b' ';
                         out[cursor] = b' ';

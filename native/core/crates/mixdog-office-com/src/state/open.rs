@@ -29,8 +29,8 @@ use crate::office::active_application;
 use crate::office::file_name;
 use crate::office::find_open_document;
 use crate::office::get_full_path;
-use crate::office::item_of;
 use crate::office::initialize_owned_application;
+use crate::office::item_of;
 use crate::office::long_of;
 use crate::office::prog_id_for_format;
 use crate::office::same_document_path;
@@ -153,9 +153,9 @@ fn open_owned_document(app: &Obj, format: &str, path: &str, visible: bool) -> Re
             }
             book
         }
-        "pptx" => app
-            .get("Presentations")
-            .and_then(|decks| decks.call_member("Open", &[Com::from(path), Com::Bool(false), Com::Bool(false), Com::Bool(visible)])),
+        "pptx" => {
+            app.get("Presentations").and_then(|decks| decks.call_member("Open", &[Com::from(path), Com::Bool(false), Com::Bool(false), Com::Bool(visible)]))
+        }
         _ => Ok(Com::Null),
     };
     let document = opened.map_err(text)?.into_obj().ok_or_else(|| "Microsoft Office did not answer a document.".to_owned())?;
@@ -230,8 +230,7 @@ fn make_parent<P: WriteProof>(proof: &P, path: &str) -> Result<(), String> {
     let Some(directory) = std::path::Path::new(path).parent().filter(|directory| !directory.as_os_str().is_empty()) else {
         return Ok(());
     };
-    mixdog_fsio::create_dir_all(proof, directory)
-        .map_err(|error| format!("Exception calling \"CreateDirectory\" with \"1\" argument(s): \"{error}\""))
+    mixdog_fsio::create_dir_all(proof, directory).map_err(|error| format!("Exception calling \"CreateDirectory\" with \"1\" argument(s): \"{error}\""))
 }
 
 struct Opening<'a, P> {
@@ -258,9 +257,7 @@ impl<P: WriteProof> Opening<'_, P> {
             } else if mode == Mode::Attach {
                 return Err(format!("The exact document is not registered as open in Microsoft Office: {path}"));
             } else if env.platform.file_appears_open(std::path::Path::new(path)) {
-                return Err(format!(
-                    "The document appears open but its exact COM object is unavailable; refusing to open a duplicate: {path}"
-                ));
+                return Err(format!("The document appears open but its exact COM object is unavailable; refusing to open a duplicate: {path}"));
             }
         }
         if work.document.is_none() {
@@ -359,23 +356,15 @@ impl<P: WriteProof> Opening<'_, P> {
         // Ownership is published before a document open can block: a cancellation still lets this host finish its
         // operation and run the end cleanup.
         self.out.line(&identity_line(&request.id, owns, process_id));
-        work.document = Some(if request.create {
-            create_owned_document(&app, format, path, visible)?
-        } else {
-            open_owned_document(&app, format, path, visible)?
-        });
+        work.document =
+            Some(if request.create { create_owned_document(&app, format, path, visible)? } else { open_owned_document(&app, format, path, visible)? });
         Ok(())
     }
 }
 
 /// `Open-SessionState`: the state of the opened session, or why it could not be opened (the error already says when the
 /// cleanup of what was half-built was incomplete).
-pub fn open_session_state<P: WriteProof>(
-    proof: &P,
-    env: &Env<'_>,
-    out: &mut Emitter,
-    payload: &Value,
-) -> Result<SessionState, String> {
+pub fn open_session_state<P: WriteProof>(proof: &P, env: &Env<'_>, out: &mut Emitter, payload: &Value) -> Result<SessionState, String> {
     let request = parse_request(payload)?;
     let foreground_before = env.platform.foreground_window();
     let baseline = env.platform.office_process_ids(&request.format);

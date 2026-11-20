@@ -16,8 +16,8 @@ use serde_json::{Map, Value, json};
 
 use crate::docx_formatting::{patch_paragraph_format, patch_word_style};
 use crate::docx_parts::{
-    ensure_note_part, forget_comment_identity, mark_runs_deleted, next_revision_id, revision_attributes, trailing_section_properties,
-    upsert_section_child, write_section_properties_at,
+    ensure_note_part, forget_comment_identity, mark_runs_deleted, next_revision_id, revision_attributes, trailing_section_properties, upsert_section_child,
+    write_section_properties_at,
 };
 use crate::docx_revisions::{docx_revision_tree, flatten_docx_revisions};
 use crate::docx_runs::{SettleOptions, settle_docx_story};
@@ -25,8 +25,8 @@ use crate::docx_styles::document_style_id;
 use crate::docx_tracked_edits::{PhraseMarkers, anchor_phrase_in_paragraph, tracked_paragraph_replace, tracked_paragraph_rewrite};
 use crate::docx_xml::{
     Matched, RunFontOverrides, apply_word_run_format, docx_table, justify_word_paragraphs, merge_word_cell_properties, merge_word_run_fonts,
-    missing_docx_cell_error, missing_docx_row_error, replace_docx_table, replace_word_properties, row_cell_matches, table_row_matches,
-    with_first_run_text, word_justification, word_table_properties, word_text_content, word_text_element,
+    missing_docx_cell_error, missing_docx_row_error, replace_docx_table, replace_word_properties, row_cell_matches, table_row_matches, with_first_run_text,
+    word_justification, word_table_properties, word_text_content, word_text_element,
 };
 use crate::slide_shapes::replace_first_with;
 use crate::snapshot_docx::{BodyBlock, docx_body_model};
@@ -194,10 +194,8 @@ const TOC_FIELD: &str = r#"<w:fldSimple\b([^>]*\bw:instr="([^"]*TOC[^"]*)"[^>]*)
 fn cached_toc_pages(cache: &str) -> HashMap<String, f64> {
     let mut pages = HashMap::new();
     for line in cache.split("<w:r><w:br/></w:r>") {
-        let texts: Vec<String> = compiled(r"<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>", "g")
-            .captures_iter(line)
-            .map(|found| xml_decode(found.get(1).unwrap_or("")))
-            .collect();
+        let texts: Vec<String> =
+            compiled(r"<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>", "g").captures_iter(line).map(|found| xml_decode(found.get(1).unwrap_or(""))).collect();
         if texts.len() == 2 && line.contains("<w:tab/>") && compiled(r"^\d+$", "").is_match(&texts[1]) {
             pages.insert(js_trim(&texts[0]).to_owned(), string_to_number(&texts[1]));
         }
@@ -509,7 +507,12 @@ pub fn add_docx_note(zip: &mut Package, op: &Value) -> Result<Value, String> {
     let phrase = if cited.is_empty() {
         None
     } else {
-        anchor_phrase_in_paragraph(&paragraph.xml, cited, &id_text, Some(&PhraseMarkers { start: Some(String::new()), end: Some(mark.clone()), replace: false }))
+        anchor_phrase_in_paragraph(
+            &paragraph.xml,
+            cited,
+            &id_text,
+            Some(&PhraseMarkers { start: Some(String::new()), end: Some(mark.clone()), replace: false }),
+        )
     };
     let anchored = match &phrase {
         Some(phrase) => phrase.clone(),
@@ -553,10 +556,8 @@ pub fn set_docx_document_font(zip: &mut Package, op: &Value) -> Result<Value, St
     let defaults = compiled(r"<w:rPrDefault>\s*<w:rPr>([\s\S]*?)<\/w:rPr>\s*<\/w:rPrDefault>", "")
         .captures(&styles)
         .map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()));
-    let default_run = format!(
-        "<w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault>",
-        merge_word_run_fonts(defaults.as_ref().map_or("", |(_, inner)| inner.as_str()), &font)
-    );
+    let default_run =
+        format!("<w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault>", merge_word_run_fonts(defaults.as_ref().map_or("", |(_, inner)| inner.as_str()), &font));
     if let Some((range, _)) = &defaults {
         styles = format!("{}{default_run}{}", &styles[..range.start], &styles[range.end..]);
     } else if styles.contains("<w:docDefaults>") {
@@ -820,7 +821,10 @@ pub fn fit_docx_table(zip: &mut Package, op: &Value) -> Result<Value, String> {
     };
     let mut next_table = match grid {
         Some(grid) => {
-            let rebuilt = format!("<w:tblGrid>{}</w:tblGrid>", widths.iter().map(|width| format!("<w:gridCol w:w=\"{}\"/>", number_to_string(*width))).collect::<String>());
+            let rebuilt = format!(
+                "<w:tblGrid>{}</w:tblGrid>",
+                widths.iter().map(|width| format!("<w:gridCol w:w=\"{}\"/>", number_to_string(*width))).collect::<String>()
+            );
             replace_text(&table.xml, grid, &rebuilt)
         }
         None => table.xml.clone(),
@@ -932,7 +936,11 @@ pub fn fill_docx_content_control(zip: &mut Package, op: &Value) -> Result<Value,
         }
     }
     let Some((control, control_tag)) = filled.into_inner() else {
-        return Err(if tag.is_empty() { format!("DOCX content control {} not found", number_to_string(wanted)) } else { format!("DOCX content control not found for tag: {tag}") });
+        return Err(if tag.is_empty() {
+            format!("DOCX content control {} not found", number_to_string(wanted))
+        } else {
+            format!("DOCX content control not found for tag: {tag}")
+        });
     };
     let mut result = result_of(op);
     result.insert("changed".to_owned(), json!(true));
@@ -997,11 +1005,9 @@ fn with_paragraph_mark_revision(paragraph_xml: &str, mark: &str) -> String {
         });
     }
     if compiled(r"<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>\s*<\/w:pPr>", "").is_match(paragraph_xml) {
-        return replace_first_with(
-            &compiled(r"(<w:rPr(?:\s[^>]*)?>)((?:<w:ins\b[^>]*\/>|<w:ins\b[^>]*>[\s\S]*?<\/w:ins>)?)", ""),
-            paragraph_xml,
-            |found| format!("{}{}{mark}", found.get(1).unwrap_or(""), found.get(2).unwrap_or("")),
-        );
+        return replace_first_with(&compiled(r"(<w:rPr(?:\s[^>]*)?>)((?:<w:ins\b[^>]*\/>|<w:ins\b[^>]*>[\s\S]*?<\/w:ins>)?)", ""), paragraph_xml, |found| {
+            format!("{}{}{mark}", found.get(1).unwrap_or(""), found.get(2).unwrap_or(""))
+        });
     }
     replace_text(paragraph_xml, "</w:pPr>", &format!("<w:rPr>{mark}</w:rPr></w:pPr>"))
 }
@@ -1031,7 +1037,8 @@ pub fn edit_docx_paragraph(zip: &mut Package, op: &Value, tracking: bool) -> Res
     } else if is_op(op, "remove_paragraph") {
         // The only paragraph between two tables is what keeps them two: removed, Word and LibreOffice read one table with the
         // second one's rows under the first. Its words go and an empty paragraph stays.
-        between = compiled(r"<\/w:tbl>\s*$", "").is_match(&body.inner[..paragraph.start]) && compiled(r"^\s*<w:tbl[\s>]", "").is_match(&body.inner[paragraph.end..]);
+        between =
+            compiled(r"<\/w:tbl>\s*$", "").is_match(&body.inner[..paragraph.start]) && compiled(r"^\s*<w:tbl[\s>]", "").is_match(&body.inner[paragraph.end..]);
         splice(if between { "<w:p/>" } else { "" })
     } else if is_op(op, "move_paragraph") {
         moved_paragraph_inner(&body.inner, &model.blocks, paragraph, mixdog_js::math::max(1.0, number_of(op.get("index"))))
@@ -1159,7 +1166,8 @@ fn merged_docx_table(table: &Matched, rows: &[Matched], row: &Matched, cells: &[
             let Some(continuation) = rows.get(row_index) else { break };
             let continuation_cells = row_cell_matches(&continuation.xml);
             if continuation_cells.get(first).is_some() {
-                next_table = replace_text(&next_table, &continuation.xml, &merge_row(&continuation.xml, &continuation_cells, &format!("{grid_span}<w:vMerge/>")));
+                next_table =
+                    replace_text(&next_table, &continuation.xml, &merge_row(&continuation.xml, &continuation_cells, &format!("{grid_span}<w:vMerge/>")));
             }
             row_index += 1;
         }
@@ -1289,7 +1297,10 @@ fn unmatched_author_note(author: &str, reviewers: &[String]) -> String {
     if reviewers.is_empty() {
         format!("No revision by \"{author}\"; the document carries no tracked change.")
     } else {
-        format!("No revision by \"{author}\"; the tracked changes are by {}.", reviewers.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(", "))
+        format!(
+            "No revision by \"{author}\"; the tracked changes are by {}.",
+            reviewers.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(", ")
+        )
     }
 }
 
@@ -1343,7 +1354,10 @@ pub fn resolve_docx_revisions(zip: &mut Package, parts: &[String], op: &Value) -
     if totals.unmerged > 0 {
         result.insert(
             "note".to_owned(),
-            json!(format!("{} paragraph mark(s) could not join the next block (a table or the end of the body); the mark was cleared instead.", totals.unmerged)),
+            json!(format!(
+                "{} paragraph mark(s) could not join the next block (a table or the end of the body); the mark was cleared instead.",
+                totals.unmerged
+            )),
         );
     }
     Ok(Value::Object(result))

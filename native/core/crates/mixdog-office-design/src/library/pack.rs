@@ -10,18 +10,16 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use mixdog_fsio::OpenOptions;
-use mixdog_js::{
-    js_object_keys, js_to_lowercase, js_trim, json_number, json_stringify, string_to_number, to_number, to_number_of, utf16_len, value_to_string,
-};
-use mixdog_office_base::values::{clamp_of, clone, plain_object, sha256, truthy};
 use mixdog_fsio::WriteProof;
+use mixdog_js::{js_object_keys, js_to_lowercase, js_trim, json_number, json_stringify, string_to_number, to_number, to_number_of, utf16_len, value_to_string};
+use mixdog_office_base::values::{clamp_of, clone, plain_object, sha256, truthy};
 use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use serde_json::{Map, Value, json};
 use url::Url;
 
 use super::core::{
-    ALLOWED_LAYOUT_DEFAULTS, LAYOUT_SLOT_TYPES, LibraryConfig, LibraryPaths, MAX_TEMPLATE_BYTES, MAX_TEMPLATE_COUNT, SCHEMA_VERSION, canonical_office_design_pack,
-    is_format, parse_version, read_json, safe_id, safe_id_text, sha256_file, template_format, write_json_atomic,
+    ALLOWED_LAYOUT_DEFAULTS, LAYOUT_SLOT_TYPES, LibraryConfig, LibraryPaths, MAX_TEMPLATE_BYTES, MAX_TEMPLATE_COUNT, SCHEMA_VERSION,
+    canonical_office_design_pack, is_format, parse_version, read_json, safe_id, safe_id_text, sha256_file, template_format, write_json_atomic,
 };
 use crate::{prop, text};
 
@@ -487,7 +485,9 @@ pub fn verify_office_design_pack_envelope(envelope: &Value, trusted_keys: &Map<S
     };
     let Some(pack) = prop(envelope, "pack") else {
         // `Buffer.from(JSON.stringify(undefined))`.
-        return Err("The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined".to_owned());
+        return Err(
+            "The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined".to_owned()
+        );
     };
     let message = canonical_office_design_pack(pack);
     if UnparsedPublicKey::new(&ED25519, public_key).verify(message.as_bytes(), &signature).is_err() {
@@ -546,12 +546,7 @@ fn temporary_name() -> String {
 /// `materializePack(envelope, verified, paths, fetch)`: every template of the pack is downloaded, checked for size and
 /// sha256 and written, with the envelope, into a staging folder that then replaces `packs/<id>/<version>`. A failure
 /// leaves the previous copy in place. Answers the folder.
-pub fn materialize_pack<P: WriteProof>(
-    lane: &P,
-    verified: &Verified,
-    paths: &LibraryPaths,
-    fetch: &dyn Fetch,
-) -> Result<PathBuf, String> {
+pub fn materialize_pack<P: WriteProof>(lane: &P, verified: &Verified, paths: &LibraryPaths, fetch: &dyn Fetch) -> Result<PathBuf, String> {
     let id = verified.pack.get("id").cloned().unwrap_or(Value::Null);
     let version = verified.pack.get("version").cloned().unwrap_or(Value::Null);
     let target = cached_pack_root(paths, Some(&id), &version)?;
@@ -705,10 +700,7 @@ mod tests {
     #[test]
     fn an_unknown_layout_default_is_refused() {
         let layouts = json!([{ "id": "a", "kind": "cover", "defaults": { "nope": 1, "layout": 2, "also": 3 } }]);
-        assert_eq!(
-            normalize_layouts(Some(&layouts), "").unwrap_err(),
-            "Office design layout a has unsupported default(s): nope, also"
-        );
+        assert_eq!(normalize_layouts(Some(&layouts), "").unwrap_err(), "Office design layout a has unsupported default(s): nope, also");
     }
 
     #[test]
@@ -737,7 +729,6 @@ mod tests {
         assert_eq!(response_bytes(&missing, 4, "X").unwrap_err(), "X download failed with HTTP 404");
     }
 }
-
 
 impl Fetch for HttpsFetch {
     fn get(&self, request: &FetchRequest<'_>) -> Result<FetchResponse, String> {

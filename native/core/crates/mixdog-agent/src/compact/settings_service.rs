@@ -67,20 +67,12 @@ pub struct CompactionSettingsService {
 
 /// Node's plain `Error`: no code, and its message text as the failure message.
 fn failed(error: SettingsError) -> CoreError {
-    CoreError::DomainError {
-        domain: "config".into(),
-        code: None,
-        message: Some(error.0.into()),
-        detail: None,
-    }
+    CoreError::DomainError { domain: "config".into(), code: None, message: Some(error.0.into()), detail: None }
 }
 
 /// The edit that replaces one key of the agent section by what `build` makes of the section
 /// the transaction sees: a validation error from `build` is Node's thrown `Error`, before any save.
-fn replace_key(
-    key: &'static str,
-    build: impl FnOnce(&Doc) -> Result<Doc, SettingsError> + Send + 'static,
-) -> AgentChange {
+fn replace_key(key: &'static str, build: impl FnOnce(&Doc) -> Result<Doc, SettingsError> + Send + 'static) -> AgentChange {
     Box::new(move |agent| {
         let next = build(agent).map_err(failed)?;
         agent.insert(key.into(), Value::Object(next));
@@ -127,16 +119,11 @@ impl CompactionSettingsService {
             "config/setAutoClear" => {
                 let route = self.host.route_provider(thread);
                 let input = input_of(params)?;
-                self.store
-                    .update(replace_key("autoClear", move |agent| set_auto_clear(agent, route.as_deref(), &input)))
-                    .await?;
+                self.store.update(replace_key("autoClear", move |agent| set_auto_clear(agent, route.as_deref(), &input))).await?;
                 self.host.refresh_lead_cache_opts(thread, &self.store.agent());
                 Ok(self.auto_clear(thread))
             }
-            other => Err(CoreError::CapabilityUnavailable {
-                capability: other.into(),
-                detail: "not a compaction settings method".into(),
-            }),
+            other => Err(CoreError::CapabilityUnavailable { capability: other.into(), detail: "not a compaction settings method".into() }),
         }
     }
 }
@@ -148,12 +135,7 @@ impl DomainService for CompactionSettingsService {
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &[
-            "config/getCompactionSettings",
-            "config/setCompactionSettings",
-            "config/getAutoClear",
-            "config/setAutoClear",
-        ]
+        &["config/getCompactionSettings", "config/setCompactionSettings", "config/getAutoClear", "config/setAutoClear"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

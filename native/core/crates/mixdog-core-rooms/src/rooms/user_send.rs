@@ -314,8 +314,7 @@ pub(crate) fn room_upload(message: &UserMessage) -> Option<Value> {
 
 /// The row id a submission id gives (`/^[A-Za-z0-9_-]{1,100}$/`), so the sender's pending bubble gives way to the row.
 pub(crate) fn submission_row_id(submission_id: &str) -> Option<&str> {
-    let fits = (1..=100).contains(&submission_id.len())
-        && submission_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    let fits = (1..=100).contains(&submission_id.len()) && submission_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
     fits.then_some(submission_id)
 }
 

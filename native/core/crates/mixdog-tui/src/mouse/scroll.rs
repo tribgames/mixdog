@@ -12,10 +12,10 @@ use mixdog_term::selection::SelectionRect;
 
 use crate::transcript::scroll::engine::ScrollHost;
 
+use super::Mouse;
 use super::geometry::{linear_selection, selection_point_at_current_scroll};
 use super::host::{RenderStore, SelectionIo};
 use super::state::Region;
-use super::Mouse;
 
 /// A store paired with the scroll target the hook runs at.
 struct AtTarget<'a, S: RenderStore + ?Sized> {
@@ -88,9 +88,7 @@ impl Mouse {
     fn rebuild_selection_after_scroll<S: SelectionIo + ?Sized>(&mut self, io: &mut S, applied_delta: f64, now_ms: u64) {
         let rect = if self.drag.active {
             match (self.drag.anchor_span, self.drag.last) {
-                (Some(span), Some(last)) => {
-                    Some(self.build_span_rect(io, span, last.x, last.y, self.drag.region, self.drag.anchor_scroll))
-                }
+                (Some(span), Some(last)) => Some(self.build_span_rect(io, span, last.x, last.y, self.drag.region, self.drag.anchor_scroll)),
                 (_, last) => match (self.drag.anchor, last) {
                     (Some(anchor), Some(last)) => {
                         let current = selection_point_at_current_scroll(anchor, self.drag.anchor_scroll, io.scroll_target());

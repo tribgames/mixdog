@@ -21,10 +21,7 @@ pub fn build_with_trailer(objects: &[(u32, Vec<u8>)], trailer: &str) -> Vec<u8> 
             None => pdf.extend_from_slice(b"0000000000 65535 f \n"),
         }
     }
-    pdf.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root 1 0 R {trailer} >>\nstartxref\n{start}\n%%EOF\n")
-            .as_bytes(),
-    );
+    pdf.extend_from_slice(format!("trailer\n<< /Size {size} /Root 1 0 R {trailer} >>\nstartxref\n{start}\n%%EOF\n").as_bytes());
     pdf
 }
 
@@ -40,8 +37,7 @@ pub fn stream(dict: &str, content: &[u8]) -> Vec<u8> {
     body
 }
 
-pub const HELVETICA: &str =
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+pub const HELVETICA: &str = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
 
 /// A one-page 200 x 200 document: Helvetica as object 5 (`/F1`), `content` as the page's stream (object 4), `extra`
 /// objects from 6 on; `resources` is the page's `/Resources` value.
@@ -49,13 +45,7 @@ pub fn one_page(content: &str, resources: &str, extra: &[(u32, Vec<u8>)]) -> Vec
     let mut objects: Vec<(u32, Vec<u8>)> = vec![
         (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
         (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
-        (
-            3,
-            format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources {resources} >>"
-            )
-            .into_bytes(),
-        ),
+        (3, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources {resources} >>").into_bytes()),
         (4, stream("", content.as_bytes())),
         (5, HELVETICA.as_bytes().to_vec()),
     ];
@@ -70,21 +60,14 @@ pub fn pages_of(contents: &[&str]) -> Vec<u8> {
     let kids: String = (0..contents.len()).map(|i| format!("{} 0 R ", 10 + 2 * i)).collect();
     let mut objects: Vec<(u32, Vec<u8>)> = vec![
         (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
-        (
-            2,
-            format!("<< /Type /Pages /Kids [{kids}] /Count {} >>", contents.len()).into_bytes(),
-        ),
+        (2, format!("<< /Type /Pages /Kids [{kids}] /Count {} >>", contents.len()).into_bytes()),
         (5, HELVETICA.as_bytes().to_vec()),
     ];
     for (i, content) in contents.iter().enumerate() {
         let page = 10 + 2 * i as u32;
         objects.push((
             page,
-            format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents {} 0 R /Resources {FONT_RESOURCES} >>",
-                page + 1
-            )
-            .into_bytes(),
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents {} 0 R /Resources {FONT_RESOURCES} >>", page + 1).into_bytes(),
         ));
         objects.push((page + 1, stream("", content.as_bytes())));
     }
@@ -114,18 +97,53 @@ pub struct MqEncoder {
 
 /// Table E.1 / C.2: `Qe`, next state after an MPS, after an LPS, and whether an LPS switches the MPS.
 const QE: [(u32, usize, usize, bool); 47] = [
-    (0x5601, 1, 1, true), (0x3401, 2, 6, false), (0x1801, 3, 9, false), (0x0AC1, 4, 12, false),
-    (0x0521, 5, 29, false), (0x0221, 38, 33, false), (0x5601, 7, 6, true), (0x5401, 8, 14, false),
-    (0x4801, 9, 14, false), (0x3801, 10, 14, false), (0x3001, 11, 17, false), (0x2401, 12, 18, false),
-    (0x1C01, 13, 20, false), (0x1601, 29, 21, false), (0x5601, 15, 14, true), (0x5401, 16, 14, false),
-    (0x5101, 17, 15, false), (0x4801, 18, 16, false), (0x3801, 19, 17, false), (0x3401, 20, 18, false),
-    (0x3001, 21, 19, false), (0x2801, 22, 19, false), (0x2401, 23, 20, false), (0x2201, 24, 21, false),
-    (0x1C01, 25, 22, false), (0x1801, 26, 23, false), (0x1601, 27, 24, false), (0x1401, 28, 25, false),
-    (0x1201, 29, 26, false), (0x1101, 30, 27, false), (0x0AC1, 31, 28, false), (0x09C1, 32, 29, false),
-    (0x08A1, 33, 30, false), (0x0521, 34, 31, false), (0x0441, 35, 32, false), (0x02A1, 36, 33, false),
-    (0x0221, 37, 34, false), (0x0141, 38, 35, false), (0x0111, 39, 36, false), (0x0085, 40, 37, false),
-    (0x0049, 41, 38, false), (0x0025, 42, 39, false), (0x0015, 43, 40, false), (0x0009, 44, 41, false),
-    (0x0005, 45, 42, false), (0x0001, 45, 43, false), (0x5601, 46, 46, false),
+    (0x5601, 1, 1, true),
+    (0x3401, 2, 6, false),
+    (0x1801, 3, 9, false),
+    (0x0AC1, 4, 12, false),
+    (0x0521, 5, 29, false),
+    (0x0221, 38, 33, false),
+    (0x5601, 7, 6, true),
+    (0x5401, 8, 14, false),
+    (0x4801, 9, 14, false),
+    (0x3801, 10, 14, false),
+    (0x3001, 11, 17, false),
+    (0x2401, 12, 18, false),
+    (0x1C01, 13, 20, false),
+    (0x1601, 29, 21, false),
+    (0x5601, 15, 14, true),
+    (0x5401, 16, 14, false),
+    (0x5101, 17, 15, false),
+    (0x4801, 18, 16, false),
+    (0x3801, 19, 17, false),
+    (0x3401, 20, 18, false),
+    (0x3001, 21, 19, false),
+    (0x2801, 22, 19, false),
+    (0x2401, 23, 20, false),
+    (0x2201, 24, 21, false),
+    (0x1C01, 25, 22, false),
+    (0x1801, 26, 23, false),
+    (0x1601, 27, 24, false),
+    (0x1401, 28, 25, false),
+    (0x1201, 29, 26, false),
+    (0x1101, 30, 27, false),
+    (0x0AC1, 31, 28, false),
+    (0x09C1, 32, 29, false),
+    (0x08A1, 33, 30, false),
+    (0x0521, 34, 31, false),
+    (0x0441, 35, 32, false),
+    (0x02A1, 36, 33, false),
+    (0x0221, 37, 34, false),
+    (0x0141, 38, 35, false),
+    (0x0111, 39, 36, false),
+    (0x0085, 40, 37, false),
+    (0x0049, 41, 38, false),
+    (0x0025, 42, 39, false),
+    (0x0015, 43, 40, false),
+    (0x0009, 44, 41, false),
+    (0x0005, 45, 42, false),
+    (0x0001, 45, 43, false),
+    (0x5601, 46, 46, false),
 ];
 
 impl MqEncoder {

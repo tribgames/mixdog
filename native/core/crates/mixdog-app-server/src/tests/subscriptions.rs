@@ -65,9 +65,12 @@ async fn feed_heads_reports_live_positions_without_reattaching() {
     assert_eq!(frames[0].body["result"]["positions"], json!([{ "epoch": app_epoch(), "seq": 1 }, null]));
 
     client.request(3, "feed/heads", json!({}));
-    assert_eq!(client.drain()[0].body["result"], json!({
-        "feedIds": ["app"], "positions": [{ "epoch": app_epoch(), "seq": 1 }],
-    }));
+    assert_eq!(
+        client.drain()[0].body["result"],
+        json!({
+            "feedIds": ["app"], "positions": [{ "epoch": app_epoch(), "seq": 1 }],
+        })
+    );
     let other = rig.ready(2, json!({}));
     other.request(1, "feed/heads", json!({}));
     assert_eq!(other.drain()[0].body["result"], json!({ "feedIds": [], "positions": [] }));
@@ -84,11 +87,7 @@ async fn a_resume_position_in_the_ring_replays() {
     let app = rig.core.mock.app();
     app.publish(&[event(1), event(2), event(3)], None).unwrap();
     let client = rig.ready(1, json!({}));
-    client.request(
-        1,
-        "app/subscribe",
-        json!({ "resumeFrom": { "epoch": app_epoch(), "seq": 1 } }),
-    );
+    client.request(1, "app/subscribe", json!({ "resumeFrom": { "epoch": app_epoch(), "seq": 1 } }));
     let frames = client.drain();
     assert_eq!(lanes(&frames), ["response", "evt@2", "evt@3"]);
     let subscription = &frames[0].body["result"]["subscription"];
@@ -102,21 +101,12 @@ async fn thread_resume_adds_the_subscription_to_the_owners_result() {
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
     let feed: Arc<dyn FeedSource> = thread.feed().clone();
     thread.set_handler(Arc::new(move |_| {
-        Ok(Reply::Subscribe(Subscribe {
-            result: json!({ "thread": { "id": "t1" } }),
-            feed: feed.clone(),
-            window: Window::LastItems(10),
-            resume_from: None,
-        }))
+        Ok(Reply::Subscribe(Subscribe { result: json!({ "thread": { "id": "t1" } }), feed: feed.clone(), window: Window::LastItems(10), resume_from: None }))
     }));
     thread.feed().publish(&[event(1)], None).unwrap();
     let client = rig.ready(1, json!({}));
 
-    client.request(
-        1,
-        "thread/resume",
-        json!({ "threadId": "t1", "window": { "lastItems": 10 } }),
-    );
+    client.request(1, "thread/resume", json!({ "threadId": "t1", "window": { "lastItems": 10 } }));
     let frames = client.frames(2).await;
     assert_eq!(lanes(&frames), ["response", "snapshot@1"]);
     let response = &frames[0].body;
@@ -206,21 +196,10 @@ async fn closing_the_connection_detaches_its_subscriptions() {
 async fn a_failed_attach_is_an_error_response_and_registers_nothing() {
     let rig = Rig::new();
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
-    thread.set_handler(Arc::new(|_| {
-        Err(CoreError::ThreadClosing {
-            thread_id: ThreadId::from("t1"),
-        })
-    }));
+    thread.set_handler(Arc::new(|_| Err(CoreError::ThreadClosing { thread_id: ThreadId::from("t1") })));
     let client = rig.ready(1, json!({}));
-    client.request(
-        1,
-        "thread/resume",
-        json!({ "threadId": "t1", "window": { "none": true } }),
-    );
-    assert_eq!(
-        super::reason(&client.response(1).await),
-        "threadClosing"
-    );
+    client.request(1, "thread/resume", json!({ "threadId": "t1", "window": { "none": true } }));
+    assert_eq!(super::reason(&client.response(1).await), "threadClosing");
 }
 
 #[tokio::test]

@@ -95,10 +95,7 @@ fn run(ground: &impl Ground, release: &mut dyn FnMut() -> String) -> RestoreOutc
 /// hosts in its process.
 pub fn is_target_window(window: Wid, target: Wid) -> bool {
     target != 0
-        && (window == target
-            || native::root_of(window) == target
-            || native::is_contained_same_process(window, target)
-            || native::is_owned_by(window, target))
+        && (window == target || native::root_of(window) == target || native::is_contained_same_process(window, target) || native::is_owned_by(window, target))
 }
 
 struct Desktop<'a> {
@@ -114,12 +111,7 @@ struct Desktop<'a> {
 
 impl Ground for Desktop<'_> {
     fn begin(&self) -> Result<(), String> {
-        self.scope.borrow_mut().begin_restore(
-            self.shared,
-            self.generation,
-            self.sequence,
-            native::pid_of(self.target),
-        )
+        self.scope.borrow_mut().begin_restore(self.shared, self.generation, self.sequence, native::pid_of(self.target))
     }
     fn end(&self) {
         self.scope.borrow_mut().end();
@@ -142,23 +134,8 @@ pub fn superseded(shared: &Shared, generation: &str, sequence: i64, target: Wid)
     baseline(&desktop(shared, None, generation, sequence, target, 0))
 }
 
-fn desktop<'a>(
-    shared: &'a Shared,
-    port: Option<&'a WinPort>,
-    generation: &'a str,
-    sequence: i64,
-    target: Wid,
-    before: Wid,
-) -> Desktop<'a> {
-    Desktop {
-        shared,
-        port,
-        generation,
-        sequence,
-        target,
-        before,
-        scope: RefCell::new(Scope::default()),
-    }
+fn desktop<'a>(shared: &'a Shared, port: Option<&'a WinPort>, generation: &'a str, sequence: i64, target: Wid, before: Wid) -> Desktop<'a> {
+    Desktop { shared, port, generation, sequence, target, before, scope: RefCell::new(Scope::default()) }
 }
 
 /// Puts `before`, the person's window, back after `target` took the
@@ -221,14 +198,7 @@ mod tests {
 
     impl Fake {
         fn new() -> Fake {
-            Fake {
-                begins: RefCell::new(vec![Ok(()), Ok(())]),
-                exists: true,
-                in_front: true,
-                focused: true,
-                log: RefCell::new(Vec::new()),
-                tries: Cell::new(0),
-            }
+            Fake { begins: RefCell::new(vec![Ok(()), Ok(())]), exists: true, in_front: true, focused: true, log: RefCell::new(Vec::new()), tries: Cell::new(0) }
         }
     }
 
@@ -283,14 +253,8 @@ mod tests {
     #[test]
     fn input_since_the_observation_skips_and_still_releases() {
         for (message, code) in [
-            (
-                "user_input_active: observation was superseded by external input",
-                "user_input_active",
-            ),
-            (
-                "input_observation_unavailable: original observation is unavailable",
-                "input_observation_unavailable",
-            ),
+            ("user_input_active: observation was superseded by external input", "user_input_active"),
+            ("input_observation_unavailable: original observation is unavailable", "input_observation_unavailable"),
         ] {
             let fake = Fake::new();
             fake.begins.borrow_mut()[0] = Err(message.into());
@@ -308,8 +272,7 @@ mod tests {
     #[test]
     fn input_during_the_release_skips() {
         let fake = Fake::new();
-        fake.begins.borrow_mut()[1] =
-            Err("user_input_active: external input interrupted this action".into());
+        fake.begins.borrow_mut()[1] = Err("user_input_active: external input interrupted this action".into());
         assert_eq!(outcome(&fake, "released"), "skipped:user_input_active");
         assert_eq!(fake.tries.get(), 0);
     }

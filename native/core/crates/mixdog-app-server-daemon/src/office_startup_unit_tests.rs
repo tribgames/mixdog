@@ -91,7 +91,6 @@ fn a_start_cannot_begin_between_a_sweeps_failure_and_its_end() {
     assert!(sweeps.begin(), "no sweep began after one that finished");
 }
 
-
 fn rig(host_starts: bool) -> Rig {
     mixdog_rt::testing::tokens();
     let (taken_tx, taken) = mpsc::unbounded_channel();

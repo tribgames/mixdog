@@ -35,10 +35,7 @@ use super::seams::ThreadStore;
 
 pub(crate) enum ToDurability {
     /// One unit: the records of one request's plan (or one record), `(entry id, record, bytes)` in order, committed together.
-    Append {
-        generation: u64,
-        records: Vec<(u64, CommitRecord, usize)>,
-    },
+    Append { generation: u64, records: Vec<(u64, CommitRecord, usize)> },
     /// "Retry storage".
     Retry,
     /// A mark reached the thread with no record to commit (a mark carried from a session whose text it holds): the log
@@ -48,10 +45,7 @@ pub(crate) enum ToDurability {
 
 pub(crate) enum FromDurability {
     /// `(entry id, ordinal)` of every record of the batch, in order.
-    Acked {
-        generation: u64,
-        ordinals: Vec<(u64, u64)>,
-    },
+    Acked { generation: u64, ordinals: Vec<(u64, u64)> },
     Failed {
         generation: u64,
         /// Entry IDs of the attempted batch, excluding queued units dropped with its generation.
@@ -137,10 +131,7 @@ pub(crate) struct DurabilityTask {
 }
 
 fn lost() -> BarrierError {
-    BarrierError::Indeterminate {
-        io_kind: "writerLost".into(),
-        cause: "writerLost".into(),
-    }
+    BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "writerLost".into() }
 }
 
 /// A job the io-durability lane never ran: nothing of it was applied.
@@ -257,11 +248,7 @@ impl DurabilityTask {
     /// Handles a finished job; `false` when the actor is gone.
     async fn finish(&mut self, done: Done) -> bool {
         let msg = match done {
-            Done::Commit {
-                result,
-                generation,
-                units,
-            } => {
+            Done::Commit { result, generation, units } => {
                 // A job that never ran wrote nothing and left the writer in its slot: the batch fails as not applied,
                 // naming the lane, and the writer takes the next batch (a lost writer failed every later turn).
                 let result = result.unwrap_or_else(|_| Err(unrun()));
@@ -303,11 +290,7 @@ impl DurabilityTask {
 pub(crate) static FAILURE_SENT: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
 
 enum Done {
-    Commit {
-        result: Result<CommitDone, mixdog_rt::JobDropped>,
-        generation: u64,
-        units: Vec<Unit>,
-    },
+    Commit { result: Result<CommitDone, mixdog_rt::JobDropped>, generation: u64, units: Vec<Unit> },
     Retry(Result<RetryDone, mixdog_rt::JobDropped>),
     Redact(Result<(), mixdog_rt::JobDropped>),
 }
@@ -337,13 +320,7 @@ fn redact(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, threa
 }
 
 /// One io-durability job: open or create the writer at the first write, then the barrier.
-fn commit(
-    lane: &mixdog_rt::InLane<DurabilityIo>,
-    store: &dyn ThreadStore,
-    thread: &ThreadId,
-    log: &mut Log,
-    batch: &[CommitRecord],
-) -> CommitDone {
+fn commit(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, thread: &ThreadId, log: &mut Log, batch: &[CommitRecord]) -> CommitDone {
     if let Log::Ready(writer) = log {
         return writer.commit(lane, batch);
     }
@@ -368,11 +345,7 @@ fn commit(
                     return Err(error);
                 }
             };
-            let result = if rest.is_empty() {
-                Ok(Vec::new())
-            } else {
-                writer.commit(lane, rest)
-            };
+            let result = if rest.is_empty() { Ok(Vec::new()) } else { writer.commit(lane, rest) };
             *log = Log::Ready(writer);
             result.map(|mut ordinals| {
                 ordinals.insert(0, ordinal);

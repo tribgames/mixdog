@@ -101,9 +101,6 @@ pub async fn agent_status(env: &SshEnv) -> SshAgentStatusLite {
     match listed.exit_code {
         Some(0) => SshAgentStatusLite::new(AgentState::Running, None),
         Some(1) => SshAgentStatusLite::new(AgentState::Empty, Some("ssh-add")),
-        _ => SshAgentStatusLite::new(
-            AgentState::Missing,
-            Some(if windows { WINDOWS_AGENT_STARTED_COMMAND } else { POSIX_AGENT_COMMAND }),
-        ),
+        _ => SshAgentStatusLite::new(AgentState::Missing, Some(if windows { WINDOWS_AGENT_STARTED_COMMAND } else { POSIX_AGENT_COMMAND })),
     }
 }

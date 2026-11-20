@@ -72,21 +72,12 @@ pub struct CoreOwnership {
 
 /// LR §3 step 1: open the data directory (Unix: an `O_DIRECTORY` handle every
 /// later data-dir access is relative to) and take the lock without waiting.
-#[allow(
-    clippy::disallowed_methods,
-    reason = "runs once at core startup, before any async worker exists"
-)]
+#[allow(clippy::disallowed_methods, reason = "runs once at core startup, before any async worker exists")]
 pub fn acquire(data_dir: &Path) -> Result<CoreOwnership, AcquireError> {
     std::fs::create_dir_all(data_dir).map_err(AcquireError::Unavailable)?;
     let dir = DataDir::open(data_dir).map_err(AcquireError::Unavailable)?;
     let lock = sys::lock(&dir)?;
-    Ok(CoreOwnership {
-        instance_id: format!("{:032x}", rand::random::<u128>()),
-        dir,
-        lock,
-        barrier: OnceLock::new(),
-        fenced: OnceLock::new(),
-    })
+    Ok(CoreOwnership { instance_id: format!("{:032x}", rand::random::<u128>()), dir, lock, barrier: OnceLock::new(), fenced: OnceLock::new() })
 }
 
 impl CoreOwnership {
@@ -115,10 +106,8 @@ impl Ownership for CoreOwnership {
         if let Some(reason) = self.fenced.get() {
             return Err(*reason);
         }
-        sys::check(&self.dir, &self.lock, self.barrier.get())
-            .map_err(|reason| *self.fenced.get_or_init(|| reason))
+        sys::check(&self.dir, &self.lock, self.barrier.get()).map_err(|reason| *self.fenced.get_or_init(|| reason))
     }
 }
-
 
 impl std::error::Error for AcquireError {}

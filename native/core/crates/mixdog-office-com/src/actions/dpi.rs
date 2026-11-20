@@ -42,7 +42,8 @@ fn decode(bytes: &[u8]) -> String {
     let words32 = |body: &[u8], big: bool| -> String {
         body.chunks_exact(4)
             .map(|quad| {
-                let word = if big { u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]) } else { u32::from_le_bytes([quad[0], quad[1], quad[2], quad[3]]) };
+                let word =
+                    if big { u32::from_be_bytes([quad[0], quad[1], quad[2], quad[3]]) } else { u32::from_le_bytes([quad[0], quad[1], quad[2], quad[3]]) };
                 char::from_u32(word).unwrap_or(char::REPLACEMENT_CHARACTER)
             })
             .collect()
@@ -108,11 +109,7 @@ pub fn repair_package(bytes: &[u8]) -> Result<(Vec<u8>, usize), String> {
 /// entry changed.
 pub fn repair_excel_page_setup_dpi<P: WriteProof>(actions: &Actions<'_, P>, path: &str) -> Result<usize, String> {
     let full = get_full_path(path)?;
-    let mut stream = actions
-        .env
-        .platform
-        .open_exclusive(Path::new(&full))
-        .map_err(|error| file_error("Open", 4, &full, &error))?;
+    let mut stream = actions.env.platform.open_exclusive(Path::new(&full)).map_err(|error| file_error("Open", 4, &full, &error))?;
     let mut bytes = Vec::new();
     stream.read_to_end(&mut bytes).map_err(|error| error.to_string())?;
     let (repaired, changed) = repair_package(&bytes)?;

@@ -76,12 +76,7 @@ struct Scheduler {
     granted: BTreeSet<u64>,
 }
 
-static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler {
-    running: 0,
-    next_ticket: 0,
-    queue: VecDeque::new(),
-    granted: BTreeSet::new(),
-});
+static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler { running: 0, next_ticket: 0, queue: VecDeque::new(), granted: BTreeSet::new() });
 static SLOT_FREED: Condvar = Condvar::new();
 
 fn scheduler() -> MutexGuard<'static, Scheduler> {
@@ -92,10 +87,7 @@ fn scheduler() -> MutexGuard<'static, Scheduler> {
 #[must_use]
 pub fn key_derivations() -> DerivationCounts {
     let state = scheduler();
-    DerivationCounts {
-        running: state.running,
-        waiting: state.queue.len(),
-    }
+    DerivationCounts { running: state.running, waiting: state.queue.len() }
 }
 
 /// A flag a request raises to end its password derivation; clones share it.
@@ -168,9 +160,7 @@ fn wait_for_slot(ticket: &Ticket, cancel: &CancelToken) -> Result<Slot, KeyError
             state.queue.retain(|id| *id != ticket.id);
             return Err(KeyError::Cancelled);
         }
-        state = SLOT_FREED
-            .wait(state)
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state = SLOT_FREED.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
     }
 }
 
@@ -191,13 +181,7 @@ fn utf16le(password: &str) -> Vec<u8> {
 }
 
 /// 2.3.4.7 / 2.3.4.11: H0 = H(salt + password), Hn = H(iterator + Hn-1). The cancel flag is read before every hash.
-fn iterated_hash(
-    algorithm: HashAlgorithm,
-    salt: &[u8],
-    password: &str,
-    spin_count: u32,
-    cancel: &CancelToken,
-) -> Result<Vec<u8>, KeyError> {
+fn iterated_hash(algorithm: HashAlgorithm, salt: &[u8], password: &str, spin_count: u32, cancel: &CancelToken) -> Result<Vec<u8>, KeyError> {
     if cancel.is_cancelled() {
         return Err(KeyError::Cancelled);
     }
@@ -241,18 +225,8 @@ fn agile_key(descriptor: &AgileDescriptor, password: &str, cancel: &CancelToken)
 }
 
 /// 2.3.4.7: the key derived from the iterated SHA-1 hash, and 2.3.4.9: the verifier check.
-fn standard_key(
-    descriptor: &StandardDescriptor,
-    password: &str,
-    cancel: &CancelToken,
-) -> Result<Option<Vec<u8>>, KeyError> {
-    let spun = iterated_hash(
-        HashAlgorithm::Sha1,
-        &descriptor.salt,
-        password,
-        STANDARD_SPIN_COUNT,
-        cancel,
-    )?;
+fn standard_key(descriptor: &StandardDescriptor, password: &str, cancel: &CancelToken) -> Result<Option<Vec<u8>>, KeyError> {
+    let spun = iterated_hash(HashAlgorithm::Sha1, &descriptor.salt, password, STANDARD_SPIN_COUNT, cancel)?;
     let final_hash = hash(HashAlgorithm::Sha1, &[&spun, &uint32(0)])?;
     let derive = |fill: u8| -> Result<Vec<u8>, KeyError> {
         let mut buffer = [fill; 64];
@@ -287,20 +261,15 @@ impl KeyDerivation {
         }
         let ticket = take_ticket();
         let (descriptor, password, token) = (descriptor.clone(), password.to_owned(), cancel.clone());
-        let spawned = std::thread::Builder::new()
-            .name("office-key-derivation".to_owned())
-            .spawn(move || {
-                let _slot = wait_for_slot(&ticket, &token)?;
-                match &descriptor {
-                    Descriptor::Agile(agile) => agile_key(agile, &password, &token),
-                    Descriptor::Standard(standard) => standard_key(standard, &password, &token),
-                }
-            });
+        let spawned = std::thread::Builder::new().name("office-key-derivation".to_owned()).spawn(move || {
+            let _slot = wait_for_slot(&ticket, &token)?;
+            match &descriptor {
+                Descriptor::Agile(agile) => agile_key(agile, &password, &token),
+                Descriptor::Standard(standard) => standard_key(standard, &password, &token),
+            }
+        });
         match spawned {
-            Ok(thread) => Ok(Self {
-                cancel: cancel.clone(),
-                thread,
-            }),
+            Ok(thread) => Ok(Self { cancel: cancel.clone(), thread }),
             Err(error) => {
                 abandon(&ticket);
                 Err(KeyError::Spawn(error.to_string()))
@@ -325,10 +294,6 @@ impl KeyDerivation {
 }
 
 /// The key that decrypts the package when `password` is right, else `None`: [`KeyDerivation::start`] and its wait.
-pub fn password_key(
-    descriptor: &Descriptor,
-    password: &str,
-    cancel: &CancelToken,
-) -> Result<Option<Vec<u8>>, KeyError> {
+pub fn password_key(descriptor: &Descriptor, password: &str, cancel: &CancelToken) -> Result<Option<Vec<u8>>, KeyError> {
     KeyDerivation::start(descriptor, password, cancel)?.wait()
 }

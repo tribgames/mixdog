@@ -15,19 +15,11 @@ pub struct Config {
 }
 
 fn list(name: &str) -> HashSet<String> {
-    std::env::var(name)
-        .unwrap_or_default()
-        .split(',')
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty())
-        .collect()
+    std::env::var(name).unwrap_or_default().split(',').map(|item| item.trim().to_string()).filter(|item| !item.is_empty()).collect()
 }
 
 fn number(name: &str, fallback: u64) -> u64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.trim().parse().ok())
-        .unwrap_or(fallback)
+    std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(fallback)
 }
 
 /// The marker the desktop host named, if it named a usable one.
@@ -40,10 +32,7 @@ pub fn host_input_marker() -> Option<i64> {
 
 pub fn input_marker() -> i64 {
     host_input_marker().unwrap_or_else(|| {
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos() as i64)
-            .unwrap_or(1);
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_nanos() as i64).unwrap_or(1);
         ((seed ^ (std::process::id() as i64)) & 0x7fff_ffff).max(1)
     })
 }
@@ -60,9 +49,7 @@ pub fn host_foreground_lock() -> bool {
 /// (MixWin32InactiveLedger.cs); None when the desktop gave none.
 #[cfg_attr(not(windows), allow(dead_code, reason = "only Windows holds windows inactive"))]
 pub fn inactive_ledger() -> Option<PathBuf> {
-    std::env::var_os("MIXDOG_COMPUTER_INACTIVE_LEDGER")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+    std::env::var_os("MIXDOG_COMPUTER_INACTIVE_LEDGER").filter(|path| !path.is_empty()).map(PathBuf::from)
 }
 
 impl Config {

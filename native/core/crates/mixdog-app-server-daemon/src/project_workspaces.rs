@@ -144,7 +144,10 @@ impl mixdog_workspace::service::ManagedProjects for SessionProjectWorkspaces {
 fn worktree_refusal(failure: &mixdog_scm::error::ScmFailure) -> mixdog_workspace::error::WsError {
     match failure.code() {
         Some(code) => {
-            let text = failure.message().or_else(|| mixdog_scm::worktree::texts::contract_message(code, failure.detail())).map_or_else(|| failure.to_string(), str::to_owned);
+            let text = failure
+                .message()
+                .or_else(|| mixdog_scm::worktree::texts::contract_message(code, failure.detail()))
+                .map_or_else(|| failure.to_string(), str::to_owned);
             mixdog_workspace::error::WsError::coded(code, text)
         }
         None => mixdog_workspace::error::WsError::plain(failure.to_string()),

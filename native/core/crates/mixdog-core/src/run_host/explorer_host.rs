@@ -193,10 +193,13 @@ mod key_provider_tests {
         let config = json!({ "enabledAgents": ["explore"], "agents": { "explore": { "provider": "openrouter", "model": "some/model" } }, "providers": {} });
         let config = Arc::new(std::sync::Mutex::new(config.as_object().expect("config").clone()));
         let registry = Arc::new(ProviderRegistry::new(Arc::new(StoredKey)));
-        let host = ConfigExplorerHost::new(Arc::new({
-            let config = config.clone();
-            move || config.lock().unwrap().clone()
-        }), registry.clone());
+        let host = ConfigExplorerHost::new(
+            Arc::new({
+                let config = config.clone();
+                move || config.lock().unwrap().clone()
+            }),
+            registry.clone(),
+        );
         host.route().await.expect("registered while on");
         config.lock().unwrap()["providers"] = json!({ "openrouter": { "enabled": false }, "anthropic": { "enabled": true } });
         assert!(registry.get("openrouter").await.is_some(), "still registered");
@@ -205,7 +208,4 @@ mod key_provider_tests {
 }
 
 #[cfg(test)]
-mod tests {
-}
-
-
+mod tests {}

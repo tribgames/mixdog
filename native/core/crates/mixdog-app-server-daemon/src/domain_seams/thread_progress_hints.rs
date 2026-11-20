@@ -114,7 +114,13 @@ mod tests {
             Err(PortError::NotFound { target: thread.as_str().to_owned(), message: "no header".into() })
         }
 
-        async fn patch_header_if(&self, thread: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            thread: &ThreadId,
+            _: Map<String, Value>,
+            _: Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             Err(PortError::NotFound { target: thread.as_str().to_owned(), message: "no header".into() })
         }
 

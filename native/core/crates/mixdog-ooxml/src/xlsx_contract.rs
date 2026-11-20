@@ -10,16 +10,13 @@ use std::sync::LazyLock;
 
 use mixdog_js::{JsRegex, js_to_lowercase, js_trim, json_number, string_to_number, utf16_len, value_to_string};
 use mixdog_office_base::a1::{
-    XLSX_MAX_COLUMNS, XLSX_MAX_RANGE_CELLS, XLSX_MAX_ROWS, XlsxCell, XlsxRange, column_label, column_number,
-    parse_xlsx_cell, parse_xlsx_range,
+    XLSX_MAX_COLUMNS, XLSX_MAX_RANGE_CELLS, XLSX_MAX_ROWS, XlsxCell, XlsxRange, column_label, column_number, parse_xlsx_cell, parse_xlsx_range,
 };
 use mixdog_office_base::xlsx_validation::normalize_xlsx_validation;
 use serde_json::{Map, Value};
 
 use crate::sheet_xml::{quote_sheet_name, sheet_qualified_areas};
-use crate::xlsx_audit_support::{
-    escape_reg_exp, js_text, map_outside_string_literals, text_or_empty, text_or_empty_nullish, truthy,
-};
+use crate::xlsx_audit_support::{escape_reg_exp, js_text, map_outside_string_literals, text_or_empty, text_or_empty_nullish, truthy};
 
 macro_rules! regex {
     ($source:expr, $flags:expr) => {
@@ -30,37 +27,23 @@ macro_rules! regex {
 /// A structured reference (`Ops[처리량 (건)]`, `Ops[[#This Row],[월]]`, `[@월]`) names a table's column, never a cell, so
 /// a fill leaves it as it is; the reference reader does not parse one, so it is held aside as a string while the rest
 /// of the formula moves.
-static STRUCTURED_REFERENCE: LazyLock<JsRegex> =
-    regex!(r#"(?:[A-Za-z_\\À-￿][\w.À-￿]*)?\[(?:[^[\]"]|\[[^\]]*\])*\]"#, "g");
+static STRUCTURED_REFERENCE: LazyLock<JsRegex> = regex!(r#"(?:[A-Za-z_\\À-￿][\w.À-￿]*)?\[(?:[^[\]"]|\[[^\]]*\])*\]"#, "g");
 static HELD_REFERENCE: LazyLock<JsRegex> = regex!(r#""\u0000(\d+)\u0000""#, "g");
 
 /// `parseXlsxCell(operation[field])`: a reference a caller left out or wrote as a falsy value is named as written.
 fn cell_of(reference: Option<&Value>) -> Result<XlsxCell, String> {
-    if truthy(reference) {
-        parse_xlsx_cell(&js_text(reference))
-    } else {
-        Err(format!("Invalid XLSX cell reference: {}", js_text(reference)))
-    }
+    if truthy(reference) { parse_xlsx_cell(&js_text(reference)) } else { Err(format!("Invalid XLSX cell reference: {}", js_text(reference))) }
 }
 
 /// `parseXlsxRange(operation[field])` with the default cell limit.
 fn range_of(reference: Option<&Value>) -> Result<XlsxRange, String> {
-    if truthy(reference) {
-        parse_xlsx_range(&js_text(reference), XLSX_MAX_RANGE_CELLS)
-    } else {
-        Err(format!("Invalid XLSX range: {}", js_text(reference)))
-    }
+    if truthy(reference) { parse_xlsx_range(&js_text(reference), XLSX_MAX_RANGE_CELLS) } else { Err(format!("Invalid XLSX range: {}", js_text(reference))) }
 }
 
 /// What a fill writes into the cell `row_delta` rows and `column_delta` columns from the one it was written for, as
 /// Excel's fill moves it: relative references move, `$`-pinned ones stay, a sheet-qualified one moves too (`=Data!B2`
 /// filled down reads `=Data!B3`), a table's structured reference stays. `translate` is the engine's shared-formula move.
-pub fn filled_formula(
-    formula: &str,
-    row_delta: i64,
-    column_delta: i64,
-    translate: &dyn Fn(&str, i64, i64) -> String,
-) -> String {
+pub fn filled_formula(formula: &str, row_delta: i64, column_delta: i64, translate: &dyn Fn(&str, i64, i64) -> String) -> String {
     if row_delta == 0 && column_delta == 0 {
         return formula.to_owned();
     }
@@ -85,13 +68,8 @@ pub fn filled_formula(
 /// `expandFilledFormulas(operations, translate)`: `set_formula` over a range. The formula is written for the range's
 /// top-left cell and every other cell takes it as Excel's fill moves it, so a column of SUMIFS over the rows beside it
 /// is one operation, not one per row.
-pub fn expand_filled_formulas(
-    operations: &[Value],
-    translate: &dyn Fn(&str, i64, i64) -> String,
-) -> Result<Vec<Value>, String> {
-    let fills = |operation: &Value| {
-        operation.get("op").and_then(Value::as_str) == Some("set_formula") && operation.get("range").is_some()
-    };
+pub fn expand_filled_formulas(operations: &[Value], translate: &dyn Fn(&str, i64, i64) -> String) -> Result<Vec<Value>, String> {
+    let fills = |operation: &Value| operation.get("op").and_then(Value::as_str) == Some("set_formula") && operation.get("range").is_some();
     if !operations.iter().any(fills) {
         return Ok(operations.to_vec());
     }
@@ -101,8 +79,7 @@ pub fn expand_filled_formulas(
             expanded.push(operation.clone());
             continue;
         };
-        let rest: Map<String, Value> =
-            fields.iter().filter(|(key, _)| key.as_str() != "range").map(|(key, value)| (key.clone(), value.clone())).collect();
+        let rest: Map<String, Value> = fields.iter().filter(|(key, _)| key.as_str() != "range").map(|(key, value)| (key.clone(), value.clone())).collect();
         let area = range_of(fields.get("range"))?;
         let formula = text_or_empty_nullish(fields.get("formula"));
         for row in 0..area.rows {
@@ -184,32 +161,25 @@ const SPILLING_FUNCTIONS: &str = "XLOOKUP|XMATCH|SORTBY|SORT|FILTER|UNIQUE|SEQUE
 /// name Excel would also read bare (`'모델'!B8`) evaluates the same, while reporting one as unquoted would be a warning
 /// nobody can resolve. A writer may over-quote; an audit may not.
 static SHEET_IDENTIFIER: LazyLock<JsRegex> = regex!(r"^[A-Za-z_][A-Za-z0-9_.]*$", "");
-static SPILLING: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(&format!(r"(?:^|[^A-Za-z0-9_.])({SPILLING_FUNCTIONS})\s*\("), "i"));
-static PREFIXED: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(&format!(r"(^|[^A-Za-z0-9_.])({PREFIXED_FUNCTIONS})\s*\("), "gi"));
+static SPILLING: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(&format!(r"(?:^|[^A-Za-z0-9_.])({SPILLING_FUNCTIONS})\s*\("), "i"));
+static PREFIXED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(&format!(r"(^|[^A-Za-z0-9_.])({PREFIXED_FUNCTIONS})\s*\("), "gi"));
 
 /// `My Sheet!B5` evaluates to #VALUE!; Excel needs `'My Sheet'!B5`. Only names the workbook actually holds are quoted,
 /// and never inside a string literal.
 fn quote_sheet_references(text: &str, sheet_names: Option<&[String]>) -> String {
-    let mut names: Vec<&String> =
-        sheet_names.unwrap_or_default().iter().filter(|name| !name.is_empty() && !SHEET_IDENTIFIER.is_match(name)).collect();
+    let mut names: Vec<&String> = sheet_names.unwrap_or_default().iter().filter(|name| !name.is_empty() && !SHEET_IDENTIFIER.is_match(name)).collect();
     names.sort_by(|left, right| utf16_len(right).cmp(&utf16_len(left)));
     if names.is_empty() {
         return text.to_owned();
     }
     let patterns: Vec<(&String, JsRegex)> = names
         .into_iter()
-        .filter_map(|name| {
-            JsRegex::new(&format!(r"(^|[^'A-Za-z0-9_.\]]){}!", escape_reg_exp(name)), "g").ok().map(|pattern| (name, pattern))
-        })
+        .filter_map(|name| JsRegex::new(&format!(r"(^|[^'A-Za-z0-9_.\]]){}!", escape_reg_exp(name)), "g").ok().map(|pattern| (name, pattern)))
         .collect();
     map_outside_string_literals(text, |segment| {
         let mut output = segment.to_owned();
         for (name, pattern) in &patterns {
-            output = pattern.replace_all_with(&output, |found| {
-                format!("{}{}!", found.get(1).unwrap_or_default(), quote_sheet_name(name))
-            });
+            output = pattern.replace_all_with(&output, |found| format!("{}{}!", found.get(1).unwrap_or_default(), quote_sheet_name(name)));
         }
         output
     })
@@ -218,10 +188,8 @@ fn quote_sheet_references(text: &str, sheet_names: Option<&[String]>) -> String 
 /// Without a sheet list (Excel sessions): a multi-word token written straight before `!` and a cell or range
 /// (`Data 2024!A1:A5`) can only be a sheet name Excel would reject, so it is quoted. A token that starts with a cell
 /// reference is left alone: `A1:C3 Sheet2!B2` is an intersection, not a name.
-static UNQUOTED_MULTIWORD_SHEET: LazyLock<JsRegex> = regex!(
-    r"(^|[^'A-Za-z0-9_.!\]])([A-Za-z0-9_.]+(?: +[A-Za-z0-9_.]+)+)!(?=\$?[A-Z]{1,3}\$?\d|\$?[A-Z]{1,3}:|\$?\d+:)",
-    "gi"
-);
+static UNQUOTED_MULTIWORD_SHEET: LazyLock<JsRegex> =
+    regex!(r"(^|[^'A-Za-z0-9_.!\]])([A-Za-z0-9_.]+(?: +[A-Za-z0-9_.]+)+)!(?=\$?[A-Z]{1,3}\$?\d|\$?[A-Z]{1,3}:|\$?\d+:)", "gi");
 static STARTS_WITH_CELL: LazyLock<JsRegex> = regex!(r"^[A-Z]{1,3}\d+(?:\s|$)", "i");
 
 /// `quoteUnquotedSheetReferences(formula)`.
@@ -254,9 +222,8 @@ pub fn normalize_xlsx_formula(formula: &Value, backend: &str, sheet_names: Optio
             spilling.get(1).unwrap_or_default().to_uppercase()
         ));
     }
-    let prefixed = PREFIXED.replace_all_with(text, |found| {
-        format!("{}_xlfn.{}(", found.get(1).unwrap_or_default(), found.get(2).unwrap_or_default().to_uppercase())
-    });
+    let prefixed =
+        PREFIXED.replace_all_with(text, |found| format!("{}_xlfn.{}(", found.get(1).unwrap_or_default(), found.get(2).unwrap_or_default().to_uppercase()));
     Ok(quote_unquoted_sheet_references(&quote_sheet_references(&prefixed, sheet_names)))
 }
 
@@ -288,16 +255,11 @@ fn pivot_value_fields(values: &Value) -> Result<Vec<String>, String> {
         let field = match entry {
             Value::Object(_) | Value::Array(_) => {
                 let named = |keys: [&str; 2], fallback: &str| -> String {
-                    keys.iter()
-                        .find_map(|key| entry.get(*key).filter(|value| !value.is_null()))
-                        .map_or_else(|| fallback.to_owned(), value_to_string)
+                    keys.iter().find_map(|key| entry.get(*key).filter(|value| !value.is_null())).map_or_else(|| fallback.to_owned(), value_to_string)
                 };
                 let field = js_trim(&named(["field", "name"], "")).to_owned();
                 if field.is_empty() {
-                    return Err(
-                        "XLSX add_pivot_table values entries need a field name: values:[\"매출\"] or values:[{ field: \"매출\" }]"
-                            .to_owned(),
-                    );
+                    return Err("XLSX add_pivot_table values entries need a field name: values:[\"매출\"] or values:[{ field: \"매출\" }]".to_owned());
                 }
                 let aggregate = js_to_lowercase(js_trim(&named(["function", "aggregation"], "sum")));
                 if aggregate != "sum" {
@@ -327,9 +289,7 @@ fn normalize_pivot_fields(operation: &mut Map<String, Value>) -> Result<(), Stri
         }
         let declared = js_trim(&text_or_empty_nullish(operation.get(owner))).to_owned();
         if !declared.is_empty() && declared != sheet {
-            return Err(format!(
-                "XLSX add_pivot_table {field} names sheet \"{sheet}\" but {owner} is \"{declared}\"; name the sheet once."
-            ));
+            return Err(format!("XLSX add_pivot_table {field} names sheet \"{sheet}\" but {owner} is \"{declared}\"; name the sheet once."));
         }
         operation.insert(field.to_owned(), Value::String(reference));
         operation.insert(owner.to_owned(), Value::String(sheet));
@@ -341,8 +301,7 @@ fn normalize_pivot_fields(operation: &mut Map<String, Value>) -> Result<(), Stri
     Ok(())
 }
 
-static CHOICE_RANGE: LazyLock<JsRegex> =
-    regex!(r"^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$", "");
+static CHOICE_RANGE: LazyLock<JsRegex> = regex!(r"^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$", "");
 static QUOTED_LIST: LazyLock<JsRegex> = regex!(r#"^"[^"]*"$"#, "");
 
 /// `listValidationChoices(formula1)`: Excel holds a literal list quoted (`<formula1>"서울,부산"</formula1>`). Written
@@ -351,11 +310,7 @@ static QUOTED_LIST: LazyLock<JsRegex> = regex!(r#"^"[^"]*"$"#, "");
 pub fn list_validation_choices(formula1: &Value) -> String {
     let trimmed = js_trim(&text_or_empty_nullish(Some(formula1))).to_owned();
     let text = trimmed.strip_prefix('=').unwrap_or(&trimmed);
-    if text.is_empty() || QUOTED_LIST.is_match(text) || CHOICE_RANGE.is_match(text) {
-        text.to_owned()
-    } else {
-        format!("\"{text}\"")
-    }
+    if text.is_empty() || QUOTED_LIST.is_match(text) || CHOICE_RANGE.is_match(text) { text.to_owned() } else { format!("\"{text}\"") }
 }
 
 /// `conditionalFormatKind(operation)`: three ways a sheet marks its numbers, a rule that paints the cells it picks, a
@@ -380,8 +335,7 @@ fn conditional_kind_of(declared: Option<&Value>) -> Result<&'static str, String>
 }
 
 const CELL_OPERATIONS: [&str; 5] = ["set_cell", "set_formula", "clear_cell", "add_note", "delete_note"];
-const RANGE_OPERATIONS: [&str; 6] =
-    ["set_range", "set_style", "add_table", "add_chart", "add_conditional_format", "add_validation"];
+const RANGE_OPERATIONS: [&str; 6] = ["set_range", "set_style", "add_table", "add_chart", "add_conditional_format", "add_validation"];
 
 /// `Number.isInteger(value)` of a field, its default where it is null or missing (`value ?? default`).
 fn integer_or(value: Option<&Value>, default: f64) -> Option<f64> {
@@ -677,10 +631,7 @@ mod tests {
         assert_eq!(refused(json!({ "op": "insert_rows", "row": 0 })), "XLSX insert_rows row must be between 1 and 1048576");
         assert!(refused(json!({ "op": "add_chart", "range": "A1:D2" })).contains("reads as 3 series of one value each"));
         assert_eq!(refused(json!(5)), "XLSX operation must be an object");
-        assert_eq!(
-            refused(json!({ "op": "set_range", "range": "A1:B2", "values": [[1, 2]] })),
-            "XLSX set_range expected 2 value row(s), received 1"
-        );
+        assert_eq!(refused(json!({ "op": "set_range", "range": "A1:B2", "values": [[1, 2]] })), "XLSX set_range expected 2 value row(s), received 1");
     }
 
     #[test]

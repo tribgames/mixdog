@@ -29,9 +29,7 @@ fn normalized_version(raw: &str) -> Option<String> {
     let mut parts = mixdog_js::js_trim(raw).split('.');
     let mut component = |max| {
         let part = parts.next()?;
-        (part.len() <= max && part.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| part.parse::<u32>().ok())
-            .flatten()
+        (part.len() <= max && part.bytes().all(|b| b.is_ascii_digit())).then(|| part.parse::<u32>().ok()).flatten()
     };
     let (major, minor, patch) = (component(4)?, component(4)?, component(6)?);
     parts.next().is_none().then(|| format!("{major}.{minor}.{patch}"))
@@ -61,21 +59,11 @@ pub struct ClaudeClientVersion {
 impl ClaudeClientVersion {
     /// Reuses the routing owner's existing `claude-cli` live version source.
     pub fn new(live: Arc<RemoteVersion>, data_dir: &Path, io: CredentialIo, explicit: &str) -> Arc<Self> {
-        Arc::new(Self {
-            live: Some(live),
-            store: Some(Store { path: data_dir.join(LEARNED_FILE), io }),
-            ..Self::fixed(explicit)
-        })
+        Arc::new(Self { live: Some(live), store: Some(Store { path: data_dir.join(LEARNED_FILE), io }), ..Self::fixed(explicit) })
     }
 
     pub(super) fn fixed(explicit: &str) -> Self {
-        Self {
-            live: None,
-            store: None,
-            explicit: mixdog_js::js_trim(explicit).to_owned(),
-            loaded: OnceCell::new(),
-            minimum: Mutex::new(None),
-        }
+        Self { live: None, store: None, explicit: mixdog_js::js_trim(explicit).to_owned(), loaded: OnceCell::new(), minimum: Mutex::new(None) }
     }
 
     pub fn current(&self) -> String {
@@ -84,23 +72,31 @@ impl ClaudeClientVersion {
         }
         let minimum = self.minimum.lock().unwrap_or_else(PoisonError::into_inner);
         let live = self.live.as_ref().and_then(|live| live.sync());
-        max_semver(&[Some(DEFAULT_CLI_VERSION), minimum.as_deref(), live.as_deref()])
-            .unwrap_or_else(|| DEFAULT_CLI_VERSION.to_owned())
+        max_semver(&[Some(DEFAULT_CLI_VERSION), minimum.as_deref(), live.as_deref()]).unwrap_or_else(|| DEFAULT_CLI_VERSION.to_owned())
     }
 
     async fn load_minimum(&self) {
-        self.loaded.get_or_init(|| async {
-            let Some(store) = &self.store else { return };
-            let path = store.path.clone();
-            if let Ok(Some(version)) = store.io.read_job(move |_| {
-                let version = mixdog_statefile::read_content(&path).ok().flatten()
-                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-                    .as_ref().and_then(stored_minimum);
-                Ok(version)
-            }).await {
-                self.raise_minimum(&version);
-            }
-        }).await;
+        self.loaded
+            .get_or_init(|| async {
+                let Some(store) = &self.store else { return };
+                let path = store.path.clone();
+                if let Ok(Some(version)) = store
+                    .io
+                    .read_job(move |_| {
+                        let version = mixdog_statefile::read_content(&path)
+                            .ok()
+                            .flatten()
+                            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                            .as_ref()
+                            .and_then(stored_minimum);
+                        Ok(version)
+                    })
+                    .await
+                {
+                    self.raise_minimum(&version);
+                }
+            })
+            .await;
     }
 
     pub async fn warm(&self) {
@@ -127,20 +123,25 @@ impl ClaudeClientVersion {
             return false;
         };
         self.load_minimum().await;
-        if self.raise_minimum(&version) && let Some(store) = &self.store {
+        if self.raise_minimum(&version)
+            && let Some(store) = &self.store
+        {
             let path = store.path.clone();
-            let persisted = store.io.write_job(move |lane| {
-                let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
-                let update = |current: Option<Value>| -> Result<Option<Value>, Infallible> {
-                    if let Some(held) = current.as_ref().and_then(stored_minimum)
-                        && compare_semver(&held, &version) != Ordering::Less
-                    {
-                        return Ok(None);
-                    }
-                    Ok(Some(json!({ "version": 1, "cliVersion": version, "updatedAt": super::oauth::now_ms() })))
-                };
-                Ok(mixdog_statefile::update_json(lane, &path, update, &opts).ok().flatten().as_ref().and_then(stored_minimum))
-            }).await;
+            let persisted = store
+                .io
+                .write_job(move |lane| {
+                    let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
+                    let update = |current: Option<Value>| -> Result<Option<Value>, Infallible> {
+                        if let Some(held) = current.as_ref().and_then(stored_minimum)
+                            && compare_semver(&held, &version) != Ordering::Less
+                        {
+                            return Ok(None);
+                        }
+                        Ok(Some(json!({ "version": 1, "cliVersion": version, "updatedAt": super::oauth::now_ms() })))
+                    };
+                    Ok(mixdog_statefile::update_json(lane, &path, update, &opts).ok().flatten().as_ref().and_then(stored_minimum))
+                })
+                .await;
             if let Ok(Some(winner)) = persisted {
                 self.raise_minimum(&winner);
             }

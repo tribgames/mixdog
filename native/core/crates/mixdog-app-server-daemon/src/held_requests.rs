@@ -185,18 +185,14 @@ impl HeldRequests {
             action: outbound.then(|| clean(text(&card, "category"), 40)).filter(|a| !a.is_empty()),
             // An outbound card's own account (what the gate read) comes first.
             account: if outbound { account(&card).or_else(|| account(payload)) } else { account(payload) },
-            editable: outbound
-                .then(|| string_list(card.get("editable")).iter().map(|n| clean(n, 40)).collect::<Vec<_>>())
-                .filter(|names| !names.is_empty()),
+            editable: outbound.then(|| string_list(card.get("editable")).iter().map(|n| clean(n, 40)).collect::<Vec<_>>()).filter(|names| !names.is_empty()),
             details: outbound
                 .then(|| {
-                    card.get("details")
-                        .and_then(Value::as_object)
-                        .map(|map| {
-                            map.iter()
-                                .filter_map(|(k, v)| v.as_str().filter(|s| !s.is_empty()).map(|s| (clean(k, 40), clean(s, 200))))
-                                .collect::<std::collections::BTreeMap<_, _>>()
-                        })
+                    card.get("details").and_then(Value::as_object).map(|map| {
+                        map.iter()
+                            .filter_map(|(k, v)| v.as_str().filter(|s| !s.is_empty()).map(|s| (clean(k, 40), clean(s, 200))))
+                            .collect::<std::collections::BTreeMap<_, _>>()
+                    })
                 })
                 .flatten(),
             remember: Some(remember_names),
@@ -292,7 +288,6 @@ impl HeldRequests {
         let _ = entry.reply.send(ApprovalResolution::Decided { decision, device: answer.device, connection_kind: kind, at });
         true
     }
-
 }
 
 /// `recordHumanDecision(entry.gate, approval)` of `settle`: the audit line of an answered held
@@ -330,8 +325,7 @@ fn remember_name(scope: ApprovalRemember) -> &'static str {
 
 /// `RESPONSES_BY_KIND`: an approval card answers approve or deny; an outbound one may also edit.
 fn allowed(outbound: bool, response: HumanGateResponse) -> bool {
-    matches!(response, HumanGateResponse::Approve | HumanGateResponse::Deny)
-        || (outbound && response == HumanGateResponse::EditAndApprove)
+    matches!(response, HumanGateResponse::Approve | HumanGateResponse::Deny) || (outbound && response == HumanGateResponse::EditAndApprove)
 }
 
 fn granting(response: HumanGateResponse) -> bool {
@@ -453,7 +447,12 @@ mod tests {
 
     #[async_trait]
     impl GrantStore for Audits {
-        async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<mixdog_tools::policy::PermissionMode, mixdog_tools::policy::StoreError> {
+        async fn mode_for(
+            &self,
+            agent_id: &str,
+            action: &GrantKey,
+            shared_only: bool,
+        ) -> Result<mixdog_tools::policy::PermissionMode, mixdog_tools::policy::StoreError> {
             self.0.mode_for(agent_id, action, shared_only).await
         }
         async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, mixdog_tools::policy::StoreError> {
@@ -582,7 +581,10 @@ mod tests {
         assert_eq!(decision.response, Some(HumanGateResponse::Approve));
         // Nothing is stored for it: no grant of the category or the tool, and one audit line.
         home.audited.acquire().await.unwrap().forget();
-        assert_eq!(home.store.mode_for("ann", &GrantKey::Kind(mixdog_core_api::domain::approval::ActionKind::Comment), false).await, Ok(mixdog_tools::policy::PermissionMode::Ask));
+        assert_eq!(
+            home.store.mode_for("ann", &GrantKey::Kind(mixdog_core_api::domain::approval::ActionKind::Comment), false).await,
+            Ok(mixdog_tools::policy::PermissionMode::Ask)
+        );
         assert_eq!(home.store.mode_for("ann", &GrantKey::tool("github").unwrap(), false).await, Ok(mixdog_tools::policy::PermissionMode::Ask));
         assert_eq!(home.store.audit().into_iter().map(|e| e.decision).collect::<Vec<_>>(), ["approve"]);
     }
@@ -758,6 +760,4 @@ mod tests {
         assert!(home.rows.lock().unwrap().is_empty());
         assert!(held.pending().is_empty());
     }
-
-
 }

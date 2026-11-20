@@ -175,10 +175,7 @@ mod tests {
         assert_eq!(quiet_progress(1000.0, "streaming", None, 1000.0 + 119_999.0), None);
         assert_eq!(quiet_progress(0.0, "streaming", None, 1_000_000.0), None);
         assert_eq!(quiet_progress(1000.0, "streaming", None, 121_000.0), Some(json!({ "since": 1000, "wait": "model" })));
-        assert_eq!(
-            quiet_progress(1000.0, "tool_running", Some("shell"), 121_000.0),
-            Some(json!({ "since": 1000, "wait": "tool", "tool": "shell" }))
-        );
+        assert_eq!(quiet_progress(1000.0, "tool_running", Some("shell"), 121_000.0), Some(json!({ "since": 1000, "wait": "tool", "tool": "shell" })));
         assert_eq!(quiet_progress(1000.0, "streaming", Some("shell"), 121_000.0), Some(json!({ "since": 1000, "wait": "model" })));
     }
 
@@ -196,7 +193,8 @@ mod tests {
 
     #[test]
     fn the_label_reads_the_wait() {
-        let at = |wait: &str, tool: &str| QuietProgressParts { quiet_ms: 130_000.0, minutes: 2.0, wait: wait.to_owned(), tool: tool.to_owned(), escalated: false };
+        let at =
+            |wait: &str, tool: &str| QuietProgressParts { quiet_ms: 130_000.0, minutes: 2.0, wait: wait.to_owned(), tool: tool.to_owned(), escalated: false };
         assert_eq!(quiet_progress_label(Some(&at("provider", ""))), "quiet for 2m \u{b7} waiting on provider");
         assert_eq!(quiet_progress_label(Some(&at("thinking", ""))), "quiet for 2m \u{b7} model thinking");
         assert_eq!(quiet_progress_label(Some(&at("tool", "shell"))), "quiet for 2m \u{b7} running shell");

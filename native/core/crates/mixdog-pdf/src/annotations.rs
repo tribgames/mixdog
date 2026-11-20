@@ -87,11 +87,7 @@ fn normal_rect(obj: &Obj) -> Option<[f64; 4]> {
 }
 
 /// `getQuadPoints(dict, rect)`: `None` when the points are missing or invalid, or (with a `rect`) do not fit in it.
-fn quad_points(
-    dict: &Dict,
-    rect: Option<&[f64; 4]>,
-    document: &Document,
-) -> Result<Option<Vec<f32>>> {
+fn quad_points(dict: &Dict, rect: Option<&[f64; 4]>, document: &Document) -> Result<Option<Vec<f32>>> {
     let Obj::Array(items) = document.xref().get_array(dict, "QuadPoints")? else {
         return Ok(None);
     };
@@ -320,13 +316,7 @@ pub fn get_annotations(document: &Document, page: &Page) -> Result<Vec<Annotatio
     let mut popups = Vec::new();
     for entry in &entries {
         document.guard().tick()?;
-        match parse_annotation(
-            document,
-            entry,
-            base_url.as_deref(),
-            page.index,
-            &mut inline_count,
-        ) {
+        match parse_annotation(document, entry, base_url.as_deref(), page.index, &mut inline_count) {
             Ok(Some((annotation, quad_points_valid, kind))) => {
                 if quad_points_valid && viewable(annotation.annotation_flags) {
                     match kind {
@@ -360,12 +350,7 @@ mod tests {
 
     #[test]
     fn rectangles_are_normalised() {
-        let rect = Obj::Array(Arc::new(vec![
-            Obj::Num(10.0),
-            Obj::Num(20.0),
-            Obj::Num(5.0),
-            Obj::Num(2.0),
-        ]));
+        let rect = Obj::Array(Arc::new(vec![Obj::Num(10.0), Obj::Num(20.0), Obj::Num(5.0), Obj::Num(2.0)]));
         assert_eq!(normal_rect(&rect), Some([5.0, 2.0, 10.0, 20.0]));
         assert_eq!(normal_rect(&Obj::Null), None);
     }

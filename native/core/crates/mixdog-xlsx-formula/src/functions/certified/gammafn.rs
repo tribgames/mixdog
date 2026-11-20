@@ -128,7 +128,6 @@ pub fn stirling_rem(y: &B) -> B {
     lgamma(y).sub(&stirling_main(y))
 }
 
-
 /// The sign and ln|Gamma(x)| of a double that is not a pole, or `None` at a pole (zero or a negative integer).
 pub fn gamma_signed_log(x: f64) -> Option<(bool, B)> {
     if x > 0.0 {
@@ -148,7 +147,6 @@ pub fn gamma_signed_log(x: f64) -> Option<(bool, B)> {
     let v = ln(&pi()).sub(&ln(&s)).sub(&lgamma(&one_minus));
     Some((n_odd, v))
 }
-
 
 /// `B_{2k}` (k >= 1) for every k up to `n`.
 pub fn bernoulli_even(n: usize) -> Vec<B> {
@@ -283,4 +281,3 @@ pub fn hurwitz_all(z: &B, smax: i64) -> Vec<B> {
     }
     out
 }
-

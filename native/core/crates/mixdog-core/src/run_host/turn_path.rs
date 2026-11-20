@@ -8,6 +8,7 @@ type HopFactoryBuilder = dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistr
 
 use std::sync::Arc;
 
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::compact::image::ToolImageCompactor;
 use mixdog_agent::env::Clock;
 use mixdog_ai::registry::providers::ProviderRegistry;
@@ -16,10 +17,9 @@ use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::{Tool, ToolIo};
 use mixdog_exthost::ExtImageCodec;
-use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_mcp::hook_bus::HookBus;
+use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_mcp::skill_select::SkillNames;
-use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_rt::LaneTokens;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_store::paths::Paths;
@@ -27,28 +27,28 @@ use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use mixdog_tools::state::todo::TodoStore;
 
 use super::assemble::SkillParts;
-use super::boot::{build_directory, HostParts};
+use super::boot::{HostParts, build_directory};
 use super::compactors::SessionCompactors;
+use super::host_seams::{ConfigSeams, DirectoryParts, SeamParts};
+use super::mcp_seams::BusPostToolDispatch;
 use super::mcp_seams::{AllowAllActions, HostGateEnv};
+use super::prewarm::StartupProbes;
+use super::reactions::ReactionTargets;
+use super::session_tools::{SessionMcp, SessionToolBuilder, SkillsListed};
+use super::settings::SettingsSources;
+use super::step_judge::LadderSources;
 use super::unattended::UnattendedRunRegistry;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::ContactIds;
-use mixdog_mcp::McpHub;
-use mixdog_core_run::run_host::guards::RunningWork;
-use super::host_seams::{ConfigSeams, DirectoryParts, SeamParts};
-use mixdog_core_run::run_host::hop_host::HopFactory;
-use super::mcp_seams::BusPostToolDispatch;
-use super::prewarm::StartupProbes;
-use super::reactions::ReactionTargets;
-use super::settings::SettingsSources;
-use super::session_tools::{SessionMcp, SessionToolBuilder, SkillsListed};
-use super::step_judge::LadderSources;
 use mixdog_core_goal::goal::GoalRuntime;
-use mixdog_core_run::ports::todo_view::TodoViews;
 use mixdog_core_prompt::prompt::probes::StartupObservations;
+use mixdog_core_run::ports::todo_view::TodoViews;
+use mixdog_core_run::run_host::guards::RunningWork;
+use mixdog_core_run::run_host::hop_host::HopFactory;
 use mixdog_core_session::session::RunFactory;
 use mixdog_core_session::session::SessionDeps;
 use mixdog_core_session::session::SessionDirectory;
+use mixdog_mcp::McpHub;
 
 /// Everything the turn path is built from.
 pub struct TurnPathParts {
@@ -160,15 +160,57 @@ pub struct TurnPath {
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, skill_deliveries, ext_pool, hook_bus, hook_common, goals, todos, work, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
+            tokens,
+            clock,
+            paths,
+            registry,
+            effort_judge,
+            side,
+            next,
+            files,
+            processes,
+            policy,
+            connectors,
+            resolver,
+            unattended,
+            approvals,
+            exclusions,
+            agents,
+            allow_all,
+            hub,
+            blobs,
+            tool_pool,
+            mcp,
+            skills_listed,
+            skill_names,
+            skill_deliveries,
+            ext_pool,
+            hook_bus,
+            hook_common,
+            goals,
+            todos,
+            work,
+            config,
+            settings,
+            ladder,
+            deps,
+            compactors,
+            hops,
+            shells,
+            liveness,
+            search_usage,
+            reuses,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         // A tool result's images enter the attachment store through the one importer, as every other ingress does.
         let data_dir = paths.data_dir.clone();
         let intake = Arc::new(super::attachment_store::StoreFiles::new(mixdog_store::blobs::BlobStore::new(&data_dir), &data_dir, &tokens));
         // And every provider send reads its images' verdicts and bytes back from the same store.
-        mixdog_core_api::domain::image_supply::install(Arc::new(super::image_supply::VaultSupply::new(mixdog_store::blobs::BlobStore::new(&data_dir), &data_dir, &tokens)));
+        mixdog_core_api::domain::image_supply::install(Arc::new(super::image_supply::VaultSupply::new(
+            mixdog_store::blobs::BlobStore::new(&data_dir),
+            &data_dir,
+            &tokens,
+        )));
         // A core composed with skills off (`MIXDOG_DISABLE_SKILLS`, the exec boundary's guard) has no `Skill` tool.
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned();
         let reaction_targets: Arc<ReactionTargets> = Arc::default();

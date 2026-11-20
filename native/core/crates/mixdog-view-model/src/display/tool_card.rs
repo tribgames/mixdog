@@ -14,8 +14,8 @@ use mixdog_js::json_parse;
 use mixdog_js::slice_utf16;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
-use mixdog_tui_style::color::Styler;
 use mixdog_tui_style::color::Style;
+use mixdog_tui_style::color::Styler;
 use serde_json::Map;
 use serde_json::Value;
 
@@ -34,9 +34,9 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a Value> {
 /// `joinMaybe(v)`: an array joined with spaces (an empty element reads empty), anything else as it is.
 fn join_maybe(value: Option<&Value>) -> Option<Value> {
     match value? {
-        Value::Array(items) => Some(Value::String(
-            items.iter().map(|item| if item.is_null() { String::new() } else { value_to_string(item) }).collect::<Vec<_>>().join(" "),
-        )),
+        Value::Array(items) => {
+            Some(Value::String(items.iter().map(|item| if item.is_null() { String::new() } else { value_to_string(item) }).collect::<Vec<_>>().join(" ")))
+        }
         other => Some(other.clone()),
     }
 }

@@ -73,9 +73,7 @@ fn module_stem(rel: &str) -> String {
 }
 
 fn dir_of(rel: &str) -> String {
-    rel.rfind('/')
-        .map_or("", |i| &rel[..i])
-        .to_lowercase()
+    rel.rfind('/').map_or("", |i| &rel[..i]).to_lowercase()
 }
 
 /// `.d.ts` next to the implementation it types.
@@ -84,11 +82,7 @@ pub(super) fn is_type_face_of(impl_rel: &str, type_rel: &str) -> bool {
 }
 
 fn rel_rank(rel: &str) -> (bool, bool, usize) {
-    (
-        is_type_declaration_rel(rel),
-        rel.starts_with("src/"),
-        rel.split('/').count(),
-    )
+    (is_type_declaration_rel(rel), rel.starts_with("src/"), rel.split('/').count())
 }
 
 fn compare_rel_rank(a: &str, b: &str) -> Ordering {
@@ -108,13 +102,8 @@ pub(super) fn compare_hits(a: &Hit, b: &Hit) -> Ordering {
 
 /// A native hit has fixed declaration and occurrence ranks. Rank its location before copying
 /// paths and signatures into rendered hits.
-pub(super) fn compare_native_declarations(
-    (a, a_sym): (&Node, &SymbolInfo),
-    (b, b_sym): (&Node, &SymbolInfo),
-) -> Ordering {
-    compare_rel_rank(&a.rel, &b.rel)
-        .then_with(|| name_cmp(&a.rel, &b.rel))
-        .then(a_sym.start_line.cmp(&b_sym.start_line))
+pub(super) fn compare_native_declarations((a, a_sym): (&Node, &SymbolInfo), (b, b_sym): (&Node, &SymbolInfo)) -> Ordering {
+    compare_rel_rank(&a.rel, &b.rel).then_with(|| name_cmp(&a.rel, &b.rel)).then(a_sym.start_line.cmp(&b_sym.start_line))
 }
 
 fn sorted(mut hits: Vec<Hit>) -> Vec<Hit> {
@@ -234,12 +223,7 @@ pub(super) fn find_hits(graph: &Graph, symbol: &str, language: Option<&str>) -> 
                     continue;
                 }
                 if let Some(mut hit) = native_hit(node, sym) {
-                    hit.content = node
-                        .read()
-                        .lines()
-                        .get(sym.start_line as usize - 1)
-                        .map_or("", |s| s.trim())
-                        .to_string();
+                    hit.content = node.read().lines().get(sym.start_line as usize - 1).map_or("", |s| s.trim()).to_string();
                     hit.name_path = Some(path);
                     hits.push(hit);
                 }
@@ -255,21 +239,13 @@ pub(super) fn find_hits(graph: &Graph, symbol: &str, language: Option<&str>) -> 
 }
 
 /// The declaration a callee name resolves to: the same file's, else the best-ranked.
-pub(super) fn callee_declaration(
-    graph: &Graph,
-    name: &str,
-    language: Option<&str>,
-    prefer_rel: &str,
-) -> Option<Hit> {
+pub(super) fn callee_declaration(graph: &Graph, name: &str, language: Option<&str>, prefer_rel: &str) -> Option<Hit> {
     let clean = name.trim();
     let hits: Vec<Hit> = if clean.is_empty() || clean.contains('/') {
         find_hits(graph, name, language)
     } else {
         let mut hits = Vec::new();
-        for node in graph
-            .token_candidates(clean, language)
-            .filter(|n| n.symbols.iter().any(|s| s.name == clean))
-        {
+        for node in graph.token_candidates(clean, language).filter(|n| n.symbols.iter().any(|s| s.name == clean)) {
             hits_on_node(node, clean, &mut hits);
         }
         sorted(hits)
@@ -292,10 +268,7 @@ pub(super) fn format_body(text: &str, start_line: u32, end_line: u32) -> String 
     let all: Vec<&str> = text.split('\n').collect();
     let start = start_line.max(1) as usize;
     let end = (end_line as usize).max(start).min(all.len());
-    (start..=end)
-        .filter_map(|n| all.get(n - 1).map(|l| format!("{n}: {l}")))
-        .collect::<Vec<_>>()
-        .join("\n")
+    (start..=end).filter_map(|n| all.get(n - 1).map(|l| format!("{n}: {l}"))).collect::<Vec<_>>().join("\n")
 }
 
 /// End line of a brace-delimited declaration found by indentation, when the record has none.
@@ -333,9 +306,7 @@ fn infer_span_end(all: &[&str], start_line: u32) -> Option<u32> {
 }
 
 fn summary(hit: &Hit) -> String {
-    hit.sig
-        .clone()
-        .unwrap_or_else(|| head_chars(&hit.content, 100).to_string())
+    hit.sig.clone().unwrap_or_else(|| head_chars(&hit.content, 100).to_string())
 }
 
 /// A declaration reachable from the requested scope but outside it.
@@ -350,26 +321,14 @@ fn format_outside(o: &Outside) -> String {
     if o.line == 0 {
         return format!("{} (resolved from the import specifier)", o.rel);
     }
-    let facts: Vec<&str> = [o.lang.as_str(), o.facts.as_str()]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect();
-    let facts = if facts.is_empty() {
-        String::new()
-    } else {
-        format!(" ({})", facts.join(", "))
-    };
+    let facts: Vec<&str> = [o.lang.as_str(), o.facts.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+    let facts = if facts.is_empty() { String::new() } else { format!(" ({})", facts.join(", ")) };
     format!("{}:{}{facts}", o.rel, o.line)
 }
 
 /// The declaration a scoped query points at but the scope excludes: first the module the
 /// scope's files import it from, then any other declaration the graph knows.
-pub(super) fn declaration_outside_scope(
-    graph: &Graph,
-    symbol: &str,
-    language: Option<&str>,
-    in_scope: &dyn Fn(&str) -> bool,
-) -> Option<Outside> {
+pub(super) fn declaration_outside_scope(graph: &Graph, symbol: &str, language: Option<&str>, in_scope: &dyn Fn(&str) -> bool) -> Option<Outside> {
     for node in graph.nodes.iter().filter(|n| in_scope(&n.rel)) {
         for target in &node.resolved_imports {
             let Some(known) = graph.node(target) else {
@@ -378,24 +337,16 @@ pub(super) fn declaration_outside_scope(
             if let Some(sym) = known.symbols.iter().find(|s| s.name == symbol) {
                 let mut hit = native_hit(known, sym)?;
                 hit.apply_facts(sym);
-                return Some(Outside {
-                    rel: known.rel.clone(),
-                    line: sym.start_line,
-                    lang: known.lang.to_string(),
-                    facts: hit.facts(),
-                });
+                return Some(Outside { rel: known.rel.clone(), line: sym.start_line, lang: known.lang.to_string(), facts: hit.facts() });
             }
         }
     }
-    find_hits(graph, symbol, language)
-        .into_iter()
-        .find(|h| h.declaration_like && !in_scope(&h.rel))
-        .map(|h| Outside {
-            facts: h.facts(),
-            rel: h.rel,
-            line: h.line,
-            lang: h.lang.to_string(),
-        })
+    find_hits(graph, symbol, language).into_iter().find(|h| h.declaration_like && !in_scope(&h.rel)).map(|h| Outside {
+        facts: h.facts(),
+        rel: h.rel,
+        line: h.line,
+        lang: h.lang.to_string(),
+    })
 }
 
 pub(super) struct FindOptions<'a> {
@@ -408,36 +359,13 @@ pub(super) struct FindOptions<'a> {
     pub scope_note: Option<String>,
 }
 
-pub(super) fn find_symbol_across_graph(
-    graph: &Graph,
-    symbol: &str,
-    cwd: &str,
-    opts: FindOptions<'_>,
-) -> String {
+pub(super) fn find_symbol_across_graph(graph: &Graph, symbol: &str, cwd: &str, opts: FindOptions<'_>) -> String {
     let all = find_hits(graph, symbol, opts.language);
-    let hits: Vec<&Hit> = all
-        .iter()
-        .filter(|h| opts.file_rel.is_none_or(|f| h.rel == f))
-        .collect();
-    let outside_line = opts
-        .outside
-        .as_ref()
-        .map(|o| format!("declared outside the requested files: {}", format_outside(o)))
-        .unwrap_or_default();
+    let hits: Vec<&Hit> = all.iter().filter(|h| opts.file_rel.is_none_or(|f| h.rel == f)).collect();
+    let outside_line = opts.outside.as_ref().map(|o| format!("declared outside the requested files: {}", format_outside(o))).unwrap_or_default();
     if hits.is_empty() {
-        let mut lines = vec![format!(
-            "(no symbol matches in cwd={cwd}{})",
-            opts.file_rel
-                .map(|f| format!(" file={f}"))
-                .unwrap_or_default()
-        )];
-        lines.push(format!(
-            "graph: nodes={}{}",
-            graph.nodes.len(),
-            opts.language
-                .map(|l| format!(", language={l}"))
-                .unwrap_or_default()
-        ));
+        let mut lines = vec![format!("(no symbol matches in cwd={cwd}{})", opts.file_rel.map(|f| format!(" file={f}")).unwrap_or_default())];
+        lines.push(format!("graph: nodes={}{}", graph.nodes.len(), opts.language.map(|l| format!(", language={l}")).unwrap_or_default()));
         let variants = graph.casing_variants(symbol);
         if !variants.is_empty() {
             lines.push(format!("hint: indexed under different casing: {}", variants.join(", ")));
@@ -450,49 +378,25 @@ pub(super) fn find_symbol_across_graph(
     let top: Vec<&Hit> = hits.iter().take(opts.limit.max(1)).copied().collect();
     let primary = top[0];
     let decl_hits: Vec<&Hit> = hits.iter().filter(|h| h.declaration_like).copied().collect();
-    let impl_decls: Vec<&Hit> = decl_hits
-        .iter()
-        .filter(|h| !is_type_declaration_rel(&h.rel))
-        .copied()
-        .collect();
-    let type_faces: Vec<&Hit> = decl_hits
-        .iter()
-        .filter(|h| {
-            is_type_declaration_rel(&h.rel)
-                && impl_decls.iter().any(|i| is_type_face_of(&i.rel, &h.rel))
-        })
-        .copied()
-        .collect();
-    let rivals: Vec<&Hit> = decl_hits
-        .iter()
-        .filter(|h| !type_faces.iter().any(|t| std::ptr::eq(*t, **h)))
-        .copied()
-        .collect();
+    let impl_decls: Vec<&Hit> = decl_hits.iter().filter(|h| !is_type_declaration_rel(&h.rel)).copied().collect();
+    let type_faces: Vec<&Hit> =
+        decl_hits.iter().filter(|h| is_type_declaration_rel(&h.rel) && impl_decls.iter().any(|i| is_type_face_of(&i.rel, &h.rel))).copied().collect();
+    let rivals: Vec<&Hit> = decl_hits.iter().filter(|h| !type_faces.iter().any(|t| std::ptr::eq(*t, **h))).copied().collect();
     let decl_count = rivals.len();
     let mut lines: Vec<String> = Vec::new();
     if decl_count > 1 {
-        lines.push(format!(
-            "⚠ {decl_count} declarations found — verify which one you intend"
-        ));
+        lines.push(format!("⚠ {decl_count} declarations found — verify which one you intend"));
         lines.push(String::new());
     }
     if primary.declaration_like && decl_count <= 1 {
         lines.push("# best declaration candidate".to_string());
-        let name_path = primary
-            .name_path
-            .as_ref()
-            .map(|p| format!(", path={p}"))
-            .unwrap_or_default();
+        let name_path = primary.name_path.as_ref().map(|p| format!(", path={p}")).unwrap_or_default();
         let facts = primary.facts();
         lines.push(format!(
             "{} ({}{}, matches={}{name_path})",
             primary.location(),
             primary.lang,
-            if facts.is_empty() {
-                String::new()
-            } else {
-                format!(", {facts}")
-            },
+            if facts.is_empty() { String::new() } else { format!(", {facts}") },
             primary.match_count
         ));
         let mut body_emitted = false;
@@ -501,29 +405,19 @@ pub(super) fn find_symbol_across_graph(
         {
             let all_lines: Vec<&str> = source.text().split('\n').collect();
             let start = primary.line.max(1);
-            let end = primary
-                .end_line
-                .filter(|e| *e >= start)
-                .or_else(|| infer_span_end(&all_lines, start))
-                .unwrap_or(start);
+            let end = primary.end_line.filter(|e| *e >= start).or_else(|| infer_span_end(&all_lines, start)).unwrap_or(start);
             lines.push(format_body(source.text(), start, end));
             body_emitted = true;
         }
         let text = summary(primary);
         if !body_emitted && !text.is_empty() {
-            lines.push(format!(
-                "{}{text}",
-                if primary.sig.is_some() { "signature: " } else { "" }
-            ));
+            lines.push(format!("{}{text}", if primary.sig.is_some() { "signature: " } else { "" }));
         }
     }
     let candidates: Vec<&Hit> = if decl_count > 1 {
         rivals.iter().take(opts.limit.max(1)).copied().collect()
     } else if !primary.declaration_like {
-        top.iter()
-            .filter(|h| !type_faces.iter().any(|t| std::ptr::eq(*t, **h)))
-            .copied()
-            .collect()
+        top.iter().filter(|h| !type_faces.iter().any(|t| std::ptr::eq(*t, **h))).copied().collect()
     } else {
         Vec::new()
     };
@@ -536,69 +430,31 @@ pub(super) fn find_symbol_across_graph(
     for (idx, hit) in candidates.iter().enumerate() {
         let kind = if hit.declaration_like { "decl" } else { "ref" };
         let facts = hit.facts();
-        let detail = if decl_count > 1 {
-            hit.sig.clone().unwrap_or_default()
-        } else {
-            summary(hit)
-        };
-        let suffix = if detail.is_empty() {
-            String::new()
-        } else {
-            format!(" — {detail}")
-        };
-        let path = hit
-            .name_path
-            .as_ref()
-            .map(|p| format!(" path={p}"))
-            .unwrap_or_default();
-        let number = if hits.len() > 1 {
-            format!("{}. ", idx + 1)
-        } else {
-            String::new()
-        };
+        let detail = if decl_count > 1 { hit.sig.clone().unwrap_or_default() } else { summary(hit) };
+        let suffix = if detail.is_empty() { String::new() } else { format!(" — {detail}") };
+        let path = hit.name_path.as_ref().map(|p| format!(" path={p}")).unwrap_or_default();
+        let number = if hits.len() > 1 { format!("{}. ", idx + 1) } else { String::new() };
         lines.push(format!(
             "{number}{} [{kind}{}, {}, matches={}]{path}{suffix}",
             hit.location(),
-            if facts.is_empty() {
-                String::new()
-            } else {
-                format!(", {facts}")
-            },
+            if facts.is_empty() { String::new() } else { format!(", {facts}") },
             hit.lang,
             hit.match_count
         ));
     }
     if decl_count > 1 && decl_count > candidates.len() {
-        lines.push(format!(
-            "  ... {} more declarations; narrow file or raise limit",
-            decl_count - candidates.len()
-        ));
+        lines.push(format!("  ... {} more declarations; narrow file or raise limit", decl_count - candidates.len()));
     }
     for hit in type_faces.iter().take(3) {
         let detail = summary(hit);
-        lines.push(format!(
-            "type declaration: {} [{}]{}",
-            hit.location(),
-            hit.lang,
-            if detail.is_empty() {
-                String::new()
-            } else {
-                format!(" — {detail}")
-            }
-        ));
+        lines.push(format!("type declaration: {} [{}]{}", hit.location(), hit.lang, if detail.is_empty() { String::new() } else { format!(" — {detail}") }));
     }
     if decl_count == 0 {
         lines.push(String::new());
         lines.push(if outside_line.is_empty() {
-            format!(
-                "(no user declaration found; likely a global/builtin identifier — all {} hits are references)",
-                hits.len()
-            )
+            format!("(no user declaration found; likely a global/builtin identifier — all {} hits are references)", hits.len())
         } else {
-            format!(
-                "{outside_line}\n(the {} hit(s) in the requested scope are imports/references)",
-                hits.len()
-            )
+            format!("{outside_line}\n(the {} hit(s) in the requested scope are imports/references)", hits.len())
         });
     }
     if hits.len() > 1
@@ -610,13 +466,7 @@ pub(super) fn find_symbol_across_graph(
 }
 
 /// `(no references)` / `(no callers)` answered with whether the name exists at all.
-pub(super) fn augment_no_hit(
-    result: String,
-    empty_token: &str,
-    graph: &Graph,
-    cwd: &str,
-    symbol: &str,
-) -> String {
+pub(super) fn augment_no_hit(result: String, empty_token: &str, graph: &Graph, cwd: &str, symbol: &str) -> String {
     if result.trim() != empty_token {
         return result;
     }

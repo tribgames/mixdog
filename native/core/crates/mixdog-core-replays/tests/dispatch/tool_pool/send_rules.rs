@@ -48,7 +48,13 @@ struct Turns(Mutex<Vec<Submitted>>);
 #[async_trait]
 impl TurnSubmit for Turns {
     async fn submit(&self, session: &str, prompt: Value, _: &str, submission: Submission) -> Result<Option<tokio::sync::oneshot::Receiver<TurnEnd>>, String> {
-        self.0.lock().expect("turns").push(Submitted { session: session.to_owned(), prompt, hop: submission.hop, bot_chain: submission.bot_chain, settled: submission.settled });
+        self.0.lock().expect("turns").push(Submitted {
+            session: session.to_owned(),
+            prompt,
+            hop: submission.hop,
+            bot_chain: submission.bot_chain,
+            settled: submission.settled,
+        });
         let (tx, rx) = tokio::sync::oneshot::channel();
         let _ = tx.send(TurnEnd { status: "completed".into(), text: "done".into() });
         Ok(Some(rx))
@@ -268,7 +274,15 @@ async fn sending(configure: impl FnOnce(&mut Host)) -> Sending {
         Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
     );
     let turns = Arc::new(Turns::default());
-    let tasks = TaskSends::with_timing(host, turns.clone(), "process".into(), Arc::new(|| 0), std::time::Duration::ZERO, mixdog_services::task_reports::follow::FINAL_POLL, Vec::new());
+    let tasks = TaskSends::with_timing(
+        host,
+        turns.clone(),
+        "process".into(),
+        Arc::new(|| 0),
+        std::time::Duration::ZERO,
+        mixdog_services::task_reports::follow::FINAL_POLL,
+        Vec::new(),
+    );
     let mut create = Host {
         directory: directory.clone(),
         projects: vec![ProjectRow { name: "App".into(), path: "C:/work/app".into() }],
@@ -290,7 +304,9 @@ async fn sending(configure: impl FnOnce(&mut Host)) -> Sending {
         tasks,
         chains: CallerChains { record: Arc::new(|_: &str| None), turn: Arc::new(|_: &str| (0, Vec::new())) },
         names: Arc::new(Names),
-        catalog: Arc::new(Menu(vec![json!({ "provider": "openai", "id": "gpt-5", "display": "GPT 5", "effortOptions": [{ "value": "low" }, { "value": "high" }] })])),
+        catalog: Arc::new(Menu(vec![
+            json!({ "provider": "openai", "id": "gpt-5", "display": "GPT 5", "effortOptions": [{ "value": "low" }, { "value": "high" }] }),
+        ])),
         effort: efforts.clone(),
         rebind: Arc::new(NoRebind),
         create: create.clone(),
@@ -376,7 +392,11 @@ async fn a_bots_send_is_one_hop_further_and_its_turn_is_followed_for_a_report() 
 async fn a_send_without_a_prompt_with_something_in_it_is_refused_and_submits_nothing() {
     let world = sending(|_| {}).await;
     for args in [json!({ "action": "send", "session_id": TARGET }), json!({ "action": "send", "session_id": TARGET, "prompt": "   " })] {
-        assert_eq!(world.call("sess_lead1", SurfaceKind::Lead, args.clone()).await, (false, "session: prompt is required for action=send".to_owned()), "{args}");
+        assert_eq!(
+            world.call("sess_lead1", SurfaceKind::Lead, args.clone()).await,
+            (false, "session: prompt is required for action=send".to_owned()),
+            "{args}"
+        );
     }
     assert!(world.turns.0.lock().expect("turns").is_empty());
 }
@@ -412,7 +432,10 @@ async fn create_starts_a_task_session_on_the_lead_route_and_sends_it_the_brief_a
     assert_eq!((&created[0]["provider"], &created[0]["model"], &created[0]["cwd"]), (&json!("openai"), &json!("gpt-5"), &json!("C:/proj")));
     assert_eq!(created[0]["desktopSession"], json!({ "classification": "task", "projectPath": null }));
     let origin = &created[0]["sessionProfile"]["taskOrigin"];
-    assert_eq!((&origin["agentId"], &origin["sessionId"], &origin["title"], &origin["notify"]), (&json!("botty"), &json!(BOT_HOME), &json!("Port the parser."), &json!(true)));
+    assert_eq!(
+        (&origin["agentId"], &origin["sessionId"], &origin["title"], &origin["notify"]),
+        (&json!("botty"), &json!(BOT_HOME), &json!("Port the parser."), &json!(true))
+    );
     let turns = world.turns.0.lock().expect("turns");
     assert_eq!((turns[0].session.as_str(), &turns[0].prompt, turns[0].hop, turns[0].settled), (TASK, &json!("Port the parser.\nKeep the tests."), 0, true));
 }
@@ -435,7 +458,11 @@ async fn create_is_refused_without_an_agent_conversation_or_without_a_brief() {
     let world = sending(|_| {}).await;
     assert_eq!(
         world.call("sess_lead1", SurfaceKind::Lead, json!({ "action": "create", "brief": "x" })).await,
-        (false, "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions".to_owned())
+        (
+            false,
+            "session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions"
+                .to_owned()
+        )
     );
     for brief in [json!(null), json!(""), json!("  \n ")] {
         assert_eq!(world.as_bot(json!({ "action": "create", "brief": brief })).await, (false, "session: brief is required for action=create".to_owned()));

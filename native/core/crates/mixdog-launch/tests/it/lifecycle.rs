@@ -1,11 +1,7 @@
 //! The launcher's process lifecycle ledger: the files a run leaves (an active marker per running process, an append-only ledger kept
 //! to 64 KiB), what an end records, how markers of runs that never finished are found and reported, and how the identity of a
 //! process is refined after the start. Time, the process table and the timers are scripted; nothing here starts a process.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the test lays out folders and files and reads what the ledger left on disk"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out folders and files and reads what the ledger left on disk")]
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -140,11 +136,15 @@ fn previous_of(run: &ProcessLifecycle) -> PathBuf {
 /// What the ledger records, the retained generation first: `(pid, reason, exit code)` of each line that has a reason (a seed has none).
 fn ledger(run: &ProcessLifecycle) -> Vec<(u64, String, Option<i64>)> {
     let lines = read_lines(&previous_of(run)).unwrap_or_default().into_iter().chain(read_lines(run.ledger_path().unwrap()).unwrap_or_default());
-    lines.filter(|entry| entry.get("reason").is_some()).map(|entry| (entry["pid"].as_u64().unwrap(), entry["reason"].as_str().unwrap().to_owned(), entry["exitCode"].as_i64())).collect()
+    lines
+        .filter(|entry| entry.get("reason").is_some())
+        .map(|entry| (entry["pid"].as_u64().unwrap(), entry["reason"].as_str().unwrap().to_owned(), entry["exitCode"].as_i64()))
+        .collect()
 }
 
 fn names_in(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir).map(|entries| entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    let mut names: Vec<String> =
+        std::fs::read_dir(dir).map(|entries| entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
     names.sort();
     names
 }
@@ -201,14 +201,23 @@ fn a_run_leaves_a_marker_and_a_start_line_and_ends_with_the_strongest_reason_it_
     assert_eq!(markers.len(), 1);
     assert!(is_own_marker(&markers[0]), "{markers:?}");
     let marker: Value = serde_json::from_slice(&std::fs::read(run.marker_path().unwrap()).unwrap()).unwrap();
-    assert_eq!((marker["version"].clone(), marker["pid"].as_u64(), marker["ppid"].as_u64(), marker["timestamp"].as_str()), (json!(1), Some(me), Some(u64::from(PARENT)), Some(T0_ISO)));
+    assert_eq!(
+        (marker["version"].clone(), marker["pid"].as_u64(), marker["ppid"].as_u64(), marker["timestamp"].as_str()),
+        (json!(1), Some(me), Some(u64::from(PARENT)), Some(T0_ISO))
+    );
     assert_eq!(marker["processIdentity"], start_seconds(1_700_000_000, "powershell"));
     assert!(marker["token"].as_str().is_some_and(|token| token.split_once('-').is_some_and(|(at, tick)| !at.is_empty() && !tick.is_empty())), "{marker}");
 
     let started = read_lines(run.ledger_path().unwrap()).unwrap();
     assert_eq!(started.len(), 1);
     assert_eq!(
-        (started[0]["reason"].as_str(), started[0]["exitCode"].clone(), started[0]["pid"].as_u64(), started[0]["cwd"].as_str(), started[0]["memory"]["rss"].as_i64()),
+        (
+            started[0]["reason"].as_str(),
+            started[0]["exitCode"].clone(),
+            started[0]["pid"].as_u64(),
+            started[0]["cwd"].as_str(),
+            started[0]["memory"]["rss"].as_i64()
+        ),
         (Some("process-start"), Value::Null, Some(me), Some(current_dir().as_str()), Some(1))
     );
 
@@ -217,7 +226,10 @@ fn a_run_leaves_a_marker_and_a_start_line_and_ends_with_the_strongest_reason_it_
     let finished = run.finish("clean-shutdown", 0);
     assert!(finished.recorded);
     assert_eq!((finished.reason.as_str(), finished.exit_code), ("catchable-fatal-error", Some(7)));
-    assert_eq!(ledger(&run), [(me, "process-start".to_owned(), None), (me, "catchable-fatal-error".to_owned(), Some(7)), (me, "catchable-fatal-error".to_owned(), Some(7))]);
+    assert_eq!(
+        ledger(&run),
+        [(me, "process-start".to_owned(), None), (me, "catchable-fatal-error".to_owned(), Some(7)), (me, "catchable-fatal-error".to_owned(), Some(7))]
+    );
     assert!(names_in(run.marker_dir().unwrap()).is_empty(), "the marker goes with the run");
     assert!(!run.is_active());
 }
@@ -229,13 +241,31 @@ async fn an_end_records_the_reason_and_the_exit_code_the_run_earned_and_only_onc
     let start = || entry("process-start", None);
     // (what happens, the ledger it leaves).
     let cases: Vec<(&str, Option<i32>, (&str, i32), bool, Vec<(u64, String, Option<i64>)>)> = vec![
-        ("a fatal error then a clean end: the fatal is the end", Some(7), ("clean-shutdown", 0), false, vec![start(), entry("catchable-fatal-error", Some(7)), entry("catchable-fatal-error", Some(7))]),
-        ("a fatal error then a forced cleanup: the forced cleanup is stronger", Some(7), ("forced-cleanup", 9), false, vec![start(), entry("catchable-fatal-error", Some(7)), entry("forced-cleanup", Some(9))]),
+        (
+            "a fatal error then a clean end: the fatal is the end",
+            Some(7),
+            ("clean-shutdown", 0),
+            false,
+            vec![start(), entry("catchable-fatal-error", Some(7)), entry("catchable-fatal-error", Some(7))],
+        ),
+        (
+            "a fatal error then a forced cleanup: the forced cleanup is stronger",
+            Some(7),
+            ("forced-cleanup", 9),
+            false,
+            vec![start(), entry("catchable-fatal-error", Some(7)), entry("forced-cleanup", Some(9))],
+        ),
         ("a reason nobody knows is a clean shutdown with its code", None, ("bogus", 3), false, vec![start(), entry("clean-shutdown", Some(3))]),
         ("process-start is a reason an end may carry", None, ("process-start", 4), false, vec![start(), entry("process-start", Some(4))]),
         ("a clean end", None, ("clean-shutdown", 0), false, vec![start(), entry("clean-shutdown", Some(0))]),
         ("an end that waits for the ledger's lock", None, ("catchable-fatal-error", 2), true, vec![start(), entry("catchable-fatal-error", Some(2))]),
-        ("a clean end that waits for the lock, after a fatal error", Some(5), ("clean-shutdown", 0), true, vec![start(), entry("catchable-fatal-error", Some(5)), entry("catchable-fatal-error", Some(5))]),
+        (
+            "a clean end that waits for the lock, after a fatal error",
+            Some(5),
+            ("clean-shutdown", 0),
+            true,
+            vec![start(), entry("catchable-fatal-error", Some(5)), entry("catchable-fatal-error", Some(5))],
+        ),
     ];
     for (name, fatal, (reason, code), waits, expected) in cases {
         let temp = tempfile::tempdir().unwrap();
@@ -275,7 +305,10 @@ fn a_start_reports_and_removes_the_markers_of_processes_that_are_gone_and_keeps_
     std::fs::write(active.join("junk.json"), "this is not json").unwrap();
     std::fs::write(active.join("notes.txt"), "not a marker either").unwrap();
 
-    let host = ScriptedHost::new(&[PARENT, 5151], &[(me, vec![Some(long_ago.clone())]), (PARENT, vec![Some(start_seconds(7, "ps"))]), (5151, vec![Some(start_seconds(9, "ps"))])]);
+    let host = ScriptedHost::new(
+        &[PARENT, 5151],
+        &[(me, vec![Some(long_ago.clone())]), (PARENT, vec![Some(start_seconds(7, "ps"))]), (5151, vec![Some(start_seconds(9, "ps"))])],
+    );
     let run = begin(&dir, &host);
     // The start is recorded before any marker is reported; reporting is a job of its own.
     assert_eq!(ledger(&run), [(u64::from(me), "process-start".to_owned(), None)]);
@@ -338,7 +371,9 @@ fn the_ledger_never_grows_past_its_cap_and_keeps_the_previous_generation_whole_o
         expect("prior-process-vanished", gone);
         assert_eq!(reasons[0], "process-start", "{name}: the start comes first");
         match ledger_bytes {
-            n if n == MAX_BYTES - 10 || n == MAX_BYTES - 450 => assert_eq!((in_ledger, in_previous), (0, 1), "{name}: the full ledger became the retained generation whole"),
+            n if n == MAX_BYTES - 10 || n == MAX_BYTES - 450 => {
+                assert_eq!((in_ledger, in_previous), (0, 1), "{name}: the full ledger became the retained generation whole")
+            }
             1000 if previous_bytes.is_none() => assert_eq!((in_ledger, in_previous, previous), (1, 0, None), "{name}"),
             1000 => assert_eq!((in_ledger, previous), (1, Some(0)), "{name}"),
             _ => assert_eq!((in_ledger, in_previous, previous), (0, 0, Some(0)), "{name}"),

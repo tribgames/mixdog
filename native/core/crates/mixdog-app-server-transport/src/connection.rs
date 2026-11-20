@@ -24,11 +24,7 @@ pub enum ConnectionOrigin {
     /// One desktop window's socket: it named itself with `Mixdog-Window` on the loopback
     /// listener, or on the one an SSH port forward targets (`tunnel`). It keeps the rights of
     /// the listener it came through, so the method table scopes it as `Local` or `Ssh`.
-    Window {
-        window_id: String,
-        tunnel: bool,
-        role: WindowRole,
-    },
+    Window { window_id: String, tunnel: bool, role: WindowRole },
 }
 
 /// What a window's socket is for, from `Mixdog-Window-Role`.

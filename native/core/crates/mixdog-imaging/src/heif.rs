@@ -81,7 +81,8 @@ fn floor_div(numerator: i128, denominator: i128) -> i128 {
 fn crop_axis(extent: u32, size: Fraction, offset: Fraction) -> (u32, u32) {
     // Fractions of 32-bit parts multiply past 64 bits.
     let extent = i128::from(extent);
-    let (size_n, size_d, offset_n, offset_d) = (i128::from(size.numerator), i128::from(size.denominator), i128::from(offset.numerator), i128::from(offset.denominator));
+    let (size_n, size_d, offset_n, offset_d) =
+        (i128::from(size.numerator), i128::from(size.denominator), i128::from(offset.numerator), i128::from(offset.denominator));
     // The aperture size rounded half up.
     let kept = floor_div(2 * size_n + size_d, 2 * size_d).clamp(1, extent);
     // offset + (extent - 1) / 2 - (size - 1) / 2 over the common denominator 2 * offset.d * size.d.
@@ -218,7 +219,9 @@ pub(crate) fn read(bytes: &[u8]) -> Container {
         let Some(property) = index.checked_sub(1).and_then(|at| properties.get(at)) else { continue };
         match &property.kind {
             b"clap" => container.transforms.extend(clean_aperture(property.body).map(Transform::Crop)),
-            b"irot" => container.transforms.extend(property.body.first().map(|angle| Transform::Rotate(angle & 3)).filter(|turn| *turn != Transform::Rotate(0))),
+            b"irot" => {
+                container.transforms.extend(property.body.first().map(|angle| Transform::Rotate(angle & 3)).filter(|turn| *turn != Transform::Rotate(0)))
+            }
             b"imir" => container.transforms.extend(property.body.first().map(|axis| Transform::Mirror(axis & 1))),
             b"colr" => container.colours.extend(colour(property.body)),
             _ => {}

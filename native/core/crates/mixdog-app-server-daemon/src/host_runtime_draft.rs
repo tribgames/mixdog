@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_ports::ports::setup_actions::{CallerScope, SetupCallers};
 use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_session::session::agent_registry::{AgentRegistry, LiveSessions};
 use mixdog_core_session::session::worktree::worktree_host::{JobCwd, LeadActivity, LiveSession, Undo};
 use mixdog_core_session::session::worktree::worktree_host_impl::{HostRuntime, WorkspaceContext};
+use mixdog_rt::{CancellationToken, DurabilityIo};
 use mixdog_scm::error::ScmFailure;
 use mixdog_tools::exec::shell_control::ShellControl;
-use mixdog_core_session::session::agent_registry::{AgentRegistry, LiveSessions};
-use mixdog_rt::{CancellationToken, DurabilityIo};
-use mixdog_core_ports::ports::setup_actions::{CallerScope, SetupCallers};
 use serde_json::{Map, Value};
 
 fn port(error: impl std::fmt::Debug) -> ScmFailure {
@@ -60,12 +60,17 @@ fn text(row: &Map<String, Value>, key: &str) -> Option<String> {
 impl LiveHostRuntime {
     /// `positiveInt` of the session header's `clientHostPid`.
     fn client_host_pid(&self, id: &str) -> Option<u64> {
-        mixdog_agent::agent_tool::scope::positive_int(self.directory.handle(&ThreadId::from(id)).map(|h| h.header_snapshot()).as_deref().and_then(|header| header.get("clientHostPid")))
+        mixdog_agent::agent_tool::scope::positive_int(
+            self.directory.handle(&ThreadId::from(id)).map(|h| h.header_snapshot()).as_deref().and_then(|header| header.get("clientHostPid")),
+        )
     }
 
     /// Node `agentStatusState`: `rt.session?.clientHostPid || process.pid`.
     fn scope_of(&self, id: &str) -> mixdog_agent::agent_tool::scope::Scope {
-        mixdog_agent::agent_tool::scope::Scope { caller_session_id: Some(id.to_owned()), host_pid: Some(self.client_host_pid(id).unwrap_or_else(|| u64::from(std::process::id()))) }
+        mixdog_agent::agent_tool::scope::Scope {
+            caller_session_id: Some(id.to_owned()),
+            host_pid: Some(self.client_host_pid(id).unwrap_or_else(|| u64::from(std::process::id()))),
+        }
     }
 
     fn header_text(&self, id: &str, key: &str) -> Option<String> {
@@ -130,20 +135,40 @@ impl HostRuntime for LiveHostRuntime {
         // Node `refreshWorkspacePrompt` -> `buildWorkspacePromptContext(session, cwd, { instructionFilesMode })` (workspace/transitions.mjs:78, session-prompt-composition.mjs:95).
         // `prewarmGitStartupProbes([cwd])` is `prewarm::compose`'s probe-and-compose-again step: the composition asks for what it lacks, it is probed, and the job runs once more.
         let tool_free_role = owner_is_agent && header.get("schemaAllowedTools").and_then(Value::as_array).is_some_and(Vec::is_empty);
-        let names = |key: &str| header.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned)).collect::<Vec<_>>();
+        let names = |key: &str| {
+            header
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
         let has_git_tool = names("tools").iter().chain(names("deferredToolCatalog").iter()).any(|name| name == "git");
         let skip_instruction_files = header.get("skipInstructionFiles") == Some(&Value::Bool(true));
         let agent_mode = mixdog_store::agent_mode::session_mode_of(&header) == "agent";
         let (session_id, cwd_owned, mode) = (id.to_owned(), cwd.to_owned(), (self.instruction_files)());
         let job: mixdog_core::run_host::prewarm::ComposeJob<mixdog_core::run_host::prompt_session::WorkspaceContext> = Arc::new(move |lane, host, observed| {
             let sources = mixdog_core_prompt::prompt::real_sources::RealSources::new(lane, host, observed);
-            let facts = mixdog_core::run_host::prompt_session::WorkspaceFacts { session_id: &session_id, owner_is_agent, tool_free_role, has_git_tool, skip_instruction_files, agent_mode };
+            let facts = mixdog_core::run_host::prompt_session::WorkspaceFacts {
+                session_id: &session_id,
+                owner_is_agent,
+                tool_free_role,
+                has_git_tool,
+                skip_instruction_files,
+                agent_mode,
+            };
             mixdog_core::run_host::prompt_session::workspace_prompt_context(&facts, &cwd_owned, Some(&mode), &sources)
         });
-        let prompt = mixdog_core::run_host::prewarm::compose(&self.prompt_io, &self.probes, &self.observed, self.facts.clone(), job).await.map_err(ScmFailure::git)?;
+        let prompt =
+            mixdog_core::run_host::prewarm::compose(&self.prompt_io, &self.probes, &self.observed, self.facts.clone(), job).await.map_err(ScmFailure::git)?;
         // The Lead only (workers never carried project memory): `loadCoreMemoryContext()` is not called for an agent.
         let core_memory_context = if owner_is_agent { None } else { Some(self.core_memory.load(cwd, &memory_agent_id).await) };
-        Ok(WorkspaceContext { environment_context: prompt.environment_context, core_memory_context, instruction_files_context: prompt.instruction_files_context })
+        Ok(WorkspaceContext {
+            environment_context: prompt.environment_context,
+            core_memory_context,
+            instruction_files_context: prompt.instruction_files_context,
+        })
     }
 
     /// `PromptReroot` (wp-session-23): the in-place reroot with undo, over the directory and the `SessionThreads` the workspace host takes.

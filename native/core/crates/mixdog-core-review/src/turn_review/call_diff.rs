@@ -84,11 +84,7 @@ fn render_call_change(differ: &LineDiffer, change: &TrackedChange, budget: &mut 
         if before_absent != after_absent {
             return head;
         }
-        return if old_name == new_name {
-            String::new()
-        } else {
-            format!("{head}similarity index 100%\nrename from {old_name}\nrename to {new_name}\n")
-        };
+        return if old_name == new_name { String::new() } else { format!("{head}similarity index 100%\nrename from {old_name}\nrename to {new_name}\n") };
     }
     let rename = if old_name == new_name { String::new() } else { format!("rename from {old_name}\nrename to {new_name}\n") };
     let hunks = differ.hunks(old_text, new_text, budget, [raw_bytes(before), raw_bytes(after)]);

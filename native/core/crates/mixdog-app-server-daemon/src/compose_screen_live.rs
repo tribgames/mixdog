@@ -303,7 +303,12 @@ impl Core {
                 width: picture.width,
                 height: picture.height,
                 stride: picture.stride,
-                source: Area { x: picture.source.x as f64, y: picture.source.y as f64, width: picture.source.width as f64, height: picture.source.height as f64 },
+                source: Area {
+                    x: picture.source.x as f64,
+                    y: picture.source.y as f64,
+                    width: picture.source.width as f64,
+                    height: picture.source.height as f64,
+                },
                 target: Area { x: picture.target.x, y: picture.target.y, width: picture.target.width, height: picture.target.height },
             },
         });

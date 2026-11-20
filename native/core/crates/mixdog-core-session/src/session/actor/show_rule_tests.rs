@@ -47,7 +47,14 @@ async fn early_result_preparation_starts_behind_a_held_row_read_but_end_waits_fo
                 run.port.input_durable().await.unwrap();
                 ready.notify_one();
                 go.notified().await;
-                let row = ItemCommit { iid: ItemId::from("reply"), role: Some("assistant".into()), model: true, visible: true, body: json!({"text":"answer"}), prompt: None };
+                let row = ItemCommit {
+                    iid: ItemId::from("reply"),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({"text":"answer"}),
+                    prompt: None,
+                };
                 drop(run.port.queue_item(row).await.unwrap());
                 run.port.early_result(json!({"role":"tool","toolCallId":"c","content":"finished"})).await.unwrap();
                 RunOutcome::Completed(Default::default())
@@ -64,7 +71,8 @@ async fn early_result_preparation_starts_behind_a_held_row_read_but_end_waits_fo
     go.notify_one();
     crate::session::testing::awaiting(|| "both preparations to start without either lane free".into(), async {
         tokio::join!(io.met_by_a_submit(), cpu.met_by_a_submit());
-    }).await;
+    })
+    .await;
     drop(cpu);
     assert!(!idle(&handle), "the end cannot pass the unread commit");
     drop(io);
@@ -98,7 +106,14 @@ impl Played {
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
                 let Some((sent, mut go)) = steps.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
-                let row = |iid: String, role: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None };
+                let row = |iid: String, role: &str, body: Value| ItemCommit {
+                    iid: ItemId::from(iid),
+                    role: Some(role.into()),
+                    model: true,
+                    visible: true,
+                    body,
+                    prompt: None,
+                };
                 let _ = sent.send(());
                 go.recv().await;
                 clock.0.store(T0, SeqCst);
@@ -292,7 +307,14 @@ async fn an_early_result_waits_for_its_card_and_never_follows_the_committed_one(
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let Some((sent, mut go)) = steps.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
-            let row = |iid: String, role: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None };
+            let row = |iid: String, role: &str, body: Value| ItemCommit {
+                iid: ItemId::from(iid),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
             let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
             run.port.early_result(json!({ "toolCallId": "c1", "text": "early" })).await.expect("the early result");
             run.port.commit_item(row(format!("a-{}", run.turn), "assistant", json!({ "text": "listing", "toolCalls": [call] }))).await.expect("the call row");
@@ -332,14 +354,26 @@ async fn the_text_before_a_tool_call_is_final_when_the_call_starts() {
             run.port.input_durable().await.expect("input durable");
             let Some((sent, mut go)) = steps.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
             let id = ItemId::from("seg");
-            let started = ThreadItem::AgentMessage { id: id.clone(), text: mixdog_protocol::MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: Default::default() };
+            let started = ThreadItem::AgentMessage {
+                id: id.clone(),
+                text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                imported_tool_runs: Vec::new(),
+                meta: Default::default(),
+            };
             run.port.item_started(started).await.expect("the text starts");
             run.port.delta(id.clone(), "listing".into()).await.expect("the text streams");
             run.port.text_settled(id.clone()).await.expect("the call starts");
             let _ = sent.send(());
             go.recv().await;
             let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
-            let row = ItemCommit { iid: id, role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "listing", "toolCalls": [call] }), prompt: None };
+            let row = ItemCommit {
+                iid: id,
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": "listing", "toolCalls": [call] }),
+                prompt: None,
+            };
             run.port.commit_item(row).await.expect("the call row");
             RunOutcome::Completed(Default::default())
         })
@@ -379,13 +413,25 @@ async fn a_text_settled_after_its_reply_committed_adds_no_second_row() {
             run.port.input_durable().await.expect("input durable");
             let Some((sent, mut go)) = steps.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
             let id = ItemId::from("seg");
-            let started = ThreadItem::AgentMessage { id: id.clone(), text: mixdog_protocol::MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: Default::default() };
+            let started = ThreadItem::AgentMessage {
+                id: id.clone(),
+                text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                imported_tool_runs: Vec::new(),
+                meta: Default::default(),
+            };
             run.port.item_started(started).await.expect("the text starts");
             run.port.delta(id.clone(), "listing".into()).await.expect("the text streams");
             let _ = sent.send(());
             go.recv().await;
             let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
-            let row = ItemCommit { iid: id.clone(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "listing", "toolCalls": [call] }), prompt: None };
+            let row = ItemCommit {
+                iid: id.clone(),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": "listing", "toolCalls": [call] }),
+                prompt: None,
+            };
             let queued = run.port.queue_item(row).await.expect("the call row");
             run.port.text_settled(id).await.expect("the settle, after the commit");
             let _ = sent.send(());
@@ -415,7 +461,11 @@ async fn a_text_settled_after_its_reply_committed_adds_no_second_row() {
 struct RefusesReply;
 
 impl crate::session::seams::RecordCodec for RefusesReply {
-    fn encode(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, record: &Record) -> Result<crate::session::seams::EncodedRecord, mixdog_core_api::CoreError> {
+    fn encode(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>,
+        record: &Record,
+    ) -> Result<crate::session::seams::EncodedRecord, mixdog_core_api::CoreError> {
         match record {
             Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["text"] == "listing") => {
                 Err(mixdog_core_api::CoreError::Internal { incident_id: "reply-refused".into() })
@@ -440,12 +490,18 @@ async fn a_text_settled_while_its_reply_fails_to_encode_stays_shown() {
             run.port.input_durable().await.expect("input durable");
             let Some((sent, mut go)) = steps.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
             let id = ItemId::from("seg");
-            let started = ThreadItem::AgentMessage { id: id.clone(), text: mixdog_protocol::MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: Default::default() };
+            let started = ThreadItem::AgentMessage {
+                id: id.clone(),
+                text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                imported_tool_runs: Vec::new(),
+                meta: Default::default(),
+            };
             run.port.item_started(started).await.expect("the text starts");
             run.port.delta(id.clone(), "listing".into()).await.expect("the text streams");
             let _ = sent.send(());
             go.recv().await;
-            let row = ItemCommit { iid: id.clone(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "listing" }), prompt: None };
+            let row =
+                ItemCommit { iid: id.clone(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "listing" }), prompt: None };
             let queued = run.port.queue_item(row).await.expect("the reply is handed on");
             run.port.text_settled(id).await.expect("the settle, after the commit");
             let _ = sent.send(());
@@ -466,7 +522,9 @@ async fn a_text_settled_while_its_reply_fails_to_encode_stays_shown() {
     crate::session::testing::awaiting(|| "the settle sent".to_owned(), sent.recv()).await;
     cpu.met_by_a_submit().await;
     caught_up(&handle).await;
-    let completed = |rig: &Rig| rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["id"] == "seg").count();
+    let completed = |rig: &Rig| {
+        rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["id"] == "seg").count()
+    };
     assert_eq!(completed(&rig), 0, "the settle waits behind its reply's pending commit");
     drop(cpu);
     crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
@@ -515,7 +573,12 @@ async fn ended(at: AtEnd) -> (Rig, Arc<SessionHandle>, SessionDirectory) {
             run.port.input_durable().await.expect("input durable");
             let Some((sent, mut go)) = steps.lock().unwrap().take() else { return RunOutcome::Completed(Default::default()) };
             let id = ItemId::from("seg");
-            let started = ThreadItem::AgentMessage { id: id.clone(), text: mixdog_protocol::MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: Default::default() };
+            let started = ThreadItem::AgentMessage {
+                id: id.clone(),
+                text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                imported_tool_runs: Vec::new(),
+                meta: Default::default(),
+            };
             run.port.item_started(started).await.expect("the text starts");
             run.port.delta(id.clone(), "listing".into()).await.expect("the text streams");
             let _ = sent.send(());
@@ -695,8 +758,14 @@ async fn completed_equals_streamed(final_text: &'static str, stamped: bool) {
     rig.set_script(Arc::new(move |run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let row = |iid: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
-            let started = |id: &ItemId| ThreadItem::AgentMessage { id: id.clone(), text: mixdog_protocol::MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: Default::default() };
+            let row =
+                |iid: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            let started = |id: &ItemId| ThreadItem::AgentMessage {
+                id: id.clone(),
+                text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                imported_tool_runs: Vec::new(),
+                meta: Default::default(),
+            };
             let pre = ItemId::from("pre");
             run.port.item_started(started(&pre)).await.expect("the preamble starts");
             run.port.delta(pre.clone(), "Let me ".into()).await.expect("streams");
@@ -704,7 +773,17 @@ async fn completed_equals_streamed(final_text: &'static str, stamped: bool) {
             run.port.text_settled(pre.clone()).await.expect("the call starts");
             let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
             run.port.commit_item(row("pre", json!({ "content": "Let me look.", "toolCalls": [call] }))).await.expect("the call row");
-            run.port.commit_item(ItemCommit { iid: ItemId::from("t1"), role: Some("tool".into()), model: true, visible: true, body: json!({ "toolCallId": "c1", "text": "a.txt" }), prompt: None }).await.expect("the result row");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from("t1"),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "toolCallId": "c1", "text": "a.txt" }),
+                    prompt: None,
+                })
+                .await
+                .expect("the result row");
             let fin = ItemId::from("fin");
             run.port.item_started(started(&fin)).await.expect("the answer starts");
             let (head, tail) = final_text.split_at(final_text.len() / 2);
@@ -729,7 +808,11 @@ async fn completed_equals_streamed(final_text: &'static str, stamped: bool) {
             .filter(|(_, method, params)| method == "item/agentMessage/delta" && params["itemId"] == id)
             .map(|(_, _, params)| params["delta"].as_str().unwrap_or_default())
             .collect();
-        let completed = frames.iter().rev().find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id).map(|(_, _, params)| params["item"]["text"].clone());
+        let completed = frames
+            .iter()
+            .rev()
+            .find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id)
+            .map(|(_, _, params)| params["item"]["text"].clone());
         assert_eq!(completed, Some(json!(streamed)), "item {id} ({final_text:?}, stamped {stamped}) completes as it streamed");
     }
     drop(directory);
@@ -758,16 +841,32 @@ async fn a_stamped_answer_after_a_whitespace_only_segment_completes_as_it_stream
     rig.set_script(Arc::new(move |run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let started = |id: &ItemId| ThreadItem::AgentMessage { id: id.clone(), text: mixdog_protocol::MaybeBlob::Inline(String::new()), imported_tool_runs: Vec::new(), meta: Default::default() };
+            let started = |id: &ItemId| ThreadItem::AgentMessage {
+                id: id.clone(),
+                text: mixdog_protocol::MaybeBlob::Inline(String::new()),
+                imported_tool_runs: Vec::new(),
+                meta: Default::default(),
+            };
             let (blank, fin) = (ItemId::from("blank"), ItemId::from("fin"));
             run.port.item_started(started(&blank)).await.expect("starts");
             run.port.delta(blank.clone(), "\n\n".into()).await.expect("streams");
             run.port.text_settled(blank.clone()).await.expect("the call starts");
             let stamp = json!({ "transcript": { "attemptId": "att" } });
             let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
-            let row = |iid: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            let row =
+                |iid: &str, body: Value| ItemCommit { iid: ItemId::from(iid), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
             run.port.commit_item(row("blank", json!({ "content": "\n\n", "toolCalls": [call], "meta": stamp.clone() }))).await.expect("the call row");
-            run.port.commit_item(ItemCommit { iid: ItemId::from("t1"), role: Some("tool".into()), model: true, visible: true, body: json!({ "toolCallId": "c1", "text": "a.txt" }), prompt: None }).await.expect("the result row");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from("t1"),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "toolCallId": "c1", "text": "a.txt" }),
+                    prompt: None,
+                })
+                .await
+                .expect("the result row");
             run.port.item_started(started(&fin)).await.expect("starts");
             run.port.delta(fin.clone(), "Answer.".into()).await.expect("streams");
             run.port.commit_item(row("fin", json!({ "content": "Answer.", "meta": stamp }))).await.expect("the answer row");
@@ -785,7 +884,11 @@ async fn a_stamped_answer_after_a_whitespace_only_segment_completes_as_it_stream
             .filter(|(_, method, params)| method == "item/agentMessage/delta" && params["itemId"] == id)
             .map(|(_, _, params)| params["delta"].as_str().unwrap_or_default())
             .collect();
-        let completed = frames.iter().rev().find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id).map(|(_, _, params)| params["item"]["text"].clone());
+        let completed = frames
+            .iter()
+            .rev()
+            .find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id)
+            .map(|(_, _, params)| params["item"]["text"].clone());
         if let Some(completed) = completed {
             assert_eq!(completed, json!(streamed), "item {id} completes as it streamed");
         } else {

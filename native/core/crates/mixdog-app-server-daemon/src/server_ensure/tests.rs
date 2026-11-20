@@ -129,9 +129,7 @@ impl Env {
         run(args, &self.host(), access, &self.exe)
     }
     fn versions(&self) -> Vec<String> {
-        std::fs::read_dir(self.paths().versions)
-            .map(|d| d.filter_map(Result::ok).map(|e| e.file_name().into_string().unwrap()).collect())
-            .unwrap_or_default()
+        std::fs::read_dir(self.paths().versions).map(|d| d.filter_map(Result::ok).map(|e| e.file_name().into_string().unwrap()).collect()).unwrap_or_default()
     }
 }
 
@@ -193,7 +191,6 @@ fn an_equal_core_is_attached_to_and_the_install_is_made_current() {
     assert_eq!(report.daemon_json.as_deref(), Some(r#"{"pid":900}"#));
     assert!(access.calls().is_empty());
     assert_eq!(env.versions(), ["1.4.6-b6"]);
-
 }
 
 #[test]
@@ -230,10 +227,7 @@ fn a_busy_core_is_reported_with_its_work_and_only_a_confirmed_run_aborts_it() {
     assert_eq!(error.code(), "daemon-busy-other-version");
     let lines = result_line(&Err(error));
     let (drain, message) = lines.split_once('\n').unwrap();
-    assert_eq!(
-        drain,
-        r#"MIXDOG_DRAIN {"drainId":"d","running":[{"kind":"turn","threadId":null,"turnId":null,"title":"busy"}],"confirmToken":"ct"}"#
-    );
+    assert_eq!(drain, r#"MIXDOG_DRAIN {"drainId":"d","running":[{"kind":"turn","threadId":null,"turnId":null,"title":"busy"}],"confirmToken":"ct"}"#);
     assert!(message.starts_with("MIXDOG_ERROR daemon-busy-other-version "));
     assert_eq!(access.calls(), ["hold:true", "stop_when_idle:SshReplace"], "no abort, no launch");
 
@@ -242,10 +236,7 @@ fn a_busy_core_is_reported_with_its_work_and_only_a_confirmed_run_aborts_it() {
     again.confirm_token = Some("ct".into());
     let report = env.run(&again, &access).unwrap();
     assert!(report.started);
-    assert_eq!(
-        &access.calls()[2..],
-        ["hold:true", "stop_when_idle:SshReplace", "stop_confirmed:ct", "wait_exit", "launch"]
-    );
+    assert_eq!(&access.calls()[2..], ["hold:true", "stop_when_idle:SshReplace", "stop_confirmed:ct", "wait_exit", "launch"]);
 }
 
 #[test]
@@ -336,11 +327,8 @@ fn a_held_install_lock_is_reported_not_stolen() {
     let token = "0123456789abcdef01234567";
     std::fs::create_dir_all(paths.lock.join(token)).unwrap();
     let now = env.host().now_ms();
-    std::fs::write(
-        paths.lock.join(token).join("owner.json"),
-        format!(r#"{{"token":"{token}","pid":77,"host":"h","purpose":"install","startedAt":{now}}}"#),
-    )
-    .unwrap();
+    std::fs::write(paths.lock.join(token).join("owner.json"), format!(r#"{{"token":"{token}","pid":77,"host":"h","purpose":"install","startedAt":{now}}}"#))
+        .unwrap();
     let access = Access::new(None);
     assert_eq!(env.run(&args("1.4.6", "b6"), &access).unwrap_err().code(), "install-locked");
     assert!(paths.lock.exists());
@@ -470,10 +458,7 @@ fn after_a_start_unused_older_installs_are_collected_but_running_ones_stay() {
     for old in ["1.4.4-x", "1.4.5-b5"] {
         std::fs::create_dir_all(paths.versions.join(old)).unwrap();
     }
-    let busy = Host {
-        images: Some(vec![ProcessImage { pid: 5, image: paths.versions.join("1.4.5-b5").join("mixdogd") }]),
-        ..env.host()
-    };
+    let busy = Host { images: Some(vec![ProcessImage { pid: 5, image: paths.versions.join("1.4.5-b5").join("mixdogd") }]), ..env.host() };
     let report = run(&args("1.4.6", "b6"), &busy, &Access::new(None), &env.exe).unwrap();
     let mut left = env.versions();
     left.sort();
@@ -488,13 +473,9 @@ fn the_pre_versioned_layout_is_collected_unless_it_runs() {
     for old in ["1.2.3", "1.2.3-rc1", "1.0.0", "user-data", "12.x"] {
         std::fs::create_dir_all(paths.root.join(old)).unwrap();
     }
-    let busy = Host {
-        images: Some(vec![ProcessImage { pid: 5, image: paths.root.join("1.0.0").join("node") }]),
-        ..env.host()
-    };
+    let busy = Host { images: Some(vec![ProcessImage { pid: 5, image: paths.root.join("1.0.0").join("node") }]), ..env.host() };
     run(&args("1.4.6", "b6"), &busy, &Access::new(None), &env.exe).unwrap();
-    let left: Vec<String> =
-        std::fs::read_dir(&paths.root).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    let left: Vec<String> = std::fs::read_dir(&paths.root).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
     for kept in ["1.0.0", "user-data", "12.x"] {
         assert!(left.contains(&kept.to_owned()), "{kept}");
     }
@@ -569,10 +550,7 @@ fn cleanup_of_a_busy_core_asks_and_a_process_it_cannot_prove_idle_blocks_removal
     assert_eq!(access.calls(), ["stop_when_idle:UserStop"]);
 
     let paths = env.paths();
-    let inside = Host {
-        images: Some(vec![ProcessImage { pid: 5, image: paths.versions.join("1.4.6-b6").join(BINARY_NAME) }]),
-        ..env.host()
-    };
+    let inside = Host { images: Some(vec![ProcessImage { pid: 5, image: paths.versions.join("1.4.6-b6").join(BINARY_NAME) }]), ..env.host() };
     let error = run(&cleanup_args(CleanupPhase::Remove), &inside, &Access::new(None), &env.exe).unwrap_err();
     assert_eq!(error.code(), "daemon-unproven");
     let blind = Host { images: None, ..env.host() };
@@ -580,7 +558,6 @@ fn cleanup_of_a_busy_core_asks_and_a_process_it_cannot_prove_idle_blocks_removal
     assert_eq!(error.code(), "daemon-unproven");
     assert!(paths.versions.exists(), "nothing was removed");
 }
-
 
 impl EnsureHost for Host {
     fn home(&self) -> PathBuf {
@@ -729,12 +706,7 @@ fn core_process() -> std::process::Child {
     };
     #[cfg(unix)]
     let mut command = std::process::Command::new("sort");
-    command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap()
+    command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap()
 }
 /// Node's `daemonRequest` gives up after 1,500 ms without a byte: a core that accepts the probe and stays silent is not
 /// attached as healthy, and no second core is started beside it.

@@ -670,7 +670,11 @@ pub async fn extract(page: &PageCall<'_>, command: &Value) -> Result<ToolReply, 
         body = slice_utf16(&body, max_chars);
         char_truncated = true;
     }
-    let shown = if (rows.len() as u64) < payload.total { format!("\n\n[showing {} of {} matches; raise limit for more]", rows.len(), payload.total) } else { String::new() };
+    let shown = if (rows.len() as u64) < payload.total {
+        format!("\n\n[showing {} of {} matches; raise limit for more]", rows.len(), payload.total)
+    } else {
+        String::new()
+    };
     let clipped = if char_truncated { "\n\n[truncated: raise maxChars for more]" } else { "" };
     let columns = if payload.columns.is_empty() { String::new() } else { format!("Columns: {}\n", redact_browser_text(&payload.columns)) };
     Ok(ToolReply::text(format!(
@@ -832,8 +836,7 @@ mod tests {
         let rig = Rig::new(vec![shot(json!({"partial": true, "width": 80, "height": 24})).with_params(clip)]);
         let files = Frames::default();
         let ports = ShotPorts { blobs: &Blobs(Err("unused".into())), files: &files, frame_dir: Path::new("frames") };
-        let reply = element_screenshot(&rig.page(), &ports, &json!({"mode": "visual", "ref": "p1-s2-e1"}), "p1-s2", "p1-s2-e1", false).await
-            .expect("captures");
+        let reply = element_screenshot(&rig.page(), &ports, &json!({"mode": "visual", "ref": "p1-s2-e1"}), "p1-s2", "p1-s2-e1", false).await.expect("captures");
         assert_eq!(
             reply.text,
             "Screenshot of p1-s2-e1 on https://a.test/ (80x24 px); the element runs past the viewport, so only the visible part is shown. This image is inspection-only; address the element by ref or target for input."
@@ -844,11 +847,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_printed_page_is_written_beside_the_run_never_put_in_the_reply() {
-        let rig = Rig::new(vec![Expect::ok(
-            "host/browser/cdp/send",
-            json!({"result": {"data": STANDARD.encode(b"%PDF-1.4 x")}, "facts": page_facts("p1", 1)}),
-        )
-        .with_params(json!({"method": "Page.printToPDF", "params": {"printBackground": true}}))]);
+        let rig = Rig::new(vec![
+            Expect::ok("host/browser/cdp/send", json!({"result": {"data": STANDARD.encode(b"%PDF-1.4 x")}, "facts": page_facts("p1", 1)}))
+                .with_params(json!({"method": "Page.printToPDF", "params": {"printBackground": true}})),
+        ]);
         let files = Frames::default();
         let ports = ShotPorts { blobs: &Blobs(Err("unused".into())), files: &files, frame_dir: Path::new("frames") };
         let reply = print_pdf(&rig.page(), &ports).await.expect("prints");
@@ -859,7 +861,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_printed_page_the_host_left_in_the_blob_store_is_read_from_it() {
-        let rig = Rig::new(vec![Expect::ok("host/browser/cdp/send", json!({"result": {"blob": {"digest": "sha256:ab", "size": 3}}, "facts": page_facts("p1", 1)}))]);
+        let rig =
+            Rig::new(vec![Expect::ok("host/browser/cdp/send", json!({"result": {"blob": {"digest": "sha256:ab", "size": 3}}, "facts": page_facts("p1", 1)}))]);
         let files = Frames::default();
         let ports = ShotPorts { blobs: &Blobs(Ok(Bytes::from_static(b"%PDF"))), files: &files, frame_dir: Path::new("frames") };
         let reply = print_pdf(&rig.page(), &ports).await.expect("prints");
@@ -897,12 +900,16 @@ mod tests {
         let (ref_set, snapshot) = locate_ports();
         let blobs = Blobs(Err("unused".into()));
         let command = json!({"query": " Save ", "limit": 5});
-        let reply = locate(LocateInput { page: rig.page(), blobs: &blobs, command: &command, snapshot, ref_set: &ref_set, background: false, now: Instant::now() }).await
-            .expect("locates");
+        let reply =
+            locate(LocateInput { page: rig.page(), blobs: &blobs, command: &command, snapshot, ref_set: &ref_set, background: false, now: Instant::now() })
+                .await
+                .expect("locates");
         assert!(reply.text.starts_with("Snapshot text\n\nVisual locate query: \"Save\"\nVisual candidates (1 shown of 3):\n"), "{}", reply.text);
         assert!(reply.text.contains("[v1] score=145 button \"Save\" yellow top-right center=(1520,80) image px size=120x40 CSS px"), "{}", reply.text);
         assert!(
-            reply.text.ends_with("Visual screenshot: p1-s2 is 1600x1200 image px; viewport 800x600 CSS px. Use candidate centers with click and this snapshotId."),
+            reply
+                .text
+                .ends_with("Visual screenshot: p1-s2 is 1600x1200 image px; viewport 800x600 CSS px. Use candidate centers with click and this snapshotId."),
             "{}",
             reply.text
         );
@@ -915,18 +922,25 @@ mod tests {
 
     #[tokio::test]
     async fn locate_says_when_nothing_on_screen_matched_and_needs_a_query() {
-        let rig = Rig::new(vec![Expect::ok("host/browser/page/eval", json!({"value": {"candidates": [], "total": 0}, "facts": page_facts("p1", 1)})), shot(json!({}))]);
+        let rig = Rig::new(vec![
+            Expect::ok("host/browser/page/eval", json!({"value": {"candidates": [], "total": 0}, "facts": page_facts("p1", 1)})),
+            shot(json!({})),
+        ]);
         let (ref_set, snapshot) = locate_ports();
         let blobs = Blobs(Err("unused".into()));
         let command = json!({"query": "Nope"});
-        let reply = locate(LocateInput { page: rig.page(), blobs: &blobs, command: &command, snapshot, ref_set: &ref_set, background: false, now: Instant::now() }).await
-            .expect("locates");
+        let reply =
+            locate(LocateInput { page: rig.page(), blobs: &blobs, command: &command, snapshot, ref_set: &ref_set, background: false, now: Instant::now() })
+                .await
+                .expect("locates");
         assert!(reply.text.contains("No DOM-backed visual candidate on screen matched \"Nope\"; scroll the target into view"), "{}", reply.text);
         let rig = Rig::new(Vec::new());
         let (ref_set, snapshot) = locate_ports();
         let command = json!({"query": "  "});
-        let error = locate(LocateInput { page: rig.page(), blobs: &blobs, command: &command, snapshot, ref_set: &ref_set, background: false, now: Instant::now() }).await
-            .expect_err("needs a query");
+        let error =
+            locate(LocateInput { page: rig.page(), blobs: &blobs, command: &command, snapshot, ref_set: &ref_set, background: false, now: Instant::now() })
+                .await
+                .expect_err("needs a query");
         assert_eq!(error, ActionError::failed("locate requires query"));
     }
 
@@ -934,7 +948,8 @@ mod tests {
     async fn read_narrows_by_keywords_with_two_lines_of_context() {
         let text = "a\nb\nNeedle here\nc\nd\ne\nf\ng\nthread";
         let rig = Rig::new(vec![
-            text_read(json!({"url": "https://a.test/x", "title": "T", "text": text, "total": 31}), false).with_params(json!({"kind": "text", "options": {"maxChars": 120_000}})),
+            text_read(json!({"url": "https://a.test/x", "title": "T", "text": text, "total": 31}), false)
+                .with_params(json!({"kind": "text", "options": {"maxChars": 120_000}})),
         ]);
         let reply = read(&rig.page(), &json!({"query": "needle thread"}), &keep).await.expect("reads");
         assert_eq!(
@@ -974,7 +989,11 @@ mod tests {
         let payload = json!({"url": "https://a.test/", "title": "", "text": text, "total": 100});
         let rig = Rig::new(vec![text_read(payload.clone(), false), text_read(payload, false)]);
         let first = read(&rig.page(), &json!({"maxChars": 40, "offset": 10}), &keep).await.expect("reads");
-        assert!(first.text.contains("\n\n0123456789012345678901234567890123456789\n\n[truncated: showing 10–50 of 100 characters; continue with offset:50]"), "{}", first.text);
+        assert!(
+            first.text.contains("\n\n0123456789012345678901234567890123456789\n\n[truncated: showing 10–50 of 100 characters; continue with offset:50]"),
+            "{}",
+            first.text
+        );
         let last = read(&rig.page(), &json!({"maxChars": 40, "offset": 90}), &keep).await.expect("reads");
         assert!(last.text.ends_with("\n\n0123456789") && !last.text.contains("[truncated"), "{}", last.text);
     }
@@ -994,8 +1013,10 @@ mod tests {
     async fn read_takes_a_page_text_longer_than_one_wire_read_in_parts_and_filters_all_of_it() {
         let first = "a\n".repeat(60_000);
         let rig = Rig::new(vec![
-            text_read(json!({"url": "https://a.test/", "title": "T", "text": first, "total": 120_014, "offset": 0}), true).with_params(json!({"options": {"maxChars": 120_000}})),
-            text_read(json!({"url": "https://a.test/", "title": "T", "text": "b\nNeedle\nc\n1\n2", "total": 120_014, "offset": 120_000}), false).with_params(json!({"options": {"offset": 120_000}})),
+            text_read(json!({"url": "https://a.test/", "title": "T", "text": first, "total": 120_014, "offset": 0}), true)
+                .with_params(json!({"options": {"maxChars": 120_000}})),
+            text_read(json!({"url": "https://a.test/", "title": "T", "text": "b\nNeedle\nc\n1\n2", "total": 120_014, "offset": 120_000}), false)
+                .with_params(json!({"options": {"offset": 120_000}})),
         ]);
         let reply = read(&rig.page(), &json!({"query": "needle"}), &keep).await.expect("reads");
         assert!(reply.text.ends_with("\n\na\nb\nNeedle\nc\n1"), "{}", reply.text);
@@ -1022,7 +1043,10 @@ mod tests {
             {"text": "Smith | John", "name": "", "attributes": {"href": "https://a.test/s", "title": "Boss", "src": "x.png"}},
             {"text": "", "name": "Row \"two\"", "attributes": {}},
         ]);
-        let rig = Rig::new(vec![rows(matches, 5, "Last | First").with_params(json!({"kind": "text", "options": {"selector": "table tr", "attributes": ["title", "href", "missing"], "limit": 2}}))]);
+        let rig = Rig::new(vec![
+            rows(matches, 5, "Last | First")
+                .with_params(json!({"kind": "text", "options": {"selector": "table tr", "attributes": ["title", "href", "missing"], "limit": 2}})),
+        ]);
         let command = json!({"selector": " table tr ", "attributes": ["title", "href", " ", 3, "missing"], "limit": 2});
         let reply = extract(&rig.page(), &command).await.expect("extracts");
         assert_eq!(
@@ -1069,6 +1093,5 @@ mod tests {
         assert_eq!([js_round(2.5), js_round(-2.5), js_round(2.4)], [3.0, -2.0, 2.0]);
     }
 }
-
 
 impl std::error::Error for ActionError {}

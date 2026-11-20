@@ -14,12 +14,17 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 const REDACTED: &str = "[REDACTED]";
-const FIELD: &str = r"(?i-u:access_?token|refresh_?token|id_?token|client_?secret|code_?verifier|code_?challenge|device_?code|api_?key|token|key|secret|password|assertion)";
+const FIELD: &str =
+    r"(?i-u:access_?token|refresh_?token|id_?token|client_?secret|code_?verifier|code_?challenge|device_?code|api_?key|token|key|secret|password|assertion)";
 /// JavaScript's `\s`, as the body of a character class.
 const SPACE: &str = r"\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}";
 
 fn is_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
+    )
 }
 
 fn is_word(c: char) -> bool {
@@ -449,6 +454,3 @@ fn walk(node: Node, secret_values: &[&str], changed: &mut bool) -> Node {
         other => other,
     }
 }
-
-
-

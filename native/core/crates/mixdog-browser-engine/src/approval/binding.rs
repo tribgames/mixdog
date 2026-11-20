@@ -189,7 +189,13 @@ mod tests {
     const ABS: &str = if cfg!(windows) { "C:\\work\\a.txt" } else { "/work/a.txt" };
 
     fn binding(command: &str) -> Binding {
-        Binding { url: "https://a.test/form".into(), document_id: "p:1".into(), command_hash: command_hash(command), files: Vec::new(), receiver_key: String::new() }
+        Binding {
+            url: "https://a.test/form".into(),
+            document_id: "p:1".into(),
+            command_hash: command_hash(command),
+            files: Vec::new(),
+            receiver_key: String::new(),
+        }
     }
 
     fn allow() -> ApprovalAnswer {
@@ -229,10 +235,7 @@ mod tests {
     #[test]
     fn the_precondition_carries_the_document_origin_url_and_receiver() {
         let mut bound = binding("{}");
-        assert_eq!(
-            serde_json::to_value(precondition(&bound)).unwrap(),
-            json!({"documentId": "p:1", "origin": "https://a.test", "url": "https://a.test/form"})
-        );
+        assert_eq!(serde_json::to_value(precondition(&bound)).unwrap(), json!({"documentId": "p:1", "origin": "https://a.test", "url": "https://a.test/form"}));
         bound.receiver_key = "k".into();
         bound.url = "about:blank".into();
         assert_eq!(serde_json::to_value(precondition(&bound)).unwrap(), json!({"documentId": "p:1", "url": "about:blank", "receiverKey": "k"}));
@@ -274,7 +277,6 @@ mod tests {
         let page = Page::at("https://evil.test/", "p:2", "");
         assert_eq!(verify(&bound, &allow(), "{\"action\":\"click\"}", &page, &Disk::default(), &token()).await, Err(ApprovalError::TargetChanged));
     }
-
 
     #[tokio::test]
     async fn an_upload_binds_its_files_and_its_receiving_frame() {
@@ -323,12 +325,14 @@ mod tests {
         let missing = if cfg!(windows) { "C:\\work\\missing.txt" } else { "/work/missing.txt" };
         assert!(message(resolve_upload_files(&disk, &[missing.to_owned()]).await).starts_with("upload approval cannot read the file"));
         let dir = if cfg!(windows) { "C:\\work" } else { "/work" };
-        disk.0.lock().unwrap().insert(PathBuf::from(dir), FileFacts { exists: true, is_file: false, canonical: Some(PathBuf::from(dir)), ..FileFacts::default() });
+        disk.0
+            .lock()
+            .unwrap()
+            .insert(PathBuf::from(dir), FileFacts { exists: true, is_file: false, canonical: Some(PathBuf::from(dir)), ..FileFacts::default() });
         assert_eq!(message(resolve_upload_files(&disk, &[dir.to_owned()]).await), "upload approval requires regular files");
         assert_eq!(resolve_upload_files(&disk, &vec![ABS.to_owned(); 10]).await.unwrap().len(), 10);
     }
 }
-
 
 /// An upload's real files: 1 to 10 absolute paths of regular files, each bound by its canonical path, size and modification
 /// time. The command is then dispatched with the canonical paths (`BoundFile::path`).

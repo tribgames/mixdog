@@ -114,8 +114,7 @@ pub fn parse_native_tool_search(tool: &str, result: &str) -> Option<Value> {
         .flatten()
         .filter(|tool| {
             tool.as_object().is_some_and(|map| {
-                map.get("name").and_then(Value::as_str).is_some_and(|name| !js_trim(name).is_empty())
-                    && map.get("type").is_none_or(Value::is_string)
+                map.get("name").and_then(Value::as_str).is_some_and(|name| !js_trim(name).is_empty()) && map.get("type").is_none_or(Value::is_string)
             })
         })
         .cloned()

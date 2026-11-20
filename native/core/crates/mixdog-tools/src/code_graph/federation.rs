@@ -6,10 +6,7 @@
 //! are the registered projects, the session's selected cwd and the roots the graph cache has
 //! indexed (all under the cwd); a sentinel-free cwd with none of them federates over its
 //! discovered child projects instead. At a filesystem root only the trusted set is used.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)"
-)]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,9 +16,7 @@ use rayon::prelude::*;
 use super::args::Args;
 use super::dispatch::{Answer, Env, run_scoped};
 use super::output::{Warnings, max_bytes, wrap_with_status};
-use super::roots::{
-    abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key,
-};
+use super::roots::{abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key};
 
 /// Where a federated call finds the roots a user has told Mixdog about. The composition root
 /// supplies it to `CodeGraphTool::new`; there is deliberately no empty default, because a tool
@@ -53,34 +48,15 @@ impl TrustSnapshot {
         self.cached = cached;
         self
     }
-
 }
 
 /// The modes a federated call may fan out (`ROOT_FEDERATED_MODES`).
-const ROOT_FEDERATED_MODES: [&str; 10] = [
-    "overview",
-    "symbol",
-    "find_symbol",
-    "symbol_search",
-    "search",
-    "references",
-    "callers",
-    "callees",
-    "symbols",
-    "prewarm",
-];
+const ROOT_FEDERATED_MODES: [&str; 10] =
+    ["overview", "symbol", "find_symbol", "symbol_search", "search", "references", "callers", "callees", "symbols", "prewarm"];
 
 /// The modes whose anchors are symbols: a `file`/`files` entry equal to the cwd is scope noise
 /// for them, not an anchor (`CODE_GRAPH_SYMBOL_ANCHOR_MODES`).
-const SYMBOL_ANCHOR_MODES: [&str; 7] = [
-    "find_symbol",
-    "symbol_search",
-    "search",
-    "references",
-    "callers",
-    "callees",
-    "symbols",
-];
+const SYMBOL_ANCHOR_MODES: [&str; 7] = ["find_symbol", "symbol_search", "search", "references", "callers", "callees", "symbols"];
 
 pub(super) fn is_wildcard(file: &str) -> bool {
     file.contains(['*', '?', '[', ']', '{', '}'])
@@ -110,11 +86,7 @@ fn owning_root(file: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
 
 /// The roots a federated child call must not re-index: siblings nested under it.
 fn excluded_roots_for(root: &Path, roots: &[PathBuf]) -> Vec<PathBuf> {
-    roots
-        .iter()
-        .filter(|candidate| candidate.as_path() != root && path_within(root, candidate))
-        .cloned()
-        .collect()
+    roots.iter().filter(|candidate| candidate.as_path() != root && path_within(root, candidate)).cloned().collect()
 }
 
 fn project_label(root: &Path) -> String {
@@ -208,14 +180,7 @@ pub(super) struct Plan {
 }
 
 /// Whether, and over which roots, this call federates (`planFederation`).
-pub(super) fn plan_federation(
-    args: &Args,
-    base: &Path,
-    base_project_root: Option<&PathBuf>,
-    has_file_arg: bool,
-    has_aggregate: bool,
-    env: &Env<'_>,
-) -> Plan {
+pub(super) fn plan_federation(args: &Args, base: &Path, base_project_root: Option<&PathBuf>, has_file_arg: bool, has_aggregate: bool, env: &Env<'_>) -> Plan {
     let filesystem_root_cwd = base_project_root.is_none() && is_filesystem_root(base);
     let files = args.file_list();
     let raw_mode = args.mode.trim().to_owned();
@@ -232,24 +197,15 @@ pub(super) fn plan_federation(
     let not_self = |root: &PathBuf| root_key(root) != base_key;
     // Trusted graph targets living UNDER a sentinel-free cwd; self is filtered out, since
     // federating a directory into itself would recurse forever.
-    let trusted: Vec<PathBuf> = if base_project_root.is_some() {
-        Vec::new()
-    } else {
-        collect_trusted_roots(base, env).into_iter().filter(not_self).collect()
-    };
+    let trusted: Vec<PathBuf> = if base_project_root.is_some() { Vec::new() } else { collect_trusted_roots(base, env).into_iter().filter(not_self).collect() };
     // Registered roots keep priority; discovered children only fill in when registration
     // yields nothing.
     let mut federation_roots = trusted.clone();
     if trusted.is_empty() && base_project_root.is_none() {
         federation_roots = child_project_roots(base, super::roots::federation_cap()).into_iter().filter(not_self).collect();
     }
-    let sentinel_free = base_project_root.is_none()
-        && !filesystem_root_cwd
-        && !parent_dot
-        && !has_file_arg
-        && !has_aggregate
-        && federated_mode
-        && !federation_roots.is_empty();
+    let sentinel_free =
+        base_project_root.is_none() && !filesystem_root_cwd && !parent_dot && !has_file_arg && !has_aggregate && federated_mode && !federation_roots.is_empty();
     Plan {
         active: filesystem_root_cwd || parent_dot || sentinel_free,
         exact_dot,
@@ -272,7 +228,11 @@ fn run_child(args: &Args, root: &Path, excluded: &[PathBuf], env: &Env<'_>) -> C
         Ok(answer) => {
             if args.mode == "callers" && args.depth.unwrap_or(1.0) >= 2.0 {
                 // Keep raw rows for the outer cap so an early child cap cannot discard continuations.
-                return Child { complete: answer.complete && !answer.error, roots: answer.dependency_roots.unwrap_or_default(), text: answer.warnings.prefix(answer.text) };
+                return Child {
+                    complete: answer.complete && !answer.error,
+                    roots: answer.dependency_roots.unwrap_or_default(),
+                    text: answer.warnings.prefix(answer.text),
+                };
             }
             // A section is its own `executeCodeGraphTool` call: its own warning and budget.
             let (text, uncapped) = wrap_with_status(answer.text, &answer.warnings, args, max_bytes());

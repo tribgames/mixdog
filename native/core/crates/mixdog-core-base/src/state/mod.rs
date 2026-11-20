@@ -14,10 +14,10 @@ mod routes;
 mod scoped;
 
 pub use routes::RouteGuard;
-pub use scoped::ScopedSection;
-pub use scoped::ScopedSections;
 pub use routes::ScopedRouteTable;
 pub use routes::StateRuntime;
+pub use scoped::ScopedSection;
+pub use scoped::ScopedSections;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -53,9 +53,7 @@ pub fn change_of<T: Serialize>(value: &T) -> SectionChange {
         Value::Object(fields) => fields.len(),
         _ => 1,
     };
-    SectionChange::Stub {
-        count: count as u64,
-    }
+    SectionChange::Stub { count: count as u64 }
 }
 
 type SectionKey = (SectionName, Option<String>);
@@ -89,13 +87,7 @@ struct Stamp {
 
 impl Stamp {
     fn new(id: &FeedId, epoch: &FeedEpoch) -> Self {
-        Self {
-            prefix: format!(
-                r#""feed":{{"id":{},"epoch":{},"seq":"#,
-                id.to_json_string(),
-                epoch.to_json_string()
-            ),
-        }
+        Self { prefix: format!(r#""feed":{{"id":{},"epoch":{},"seq":"#, id.to_json_string(), epoch.to_json_string()) }
     }
 
     fn close(&self, out: &mut Vec<u8>, seq: u64) {
@@ -150,23 +142,11 @@ impl SectionFeedState {
     fn on(feed: Arc<dyn Feed>, scoped: bool) -> Self {
         let at = feed.position();
         let stamp = Stamp::new(&feed.feed_id(), &at.epoch);
-        Self {
-            feed,
-            stamp,
-            scoped,
-            inner: Mutex::new(Inner {
-                seq: at.seq,
-                entries: Arc::new(Entries::new()),
-            }),
-        }
+        Self { feed, stamp, scoped, inner: Mutex::new(Inner { seq: at.seq, entries: Arc::new(Entries::new()) }) }
     }
 
     /// The latest `(revision, change)` of a section, `None` when it was never set or was removed.
-    pub fn current(
-        &self,
-        section: SectionName,
-        key: Option<&str>,
-    ) -> Option<(u64, SectionChange)> {
+    pub fn current(&self, section: SectionName, key: Option<&str>) -> Option<(u64, SectionChange)> {
         let inner = lock(&self.inner);
         let entry = inner.entries.get(&(section, key.map(str::to_owned)))?;
         (entry.change != SectionChange::Removed).then(|| (entry.revision, entry.change.clone()))
@@ -198,10 +178,7 @@ impl StatePublisher for SectionFeedState {
     fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
         let mut inner = lock(&self.inner);
         let slot = (section, key);
-        let entry = Entry {
-            revision: inner.entries.get(&slot).map_or(0, |e| e.revision) + 1,
-            change,
-        };
+        let entry = Entry { revision: inner.entries.get(&slot).map_or(0, |e| e.revision) + 1, change };
         let seq = inner.seq + 1;
         let mut bytes = Vec::with_capacity(160);
         bytes.extend_from_slice(br#"{"method":"#);
@@ -215,20 +192,11 @@ impl StatePublisher for SectionFeedState {
         entries.insert(slot, entry);
         let entries = Arc::new(entries);
         let view: Arc<dyn FeedView> = if self.scoped {
-            Arc::new(ScopedSectionsView {
-                id: self.feed.feed_id(),
-                entries: entries.clone(),
-            })
+            Arc::new(ScopedSectionsView { id: self.feed.feed_id(), entries: entries.clone() })
         } else {
-            Arc::new(SectionsView {
-                stamp: self.stamp.clone(),
-                entries: entries.clone(),
-            })
+            Arc::new(SectionsView { stamp: self.stamp.clone(), entries: entries.clone() })
         };
-        let frame = FeedFrame {
-            seq,
-            bytes: Bytes::from(bytes),
-        };
+        let frame = FeedFrame { seq, bytes: Bytes::from(bytes) };
         // This state is the feed's only producer, so the seq cannot gap.
         if self.feed.publish(&[frame], Some(view)).is_ok() {
             inner.seq = seq;
@@ -244,17 +212,8 @@ struct SectionsView {
 }
 
 impl FeedView for SectionsView {
-    fn encode_snapshot(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        _window: &Window,
-    ) -> Bytes {
-        let mut live: Vec<(&SectionKey, &Entry)> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.change != SectionChange::Removed)
-            .collect();
+    fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
+        let mut live: Vec<(&SectionKey, &Entry)> = self.entries.iter().filter(|(_, e)| e.change != SectionChange::Removed).collect();
         live.sort_by(|a, b| (a.0.0.wire(), &a.0.1).cmp(&(b.0.0.wire(), &b.0.1)));
         let mut out = Vec::with_capacity(256);
         out.extend_from_slice(br#"{"method":"app/snapshot","params":{"sections":["#);
@@ -278,17 +237,8 @@ struct ScopedSectionsView {
 }
 
 impl FeedView for ScopedSectionsView {
-    fn encode_snapshot(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        _window: &Window,
-    ) -> Bytes {
-        let mut live: Vec<(&SectionKey, &Entry)> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.change != SectionChange::Removed)
-            .collect();
+    fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
+        let mut live: Vec<(&SectionKey, &Entry)> = self.entries.iter().filter(|(_, e)| e.change != SectionChange::Removed).collect();
         live.sort_by(|a, b| (a.0.0.wire(), &a.0.1).cmp(&(b.0.0.wire(), &b.0.1)));
         let mut out = Vec::with_capacity(256);
         out.extend_from_slice(br#"{"method":"feed/snapshot","params":{"feedId":"#);
@@ -308,19 +258,13 @@ impl FeedView for ScopedSectionsView {
 
 /// The initial read model of a scoped feed that carries sections: no section yet.
 pub fn scoped_empty_view(id: &FeedId) -> Arc<dyn FeedView> {
-    Arc::new(ScopedSectionsView {
-        id: id.clone(),
-        entries: Arc::new(Entries::new()),
-    })
+    Arc::new(ScopedSectionsView { id: id.clone(), entries: Arc::new(Entries::new()) })
 }
 
 /// The read model of a feed that has published nothing yet: a snapshot with no sections. The
 /// composition root gives it to `CoreFeed::new` before the first `SectionFeedState` publication.
 pub fn empty_view(id: &FeedId, epoch: &FeedEpoch) -> Arc<dyn FeedView> {
-    Arc::new(SectionsView {
-        stamp: Stamp::new(id, epoch),
-        entries: Arc::new(Entries::new()),
-    })
+    Arc::new(SectionsView { stamp: Stamp::new(id, epoch), entries: Arc::new(Entries::new()) })
 }
 
 /// Where the sections of scoped feeds go. The owner of a scoped feed (thread actor, `git:<root>`

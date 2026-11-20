@@ -258,7 +258,11 @@ pub(crate) fn set_chart_data(context: &mut EditContext<'_>, presentation: &Com, 
             category_axis.set_member("Crosses", i4(-4105))?;
         }
     }
-    if present(&prop(op, "showValues")) || truthy(&prop(op, "valueNumberFormat")) || truthy(&prop(op, "dataLabelPosition")) || truthy(&prop(op, "dataLabelColor")) {
+    if present(&prop(op, "showValues"))
+        || truthy(&prop(op, "valueNumberFormat"))
+        || truthy(&prop(op, "dataLabelPosition"))
+        || truthy(&prop(op, "dataLabelColor"))
+    {
         set_data_labels(&chart, op)?;
     }
     let zero_baseline = prop(op, "zeroBaseline");

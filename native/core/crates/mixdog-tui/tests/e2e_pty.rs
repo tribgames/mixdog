@@ -137,7 +137,24 @@ fn exit_and_check(mut session: TuiSession) {
 }
 
 fn markdown_answer() -> String {
-    ["Here is the plan.", "", "```rust", "fn main() {", "    println!(\"hello\");", "}", "```", "", "| name | value |", "| --- | --- |", "| alpha | 1 |", "| beta | 2 |", "", "markdown-answer-done", ""].join("\n")
+    [
+        "Here is the plan.",
+        "",
+        "```rust",
+        "fn main() {",
+        "    println!(\"hello\");",
+        "}",
+        "```",
+        "",
+        "| name | value |",
+        "| --- | --- |",
+        "| alpha | 1 |",
+        "| beta | 2 |",
+        "",
+        "markdown-answer-done",
+        "",
+    ]
+    .join("\n")
 }
 
 // ---- the sessions ------------------------------------------------------------------------------------------------------------
@@ -172,7 +189,8 @@ fn first_frame_typing_slash_palette_and_model_picker() {
 
     // The slash palette filters as the user types.
     session.send("/mo");
-    session.wait_until("the palette filtered to /model", STEP, |grid| any_row(grid, "Switch model for subsequent turns") && !any_row(grid, "Resume a saved chat"));
+    session
+        .wait_until("the palette filtered to /model", STEP, |grid| any_row(grid, "Switch model for subsequent turns") && !any_row(grid, "Resume a saved chat"));
     session.send("\x7f\x7f\x7f");
     session.wait_until("the palette closed", STEP, |grid| !any_row(grid, "Switch model for subsequent turns"));
 
@@ -218,12 +236,16 @@ fn streamed_markdown_answer_and_tool_card_expanded_with_ctrl_o() {
     });
 
     // A tool call card: collapsed, then expanded with Ctrl+O.
-    workspace.provider.script(vec![Reply::calls(vec![("toolu_read_1", "read", json!({ "file_path": notes_path.display().to_string() }))]), Reply::text("read-finished")]);
+    workspace
+        .provider
+        .script(vec![Reply::calls(vec![("toolu_read_1", "read", json!({ "file_path": notes_path.display().to_string() }))]), Reply::text("read-finished")]);
     submit(&session, "read the notes");
     session.wait_until("the finished tool turn", STEP, |grid| any_row(grid, "read-finished"));
     // A collapsed read is the aggregate card of Node (`aggregate-card.jsx`): the header counts the files ("Read 1 file") with the
     // ctrl+o hint and the row under it holds the summary; the file's own text and path are the expanded view's.
-    session.with_grid(|grid| assert!(any_row(grid, "Read 1 file") && any_row(grid, "ctrl+o expand"), "the card counts the file and offers ctrl+o\n{}", dump_text(grid)));
+    session.with_grid(|grid| {
+        assert!(any_row(grid, "Read 1 file") && any_row(grid, "ctrl+o expand"), "the card counts the file and offers ctrl+o\n{}", dump_text(grid))
+    });
     let before = session.with_grid(|grid| any_row(grid, "e2e-line-12"));
     session.send("\x0f");
     session.wait_until("the card expanded", STEP, |grid| any_row(grid, "e2e-line-12"));
@@ -255,7 +277,11 @@ fn scrolling_keeps_the_anchor_while_the_answer_streams_and_a_drag_selection_copi
     let (anchor_row, anchor_n) = session.with_grid(|grid| numbered_rows(grid).first().copied().expect("a numbered row"));
     pause(Duration::from_millis(1200));
     session.with_grid(|grid| {
-        assert!(numbered_rows(grid).contains(&(anchor_row, anchor_n)), "row-{anchor_n:02} stays on screen row {anchor_row} while the answer grows\n{}", dump_text(grid));
+        assert!(
+            numbered_rows(grid).contains(&(anchor_row, anchor_n)),
+            "row-{anchor_n:02} stays on screen row {anchor_row} while the answer grows\n{}",
+            dump_text(grid)
+        );
     });
 
     // The wheel scrolls too, and scrolling back down reaches the end of the answer.
@@ -336,7 +362,11 @@ fn escape_interrupts_a_turn_and_the_queued_steer_runs_next() {
     session.with_grid(|grid| {
         assert!(any_row(grid, "Cancelled"), "the interrupted turn is marked\n{}", dump_text(grid));
         assert!(!any_row(grid, "chunk-59"), "the interrupted answer does not go on\n{}", dump_text(grid));
-        assert!(!prompt_text(grid).contains("start a slow answer") && !prompt_text(grid).contains(steer), "nothing is put back into the box\n{}", dump_text(grid));
+        assert!(
+            !prompt_text(grid).contains("start a slow answer") && !prompt_text(grid).contains(steer),
+            "nothing is put back into the box\n{}",
+            dump_text(grid)
+        );
     });
     assert!(workspace.provider.served() >= 2, "the model was asked again for the steering message");
     exit_and_check(session);

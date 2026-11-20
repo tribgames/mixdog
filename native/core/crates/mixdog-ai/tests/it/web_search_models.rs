@@ -185,7 +185,11 @@ async fn a_forced_scan_lists_the_enabled_search_providers_and_keeps_the_rows_tha
     kept.sort();
     assert_eq!(
         kept,
-        [("gemini".to_owned(), "gemini-2.5-pro".to_owned()), ("openai-oauth".to_owned(), "gpt-5.4".to_owned()), ("openai-oauth".to_owned(), "gpt-5.5".to_owned())],
+        [
+            ("gemini".to_owned(), "gemini-2.5-pro".to_owned()),
+            ("openai-oauth".to_owned(), "gpt-5.4".to_owned()),
+            ("openai-oauth".to_owned(), "gpt-5.5".to_owned())
+        ],
         "every kept row is remembered for the model metadata"
     );
 }

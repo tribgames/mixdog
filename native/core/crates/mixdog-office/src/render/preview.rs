@@ -81,11 +81,7 @@ impl Request {
             .filter(|pages| !pages.is_empty())
             .map(|pages| pages.iter().map(|page| to_number_of(Some(page))).collect());
         let width = to_number_of(args.get("maxWidth"));
-        Self {
-            output: resolve_office_render_output(&output),
-            pages,
-            max_width: if width.is_nan() || width == 0.0 { DEFAULT_MAX_WIDTH } else { width },
-        }
+        Self { output: resolve_office_render_output(&output), pages, max_width: if width.is_nan() || width == 0.0 { DEFAULT_MAX_WIDTH } else { width } }
     }
 
     fn pages_value(&self) -> Value {
@@ -257,11 +253,9 @@ pub async fn render_office_preview<E: RenderEngine>(
         return Err("render accepts at most 12 explicit pages, within the presentation range".to_owned());
     }
     let by_page = match (&signatures, &wanted_pages) {
-        (Some(signatures), Some(wanted)) if wanted.len() <= MAX_DECK_PAGES => Some(ByPage {
-            signatures,
-            wanted,
-            missing: wanted.iter().copied().filter(|page| !retained.contains_key(&(*page as usize))).collect(),
-        }),
+        (Some(signatures), Some(wanted)) if wanted.len() <= MAX_DECK_PAGES => {
+            Some(ByPage { signatures, wanted, missing: wanted.iter().copied().filter(|page| !retained.contains_key(&(*page as usize))).collect() })
+        }
         _ => None,
     };
     let output_path = Path::new(&requested.output);

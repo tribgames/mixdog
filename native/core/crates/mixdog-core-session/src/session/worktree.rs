@@ -34,55 +34,56 @@ use mixdog_tools::git::SessionOp;
 use mixdog_tools::git::SessionWorktrees;
 use serde_json::json;
 
+#[path = "worktree_consumers.rs"]
+pub mod worktree_consumers;
 #[path = "worktree_gate.rs"]
 mod worktree_gate;
+#[cfg(test)]
+#[path = "worktree_goldens.rs"]
+mod worktree_goldens;
 #[path = "worktree_host.rs"]
 pub mod worktree_host;
 #[path = "worktree_host_impl.rs"]
 pub mod worktree_host_impl;
-#[path = "worktree_consumers.rs"]
-pub mod worktree_consumers;
-#[path = "worktree_ops.rs"]
-mod worktree_ops;
-#[path = "worktree_state.rs"]
-pub(crate) mod worktree_state;
 #[path = "worktree_intents.rs"]
 mod worktree_intents;
+#[path = "worktree_maintenance.rs"]
+pub mod worktree_maintenance;
 #[path = "worktree_menu.rs"]
 mod worktree_menu;
 #[path = "worktree_merge.rs"]
 mod worktree_merge;
+#[path = "worktree_ops.rs"]
+mod worktree_ops;
+#[path = "worktree_project.rs"]
+mod worktree_project;
+#[path = "worktree_reroot.rs"]
+pub(crate) mod worktree_reroot;
 #[path = "worktree_service.rs"]
 pub mod worktree_service;
 #[path = "worktree_session.rs"]
 mod worktree_session;
-#[path = "worktree_maintenance.rs"]
-pub mod worktree_maintenance;
 #[path = "worktree_sessions.rs"]
 pub mod worktree_sessions;
-#[path = "worktree_snapshots.rs"]
-mod worktree_snapshots;
 #[path = "worktree_setup.rs"]
 pub mod worktree_setup;
-#[path = "worktree_reroot.rs"]
-pub(crate) mod worktree_reroot;
 #[path = "worktree_setup_note.rs"]
 mod worktree_setup_note;
 #[path = "worktree_setup_run.rs"]
 pub(crate) mod worktree_setup_run;
+#[path = "worktree_snapshots.rs"]
+mod worktree_snapshots;
+#[path = "worktree_state.rs"]
+pub(crate) mod worktree_state;
 #[path = "worktree_steps.rs"]
 mod worktree_steps;
-#[path = "worktree_project.rs"]
-mod worktree_project;
-#[path = "worktree_texts.rs"]
-mod worktree_texts;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "worktree_tests.rs"]
 pub mod worktree_tests;
-#[cfg(test)]
-#[path = "worktree_goldens.rs"]
-mod worktree_goldens;
+#[path = "worktree_texts.rs"]
+mod worktree_texts;
 
+pub use self::worktree_consumers::StoredConsumers;
 pub use self::worktree_gate::AdmissionGate;
 pub use self::worktree_gate::Checkout;
 pub use self::worktree_gate::Checkouts;
@@ -90,11 +91,6 @@ pub use self::worktree_gate::Cwd;
 pub use self::worktree_gate::SpawnGuard;
 pub use self::worktree_gate::TurnGuard;
 pub use self::worktree_host::JobCwd;
-pub use self::worktree_consumers::StoredConsumers;
-pub use self::worktree_host_impl::HostRuntime;
-pub use self::worktree_host_impl::SessionWorkspaceHost;
-pub use self::worktree_host_impl::WorkspaceContext;
-pub use self::worktree_host_impl::staged_reroot;
 pub use self::worktree_host::LeadActivity;
 pub use self::worktree_host::LiveSession;
 pub use self::worktree_host::Move;
@@ -102,13 +98,15 @@ pub use self::worktree_host::SessionView;
 pub use self::worktree_host::Undo;
 pub use self::worktree_host::WorkspaceChange;
 pub use self::worktree_host::WorkspaceHost;
+pub use self::worktree_host_impl::HostRuntime;
+pub use self::worktree_host_impl::SessionWorkspaceHost;
+pub use self::worktree_host_impl::WorkspaceContext;
+pub use self::worktree_host_impl::staged_reroot;
 pub use self::worktree_maintenance::CancelSnapshotCleanups;
 pub use self::worktree_maintenance::LiveSessions;
 pub use self::worktree_maintenance::WorktreeMaintenance;
 pub use self::worktree_maintenance::cleanup_summary;
 pub use self::worktree_maintenance::startup_summary;
-pub use self::worktree_sessions::StoredWorktreeSessions;
-pub use self::worktree_snapshots::SnapshotCleanups;
 pub use self::worktree_reroot::PendingReroot;
 pub use self::worktree_reroot::PromptReroot;
 pub use self::worktree_reroot::PromptRewrite;
@@ -116,6 +114,9 @@ pub use self::worktree_reroot::PromptView;
 pub use self::worktree_reroot::pending_workspace_reroot;
 pub use self::worktree_reroot::presented_workspace;
 pub use self::worktree_reroot::route_prompt_refresh;
+pub use self::worktree_service::ThreadScmService;
+pub(crate) use self::worktree_service::scm_error;
+pub use self::worktree_sessions::StoredWorktreeSessions;
 pub use self::worktree_setup::SetupListener;
 pub use self::worktree_setup::SetupNotice;
 pub use self::worktree_setup::SetupRun;
@@ -128,12 +129,9 @@ pub use self::worktree_setup_run::SetupEvent;
 pub use self::worktree_setup_run::SetupReport;
 pub use self::worktree_setup_run::SetupRunner;
 pub use self::worktree_setup_run::SetupStatus;
-pub use self::worktree_service::ThreadScmService;
-pub(crate) use self::worktree_service::scm_error;
 pub use self::worktree_setup_run::SetupStep;
+pub use self::worktree_snapshots::SnapshotCleanups;
 pub use self::worktree_state::Resumed;
-pub use self::worktree_texts::RECOVERY_TURN_REFUSAL;
-pub use self::worktree_texts::thrown_message;
 pub use self::worktree_state::TransitionState;
 pub use self::worktree_state::Workspace;
 pub use self::worktree_state::bound_workspace_cwd;
@@ -141,6 +139,8 @@ pub use self::worktree_state::read_session_workspace;
 pub use self::worktree_state::replacement_session_cwd;
 pub use self::worktree_state::restore_workspace_after_resume;
 pub use self::worktree_state::workspace_for_project_selection;
+pub use self::worktree_texts::RECOVERY_TURN_REFUSAL;
+pub use self::worktree_texts::thrown_message;
 
 use self::worktree_gate::folder_in_use;
 use self::worktree_merge::Admission;
@@ -507,12 +507,7 @@ impl SessionWorkspaces {
 
     /// Turn-start gate, once the turn is admitted and before the provider and any worker spawn:
     /// a session in recovery refuses; a pending worktree intent is provisioned now.
-    pub async fn prepare_turn_workspace(
-        &self,
-        session: &str,
-        start: TurnStart,
-        cancel: &CancellationToken,
-    ) -> Result<Option<JsonValue>, ScmFailure> {
+    pub async fn prepare_turn_workspace(&self, session: &str, start: TurnStart, cancel: &CancellationToken) -> Result<Option<JsonValue>, ScmFailure> {
         self.inner.prepare_turn_workspace(session, start, cancel).await
     }
 
@@ -527,33 +522,15 @@ impl SessionWorkspaces {
         self.inner.session_worktree_work(session_ids, cancel).await
     }
 
-    pub async fn request_worktree(
-        &self,
-        session: &str,
-        input: RequestWorktree,
-        own_turn: bool,
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, ScmFailure> {
+    pub async fn request_worktree(&self, session: &str, input: RequestWorktree, own_turn: bool, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         self.inner.request_worktree(session, input, own_turn, cancel).await
     }
 
-    pub async fn select_branch(
-        &self,
-        session: &str,
-        input: SelectBranch,
-        own_turn: bool,
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, ScmFailure> {
+    pub async fn select_branch(&self, session: &str, input: SelectBranch, own_turn: bool, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         self.inner.select_branch(session, input, own_turn, cancel).await
     }
 
-    pub async fn merge_workspace(
-        &self,
-        session: &str,
-        input: MergeWorkspace,
-        own_turn: bool,
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, ScmFailure> {
+    pub async fn merge_workspace(&self, session: &str, input: MergeWorkspace, own_turn: bool, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
         self.inner.merge_workspace(session, input, own_turn, cancel).await
     }
 

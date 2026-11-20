@@ -13,10 +13,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use mixdog_fsio::ReadProof;
-use mixdog_js::{
-    JsRegex, is_js_space, js_object_keys, js_to_lowercase, js_trim, json_number, slice_utf16, to_number_of, utf16_len,
-    value_to_string,
-};
+use mixdog_js::{JsRegex, is_js_space, js_object_keys, js_to_lowercase, js_trim, json_number, slice_utf16, to_number_of, utf16_len, value_to_string};
 use mixdog_office_base::values::{plain_object, truthy};
 use mixdog_ooxml::xml::xml_decode;
 use mixdog_ooxml::zipio::Package;
@@ -44,11 +41,7 @@ struct Rule {
 }
 
 static INJECTION_PATTERNS: LazyLock<Vec<Rule>> = LazyLock::new(|| {
-    let rule = |category: &'static str, severity: &'static str, source: &str| Rule {
-        category,
-        severity,
-        pattern: JsRegex::new_static(source, "i"),
-    };
+    let rule = |category: &'static str, severity: &'static str, source: &str| Rule { category, severity, pattern: JsRegex::new_static(source, "i") };
     let tool_coercion = [
         r"(?:run|execute|invoke|call|use).{0,30}(?:tool|command|powershell|shell|terminal|connector)",
         r"|(?:도구|명령|파워셸|셸|터미널|커넥터).{0,20}(?:실행|호출|사용)",
@@ -86,9 +79,7 @@ static INJECTION_PATTERNS: LazyLock<Vec<Rule>> = LazyLock::new(|| {
 fn package_parts(format: &str) -> Option<JsRegex> {
     let source = match format {
         "docx" => r"^word\/(?:document|comments|commentsExtended|header\d+|footer\d+|footnotes|endnotes)\.xml$",
-        "xlsx" => {
-            r"^xl\/(?:sharedStrings|workbook|worksheets\/sheet\d+|comments\d+|threadedComments\/threadedComment\d+)\.xml$"
-        }
+        "xlsx" => r"^xl\/(?:sharedStrings|workbook|worksheets\/sheet\d+|comments\d+|threadedComments\/threadedComment\d+)\.xml$",
         "pptx" => r"^ppt\/(?:presentation|slides\/slide\d+|notesSlides\/notesSlide\d+|comments\/comment\d+)\.xml$",
         _ => return None,
     };
@@ -373,9 +364,8 @@ pub fn combine_office_trust_reviews(reviews: &[Value]) -> Value {
         }
     }
     findings.truncate(MAX_FINDINGS);
-    let truthy_texts = |key: &str| -> Vec<String> {
-        entries.iter().filter_map(|entry| field(entry, key).filter(|value| truthy(value)).map(value_to_string)).collect()
-    };
+    let truthy_texts =
+        |key: &str| -> Vec<String> { entries.iter().filter_map(|entry| field(entry, key).filter(|value| truthy(value)).map(value_to_string)).collect() };
     let sources = truthy_texts("source");
     let scanned: f64 = entries
         .iter()
@@ -384,11 +374,7 @@ pub fn combine_office_trust_reviews(reviews: &[Value]) -> Value {
             if number.is_nan() { 0.0 } else { number }
         })
         .sum();
-    let format = entries
-        .iter()
-        .find(|entry| field(entry, "format").is_some_and(truthy))
-        .map(|entry| text_or(field(entry, "format"), ""))
-        .unwrap_or_default();
+    let format = entries.iter().find(|entry| field(entry, "format").is_some_and(truthy)).map(|entry| text_or(field(entry, "format"), "")).unwrap_or_default();
     let source = if sources.is_empty() { "combined".to_owned() } else { sources.join("+") };
     let mut report = Report::new(&format, &source);
     report.findings = findings;

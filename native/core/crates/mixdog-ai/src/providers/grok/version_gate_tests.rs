@@ -26,9 +26,15 @@ async fn sent_after(refusals: &[(u16, &str)], env: &[(&str, &str)]) -> Vec<Strin
     let dir = tempfile::tempdir().unwrap();
     let env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect::<HashMap<_, _>>();
     let versions = versions_in(dir.path(), &Arc::new(Net::default()), env, &Arc::new(AtomicU64::new(1_800_000_000_000)));
-    let script = Mutex::new(refusals.iter().map(|(status, message)| (*status, serde_json::json!({ "error": { "message": message } }).to_string().into_bytes())).collect::<VecDeque<_>>());
+    let script = Mutex::new(
+        refusals
+            .iter()
+            .map(|(status, message)| (*status, serde_json::json!({ "error": { "message": message } }).to_string().into_bytes()))
+            .collect::<VecDeque<_>>(),
+    );
     let http = Replay::new(move |_: &WireRequest| script.lock().unwrap().pop_front().expect("a request the script answers"));
-    let rewriter = GrokRewriter { client_version: versions.grok_live(), user_id: Arc::new(|| None), sdk_headers: Vec::new(), effort_rule: Arc::new(SeedEffortRule) };
+    let rewriter =
+        GrokRewriter { client_version: versions.grok_live(), user_id: Arc::new(|| None), sdk_headers: Vec::new(), effort_rule: Arc::new(SeedEffortRule) };
     let codec = RewriteCodec::new(super::codec(&versions.grok()), rewriter);
     let credential = StaticCredential(Some(("authorization".to_owned(), "Bearer fake-credential-not-a-secret".to_owned())));
     let request = ModelRequest { model: "grok-4".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };

@@ -7,7 +7,7 @@
 //! message entry and none of the system's. A message whose content is a plain string is the one text block it is sent as
 //! once marked.
 
-use mixdog_core_api::domain::cache_tail::{Digest, Marker, WireManifest, Zone, TTL_1H_MS, TTL_5M_MS};
+use mixdog_core_api::domain::cache_tail::{Digest, Marker, TTL_1H_MS, TTL_5M_MS, WireManifest, Zone};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
@@ -141,7 +141,10 @@ mod tests {
             { "role": "user", "content": [{ "type": "text", "text": "go", "cache_control": { "type": "ephemeral" } }] },
         ])));
         assert_eq!(manifest.boundaries.len(), 5, "one tool, one system block, three message blocks");
-        assert_eq!(manifest.markers.iter().map(|m| (m.zone, m.ttl_ms, m.block)).collect::<Vec<_>>(), vec![(Zone::System, TTL_1H_MS, 1), (Zone::Messages, TTL_5M_MS, 4)]);
+        assert_eq!(
+            manifest.markers.iter().map(|m| (m.zone, m.ttl_ms, m.block)).collect::<Vec<_>>(),
+            vec![(Zone::System, TTL_1H_MS, 1), (Zone::Messages, TTL_5M_MS, 4)]
+        );
         assert_eq!(manifest.tail_marker().map(|m| m.block), Some(4));
     }
 

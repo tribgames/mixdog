@@ -73,14 +73,7 @@ impl Default for RunOpts {
 
 impl RoutineRuntime {
     /// `run` is the turn; it receives the caller's cancellation.
-    pub(super) async fn run_owned<F, Fut>(
-        &self,
-        kind: RoutineKind,
-        name: &str,
-        owner_agent_id: &str,
-        opts: &RunOpts,
-        run: F,
-    ) -> Result<OwnedOutcome, String>
+    pub(super) async fn run_owned<F, Fut>(&self, kind: RoutineKind, name: &str, owner_agent_id: &str, opts: &RunOpts, run: F) -> Result<OwnedOutcome, String>
     where
         F: FnOnce(CancelView) -> Fut,
         Fut: Future<Output = Result<RoutineRun, String>>,

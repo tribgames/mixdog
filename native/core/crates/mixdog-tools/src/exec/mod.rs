@@ -35,35 +35,30 @@ mod warning;
 pub use cover::COVERING_TOOLS;
 pub use fold::fold_carriage_return_frames;
 pub use fold::fold_consecutive_duplicate_lines;
-pub use text::escape_harness_tags;
 pub use hoist::ExtSyntax;
+pub use hoist::ScriptSyntax;
 pub use invocation::POWERSHELL_BOOTSTRAP;
 pub use invocation::SkillRuntime;
 pub use invocation::skill_launcher_dir;
-pub use hoist::ScriptSyntax;
 pub use jobs::ElevationGate;
 pub use jobs::ExecConfig;
+pub use jobs::ExecRuntime;
 pub use jobs::FixedShell;
+pub use jobs::IoLanes;
+pub use jobs::Job;
+pub use jobs::JobStatus;
 pub use jobs::OsPromptElevation;
 pub use jobs::ShellSource;
 pub use jobs::SurvivorWatch;
 pub use jobs::Survivors;
-pub use jobs::ExecRuntime;
-pub use jobs::IoLanes;
-pub use jobs::Job;
-pub use jobs::JobStatus;
-pub use jobs::WaitedSilence;
 pub use jobs::TaskNotifier;
+pub use jobs::WaitedSilence;
 pub use jobs::most_significant_duration;
 pub use jobs::signal_name;
 pub use shell::ForeignShellTool;
 pub use shell::ShellTool;
 pub use shell_control::ShellControl;
 pub use shell_control::StoppableJob;
-pub use wake::QueuedWake;
-pub use wake::Wake;
-pub use wake::WakeHub;
-pub use wake::WakeReason;
 pub use task::AgentTaskCancellation;
 pub use task::AgentTaskRow;
 pub use task::AgentTaskView;
@@ -71,11 +66,14 @@ pub use task::AgentTasks;
 pub use task::TaskTool;
 pub(crate) use task::describe_type;
 pub(crate) use task::normalize_string_list_args;
+pub use text::escape_harness_tags;
+pub use wake::QueuedWake;
+pub use wake::Wake;
+pub use wake::WakeHub;
+pub use wake::WakeReason;
 
 /// How long a cancel waits to see the process exit.
 pub(crate) const KILL_VERIFY: Duration = Duration::from_secs(5);
 
 #[cfg(test)]
 mod tests;
-
-

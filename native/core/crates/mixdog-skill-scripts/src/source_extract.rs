@@ -310,7 +310,6 @@ mod tests {
         assert_eq!(number_to_string(to_fixed_2(-0.001)), "0");
     }
 
-
     #[test]
     fn a_document_gives_pages_slides_blocks_and_cells_their_locators() {
         let document = json!({
@@ -345,10 +344,7 @@ mod tests {
     #[test]
     fn the_extract_prints_a_heading_the_blocks_and_the_sources_line() {
         let extract = Extract { source: "a.md".into(), blocks: vec!["[line 1] x".into()] };
-        assert_eq!(
-            format_extract(&extract),
-            "# a.md — 1 blocks (cite the bracketed locator in the brief's facts line)\n\n[line 1] x\n\n# sources: a.md"
-        );
+        assert_eq!(format_extract(&extract), "# a.md — 1 blocks (cite the bracketed locator in the brief's facts line)\n\n[line 1] x\n\n# sources: a.md");
     }
     #[test]
     fn a_text_file_is_read_without_the_engine_and_a_bad_chars_value_is_refused() {
@@ -391,7 +387,6 @@ mod tests {
         assert!(outcome.stderr.starts_with("the office engine is not available in this process: cannot read "));
     }
 }
-
 
 /// `value.replace(/\s+/g, ' ').trim()`.
 pub(crate) fn collapse_spaces(value: &str) -> String {
@@ -507,14 +502,12 @@ pub fn format_extract(extract: &Extract) -> String {
 pub fn run_source_extract<P: ReadProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
     let mut outcome = Outcome::default();
     let options = [OptionSpec::string("chars")];
-    let result = parse_args(args, &ParseConfig { options: &options, allow_positionals: true })
-        .map_err(|error| error.message)
-        .and_then(|parsed| {
-            if parsed.positionals.len() != 1 {
-                return Err(USAGE.to_owned());
-            }
-            extract_source(proof, &parsed.positionals[0], parsed.text("chars").unwrap_or(DEFAULT_CHARS), host)
-        });
+    let result = parse_args(args, &ParseConfig { options: &options, allow_positionals: true }).map_err(|error| error.message).and_then(|parsed| {
+        if parsed.positionals.len() != 1 {
+            return Err(USAGE.to_owned());
+        }
+        extract_source(proof, &parsed.positionals[0], parsed.text("chars").unwrap_or(DEFAULT_CHARS), host)
+    });
     match result {
         Ok(extract) => outcome.print(&format_extract(&extract)),
         Err(message) => {

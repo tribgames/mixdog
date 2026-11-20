@@ -36,9 +36,7 @@ impl VideoFrame {
     /// Byte length a raw frame must have.
     pub fn required_len(&self) -> Option<usize> {
         match self.format {
-            PixelFormat::Bgra | PixelFormat::Bgrx => {
-                Some(self.stride as usize * self.height as usize)
-            }
+            PixelFormat::Bgra | PixelFormat::Bgrx => Some(self.stride as usize * self.height as usize),
             PixelFormat::I420 => {
                 let (w, h) = (self.width as usize, self.height as usize);
                 Some(w * h + 2 * (w.div_ceil(2) * h.div_ceil(2)))
@@ -95,10 +93,7 @@ impl VideoCodec {
 /// (case-insensitive per RFC 6838). `None` when the phone cannot receive VP8.
 pub fn negotiate_codec(receive_codecs: &[String]) -> Option<VideoCodec> {
     let vp8 = VideoCodec::Vp8.mime_type();
-    receive_codecs
-        .iter()
-        .any(|c| c.eq_ignore_ascii_case(vp8))
-        .then_some(VideoCodec::Vp8)
+    receive_codecs.iter().any(|c| c.eq_ignore_ascii_case(vp8)).then_some(VideoCodec::Vp8)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -111,11 +106,7 @@ pub struct EncodingParams {
 
 impl EncodingParams {
     /// Screen share default (`maxFrameRate` 30).
-    pub const SCREEN_DEFAULT: Self = Self {
-        max_bitrate_bps: None,
-        max_framerate: Some(30),
-        maintain_resolution: true,
-    };
+    pub const SCREEN_DEFAULT: Self = Self { max_bitrate_bps: None, max_framerate: Some(30), maintain_resolution: true };
 }
 
 /// One outgoing video track; encodes on its own `webrtc-media` thread.

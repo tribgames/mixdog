@@ -58,10 +58,14 @@ fn entropy_of(bytes: &[u8], stride: usize, bands: usize, left: usize, top: usize
         }
     }
     let total = (width * height * bands) as f64;
-    histogram.iter().filter(|&&count| count > 0).map(|&count| {
-        let p = count as f64 / total;
-        -p * p.log2()
-    }).sum()
+    histogram
+        .iter()
+        .filter(|&&count| count > 0)
+        .map(|&count| {
+            let p = count as f64 / total;
+            -p * p.log2()
+        })
+        .sum()
 }
 
 fn entropy(image: &Image, width: u32, height: u32) -> (u32, u32) {
@@ -144,7 +148,10 @@ fn attention(image: &Image, width: u32, height: u32) -> (u32, u32) {
     for y in 0..side as i64 {
         for x in 0..side as i64 {
             let centre = luminance[y as usize * side + x as usize];
-            let around = luminance[at(y - 1) * side + at(x)] + luminance[at(y + 1) * side + at(x)] + luminance[at(y) * side + at(x - 1)] + luminance[at(y) * side + at(x + 1)];
+            let around = luminance[at(y - 1) * side + at(x)]
+                + luminance[at(y + 1) * side + at(x)]
+                + luminance[at(y) * side + at(x - 1)]
+                + luminance[at(y) * side + at(x + 1)];
             let edge = (5.0 * (4.0 * centre - around)).abs();
             let i = y as usize * side + x as usize;
             score[i] = edge + skin[i] + colour[i];
@@ -173,11 +180,7 @@ mod tests {
         for y in 0..height {
             for x in 0..width {
                 let inside = x >= left && x < left + side && y >= top && y < top + side;
-                bytes.extend_from_slice(&if inside {
-                    if (x + y) % 2 == 0 { [250, 20, 20] } else { [20, 20, 250] }
-                } else {
-                    [120, 120, 120]
-                });
+                bytes.extend_from_slice(&if inside { if (x + y) % 2 == 0 { [250, 20, 20] } else { [20, 20, 250] } } else { [120, 120, 120] });
             }
         }
         Image::from_raw(width, height, 3, &bytes).unwrap()

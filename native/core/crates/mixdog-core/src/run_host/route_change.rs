@@ -13,13 +13,13 @@ use std::sync::Arc;
 use mixdog_agent::compact::pressure::{invalidate_context_usage_snapshot, invalidate_provider_context_baseline};
 use mixdog_agent::env::Clock;
 use mixdog_store::schema::record::{Header, HeaderChange};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
-use mixdog_core_session::session::route_session::route_changed;
 use mixdog_core_session::session::route_session::RouteChange;
 use mixdog_core_session::session::route_session::RouteLookups;
+use mixdog_core_session::session::route_session::route_changed;
 
 /// What a route change reads from the provider registry and the cache policy.
 #[async_trait::async_trait]
@@ -187,7 +187,8 @@ impl RunHostRouteChange {
                 unset(change, &key);
             }
         }
-    }}
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -220,7 +221,15 @@ mod tests {
         let header: Header = json!({ "id": "sess_new", "provider": "openai", "model": "gpt-5" }).as_object().unwrap().clone().into_iter().collect();
         let lookups = change.lookups(&header, &route).await;
         let result = change.route_change(&header, &route, &Route::new(), false, &lookups);
-        for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens", "lastContextTokensUpdatedAt", "lastContextTokensStaleAfterCompact"] {
+        for key in [
+            "lastInputTokens",
+            "lastOutputTokens",
+            "lastCachedReadTokens",
+            "lastCacheWriteTokens",
+            "lastContextTokens",
+            "lastContextTokensUpdatedAt",
+            "lastContextTokensStaleAfterCompact",
+        ] {
             assert!(!result.set.contains_key(key), "{key}");
         }
     }
@@ -249,14 +258,14 @@ mod tests {
         .collect();
         let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
         let reset = change.environment_reset(&header);
-        let expected = crate::run_host::prompt_session::reset_environment(&header, &mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header)).change;
+        let expected =
+            crate::run_host::prompt_session::reset_environment(&header, &mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header)).change;
         assert_eq!(reset.set, expected.set);
         assert_eq!(reset.unset, expected.unset);
         assert_eq!(reset.set.get("promptEnv"), Some(&json!("tail")));
         assert_eq!(reset.set.get("sessionStartMetaInjected"), Some(&json!(false)));
     }
 }
-
 
 #[async_trait::async_trait]
 impl RouteChange for RunHostRouteChange {

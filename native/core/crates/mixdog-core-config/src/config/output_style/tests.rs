@@ -26,7 +26,6 @@ async fn open(dir: &Path, entry: &Value) -> OutputStyles {
     OutputStyles::new(config, dir.join("root/output-styles"), dir.join("data"))
 }
 
-
 #[tokio::test]
 async fn an_unknown_style_names_the_choices_like_node() {
     let dir = tempfile::tempdir().unwrap();
@@ -37,5 +36,3 @@ async fn an_unknown_style_names_the_choices_like_node() {
         other => panic!("{other:?}"),
     }
 }
-
-

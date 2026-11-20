@@ -76,11 +76,7 @@ pub fn decode_binary_frame(raw: &[u8]) -> Option<BinaryFrame> {
         return None;
     }
     let data = &raw[HEADER_BYTES + id_len..];
-    let payload = if raw[4] & FLAG_TEXT != 0 {
-        Payload::Text(String::from_utf8_lossy(data).into_owned())
-    } else {
-        Payload::Binary(data.to_vec())
-    };
+    let payload = if raw[4] & FLAG_TEXT != 0 { Payload::Text(String::from_utf8_lossy(data).into_owned()) } else { Payload::Binary(data.to_vec()) };
     Some(BinaryFrame { client_id: client_id.to_owned(), droppable: raw[4] & FLAG_DROPPABLE != 0, payload })
 }
 

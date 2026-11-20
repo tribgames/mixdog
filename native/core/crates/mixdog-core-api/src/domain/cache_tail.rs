@@ -188,7 +188,12 @@ impl Counters {
         let raw = usage.raw.as_ref();
         let field = |key: &str| raw.and_then(|r| r.get(key)).and_then(serde_json::Value::as_u64);
         let split = |key: &str| raw.and_then(|r| r.get("cache_creation")).and_then(|c| c.get(key)).and_then(serde_json::Value::as_u64);
-        Self { read: field("cache_read_input_tokens"), created: field("cache_creation_input_tokens"), created_5m: split("ephemeral_5m_input_tokens"), created_1h: split("ephemeral_1h_input_tokens") }
+        Self {
+            read: field("cache_read_input_tokens"),
+            created: field("cache_creation_input_tokens"),
+            created_5m: split("ephemeral_5m_input_tokens"),
+            created_1h: split("ephemeral_1h_input_tokens"),
+        }
     }
 }
 

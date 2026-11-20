@@ -17,8 +17,8 @@ use mixdog_fsio::Unlaned;
 use mixdog_term::clipboard::{ClipboardError, CopyOutcome, OSC52_MAX_BYTES, copy_to_clipboard_with};
 use mixdog_term::os::{HelperCommand, Outcome, Platform, Runner};
 use mixdog_term::paste::{
-    AttachmentSource, ImageAttachment, ResizeRequest, ResizedImage, Resizer, image_attachment_from_buffer,
-    read_clipboard_image_attachment, read_clipboard_text, read_image_attachment_from_path,
+    AttachmentSource, ImageAttachment, ResizeRequest, ResizedImage, Resizer, image_attachment_from_buffer, read_clipboard_image_attachment,
+    read_clipboard_text, read_image_attachment_from_path,
 };
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -37,17 +37,9 @@ impl FakeRunner {
         FakeRunner::with_hook(outcomes, |_| {})
     }
 
-    fn with_hook(
-        outcomes: Vec<Outcome>,
-        hook: impl Fn(&HelperCommand) + Send + Sync + 'static,
-    ) -> (Arc<FakeRunner>, Receiver<HelperCommand>) {
+    fn with_hook(outcomes: Vec<Outcome>, hook: impl Fn(&HelperCommand) + Send + Sync + 'static) -> (Arc<FakeRunner>, Receiver<HelperCommand>) {
         let (sender, receiver) = mpsc::channel();
-        let runner = FakeRunner {
-            outcomes: Mutex::new(outcomes.into()),
-            commands: Mutex::new(Vec::new()),
-            sent: Mutex::new(sender),
-            hook: Box::new(hook),
-        };
+        let runner = FakeRunner { outcomes: Mutex::new(outcomes.into()), commands: Mutex::new(Vec::new()), sent: Mutex::new(sender), hook: Box::new(hook) };
         (Arc::new(runner), receiver)
     }
 
@@ -139,16 +131,12 @@ fn a_helper_failure_is_an_error_when_osc52_was_left_out() {
     assert_eq!(
         run(Platform::Linux, Outcome::NotFound),
         Err(ClipboardError(
-            "xclip is not installed; install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`"
-                .to_owned()
+            "xclip is not installed; install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`".to_owned()
         ))
     );
     assert_eq!(run(Platform::Macos, Outcome::NotFound), Err(ClipboardError("spawn pbcopy ENOENT".to_owned())));
     assert_eq!(run(Platform::Linux, exited(3, b"")), Err(ClipboardError("xclip exited with code 3".to_owned())));
-    assert_eq!(
-        run(Platform::Linux, Outcome::Exited { code: None, stdout: Vec::new() }),
-        Err(ClipboardError("xclip exited with code null".to_owned()))
-    );
+    assert_eq!(run(Platform::Linux, Outcome::Exited { code: None, stdout: Vec::new() }), Err(ClipboardError("xclip exited with code null".to_owned())));
     assert_eq!(run(Platform::Linux, exited(0, b"")), Ok(CopyOutcome::Copied));
 }
 
@@ -191,17 +179,8 @@ fn linux_reads_wayland_then_x11_and_names_the_package_when_neither_exists() {
 
 fn echo_resize<'a>(seen: &'a Mutex<Vec<(Vec<u8>, String, String, String)>>) -> impl Fn(&ResizeRequest<'_>) -> Result<ResizedImage, String> + 'a {
     move |request| {
-        seen.lock().unwrap().push((
-            request.bytes.to_vec(),
-            request.mime_type.to_owned(),
-            request.label.to_owned(),
-            request.provider.to_owned(),
-        ));
-        Ok(ResizedImage {
-            data: "RESIZED".to_owned(),
-            media_type: "image/png".to_owned(),
-            metadata_text: Some("[Image: meta]".to_owned()),
-        })
+        seen.lock().unwrap().push((request.bytes.to_vec(), request.mime_type.to_owned(), request.label.to_owned(), request.provider.to_owned()));
+        Ok(ResizedImage { data: "RESIZED".to_owned(), media_type: "image/png".to_owned(), metadata_text: Some("[Image: meta]".to_owned()) })
     }
 }
 
@@ -221,10 +200,7 @@ fn the_clipboard_image_of_linux_comes_from_wl_paste_then_xclip() {
             metadata_text: Some("[Image: meta]".to_owned()),
         }
     );
-    assert_eq!(
-        seen.lock().unwrap()[0],
-        (b"\x89PNG".to_vec(), "image/png".to_owned(), "Pasted image".to_owned(), "openai".to_owned())
-    );
+    assert_eq!(seen.lock().unwrap()[0], (b"\x89PNG".to_vec(), "image/png".to_owned(), "Pasted image".to_owned(), "openai".to_owned()));
     let commands = runner.commands();
     assert_eq!(commands[0].args, ["--type", "image/png"]);
     assert_eq!(commands[1].args, ["-selection", "clipboard", "-t", "image/png", "-o"]);
@@ -397,10 +373,7 @@ mod real_children {
         assert_eq!(missing, Outcome::NotFound);
         let dir = temp_folder();
         fake(dir.path(), "slow", "exec sleep 30");
-        let slow = HelperCommand {
-            timeout: Some(Duration::from_millis(150)),
-            ..HelperCommand::new(&dir.path().join("slow").to_string_lossy(), &[])
-        };
+        let slow = HelperCommand { timeout: Some(Duration::from_millis(150)), ..HelperCommand::new(&dir.path().join("slow").to_string_lossy(), &[]) };
         assert_eq!(SystemRunner.run(&slow), Outcome::TimedOut);
     }
 

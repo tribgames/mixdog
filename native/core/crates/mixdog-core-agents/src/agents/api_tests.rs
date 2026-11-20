@@ -17,8 +17,8 @@ use mixdog_tools::policy::FileGrantStore;
 use serde_json::Value;
 use serde_json::json;
 
-use super::*;
 use super::tests::writable;
+use super::*;
 
 struct Catalog;
 

@@ -7,6 +7,8 @@ pub mod assets;
 pub mod catalog;
 pub mod change;
 pub mod context;
+#[cfg(test)]
+mod extract_tests;
 pub mod gguf;
 pub mod hardware;
 pub mod hugging_face;
@@ -19,8 +21,6 @@ pub mod request_queue;
 pub mod server_process;
 pub mod service;
 pub mod setup_actions;
-#[cfg(test)]
-mod extract_tests;
 
 pub use installations::Installations;
 pub use provider::{LocalProvider, Parts, ProviderError};

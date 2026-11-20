@@ -2,8 +2,8 @@
 //! what becomes of a damaged boards or catalog file.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 use mixdog_services::media::store::{Marks, MediaError, MediaStore};
 use serde_json::{Map, Value, json};
@@ -100,7 +100,11 @@ fn the_catalog_pages_newest_first_with_a_default_of_sixty_and_a_ceiling_of_two_h
     let tail = r.store.list_assets(Some(2.0), Some(4.0), None, "").unwrap();
     assert_eq!(tail["assets"].as_array().unwrap().len(), 1);
     assert_eq!(r.store.list_assets(None, None, None, "").unwrap()["assets"].as_array().unwrap().len(), 5);
-    assert_eq!(r.store.list_assets(Some(0.0), Some(-3.0), None, "").unwrap()["assets"].as_array().unwrap().len(), 5, "no limit is the default one, a negative offset the start");
+    assert_eq!(
+        r.store.list_assets(Some(0.0), Some(-3.0), None, "").unwrap()["assets"].as_array().unwrap().len(),
+        5,
+        "no limit is the default one, a negative offset the start"
+    );
     assert_eq!(r.store.list_assets(Some(500.0), None, None, "").unwrap()["assets"].as_array().unwrap().len(), 5);
     assert_eq!(r.store.list_assets(Some(-5.0), None, None, "").unwrap()["assets"].as_array().unwrap().len(), 1, "a negative limit is one");
     assert_eq!(r.store.list_assets(None, None, Some("video"), "").unwrap()["total"], 0);
@@ -147,7 +151,11 @@ fn a_catalog_file_of_nul_bytes_is_set_aside_and_the_last_good_one_comes_back() {
     let fresh = MediaStore::new(r.dir.path(), mixdog_rt::testing::tokens().durability_io);
     let page = fresh.list_assets(None, None, None, "").unwrap();
     assert_eq!(page["total"], 1, "the backup holds the catalog as it was before the last save");
-    let aside: Vec<String> = std::fs::read_dir(r.media()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("index.json.corrupt-")).collect();
+    let aside: Vec<String> = std::fs::read_dir(r.media())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("index.json.corrupt-"))
+        .collect();
     assert_eq!(aside.len(), 1, "{aside:?}");
 }
 
@@ -161,7 +169,11 @@ fn a_catalog_with_no_good_backup_starts_empty_after_setting_the_damaged_one_asid
     let saved = r.save("image", "gemini", "m", "image/png");
     assert_eq!(r.assets().iter().map(|a| id(a).to_owned()).collect::<Vec<_>>(), vec![id(&saved).to_owned()]);
     std::fs::write(r.media().join("index.json"), json!({"version": 2, "assets": "nope"}).to_string()).unwrap();
-    assert_eq!(MediaStore::new(r.dir.path(), mixdog_rt::testing::tokens().durability_io).list_assets(None, None, None, "").unwrap()["total"], 0, "a catalog that is not a list is damaged too");
+    assert_eq!(
+        MediaStore::new(r.dir.path(), mixdog_rt::testing::tokens().durability_io).list_assets(None, None, None, "").unwrap()["total"],
+        0,
+        "a catalog that is not a list is damaged too"
+    );
 }
 
 #[test]

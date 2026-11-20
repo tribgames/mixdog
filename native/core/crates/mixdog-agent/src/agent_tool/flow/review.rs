@@ -18,12 +18,7 @@ impl TurnReview {
     /// worker's parent, the notify context's owner, the worker's own owner.
     pub fn begin(reviews: &dyn TurnReviews, owners: [Option<&str>; 4], session_id: &str, tag: &str, agent: &str) -> Self {
         // `clean(a || b || c || d)`: the first set value wins, blank or not.
-        let owner = owners
-            .into_iter()
-            .flatten()
-            .find(|s| !s.is_empty())
-            .map(clean_str)
-            .unwrap_or_default();
+        let owner = owners.into_iter().flatten().find(|s| !s.is_empty()).map(clean_str).unwrap_or_default();
         Self { handle: reviews.begin(&owner, session_id, tag, agent), latest: Mutex::new(None) }
     }
 

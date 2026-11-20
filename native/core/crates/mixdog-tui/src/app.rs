@@ -49,6 +49,8 @@ use self::picker::AppPicker;
 use self::store::AppStore;
 use crate::editor::{Draft, PromptEditor};
 use crate::handlers::PromptState;
+use crate::handlers::state::PublishedOverride;
+use crate::mouse::{Mouse, MouseConfig};
 use crate::panels::ContextPanel;
 use crate::panels::btw::BtwController;
 use crate::panels::context_refresh::ContextPanelRefresh;
@@ -60,20 +62,18 @@ use crate::pickers::extensions::disabled_skills::SkillSet;
 use crate::pickers::model::catalog::{CatalogRefresh, ModelCatalogCaches};
 use crate::pickers::provider::{OnboardingState, Prefetch, ProviderSetup};
 use crate::pickers::settings::{PickerController, SettingsState};
-use crate::handlers::state::PublishedOverride;
-use crate::mouse::{Mouse, MouseConfig};
 use crate::slash::host::{Opener, TextPrompt, Tone};
-use crate::slash::workflow_cycle::CycleGuard;
-use crate::transcript::scroll::coalesce::ScrollCoalescer;
 use crate::slash::ui_open::UiOpenGate;
+use crate::slash::workflow_cycle::CycleGuard;
 use crate::surface::latch::EnterLatch;
 use crate::surface::layout::ShellRefs;
-use crate::transcript::scroll::engine::TranscriptScroll;
-use crate::view::chrome::TerminalChrome;
-use crate::transcript::window::heights::ItemHeights;
-use crate::transcript::window::row_index::IncrementalRowIndex;
 use crate::surface::owner::PanelSurface;
 use crate::surface::{SurfaceClaim, SurfaceKind};
+use crate::transcript::scroll::coalesce::ScrollCoalescer;
+use crate::transcript::scroll::engine::TranscriptScroll;
+use crate::transcript::window::heights::ItemHeights;
+use crate::transcript::window::row_index::IncrementalRowIndex;
+use crate::view::chrome::TerminalChrome;
 
 /// What a picker's continuation asks the application to do (`returnTo`, `onAdvance`, `onBack`, `onCancel`: the functions Node
 /// passed around). They name the target instead of closing over it, because a continuation runs against the picker host.

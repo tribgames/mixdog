@@ -19,23 +19,19 @@
 //! - A paired phone is told the same events by its own preferences; one that holds while this PC is in use is told after
 //!   `DESKTOP_HOLD_MS` if the turn is still unread or the wait still open.
 
+use mixdog_rt::CancellationToken;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use mixdog_rt::CancellationToken;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_connections::notifier::{
-    AnswerWatch, AttachmentKind, FinalAnswers, Settled, TurnEnd, TurnFacts, WatchWake,
-};
+use mixdog_connections::notifier::{AnswerWatch, AttachmentKind, FinalAnswers, Settled, TurnEnd, TurnFacts, WatchWake};
+use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_core_api::host::{HostCapability, HostChannel};
 use mixdog_core_api::ids::Method;
-use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_core_api::server_request::PendingServerRequest;
 use mixdog_core_domains::notify::decision::{Conversation, DESKTOP_HOLD_MS, Event, Origin, SessionFields};
-use mixdog_core_domains::notify::engine::{
-    Audience, HostToast, NotificationEngine, PushApproval, PushRequest, PushSchedule, ThreadEvent,
-};
+use mixdog_core_domains::notify::engine::{Audience, HostToast, NotificationEngine, PushApproval, PushRequest, PushSchedule, ThreadEvent};
 use mixdog_core_domains::notify::service::{AudienceSource, PushSink};
 use mixdog_core_session::session::approval_notification::allow_once_decision;
 use mixdog_core_session::session::delegation::AgentNames;
@@ -120,15 +116,29 @@ enum Msg {
     RowGone(String),
     Pool(Vec<Value>),
     State(Box<SessionWait>),
-    Approval { session_id: String, approval: Option<Value>, replay: bool },
-    Goal { session_id: String, key: Option<String> },
+    Approval {
+        session_id: String,
+        approval: Option<Value>,
+        replay: bool,
+    },
+    Goal {
+        session_id: String,
+        key: Option<String>,
+    },
     HostAttached,
     /// The final-answer watcher's own timers and reads.
     Watch(WatchWake),
     /// The name of the bot a wait is told under was read (`None`: this PC's toast is not owed, the approval was told already).
-    WaitNamed { tell: Box<WaitTell>, name: Option<String> },
+    WaitNamed {
+        tell: Box<WaitTell>,
+        name: Option<String>,
+    },
     /// The hold of the devices that wait for this PC to be idle ended.
-    HoldDue { event: Box<ThreadEvent>, held: HashSet<String>, due: Delivery },
+    HoldDue {
+        event: Box<ThreadEvent>,
+        held: HashSet<String>,
+        due: Delivery,
+    },
 }
 
 /// What feeds the producer. Cloned freely; sending after the producer ended is a no-op.
@@ -177,7 +187,9 @@ impl GoalFollower {
         let revision = {
             let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let state = revisions.entry(session.to_owned()).or_default();
-            if state.1 { return; }
+            if state.1 {
+                return;
+            }
             state.1 = true;
             state.0
         };
@@ -189,7 +201,9 @@ impl GoalFollower {
                 snapshot = this.source.snapshot(&session) => snapshot,
             };
             let mut revisions = this.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if revisions.get(&session) != Some(&(revision, true)) { return; }
+            if revisions.get(&session) != Some(&(revision, true)) {
+                return;
+            }
             match snapshot {
                 Ok(goal) => {
                     let _ = this.sender.send(Msg::Goal { session_id: session, key: blocked_goal_key(goal.as_ref()) });
@@ -270,8 +284,11 @@ impl SessionNotifier {
     /// Keep the goal listener for this producer's lifetime. Rebinding drops the former listener.
     pub fn follow_goals(&mut self, goals: Arc<mixdog_core_goal::goal::GoalRuntime>) {
         let follower = Arc::new(GoalFollower {
-            source: goals.clone(), sender: self.input.0.clone(), revisions: Mutex::default(),
-            stopped: CancellationToken::new(), log: self.goal_log.clone(),
+            source: goals.clone(),
+            sender: self.input.0.clone(),
+            revisions: Mutex::default(),
+            stopped: CancellationToken::new(),
+            log: self.goal_log.clone(),
         });
         let listener = follower.clone();
         self.goal_subscription = Some(goals.subscribe(move |event| {
@@ -279,7 +296,9 @@ impl SessionNotifier {
             listener.changed(&event.session_id, goal.as_ref());
         }));
         let mut slot = self.input.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(previous) = slot.replace(follower) { previous.stopped.cancel(); }
+        if let Some(previous) = slot.replace(follower) {
+            previous.stopped.cancel();
+        }
     }
 
     pub fn input(&self) -> NotifierInput {
@@ -527,7 +546,9 @@ impl Ctx {
             audience.desktop_active = false;
         }
         let mut held = HashSet::new();
-        if !due.current() { return held; }
+        if !due.current() {
+            return held;
+        }
         for request in self.env.engine.pushes_of(event, audience) {
             if only.is_some_and(|only| !only.contains(&request.device_id)) {
                 continue;
@@ -539,7 +560,7 @@ impl Ctx {
                         _ = due.cancel.cancelled() => return held,
                         _ = self.send_push(&request) => {}
                     }
-                },
+                }
                 PushSchedule::HoldUntil(_) => {
                     held.insert(request.device_id);
                 }
@@ -555,7 +576,9 @@ impl Ctx {
             return;
         }
         let mut audience = self.env.audience.audience(&push.thread_id).await;
-        if !due.current() || !self.enabled() { return; }
+        if !due.current() || !self.enabled() {
+            return;
+        }
         if let Some(toast) = toast {
             // LiveAudience exposes zero or one synthetic host, backed by HostChannel's current
             // Notifications claimant (audience.rs); these are not independently addressable hosts.
@@ -616,11 +639,8 @@ impl Ctx {
             body_markdown: if failed { self.env.texts.turn_failed() } else { text.clone() },
             now_ms: (self.env.now_ms)(),
         };
-        let push = ThreadEvent {
-            title: Self::push_title(&title),
-            body_markdown: if failed { TURN_FAILED_PUSH_TEXT.to_owned() } else { text },
-            ..toast.clone()
-        };
+        let push =
+            ThreadEvent { title: Self::push_title(&title), body_markdown: if failed { TURN_FAILED_PUSH_TEXT.to_owned() } else { text }, ..toast.clone() };
         self.tell(Some(&toast), push, due).await;
     }
 
@@ -744,9 +764,7 @@ impl Notifier {
             Msg::RowGone(id) => self.on_row_gone(&id),
             Msg::Pool(rows) => self.on_pool(&rows),
             Msg::State(update) => self.on_state(&update),
-            Msg::Approval { session_id, approval, replay } => self.on_approval(&SessionWait {
-                session_id, approval, replay, blocked_goal: None,
-            }),
+            Msg::Approval { session_id, approval, replay } => self.on_approval(&SessionWait { session_id, approval, replay, blocked_goal: None }),
             Msg::Goal { session_id, key } => {
                 if !session_id.is_empty() {
                     self.on_goal(&session_id, key.as_deref());
@@ -755,7 +773,11 @@ impl Notifier {
             Msg::HostAttached => {
                 let ready: Vec<_> = {
                     let mut pending = self.ctx.pending_toasts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    self.ctx.env.engine.host_attached().into_iter()
+                    self.ctx
+                        .env
+                        .engine
+                        .host_attached()
+                        .into_iter()
                         .filter_map(|toast| pending.remove(&toast.thread_id).map(|delivery| (toast, delivery)))
                         .collect()
                 };
@@ -780,9 +802,10 @@ impl Notifier {
                 }
             }
             Msg::HoldDue { event, held, due } => {
-                if self.ctx.enabled() && due.current()
-                    && (!matches!(event.event, Event::Finished | Event::Error)
-                        || self.rows.get(&event.thread_id).is_some_and(Row::unread)) {
+                if self.ctx.enabled()
+                    && due.current()
+                    && (!matches!(event.event, Event::Finished | Event::Error) || self.rows.get(&event.thread_id).is_some_and(Row::unread))
+                {
                     let ctx = self.ctx.clone();
                     drop(tokio::spawn(async move {
                         let delivery = due.clone();
@@ -802,7 +825,9 @@ impl Notifier {
         }
         // A read thread owes no toast that waited for a host.
         if !row.unread() || row.working || row.archived {
-            if let Some(delivery) = self.results_live.remove(&row.id) { delivery.invalidate(); }
+            if let Some(delivery) = self.results_live.remove(&row.id) {
+                delivery.invalidate();
+            }
             self.ctx.env.engine.thread_read(&row.id);
         }
         let now = self.now();
@@ -814,7 +839,12 @@ impl Notifier {
     fn on_row_gone(&mut self, id: &str) {
         for deliveries in [&mut self.results_live, &mut self.waits_live, &mut self.goals_live] {
             deliveries.retain(|origin, delivery| {
-                if origin == id || delivery.target == id { delivery.invalidate(); false } else { true }
+                if origin == id || delivery.target == id {
+                    delivery.invalidate();
+                    false
+                } else {
+                    true
+                }
             });
         }
         self.rows.remove(id);
@@ -830,10 +860,7 @@ impl Notifier {
         self.pending_work = sessions_with_pending_work(pool);
         let now = self.now();
         let Self { watch, rows, pending_work, .. } = self;
-        let ended = rows
-            .values()
-            .filter_map(|row| watch.observe(&row.id, &row.facts(), now, pending_work).map(|end| (end, Completion::of(row))))
-            .collect();
+        let ended = rows.values().filter_map(|row| watch.observe(&row.id, &row.facts(), now, pending_work).map(|end| (end, Completion::of(row)))).collect();
         self.after_observe(ended);
     }
 
@@ -851,7 +878,9 @@ impl Notifier {
         let Settled { session_id, detail: completion, failed, text } = settled;
         let event = if failed { Event::Error } else { Event::Finished };
         let due = Delivery::new(session_id.clone());
-        if let Some(previous) = self.results_live.insert(session_id, due.clone()) { previous.invalidate(); }
+        if let Some(previous) = self.results_live.insert(session_id, due.clone()) {
+            previous.invalidate();
+        }
         let ctx = self.ctx.clone();
         drop(tokio::spawn(async move {
             let delivery = due.clone();
@@ -875,9 +904,10 @@ impl Notifier {
             return;
         }
         let key = update.approval.as_ref().map(approval_key).unwrap_or_default();
-        let previous = (if key.is_empty() { self.waits.remove(session_id) } else { self.waits.insert(session_id.to_owned(), key.clone()) })
-            .unwrap_or_default();
-        if previous != key && let Some(delivery) = self.waits_live.remove(session_id) {
+        let previous = (if key.is_empty() { self.waits.remove(session_id) } else { self.waits.insert(session_id.to_owned(), key.clone()) }).unwrap_or_default();
+        if previous != key
+            && let Some(delivery) = self.waits_live.remove(session_id)
+        {
             delivery.invalidate();
         }
         // An approval no session shows any more is done with; its id is forgotten.
@@ -917,17 +947,19 @@ impl Notifier {
         let ctx = self.ctx.clone();
         drop(tokio::spawn(async move {
             let delivery = tell.delivery.clone();
-            delivery.run(async {
-                let name = if tell.announce {
-                    Some(match ctx.bot_name(tell.agent_home.as_deref()).await {
-                        Some(name) => name,
-                        None => ctx.toast_title(&fallback),
-                    })
-                } else {
-                    None
-                };
-                let _ = ctx.wake.send(Msg::WaitNamed { tell: Box::new(tell), name });
-            }).await;
+            delivery
+                .run(async {
+                    let name = if tell.announce {
+                        Some(match ctx.bot_name(tell.agent_home.as_deref()).await {
+                            Some(name) => name,
+                            None => ctx.toast_title(&fallback),
+                        })
+                    } else {
+                        None
+                    };
+                    let _ = ctx.wake.send(Msg::WaitNamed { tell: Box::new(tell), name });
+                })
+                .await;
         }));
     }
 
@@ -935,7 +967,9 @@ impl Notifier {
     fn on_goal(&mut self, session_id: &str, key: Option<&str>) {
         let Some(key) = key.filter(|key| !key.is_empty()) else {
             self.goals.remove(session_id);
-            if let Some(delivery) = self.goals_live.remove(session_id) { delivery.invalidate(); }
+            if let Some(delivery) = self.goals_live.remove(session_id) {
+                delivery.invalidate();
+            }
             return;
         };
         if self.goals.get(session_id).map(String::as_str) == Some(key) {
@@ -943,7 +977,9 @@ impl Notifier {
         }
         self.goals.insert(session_id.to_owned(), key.to_owned());
         let due = Delivery::new(session_id.to_owned());
-        if let Some(previous) = self.goals_live.insert(session_id.to_owned(), due.clone()) { previous.invalidate(); }
+        if let Some(previous) = self.goals_live.insert(session_id.to_owned(), due.clone()) {
+            previous.invalidate();
+        }
         let row = self.rows.get(session_id).map(|row| (row.push_title.clone(), row.fields.clone()));
         let (ctx, session_id) = (self.ctx.clone(), session_id.to_owned());
         drop(tokio::spawn(async move {

@@ -14,6 +14,7 @@ use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
+use super::account::identity_from_token_response;
 use async_trait::async_trait;
 use mixdog_core_api::domain::login::LoginError;
 use mixdog_core_api::domain::login::LoginFailure;
@@ -26,7 +27,6 @@ use mixdog_rt::DurabilityIo;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use super::account::identity_from_token_response;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio::sync::mpsc;
@@ -37,10 +37,10 @@ use super::account::Identity;
 use super::callback::Callback;
 use super::callback::Pasted;
 use super::callback::parse_pasted;
+use super::protocol::Challenge;
 use super::protocol::ClientCredentials;
 use super::protocol::Discovery;
 use super::protocol::Protocol;
-use super::protocol::Challenge;
 use super::protocol::TokenError;
 use super::protocol::parse_challenge;
 use super::shared::OAuthError;
@@ -55,7 +55,6 @@ mod login;
 
 /// A sign-in nobody finishes ends here (Node's `MCP_OAUTH_TIMEOUT_MS`).
 const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60);
-
 
 /// Where sign-ins are stored.
 #[derive(Clone)]
@@ -126,11 +125,7 @@ impl CredentialStatus {
         let identity = has_tokens.then(|| {
             let who = entry.and_then(|entry| entry.identity.clone().flatten()).unwrap_or_default();
             let endpoint = entry.and_then(|entry| entry.discovery.as_ref()).and_then(Discovery::authorization_endpoint_text);
-            StoredIdentity {
-                account: who.account,
-                workspace: who.workspace,
-                forced_choice: super::account::can_force_account_choice(endpoint.as_deref()),
-            }
+            StoredIdentity { account: who.account, workspace: who.workspace, forced_choice: super::account::can_force_account_choice(endpoint.as_deref()) }
         });
         Self { has_tokens, identity }
     }
@@ -468,9 +463,7 @@ impl McpOAuth {
         if revoke && let Some(entry) = &entry {
             let endpoint = entry.discovery.as_ref().and_then(Discovery::revocation_endpoint);
             let token = refresh_token(entry).or_else(|| access_token(entry));
-            if let (Some(endpoint), Some(token), Some(client)) =
-                (endpoint, token, entry.client_information.as_ref().and_then(ClientCredentials::from_info))
-            {
+            if let (Some(endpoint), Some(token), Some(client)) = (endpoint, token, entry.client_information.as_ref().and_then(ClientCredentials::from_info)) {
                 revoked = self.protocol.revoke(&endpoint, &token, refresh_token(entry).is_some(), &client).await;
             }
         }
@@ -625,7 +618,8 @@ impl LoginFlow for McpLoginFlow {
             cancel,
             pending: Mutex::new(None),
         });
-        let (oauth, mode, transactional, challenge, task_control) = (Arc::clone(&self.oauth), self.mode, self.transactional, self.challenge.clone(), Arc::clone(&control));
+        let (oauth, mode, transactional, challenge, task_control) =
+            (Arc::clone(&self.oauth), self.mode, self.transactional, self.challenge.clone(), Arc::clone(&control));
         mixdog_rt::spawn("mcp.oauth.login", mixdog_rt::TaskClass::Work, async move {
             let last = match oauth.run_login(mode, transactional, challenge, &task_control).await {
                 Ok(account) => LoginState::Done { account },
@@ -671,9 +665,8 @@ impl LoginSession for Session {
         let (waiting, parsed) = {
             let mut pending = self.control.pending.lock().unwrap_or_else(|e| e.into_inner());
             let Some(waiting) = pending.as_ref() else { return Err(LoginError::InputNotExpected) };
-            let parsed = parse_pasted(&pasted, &waiting.redirect_url, &waiting.state).map_err(|message| {
-                LoginError::Failed(LoginFailure::Failed { code: "invalidCallback".to_owned(), message: message.to_owned() })
-            })?;
+            let parsed = parse_pasted(&pasted, &waiting.redirect_url, &waiting.state)
+                .map_err(|message| LoginError::Failed(LoginFailure::Failed { code: "invalidCallback".to_owned(), message: message.to_owned() }))?;
             // The same answer the loopback would give; an invalid paste above leaves the login pending.
             (pending.take().ok_or(LoginError::InputNotExpected)?, parsed)
         };

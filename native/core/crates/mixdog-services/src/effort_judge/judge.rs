@@ -35,8 +35,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::host::{HostClient, HostLaunch};
-use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::input::{TurnInput, clip_turn};
+use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::ladder::StepLadder;
 use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on, steps_in};
 use crate::effort_judge::worker::{Alarm, JudgeWorker, Seat, Stopper, TickerAlarm, deadline};
@@ -806,7 +806,8 @@ impl EffortJudgeModel {
             // Read on the lane, off the step's path.
             let current = async {
                 Ok::<_, InstallError>(
-                    available_on(this.lanes.bulk, &this.config).await? && install::install_current_on(this.lanes.bulk, &this.config.dir, &this.manifest).await?,
+                    available_on(this.lanes.bulk, &this.config).await?
+                        && install::install_current_on(this.lanes.bulk, &this.config.dir, &this.manifest).await?,
                 )
             };
             match current.await {
@@ -888,23 +889,13 @@ impl EffortJudgeModel {
     }
 
     /// Installs or updates the model unless it is already the current release.
-    pub async fn install(
-        &self,
-        manifest: &Manifest,
-        progress: Option<&ProgressSink>,
-        cancel: &CancellationToken,
-    ) -> Result<(), InstallError> {
+    pub async fn install(&self, manifest: &Manifest, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<(), InstallError> {
         self.replacing_files(cancel, install::ensure_installed(&self.config, manifest, self.lanes.bulk, progress, cancel)).await
     }
 
     /// Re-verifies the files against the manifest and fetches only the damaged
     /// ones. Returns their names; nothing is unloaded when none is damaged.
-    pub async fn repair(
-        &self,
-        manifest: &Manifest,
-        progress: Option<&ProgressSink>,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<String>, InstallError> {
+    pub async fn repair(&self, manifest: &Manifest, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<Vec<String>, InstallError> {
         if self.config.explicit {
             return Ok(Vec::new());
         }

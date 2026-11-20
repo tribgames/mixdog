@@ -371,10 +371,7 @@ struct Held {
 
 impl Held {
     fn owned_by(&self, end: &End) -> bool {
-        self.instance == end.instance
-            && self.action == end.action
-            && self.seq == end.seq
-            && (end.lease == 0 || end.lease == self.id)
+        self.instance == end.instance && self.action == end.action && self.seq == end.seq && (end.lease == 0 || end.lease == self.id)
     }
 }
 
@@ -447,11 +444,7 @@ impl<N: Native> Owner<N> {
                     // The worker stopped waiting: a lock taken now would protect nothing.
                     answer = "expired";
                 } else {
-                    let taken = self
-                        .native
-                        .foreground_process_id()
-                        .map(|pid| facts.set("foreground_pid", pid))
-                        .and_then(|()| self.native.lock());
+                    let taken = self.native.foreground_process_id().map(|pid| facts.set("foreground_pid", pid)).and_then(|()| self.native.lock());
                     match taken {
                         Err(reason) => facts.set("reason", reason),
                         Ok(call) if !call.ok => {
@@ -558,11 +551,7 @@ impl<N: Native> Owner<N> {
         match self.native.unlock() {
             Ok(call) => {
                 held.facts.push("unlock_errors", Fact::from(if call.ok { 0 } else { call.error }));
-                if call.ok {
-                    Unlock::Released
-                } else {
-                    Unlock::Unknown
-                }
+                if call.ok { Unlock::Released } else { Unlock::Unknown }
             }
             Err(error) => {
                 held.facts.push("unlock_errors", Fact::from(error));
@@ -579,10 +568,7 @@ impl<N: Native> Owner<N> {
         held.retry = None;
         let outcome = self.unlock_once(&mut held);
         if outcome != Unlock::Released && retries < UNLOCK_RETRY_MS.len() {
-            held.retry = Some(Retry {
-                at: Instant::now() + Duration::from_millis(UNLOCK_RETRY_MS[retries]),
-                retries: retries + 1,
-            });
+            held.retry = Some(Retry { at: Instant::now() + Duration::from_millis(UNLOCK_RETRY_MS[retries]), retries: retries + 1 });
             self.ending = Some(held);
             return;
         }
@@ -604,10 +590,7 @@ impl<N: Native> Owner<N> {
         // unlock call that answers at all.
         if outcome == Unlock::Failed {
             let mut again = held.clone();
-            again.retry = Some(Retry {
-                at: Instant::now() + Duration::from_millis(FAILED_RETRY_MS),
-                retries: 0,
-            });
+            again.retry = Some(Retry { at: Instant::now() + Duration::from_millis(FAILED_RETRY_MS), retries: 0 });
             self.failed = Some(again);
         }
         self.remember(held.clone());
@@ -642,10 +625,7 @@ impl<N: Native> Owner<N> {
         held.retry = None;
         let outcome = self.unlock_once(&mut held);
         if outcome == Unlock::Failed {
-            held.retry = Some(Retry {
-                at: Instant::now() + Duration::from_millis(FAILED_RETRY_MS),
-                retries: 0,
-            });
+            held.retry = Some(Retry { at: Instant::now() + Duration::from_millis(FAILED_RETRY_MS), retries: 0 });
             self.failed = Some(held);
             return;
         }
@@ -924,9 +904,7 @@ pub fn lease_request(request: LeaseRequest) -> Result<LeaseAnswer> {
 pub fn lease_end(end: LeaseEnd) -> Result<()> {
     let running = thread();
     let lease = running.as_ref().ok_or_else(|| failure(THREAD_ENDED.to_owned()))?;
-    lease
-        .end(End { instance: end.instance, action: end.action, seq: end.seq, lease: end.lease })
-        .map_err(failure)
+    lease.end(End { instance: end.instance, action: end.action, seq: end.seq, lease: end.lease }).map_err(failure)
 }
 
 /// The worker `instance` exited or was retired: a lease it holds ends now.
@@ -955,18 +933,14 @@ pub fn lease_dispose() -> String {
 #[napi]
 pub fn lease_unlock() -> LeaseUnlock {
     let call = lock_set_foreground(LSFW_UNLOCK);
-    if call.ok {
-        LeaseUnlock { outcome: "released".to_owned(), error: None }
-    } else {
-        LeaseUnlock { outcome: "unknown".to_owned(), error: Some(call.error) }
-    }
+    if call.ok { LeaseUnlock { outcome: "released".to_owned(), error: None } } else { LeaseUnlock { outcome: "unknown".to_owned(), error: Some(call.error) } }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
     use std::thread::sleep;
 
     const UNLOCK_TRUE: u32 = 0;
@@ -1244,10 +1218,7 @@ mod tests {
         assert_eq!(rig.shared.unlock_calls.load(SeqCst), 4, "the unlock was tried again");
         let facts = ended.facts.unwrap();
         assert_eq!((text(&facts, "release"), number(&facts, "unlock_attempts")), ("unknown".to_owned(), 4.0));
-        assert_eq!(
-            facts.get("unlock_errors"),
-            Some(&Fact::List(vec![Fact::Int(5), Fact::Int(5), Fact::Int(5), Fact::Int(5)]))
-        );
+        assert_eq!(facts.get("unlock_errors"), Some(&Fact::List(vec![Fact::Int(5), Fact::Int(5), Fact::Int(5), Fact::Int(5)])));
         // Once those retries settle, a lock Windows grants may begin a new lease.
         rig.shared.unlock_mode.store(UNLOCK_TRUE, SeqCst);
         let next = rig.acquire(2, 8, 2, 1_000);
@@ -1265,10 +1236,7 @@ mod tests {
         let ended = rig.event();
         assert_eq!((ended.lease, ended.outcome, ended.reply), (failing, "failed", true));
         assert!(ended.holding);
-        assert_eq!(
-            ended.facts.unwrap().get("unlock_errors").cloned(),
-            Some(Fact::List(vec![Fact::from("LockSetForegroundWindow failed"); 4]))
-        );
+        assert_eq!(ended.facts.unwrap().get("unlock_errors").cloned(), Some(Fact::List(vec![Fact::from("LockSetForegroundWindow failed"); 4])));
         let held_off = rig.acquire(2, 8, 4, 1_000);
         assert_eq!(held_off.answer, "quarantined");
         rig.shared.unlock_mode.store(UNLOCK_TRUE, SeqCst);
@@ -1295,10 +1263,7 @@ mod tests {
         let ended = rig.event();
         assert_eq!(ended.outcome, "unknown");
         let facts = ended.facts.unwrap();
-        assert_eq!(
-            (text(&facts, "released_by"), number(&facts, "unlock_attempts")),
-            ("deadline".to_owned(), 4.0)
-        );
+        assert_eq!((text(&facts, "released_by"), number(&facts, "unlock_attempts")), ("deadline".to_owned(), 4.0));
         assert!(text(&facts, "clock_error").contains("QueryPerformanceCounter failed"));
         // With the clock back the thread answers the next request.
         rig.shared.clock_fails.store(0, SeqCst);
@@ -1388,16 +1353,7 @@ mod tests {
             facts.to_json(),
             "{\"answer\":\"locked\",\"lease\":3,\"held_ms\":250.5,\"reason\":\"a \\\"quoted\\\"\\nreason\\\\\",\"unlock_errors\":[0,\"failed\"]}"
         );
-        let released = Released {
-            holding: false,
-            instance: 1,
-            action: 7,
-            seq: 2,
-            lease: 0,
-            outcome: "none",
-            reply: true,
-            facts: None,
-        };
+        let released = Released { holding: false, instance: 1, action: 7, seq: 2, lease: 0, outcome: "none", reply: true, facts: None };
         assert_eq!(
             released.to_json(),
             "{\"holding\":false,\"instance\":1,\"action\":7,\"seq\":2,\"lease\":0,\"outcome\":\"none\",\"reply\":true,\"facts\":null}"

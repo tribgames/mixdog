@@ -22,8 +22,8 @@ mod row;
 pub mod state;
 
 use layout::{
-    ADJUST_HELP, CONFIRM_HELP, DEFAULT_LABEL_WIDTH, FooterInput, FooterLine, MAX_VISIBLE, SELECT_HELP, clamp_label_width,
-    clamp_meta_width, normalize_footer_lines,
+    ADJUST_HELP, CONFIRM_HELP, DEFAULT_LABEL_WIDTH, FooterInput, FooterLine, MAX_VISIBLE, SELECT_HELP, clamp_label_width, clamp_meta_width,
+    normalize_footer_lines,
 };
 use row::{ItemRow, paint_item_row};
 
@@ -324,12 +324,8 @@ pub fn paint_picker(painter: &mut Painter, x: i32, y: i32, props: &PickerProps, 
     let marker_width = if props.items.iter().any(PickerItem::has_marker) { 2 } else { 0 };
     let has_meta = props.meta_width.is_some() || props.items.iter().any(PickerItem::has_meta);
     let meta_width = if has_meta { clamp_meta_width(props.meta_width, columns, label_width) } else { 0 };
-    let description_width = (columns as i64
-        - index_offset as i64
-        - marker_width as i64
-        - label_width as i64
-        - if has_meta { meta_width as i64 + 14 } else { 12 })
-    .max(0) as usize;
+    let description_width =
+        (columns as i64 - index_offset as i64 - marker_width as i64 - label_width as i64 - if has_meta { meta_width as i64 + 14 } else { 12 }).max(0) as usize;
 
     for (offset, item) in props.items[start..end].iter().enumerate() {
         let index = start + offset;

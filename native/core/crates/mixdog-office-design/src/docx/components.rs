@@ -321,10 +321,7 @@ pub fn add_docx_metric_strip(output: &mut Vec<Value>, state: &mut DocxState, met
     // metric actually says something there.
     let has_details = details.iter().any(|detail| !js_trim(detail).is_empty());
     let figures: Vec<Value> = entries.iter().map(|entry| metric_value_text(entry).map(Value::String)).collect::<Result<_, _>>()?;
-    let mut values = vec![
-        Value::Array(entries.iter().map(|entry| Value::String(text(prop(entry, "label")))).collect()),
-        Value::Array(figures),
-    ];
+    let mut values = vec![Value::Array(entries.iter().map(|entry| Value::String(text(prop(entry, "label")))).collect()), Value::Array(figures)];
     if has_details {
         values.push(Value::Array(details.iter().cloned().map(Value::String).collect()));
     }
@@ -455,8 +452,7 @@ fn cell_of(row: &Value, index: usize) -> Option<&Value> {
 /// a strip, the table dropped its header row, and "7분" under "18분" no longer said what it was. Answers whether the
 /// table qualified (three to five rows of three cells under the header).
 fn add_metrics_scorecard(output: &mut Vec<Value>, state: &mut DocxState, values: &[Value], design: &Value) -> bool {
-    let metric_rows: Vec<&Value> =
-        values.iter().skip(1).take(5).filter(|row| row.as_array().is_some_and(|cells| cells.len() >= 3)).collect();
+    let metric_rows: Vec<&Value> = values.iter().skip(1).take(5).filter(|row| row.as_array().is_some_and(|cells| cells.len() >= 3)).collect();
     if metric_rows.len() < 3 {
         return false;
     }
@@ -535,12 +531,8 @@ pub fn add_docx_section_table(output: &mut Vec<Value>, state: &mut DocxState, va
     // preset left 38, 21, 0 flush left under "대기 (분)".
     let figure_column: Vec<bool> = (0..columns)
         .map(|index| {
-            let body: Vec<String> = values
-                .iter()
-                .skip(1)
-                .map(|row| js_trim(&nullish_text(cell_of(row, index))).to_owned())
-                .filter(|cell| !cell.is_empty())
-                .collect();
+            let body: Vec<String> =
+                values.iter().skip(1).map(|row| js_trim(&nullish_text(cell_of(row, index))).to_owned()).filter(|cell| !cell.is_empty()).collect();
             index > 0 && !body.is_empty() && body.iter().all(|cell| FIGURE_CELL.is_match(cell))
         })
         .collect();

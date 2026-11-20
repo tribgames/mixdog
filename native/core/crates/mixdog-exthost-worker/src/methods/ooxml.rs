@@ -28,9 +28,7 @@ pub(super) fn register(registry: &mut Registry) {
 // callers supply nonnegative integer limits; accepting floating JSON notation
 // must not silently substitute the default cap.
 fn json_whole_bytes(value: &Value) -> Option<u64> {
-    value.as_u64().or_else(|| value.as_f64()
-        .filter(|number| number.is_finite() && *number >= 0.0 && number.fract() == 0.0)
-        .map(|number| number as u64))
+    value.as_u64().or_else(|| value.as_f64().filter(|number| number.is_finite() && *number >= 0.0 && number.fract() == 0.0).map(|number| number as u64))
 }
 
 fn text(ctx: CallCtx) -> HandlerResult {
@@ -39,10 +37,8 @@ fn text(ctx: CallCtx) -> HandlerResult {
     if ctx.cancel.is_cancelled() {
         return Err(CodedError::cancelled());
     }
-    let max_output_bytes = params
-        .get("maxOutputBytes")
-        .and_then(json_whole_bytes)
-        .map_or(DEFAULT_MAX_OUTPUT_BYTES, |bytes| usize::try_from(bytes).unwrap_or(usize::MAX));
+    let max_output_bytes =
+        params.get("maxOutputBytes").and_then(json_whole_bytes).map_or(DEFAULT_MAX_OUTPUT_BYTES, |bytes| usize::try_from(bytes).unwrap_or(usize::MAX));
     if params.get("maxPartBytes").is_none() && params.get("maxContainerBytes").is_none() {
         let options = ExtractOptions { max_output_bytes };
         return Ok(Outcome::value(json!({"text": extract_ooxml_text(&Unlaned, &file, &options)})));
@@ -52,11 +48,7 @@ fn text(ctx: CallCtx) -> HandlerResult {
         other => js_string(other),
     };
     let limit = |name: &str| params.get(name).and_then(json_whole_bytes).unwrap_or(0);
-    let limits = Limits {
-        max_output_bytes,
-        max_part_bytes: limit("maxPartBytes"),
-        max_container_bytes: limit("maxContainerBytes"),
-    };
+    let limits = Limits { max_output_bytes, max_part_bytes: limit("maxPartBytes"), max_container_bytes: limit("maxContainerBytes") };
     // The inflation budget applies to extracted parts, not the archive that contains them.
     let Ok(bytes) = mixdog_fsio::read(&Unlaned, &file) else {
         return Ok(Outcome::value(json!({"text": null})));

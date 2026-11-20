@@ -105,24 +105,12 @@ pub fn sign_in_url_layout(url: &str, columns: usize, max_rows: i64) -> SignInUrl
 /// label); only http(s) targets are linked.
 fn linked_url(url: &str, label: &str) -> String {
     let lower = url.to_ascii_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://") {
-        format!("\x1b]8;;{url}\x07{label}\x1b]8;;\x07")
-    } else {
-        label.to_owned()
-    }
+    if lower.starts_with("http://") || lower.starts_with("https://") { format!("\x1b]8;;{url}\x07{label}\x1b]8;;\x07") } else { label.to_owned() }
 }
 
 /// Paints the URL block at `(x, y)` in `width` cells and returns the rows it took (none for a blank URL or a layout
 /// without rows).
-pub fn paint_sign_in_url(
-    painter: &mut Painter,
-    x: i32,
-    y: i32,
-    width: usize,
-    url: &str,
-    layout: &SignInUrlLayout,
-    status: CopyStatus,
-) -> u16 {
+pub fn paint_sign_in_url(painter: &mut Painter, x: i32, y: i32, width: usize, url: &str, layout: &SignInUrlLayout, status: CopyStatus) -> u16 {
     let text = js_trim(url);
     if text.is_empty() || layout.rows == 0 {
         return 0;

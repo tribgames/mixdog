@@ -19,10 +19,13 @@ fn expected(text: &str) -> Value {
 
 const DIRTY_CHOICE: &str = r##"{"error":{"code":"WORKTREE_DIRTY_CHOICE","message":"The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree.","details":{"count":1,"paths":["f.txt"]}}}"##;
 const STALE_REVISION: &str = r##"{"error":{"code":"WORKTREE_REVISION_CONFLICT","message":"The session workspace changed; reload and try again.","details":{"expectedRevision":5,"revision":0}}}"##;
-const TURN_RUNNING: &str = r##"{"error":{"code":"WORKTREE_BUSY_JOBS","message":"The session is running a turn; wait for it to finish.","details":{"reason":"turn"}}}"##;
-const DIRTY_WORKTREE_REMOVE: &str = r##"{"error":{"code":"WORKTREE_DIRTY","message":"The worktree has uncommitted changes.","details":{"entryId":"feat","files":["new.txt"],"count":1}}}"##;
+const TURN_RUNNING: &str =
+    r##"{"error":{"code":"WORKTREE_BUSY_JOBS","message":"The session is running a turn; wait for it to finish.","details":{"reason":"turn"}}}"##;
+const DIRTY_WORKTREE_REMOVE: &str =
+    r##"{"error":{"code":"WORKTREE_DIRTY","message":"The worktree has uncommitted changes.","details":{"entryId":"feat","files":["new.txt"],"count":1}}}"##;
 const MERGE_CLEANUP_REFUSED: &str = r##"{"merged":true,"cleanup":{"removed":false,"reason":"WORKTREE_BUSY_JOBS","code":"WORKTREE_BUSY_JOBS","message":"Sessions or workers still use an affected folder. Finish or move them before continuing."}}"##;
-const MERGE_CLEANUP_OFF: &str = r##"{"merged":true,"cleanup":{"removed":false,"reason":"auto-cleanup-off","message":"Auto cleanup is off; the worktree is kept."}}"##;
+const MERGE_CLEANUP_OFF: &str =
+    r##"{"merged":true,"cleanup":{"removed":false,"reason":"auto-cleanup-off","message":"Auto cleanup is off; the worktree is kept."}}"##;
 const REMOVE_BRANCH_NOT_OWNED: &str = r##"{"error":{"code":null,"message":"git worktree remove: this session owns no managed worktree of branch other; git worktree list shows them","details":null}}"##;
 const REMOVE_PATH_UNMANAGED: &str = r##"{"error":{"code":null,"message":"git worktree remove: <REPO>/nowhere is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool","details":null}}"##;
 const UNATTENDED_SESSION: &str = r##"{"enter":{"error":{"code":null,"message":"git worktree enter changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them","details":null}},"return":{"error":{"code":null,"message":"git worktree return changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them","details":null}},"merge":{"error":{"code":null,"message":"git worktree merge changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them","details":null}},"remove":{"error":{"code":null,"message":"git worktree remove changes worktrees only in a conversation session (a Lead session or a bot chat); schedule, webhook, routine and room runs may only list them","details":null}}}"##;
@@ -85,7 +88,6 @@ fn thrown(result: Result<Value, ScmFailure>) -> Value {
     }
 }
 
-
 fn worktree_of(entered: &Value) -> String {
     entered["workspace"]["cwd"].as_str().unwrap().to_owned()
 }
@@ -102,17 +104,11 @@ async fn dirty_choice_text_is_what_the_user_reads() {
 async fn stale_revision_and_running_turn_texts_are_what_the_user_reads() {
     let rig = rig();
     let cancel = CancellationToken::new();
-    let stale = rig
-        .ws
-        .select_branch("lead", SelectBranch { branch: "x".into(), expected_revision: Some(5), ..SelectBranch::default() }, true, &cancel)
-        .await;
+    let stale = rig.ws.select_branch("lead", SelectBranch { branch: "x".into(), expected_revision: Some(5), ..SelectBranch::default() }, true, &cancel).await;
     assert_eq!(recorded(&rig, None, thrown(stale)), expected(STALE_REVISION), "stale_revision");
 
     rig.state.lock().unwrap().turn_running = true;
-    let busy = rig
-        .ws
-        .select_branch("lead", SelectBranch { branch: "x".into(), create: true, ..SelectBranch::default() }, false, &cancel)
-        .await;
+    let busy = rig.ws.select_branch("lead", SelectBranch { branch: "x".into(), create: true, ..SelectBranch::default() }, false, &cancel).await;
     assert_eq!(recorded(&rig, None, thrown(busy)), expected(TURN_RUNNING), "turn_running");
 }
 
@@ -208,12 +204,8 @@ async fn a_missing_worktree_turn_text_is_what_the_user_reads() {
 async fn a_project_folder_in_use_text_is_what_the_user_reads() {
     let rig = rig();
     git(&rig.repo, &["branch", "feature"]);
-    rig.state.lock().unwrap().live = vec![LiveSession {
-        id: "other".into(),
-        cwd: Some(rig.repo.join("sub").to_string_lossy().into_owned()),
-        active: true,
-        ..LiveSession::default()
-    }];
+    rig.state.lock().unwrap().live =
+        vec![LiveSession { id: "other".into(), cwd: Some(rig.repo.join("sub").to_string_lossy().into_owned()), active: true, ..LiveSession::default() }];
     let refused = rig.ws.folder_admission(None).admit(&[rig.repo.clone()], false).await;
     assert_eq!(recorded(&rig, None, error_value(&refused.err().unwrap())), expected(PROJECT_FOLDER_IN_USE), "project_folder_in_use");
 }

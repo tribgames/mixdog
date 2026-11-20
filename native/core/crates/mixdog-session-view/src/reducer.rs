@@ -32,9 +32,9 @@ use crate::rows::Row;
 use crate::rows::RowRef;
 use crate::rows::coalesce;
 use crate::rows::fld;
+use crate::rows::item_rows;
 use crate::rows::js_string;
 use crate::rows::merge_tool_rows_steps;
-use crate::rows::item_rows;
 use crate::rows::row_of;
 use crate::rows::rows_of;
 use crate::rows::text;
@@ -52,7 +52,20 @@ const SECTIONS: &[(&str, Section)] = &[
         "thread/runtime/updated",
         Section::Fields {
             key: "runtime",
-            fields: &["busy", "commandBusy", "thinking", "spinner", "commandStatus", "progressHint", "activeTools", "clientHostPid", "toasts", "activeToolSummary", "toolMode", "setupChanged"],
+            fields: &[
+                "busy",
+                "commandBusy",
+                "thinking",
+                "spinner",
+                "commandStatus",
+                "progressHint",
+                "activeTools",
+                "clientHostPid",
+                "toasts",
+                "activeToolSummary",
+                "toolMode",
+                "setupChanged",
+            ],
         },
     ),
     (
@@ -60,8 +73,23 @@ const SECTIONS: &[(&str, Section)] = &[
         Section::Fields {
             key: "route",
             fields: &[
-                "sessionProvider", "sessionModel", "fast", "fastCapable", "autoEffort", "modelParameters", "selectedContextWindow", "effort", "provider", "model", "turnEffort", "effortOptions",
-                "cwd", "sessionForkedFrom", "systemShell", "webSearchRoute", "autoClear",
+                "sessionProvider",
+                "sessionModel",
+                "fast",
+                "fastCapable",
+                "autoEffort",
+                "modelParameters",
+                "selectedContextWindow",
+                "effort",
+                "provider",
+                "model",
+                "turnEffort",
+                "effortOptions",
+                "cwd",
+                "sessionForkedFrom",
+                "systemShell",
+                "webSearchRoute",
+                "autoClear",
             ],
         },
     ),
@@ -70,8 +98,16 @@ const SECTIONS: &[(&str, Section)] = &[
         Section::Fields {
             key: "context",
             fields: &[
-                "contextPercent", "contextTokens", "contextDefaultPercent", "contextWindow", "displayContextWindow", "autoCompactTokenLimit", "stats", "rawContextWindow",
-                "effectiveContextWindowPercent", "compactBoundaryTokens",
+                "contextPercent",
+                "contextTokens",
+                "contextDefaultPercent",
+                "contextWindow",
+                "displayContextWindow",
+                "autoCompactTokenLimit",
+                "stats",
+                "rawContextWindow",
+                "effectiveContextWindowPercent",
+                "compactBoundaryTokens",
             ],
         },
     ),
@@ -554,9 +590,7 @@ fn apply_item(state: &Json, completed: bool, params: Opt) -> Json {
     let mut fold = Fold::from_state(state);
     // Archiving updates the held window; rows outside it are read by history,
     // never appended below the compaction boundary.
-    if row.value.get("archived") == Some(&Value::Bool(true))
-        && !fold.items.iter().any(|held| strict_eq(held.get("id"), row.value.get("id")))
-    {
+    if row.value.get("archived") == Some(&Value::Bool(true)) && !fold.items.iter().any(|held| strict_eq(held.get("id"), row.value.get("id"))) {
         return state.clone();
     }
     if text(fld(item, "type")) == "agentMessage" && !completed {
@@ -670,11 +704,13 @@ mod tests {
     #[test]
     fn compaction_history_and_live_updates_keep_the_same_boundary_and_archived_cards() {
         let reducer = SessionReducer;
-        let call = |id: &str, archived: bool| json!({
-            "type": "toolCall", "id": id, "name": "read", "input": { "path": "src" },
-            "run": { "callId": id, "result": "ok" },
-            "meta": { "status": "completed", "ext": { "archived": archived } }
-        });
+        let call = |id: &str, archived: bool| {
+            json!({
+                "type": "toolCall", "id": id, "name": "read", "input": { "path": "src" },
+                "run": { "callId": id, "result": "ok" },
+                "meta": { "status": "completed", "ext": { "archived": archived } }
+            })
+        };
         let summary = json!({ "type": "agentMessage", "id": "summary", "text": "Investigation summary", "meta": {} });
         let divider = json!({ "type": "contextCompaction", "id": "divider:c1", "meta": {} });
         let prompt = json!({ "type": "userMessage", "id": "prompt", "content": [{ "type": "text", "text": "Continue" }], "meta": {} });
@@ -761,7 +797,10 @@ mod tests {
             false,
         ));
         let queued = fields(&state)["queued"].as_array().unwrap().clone();
-        assert_eq!(queued[0], json!({ "id": "sub", "submittedAt": 5, "text": "go", "displayText": "go", "mode": "prompt", "priority": "next", "source": "bot" }));
+        assert_eq!(
+            queued[0],
+            json!({ "id": "sub", "submittedAt": 5, "text": "go", "displayText": "go", "mode": "prompt", "priority": "next", "source": "bot" })
+        );
         assert_eq!(queued[1], json!({ "id": "already", "text": "kept" }));
     }
 
@@ -777,9 +816,7 @@ mod tests {
     #[test]
     fn a_tool_rows_flags_follow_its_position_through_a_replace_and_a_cut() {
         let reducer = SessionReducer;
-        let call = |status: &str| {
-            json!({ "threadId": "t", "item": { "type": "toolCall", "id": "c", "name": "read", "input": { "path": "p" }, "output": "x", "run": { "live": true, "callId": "k" }, "meta": { "status": status, "at": 1 } } })
-        };
+        let call = |status: &str| json!({ "threadId": "t", "item": { "type": "toolCall", "id": "c", "name": "read", "input": { "path": "p" }, "output": "x", "run": { "live": true, "callId": "k" }, "meta": { "status": status, "at": 1 } } });
         let mut state = reducer.initial(&snapshot(json!({}), false));
         state = reducer.apply(&state, &note("item/started", call("inProgress")));
         assert_eq!(state["liveRows"], json!([0]));

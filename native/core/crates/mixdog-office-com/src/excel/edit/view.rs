@@ -138,9 +138,7 @@ fn split_panes(book: &Com, sheet: &Com, window: &Com, split_row: i32, split_colu
     match frozen {
         Ok((row, column)) => {
             if row != split_row || column != split_column {
-                return Err(Error::host(format!(
-                    "Excel froze panes at row={row} column={column} instead of row={split_row} column={split_column}"
-                )));
+                return Err(Error::host(format!("Excel froze panes at row={row} column={column} instead of row={split_row} column={split_column}")));
             }
             Ok(())
         }
@@ -164,8 +162,8 @@ fn freeze_refusal(book: &Com, sheet: &Com, window: &Com, split_row: i32, split_c
     let window_visible = attempt(|| Ok(bool_of(&window.member("Visible")?))).unwrap_or(false);
     let view = attempt(|| int_of(&window.member("View")?)).unwrap_or(0);
     let window_state = attempt(|| int_of(&window.member("WindowState")?)).unwrap_or(0);
-    let window_size = attempt(|| Ok(format!("{}x{}", int_of(&window.member("Width")?)?, int_of(&window.member("Height")?)?)))
-        .unwrap_or_else(|| "unknown".to_owned());
+    let window_size =
+        attempt(|| Ok(format!("{}x{}", int_of(&window.member("Width")?)?, int_of(&window.member("Height")?)?))).unwrap_or_else(|| "unknown".to_owned());
     let sheet_name = string_of_com(&sheet.member("Name")?);
     let split_row_now = int_of(&window.member("SplitRow")?)?;
     let split_column_now = int_of(&window.member("SplitColumn")?)?;

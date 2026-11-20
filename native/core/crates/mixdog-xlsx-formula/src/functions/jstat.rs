@@ -4,15 +4,9 @@
 //! Copyright (c) jStat contributors, MIT; full notice in office-stats-distributions/LICENSE.jstat.
 // Decimal constants and manual NaN-sensitive domain comparisons are copied
 // from jStat, not replaced by clippy's algebraically different suggestions.
-#![allow(
-    clippy::excessive_precision,
-    clippy::approx_constant,
-    clippy::manual_range_contains
-)]
+#![allow(clippy::excessive_precision, clippy::approx_constant, clippy::manual_range_contains)]
+use super::special::{SpecialError, beta_inc, beta_inc_tiny, beta_inc_xy, gamma_inc, norm_quantile, solve_monotone};
 use crate::value::Value;
-use super::special::{
-    SpecialError, beta_inc, beta_inc_tiny, beta_inc_xy, gamma_inc, norm_quantile, solve_monotone,
-};
 use mixdog_js::math as m;
 use std::cmp::Ordering;
 use std::ops::*;
@@ -116,22 +110,14 @@ fn quantile(tails: impl Fn(f64) -> Tails, p: f64, lo: f64, hi: f64) -> Result<f6
     bottom_is_zero(quantile_unfloored(tails, p, lo, hi))
 }
 fn quantile_unfloored(tails: impl Fn(f64) -> Tails, p: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
-    if p > 0.5 {
-        quantile_rt(tails, 1.0 - p, lo, hi)
-    } else {
-        solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, p)
-    }
+    if p > 0.5 { quantile_rt(tails, 1.0 - p, lo, hi) } else { solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, p) }
 }
 /// The quantile whose right tail is `q`; for `q > 1/2` the left tail `1 - q` (exact) is the small one.
 fn quantile_rt(tails: impl Fn(f64) -> Tails, q: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
     bottom_is_zero(quantile_rt_unfloored(tails, q, lo, hi))
 }
 fn quantile_rt_unfloored(tails: impl Fn(f64) -> Tails, q: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
-    if q > 0.5 {
-        solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, 1.0 - q)
-    } else {
-        solve_monotone(|x| tails(x).map(|t| t.1), lo, hi, true, q)
-    }
+    if q > 0.5 { solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, 1.0 - q) } else { solve_monotone(|x| tails(x).map(|t| t.1), lo, hi, true, q) }
 }
 pub(super) fn beta_tails(x: f64, y: f64, a: f64, b: f64) -> Tails {
     beta_inc_xy(x, y, a, b)
@@ -210,11 +196,7 @@ fn student_inv_rt(q: f64, d: f64) -> Result<f64, SpecialError> {
 }
 /// Two-tailed Student quantile: the t with P(|T| > t) = p (`p / 2` is exact).
 pub(super) fn student_inv_2t(p: f64, d: f64) -> Result<f64, SpecialError> {
-    if p > 0.5 {
-        student_inv_central(1.0 - p, d)
-    } else {
-        student_inv_rt(p / 2.0, d)
-    }
+    if p > 0.5 { student_inv_central(1.0 - p, d) } else { student_inv_rt(p / 2.0, d) }
 }
 pub(super) fn student_inv(p: f64, d: f64) -> Result<f64, SpecialError> {
     // `|2p - 1|` is exact for `p` in [1/4, 3/4]

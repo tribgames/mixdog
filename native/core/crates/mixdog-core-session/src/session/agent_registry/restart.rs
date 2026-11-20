@@ -114,7 +114,10 @@ impl Liveness<'_> {
         out.insert("status".into(), "idle".into());
         out.insert("stage".into(), "idle".into());
         out.insert("turnStartedAt".into(), Value::Null);
-        out.insert("finishedAt".into(), Value::String(if touch { stamp.clone() } else { kept("finishedAt").or_else(|| kept("updatedAt")).unwrap_or_else(|| stamp.clone()) }));
+        out.insert(
+            "finishedAt".into(),
+            Value::String(if touch { stamp.clone() } else { kept("finishedAt").or_else(|| kept("updatedAt")).unwrap_or_else(|| stamp.clone()) }),
+        );
         out.insert("updatedAt".into(), Value::String(if touch { stamp.clone() } else { kept("updatedAt").unwrap_or(stamp) }));
         out.insert("reapAt".into(), if touch { self.terminal_reap_at(row) } else { kept("reapAt").map_or_else(|| self.terminal_reap_at(row), Value::String) });
         out
@@ -159,14 +162,11 @@ pub fn settle_rows(rows: &[(String, Row)], dead_only: bool, live: &Liveness<'_>)
 
 /// `isUnnotifiedRestartFailure(row)`.
 pub fn is_unnotified_restart_failure(row: &Row) -> bool {
-    is_restart_failure(row)
-        && !clean(row.get("ownerSessionId")).is_empty()
-        && !truthy(row.get("restartNotified"))
+    is_restart_failure(row) && !clean(row.get("ownerSessionId")).is_empty() && !truthy(row.get("restartNotified"))
 }
 
 pub(super) fn is_restart_failure(row: &Row) -> bool {
-    row.get("status").and_then(Value::as_str) == Some("failed")
-        && row.get("failureReason").and_then(Value::as_str) == Some(PROCESS_RESTART_FAILURE)
+    row.get("status").and_then(Value::as_str) == Some("failed") && row.get("failureReason").and_then(Value::as_str) == Some(PROCESS_RESTART_FAILURE)
 }
 
 impl AgentRegistry {
@@ -252,7 +252,12 @@ pub fn register_failed_task(board: &JobBoard, row: &Row) {
     }
     board.complete(
         &task,
-        Completion { error: Some(RESTART_FAILURE_ERROR.into()), notify: false, terminal_reason: Some(PROCESS_RESTART_FAILURE.into()), ..Completion::new("failed") },
+        Completion {
+            error: Some(RESTART_FAILURE_ERROR.into()),
+            notify: false,
+            terminal_reason: Some(PROCESS_RESTART_FAILURE.into()),
+            ..Completion::new("failed")
+        },
     );
     board.acknowledge(&task);
 }
@@ -413,4 +418,3 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
     }
     Ok(told)
 }
-

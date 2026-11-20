@@ -12,9 +12,9 @@ use mixdog_office_base::write_note::WriteNote;
 use serde_json::{Value, json};
 
 use crate::opc::{
-    IMAGE_CONTENT_TYPES, PACKAGE_RELATIONSHIP_NS, add_package_relationship, ensure_content_type_override,
-    ensure_default_content_type, image_content_type, part_from_target, part_relationship_path, posix, relationship_map,
-    relationship_target_by_type, remove_content_type_override, remove_package_relationship, rewrite_imported_relationships,
+    IMAGE_CONTENT_TYPES, PACKAGE_RELATIONSHIP_NS, add_package_relationship, ensure_content_type_override, ensure_default_content_type, image_content_type,
+    part_from_target, part_relationship_path, posix, relationship_map, relationship_target_by_type, remove_content_type_override, remove_package_relationship,
+    rewrite_imported_relationships,
 };
 use crate::package::{load_package, os_message, save_package};
 use crate::slide_shapes::{replace_first_text, text_body_xml, text_or_empty};
@@ -84,9 +84,7 @@ pub fn presentation_slides(zip: &Package) -> Vec<SlideRef> {
         return slides;
     }
     let pattern = compiled(r"^ppt\/slides\/slide\d+\.xml$", "");
-    let number = |name: &str| -> f64 {
-        compiled(r"(\d+)\.xml$", "").captures(name).and_then(|found| found.get(1).map(string_to_number)).unwrap_or(f64::NAN)
-    };
+    let number = |name: &str| -> f64 { compiled(r"(\d+)\.xml$", "").captures(name).and_then(|found| found.get(1).map(string_to_number)).unwrap_or(f64::NAN) };
     let mut names: Vec<String> = zip.names().into_iter().filter(|name| pattern.is_match(name)).collect();
     mixdog_js::js_sort_by(&mut names, |left, right| number(left) - number(right));
     names.into_iter().map(|path| SlideRef { id: 0.0, rid: String::new(), path }).collect()
@@ -124,9 +122,7 @@ impl LayoutPart {
 /// `slideLayoutParts(zip)`: the layouts in the order of their number.
 pub fn slide_layout_parts(zip: &Package) -> Vec<LayoutPart> {
     let pattern = compiled(r"^ppt\/slideLayouts\/slideLayout\d+\.xml$", "");
-    let number = |name: &str| -> f64 {
-        compiled(r"(\d+)\.xml$", "").captures(name).and_then(|found| found.get(1).map(string_to_number)).unwrap_or(f64::NAN)
-    };
+    let number = |name: &str| -> f64 { compiled(r"(\d+)\.xml$", "").captures(name).and_then(|found| found.get(1).map(string_to_number)).unwrap_or(f64::NAN) };
     let mut paths: Vec<String> = zip.names().into_iter().filter(|name| pattern.is_match(name)).collect();
     mixdog_js::js_sort_by(&mut paths, |left, right| number(left) - number(right));
     paths
@@ -296,13 +292,8 @@ pub fn add_presentation_slide(zip: &mut Package, op: &Value) -> Result<Value, St
         ),
     );
     ensure_content_type_override(zip, &format!("/{part}"), SLIDE_CONTENT_TYPE);
-    let relationship_id = add_package_relationship(
-        zip,
-        PRESENTATION_RELATIONSHIPS,
-        &format!("{OFFICE_RELATIONSHIP_BASE}/slide"),
-        &format!("slides/slide{ordinal}.xml"),
-        "",
-    );
+    let relationship_id =
+        add_package_relationship(zip, PRESENTATION_RELATIONSHIPS, &format!("{OFFICE_RELATIONSHIP_BASE}/slide"), &format!("slides/slide{ordinal}.xml"), "");
     let index = op.get("index").map_or(f64::NAN, to_number);
     let requested = if index > 0.0 { index - 1.0 } else { f64::INFINITY };
     let position = insert_slide_id(zip, &relationship_id, requested);
@@ -413,11 +404,7 @@ pub fn renumber_presentation_slides(zip: &mut Package) -> bool {
             };
             let Some(to) = renamed.get(resolved.as_str()) else { return whole.to_owned() };
             changed.set(true);
-            let written = if link.starts_with('/') {
-                format!("/{to}")
-            } else {
-                posix::relative(if directory.is_empty() { "." } else { &directory }, to)
-            };
+            let written = if link.starts_with('/') { format!("/{to}") } else { posix::relative(if directory.is_empty() { "." } else { &directory }, to) };
             format!("{lead}{written}{tail}")
         });
         if changed.get() {
@@ -425,12 +412,11 @@ pub fn renumber_presentation_slides(zip: &mut Package) -> bool {
         }
     }
     let content_types = zip.text("[Content_Types].xml");
-    let renumbered = compiled(r#"PartName="/(ppt/slides/slide\d+\.xml)""#, "g").replace_all_with(&content_types, |found| {
-        match renamed.get(found.get(1).unwrap_or("")) {
+    let renumbered =
+        compiled(r#"PartName="/(ppt/slides/slide\d+\.xml)""#, "g").replace_all_with(&content_types, |found| match renamed.get(found.get(1).unwrap_or("")) {
             Some(to) => format!("PartName=\"/{to}\""),
             None => content_types[found.range()].to_owned(),
-        }
-    });
+        });
     zip.set("[Content_Types].xml", renumbered);
     true
 }
@@ -461,11 +447,8 @@ fn ensure_notes_master(zip: &mut Package) -> Result<String, String> {
         return Ok(part.to_owned());
     }
     let theme_pattern = compiled(r"^ppt\/theme\/theme\d+\.xml$", "");
-    let theme = zip
-        .names()
-        .into_iter()
-        .find(|name| theme_pattern.is_match(name))
-        .ok_or_else(|| "Presentation is missing a theme for the notes master".to_owned())?;
+    let theme =
+        zip.names().into_iter().find(|name| theme_pattern.is_match(name)).ok_or_else(|| "Presentation is missing a theme for the notes master".to_owned())?;
     // PowerPoint rejects a package whose notes master shares the slide master's theme part outright: it reports the whole
     // file as corrupt and unreadable, so every deck carrying speaker notes failed to open. Each master owns a theme, so
     // copy the presentation theme into one for the notes master.
@@ -491,13 +474,8 @@ fn ensure_notes_master(zip: &mut Package) -> Result<String, String> {
         ),
     );
     ensure_content_type_override(zip, &format!("/{part}"), NOTES_MASTER_CONTENT_TYPE);
-    let relationship_id = add_package_relationship(
-        zip,
-        PRESENTATION_RELATIONSHIPS,
-        &format!("{OFFICE_RELATIONSHIP_BASE}/notesMaster"),
-        "notesMasters/notesMaster1.xml",
-        "",
-    );
+    let relationship_id =
+        add_package_relationship(zip, PRESENTATION_RELATIONSHIPS, &format!("{OFFICE_RELATIONSHIP_BASE}/notesMaster"), "notesMasters/notesMaster1.xml", "");
     let presentation = zip.text(PRESENTATION_PART);
     if !compiled(r"<p:notesMasterIdLst\b", "").is_match(&presentation) {
         let element = format!("<p:notesMasterIdLst><p:notesMasterId r:id=\"{relationship_id}\"/></p:notesMasterIdLst>");
@@ -526,10 +504,8 @@ pub fn ensure_comment_author(zip: &mut Package, author: &str, initials: &str) ->
         let id = string_to_number(&xml_attribute(&xml[found], "id"));
         return if id.is_nan() { 0.0 } else { id };
     }
-    let highest = compiled(r#"<p:cmAuthor\b[^>]*\bid="(\d+)""#, "g")
-        .captures_iter(&xml)
-        .map(|found| string_to_number(found.get(1).unwrap_or("")))
-        .fold(-1.0, math::max);
+    let highest =
+        compiled(r#"<p:cmAuthor\b[^>]*\bid="(\d+)""#, "g").captures_iter(&xml).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(-1.0, math::max);
     let id = highest + 1.0;
     let entry = format!(
         "<p:cmAuthor id=\"{}\" name=\"{}\" initials=\"{}\" lastIdx=\"1\" clrIdx=\"{}\"/>",
@@ -553,13 +529,7 @@ pub fn ensure_slide_comments(zip: &mut Package, slide: &SlideRef) -> String {
     let part = format!("ppt/comments/comment{ordinal}.xml");
     zip.set(&part, format!("{XML_HEADER}<p:cmLst {}></p:cmLst>", presentation_namespaces()));
     ensure_content_type_override(zip, &format!("/{part}"), COMMENTS_CONTENT_TYPE);
-    add_package_relationship(
-        zip,
-        &relationships,
-        &format!("{OFFICE_RELATIONSHIP_BASE}/comments"),
-        &posix::relative(&posix::dirname(&slide.path), &part),
-        "",
-    );
+    add_package_relationship(zip, &relationships, &format!("{OFFICE_RELATIONSHIP_BASE}/comments"), &posix::relative(&posix::dirname(&slide.path), &part), "");
     part
 }
 
@@ -625,7 +595,10 @@ pub fn set_slide_notes(zip: &mut Package, slides: &[SlideRef], number: &Value, t
     ensure_notes_master(zip)?;
     let slide_relationships = part_relationship_path(&slide.path);
     let linked = relationship_target_by_type(&zip.text(&slide_relationships), "notesSlide");
-    let from_name = compiled(r"slide(\d+)\.xml$", "").captures(&slide.path).and_then(|found| found.get(1).map(string_to_number)).filter(|value| *value != 0.0 && !value.is_nan());
+    let from_name = compiled(r"slide(\d+)\.xml$", "")
+        .captures(&slide.path)
+        .and_then(|found| found.get(1).map(string_to_number))
+        .filter(|value| *value != 0.0 && !value.is_nan());
     let ordinal = from_name.unwrap_or_else(|| to_number(number));
     let part = if linked.is_empty() {
         format!("ppt/notesSlides/notesSlide{}.xml", crate::slide_shapes::num(ordinal))
@@ -635,11 +608,8 @@ pub fn set_slide_notes(zip: &mut Package, slides: &[SlideRef], number: &Value, t
     let lines = text_or_empty(Some(text));
     let pieces: Vec<&str> = lines.split('\n').collect();
     let last = pieces.len() - 1;
-    let paragraphs: Vec<Value> = pieces
-        .iter()
-        .enumerate()
-        .map(|(at, piece)| json!({ "text": if at == last { *piece } else { piece.strip_suffix('\r').unwrap_or(*piece) } }))
-        .collect();
+    let paragraphs: Vec<Value> =
+        pieces.iter().enumerate().map(|(at, piece)| json!({ "text": if at == last { *piece } else { piece.strip_suffix('\r').unwrap_or(*piece) } })).collect();
     let body = text_body_xml(&json!({ "paragraphs": paragraphs, "defaults": { "fontSize": 12 } }));
     zip.set(
         &part,
@@ -695,11 +665,7 @@ pub fn add_slide_image<P: ReadProof>(proof: &P, zip: &mut Package, slide_part: &
     let extension = image_extension(source);
     let Some(content_type) = image_content_type(&extension) else {
         let known: Vec<&str> = IMAGE_CONTENT_TYPES.iter().map(|(name, _)| *name).collect();
-        return Err(format!(
-            "Unsupported image type: .{}. Use {}",
-            if extension.is_empty() { "unknown" } else { &extension },
-            known.join(", ")
-        ));
+        return Err(format!("Unsupported image type: .{}. Use {}", if extension.is_empty() { "unknown" } else { &extension }, known.join(", ")));
     };
     let data = mixdog_fsio::read(proof, Path::new(source)).map_err(|error| os_message(&error, "open", Path::new(source)))?;
     let ordinal = next_ordinal(zip, "ppt/media/image", &format!(".{extension}"));
@@ -755,13 +721,8 @@ pub fn import_slides_into_presentation<P: ReadProof>(
             let rewritten = rewrite_imported_relationships(&source, zip, &entry.path, &target_path, &relationships, &mut cache)?;
             zip.set(&part_relationship_path(&target_path), rewritten);
         }
-        let relationship_id = add_package_relationship(
-            zip,
-            PRESENTATION_RELATIONSHIPS,
-            &format!("{OFFICE_RELATIONSHIP_BASE}/slide"),
-            &format!("slides/slide{ordinal}.xml"),
-            "",
-        );
+        let relationship_id =
+            add_package_relationship(zip, PRESENTATION_RELATIONSHIPS, &format!("{OFFICE_RELATIONSHIP_BASE}/slide"), &format!("slides/slide{ordinal}.xml"), "");
         position = insert_slide_id(zip, &relationship_id, position) + 1.0;
         imported.push(json_number(number));
     }

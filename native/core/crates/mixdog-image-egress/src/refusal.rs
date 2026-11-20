@@ -23,7 +23,9 @@ pub enum Reason {
     /// Animated or multipage, and the route cannot take the whole image.
     Animated(ImageKind),
     TooLarge,
-    OverCount { limit: u32 },
+    OverCount {
+        limit: u32,
+    },
     MutableLink,
     UnverifiedFileId,
     /// This wire has no form for the source (for example a link on an inline-only endpoint).
@@ -49,11 +51,8 @@ impl Refusal {
     /// The actions are the ones that work for where the image sits: an image in the provider's recorded form of a message has no
     /// part of its own to put a file in, so it can only be left out (which leaves that recorded form out with it).
     pub fn new(origin: Origin, reason: Reason) -> Self {
-        let actions = if origin.in_recorded_form() {
-            vec![RecoveryAction::ContinueWithout]
-        } else {
-            vec![RecoveryAction::ReplaceImage, RecoveryAction::ContinueWithout]
-        };
+        let actions =
+            if origin.in_recorded_form() { vec![RecoveryAction::ContinueWithout] } else { vec![RecoveryAction::ReplaceImage, RecoveryAction::ContinueWithout] };
         Self { origin: Box::new(origin), reason, actions }
     }
 

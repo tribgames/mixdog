@@ -56,11 +56,6 @@ mod tests {
             title: None,
             error: None,
         });
-        assert_eq!(
-            feed.0.lock().unwrap()[0],
-            json!({ "kind": "browser", "sessionId": "s1", "reveal": true, "tabId": "p1" })
-        );
+        assert_eq!(feed.0.lock().unwrap()[0], json!({ "kind": "browser", "sessionId": "s1", "reveal": true, "tabId": "p1" }));
     }
-
-
 }

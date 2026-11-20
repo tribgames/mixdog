@@ -10,12 +10,11 @@
 use super::{Host, Res};
 use crate::obj;
 use crate::platform::{
-    parse_window_id, saved_login_changed, saved_login_refused, window_id, SavedLoginField,
-    SavedLoginFocus, SavedLoginImage, SavedLoginReads, Wid, WindowInfo, SAVED_LOGIN_NO_FOCUS,
-    SAVED_LOGIN_UNSUPPORTED,
+    SAVED_LOGIN_NO_FOCUS, SAVED_LOGIN_UNSUPPORTED, SavedLoginField, SavedLoginFocus, SavedLoginImage, SavedLoginReads, Wid, WindowInfo, parse_window_id,
+    saved_login_changed, saved_login_refused, window_id,
 };
 use crate::protocol::{Obj, Req};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::cell::Cell;
 
 /// The Authenticode signer organisation of each supported browser's image, as
@@ -24,18 +23,17 @@ use std::cell::Cell;
 const VENDORS: [(&str, &str); 2] = [("chrome", "Google LLC"), ("msedge", "Microsoft Corporation")];
 
 /// The reply once the value may be in the field and is not confirmed.
-const UNCONFIRMED: &str = "saved_login_unconfirmed: the saved value may have been written into the checked field, but the field did not confirm it; it is not retried";
+const UNCONFIRMED: &str =
+    "saved_login_unconfirmed: the saved value may have been written into the checked field, but the field did not confirm it; it is not retried";
 /// A failure after the write was invoked (Do-SavedLoginType's catch).
-const INCOMPLETE: &str = "saved_login_unconfirmed: the saved value may have been written into the checked field, but the write did not complete cleanly; it is not retried";
+const INCOMPLETE: &str =
+    "saved_login_unconfirmed: the saved value may have been written into the checked field, but the write did not complete cleanly; it is not retried";
 
 /// The window class of a Chromium browser's top-level frame.
 const FRAME_CLASS: &str = "Chrome_WidgetWin_1";
 
 fn vendor_of(process: &str) -> Option<&'static str> {
-    VENDORS
-        .iter()
-        .find(|(name, _)| *name == process)
-        .map(|(_, vendor)| *vendor)
+    VENDORS.iter().find(|(name, _)| *name == process).map(|(_, vendor)| *vendor)
 }
 
 /// Why a window is no browser a login may go into (Assert-SavedLoginBrowser).
@@ -43,9 +41,9 @@ fn browser_refusal(process: &str, class: &str, top_level: bool) -> Option<String
     match process {
         "firefox" => Some("Firefox is not supported yet: its page address cannot be read reliably through accessibility".into()),
         "brave" => Some("Brave is not supported yet: its code signer has not been verified".into()),
-        _ if vendor_of(process).is_none() || class != FRAME_CLASS || !top_level => Some(format!(
-            "the window belongs to '{process}', not a Chrome or Edge browser window; saved logins are web logins"
-        )),
+        _ if vendor_of(process).is_none() || class != FRAME_CLASS || !top_level => {
+            Some(format!("the window belongs to '{process}', not a Chrome or Edge browser window; saved logins are web logins"))
+        }
         _ => None,
     }
 }
@@ -54,18 +52,13 @@ fn browser_refusal(process: &str, class: &str, top_level: bool) -> Option<String
 /// the image proves nothing (Assert-SavedLoginSignedImage).
 fn verified_start(process: &str, image: Option<SavedLoginImage>) -> Result<i64, String> {
     let Some(image) = image.filter(|image| !image.signer.is_empty() && image.start_time != 0) else {
-        return Err(format!(
-            "the '{process}' window's program could not be verified as a signed browser"
-        ));
+        return Err(format!("the '{process}' window's program could not be verified as a signed browser"));
     };
     let name = image.path.rsplit(['\\', '/']).next().unwrap_or_default();
     let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem).to_lowercase();
     match vendor_of(process) {
         Some(vendor) if stem == process && image.signer == vendor => Ok(image.start_time),
-        vendor => Err(format!(
-            "the '{process}' window's program is not signed by {}",
-            vendor.unwrap_or("its vendor")
-        )),
+        vendor => Err(format!("the '{process}' window's program is not signed by {}", vendor.unwrap_or("its vendor"))),
     }
 }
 
@@ -81,9 +74,7 @@ fn field_refusal(field: &SavedLoginField, kind: &str) -> Option<&'static str> {
     } else if kind == "password" {
         (!field.password).then_some("the focused field is not a password field")
     } else {
-        field
-            .password
-            .then_some("the focused field is a password field, not a username field")
+        field.password.then_some("the focused field is a password field, not a username field")
     }
 }
 
@@ -125,8 +116,7 @@ fn has_scheme(text: &str) -> bool {
         return false;
     };
     let mut chars = scheme.chars();
-    chars.next().is_some_and(|first| first.is_ascii_alphabetic())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+    chars.next().is_some_and(|first| first.is_ascii_alphabetic()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
 }
 
 fn parse_url(text: &str) -> Option<PageUrl> {
@@ -155,11 +145,7 @@ fn parse_url(text: &str) -> Option<PageUrl> {
     if host.is_empty() || host == "[]" {
         return None;
     }
-    let host = if host.starts_with('[') {
-        host.to_lowercase()
-    } else {
-        ascii_host(host)?
-    };
+    let host = if host.starts_with('[') { host.to_lowercase() } else { ascii_host(host)? };
     Some(PageUrl { scheme, host, port, user_info: !user.is_empty() })
 }
 
@@ -185,11 +171,7 @@ fn ascii_host(host: &str) -> Option<String> {
         .split(['.', '\u{3002}', '\u{ff0e}', '\u{ff61}'])
         .map(|label| {
             let label = label.to_lowercase();
-            if label.is_ascii() {
-                Some(label)
-            } else {
-                punycode(&label).map(|encoded| format!("xn--{encoded}"))
-            }
+            if label.is_ascii() { Some(label) } else { punycode(&label).map(|encoded| format!("xn--{encoded}")) }
         })
         .collect();
     labels.map(|labels| labels.join("."))
@@ -269,9 +251,7 @@ fn address_bar_shows(text: &str, page: &PageUrl) -> bool {
         return false;
     }
     if has_scheme(value) {
-        return parse_url(value).is_some_and(|shown| {
-            shown.scheme == page.scheme && shown.host == page.host && shown.port == page.port
-        });
+        return parse_url(value).is_some_and(|shown| shown.scheme == page.scheme && shown.host == page.host && shown.port == page.port);
     }
     let authority = &value[..value.find(['/', '?', '#']).unwrap_or(value.len())];
     let (host, tail) = if authority.starts_with('[') {
@@ -280,19 +260,11 @@ fn address_bar_shows(text: &str, page: &PageUrl) -> bool {
             _ => return false,
         }
     } else {
-        authority.split_at(
-            authority
-                .find(|c: char| c == ':' || c.is_whitespace())
-                .unwrap_or(authority.len()),
-        )
+        authority.split_at(authority.find(|c: char| c == ':' || c.is_whitespace()).unwrap_or(authority.len()))
     };
     let port = match tail.strip_prefix(':') {
         None if tail.is_empty() => 443,
-        Some(digits)
-            if (1..=5).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit()) =>
-        {
-            digits.parse().unwrap_or(u32::MAX)
-        }
+        Some(digits) if (1..=5).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit()) => digits.parse().unwrap_or(u32::MAX),
         _ => return false,
     };
     let host = if host.starts_with('[') {
@@ -375,9 +347,7 @@ fn change(expected: &Target, actual: &Target) -> Option<&'static str> {
 
 /// The reason inside a `saved_login_refused` text.
 fn refusal_reason(error: &str) -> Option<&str> {
-    error
-        .strip_prefix("saved_login_refused: ")?
-        .strip_suffix("; no input was sent")
+    error.strip_prefix("saved_login_refused: ")?.strip_suffix("; no input was sent")
 }
 
 /// The window's address bars must positively confirm the page before any
@@ -387,14 +357,10 @@ fn refusal_reason(error: &str) -> Option<&str> {
 fn assert_address_bars(reads: &dyn SavedLoginReads, window: Wid, page: &PageUrl) -> Res<()> {
     let bars = reads.address_bars(window)?;
     if bars.is_empty() {
-        return Err(saved_login_refused(
-            "this window exposes no readable address bar to confirm the page",
-        ));
+        return Err(saved_login_refused("this window exposes no readable address bar to confirm the page"));
     }
     if bars.iter().any(|text| !address_bar_shows(text, page)) {
-        return Err(saved_login_refused(
-            "the address bar does not show the page's own site",
-        ));
+        return Err(saved_login_refused("the address bar does not show the page's own site"));
     }
     Ok(())
 }
@@ -407,32 +373,16 @@ impl Host {
             return Err(SAVED_LOGIN_UNSUPPORTED.into());
         };
         let handle = parse_window_id(&req.text("window_id"));
-        if self
-            .desktop
-            .integrity(handle)
-            .is_some_and(|level| level.known() && level.higher())
-        {
+        if self.desktop.integrity(handle).is_some_and(|level| level.known() && level.higher()) {
             return Err(saved_login_refused("the browser runs elevated"));
         }
-        if action == "saved_login_check" {
-            self.saved_login_check(reads, handle, req)
-        } else {
-            self.saved_login_type(reads, handle, req)
-        }
+        if action == "saved_login_check" { self.saved_login_check(reads, handle, req) } else { self.saved_login_type(reads, handle, req) }
     }
 
     /// The window a login may go into, by its own word, and its lower-case
     /// process name (Assert-SavedLoginBrowser).
-    fn saved_login_browser(
-        &self,
-        reads: &dyn SavedLoginReads,
-        handle: Wid,
-    ) -> Res<(WindowInfo, String)> {
-        let info = self
-            .desktop
-            .info(handle)
-            .filter(|_| handle != 0)
-            .ok_or_else(|| format!("window_id is stale or invalid: {}", window_id(handle)))?;
+    fn saved_login_browser(&self, reads: &dyn SavedLoginReads, handle: Wid) -> Res<(WindowInfo, String)> {
+        let info = self.desktop.info(handle).filter(|_| handle != 0).ok_or_else(|| format!("window_id is stale or invalid: {}", window_id(handle)))?;
         let process = info.app.to_lowercase();
         match browser_refusal(&process, &info.class_name, reads.top_level(handle)) {
             Some(reason) => Err(saved_login_refused(&reason)),
@@ -444,17 +394,11 @@ impl Host {
     /// the browser in the foreground, the focused field and the origin of the
     /// page document holding it (Get-SavedLoginTarget). `start_time` is left
     /// for the caller.
-    fn saved_login_target(
-        &self,
-        reads: &dyn SavedLoginReads,
-        info: &WindowInfo,
-        field: &str,
-    ) -> Res<(Target, PageUrl)> {
+    fn saved_login_target(&self, reads: &dyn SavedLoginReads, info: &WindowInfo, field: &str) -> Res<(Target, PageUrl)> {
         if self.desktop.foreground() != info.handle {
             return Err(saved_login_refused("the browser window is not in the foreground"));
         }
-        let SavedLoginFocus { runtime_id, document_id, document_url, field: facts } =
-            reads.focus(info.handle, info.pid as u32)?;
+        let SavedLoginFocus { runtime_id, document_id, document_url, field: facts } = reads.focus(info.handle, info.pid as u32)?;
         let Some(page) = page_url(&document_url) else {
             return Err(saved_login_refused("the page is not an HTTPS page"));
         };
@@ -479,8 +423,7 @@ impl Host {
     /// up for (Do-SavedLoginCheck).
     fn saved_login_check(&self, reads: &dyn SavedLoginReads, handle: Wid, req: &Req) -> Res<Obj> {
         let (info, process) = self.saved_login_browser(reads, handle)?;
-        let start_time = verified_start(&process, reads.verified_image(info.pid as u32))
-            .map_err(|reason| saved_login_refused(&reason))?;
+        let start_time = verified_start(&process, reads.verified_image(info.pid as u32)).map_err(|reason| saved_login_refused(&reason))?;
         // Do-Focus begins its own input observation: input during the
         // activation and its settle is the person's, never missed.
         self.scope.borrow_mut().begin(&self.observer)?;
@@ -510,39 +453,20 @@ impl Host {
     /// whose live address is still the origin. These are separate reads
     /// followed by a separate write, not an atomic compare-and-write
     /// (Assert-SavedLoginStill).
-    fn saved_login_still(
-        &self,
-        reads: &dyn SavedLoginReads,
-        info: &WindowInfo,
-        start_time: i64,
-        expected: &Target,
-        field: &str,
-    ) -> Res<()> {
+    fn saved_login_still(&self, reads: &dyn SavedLoginReads, info: &WindowInfo, start_time: i64, expected: &Target, field: &str) -> Res<()> {
         let pid = info.pid as u32;
         let why = if self.desktop.foreground() != info.handle {
             Some("the browser window left the foreground".to_owned())
-        } else if reads.start_time(pid) != start_time
-            || self.desktop.info(info.handle).map(|now| now.pid) != Some(info.pid)
-        {
+        } else if reads.start_time(pid) != start_time || self.desktop.info(info.handle).map(|now| now.pid) != Some(info.pid) {
             Some("the browser process changed".to_owned())
         } else {
             match reads.focus(info.handle, pid) {
-                Err(error) if error == saved_login_refused(SAVED_LOGIN_NO_FOCUS) => {
-                    Some("focus moved to another element".to_owned())
-                }
-                Err(error) => Some(
-                    refusal_reason(&error)
-                        .unwrap_or("the field could not be re-read")
-                        .to_owned(),
-                ),
-                Ok(focus) if focus.runtime_id != expected.runtime_id => {
-                    Some("focus moved to another element".to_owned())
-                }
+                Err(error) if error == saved_login_refused(SAVED_LOGIN_NO_FOCUS) => Some("focus moved to another element".to_owned()),
+                Err(error) => Some(refusal_reason(&error).unwrap_or("the field could not be re-read").to_owned()),
+                Ok(focus) if focus.runtime_id != expected.runtime_id => Some("focus moved to another element".to_owned()),
                 Ok(focus) => match field_refusal(&focus.field, field) {
                     Some(refusal) => Some(format!("the field changed ({refusal})")),
-                    None if focus.document_id != expected.document_id => {
-                        Some("the field left the checked page".to_owned())
-                    }
+                    None if focus.document_id != expected.document_id => Some("the field left the checked page".to_owned()),
                     None => match page_url(&focus.document_url) {
                         Some(page) if origin_of(&page) == expected.origin => None,
                         _ => Some("the page origin changed".to_owned()),
@@ -574,8 +498,7 @@ impl Host {
         // Some(confirmed) once the value pattern was written.
         let written: Cell<Option<bool>> = Cell::new(None);
         let mut write = || -> Res<()> {
-            let start_time = verified_start(&process, reads.verified_image(pid))
-                .map_err(|reason| saved_login_refused(&reason))?;
+            let start_time = verified_start(&process, reads.verified_image(pid)).map_err(|reason| saved_login_refused(&reason))?;
             if info.pid.to_string() != expected.pid || start_time.to_string() != expected.start_time {
                 return Err(saved_login_changed("the browser process changed"));
             }
@@ -588,8 +511,7 @@ impl Host {
                 return Err(saved_login_changed(reason));
             }
             self.saved_login_still(reads, &info, start_time, &expected, &field)?;
-            let confirmed =
-                reads.set_value(pid, &expected.runtime_id, &value, &|| self.assert_continue())?;
+            let confirmed = reads.set_value(pid, &expected.runtime_id, &value, &|| self.assert_continue())?;
             written.set(Some(confirmed));
             Ok(())
         };
@@ -610,10 +532,7 @@ impl Host {
         }
         result.insert("path".into(), json!("uia_setvalue"));
         result.insert("effect".into(), json!("confirmed"));
-        result.insert(
-            "text".into(),
-            json!(format!("wrote the saved {field} into the checked field")),
-        );
+        result.insert("text".into(), json!(format!("wrote the saved {field} into the checked field")));
         Ok(result)
     }
 }
@@ -635,28 +554,13 @@ mod tests {
         let ok = |password| field(true, true, true, false, password);
         assert_eq!(field_refusal(&ok(true), "password"), None);
         assert_eq!(field_refusal(&ok(false), "username"), None);
-        assert_eq!(
-            field_refusal(&field(false, true, true, false, false), "username"),
-            Some("the focused element is not a text field")
-        );
-        assert_eq!(
-            field_refusal(&field(true, false, true, false, false), "username"),
-            Some("the field does not hold keyboard focus")
-        );
+        assert_eq!(field_refusal(&field(false, true, true, false, false), "username"), Some("the focused element is not a text field"));
+        assert_eq!(field_refusal(&field(true, false, true, false, false), "username"), Some("the field does not hold keyboard focus"));
         for (enabled, read_only) in [(false, false), (true, true)] {
-            assert_eq!(
-                field_refusal(&field(true, true, enabled, read_only, true), "password"),
-                Some("the focused field is disabled or read-only")
-            );
+            assert_eq!(field_refusal(&field(true, true, enabled, read_only, true), "password"), Some("the focused field is disabled or read-only"));
         }
-        assert_eq!(
-            field_refusal(&ok(false), "password"),
-            Some("the focused field is not a password field")
-        );
-        assert_eq!(
-            field_refusal(&ok(true), "username"),
-            Some("the focused field is a password field, not a username field")
-        );
+        assert_eq!(field_refusal(&ok(false), "password"), Some("the focused field is not a password field"));
+        assert_eq!(field_refusal(&ok(true), "username"), Some("the focused field is a password field, not a username field"));
     }
 
     #[test]
@@ -745,11 +649,7 @@ mod tests {
         assert_eq!(browser_refusal("msedge", "Chrome_WidgetWin_1", true), None);
         assert!(browser_refusal("brave", "Chrome_WidgetWin_1", true).unwrap().starts_with("Brave is not supported yet"));
         assert!(browser_refusal("firefox", "MozillaWindowClass", true).unwrap().starts_with("Firefox is not supported yet"));
-        for (process, class, top) in [
-            ("notepad", "Notepad", true),
-            ("chrome", "Chrome_RenderWidgetHostHWND", true),
-            ("chrome", "Chrome_WidgetWin_1", false),
-        ] {
+        for (process, class, top) in [("notepad", "Notepad", true), ("chrome", "Chrome_RenderWidgetHostHWND", true), ("chrome", "Chrome_WidgetWin_1", false)] {
             assert_eq!(
                 browser_refusal(process, class, top).as_deref(),
                 Some(format!("the window belongs to '{process}', not a Chrome or Edge browser window; saved logins are web logins").as_str())
@@ -759,24 +659,16 @@ mod tests {
 
     #[test]
     fn the_signer_organisation_must_be_the_vendors() {
-        let image = |path: &str, signer: &str, start_time| {
-            Some(SavedLoginImage { path: path.into(), signer: signer.into(), start_time })
-        };
+        let image = |path: &str, signer: &str, start_time| Some(SavedLoginImage { path: path.into(), signer: signer.into(), start_time });
         let chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe";
         assert_eq!(verified_start("chrome", image(chrome, "Google LLC", 77)), Ok(77));
-        assert_eq!(
-            verified_start("msedge", image(r"C:\Edge\MSEDGE.EXE", "Microsoft Corporation", 5)),
-            Ok(5)
-        );
+        assert_eq!(verified_start("msedge", image(r"C:\Edge\MSEDGE.EXE", "Microsoft Corporation", 5)), Ok(5));
         let not_signed = Err("the 'chrome' window's program is not signed by Google LLC".to_owned());
         assert_eq!(verified_start("chrome", image(chrome, "Microsoft Corporation", 77)), not_signed);
         assert_eq!(verified_start("chrome", image(chrome, "google llc", 77)), not_signed);
         assert_eq!(verified_start("chrome", image(r"C:\Temp\other.exe", "Google LLC", 77)), not_signed);
         for unproven in [None, image(chrome, "", 77), image(chrome, "Google LLC", 0)] {
-            assert_eq!(
-                verified_start("chrome", unproven),
-                Err("the 'chrome' window's program could not be verified as a signed browser".into())
-            );
+            assert_eq!(verified_start("chrome", unproven), Err("the 'chrome' window's program could not be verified as a signed browser".into()));
         }
     }
 
@@ -785,10 +677,7 @@ mod tests {
         assert_eq!(value_refusal("hunter2"), None);
         assert_eq!(value_refusal(""), Some("no saved value reached the worker"));
         for value in ["a\nb", "a\rb", "\r\n"] {
-            assert_eq!(
-                value_refusal(value),
-                Some("the saved value holds a line break, which the field would strip")
-            );
+            assert_eq!(value_refusal(value), Some("the saved value holds a line break, which the field would strip"));
         }
     }
 
@@ -820,10 +709,7 @@ mod tests {
         assert_eq!(compare(&|now| now.field = "username".into()), Some("another field kind was asked for"));
         assert_eq!(compare(&|now| now.value_length = 3), Some("the field content changed"));
         // A request missing its target compares as empty ids: everything differs.
-        assert_eq!(
-            change(&Target::from_request(&Req(json!({}))), &checked),
-            Some("the browser window changed")
-        );
+        assert_eq!(change(&Target::from_request(&Req(json!({}))), &checked), Some("the browser window changed"));
         // The checked target survives the round trip through the reply.
         assert_eq!(Target::from_request(&Req(checked.json())), checked);
     }

@@ -42,13 +42,11 @@ static NAVIGATION_MISS: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// The permission exclusion of `isReadOnlyNavigationMiss`.
-static PERMISSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i-u:(?-u:\b)(?:eacces|eperm)(?-u:\b)|access is denied|permission denied|operation not permitted)").unwrap()
-});
+static PERMISSION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i-u:(?-u:\b)(?:eacces|eperm)(?-u:\b)|access is denied|permission denied|operation not permitted)").unwrap());
 
 /// `/^error(?:\s+\[code\b|\s*:)/i`.
-static ERROR_PREFIX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(&format!(r"^(?i-u:error)(?:{JS_SPACE}+(?i-u:\[code)(?-u:\b)|{JS_SPACE}*:)")).unwrap());
+static ERROR_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"^(?i-u:error)(?:{JS_SPACE}+(?i-u:\[code)(?-u:\b)|{JS_SPACE}*:)")).unwrap());
 
 /// `/^\[error/i`.
 static BRACKET_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?i-u:\[error)").unwrap());

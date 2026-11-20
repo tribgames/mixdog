@@ -148,8 +148,10 @@ impl DirectorySpawnWorld {
         let mut routed = preset.clone();
         routed["provider"] = json!(provider);
         routed["model"] = json!(model);
-        let context: Map<String, Value> =
-            ["contextPercent", "contextTokens", "selectedContextWindow"].iter().filter_map(|key| spec.get(*key).map(|v| ((*key).to_owned(), v.clone()))).collect();
+        let context: Map<String, Value> = ["contextPercent", "contextTokens", "selectedContextWindow"]
+            .iter()
+            .filter_map(|key| spec.get(*key).map(|v| ((*key).to_owned(), v.clone())))
+            .collect();
         let agent = nonempty(text(spec.get("agent"))).unwrap_or_else(|| "worker".into());
         let prepare = PrepareSpec {
             agent: agent.clone(),
@@ -167,12 +169,15 @@ impl DirectorySpawnWorld {
             parent_session_id: Some(parent.to_owned()),
             owner_session_id: Some(owner.to_owned()),
             skip_role_reminder: false,
-            schema_allowed_tools: spec.get("schemaAllowedTools").and_then(Value::as_array).map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
+            schema_allowed_tools: spec
+                .get("schemaAllowedTools")
+                .and_then(Value::as_array)
+                .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
         };
         let mut header = stamped_header(&prepare, |name| self.providers.registered_for_route(name).is_some())?;
         header.insert("visibility".into(), json!("agent-only"));
         super::session_cache_opts::stamp_cache_opts(&mut header, &self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null));
-        let tag =nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
+        let tag = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
         header.insert("agentTag".into(), tag.map_or(Value::Null, Value::String));
         header.insert("clientHostPid".into(), spec.get("clientHostPid").filter(|pid| pid.as_u64().is_some_and(|p| p > 0)).cloned().unwrap_or(Value::Null));
         // The scope of the runtime that spawns it (`spawn-plan.mjs:108`, `rt.mcpScopeId`): the child shares
@@ -311,9 +316,7 @@ impl SpawnWorld for DirectorySpawnWorld {
         // The parent was cancelled while the session was being created (`agent-child.mjs:51-69`):
         // close the child like any cancelled child instead of leaving it unlinked and open.
         if let Err(cancelled) = self.registry.assert_admission(&parent, Some(parent_epoch)) {
-            self.sessions
-                .close_session(id.as_str(), "parent cancelled during agent creation", CloseOptions { tombstone: false, owner_close: false })
-                .await;
+            self.sessions.close_session(id.as_str(), "parent cancelled during agent creation", CloseOptions { tombstone: false, owner_close: false }).await;
             return Err(cancelled);
         }
         let cwd = nonempty(text(spec.get("cwd")));
@@ -371,7 +374,8 @@ mod tests {
         assert_eq!(resolve_agent_session_permission("my-agent", Some("full")), Some("full".into()));
         assert_eq!(resolve_agent_session_permission("my-agent", Some("")), None);
         assert_eq!(resolve_agent_session_permission("my-agent", None), None);
-        let locked = ["cycle1-agent", "title-agent"].into_iter().find(|name| hidden_agent(name).and_then(|h| h.get("permission").cloned()) == Some(json!("read")));
+        let locked =
+            ["cycle1-agent", "title-agent"].into_iter().find(|name| hidden_agent(name).and_then(|h| h.get("permission").cloned()) == Some(json!("read")));
         if let Some(name) = locked {
             assert_eq!(resolve_agent_session_permission(name, Some("full")), Some("read".into()));
         }
@@ -379,7 +383,9 @@ mod tests {
 
     #[test]
     fn the_statusline_route_is_the_presets_provider_model_and_display() {
-        let route = statusline_route(&json!({ "provider": " p ", "model": "m", "id": "i", "name": "N", "displayName": "Shown", "effort": "high", "fast": false })).unwrap();
+        let route =
+            statusline_route(&json!({ "provider": " p ", "model": "m", "id": "i", "name": "N", "displayName": "Shown", "effort": "high", "fast": false }))
+                .unwrap();
         let section = mixdog_core_session::session::gateway_routes::statusline_section(&route).unwrap();
         assert_eq!(
             Value::Object(section),

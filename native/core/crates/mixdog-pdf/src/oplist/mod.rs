@@ -26,10 +26,8 @@ pub mod gstate;
 pub mod interpreter;
 
 pub use events::{
-    DRAW_CLOSE_PATH, DRAW_CURVE_TO, DRAW_LINE_TO, DRAW_MOVE_TO, DRAW_QUADRATIC_CURVE_TO,
-    Expression, GStateValue, Group, ImageRef, InlineImage, MarkedData, Op, OperatorList,
-    OptionalContent, PaintOp, ParamOp, PathData, Pattern, ShadingRef, SoftMask, Subpath, TextItem,
-    TilingPattern,
+    DRAW_CLOSE_PATH, DRAW_CURVE_TO, DRAW_LINE_TO, DRAW_MOVE_TO, DRAW_QUADRATIC_CURVE_TO, Expression, GStateValue, Group, ImageRef, InlineImage, MarkedData, Op,
+    OperatorList, OptionalContent, PaintOp, ParamOp, PathData, Pattern, ShadingRef, SoftMask, Subpath, TextItem, TilingPattern,
 };
 pub use gstate::Matrix;
 
@@ -107,11 +105,7 @@ pub type FontHandle = Arc<LoadedFont>;
 /// (`beginAnnotation` ... `endAnnotation`); those are [`get_operator_list_with_annotations`]. A failure inside the content stream ends the
 /// stream and keeps what was read when the document's `ignore_errors` is set (as pdf.js's `ignoreErrors`); a
 /// cancellation or a budget failure always propagates.
-pub fn get_operator_list(
-    document: &Document,
-    page: &Page,
-    fonts: Option<&dyn FontProvider>,
-) -> Result<OperatorList> {
+pub fn get_operator_list(document: &Document, page: &Page, fonts: Option<&dyn FontProvider>) -> Result<OperatorList> {
     Ok(get_page_operators(document, page, fonts)?.list)
 }
 
@@ -120,11 +114,7 @@ pub fn get_operator_list(
 /// this mode), in the order [`crate::annotations::get_annotations`] gives. pdf.js brackets each between `beginAnnotation`
 /// and `endAnnotation`; the analysis ignores both, so they are not added. An annotation whose appearance cannot be read
 /// is left out (pdf.js warns `ignoring annotation data`); a cancellation or a budget failure propagates.
-pub fn get_operator_list_with_annotations(
-    document: &Document,
-    page: &Page,
-    fonts: Option<&dyn FontProvider>,
-) -> Result<OperatorList> {
+pub fn get_operator_list_with_annotations(document: &Document, page: &Page, fonts: Option<&dyn FontProvider>) -> Result<OperatorList> {
     document.guard().check_now()?;
     let content = page.content(document)?;
     let resources = merged_resources(document, page)?;
@@ -167,21 +157,14 @@ pub struct PageOperators {
 }
 
 /// [`get_operator_list`] and the fonts the list names.
-pub fn get_page_operators(
-    document: &Document,
-    page: &Page,
-    fonts: Option<&dyn FontProvider>,
-) -> Result<PageOperators> {
+pub fn get_page_operators(document: &Document, page: &Page, fonts: Option<&dyn FontProvider>) -> Result<PageOperators> {
     document.guard().check_now()?;
     let content = page.content(document)?;
     let resources = merged_resources(document, page)?;
     let mut evaluator = interpreter::Evaluator::new(document, fonts, page.index);
     let mut list = OperatorList::new();
     evaluator.get_operator_list(content, None, &resources, &mut list, None, &[])?;
-    Ok(PageOperators {
-        list,
-        fonts: evaluator.into_fonts(),
-    })
+    Ok(PageOperators { list, fonts: evaluator.into_fonts() })
 }
 
 /// `Page.#getMergedResources`: when `/Contents` is one stream with a non-empty `/Resources` of its own, that

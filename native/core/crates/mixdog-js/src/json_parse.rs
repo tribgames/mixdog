@@ -207,9 +207,8 @@ impl Parser<'_> {
 
     fn hex4(&mut self) -> Result<u32, JsonSyntaxError> {
         let digits = self.bytes.get(self.at..self.at + 4);
-        let Some(code) = digits
-            .filter(|d| d.iter().all(u8::is_ascii_hexdigit))
-            .and_then(|d| u32::from_str_radix(std::str::from_utf8(d).unwrap_or(""), 16).ok())
+        let Some(code) =
+            digits.filter(|d| d.iter().all(u8::is_ascii_hexdigit)).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).unwrap_or(""), 16).ok())
         else {
             return self.fail("Bad Unicode escape");
         };
@@ -425,13 +424,43 @@ mod tests {
         assert_eq!(stringify_indent_parsed(&with_esc, 0), "\"x\u{f0000}d800\"");
     }
 
-
     #[test]
     fn text_the_json_grammar_does_not_allow_is_rejected() {
         for input in [
-            "", " ", "{", "[1,]", "[,1]", "{\"a\":1,}", "{a:1}", "{'a':1}", "'x'", "01", "-", "+1", "1.", ".5", "1e", "0x10", "NaN", "Infinity",
-            "undefined", "tru", "nul", "[1 2]", "{\"a\" 1}", "\"a\nb\"", "\"\t\"", "\"\\x41\"", "\"\\u12\"", "\"\\'\"", "[1] 2", "{} {}",
-            "\u{a0}1", "\u{feff}1", "// c\n1", "/* c */1",
+            "",
+            " ",
+            "{",
+            "[1,]",
+            "[,1]",
+            "{\"a\":1,}",
+            "{a:1}",
+            "{'a':1}",
+            "'x'",
+            "01",
+            "-",
+            "+1",
+            "1.",
+            ".5",
+            "1e",
+            "0x10",
+            "NaN",
+            "Infinity",
+            "undefined",
+            "tru",
+            "nul",
+            "[1 2]",
+            "{\"a\" 1}",
+            "\"a\nb\"",
+            "\"\t\"",
+            "\"\\x41\"",
+            "\"\\u12\"",
+            "\"\\'\"",
+            "[1] 2",
+            "{} {}",
+            "\u{a0}1",
+            "\u{feff}1",
+            "// c\n1",
+            "/* c */1",
         ] {
             assert!(parse(input).is_err(), "{input:?}");
         }
@@ -459,6 +488,4 @@ mod tests {
     }
 }
 
-
 impl std::error::Error for JsonSyntaxError {}
-

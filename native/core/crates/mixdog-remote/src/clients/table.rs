@@ -106,7 +106,10 @@ struct Client {
 }
 
 /// What one frame from a phone amounts to.
-#[allow(clippy::large_enum_variant, reason = "Preserve the public handshake result that moves Channel directly into its transport session without boxing its payload")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Preserve the public handshake result that moves Channel directly into its transport session without boxing its payload"
+)]
 pub enum Received {
     /// Traffic of the previous leg, or an unrelated hello: dropped, never acted on.
     Dropped,
@@ -302,13 +305,7 @@ impl ClientTable {
         }
     }
 
-    pub fn receive(
-        &mut self,
-        identity: &ServerIdentity,
-        client_id: &str,
-        payload: &Payload,
-        ready: &ReadyContext<'_>,
-    ) -> Received {
+    pub fn receive(&mut self, identity: &ServerIdentity, client_id: &str, payload: &Payload, ready: &ReadyContext<'_>) -> Received {
         let Some(client) = self.clients.get_mut(client_id) else { return Received::Dropped };
         let channel = match &mut client.link {
             Link::Pending => {
@@ -476,7 +473,6 @@ mod tests {
         assert!(table.close_in("c1", second));
         assert!(!table.contains("c1"));
     }
-
 
     /// The commit and a revoke race in both orders: a commit that began first is allowed and the revoke waits for it; a revoke that
     /// came first refuses it and nothing is written.

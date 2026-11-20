@@ -165,7 +165,8 @@ fn local_context_segment(ctx_pct: Option<f64>, source: &str, columns: f64) -> St
 
 /// The L2 spinner steps through the worker's dot glyphs at 120 ms (the full render's `l2SpinnerFrame`), so the local
 /// and the full line stay in step and do not flicker.
-const WORKER_SPINNER_FRAMES: [&str; 10] = ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280f}"];
+const WORKER_SPINNER_FRAMES: [&str; 10] =
+    ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}", "\u{2827}", "\u{2807}", "\u{280f}"];
 const L2_SPINNER_FRAME_MS: f64 = 120.0;
 
 fn l2_spinner_frame(now: f64) -> &'static str {

@@ -9,16 +9,11 @@
 //! the secure desktop behave), falling back to the virtual key otherwise.
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS,
-    VIRTUAL_KEY,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput, VIRTUAL_KEY,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN};
 
 use crate::desktop;
 use crate::protocol::PointerButton;
@@ -77,29 +72,12 @@ fn normalize(x: i32, y: i32) -> (i32, i32) {
 }
 
 fn mouse_input(flags: MOUSE_EVENT_FLAGS, nx: i32, ny: i32, data: i32) -> INPUT {
-    INPUT {
-        r#type: INPUT_MOUSE,
-        Anonymous: INPUT_0 {
-            mi: MOUSEINPUT {
-                dx: nx,
-                dy: ny,
-                mouseData: data as u32,
-                dwFlags: flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    }
+    INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: nx, dy: ny, mouseData: data as u32, dwFlags: flags, time: 0, dwExtraInfo: 0 } } }
 }
 
 fn pointer_move(x: i32, y: i32) -> Vec<INPUT> {
     let (nx, ny) = normalize(x, y);
-    vec![mouse_input(
-        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-        nx,
-        ny,
-        0,
-    )]
+    vec![mouse_input(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0)]
 }
 
 fn button_flag(button: PointerButton, down: bool) -> MOUSE_EVENT_FLAGS {
@@ -116,15 +94,7 @@ fn button_flag(button: PointerButton, down: bool) -> MOUSE_EVENT_FLAGS {
 fn pointer_button(button: PointerButton, down: bool, x: i32, y: i32) -> Vec<INPUT> {
     let (nx, ny) = normalize(x, y);
     // Position and press travel in one event so the click lands where asked.
-    vec![mouse_input(
-        MOUSEEVENTF_MOVE
-            | MOUSEEVENTF_ABSOLUTE
-            | MOUSEEVENTF_VIRTUALDESK
-            | button_flag(button, down),
-        nx,
-        ny,
-        0,
-    )]
+    vec![mouse_input(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | button_flag(button, down), nx, ny, 0)]
 }
 
 /// Release `button` wherever the pointer is: only the `*UP` flag — no
@@ -138,37 +108,16 @@ fn pointer_wheel(x: i32, y: i32, dx: i32, dy: i32) -> Vec<INPUT> {
     let (nx, ny) = normalize(x, y);
     let mut inputs = Vec::new();
     if dy != 0 {
-        inputs.push(mouse_input(
-            MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_WHEEL,
-            nx,
-            ny,
-            dy * WHEEL_DELTA,
-        ));
+        inputs.push(mouse_input(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_WHEEL, nx, ny, dy * WHEEL_DELTA));
     }
     if dx != 0 {
-        inputs.push(mouse_input(
-            MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_HWHEEL,
-            nx,
-            ny,
-            dx * WHEEL_DELTA,
-        ));
+        inputs.push(mouse_input(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_HWHEEL, nx, ny, dx * WHEEL_DELTA));
     }
     inputs
 }
 
 fn key_input(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
-    INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
-                wScan: scan,
-                dwFlags: flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    }
+    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(vk), wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 } } }
 }
 
 fn key(down: bool, vk: u16, scan: u16, extended: bool) -> Vec<INPUT> {
@@ -180,11 +129,7 @@ fn key(down: bool, vk: u16, scan: u16, extended: bool) -> Vec<INPUT> {
         flags |= KEYEVENTF_EXTENDEDKEY;
     }
     // Scan code is preferred; the virtual key is only the fallback.
-    let input = if scan != 0 {
-        key_input(0, scan, flags | KEYEVENTF_SCANCODE)
-    } else {
-        key_input(vk, 0, flags)
-    };
+    let input = if scan != 0 { key_input(0, scan, flags | KEYEVENTF_SCANCODE) } else { key_input(vk, 0, flags) };
     vec![input]
 }
 
@@ -223,17 +168,7 @@ enum KeyId {
 
 impl HeldKey {
     fn id(&self) -> KeyId {
-        if self.scan != 0 {
-            KeyId::Scan {
-                scan: self.scan,
-                extended: self.extended,
-            }
-        } else {
-            KeyId::Vk {
-                vk: self.vk,
-                extended: self.extended,
-            }
-        }
+        if self.scan != 0 { KeyId::Scan { scan: self.scan, extended: self.extended } } else { KeyId::Vk { vk: self.vk, extended: self.extended } }
     }
 }
 
@@ -272,14 +207,7 @@ impl Injector<SystemInput> {
 
 impl<S: InputSink> Injector<S> {
     pub fn with_sink(sink: S) -> Self {
-        Injector {
-            sink,
-            buttons: Vec::new(),
-            keys: Vec::new(),
-            failing: false,
-            failure_unreported: false,
-            desktop_lost: None,
-        }
+        Injector { sink, buttons: Vec::new(), keys: Vec::new(), failing: false, failure_unreported: false, desktop_lost: None }
     }
 
     /// Insert `inputs`. An insert of **zero** events gets one resync of the
@@ -485,30 +413,18 @@ mod tests {
         fn send(&mut self, inputs: &[INPUT]) -> usize {
             self.sends.borrow_mut().push(inputs.len());
             let mut counts = self.counts.borrow_mut();
-            let next = if counts.is_empty() {
-                None
-            } else {
-                counts.remove(0)
-            };
+            let next = if counts.is_empty() { None } else { counts.remove(0) };
             next.unwrap_or(inputs.len())
         }
 
         fn resync(&mut self) -> Result<(), String> {
             *self.resyncs.borrow_mut() += 1;
-            if self.resync_ok {
-                Ok(())
-            } else {
-                Err("no input desktop".into())
-            }
+            if self.resync_ok { Ok(()) } else { Err("no input desktop".into()) }
         }
     }
 
     fn scripted(counts: &[Option<usize>], resync_ok: bool) -> Scripted {
-        Scripted {
-            counts: Rc::new(RefCell::new(counts.to_vec())),
-            resync_ok,
-            ..Default::default()
-        }
+        Scripted { counts: Rc::new(RefCell::new(counts.to_vec())), resync_ok, ..Default::default() }
     }
 
     #[test]
@@ -517,11 +433,7 @@ mod tests {
         let sink = scripted(&[Some(0)], true);
         let mut injector = Injector::with_sink(sink.clone());
         injector.pointer_move(1, 2);
-        assert_eq!(
-            *sink.sends.borrow(),
-            vec![1, 1],
-            "sent, resynced, sent again"
-        );
+        assert_eq!(*sink.sends.borrow(), vec![1, 1], "sent, resynced, sent again");
         assert_eq!(*sink.resyncs.borrow(), 1);
         assert!(!injector.take_failure());
     }
@@ -535,10 +447,7 @@ mod tests {
         assert_eq!(*sink.sends.borrow(), vec![1, 1]);
         assert!(injector.take_failure());
         assert!(!injector.take_failure(), "the flag clears once taken");
-        assert!(
-            injector.keys.is_empty(),
-            "a press that never landed is not held"
-        );
+        assert!(injector.keys.is_empty(), "a press that never landed is not held");
         // Still failing: the same streak, not reported again.
         injector.key(true, 0x42, 0x30, false);
         assert!(!injector.take_failure(), "one report per failure streak");
@@ -549,15 +458,8 @@ mod tests {
         let mut injector = Injector::with_sink(sink);
         injector.pointer_move(1, 1);
         injector.pointer_move(2, 2);
-        assert!(
-            injector.take_failure(),
-            "a failure after a success starts a streak"
-        );
-        assert_eq!(
-            injector.take_desktop_lost(),
-            None,
-            "the desktop re-attached each time"
-        );
+        assert!(injector.take_failure(), "a failure after a success starts a streak");
+        assert_eq!(injector.take_desktop_lost(), None, "the desktop re-attached each time");
     }
 
     #[test]
@@ -565,30 +467,13 @@ mod tests {
         let sink = scripted(&[Some(0)], false);
         let mut injector = Injector::with_sink(sink.clone());
         injector.pointer_button(PointerButton::Left, true, 0, 0);
-        assert_eq!(
-            *sink.sends.borrow(),
-            vec![1],
-            "no retry without an attached desktop"
-        );
-        assert_eq!(
-            injector.take_desktop_lost().as_deref(),
-            Some("no input desktop")
-        );
+        assert_eq!(*sink.sends.borrow(), vec![1], "no retry without an attached desktop");
+        assert_eq!(injector.take_desktop_lost().as_deref(), Some("no input desktop"));
         assert_eq!(injector.take_desktop_lost(), None, "taken once");
-        assert!(
-            !injector.take_failure(),
-            "reported as the lost desktop, not as input_failed"
-        );
-        assert!(
-            injector.buttons.is_empty(),
-            "a press that never landed is not held"
-        );
+        assert!(!injector.take_failure(), "reported as the lost desktop, not as input_failed");
+        assert!(injector.buttons.is_empty(), "a press that never landed is not held");
         drop(injector);
-        assert_eq!(
-            *sink.sends.borrow(),
-            vec![1],
-            "nothing held, nothing released on drop"
-        );
+        assert_eq!(*sink.sends.borrow(), vec![1], "nothing held, nothing released on drop");
     }
 
     #[test]
@@ -600,17 +485,9 @@ mod tests {
         injector.key(true, 0x41, 0x1e, false);
         injector.key(true, 0x41, 0x1e, false);
         assert!(injector.take_failure());
-        assert_eq!(
-            injector.keys.len(),
-            1,
-            "the press that landed is still held"
-        );
+        assert_eq!(injector.keys.len(), 1, "the press that landed is still held");
         injector.release_all();
-        assert_eq!(
-            *sink.sends.borrow(),
-            vec![1, 1, 1, 1],
-            "press, repeat, retry, release"
-        );
+        assert_eq!(*sink.sends.borrow(), vec![1, 1, 1, 1], "press, repeat, retry, release");
         assert!(injector.keys.is_empty());
 
         // Button: the same, including through a lost desktop.
@@ -621,11 +498,7 @@ mod tests {
         assert!(injector.take_desktop_lost().is_some());
         assert_eq!(injector.buttons, vec![PointerButton::Left]);
         drop(injector);
-        assert_eq!(
-            *sink.sends.borrow(),
-            vec![1, 1, 1],
-            "press, repeat, release on drop"
-        );
+        assert_eq!(*sink.sends.borrow(), vec![1, 1, 1], "press, repeat, release on drop");
     }
 
     #[test]
@@ -658,10 +531,7 @@ mod tests {
     /// A release that cannot move the pointer: only the up flag, zero deltas.
     fn assert_in_place_up(input: &INPUT, up: MOUSE_EVENT_FLAGS) {
         let mi = mouse(input);
-        assert_eq!(
-            mi.dwFlags, up,
-            "only the up flag: no MOVE, ABSOLUTE or VIRTUALDESK"
-        );
+        assert_eq!(mi.dwFlags, up, "only the up flag: no MOVE, ABSOLUTE or VIRTUALDESK");
         assert_eq!((mi.dx, mi.dy), (0, 0), "no coordinates");
     }
 
@@ -693,10 +563,7 @@ mod tests {
         assert!(!injector.release_key(0x5B, 0x5b, true)); // Win
         injector.pointer_button(PointerButton::Right, false, 5, 5);
         injector.key(false, 0x5B, 0x5b, true);
-        assert!(
-            sink.take().is_empty(),
-            "no input for releases of unheld input"
-        );
+        assert!(sink.take().is_empty(), "no input for releases of unheld input");
 
         // A different key/button than the one held is still untracked.
         injector.key(true, 0x41, 0x1e, false);
@@ -729,11 +596,7 @@ mod tests {
         let ki = keyboard(&sent[0]);
         assert_eq!(ki.wScan, 30);
         assert_ne!(ki.dwFlags.0 & KEYEVENTF_KEYUP.0, 0);
-        assert_ne!(
-            ki.dwFlags.0 & KEYEVENTF_SCANCODE.0,
-            0,
-            "released as it was pressed"
-        );
+        assert_ne!(ki.dwFlags.0 & KEYEVENTF_SCANCODE.0, 0, "released as it was pressed");
         assert!(injector.keys.is_empty());
         injector.key(false, 65, 30, false);
         assert!(!injector.release_key(99, 30, false));
@@ -744,17 +607,11 @@ mod tests {
         injector.key(true, 65, 30, false);
         assert_eq!(injector.keys.len(), 1);
         sink.take();
-        assert!(
-            injector.release_key(7, 30, false),
-            "inactive path uses the same identity"
-        );
+        assert!(injector.release_key(7, 30, false), "inactive path uses the same identity");
         assert_eq!(sink.take().len(), 1);
 
         drop(injector);
-        assert!(
-            sink.take().is_empty(),
-            "nothing left held, nothing released twice"
-        );
+        assert!(sink.take().is_empty(), "nothing left held, nothing released twice");
     }
 
     fn is_extended(ki: &KEYBDINPUT) -> bool {
@@ -776,10 +633,7 @@ mod tests {
         let sent = sink.take();
         assert_eq!(sent.len(), 1);
         assert_eq!(keyboard(&sent[0]).wVk, VIRTUAL_KEY(0x0D));
-        assert!(
-            !is_extended(&keyboard(&sent[0])),
-            "the plain key went up, not numpad Enter"
-        );
+        assert!(!is_extended(&keyboard(&sent[0])), "the plain key went up, not numpad Enter");
         assert_eq!(injector.keys.len(), 1, "numpad Enter is still tracked");
 
         // A second plain release is untracked now; numpad Enter stays held.
@@ -806,10 +660,7 @@ mod tests {
         sink.take();
         injector.key(false, 0, 0x1c, true);
         assert!(!injector.release_key(0x0D, 0x1c, true));
-        assert!(
-            sink.take().is_empty(),
-            "extended release does not match the plain press"
-        );
+        assert!(sink.take().is_empty(), "extended release does not match the plain press");
         assert_eq!(injector.keys.len(), 1);
 
         // A vk-only release (no scan code) is ignored too: a vk identity never

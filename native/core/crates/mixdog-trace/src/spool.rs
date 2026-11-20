@@ -3,11 +3,7 @@
 
 // Sanctioned home of the trace's blocking file work: `flush` runs as a job on a blocking lane
 // (see the crate docs), never on RT-C/RT-W.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the trace spool's flush is blocking file I/O run on a blocking lane"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the trace spool's flush is blocking file I/O run on a blocking lane")]
 
 use std::fs;
 use std::io::Write;
@@ -73,7 +69,6 @@ impl Kind {
             Kind::Failures => ("append", "append failed"),
         }
     }
-
 }
 
 struct State {
@@ -96,14 +91,7 @@ pub(crate) struct Spool {
 
 impl Spool {
     /// `rotates` false keeps the file append-only (an explicit trace path).
-    pub(crate) fn new(
-        path: PathBuf,
-        flush_lines: usize,
-        keep: usize,
-        check_ms: i64,
-        rotates: bool,
-        kind: Kind,
-    ) -> Self {
+    pub(crate) fn new(path: PathBuf, flush_lines: usize, keep: usize, check_ms: i64, rotates: bool, kind: Kind) -> Self {
         Self {
             path,
             flush_lines,
@@ -111,11 +99,7 @@ impl Spool {
             check_ms,
             rotates,
             kind,
-            state: Mutex::new(State {
-                lines: Vec::new(),
-                first_queued_ms: None,
-                last_rotate_check_ms: 0,
-            }),
+            state: Mutex::new(State { lines: Vec::new(), first_queued_ms: None, last_rotate_check_ms: 0 }),
             writing: Mutex::new(()),
         }
     }
@@ -137,17 +121,11 @@ impl Spool {
     }
 
     fn due_of(state: &State, flush_lines: usize, now_ms: i64) -> bool {
-        state.lines.len() >= flush_lines
-            || state
-                .first_queued_ms
-                .is_some_and(|first| now_ms - first >= FLUSH_MS)
+        state.lines.len() >= flush_lines || state.first_queued_ms.is_some_and(|first| now_ms - first >= FLUSH_MS)
     }
 
     fn warning(&self, name: &str, text: &str, error: &std::io::Error) -> Warning {
-        Warning {
-            key: format!("{}:{name}", self.kind.prefix()),
-            message: format!("[{}] {text} ({error})", self.kind.prefix()),
-        }
+        Warning { key: format!("{}:{name}", self.kind.prefix()), message: format!("[{}] {text} ({error})", self.kind.prefix()) }
     }
 
     pub(crate) fn flush(&self, now_ms: i64) -> Vec<Warning> {
@@ -155,7 +133,8 @@ impl Spool {
         // file before the chunk ahead of it.
         #[cfg(feature = "flush-probe")]
         if matches!(self.writing.try_lock(), Err(std::sync::TryLockError::WouldBlock))
-            && let Some(probe) = flush_probe::get(&self.path) {
+            && let Some(probe) = flush_probe::get(&self.path)
+        {
             probe.blocked();
         }
         let _writing = self.writing.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -199,10 +178,7 @@ impl Spool {
             return None;
         }
         // Both files rotate through `_rotateLocalTraceIfNeeded`, whose one handler warns under the trace's key.
-        self.rotate().err().map(|error| Warning {
-            key: "agent-trace:local-rotate".to_owned(),
-            message: format!("[agent-trace] local rotate failed ({error})"),
-        })
+        self.rotate().err().map(|error| Warning { key: "agent-trace:local-rotate".to_owned(), message: format!("[agent-trace] local rotate failed ({error})") })
     }
 
     /// `.N-1 -> .N` … `.1 -> .2`, live -> `.1`; the oldest generation is overwritten.

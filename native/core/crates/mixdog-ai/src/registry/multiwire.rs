@@ -22,10 +22,10 @@ use crate::providers::compat::CompatProfile;
 use crate::providers::compat::profile::CredentialKind;
 use crate::providers::compat::profile::LegacyWire;
 use crate::providers::compat::profile::Wire;
-use crate::providers::compat::wire_route::route_for;
-use mixdog_core_api::domain::provider::{WireRoute, WireRouteContext, WireRouting};
 use crate::providers::compat::wire_route::WireFacts;
 use crate::providers::compat::wire_route::resolve_wire;
+use crate::providers::compat::wire_route::route_for;
+use mixdog_core_api::domain::provider::{WireRoute, WireRouteContext, WireRouting};
 
 /// The served wires in `CUSTOM_PROVIDER_WIRES` order, as a static slice.
 fn offered(wires: &[Wire]) -> &'static [Wire] {
@@ -62,12 +62,7 @@ impl MultiWireAdapter {
 
     /// `engines`: one adapter per served wire; `protocol_wire` is the wire of
     /// the provider's protocol (the default wire).
-    pub fn new(
-        id: ProviderId,
-        engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>,
-        protocol_wire: Wire,
-        model_wires: HashMap<String, Wire>,
-    ) -> Self {
+    pub fn new(id: ProviderId, engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>, protocol_wire: Wire, model_wires: HashMap<String, Wire>) -> Self {
         #[cfg(feature = "count-work")]
         crate::work::provider_built();
         let served: Vec<Wire> = engines.iter().map(|(w, _)| *w).collect();
@@ -80,11 +75,7 @@ impl MultiWireAdapter {
     }
 
     fn route(&self, model: &str) -> Option<Wire> {
-        let facts = WireFacts {
-            override_wire: self.model_wires.get(model).copied(),
-            known: true,
-            ..WireFacts::default()
-        };
+        let facts = WireFacts { override_wire: self.model_wires.get(model).copied(), known: true, ..WireFacts::default() };
         resolve_wire(&self.profile, &facts).map(|route| route.wire)
     }
 
@@ -228,11 +219,7 @@ impl ProviderAdapter for MultiWireAdapter {
 impl WireRouting for MultiWireAdapter {
     /// The config decides: the model's `modelWires` override, else the protocol's wire.
     async fn resolve_wire_route(&self, model: &str, context: &WireRouteContext) -> Result<Option<WireRoute>, ProviderError> {
-        let facts = WireFacts {
-            override_wire: self.model_wires.get(model).copied(),
-            known: true,
-            ..WireFacts::default()
-        };
+        let facts = WireFacts { override_wire: self.model_wires.get(model).copied(), known: true, ..WireFacts::default() };
         Ok(route_for(&self.profile, &self.id.to_string(), model, facts, context))
     }
 }

@@ -44,25 +44,12 @@ impl Host {
 }
 
 /// `cross-spawn`'s `parse(command, args, { env, cwd })` for `shell: false`.
-pub fn parse(
-    lane: &InLane<SpawnIo>,
-    command: &str,
-    args: &[String],
-    cwd: Option<&str>,
-    env: &BTreeMap<String, String>,
-) -> Launch {
+pub fn parse(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Launch {
     parse_host(lane, &Host::current(), command, args, cwd, env)
 }
 
 /// [`parse`] for the given process facts.
-pub fn parse_host(
-    lane: &InLane<SpawnIo>,
-    host: &Host,
-    command: &str,
-    args: &[String],
-    cwd: Option<&str>,
-    env: &BTreeMap<String, String>,
-) -> Launch {
+pub fn parse_host(lane: &InLane<SpawnIo>, host: &Host, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Launch {
     if cfg!(windows) {
         parse_windows(lane, host, command, args, cwd, env)
     } else {
@@ -90,14 +77,7 @@ fn is_cmd_shim(file: &str) -> bool {
 }
 
 /// The Windows branch of cross-spawn's `parseNonShell`.
-pub fn parse_windows(
-    lane: &InLane<SpawnIo>,
-    host: &Host,
-    command: &str,
-    args: &[String],
-    cwd: Option<&str>,
-    env: &BTreeMap<String, String>,
-) -> Launch {
+pub fn parse_windows(lane: &InLane<SpawnIo>, host: &Host, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Launch {
     let mut command = command.to_owned();
     let mut args = args.to_vec();
     // detectShebang
@@ -218,16 +198,9 @@ fn resolve_command(lane: &InLane<SpawnIo>, host: &Host, command: &str, cwd: Opti
 /// `which.sync`'s search; `without_pathext` is the second attempt (`pathExt: path.delimiter`).
 fn which(lane: &InLane<SpawnIo>, host: &Host, command: &str, path: &str, base: &Path, without_pathext: bool) -> Option<String> {
     let has_slash = command.contains('/') || command.contains('\\');
-    let dirs: Vec<String> = if has_slash {
-        vec![String::new()]
-    } else {
-        std::iter::once(base.to_string_lossy().into_owned()).chain(path.split(';').map(str::to_owned)).collect()
-    };
-    let exe_list = if without_pathext {
-        ";".to_owned()
-    } else {
-        host.pathext.clone().filter(|e| !e.is_empty()).unwrap_or_else(|| DEFAULT_PATHEXT.to_owned())
-    };
+    let dirs: Vec<String> =
+        if has_slash { vec![String::new()] } else { std::iter::once(base.to_string_lossy().into_owned()).chain(path.split(';').map(str::to_owned)).collect() };
+    let exe_list = if without_pathext { ";".to_owned() } else { host.pathext.clone().filter(|e| !e.is_empty()).unwrap_or_else(|| DEFAULT_PATHEXT.to_owned()) };
     let mut extensions: Vec<&str> = exe_list.split(';').collect();
     if command.contains('.') && !extensions[0].is_empty() {
         extensions.insert(0, "");
@@ -238,11 +211,8 @@ fn which(lane: &InLane<SpawnIo>, host: &Host, command: &str, path: &str, base: &
             None => dir,
         };
         let joined = if part.is_empty() { normalize_win32(command) } else { normalize_win32(&format!("{part}\\{command}")) };
-        let candidate = if part.is_empty() && (command.starts_with(".\\") || command.starts_with("./")) {
-            format!("{}{}", &command[..2], joined)
-        } else {
-            joined
-        };
+        let candidate =
+            if part.is_empty() && (command.starts_with(".\\") || command.starts_with("./")) { format!("{}{}", &command[..2], joined) } else { joined };
         for extension in &extensions {
             let current = format!("{candidate}{extension}");
             if is_exe(lane, base, &current, &exe_list) {
@@ -320,11 +290,7 @@ fn split_root(path: &str) -> (String, &str) {
         }
     }
     if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-        return if bytes.get(2) == Some(&b'\\') {
-            (path[..3].to_owned(), &path[3..])
-        } else {
-            (path[..2].to_owned(), &path[2..])
-        };
+        return if bytes.get(2) == Some(&b'\\') { (path[..3].to_owned(), &path[3..]) } else { (path[..2].to_owned(), &path[2..]) };
     }
     if bytes.first() == Some(&b'\\') {
         return ("\\".to_owned(), &path[1..]);

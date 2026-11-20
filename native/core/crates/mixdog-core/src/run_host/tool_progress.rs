@@ -20,9 +20,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::sync::DropGuard;
 
+use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_run::run_host::progress::RunProgress;
 use mixdog_core_session::session::RunPort;
-use mixdog_core_ports::ports::threads::Section;
 
 /// The run's progress sink over the session cell's progress value.
 pub struct RunToolProgress {
@@ -95,8 +95,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use mixdog_core_run::run_host::progress::ProgressPublisher;
     use mixdog_agent::env::Clock;
+    use mixdog_core_run::run_host::progress::ProgressPublisher;
 
     struct At(i64);
     impl Clock for At {

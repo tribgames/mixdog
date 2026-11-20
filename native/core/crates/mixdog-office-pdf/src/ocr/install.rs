@@ -147,7 +147,13 @@ fn write_unpacked<P: WriteProof>(proof: &P, folder: &Path, files: &[Unpacked]) -
 
 /// The recognition program of this machine: where it is installed, or downloaded, verified and installed first.
 /// `engine_root` is `<dataDir>/office/ocr/engine`.
-pub async fn ensure_engine(lanes: &LaneTokens, engine_root: &Path, assets: &[EngineAsset], platform: &str, cancel: &CancellationToken) -> Result<PathBuf, String> {
+pub async fn ensure_engine(
+    lanes: &LaneTokens,
+    engine_root: &Path,
+    assets: &[EngineAsset],
+    platform: &str,
+    cancel: &CancellationToken,
+) -> Result<PathBuf, String> {
     let Some(asset) = asset_for(assets, platform) else {
         return Err(format!("OCR is not available on this platform ({platform}): no OCR engine is published for it"));
     };
@@ -259,7 +265,13 @@ async fn ensure_language(lanes: LaneTokens, name: String, cache_path: PathBuf, l
 
 /// The data of every language of `languages` in `cache_path`, the missing ones downloaded together. A caller that
 /// drops the future ends every download with it.
-pub async fn ensure_languages(lanes: &LaneTokens, languages: &str, cache_path: &Path, lang_path: Option<&str>, cancel: &CancellationToken) -> Result<(), String> {
+pub async fn ensure_languages(
+    lanes: &LaneTokens,
+    languages: &str,
+    cache_path: &Path,
+    lang_path: Option<&str>,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
     let folder = cache_path.to_path_buf();
     lane_job(lanes.durability_io, cancel, move |lane| mixdog_fsio::create_dir_all(lane, &folder)).await?.map_err(|error| error.to_string())?;
     let mut downloads = tokio::task::JoinSet::new();

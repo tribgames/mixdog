@@ -55,10 +55,7 @@ pub fn resolve_palette(palette: Option<&Value>) -> WriterResult<(Ink, bool)> {
         None | Some(Value::Null) => return Ok((default_ink(), false)),
         Some(Value::Object(map)) => map,
         Some(_) => {
-            return Err(WriterError::new(format!(
-                "PDF properties.palette must be an object {{ {} }} of 6-digit hex colours.",
-                palette_keys()
-            )));
+            return Err(WriterError::new(format!("PDF properties.palette must be an object {{ {} }} of 6-digit hex colours.", palette_keys())));
         }
     };
     let mut faults = Vec::new();
@@ -436,8 +433,7 @@ fn draw_caption_block(flow: &mut Flow, block: &Value, text_box: TextBox) -> Writ
 
 /// Several figures with one cause on one baseline: value over label per peer, equal columns, one rule under.
 fn draw_stats_block(flow: &mut Flow, block: &Value, text_box: TextBox) -> WriterResult<()> {
-    let items: Vec<(String, String)> =
-        items_of(block.get("items")).iter().map(|item| (text_of(item.get("value")), text_of(item.get("label")))).collect();
+    let items: Vec<(String, String)> = items_of(block.get("items")).iter().map(|item| (text_of(item.get("value")), text_of(item.get("label")))).collect();
     let size = num_or(block.get("size"), 22.0);
     let label_size = num_or(block.get("labelSize"), 9.0);
     let gap = 12.0;
@@ -530,7 +526,16 @@ fn list_layout(flow: &Flow, block: &Value) -> WriterResult<ListLayout> {
     let line_height = num_or(block.get("lineHeight"), font_size * 1.5);
     let ordered = block.get("ordered") == Some(&Value::Bool(true));
     let markers: Vec<String> = (0..items.len())
-        .map(|index| if ordered { format!("{}.", index + 1) } else { match block.get("marker") { None | Some(Value::Null) => "\u{2022}".to_owned(), Some(marker) => value_to_string(marker) } })
+        .map(|index| {
+            if ordered {
+                format!("{}.", index + 1)
+            } else {
+                match block.get("marker") {
+                    None | Some(Value::Null) => "\u{2022}".to_owned(),
+                    Some(marker) => value_to_string(marker),
+                }
+            }
+        })
         .collect();
     let mut widest_marker = 0.0;
     for marker in &markers {
@@ -654,7 +659,6 @@ mod tests {
     }
 }
 
-
 // ---- pictures ---------------------------------------------------------------------------------------------------------
 
 /// The picture a block places, embedded once per document: the heading before it measures it, and the block draws the
@@ -669,13 +673,7 @@ fn block_image<P: ReadProof>(flow: &mut Flow, pictures: &Pictures<'_, P>, index:
     Ok(placed)
 }
 /// The picture's placed size and the room it takes with the caption that names it.
-fn image_unit<P: ReadProof>(
-    flow: &mut Flow,
-    pictures: &Pictures<'_, P>,
-    index: usize,
-    block: &Value,
-    following: Option<&Value>,
-) -> WriterResult<ImageUnit> {
+fn image_unit<P: ReadProof>(flow: &mut Flow, pictures: &Pictures<'_, P>, index: usize, block: &Value, following: Option<&Value>) -> WriterResult<ImageUnit> {
     let placed = block_image(flow, pictures, index, block)?;
     let (pixels_wide, pixels_high) = (f64::from(placed.width), f64::from(placed.height));
     let width = num_or(block.get("width"), min(pixels_wide, flow.page_width() - flow.margin * 2.0));
@@ -684,13 +682,7 @@ fn image_unit<P: ReadProof>(
     let needed = height + if trailing != 0.0 { num_nn(block.get("after"), 12.0) + trailing } else { 0.0 };
     Ok(ImageUnit { placed, width, height, needed })
 }
-fn draw_image_block<P: ReadProof>(
-    flow: &mut Flow,
-    pictures: &Pictures<'_, P>,
-    index: usize,
-    block: &Value,
-    following: Option<&Value>,
-) -> WriterResult<()> {
+fn draw_image_block<P: ReadProof>(flow: &mut Flow, pictures: &Pictures<'_, P>, index: usize, block: &Value, following: Option<&Value>) -> WriterResult<()> {
     let unit = image_unit(flow, pictures, index, block, following)?;
     flow.keep_together(unit.needed)?;
     let align = js_to_lowercase(&text_or(block.get("align"), "left"));
@@ -706,13 +698,7 @@ fn draw_image_block<P: ReadProof>(
     Ok(())
 }
 /// `flowBlocks(flow, blocks, baseDir)`: every block onto the pages in order.
-pub fn flow_blocks<P: ReadProof>(
-    flow: &mut Flow,
-    proof: &P,
-    svg_fonts: &SvgFonts,
-    blocks: &[Value],
-    base_dir: &str,
-) -> WriterResult<()> {
+pub fn flow_blocks<P: ReadProof>(flow: &mut Flow, proof: &P, svg_fonts: &SvgFonts, blocks: &[Value], base_dir: &str) -> WriterResult<()> {
     let pictures = Pictures { proof, fonts: svg_fonts, base_dir };
     let empty = Value::Object(Map::new());
     for (index, block) in blocks.iter().enumerate() {

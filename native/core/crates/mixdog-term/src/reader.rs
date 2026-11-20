@@ -176,10 +176,7 @@ mod platform {
     fn read_loop(fd: RawFd, waker: &Waker, tx: &Sender<TermEvent>) {
         let mut buf = [0u8; READ_CHUNK];
         loop {
-            let mut fds = [
-                libc::pollfd { fd, events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: waker.read, events: libc::POLLIN, revents: 0 },
-            ];
+            let mut fds = [libc::pollfd { fd, events: libc::POLLIN, revents: 0 }, libc::pollfd { fd: waker.read, events: libc::POLLIN, revents: 0 }];
             // SAFETY: the array holds two live pollfd structs.
             let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
             if ready < 0 {
@@ -288,9 +285,7 @@ mod platform {
 
     use mixdog_fsio::File;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
-    use windows_sys::Win32::System::Console::{
-        FlushConsoleInputBuffer, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW, WINDOW_BUFFER_SIZE_EVENT,
-    };
+    use windows_sys::Win32::System::Console::{FlushConsoleInputBuffer, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW, WINDOW_BUFFER_SIZE_EVENT};
     use windows_sys::Win32::System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForMultipleObjects};
 
     use super::{ReaderHandle, TermEvent, push_utf16_unit};
@@ -392,10 +387,7 @@ mod platform {
                         }
                         // SAFETY: EventType says the WindowBufferSizeEvent member is the one set.
                         let size = unsafe { record.Event.WindowBufferSizeEvent.dwSize };
-                        let (columns, rows) = console::terminal_size().unwrap_or((
-                            u16::try_from(size.X).unwrap_or(0),
-                            u16::try_from(size.Y).unwrap_or(0),
-                        ));
+                        let (columns, rows) = console::terminal_size().unwrap_or((u16::try_from(size.X).unwrap_or(0), u16::try_from(size.Y).unwrap_or(0)));
                         if tx.send(TermEvent::Resize(columns, rows)).is_err() {
                             return;
                         }
@@ -413,9 +405,7 @@ mod platform {
         let input = open_console("CONIN$")?;
         let waker = Arc::new(Waker::new()?);
         let thread_waker = Arc::clone(&waker);
-        let reader = std::thread::Builder::new()
-            .name("mixdog-term-reader".into())
-            .spawn(move || read_loop(input, &thread_waker, &tx))?;
+        let reader = std::thread::Builder::new().name("mixdog-term-reader".into()).spawn(move || read_loop(input, &thread_waker, &tx))?;
         Ok(ReaderHandle { stop: Some(Box::new(move || waker.wake())), threads: vec![reader] })
     }
 

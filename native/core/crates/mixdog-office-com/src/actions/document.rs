@@ -64,18 +64,14 @@ pub fn save_document_copy(document: &Obj, format: &str, output: &str) -> Result<
 
 /// A saved document's file copied to `output`.
 fn copy_saved_file(source: &str, output: &str) -> Result<()> {
-    mixdog_fsio::copy(&mixdog_fsio::Unlaned, source, output).map(|_| ()).map_err(|error| Error::host(format!("Save-copy of {source} to {output} failed: {error}")))
+    mixdog_fsio::copy(&mixdog_fsio::Unlaned, source, output)
+        .map(|_| ())
+        .map_err(|error| Error::host(format!("Save-copy of {source} to {output} failed: {error}")))
 }
 
 /// The sheets of a workbook put back from a checkpoint copy: the original sheets are replaced by the checkpoint's, so
 /// every cell, name and chart is as it was when the copy was taken.
-fn replace_sheets<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    book: &Obj,
-    app: &Com,
-    checkpoint: &str,
-    source: &mut Option<Com>,
-) -> Result<()> {
+fn replace_sheets<P: WriteProof>(actions: &Actions<'_, P>, book: &Obj, app: &Com, checkpoint: &str, source: &mut Option<Com>) -> Result<()> {
     let opened = app.member("Workbooks")?.call_member("Open", &[Com::from(checkpoint), Com::Null, Com::Bool(true)])?;
     let opened = source.insert(opened);
     let original_sheets = items_of(&book.get("Worksheets")?)?;
@@ -113,13 +109,7 @@ pub fn restore_excel_checkpoint<P: WriteProof>(actions: &Actions<'_, P>, book: &
 }
 
 /// `Rollback-LiveDocument`: Word's undo stack, a workbook's checkpoint, or PowerPoint's Undo command, once per unit.
-pub fn rollback_live_document<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    document: &Obj,
-    format: &str,
-    checkpoint: &str,
-    undo_units: i32,
-) -> Result<()> {
+pub fn rollback_live_document<P: WriteProof>(actions: &Actions<'_, P>, document: &Obj, format: &str, checkpoint: &str, undo_units: i32) -> Result<()> {
     match format {
         "docx" => {
             if undo_units > 0 {

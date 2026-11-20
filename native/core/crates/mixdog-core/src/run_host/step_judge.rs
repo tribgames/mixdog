@@ -8,10 +8,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::step_effort::StepAutoEffort;
 use mixdog_ai::effort::{RejectionEntry, effort_options_for, reasoning_row};
-use serde_json::{Map, Value};
 use mixdog_ai::providers::custom::Protocol;
 use mixdog_ai::providers::custom::reasoning::{ReasoningRow, is_custom_provider_name};
 use mixdog_services::effort_judge::{AutoLadder, CustomLadder, StepLadder};
+use serde_json::{Map, Value};
 
 /// A custom route's reasoning facts (`providerClient.customConfig` and the effective model row).
 pub struct CustomRoute {
@@ -57,10 +57,11 @@ pub async fn ladder_facts(sources: &dyn LadderSources, provider: &str, model: &s
     let meta = auto_effort_model(sources, provider, model);
     let rejected = sources.rejected(provider, model).await;
     let options = effort_options_for(provider, &meta, rejected.as_ref());
-    let custom = is_custom_provider_name(provider)
-        .then(|| sources.custom_config(provider))
-        .flatten()
-        .map(|(protocol, base_url)| CustomRoute { row: reasoning_row(&meta), protocol, base_url });
+    let custom = is_custom_provider_name(provider).then(|| sources.custom_config(provider)).flatten().map(|(protocol, base_url)| CustomRoute {
+        row: reasoning_row(&meta),
+        protocol,
+        base_url,
+    });
     StepLadderFacts { options, custom }
 }
 
@@ -109,7 +110,10 @@ mod tests {
             reasoning_options: vec![ReasoningOption { kind: "effort".into(), values: strings(&["low", "medium", "high"]) }],
             ..ReasoningRow::default()
         };
-        let facts = StepLadderFacts { options: Vec::new(), custom: Some(CustomRoute { row, protocol: Protocol::OpenaiChat, base_url: "https://example.test/v1".into() }) };
+        let facts = StepLadderFacts {
+            options: Vec::new(),
+            custom: Some(CustomRoute { row, protocol: Protocol::OpenaiChat, base_url: "https://example.test/v1".into() }),
+        };
         let ladder = ladder_for("custom-acme", &auto("medium"), facts).unwrap();
         let resolved = ladder.resolve(&[0.0, 0.0, 1.0]).unwrap();
         assert_eq!(resolved.level, resolved.effort);
@@ -145,6 +149,4 @@ mod tests {
         let sources = Sources { rows: HashMap::new(), anthropic: Vec::new(), custom: None };
         assert!(ladder_facts(&sources, "custom-acme", "m1").await.custom.is_none());
     }
-
-
 }

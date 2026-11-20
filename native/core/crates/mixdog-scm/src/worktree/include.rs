@@ -49,12 +49,23 @@ const UNITY_MARKER: &str = "ProjectSettings/ProjectVersion.txt";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IncludeEntry {
-    Copy { rel: String, line: usize },
-    Link { rel: String, line: usize },
+    Copy {
+        rel: String,
+        line: usize,
+    },
+    Link {
+        rel: String,
+        line: usize,
+    },
     /// `pattern: None` is unusable (a NUL), warned.
-    Pattern { pattern: Option<String>, line: usize },
+    Pattern {
+        pattern: Option<String>,
+        line: usize,
+    },
     /// A copy/link line whose path breaks the rules: never followed, never a failure.
-    Invalid { line: usize },
+    Invalid {
+        line: usize,
+    },
 }
 
 fn invalid(line: usize, reason: &str) -> ScmFailure {
@@ -119,10 +130,7 @@ pub fn parse_include_entries(text: &str) -> Result<Vec<IncludeEntry>, ScmFailure
             .or_else(|| line.strip_prefix("link").map(|rest| (false, rest)))
             .filter(|(_, rest)| rest.starts_with(char::is_whitespace) && !rest.trim().is_empty());
         let Some((is_copy, rest)) = explicit else {
-            entries.push(IncludeEntry::Pattern {
-                pattern: (!line.contains('\0')).then(|| line.to_owned()),
-                line: number,
-            });
+            entries.push(IncludeEntry::Pattern { pattern: (!line.contains('\0')).then(|| line.to_owned()), line: number });
             continue;
         };
         match validate_include_path(rest, number) {
@@ -194,14 +202,11 @@ fn is_unity_project(dir: &Path) -> bool {
 }
 
 fn inside_unity_library(root: &Path, parts: &[&str]) -> bool {
-    (0..parts.len()).any(|i| {
-        parts[i].eq_ignore_ascii_case("library") && is_unity_project(&parts[..i].iter().fold(root.to_path_buf(), |p, s| p.join(s)))
-    })
+    (0..parts.len()).any(|i| parts[i].eq_ignore_ascii_case("library") && is_unity_project(&parts[..i].iter().fold(root.to_path_buf(), |p, s| p.join(s))))
 }
 
 fn is_unity_library_dir(path: &Path) -> bool {
-    path.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("library"))
-        && path.parent().is_some_and(is_unity_project)
+    path.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("library")) && path.parent().is_some_and(is_unity_project)
 }
 
 fn tree_bytes(path: &Path) -> u64 {
@@ -215,9 +220,7 @@ fn tree_bytes(path: &Path) -> u64 {
     if is_unity_library_dir(path) {
         return 0;
     }
-    std::fs::read_dir(path)
-        .map(|entries| entries.flatten().map(|e| tree_bytes(&e.path())).sum())
-        .unwrap_or(0)
+    std::fs::read_dir(path).map(|entries| entries.flatten().map(|e| tree_bytes(&e.path())).sum()).unwrap_or(0)
 }
 
 fn strip_verbatim(path: PathBuf) -> PathBuf {
@@ -257,7 +260,13 @@ fn plan_entry(root: &Path, rel: &str, link: bool, line: usize, items: &mut Vec<P
 }
 
 fn digest_type(meta: &std::fs::Metadata) -> char {
-    if meta.file_type().is_symlink() { 'l' } else if meta.is_dir() { 'd' } else { 'f' }
+    if meta.file_type().is_symlink() {
+        'l'
+    } else if meta.is_dir() {
+        'd'
+    } else {
+        'f'
+    }
 }
 
 fn assert_plain_parents(worktree: &Path, dest: &Path) -> Result<(), ()> {
@@ -294,11 +303,7 @@ fn make_link(kind: &str, source: &Path, dest: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn junction(source: &Path, dest: &Path) -> std::io::Result<()> {
-    let out = std::process::Command::new("cmd")
-        .args(["/c", "mklink", "/J"])
-        .arg(dest)
-        .arg(source)
-        .output()?;
+    let out = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(dest).arg(source).output()?;
     if out.status.success() { Ok(()) } else { Err(std::io::Error::other(String::from_utf8_lossy(&out.stdout).into_owned())) }
 }
 
@@ -415,12 +420,7 @@ pub fn restore_include_links(items: &[IncludeItem]) -> Vec<(String, String)> {
 
 /// The include items of a record's ledger.
 pub fn ledger_of(record: &WorktreeRecord) -> Vec<IncludeItem> {
-    record
-        .extra
-        .get("resources")
-        .and_then(|r| r.get("includes"))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default()
+    record.extra.get("resources").and_then(|r| r.get("includes")).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default()
 }
 
 /// Whether `path` (forward-slash, relative) is one of the include items or inside one.
@@ -442,10 +442,7 @@ mod tests {
 
     #[test]
     fn include_lines_are_parsed_and_unsafe_paths_are_invalid_not_fatal() {
-        let entries = parse_include_entries(
-            "# comment\ncopy .env.local\nlink data/cache\ncopy ../outside\nbuild/**\n",
-        )
-        .unwrap();
+        let entries = parse_include_entries("# comment\ncopy .env.local\nlink data/cache\ncopy ../outside\nbuild/**\n").unwrap();
         assert_eq!(entries[0], IncludeEntry::Copy { rel: ".env.local".into(), line: 2 });
         assert_eq!(entries[1], IncludeEntry::Link { rel: "data/cache".into(), line: 3 });
         assert_eq!(entries[2], IncludeEntry::Invalid { line: 4 });
@@ -461,7 +458,6 @@ mod tests {
         assert!(covered_by_includes(&[".env".into(), "cache".into()], "cache/x/y"));
         assert!(!covered_by_includes(&["cache".into()], "cache2"));
     }
-
 
     #[test]
     fn copies_are_digested_and_a_changed_copy_is_reported() {
@@ -486,11 +482,14 @@ mod tests {
         assert_eq!(modified_include_copies(&made), ["f.txt"]);
         // An existing path is never overwritten.
         let mut again = Vec::new();
-        let warnings = apply_includes(&plan, tree.path(), &mut |i| { again.push(i.clone()); Ok(()) }).unwrap();
+        let warnings = apply_includes(&plan, tree.path(), &mut |i| {
+            again.push(i.clone());
+            Ok(())
+        })
+        .unwrap();
         assert_eq!(warnings, ["include-exists:f.txt"]);
     }
 }
-
 
 /// Digest of a copied tree (relative path, type, size, mtime). `None` when the tree is gone or
 /// too large to fingerprint.
@@ -511,11 +510,7 @@ fn tree_digest(path: &Path) -> Option<String> {
         }
         let kind = digest_type(&meta);
         let (size, mtime) = if kind == 'f' {
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_millis());
+            let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis());
             (meta.len(), mtime)
         } else {
             (0, 0)
@@ -537,11 +532,7 @@ fn tree_digest(path: &Path) -> Option<String> {
 }
 /// Copies/links every planned item into `worktree`. `record` is told `pending` before each
 /// resource is made and `created` after.
-pub fn apply_includes(
-    plan: &IncludePlan,
-    worktree: &Path,
-    record: &mut dyn FnMut(&IncludeItem) -> Result<(), ScmFailure>,
-) -> Result<Vec<String>, ScmFailure> {
+pub fn apply_includes(plan: &IncludePlan, worktree: &Path, record: &mut dyn FnMut(&IncludeItem) -> Result<(), ScmFailure>) -> Result<Vec<String>, ScmFailure> {
     let mut warnings = Vec::new();
     for item in &plan.items {
         let dest = item.rel.split('/').fold(worktree.to_path_buf(), |p, s| p.join(s));
@@ -687,10 +678,7 @@ impl Worktrees {
             .outcome(
                 cancel,
                 root,
-                &[
-                    "-c", "core.quotePath=false", "ls-files", "-z", "--others", "--",
-                    ":(glob)**/.env", ":(glob)**/.env.*", ":(exclude,glob)**/node_modules/**",
-                ],
+                &["-c", "core.quotePath=false", "ls-files", "-z", "--others", "--", ":(glob)**/.env", ":(glob)**/.env.*", ":(exclude,glob)**/node_modules/**"],
                 &RunOptions::read(),
             )
             .await?;
@@ -700,18 +688,20 @@ impl Worktrees {
         let listed: Vec<String> = nul_records(&out.stdout_text()).map(str::to_owned).collect();
         let base = root.to_path_buf();
         on_lane(self.scm().lane, cancel, move || {
-            listed
-                .into_iter()
-                .filter(|rel| {
-                    std::fs::symlink_metadata(rel.split('/').fold(base.clone(), |p, s| p.join(s))).is_ok_and(|m| m.is_file())
-                })
-                .collect()
+            listed.into_iter().filter(|rel| std::fs::symlink_metadata(rel.split('/').fold(base.clone(), |p, s| p.join(s))).is_ok_and(|m| m.is_file())).collect()
         })
         .await
     }
 
     /// `paths` minus those a `!` pattern explicitly excludes, by gitignore order.
-    async fn without_negated(&self, root: &Path, paths: Vec<String>, patterns: &[String], warnings: &mut Vec<String>, cancel: &CancellationToken) -> Result<Vec<String>, ScmFailure> {
+    async fn without_negated(
+        &self,
+        root: &Path,
+        paths: Vec<String>,
+        patterns: &[String],
+        warnings: &mut Vec<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, ScmFailure> {
         if paths.is_empty() || !patterns.iter().any(|p| p.starts_with('!')) {
             return Ok(paths);
         }
@@ -732,7 +722,13 @@ impl Worktrees {
 
     /// Untracked paths that match `patterns` (gitignore syntax, in order, so `!` negates) AND
     /// that the repository itself git-ignores; a fully matched directory is one entry.
-    async fn ignored_pattern_matches(&self, root: &Path, patterns: &[String], warnings: &mut Vec<String>, cancel: &CancellationToken) -> Result<Vec<String>, ScmFailure> {
+    async fn ignored_pattern_matches(
+        &self,
+        root: &Path,
+        patterns: &[String],
+        warnings: &mut Vec<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, ScmFailure> {
         let excludes: Vec<String> = patterns.iter().map(|p| format!("--exclude={p}")).collect();
         let git = &self.scm().git;
         let list = |extra: Vec<String>| {
@@ -824,17 +820,10 @@ impl Worktrees {
             }
         }
         let explicit: Vec<String> = planned.iter().map(|(rel, ..)| key(rel)).collect();
-        let matched = if patterns.is_empty() {
-            Vec::new()
-        } else {
-            self.ignored_pattern_matches(&root_real, &patterns, &mut warnings, cancel).await?
-        };
+        let matched = if patterns.is_empty() { Vec::new() } else { self.ignored_pattern_matches(&root_real, &patterns, &mut warnings, cancel).await? };
         let overlaps = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"));
         let kept = self.without_negated(&root_real, env_files, &patterns, &mut warnings, cancel).await?;
-        let env: Vec<String> = kept
-            .into_iter()
-            .filter(|rel| !matched.iter().any(|m| overlaps(&key(rel), &key(m))))
-            .collect();
+        let env: Vec<String> = kept.into_iter().filter(|rel| !matched.iter().any(|m| overlaps(&key(rel), &key(m)))).collect();
         for path in matched.into_iter().chain(env) {
             match validate_include_path(&path, 0) {
                 Ok(rel) if !explicit.iter().any(|e| overlaps(&key(&rel), e)) => planned.push((rel, false, 0, true)),

@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "file reads run only as lane jobs (lanes::run_fallible); the server never touches the disk on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "file reads run only as lane jobs (lanes::run_fallible); the server never touches the disk on an async thread"
+)]
 //! The page server (`local-page-server.ts`): leases name pages, a loopback listener answers GET/HEAD for them, and every response is read from
 //! the one handle opened first, authorized again for the lease it is served under.
 
@@ -273,7 +277,6 @@ mod tests {
         assert_eq!(percent_encode("my page(1)!~*'.-_한.html"), "my%20page(1)!~*'.-_%ED%95%9C.html");
         assert_eq!(percent_encode("a/b?c#d%"), "a%2Fb%3Fc%23d%25");
     }
-
 
     fn lanes() -> Lanes {
         let tokens = mixdog_rt::testing::tokens();
@@ -710,7 +713,6 @@ mod tests {
     }
 }
 
-
 pub struct PageServer {
     me: Weak<PageServer>,
     port_file: PathBuf,
@@ -765,7 +767,8 @@ impl PageServer {
             Refusal::Denied => WsError::coded(DENIED_CODE, "The page is not available."),
             Refusal::Transient => WsError::plain("The page permission could not be checked."),
         })?;
-        let path: Vec<String> = page.components().skip(location_root.components().count()).map(|part| percent_encode(&part.as_os_str().to_string_lossy())).collect();
+        let path: Vec<String> =
+            page.components().skip(location_root.components().count()).map(|part| percent_encode(&part.as_os_str().to_string_lossy())).collect();
         let token = self.leases.insert(Lease { root: location_root, page, scope, owner_id, expires_at: Instant::now() + self.ttl });
         let mut pins = self.pins();
         let now = Instant::now();

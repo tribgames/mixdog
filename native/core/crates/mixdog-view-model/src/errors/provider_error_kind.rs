@@ -97,8 +97,7 @@ js_re!(LEGACY_BILLING_MESSAGE, r"\binsufficient_quota\b|exceeded your (?:current
 js_re!(LEGACY_QUOTA_MESSAGE, r"\bquota_exceeded\b|\busage_limit_reached\b|hit your usage limit", "i");
 
 const MESSAGE_DELAY_CODES: &[&str] = &["rate_limit_exceeded", "slow_down"];
-const TRANSIENT_SDK_NAMES: &[&str] =
-    &["APIConnectionError", "APIConnectionTimeoutError", "ConnectTimeoutError", "HeadersTimeoutError", "BodyTimeoutError"];
+const TRANSIENT_SDK_NAMES: &[&str] = &["APIConnectionError", "APIConnectionTimeoutError", "ConnectTimeoutError", "HeadersTimeoutError", "BodyTimeoutError"];
 const STALL_NAMES: &[&str] = &["StreamStalledError", "StreamStalledAbortError", "AgentStallAbortError"];
 const TRANSIENT_ERROR_CODES: &[&str] = &[
     "ECONNRESET",
@@ -170,8 +169,7 @@ const REQUEST_SIZE_PATTERNS: &[&str] = &[
 
 static TOKEN_CONTEXT_OVERFLOW: LazyLock<Vec<JsRegex>> =
     LazyLock::new(|| TOKEN_CONTEXT_OVERFLOW_PATTERNS.iter().map(|pattern| JsRegex::new_static(pattern, "i")).collect());
-static REQUEST_SIZE: LazyLock<Vec<JsRegex>> =
-    LazyLock::new(|| REQUEST_SIZE_PATTERNS.iter().map(|pattern| JsRegex::new_static(pattern, "i")).collect());
+static REQUEST_SIZE: LazyLock<Vec<JsRegex>> = LazyLock::new(|| REQUEST_SIZE_PATTERNS.iter().map(|pattern| JsRegex::new_static(pattern, "i")).collect());
 
 /// A refusal wording that names a conversation longer than the model's window.
 pub fn is_token_context_overflow_text(text: &str) -> bool {
@@ -430,7 +428,9 @@ fn retry_info_delay_ms(details: Js) -> Option<f64> {
     for detail in details {
         let delay = get(Some(detail), "retryDelay");
         let ms = match delay {
-            Some(Value::String(text)) => RETRY_DELAY.captures(js_trim(text)).and_then(|found| found.get(1)).map(|seconds| seconds.parse::<f64>().unwrap_or(f64::NAN) * 1000.0),
+            Some(Value::String(text)) => {
+                RETRY_DELAY.captures(js_trim(text)).and_then(|found| found.get(1)).map(|seconds| seconds.parse::<f64>().unwrap_or(f64::NAN) * 1000.0)
+            }
             Some(object @ (Value::Object(_) | Value::Array(_))) => {
                 let part = |key: &str| get(Some(object), key).filter(|value| truthy(Some(*value))).map_or(0.0, |value| number(Some(value)));
                 Some(part("seconds") * 1000.0 + part("nanos") / 1_000_000.0)
@@ -552,8 +552,7 @@ fn transport_evidence(err: &Value, chain: &[&Value], status: f64) -> bool {
     }) {
         return true;
     }
-    status == 0.0
-        && chain.iter().copied().any(|item| BARE_FETCH_TRANSPORT_MESSAGE.is_match(js_trim(&string_or_empty(get(Some(item), "message")))))
+    status == 0.0 && chain.iter().copied().any(|item| BARE_FETCH_TRANSPORT_MESSAGE.is_match(js_trim(&string_or_empty(get(Some(item), "message")))))
 }
 
 // ── Typed evidence helpers ──────────────────────────────────────────────────
@@ -840,7 +839,10 @@ pub fn provider_error_kind(err: Js, options: &KindOptions) -> KindDescriptor {
     // Explicit quota flags (Anthropic unified-status rejected headers) outrank a generic rate-limit code or status; they
     // never turn an overload (or a more specific refusal) into quota.
     let quota_flagged = options.quota_flags
-        && chain.iter().copied().any(|item| get(Some(item), "providerQuota") == Some(&Value::Bool(true)) || get(Some(item), "quotaExceeded") == Some(&Value::Bool(true)));
+        && chain
+            .iter()
+            .copied()
+            .any(|item| get(Some(item), "providerQuota") == Some(&Value::Bool(true)) || get(Some(item), "quotaExceeded") == Some(&Value::Bool(true)));
     if quota_flagged && matches!(kind, None | Some("rate_limited")) {
         kind = Some("quota_exhausted");
     }
@@ -937,7 +939,8 @@ pub fn retry_reason_class(err: Js, now_ms: f64) -> &'static str {
     if (500.0..600.0).contains(&status) || code.as_deref().is_some_and(|code| SERVER_ERROR_CODES.contains(&code)) {
         return "server_error";
     }
-    if phase == Some(IDLE) || str_of(get(err, "name")).is_some_and(|name| STALL_ERROR_NAMES.contains(&name)) || str_of(get(err, "code")) == Some("ESTREAMSTALL") {
+    if phase == Some(IDLE) || str_of(get(err, "name")).is_some_and(|name| STALL_ERROR_NAMES.contains(&name)) || str_of(get(err, "code")) == Some("ESTREAMSTALL")
+    {
         return "stalled";
     }
     // `firstByteTimeout` is the stamp the Anthropic first-message and OpenAI WS/HTTP first-event watchdogs put on their

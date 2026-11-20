@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::{
-    DeliveryState, ModelListing, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, SendEnd, StreamEvent, TransportFault,
-    Usage, WireCodec, WireRouting,
+    DeliveryState, ModelListing, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, SendEnd, StreamEvent, TransportFault, Usage,
+    WireCodec, WireRouting,
 };
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
@@ -129,44 +129,47 @@ pub(super) fn observe_pool_failure(error: &mut ProviderError) {
 
 /// Books a billed attempt the provider discarded inside the stream it is still reading (Node's `noteAbandonedUsage`): its
 /// own row, with the current attempt's report left as it is. `false` when no accounting owner takes it.
-pub(crate) fn note_abandoned_usage(
-    usage: Usage,
-    model: Option<String>,
-    sent: &mixdog_core_api::domain::provider::SendIdentity,
-) -> bool {
-    ATTEMPT_USAGE.try_with(|journal| {
-        let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !journal.has_sink {
-            return false;
-        }
-        journal.abandoned.push(AbandonedUsage {
-            usage: Box::new(usage), model: model.map(Into::into), speed: sent.dispatched_speed_tier(), account: sent.account().map(|s| s.account),
-        });
-        true
-    }).unwrap_or(false)
+pub(crate) fn note_abandoned_usage(usage: Usage, model: Option<String>, sent: &mixdog_core_api::domain::provider::SendIdentity) -> bool {
+    ATTEMPT_USAGE
+        .try_with(|journal| {
+            let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !journal.has_sink {
+                return false;
+            }
+            journal.abandoned.push(AbandonedUsage {
+                usage: Box::new(usage),
+                model: model.map(Into::into),
+                speed: sent.dispatched_speed_tier(),
+                account: sent.account().map(|s| s.account),
+            });
+            true
+        })
+        .unwrap_or(false)
 }
 
 /// Transfer the abandoned bill before an internal replay overwrites the
 /// attempt's speed or is cancelled. Without an accounting owner, leave the
 /// usage on the error so the caller can settle it.
-pub(crate) fn handoff_abandoned_usage(
-    error: &mut ProviderError,
-    sent: &mixdog_core_api::domain::provider::SendIdentity,
-) -> bool {
-    ATTEMPT_USAGE.try_with(|journal| {
-        let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        journal.current.fill_failure(error);
-        if error.partial_usage.is_some() && !journal.has_sink {
-            return false;
-        }
-        journal.current = Report::default();
-        if let Some(usage) = error.partial_usage.take() {
-            journal.abandoned.push(AbandonedUsage {
-                usage, model: error.partial_model.take(), speed: sent.dispatched_speed_tier(), account: sent.account().map(|s| s.account),
-            });
-        }
-        true
-    }).unwrap_or(false)
+pub(crate) fn handoff_abandoned_usage(error: &mut ProviderError, sent: &mixdog_core_api::domain::provider::SendIdentity) -> bool {
+    ATTEMPT_USAGE
+        .try_with(|journal| {
+            let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            journal.current.fill_failure(error);
+            if error.partial_usage.is_some() && !journal.has_sink {
+                return false;
+            }
+            journal.current = Report::default();
+            if let Some(usage) = error.partial_usage.take() {
+                journal.abandoned.push(AbandonedUsage {
+                    usage,
+                    model: error.partial_model.take(),
+                    speed: sent.dispatched_speed_tier(),
+                    account: sent.account().map(|s| s.account),
+                });
+            }
+            true
+        })
+        .unwrap_or(false)
 }
 
 /// The wrapped provider's stages behind the one every provider of the registry raises first: Node's admission scheduler
@@ -257,14 +260,7 @@ pub struct AccountingDeps {
 
 impl AccountingDeps {
     pub fn new(pricing: Arc<dyn UsagePricing>, ledger: Arc<dyn Fn() -> Option<Arc<dyn UsageSink>> + Send + Sync>) -> Self {
-        Self {
-            pricing,
-            ledger,
-            scope: Arc::new(RequestScope),
-            account: Arc::new(NoAccounts),
-            now: Arc::new(wall_ms),
-            new_id: Arc::new(random_uuid),
-        }
+        Self { pricing, ledger, scope: Arc::new(RequestScope), account: Arc::new(NoAccounts), now: Arc::new(wall_ms), new_id: Arc::new(random_uuid) }
     }
 }
 
@@ -352,28 +348,17 @@ impl AccountedAdapter {
         // before its request is handed to the transport (credentials, admission) stays standard.
         sent.note_dispatched_speed_tier("");
         let journal = Arc::new(Mutex::new(Journal { has_sink: accounting.has_sink(), ..Journal::default() }));
-        let mut pending = PendingOpen {
-            open: Some(Open { accounting, sent, journal: journal.clone() }),
-            group,
-            runtime: tokio::runtime::Handle::current(),
-        };
-        let opened = ATTEMPT_USAGE.scope(journal, async {
-            if reissue { self.inner.recover_spent(request).await } else { self.inner.attempt(request).await }
-        }).await;
+        let mut pending = PendingOpen { open: Some(Open { accounting, sent, journal: journal.clone() }), group, runtime: tokio::runtime::Handle::current() };
+        let opened =
+            ATTEMPT_USAGE.scope(journal, async { if reissue { self.inner.recover_spent(request).await } else { self.inner.attempt(request).await } }).await;
         match opened {
-            Ok(stream) => Ok(Box::new(AccountedStream {
-                inner: stream,
-                pending,
-                terminal: None,
-                now: Arc::clone(&self.deps.now),
-                wire_left: None,
-            })),
+            Ok(stream) => Ok(Box::new(AccountedStream { inner: stream, pending, terminal: None, now: Arc::clone(&self.deps.now), wire_left: None })),
             Err(mut error) => {
                 let (accounting, report) = pending.close();
                 report.fill_failure(&mut error);
                 // Neither a pre-transport cache refusal nor a local quota skip is a billable attempt.
-                let failed = (error.partial_usage.is_some() || (error.tail_refusal.is_none()
-                    && !super::key_pool::is_local_quota_refusal(&error))).then(|| error.clone());
+                let failed = (error.partial_usage.is_some() || (error.tail_refusal.is_none() && !super::key_pool::is_local_quota_refusal(&error)))
+                    .then(|| error.clone());
                 if let Some(write) = hold_or_finish(accounting, pending.group.take(), failed) {
                     write.await;
                 }
@@ -478,7 +463,11 @@ impl ProviderAdapter for AccountedAdapter {
     async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
         self.inner.image_route(request).await
     }
-    fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+    fn first_response_budget(
+        &self,
+        model: &str,
+        parameters: Option<&mixdog_protocol::JsonValue>,
+    ) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
 
@@ -703,7 +692,9 @@ impl ModelStream for AccountedStream {
                         report.fallback = metadata.get("anthropicFallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
                     }
                     StreamEvent::ResponseId(id) => report.response_id = Some(id.clone()),
-                    StreamEvent::OutputStarted => { report.output_at.get_or_insert_with(|| (self.now)()); }
+                    StreamEvent::OutputStarted => {
+                        report.output_at.get_or_insert_with(|| (self.now)());
+                    }
                     _ => {}
                 }
                 Some(Ok(event))
@@ -712,8 +703,8 @@ impl ModelStream for AccountedStream {
                 let (accounting, report) = self.pending.close();
                 self.leave_wire();
                 let eof = failure.is_none();
-                let mut error = failure.and_then(Result::err)
-                    .unwrap_or_else(|| ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery()));
+                let mut error =
+                    failure.and_then(Result::err).unwrap_or_else(|| ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery()));
                 report.fill_failure(&mut error);
                 let write = hold_or_finish(accounting, self.pending.group.take(), Some(error.clone()));
                 let event = (!eof).then_some(Err(error));

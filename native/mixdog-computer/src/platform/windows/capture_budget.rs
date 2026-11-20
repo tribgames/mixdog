@@ -2,10 +2,10 @@
 //! window-capture.ps1:1-5) and the bounded wait on a WinRT operation
 //! (Await-WinRt, session.ps1:88-119).
 
-use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
-use windows::core::{Interface, RuntimeType};
 use windows::Win32::Foundation::E_FAIL;
+use windows::core::{Interface, RuntimeType};
 use windows_future::{IAsyncInfo, IAsyncOperation};
 
 /// The refusal a spent budget raises.
@@ -24,10 +24,7 @@ pub struct Budget {
 
 impl Budget {
     pub fn new(work_ms: u32) -> Budget {
-        Budget {
-            start: Instant::now(),
-            work_ms,
-        }
+        Budget { start: Instant::now(), work_ms }
     }
 
     /// The milliseconds of work left; refused once none are.
@@ -44,10 +41,7 @@ impl Budget {
     }
 
     /// Waits for `operation` within what the budget has left.
-    pub fn wait<T: RuntimeType + Send + 'static>(
-        &self,
-        operation: windows::core::Result<IAsyncOperation<T>>,
-    ) -> Result<T, String> {
+    pub fn wait<T: RuntimeType + Send + 'static>(&self, operation: windows::core::Result<IAsyncOperation<T>>) -> Result<T, String> {
         let operation = operation.map_err(|error| error.message())?;
         await_bounded(&operation, self.remaining()?).map_err(String::from)
     }
@@ -59,7 +53,9 @@ pub enum WaitError {
     /// The operation outlived its wait; `cancellation` says whether the
     /// cancel settled it (`settled`), left it running (`unconfirmed`) or
     /// could not be asked (`failed`).
-    Timeout { cancellation: &'static str },
+    Timeout {
+        cancellation: &'static str,
+    },
     Windows(windows::core::Error),
 }
 
@@ -74,10 +70,7 @@ impl From<WaitError> for String {
 
 /// The operation's result within `ms`; past that it is cancelled and given
 /// a grace of up to 100 ms to settle (Await-WinRt, session.ps1:98-118).
-pub fn await_bounded<T: RuntimeType + Send + 'static>(
-    operation: &IAsyncOperation<T>,
-    ms: u32,
-) -> Result<T, WaitError> {
+pub fn await_bounded<T: RuntimeType + Send + 'static>(operation: &IAsyncOperation<T>, ms: u32) -> Result<T, WaitError> {
     let grace = ms.min(GRACE_MS);
     let (sender, receiver) = channel();
     operation
@@ -92,9 +85,7 @@ pub fn await_bounded<T: RuntimeType + Send + 'static>(
             let cancelled = operation.cast::<IAsyncInfo>().and_then(|info| info.Cancel());
             // Completion can be cancelled or faulted; neither turns a timeout
             // into success.
-            let settled = receiver
-                .recv_timeout(Duration::from_millis(u64::from(grace)))
-                .is_ok();
+            let settled = receiver.recv_timeout(Duration::from_millis(u64::from(grace))).is_ok();
             Err(WaitError::Timeout {
                 cancellation: match (cancelled.is_ok(), settled) {
                     (false, _) => "failed",
@@ -149,12 +140,7 @@ mod tests {
         let outcome = await_bounded(&slow, 150);
         assert!(started.elapsed() < Duration::from_millis(390));
         // The pool closure cannot be cancelled and outlives the grace.
-        assert!(matches!(
-            outcome,
-            Err(WaitError::Timeout {
-                cancellation: "unconfirmed"
-            })
-        ));
+        assert!(matches!(outcome, Err(WaitError::Timeout { cancellation: "unconfirmed" })));
         assert_eq!(String::from(outcome.unwrap_err()), WINRT_TIMEOUT);
     }
 
@@ -170,10 +156,7 @@ mod tests {
     #[test]
     fn a_spent_budget_never_starts_a_wait() {
         let spent = Budget::new(0);
-        assert_eq!(
-            spent.wait(Ok(IAsyncOperation::ready(Ok(1u32)))),
-            Err(EXHAUSTED.to_string())
-        );
+        assert_eq!(spent.wait(Ok(IAsyncOperation::ready(Ok(1u32)))), Err(EXHAUSTED.to_string()));
         assert_eq!(Budget::new(500).wait(Ok(IAsyncOperation::ready(Ok(1u32)))), Ok(1));
     }
 }

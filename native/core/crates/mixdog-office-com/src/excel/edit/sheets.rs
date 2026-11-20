@@ -130,9 +130,7 @@ pub(super) fn set_sheet_visibility(book: &Com, op: &Value) -> Result<Value> {
         "very_hidden" | "veryhidden" => 2,
         "visible" => -1,
         _ => {
-            return Err(Error::host(
-                "set_sheet_visibility needs visibility: visible, hidden, or very_hidden (or visible: true/false)",
-            ));
+            return Err(Error::host("set_sheet_visibility needs visibility: visible, hidden, or very_hidden (or visible: true/false)"));
         }
     };
     sheet.set_member("Visible", Com::I4(state))?;
@@ -203,10 +201,7 @@ pub(super) fn define_name(book: &Com, op: &Value) -> Result<Value> {
     Ok(record_of(
         "define_name",
         true,
-        vec![
-            ("name", Value::String(string_of_com(&defined.member("Name")?))),
-            ("refersTo", Value::String(string_of_com(&defined.member("RefersTo")?))),
-        ],
+        vec![("name", Value::String(string_of_com(&defined.member("Name")?))), ("refersTo", Value::String(string_of_com(&defined.member("RefersTo")?)))],
     ))
 }
 

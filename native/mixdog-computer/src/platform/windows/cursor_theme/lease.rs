@@ -3,18 +3,16 @@
 //! saved, replaced by a transparent cursor, and put back when the lease ends.
 
 use std::ffi::c_void;
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CopyImage, CreateCursor, DestroyCursor, LoadCursorW, SetSystemCursor, SystemParametersInfoW, HCURSOR,
-    IMAGE_CURSOR, IMAGE_FLAGS, SPI_SETCURSORS, SYSTEM_CURSOR_ID, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    CopyImage, CreateCursor, DestroyCursor, HCURSOR, IMAGE_CURSOR, IMAGE_FLAGS, LoadCursorW, SPI_SETCURSORS, SYSTEM_CURSOR_ID,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetSystemCursor, SystemParametersInfoW,
 };
+use windows::core::PCWSTR;
 
 /// Every standard role: a busy, resize or not-allowed cursor left out would
 /// show the real pointer under the overlay arrow (CursorTheme.cs:327-328).
-pub const ROLES: [u32; 14] = [
-    32512, 32513, 32514, 32515, 32516, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651,
-];
+pub const ROLES: [u32; 14] = [32512, 32513, 32514, 32515, 32516, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651];
 
 /// A saved cursor, as the API names it.
 pub type Backup = isize;
@@ -115,10 +113,8 @@ impl CursorApi for WinCursorApi {
 
     fn apply(&self, role: u32) -> Result<(), String> {
         // SAFETY: the planes outlive the call and hold 32x32 monochrome bits each.
-        let cursor = unsafe {
-            CreateCursor(None, 0, 0, ARTWORK_SIZE, ARTWORK_SIZE, AND_PLANE.as_ptr().cast(), XOR_PLANE.as_ptr().cast())
-        }
-        .map_err(|_| "cursor artwork unavailable".to_string())?;
+        let cursor = unsafe { CreateCursor(None, 0, 0, ARTWORK_SIZE, ARTWORK_SIZE, AND_PLANE.as_ptr().cast(), XOR_PLANE.as_ptr().cast()) }
+            .map_err(|_| "cursor artwork unavailable".to_string())?;
         // SAFETY: SetSystemCursor consumes the non-shared cursor on success; on failure it is ours to free.
         if unsafe { SetSystemCursor(cursor, SYSTEM_CURSOR_ID(role)) }.is_err() {
             let _ = unsafe { DestroyCursor(cursor) };
@@ -201,10 +197,7 @@ mod tests {
         let mut lease = Lease::new(fake, &[1, 2]).expect("saved");
         lease.activate().expect("applied");
         lease.dispose().expect("restored");
-        assert_eq!(
-            *log.borrow(),
-            ["save 1", "save 2", "apply 1", "apply 2", "restore 2 1002", "restore 1 1001", "free 1001", "free 1002"]
-        );
+        assert_eq!(*log.borrow(), ["save 1", "save 2", "apply 1", "apply 2", "restore 2 1002", "restore 1 1001", "free 1001", "free 1002"]);
     }
 
     #[test]

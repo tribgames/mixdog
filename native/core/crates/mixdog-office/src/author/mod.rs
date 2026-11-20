@@ -92,11 +92,26 @@ pub trait AuthorHost: StageHost {
     fn run_pptx_script(&self, script: &str, output: &Path, cwd: &Path) -> impl Future<Output = Result<Value, String>>;
     /// `runPptxHtmlAuthoring(html, output, { target, signal, prepare })`; `frame` is a PDF's designed pages (the sheet is the
     /// canvas).
-    fn run_pptx_html(&self, html: &str, output: &Path, target: &Path, signal: Option<&CancellationToken>, frame: bool) -> impl Future<Output = Result<Value, RunError>>;
+    fn run_pptx_html(
+        &self,
+        html: &str,
+        output: &Path,
+        target: &Path,
+        signal: Option<&CancellationToken>,
+        frame: bool,
+    ) -> impl Future<Output = Result<Value, RunError>>;
     fn run_docx_html(&self, html: &str, output: &Path, target: &Path, signal: Option<&CancellationToken>) -> impl Future<Output = Result<Value, RunError>>;
     fn run_xlsx_html(&self, html: &str, output: &Path, target: &Path, signal: Option<&CancellationToken>) -> impl Future<Output = Result<Value, RunError>>;
     /// `printHtmlPdf(html, output, { sourcePath, properties, frame, signal })`.
-    fn print_pdf(&self, html: &str, output: &Path, source_path: &Path, properties: &Value, frame: bool, signal: Option<&CancellationToken>) -> impl Future<Output = Result<Value, RunError>>;
+    fn print_pdf(
+        &self,
+        html: &str,
+        output: &Path,
+        source_path: &Path,
+        properties: &Value,
+        frame: bool,
+        signal: Option<&CancellationToken>,
+    ) -> impl Future<Output = Result<Value, RunError>>;
 
     /// `inlineOfficeAudit(session, { exclude })`: `None` for a format with no package to measure.
     fn inline_audit(&self, handle: &SessionHandle, exclude: &[String]) -> impl Future<Output = Option<Value>>;

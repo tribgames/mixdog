@@ -53,12 +53,10 @@ impl Registry {
     /// The function a formula means by `name` (upper case, prefixes stripped): the name itself, else the family member
     /// a pre-2010 name stands for.
     pub fn resolve(&self, name: &str) -> Option<Function> {
-        self.functions.get(name).copied().or_else(|| {
-            LEGACY_FUNCTION_NAMES
-                .iter()
-                .find(|(legacy, _)| *legacy == name)
-                .and_then(|(_, family)| self.functions.get(family).copied())
-        })
+        self.functions
+            .get(name)
+            .copied()
+            .or_else(|| LEGACY_FUNCTION_NAMES.iter().find(|(legacy, _)| *legacy == name).and_then(|(_, family)| self.functions.get(family).copied()))
     }
 
     /// The names registered in more than one of `tables`.

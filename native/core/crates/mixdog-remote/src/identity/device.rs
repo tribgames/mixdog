@@ -73,9 +73,7 @@ fn parse_queue(bytes: &[u8]) -> Option<Vec<DeviceIdentity>> {
 }
 
 fn quarantine_path(path: &Path) -> PathBuf {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis());
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
     let mut name = path.as_os_str().to_owned();
     name.push(format!(".corrupt-{stamp}"));
     PathBuf::from(name)

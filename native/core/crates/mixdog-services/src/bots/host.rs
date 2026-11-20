@@ -67,7 +67,9 @@ pub struct RoutineTurn {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TurnSettle {
     /// The turn finished; `result` is the bot's final reply.
-    Done { result: String },
+    Done {
+        result: String,
+    },
     Cancelled,
     /// The bot's chat closed before the turn ran.
     Rejected,

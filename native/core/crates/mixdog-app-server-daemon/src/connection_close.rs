@@ -198,7 +198,6 @@ mod tests {
         assert!(cell.bind(ConnectionOwners::of(Vec::new())).is_err(), "a second bind is refused");
     }
 
-
     #[tokio::test(flavor = "multi_thread")]
     async fn a_closed_connection_is_told_to_every_owner_and_releases_its_screen_sessions() {
         let tokens = mixdog_rt::testing::tokens();

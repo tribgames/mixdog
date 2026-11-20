@@ -20,11 +20,7 @@ const CLEANUP_FAILURE: &str = r#"MIXDOG_OFFICE_CLEANUP {"ok":false,"errors":["do
 
 fn scratch() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "mixdog-office-com-transport-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
+    let dir = std::env::temp_dir().join(format!("mixdog-office-com-transport-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
     mixdog_testkit::create_dir_all(&dir);
     dir
 }
@@ -82,10 +78,7 @@ async fn a_one_shot_whose_stderr_reports_a_cleanup_failure_is_a_failure_that_mus
     let reply = office.call(&payload, CallOptions::default()).await;
     assert_eq!(reply.value["ok"], json!(false));
     assert_eq!(reply.value["operationCompleted"], json!(true));
-    assert_eq!(
-        text(&reply.value, "error"),
-        "Office operation finished but cleanup failed; do not replay the operation."
-    );
+    assert_eq!(text(&reply.value, "error"), "Office operation finished but cleanup failed; do not replay the operation.");
     assert_eq!(reply.value["cleanup"], json!({"ok": false, "errors": [CLEANUP_FAILURE]}));
     mixdog_testkit::remove_dir_all(&data);
 }
@@ -168,10 +161,7 @@ async fn open_refuses_an_empty_or_duplicate_id_and_calls_to_an_unknown_session_f
     let again = office.open_session(&session_payload("dup", json!({})), CallOptions::default()).await;
     assert_eq!(again, json!({"ok": false, "error": "Microsoft Office session already exists: dup"}));
     let unknown = office.call(&json!({"session": "nope", "action": "snapshot"}), CallOptions::default()).await;
-    assert_eq!(
-        unknown.value,
-        json!({"ok": false, "backend": "microsoft-office-com", "error": "Unknown Microsoft Office session: nope"})
-    );
+    assert_eq!(unknown.value, json!({"ok": false, "backend": "microsoft-office-com", "error": "Unknown Microsoft Office session: nope"}));
     let missing = office.close_session("nope", CloseOptions::default()).await;
     assert_eq!(
         missing,
@@ -193,17 +183,10 @@ async fn cancelling_an_open_drains_the_host_through_eof_and_the_late_identity_is
     let options = CallOptions { timeout: Duration::from_secs(60), cancel: cancel.clone() };
     let opening = {
         let office = office.clone();
-        tokio::spawn(async move {
-            office
-                .open_session(&session_payload("late", json!({"late_identity": true, "hang": true})), options)
-                .await
-        })
+        tokio::spawn(async move { office.open_session(&session_payload("late", json!({"late_identity": true, "hang": true})), options).await })
     };
     // The host announces its application before it answers: the identity is known while the open is in flight.
-    eventually("the late identity arrives", || {
-        office.session_identity("late").is_some_and(|identity| identity.app_pid == Some(101))
-    })
-    .await;
+    eventually("the late identity arrives", || office.session_identity("late").is_some_and(|identity| identity.app_pid == Some(101))).await;
     cancel.cancel();
     let result = opening.await.expect("the open settles");
     assert_eq!(result["ok"], json!(false));
@@ -219,10 +202,7 @@ async fn a_cleanup_that_outlasts_the_grace_is_pending_and_the_host_is_left_alone
     let (office, data) = office(200);
     let opened = office.open_session(&session_payload("slow", json!({})), CallOptions::default()).await;
     assert_eq!(opened["ok"], json!(true));
-    let result = office
-        .call(&json!({"session": "slow", "action": "export", "fake": {"busy_ms": 1500}}), within(100))
-        .await
-        .value;
+    let result = office.call(&json!({"session": "slow", "action": "export", "fake": {"busy_ms": 1500}}), within(100)).await.value;
     assert_eq!(result["ok"], json!(false));
     assert_eq!(result["cleanup"]["pending"], json!(true));
     assert_eq!(result["cleanup"]["hostExited"], json!(false));
@@ -243,10 +223,7 @@ async fn host_cleanup_errors_are_returned_instead_of_treating_host_exit_as_succe
     let on_eof = json!({"stderr": CLEANUP_FAILURE, "exit_code": 1});
     let opened = office.open_session(&session_payload("dirty", json!({"on_eof": on_eof})), CallOptions::default()).await;
     assert_eq!(opened["ok"], json!(true));
-    let result = office
-        .call(&json!({"session": "dirty", "action": "export", "fake": {"hang": true}}), within(100))
-        .await
-        .value;
+    let result = office.call(&json!({"session": "dirty", "action": "export", "fake": {"hang": true}}), within(100)).await.value;
     assert_eq!(result["ok"], json!(false));
     assert_eq!(result["cleanup"]["ok"], json!(false));
     assert_eq!(result["cleanup"]["hostExited"], json!(true));
@@ -261,10 +238,8 @@ async fn a_host_that_crashes_fails_what_was_waiting_with_its_stderr_and_the_sess
     let (office, data) = office(2_000);
     let opened = office.open_session(&session_payload("crash", json!({})), CallOptions::default()).await;
     assert_eq!(opened["ok"], json!(true));
-    let result = office
-        .call(&json!({"session": "crash", "action": "export", "fake": {"crash": true, "stderr": "COM exploded"}}), CallOptions::default())
-        .await
-        .value;
+    let result =
+        office.call(&json!({"session": "crash", "action": "export", "fake": {"crash": true, "stderr": "COM exploded"}}), CallOptions::default()).await.value;
     assert_eq!(result, json!({"ok": false, "backend": "microsoft-office-com", "error": "COM exploded"}));
     eventually("the session is forgotten", || office.session_identity("crash").is_none()).await;
     mixdog_testkit::remove_dir_all(&data);
@@ -309,12 +284,7 @@ async fn shutdown_gives_every_session_host_its_eof_without_killing_it() {
     }
     let waiting = {
         let office = office.clone();
-        tokio::spawn(async move {
-            office
-                .call(&json!({"session": "a", "action": "export", "fake": {"hang": true}}), within(60_000))
-                .await
-                .value
-        })
+        tokio::spawn(async move { office.call(&json!({"session": "a", "action": "export", "fake": {"hang": true}}), within(60_000)).await.value })
     };
     mixdog_rt::time::sleep(Duration::from_millis(300)).await;
     mixdog_rt::time::timeout(Duration::from_secs(20), office.shutdown()).await.expect("shutdown returns");

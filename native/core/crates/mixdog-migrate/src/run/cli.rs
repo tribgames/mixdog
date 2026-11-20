@@ -41,11 +41,7 @@ pub const EXIT_NO_DATA_DIR: u8 = 2;
 
 /// The roots `args` names under the environment `env` and the user home `user_home`
 /// (`os.homedir()`); `None` when neither the arguments nor the environment give a home.
-pub fn resolve_roots(
-    args: &MigrateArgs,
-    env: &dyn Fn(&str) -> Option<OsString>,
-    user_home: Option<PathBuf>,
-) -> Option<MigrationRoots> {
+pub fn resolve_roots(args: &MigrateArgs, env: &dyn Fn(&str) -> Option<OsString>, user_home: Option<PathBuf>) -> Option<MigrationRoots> {
     let set = |name: &str| env(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     let mixdog_home = || user_home.as_ref().map(|h| h.join(".mixdog"));
     // The data dir the daemon serves; the migration has no plugin root to resolve, so the
@@ -60,23 +56,14 @@ pub fn resolve_roots(
 }
 
 /// Runs (or resumes) the migration of the roots `args` resolves to.
-pub fn migrate(
-    roots: MigrationRoots,
-    projector: Arc<dyn IndexProjector>,
-    office: OfficeExtractor,
-) -> Result<Complete, Blocked> {
+pub fn migrate(roots: MigrationRoots, projector: Arc<dyn IndexProjector>, office: OfficeExtractor) -> Result<Complete, Blocked> {
     Migrator::new(roots, product_drivers(projector, office), MigrateOptions::default()).run()
 }
 
 /// Runs (or resumes) what a core waits for before it serves ([`Migrator::front`]); the rest is the returned
 /// [`super::Back`], which converts the sessions behind the serving core. `options.verified` and a `projector` that names
 /// its serving index are that core's way to take each session in.
-pub fn front(
-    roots: MigrationRoots,
-    projector: Arc<dyn IndexProjector>,
-    office: OfficeExtractor,
-    options: MigrateOptions,
-) -> Result<super::Front, Blocked> {
+pub fn front(roots: MigrationRoots, projector: Arc<dyn IndexProjector>, office: OfficeExtractor, options: MigrateOptions) -> Result<super::Front, Blocked> {
     Migrator::new(roots, product_drivers(projector, office), options).front()
 }
 
@@ -126,11 +113,7 @@ mod tests {
 
     #[test]
     fn arguments_win_over_the_environment() {
-        let args = MigrateArgs {
-            data_dir: Some("/d".into()),
-            home: Some("/h".into()),
-            desktop_profile: Some("/p".into()),
-        };
+        let args = MigrateArgs { data_dir: Some("/d".into()), home: Some("/h".into()), desktop_profile: Some("/p".into()) };
         let vars = [("MIXDOG_DATA_DIR", "/x"), ("MIXDOG_HOME", "/y")];
         let roots = resolve_roots(&args, &env(&vars), Some("/u".into())).unwrap();
         assert_eq!(roots.data, Path::new("/d"));

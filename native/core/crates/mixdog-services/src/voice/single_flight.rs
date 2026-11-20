@@ -68,12 +68,7 @@ impl<V: Clone + Send + Sync + 'static> Drop for Finish<V> {
     }
 }
 
-async fn lead<V: Clone + Send + Sync + 'static>(
-    finish: Finish<V>,
-    stop: CancellationToken,
-    value: watch::Sender<Option<V>>,
-    work: impl Future<Output = V>,
-) {
+async fn lead<V: Clone + Send + Sync + 'static>(finish: Finish<V>, stop: CancellationToken, value: watch::Sender<Option<V>>, work: impl Future<Output = V>) {
     let _finish = finish;
     tokio::select! {
         () = stop.cancelled() => {}
@@ -172,7 +167,11 @@ mod tests {
         }
     }
 
-    async fn scoped(flight: &SingleFlight<u32>, cancel: &CancellationToken, work: impl FnOnce() -> std::pin::Pin<Box<dyn Future<Output = u32> + Send>>) -> Scoped<u32> {
+    async fn scoped(
+        flight: &SingleFlight<u32>,
+        cancel: &CancellationToken,
+        work: impl FnOnce() -> std::pin::Pin<Box<dyn Future<Output = u32> + Send>>,
+    ) -> Scoped<u32> {
         Scope::new().cancel(cancel).run(flight.run("k", work)).await
     }
 

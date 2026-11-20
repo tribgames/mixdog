@@ -8,13 +8,13 @@
 use mixdog_ai::service::admin_route::{find_preset, normalize_workflow_route};
 use mixdog_ai::service::routes::{canonical_route_provider, execution_fallbacks};
 use mixdog_js::{js_trim, value_to_string};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
+use mixdog_core_ports::ports::domain_sessions::Obj;
 
 pub const CODING_MODE: &str = "coding";
 pub const AGENT_MODE: &str = "agent";
@@ -116,7 +116,8 @@ pub fn session_route_primary(session: &Value) -> Value {
         return primary.clone();
     }
     if let Some(first) = session.get("routeFallbackFailures").and_then(Value::as_array).and_then(|f| f.first())
-        && truthy(first.get("provider")).is_some() && truthy(first.get("model")).is_some()
+        && truthy(first.get("provider")).is_some()
+        && truthy(first.get("model")).is_some()
     {
         return json!({ "provider": first["provider"], "model": first["model"] });
     }
@@ -125,8 +126,7 @@ pub fn session_route_primary(session: &Value) -> Value {
 
 /// `routeFallbackHopped`: whether the session has left its primary for a fallback model.
 pub fn route_fallback_hopped(session: &Value) -> bool {
-    js_number(session.get("routeFallbackIndex")) > 0.0
-        || session.get("routeFallbackFailures").and_then(Value::as_array).is_some_and(|f| !f.is_empty())
+    js_number(session.get("routeFallbackIndex")) > 0.0 || session.get("routeFallbackFailures").and_then(Value::as_array).is_some_and(|f| !f.is_empty())
 }
 
 /// `resolveSessionMode({ session })`: `(mode, agentId)`; `agentId` is the agent the session acts
@@ -189,7 +189,14 @@ pub async fn owner_configured_route(mode: &str, agent_id: &str, config: &Obj, bo
 }
 
 /// `ownerRouteFallbacks`: the owner's chain while the session runs on its configured primary.
-pub async fn owner_route_fallbacks(mode: &str, agent_id: &str, provider: &str, model: &str, config: &Obj, bots: &dyn BotRoutes) -> Result<Vec<Value>, RouteReadUnavailable> {
+pub async fn owner_route_fallbacks(
+    mode: &str,
+    agent_id: &str,
+    provider: &str,
+    model: &str,
+    config: &Obj,
+    bots: &dyn BotRoutes,
+) -> Result<Vec<Value>, RouteReadUnavailable> {
     let Some(route) = owner_configured_route(mode, agent_id, config, bots).await? else { return Ok(Vec::new()) };
     if !route.get("fallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty()) {
         return Ok(Vec::new());
@@ -247,7 +254,13 @@ pub async fn route_fallback_position(session: &Value, config: &Obj, bots: &dyn B
     let next = chain.get(next_route_fallback_index(session, &chain));
     let primary = session_route_primary(session);
     let (mode, agent_id) = resolve_session_mode(session);
-    let kind = if agent_id.is_empty() { "agent" } else if mode == CODING_MODE { "lead" } else { "bot" };
+    let kind = if agent_id.is_empty() {
+        "agent"
+    } else if mode == CODING_MODE {
+        "lead"
+    } else {
+        "bot"
+    };
     let agent = if agent_id.is_empty() { truthy(session.get("agent")).cloned() } else { Some(Value::String(agent_id)) };
     let failures: Vec<Value> = session
         .get("routeFallbackFailures")
@@ -301,7 +314,6 @@ pub async fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) 
 mod tests {
     use super::*;
 
-
     /// A session resolves from its reserved id and its owner fields; an agent-owned or agent-only one is coding; an invalid `ownerAgentId` is no agent.
     #[test]
     fn a_session_resolves_from_its_id_and_owner_fields() {
@@ -312,10 +324,6 @@ mod tests {
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_home_botty", "owner": "agent" })), (CODING_MODE, String::new()));
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "visibility": "agent-only", "ownerAgentId": "b" })), (CODING_MODE, String::new()));
     }
-
-
-
 }
-
 
 impl std::error::Error for RouteReadUnavailable {}

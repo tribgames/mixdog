@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! User-facing workspace text search and replace (port of
 //! `workspace-search.ts`). Patterns run on `regress`, an ECMAScript-syntax
 //! engine, so syntax, flags and match results are those of the Node product.
@@ -92,9 +96,9 @@ impl Pattern {
             return Err(WsError::invalid(format!("Invalid search pattern: {message}")));
         }
         let flags = if query.match_case { "u" } else { "iu" };
-        regress::Regex::with_flags(&source, flags).map(Self).map_err(|_| {
-            WsError::invalid(format!("Invalid search pattern: Invalid regular expression: /{source}/{shown}: Regular expression too large"))
-        })
+        regress::Regex::with_flags(&source, flags)
+            .map(Self)
+            .map_err(|_| WsError::invalid(format!("Invalid search pattern: Invalid regular expression: /{source}/{shown}: Regular expression too large")))
     }
 }
 fn word_character() -> Regex {
@@ -112,14 +116,7 @@ fn is_whole_word(content: &str, start: usize, end: usize, word: &Regex) -> bool 
     !is_word(before) && !is_word(after)
 }
 
-fn line_matches(
-    line: &str,
-    number: usize,
-    pattern: &Pattern,
-    whole_word: bool,
-    word: &Regex,
-    remaining: usize,
-) -> Vec<TextMatch> {
+fn line_matches(line: &str, number: usize, pattern: &Pattern, whole_word: bool, word: &Regex, remaining: usize) -> Vec<TextMatch> {
     let mut out = Vec::new();
     for found in pattern.0.find_iter(line) {
         if out.len() >= remaining {
@@ -131,13 +128,7 @@ fn line_matches(
         }
         let column = units(&line[..start]) + 1;
         let text_units = units(&line[start..end]);
-        out.push(TextMatch {
-            line: number,
-            column,
-            end_column: column + text_units,
-            preview: preview(line),
-            match_text: line[start..end].to_owned(),
-        });
+        out.push(TextMatch { line: number, column, end_column: column + text_units, preview: preview(line), match_text: line[start..end].to_owned() });
     }
     out
 }
@@ -296,19 +287,12 @@ pub struct ReplacePlan {
     pub replacements: usize,
 }
 
-pub fn plan_replace(
-    root: &Path,
-    query: &TextQuery,
-    replacement: &str,
-    rel_paths: Option<&[String]>,
-    stop: &dyn Fn() -> bool,
-) -> WsResult<ReplacePlan> {
+pub fn plan_replace(root: &Path, query: &TextQuery, replacement: &str, rel_paths: Option<&[String]>, stop: &dyn Fn() -> bool) -> WsResult<ReplacePlan> {
     let found = search(root, query, stop)?;
     if found.limit_hit {
         return Err(WsError::invalid("Search result limit reached. Narrow the search before replacing."));
     }
-    let requested: Option<Vec<String>> =
-        rel_paths.filter(|p| !p.is_empty()).map(|p| p.iter().map(|s| normalize_path(s)).collect());
+    let requested: Option<Vec<String>> = rel_paths.filter(|p| !p.is_empty()).map(|p| p.iter().map(|s| normalize_path(s)).collect());
     let pattern = Pattern::compile(query)?;
     let word = word_character();
     let mut writes = Vec::new();
@@ -326,10 +310,7 @@ pub fn plan_replace(
         replacements += count;
     }
     if writes.len() > MAX_REPLACE_FILES {
-        return Err(WsError::invalid(format!(
-            "Replace affects {} files. Narrow the search to {MAX_REPLACE_FILES} files or fewer.",
-            writes.len()
-        )));
+        return Err(WsError::invalid(format!("Replace affects {} files. Narrow the search to {MAX_REPLACE_FILES} files or fewer.", writes.len())));
     }
     Ok(ReplacePlan { writes, replacements })
 }
@@ -381,7 +362,8 @@ mod tests {
     #[test]
     fn a_bad_regular_expression_is_refused_with_the_engines_text() {
         let message = |query: &str, match_case: bool| Pattern::compile(&TextQuery { regex: true, match_case, ..q(query) }).err().map(|e| e.message);
-        let refused = |reason: &str, pattern: &str, flags: &str| Some(format!("Invalid search pattern: Invalid regular expression: /{pattern}/{flags}: {reason}"));
+        let refused =
+            |reason: &str, pattern: &str, flags: &str| Some(format!("Invalid search pattern: Invalid regular expression: /{pattern}/{flags}: {reason}"));
         assert_eq!(message("a**", false), refused("Nothing to repeat", "a**", "giu"));
         assert_eq!(message("[abc", true), refused("Unterminated character class", "[abc", "gu"));
         assert_eq!(message("a)", false), refused("Unmatched ')'", "a)", "giu"));

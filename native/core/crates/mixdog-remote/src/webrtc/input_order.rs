@@ -35,17 +35,9 @@ impl InputOrder {
             .filter(|s| (1..=256).contains(&s.len()) && s.bytes().all(is_id_byte))
             .ok_or(MalformedOrder("input stream"))?;
         let positive = |key: &'static str, what: &'static str| {
-            object
-                .get(key)
-                .and_then(Value::as_u64)
-                .filter(|n| (1..=MAX_SAFE_INTEGER).contains(n))
-                .ok_or(MalformedOrder(what))
+            object.get(key).and_then(Value::as_u64).filter(|n| (1..=MAX_SAFE_INTEGER).contains(n)).ok_or(MalformedOrder(what))
         };
-        Ok(Self {
-            stream: stream.to_owned(),
-            run: positive("run", "input run")?,
-            seq: positive("seq", "input seq")?,
-        })
+        Ok(Self { stream: stream.to_owned(), run: positive("run", "input run")?, seq: positive("seq", "input seq")? })
     }
 }
 
@@ -80,12 +72,7 @@ impl RelayInputOrder {
     /// Whether this ordered control may be dispatched now.
     pub fn admit(&mut self, client_id: &str, session_id: &str, order: &InputOrder) -> Verdict {
         let key = (client_id.to_owned(), session_id.to_owned());
-        let fresh = || State {
-            stream: order.stream.clone(),
-            run: order.run,
-            last_seq: 0,
-            poisoned: false,
-        };
+        let fresh = || State { stream: order.stream.clone(), run: order.run, last_seq: 0, poisoned: false };
         let state = self.states.entry(key).or_insert_with(fresh);
         if state.stream != order.stream {
             *state = fresh();
@@ -109,9 +96,7 @@ impl RelayInputOrder {
 
     /// The dispatch of `order` failed: the rest of its run is refused.
     pub fn failed(&mut self, client_id: &str, session_id: &str, order: &InputOrder) {
-        if let Some(state) = self
-            .states
-            .get_mut(&(client_id.to_owned(), session_id.to_owned()))
+        if let Some(state) = self.states.get_mut(&(client_id.to_owned(), session_id.to_owned()))
             && state.stream == order.stream
             && state.run == order.run
         {
@@ -132,11 +117,7 @@ mod tests {
     use super::*;
 
     fn order(run: u64, seq: u64, stream: &str) -> InputOrder {
-        InputOrder {
-            stream: stream.to_owned(),
-            run,
-            seq,
-        }
+        InputOrder { stream: stream.to_owned(), run, seq }
     }
 
     #[test]
@@ -161,19 +142,10 @@ mod tests {
     fn refusals_carry_the_phone_facing_text() {
         let mut o = RelayInputOrder::new();
         o.admit("c", "s", &order(2, 1, "q"));
-        assert_eq!(
-            o.admit("c", "s", &order(1, 2, "q")),
-            Verdict::Refuse("Remote Browser Use input of an older run; input was not sent.")
-        );
-        assert_eq!(
-            o.admit("c", "s", &order(2, 1, "q")),
-            Verdict::Refuse("Remote Browser Use input repeated; input was not sent.")
-        );
+        assert_eq!(o.admit("c", "s", &order(1, 2, "q")), Verdict::Refuse("Remote Browser Use input of an older run; input was not sent."));
+        assert_eq!(o.admit("c", "s", &order(2, 1, "q")), Verdict::Refuse("Remote Browser Use input repeated; input was not sent."));
         o.failed("c", "s", &order(2, 1, "q"));
-        assert_eq!(
-            o.admit("c", "s", &order(2, 2, "q")),
-            Verdict::Refuse("Remote Browser Use input behind a failed one; input was not sent.")
-        );
+        assert_eq!(o.admit("c", "s", &order(2, 2, "q")), Verdict::Refuse("Remote Browser Use input behind a failed one; input was not sent."));
     }
 
     #[test]

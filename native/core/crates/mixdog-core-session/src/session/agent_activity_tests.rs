@@ -15,10 +15,10 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::testing::Rig;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 /// The `thread/agents/updated` values published on `thread`'s feed so far.
 fn published(rig: &Rig, thread: &ThreadId) -> Vec<Value> {
@@ -77,10 +77,7 @@ async fn a_stored_header_change_signals_the_session_record() {
     let handle = start_thread(&directory).await;
     let before = signals(&rig, "record", &handle.id);
     let patch = json!({ "threadId": handle.id, "set": { "provider": "openai", "model": "gpt-5" }, "unset": [] });
-    handle
-        .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
-        .await
-        .expect("patch");
+    handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
     eventually_on!(&[&rig.signals.1], || (signals(&rig, "record", &handle.id) > before).then_some(())).await;
 }
 
@@ -123,7 +120,6 @@ async fn an_approval_wait_signals_the_approval_change() {
     eventually_on!(&[&handle.cell.stepped], || (!handle.cell.approvals.load().is_empty()).then_some(())).await;
     eventually_on!(&[&rig.signals.1], || (signals(&rig, "approval", &handle.id) == 1).then_some(())).await;
 }
-
 
 /// A loaded thread shows its agent scope at once: it needs only the header (statusFor's scope), so no state shows the
 /// thread without it. The load's first status pass reads the rows one settle beat (16 ms) after the thread starts: empty

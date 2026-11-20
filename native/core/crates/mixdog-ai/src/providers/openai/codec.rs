@@ -17,7 +17,6 @@ use serde_json::Value;
 use super::body::build_with;
 use super::body::build_with_tool_outputs;
 use super::client_meta::Metadata;
-use super::delta;
 use super::config::CODEX_HTTP_BETA;
 use super::config::CODEX_ORIGINATOR;
 use super::config::CODEX_WS_BETA;
@@ -27,9 +26,10 @@ use super::config::REPLAY_OWNER;
 use super::config::Route;
 use super::config::Target;
 use super::config::request_scope;
-use super::effort::EffortProjection;
 use super::decoder::Framing;
 use super::decoder::ResponsesDecoder;
+use super::delta;
+use super::effort::EffortProjection;
 use super::error::classify_http;
 use crate::providers::leak::ToolNames;
 use crate::providers::leak::body_tool_names;
@@ -68,10 +68,7 @@ impl OpenAiCodec {
                 if ws {
                     push("originator", CODEX_ORIGINATOR.into());
                 }
-                push(
-                    "OpenAI-Beta",
-                    if ws { CODEX_WS_BETA } else { CODEX_HTTP_BETA }.into(),
-                );
+                push("OpenAI-Beta", if ws { CODEX_WS_BETA } else { CODEX_HTTP_BETA }.into());
                 if !ws {
                     push("originator", CODEX_ORIGINATOR.into());
                 }
@@ -133,19 +130,17 @@ impl WireCodec for OpenAiCodec {
 
 impl OpenAiCodec {
     pub(super) fn responses_decoder(&self, request: &ModelRequest) -> ResponsesDecoder {
-        let framing = if self.transport == TransportKind::WebSocket {
-            Framing::WebSocket
-        } else {
-            Framing::Sse
-        };
+        let framing = if self.transport == TransportKind::WebSocket { Framing::WebSocket } else { Framing::Sse };
         // `_wsErrLabel(traceProvider)` / `httpLabel(auth)`: the route decides the label, the transport the kind.
         let label = match framing {
             Framing::WebSocket => self.ws_label(),
             Framing::Sse => self.http_label(),
         };
-        ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER))
-            .with_label(label)
-            .with_known_tools(body_tool_names(self, request, ToolNames::Named))
+        ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER)).with_label(label).with_known_tools(body_tool_names(
+            self,
+            request,
+            ToolNames::Named,
+        ))
     }
 
     pub fn route(&self) -> Route {
@@ -207,11 +202,7 @@ impl OpenAiCodec {
     /// The request body a `response.create` frame carries, without `type`:
     /// the transport-only `stream` does not exist on a socket. The second
     /// value is the body's `service_tier`.
-    pub fn ws_body(
-        &self,
-        request: &ModelRequest,
-        effort: Option<&EffortProjection>,
-    ) -> (Map<String, Value>, Option<&'static str>) {
+    pub fn ws_body(&self, request: &ModelRequest, effort: Option<&EffortProjection>) -> (Map<String, Value>, Option<&'static str>) {
         // A pooled socket can strip the source from the input after lowering.
         // Keep the body in every frame so the chain can compare exact prefixes.
         let built = build_with_tool_outputs(&self.config, request, effort, true);
@@ -230,11 +221,7 @@ impl OpenAiCodec {
     }
 
     /// [`WireCodec::encode`] with the conversation's mid-turn effort updates.
-    pub fn encode_with(
-        &self,
-        request: &ModelRequest,
-        effort: Option<&EffortProjection>,
-    ) -> Result<WireRequest, ProviderError> {
+    pub fn encode_with(&self, request: &ModelRequest, effort: Option<&EffortProjection>) -> Result<WireRequest, ProviderError> {
         let ws = self.transport == TransportKind::WebSocket;
         let route = self.config.route();
         let (map, tier, key) = if ws {
@@ -245,8 +232,7 @@ impl OpenAiCodec {
             let built = build_with(&self.config, request, effort);
             (built.map, built.service_tier, built.cache_key)
         };
-        let body = serde_json::to_vec(&Value::Object(map))
-            .expect("a JSON object with string keys always serializes");
+        let body = serde_json::to_vec(&Value::Object(map)).expect("a JSON object with string keys always serializes");
         Ok(WireRequest {
             transport: self.transport,
             method: if ws { "GET" } else { "POST" }.into(),

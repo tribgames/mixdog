@@ -119,10 +119,7 @@ struct FenceOpening {
 /// A closing fence: 0 to 3 spaces, a run that starts with the exact opening marker (same character, at least its
 /// length; marked lets it go on with any mix of backticks and tildes), then only spaces and tabs.
 fn is_closing_fence(line: &str, opening: &FenceOpening) -> bool {
-    CLOSE_FENCE_RE
-        .exec(line)
-        .and_then(|caps| caps.get(1))
-        .is_some_and(|run| run.starts_with(&opening.char.to_string().repeat(opening.len)))
+    CLOSE_FENCE_RE.exec(line).and_then(|caps| caps.get(1)).is_some_and(|run| run.starts_with(&opening.char.to_string().repeat(opening.len)))
 }
 
 struct Scanned {
@@ -216,11 +213,7 @@ pub fn find_open_fence_start(text: &str, stream_key: Option<&str>) -> Option<Ope
         None => scan_open_fence(text, 0, None),
     };
     // Only unambiguously top-level (column 0) fences take the fast path.
-    let result = scanned
-        .open
-        .as_ref()
-        .filter(|opening| opening.indent == 0)
-        .map(|opening| OpenFence { index: opening.index, lang: opening.lang.clone() });
+    let result = scanned.open.as_ref().filter(|opening| opening.indent == 0).map(|opening| OpenFence { index: opening.index, lang: opening.lang.clone() });
     if let Some(key) = key {
         scans.touch(
             key,
@@ -345,9 +338,7 @@ fn lock_caches() -> std::sync::MutexGuard<'static, Caches> {
 fn cached_has_markdown_syntax(cache: &mut Keyed<SyntaxEntry>, text: &str, key: Option<&str>) -> bool {
     let Some(key) = key else { return has_markdown_syntax(text) };
     let value = match cache.get(key) {
-        Some(previous) if text.starts_with(&previous.text) => {
-            previous.value || has_markdown_syntax(&text[previous.text.rfind('\n').unwrap_or(0)..])
-        }
+        Some(previous) if text.starts_with(&previous.text) => previous.value || has_markdown_syntax(&text[previous.text.rfind('\n').unwrap_or(0)..]),
         _ => has_markdown_syntax(text),
     };
     cache.touch(key, SyntaxEntry { text: text.to_owned(), value });
@@ -466,12 +457,7 @@ pub fn resolve_streaming_markdown_parts(text: &str, stream_key: Option<&str>) ->
         if let Some(key) = key {
             caches.stable_prefix.remove(key);
         }
-        let plain = StreamingParts {
-            plain: true,
-            unstable_suffix: layout.to_owned(),
-            unstable_for_render: layout.to_owned(),
-            ..StreamingParts::default()
-        };
+        let plain = StreamingParts { plain: true, unstable_suffix: layout.to_owned(), unstable_for_render: layout.to_owned(), ..StreamingParts::default() };
         return cache_resolved(&mut caches, key, layout, plain);
     }
 
@@ -645,7 +631,8 @@ mod tests {
     fn the_trim_reaches_a_code_token_through_trailing_quotes_and_lists() {
         let mut tokens = lex("> ```js
 > let a;
-> ``").tokens;
+> ``")
+        .tokens;
         trim_partial_closing_fences(&mut tokens);
         assert_eq!(tokens[0].kind, TokenKind::Blockquote);
         assert_eq!(tokens[0].children().last().map(Token::text_str), Some("let a;"));
@@ -653,7 +640,8 @@ mod tests {
         let mut listed = lex("- a
   ```js
   x
-  ``").tokens;
+  ``")
+        .tokens;
         trim_partial_closing_fences(&mut listed);
         let item = &listed[0].items.as_deref().unwrap_or(&[])[0];
         assert_eq!(item.children().last().map(Token::text_str), Some("x"));
@@ -780,10 +768,7 @@ mod tests {
     fn the_final_patch_rewrites_the_changed_rows_in_place() {
         assert_eq!(build_stream_final_patch("a\nb", "a\nb", 80), Some(StreamFinalPatch { output: String::new(), changed_rows: 0, total_rows: 2 }));
         let patch = build_stream_final_patch("a\n**b**", "a\nB", 80);
-        assert_eq!(
-            patch,
-            Some(StreamFinalPatch { output: "\r\x1b[2KB\r\x1b[1A\r\x1b[1B\x1b[1C".to_owned(), changed_rows: 1, total_rows: 2 })
-        );
+        assert_eq!(patch, Some(StreamFinalPatch { output: "\r\x1b[2KB\r\x1b[1A\r\x1b[1B\x1b[1C".to_owned(), changed_rows: 1, total_rows: 2 }));
         assert_eq!(build_stream_final_patch("a", "b", 80).map(|patch| patch.output), Some("\r\x1b[2Kb".to_owned()));
         assert_eq!(build_stream_final_patch("a\nb", "a", 80), None);
         assert_eq!(build_stream_final_patch("a\r\nb", "a\nb", 80), None);

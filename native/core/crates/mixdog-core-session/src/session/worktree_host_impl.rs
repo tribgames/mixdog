@@ -18,7 +18,6 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use crate::session::SessionDirectory;
 use super::worktree_host::JobCwd;
 use super::worktree_host::LeadActivity;
 use super::worktree_host::LiveSession;
@@ -31,6 +30,7 @@ use super::worktree_reroot::pending_workspace_reroot;
 use super::worktree_setup::WorktreeSetup;
 use super::worktree_state::plain;
 use super::worktree_state::same_path;
+use crate::session::SessionDirectory;
 
 /// The slices of the prompt a new workspace brings (`buildWorkspacePromptContext` and the Lead's
 /// core memory); `None` keeps what the prompt has.
@@ -162,12 +162,7 @@ impl WorkspaceHost for SessionWorkspaceHost {
             Some(marker) => marker.clone(),
             None => header.get("workspace").cloned(),
         };
-        Some(SessionView {
-            cwd: text("cwd"),
-            runtime_cwd: self.runtime.runtime_cwd(session_id),
-            workspace,
-            desktop_project,
-        })
+        Some(SessionView { cwd: text("cwd"), runtime_cwd: self.runtime.runtime_cwd(session_id), workspace, desktop_project })
     }
 
     async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure> {
@@ -358,11 +353,8 @@ mod tests {
     #[test]
     fn staging_twice_keeps_what_was_seen_and_drops_the_earlier_move() {
         let presented = json!({ "cwd": null, "environmentContext": "", "coreMemoryContext": "", "instructionFilesContext": "" });
-        let first_context = WorkspaceContext {
-            environment_context: Some(" env ".into()),
-            core_memory_context: Some(String::new()),
-            instruction_files_context: None,
-        };
+        let first_context =
+            WorkspaceContext { environment_context: Some(" env ".into()), core_memory_context: Some(String::new()), instruction_files_context: None };
         let first = staged_reroot(None, &presented, " C:/wt ", &first_context, Some(("C:/repo", Some("carried"))));
         assert_eq!(
             first,

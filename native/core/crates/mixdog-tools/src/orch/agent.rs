@@ -6,17 +6,17 @@
 
 use std::sync::Arc;
 
+use crate::orch::util::JsStr;
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_js::JsRegex;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolCallId;
-use mixdog_js::JsRegex;
-use crate::orch::util::JsStr;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -206,11 +206,7 @@ fn worker_line(w: &WorkerRow) -> String {
     let status = w.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("idle");
     let stage = w.stage.as_deref().filter(|s| !s.is_empty() && *s != status).map(|s| format!("/{s}")).unwrap_or_default();
     let progress = one_line(w.last_progress.as_deref().unwrap_or_default());
-    let summary = if progress.js_len() > 60 {
-        format!("{}…", mixdog_js::slice_utf16(&progress, 59))
-    } else {
-        progress
-    };
+    let summary = if progress.js_len() > 60 { format!("{}…", mixdog_js::slice_utf16(&progress, 59)) } else { progress };
     let summary = if summary.is_empty() { String::new() } else { format!("  {summary}") };
     let silence = one_line(w.tool_silent_for.as_deref().unwrap_or_default());
     let silence = if silence.is_empty() { String::new() } else { format!("  tool_silent_for: {silence}") };
@@ -227,20 +223,12 @@ fn job_line(j: &JobRow) -> String {
 
 /// Inactive rows collapse to a count plus a short tail; a `tag` filter lists the matching
 /// inactive rows (bounded) so a specific one can still be found.
-fn inactive_section<T>(
-    label: &str,
-    rows: &[&T],
-    render: fn(&T) -> String,
-    tag_of: fn(&T) -> String,
-    stamp_of: fn(&T) -> &str,
-    filter: &str,
-) -> Vec<String> {
+fn inactive_section<T>(label: &str, rows: &[&T], render: fn(&T) -> String, tag_of: fn(&T) -> String, stamp_of: fn(&T) -> &str, filter: &str) -> Vec<String> {
     if rows.is_empty() {
         return Vec::new();
     }
     let needle = filter.to_lowercase();
-    let matched: Option<Vec<&&T>> = (!needle.is_empty())
-        .then(|| rows.iter().filter(|r| tag_of(r).to_lowercase().contains(&needle)).collect());
+    let matched: Option<Vec<&&T>> = (!needle.is_empty()).then(|| rows.iter().filter(|r| tag_of(r).to_lowercase().contains(&needle)).collect());
     let mut pool: Vec<&T> = match &matched {
         Some(m) => m.iter().map(|r| **r).collect(),
         None => rows.to_vec(),
@@ -265,14 +253,7 @@ pub fn render_roster(workers: &[WorkerRow], jobs: &[JobRow], filter: &str) -> St
     lines.extend(workers.iter().filter(|w| w.active).map(worker_line));
     lines.extend(jobs.iter().filter(|j| !j.finished).map(job_line));
     let idle: Vec<&WorkerRow> = workers.iter().filter(|w| !w.active).collect();
-    lines.extend(inactive_section(
-        "idle/closed agents",
-        &idle,
-        worker_line,
-        |w| w.tag.clone(),
-        |w| w.stamp.as_str(),
-        filter,
-    ));
+    lines.extend(inactive_section("idle/closed agents", &idle, worker_line, |w| w.tag.clone(), |w| w.stamp.as_str(), filter));
     let done: Vec<&JobRow> = jobs.iter().filter(|j| j.finished).collect();
     lines.extend(inactive_section(
         "finished tasks",
@@ -334,9 +315,7 @@ fn task_diagnostic_lines(v: &TaskView) -> Vec<String> {
 
 pub fn render_task(v: &TaskView, include_diagnostics: bool) -> String {
     // A fresh spawn/send ack carries no diagnostics: they would all be "not started yet".
-    let is_start_ack = !include_diagnostics
-        && v.status.as_deref() == Some("running")
-        && matches!(v.kind.as_deref(), Some("spawn" | "send"));
+    let is_start_ack = !include_diagnostics && v.status.as_deref() == Some("running") && matches!(v.kind.as_deref(), Some("spawn" | "send"));
     let mut lines = vec![format!("agent task: {}", v.task_id)];
     if let Some(status) = v.status.as_deref().filter(|s| !s.js_trim().is_empty()) {
         lines.push(format!("status: {status}"));
@@ -391,9 +370,7 @@ pub fn render_queued(v: &QueuedView) -> String {
         lines.push("resumed: true".to_owned());
     }
     lines.push(
-        format!("target: {} {}", v.tag.as_deref().filter(|s| !s.is_empty()).unwrap_or("-"), v.session_id.as_deref().unwrap_or_default())
-            .js_trim()
-            .to_owned(),
+        format!("target: {} {}", v.tag.as_deref().filter(|s| !s.is_empty()).unwrap_or("-"), v.session_id.as_deref().unwrap_or_default()).js_trim().to_owned(),
     );
     if let Some(agent) = v.agent.as_deref().filter(|s| !s.is_empty()) {
         lines.push(format!("agent: {agent}"));
@@ -495,14 +472,7 @@ impl Tool for AgentTool {
             Some(names) => self.sessions.resolve_attachments(&ctx.thread_id, names, &ctx.cwd, "agent").await?,
             None => Vec::new(),
         };
-        let request = AgentRequest {
-            thread: &ctx.thread_id,
-            call: &ctx.call_id,
-            args: rest,
-            attachment_parts,
-            cwd: &ctx.cwd,
-            cancel: &ctx.cancel,
-        };
+        let request = AgentRequest { thread: &ctx.thread_id, call: &ctx.call_id, args: rest, attachment_parts, cwd: &ctx.cwd, cancel: &ctx.cancel };
         let reply = tokio::select! {
             biased;
             _ = ctx.cancel.cancelled() => return Err(cancelled()),
@@ -530,7 +500,14 @@ mod tests {
         let workers = vec![busy, worker("beta", "idle", false, "1"), worker("gamma", "closed", false, "3")];
         let jobs = vec![
             JobRow { task_id: "t1".into(), kind: "spawn".into(), status: "running".into(), tag: Some("alpha".into()), ..JobRow::default() },
-            JobRow { task_id: "t2".into(), kind: "spawn".into(), status: "failed".into(), error: Some("bad\nthing".into()), finished: true, ..JobRow::default() },
+            JobRow {
+                task_id: "t2".into(),
+                kind: "spawn".into(),
+                status: "failed".into(),
+                error: Some("bad\nthing".into()),
+                finished: true,
+                ..JobRow::default()
+            },
         ];
         assert_eq!(
             render_roster(&workers, &jobs, ""),
@@ -582,10 +559,7 @@ mod tests {
         );
         assert_eq!(render_task(&finished(TaskResult::Content(String::new())), false), "agent task: t9\nstatus: completed\n\n\"\"");
         // An empty authored report is not a report: the object prints, as `renderTask` does.
-        assert_eq!(
-            render_task(&finished(TaskResult::Json(json!({ "content": "" }))), false),
-            "agent task: t9\nstatus: completed\n\n{\n  \"content\": \"\"\n}"
-        );
+        assert_eq!(render_task(&finished(TaskResult::Json(json!({ "content": "" }))), false), "agent task: t9\nstatus: completed\n\n{\n  \"content\": \"\"\n}");
     }
 
     #[test]
@@ -609,12 +583,12 @@ mod tests {
             }),
             "agent close: not closed\nsessionId: s1\nreason: the session close was not recorded\nnote: n\nnot hidden: s2 (could not save)"
         );
-        let content = ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
+        let content =
+            ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
         assert_eq!(render_content(&content), "agent result tag=w p/m\nhi");
         assert_eq!(render(&AgentReply::Json(json!({"a":1})), ""), "{\n  \"a\": 1\n}");
         assert_eq!(compact_iso("2026-11-06T01:38:16.222Z"), "2026-11-06 01:38:16Z");
     }
-
 
     /// The agent tool's text for a roster, a task start and finish, a queued message, a close and a result.
     #[test]
@@ -625,7 +599,14 @@ mod tests {
         let workers = vec![busy, worker("beta", "idle", false, "1"), worker("gamma", "closed", false, "3")];
         let jobs = vec![
             JobRow { task_id: "t1".into(), kind: "spawn".into(), status: "running".into(), tag: Some("alpha".into()), ..JobRow::default() },
-            JobRow { task_id: "t2".into(), kind: "spawn".into(), status: "failed".into(), error: Some("bad\nthing".into()), finished: true, ..JobRow::default() },
+            JobRow {
+                task_id: "t2".into(),
+                kind: "spawn".into(),
+                status: "failed".into(),
+                error: Some("bad\nthing".into()),
+                finished: true,
+                ..JobRow::default()
+            },
         ];
         assert_eq!(
             render(&AgentReply::Roster { workers, jobs }, ""),
@@ -660,7 +641,8 @@ mod tests {
         assert_eq!(render(&AgentReply::Queued(queued), ""), "agent message queued\ntarget: w s\nqueueDepth: 1");
         let closed = ClosedView { closed: true, tag: Some("w".into()), task_id: Some("t1".into()), forgotten: true, ..ClosedView::default() };
         assert_eq!(render(&AgentReply::Closed(closed), ""), "agent close: ok\ntag: w\ntask_id: t1\nforgotten: true");
-        let content = ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
+        let content =
+            ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
         assert_eq!(render(&AgentReply::Content(content), ""), "agent result tag=w p/m\nhi");
     }
 }

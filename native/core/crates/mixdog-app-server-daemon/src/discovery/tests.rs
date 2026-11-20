@@ -109,17 +109,9 @@ fn only_the_os_errors_node_retries_are_retried() {
 #[cfg(unix)]
 #[test]
 fn a_destination_is_read_only_when_the_owner_cannot_write_it() {
-    for (mode, read_only) in [
-        (0o444, true),
-        (0o400, true),
-        (0o420, true),
-        (0o402, true),
-        (0o040, true),
-        (0o200, false),
-        (0o600, false),
-        (0o644, false),
-        (0o222, false),
-    ] {
+    for (mode, read_only) in
+        [(0o444, true), (0o400, true), (0o420, true), (0o402, true), (0o040, true), (0o200, false), (0o600, false), (0o644, false), (0o222, false)]
+    {
         assert_eq!(sys::mode_is_read_only(mode), read_only, "mode {mode:o}");
     }
 }
@@ -172,7 +164,6 @@ fn a_pathless_rescan_event_requests_a_recheck_and_restores_discovery() {
     assert!(names_instance(&std::fs::read(path(root.path())).unwrap(), "inst-1"));
 }
 
-
 /// Replaces that fail `failures` times with `error`, then rename for real; the pauses it was asked to make are recorded, not slept.
 struct Scripted {
     failures: std::cell::Cell<usize>,
@@ -203,8 +194,7 @@ impl Scripted {
 fn a_replace_a_reader_blocks_for_a_moment_is_retried_on_node_s_schedule_until_it_lands() {
     let root = tempfile::tempdir().unwrap();
     let script = Scripted::new(4);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
-        .unwrap();
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause()).unwrap();
 
     assert_eq!(script.attempts.get(), 5);
     let pauses = script.pauses.borrow();
@@ -222,9 +212,7 @@ fn a_replace_a_reader_blocks_for_a_moment_is_retried_on_node_s_schedule_until_it
 fn a_replace_that_keeps_failing_makes_every_attempt_of_the_schedule_then_reports_the_error() {
     let root = tempfile::tempdir().unwrap();
     let script = Scripted::new(usize::MAX);
-    let error =
-        publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
-            .unwrap_err();
+    let error = publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause()).unwrap_err();
 
     assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     assert_eq!(script.attempts.get(), 24, "Node: one attempt more than the 23 backoffs");
@@ -237,8 +225,7 @@ fn an_error_that_cannot_clear_is_not_retried() {
     let root = tempfile::tempdir().unwrap();
     let script = Scripted::new(usize::MAX);
     let missing = || io::Error::from(io::ErrorKind::NotFound);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(missing), &script.pause())
-        .unwrap_err();
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(missing), &script.pause()).unwrap_err();
     assert_eq!(script.attempts.get(), 1);
     assert!(script.pauses.borrow().is_empty());
 
@@ -249,8 +236,7 @@ fn an_error_that_cannot_clear_is_not_retried() {
     permissions.set_readonly(true);
     std::fs::set_permissions(&target, permissions).unwrap();
     let script = Scripted::new(usize::MAX);
-    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause())
-        .unwrap_err();
+    publish_with(root.path(), &discovery("inst-1", CoreState::Serving), &script.replace(denied), &script.pause()).unwrap_err();
     assert_eq!(script.attempts.get(), 1);
 }
 #[test]
@@ -350,9 +336,7 @@ fn overwritten_or_invalid_discovery_is_restored_but_same_pid_is_untouched() {
     owned.publish(&document).unwrap();
     for bytes in [b"{}".as_slice(), b"{broken", b"{\"pid\":0}", b"null"] {
         std::fs::write(path(root.path()), bytes).unwrap();
-        wait_until("overwritten discovery", || {
-            std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner"))
-        });
+        wait_until("overwritten discovery", || std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner")));
     }
     let bytes = format!("{{\"pid\":\"{}\",\"other\":\"\\ud800\"}}", document.pid);
     std::fs::write(path(root.path()), &bytes).unwrap();
@@ -373,9 +357,7 @@ fn a_blocked_contender_does_not_compete_with_the_owner_or_restore_a_deleted_file
     contender.publish(&blocked).unwrap();
     wait_until("owner reclaim", || std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner")));
     std::fs::remove_file(path(root.path())).unwrap();
-    wait_until("owner republish", || {
-        std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner"))
-    });
+    wait_until("owner republish", || std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner")));
     owner.release("owner").unwrap();
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(!path(root.path()).exists(), "blocked contender must not take the discovery file");

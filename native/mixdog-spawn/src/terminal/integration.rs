@@ -164,20 +164,14 @@ fn shell_path(file: &Path) -> String {
 
 /// The PROMPT_COMMAND a login bash inherits: sources the script once.
 fn bash_boot(script: &str) -> String {
-    format!(
-        "[ -n \"$__mixdog_bash\" ] || {{ __mixdog_bash_boot=1; . '{}'; }}",
-        script.replace('\'', "'\\''")
-    )
+    format!("[ -n \"$__mixdog_bash\" ] || {{ __mixdog_bash_boot=1; . '{}'; }}", script.replace('\'', "'\\''"))
 }
 
 fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
         for i in 0..4 {
             if i <= chunk.len() {
                 out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
@@ -190,10 +184,7 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 fn lookup<'a>(env: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    env.iter()
-        .find(|(k, _)| k == key)
-        .map(|(_, v)| v.as_str())
-        .filter(|v| !v.is_empty())
+    env.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str()).filter(|v| !v.is_empty())
 }
 
 fn with_env(mut env: Vec<(String, String)>, key: &str, value: String) -> Vec<(String, String)> {
@@ -209,38 +200,19 @@ fn is_subset(args: &[String], allowed: &[&str]) -> bool {
 /// How to spawn `spawn` so it reports activity. `root` is Mixdog's own directory for startup
 /// files (`None`: only file-less integrations apply). `base_env` reads the environment the shell
 /// will inherit.
-pub fn plan_shell_integration(
-    spawn: &SpawnProfile,
-    root: Option<&Path>,
-    base_env: &dyn Fn(&str) -> Option<String>,
-    windows: bool,
-) -> SpawnPlan {
+pub fn plan_shell_integration(spawn: &SpawnProfile, root: Option<&Path>, base_env: &dyn Fn(&str) -> Option<String>, windows: bool) -> SpawnPlan {
     let args = spawn.args.clone();
     let env = spawn.env.clone();
-    let unchanged = SpawnPlan {
-        path: spawn.path.clone(),
-        args: args.clone(),
-        env: env.clone(),
-        integration: None,
-    };
+    let unchanged = SpawnPlan { path: spawn.path.clone(), args: args.clone(), env: env.clone(), integration: None };
     let normalized = spawn.path.replace('\\', "/");
-    let name = normalized
-        .rsplit('/')
-        .next()
-        .unwrap_or("")
-        .to_lowercase()
-        .trim_end_matches(".exe")
-        .to_owned();
+    let name = normalized.rsplit('/').next().unwrap_or("").to_lowercase().trim_end_matches(".exe").to_owned();
     if name == "pwsh" || name == "powershell" {
         if !args.is_empty() {
             return unchanged;
         }
         // An encoded command is not subject to the script execution policy, and the user's
         // profile still loads before it.
-        let utf16: Vec<u8> = POWERSHELL_SCRIPT
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect();
+        let utf16: Vec<u8> = POWERSHELL_SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
         return SpawnPlan {
             path: spawn.path.clone(),
             args: vec!["-NoExit".into(), "-EncodedCommand".into(), base64(&utf16)],
@@ -253,10 +225,7 @@ pub fn plan_shell_integration(
             return unchanged;
         }
         // cmd has no command hooks; the prompt is its only report.
-        let prompt = lookup(&env, "PROMPT")
-            .map(str::to_owned)
-            .or_else(|| base_env("PROMPT").filter(|v| !v.is_empty()))
-            .unwrap_or_else(|| "$P$G".to_owned());
+        let prompt = lookup(&env, "PROMPT").map(str::to_owned).or_else(|| base_env("PROMPT").filter(|v| !v.is_empty())).unwrap_or_else(|| "$P$G".to_owned());
         return SpawnPlan {
             path: spawn.path.clone(),
             args,
@@ -280,29 +249,13 @@ pub fn plan_shell_integration(
         };
         let script = shell_path(&dir.join("bash").join("mixdog.bash"));
         if args.iter().any(|a| a == "--login" || a == "-l") {
-            let inherited = lookup(&env, "PROMPT_COMMAND")
-                .map(str::to_owned)
-                .or_else(|| base_env("PROMPT_COMMAND").filter(|v| !v.is_empty()))
-                .unwrap_or_default();
+            let inherited =
+                lookup(&env, "PROMPT_COMMAND").map(str::to_owned).or_else(|| base_env("PROMPT_COMMAND").filter(|v| !v.is_empty())).unwrap_or_default();
             let boot = bash_boot(&script);
-            let value = if inherited.is_empty() {
-                boot
-            } else {
-                format!("{boot}; {inherited}")
-            };
-            return SpawnPlan {
-                path: spawn.path.clone(),
-                args,
-                env: with_env(env, "PROMPT_COMMAND", value),
-                integration: Some(Integration::Bash),
-            };
+            let value = if inherited.is_empty() { boot } else { format!("{boot}; {inherited}") };
+            return SpawnPlan { path: spawn.path.clone(), args, env: with_env(env, "PROMPT_COMMAND", value), integration: Some(Integration::Bash) };
         }
-        return SpawnPlan {
-            path: spawn.path.clone(),
-            args: vec!["--init-file".into(), script, "-i".into()],
-            env,
-            integration: Some(Integration::Bash),
-        };
+        return SpawnPlan { path: spawn.path.clone(), args: vec!["--init-file".into(), script, "-i".into()], env, integration: Some(Integration::Bash) };
     }
     if name == "zsh" && !windows {
         if !is_subset(&args, &["--login", "-l", "-i"]) {
@@ -311,26 +264,14 @@ pub fn plan_shell_integration(
         let Some(dir) = write_shell_files(root) else {
             return unchanged;
         };
-        let user_dir = lookup(&env, "ZDOTDIR")
-            .map(str::to_owned)
-            .or_else(|| base_env("ZDOTDIR").filter(|v| !v.is_empty()))
-            .unwrap_or_default();
-        let user = if user_dir.is_empty() {
-            base_env("HOME").unwrap_or_default()
-        } else {
-            user_dir.clone()
-        };
+        let user_dir = lookup(&env, "ZDOTDIR").map(str::to_owned).or_else(|| base_env("ZDOTDIR").filter(|v| !v.is_empty())).unwrap_or_default();
+        let user = if user_dir.is_empty() { base_env("HOME").unwrap_or_default() } else { user_dir.clone() };
         let mut env = with_env(env, "ZDOTDIR", dir.join("zsh").to_string_lossy().into_owned());
         env = with_env(env, "MIXDOG_USER_ZDOTDIR", user);
         if user_dir.is_empty() {
             env = with_env(env, "MIXDOG_ZDOTDIR_UNSET", "1".to_owned());
         }
-        return SpawnPlan {
-            path: spawn.path.clone(),
-            args,
-            env,
-            integration: Some(Integration::Zsh),
-        };
+        return SpawnPlan { path: spawn.path.clone(), args, env, integration: Some(Integration::Zsh) };
     }
     unchanged
 }

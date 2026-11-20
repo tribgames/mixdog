@@ -18,7 +18,6 @@ fn the_first_byte_abort_variable_moves_the_window_within_its_bounds() {
     assert_eq!(stall_first_byte_abort_s(worker, &with("90")), 90);
 }
 
-
 #[test]
 fn the_stall_deadline_is_the_variable_when_positive_else_the_hidden_agents_cap_else_600() {
     let none = |_: &str| None;

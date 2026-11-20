@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply, service::Admit};
 use mixdog_core_api::ids::{ConnectionId, Method, ThreadId};
+use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply, service::Admit};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -83,17 +83,11 @@ pub(crate) fn audio_extension(mime: &str) -> &'static str {
 }
 
 fn voice_error(detail: impl Into<String>) -> CoreError {
-    CoreError::CapabilityUnavailable {
-        capability: "voice".into(),
-        detail: detail.into().into(),
-    }
+    CoreError::CapabilityUnavailable { capability: "voice".into(), detail: detail.into().into() }
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
-    CoreError::InvalidParams {
-        path: path.into(),
-        expected: expected.into(),
-    }
+    CoreError::InvalidParams { path: path.into(), expected: expected.into() }
 }
 
 #[async_trait]
@@ -123,12 +117,7 @@ impl DomainService for VoiceService {
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &[
-            "voice/getVoiceStatus",
-            "voice/toggleVoice",
-            "voice/transcribeAudio",
-            "voice/prepareTranscription",
-        ]
+        &["voice/getVoiceStatus", "voice/toggleVoice", "voice/transcribeAudio", "voice/prepareTranscription"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
@@ -189,7 +178,6 @@ mod tests {
     }
 }
 
-
 impl VoiceService {
     pub fn new(pipeline: Arc<VoicePipeline>, setup: Arc<VoiceSetup>, hints: Arc<dyn ProgressHints>) -> Self {
         Self { pipeline, setup, hints }
@@ -207,12 +195,7 @@ impl VoiceService {
         }
         let mime = input.get("mimeType").and_then(Value::as_str).unwrap_or("audio/webm");
         let bytes = node_base64(data);
-        let path = std::env::temp_dir().join(format!(
-            "mixdog-dictation-{}-{}.{}",
-            std::process::id(),
-            uuid::Uuid::new_v4().simple(),
-            audio_extension(mime)
-        ));
+        let path = std::env::temp_dir().join(format!("mixdog-dictation-{}-{}.{}", std::process::id(), uuid::Uuid::new_v4().simple(), audio_extension(mime)));
         let lane = self.pipeline.lane();
         let target = path.clone();
         io_on_lane(lane, move || write_recording(&target, &bytes)).await.map_err(|e| voice_error(e.to_string()))?;
@@ -228,11 +211,7 @@ impl VoiceService {
     }
 
     fn require_dictation_enabled(&self, generation: u64) -> Result<(), CoreError> {
-        if self.pipeline.settings().enabled && self.setup.off_generation() == generation {
-            Ok(())
-        } else {
-            Err(voice_error(VOICE_DISABLED))
-        }
+        if self.pipeline.settings().enabled && self.setup.off_generation() == generation { Ok(()) } else { Err(voice_error(VOICE_DISABLED)) }
     }
 }
 

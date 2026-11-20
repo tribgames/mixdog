@@ -4,43 +4,21 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn fixture() -> std::path::PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-{nonce}"));
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(
-        root.join("src/main.ts"),
-        "import { answer } from './dep.js';\nexport function main() { return answer(); }\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("src/dep.ts"),
-        "export function answer() { return 42; }\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/main.ts"), "import { answer } from './dep.js';\nexport function main() { return answer(); }\n").unwrap();
+    fs::write(root.join("src/dep.ts"), "export function answer() { return 42; }\n").unwrap();
     fs::create_dir_all(root.join("java/com/acme")).unwrap();
-    fs::write(
-        root.join("java/com/acme/User.java"),
-        "package com.acme;\npublic class User { public void save() {} }\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("java/com/acme/Use.java"),
-        "package com.acme;\nimport com.acme.User;\npublic class Use { User user; }\n",
-    )
-    .unwrap();
+    fs::write(root.join("java/com/acme/User.java"), "package com.acme;\npublic class User { public void save() {} }\n").unwrap();
+    fs::write(root.join("java/com/acme/Use.java"), "package com.acme;\nimport com.acme.User;\npublic class Use { User user; }\n").unwrap();
     fs::write(root.join("ignored.txt"), "answer\n").unwrap();
     root
 }
 
 #[test]
 fn outline_mode_dumps_items_members_and_extra_rules() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-outline-{nonce}"));
     fs::create_dir_all(&root).unwrap();
     let source = "import { x } from './x.js';\nexport class Store {\n  read() {}\n}\n";
@@ -52,16 +30,10 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
     assert_eq!(file["file"], "a.ts");
     assert_eq!(file["lang"], "typescript");
     let items = file["items"].as_array().unwrap();
-    let import = items
-        .iter()
-        .find(|item| item["isImport"] == true)
-        .expect("import item");
+    let import = items.iter().find(|item| item["isImport"] == true).expect("import item");
     assert_eq!(import["symbolType"], "module");
     assert_eq!(import["name"], "'./x.js'");
-    let class = items
-        .iter()
-        .find(|item| item["symbolType"] == "class")
-        .expect("class item");
+    let class = items.iter().find(|item| item["symbolType"] == "class").expect("class item");
     assert_eq!(class["name"], "Store");
     assert_eq!(class["isExported"], true);
     assert_eq!(class["range"]["start"]["line"], 1);
@@ -89,21 +61,9 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
         "id: extra-ts-class\nlanguage: TypeScript\nrole: item\nsymbolType: struct\nrule:\n  kind: class_declaration\n  has:\n    field: name\n    pattern: $NAME\nname: extra-$NAME\n",
     )
     .unwrap();
-    let with_extra = run(
-        &root,
-        &[
-            "--outline",
-            "--rules",
-            rules.to_str().unwrap(),
-            "--files",
-            "a.ts",
-        ],
-        None,
-    );
+    let with_extra = run(&root, &["--outline", "--rules", rules.to_str().unwrap(), "--files", "a.ts"], None);
     let items = with_extra[0]["items"].as_array().unwrap();
-    assert!(items
-        .iter()
-        .any(|item| item["name"] == "extra-Store" && item["symbolType"] == "struct"));
+    assert!(items.iter().any(|item| item["name"] == "extra-Store" && item["symbolType"] == "struct"));
 
     fs::remove_dir_all(&root).unwrap();
 }
@@ -115,25 +75,16 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
 /// that member has.
 #[test]
 fn outline_member_ranges_span_each_member_declaration() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-member-range-{nonce}"));
     fs::create_dir_all(&root).unwrap();
     let sources: [(&str, &str); 4] = [
-        (
-            "store.ts",
-            "export class Store {\n  read(key: string) {\n    return key;\n  }\n}\nexport interface Host {\n  probe(id: number): void;\n}\n",
-        ),
+        ("store.ts", "export class Store {\n  read(key: string) {\n    return key;\n  }\n}\nexport interface Host {\n  probe(id: number): void;\n}\n"),
         (
             "lib.rs",
             "pub struct Store;\n\nimpl Store {\n    pub fn read(&self) -> u8 {\n        1\n    }\n}\n\npub trait Probe {\n    fn probe(&self) -> bool;\n}\n",
         ),
-        (
-            "User.java",
-            "package com.acme;\n\npublic class User {\n  public void save() {\n    return;\n  }\n}\n",
-        ),
+        ("User.java", "package com.acme;\n\npublic class User {\n  public void save() {\n    return;\n  }\n}\n"),
         ("store.py", "class Store:\n    def read(self):\n        return 1\n"),
     ];
     for (name, source) in sources {
@@ -142,10 +93,7 @@ fn outline_member_ranges_span_each_member_declaration() {
 
     let lines = run(&root, &["--outline"], None);
     let member = |file: &str, name: &str| -> serde_json::Value {
-        let record = lines
-            .iter()
-            .find(|line| line["file"] == file)
-            .unwrap_or_else(|| panic!("no record for {file} in {lines:?}"));
+        let record = lines.iter().find(|line| line["file"] == file).unwrap_or_else(|| panic!("no record for {file} in {lines:?}"));
         record["items"]
             .as_array()
             .unwrap()
@@ -158,36 +106,12 @@ fn outline_member_ranges_span_each_member_declaration() {
 
     // (file, member, start line, end line, the declaration the range covers)
     let cases: [(&str, &str, u64, u64, &str); 6] = [
-        (
-            "store.ts",
-            "read",
-            1,
-            3,
-            "read(key: string) {\n    return key;\n  }",
-        ),
+        ("store.ts", "read", 1, 3, "read(key: string) {\n    return key;\n  }"),
         ("store.ts", "probe", 6, 6, "probe(id: number): void"),
-        (
-            "lib.rs",
-            "read",
-            3,
-            5,
-            "pub fn read(&self) -> u8 {\n        1\n    }",
-        ),
+        ("lib.rs", "read", 3, 5, "pub fn read(&self) -> u8 {\n        1\n    }"),
         ("lib.rs", "probe", 9, 9, "fn probe(&self) -> bool;"),
-        (
-            "User.java",
-            "save",
-            3,
-            5,
-            "public void save() {\n    return;\n  }",
-        ),
-        (
-            "store.py",
-            "read",
-            1,
-            2,
-            "def read(self):\n        return 1",
-        ),
+        ("User.java", "save", 3, 5, "public void save() {\n    return;\n  }"),
+        ("store.py", "read", 1, 2, "def read(self):\n        return 1"),
     ];
     for (file, name, start, end, declaration) in cases {
         let found = member(file, name);
@@ -210,10 +134,7 @@ fn outline_member_ranges_span_each_member_declaration() {
 /// both name their enclosing declaration as `parent`.
 #[test]
 fn object_literal_and_signature_methods_reach_the_record() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-methods-{nonce}"));
     fs::create_dir_all(&root).unwrap();
     fs::write(
@@ -234,10 +155,7 @@ fn object_literal_and_signature_methods_reach_the_record() {
     let signature = named("preflightSteps", 2);
     assert_eq!(signature["kind"], "method");
     assert_eq!(signature["parent"], "SequenceRunnerHost");
-    assert_eq!(
-        signature["sig"],
-        "preflightSteps?(command: string, steps: string[]): Promise<void>"
-    );
+    assert_eq!(signature["sig"], "preflightSteps?(command: string, steps: string[]): Promise<void>");
     assert!(signature.get("exported").is_none(), "{signature}");
 
     let property = named("preflightSteps", 9);
@@ -250,12 +168,7 @@ fn object_literal_and_signature_methods_reach_the_record() {
     // (`authHeaders(key, { … })`) is a computed value, not a factory, and an
     // object literal value is data.
     assert!(
-        !symbols.iter().any(|symbol| {
-            matches!(
-                symbol["name"].as_str(),
-                Some("label" | "flag" | "onClick" | "headers" | "style" | "Accept" | "color")
-            )
-        }),
+        !symbols.iter().any(|symbol| { matches!(symbol["name"].as_str(), Some("label" | "flag" | "onClick" | "headers" | "style" | "Accept" | "color")) }),
         "{symbols:?}"
     );
 
@@ -270,20 +183,11 @@ fn run(root: &std::path::Path, args: &[&str], stdin: Option<&str>) -> Vec<serde_
     }
     let mut child = command.spawn().unwrap();
     if let Some(input) = stdin {
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
     }
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+    String::from_utf8(output.stdout).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect()
 }
 
 #[test]
@@ -297,18 +201,10 @@ fn files_mode_rejects_malformed_reused_jsonl() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"{not-json}\n")
-        .unwrap();
+    child.stdin.take().unwrap().write_all(b"{not-json}\n").unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(!output.status.success(), "{output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("invalid reused JSONL at line 1"),
-        "{output:?}",
-    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid reused JSONL at line 1"), "{output:?}",);
 }
 
 #[test]
@@ -317,11 +213,7 @@ fn manifest_files_walk_and_search_remain_jsonl() {
 
     let manifest = run(&root, &["--manifest"], None);
     assert_eq!(manifest.len(), 4);
-    assert!(manifest.iter().all(|v| {
-        v["fp"].as_str().unwrap().len() == 16
-            && v["size"].as_u64().unwrap() > 0
-            && v["tokens"] == serde_json::json!([])
-    }));
+    assert!(manifest.iter().all(|v| { v["fp"].as_str().unwrap().len() == 16 && v["size"].as_u64().unwrap() > 0 && v["tokens"] == serde_json::json!([]) }));
 
     let walk = run(&root, &[], None);
     let main = walk.iter().find(|v| v["rel"] == "src/main.ts").unwrap();
@@ -334,21 +226,11 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     assert!(symbols.iter().any(|s| s["name"] == "main"));
     for symbol in symbols {
         let object = symbol.as_object().unwrap();
-        let keys = object
-            .keys()
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>();
-        let required: std::collections::BTreeSet<&str> =
-            ["endCol", "endLine", "kind", "name", "startCol", "startLine"]
-                .into_iter()
-                .collect();
+        let keys = object.keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>();
+        let required: std::collections::BTreeSet<&str> = ["endCol", "endLine", "kind", "name", "startCol", "startLine"].into_iter().collect();
         assert!(required.is_subset(&keys), "{symbol}");
-        let optional: std::collections::BTreeSet<&str> =
-            ["exported", "sig", "parent"].into_iter().collect();
-        assert!(
-            keys.difference(&required).all(|key| optional.contains(key)),
-            "unknown symbol field: {symbol}"
-        );
+        let optional: std::collections::BTreeSet<&str> = ["exported", "sig", "parent"].into_iter().collect();
+        assert!(keys.difference(&required).all(|key| optional.contains(key)), "unknown symbol field: {symbol}");
         assert!(symbol["name"].is_string() && symbol["kind"].is_string());
         for field in ["endLine", "startLine", "startCol", "endCol"] {
             assert!(symbol[field].as_u64().is_some(), "{field}: {symbol}");
@@ -359,10 +241,7 @@ fn manifest_files_walk_and_search_remain_jsonl() {
         }
         for field in ["sig", "parent"] {
             if let Some(value) = symbol.get(field) {
-                assert!(
-                    value.as_str().is_some_and(|text| !text.is_empty()),
-                    "{field} is omitted when empty: {symbol}"
-                );
+                assert!(value.as_str().is_some_and(|text| !text.is_empty()), "{field} is omitted when empty: {symbol}");
             }
         }
     }
@@ -372,45 +251,19 @@ fn manifest_files_walk_and_search_remain_jsonl() {
         "lang": "typescript",
         "rawImports": []
     });
-    let files = run(
-        &root,
-        &["--files", "src/main.ts"],
-        Some(&format!("{reused}\n")),
-    );
+    let files = run(&root, &["--files", "src/main.ts"], Some(&format!("{reused}\n")));
     assert_eq!(files.len(), 2);
-    assert_eq!(
-        files.iter().find(|v| v["rel"] == "src/main.ts").unwrap()["resolvedImports"],
-        serde_json::json!(["src/dep.ts"])
-    );
-    assert_eq!(
-        files.iter().find(|v| v["rel"] == "src/dep.ts").unwrap()["importedBy"],
-        serde_json::json!(["src/main.ts"])
-    );
+    assert_eq!(files.iter().find(|v| v["rel"] == "src/main.ts").unwrap()["resolvedImports"], serde_json::json!(["src/dep.ts"]));
+    assert_eq!(files.iter().find(|v| v["rel"] == "src/dep.ts").unwrap()["importedBy"], serde_json::json!(["src/main.ts"]));
 
     let reused_importer = serde_json::json!({
         "rel": "src/main.ts",
         "lang": "typescript",
         "rawImports": ["./dep.js"]
     });
-    let reused_links = run(
-        &root,
-        &["--files", "src/dep.ts"],
-        Some(&format!("{reused_importer}\n")),
-    );
-    assert_eq!(
-        reused_links
-            .iter()
-            .find(|v| v["rel"] == "src/main.ts")
-            .unwrap()["resolvedImports"],
-        serde_json::json!(["src/dep.ts"])
-    );
-    assert_eq!(
-        reused_links
-            .iter()
-            .find(|v| v["rel"] == "src/dep.ts")
-            .unwrap()["importedBy"],
-        serde_json::json!(["src/main.ts"])
-    );
+    let reused_links = run(&root, &["--files", "src/dep.ts"], Some(&format!("{reused_importer}\n")));
+    assert_eq!(reused_links.iter().find(|v| v["rel"] == "src/main.ts").unwrap()["resolvedImports"], serde_json::json!(["src/dep.ts"]));
+    assert_eq!(reused_links.iter().find(|v| v["rel"] == "src/dep.ts").unwrap()["importedBy"], serde_json::json!(["src/main.ts"]));
 
     let reused_java = serde_json::json!({
         "rel": "java/com/acme/User.java",
@@ -419,54 +272,29 @@ fn manifest_files_walk_and_search_remain_jsonl() {
         "packageName": "com.acme",
         "topLevelTypes": ["User"]
     });
-    let indexed = run(
-        &root,
-        &["--files", "java/com/acme/Use.java"],
-        Some(&format!("{reused_java}\n")),
-    );
-    let use_java = indexed
-        .iter()
-        .find(|v| v["rel"] == "java/com/acme/Use.java")
-        .unwrap();
-    let user_java = indexed
-        .iter()
-        .find(|v| v["rel"] == "java/com/acme/User.java")
-        .unwrap();
-    assert_eq!(
-        use_java["resolvedImports"],
-        serde_json::json!(["java/com/acme/User.java"])
-    );
-    assert_eq!(
-        user_java["importedBy"],
-        serde_json::json!(["java/com/acme/Use.java"])
-    );
+    let indexed = run(&root, &["--files", "java/com/acme/Use.java"], Some(&format!("{reused_java}\n")));
+    let use_java = indexed.iter().find(|v| v["rel"] == "java/com/acme/Use.java").unwrap();
+    let user_java = indexed.iter().find(|v| v["rel"] == "java/com/acme/User.java").unwrap();
+    assert_eq!(use_java["resolvedImports"], serde_json::json!(["java/com/acme/User.java"]));
+    assert_eq!(user_java["importedBy"], serde_json::json!(["java/com/acme/Use.java"]));
 
     let hits = run(&root, &["answer"], None);
     assert_eq!(hits.len(), 3);
-    assert!(hits
-        .iter()
-        .all(|v| v["rel"].as_str().unwrap().ends_with(".ts")));
+    assert!(hits.iter().all(|v| v["rel"].as_str().unwrap().ends_with(".ts")));
 
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn rust_python_tsconfig_and_hash_imports_resolve() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-holes-{nonce}"));
     fs::create_dir_all(root.join("src/pkg")).unwrap();
     fs::create_dir_all(root.join("src/nested")).unwrap();
     fs::create_dir_all(root.join("apps/web")).unwrap();
 
     fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
-    fs::write(
-        root.join("src/lib.rs"),
-        "mod helper;\nuse crate::helper;\nuse crate::{helper as h, nested};\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/lib.rs"), "mod helper;\nuse crate::helper;\nuse crate::{helper as h, nested};\n").unwrap();
     fs::write(root.join("src/helper.rs"), "pub fn go() {}\n").unwrap();
     fs::write(root.join("src/nested/mod.rs"), "pub fn n() {}\n").unwrap();
     fs::write(root.join("src/nested/child.rs"), "use super::n;\n").unwrap();
@@ -475,63 +303,26 @@ fn rust_python_tsconfig_and_hash_imports_resolve() {
     fs::write(root.join("src/pkg/mod.py"), "from pkg import x\n").unwrap();
     fs::write(root.join("app.py"), "import pkg.mod\n").unwrap();
 
-    fs::write(
-        root.join("tsconfig.base.json"),
-        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join("apps/web/tsconfig.json"),
-        r#"{ "extends": "../../tsconfig.base.json" }"#,
-    )
-    .unwrap();
+    fs::write(root.join("tsconfig.base.json"), r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#).unwrap();
+    fs::write(root.join("apps/web/tsconfig.json"), r#"{ "extends": "../../tsconfig.base.json" }"#).unwrap();
     fs::write(root.join("src/util.ts"), "export const n = 1;\n").unwrap();
-    fs::write(
-        root.join("apps/web/app.ts"),
-        "import { n } from '@/util';\n",
-    )
-    .unwrap();
+    fs::write(root.join("apps/web/app.ts"), "import { n } from '@/util';\n").unwrap();
 
-    fs::write(
-        root.join("package.json"),
-        r##"{"name":"demo","imports":{"#lib/*":"./src/*"}}"##,
-    )
-    .unwrap();
+    fs::write(root.join("package.json"), r##"{"name":"demo","imports":{"#lib/*":"./src/*"}}"##).unwrap();
     fs::write(root.join("src/hash.ts"), "import { n } from '#lib/util';\n").unwrap();
 
     fs::write(root.join("src/types.pyi"), "def typed() -> int: ...\n").unwrap();
     fs::write(root.join("src/box.hh"), "struct Box;\n").unwrap();
 
     let walk = run(&root, &[], None);
-    let find = |rel: &str| {
-        walk.iter()
-            .find(|v| v["rel"] == rel)
-            .unwrap_or_else(|| panic!("missing {rel} in {walk:?}"))
-    };
+    let find = |rel: &str| walk.iter().find(|v| v["rel"] == rel).unwrap_or_else(|| panic!("missing {rel} in {walk:?}"));
 
-    let lib_imports = find("src/lib.rs")["resolvedImports"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap())
-        .collect::<Vec<_>>();
+    let lib_imports = find("src/lib.rs")["resolvedImports"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect::<Vec<_>>();
     assert!(lib_imports.contains(&"src/helper.rs"), "{lib_imports:?}");
-    assert!(
-        lib_imports.contains(&"src/nested/mod.rs"),
-        "{lib_imports:?}"
-    );
-    assert_eq!(
-        find("app.py")["resolvedImports"],
-        serde_json::json!(["src/pkg/mod.py"])
-    );
-    assert_eq!(
-        find("apps/web/app.ts")["resolvedImports"],
-        serde_json::json!(["src/util.ts"])
-    );
-    assert_eq!(
-        find("src/hash.ts")["resolvedImports"],
-        serde_json::json!(["src/util.ts"])
-    );
+    assert!(lib_imports.contains(&"src/nested/mod.rs"), "{lib_imports:?}");
+    assert_eq!(find("app.py")["resolvedImports"], serde_json::json!(["src/pkg/mod.py"]));
+    assert_eq!(find("apps/web/app.ts")["resolvedImports"], serde_json::json!(["src/util.ts"]));
+    assert_eq!(find("src/hash.ts")["resolvedImports"], serde_json::json!(["src/util.ts"]));
     assert!(walk.iter().any(|v| v["rel"] == "src/types.pyi"));
     assert!(walk.iter().any(|v| v["rel"] == "src/box.hh"));
 
@@ -584,10 +375,7 @@ fn a_panicking_handler_is_isolated_and_the_server_keeps_serving() {
     let mut stdin = child.stdin.take().unwrap();
     let mut ready = String::new();
     stdout.read_line(&mut ready).unwrap();
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"],
-        true
-    );
+    assert_eq!(serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"], true);
 
     let search = |id: u64| {
         serde_json::json!({
@@ -604,12 +392,7 @@ fn a_panicking_handler_is_isolated_and_the_server_keeps_serving() {
     writeln!(stdin, "{}", search(41)).unwrap();
     stdin.flush().unwrap();
     let panicked = read_search_response(&mut stdout, 41);
-    assert!(
-        panicked["unsupported"]
-            .as_str()
-            .is_some_and(|reason| reason.contains("panicked; request isolated")),
-        "{panicked}"
-    );
+    assert!(panicked["unsupported"].as_str().is_some_and(|reason| reason.contains("panicked; request isolated")), "{panicked}");
 
     // The next request proves the process survived with its engine intact,
     // not merely that one error line was written.
@@ -618,16 +401,8 @@ fn a_panicking_handler_is_isolated_and_the_server_keeps_serving() {
     let served = read_search_response(&mut stdout, 42);
     assert!(served.get("unsupported").is_none(), "{served}");
     assert!(served.get("error").is_none(), "{served}");
-    assert!(
-        served["lines"]
-            .as_array()
-            .is_some_and(|lines| !lines.is_empty()),
-        "{served}"
-    );
-    assert!(
-        child.try_wait().unwrap().is_none(),
-        "search server exited on a handler panic"
-    );
+    assert!(served["lines"].as_array().is_some_and(|lines| !lines.is_empty()), "{served}");
+    assert!(child.try_wait().unwrap().is_none(), "search server exited on a handler panic");
 
     drop(stdin);
     assert!(child.wait().unwrap().success());
@@ -655,11 +430,7 @@ fn read_search_response<R: BufRead>(stdout: &mut R, id: u64) -> serde_json::Valu
 fn serve_search_limited_grep_returns_window_without_full_scan() {
     let root = fixture();
     for index in 0..8 {
-        fs::write(
-            root.join("src").join(format!("hit-{index}.ts")),
-            "export const needle = true;\n",
-        )
-        .unwrap();
+        fs::write(root.join("src").join(format!("hit-{index}.ts")), "export const needle = true;\n").unwrap();
     }
     let response = serve_search(
         &root,
@@ -683,9 +454,7 @@ fn serve_search_limited_grep_returns_window_without_full_scan() {
     assert_eq!(response["id"], 7);
     let lines = response["lines"].as_array().unwrap();
     assert_eq!(lines.len(), 3);
-    assert!(lines
-        .iter()
-        .all(|line| line.as_str().unwrap().contains("needle")));
+    assert!(lines.iter().all(|line| line.as_str().unwrap().contains("needle")));
     assert_eq!(response["complete"], false);
     assert!(response["totalSeen"].as_u64().unwrap() >= 3);
     fs::remove_dir_all(root).unwrap();
@@ -712,14 +481,8 @@ fn serve_search_inventory_can_include_directories() {
         }),
     );
     let lines = response["lines"].as_array().unwrap();
-    assert!(lines.iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.ends_with("src") || line.ends_with("src/"))
-    }));
-    assert!(lines.iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.ends_with("src/nested") || line.ends_with(r"src\nested"))
-    }));
+    assert!(lines.iter().any(|line| { line.as_str().is_some_and(|line| line.ends_with("src") || line.ends_with("src/")) }));
+    assert!(lines.iter().any(|line| { line.as_str().is_some_and(|line| line.ends_with("src/nested") || line.ends_with(r"src\nested")) }));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -727,11 +490,7 @@ fn serve_search_inventory_can_include_directories() {
 fn serve_search_reuses_file_list_across_requests() {
     let root = fixture();
     for index in 0..6 {
-        fs::write(
-            root.join("src").join(format!("hit-{index}.ts")),
-            "export const needle = true;\nexport const other = false;\n",
-        )
-        .unwrap();
+        fs::write(root.join("src").join(format!("hit-{index}.ts")), "export const needle = true;\nexport const other = false;\n").unwrap();
     }
     let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
         .arg(&root)
@@ -773,32 +532,16 @@ fn serve_search_reuses_file_list_across_requests() {
     assert_eq!(second_json["id"], 2);
     assert!(first_json["lines"].as_array().unwrap().len() >= 6);
     assert_eq!(second_json["lines"].as_array().unwrap().len(), 2);
-    assert!(first_json["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|line| line.as_str().unwrap().contains("needle")));
-    assert!(second_json["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|line| line.as_str().unwrap().contains("other")));
+    assert!(first_json["lines"].as_array().unwrap().iter().all(|line| line.as_str().unwrap().contains("needle")));
+    assert!(second_json["lines"].as_array().unwrap().iter().all(|line| line.as_str().unwrap().contains("other")));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn serve_search_shared_inventory_preserves_request_globs() {
     let root = fixture();
-    fs::write(
-        root.join("src/filter-hit.rs"),
-        "const needle: bool = true;\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("src/filter-hit.ts"),
-        "export const needle = true;\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/filter-hit.rs"), "const needle: bool = true;\n").unwrap();
+    fs::write(root.join("src/filter-hit.ts"), "export const needle = true;\n").unwrap();
     let response = serve_search(
         &root,
         serde_json::json!({
@@ -854,32 +597,17 @@ fn serve_search_exact_file_uses_parent_as_glob_root() {
     );
     let lines = response["lines"].as_array().unwrap();
     assert!(!lines.is_empty());
-    assert!(lines
-        .iter()
-        .all(|line| line.as_str().is_some_and(|line| line.contains("dep.ts:"))));
+    assert!(lines.iter().all(|line| line.as_str().is_some_and(|line| line.contains("dep.ts:"))));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     let root = fixture();
-    fs::write(
-        root.join("src/engine.ts"),
-        "first needle value\nsecond needle value\nmulti start\nmulti end\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/engine.ts"), "first needle value\nsecond needle value\nmulti start\nmulti end\n").unwrap();
     fs::write(root.join("src/engine.rs"), "needle rust\n").unwrap();
     let request = |id: u64, extra: &[&str], pattern: &str| {
-        let mut args = vec![
-            "--color",
-            "never",
-            "--hidden",
-            "--no-heading",
-            "-H",
-            "--line-number",
-            "--max-columns=500",
-            "--max-columns-preview",
-        ];
+        let mut args = vec!["--color", "never", "--hidden", "--no-heading", "-H", "--line-number", "--max-columns=500", "--max-columns-preview"];
         args.extend_from_slice(extra);
         args.extend_from_slice(&["-e", pattern, "--", "."]);
         serve_search(
@@ -895,17 +623,10 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     };
 
     let only = request(20, &["--only-matching"], "needle");
-    assert!(only["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|line| { line.as_str().unwrap().ends_with(":needle") }));
+    assert!(only["lines"].as_array().unwrap().iter().all(|line| { line.as_str().unwrap().ends_with(":needle") }));
 
     let count = request(21, &["--count"], "needle");
-    assert!(count["lines"].as_array().unwrap().iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.ends_with("engine.ts:2"))
-    }));
+    assert!(count["lines"].as_array().unwrap().iter().any(|line| { line.as_str().is_some_and(|line| line.ends_with("engine.ts:2")) }));
 
     let typed = request(22, &["--type", "typescript"], "needle");
     assert!(typed["lines"].as_array().unwrap().iter().all(|line| {
@@ -914,16 +635,10 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     }));
 
     let multiline = request(23, &["-U", "--multiline-dotall"], "multi start.*multi end");
-    assert!(multiline["lines"].as_array().unwrap().iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.contains("multi start"))
-    }));
+    assert!(multiline["lines"].as_array().unwrap().iter().any(|line| { line.as_str().is_some_and(|line| line.contains("multi start")) }));
 
     let pcre = request(24, &["-P"], "(?<=needle )value");
-    assert!(pcre["lines"].as_array().unwrap().iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.contains("needle value"))
-    }));
+    assert!(pcre["lines"].as_array().unwrap().iter().any(|line| { line.as_str().is_some_and(|line| line.contains("needle value")) }));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -949,20 +664,14 @@ fn serve_search_preserves_regex_parse_errors_for_native_recovery() {
             "limit": 20
         }),
     );
-    assert!(response["unsupported"]
-        .as_str()
-        .is_some_and(|message| message.contains("regex parse error")));
+    assert!(response["unsupported"].as_str().is_some_and(|message| message.contains("regex parse error")));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn serve_search_accepts_internal_find_files_glob_order() {
     let root = fixture();
-    fs::write(
-        root.join("src/engine-target.ts"),
-        "export const needle = true;\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/engine-target.ts"), "export const needle = true;\n").unwrap();
     fs::write(root.join("src/other.ts"), "export const other = true;\n").unwrap();
     let response = serve_search(
         &root,
@@ -984,14 +693,8 @@ fn serve_search_accepts_internal_find_files_glob_order() {
     );
     assert!(response.get("unsupported").is_none());
     let lines = response["lines"].as_array().unwrap();
-    assert!(lines.iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.replace('\\', "/").ends_with("src/engine-target.ts"))
-    }));
-    assert!(!lines.iter().any(|line| {
-        line.as_str()
-            .is_some_and(|line| line.replace('\\', "/").ends_with("src/other.ts"))
-    }));
+    assert!(lines.iter().any(|line| { line.as_str().is_some_and(|line| line.replace('\\', "/").ends_with("src/engine-target.ts")) }));
+    assert!(!lines.iter().any(|line| { line.as_str().is_some_and(|line| line.replace('\\', "/").ends_with("src/other.ts")) }));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -999,11 +702,7 @@ fn serve_search_accepts_internal_find_files_glob_order() {
 fn serve_search_accepts_hundreds_of_parallel_requests() {
     let root = fixture();
     for index in 0..32 {
-        fs::write(
-            root.join("src").join(format!("parallel-{index}.ts")),
-            format!("export const needle_{index} = true;\n"),
-        )
-        .unwrap();
+        fs::write(root.join("src").join(format!("parallel-{index}.ts")), format!("export const needle_{index} = true;\n")).unwrap();
     }
     let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
         .arg(&root)
@@ -1065,18 +764,8 @@ fn serve_search_inventory_mtime_top_k_is_globally_ordered() {
     fs::write(&new, "new\n").unwrap();
     let old_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
     let new_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(20);
-    fs::OpenOptions::new()
-        .write(true)
-        .open(&old)
-        .unwrap()
-        .set_times(std::fs::FileTimes::new().set_modified(old_time))
-        .unwrap();
-    fs::OpenOptions::new()
-        .write(true)
-        .open(&new)
-        .unwrap()
-        .set_times(std::fs::FileTimes::new().set_modified(new_time))
-        .unwrap();
+    fs::OpenOptions::new().write(true).open(&old).unwrap().set_times(std::fs::FileTimes::new().set_modified(old_time)).unwrap();
+    fs::OpenOptions::new().write(true).open(&new).unwrap().set_times(std::fs::FileTimes::new().set_modified(new_time)).unwrap();
     let response = serve_search(
         &root,
         serde_json::json!({
@@ -1124,11 +813,7 @@ fn serve_search_returns_batched_list_metadata() {
 #[test]
 fn serve_search_fuzzy_returns_native_top_k() {
     let root = fixture();
-    fs::write(
-        root.join("src").join("parallel-runtime.rs"),
-        "fn main() {}\n",
-    )
-    .unwrap();
+    fs::write(root.join("src").join("parallel-runtime.rs"), "fn main() {}\n").unwrap();
     let response = serve_search(
         &root,
         serde_json::json!({
@@ -1148,21 +833,14 @@ fn serve_search_fuzzy_returns_native_top_k() {
     assert!(response["rankMs"].as_f64().unwrap() >= 0.0);
     let matches = response["matches"].as_array().unwrap();
     assert!(!matches.is_empty());
-    assert!(matches.iter().any(|path| {
-        path.as_str()
-            .is_some_and(|path| path.ends_with("parallel-runtime.rs"))
-    }));
+    assert!(matches.iter().any(|path| { path.as_str().is_some_and(|path| path.ends_with("parallel-runtime.rs")) }));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn serve_search_fuzzy_multi_token_and_matches_every_fragment() {
     let root = fixture();
-    fs::write(
-        root.join("src").join("search-native-client.rs"),
-        "fn main() {}\n",
-    )
-    .unwrap();
+    fs::write(root.join("src").join("search-native-client.rs"), "fn main() {}\n").unwrap();
     fs::write(root.join("src").join("search-only.rs"), "fn main() {}\n").unwrap();
     let response = serve_search(
         &root,
@@ -1177,14 +855,8 @@ fn serve_search_fuzzy_multi_token_and_matches_every_fragment() {
     );
     assert!(response["complete"].as_bool().unwrap());
     let matches = response["matches"].as_array().unwrap();
-    assert!(matches.iter().any(|path| {
-        path.as_str()
-            .is_some_and(|path| path.ends_with("search-native-client.rs"))
-    }));
-    assert!(!matches.iter().any(|path| {
-        path.as_str()
-            .is_some_and(|path| path.ends_with("search-only.rs"))
-    }));
+    assert!(matches.iter().any(|path| { path.as_str().is_some_and(|path| path.ends_with("search-native-client.rs")) }));
+    assert!(!matches.iter().any(|path| { path.as_str().is_some_and(|path| path.ends_with("search-only.rs")) }));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1230,19 +902,13 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
         let child = std::sync::Arc::clone(&child);
         let timed_out = std::sync::Arc::clone(&timed_out);
         std::thread::spawn(move || {
-            if deadline.recv_timeout(std::time::Duration::from_secs(10))
-                == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-            {
+            if deadline.recv_timeout(std::time::Duration::from_secs(10)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
                 timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
                 let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
             }
         })
     };
-    let _guard = ServerGuard {
-        child: std::sync::Arc::clone(&child),
-        done: Some(done),
-        watchdog: Some(watchdog),
-    };
+    let _guard = ServerGuard { child: std::sync::Arc::clone(&child), done: Some(done), watchdog: Some(watchdog) };
     let mut ready = String::new();
     stdout.read_line(&mut ready).unwrap();
     let request = |id: u64| {
@@ -1293,10 +959,7 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
     }
     writeln!(stdin, "{}", request(2)).unwrap();
     let second = read_search_response(&mut stdout, 2);
-    let found = second["matches"].as_array().unwrap().iter().any(|path| {
-        path.as_str()
-            .is_some_and(|path| path.ends_with("watcher-created.rs"))
-    });
+    let found = second["matches"].as_array().unwrap().iter().any(|path| path.as_str().is_some_and(|path| path.ends_with("watcher-created.rs")));
     // Shutdown stays bounded: closing stdin must end the server, which closes
     // its stdout (the watchdog ends this read if it does not). The exit is
     // then polled with the lock released between polls, so the watchdog and
@@ -1310,16 +973,10 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
         if let Some(status) = exited {
             break status;
         }
-        assert!(
-            std::time::Instant::now() < shutdown_deadline,
-            "server did not exit within 10s of stdin closing"
-        );
+        assert!(std::time::Instant::now() < shutdown_deadline, "server did not exit within 10s of stdin closing");
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
-    assert!(
-        !timed_out.load(std::sync::atomic::Ordering::SeqCst),
-        "server did not shut down within 10s of stdin closing"
-    );
+    assert!(!timed_out.load(std::sync::atomic::Ordering::SeqCst), "server did not shut down within 10s of stdin closing");
     assert!(status.success());
     assert!(found, "watcher did not invalidate the native inventory");
     fs::remove_dir_all(root).unwrap();
@@ -1329,11 +986,7 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
 fn serve_search_parallel_load_keeps_one_server_responsive() {
     let root = fixture();
     for index in 0..512 {
-        fs::write(
-            root.join("src").join(format!("load-{index:04}.rs")),
-            format!("pub const NEEDLE_{index}: &str = \"needle\";\n"),
-        )
-        .unwrap();
+        fs::write(root.join("src").join(format!("load-{index:04}.rs")), format!("pub const NEEDLE_{index}: &str = \"needle\";\n")).unwrap();
     }
     let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
         .arg(&root)
@@ -1347,10 +1000,7 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
     let mut stdin = child.stdin.take().unwrap();
     let mut ready = String::new();
     stdout.read_line(&mut ready).unwrap();
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"],
-        true
-    );
+    assert_eq!(serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"], true);
 
     const REQUESTS: u64 = 96;
     for id in 1..=REQUESTS {
@@ -1425,24 +1075,12 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
         classes.insert(response["class"].as_str().unwrap().to_string());
         queue_ms.push(response["queueMs"].as_u64().unwrap());
     }
-    assert_eq!(
-        classes,
-        ["interactive", "fuzzy", "bulk"]
-            .into_iter()
-            .map(str::to_string)
-            .collect()
-    );
+    assert_eq!(classes, ["interactive", "fuzzy", "bulk"].into_iter().map(str::to_string).collect());
     queue_ms.sort_unstable();
     let p95 = queue_ms[(queue_ms.len() * 95 / 100).min(queue_ms.len() - 1)];
     assert!(p95 < 10_000, "queue p95 too high: {p95}ms");
-    assert!(
-        child.try_wait().unwrap().is_none(),
-        "search server exited under load"
-    );
-    assert!(
-        cancel_elapsed.unwrap() < std::time::Duration::from_secs(1),
-        "cancel acknowledgement exceeded 1s"
-    );
+    assert!(child.try_wait().unwrap().is_none(), "search server exited under load");
+    assert!(cancel_elapsed.unwrap() < std::time::Duration::from_secs(1), "cancel acknowledgement exceeded 1s");
 
     drop(stdin);
     let status = child.wait().unwrap();
@@ -1452,10 +1090,7 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
 
 #[test]
 fn convention_imports_resolve_across_languages() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-langs-{nonce}"));
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join("lib/foo")).unwrap();
@@ -1463,17 +1098,9 @@ fn convention_imports_resolve_across_languages() {
     fs::create_dir_all(root.join("Sources/Foo")).unwrap();
     fs::create_dir_all(root.join("com/acme")).unwrap();
 
-    fs::write(
-        root.join("composer.json"),
-        r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#,
-    )
-    .unwrap();
+    fs::write(root.join("composer.json"), r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#).unwrap();
     fs::write(root.join("src/User.php"), "<?php\nclass User {}\n").unwrap();
-    fs::write(
-        root.join("src/boot.php"),
-        "<?php\nuse App\\User;\nrequire './User.php';\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/boot.php"), "<?php\nuse App\\User;\nrequire './User.php';\n").unwrap();
 
     fs::write(root.join("pubspec.yaml"), "name: demo\n").unwrap();
     fs::create_dir_all(root.join("lib")).unwrap();
@@ -1481,18 +1108,10 @@ fn convention_imports_resolve_across_languages() {
     fs::write(root.join("lib/b.dart"), "import 'package:demo/a.dart';\n").unwrap();
 
     fs::write(root.join("lib/foo/bar.ex"), "defmodule Foo.Bar do\nend\n").unwrap();
-    fs::write(
-        root.join("lib/foo/use.ex"),
-        "defmodule Foo.Use do\n  alias Foo.Bar\nend\n",
-    )
-    .unwrap();
+    fs::write(root.join("lib/foo/use.ex"), "defmodule Foo.Use do\n  alias Foo.Bar\nend\n").unwrap();
 
     fs::write(root.join("util.zig"), "pub const n = 1;\n").unwrap();
-    fs::write(
-        root.join("main.zig"),
-        "const util = @import(\"util.zig\");\n",
-    )
-    .unwrap();
+    fs::write(root.join("main.zig"), "const util = @import(\"util.zig\");\n").unwrap();
 
     fs::write(root.join("Foo.h"), "@interface Foo\n@end\n").unwrap();
     fs::write(root.join("main.m"), "#import \"Foo.h\"\n").unwrap();
@@ -1500,59 +1119,26 @@ fn convention_imports_resolve_across_languages() {
     fs::write(root.join("Sources/Foo/Foo.swift"), "public struct Foo {}\n").unwrap();
     fs::write(root.join("Sources/Foo/Use.swift"), "import Foo\n").unwrap();
 
-    fs::write(
-        root.join("com/acme/User.scala"),
-        "package com.acme\nclass User\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("com/acme/Use.scala"),
-        "package com.acme\nimport com.acme.User\n",
-    )
-    .unwrap();
+    fs::write(root.join("com/acme/User.scala"), "package com.acme\nclass User\n").unwrap();
+    fs::write(root.join("com/acme/Use.scala"), "package com.acme\nimport com.acme.User\n").unwrap();
 
     let walk = run(&root, &[], None);
     let find = |rel: &str| walk.iter().find(|v| v["rel"] == rel).unwrap();
 
-    assert_eq!(
-        find("src/boot.php")["resolvedImports"],
-        serde_json::json!(["src/User.php"])
-    );
-    assert_eq!(
-        find("lib/b.dart")["resolvedImports"],
-        serde_json::json!(["lib/a.dart"])
-    );
-    assert_eq!(
-        find("lib/foo/use.ex")["resolvedImports"],
-        serde_json::json!(["lib/foo/bar.ex"])
-    );
-    assert_eq!(
-        find("main.zig")["resolvedImports"],
-        serde_json::json!(["util.zig"])
-    );
-    assert_eq!(
-        find("main.m")["resolvedImports"],
-        serde_json::json!(["Foo.h"])
-    );
-    assert!(find("Sources/Foo/Use.swift")["resolvedImports"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v == "Sources/Foo/Foo.swift"));
-    assert_eq!(
-        find("com/acme/Use.scala")["resolvedImports"],
-        serde_json::json!(["com/acme/User.scala"])
-    );
+    assert_eq!(find("src/boot.php")["resolvedImports"], serde_json::json!(["src/User.php"]));
+    assert_eq!(find("lib/b.dart")["resolvedImports"], serde_json::json!(["lib/a.dart"]));
+    assert_eq!(find("lib/foo/use.ex")["resolvedImports"], serde_json::json!(["lib/foo/bar.ex"]));
+    assert_eq!(find("main.zig")["resolvedImports"], serde_json::json!(["util.zig"]));
+    assert_eq!(find("main.m")["resolvedImports"], serde_json::json!(["Foo.h"]));
+    assert!(find("Sources/Foo/Use.swift")["resolvedImports"].as_array().unwrap().iter().any(|v| v == "Sources/Foo/Foo.swift"));
+    assert_eq!(find("com/acme/Use.scala")["resolvedImports"], serde_json::json!(["com/acme/User.scala"]));
 
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn everyday_aliases_mods_headers_and_brace_use_resolve() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-polish-{nonce}"));
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join("include/acme")).unwrap();
@@ -1571,11 +1157,7 @@ fn everyday_aliases_mods_headers_and_brace_use_resolve() {
     fs::write(root.join("src/util.ts"), "export const n = 1;\n").unwrap();
     fs::write(root.join("src/app.ts"), "import { n } from '@/util';\n").unwrap();
 
-    fs::write(
-        root.join("packages/util/package.json"),
-        r#"{"name":"@demo/util","main":"index.ts"}"#,
-    )
-    .unwrap();
+    fs::write(root.join("packages/util/package.json"), r#"{"name":"@demo/util","main":"index.ts"}"#).unwrap();
     fs::write(root.join("packages/util/index.ts"), "export const k = 2;\n").unwrap();
     fs::write(root.join("src/pkg.ts"), "import { k } from '@demo/util';\n").unwrap();
 
@@ -1585,44 +1167,19 @@ fn everyday_aliases_mods_headers_and_brace_use_resolve() {
     fs::write(root.join("include/acme/box.h"), "struct Box;\n").unwrap();
     fs::write(root.join("src/box.c"), "#include <acme/box.h>\n").unwrap();
 
-    fs::write(
-        root.join("composer.json"),
-        r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#,
-    )
-    .unwrap();
+    fs::write(root.join("composer.json"), r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#).unwrap();
     fs::write(root.join("src/User.php"), "<?php\nclass User {}\n").unwrap();
     fs::write(root.join("src/Post.php"), "<?php\nclass Post {}\n").unwrap();
-    fs::write(
-        root.join("src/models.php"),
-        "<?php\nuse App\\{User, Post};\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/models.php"), "<?php\nuse App\\{User, Post};\n").unwrap();
 
     let walk = run(&root, &[], None);
     let find = |rel: &str| walk.iter().find(|v| v["rel"] == rel).unwrap();
 
-    assert_eq!(
-        find("src/app.ts")["resolvedImports"],
-        serde_json::json!(["src/util.ts"])
-    );
-    assert_eq!(
-        find("src/pkg.ts")["resolvedImports"],
-        serde_json::json!(["packages/util/index.ts"])
-    );
-    assert_eq!(
-        find("src/lib.rs")["resolvedImports"],
-        serde_json::json!(["src/helper.rs"])
-    );
-    assert_eq!(
-        find("src/box.c")["resolvedImports"],
-        serde_json::json!(["include/acme/box.h"])
-    );
-    let php = find("src/models.php")["resolvedImports"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap().to_string())
-        .collect::<Vec<_>>();
+    assert_eq!(find("src/app.ts")["resolvedImports"], serde_json::json!(["src/util.ts"]));
+    assert_eq!(find("src/pkg.ts")["resolvedImports"], serde_json::json!(["packages/util/index.ts"]));
+    assert_eq!(find("src/lib.rs")["resolvedImports"], serde_json::json!(["src/helper.rs"]));
+    assert_eq!(find("src/box.c")["resolvedImports"], serde_json::json!(["include/acme/box.h"]));
+    let php = find("src/models.php")["resolvedImports"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect::<Vec<_>>();
     assert!(php.contains(&"src/User.php".to_string()), "{php:?}");
     assert!(php.contains(&"src/Post.php".to_string()), "{php:?}");
 
@@ -1631,10 +1188,7 @@ fn everyday_aliases_mods_headers_and_brace_use_resolve() {
 
 #[test]
 fn go_relative_elixir_braces_and_deep_tsconfig_resolve() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-last-{nonce}"));
     fs::create_dir_all(root.join("cmd")).unwrap();
     fs::create_dir_all(root.join("cmd/util")).unwrap();
@@ -1642,65 +1196,26 @@ fn go_relative_elixir_braces_and_deep_tsconfig_resolve() {
     fs::create_dir_all(root.join("apps/web/app")).unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
 
-    fs::write(
-        root.join("cmd/main.go"),
-        "package main\nimport \"./util\"\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("cmd/util/help.go"),
-        "package util\nfunc Help() {}\n",
-    )
-    .unwrap();
+    fs::write(root.join("cmd/main.go"), "package main\nimport \"./util\"\n").unwrap();
+    fs::write(root.join("cmd/util/help.go"), "package util\nfunc Help() {}\n").unwrap();
 
     fs::write(root.join("lib/foo/bar.ex"), "defmodule Foo.Bar do\nend\n").unwrap();
     fs::write(root.join("lib/foo/baz.ex"), "defmodule Foo.Baz do\nend\n").unwrap();
-    fs::write(
-        root.join("lib/foo/use.ex"),
-        "defmodule Foo.Use do\n  alias Foo.{Bar, Baz}\nend\n",
-    )
-    .unwrap();
+    fs::write(root.join("lib/foo/use.ex"), "defmodule Foo.Use do\n  alias Foo.{Bar, Baz}\nend\n").unwrap();
 
-    fs::write(
-        root.join("tsconfig.base.json"),
-        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join("apps/web/app/tsconfig.json"),
-        r#"{ "extends": "../../../tsconfig.base.json" }"#,
-    )
-    .unwrap();
+    fs::write(root.join("tsconfig.base.json"), r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#).unwrap();
+    fs::write(root.join("apps/web/app/tsconfig.json"), r#"{ "extends": "../../../tsconfig.base.json" }"#).unwrap();
     fs::write(root.join("src/util.ts"), "export const n = 1;\n").unwrap();
-    fs::write(
-        root.join("apps/web/app/main.ts"),
-        "import { n } from '@/util';\n",
-    )
-    .unwrap();
+    fs::write(root.join("apps/web/app/main.ts"), "import { n } from '@/util';\n").unwrap();
 
     let walk = run(&root, &[], None);
-    let find = |rel: &str| {
-        walk.iter()
-            .find(|v| v["rel"] == rel)
-            .unwrap_or_else(|| panic!("missing {rel}"))
-    };
+    let find = |rel: &str| walk.iter().find(|v| v["rel"] == rel).unwrap_or_else(|| panic!("missing {rel}"));
 
-    assert_eq!(
-        find("cmd/main.go")["resolvedImports"],
-        serde_json::json!(["cmd/util/help.go"])
-    );
-    let elixir = find("lib/foo/use.ex")["resolvedImports"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap().to_string())
-        .collect::<Vec<_>>();
+    assert_eq!(find("cmd/main.go")["resolvedImports"], serde_json::json!(["cmd/util/help.go"]));
+    let elixir = find("lib/foo/use.ex")["resolvedImports"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect::<Vec<_>>();
     assert!(elixir.contains(&"lib/foo/bar.ex".to_string()), "{elixir:?}");
     assert!(elixir.contains(&"lib/foo/baz.ex".to_string()), "{elixir:?}");
-    assert_eq!(
-        find("apps/web/app/main.ts")["resolvedImports"],
-        serde_json::json!(["src/util.ts"])
-    );
+    assert_eq!(find("apps/web/app/main.ts")["resolvedImports"], serde_json::json!(["src/util.ts"]));
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1716,62 +1231,32 @@ fn calls_are_known_empty_when_parsed_and_absent_when_not_extracted() {
     fs::write(root.join("src/quiet.ts"), "export const answer = 42;\n").unwrap();
     // Not decodable as UTF-8: the record carries a parseError and nothing was
     // parsed, so `calls` must stay unknown.
-    fs::write(
-        root.join("src/broken.ts"),
-        [0xffu8, 0xfe, 0x00, 0x66].as_slice(),
-    )
-    .unwrap();
+    fs::write(root.join("src/broken.ts"), [0xffu8, 0xfe, 0x00, 0x66].as_slice()).unwrap();
 
     let walk = run(&root, &[], None);
-    let find = |rel: &str| {
-        walk.iter()
-            .find(|value| value["rel"] == rel)
-            .unwrap_or_else(|| panic!("missing {rel}"))
-    };
+    let find = |rel: &str| walk.iter().find(|value| value["rel"] == rel).unwrap_or_else(|| panic!("missing {rel}"));
 
     // Parsed, no call sites → known empty.
     assert_eq!(find("src/quiet.ts")["calls"], serde_json::json!([]));
-    assert_eq!(
-        find("java/com/acme/User.java")["calls"],
-        serde_json::json!([])
-    );
+    assert_eq!(find("java/com/acme/User.java")["calls"], serde_json::json!([]));
     // Parsed, one call site — wire v2: [name, line, col, kind, recv, inSymbol]
     // with kind 0 = call, and no endCol (it is col + name length).
-    assert_eq!(
-        find("src/main.ts")["calls"],
-        serde_json::json!([["answer", 2, 32, 0, "", "main"]])
-    );
+    assert_eq!(find("src/main.ts")["calls"], serde_json::json!([["answer", 2, 32, 0, "", "main"]]));
     // Not parsed → no key at all.
     let broken = find("src/broken.ts");
-    assert!(
-        !broken["parseError"].as_str().unwrap().is_empty(),
-        "{broken}"
-    );
+    assert!(!broken["parseError"].as_str().unwrap().is_empty(), "{broken}");
     assert!(broken.get("calls").is_none(), "{broken}");
 
     // Manifest records read no text, so they never answer.
     let manifest = run(&root, &["--manifest"], None);
-    assert!(
-        manifest.iter().all(|value| value.get("calls").is_none()),
-        "manifest must not claim a call answer"
-    );
+    assert!(manifest.iter().all(|value| value.get("calls").is_none()), "manifest must not claim a call answer");
 
     // Reused nodes are not parsed here either; JS keeps its own cached calls.
     let reused_meta = serde_json::json!({ "rel": "src/dep.ts", "lang": "typescript" });
-    let files = run(
-        &root,
-        &["--files", "src/quiet.ts"],
-        Some(&format!("{reused_meta}\n")),
-    );
-    let fresh = files
-        .iter()
-        .find(|value| value["rel"] == "src/quiet.ts")
-        .expect("fresh record");
+    let files = run(&root, &["--files", "src/quiet.ts"], Some(&format!("{reused_meta}\n")));
+    let fresh = files.iter().find(|value| value["rel"] == "src/quiet.ts").expect("fresh record");
     assert_eq!(fresh["calls"], serde_json::json!([]));
-    let reused = files
-        .iter()
-        .find(|value| value["rel"] == "src/dep.ts")
-        .expect("reused record");
+    let reused = files.iter().find(|value| value["rel"] == "src/dep.ts").expect("reused record");
     assert!(reused.get("calls").is_none(), "{reused}");
 
     fs::remove_dir_all(root).unwrap();
@@ -1781,9 +1266,7 @@ fn calls_are_known_empty_when_parsed_and_absent_when_not_extracted() {
 /// object the fixtures are written in. `endCol` and the `kind` token are
 /// derived, and an empty `recv` means "no receiver", so the key is dropped.
 fn call_tuple_to_object(call: &serde_json::Value) -> serde_json::Value {
-    let tuple = call
-        .as_array()
-        .unwrap_or_else(|| panic!("call must be a v2 tuple, got {call}"));
+    let tuple = call.as_array().unwrap_or_else(|| panic!("call must be a v2 tuple, got {call}"));
     assert_eq!(tuple.len(), 6, "v2 tuple has 6 elements: {call}");
     let name = tuple[0].as_str().expect("name");
     let col = tuple[2].as_u64().expect("col");
@@ -1825,19 +1308,12 @@ fn call_tuple_to_object(call: &serde_json::Value) -> serde_json::Value {
 fn call_fixtures_match_expected_calls_exactly() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/calls");
     if !root.is_dir() {
-        eprintln!(
-            "call fixtures skipped: {} does not exist yet (fixtures are authored separately)",
-            root.display()
-        );
+        eprintln!("call fixtures skipped: {} does not exist yet (fixtures are authored separately)", root.display());
         return;
     }
 
-    let mut dirs: Vec<std::path::PathBuf> = fs::read_dir(&root)
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect();
+    let mut dirs: Vec<std::path::PathBuf> =
+        fs::read_dir(&root).unwrap().filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.is_dir()).collect();
     dirs.sort();
 
     let mut checked: Vec<String> = Vec::new();
@@ -1846,11 +1322,8 @@ fn call_fixtures_match_expected_calls_exactly() {
 
     for dir in dirs {
         let lang = dir.file_name().unwrap().to_string_lossy().to_string();
-        let sample = fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| path.file_stem().is_some_and(|stem| stem == "sample"));
+        let sample =
+            fs::read_dir(&dir).unwrap().filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.file_stem().is_some_and(|stem| stem == "sample"));
         let expected_path = dir.join("expected.json");
         let (Some(sample), true) = (sample, expected_path.is_file()) else {
             skipped.push(lang);
@@ -1859,48 +1332,26 @@ fn call_fixtures_match_expected_calls_exactly() {
 
         let rel = format!("{lang}/{}", sample.file_name().unwrap().to_string_lossy());
         let records = run(&root, &["--files", &rel], Some(""));
-        let record = records
-            .iter()
-            .find(|value| value["rel"] == rel)
-            .unwrap_or_else(|| panic!("{rel}: no FileRecord emitted"));
+        let record = records.iter().find(|value| value["rel"] == rel).unwrap_or_else(|| panic!("{rel}: no FileRecord emitted"));
         let actual = serde_json::Value::Array(
-            record
-                .get("calls")
-                .and_then(|calls| calls.as_array())
-                .map(|calls| calls.iter().map(call_tuple_to_object).collect())
-                .unwrap_or_default(),
+            record.get("calls").and_then(|calls| calls.as_array()).map(|calls| calls.iter().map(call_tuple_to_object).collect()).unwrap_or_default(),
         );
 
         let expected: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&expected_path).unwrap())
-                .unwrap_or_else(|error| panic!("{}: {error}", expected_path.display()));
-        let expected = expected
-            .get("calls")
-            .cloned()
-            .unwrap_or_else(|| panic!("{}: no `calls` key", expected_path.display()));
+            serde_json::from_str(&fs::read_to_string(&expected_path).unwrap()).unwrap_or_else(|error| panic!("{}: {error}", expected_path.display()));
+        let expected = expected.get("calls").cloned().unwrap_or_else(|| panic!("{}: no `calls` key", expected_path.display()));
 
         if actual == expected {
             checked.push(lang);
         } else {
-            failures.push(format!(
-                "{lang}:\n  expected {}\n  actual   {}",
-                serde_json::to_string(&expected).unwrap(),
-                serde_json::to_string(&actual).unwrap()
-            ));
+            failures.push(format!("{lang}:\n  expected {}\n  actual   {}", serde_json::to_string(&expected).unwrap(), serde_json::to_string(&actual).unwrap()));
         }
     }
 
     if !skipped.is_empty() {
-        eprintln!(
-            "call fixtures skipped (no sample/expected.json yet): {}",
-            skipped.join(", ")
-        );
+        eprintln!("call fixtures skipped (no sample/expected.json yet): {}", skipped.join(", "));
     }
-    assert!(
-        failures.is_empty(),
-        "call fixtures differ:\n{}",
-        failures.join("\n")
-    );
+    assert!(failures.is_empty(), "call fixtures differ:\n{}", failures.join("\n"));
     eprintln!("call fixtures checked: {}", checked.join(", "));
 }
 
@@ -1918,11 +1369,7 @@ fn resolve_fixture(name: &str) -> std::path::PathBuf {
         for entry in fs::read_dir(from).unwrap() {
             let entry = entry.unwrap();
             let raw = entry.file_name().to_string_lossy().to_string();
-            let name = if raw == "_node_modules" {
-                "node_modules".to_string()
-            } else {
-                raw
-            };
+            let name = if raw == "_node_modules" { "node_modules".to_string() } else { raw };
             let target = to.join(name);
             if entry.file_type().unwrap().is_dir() {
                 copy_tree(&entry.path(), &target);
@@ -1932,29 +1379,18 @@ fn resolve_fixture(name: &str) -> std::path::PathBuf {
         }
     }
 
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/resolve")
-        .join(name);
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/resolve").join(name);
     assert!(source.is_dir(), "missing fixture {}", source.display());
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-resolve-{name}-{nonce}"));
     copy_tree(&source, &root);
     root
 }
 
 fn resolved(walk: &[serde_json::Value], rel: &str) -> Vec<String> {
-    walk.iter()
-        .find(|value| value["rel"] == rel)
-        .unwrap_or_else(|| panic!("missing {rel} in {walk:?}"))["resolvedImports"]
+    walk.iter().find(|value| value["rel"] == rel).unwrap_or_else(|| panic!("missing {rel} in {walk:?}"))["resolvedImports"]
         .as_array()
-        .map(|list| {
-            list.iter()
-                .map(|value| value.as_str().unwrap().to_string())
-                .collect()
-        })
+        .map(|list| list.iter().map(|value| value.as_str().unwrap().to_string()).collect())
         .unwrap_or_default()
 }
 
@@ -1968,33 +1404,17 @@ fn solidity_imports_resolve_relative_then_node_modules_then_root() {
 
     assert_eq!(
         resolved(&walk, "contracts/Token.sol"),
-        vec![
-            "contracts/Base.sol",
-            "lib/Math.sol",
-            "node_modules/@acme/erc20/IERC20.sol",
-            "contracts/Registry.sol",
-        ]
+        vec!["contracts/Base.sol", "lib/Math.sol", "node_modules/@acme/erc20/IERC20.sol", "contracts/Registry.sol",]
     );
-    assert_eq!(
-        walk.iter()
-            .find(|value| value["rel"] == "contracts/Base.sol")
-            .unwrap()["importedBy"],
-        serde_json::json!(["contracts/Token.sol"])
-    );
+    assert_eq!(walk.iter().find(|value| value["rel"] == "contracts/Base.sol").unwrap()["importedBy"], serde_json::json!(["contracts/Token.sol"]));
     // The un-vendored package is still reported as a raw import.
-    let raw = walk
-        .iter()
-        .find(|value| value["rel"] == "contracts/Token.sol")
-        .unwrap()["rawImports"]
+    let raw = walk.iter().find(|value| value["rel"] == "contracts/Token.sol").unwrap()["rawImports"]
         .as_array()
         .unwrap()
         .iter()
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
-    assert!(
-        raw.contains(&"@openzeppelin/contracts/token/ERC20.sol"),
-        "{raw:?}"
-    );
+    assert!(raw.contains(&"@openzeppelin/contracts/token/ERC20.sol"), "{raw:?}");
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -2008,15 +1428,9 @@ fn haskell_modules_resolve_by_walking_up_the_source_dirs() {
     let walk = run(&root, &[], None);
 
     // `Acme.Util` is found under the root's `src/`, `Sibling` next to the file.
-    assert_eq!(
-        resolved(&walk, "app/Main.hs"),
-        vec!["src/Acme/Util.hs", "app/Sibling.hs"]
-    );
+    assert_eq!(resolved(&walk, "app/Main.hs"), vec!["src/Acme/Util.hs", "app/Sibling.hs"]);
     // From `src/Acme`, the ancestor `src` holds `Acme/Internal/Helper.hs`.
-    assert_eq!(
-        resolved(&walk, "src/Acme/Util.hs"),
-        vec!["src/Acme/Internal/Helper.hs"]
-    );
+    assert_eq!(resolved(&walk, "src/Acme/Util.hs"), vec!["src/Acme/Internal/Helper.hs"]);
     // Two ancestors up: `app/deep` and `app` hold nothing, so the module is
     // only found once the walk reaches the root and tries its `src/`.
     assert_eq!(resolved(&walk, "app/deep/Far.hs"), vec!["src/Acme/Util.hs"]);
@@ -2034,16 +1448,8 @@ fn hcl_local_module_sources_resolve_to_every_tf_in_the_directory() {
     let root = resolve_fixture("hcl");
     let walk = run(&root, &[], None);
 
-    assert_eq!(
-        resolved(&walk, "main.tf"),
-        vec!["modules/vpc/main.tf", "modules/vpc/variables.tf"]
-    );
-    assert_eq!(
-        walk.iter()
-            .find(|value| value["rel"] == "modules/vpc/variables.tf")
-            .unwrap()["importedBy"],
-        serde_json::json!(["main.tf"])
-    );
+    assert_eq!(resolved(&walk, "main.tf"), vec!["modules/vpc/main.tf", "modules/vpc/variables.tf"]);
+    assert_eq!(walk.iter().find(|value| value["rel"] == "modules/vpc/variables.tf").unwrap()["importedBy"], serde_json::json!(["main.tf"]));
     // Registry/remote sources stay raw imports with no resolution.
     let raw = walk.iter().find(|value| value["rel"] == "main.tf").unwrap()["rawImports"]
         .as_array()
@@ -2061,10 +1467,7 @@ fn hcl_local_module_sources_resolve_to_every_tf_in_the_directory() {
 /// or a string body. The list is sorted, unique, and always present.
 #[test]
 fn tokens_hold_code_identifiers_only() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-tokens-{nonce}"));
     fs::create_dir_all(&root).unwrap();
     fs::write(
@@ -2081,22 +1484,11 @@ export function run(): void {
     .unwrap();
 
     let walk = run(&root, &[], None);
-    let record = walk
-        .iter()
-        .find(|value| value["rel"] == "sample.ts")
-        .expect("sample.ts");
-    let tokens: Vec<&str> = record["tokens"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value.as_str().unwrap())
-        .collect();
+    let record = walk.iter().find(|value| value["rel"] == "sample.ts").expect("sample.ts");
+    let tokens: Vec<&str> = record["tokens"].as_array().unwrap().iter().map(|value| value.as_str().unwrap()).collect();
 
     for present in ["helper", "label", "url", "run", "interpolated"] {
-        assert!(
-            tokens.contains(&present),
-            "{present} missing from {tokens:?}"
-        );
+        assert!(tokens.contains(&present), "{present} missing from {tokens:?}");
     }
     for absent in ["commentOnly", "stringOnly", "mentions", "https"] {
         assert!(!tokens.contains(&absent), "{absent} present in {tokens:?}");
@@ -2114,28 +1506,13 @@ export function run(): void {
 /// file-scoped form reports the same name as the block form.
 #[test]
 fn package_and_namespace_come_from_the_declaration_node() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-meta-{nonce}"));
     fs::create_dir_all(&root).unwrap();
-    fs::write(
-        root.join("A.java"),
-        "// package com.decoy.commented;\npackage com.acme.app;\npublic class A {}\n",
-    )
-    .unwrap();
+    fs::write(root.join("A.java"), "// package com.decoy.commented;\npackage com.acme.app;\npublic class A {}\n").unwrap();
     fs::write(root.join("a.kt"), "package com.acme.kt\nclass K\n").unwrap();
-    fs::write(
-        root.join("scoped.cs"),
-        "namespace Acme.Scoped;\npublic class S {}\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("block.cs"),
-        "namespace Acme.Block {\n  public class B {}\n}\n",
-    )
-    .unwrap();
+    fs::write(root.join("scoped.cs"), "namespace Acme.Scoped;\npublic class S {}\n").unwrap();
+    fs::write(root.join("block.cs"), "namespace Acme.Block {\n  public class B {}\n}\n").unwrap();
     fs::write(root.join("a.go"), "package mypkg\n\nfunc F() {}\n").unwrap();
 
     let walk = run(&root, &[], None);
@@ -2171,40 +1548,20 @@ fn package_and_namespace_come_from_the_declaration_node() {
 fn oversized_and_non_extraction_files_produce_no_record() {
     let root = fixture();
     let padding = "x".repeat(2 * 1024 * 1024);
-    fs::write(
-        root.join("src/big.ts"),
-        format!("export const pad = \"{padding}\";\nexport const used = pad.length;\n"),
-    )
-    .unwrap();
+    fs::write(root.join("src/big.ts"), format!("export const pad = \"{padding}\";\nexport const used = pad.length;\n")).unwrap();
     fs::write(root.join("src/data.json"), "{\"a\": 1}\n").unwrap();
 
     let walk = run(&root, &[], None);
-    assert!(
-        walk.iter().all(|value| value["rel"] != "src/big.ts"),
-        "a file over the size cap must not be indexed at all"
-    );
-    assert!(
-        walk.iter().all(|value| value["rel"] != "src/data.json"),
-        "a non-extraction extension must not be indexed at all"
-    );
+    assert!(walk.iter().all(|value| value["rel"] != "src/big.ts"), "a file over the size cap must not be indexed at all");
+    assert!(walk.iter().all(|value| value["rel"] != "src/data.json"), "a non-extraction extension must not be indexed at all");
     // Control: the walk itself worked and still answers `calls` for a file it
     // did parse.
-    let main = walk
-        .iter()
-        .find(|value| value["rel"] == "src/main.ts")
-        .expect("src/main.ts");
+    let main = walk.iter().find(|value| value["rel"] == "src/main.ts").expect("src/main.ts");
     assert!(main.get("calls").is_some(), "{main}");
 
     // Explicit --files selection answers the same way: skipped, not empty.
-    let files = run(
-        &root,
-        &["--files", "src/big.ts", "src/data.json", "src/main.ts"],
-        Some(""),
-    );
-    let rels: Vec<&str> = files
-        .iter()
-        .map(|value| value["rel"].as_str().unwrap())
-        .collect();
+    let files = run(&root, &["--files", "src/big.ts", "src/data.json", "src/main.ts"], Some(""));
+    let rels: Vec<&str> = files.iter().map(|value| value["rel"].as_str().unwrap()).collect();
     assert_eq!(rels, vec!["src/main.ts"], "{rels:?}");
 
     fs::remove_dir_all(root).unwrap();

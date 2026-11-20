@@ -49,7 +49,14 @@ fn pipeline(dir: &std::path::Path, voice: Value) -> (Arc<VoicePipeline>, Arc<Whi
     let manager = Scripted::new();
     let processes = Processes::new(manager.clone(), mixdog_rt::testing::tokens().durability_io);
     let server = Arc::new(WhisperServer::new(0, None, &processes));
-    let pipeline = Arc::new(VoicePipeline::new(dir.to_owned(), install(dir), Arc::new(Fixed(voice)), server.clone(), Arc::new(ProcessAudioTools(processes)), mixdog_rt::testing::tokens().durability_io));
+    let pipeline = Arc::new(VoicePipeline::new(
+        dir.to_owned(),
+        install(dir),
+        Arc::new(Fixed(voice)),
+        server.clone(),
+        Arc::new(ProcessAudioTools(processes)),
+        mixdog_rt::testing::tokens().durability_io,
+    ));
     (pipeline, server, manager)
 }
 
@@ -60,7 +67,8 @@ fn calls_of(manager: &Scripted, file: &str) -> Vec<Value> {
 #[tokio::test]
 async fn one_transcription_converts_the_audio_starts_the_server_and_posts_the_wav_with_the_language() {
     let dir = tempfile::tempdir().unwrap();
-    let (pipeline, server, manager) = pipeline(dir.path(), json!({"enabled": true, "language": "ko", "transcription": {"threadCount": 3, "maxDurationSec": 600}}));
+    let (pipeline, server, manager) =
+        pipeline(dir.path(), json!({"enabled": true, "language": "ko", "transcription": {"threadCount": 3, "maxDurationSec": 600}}));
     let text = pipeline.transcribe(&dir.path().join("in").join("clip.ogg"), Some("att-1"), &CancellationToken::new()).await.unwrap();
     assert_eq!(text.as_deref(), Some("hello world"));
 
@@ -81,8 +89,12 @@ async fn one_transcription_converts_the_audio_starts_the_server_and_posts_the_wa
 
     let requests = manager.requests_shared.lock().unwrap().clone();
     assert_eq!(requests.len(), 1);
-    assert_eq!((requests[0]["method"].as_str(), requests[0]["url"].as_str(), requests[0]["multipart"].as_bool()), (Some("POST"), Some("/inference"), Some(true)));
-    let fields: Vec<(&str, Option<&str>)> = requests[0]["fields"].as_array().unwrap().iter().map(|f| (f["name"].as_str().unwrap(), f["value"].as_str())).collect();
+    assert_eq!(
+        (requests[0]["method"].as_str(), requests[0]["url"].as_str(), requests[0]["multipart"].as_bool()),
+        (Some("POST"), Some("/inference"), Some(true))
+    );
+    let fields: Vec<(&str, Option<&str>)> =
+        requests[0]["fields"].as_array().unwrap().iter().map(|f| (f["name"].as_str().unwrap(), f["value"].as_str())).collect();
     assert_eq!(fields, vec![("file", None), ("response_format", Some("json")), ("language", Some("ko"))]);
 
     // The pid file records the child while it runs and goes with it when it dies on its own.
@@ -154,7 +166,10 @@ async fn the_listener_query_asks_and_decides_on_every_platform() {
     let processes = Processes::new(manager.clone(), mixdog_rt::testing::tokens().durability_io);
     assert!(!listener_owned_on(Os::Linux, &processes, "127.0.0.1", 18771, 0, &cwd, &CancellationToken::new()).await, "no pid, no query");
     assert!(manager.calls.lock().unwrap().is_empty());
-    assert!(!listener_owned_on(Os::Windows, &processes, "1.2.3.4'; x", 18771, 5, &cwd, &CancellationToken::new()).await, "a host that is not an address is never put in a command");
+    assert!(
+        !listener_owned_on(Os::Windows, &processes, "1.2.3.4'; x", 18771, 5, &cwd, &CancellationToken::new()).await,
+        "a host that is not an address is never put in a command"
+    );
     assert!(manager.calls.lock().unwrap().is_empty());
 }
 

@@ -120,7 +120,8 @@ fn persistent_powerpoint_sessions_create_save_and_read_unicode_content() {
     assert!(mentions(document, "실제 템플릿"));
     assert_eq!(document["slides"][0]["notes"], "Owner Mixdog");
     // replace_text scoped to a slide reaches its speaker notes, as the portable writer's does.
-    let scoped = live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "replace_text", "slide": 1, "find": "Owner", "replace": "Lead" }] }));
+    let scoped =
+        live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "replace_text", "slide": 1, "find": "Owner", "replace": "Lead" }] }));
     assert_eq!(scoped["results"][0]["count"], 1);
     // A batch is atomic: a background deck has no window for PowerPoint's Undo, so the edit before a failed operation stayed in the
     // deck. It now reloads from the copy the batch started from.
@@ -145,7 +146,10 @@ fn persistent_powerpoint_sessions_create_save_and_read_unicode_content() {
     let table = shape_with(slide, "table");
     // The table grew from two columns to four inside the width it was given, as the portable writer sets it.
     assert_eq!(number(&table["width"]).round(), 280.0);
-    assert_eq!(table["table"]["values"], json!([["Metric", "Actual", "Plan", "Status"], ["Users", "42", "45", "Track"], ["Calls", "18", "20", "Track"], ["Errors", "0", "0", "Pass"]]));
+    assert_eq!(
+        table["table"]["values"],
+        json!([["Metric", "Actual", "Plan", "Status"], ["Users", "42", "45", "Track"], ["Calls", "18", "20", "Track"], ["Errors", "0", "0", "Pass"]])
+    );
     let chart = shape_with(slide, "chart");
     assert_eq!(chart["chart"]["title"], "Metrics");
     assert_eq!(chart["chart"]["seriesCount"], 2);
@@ -282,7 +286,8 @@ fn powerpoint_new_chart_numbers_take_the_label_and_base_line_fields_beside_them(
 fn powerpoint_a_bar_chart_reads_top_down_or_bottom_up_as_category_order_asks_and_says_when_it_reads_bottom_up() {
     let Some(live) = Live::start() else { return };
     let created = live.call(json!({ "action": "create", "path": live.path("bars.pptx"), "format": "pptx", "mode": "background" }));
-    let batch = |operations: Value| -> Value { live.call(json!({ "action": "batch", "session": created["session"], "operations": operations }))["results"].clone() };
+    let batch =
+        |operations: Value| -> Value { live.call(json!({ "action": "batch", "session": created["session"], "operations": operations }))["results"].clone() };
     let data = |extra: Value| -> Value {
         let mut operation = json!({
             "op": "set_chart_data",
@@ -318,7 +323,9 @@ const RELS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 
 fn relationships(items: &[(&str, &str, &str)]) -> String {
     let rows: String = items.iter().map(|(id, kind, target)| format!(r#"<Relationship Id="{id}" Type="{RELS}/{kind}" Target="{target}"/>"#)).collect();
-    format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{rows}</Relationships>"#)
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{rows}</Relationships>"#
+    )
 }
 
 fn theme() -> String {
@@ -345,12 +352,22 @@ fn plain_deck(shapes: &str) -> Vec<u8> {
         "ppt/presentation.xml",
         format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation {NS}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>"#),
     );
-    package.set("ppt/_rels/presentation.xml.rels", relationships(&[("rId1", "slideMaster", "slideMasters/slideMaster1.xml"), ("rId2", "slide", "slides/slide1.xml"), ("rId3", "theme", "theme/theme1.xml")]));
+    package.set(
+        "ppt/_rels/presentation.xml.rels",
+        relationships(&[
+            ("rId1", "slideMaster", "slideMasters/slideMaster1.xml"),
+            ("rId2", "slide", "slides/slide1.xml"),
+            ("rId3", "theme", "theme/theme1.xml"),
+        ]),
+    );
     package.set(
         "ppt/slideMasters/slideMaster1.xml",
         format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster {NS}>{empty_tree}<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>"#),
     );
-    package.set("ppt/slideMasters/_rels/slideMaster1.xml.rels", relationships(&[("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"), ("rId2", "theme", "../theme/theme1.xml")]));
+    package.set(
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+        relationships(&[("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"), ("rId2", "theme", "../theme/theme1.xml")]),
+    );
     package.set(
         "ppt/slideLayouts/slideLayout1.xml",
         format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout {NS} preserve="1" userDrawn="1"><p:cSld name="PLAIN"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>"#),
@@ -368,7 +385,9 @@ fn plain_deck(shapes: &str) -> Vec<u8> {
 /// One table cell: `text` in a run of bold or regular type and an ink colour.
 fn cell(text: &str, bold: bool, color: &str) -> String {
     let weight = if bold { r#" b="1""# } else { "" };
-    format!(r#"<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="ko-KR" sz="1600"{weight}><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>"#)
+    format!(
+        r#"<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="ko-KR" sz="1600"{weight}><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:rPr><a:t>{text}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>"#
+    )
 }
 
 /// The options table of the Node test, written where pptxgenjs wrote it: 8 x 2.4 in, two columns of 4 in, rows of 0.6 in.
@@ -430,7 +449,10 @@ fn powerpoint_a_row_set_table_data_adds_takes_the_type_of_the_last_row_as_the_po
                 .map(|cell| {
                     let run = capture(r"<a:rPr\b[^>]*?(?:/>|>[\s\S]*?</a:rPr>)", "", cell, 0).unwrap_or_default();
                     // The cell's own fill, not one of its borders' (each border line carries a fill of its own).
-                    let tc_pr = strip(r"<a:ln\w*\b[^>]*?(?:/>|>[\s\S]*?</a:ln\w*>)", &capture(r"<a:tcPr\b[^>]*/>|<a:tcPr\b[^>]*>[\s\S]*?</a:tcPr>", "", cell, 0).unwrap_or_default());
+                    let tc_pr = strip(
+                        r"<a:ln\w*\b[^>]*?(?:/>|>[\s\S]*?</a:ln\w*>)",
+                        &capture(r"<a:tcPr\b[^>]*/>|<a:tcPr\b[^>]*>[\s\S]*?</a:tcPr>", "", cell, 0).unwrap_or_default(),
+                    );
                     json!({
                         "bold": matches(r#"\bb="1""#, "", &run),
                         "color": capture(r#"<a:srgbClr val="([0-9A-F]{6})""#, "i", &run, 1).unwrap_or_default().to_uppercase(),

@@ -9,7 +9,7 @@ use mixdog_exthost::RenditionVariant;
 use mixdog_protocol::ThreadId;
 use serde_json::{Value, json};
 
-use super::renditions::{Priority, Request, RenditionError, StillRenditions};
+use super::renditions::{Priority, RenditionError, Request, StillRenditions};
 use super::store::{Located, MediaError, MediaStore};
 
 const MAX_CACHED_THUMBNAIL_BYTES: usize = 4 * 1024 * 1024;
@@ -52,7 +52,13 @@ fn variant_of(name: &str) -> Option<RenditionVariant> {
 /// `resolveMediaFile(id, { variant = 'original', generate = true })`: the asset (or one of its
 /// renditions) as a file. A host that cannot build the rendition answers `available: false` with
 /// no path, never the original.
-pub async fn resolve_media_file(store: &Arc<MediaStore>, renditions: &StillRenditions, thread: &ThreadId, id: &str, options: Value) -> Result<Value, MediaError> {
+pub async fn resolve_media_file(
+    store: &Arc<MediaStore>,
+    renditions: &StillRenditions,
+    thread: &ThreadId,
+    id: &str,
+    options: Value,
+) -> Result<Value, MediaError> {
     let owned = id.to_owned();
     let Some(Located::Readable(mut entry)) = store.run(move |s| s.locate_file(&owned)).await?? else { return Ok(Value::Null) };
     let name = options.get("variant").map_or_else(|| "original".to_owned(), mixdog_js::value_to_string);
@@ -208,7 +214,15 @@ pub fn prewarm(store: Arc<MediaStore>, renditions: StillRenditions, id: String, 
     tokio::spawn(async move {
         let owned = id.clone();
         let Ok(Ok(Some(source))) = store.run(move |s| s.asset_path(&owned)).await else { return };
-        let request = Request { thread: ThreadId("media".to_owned()), id, video, source, variant: RenditionVariant::Thumb, priority: Priority::Background, generate: true };
+        let request = Request {
+            thread: ThreadId("media".to_owned()),
+            id,
+            video,
+            source,
+            variant: RenditionVariant::Thumb,
+            priority: Priority::Background,
+            generate: true,
+        };
         drop(renditions.ensure_request(request).await);
     });
 }
@@ -249,7 +263,6 @@ mod tests {
         }
     }
 
-
     fn rig(answer: Result<Value, mixdog_core_api::domain::ext::ExtError>) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let lane = mixdog_rt::testing::tokens().durability_io;
@@ -271,15 +284,27 @@ mod tests {
         let rig = rig(webp("AQID"));
         let id = save(&rig, "image").await;
         let original = resolve(&rig, &id, json!({})).await.unwrap();
-        assert_eq!((original["variant"].as_str(), original["available"].as_bool(), original["mime"].as_str()), (Some("original"), Some(true), Some("image/png")));
+        assert_eq!(
+            (original["variant"].as_str(), original["available"].as_bool(), original["mime"].as_str()),
+            (Some("original"), Some(true), Some("image/png"))
+        );
         let thumb = resolve(&rig, &id, json!({"variant": "thumb"})).await.unwrap();
-        assert_eq!((thumb["variant"].as_str(), thumb["available"].as_bool(), thumb["mime"].as_str(), thumb["bytes"].as_u64()), (Some("thumb"), Some(true), Some("image/webp"), Some(3)));
+        assert_eq!(
+            (thumb["variant"].as_str(), thumb["available"].as_bool(), thumb["mime"].as_str(), thumb["bytes"].as_u64()),
+            (Some("thumb"), Some(true), Some("image/webp"), Some(3))
+        );
         assert_eq!(std::fs::read(thumb["path"].as_str().unwrap()).unwrap(), [1, 2, 3]);
-        assert_eq!(thumb["path"].as_str().map(|p| p.replace('\\', "/")).unwrap().rsplit_once("/renditions/").map(|(_, tail)| tail.to_owned()), Some(format!("thumb/{id}.webp")));
+        assert_eq!(
+            thumb["path"].as_str().map(|p| p.replace('\\', "/")).unwrap().rsplit_once("/renditions/").map(|(_, tail)| tail.to_owned()),
+            Some(format!("thumb/{id}.webp"))
+        );
         assert_eq!(rig.host.calls.lock().unwrap().len(), 1);
         // Not generating serves the cache and nothing else: the display size is not there.
         let display = resolve(&rig, &id, json!({"variant": "display", "generate": false})).await.unwrap();
-        assert_eq!((display["variant"].as_str(), display["path"].as_str(), display["available"].as_bool(), display["mime"].as_str()), (Some("display"), Some(""), Some(false), Some("image/png")));
+        assert_eq!(
+            (display["variant"].as_str(), display["path"].as_str(), display["available"].as_bool(), display["mime"].as_str()),
+            (Some("display"), Some(""), Some(false), Some("image/png"))
+        );
         assert_eq!(rig.host.calls.lock().unwrap().len(), 1);
         // `generate: 0` is falsy too; the cached size is still served.
         assert_eq!(resolve(&rig, &id, json!({"variant": "thumb", "generate": 0})).await.unwrap()["available"], json!(true));
@@ -320,7 +345,10 @@ mod tests {
         assert_eq!(read(json!({})).await["base64"], json!("b3JpZ2luYWwgYnl0ZXM="));
         assert_eq!(read(json!({"variant": "display", "generate": false})).await["base64"], json!(""));
         let downgraded = read(json!({"variant": "display", "generate": false, "allowOriginal": true})).await;
-        assert_eq!((downgraded["downgraded"].as_bool(), downgraded["variant"].as_str(), downgraded["base64"].as_str()), (Some(true), Some("original"), Some("b3JpZ2luYWwgYnl0ZXM=")));
+        assert_eq!(
+            (downgraded["downgraded"].as_bool(), downgraded["variant"].as_str(), downgraded["base64"].as_str()),
+            (Some(true), Some("original"), Some("b3JpZ2luYWwgYnl0ZXM="))
+        );
         assert_eq!(read_media_asset(&rig.store, &rig.renditions, &rig.thread, "nope", json!({})).await.unwrap(), Value::Null);
     }
     #[tokio::test]
@@ -334,13 +362,24 @@ mod tests {
         assert_eq!(cache_media_thumbnail(&rig.store, &rig.renditions, "nope", json!({"base64": "AQID"})).await.unwrap(), Value::Null);
         let kept = cache(json!({"base64": "AQID", "mime": "IMAGE/WEBP", "durationSeconds": 3.5})).await;
         assert_eq!(kept, json!({"id": id, "available": true, "variant": "thumb", "mime": "image/webp", "bytes": 3, "durationSeconds": 4}));
-        let stored = rig.store.run({ let id = id.clone(); move |s| s.get_asset(&id) }).await.unwrap().unwrap().unwrap();
+        let stored = rig
+            .store
+            .run({
+                let id = id.clone();
+                move |s| s.get_asset(&id)
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         assert_eq!(stored["durationSeconds"], json!(4));
         // No mime means jpeg; a duration that is no number is no duration.
         let jpeg = cache(json!({"base64": "AQID", "durationSeconds": "soon"})).await;
         assert_eq!(jpeg, json!({"id": id, "available": true, "variant": "thumb", "mime": "image/jpeg", "bytes": 3}));
         let refused = json!({"id": id, "available": false});
-        for input in [json!({}), json!(null), json!({"base64": ""}), json!({"base64": "!!!"}), json!({"base64": "AQID", "mime": "image/gif"}), json!({"base64": 5})] {
+        for input in
+            [json!({}), json!(null), json!({"base64": ""}), json!({"base64": "!!!"}), json!({"base64": "AQID", "mime": "image/gif"}), json!({"base64": 5})]
+        {
             assert_eq!(cache(input.clone()).await, refused, "{input}");
         }
         // A payload over the 4 MiB cap is refused before it is decoded.

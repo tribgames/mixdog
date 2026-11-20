@@ -86,11 +86,7 @@ pub fn remote_session_id_from_binding(name: &str, args: &Value) -> Option<String
 /// Scheduling owner of a call: the addressed session, else the lead process, else the client.
 pub fn owner_key(client: &ChannelClient, req: &CallRequest) -> String {
     let addressed = mixdog_js::js_trim(req.args["sessionId"].as_str().unwrap_or_default()).to_string();
-    let addressed = if addressed.is_empty() {
-        remote_session_id_from_binding(&req.name, &req.args).unwrap_or_default()
-    } else {
-        addressed
-    };
+    let addressed = if addressed.is_empty() { remote_session_id_from_binding(&req.name, &req.args).unwrap_or_default() } else { addressed };
     if !addressed.is_empty() {
         format!("session:{addressed}")
     } else if let Some(pid) = client.lead_pid {
@@ -146,7 +142,11 @@ struct Binding {
 
 impl Binding {
     fn state(&self) -> RemoteState<'_> {
-        RemoteState { acquired: self.remote_acquired, pinned_session_id: self.pinned_session_id.as_deref(), cwd: self.intent.as_ref().and_then(|i| i.cwd.as_deref()) }
+        RemoteState {
+            acquired: self.remote_acquired,
+            pinned_session_id: self.pinned_session_id.as_deref(),
+            cwd: self.intent.as_ref().and_then(|i| i.cwd.as_deref()),
+        }
     }
 }
 
@@ -305,7 +305,9 @@ impl CallDispatch {
             return false;
         };
         let failure = match result {
-            Ok(value) if is_soft_error(&value) => value["content"][0]["text"].as_str().filter(|t| !t.is_empty()).unwrap_or("restored activation failed").to_string(),
+            Ok(value) if is_soft_error(&value) => {
+                value["content"][0]["text"].as_str().filter(|t| !t.is_empty()).unwrap_or("restored activation failed").to_string()
+            }
             Ok(_) => {
                 {
                     let mut binding = self.binding.lock().unwrap();
@@ -469,7 +471,8 @@ impl CallDispatch {
             return;
         };
         // The core's clients send no working directory with a call.
-        let candidate = json!({"sessionId": session, "transcriptPath": args.get("transcriptPath").cloned().unwrap_or(Value::Null), "cwd": null, "updatedAt": file.now()});
+        let candidate =
+            json!({"sessionId": session, "transcriptPath": args.get("transcriptPath").cloned().unwrap_or(Value::Null), "cwd": null, "updatedAt": file.now()});
         let intent = normalize_intent(&candidate, file.now()).map(Arc::new);
         {
             let mut binding = self.binding.lock().unwrap();

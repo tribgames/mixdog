@@ -49,12 +49,7 @@ pub struct SystemService {
 }
 
 fn list_json(ports: &BTreeMap<u16, ListeningPort>) -> Value {
-    Value::Array(
-        ports
-            .values()
-            .map(|p| json!({ "port": p.port, "addresses": p.addresses, "process": p.process, "pid": p.pid }))
-            .collect(),
-    )
+    Value::Array(ports.values().map(|p| json!({ "port": p.port, "addresses": p.addresses, "process": p.process, "pid": p.pid })).collect())
 }
 
 /// The read model a late viewer's `feed/snapshot` carries: the `ports` section as every scoped feed of sections holds it
@@ -71,19 +66,8 @@ impl PortsFeed {
         };
         self.revision += 1;
         let list = list_json(&self.current);
-        let update = SectionUpdate {
-            section: SectionName::Ports,
-            key: None,
-            revision: self.revision,
-            value: Some(list.clone()),
-            removed: None,
-            stub: None,
-        };
-        publisher.publish(
-            "system/ports/updated",
-            serde_json::to_value(update).expect("a section update serializes"),
-            state_json(self.revision, list),
-        );
+        let update = SectionUpdate { section: SectionName::Ports, key: None, revision: self.revision, value: Some(list.clone()), removed: None, stub: None };
+        publisher.publish("system/ports/updated", serde_json::to_value(update).expect("a section update serializes"), state_json(self.revision, list));
     }
 }
 
@@ -151,28 +135,18 @@ impl DomainService for SystemService {
                 // The hub first: its sampler calls the sink under the hub lock, so the state lock
                 // is only ever taken after it. The list the hub hands back is empty for the first
                 // viewer, and later viewers join a feed whose state is already current.
-                self.hub
-                    .subscribe(&viewer)
-                    .map_err(|_| domain_error("system", "PORTS_UNAVAILABLE"))?;
+                self.hub.subscribe(&viewer).map_err(|_| domain_error("system", "PORTS_UNAVAILABLE"))?;
                 let mut feed = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 let publisher = match feed.publisher.clone() {
                     Some(publisher) => publisher,
                     None => {
-                        let publisher = Arc::new(FramePublisher::create(
-                            self.scoped.as_ref(),
-                            FeedId::from("ports"),
-                            state_json(feed.revision, list_json(&feed.current)),
-                        ));
+                        let publisher =
+                            Arc::new(FramePublisher::create(self.scoped.as_ref(), FeedId::from("ports"), state_json(feed.revision, list_json(&feed.current))));
                         feed.publisher = Some(Arc::clone(&publisher));
                         publisher
                     }
                 };
-                Ok(Reply::Subscribe(Subscribe {
-                    result: json!({}),
-                    feed: publisher.source(),
-                    window: Window::Fixed,
-                    resume_from: None,
-                }))
+                Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "system/ports/unsubscribe" => {
                 self.release(&viewer);

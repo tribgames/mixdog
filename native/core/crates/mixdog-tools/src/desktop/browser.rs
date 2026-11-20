@@ -23,8 +23,8 @@ use super::host::BROWSER_UNAVAILABLE;
 use super::host::HostCommandError;
 use super::host::HostCommands;
 use super::host::command_cancelled;
-use super::host::render_browser_output;
 use super::host::command_error;
+use super::host::render_browser_output;
 use super::mail_links;
 use crate::orch::schema::value_error;
 use crate::orch::util::JsStr;
@@ -35,8 +35,7 @@ pub const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
 pub const DEVTOOLS_ACTIONS: [&str; 6] = ["emulate", "cookies", "storage", "intercept", "init_script", "performance"];
 /// Actions that only observe the page, so a lost answer may be asked again.
-pub const OBSERVATION_ACTIONS: [&str; 10] =
-    ["snapshot", "read", "extract", "locate", "status", "console", "network", "list_tabs", "downloads", "wait"];
+pub const OBSERVATION_ACTIONS: [&str; 10] = ["snapshot", "read", "extract", "locate", "status", "console", "network", "list_tabs", "downloads", "wait"];
 const SEQUENCE_STEP_ACTIONS: [&str; 8] = ["click", "fill", "type", "select", "hover", "press", "scroll", "wait"];
 
 const PAGE_TARGET: [&str; 2] = ["tab", "background"];
@@ -68,19 +67,58 @@ fn contracts() -> Vec<Contract> {
     let pt = |extra: &[&'static str]| [page.clone(), extra.to_vec()].concat();
     vec![
         row("navigate", with_post(&["url", "reload"]), &[&["url"], &["reload"]]),
-        row("snapshot", pt(&["query", "viewportOnly", "maxElements", "maxChars", "mode", "ref", "target", "fullPage", "format", "quality", "image_output", "settleMs"]), &[]),
+        row(
+            "snapshot",
+            pt(&["query", "viewportOnly", "maxElements", "maxChars", "mode", "ref", "target", "fullPage", "format", "quality", "image_output", "settleMs"]),
+            &[],
+        ),
         row("locate", pt(&["query", "limit"]), &[&["query"]]),
         row("evaluate", with_post(&["script", "ref", "timeoutMs", "maxChars"]), &[&["script"]]),
-        row("emulate", with_post(&["width", "height", "deviceScaleFactor", "mobile", "touch", "userAgent", "locale", "timezone", "colorScheme", "reducedMotion", "networkProfile", "cpuThrottlingRate", "orientation", "latitude", "longitude", "accuracy", "headers", "reset"]), &[]),
+        row(
+            "emulate",
+            with_post(&[
+                "width",
+                "height",
+                "deviceScaleFactor",
+                "mobile",
+                "touch",
+                "userAgent",
+                "locale",
+                "timezone",
+                "colorScheme",
+                "reducedMotion",
+                "networkProfile",
+                "cpuThrottlingRate",
+                "orientation",
+                "latitude",
+                "longitude",
+                "accuracy",
+                "headers",
+                "reset",
+            ]),
+            &[],
+        ),
         row("cookies", pt(&["operation", "url", "name", "value", "domain", "path", "secure", "httpOnly", "sameSite", "expirationDate"]), &[]),
         row("storage", pt(&["operation", "storageType", "name", "value"]), &[]),
         row("performance", pt(&["operation", "reload", "saveTrace"]), &[]),
-        row("click", with_post(&["ref", "target", "snapshotId", "x", "y", "pointer", "button", "modifiers", "doubleClick"]), &[&["ref"], &["target"], &["snapshotId", "x", "y"]]),
-        row("fill", with_post(&["ref", "target", "text", "checked", "fields", "submit", "savedAccount", "sensitive"]), &[&["ref", "text"], &["target", "text"], &["ref", "checked"], &["target", "checked"], &["fields"], &["savedAccount"]]),
+        row(
+            "click",
+            with_post(&["ref", "target", "snapshotId", "x", "y", "pointer", "button", "modifiers", "doubleClick"]),
+            &[&["ref"], &["target"], &["snapshotId", "x", "y"]],
+        ),
+        row(
+            "fill",
+            with_post(&["ref", "target", "text", "checked", "fields", "submit", "savedAccount", "sensitive"]),
+            &[&["ref", "text"], &["target", "text"], &["ref", "checked"], &["target", "checked"], &["fields"], &["savedAccount"]],
+        ),
         row("type", with_post(&["ref", "target", "text", "submit"]), &[&["ref", "text"], &["target", "text"]]),
         row("select", with_post(&["ref", "target", "values"]), &[&["ref"], &["target"]]),
         row("hover", with_post(&["ref", "target", "snapshotId", "x", "y"]), &[&["ref"], &["target"], &["snapshotId", "x", "y"]]),
-        row("drag", with_post(&["ref", "target", "targetRef", "dropTarget", "snapshotId", "x", "y", "targetX", "targetY", "pointer"]), &[&["ref", "targetRef"], &["target", "dropTarget"], &["snapshotId", "x", "y", "targetX", "targetY"]]),
+        row(
+            "drag",
+            with_post(&["ref", "target", "targetRef", "dropTarget", "snapshotId", "x", "y", "targetX", "targetY", "pointer"]),
+            &[&["ref", "targetRef"], &["target", "dropTarget"], &["snapshotId", "x", "y", "targetX", "targetY"]],
+        ),
         row("upload", with_post(&["ref", "target", "paths"]), &[&["paths"]]),
         row("handle_dialog", with_post(&["accept", "promptText"]), &[]),
         row("press", with_post(&["key"]), &[&["key"]]),
@@ -197,13 +235,9 @@ fn bounded_fields(action: &str, input: &Map<String, Value>, schema: &Map<String,
     }
     for (name, count, item) in [("modifiers", 4, 20), ("paths", 10, 32_767), ("resourceTypes", 20, 40), ("values", 100, 4_096)] {
         let Some(value) = input.get(name) else { continue };
-        let ok = value
-            .as_array()
-            .is_some_and(|a| a.len() <= count && a.iter().all(|v| v.as_str().is_some_and(|s| utf16_len(s) <= item)));
+        let ok = value.as_array().is_some_and(|a| a.len() <= count && a.iter().all(|v| v.as_str().is_some_and(|s| utf16_len(s) <= item)));
         if !ok {
-            return Err(format!(
-                "browser action \"{action}\" input.{name} requires at most {count} strings of at most {item} characters"
-            ));
+            return Err(format!("browser action \"{action}\" input.{name} requires at most {count} strings of at most {item} characters"));
         }
     }
     Ok(())
@@ -220,10 +254,7 @@ fn target_form(action: &str, c: &Contract, input: &Map<String, Value>) -> Result
         let groups: Vec<String> = c.required_any.iter().map(|g| g.join("+")).collect();
         return Err(format!("browser action \"{action}\" requires input.{}", groups.join(" or input.")));
     };
-    let stray = c
-        .required_any
-        .iter()
-        .any(|g| !std::ptr::eq(g, *first) && g.iter().any(|n| input.contains_key(*n) && !first.contains(n)));
+    let stray = c.required_any.iter().any(|g| !std::ptr::eq(g, *first) && g.iter().any(|n| input.contains_key(*n) && !first.contains(n)));
     if matching.len() > 1 || stray {
         return Err(format!("browser action \"{action}\" accepts only one input target form"));
     }
@@ -757,8 +788,6 @@ mod tests {
         assert!(check("browser_devtools", json!({"action":"intercept"})).is_ok());
     }
 
-
-
     /// A host that holds every browser command until it is released, counting those that reached it.
     #[derive(Default)]
     struct Held {
@@ -776,7 +805,14 @@ mod tests {
             Ok(json!({ "text": "done" }))
         }
 
-        async fn visualize(&self, _: &mixdog_protocol::ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+        async fn visualize(
+            &self,
+            _: &mixdog_protocol::ThreadId,
+            _: &str,
+            _: &str,
+            _: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, HostCommandError> {
             unreachable!("a browser call")
         }
     }
@@ -922,7 +958,9 @@ mod tests {
             while host.reached.load(Ordering::SeqCst) < MAX_CONCURRENT {
                 tokio::task::yield_now().await;
             }
-        }).await.expect("all admitted commands reached the host");
+        })
+        .await
+        .expect("all admitted commands reached the host");
         let refused = tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await.expect_err("the 33rd is refused");
         assert_eq!(refused.message_for_model, "Error: too many concurrent browser commands");
         assert_eq!(host.reached.load(Ordering::SeqCst), MAX_CONCURRENT, "the refused command was not sent");
@@ -939,7 +977,9 @@ mod tests {
             while host.reached.load(Ordering::SeqCst) <= MAX_CONCURRENT {
                 tokio::task::yield_now().await;
             }
-        }).await.expect("the newly admitted command reached the host");
+        })
+        .await
+        .expect("the newly admitted command reached the host");
         host.release.notify_waiters();
         assert!(again.await.unwrap().is_ok(), "a place was free again");
     }
@@ -954,13 +994,14 @@ mod tests {
             while host.reached.load(Ordering::SeqCst) == 0 {
                 tokio::task::yield_now().await;
             }
-        }).await.expect("the command reached the host");
+        })
+        .await
+        .expect("the command reached the host");
         assert_eq!(COUNT.load(Ordering::SeqCst), 1);
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
         assert_eq!(COUNT.load(Ordering::SeqCst), 0);
     }
-
 
     /// What the model reads when a browser call is malformed: the exact refusal for each rule.
     #[test]
@@ -977,24 +1018,46 @@ mod tests {
         };
         for (tool, args, want) in [
             ("browser", json!({"action": "click", "input": {}}), "browser action \"click\" requires input.ref or input.target or input.snapshotId+x+y"),
-            ("browser", json!({"action": "click", "input": {"ref": "e1", "target": {"role": "button"}}}), "browser action \"click\" accepts only one input target form"),
-            ("browser", json!({"action": "click", "input": {"target": {"nth": 0, "role": "x"}}}), "browser action \"click\" input.target.nth must be an integer from 1 to 500"),
-            ("browser", json!({"action": "click", "input": {"target": "x"}}), "browser action \"click\" input.target must be an object with role, name, and/or selector"),
+            (
+                "browser",
+                json!({"action": "click", "input": {"ref": "e1", "target": {"role": "button"}}}),
+                "browser action \"click\" accepts only one input target form",
+            ),
+            (
+                "browser",
+                json!({"action": "click", "input": {"target": {"nth": 0, "role": "x"}}}),
+                "browser action \"click\" input.target.nth must be an integer from 1 to 500",
+            ),
+            (
+                "browser",
+                json!({"action": "click", "input": {"target": "x"}}),
+                "browser action \"click\" input.target must be an object with role, name, and/or selector",
+            ),
             ("browser", json!({"action": "click", "input": {"target": {"foo": 1}}}), "browser action \"click\" input.target does not accept field(s): foo"),
             ("browser", json!({"action": "navigate", "input": {}}), "browser action \"navigate\" requires input.url or input.reload"),
             ("browser", json!({"action": "navigate", "url": "x", "input": {"url": "y"}}), "browser action \"navigate\" fields must be inside input: url"),
             ("browser", json!({"action": "nope"}), "unknown browser action \"nope\""),
-            ("browser", json!({"action": "cookies", "input": {}}), "browser action \"cookies\" belongs to the browser_devtools tool; call browser_devtools with the same input"),
-            ("browser_devtools", json!({"action": "click", "input": {"ref": "e"}}), "browser action \"click\" belongs to the browser tool; call browser with the same input"),
-            ("browser", json!({"action": "snapshot", "input": {"fullPage": true}}), "browser action \"snapshot\" screenshot options require input.mode=visual or input.mode=both"),
+            (
+                "browser",
+                json!({"action": "cookies", "input": {}}),
+                "browser action \"cookies\" belongs to the browser_devtools tool; call browser_devtools with the same input",
+            ),
+            (
+                "browser_devtools",
+                json!({"action": "click", "input": {"ref": "e"}}),
+                "browser action \"click\" belongs to the browser tool; call browser with the same input",
+            ),
+            (
+                "browser",
+                json!({"action": "snapshot", "input": {"fullPage": true}}),
+                "browser action \"snapshot\" screenshot options require input.mode=visual or input.mode=both",
+            ),
         ] {
             assert_eq!(refused(tool, args.clone()), want, "{tool} {args}");
         }
         assert!(validate("browser", &json!({"action": "click", "input": {"ref": "e1"}}), &browser).is_ok());
     }
-
 }
-
 
 #[async_trait]
 impl Tool for BrowserTool {

@@ -224,11 +224,7 @@ fn shown_value(value: &Value) -> String {
 }
 
 fn cannot_convert_the(value: &Value, target: &str) -> String {
-    format!(
-        "Cannot convert the \"{}\" value of type \"{}\" to type \"{target}\".",
-        shown_value(value),
-        type_name(value)
-    )
+    format!("Cannot convert the \"{}\" value of type \"{}\" to type \"{target}\".", shown_value(value), type_name(value))
 }
 
 fn dbnull_error(value: &Value, target: &str) -> String {
@@ -390,9 +386,8 @@ fn string_to_whole(text: &str, bits: u32, value: &Value) -> Result<i64, String> 
     }
     let (negative, unsigned) = split_sign(trimmed);
     // Digits with thousands commas are an integer; a point or an exponent sends the text through a double.
-    let integral = !unsigned.is_empty()
-        && unsigned.chars().next().is_some_and(|c| c.is_ascii_digit())
-        && unsigned.chars().all(|c| c.is_ascii_digit() || c == ',');
+    let integral =
+        !unsigned.is_empty() && unsigned.chars().next().is_some_and(|c| c.is_ascii_digit()) && unsigned.chars().all(|c| c.is_ascii_digit() || c == ',');
     if integral {
         let digits: String = unsigned.chars().filter(char::is_ascii_digit).collect();
         let magnitude = match digits.parse::<i128>() {
@@ -428,9 +423,7 @@ fn cast_whole(value: &Value, bits: u32) -> Result<i64, String> {
             }
         }
         Value::Double(n) => double_to_whole(*n, bits).ok_or_else(|| cannot_convert_value(value, target, double_overflow_reason(bits))),
-        Value::Single(n) => {
-            double_to_whole(f64::from(*n), bits).ok_or_else(|| cannot_convert_value(value, target, double_overflow_reason(bits)))
-        }
+        Value::Single(n) => double_to_whole(f64::from(*n), bits).ok_or_else(|| cannot_convert_value(value, target, double_overflow_reason(bits))),
         Value::Decimal(n) => {
             let whole = n.round_to_i128();
             let fits = whole.and_then(|w| if bits == 32 { i32::try_from(w).map(i64::from).ok() } else { i64::try_from(w).ok() });
@@ -559,10 +552,8 @@ pub fn try_parse_int(text: &str) -> Option<i32> {
 /// `[Math]::Round($x, $digits)` (.NET Framework scales by a power of ten, rounds to even and scales back).
 pub fn round_digits(value: f64, digits: i32) -> Result<f64, String> {
     if !(0..=15).contains(&digits) {
-        return Err(
-            "Exception calling \"Round\" with \"2\" argument(s): \"Rounding digits must be between 0 and 15, inclusive.\r\nParameter name: digits\""
-                .to_string(),
-        );
+        return Err("Exception calling \"Round\" with \"2\" argument(s): \"Rounding digits must be between 0 and 15, inclusive.\r\nParameter name: digits\""
+            .to_string());
     }
     if value.abs() >= 1e16 || !value.is_finite() {
         return Ok(value);
@@ -595,9 +586,7 @@ pub fn floor(value: &Value) -> Result<Value, String> {
             Err(inner) => Err(argument_error("d", "Floor", value, DOUBLE, &inner)),
         },
         Value::Bool(_) => Err("Multiple ambiguous overloads found for \"Floor\" and the argument count: \"1\".".to_string()),
-        Value::DateTime(_) | Value::Array(_) | Value::Object(_) => {
-            Err("Cannot find an overload for \"Floor\" and the argument count: \"1\".".to_string())
-        }
+        Value::DateTime(_) | Value::Array(_) | Value::Object(_) => Err("Cannot find an overload for \"Floor\" and the argument count: \"1\".".to_string()),
     }
 }
 
@@ -851,11 +840,7 @@ pub fn arithmetic(op: char, a: &Value, b: &Value) -> Result<Value, String> {
 /// Windows PowerShell 5.1 (it is computed as a decimal and converted without rounding to nearest).
 fn truncated_f64(n: i128) -> f64 {
     let nearest = n as f64;
-    if (nearest as i128).unsigned_abs() > n.unsigned_abs() {
-        f64::from_bits(nearest.to_bits() - 1)
-    } else {
-        nearest
-    }
+    if (nearest as i128).unsigned_abs() > n.unsigned_abs() { f64::from_bits(nearest.to_bits() - 1) } else { nearest }
 }
 
 fn float_arithmetic(op: char, x: f64, y: f64) -> f64 {

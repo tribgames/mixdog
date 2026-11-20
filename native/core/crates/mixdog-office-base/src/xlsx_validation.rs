@@ -11,21 +11,12 @@ use serde_json::{Map, Value};
 pub const XLSX_VALIDATION_TYPES: [&str; 7] = ["list", "whole", "decimal", "date", "time", "textLength", "custom"];
 
 /// `XLSX_VALIDATION_OPERATORS`.
-pub const XLSX_VALIDATION_OPERATORS: [&str; 8] = [
-    "between",
-    "notBetween",
-    "equal",
-    "notEqual",
-    "greaterThan",
-    "lessThan",
-    "greaterThanOrEqual",
-    "lessThanOrEqual",
-];
+pub const XLSX_VALIDATION_OPERATORS: [&str; 8] =
+    ["between", "notBetween", "equal", "notEqual", "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual"];
 
 /// `VALIDATION_CHOICE_RANGE`: a range of cells holding the choices, optionally sheet-qualified.
-static CHOICE_RANGE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$", "")
-});
+static CHOICE_RANGE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$", ""));
 /// `/^"[^"]*"$/`: a literal list in quotes.
 static QUOTED_LIST: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"^"[^"]*"$"#, ""));
 /// `/[=<>+*/()"]/`: what an expression holds and a bare list of choices never does.
@@ -102,9 +93,7 @@ pub fn normalize_xlsx_validation(operation: &Map<String, Value>) -> Result<Valid
     if let Some(name @ ("between" | "notBetween")) = operator
         && js_trim(&field_text(operation, "formula2")).is_empty()
     {
-        return Err(format!(
-            "add_validation operator \"{name}\" requires formula2; for one bound use a comparison operator"
-        ));
+        return Err(format!("add_validation operator \"{name}\" requires formula2; for one bound use a comparison operator"));
     }
     Ok(ValidationRule { kind, operator })
 }
@@ -138,10 +127,7 @@ mod tests {
     fn a_bounded_type_defaults_to_between_and_needs_the_second_formula() {
         let error = rule(&json!({ "type": "whole", "formula1": "0" })).expect_err("formula2");
         assert_eq!(error, "add_validation operator \"between\" requires formula2; for one bound use a comparison operator");
-        assert_eq!(
-            rule(&json!({ "type": "whole", "formula1": "0", "formula2": "50" })),
-            Ok(ValidationRule { kind: "whole", operator: Some("between") })
-        );
+        assert_eq!(rule(&json!({ "type": "whole", "formula1": "0", "formula2": "50" })), Ok(ValidationRule { kind: "whole", operator: Some("between") }));
         assert!(rule(&json!({ "type": "whole", "operator": "notBetween", "formula1": "0" })).is_err());
     }
 

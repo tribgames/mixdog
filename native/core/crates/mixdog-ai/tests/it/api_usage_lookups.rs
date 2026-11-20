@@ -36,7 +36,8 @@ struct Net {
 impl UsageHttp for Net {
     async fn get(&self, url: &str, headers: &[(String, String)], _timeout: Duration) -> Result<UsageResponse, UsageError> {
         self.seen.lock().unwrap().push((url.to_owned(), headers.to_vec()));
-        let (status, body) = self.rules.iter().find(|(prefix, ..)| url.starts_with(prefix)).map_or((404, "{}".to_owned()), |(_, status, body)| (*status, body.clone()));
+        let (status, body) =
+            self.rules.iter().find(|(prefix, ..)| url.starts_with(prefix)).map_or((404, "{}".to_owned()), |(_, status, body)| (*status, body.clone()));
         Ok(UsageResponse { status, body })
     }
 
@@ -123,7 +124,13 @@ async fn xai_with_a_management_key_and_team_reads_the_prepaid_balance_in_dollars
 
 #[tokio::test]
 async fn a_prepaid_balance_may_be_given_in_cents_or_in_a_named_field_and_an_unreadable_one_is_no_snapshot() {
-    for (body, usd) in [(json!({"balance": {"cents": 250}}), Some(2.5)), (json!({"availableCredits": 7}), Some(7.0)), (json!({"credits": {"usd": "3.25"}}), Some(3.25)), (json!({"credits": true}), None), (json!({"unrelated": 1}), None)] {
+    for (body, usd) in [
+        (json!({"balance": {"cents": 250}}), Some(2.5)),
+        (json!({"availableCredits": 7}), Some(7.0)),
+        (json!({"credits": {"usd": "3.25"}}), Some(3.25)),
+        (json!({"credits": true}), None),
+        (json!({"unrelated": 1}), None),
+    ] {
         let l = lookup(&[("XAI_MANAGEMENT_API_KEY", "m"), ("XAI_TEAM_ID", "t")], vec![("https://management-api.x.ai/", 200, body.clone())]);
         let got = l.snapshot("xai").await.map(|s| s["balance"]["remainingUsd"].as_f64().unwrap());
         assert_eq!(got, usd, "{body}");
@@ -132,16 +139,24 @@ async fn a_prepaid_balance_may_be_given_in_cents_or_in_a_named_field_and_an_unre
 
 #[tokio::test]
 async fn xai_without_management_credentials_probes_the_public_endpoints_in_order() {
-    let l = lookup(&[("XAI_API_KEY", "k")], vec![("https://api.x.ai/v1/usage", 404, json!({})), ("https://api.x.ai/v1/rate_limits", 200, json!({"balance": 4}))]);
+    let l =
+        lookup(&[("XAI_API_KEY", "k")], vec![("https://api.x.ai/v1/usage", 404, json!({})), ("https://api.x.ai/v1/rate_limits", 200, json!({"balance": 4}))]);
     let snapshot = l.snapshot("xai").await.unwrap();
     assert_eq!(l.urls(), ["https://api.x.ai/v1/usage", "https://api.x.ai/v1/rate_limits"]);
     assert_eq!((snapshot["source"].clone(), snapshot["balance"]["source"].clone()), (json!("xai-public-usage-probe"), json!("xai-public-usage-probe")));
     assert_eq!(snapshot["balance"]["remainingUsd"].as_f64(), Some(4.0));
     let unsupported = lookup(&[("XAI_API_KEY", "k")], vec![("https://api.x.ai/v1/usage", 200, json!({"x": 1}))]);
-    assert_eq!(unsupported.snapshot("xai").await.unwrap()["unavailable"]["message"], "xAI public usage probe returned unsupported data from https://api.x.ai/v1/usage");
+    assert_eq!(
+        unsupported.snapshot("xai").await.unwrap()["unavailable"]["message"],
+        "xAI public usage probe returned unsupported data from https://api.x.ai/v1/usage"
+    );
     let failing = lookup(&[("XAI_API_KEY", "k")], vec![("https://api.x.ai/v1/usage", 403, json!({"error": {"message": "no access"}}))]);
     let unavailable = failing.snapshot("xai").await.unwrap();
-    assert_eq!((unavailable["unavailable"]["status"].clone(), unavailable["unavailable"]["message"].clone()), (json!(403), json!("no access")), "the first failure is the one reported");
+    assert_eq!(
+        (unavailable["unavailable"]["status"].clone(), unavailable["unavailable"]["message"].clone()),
+        (json!(403), json!("no access")),
+        "the first failure is the one reported"
+    );
 }
 
 #[tokio::test]
@@ -149,7 +164,11 @@ async fn xai_with_no_credential_at_all_says_what_to_set() {
     let none = lookup(&[], Vec::new());
     assert_eq!(none.snapshot("xai").await.unwrap()["unavailable"]["message"], "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance");
     let half = lookup(&[("XAI_MANAGEMENT_API_KEY", "m")], Vec::new());
-    assert_eq!(half.snapshot("xai").await.unwrap()["unavailable"]["message"], "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance", "the team is needed too");
+    assert_eq!(
+        half.snapshot("xai").await.unwrap()["unavailable"]["message"],
+        "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance",
+        "the team is needed too"
+    );
 }
 
 #[tokio::test]
@@ -177,14 +196,20 @@ async fn the_anthropic_cost_report_sums_the_usd_cents_of_every_bucket_into_dolla
     let snapshot = l.snapshot("anthropic").await.unwrap();
     assert_eq!(f(&snapshot["balance"]), f(&json!({"usedUsd": 2.0, "source": "anthropic-cost-report"})), "150 + 50 cents; another currency is not summed");
     let url = &l.urls()[0];
-    assert!(url.starts_with("https://api.anthropic.com/v1/organizations/cost_report?starting_at=2023-10-14T22%3A13%3A20.000Z&bucket_width=1d&limit=31"), "{url}");
+    assert!(
+        url.starts_with("https://api.anthropic.com/v1/organizations/cost_report?starting_at=2023-10-14T22%3A13%3A20.000Z&bucket_width=1d&limit=31"),
+        "{url}"
+    );
     assert_eq!(l.header(0, "anthropic-version").as_deref(), Some("2023-06-01"));
     assert_eq!(l.header(0, "authorization").as_deref(), Some("Bearer admin"), "the bearer form is tried first");
 }
 
 #[tokio::test]
 async fn a_refused_bearer_is_retried_as_an_api_key_and_every_key_is_tried_before_giving_up() {
-    let l = lookup(&[("ANTHROPIC_ADMIN_API_KEY", "one"), ("ANTHROPIC_ADMIN_KEY", "two")], vec![("https://api.anthropic.com/", 401, json!({"error": {"message": "invalid x-api-key"}}))]);
+    let l = lookup(
+        &[("ANTHROPIC_ADMIN_API_KEY", "one"), ("ANTHROPIC_ADMIN_KEY", "two")],
+        vec![("https://api.anthropic.com/", 401, json!({"error": {"message": "invalid x-api-key"}}))],
+    );
     let snapshot = l.snapshot("anthropic").await.unwrap();
     assert_eq!(l.urls().len(), 4, "two keys, each as a bearer and as x-api-key");
     assert_eq!((l.header(0, "authorization").as_deref(), l.header(1, "x-api-key").as_deref()), (Some("Bearer one"), Some("one")));
@@ -212,7 +237,11 @@ async fn openai_credit_grants_give_the_remaining_balance_and_the_nearest_expiry_
     let snapshot = l.snapshot("openai").await.unwrap();
     assert_eq!(snapshot["source"], "openai-credit-grants");
     assert_eq!(snapshot["balance"]["remainingUsd"], 12.3457);
-    assert_eq!(f(&snapshot["creditGrants"]), f(&json!({"usedUsd": 1.0, "limitUsd": 13.3457, "nextExpiry": 1_700_000_000_000.0})), "an expiry in seconds is read as seconds");
+    assert_eq!(
+        f(&snapshot["creditGrants"]),
+        f(&json!({"usedUsd": 1.0, "limitUsd": 13.3457, "nextExpiry": 1_700_000_000_000.0})),
+        "an expiry in seconds is read as seconds"
+    );
     assert_eq!(l.urls(), [GRANTS], "the first source that answers ends the lookup");
 }
 
@@ -247,13 +276,26 @@ async fn without_a_dashboard_the_organization_costs_are_summed_over_the_last_31_
 
 #[tokio::test]
 async fn a_refused_costs_report_falls_to_the_completion_token_totals_and_other_failures_are_errors() {
-    let usage = json!({"data": [{"results": [{"input_tokens": 10, "output_tokens": 5, "input_cached_tokens": 2, "num_model_requests": 1}, {"input_tokens": 1}]}]});
-    let l = lookup(&[("OPENAI_API_KEY", "sk")], vec![("https://api.openai.com/v1/organization/costs", 403, json!({})), ("https://api.openai.com/v1/organization/usage/completions", 200, usage)]);
+    let usage =
+        json!({"data": [{"results": [{"input_tokens": 10, "output_tokens": 5, "input_cached_tokens": 2, "num_model_requests": 1}, {"input_tokens": 1}]}]});
+    let l = lookup(
+        &[("OPENAI_API_KEY", "sk")],
+        vec![("https://api.openai.com/v1/organization/costs", 403, json!({})), ("https://api.openai.com/v1/organization/usage/completions", 200, usage)],
+    );
     let snapshot = l.snapshot("openai").await.unwrap();
-    assert_eq!(f(&snapshot["tokenUsage"]), f(&json!({"inputTokens": 11.0, "outputTokens": 5.0, "cachedInputTokens": 2.0, "requests": 1.0, "source": "openai-organization-usage-completions"})));
+    assert_eq!(
+        f(&snapshot["tokenUsage"]),
+        f(&json!({"inputTokens": 11.0, "outputTokens": 5.0, "cachedInputTokens": 2.0, "requests": 1.0, "source": "openai-organization-usage-completions"}))
+    );
     assert!(l.urls().last().unwrap().starts_with("https://api.openai.com/v1/organization/usage/completions?start_time=1697321600&bucket_width=1d&limit=31"));
     let broken = lookup(&[("OPENAI_API_KEY", "sk")], vec![("https://api.openai.com/v1/organization/costs", 500, json!({}))]);
     assert!(broken.service.fetch("openai", true).await.is_err());
-    let nothing = lookup(&[("OPENAI_API_KEY", "sk")], vec![("https://api.openai.com/v1/organization/costs", 200, json!({"data": []})), ("https://api.openai.com/v1/organization/usage/completions", 200, json!({"nodata": 1}))]);
+    let nothing = lookup(
+        &[("OPENAI_API_KEY", "sk")],
+        vec![
+            ("https://api.openai.com/v1/organization/costs", 200, json!({"data": []})),
+            ("https://api.openai.com/v1/organization/usage/completions", 200, json!({"nodata": 1})),
+        ],
+    );
     assert_eq!(nothing.snapshot("openai").await, None, "no source gave a reading");
 }

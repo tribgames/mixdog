@@ -245,10 +245,7 @@ impl Walk {
                 kind = Kind::Encryption;
             }
             Some(Kind::Encryption) => {
-                let at = ENCRYPTION_SEQUENCE
-                    .iter()
-                    .position(|name| *name == local)
-                    .map(|at| at as i32);
+                let at = ENCRYPTION_SEQUENCE.iter().position(|name| *name == local).map(|at| at as i32);
                 match at {
                     Some(at) if encryption && at > self.position => {
                         self.position = at;
@@ -271,16 +268,11 @@ impl Walk {
                     return Err("unexpected element in keyEncryptors".to_owned());
                 }
                 self.key_encryptors += 1;
-                let password =
-                    attributes.get("uri").map(|uri| collapse(uri)).as_deref() == Some(PASSWORD_KEY_ENCRYPTOR);
+                let password = attributes.get("uri").map(|uri| collapse(uri)).as_deref() == Some(PASSWORD_KEY_ENCRYPTOR);
                 if password {
                     self.password_key_encryptors += 1;
                 }
-                kind = if password {
-                    Kind::PasswordKeyEncryptor
-                } else {
-                    Kind::KeyEncryptor
-                };
+                kind = if password { Kind::PasswordKeyEncryptor } else { Kind::KeyEncryptor };
             }
             Some(parent @ (Kind::PasswordKeyEncryptor | Kind::KeyEncryptor)) => {
                 let holder = self.open.last_mut().ok_or_else(|| "no parent".to_owned())?;
@@ -323,14 +315,7 @@ impl Walk {
 fn descriptor_fields(xml: &str) -> Result<Fields, String> {
     let mut reader = NsReader::from_str(xml);
     reader.config_mut().check_end_names = true;
-    let mut walk = Walk {
-        fields: Fields::default(),
-        open: Vec::new(),
-        position: -1,
-        key_encryptors: 0,
-        password_key_encryptors: 0,
-        root_seen: false,
-    };
+    let mut walk = Walk { fields: Fields::default(), open: Vec::new(), position: -1, key_encryptors: 0, password_key_encryptors: 0, root_seen: false };
     let mut first = true;
     loop {
         let (resolved, event) = reader.read_resolved_event().map_err(|error| error.to_string())?;
@@ -388,11 +373,7 @@ fn descriptor_fields(xml: &str) -> Result<Fields, String> {
     if !walk.open.is_empty() || !walk.root_seen {
         return Err("the document is not complete".to_owned());
     }
-    if walk.fields.key_data.is_none()
-        || walk.position != 2
-        || walk.key_encryptors < 1
-        || walk.password_key_encryptors != 1
-    {
+    if walk.fields.key_data.is_none() || walk.position != 2 || walk.key_encryptors < 1 || walk.password_key_encryptors != 1 {
         return Err("incomplete encryption descriptor".to_owned());
     }
     Ok(walk.fields)
@@ -418,20 +399,10 @@ fn agile_cipher(values: &Attributes) -> Option<AgileCipher> {
     let algorithm = algorithm?;
     let (hash_size, salt_size) = (hash_size?, salt_size?);
     let salt = salt?;
-    if algorithm.digest_length().map(|length| length as u64) != Some(hash_size)
-        || salt_size < 1
-        || salt.len() as u64 != salt_size
-    {
+    if algorithm.digest_length().map(|length| length as u64) != Some(hash_size) || salt_size < 1 || salt.len() as u64 != salt_size {
         return None;
     }
-    Some(AgileCipher {
-        key_bits: key_bits as usize,
-        block_size: 16,
-        salt_size: salt_size as usize,
-        hash_size: hash_size as usize,
-        algorithm,
-        salt,
-    })
+    Some(AgileCipher { key_bits: key_bits as usize, block_size: 16, salt_size: salt_size as usize, hash_size: hash_size as usize, algorithm, salt })
 }
 
 /// base64Binary ciphertext of whole cipher blocks holding at least `least` bytes, or `None`.
@@ -455,19 +426,11 @@ fn data_integrity(values: Option<&Attributes>, data: &AgileCipher) -> Option<Int
     let get = |name: &str| values.get(name).map(String::as_str);
     let hmac_key = base64_binary(get("encryptedHmacKey"));
     let hmac_value = base64_binary(get("encryptedHmacValue"));
-    let salt_length = [data.salt_size, data.hash_size]
-        .into_iter()
-        .filter(|length| hmac_key.as_ref().map(Vec::len) == Some(whole_blocks(*length, data.block_size)))
-        .max();
+    let salt_length =
+        [data.salt_size, data.hash_size].into_iter().filter(|length| hmac_key.as_ref().map(Vec::len) == Some(whole_blocks(*length, data.block_size))).max();
     match (salt_length, hmac_key, hmac_value) {
-        (Some(salt_length), Some(hmac_key), Some(hmac_value))
-            if hmac_value.len() == whole_blocks(data.hash_size, data.block_size) =>
-        {
-            Some(Integrity::Present {
-                hmac_key,
-                hmac_value,
-                salt_length,
-            })
+        (Some(salt_length), Some(hmac_key), Some(hmac_value)) if hmac_value.len() == whole_blocks(data.hash_size, data.block_size) => {
+            Some(Integrity::Present { hmac_key, hmac_value, salt_length })
         }
         _ => Some(Integrity::Malformed),
     }
@@ -497,15 +460,7 @@ fn agile_descriptor(info: &[u8]) -> Option<AgileDescriptor> {
     let verifier_hash = ciphertext(get("encryptedVerifierHashValue"), key.block_size, key.hash_size)?;
     let encrypted_key = ciphertext(get("encryptedKeyValue"), key.block_size, data.key_bits / 8)?;
     let integrity = data_integrity(fields.data_integrity.as_ref(), &data);
-    Some(AgileDescriptor {
-        data,
-        key,
-        spin_count: spin_count as u32,
-        verifier_input,
-        verifier_hash,
-        encrypted_key,
-        integrity,
-    })
+    Some(AgileDescriptor { data, key, spin_count: spin_count as u32, verifier_input, verifier_hash, encrypted_key, integrity })
 }
 
 fn u32_at(bytes: &[u8], at: usize) -> u32 {
@@ -566,11 +521,7 @@ pub fn ooxml_encryption(info: &[u8]) -> Option<Descriptor> {
     let major = u16::from_le_bytes([info[0], info[1]]);
     let minor = u16::from_le_bytes([info[2], info[3]]);
     if major == 4 && minor == 4 {
-        return if u32_at(info, 4) == 0x40 {
-            agile_descriptor(info).map(Descriptor::Agile)
-        } else {
-            None
-        };
+        return if u32_at(info, 4) == 0x40 { agile_descriptor(info).map(Descriptor::Agile) } else { None };
     }
     if [2, 3, 4].contains(&major) && minor == 2 {
         return standard_descriptor(info).map(Descriptor::Standard);

@@ -332,15 +332,7 @@ impl ThreadScmService {
 #[async_trait]
 impl DomainService for ThreadScmService {
     fn methods(&self) -> &'static [&'static str] {
-        &[
-            GET_BRANCH_MENU,
-            GET_SESSION_WORKTREE_WORK,
-            REQUEST_WORKTREE,
-            SELECT_BRANCH,
-            MERGE_WORKSPACE,
-            REVERT_TURN_CHANGES,
-            REAPPLY_TURN_CHANGES,
-        ]
+        &[GET_BRANCH_MENU, GET_SESSION_WORKTREE_WORK, REQUEST_WORKTREE, SELECT_BRANCH, MERGE_WORKSPACE, REVERT_TURN_CHANGES, REAPPLY_TURN_CHANGES]
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
@@ -399,7 +391,6 @@ mod draft_branch_tests {
         assert_eq!(draft_branch(&json!({ "branch": 3 })), "");
     }
 }
-
 
 /// [`NewThreadPlace`](super::NewThreadPlace) over the workspace service and the registered Projects.
 pub struct ScmNewThreadPlace {

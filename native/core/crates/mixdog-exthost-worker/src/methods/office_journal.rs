@@ -27,10 +27,7 @@ fn data_dir(params: &Value) -> Result<&str, CodedError> {
         None | Some(Value::Null | Value::Bool(false)) => Ok(""),
         Some(Value::Number(number)) if number.as_f64() == Some(0.0) => Ok(""),
         Some(Value::String(text)) => Ok(text),
-        Some(_) => Err(CodedError::new(
-            "ERR_INVALID_ARG_TYPE",
-            "The \"paths[0]\" argument must be of type string",
-        )),
+        Some(_) => Err(CodedError::new("ERR_INVALID_ARG_TYPE", "The \"paths[0]\" argument must be of type string")),
     }
 }
 
@@ -40,9 +37,7 @@ fn sweep(ctx: CallCtx) -> HandlerResult {
         return Err(CodedError::cancelled());
     }
     // The worker runs no lane job of the daemon: its file calls go through the unlaned proof, as the other document methods do.
-    list_office_journals(&Unlaned, Path::new(dir), true).map_err(|error| {
-        CodedError::new(error_code(&error).unwrap_or("failed"), error.to_string())
-    })?;
+    list_office_journals(&Unlaned, Path::new(dir), true).map_err(|error| CodedError::new(error_code(&error).unwrap_or("failed"), error.to_string()))?;
     Ok(Outcome::value(Value::Null))
 }
 

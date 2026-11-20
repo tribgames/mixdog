@@ -62,21 +62,12 @@ impl Run {
 }
 
 async fn host(args: &[&str], stdin: &str) -> Run {
-    let mut child = Command::new(HOST)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the test host starts");
+    let mut child = Command::new(HOST).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("the test host starts");
     let mut input = child.stdin.take().expect("stdin");
     // The host may end before it reads everything (after `close_session`): a broken pipe is not a failure.
     let _ = input.write_all(stdin.as_bytes()).await;
     drop(input);
-    let output = mixdog_rt::time::timeout(Duration::from_secs(60), child.wait_with_output())
-        .await
-        .expect("the host ended")
-        .expect("the host's output");
+    let output = mixdog_rt::time::timeout(Duration::from_secs(60), child.wait_with_output()).await.expect("the host ended").expect("the host's output");
     Run {
         stdout: String::from_utf8(output.stdout).expect("utf-8 stdout"),
         stderr: String::from_utf8(output.stderr).expect("utf-8 stderr"),
@@ -139,10 +130,7 @@ async fn a_one_shot_cleanup_that_failed_is_written_on_stderr_and_does_not_change
     let run = host(&["office-com-host"], "{\"action\":\"x\",\"scenario\":{\"cleanupFail\":true}}").await;
     assert_eq!(run.code, Some(0));
     assert_eq!(run.lines().len(), 1);
-    assert_eq!(
-        run.cleanup_lines(),
-        ["MIXDOG_OFFICE_CLEANUP {\"ok\":false,\"errors\":[\"Document close failed: scripted\"]}\r\n"]
-    );
+    assert_eq!(run.cleanup_lines(), ["MIXDOG_OFFICE_CLEANUP {\"ok\":false,\"errors\":[\"Document close failed: scripted\"]}\r\n"]);
 }
 
 #[tokio::test]
@@ -209,14 +197,8 @@ async fn the_three_refusals_of_the_session_loop() {
     .await;
     let out = run.lines();
     assert_eq!(out[0], format!("{ERROR_PREFIX}\"Office session host has no open document\",\"requestId\":\"a\"}}"));
-    assert_eq!(
-        out[3],
-        format!("{ERROR_PREFIX}\"Office session is already open in this host\",\"session\":\"s1\",\"appPid\":4242,\"requestId\":\"b\"}}")
-    );
-    assert_eq!(
-        out[4],
-        format!("{ERROR_PREFIX}\"Office session id does not match this host\",\"session\":\"s1\",\"appPid\":4242,\"requestId\":\"c\"}}")
-    );
+    assert_eq!(out[3], format!("{ERROR_PREFIX}\"Office session is already open in this host\",\"session\":\"s1\",\"appPid\":4242,\"requestId\":\"b\"}}"));
+    assert_eq!(out[4], format!("{ERROR_PREFIX}\"Office session id does not match this host\",\"session\":\"s1\",\"appPid\":4242,\"requestId\":\"c\"}}"));
     assert_eq!(run.code, Some(0));
     assert_eq!(run.events().iter().filter(|event| **event == "EndCleanup").count(), 1, "the open session was cleaned up at EOF");
 }
@@ -226,10 +208,7 @@ async fn end_of_input_cleans_up_the_open_session_and_reports_a_failed_cleanup_on
     let open = "{\"action\":\"open_session\",\"session\":\"s1\",\"requestId\":\"r1\",\"scenario\":{\"hold\":2,\"cleanupFail\":true}}";
     let run = host(&["office-com-host", "--session"], &lines(&[open])).await;
     assert_eq!(run.code, Some(0));
-    assert_eq!(
-        run.cleanup_lines(),
-        ["MIXDOG_OFFICE_CLEANUP {\"ok\":false,\"errors\":[\"Document close failed: scripted\"]}\r\n"]
-    );
+    assert_eq!(run.cleanup_lines(), ["MIXDOG_OFFICE_CLEANUP {\"ok\":false,\"errors\":[\"Document close failed: scripted\"]}\r\n"]);
     let events = run.events();
     let cleanup = events.iter().position(|event| *event == "EndCleanup").expect("the cleanup ran");
     let release = events.iter().position(|event| event.starts_with("Release")).expect("handles released");
@@ -289,11 +268,7 @@ mod live {
     }
 
     async fn word_processes() -> usize {
-        let output = Command::new("tasklist")
-            .args(["/FI", "IMAGENAME eq WINWORD.EXE", "/NH"])
-            .output()
-            .await
-            .expect("tasklist runs");
+        let output = Command::new("tasklist").args(["/FI", "IMAGENAME eq WINWORD.EXE", "/NH"]).output().await.expect("tasklist runs");
         String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.contains("WINWORD.EXE")).count()
     }
 

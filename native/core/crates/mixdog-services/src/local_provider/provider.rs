@@ -12,7 +12,10 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::assets::{AssetError, DownloadOptions, Fetcher, discard_downloads, download_verified_asset, install_model, install_runtime, probe, resumable_installations, sha256_file};
+use super::assets::{
+    AssetError, DownloadOptions, Fetcher, discard_downloads, download_verified_asset, install_model, install_runtime, probe, resumable_installations,
+    sha256_file,
+};
 use super::catalog::{Catalog, exact_file, file_has_data};
 use super::change::ChangeSignal;
 use super::context::{local_context_settings, save_local_context, validate_local_context};
@@ -21,8 +24,8 @@ use super::hugging_face::{HfHttp, HuggingFaceCatalog};
 use super::installations::{Installations, Progress, wait};
 use super::model_state::ModelState;
 use super::request_queue::{DEFAULT_LOCAL_IDLE_TTL_SECONDS, QueueError, RequestQueue, Unload};
-use crate::tidy::process::Processes;
 use super::server_process::{Health, Launch, Launcher, Ready, ServerProcess, StartSpec, Timing, fetch_props};
+use crate::tidy::process::Processes;
 
 const CONFIRMATION_TTL: Duration = Duration::from_secs(5 * 60);
 const MAX_CONFIRMATIONS: usize = 100;
@@ -187,7 +190,14 @@ pub(crate) mod tests {
     struct NoLaunch;
     #[async_trait]
     impl Launcher for NoLaunch {
-        async fn launch(&self, _: &str, _: &[String], _: &str, _: &[(String, String)], _: super::super::server_process::LogSink) -> Result<Arc<dyn super::super::server_process::RunningProcess>, String> {
+        async fn launch(
+            &self,
+            _: &str,
+            _: &[String],
+            _: &str,
+            _: &[(String, String)],
+            _: super::super::server_process::LogSink,
+        ) -> Result<Arc<dyn super::super::server_process::RunningProcess>, String> {
             Err("no process in tests".into())
         }
     }
@@ -289,7 +299,6 @@ pub(crate) mod tests {
         assert!(p.discard_installation("bogus", None).await.is_err());
     }
 
-
     #[tokio::test]
     async fn verify_reports_integrity_through_the_job_and_model_state() {
         let dir = tempfile::tempdir().unwrap();
@@ -362,7 +371,6 @@ pub(crate) mod tests {
     }
 }
 
-
 /// The model's weights and partial file as they are on disk; a link or a non-regular file is refused.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn model_files_blocking(path: &std::path::Path) -> Result<Value, ProviderError> {
@@ -394,7 +402,12 @@ impl LocalProvider {
             }
         });
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));
-        let queue = RequestQueue::with_signal(Arc::new(ServerUnloader(server.clone())), parts.idle_ttl_seconds.unwrap_or(DEFAULT_LOCAL_IDLE_TTL_SECONDS), None, signal.clone());
+        let queue = RequestQueue::with_signal(
+            Arc::new(ServerUnloader(server.clone())),
+            parts.idle_ttl_seconds.unwrap_or(DEFAULT_LOCAL_IDLE_TTL_SECONDS),
+            None,
+            signal.clone(),
+        );
         let hf = HuggingFaceCatalog::new(parts.hf_http, catalog.registry.clone());
         let installed = InstalledRows::new();
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -483,13 +496,17 @@ impl LocalProvider {
     /// The model's context settings, read on the durability lane.
     async fn context_settings(&self, entry: &Value) -> Result<Value, ProviderError> {
         let (entry, data_dir) = (entry.clone(), self.catalog.data_dir.clone());
-        probe(self.durability, move || local_context_settings(&Catalog::context_limits(&entry), &data_dir)).await?.map_err(|e| ProviderError::Failed(e.to_string()))
+        probe(self.durability, move || local_context_settings(&Catalog::context_limits(&entry), &data_dir))
+            .await?
+            .map_err(|e| ProviderError::Failed(e.to_string()))
     }
 
     /// Saves the model's context window on the durability lane.
     async fn save_context(&self, entry: &Value, tokens: Option<i64>) -> Result<(), ProviderError> {
         let (entry, data_dir) = (entry.clone(), self.catalog.data_dir.clone());
-        probe(self.durability, move || save_local_context(&Catalog::context_limits(&entry), tokens, &data_dir)).await?.map_err(|e| ProviderError::Failed(e.to_string()))
+        probe(self.durability, move || save_local_context(&Catalog::context_limits(&entry), tokens, &data_dir))
+            .await?
+            .map_err(|e| ProviderError::Failed(e.to_string()))
     }
 
     pub async fn stop(&self) {
@@ -535,7 +552,12 @@ impl LocalProvider {
                     if cancel.is_cancelled() {
                         return Err("aborted".to_owned());
                     }
-                    let gpu = select_gpu(&hardware, entry_for_gpu["estimatedVramBytes"].as_i64().unwrap_or(0), entry_for_gpu["minimumVramBytes"].as_i64().unwrap_or(0)).map_err(|e| e.to_string())?;
+                    let gpu = select_gpu(
+                        &hardware,
+                        entry_for_gpu["estimatedVramBytes"].as_i64().unwrap_or(0),
+                        entry_for_gpu["minimumVramBytes"].as_i64().unwrap_or(0),
+                    )
+                    .map_err(|e| e.to_string())?;
                     let env = if gpu.vendor == "NVIDIA" { vec![("CUDA_VISIBLE_DEVICES".to_owned(), gpu.uuid.clone())] } else { vec![] };
                     Ok(Launch { gpu: Some(gpu), env })
                 })
@@ -556,7 +578,19 @@ impl LocalProvider {
                 Box::new(move |port, key| {
                     let mut a: Vec<String> = ["--host", "127.0.0.1", "--port"].map(String::from).to_vec();
                     a.push(port.to_string());
-                    for (k, v) in [("--api-key", key), ("--model", model.as_str()), ("--alias", id.as_str()), ("--ctx-size", &context_window.to_string()), ("--parallel", "1"), ("--split-mode", "none"), ("--main-gpu", "0"), ("--n-gpu-layers", "99"), ("--flash-attn", "on"), ("--cache-type-k", "q8_0"), ("--cache-type-v", "q8_0")] {
+                    for (k, v) in [
+                        ("--api-key", key),
+                        ("--model", model.as_str()),
+                        ("--alias", id.as_str()),
+                        ("--ctx-size", &context_window.to_string()),
+                        ("--parallel", "1"),
+                        ("--split-mode", "none"),
+                        ("--main-gpu", "0"),
+                        ("--n-gpu-layers", "99"),
+                        ("--flash-attn", "on"),
+                        ("--cache-type-k", "q8_0"),
+                        ("--cache-type-v", "q8_0"),
+                    ] {
                         a.push(k.into());
                         a.push(v.into());
                     }
@@ -585,8 +619,7 @@ impl LocalProvider {
                 this.save_context(&entry, tokens).await?;
                 let _ = this.refresh_installed().await;
                 this.signal.notify();
-                if reload
-                    && let Err(e) = this.ensure_server(&id, Some(cancel)).await {
+                if reload && let Err(e) = this.ensure_server(&id, Some(cancel)).await {
                     // `server.mjs:52-56`: the restoring save is bare in the `catch`, so its failure is thrown in
                     // place of the reload's error.
                     this.save_context(&entry, previous).await?;
@@ -615,7 +648,8 @@ impl LocalProvider {
                     .ok_or_else(|| ProviderError::Invalid("modelId must identify a model in the Local Provider catalog.".into()))?;
                 let id = entry["id"].as_str().unwrap_or("").to_owned();
                 Ok(self.installs.track("model", Some(&id), move |progress: Progress, cancel| async move {
-                    let installed = install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string());
+                    let installed =
+                        install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string());
                     // The job completes after the installed models are published, so a read after it sees the model.
                     let _ = this.refresh_installed().await;
                     installed
@@ -634,7 +668,8 @@ impl LocalProvider {
         let epoch = epoch.or_else(|| owner.as_ref()?.upgrade().map(|owner| owner.runtime_activation_epoch()));
         self.installs.track_with_commit("runtime", None, move |progress, cancel, begin_commit| async move {
             let status = install_runtime(&this.catalog, this.fetcher.as_ref(), &this.processes, &this.platform_key, progress, cancel)
-                .await.map_err(|e| e.to_string())?;
+                .await
+                .map_err(|e| e.to_string())?;
             // Installer success proves verified reuse or a freshly verified install;
             // the catalog's display status is not proof.
             if !begin_commit() {
@@ -661,7 +696,9 @@ impl LocalProvider {
     pub async fn discard_installation(&self, phase: &str, model_id: Option<&str>) -> Result<(), ProviderError> {
         let owner = if phase == "runtime" { None } else { model_id };
         let live = self.installs.status().iter().any(|job| {
-            (job["phase"] == "runtime") == (phase == "runtime") && job["modelId"].as_str() == owner && matches!(job["state"].as_str(), Some("running" | "cancelling"))
+            (job["phase"] == "runtime") == (phase == "runtime")
+                && job["modelId"].as_str() == owner
+                && matches!(job["state"].as_str(), Some("running" | "cancelling"))
         });
         if live {
             return failed("[local-provider] stop the installation before discarding it");
@@ -699,7 +736,9 @@ impl LocalProvider {
                 "[local-provider] unload this model before repairing or deleting it; active conversations are protected"
             });
         }
-        let busy = self.installs.status().iter().any(|j| j["modelId"] == entry["id"] && matches!(j["state"].as_str(), Some("running" | "cancelling")) && Some(j["phase"].as_str().unwrap_or("")) != own_phase);
+        let busy = self.installs.status().iter().any(|j| {
+            j["modelId"] == entry["id"] && matches!(j["state"].as_str(), Some("running" | "cancelling")) && Some(j["phase"].as_str().unwrap_or("")) != own_phase
+        });
         if busy {
             return failed("[local-provider] this model has an active installation or maintenance job");
         }
@@ -757,7 +796,13 @@ impl LocalProvider {
         if operation == "repair" {
             self.guard(entry, Some(operation), false, 0)?;
             self.model_files(entry).await?;
-            download_verified_asset(self.fetcher.as_ref(), entry, &path, DownloadOptions { on_progress: Some(publish), cancel, force: true, ..DownloadOptions::new(self.durability) }).await?;
+            download_verified_asset(
+                self.fetcher.as_ref(),
+                entry,
+                &path,
+                DownloadOptions { on_progress: Some(publish), cancel, force: true, ..DownloadOptions::new(self.durability) },
+            )
+            .await?;
             self.catalog.state.record_verification(id, json!({"valid": true, "sizeBytes": size, "sha256": entry["sha256"]}));
             let _ = self.refresh_installed().await;
             return Ok(json!({"modelId": id, "valid": true}));

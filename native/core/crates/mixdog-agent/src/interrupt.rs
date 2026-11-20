@@ -55,10 +55,7 @@ impl AbortReason {
     }
 
     fn user_cancel(self) -> bool {
-        matches!(
-            self,
-            Self::CliAbort | Self::UserCancel | Self::TurnAbort | Self::UserCancelKeepPrompt | Self::Unnamed
-        )
+        matches!(self, Self::CliAbort | Self::UserCancel | Self::TurnAbort | Self::UserCancelKeepPrompt | Self::Unnamed)
     }
 }
 
@@ -93,9 +90,7 @@ pub struct Finalized {
 }
 
 fn provisional_user_turn(messages: &[AgentMessage], current_text: &str) -> Option<usize> {
-    messages
-        .iter()
-        .rposition(|m| m.role() == Role::User && m.text() == current_text)
+    messages.iter().rposition(|m| m.role() == Role::User && m.text() == current_text)
 }
 
 pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
@@ -125,12 +120,7 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
             if reason == AbortReason::UserCancelKeepPrompt && provisional.is_some() {
                 messages.push(AgentMessage::user(SESSION_INTERRUPT_MESSAGE));
             }
-            return Finalized {
-                transcript: messages,
-                response_preserved: false,
-                user_turn_preserved: true,
-                sent_request_tail: None,
-            };
+            return Finalized { transcript: messages, response_preserved: false, user_turn_preserved: true, sent_request_tail: None };
         }
         // The prompt goes back to the input box: remove the provisional user
         // turn plus pre-send hooks appended after it, keeping any compaction
@@ -138,51 +128,25 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
         if let Some(index) = provisional {
             messages.truncate(index);
         }
-        return Finalized {
-            transcript: messages,
-            response_preserved: false,
-            user_turn_preserved: false,
-            sent_request_tail: None,
-        };
+        return Finalized { transcript: messages, response_preserved: false, user_turn_preserved: false, sent_request_tail: None };
     }
-    let sent_tail = messages
-        .last()
-        .filter(|last| phase == Phase::Streaming && matches!(last.role(), Role::Tool | Role::User))
-        .cloned();
-    append_observed_output(
-        &mut messages,
-        &partial_assistant,
-        &partial_reasoning,
-        observed_tool_calls,
-        &observed_tool_results,
-    );
+    let sent_tail = messages.last().filter(|last| phase == Phase::Streaming && matches!(last.role(), Role::Tool | Role::User)).cloned();
+    append_observed_output(&mut messages, &partial_assistant, &partial_reasoning, observed_tool_calls, &observed_tool_results);
     let mut paired = sanitize_tool_pairs(&messages);
     // The marker is omitted when a queued user submission interrupted the
     // request: that message is the boundary.
-    if !matches!(
-        reason,
-        AbortReason::Interrupt | AbortReason::ProviderError
-    ) {
+    if !matches!(reason, AbortReason::Interrupt | AbortReason::ProviderError) {
         let content = if reason == AbortReason::ProcessCrash {
             PROCESS_RESTART_INTERRUPT_MESSAGE
         } else if user_cancelled {
-            if phase == Phase::Tools {
-                INTERRUPT_MESSAGE_FOR_TOOL_USE
-            } else {
-                INTERRUPT_MESSAGE
-            }
+            if phase == Phase::Tools { INTERRUPT_MESSAGE_FOR_TOOL_USE } else { INTERRUPT_MESSAGE }
         } else {
             SESSION_INTERRUPT_MESSAGE
         };
         paired.push(AgentMessage::user(content));
     }
     let sent_request_tail = sent_tail.and_then(|tail| paired.iter().rposition(|m| *m == tail));
-    Finalized {
-        transcript: paired,
-        response_preserved: true,
-        user_turn_preserved: true,
-        sent_request_tail,
-    }
+    Finalized { transcript: paired, response_preserved: true, user_turn_preserved: true, sent_request_tail }
 }
 
 /// The stored mark of a row `recover_after_restart` wrote (`meta.restartRecovery`, FORMAT.md §5.2). Only the recovery writes it;
@@ -286,14 +250,8 @@ fn append_observed_output(
     observed_calls: Vec<ToolCall>,
     observed_results: &[AgentMessage],
 ) {
-    let represented: Vec<String> = messages
-        .iter()
-        .flat_map(AgentMessage::assistant_call_ids)
-        .collect();
-    let unrepresented: Vec<ToolCall> = observed_calls
-        .into_iter()
-        .filter(|call| !call.id.is_empty() && !represented.contains(&call.id))
-        .collect();
+    let represented: Vec<String> = messages.iter().flat_map(AgentMessage::assistant_call_ids).collect();
+    let unrepresented: Vec<ToolCall> = observed_calls.into_iter().filter(|call| !call.id.is_empty() && !represented.contains(&call.id)).collect();
     if !partial_assistant.is_empty() || !partial_reasoning.is_empty() || !unrepresented.is_empty() {
         let mut assistant = AgentMessage::assistant(partial_assistant, unrepresented);
         if !partial_reasoning.is_empty() {
@@ -301,11 +259,7 @@ fn append_observed_output(
         }
         messages.push(assistant);
     }
-    let mut answered: Vec<String> = messages
-        .iter()
-        .filter(|m| m.role() == Role::Tool)
-        .filter_map(|m| m.tool_call_id().map(str::to_owned))
-        .collect();
+    let mut answered: Vec<String> = messages.iter().filter(|m| m.role() == Role::Tool).filter_map(|m| m.tool_call_id().map(str::to_owned)).collect();
     for result in observed_results {
         let Some(id) = result.tool_call_id() else {
             continue;
@@ -321,19 +275,12 @@ fn append_observed_output(
         kept.tool_kind = kind;
         messages.push(kept);
     }
-    let all_calls: Vec<String> = messages
-        .iter()
-        .flat_map(AgentMessage::assistant_call_ids)
-        .collect();
+    let all_calls: Vec<String> = messages.iter().flat_map(AgentMessage::assistant_call_ids).collect();
     for id in all_calls {
         if answered.contains(&id) {
             continue;
         }
-        messages.push(AgentMessage::tool_text(
-            id.clone(),
-            INTERRUPTED_TOOL_RESULT,
-            ToolKind::Error,
-        ));
+        messages.push(AgentMessage::tool_text(id.clone(), INTERRUPTED_TOOL_RESULT, ToolKind::Error));
         answered.push(id);
     }
 }
@@ -377,11 +324,9 @@ mod tests {
         assert_eq!(done.sent_request_tail, Some(0), "killed with the request on the wire: the prompt is the sent tail");
     }
 
-
-
     #[test]
     fn an_abort_carries_its_typed_reason_from_the_name_node_gives_it() {
-        use crate::cancel::{Abort, Cancel, CLI_ABORT};
+        use crate::cancel::{Abort, CLI_ABORT, Cancel};
         assert_eq!(Abort::runtime_abort("s", CLI_ABORT).reason, AbortReason::CliAbort);
         assert_eq!(Abort::close_session("s", "cli-agent-close").reason, AbortReason::Other);
         assert_eq!(Abort::runtime_abort("s", "user-cancel-keep-prompt").reason, AbortReason::UserCancelKeepPrompt);
@@ -390,7 +335,11 @@ mod tests {
         let signal = Cancel::new();
         signal.abort_with(&Abort::abort_session_turn("s", "user-cancel"));
         signal.abort_with(&Abort::close_session("s", "cli-agent-close"));
-        assert_eq!((signal.close_reason(), Abort::of_signal(&signal).reason), (AbortReason::UserCancel, AbortReason::UserCancel), "the first abort keeps its reason");
+        assert_eq!(
+            (signal.close_reason(), Abort::of_signal(&signal).reason),
+            (AbortReason::UserCancel, AbortReason::UserCancel),
+            "the first abort keeps its reason"
+        );
         let bare = Cancel::new();
         bare.abort("parent aborted");
         assert_eq!(bare.close_reason(), AbortReason::Unnamed, "a source with no close reason is Node's null reason");
@@ -405,16 +354,8 @@ mod tests {
 
     #[test]
     fn unanswered_calls_are_closed_as_cancelled() {
-        let call = ToolCall {
-            id: "c1".into(),
-            name: "shell".into(),
-            arguments: JsonValue::Null,
-            native_type: None,
-        };
-        let mut turn = input(vec![
-            AgentMessage::user("go"),
-            AgentMessage::assistant("", vec![call]),
-        ]);
+        let call = ToolCall { id: "c1".into(), name: "shell".into(), arguments: JsonValue::Null, native_type: None };
+        let mut turn = input(vec![AgentMessage::user("go"), AgentMessage::assistant("", vec![call])]);
         turn.phase = Phase::Tools;
         let done = finalize_interrupted_turn(turn);
         let last_two: Vec<String> = done.transcript[2..].iter().map(AgentMessage::text).collect();
@@ -446,13 +387,19 @@ mod tests {
     /// request ended with the call, not with it.
     #[test]
     fn a_cancelled_result_a_cut_recovery_saved_is_derived_again() {
-        let rows = recovered(serde_json::json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error", "meta": { "restartRecovery": true } }));
+        let rows = recovered(
+            serde_json::json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error", "meta": { "restartRecovery": true } }),
+        );
         let [_, _, RecoveredRow::Kept { index: 2, body }, RecoveredRow::New { role: "user", .. }] = &rows[..] else { panic!("{rows:?}") };
         assert!(body.pointer("/meta/sentRequestTail").is_none(), "{body}");
     }
 
     fn bodies(rows: &[RecoveredRow]) -> Vec<serde_json::Value> {
-        rows.iter().map(|row| match row { RecoveredRow::Kept { body, .. } | RecoveredRow::New { body, .. } => body.clone() }).collect()
+        rows.iter()
+            .map(|row| match row {
+                RecoveredRow::Kept { body, .. } | RecoveredRow::New { body, .. } => body.clone(),
+            })
+            .collect()
     }
 
     /// Every shape a finished result can take (text, timing, kind, error flag: a real tool's, a cache hit's, a denied call's, a
@@ -485,7 +432,9 @@ mod tests {
                             result.clone(),
                         ];
                         let first = recover_after_restart(&stored).unwrap();
-                        let [_, _, RecoveredRow::Kept { index: 2, body }, RecoveredRow::New { role: "user", .. }] = &first[..] else { panic!("{result}: {first:?}") };
+                        let [_, _, RecoveredRow::Kept { index: 2, body }, RecoveredRow::New { role: "user", .. }] = &first[..] else {
+                            panic!("{result}: {first:?}")
+                        };
                         let mut want = result.clone();
                         want["meta"] = serde_json::json!({ "sentRequestTail": true });
                         assert_eq!(body, &want, "{result}");
@@ -515,7 +464,8 @@ mod tests {
         ];
         let first = recover_after_restart(&stored).unwrap();
         let done = bodies(&first);
-        let added: Vec<serde_json::Value> = first.iter().filter_map(|row| if let RecoveredRow::New { body, .. } = row { Some(body.clone()) } else { None }).collect();
+        let added: Vec<serde_json::Value> =
+            first.iter().filter_map(|row| if let RecoveredRow::New { body, .. } = row { Some(body.clone()) } else { None }).collect();
         assert!(added.len() >= 2, "{first:?}");
         for cut in 0..=added.len() {
             let state = [stored.clone(), added[..cut].to_vec()].concat();
@@ -532,6 +482,4 @@ mod tests {
         assert_eq!(done.transcript.len(), 1);
         assert!(done.user_turn_preserved);
     }
-
-
 }

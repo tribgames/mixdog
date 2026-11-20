@@ -13,10 +13,7 @@ use mixdog_js::js_trim_start;
 static CANCEL_QUALIFIED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^cancel[-_ ](?:unconfirmed|pending)$", ""));
 static OFFLOADED_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[tool output offloaded:", "i"));
 static USER_CONTROL_CANCELLATION: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"^(?:Error:\s*)?(?:Browser command interrupted by local user input\.|computer_session_aborted:|computer_user_control_active:)",
-        "i",
-    )
+    JsRegex::new_static(r"^(?:Error:\s*)?(?:Browser command interrupted by local user input\.|computer_session_aborted:|computer_user_control_active:)", "i")
 });
 static BENIGN_EXIT_OUTCOME: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[outcome:\s*(?:no-match|no-change|conflicts)\]\s*$", "im"));
 static ENVELOPE_TAG_HEAD: LazyLock<JsRegex> =
@@ -25,9 +22,8 @@ static STATUS_TAG: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<s
 static STATUS_BRACKET: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[status:\s*([^\]]*)\]", "im"));
 static STATUS_INLINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:status|state):\s*([^\s·,;]+)", "im"));
 static BARE_CANCEL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:cancelled|canceled)$", "i"));
-static BARE_INTERRUPT: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:interrupted by (?:user|process restart)|tool execution aborted|\[tool execution was interrupted\])$", "i")
-});
+static BARE_INTERRUPT: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:interrupted by (?:user|process restart)|tool execution aborted|\[tool execution was interrupted\])$", "i"));
 static USER_DECLINED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^the user doesn't want to proceed with this tool use\b", "i"));
 
 /// `normalizeToolTerminalStatus`: `running`, `completed`, `failed`, `cancelled` or `denied`; empty for any other text.

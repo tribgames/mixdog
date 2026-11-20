@@ -65,14 +65,8 @@ pub const SHEET_CHART_TEXT: ChartText = ChartText { title: 1200, body: 900, labe
 /// worksheet sizes on a slide set a chart's axes at 9 pt beside the 12 pt Office drew for the same one.
 pub const SLIDE_CHART_TEXT: ChartText = ChartText { title: 1862, body: 1197, label: 1197 };
 
-const LABEL_POSITIONS: [(&str, &str); 6] = [
-    ("inside_end", "inEnd"),
-    ("inside_base", "inBase"),
-    ("outside_end", "outEnd"),
-    ("center", "ctr"),
-    ("centre", "ctr"),
-    ("best_fit", "bestFit"),
-];
+const LABEL_POSITIONS: [(&str, &str); 6] =
+    [("inside_end", "inEnd"), ("inside_base", "inBase"), ("outside_end", "outEnd"), ("center", "ctr"), ("centre", "ctr"), ("best_fit", "bestFit")];
 
 /// `String(value ?? '')`.
 fn string_of(value: &Value) -> String {
@@ -121,13 +115,8 @@ fn supported_chart_types() -> Vec<&'static str> {
 }
 
 fn string_reference(formula: &str, values: &[String]) -> String {
-    let points: String =
-        values.iter().enumerate().map(|(index, value)| format!("<c:pt idx=\"{index}\"><c:v>{}</c:v></c:pt>", xml_encode(value))).collect();
-    format!(
-        "<c:strRef><c:f>{}</c:f><c:strCache><c:ptCount val=\"{}\"/>{points}</c:strCache></c:strRef>",
-        xml_encode(formula),
-        values.len()
-    )
+    let points: String = values.iter().enumerate().map(|(index, value)| format!("<c:pt idx=\"{index}\"><c:v>{}</c:v></c:pt>", xml_encode(value))).collect();
+    format!("<c:strRef><c:f>{}</c:f><c:strCache><c:ptCount val=\"{}\"/>{points}</c:strCache></c:strRef>", xml_encode(formula), values.len())
 }
 
 fn number_reference(formula: &str, values: &[Value], format_code: &str) -> String {
@@ -154,9 +143,7 @@ fn series_shape(family: &Family, color: &Value) -> String {
         return String::new();
     }
     if family.element == "lineChart" {
-        return format!(
-            "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill><a:srgbClr val=\"{fill}\"/></a:solidFill><a:round/></a:ln><a:effectLst/></c:spPr>"
-        );
+        return format!("<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill><a:srgbClr val=\"{fill}\"/></a:solidFill><a:round/></a:ln><a:effectLst/></c:spPr>");
     }
     format!("<c:spPr><a:solidFill><a:srgbClr val=\"{fill}\"/></a:solidFill><a:ln><a:noFill/></a:ln><a:effectLst/></c:spPr>")
 }
@@ -235,9 +222,7 @@ fn data_labels(options: &LabelOptions<'_>) -> String {
     // The labels carry their size whether or not a colour is named: unnamed, a slide chart's labels fell to the reader's
     // 10 pt beside 12 pt axes.
     if label.is_empty() {
-        out.push_str(&format!(
-            "<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz=\"{size}\"/></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></c:txPr>"
-        ));
+        out.push_str(&format!("<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz=\"{size}\"/></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></c:txPr>"));
     } else {
         out.push_str(&format!(
             "<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz=\"{size}\" b=\"1\"><a:solidFill><a:srgbClr val=\"{label}\"/></a:solidFill></a:defRPr></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></c:txPr>"
@@ -275,11 +260,8 @@ struct CategoryAxis<'a> {
 /// plot (low), not on the zero line, where a loss bar's value label and its category name ran over each other. Dated
 /// categories read in their cells' format on a text axis: auto would turn them into a date scale.
 fn category_axis(axis: &CategoryAxis<'_>) -> String {
-    let format = if axis.number_format.is_empty() {
-        String::new()
-    } else {
-        format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"1\"/>", xml_encode(axis.number_format))
-    };
+    let format =
+        if axis.number_format.is_empty() { String::new() } else { format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"1\"/>", xml_encode(axis.number_format)) };
     format!(
         "<c:catAx><c:axId val=\"{CATEGORY_AXIS_ID}\"/>\
          <c:scaling><c:orientation val=\"{}\"/></c:scaling><c:delete val=\"{}\"/><c:axPos val=\"{}\"/>{format}\
@@ -330,11 +312,8 @@ fn value_axis(axis: &ValueAxis<'_>) -> String {
     } else {
         ""
     };
-    let format = if axis.number_format.is_empty() {
-        String::new()
-    } else {
-        format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>", xml_encode(axis.number_format))
-    };
+    let format =
+        if axis.number_format.is_empty() { String::new() } else { format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>", xml_encode(axis.number_format)) };
     format!(
         "<c:valAx><c:axId val=\"{VALUE_AXIS_ID}\"/><c:scaling><c:orientation val=\"minMax\"/>{}{}</c:scaling>\
          <c:delete val=\"{}\"/><c:axPos val=\"{}\"/>{gridlines}{format}\
@@ -467,7 +446,8 @@ pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
         return Err("add_chart requires at least one series with values".to_owned());
     }
     // A loss reaches below the zero line: pinning the axis at 0 drew the "-8" column as nothing.
-    let negative = entries.iter().any(|entry| entry.get("values").and_then(Value::as_array).is_some_and(|values| values.iter().any(|value| to_number(value) < 0.0)));
+    let negative =
+        entries.iter().any(|entry| entry.get("values").and_then(Value::as_array).is_some_and(|values| values.iter().any(|value| to_number(value) < 0.0)));
     // A bar or column says "this much" by its length, so its axis starts at zero unless the caller deliberately zooms in; a
     // line reads as a path and keeps the range that shows its movement.
     let baseline = !negative
@@ -485,8 +465,7 @@ pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
     let references = spec.references.unwrap_or_default();
     let sheet = if references.sheet.is_empty() { "Sheet1" } else { references.sheet };
     let last_row = rows.len() + 1;
-    let category_formula =
-        if references.category.is_empty() { format!("{sheet}!$A$2:$A${last_row}") } else { references.category.to_owned() };
+    let category_formula = if references.category.is_empty() { format!("{sheet}!$A$2:$A${last_row}") } else { references.category.to_owned() };
     let mut plots = String::new();
     for (index, entry) in entries.iter().enumerate() {
         let column = column_label((index + 2) as f64);
@@ -510,10 +489,7 @@ pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
         };
         let point_colors = point_colors_for(&family, entry, &rows);
         let values = entry.get("values").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-        plots.push_str(&format!(
-            "<c:ser><c:idx val=\"{index}\"/><c:order val=\"{index}\"/><c:tx>{}</c:tx>",
-            string_reference(&name_formula, &[name])
-        ));
+        plots.push_str(&format!("<c:ser><c:idx val=\"{index}\"/><c:order val=\"{index}\"/><c:tx>{}</c:tx>", string_reference(&name_formula, &[name])));
         plots.push_str(&series_shape(&family, &color));
         // A line is the line, as Microsoft Excel and PowerPoint draw chartType 'line': left to the reader's default a 21-day
         // series carried a diamond on every day and read as a dotted band.

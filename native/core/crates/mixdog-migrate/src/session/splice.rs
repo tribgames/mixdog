@@ -162,11 +162,7 @@ fn spread(value: Option<&Value>) -> Map<String, Value> {
     match value {
         Some(Value::Object(o)) => o.clone(),
         Some(Value::Array(a)) => a.iter().enumerate().map(|(i, v)| (i.to_string(), v.clone())).collect(),
-        Some(Value::String(s)) => s
-            .encode_utf16()
-            .enumerate()
-            .map(|(i, unit)| (i.to_string(), Value::String(String::from_utf16_lossy(&[unit]))))
-            .collect(),
+        Some(Value::String(s)) => s.encode_utf16().enumerate().map(|(i, unit)| (i.to_string(), Value::String(String::from_utf16_lossy(&[unit])))).collect(),
         _ => Map::new(),
     }
 }
@@ -230,11 +226,8 @@ fn append_observed_turn_output(
         messages.push(Value::Object(assistant));
     }
 
-    let mut answered: Vec<Value> = messages
-        .iter()
-        .filter(|m| role_is(m, "tool"))
-        .filter_map(|m| prop(Some(m), "toolCallId").filter(|id| js_truthy(Some(id))).cloned())
-        .collect();
+    let mut answered: Vec<Value> =
+        messages.iter().filter(|m| role_is(m, "tool")).filter_map(|m| prop(Some(m), "toolCallId").filter(|id| js_truthy(Some(id))).cloned()).collect();
     for (_, result) in results {
         let Some(id) = prop(result.as_ref(), "toolCallId").filter(|id| js_truthy(Some(id))) else {
             continue;
@@ -479,9 +472,12 @@ mod tests {
         let messages = [user("a"), user("b")];
         let mut header = Map::new();
         header.insert("generation".into(), json!(2));
-        let unsigned = checkpoint(json!({"turnToken": "t", "generation": 2, "contextState": {"committedPrefixCount": 1, "committedPrefixSignature": "not-the-signature"}}));
+        let unsigned = checkpoint(
+            json!({"turnToken": "t", "generation": 2, "contextState": {"committedPrefixCount": 1, "committedPrefixSignature": "not-the-signature"}}),
+        );
         assert_eq!(splice_of(&header, &messages, &unsigned), Splice::Conflict, "the signature does not match the prefix");
-        let other_generation = checkpoint(json!({"turnToken": "t", "generation": 1, "contextState": {"committedPrefixCount": 0, "committedPrefixSignature": ""}}));
+        let other_generation =
+            checkpoint(json!({"turnToken": "t", "generation": 1, "contextState": {"committedPrefixCount": 0, "committedPrefixSignature": ""}}));
         assert_eq!(splice_of(&header, &messages, &other_generation), Splice::Conflict);
         let no_state = checkpoint(json!({"turnToken": "t", "generation": 2}));
         assert_eq!(splice_of(&header, &messages, &no_state), Splice::Conflict);
@@ -491,7 +487,9 @@ mod tests {
     fn a_started_response_is_closed_with_its_partial_answer_and_the_restart_line() {
         let header = header_on_epoch("e1");
         let cp = |interruption: Value, extra: Value| {
-            let mut cp = checkpoint(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "turnMessages": [user("q")], "interruption": interruption}));
+            let mut cp = checkpoint(
+                json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "turnMessages": [user("q")], "interruption": interruption}),
+            );
             cp.extend(extra.as_object().unwrap().clone());
             cp
         };
@@ -519,7 +517,9 @@ mod tests {
         let header = header_on_epoch("e1");
         let call = json!({"id": "c1", "name": "read", "arguments": {}});
         let turn_of = |interruption: Value| {
-            let cp = checkpoint(json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "turnMessages": [user("q")], "interruption": interruption}));
+            let cp = checkpoint(
+                json!({"turnToken": "t", "base": {"epoch": "e1", "length": 0}, "boundary": 0, "turnMessages": [user("q")], "interruption": interruption}),
+            );
             match splice_of(&header, &[], &cp) {
                 Splice::Replay { turn, .. } => turn,
                 other => panic!("{other:?}"),
@@ -532,7 +532,12 @@ mod tests {
         }));
         assert_eq!(
             answered,
-            [user("q"), json!({"role": "assistant", "content": "", "toolCalls": [call.clone()]}), json!({"role": "tool", "content": "out", "toolCallId": "c1"}), restart()],
+            [
+                user("q"),
+                json!({"role": "assistant", "content": "", "toolCalls": [call.clone()]}),
+                json!({"role": "tool", "content": "out", "toolCallId": "c1"}),
+                restart()
+            ],
             "no sent-tail mark while tools run"
         );
         let cancelled = turn_of(json!({"responseStarted": true, "phase": "tools", "observedToolCalls": [["c1", {"call": call}]]}));
@@ -562,4 +567,3 @@ mod tests {
         assert_eq!(header["providerPrefixBaseline"], json!({"hash": "p1", "count": 3}));
     }
 }
-

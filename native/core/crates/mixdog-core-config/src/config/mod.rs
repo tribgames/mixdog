@@ -35,41 +35,41 @@
 pub mod agent_routes;
 mod agent_store;
 mod canonical;
+mod desktop_separation;
 mod guard;
 mod separation;
-mod desktop_separation;
 pub(crate) use separation::source_mode;
-mod storage;
 mod browser_permissions;
-mod network_proxy_store;
-pub mod patch;
-pub(crate) mod settings;
-pub mod quota;
+mod channel_follow;
 mod desktop;
+pub mod hidden_agents;
+mod network_proxy_store;
 mod notifications;
 pub mod output_style;
-pub mod hidden_agents;
+pub mod patch;
+pub mod quota;
 mod schema;
 pub mod seams;
-mod service;
 pub mod secret_changes;
+mod service;
+pub(crate) mod settings;
+mod storage;
 mod watch;
-mod channel_follow;
 
-pub use storage::migrate_codex_route;
-pub use storage::migrate_codex_route_over;
-pub use secret_changes::AnnouncingStore;
-pub use secret_changes::SecretChanges;
-pub use seams::ConfigFeatureGate;
-pub use service::{ConfigService, DESKTOP_CONFIRMATION_CALLER};
-pub use watch::ConfigWatcher;
 pub use channel_follow::ChannelConfigFollow;
-pub use service::set_worktree_settings;
+pub use seams::ConfigFeatureGate;
 pub use seams::ConfigLocalProviderSettings;
 pub use seams::ConfigVoiceEnabled;
 pub use seams::ConfigVoiceSettings;
 pub use seams::ConfigWorktreeSettings;
 pub use seams::LocalCatalogRefresh;
+pub use secret_changes::AnnouncingStore;
+pub use secret_changes::SecretChanges;
+pub use service::set_worktree_settings;
+pub use service::{ConfigService, DESKTOP_CONFIRMATION_CALLER};
+pub use storage::migrate_codex_route;
+pub use storage::migrate_codex_route_over;
+pub use watch::ConfigWatcher;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -95,29 +95,29 @@ use mixdog_rt::LaneToken;
 use serde_json::Map;
 use serde_json::Value;
 
-pub use output_style::OutputStyles;
-pub use settings::{normalize_profile, PROFILE_EXPERIENCE_LEVELS, PROFILE_LANGUAGES};
-pub use settings::NoEffects;
-pub(crate) use settings::save_and_adopt;
-pub use settings::Settings;
-pub use settings::SettingsEffects;
-pub use settings::SettingsEnv;
+pub use agent_routes::AgentRoutes;
+pub use agent_routes::DEFAULT_MIXY_NAME;
+pub use agent_routes::RouteHome;
 pub use agent_routes::agent_disabled;
 pub use agent_routes::bot_migration;
 pub use agent_routes::is_store_bot;
-pub use agent_routes::DEFAULT_MIXY_NAME;
 pub use agent_routes::mixy_display_name;
 pub use agent_routes::mixy_identity_dir;
-pub use agent_routes::AgentRoutes;
-pub use agent_routes::RouteHome;
 pub use desktop::ActivityRailPins;
+pub use desktop::ComputerBackendChoice;
 pub use desktop::DesktopSettings;
 pub use desktop::SessionRetention;
-pub use desktop::ComputerBackendChoice;
 pub use desktop::browser_cookie_auto_import;
 pub use desktop::computer_backend;
 pub use desktop::desktop_settings;
 pub use desktop::session_retention;
+pub use output_style::OutputStyles;
+pub use settings::NoEffects;
+pub use settings::Settings;
+pub use settings::SettingsEffects;
+pub use settings::SettingsEnv;
+pub(crate) use settings::save_and_adopt;
+pub use settings::{PROFILE_EXPERIENCE_LEVELS, PROFILE_LANGUAGES, normalize_profile};
 
 use mixdog_core_base::state::change_of;
 
@@ -146,7 +146,10 @@ pub const PUBLISHED_SUBTREES: &[&str] = &[
 #[derive(Debug)]
 pub enum ConfigError {
     /// `-32602 invalidParams{path, expected}`.
-    InvalidParams { path: String, expected: String },
+    InvalidParams {
+        path: String,
+        expected: String,
+    },
     /// The file exists but is not a JSON object; nothing is replaced, so nothing is lost.
     Parse(String),
     Io(std::io::Error),
@@ -161,7 +164,10 @@ pub enum ConfigError {
     Rejected(mixdog_core_api::CoreError),
     /// The user-data guard refused: a damaged init marker, or a lost config with no backup to start a write from. `code`
     /// is Node's `err.code` (`EUSERDATARECOVERY`).
-    UserData { code: Option<&'static str>, message: String },
+    UserData {
+        code: Option<&'static str>,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -315,14 +321,8 @@ impl Drop for AdoptionGuard {
 }
 
 /// Runs `job` on `lane`; a full queue answers [`ConfigError::Overloaded`] at once.
-async fn on_lane<L: LaneToken, R: Send + 'static>(
-    lane: L,
-    job: impl FnOnce(&InLane<L>) -> R + Send + 'static,
-) -> Result<R, ConfigError> {
-    lane.submit(&CancellationToken::new(), job)
-        .map_err(ConfigError::Overloaded)?
-        .await
-        .map_err(|_| ConfigError::Stopped)
+async fn on_lane<L: LaneToken, R: Send + 'static>(lane: L, job: impl FnOnce(&InLane<L>) -> R + Send + 'static) -> Result<R, ConfigError> {
+    lane.submit(&CancellationToken::new(), job).map_err(ConfigError::Overloaded)?.await.map_err(|_| ConfigError::Stopped)
 }
 
 /// The top-level section `name` as an object, in its place; one that is missing is added last, one that holds anything else is
@@ -368,11 +368,7 @@ fn retire_legacy_compaction(doc: &mut Doc) {
         Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
         Some(_) => true,
     };
-    let Some(compaction) = doc
-        .get_mut("agent")
-        .and_then(Value::as_object_mut)
-        .and_then(|agent| agent.get_mut("compaction"))
-        .and_then(Value::as_object_mut)
+    let Some(compaction) = doc.get_mut("agent").and_then(Value::as_object_mut).and_then(|agent| agent.get_mut("compaction")).and_then(Value::as_object_mut)
     else {
         return;
     };
@@ -393,18 +389,12 @@ fn warnings_of(doc: &Doc) -> Vec<ConfigWarning> {
         return warnings;
     }
     for key in ["sessionAutoArchiveDays", "sessionAutoDeleteDays"] {
-        let choices = if key == "sessionAutoArchiveDays" {
-            schema::SESSION_AUTO_ARCHIVE_DAY_CHOICES
-        } else {
-            schema::SESSION_AUTO_DELETE_DAY_CHOICES
-        };
+        let choices = if key == "sessionAutoArchiveDays" { schema::SESSION_AUTO_ARCHIVE_DAY_CHOICES } else { schema::SESSION_AUTO_DELETE_DAY_CHOICES };
         let stored = get_in(doc, &["desktop", key]);
         if stored.is_some_and(|v| !v.as_i64().is_some_and(|n| choices.contains(&n))) {
             warnings.push(ConfigWarning {
                 path: format!("desktop.{key}"),
-                message: format!(
-                    "desktop.{key} is not one of {choices:?}; session retention is paused"
-                ),
+                message: format!("desktop.{key} is not one of {choices:?}; session retention is paused"),
             });
         }
     }
@@ -424,9 +414,7 @@ fn set_in(doc: &mut Doc, parts: &[&str], value: Value) {
     let (last, parents) = parts.split_last().expect("a path has a segment");
     let mut node = doc;
     for part in parents {
-        let child = node
-            .entry((*part).to_owned())
-            .or_insert_with(|| Value::Object(Map::new()));
+        let child = node.entry((*part).to_owned()).or_insert_with(|| Value::Object(Map::new()));
         if !child.is_object() {
             *child = Value::Object(Map::new());
         }
@@ -494,13 +482,12 @@ fn write_file(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(),
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-mod tests;
+mod concurrency_feature_tests;
 #[cfg(test)]
 mod guard_feature_tests;
 #[cfg(test)]
-mod concurrency_feature_tests;
-
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+mod tests;
 
 impl std::error::Error for ConfigError {}
 impl Config {
@@ -508,11 +495,7 @@ impl Config {
     /// key of an old install is never seen). An unreadable or non-object file is an error:
     /// a later write must never overwrite a document that could not be read. Publishes the
     /// current subtrees; the returned warnings are those of the opened document.
-    pub async fn open(
-        path: impl Into<PathBuf>,
-        publisher: Arc<dyn StatePublisher>,
-        lanes: ConfigLanes,
-    ) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
+    pub async fn open(path: impl Into<PathBuf>, publisher: Arc<dyn StatePublisher>, lanes: ConfigLanes) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
         Self::open_guarded(path, publisher, lanes, UserData::process()).await
     }
 
@@ -551,13 +534,7 @@ impl Config {
         Self::assemble(path, guard, doc, publisher, lanes).0
     }
 
-    fn assemble(
-        path: PathBuf,
-        guard: Arc<guard::Guard>,
-        mut doc: Doc,
-        publisher: Arc<dyn StatePublisher>,
-        lanes: ConfigLanes,
-    ) -> (Self, Vec<ConfigWarning>) {
+    fn assemble(path: PathBuf, guard: Arc<guard::Guard>, mut doc: Doc, publisher: Arc<dyn StatePublisher>, lanes: ConfigLanes) -> (Self, Vec<ConfigWarning>) {
         quota::make_keys_agree(&mut doc);
         let warnings = warnings_of(&doc);
         let raised = warnings.iter().map(|w| w.path.clone()).collect();
@@ -583,11 +560,7 @@ impl Config {
             }
         }
         drop(current);
-        let config = Self {
-            shared: Arc::new(shared),
-            lanes,
-            origin: crate::tool_modules::Origin::Loaded,
-        };
+        let config = Self { shared: Arc::new(shared), lanes, origin: crate::tool_modules::Origin::Loaded };
         (config, warnings)
     }
 
@@ -709,10 +682,7 @@ impl Config {
     /// Edits the agent config under the same transaction as every other writer; every other
     /// section and key of the file stays. A section that did not exist is not created for an
     /// edit that leaves it empty.
-    pub async fn update_agent(
-        &self,
-        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static,
-    ) -> Result<Applied, ConfigError> {
+    pub async fn update_agent(&self, change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static) -> Result<Applied, ConfigError> {
         self.update(move |doc| {
             let existing = doc.get(AGENT_SECTION).and_then(Value::as_object).cloned();
             let mut agent = existing.clone().unwrap_or_default();
@@ -767,13 +737,10 @@ impl Config {
     pub async fn confirm_lead_fill(&self, filled: &Value) -> Result<Option<Value>, ConfigError> {
         let agent = self.reload_full_config().await?;
         let text = |route: &Value, key: &str| {
-            mixdog_js::js_trim(&route.get(key).map(mixdog_js::value_to_string).filter(|_| !route[key].is_null()).unwrap_or_default())
-                .to_owned()
+            mixdog_js::js_trim(&route.get(key).map(mixdog_js::value_to_string).filter(|_| !route[key].is_null()).unwrap_or_default()).to_owned()
         };
         let Some(winner) = patch::lead_route(&agent) else { return Ok(None) };
-        if text(&winner, "model").is_empty()
-            || (text(&winner, "provider") == text(filled, "provider") && text(&winner, "model") == text(filled, "model"))
-        {
+        if text(&winner, "model").is_empty() || (text(&winner, "provider") == text(filled, "provider") && text(&winner, "model") == text(filled, "model")) {
             return Ok(None);
         }
         Ok(Some(winner))
@@ -807,8 +774,7 @@ impl Config {
 
     /// A present canonical key wins even when it normalizes to Preview.
     pub fn markdown_default_view(&self) -> Option<String> {
-        self.get(mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW)
-            .map(|value| schema::markdown_view(&value).to_owned())
+        self.get(mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW).map(|value| schema::markdown_view(&value).to_owned())
     }
 
     /// Runs after profile files have been moved, both at boot and on late adoption.
@@ -817,12 +783,8 @@ impl Config {
             && let Some(view) = on_lane(self.lanes.read, move |_| mixdog_workspace::editorcfg::legacy_markdown_view(&user_data)).await?
         {
             // Recheck under the writer lock in case Settings wrote a choice during the file read.
-            let applied = self.write(
-                mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW,
-                Value::from(view),
-                ConfigWriteMode::InitializeIfMissing,
-            )
-            .await?;
+            let applied =
+                self.write(mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW, Value::from(view), ConfigWriteMode::InitializeIfMissing).await?;
             if applied.changed.contains(&"desktop") {
                 // Refresh open editors and Settings after the canonical section is published.
                 self.shared.settings_changed("desktop");
@@ -846,18 +808,8 @@ impl Config {
     }
 
     /// `config/value/write`.
-    pub async fn write(
-        &self,
-        path: &str,
-        value: Value,
-        mode: ConfigWriteMode,
-    ) -> Result<Applied, ConfigError> {
-        self.batch_write(&[ConfigEdit {
-            path: path.to_owned(),
-            value,
-            mode,
-        }])
-        .await
+    pub async fn write(&self, path: &str, value: Value, mode: ConfigWriteMode) -> Result<Applied, ConfigError> {
+        self.batch_write(&[ConfigEdit { path: path.to_owned(), value, mode }]).await
     }
 
     /// `config/batchWrite`: all edits validate and apply, or none does.
@@ -903,12 +855,7 @@ impl Config {
                     }
                     Ok(())
                 },
-                |doc| {
-                    subtrees
-                        .iter()
-                        .filter_map(|name| doc.get(*name).map(|v| ((*name).to_owned(), v.clone())))
-                        .collect()
-                },
+                |doc| subtrees.iter().filter_map(|name| doc.get(*name).map(|v| ((*name).to_owned(), v.clone()))).collect(),
             )
         })
         .await?
@@ -916,10 +863,7 @@ impl Config {
 
     /// A typed in-process writer (catalog, accounts, …) edits the full document under the same
     /// transaction as the wire writes; `change` sees and keeps every key.
-    pub async fn update(
-        &self,
-        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static,
-    ) -> Result<Applied, ConfigError> {
+    pub async fn update(&self, change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static) -> Result<Applied, ConfigError> {
         let shared = self.shared.clone();
         on_lane(self.lanes.write, move |lane| shared.update_on(lane, change)).await?
     }
@@ -930,22 +874,29 @@ impl Config {
         let shared = self.shared.clone();
         let origin = self.origin;
         on_lane(self.lanes.write, move |lane| {
-            shared.update_viewed(lane, &[], true, move |doc| {
-                if allow_all_actions_enabled(doc) {
-                    return Ok(());
-                }
-                // `saveConfigAndAdopt`'s `seedChanges`: the first write seeds the adopted `builtins` where the stored section lacks it.
-                let agent = doc.get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default();
-                let seed = (!agent.contains_key("builtins"))
-                    .then(|| crate::tool_modules::adopt(&agent, origin).swap_remove("builtins"))
-                    .flatten();
-                set_in(doc, ALLOW_ALL_ACTIONS, Value::Bool(true));
-                if let Some(seed) = seed {
-                    set_in(doc, &[AGENT_SECTION, "builtins"], seed);
-                }
-                Ok(())
-            }, |_| ()).map(|(applied, ())| applied)
-        }).await?
+            shared
+                .update_viewed(
+                    lane,
+                    &[],
+                    true,
+                    move |doc| {
+                        if allow_all_actions_enabled(doc) {
+                            return Ok(());
+                        }
+                        // `saveConfigAndAdopt`'s `seedChanges`: the first write seeds the adopted `builtins` where the stored section lacks it.
+                        let agent = doc.get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default();
+                        let seed = (!agent.contains_key("builtins")).then(|| crate::tool_modules::adopt(&agent, origin).swap_remove("builtins")).flatten();
+                        set_in(doc, ALLOW_ALL_ACTIONS, Value::Bool(true));
+                        if let Some(seed) = seed {
+                            set_in(doc, &[AGENT_SECTION, "builtins"], seed);
+                        }
+                        Ok(())
+                    },
+                    |_| (),
+                )
+                .map(|(applied, ())| applied)
+        })
+        .await?
     }
 
     /// Republishes an external edit of the file (called by the file watcher). Our own writes
@@ -963,8 +914,7 @@ impl Config {
             let seen = self.shared.generation.load(Ordering::Acquire);
             let next = self.shared.guard.read(self.lanes, in_pass).await?;
             let shared = self.shared.clone();
-            let installed =
-                on_lane(self.lanes.write, move |_| shared.install_read(seen, next)).await?;
+            let installed = on_lane(self.lanes.write, move |_| shared.install_read(seen, next)).await?;
             // A write landed between the read and the install: read again.
             if let Some(applied) = installed {
                 return Ok(applied);
@@ -991,11 +941,7 @@ fn allow_all_actions_enabled(doc: &Doc) -> bool {
 }
 
 impl Shared {
-    fn update_on(
-        &self,
-        lane: &InLane<DurabilityIo>,
-        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
-    ) -> Result<Applied, ConfigError> {
+    fn update_on(&self, lane: &InLane<DurabilityIo>, change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>) -> Result<Applied, ConfigError> {
         self.update_viewed(lane, &[], false, change, |_| ()).map(|(applied, ())| applied)
     }
 
@@ -1100,16 +1046,9 @@ impl Shared {
         quota::make_keys_agree(&mut next);
         let warnings = warnings_of(&next);
         let now: BTreeSet<String> = warnings.iter().map(|w| w.path.clone()).collect();
-        let fresh = warnings
-            .into_iter()
-            .filter(|w| !raised.contains(&w.path))
-            .collect();
+        let fresh = warnings.into_iter().filter(|w| !raised.contains(&w.path)).collect();
         *raised = now;
-        let changed: Vec<&'static str> = PUBLISHED_SUBTREES
-            .iter()
-            .copied()
-            .filter(|name| current.get(*name) != next.get(*name))
-            .collect();
+        let changed: Vec<&'static str> = PUBLISHED_SUBTREES.iter().copied().filter(|name| current.get(*name) != next.get(*name)).collect();
         for name in &changed {
             self.publish(name, next.get(*name));
         }
@@ -1122,26 +1061,18 @@ impl Shared {
         }
         let generation = self.generation.fetch_add(1, Ordering::Release) + 1;
         self.changed.send_replace(generation);
-        Applied {
-            changed,
-            warnings: fresh,
-        }
+        Applied { changed, warnings: fresh }
     }
 
     fn publish(&self, subtree: &str, value: Option<&Value>) {
         let change = value.map_or(SectionChange::Removed, change_of);
-        self.publisher
-            .publish(SectionName::Config, Some(subtree.to_owned()), change);
+        self.publisher.publish(SectionName::Config, Some(subtree.to_owned()), change);
     }
 
     fn apply_edit(&self, doc: &mut Doc, edit: &ConfigEdit) -> Result<(), ConfigError> {
         let path = edit.path.as_str();
-        let invalid = |expected: String| ConfigError::InvalidParams {
-            path: path.to_owned(),
-            expected,
-        };
-        let key = schema::lookup(&self.keys, path)
-            .ok_or_else(|| invalid("a known config key".into()))?;
+        let invalid = |expected: String| ConfigError::InvalidParams { path: path.to_owned(), expected };
+        let key = schema::lookup(&self.keys, path).ok_or_else(|| invalid("a known config key".into()))?;
         // Node's store, on its first load with no file, writes the document with `migratedAt: now`
         // (`notification-preferences.ts:228`): devices paired before it keep the plain default, later ones
         // start from bot chats. The first write into an unwritten subtree is that load.
@@ -1168,12 +1099,7 @@ impl Shared {
             if !wants(schema::Kind::NotificationDevice) {
                 return Err(invalid("a notifications.devices.<id> path".into()));
             }
-            let merged = notifications::merge_device(
-                get_in(doc, &parts),
-                &edit.value,
-                edit.mode == ConfigWriteMode::MergePatchBots,
-            )
-            .map_err(invalid)?;
+            let merged = notifications::merge_device(get_in(doc, &parts), &edit.value, edit.mode == ConfigWriteMode::MergePatchBots).map_err(invalid)?;
             set_in(doc, &parts, merged);
             return Ok(());
         }
@@ -1227,8 +1153,7 @@ impl Shared {
         // control can be turned off, so off never turns back into Install.
         if let ["desktop", control @ ("computerControl" | "browserControl")] = parts[..] {
             let marker = control.replace("Control", "Installed");
-            let installed = get_in(doc, &["desktop", &marker]) == Some(&Value::Bool(true))
-                || get_in(doc, &["desktop", control]) == Some(&Value::Bool(true));
+            let installed = get_in(doc, &["desktop", &marker]) == Some(&Value::Bool(true)) || get_in(doc, &["desktop", control]) == Some(&Value::Bool(true));
             if installed {
                 set_in(doc, &["desktop", &marker], Value::Bool(true));
             }
@@ -1255,12 +1180,7 @@ fn epoch_ms() -> i64 {
     }
 }
 /// `desktop.activityRailPins`: the revision is assigned inside the write transaction; the/// default list is never stored, the revision alone keeps ordering.
-fn write_pins(
-    doc: &mut Doc,
-    value: &Value,
-    mode: ConfigWriteMode,
-    path: &str,
-) -> Result<(), ConfigError> {
+fn write_pins(doc: &mut Doc, value: &Value, mode: ConfigWriteMode, path: &str) -> Result<(), ConfigError> {
     let pins = schema::normalize_pins(value).expect("accepted by the key schema");
     let previous = desktop::activity_rail_pins(get_in(doc, &["desktop", "activityRailPins"]));
     if mode == ConfigWriteMode::InitializeIfMissing && previous.is_some() {
@@ -1268,17 +1188,10 @@ fn write_pins(
     }
     let revision = previous.map_or(0, |p| p.revision) + 1;
     if revision > (1 << 53) - 1 {
-        return Err(ConfigError::InvalidParams {
-            path: path.to_owned(),
-            expected: "Activity rail pin revision is exhausted.".into(),
-        });
+        return Err(ConfigError::InvalidParams { path: path.to_owned(), expected: "Activity rail pin revision is exhausted.".into() });
     }
     let is_default = pins == schema::DEFAULT_ACTIVITY_RAIL_PINS;
-    let stored = if is_default {
-        serde_json::json!({ "revision": revision })
-    } else {
-        serde_json::json!({ "pins": pins, "revision": revision })
-    };
+    let stored = if is_default { serde_json::json!({ "revision": revision }) } else { serde_json::json!({ "pins": pins, "revision": revision }) };
     set_in(doc, &["desktop", "activityRailPins"], stored);
     Ok(())
 }

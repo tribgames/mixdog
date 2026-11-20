@@ -44,27 +44,16 @@ struct Endpoint {
 
 #[async_trait]
 impl HttpSend for Endpoint {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
-        Ok(HttpResponse {
-            status: self.status,
-            headers: vec![],
-            body: Box::new(OneChunk(Some(Bytes::from(serde_json::to_vec(&self.body).unwrap())))),
-        })
+        Ok(HttpResponse { status: self.status, headers: vec![], body: Box::new(OneChunk(Some(Bytes::from(serde_json::to_vec(&self.body).unwrap())))) })
     }
 }
 
 fn file() -> (tempfile::TempDir, CredentialFile) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let file = CredentialFile::new(
-        dir.path().join("openai-oauth.json"),
-        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-    );
+    let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     (dir, file)
 }
 
@@ -98,12 +87,7 @@ fn the_authorize_url_names_the_codex_client_in_the_documented_parameter_order() 
     let login = login(silent(), file, 0);
     assert_eq!(login.redirect().uri(1455), REDIRECT);
     assert_eq!(login.verifier_bytes(), 64);
-    let url = url::Url::parse(&login.authorize_url(&AuthorizeRequest {
-        redirect_uri: REDIRECT,
-        code_challenge: "challenge-1",
-        state: "state-1",
-    }))
-    .unwrap();
+    let url = url::Url::parse(&login.authorize_url(&AuthorizeRequest { redirect_uri: REDIRECT, code_challenge: "challenge-1", state: "state-1" })).unwrap();
     assert_eq!(format!("{}{}", url.origin().ascii_serialization(), url.path()), "https://auth.openai.com/oauth/authorize");
     let pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
     let want = [
@@ -148,4 +132,3 @@ async fn the_exchange_posts_the_authorization_code_form_and_stores_the_pair_with
     assert_eq!(Value::Object(doc.clone()), json!({"access_token": "opaque-access", "refresh_token": "refresh-1", "expires_at": 3_601_000, "identity": null}));
     assert_eq!(doc.keys().map(String::as_str).collect::<Vec<_>>(), ["access_token", "refresh_token", "expires_at", "identity"]);
 }
-

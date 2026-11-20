@@ -3,11 +3,7 @@
 //! snapshot of every touched path, the restore that undoes a failed batch, and the quarantine
 //! rename that makes deleting an unsnapshotted file atomic. Every `std::fs` call here is the body
 //! of a durability-lane job.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "every std::fs call in this module is the body of a durability-lane job (on_lane)"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every std::fs call in this module is the body of a durability-lane job (on_lane)")]
 
 use std::collections::HashSet;
 use std::fs;
@@ -123,7 +119,9 @@ pub(super) fn decode_patch_target(bytes: &[u8]) -> Result<(String, Codec), Strin
                 return Err("utf16 body has an odd trailing byte".to_owned());
             }
             let units: Vec<u16> = body
-                .as_chunks::<2>().0.iter()
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|p| if encoding == Encoding::Utf16Le { u16::from_le_bytes([p[0], p[1]]) } else { u16::from_be_bytes([p[0], p[1]]) })
                 .collect();
             String::from_utf16_lossy(&units)
@@ -198,7 +196,9 @@ fn bounded_read(path: &Path, max: u64, budget: Option<&mut Budget>, classify_onl
         return Ok(omitted("oversized", meta.len(), None));
     }
     if let Some(b) = budget.as_deref()
-        && !classify_only && meta.len() > b.remaining {
+        && !classify_only
+        && meta.len() > b.remaining
+    {
         return Ok(omitted("budget", meta.len(), Some(b.total)));
     }
     let mut content = Vec::new();
@@ -324,10 +324,8 @@ impl Snapshot {
 /// `delete_only` are the targets the patch only deletes: they keep the smaller snapshot limit.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn capture(ctx: &ToolContext, paths: &[AbsPath], delete_only: &HashSet<String>) -> Result<Result<Vec<Snapshot>, String>, ToolError> {
-    let jobs: Vec<(AbsPath, u64)> = paths
-        .iter()
-        .map(|p| (p.clone(), if delete_only.contains(&key(p.as_path())) { SNAPSHOT_MAX_BYTES } else { EDIT_MAX_BYTES }))
-        .collect();
+    let jobs: Vec<(AbsPath, u64)> =
+        paths.iter().map(|p| (p.clone(), if delete_only.contains(&key(p.as_path())) { SNAPSHOT_MAX_BYTES } else { EDIT_MAX_BYTES })).collect();
     let captured = on_lane(ctx, move || {
         let mut budget = Budget { remaining: EDIT_BUDGET_BYTES, total: EDIT_BUDGET_BYTES };
         let mut out = Vec::new();
@@ -477,11 +475,7 @@ fn restore_moved(items: &[Moved]) -> Vec<String> {
             Err(e) => Err(io_code(&e)),
         };
         if let Err(reason) = outcome {
-            errors.push(format!(
-                "{} — could not restore from quarantine ({reason}); original bytes kept at {}",
-                item.shown,
-                item.quarantine.display()
-            ));
+            errors.push(format!("{} — could not restore from quarantine ({reason}); original bytes kept at {}", item.shown, item.quarantine.display()));
         }
     }
     errors

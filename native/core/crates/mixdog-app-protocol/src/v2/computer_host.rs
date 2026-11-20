@@ -543,9 +543,7 @@ impl DevComputerRunParams {
     /// `timeoutMs` is at most [`DEV_COMPUTER_RUN_TIMEOUT_MS_MAX`].
     pub fn validate(&self) -> Result<(), String> {
         match self.timeout_ms {
-            Some(ms) if ms > DEV_COMPUTER_RUN_TIMEOUT_MS_MAX => {
-                Err(format!("timeoutMs is at most {DEV_COMPUTER_RUN_TIMEOUT_MS_MAX}"))
-            }
+            Some(ms) if ms > DEV_COMPUTER_RUN_TIMEOUT_MS_MAX => Err(format!("timeoutMs is at most {DEV_COMPUTER_RUN_TIMEOUT_MS_MAX}")),
             _ => Ok(()),
         }
     }
@@ -612,10 +610,7 @@ mod tests {
 
     #[test]
     fn user_control_actions_decode_by_name() {
-        assert_eq!(
-            control(json!({ "action": "takeover", "reason": "display_changed" })).reason,
-            Some(ComputerTakeoverReason::DisplayChanged)
-        );
+        assert_eq!(control(json!({ "action": "takeover", "reason": "display_changed" })).reason, Some(ComputerTakeoverReason::DisplayChanged));
         assert_eq!(control(json!({ "action": "configureIdleResume", "seconds": 5 })).seconds, Some(5));
     }
 
@@ -661,9 +656,8 @@ mod tests {
 
     #[test]
     fn dev_run_timeout_is_bounded() {
-        let run = |ms: u32| -> DevComputerRunParams {
-            serde_json::from_value(json!({ "sessionThreadId": "t1", "command": {}, "timeoutMs": ms })).expect("params")
-        };
+        let run =
+            |ms: u32| -> DevComputerRunParams { serde_json::from_value(json!({ "sessionThreadId": "t1", "command": {}, "timeoutMs": ms })).expect("params") };
         assert_eq!(run(120_000).validate(), Ok(()));
         assert!(run(120_001).validate().is_err());
     }
@@ -679,12 +673,8 @@ mod tests {
         });
         let params: HostComputerPixelsParams = serde_json::from_value(value.clone()).expect("params");
         assert_eq!(serde_json::to_value(&params).expect("value"), value);
-        let display: HostComputerPixelsTarget =
-            serde_json::from_value(json!({ "kind": "display", "index": 1 })).expect("target");
-        assert_eq!(
-            display,
-            HostComputerPixelsTarget::Display(HostComputerDisplayTarget { display_id: None, index: Some(1) })
-        );
+        let display: HostComputerPixelsTarget = serde_json::from_value(json!({ "kind": "display", "index": 1 })).expect("target");
+        assert_eq!(display, HostComputerPixelsTarget::Display(HostComputerDisplayTarget { display_id: None, index: Some(1) }));
     }
 
     #[test]

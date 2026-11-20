@@ -177,7 +177,12 @@ fn issues_request(facts: &Facts, args: &Value) -> Value {
     Value::Object(payload)
 }
 
-async fn microsoft_office_issues<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, handle: &SessionHandle, facts: &Facts, args: &Value) -> Result<Value, String> {
+async fn microsoft_office_issues<P: WriteProof, H: ComHost>(
+    cx: &InspectContext<'_, P, H>,
+    handle: &SessionHandle,
+    facts: &Facts,
+    args: &Value,
+) -> Result<Value, String> {
     // A saved copy's portable audits start before the application's own issues pass. The host takes requests in order, so the
     // copy is written first and its audits run in this process while the application answers: a deck's measured read
     // (0.4-1 s) had followed PowerPoint's 1.7 s pass instead of overlapping it.

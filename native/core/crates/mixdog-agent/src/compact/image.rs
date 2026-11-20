@@ -155,7 +155,6 @@ impl ToolImageCompactor {
         let note = (original != encoded.size).then(|| superseding_metadata_text(original, encoded.size));
         Some(ImageOutcome::Compacted { data, mime: "image/jpeg".to_owned(), note })
     }
-
 }
 
 #[async_trait]

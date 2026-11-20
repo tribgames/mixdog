@@ -328,9 +328,7 @@ fn deep_equal(a: Option<&Value>, b: Option<&Value>) -> bool {
         (Some(a), Some(b)) => match (a, b) {
             (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
             (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| deep_equal(Some(p), Some(q))),
-            (Value::Object(x), Value::Object(y)) => {
-                x.len() == y.len() && x.iter().all(|(k, v)| deep_equal(Some(v), y.get(k)))
-            }
+            (Value::Object(x), Value::Object(y)) => x.len() == y.len() && x.iter().all(|(k, v)| deep_equal(Some(v), y.get(k))),
             _ => a == b,
         },
         _ => false,
@@ -760,7 +758,8 @@ pub fn resolve_mcp_server_catalog(config: &Value, declared: &[Declared], cwd: &s
         let owner = &declared[*index];
         let plugin = &owner.plugin;
         let plugin_enabled = field(plugin, "enabled") != &Value::Bool(false);
-        let server_enabled = !(cfg.get("enabled") == Some(&Value::Bool(false)) || (cfg.get("_mixdogPluginDisabled") == Some(&Value::Bool(true)) && plugin_enabled));
+        let server_enabled =
+            !(cfg.get("enabled") == Some(&Value::Bool(false)) || (cfg.get("_mixdogPluginDisabled") == Some(&Value::Bool(true)) && plugin_enabled));
         let marker = json!({
             "id": field(plugin, "id"), "key": key, "format": owner.format, "root": clean(field(plugin, "root")),
             "source": "config", "data": "", "cwdDependent": false,

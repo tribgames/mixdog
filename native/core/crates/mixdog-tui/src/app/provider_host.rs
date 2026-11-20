@@ -4,9 +4,9 @@
 use mixdog_tui_widgets::picker::MetaPart;
 use serde_json::Value;
 
+use super::AppState;
 use super::picker::AppPicker;
 use super::timers::OAuthWatch;
-use super::AppState;
 use crate::pickers::model::catalog::CatalogKind;
 use crate::pickers::model::options::{agent_model_parts, model_description, normalize_model_options, provider_display_rank};
 use crate::pickers::provider::{ModelLabels, OnboardingState, Prefetch, ProviderHost, ProviderPanel, ProviderSetup};

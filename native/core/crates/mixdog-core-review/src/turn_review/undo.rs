@@ -85,9 +85,11 @@ impl Inner {
     fn session_turn_busy(&self, owner: &str) -> bool {
         let reg = self.reg();
         if let Some(tracker) = reg.trackers.get(owner)
-            && tracker.meta.owner_generation > 0 && (!tracker.sealed() || tracker.freezing().is_some()) {
-                return true;
-            }
+            && tracker.meta.owner_generation > 0
+            && (!tracker.sealed() || tracker.freezing().is_some())
+        {
+            return true;
+        }
         let prefix = format!("{owner}\0");
         reg.pending_freezes.keys().any(|key| key.starts_with(&prefix))
     }
@@ -158,16 +160,16 @@ impl Inner {
                         .chains
                         .iter()
                         .filter(|(_, chain)| {
-                            targets.iter().any(|file| [obj_str(file, "path"), obj_str(file, "oldPath")].iter().any(|p| !p.is_empty() && chain_matches_path(chain, &resolved, p)))
+                            targets.iter().any(|file| {
+                                [obj_str(file, "path"), obj_str(file, "oldPath")].iter().any(|p| !p.is_empty() && chain_matches_path(chain, &resolved, p))
+                            })
                         })
                         .map(|(key, _)| key.clone())
                         .collect();
                     undo_tracked_chains(&mut state, &keys);
                 } else {
-                    let files: Vec<(String, Option<String>)> = targets
-                        .iter()
-                        .map(|f| (obj_str(f, "path").to_owned(), Some(obj_str(f, "oldPath").to_owned()).filter(|p| !p.is_empty())))
-                        .collect();
+                    let files: Vec<(String, Option<String>)> =
+                        targets.iter().map(|f| (obj_str(f, "path").to_owned(), Some(obj_str(f, "oldPath").to_owned()).filter(|p| !p.is_empty()))).collect();
                     redo_tracked_chains(&mut state, &resolved, &files);
                 }
             }
@@ -276,10 +278,8 @@ impl Inner {
         let edits: Vec<super::tracker::Edit> = targets.iter().map(|(_, edit)| edit.clone()).collect();
         let object_format = self.edits_object_format(&edits, &root).await;
         let mut budget = LineDiffBudget::default();
-        let files: Vec<Obj> = edits
-            .iter()
-            .map(|edit| stored_change_file(edit_change_file(&self.differ, edit, &root.root, object_format, &mut budget)))
-            .collect();
+        let files: Vec<Obj> =
+            edits.iter().map(|edit| stored_change_file(edit_change_file(&self.differ, edit, &root.root, object_format, &mut budget))).collect();
         if let Some(blocked) = files.iter().find(|entry| entry.get("revertable") != Some(&Value::Bool(true))) {
             let reason = match blocked.get("reason") {
                 Some(r) if super::patch::is_truthy(r) => mixdog_js::value_to_string(r),
@@ -346,7 +346,9 @@ impl Inner {
         let done: IndexSet<String> = restored.paths.iter().map(|p| change_path_key(&nodepath::relative_host(&root, p))).collect();
         let keys: IndexSet<String> = record_files(&record)
             .iter()
-            .filter(|entry| [obj_str(entry, "path"), obj_str(entry, "oldPath")].iter().filter(|s| !s.is_empty()).all(|side| done.contains(&change_path_key(side))))
+            .filter(|entry| {
+                [obj_str(entry, "path"), obj_str(entry, "oldPath")].iter().filter(|s| !s.is_empty()).all(|side| done.contains(&change_path_key(side)))
+            })
             .map(|entry| change_path_key(obj_str(entry, "path")))
             .collect();
         if keys.is_empty() {

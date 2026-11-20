@@ -17,14 +17,7 @@ fn origin(role: Role, ordinal: u32) -> Origin {
 }
 
 fn route(model: &str) -> RouteKey {
-    RouteKey {
-        endpoint: "e".into(),
-        account: "a".into(),
-        model: model.into(),
-        wire_branch: "chat".into(),
-        operation: "send".into(),
-        capability_revision: 1,
-    }
+    RouteKey { endpoint: "e".into(), account: "a".into(), model: model.into(), wire_branch: "chat".into(), operation: "send".into(), capability_revision: 1 }
 }
 
 fn facts(kind: ImageKind, frames: u32, png: bool) -> ImageFacts {
@@ -146,10 +139,7 @@ fn links_and_file_ids_follow_the_matrix() {
     // Mutable link refused even where links are carried; trusted link accepted there; refused on inline-only.
     assert_eq!(decide_pointer(&o, SourceForm::Link, &p(Column::Chat), false, None).map_err(|r| r.reason), Err(Reason::MutableLink));
     assert_eq!(decide_pointer(&o, SourceForm::Link, &p(Column::Chat), true, None).map_err(|r| r.reason), Ok(Pointer::Native));
-    assert_eq!(
-        decide_pointer(&o, SourceForm::Link, &p(Column::Inline), true, None).map_err(|r| r.reason),
-        Err(Reason::SourceFormNotCarried)
-    );
+    assert_eq!(decide_pointer(&o, SourceForm::Link, &p(Column::Inline), true, None).map_err(|r| r.reason), Err(Reason::SourceFormNotCarried));
     // File ids: only Messages and Responses carry them.
     for (column, ok) in [(Column::Messages, true), (Column::Responses, true), (Column::Gemini, false), (Column::Chat, false), (Column::Inline, false)] {
         assert_eq!(decide_pointer(&o, SourceForm::FileId, &p(column), true, None).is_ok(), ok, "{column:?}");

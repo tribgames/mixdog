@@ -8,8 +8,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_core_api::domain::provider::{
-    Content, Message, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, Role, SendEnd, StreamEvent,
-    TransportFault, WireRequest,
+    Content, Message, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, Role, SendEnd, StreamEvent, TransportFault, WireRequest,
 };
 use serde_json::{Value, json};
 
@@ -37,10 +36,15 @@ impl Script {
     }
 
     fn tokens(&self) -> Vec<Option<String>> {
-        self.sent.lock().unwrap().iter().map(|wire| {
-            let body: Value = serde_json::from_slice(&wire.body).unwrap();
-            body.get("continuationToken").and_then(Value::as_str).map(str::to_owned)
-        }).collect()
+        self.sent
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|wire| {
+                let body: Value = serde_json::from_slice(&wire.body).unwrap();
+                body.get("continuationToken").and_then(Value::as_str).map(str::to_owned)
+            })
+            .collect()
     }
 }
 

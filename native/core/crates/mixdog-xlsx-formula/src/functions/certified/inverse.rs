@@ -30,15 +30,36 @@ use std::cmp::Ordering;
 /// The law whose quantile is sought; `lower(x)` increases with x.
 #[derive(Clone, Copy, Debug)]
 pub enum Law {
-    Normal { mean: f64, sd: f64 },
-    LogNormal { mean: f64, sd: f64 },
-    Gamma { a: f64, scale: f64 },
-    Beta { a: f64, b: f64, lo: f64, hi: f64 },
+    Normal {
+        mean: f64,
+        sd: f64,
+    },
+    LogNormal {
+        mean: f64,
+        sd: f64,
+    },
+    Gamma {
+        a: f64,
+        scale: f64,
+    },
+    Beta {
+        a: f64,
+        b: f64,
+        lo: f64,
+        hi: f64,
+    },
     /// Student t, one tail: lower = P(T <= x).
-    T { d: f64 },
+    T {
+        d: f64,
+    },
     /// Student t, two tails: lower = P(|T| <= x), x >= 0.
-    T2 { d: f64 },
-    F { d1: f64, d2: f64 },
+    T2 {
+        d: f64,
+    },
+    F {
+        d1: f64,
+        d2: f64,
+    },
 }
 
 fn half() -> Val {
@@ -350,9 +371,7 @@ pub fn quantile(law: Law, t: &Target, xlo: f64, xhi: f64, guess: Option<f64>) ->
             let xm = unrank(mid);
             let below = Fl::from_f64(unrank(mid - 1)).add(&Fl::from_f64(xm)).mul_2exp(-1);
             let above = Fl::from_f64(xm).add(&Fl::from_f64(unrank(mid + 1))).mul_2exp(-1);
-            if compare(&law, &below, t, FAST) == Some(Ordering::Less)
-                && compare(&law, &above, t, FAST) == Some(Ordering::Greater)
-            {
+            if compare(&law, &below, t, FAST) == Some(Ordering::Less) && compare(&law, &above, t, FAST) == Some(Ordering::Greater) {
                 return Ok(xm);
             }
             o = at(mid, FAST);

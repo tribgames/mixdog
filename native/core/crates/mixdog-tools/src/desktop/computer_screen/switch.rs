@@ -24,11 +24,7 @@ pub(super) const STALL_WINDOW: usize = 30;
 /// freeze rule (`max(3 × average, average + 150 ms)` over the last frame intervals), applied to local
 /// delivery intervals. Before two deliveries the helper's nominal cadence stands in.
 pub(super) fn helper_video_stall_ms(intervals: &[f64]) -> f64 {
-    let average = if intervals.is_empty() {
-        HELPER_FRAME_INTERVAL_MS as f64
-    } else {
-        intervals.iter().sum::<f64>() / intervals.len() as f64
-    };
+    let average = if intervals.is_empty() { HELPER_FRAME_INTERVAL_MS as f64 } else { intervals.iter().sum::<f64>() / intervals.len() as f64 };
     (3.0 * average).max(average + 150.0)
 }
 
@@ -155,9 +151,7 @@ pub(super) fn decide_screen_source(inputs: &SwitchInputs) -> SourceDecision {
     // Connected and this session's to use (not held by another session).
     let usable = inputs.helper_connected && !inputs.helper_owned_elsewhere;
     let local = inputs.local.as_ref();
-    let on_secure = local.is_some_and(|local| {
-        local.name.as_deref().is_none_or(|name| normalize_desktop_name(name) == "winlogon")
-    });
+    let on_secure = local.is_some_and(|local| local.name.as_deref().is_none_or(|name| normalize_desktop_name(name) == "winlogon"));
     let lock_screen = local.is_some_and(|local| inputs.helper_locked.unwrap_or(local.logon_ui));
     let locked = lock_screen && !on_secure;
 
@@ -169,17 +163,9 @@ pub(super) fn decide_screen_source(inputs: &SwitchInputs) -> SourceDecision {
         } else {
             Reason::Secure
         };
-        let served = inputs.helper_installed
-            && usable
-            && inputs.helper_desktop.as_deref().is_some_and(|name| normalize_desktop_name(name) != "default");
+        let served = inputs.helper_installed && usable && inputs.helper_desktop.as_deref().is_some_and(|name| normalize_desktop_name(name) != "default");
         return if served {
-            SourceDecision {
-                mode: SourceMode::Helper,
-                helper,
-                helper_active: true,
-                status: StatusState::SecureDesktop,
-                reason: Some(reason),
-            }
+            SourceDecision { mode: SourceMode::Helper, helper, helper_active: true, status: StatusState::SecureDesktop, reason: Some(reason) }
         } else {
             SourceDecision {
                 mode: SourceMode::Blocked,
@@ -198,13 +184,7 @@ pub(super) fn decide_screen_source(inputs: &SwitchInputs) -> SourceDecision {
         return if inputs.helper_installed && usable {
             // The helper can act even for an in-place prompt; keep it warm so a jump to the secure desktop
             // has frames already flowing.
-            SourceDecision {
-                mode: SourceMode::Default,
-                helper,
-                helper_active: true,
-                status: StatusState::ElevationPrompt,
-                reason: Some(reason),
-            }
+            SourceDecision { mode: SourceMode::Default, helper, helper_active: true, status: StatusState::ElevationPrompt, reason: Some(reason) }
         } else {
             SourceDecision {
                 mode: SourceMode::ElevationPrompt,
@@ -304,12 +284,7 @@ pub(super) struct ScreenStatus {
 /// refused on `Blocked` (nothing can act), on `ElevationPrompt` without an active helper, and on `Helper`
 /// until the helper's video reaches this viewer: without the picture the phone would act on a desktop it
 /// cannot see.
-pub(super) fn screen_status_for(
-    decision: &SourceDecision,
-    control_granted: bool,
-    helper_video: bool,
-    helper: &ScreenHelperFacts,
-) -> ScreenStatus {
+pub(super) fn screen_status_for(decision: &SourceDecision, control_granted: bool, helper_video: bool, helper: &ScreenHelperFacts) -> ScreenStatus {
     let control = control_granted
         && decision.mode != SourceMode::Blocked
         && !(decision.mode == SourceMode::ElevationPrompt && decision.helper != HelperState::Active)

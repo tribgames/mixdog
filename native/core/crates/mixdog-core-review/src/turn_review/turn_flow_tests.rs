@@ -80,7 +80,12 @@ impl Rig {
 }
 
 fn files(reply: &serde_json::Map<String, Value>) -> Vec<(String, String, Value)> {
-    reply["files"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_owned(), f["status"].as_str().unwrap().to_owned(), json!([f["additions"], f["deletions"]]))).collect()
+    reply["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| (f["path"].as_str().unwrap().to_owned(), f["status"].as_str().unwrap().to_owned(), json!([f["additions"], f["deletions"]])))
+        .collect()
 }
 
 fn states(reply: &serde_json::Map<String, Value>) -> Vec<(String, String)> {
@@ -152,8 +157,14 @@ async fn a_turns_edits_are_reviewed_while_it_runs_and_after_it_is_recorded() {
 
     rig.seal(1, "cp1").await;
     let listed = rig.changes("cp1").await;
-    assert_eq!((listed["status"].as_str(), listed["revision"].as_u64(), listed["canUndo"].as_bool(), listed["canReapply"].as_bool()), (Some("ready"), Some(1), Some(true), Some(false)));
-    assert_eq!(states(&listed), [("a.txt", "applied"), ("b.txt", "applied"), ("c.txt", "applied"), ("e.txt", "applied")].map(|(p, s)| (p.to_owned(), s.to_owned())));
+    assert_eq!(
+        (listed["status"].as_str(), listed["revision"].as_u64(), listed["canUndo"].as_bool(), listed["canReapply"].as_bool()),
+        (Some("ready"), Some(1), Some(true), Some(false))
+    );
+    assert_eq!(
+        states(&listed),
+        [("a.txt", "applied"), ("b.txt", "applied"), ("c.txt", "applied"), ("e.txt", "applied")].map(|(p, s)| (p.to_owned(), s.to_owned()))
+    );
     let with_patch = rig.review.turn_changes("s1", ChangesRead { checkpoint_id: "cp1".into(), patch: true, file: Some("a.txt".into()) }).await.unwrap();
     assert_eq!(with_patch["patch"], A_PATCH);
     let refused = rig.review.turn_changes("s1", ChangesRead { checkpoint_id: "cp1".into(), patch: true, file: Some("nope.txt".into()) }).await.unwrap_err();
@@ -164,7 +175,10 @@ async fn a_turns_edits_are_reviewed_while_it_runs_and_after_it_is_recorded() {
     rig.restart().await;
     let recorded = rig.review().await;
     assert_eq!(files(&recorded), files(&live));
-    assert_eq!((recorded["snapshotKind"].as_str(), recorded["revertMode"].as_str(), recorded["reason"].as_str(), recorded["historyTurns"].as_u64()), (Some("scoped"), Some("scoped"), Some("recorded"), Some(1)));
+    assert_eq!(
+        (recorded["snapshotKind"].as_str(), recorded["revertMode"].as_str(), recorded["reason"].as_str(), recorded["historyTurns"].as_u64()),
+        (Some("scoped"), Some("scoped"), Some("recorded"), Some(1))
+    );
     assert_eq!(rig.review.turn_review_file_patch(&rig.ws_text, "s1", "a.txt").await["patch"], A_PATCH);
     assert_eq!(rig.changes("cp1").await["status"], "ready");
 }

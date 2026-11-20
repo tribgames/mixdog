@@ -24,11 +24,7 @@ fn an_rgb_image_fills_the_unit_square_with_its_quadrants_upright() {
 
 #[test]
 fn an_image_is_confined_to_the_square_the_matrix_gives_it() {
-    let page = render(
-        "q 10 0 0 10 5 5 cm /Im Do Q",
-        IMAGE,
-        &[image("/Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", &[0])],
-    );
+    let page = render("q 10 0 0 10 5 5 cm /Im Do Q", IMAGE, &[image("/Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", &[0])]);
     assert_eq!(page.at(10, 10)[0], 0);
     assert_eq!(page.at(4, 10), WHITE);
     assert_eq!(page.at(15, 10), WHITE);
@@ -48,10 +44,7 @@ fn an_image_mask_paints_the_fill_colour_where_its_bits_are_zero() {
 #[test]
 fn a_soft_mask_makes_the_image_transparent_where_it_is_zero() {
     let smask = image("/Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", &[255, 0]);
-    let colour = image(
-        "/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
-        &[0, 0, 255, 0, 0, 255],
-    );
+    let colour = image("/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R", &[0, 0, 255, 0, 0, 255]);
     let page = render(FILL_PAGE, IMAGE, &[colour, smask]);
     let opaque = page.at(3, 10);
     assert!(opaque[0] <= 8 && opaque[2] >= 247, "{opaque:?}");

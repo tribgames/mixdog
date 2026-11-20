@@ -22,12 +22,12 @@ use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::feed::ScopedFeed;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::mock::FeedTap;
 use mixdog_core_api::mock::MockFeed;
 use mixdog_core_api::mock::MockLimits;
-use mixdog_core_api::mock::FeedTap;
-use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::mock::MockScopedFeeds;
 use mixdog_core_api::mock::epoch;
+use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_base::state::StateRuntime;
 use mixdog_core_base::state::empty_view;
 use mixdog_protocol::ThreadId;
@@ -89,22 +89,30 @@ fn world(data: &Path) -> World {
     let disk: Arc<dyn ReviewDisk> = Arc::new(LaneDisk::new(tokens));
     let git: Arc<dyn ReviewGit> = Arc::new(ScmGit::new(scm.clone()));
     let shadow = Arc::new(ShadowRepos::new(data.join("turn-worktree-snapshots-v1"), git.clone(), disk.clone()));
-    let review = TurnReview::new(Config::default(), tokens.cpu_interactive, data, disk, git, Arc::new(ScmWorktrees::new(shadow.clone())), Arc::new(CapturedBases::new()));
+    let review = TurnReview::new(
+        Config::default(),
+        tokens.cpu_interactive,
+        data,
+        disk,
+        git,
+        Arc::new(ScmWorktrees::new(shadow.clone())),
+        Arc::new(CapturedBases::new()),
+    );
     // The composition root's wiring of the tools' read state to the review.
     let state = Arc::new(ReadState::new(None));
     follow_read_state(Arc::new(review.clone()), &state);
     let (id, at) = (FeedId::from("app"), epoch(1));
     let app = Arc::new(MockFeed::new(id.clone(), at.clone(), empty_view(&id, &at), MockLimits::default()));
     let runtime = StateRuntime::new(app.clone());
-    let service = ScmService::new(scm, Arc::new(MockScopedFeeds::new(MockLimits::default())), runtime.publisher.clone(), Arc::new(Open), Arc::new(review.clone()), Arc::new(NoHeaders));
-    World {
-        review,
-        shadow,
-        app,
-        state,
-        processes,
-        _service: service,
-    }
+    let service = ScmService::new(
+        scm,
+        Arc::new(MockScopedFeeds::new(MockLimits::default())),
+        runtime.publisher.clone(),
+        Arc::new(Open),
+        Arc::new(review.clone()),
+        Arc::new(NoHeaders),
+    );
+    World { review, shadow, app, state, processes, _service: service }
 }
 
 fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext {
@@ -127,8 +135,6 @@ fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext
         review: Some(Arc::new(world.review.clone())),
     }
 }
-
-
 
 /// One recorded listener scenario's functions, handles and call log. What a listener does when it runs is the recording's data.
 struct Script {
@@ -222,8 +228,6 @@ async fn a_burst_is_one_delivery_to_every_listener_including_a_late_one() {
     }
 }
 
-
-
 /// One listener script run on a fresh core: each op's name, the listeners it ran and, for an unsubscribe, whether it found its
 /// listener. The ops run in one task on the multi-thread runtime, with no yield between them but `drain`.
 async fn play(scenario: &Value) -> Vec<Value> {
@@ -264,7 +268,6 @@ async fn play(scenario: &Value) -> Vec<Value> {
     .await
     .unwrap()
 }
-
 
 /// Listeners hear each delivery in the order they subscribed, and one that unsubscribed hears no more; a second unsubscribe
 /// of the same handle finds nothing.
@@ -328,7 +331,10 @@ async fn an_edit_inside_a_turn_of_a_git_workspace_calls_the_review_listeners_and
     let cwd = workspace.to_string_lossy().trim_start_matches(r"\\?\").to_owned();
     world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into(), continue_turn: false }).await.expect("a turn");
     let ctx = context(&world, &workspace, "s1", 1);
-    let outcome = EditTool::new().with_state(world.state.clone()).call(&ctx, serde_json::json!({ "file_path": workspace.join("a.txt"), "old_string": "one", "new_string": "uno" })).await;
+    let outcome = EditTool::new()
+        .with_state(world.state.clone())
+        .call(&ctx, serde_json::json!({ "file_path": workspace.join("a.txt"), "old_string": "one", "new_string": "uno" }))
+        .await;
     assert!(outcome.is_ok(), "{outcome:?}");
     world.review.review_signal_settled().await;
     assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "uno\ntwo\n");
@@ -350,9 +356,11 @@ async fn a_completed_turns_change_is_listed_undone_and_applied_again() {
     std::fs::write(&file, "one\ntwo\n").unwrap();
     let world = world(&dir.path().join("data"));
     let cwd = workspace.to_string_lossy().trim_start_matches(r"\\?\").to_owned();
-    let token = world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into(), continue_turn: false }).await.expect("a turn");
+    let token =
+        world.review.begin_turn(&cwd, "s1", mixdog_core_api::turn_review::TurnOpen { checkpoint_id: "c1".into(), continue_turn: false }).await.expect("a turn");
     let ctx = context(&world, &workspace, "s1", 1);
-    let outcome = EditTool::new().with_state(world.state.clone()).call(&ctx, serde_json::json!({ "file_path": file, "old_string": "one", "new_string": "uno" })).await;
+    let outcome =
+        EditTool::new().with_state(world.state.clone()).call(&ctx, serde_json::json!({ "file_path": file, "old_string": "one", "new_string": "uno" })).await;
     assert!(outcome.is_ok(), "{outcome:?}");
     assert!(world.review.complete_turn("s1", Some(&token)).await);
 
@@ -446,7 +454,11 @@ async fn listeners_removed_and_added_during_a_delivery_change_the_delivery_under
     ))
     .await;
     let calls = calls_of(&results);
-    assert_eq!(calls[7].0, ["first", "third", "x", "mover", "added", "x"], "second and once were removed before their turn; x re-added by mover is called again; added joins at the end");
+    assert_eq!(
+        calls[7].0,
+        ["first", "third", "x", "mover", "added", "x"],
+        "second and once were removed before their turn; x re-added by mover is called again; added joins at the end"
+    );
     assert_eq!(calls[9].0, ["first", "mover", "added", "x"], "third removed itself");
 }
 

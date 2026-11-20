@@ -71,10 +71,7 @@ pub fn is_owner_refresh(name: &str) -> bool {
         return false;
     };
     OWNER_FILES.iter().any(|file| {
-        stem.strip_prefix(file)
-            .and_then(|rest| rest.strip_prefix('.'))
-            .and_then(|rest| rest.split_once('.'))
-            .is_some_and(|(pid, ms)| digits(pid) && digits(ms))
+        stem.strip_prefix(file).and_then(|rest| rest.strip_prefix('.')).and_then(|rest| rest.split_once('.')).is_some_and(|(pid, ms)| digits(pid) && digits(ms))
     })
 }
 

@@ -13,7 +13,10 @@ pub enum Failure {
     Type(String),
     Error(String),
     /// An `Error` with a `code` property (`MODEL_CREDENTIALS_DISABLED`).
-    Coded { code: &'static str, message: String },
+    Coded {
+        code: &'static str,
+        message: String,
+    },
 }
 
 impl Failure {

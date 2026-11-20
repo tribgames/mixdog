@@ -96,7 +96,8 @@ impl Harness {
 
 fn harness(state: Value, answers: Vec<(&str, Result<Value, String>)>) -> Harness {
     let calls: Calls = Rc::new(RefCell::new(Vec::new()));
-    let store = FakeStore { calls: Rc::clone(&calls), answers: answers.into_iter().map(|(name, answer)| (name.to_owned(), answer)).collect(), state: Arc::new(state) };
+    let store =
+        FakeStore { calls: Rc::clone(&calls), answers: answers.into_iter().map(|(name, answer)| (name.to_owned(), answer)).collect(), state: Arc::new(state) };
     let options = AppOptions { cwd: "C:/work".to_owned(), version: "1.2.3".to_owned(), force_onboarding: false, onboarding_completed: Some(true) };
     let clock = Clock::new(1_000);
     let mut app = AppState::new(Box::new(store), clock.clone(), options);
@@ -247,7 +248,10 @@ fn a_wrapped_row_is_copied_joined_and_a_row_after_a_line_break_is_not() {
     let soft = grid.soft_wrap.clone();
     selection.apply(&mut grid, &soft);
     let joined = selection.selection_text().expect("the selected text").to_owned();
-    assert!(joined.starts_with("aaaa bbbb") && joined.contains("cccc") && !joined.contains("bbbb\n") && !joined.contains(" \ncccc"), "the wrapped rows join: {joined:?}");
+    assert!(
+        joined.starts_with("aaaa bbbb") && joined.contains("cccc") && !joined.contains("bbbb\n") && !joined.contains(" \ncccc"),
+        "the wrapped rows join: {joined:?}"
+    );
     assert!(joined.ends_with("\ndd"), "the row after a line break starts a line: {joined:?}");
     // Without the flags every row is a line, which is what the copy did before they were passed.
     let mut plain = SelectionState::default();

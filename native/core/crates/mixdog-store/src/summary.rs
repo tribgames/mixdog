@@ -76,11 +76,7 @@ pub(crate) fn is_stored_session_id(s: &str) -> bool {
 
 /// `isRootLeadSession`: a Lead whose owner/parent link is none or itself.
 pub fn is_root_lead_session(h: &Map<String, Value>) -> bool {
-    let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")]
-        .into_iter()
-        .map(clean)
-        .find(|id| is_stored_session_id(id))
-        .unwrap_or_default();
+    let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")].into_iter().map(clean).find(|id| is_stored_session_id(id)).unwrap_or_default();
     clean(get(h, "agent")).to_lowercase() == "lead" && (parent.is_empty() || parent == clean(get(h, "id")))
 }
 
@@ -89,11 +85,7 @@ pub fn session_visibility(h: &Map<String, Value>) -> &'static str {
     if is_root_lead_session(h) {
         return "ordinary";
     }
-    let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")]
-        .into_iter()
-        .map(clean)
-        .find(|id| is_stored_session_id(id))
-        .unwrap_or_default();
+    let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")].into_iter().map(clean).find(|id| is_stored_session_id(id)).unwrap_or_default();
     let id = clean(get(h, "id"));
     let declared = {
         let v = get(h, "visibility").filter(|v| truthy(Some(v))).or_else(|| get(h, "sessionVisibility"));
@@ -127,17 +119,9 @@ pub fn workspace_summary(v: Option<&Value>) -> Option<Value> {
     let tx_id = if state == "idle" {
         None
     } else {
-        transition
-            .and_then(|t| t.get("txId"))
-            .and_then(Value::as_str)
-            .map(|s| mixdog_js::js_trim(s).to_owned())
-            .filter(|s| !s.is_empty())
+        transition.and_then(|t| t.get("txId")).and_then(Value::as_str).map(|s| mixdog_js::js_trim(s).to_owned()).filter(|s| !s.is_empty())
     };
-    let revision = w
-        .get("revision")
-        .and_then(Value::as_f64)
-        .filter(|r| r.fract() == 0.0 && *r >= 0.0 && *r <= 9_007_199_254_740_991.0)
-        .unwrap_or(0.0);
+    let revision = w.get("revision").and_then(Value::as_f64).filter(|r| r.fract() == 0.0 && *r >= 0.0 && *r <= 9_007_199_254_740_991.0).unwrap_or(0.0);
     Some(json!({
         "projectPath": project_path,
         "repoCommonDir": or_null("repoCommonDir"),
@@ -239,7 +223,13 @@ pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h
     s.insert("lastHeartbeatAt".into(), num(positive(get(h, "lastHeartbeatAt"), 0.0)));
     let closed = get(h, "closed") == Some(&Value::Bool(true));
     s.insert("closed".into(), json!(closed));
-    let status = if truthy(get(h, "status")) { clean(get(h, "status")) } else if closed { "closed".into() } else { "idle".into() };
+    let status = if truthy(get(h, "status")) {
+        clean(get(h, "status"))
+    } else if closed {
+        "closed".into()
+    } else {
+        "idle".into()
+    };
     s.insert("status".into(), json!(status));
     s.insert("owner".into(), if truthy(get(h, "owner")) { get(h, "owner").cloned().unwrap_or(Value::Null) } else { json!("user") });
     s.insert("agent".into(), or_null(get(h, "agent")));
@@ -265,10 +255,7 @@ pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h
     for k in ["provider", "model"] {
         s.insert(k.into(), or_null(get(h, k)));
     }
-    s.insert(
-        "presetName".into(),
-        if truthy(get(h, "presetName")) { or_null(get(h, "presetName")) } else { or_null(get(h, "profileId")) },
-    );
+    s.insert("presetName".into(), if truthy(get(h, "presetName")) { or_null(get(h, "presetName")) } else { or_null(get(h, "profileId")) });
     s.insert("effort".into(), or_null(get(h, "effort")));
     s.insert("fast".into(), json!(get(h, "fast") == Some(&Value::Bool(true))));
     if get(h, "autoEffort") == Some(&Value::Bool(false)) {
@@ -283,10 +270,7 @@ pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h
         },
     );
     s.insert("agentTag".into(), or_null(get(h, "agentTag")));
-    s.insert(
-        "task_id".into(),
-        if truthy(get(h, "task_id")) { or_null(get(h, "task_id")) } else { or_null(get(h, "taskId")) },
-    );
+    s.insert("task_id".into(), if truthy(get(h, "task_id")) { or_null(get(h, "task_id")) } else { or_null(get(h, "taskId")) });
     for k in ["permission", "permissionMode", "toolPermission"] {
         s.insert(k.into(), or_null(get(h, k)));
     }
@@ -376,7 +360,7 @@ pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h
         agent_tag: crate::worker::TagKeys::of(session, h),
         deleted: is_deleted(h),
         listed: crate::worker::listed_row(h),
-        user_name:if get(h, "titleSource").and_then(Value::as_str) == Some("user") { str_field("title") } else { None },
+        user_name: if get(h, "titleSource").and_then(Value::as_str) == Some("user") { str_field("title") } else { None },
     }
 }
 

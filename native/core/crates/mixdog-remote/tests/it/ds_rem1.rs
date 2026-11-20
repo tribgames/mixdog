@@ -9,8 +9,7 @@ use mixdog_protocol::{Origin, SectionName};
 
 #[test]
 fn all_190_phone_methods_have_a_relay_reachable_target() {
-    let methods: HashMap<&str, bool> =
-        CLIENT_METHODS.iter().map(|spec| (spec.method, spec.allows(Origin::Relay))).collect();
+    let methods: HashMap<&str, bool> = CLIENT_METHODS.iter().map(|spec| (spec.method, spec.allows(Origin::Relay))).collect();
     let sections: BTreeSet<&str> = SectionName::ALL.iter().map(|s| s.wire()).collect();
     let remote: Vec<_> = INVENTORY.iter().filter(|(list, ..)| *list == InventoryList::Remote).collect();
     assert_eq!(remote.len(), 190);

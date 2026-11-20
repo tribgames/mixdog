@@ -79,21 +79,9 @@ impl ApprovalActor {
 
     /// A request of this thread, shown on `surface`, offering the `remember` scopes beyond
     /// once and expiring at `expires_at`.
-    pub(crate) fn ask(
-        &self,
-        id: &str,
-        surface: &str,
-        remember: &[ApprovalRemember],
-        expires_at: Option<i64>,
-    ) {
+    pub(crate) fn ask(&self, id: &str, surface: &str, remember: &[ApprovalRemember], expires_at: Option<i64>) {
         let id = ServerRequestId(id.to_owned());
-        lock(&self.open).insert(
-            id.clone(),
-            Open {
-                remember: remember.to_vec(),
-                expires_at,
-            },
-        );
+        lock(&self.open).insert(id.clone(), Open { remember: remember.to_vec(), expires_at });
         let frame = json!({
             "id": id.0,
             "method": "item/tool/requestApproval",
@@ -120,36 +108,25 @@ impl ApprovalActor {
             let Some(request) = open.get(&decision.request) else {
                 return Ok(());
             };
-            let verdict = serde_json::from_value::<ToolApprovalDecision>(decision.result.clone())
-                .map_err(|error| error.to_string())
-                .and_then(|parsed| match parsed.remember {
-                    Some(scope)
-                        if scope != ApprovalRemember::Once
-                            && !request.remember.contains(&scope) =>
-                    {
+            let verdict = serde_json::from_value::<ToolApprovalDecision>(decision.result.clone()).map_err(|error| error.to_string()).and_then(|parsed| {
+                match parsed.remember {
+                    Some(scope) if scope != ApprovalRemember::Once && !request.remember.contains(&scope) => {
                         Err(format!("remember {scope:?} is not offered by this request"))
                     }
                     _ => Ok(parsed),
-                });
+                }
+            });
             match verdict {
                 Ok(parsed) => {
                     open.remove(&decision.request);
-                    ApprovalResolution::Decided {
-                        decision: parsed,
-                        device: decision.device.clone(),
-                        connection_kind: decision.connection_kind,
-                        at: self.now(),
-                    }
+                    ApprovalResolution::Decided { decision: parsed, device: decision.device.clone(), connection_kind: decision.connection_kind, at: self.now() }
                 }
                 Err(detail) => {
                     drop(open);
                     // The request stays pending; only the sender hears of it.
                     self.sink.response_rejected(
                         decision.connection,
-                        CoreError::InvalidServerRequestResponse {
-                            request_id: decision.request,
-                            detail: detail.into(),
-                        },
+                        CoreError::InvalidServerRequestResponse { request_id: decision.request, detail: detail.into() },
                     );
                     return Ok(());
                 }
@@ -163,11 +140,7 @@ impl ApprovalActor {
     pub(crate) fn expire(&self, now: i64) {
         let mut due: Vec<ServerRequestId> = {
             let mut open = lock(&self.open);
-            let due: Vec<_> = open
-                .iter()
-                .filter(|(_, request)| request.expires_at.is_some_and(|at| at <= now))
-                .map(|(id, _)| id.clone())
-                .collect();
+            let due: Vec<_> = open.iter().filter(|(_, request)| request.expires_at.is_some_and(|at| at <= now)).map(|(id, _)| id.clone()).collect();
             for id in &due {
                 open.remove(id);
             }
@@ -205,11 +178,7 @@ impl ApprovalActor {
     /// Persists the resolution, then applies it: every eligible connection is told.
     fn resolve(&self, id: &ServerRequestId, resolution: ApprovalResolution) {
         lock(&self.resolved).push((id.clone(), resolution.clone()));
-        let params = ServerRequestResolvedParams {
-            thread_id: self.thread.clone(),
-            request_id: RequestId::String(id.0.clone()),
-            resolution,
-        };
+        let params = ServerRequestResolvedParams { thread_id: self.thread.clone(), request_id: RequestId::String(id.0.clone()), resolution };
         let frame = json!({ "method": "serverRequest/resolved", "params": params });
         self.sink.resolved(id, Bytes::from(frame.to_string()));
     }

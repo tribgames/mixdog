@@ -23,10 +23,7 @@ pub fn normalize_whisper_language(value: Option<&str>) -> Option<String> {
 /// First candidate that names a language, else `auto`. Candidates are, in order:
 /// `MIXDOG_CHANNELS_WHISPER_LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`, the system locale.
 pub fn detect_device_language<'a>(candidates: impl IntoIterator<Item = Option<&'a str>>) -> String {
-    candidates
-        .into_iter()
-        .find_map(normalize_whisper_language)
-        .unwrap_or_else(|| "auto".to_owned())
+    candidates.into_iter().find_map(normalize_whisper_language).unwrap_or_else(|| "auto".to_owned())
 }
 
 #[cfg(test)]
@@ -49,6 +46,4 @@ mod tests {
         assert_eq!(lang, "ko");
         assert_eq!(detect_device_language([None, Some("C")]), "auto");
     }
-
-
 }

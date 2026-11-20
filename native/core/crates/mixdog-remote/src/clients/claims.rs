@@ -64,8 +64,7 @@ pub fn deny(claim_id: &str) -> Value {
 impl ClaimBindings {
     pub fn deliver(&mut self, envelope: &Value, now_ms: u64) -> ClaimStep {
         let claim_id = envelope.get("claimId").and_then(Value::as_str).unwrap_or_default();
-        let Some(public_key) = envelope.get("publicKey").and_then(Value::as_str).filter(|k| is_claim_public_key(k))
-        else {
+        let Some(public_key) = envelope.get("publicKey").and_then(Value::as_str).filter(|k| is_claim_public_key(k)) else {
             return ClaimStep::Ignore;
         };
         if claim_id.is_empty() {
@@ -83,15 +82,8 @@ impl ClaimBindings {
             }
             return ClaimStep::Ignore;
         }
-        let expires_at = envelope
-            .get("expiresAt")
-            .and_then(Value::as_u64)
-            .filter(|at| *at > now_ms)
-            .unwrap_or(now_ms + DEFAULT_CLAIM_TTL_MS);
-        self.bindings.insert(
-            claim_id.to_owned(),
-            Binding { public_key: public_key.to_owned(), client_id: client_id.clone(), expires_at, conflicted: false },
-        );
+        let expires_at = envelope.get("expiresAt").and_then(Value::as_u64).filter(|at| *at > now_ms).unwrap_or(now_ms + DEFAULT_CLAIM_TTL_MS);
+        self.bindings.insert(claim_id.to_owned(), Binding { public_key: public_key.to_owned(), client_id: client_id.clone(), expires_at, conflicted: false });
         let text = |name: &str, max: usize| clip(envelope.get(name).and_then(Value::as_str), max);
         let name = text("name", 80);
         ClaimStep::Ask(ClaimRequest {

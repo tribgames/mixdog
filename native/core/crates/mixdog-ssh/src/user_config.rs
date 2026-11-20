@@ -81,12 +81,7 @@ pub fn parse_config_hosts(text: &str) -> Vec<SshConfigHost> {
                     {
                         continue;
                     }
-                    block.push(Block {
-                        alias: alias.to_owned(),
-                        hostname: String::new(),
-                        user: String::new(),
-                        port: String::new(),
-                    });
+                    block.push(Block { alias: alias.to_owned(), hostname: String::new(), user: String::new(), port: String::new() });
                 }
             }
             "match" => flush(&mut block, &mut hosts),

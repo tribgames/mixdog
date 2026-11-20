@@ -65,9 +65,5 @@ pub fn named_change_patch(
 ) -> Named {
     let measured = measure_change(differ, before, after, old_name != new_name, budget);
     let patch = name_measured_patch(&measured.text, old_name, new_name);
-    Named {
-        additions: measured.additions,
-        deletions: measured.deletions,
-        patch: if patch.len() > VIEW_PATCH_MAX_BYTES { String::new() } else { patch },
-    }
+    Named { additions: measured.additions, deletions: measured.deletions, patch: if patch.len() > VIEW_PATCH_MAX_BYTES { String::new() } else { patch } }
 }

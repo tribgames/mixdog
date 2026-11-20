@@ -12,22 +12,20 @@ pub(crate) mod reasoning;
 use std::sync::Arc;
 
 use mixdog_core_api::domain::keepalive::TransportKind;
-use mixdog_core_api::domain::provider::{
-    ErrorResponse, ModelRequest, ProviderError, WireCodec, WireDecoder, WireRequest,
-};
+use mixdog_core_api::domain::provider::{ErrorResponse, ModelRequest, ProviderError, WireCodec, WireDecoder, WireRequest};
 use mixdog_protocol::ProviderId;
 
+pub use super::profile::CostField;
 pub use decode::{ChatDecoder, usage_from};
 pub(crate) use encode::system_texts;
-pub use super::profile::CostField;
 
 use super::error;
 use super::models::ModelTable;
 use super::profile::CompatProfile;
 use super::schema::{Rule, SchemaMemo, report_exclusion};
 use crate::providers::google::tool_accept::gemini_accepted_tools;
-use crate::providers::leak::{ToolNames, body_tool_names};
 use crate::providers::google::traits::is_gemini_family_model;
+use crate::providers::leak::{ToolNames, body_tool_names};
 
 /// Whether a request's model replays its reasoning (a custom provider's model row and the turn's effort).
 #[derive(Clone)]
@@ -38,7 +36,6 @@ impl std::fmt::Debug for CustomReplay {
         f.write_str("CustomReplay")
     }
 }
-
 
 /// What differs between two instances of one profile.
 #[derive(Clone, Debug)]
@@ -84,10 +81,7 @@ impl Default for CompatConfig {
 impl CompatConfig {
     /// A config whose model table carries the profile's seed facts.
     pub fn for_profile(profile: &CompatProfile) -> Self {
-        Self {
-            models: profile.model_table(),
-            ..Self::default()
-        }
+        Self { models: profile.model_table(), ..Self::default() }
     }
 }
 #[derive(Clone, Debug)]
@@ -100,13 +94,7 @@ pub struct CompatChatCodec {
 }
 impl CompatChatCodec {
     pub fn new(profile: CompatProfile, config: CompatConfig) -> Self {
-        Self {
-            schemas: Arc::new(SchemaMemo::default()),
-            provider: ProviderId::from(profile.id),
-            cache_control: profile.id == "openrouter",
-            profile,
-            config,
-        }
+        Self { schemas: Arc::new(SchemaMemo::default()), provider: ProviderId::from(profile.id), cache_control: profile.id == "openrouter", profile, config }
     }
 
     pub(crate) fn with_cache_control(mut self, enabled: Option<bool>) -> Self {
@@ -142,19 +130,12 @@ impl CompatChatCodec {
     }
 
     pub fn base_url(&self) -> &str {
-        self.config
-            .base_url
-            .as_deref()
-            .unwrap_or(self.profile.base_url)
-            .trim_end_matches('/')
+        self.config.base_url.as_deref().unwrap_or(self.profile.base_url).trim_end_matches('/')
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn headers(&self, request: &ModelRequest) -> Result<Vec<(String, String)>, ProviderError> {
-        let mut headers: Vec<(String, String)> = vec![
-            ("content-type".into(), "application/json".into()),
-            ("accept".into(), "application/json".into()),
-        ];
+        let mut headers: Vec<(String, String)> = vec![("content-type".into(), "application/json".into()), ("accept".into(), "application/json".into())];
         // The SDK client merges its default headers with the provider's case-insensitively, the later value winning:
         // a profile header of a default's name replaces it (Command Code's and MiMo's `Accept`).
         for (name, value) in self.profile.headers {
@@ -165,10 +146,7 @@ impl CompatChatCodec {
         }
         let dialect = &self.profile.chat;
         if dialect.session_affinity_headers {
-            headers.push((
-                "user-agent".into(),
-                format!("mimocode/{}", self.config.client_version),
-            ));
+            headers.push(("user-agent".into(), format!("mimocode/{}", self.config.client_version)));
             if let Some(session) = request.options.session_id.as_deref().filter(|s| !s.is_empty()) {
                 headers.push(("x-session-affinity".into(), session.to_owned()));
                 if let Some(parent) = request.options.parent_session_id.as_deref().filter(|s| !s.is_empty()) {
@@ -181,11 +159,7 @@ impl CompatChatCodec {
             // shared prefix, or this process (`xaiCacheRouting`), never the caller's namespace itself.
             let system = encode::system_texts(dialect, &request.messages).unwrap_or_default();
             let lanes = std::sync::Mutex::default();
-            let routing = super::xai_cache::Routing {
-                environment: self.config.environment.as_ref().map(|env| &*env.0),
-                lanes: &lanes,
-                system: &system,
-            };
+            let routing = super::xai_cache::Routing { environment: self.config.environment.as_ref().map(|env| &*env.0), lanes: &lanes, system: &system };
             headers.push(("x-grok-conv-id".into(), routing.chat_key(request)));
         }
         headers.extend(self.config.extra_headers.iter().cloned());
@@ -211,9 +185,7 @@ impl WireCodec for CompatChatCodec {
             gemini_accepted_tools(&request.tools, &mut |e| report_exclusion(&request.options, e))
         } else {
             let source = format!("[{}] tool", self.profile.id);
-            self.schemas.accepted_wire_tools(&request.tools, Rule::OpenAi, &source, &mut |e| {
-                report_exclusion(&request.options, e)
-            })
+            self.schemas.accepted_wire_tools(&request.tools, Rule::OpenAi, &source, &mut |e| report_exclusion(&request.options, e))
         };
         let body = encode::build_body(&self.request_profile(request), &self.provider, request, info.as_deref(), &tools, self.cache_control)?;
         Ok(WireRequest {

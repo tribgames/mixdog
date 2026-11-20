@@ -81,9 +81,10 @@ fn only_nul_and_blanks_hold_no_data() {
 /// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
 pub(crate) fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
     let lanes = mixdog_rt::testing::tokens();
-    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-        lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap()
-    })
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async { lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap() })
 }
 #[test]
 fn a_held_lock_times_out_with_nodes_codes_and_is_free_afterwards() {
@@ -144,10 +145,7 @@ fn a_nested_request_for_a_held_lock_does_not_wait_on_itself() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("f.json");
     let inner = on_lane(move |lane| {
-        with_lock(lane, &file, &within(Duration::from_secs(5)), || {
-            with_lock(lane, &file, &within(Duration::ZERO), || 3).unwrap()
-        })
-        .unwrap()
+        with_lock(lane, &file, &within(Duration::from_secs(5)), || with_lock(lane, &file, &within(Duration::ZERO), || 3).unwrap()).unwrap()
     });
     assert_eq!(inner, 3);
 }
@@ -206,10 +204,8 @@ fn node_and_this_port_exclude_each_other() {
     let outside = on_lane({
         let (file, taker) = (file.clone(), taker.clone());
         move |lane| {
-            with_lock(lane, &file, &within(Duration::from_secs(5)), || {
-                mixdog_testkit::output("node", &[taker.as_os_str(), lock_path(&file).as_os_str()])
-            })
-            .unwrap()
+            with_lock(lane, &file, &within(Duration::from_secs(5)), || mixdog_testkit::output("node", &[taker.as_os_str(), lock_path(&file).as_os_str()]))
+                .unwrap()
         }
     });
     assert_eq!(outside.trim(), "ELOCKCONTENDED");
@@ -255,10 +251,7 @@ fn valid_node_json_is_never_taken_for_damage() {
             update_json::<_, ()>(lane, &small, |cur| Ok(cur.map(|v| json!({ "again": v }))), &Opts::default()).unwrap();
         }
     });
-    assert_eq!(
-        mixdog_testkit::read_string(&small),
-        "{\n  \"again\": {\n    \"s\": \"x\\ud83d\",\n    \"big\": 12345678901234567000\n  }\n}\n"
-    );
+    assert_eq!(mixdog_testkit::read_string(&small), "{\n  \"again\": {\n    \"s\": \"x\\ud83d\",\n    \"big\": 12345678901234567000\n  }\n}\n");
 }
 #[test]
 fn private_directories_are_created_owner_only_with_their_ancestors() {
@@ -533,7 +526,6 @@ fn a_second_lease_reclaims_a_dead_holders_lock() {
     drop(taken);
     assert!(!lock.exists());
 }
-
 
 /// A damaged state file tells the user which file it set aside, and where, before it starts empty.
 #[test]

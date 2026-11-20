@@ -8,12 +8,10 @@ use std::sync::OnceLock;
 
 use super::chords::apply_edit_chord;
 use super::draft::Draft;
-use super::editing::{
-    clear_selection, line_end, line_start, move_cursor, replace_selection, selection_range, vertical_offset,
-};
+use super::editing::{clear_selection, line_end, line_start, move_cursor, replace_selection, selection_range, vertical_offset};
 use super::helpers::{
-    insert_text, is_any_modified_enter_sequence, is_modified_enter_sequence, left_arrow_offset, normalize_pasted_text,
-    right_arrow_offset, single_trailing_line_break_prefix,
+    insert_text, is_any_modified_enter_sequence, is_modified_enter_sequence, left_arrow_offset, normalize_pasted_text, right_arrow_offset,
+    single_trailing_line_break_prefix,
 };
 use super::signals::is_csi_private_reply;
 
@@ -63,13 +61,7 @@ pub struct TextEntryEditor {
 impl TextEntryEditor {
     /// A field holding `initial_value`, the caret after it.
     pub fn new(initial_value: &str) -> Self {
-        Self {
-            draft: Draft::at_end(initial_value),
-            submit_gate: false,
-            content_width: 80,
-            preferred_column: None,
-            dirty: false,
-        }
+        Self { draft: Draft::at_end(initial_value), submit_gate: false, content_width: 80, preferred_column: None, dirty: false }
     }
 
     /// The prompt changed (its title or initial value): the field starts over.
@@ -186,9 +178,7 @@ impl TextEntryEditor {
             return;
         }
 
-        let paste_fallback = raw_input.contains('\n')
-            && trailing_enter_prefix.is_none()
-            && (mixdog_js::utf16_len(&raw_input) > 1 || !key.return_key);
+        let paste_fallback = raw_input.contains('\n') && trailing_enter_prefix.is_none() && (mixdog_js::utf16_len(&raw_input) > 1 || !key.return_key);
         if paste_fallback {
             self.update(|d| insert_text(d, &raw_input));
             return;

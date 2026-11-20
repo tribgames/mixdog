@@ -48,11 +48,7 @@ pub trait ThreadDirectory: Send + Sync {
 
     /// The loaded thread, or a cold open: concurrent opens of one thread share one load
     /// (two serial read jobs, RL §5.5, §7.3). Cancelling `ctx` stops this waiter only.
-    async fn open(
-        &self,
-        id: &ThreadId,
-        ctx: &CallContext,
-    ) -> Result<Arc<dyn ThreadHandle>, CoreError>;
+    async fn open(&self, id: &ThreadId, ctx: &CallContext) -> Result<Arc<dyn ThreadHandle>, CoreError>;
 
     /// Thread-namespace methods not addressed to one loaded thread (`thread/start`,
     /// `thread/list`, …).

@@ -96,8 +96,8 @@ fn a_new_workbook_is_edited_operation_by_operation_and_read_back() {
     assert!(text.contains("\"1-2\"") && text.contains("\"007\""), "{text}");
     assert!(text.contains("\"Item\""), "{text}");
 
-    let closed = close_session(&mut state, &env, &request(&json!({"action": "close_session", "session": "live-edit", "save": false})))
-        .expect("the close answers");
+    let closed =
+        close_session(&mut state, &env, &request(&json!({"action": "close_session", "session": "live-edit", "save": false}))).expect("the close answers");
     assert!(closed.closed);
     let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
 }

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use mixdog_js::{json_stringify, js_object_keys, number_to_string, to_number, value_to_string};
+use mixdog_js::{js_object_keys, json_stringify, number_to_string, to_number, value_to_string};
 use mixdog_office_base::formats::is_tabular_format;
 use mixdog_office_base::values::{sha256, truthy};
 use serde_json::{Map, Value, json};
@@ -271,7 +271,8 @@ mod tests {
 
     #[test]
     fn a_diff_stops_listing_at_the_limit_and_says_so() {
-        let many = |text: &str| json!({ "path": "/", "items": (0..5).map(|index| json!({ "path": format!("/p[{index}]"), "text": text })).collect::<Vec<_>>() });
+        let many =
+            |text: &str| json!({ "path": "/", "items": (0..5).map(|index| json!({ "path": format!("/p[{index}]"), "text": text })).collect::<Vec<_>>() });
         let diff = diff_documents(&many("a"), &many("b"), 3);
         assert_eq!(diff["summary"]["total"], json!(5));
         assert_eq!(diff["changes"].as_array().expect("changes").len(), 3);

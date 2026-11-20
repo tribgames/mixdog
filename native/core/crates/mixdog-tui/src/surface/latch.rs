@@ -149,10 +149,7 @@ mod tests {
     fn a_same_kind_rebuild_carries_the_previous_mode() {
         let mut latch = EnterLatch::new();
         let prev = panel("mcp-servers", Some(IndexMode::Always));
-        assert_eq!(
-            resolve_picker_state(Some(&prev), Some(panel("mcp-servers", None)), &mut latch),
-            Some(panel("mcp-servers", Some(IndexMode::Always)))
-        );
+        assert_eq!(resolve_picker_state(Some(&prev), Some(panel("mcp-servers", None)), &mut latch), Some(panel("mcp-servers", Some(IndexMode::Always))));
         assert_eq!(resolve_picker_state(Some(&prev), Some(panel("skills", None)), &mut latch), Some(panel("skills", None)));
         let kindless = panel("", Some(IndexMode::Always));
         assert_eq!(resolve_picker_state(Some(&kindless), Some(panel("", None)), &mut latch), Some(panel("", None)));

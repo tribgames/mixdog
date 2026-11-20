@@ -15,19 +15,7 @@ use serde_json::{Map, Value, json};
 
 use crate::xml::{compiled, xml_decode, xml_encode};
 
-const SECTION_ORDER: [&str; 11] = [
-    "numFmts",
-    "fonts",
-    "fills",
-    "borders",
-    "cellStyleXfs",
-    "cellXfs",
-    "cellStyles",
-    "dxfs",
-    "tableStyles",
-    "colors",
-    "extLst",
-];
+const SECTION_ORDER: [&str; 11] = ["numFmts", "fonts", "fills", "borders", "cellStyleXfs", "cellXfs", "cellStyles", "dxfs", "tableStyles", "colors", "extLst"];
 const EDITED_SECTIONS: [&str; 5] = ["numFmts", "fonts", "fills", "borders", "cellXfs"];
 const COUNTED_SECTIONS: [&str; 8] = ["numFmts", "fonts", "fills", "borders", "cellStyleXfs", "cellXfs", "cellStyles", "dxfs"];
 const FIRST_CUSTOM_NUMBER_FORMAT: f64 = 164.0;
@@ -86,10 +74,7 @@ fn collection(xml: &str, container: &str, item: &str) -> Vec<String> {
 
 /// `attribute(source, name)`: the value of the first `name="..."`, empty when absent.
 fn attribute(source: &str, name: &str) -> String {
-    compiled(&format!(r#"\b{name}="([^"]*)""#), "")
-        .captures(source)
-        .and_then(|found| found.get(1).map(str::to_owned))
-        .unwrap_or_default()
+    compiled(&format!(r#"\b{name}="([^"]*)""#), "").captures(source).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default()
 }
 
 /// `Number(text) || 0`.
@@ -150,8 +135,7 @@ struct Font {
 static SZ: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<sz\b([^>]*?)\/>", ""));
 static COLOR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<color\b([^>]*?)\/>", ""));
 static NAME: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<name\b([^>]*?)\/>", ""));
-static PATTERN_FILL: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"<patternFill\b([^>]*?)(?:\/>|>[\s\S]*?<\/patternFill>)", ""));
+static PATTERN_FILL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<patternFill\b([^>]*?)(?:\/>|>[\s\S]*?<\/patternFill>)", ""));
 static FG_COLOR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<fgColor\b([^>]*?)\/>", ""));
 
 fn parse_font(xml: &str) -> Font {
@@ -246,8 +230,8 @@ fn merge_borders(base: &Border, requested: Option<&Value>) -> Result<Border, Str
         _ => &empty,
     };
     // One spec for every side (`borders: { style: 'thin', color }`) or a spec per side.
-    let uniform = BORDER_SIDES.iter().all(|name| !sides.contains_key(*name))
-        && (sides.get("style").is_some_and(truthy) || sides.get("color").is_some_and(truthy));
+    let uniform =
+        BORDER_SIDES.iter().all(|name| !sides.contains_key(*name)) && (sides.get("style").is_some_and(truthy) || sides.get("color").is_some_and(truthy));
     let whole = Value::Object(sides.clone());
     for (index, name) in BORDER_SIDES.iter().enumerate() {
         let spec = if uniform { Some(&whole) } else { sides.get(*name) };
@@ -588,12 +572,8 @@ fn built_in_number_format(id: f64) -> Option<&'static str> {
 
 /// The General format under any Excel UI language (Korean G/표준, Japanese G/標準, German Standard), and the empty format a
 /// cell carries when it has none: neither is a format anyone chose. Every reader asks here.
-static GENERAL_NUMBER_FORMAT: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$",
-        "i",
-    )
-});
+static GENERAL_NUMBER_FORMAT: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$", "i"));
 
 /// `GENERAL_NUMBER_FORMAT.test(code)`.
 pub fn is_general_number_format(code: &str) -> bool {

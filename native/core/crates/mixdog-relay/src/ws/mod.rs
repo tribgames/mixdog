@@ -72,26 +72,13 @@ pub struct WebSocketServer {
 impl WebSocketServer {
     pub fn new(options: ServerOptions) -> Self {
         let (count, _) = watch::channel(0);
-        Self {
-            options,
-            shared: Arc::new(Shared {
-                state: AtomicU8::new(RUNNING),
-                next_id: AtomicU64::new(0),
-                clients: Mutex::new(HashMap::new()),
-                count,
-            }),
-        }
+        Self { options, shared: Arc::new(Shared { state: AtomicU8::new(RUNNING), next_id: AtomicU64::new(0), clients: Mutex::new(HashMap::new()), count }) }
     }
 
     /// `handleUpgrade`: refuse the request or answer it with 101 and return the open socket. Reading the connection starts
     /// when the first event is taken from [`WsEvents`], so what the caller installs right after this returns (the raw tap)
     /// sees every byte, `head` included.
-    pub async fn handle_upgrade<S: Transport>(
-        &self,
-        request: &HandshakeRequest,
-        mut io: S,
-        head: Bytes,
-    ) -> Result<(WebSocket, WsEvents), Refused> {
+    pub async fn handle_upgrade<S: Transport>(&self, request: &HandshakeRequest, mut io: S, head: Bytes) -> Result<(WebSocket, WsEvents), Refused> {
         let accepted = match handshake::validate(request) {
             Ok(accepted) => accepted,
             Err(refusal) => {
@@ -107,11 +94,7 @@ impl WebSocketServer {
         }
         let id = self.shared.next_id.fetch_add(1, Ordering::SeqCst);
         let shared = Arc::clone(&self.shared);
-        let config = socket::SocketConfig {
-            max_payload: self.options.max_payload,
-            close_timeout: self.options.close_timeout,
-            auto_pong: true,
-        };
+        let config = socket::SocketConfig { max_payload: self.options.max_payload, close_timeout: self.options.close_timeout, auto_pong: true };
         let on_close = Box::new(move || {
             let mut clients = lock(&shared.clients);
             clients.remove(&id);
@@ -148,12 +131,7 @@ impl WebSocketServer {
 }
 
 /// `abortHandshake`: the refusal, then end the connection (and destroy it once the end is written).
-async fn abort_handshake<S: Transport>(
-    mut io: S,
-    status: u16,
-    message: Option<&str>,
-    headers: &[(&str, &str)],
-) -> Result<(WebSocket, WsEvents), Refused> {
+async fn abort_handshake<S: Transport>(mut io: S, status: u16, message: Option<&str>, headers: &[(&str, &str)]) -> Result<(WebSocket, WsEvents), Refused> {
     let bytes = handshake::refusal_bytes(status, message, headers);
     let _ = io.write_all(&bytes).await;
     let _ = io.shutdown().await;

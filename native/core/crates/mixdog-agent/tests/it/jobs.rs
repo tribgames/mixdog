@@ -45,9 +45,6 @@ fn backend() {
     mixdog_rt::testing::tokens();
 }
 
-
-
-
 /// Waits until `want` notifications have been delivered (delivery runs on a spawned task of the
 /// runtime's work pool), then lets any task already runnable finish. The bound only turns a
 /// notification that never arrives into a failure.
@@ -85,15 +82,9 @@ async fn an_empty_agent_report_notifies_without_a_result_body() {
             ..NewJob::default()
         })
         .unwrap();
-    board.complete(
-        "t1",
-        Completion { result: Some(TaskResult::Json(json!({ "agent": "worker", "content": "" }))), ..Completion::new("completed") },
-    );
+    board.complete("t1", Completion { result: Some(TaskResult::Json(json!({ "agent": "worker", "content": "" }))), ..Completion::new("completed") });
     settle(&notices, 1).await;
     let sent = notices.sent.lock().unwrap();
     assert!(sent[0].1.contains("<status>completed</status>"), "{}", sent[0].1);
     assert!(!sent[0].1.contains("<result>") && !sent[0].1.contains("worker"), "{}", sent[0].1);
 }
-
-
-

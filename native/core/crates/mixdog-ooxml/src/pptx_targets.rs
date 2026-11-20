@@ -18,8 +18,7 @@ pub fn resolve_pptx_targets(zip: &Package, slides: &[SlideRef], operation: &Valu
     let Some(fields) = op.as_object_mut() else { return Ok(op) };
     if is_set(fields.get("slideId")) {
         let wanted = value_to_string(&fields["slideId"]);
-        let matches: Vec<usize> =
-            slides.iter().enumerate().filter(|(_, slide)| number_to_string(slide.id) == wanted).map(|(index, _)| index).collect();
+        let matches: Vec<usize> = slides.iter().enumerate().filter(|(_, slide)| number_to_string(slide.id) == wanted).map(|(index, _)| index).collect();
         if matches.len() != 1 {
             return Err(format!("PPTX slideId {wanted} is missing or ambiguous"));
         }

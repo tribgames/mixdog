@@ -53,12 +53,7 @@ pub struct Viewport {
 impl Page {
     /// Reads the geometry of the page whose dictionary is `dict` (the properties pdf.js's `GetPage` handler asks:
     /// `rotate`, `userUnit`, `view`).
-    pub(crate) fn new(
-        document: &Document,
-        index: usize,
-        dict: Arc<Dict>,
-        reference: Option<Ref>,
-    ) -> Result<Page> {
+    pub(crate) fn new(document: &Document, index: usize, dict: Arc<Dict>, reference: Option<Ref>) -> Result<Page> {
         let xref = document.xref();
         let rotate = rotate_of(inheritable(xref, &dict, "Rotate", false)?.as_ref());
         let user_unit = match xref.get(&dict, "UserUnit")? {
@@ -68,16 +63,7 @@ impl Page {
         let media_box = bounding_box(xref, &dict, "MediaBox")?.unwrap_or(LETTER_SIZE_MEDIABOX);
         let crop_box = bounding_box(xref, &dict, "CropBox")?.unwrap_or(media_box);
         let view = view_of(crop_box, media_box);
-        Ok(Page {
-            index,
-            dict,
-            reference,
-            media_box,
-            crop_box,
-            view,
-            rotate,
-            user_unit,
-        })
+        Ok(Page { index, dict, reference, media_box, crop_box, view, rotate, user_unit })
     }
 
     /// `resources`: the `Resources` the page or its nearest ancestor has; when several ancestors have one they are
@@ -95,9 +81,7 @@ impl Page {
         let xref = document.xref();
         let filters = xref.filters();
         match xref.get_array(&self.dict, "Contents")? {
-            Obj::Stream(stream) if !is_image_stream(&stream) => {
-                stream.decode(filters.as_ref(), xref.guard())
-            }
+            Obj::Stream(stream) if !is_image_stream(&stream) => stream.decode(filters.as_ref(), xref.guard()),
             Obj::Array(items) => {
                 let mut bytes = Vec::new();
                 for item in items.iter() {
@@ -108,10 +92,7 @@ impl Page {
                     match stream.decode(filters.as_ref(), xref.guard()) {
                         Ok(chunk) => bytes.extend_from_slice(&chunk),
                         Err(e) if !e.is_fatal() && document.options().ignore_errors => {
-                            tracing::warn!(
-                                "getContentStream - ignoring sub-stream ({}): \"{e}\".",
-                                stream.dict.obj_id.as_deref().unwrap_or("undefined")
-                            );
+                            tracing::warn!("getContentStream - ignoring sub-stream ({}): \"{e}\".", stream.dict.obj_id.as_deref().unwrap_or("undefined"));
                         }
                         Err(e) => return Err(e),
                     }
@@ -124,28 +105,13 @@ impl Page {
 
     /// `getViewport({ scale })`: the page's own rotation, no offset, the y axis flipped.
     pub fn viewport(&self, scale: f64) -> Viewport {
-        Viewport::new(
-            self.view,
-            self.user_unit,
-            scale,
-            self.rotate.clone(),
-            0.0,
-            0.0,
-        )
-        .expect("Page.rotate is normalized to a multiple of 90")
+        Viewport::new(self.view, self.user_unit, scale, self.rotate.clone(), 0.0, 0.0).expect("Page.rotate is normalized to a multiple of 90")
     }
 }
 
 impl Viewport {
     /// `new PageViewport({ viewBox, userUnit, scale, rotation, offsetX, offsetY })`. `rotation` is a multiple of 90.
-    pub fn new(
-        view_box: [f64; 4],
-        user_unit: f64,
-        scale: f64,
-        rotation: Obj,
-        offset_x: f64,
-        offset_y: f64,
-    ) -> Result<Viewport> {
+    pub fn new(view_box: [f64; 4], user_unit: f64, scale: f64, rotation: Obj, offset_x: f64, offset_y: f64) -> Result<Viewport> {
         let scaled = scale * user_unit;
         let center_x = (view_box[2] + view_box[0]) / 2.0;
         let center_y = (view_box[3] + view_box[1]) / 2.0;
@@ -159,9 +125,7 @@ impl Viewport {
             270.0 => (0.0, -1.0, -1.0, 0.0),
             0.0 => (1.0, 0.0, 0.0, -1.0),
             _ => {
-                return Err(crate::error::PdfError::Unknown(
-                    "PageViewport: Invalid rotation, must be a multiple of 90 degrees.".into(),
-                ));
+                return Err(crate::error::PdfError::Unknown("PageViewport: Invalid rotation, must be a multiple of 90 degrees.".into()));
             }
         };
         let (offset_canvas_x, offset_canvas_y, width, height) = if rotate_a == 0.0 {
@@ -202,12 +166,10 @@ impl Viewport {
 
 /// `BaseStream.isImageStream`: a stream whose last filter is an image codec.
 fn is_image_stream(stream: &PdfStream) -> bool {
-    stream.chain().last().is_some_and(|filter| {
-        matches!(
-            filter.name.as_str(),
-            "DCT" | "DCTDecode" | "JPX" | "JPXDecode" | "CCF" | "CCITTFaxDecode" | "JBIG2Decode"
-        )
-    })
+    stream
+        .chain()
+        .last()
+        .is_some_and(|filter| matches!(filter.name.as_str(), "DCT" | "DCTDecode" | "JPX" | "JPXDecode" | "CCF" | "CCITTFaxDecode" | "JBIG2Decode"))
 }
 
 /// `getInheritableProperty` with `stopWhenFound: false` followed by the page's choice (`#getInheritableProperty`):
@@ -225,11 +187,7 @@ fn inheritable(xref: &Xref, dict: &Arc<Dict>, key: &str, get_array: bool) -> Res
             break;
         }
         if node.has(key) {
-            values.push(if get_array {
-                xref.get_array(&node, key)?
-            } else {
-                xref.get(&node, key)?
-            });
+            values.push(if get_array { xref.get_array(&node, key)? } else { xref.get(&node, key)? });
         }
         current = match xref.get(&node, "Parent")? {
             Obj::Dict(parent) => Some(parent),
@@ -299,9 +257,7 @@ pub(crate) fn object_number(value: &Obj) -> f64 {
             }
         }
         Obj::Num(value) => *value,
-        Obj::Str(bytes) => {
-            mixdog_js::string_to_number(&bytes.iter().map(|&b| char::from(b)).collect::<String>())
-        }
+        Obj::Str(bytes) => mixdog_js::string_to_number(&bytes.iter().map(|&b| char::from(b)).collect::<String>()),
         Obj::Array(_) => mixdog_js::string_to_number(&array_string(value)),
         _ => f64::NAN,
     }
@@ -320,9 +276,7 @@ fn rotate_of(value: Option<&Obj>) -> Obj {
     let Some(value) = value else {
         return Obj::Num(0.0);
     };
-    if matches!(value, Obj::Null | Obj::Bool(false))
-        || matches!(value, Obj::Num(n) if *n == 0.0 || n.is_nan())
-        || matches!(value, Obj::Str(s) if s.is_empty())
+    if matches!(value, Obj::Null | Obj::Bool(false)) || matches!(value, Obj::Num(n) if *n == 0.0 || n.is_nan()) || matches!(value, Obj::Str(s) if s.is_empty())
     {
         return Obj::Num(0.0);
     }

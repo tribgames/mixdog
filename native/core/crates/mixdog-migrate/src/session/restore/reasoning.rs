@@ -30,13 +30,9 @@ const RESPONSES_OWNER: &str = "openai-responses";
 pub fn session_wire_ids<'a>(bodies: impl IntoIterator<Item = &'a Value>) -> HashMap<String, String> {
     let ids = bodies.into_iter().flat_map(|body| -> Vec<&str> {
         match body.get("role").and_then(Value::as_str) {
-            Some("assistant") => body
-                .get("toolCalls")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|call| call.get("id").and_then(Value::as_str))
-                .collect(),
+            Some("assistant") => {
+                body.get("toolCalls").and_then(Value::as_array).into_iter().flatten().filter_map(|call| call.get("id").and_then(Value::as_str)).collect()
+            }
             Some("tool") => body.get("toolCallId").and_then(Value::as_str).into_iter().collect(),
             _ => Vec::new(),
         }
@@ -53,15 +49,10 @@ pub fn convert(body: &mut Value, ids: &HashMap<String, String>) {
         && !message.contains_key("providerReplay")
         && let Some(items) = legacy_replay(message, &items, ids)
     {
-        message.insert(
-            "providerReplay".into(),
-            json!({ "version": 1, "provider": RESPONSES_OWNER, "items": items }),
-        );
+        message.insert("providerReplay".into(), json!({ "version": 1, "provider": RESPONSES_OWNER, "items": items }));
     }
     if let Some(parts) = message.shift_remove("thoughtParts") {
-        let metadata = message
-            .entry("providerMetadata")
-            .or_insert_with(|| Value::Object(Map::new()));
+        let metadata = message.entry("providerMetadata").or_insert_with(|| Value::Object(Map::new()));
         if let Some(metadata) = metadata.as_object_mut() {
             let gemini = metadata.entry("gemini").or_insert_with(|| Value::Object(Map::new()));
             if let Some(gemini) = gemini.as_object_mut() {
@@ -95,16 +86,9 @@ fn legacy_replay(message: &Map<String, Value>, reasoning: &Value, ids: &HashMap<
         Some(Value::String(text)) => text.as_str(),
         Some(_) => return None,
     };
-    let parity = message
-        .get("providerMetadata")
-        .and_then(|m| m.get("accountRouting"))
-        .and_then(|r| r.get("provider"))
-        .and_then(Value::as_str)
-        != Some("openai");
-    let calls = message
-        .get("toolCalls")
-        .and_then(Value::as_array)
-        .filter(|calls| !calls.is_empty());
+    let parity =
+        message.get("providerMetadata").and_then(|m| m.get("accountRouting")).and_then(|r| r.get("provider")).and_then(Value::as_str) != Some("openai");
+    let calls = message.get("toolCalls").and_then(Value::as_array).filter(|calls| !calls.is_empty());
     let mut items = before;
     if calls.is_none() || !text.is_empty() {
         items.push(wire_message(text, message.get("phase"), parity));
@@ -127,9 +111,7 @@ fn reasoning_items(items: &[Value], after_text: bool) -> Vec<Value> {
         if (fields.get("afterText") == Some(&Value::Bool(true))) != after_text {
             continue;
         }
-        if !matches!(fields.get("type"), None | Some(Value::Null))
-            && fields.get("type").and_then(Value::as_str) != Some("reasoning")
-        {
+        if !matches!(fields.get("type"), None | Some(Value::Null)) && fields.get("type").and_then(Value::as_str) != Some("reasoning") {
             continue;
         }
         let Some(encrypted) = fields.get("encrypted_content").and_then(Value::as_str).filter(|e| !e.is_empty()) else {
@@ -301,10 +283,7 @@ mod tests {
             });
         }
         let replay = &session[1]["providerReplay"];
-        assistant.push_replay(ProviderReplay {
-            owner: ProviderId::from(replay["provider"].as_str().unwrap()),
-            items: replay["items"].clone(),
-        });
+        assistant.push_replay(ProviderReplay { owner: ProviderId::from(replay["provider"].as_str().unwrap()), items: replay["items"].clone() });
         let mut messages = vec![Message::new(Role::User, text(&session[0])), assistant];
         for row in &session[2..] {
             let mut result = Message::new(Role::Tool, text(row));
@@ -394,4 +373,3 @@ mod tests {
         assert_eq!(body["providerReplay"]["items"][0], json!({"type": "reasoning", "encrypted_content": "e", "summary": []}));
     }
 }
-

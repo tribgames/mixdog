@@ -165,10 +165,7 @@ async fn a_cron_whose_time_zone_does_not_parse_is_not_armed() {
     assert!(lower.validate().is_ok() && utc.validate().is_ok() && offset.validate().is_ok() && legacy.validate().is_ok());
     let f = fixture(vec![bad, seoul, blank, cron_row("local"), lower, utc, offset, legacy], Script::default());
     f.sched.start();
-    assert_eq!(
-        f.sched.armed_names(),
-        ["blank", "legacy", "local", "lower", "offset", "seoul", "utc"].map(String::from).to_vec()
-    );
+    assert_eq!(f.sched.armed_names(), ["blank", "legacy", "local", "lower", "offset", "seoul", "utc"].map(String::from).to_vec());
     assert_eq!(f.sched.status().iter().find(|s| s.name == "offset").and_then(|s| s.next_fire.clone()).as_deref(), Some("2025-01-02T00:00:00.000Z"));
     f.sched.stop();
 }
@@ -221,11 +218,7 @@ async fn one_shot_fires_then_is_done_and_never_refires() {
 #[tokio::test]
 async fn one_shot_completes_despite_a_failed_success_stamp() {
     let row = one_shot_row("once", "2025-01-01T08:00:00Z");
-    let store = Arc::new(OneShotStore {
-        inner: MemoryScheduleStore::with([row.clone()]),
-        next_fire_ack: None,
-        fail_success: true,
-    });
+    let store = Arc::new(OneShotStore { inner: MemoryScheduleStore::with([row.clone()]), next_fire_ack: None, fail_success: true });
     let runner = Arc::new(Script::default());
     let started = at("2025-01-01T09:00:00Z");
     let clock = Arc::new(FixedClock(Mutex::new(started)));
@@ -290,10 +283,7 @@ async fn rename_refused_while_running_and_reload_failure_drops_the_entry() {
     assert_eq!(refused, Err(ScheduleError::RenameRunning { name: "daily".into() }));
     gate.notify_one();
     run.await.unwrap();
-    let failed = f
-        .sched
-        .rename_locked("daily", "nightly", || async { Ok(Some(1)) }, || async { Err("no pg".to_string()) })
-        .await;
+    let failed = f.sched.rename_locked("daily", "nightly", || async { Ok(Some(1)) }, || async { Err("no pg".to_string()) }).await;
     assert!(matches!(failed, Err(ScheduleError::RenameReloadFailed { .. })));
     assert!(f.sched.find_schedule("daily").is_none());
     let ok = f.sched.rename_locked("gone", "went", || async { Ok(None::<u8>) }, || async { Ok(()) }).await;
@@ -343,7 +333,6 @@ impl ScheduleRunner for PromptLog {
     }
 }
 
-
 /// Time that follows tokio's (pausable) clock.
 struct TokioClock {
     base: DateTime<Utc>,
@@ -377,11 +366,7 @@ impl Clock for JumpClock {
 }
 #[tokio::test(start_paused = true)]
 async fn slots_missed_by_a_clock_jump_are_not_replayed() {
-    let clock = Arc::new(JumpClock {
-        base: at("2025-01-01T08:59:00Z"),
-        start: tokio::time::Instant::now(),
-        jump: Mutex::new(Duration::zero()),
-    });
+    let clock = Arc::new(JumpClock { base: at("2025-01-01T08:59:00Z"), start: tokio::time::Instant::now(), jump: Mutex::new(Duration::zero()) });
     let f = fixture_clock(vec![cron_row("daily")], Script::default(), clock.clone());
     f.sched.start();
     tokio::task::yield_now().await; // the job is now waiting for the 09:00 slot
@@ -413,11 +398,7 @@ async fn armed_one_shot_fires_and_completes() {
 #[tokio::test(start_paused = true)]
 async fn overdue_one_shot_fires_while_next_fire_write_is_pending() {
     let row = one_shot_row("once", "2025-01-01T08:00:00Z");
-    let store = Arc::new(OneShotStore {
-        inner: MemoryScheduleStore::with([row.clone()]),
-        next_fire_ack: Some(StampGate::default()),
-        fail_success: false,
-    });
+    let store = Arc::new(OneShotStore { inner: MemoryScheduleStore::with([row.clone()]), next_fire_ack: Some(StampGate::default()), fail_success: false });
     let runner = Arc::new(Script::default());
     let clock = Arc::new(FixedClock(Mutex::new(at("2025-01-01T09:00:00Z"))));
     let sched = Scheduler::new(store.clone(), runner.clone(), clock, RunningWork::new(), Tz::UTC, vec![row]);

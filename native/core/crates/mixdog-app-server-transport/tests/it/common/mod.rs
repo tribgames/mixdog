@@ -48,8 +48,7 @@ impl TestWrite {
 
 impl SocketWrite for TestWrite {
     async fn text(&mut self, frame: Bytes) -> Result<(), SocketClosed> {
-        self.put(Wire::Text(String::from_utf8_lossy(&frame).into_owned()))
-            .await
+        self.put(Wire::Text(String::from_utf8_lossy(&frame).into_owned())).await
     }
 
     async fn ping(&mut self) -> Result<(), SocketClosed> {
@@ -73,11 +72,7 @@ impl TestRead {
 impl TestWrite {
     /// A socket nobody reads from.
     pub fn sink() -> Self {
-        Self {
-            out: mpsc::unbounded_channel().0,
-            gate: Arc::new(Semaphore::new(0)),
-            held: mpsc::unbounded_channel().0,
-        }
+        Self { out: mpsc::unbounded_channel().0, gate: Arc::new(Semaphore::new(0)), held: mpsc::unbounded_channel().0 }
     }
 }
 
@@ -142,24 +137,9 @@ pub fn connect(hub: &ConnectionHub, origin: ConnectionOrigin, writable: bool) ->
     let (send, read_rx) = mpsc::unbounded_channel();
     let gate = Arc::new(Semaphore::new(if writable { Semaphore::MAX_PERMITS } else { 0 }));
     let (held_tx, held) = mpsc::unbounded_channel();
-    let connection = hub
-        .attach(
-            origin,
-            TestRead(read_rx),
-            TestWrite {
-                out: wire_tx,
-                gate: Arc::clone(&gate),
-                held: held_tx,
-            },
-        )
-        .expect("below the connection limit");
-    Peer {
-        connection,
-        wire,
-        send,
-        gate,
-        held,
-    }
+    let connection =
+        hub.attach(origin, TestRead(read_rx), TestWrite { out: wire_tx, gate: Arc::clone(&gate), held: held_tx }).expect("below the connection limit");
+    Peer { connection, wire, send, gate, held }
 }
 
 /// Limits small enough to fill in a test, still satisfying the P §6.5 invariants.
@@ -186,7 +166,6 @@ pub fn mock_limits(limits: &Limits) -> MockLimits {
         ring_bytes: limits.ring_bytes as usize,
     }
 }
-
 
 pub fn install_rt() {
     mixdog_rt::testing::tokens();

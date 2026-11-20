@@ -33,9 +33,7 @@ pub fn review_section_truncated(section: &str) -> bool {
 /// Nothing of the reply's patch fit: no patch text, a file omitted for size.
 pub fn review_diff_too_large(files: &[Obj], patch: &str) -> bool {
     patch.is_empty()
-        && files.iter().any(|file| {
-            file.get("patchOmitted") == Some(&Value::Bool(true)) && file.get("reason").and_then(Value::as_str) == Some(PATCH_TOO_LARGE)
-        })
+        && files.iter().any(|file| file.get("patchOmitted") == Some(&Value::Bool(true)) && file.get("reason").and_then(Value::as_str) == Some(PATCH_TOO_LARGE))
 }
 
 /// The per-file and total caps of one reply.

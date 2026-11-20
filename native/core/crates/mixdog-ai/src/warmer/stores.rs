@@ -69,18 +69,14 @@ impl Writer {
 async fn write(io: &DurabilityIo, path: &Path, doc: Value) -> Result<(), String> {
     let path = path.to_path_buf();
     let opts = Opts { compact: true, ..Opts::default() };
-    let job = io
-        .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_json(lane, &path, &doc, &opts))
-        .map_err(|e| e.to_string())?;
+    let job = io.submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_json(lane, &path, &doc, &opts)).map_err(|e| e.to_string())?;
     job.await.map_err(|e| e.to_string())?.map(drop).map_err(|e| e.to_string())
 }
 
 /// `readJsonStateSync(path, { fallback: null })`.
 async fn read(io: &DurabilityIo, path: &Path) -> io::Result<Option<Value>> {
     let path = path.to_path_buf();
-    let job = io
-        .submit(&CancellationToken::new(), move |lane| mixdog_statefile::read_json(lane, &path, None, &Opts::default()))
-        .map_err(io::Error::other)?;
+    let job = io.submit(&CancellationToken::new(), move |lane| mixdog_statefile::read_json(lane, &path, None, &Opts::default())).map_err(io::Error::other)?;
     job.await.map_err(io::Error::other)?
 }
 
@@ -89,11 +85,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn number(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
-        json!(value as i64)
-    } else {
-        json!(value)
-    }
+    if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 { json!(value as i64) } else { json!(value) }
 }
 
 fn num(value: Option<&Value>) -> f64 {
@@ -194,11 +186,8 @@ impl TouchStore {
         let now = (self.now)();
         state.touches.retain(|(_, t)| t.touch_at + t.ttl_ms > now);
         let touches: Map<String, Value> = state.touches.iter().map(|(id, t)| (id.clone(), t.json())).collect();
-        let uses: Map<String, Value> = state
-            .uses
-            .iter()
-            .map(|(id, u)| (id.clone(), json!({ "at": u.at, "provider": u.provider, "model": u.model, "accountId": u.account_id })))
-            .collect();
+        let uses: Map<String, Value> =
+            state.uses.iter().map(|(id, u)| (id.clone(), json!({ "at": u.at, "provider": u.provider, "model": u.model, "accountId": u.account_id }))).collect();
         json!({ "version": 1, "touches": touches, "warmUses": uses })
     }
 

@@ -12,8 +12,8 @@ use tokio_util::sync::CancellationToken;
 use super::adapter_http::JsonPost;
 use super::download::{AdapterError, parse_json_body};
 use super::image_api::{GeneratedImage, truthy};
-use super::references::{ImageReference, References, Target, key_account};
 use super::lanes::LaneError;
+use super::references::{ImageReference, References, Target, key_account};
 use super::upstream::{decode_base64_media, upstream_error};
 use super::usage::{gemini_usage, reported_usage};
 
@@ -35,10 +35,7 @@ pub(super) fn encode_uri_component(text: &str) -> String {
 
 /// `geminiImageRequestBody(prompt, options, references)`.
 pub fn gemini_image_request_body(prompt: &str, options: &Value, references: &[ImageReference]) -> Value {
-    let mut parts: Vec<Value> = references
-        .iter()
-        .map(|r| json!({ "inlineData": { "mimeType": r.mime(), "data": r.base64() } }))
-        .collect();
+    let mut parts: Vec<Value> = references.iter().map(|r| json!({ "inlineData": { "mimeType": r.mime(), "data": r.base64() } })).collect();
     parts.push(json!({ "text": prompt }));
     let mut config = Map::new();
     config.insert("responseModalities".into(), json!(["TEXT", "IMAGE"]));
@@ -56,7 +53,10 @@ pub fn gemini_image_request_body(prompt: &str, options: &Value, references: &[Im
 pub fn pick_gemini_image_part(parts: &[Value], label: &str, failure: Option<String>, usage: Option<Value>) -> Result<GeneratedImage, AdapterError> {
     let image = parts.iter().find(|part| truthy(part.get("inlineData").and_then(|d| d.get("data"))));
     let Some(image) = image else {
-        let refusal = failure.filter(|f| !f.is_empty()).or_else(|| parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).find(|t| !mixdog_js::js_trim(t).is_empty()).map(str::to_owned)).unwrap_or_default();
+        let refusal = failure
+            .filter(|f| !f.is_empty())
+            .or_else(|| parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).find(|t| !mixdog_js::js_trim(t).is_empty()).map(str::to_owned))
+            .unwrap_or_default();
         let suffix = if refusal.is_empty() { String::new() } else { format!(": {}", slice_utf16(&refusal, 200)) };
         let mut error: AdapterError = LaneError { message: format!("{label} returned no image data{suffix}"), code: "MEDIA_EMPTY_RESULT", status: 502 }.into();
         error.usage = reported_usage(usage).map(Box::new);
@@ -71,7 +71,15 @@ pub fn pick_gemini_image_part(parts: &[Value], label: &str, failure: Option<Stri
 
 /// `generateImage({ model, prompt, options, references, signal })`; `key` is the Gemini API key.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+pub async fn generate_image(
+    http: &dyn JsonPost,
+    key: &str,
+    model: &str,
+    prompt: &str,
+    options: &Value,
+    references: &References,
+    cancel: &CancellationToken,
+) -> Result<GeneratedImage, AdapterError> {
     let url = format!("{BASE_URL}/{}:generateContent", encode_uri_component(model));
     let account = key_account(key);
     let references = references.prepare(&Target { endpoint: &url, account: &account, model, operation: "image-generation" }).await?;
@@ -82,6 +90,13 @@ pub async fn generate_image(http: &dyn JsonPost, key: &str, model: &str, prompt:
         return Err(upstream_error("Gemini image", reply.status, &reply.body).into());
     }
     let data = parse_json_body(&reply.body)?;
-    let parts = data.get("candidates").and_then(|c| c.get(0)).and_then(|c| c.get("content")).and_then(|c| c.get("parts")).and_then(Value::as_array).cloned().unwrap_or_default();
+    let parts = data
+        .get("candidates")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("content"))
+        .and_then(|c| c.get("parts"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     pick_gemini_image_part(&parts, "Gemini", None, gemini_usage(data.get("usageMetadata").unwrap_or(&Value::Null)))
 }

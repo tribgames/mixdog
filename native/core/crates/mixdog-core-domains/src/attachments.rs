@@ -8,8 +8,8 @@ use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_ai::service::model_proxy_inline::ReadError;
 use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::ContentPart;
-use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_protocol::message_class::user_text::attachment_text;
 
@@ -22,8 +22,7 @@ impl AttachmentText for StoreAttachments {
     }
 
     async fn text_of(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>> {
-        let ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename, text: Some(text) } = part
-        else {
+        let ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename, text: Some(text) } = part else {
             return Ok(None);
         };
         match self.read(reference).await {
@@ -137,7 +136,12 @@ mod tests {
         let mislabelled = store.media_of(&file(pdf.clone(), "application/octet-stream", "a.pdf"), true).await.unwrap();
         assert_eq!(
             mislabelled,
-            Some(ContentPart::File { source: BinarySource::Base64(b64("%PDF-1.4 x")), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None })
+            Some(ContentPart::File {
+                source: BinarySource::Base64(b64("%PDF-1.4 x")),
+                mime_type: "application/pdf".into(),
+                filename: Some("a.pdf".into()),
+                text: None
+            })
         );
         assert_eq!(store.media_of(&file(pdf, "application/pdf", "a.pdf"), false).await.unwrap(), None, "a PDF for a text provider is left to its text step");
         let gone = store.media_of(&file("0".repeat(64), "image/png", "C:\\d\\gone.png"), true).await.unwrap();
@@ -150,15 +154,9 @@ mod tests {
         let (_dir, store, _) = stored("x").await;
         let gone = store.text_of(&part("0".repeat(64), Some("file"), Some("C:\\docs\\notes.md"))).await.unwrap();
         assert_eq!(gone.as_deref(), Some("[attachment unavailable: notes.md]"));
-        let not_text = ContentPart::File {
-            source: BinarySource::AttachmentRef("0".repeat(64)),
-            mime_type: "application/pdf".into(),
-            filename: None,
-            text: None,
-        };
+        let not_text =
+            ContentPart::File { source: BinarySource::AttachmentRef("0".repeat(64)), mime_type: "application/pdf".into(), filename: None, text: None };
         assert_eq!(store.text_of(&not_text).await.unwrap(), None);
         assert!(store.text_of(&part("not-a-digest".into(), None, None)).await.is_err());
     }
-
-
 }

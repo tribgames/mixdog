@@ -105,19 +105,25 @@ async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_h
     let stop = mixdog_rt::CancellationToken::new();
     let core = tokio::time::timeout(
         LIMIT,
-        compose(&tokens, ComposeConfig { rebuild: Default::default(),
-            data_dir: data.clone(),
-            user_data_dir: dir.path().join("userdata"),
-            runtime_root: dir.path().join("runtime"),
-            js_runtime: crate::js_runtime::fixture(dir.path()),
-            ort_library: OrtRuntime::NoBinding,
-            outgoing: mixdog_app_server::Outgoing::new(),
-            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-            log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
-            stop,
-            catalog_http: crate::compose_test_support::offline_http(),
-            pg_install: Some(Arc::new(|_| Box::pin(async { Err(mixdog_services::memory::error::MemoryError::Runtime("the send test installs no PostgreSQL".into())) }))),
-        }),
+        compose(
+            &tokens,
+            ComposeConfig {
+                rebuild: Default::default(),
+                data_dir: data.clone(),
+                user_data_dir: dir.path().join("userdata"),
+                runtime_root: dir.path().join("runtime"),
+                js_runtime: crate::js_runtime::fixture(dir.path()),
+                ort_library: OrtRuntime::NoBinding,
+                outgoing: mixdog_app_server::Outgoing::new(),
+                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
+                stop,
+                catalog_http: crate::compose_test_support::offline_http(),
+                pg_install: Some(Arc::new(|_| {
+                    Box::pin(async { Err(mixdog_services::memory::error::MemoryError::Runtime("the send test installs no PostgreSQL".into())) })
+                })),
+            },
+        ),
     )
     .await
     .expect("the core composed within the limit")
@@ -138,7 +144,8 @@ async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_h
             header.insert("cwd".into(), json!(cwd));
             directory.create_with_id(id.clone(), header, json!({})).await.unwrap_or_else(|e| panic!("create {id:?}: {e:?}"));
         }
-        let (sent_runtime, home_runtime) = (directory.report_runtime(&target).await.expect("the target's runtime"), directory.report_runtime(&caller).await.expect("the home's runtime"));
+        let (sent_runtime, home_runtime) =
+            (directory.report_runtime(&target).await.expect("the target's runtime"), directory.report_runtime(&caller).await.expect("the home's runtime"));
         let (mut sent_changes, mut home_changes) = (sent_runtime.subscribe(), home_runtime.subscribe());
 
         let tool = core.real.tool_pool.iter().find(|tool| tool.spec().name == "session").expect("the composed core has the session tool");

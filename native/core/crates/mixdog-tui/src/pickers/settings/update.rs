@@ -70,10 +70,7 @@ fn items(settings: &Value, phase: &str, installed: Option<&str>, checking: bool)
             "current",
             "Current version",
             installed.map_or_else(|| current.clone(), |version| format!("{current} \u{2192} {version}")),
-            installed.map_or_else(
-                || "Installed mixdog version.".to_owned(),
-                |version| format!("v{version} installed \u{2014} restart mixdog to apply."),
-            ),
+            installed.map_or_else(|| "Installed mixdog version.".to_owned(), |version| format!("v{version} installed \u{2014} restart mixdog to apply.")),
         ),
         row("latest", "Latest version", latest_meta, "Enter to re-check now.".to_owned()),
         row(

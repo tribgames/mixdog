@@ -28,46 +28,40 @@ use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use mixdog_core_api::HostChannel;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::computer::ComputerAction;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::ComputerRequest;
+use mixdog_core_api::domain::computer::ComputerSessions;
 use mixdog_core_api::domain::computer::ComputerStatus;
 use mixdog_core_api::domain::computer::DesktopIdentity;
 use mixdog_core_api::domain::computer::DisplayId;
 use mixdog_core_api::domain::computer::DisplayInfo;
 use mixdog_core_api::domain::computer::InputOutcome;
 use mixdog_core_api::domain::computer::ScreenInput;
+use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::media::MediaFrameSource;
+use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::ToolPart;
-use tokio_util::sync::CancellationToken;
-use mixdog_core_api::domain::computer::ComputerSessions;
-use mixdog_core_api::HostChannel;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_api::state::StatePublisher;
+use mixdog_core_base::state::change_of;
+use mixdog_core_config::config::ComputerBackendChoice;
+use mixdog_core_config::config::Config;
+use mixdog_core_config::config::computer_backend;
 use mixdog_core_session::session::secret_input::ComputerSecretHosts;
 use mixdog_core_session::session::shell_jobs::OwnedShells;
 use mixdog_core_session::session::turn_snapshots::TurnSnapshots;
-use mixdog_rt::TimerHandle;
-use mixdog_tools::state::secrets::ComputerSecretHost;
-use mixdog_core_api::domain::fs::FileService;
-use mixdog_core_api::domain::process::ProcessManager;
-use mixdog_rt::InteractiveIo;
-use mixdog_core_api::state::StatePublisher;
-use mixdog_core_base::state::change_of;
 use mixdog_protocol::ComputerBackendSection;
 use mixdog_protocol::ComputerCleanupState;
 use mixdog_protocol::ComputerSection;
 use mixdog_protocol::ComputerSessionMode;
 use mixdog_protocol::ComputerSessionSection;
 use mixdog_protocol::SectionName;
-use mixdog_core_config::config::Config;
-use mixdog_core_config::config::ComputerBackendChoice;
-use mixdog_core_config::config::computer_backend;
-use serde_json::Map;
-use serde_json::Value;
-use mixdog_tools::desktop::computer_budget::MAX_LIVE_HELPERS;
-use mixdog_tools::desktop::computer_backend::ComputerConfig;
+use mixdog_rt::InteractiveIo;
+use mixdog_rt::TimerHandle;
 use mixdog_tools::desktop::computer_authority::Authority;
 use mixdog_tools::desktop::computer_authority::AuthoritySwitch;
 use mixdog_tools::desktop::computer_authority::DesktopRevocation;
@@ -75,17 +69,23 @@ use mixdog_tools::desktop::computer_authority::RevocationCleanup;
 use mixdog_tools::desktop::computer_authority::RevocationReport;
 use mixdog_tools::desktop::computer_authority::ScopedDesktop;
 use mixdog_tools::desktop::computer_authority::revoke_at_desktop_reports;
+use mixdog_tools::desktop::computer_backend::ComputerConfig;
 use mixdog_tools::desktop::computer_backend::ComputerShared;
 use mixdog_tools::desktop::computer_backend::ExecutionObserver;
 use mixdog_tools::desktop::computer_backend::ObserveOnly;
 use mixdog_tools::desktop::computer_backend::ProcessComputerBackend;
 use mixdog_tools::desktop::computer_backend::revoke_launched;
+use mixdog_tools::desktop::computer_budget::MAX_LIVE_HELPERS;
 use mixdog_tools::desktop::computer_desktop_host::ComputerBlobs as HostBlobs;
 use mixdog_tools::desktop::computer_desktop_host::DesktopHostBackend;
 use mixdog_tools::desktop::computer_lane::Lane;
 use mixdog_tools::desktop::computer_pointer::PointerHold;
 use mixdog_tools::desktop::computer_pointer::PointerHost;
 use mixdog_tools::desktop::computer_user_control::UserControlState;
+use mixdog_tools::state::secrets::ComputerSecretHost;
+use serde_json::Map;
+use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::run_host::run_seams::EnvReader;
 
@@ -402,12 +402,12 @@ impl ComputerBackend for Refusing {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use std::collections::HashMap;
+    use std::collections::HashSet;
 
-    use mixdog_core_api::state::SectionChange;
     use mixdog_core_api::domain::computer::ComputerAction;
     use mixdog_core_api::domain::computer::ComputerRequest;
+    use mixdog_core_api::state::SectionChange;
     use serde_json::json;
     use tokio_util::sync::CancellationToken;
 
@@ -565,10 +565,18 @@ mod tests {
         let with = |env: &[(&str, &str)], present: &[PathBuf]| raw_paths(env, present, None).with_exe_dir(Some(PathBuf::from("/app/resources/core")));
         assert_eq!(with(&[], &[beside.clone()]).resolve(tool).await, Some(beside.clone()));
         assert_eq!(with(&[], &[beside.clone(), bundled(tool)]).resolve(tool).await, Some(bundled(tool)), "the package root comes first");
-        assert_eq!(with(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[beside.clone(), bundled(tool)]).resolve(tool).await, Some(PathBuf::from("/x/c")), "the variable first of all");
+        assert_eq!(
+            with(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[beside.clone(), bundled(tool)]).resolve(tool).await,
+            Some(PathBuf::from("/x/c")),
+            "the variable first of all"
+        );
         assert_eq!(with(&[], &[beside.clone(), built(tool)]).resolve(tool).await, Some(beside), "beside the core comes before a local build");
         assert_eq!(with(&[], &[]).resolve(tool).await, None);
-        assert_eq!(raw_paths(&[], &[PathBuf::from("/app/resources/native-tools").join(tool.file_name())], None).resolve(tool).await, None, "no executable directory, no such place");
+        assert_eq!(
+            raw_paths(&[], &[PathBuf::from("/app/resources/native-tools").join(tool.file_name())], None).resolve(tool).await,
+            None,
+            "no executable directory, no such place"
+        );
     }
 
     /// A process manager that counts the helpers it is asked to start and never answers: a helper that is starting.
@@ -580,7 +588,10 @@ mod tests {
 
     #[async_trait]
     impl ProcessManager for Starting {
-        async fn spawn(&self, _: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        async fn spawn(
+            &self,
+            _: mixdog_core_api::domain::process::SpawnRequest,
+        ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
             self.spawned.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.begun.notify_one();
             std::future::pending().await
@@ -589,7 +600,10 @@ mod tests {
             &self,
             _: &mixdog_protocol::ProcessHandle,
             _: Option<u64>,
-        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
             unreachable!("nothing was spawned")
         }
         async fn write_stdin(&self, _: &mixdog_protocol::ProcessHandle, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -598,7 +612,11 @@ mod tests {
         fn close_stdin(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Ok(())
         }
-        fn resize_pty(&self, _: &mixdog_protocol::ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        fn resize_pty(
+            &self,
+            _: &mixdog_protocol::ProcessHandle,
+            _: mixdog_core_api::domain::process::PtySize,
+        ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Ok(())
         }
         fn kill(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -648,7 +666,10 @@ mod tests {
 
     #[async_trait]
     impl ProcessManager for Stuck {
-        async fn spawn(&self, _: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        async fn spawn(
+            &self,
+            _: mixdog_core_api::domain::process::SpawnRequest,
+        ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
             self.0.notify_one();
             std::future::pending().await
         }
@@ -656,7 +677,10 @@ mod tests {
             &self,
             _: &mixdog_protocol::ProcessHandle,
             _: Option<u64>,
-        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
             unreachable!("nothing was spawned")
         }
         async fn write_stdin(&self, _: &mixdog_protocol::ProcessHandle, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -665,7 +689,11 @@ mod tests {
         fn close_stdin(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Ok(())
         }
-        fn resize_pty(&self, _: &mixdog_protocol::ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        fn resize_pty(
+            &self,
+            _: &mixdog_protocol::ProcessHandle,
+            _: mixdog_core_api::domain::process::PtySize,
+        ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Ok(())
         }
         fn kill(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -676,26 +704,20 @@ mod tests {
         }
     }
 
-
-
-
     fn manager() -> Arc<dyn ProcessManager> {
         let tokens = mixdog_rt::testing::tokens();
         Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()))
     }
-
 
     /// A data folder for the helpers these tests start: each one makes its ledger folder there.
     fn data_dir() -> PathBuf {
         std::env::temp_dir().join("mixdog-computer-sessions-test")
     }
 
-
     /// Observation only off.
     fn settings() -> ComputerSettings {
         ComputerSettings::new(data_dir(), Arc::new(|| false), mixdog_rt::testing::tokens().interactive_io)
     }
-
 
     /// The `computer` section (SPEC R40) follows the sessions' open executions: the pill shows while an agent
     /// drives the desktop. An action opens a session's execution (the helper cannot start here, but the action
@@ -724,18 +746,23 @@ mod tests {
         );
     }
 
-
     /// A session's row names the windows, the mode and the phase of the command running now, and drops them when it ends.
     #[test]
     fn a_running_command_shows_its_windows_mode_and_phase() {
         let presence = Arc::new(ComputerPresence::new(quiet(), &ComputerShared::default(), ComputerBackendSection::Helper));
         let observer = SessionPresence { presence: presence.clone(), session: "a".to_owned() };
         observer.began(false);
-        let click = ComputerRequest { action: ComputerAction::Act, input: json!({"window_id": "w1", "delivery": "foreground", "actions": [{"type": "click", "x": 1, "y": 2}]}) };
+        let click = ComputerRequest {
+            action: ComputerAction::Act,
+            input: json!({"window_id": "w1", "delivery": "foreground", "actions": [{"type": "click", "x": 1, "y": 2}]}),
+        };
         let running = RunningCommand::begin(&presence, "a", &click);
         let row = |presence: &ComputerPresence| presence.section(&presence.state()).sessions.remove(0);
         let shown = row(&presence);
-        assert_eq!((shown.window_ids, shown.mode, shown.phase), (vec!["w1".to_owned()], Some(ComputerSessionMode::Foreground), Some("active_foreground".to_owned())));
+        assert_eq!(
+            (shown.window_ids, shown.mode, shown.phase),
+            (vec!["w1".to_owned()], Some(ComputerSessionMode::Foreground), Some("active_foreground".to_owned()))
+        );
         assert!(presence.is_running("a") && !presence.is_running("b"));
         drop(running);
         let idle = row(&presence);
@@ -744,7 +771,6 @@ mod tests {
         let (mode, windows) = classify(&background);
         assert_eq!((mode, windows), (ComputerSessionMode::Background, vec!["w2".to_owned()]));
     }
-
 
     /// At most `MAX_RESIDENT_HELPERS` helper processes are live: a new session is refused in Node's words, however
     /// recently the others settled, until one has sat idle past the pressure limit and is reclaimed, and its process has ended.
@@ -778,7 +804,6 @@ mod tests {
         drop(live);
     }
 
-
     /// Below the pressure count an idle session is kept for five minutes, then reclaimed by the next request of any session;
     /// one with a pending command is not.
     #[tokio::test]
@@ -802,7 +827,6 @@ mod tests {
         assert!(entries.contains_key("busy") && entries.contains_key("fresh"), "a pending command and a recent use are kept");
         assert!(!entries.contains_key("old"), "five idle minutes reclaim it");
     }
-
 
     /// The sessions read the observation-only setting on every call: turned on between two executions, the second opens
     /// observing only, and the section says so.
@@ -833,7 +857,6 @@ mod tests {
         assert_eq!(changes, [(false, vec![false]), (false, vec![]), (true, vec![true])], "opened, ended, opened observing only");
     }
 
-
     /// The desktop's "Observation only" reaches every session's backend: while it is on, an input is refused in Node's words and a
     /// read still goes to the helper (which cannot start here).
     #[tokio::test]
@@ -848,7 +871,6 @@ mod tests {
         assert!(!matches!(read, Err(ComputerError::Failed { ref code, .. }) if code == "observation_only"), "a read is admitted: {read:?}");
     }
 
-
     /// The pool exists whether or not a helper is found at start; what it can serve follows the helper as it is found, and the
     /// tool's own question ("can `computer` run now") follows the pool.
     #[tokio::test]
@@ -862,7 +884,6 @@ mod tests {
         assert!(!none.can_serve() && !none.is_available() && !ComputerSessions::available(&*none));
     }
 
-
     /// Where the helper is is read when it is asked, not carried from an event: a helper placed on disk is not seen until the next ask
     /// (`probe`, which a listing and a `computer` call make), and one removed is not offered after it.
     #[tokio::test]
@@ -871,7 +892,8 @@ mod tests {
         use std::sync::atomic::Ordering;
 
         let there = Arc::new(AtomicBool::new(false));
-        let resolver = Arc::new(NativeToolPaths::new(Arc::new(|_: &str| None::<String>), PathBuf::from("/pkg"), Arc::new(Flag(there.clone())), None).with_exe_dir(None));
+        let resolver =
+            Arc::new(NativeToolPaths::new(Arc::new(|_: &str| None::<String>), PathBuf::from("/pkg"), Arc::new(Flag(there.clone())), None).with_exe_dir(None));
         let pool = resolver.computer_sessions(manager(), plain(), quiet(), settings()).await;
         assert!(!pool.can_serve() && !ComputerSessions::available(&*pool));
         there.store(true, Ordering::SeqCst);
@@ -881,12 +903,14 @@ mod tests {
         assert!(pool.helper_resolvable(), "until the next listing");
         // A call does not read the listing's resolution: its own decision finds the helper gone and the call is refused.
         assert_eq!(pool.availability_now().await.route, None);
-        let refused = ComputerSessions::backend_now(&*pool, "a").await.run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) }, CancellationToken::new()).await;
+        let refused = ComputerSessions::backend_now(&*pool, "a")
+            .await
+            .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) }, CancellationToken::new())
+            .await;
         assert!(matches!(&refused, Err(ComputerError::Unavailable { .. })), "{refused:?}");
         there.store(true, Ordering::SeqCst);
         assert!(matches!(pool.availability_now().await.route, Some(ComputerRoute::Helper(_))), "and one placed since the listing");
     }
-
 
     /// Computer Use switched off between two commands: the next command of a session, one made through a backend handed out before, and
     /// a secret fill are refused with Node's words; `stop_all` forgets every session and stops its helper.
@@ -930,10 +954,12 @@ mod tests {
         assert!(pool.is_available() && pool.secret_host(&ThreadId::from("b")).is_some(), "a new session serves again");
     }
 
-
     #[async_trait]
     impl ProcessManager for Queued {
-        async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        async fn spawn(
+            &self,
+            request: mixdog_core_api::domain::process::SpawnRequest,
+        ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
             use mixdog_core_api::domain::process::ProcessError;
             use mixdog_core_api::domain::process::ProcessOwner;
             self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -949,7 +975,10 @@ mod tests {
             &self,
             _: &mixdog_protocol::ProcessHandle,
             _: Option<u64>,
-        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
             Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
         }
         async fn write_stdin(&self, _: &mixdog_protocol::ProcessHandle, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -958,7 +987,11 @@ mod tests {
         fn close_stdin(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Ok(())
         }
-        fn resize_pty(&self, _: &mixdog_protocol::ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        fn resize_pty(
+            &self,
+            _: &mixdog_protocol::ProcessHandle,
+            _: mixdog_core_api::domain::process::PtySize,
+        ) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
             Ok(())
         }
         fn kill(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
@@ -968,7 +1001,6 @@ mod tests {
             Vec::new()
         }
     }
-
 
     /// The same switch over the desktop host backend: commands reach the desktop's host while on, never after the switch goes off,
     /// and `stop_all` revokes the session's scope at the desktop.
@@ -983,9 +1015,17 @@ mod tests {
 
         #[async_trait]
         impl HostChannel for Desk {
-            async fn request(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+            async fn request(
+                &self,
+                _: mixdog_core_api::HostCapability,
+                _: mixdog_core_api::ids::Method,
+                _: Value,
+            ) -> Result<Value, mixdog_core_api::HostError> {
                 self.0.fetch_add(1, Ordering::SeqCst);
-                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() }))
+                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable {
+                    capability: "desktopHost".into(),
+                    detail: "noClaimant".into(),
+                }))
             }
 
             fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
@@ -1024,7 +1064,10 @@ mod tests {
         assert!(pool.entries().is_empty());
         let asked = desk.0.load(Ordering::SeqCst);
         let refused = pool.backend("a").run(read(), CancellationToken::new()).await;
-        assert!(matches!(&refused, Err(ComputerError::Failed { message, .. }) if message.contains("computer use is unavailable; open the Mixdog desktop app")), "{refused:?}");
+        assert!(
+            matches!(&refused, Err(ComputerError::Failed { message, .. }) if message.contains("computer use is unavailable; open the Mixdog desktop app")),
+            "{refused:?}"
+        );
         assert_eq!(desk.0.load(Ordering::SeqCst), asked, "off: nothing is sent to the desktop");
 
         // Switched on again, what `stop_all` released stays revoked: a held backend and a fill obtained before send nothing to the host.
@@ -1036,7 +1079,6 @@ mod tests {
         assert!(matches!(&filled, Err(text) if text.contains("computer use is unavailable")), "{filled:?}");
         assert_eq!(desk.0.load(Ordering::SeqCst), asked, "revoked: nothing is sent to the desktop");
     }
-
 
     /// Off is confirmed only by every scope's own report: a desktop that answers the revocation without reports (`{revoked: n}`)
     /// leaves it unconfirmed and latched; one that reports each scope's admission closed confirms it, and the switch-off answer carries
@@ -1050,12 +1092,20 @@ mod tests {
 
         #[async_trait]
         impl HostChannel for Desk {
-            async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
+            async fn request(
+                &self,
+                _: mixdog_core_api::HostCapability,
+                method: mixdog_core_api::ids::Method,
+                params: Value,
+            ) -> Result<Value, mixdog_core_api::HostError> {
                 if method.as_str() == "host/computer/revokeScopes" {
                     let scopes: Vec<u64> = params["scopes"].as_array().unwrap().iter().filter_map(Value::as_u64).collect();
                     return Ok((self.0)(&scopes));
                 }
-                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "methodNotServed".into() }))
+                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable {
+                    capability: "desktopHost".into(),
+                    detail: "methodNotServed".into(),
+                }))
             }
 
             fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
@@ -1121,7 +1171,6 @@ mod tests {
         assert_eq!(unknown.unknown_executors(), ["renderer"]);
     }
 
-
     /// Ownership follows submitted work: connection A serves scope S, A ends before it ever reported S, the same desktop reconnects
     /// as B (a new claim, a fresh scopes map), Off. B does not report S (it never served it), and even a report of S from B could not
     /// count: S is unconfirmed. Scope T, served only by B, settles complete. Then two claims at once, split by method: scope U's
@@ -1160,7 +1209,12 @@ mod tests {
                 Some(self.select(method))
             }
 
-            async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
+            async fn request(
+                &self,
+                _: mixdog_core_api::HostCapability,
+                method: mixdog_core_api::ids::Method,
+                params: Value,
+            ) -> Result<Value, mixdog_core_api::HostError> {
                 let generation = self.select(method);
                 let mut served = self.served.lock().unwrap();
                 let mine = served.entry(generation).or_default();
@@ -1178,7 +1232,10 @@ mod tests {
                 if let Some(scope) = params.get("automationScope").and_then(Value::as_u64) {
                     mine.insert(scope);
                 }
-                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "methodNotServed".into() }))
+                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable {
+                    capability: "desktopHost".into(),
+                    detail: "methodNotServed".into(),
+                }))
             }
 
             fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
@@ -1235,7 +1292,6 @@ mod tests {
         assert_eq!(split.revocation_reports()[0].1.cleanup, RevocationCleanup::Unconfirmed, "never B's complete for A's unfinished input");
     }
 
-
     /// A real close of a session cancels its shells and releases its helper state, as Node's
     /// teardown stops both under one gate; another session keeps its state.
     #[tokio::test]
@@ -1250,7 +1306,6 @@ mod tests {
         assert!(!pool.entries().contains_key("closing"));
         assert!(pool.entries().contains_key("other"));
     }
-
 
     /// A settled turn arms its session's idle release when the session reached the helper; a
     /// session that never did owns nothing there.
@@ -1270,7 +1325,6 @@ mod tests {
         assert!(pool.entries().get("used").is_some_and(|entry| entry.idle.is_some()));
         assert!(!pool.entries().contains_key("never"), "a session that never reached the helper owns nothing there");
     }
-
 
     /// Node keeps the helper's state per request session: two threads never share a backend, a
     /// thread keeps its own across calls, a request naming no thread is the `default` session, and
@@ -1293,9 +1347,6 @@ mod tests {
         assert!(Arc::ptr_eq(&b, &pool.backend("thread-b")), "another thread's state is untouched");
         assert!(!pool.defer_release("never-used"), "a session that never reached the helper owns nothing");
     }
-
-
-
 
     /// Where the switch is read is where a command is handed to the helper, not where a call enters: a command and a secret fill that were
     /// admitted while Computer Use was on, and wait behind a helper that is starting, are refused when the switch has gone off by the time
@@ -1340,7 +1391,6 @@ mod tests {
         assert_eq!(starting.spawned.load(Ordering::SeqCst), 1, "no helper was started for what waited");
     }
 
-
     /// A helper launch already queued when Computer Use goes off reaches its creation after the revocation: nothing is created, the
     /// command is refused in Node's words, and the stop of the revoked session starts no process (no cleanup run). The interleaving is
     /// held by the manager's queue, not by time.
@@ -1368,7 +1418,6 @@ mod tests {
         assert_eq!(queued.asked.load(Ordering::SeqCst), 1, "no cleanup process was asked for");
     }
 
-
     /// A desktop that does not confirm the revocation (an older one without `host/computer/revokeScopes`) leaves off unconfirmed, also
     /// with a desktop-host session and no helper: the section says stopping while the revocation is asked, then an unconfirmed
     /// cleanup, never ready. Ordered by the desktop's answer, not by time.
@@ -1391,12 +1440,20 @@ mod tests {
 
         #[async_trait]
         impl HostChannel for OldDesk {
-            async fn request(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+            async fn request(
+                &self,
+                _: mixdog_core_api::HostCapability,
+                _: mixdog_core_api::ids::Method,
+                _: Value,
+            ) -> Result<Value, mixdog_core_api::HostError> {
                 if self.armed.swap(false, Ordering::SeqCst) {
                     self.asked.notify_one();
                     self.go.notified().await;
                 }
-                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "methodNotServed".into() }))
+                Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable {
+                    capability: "desktopHost".into(),
+                    detail: "methodNotServed".into(),
+                }))
             }
 
             fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
@@ -1438,7 +1495,6 @@ mod tests {
         assert!(!states[from..].contains(&ComputerCleanupState::Ready), "never ready between stopping and unconfirmed: {states:?}");
     }
 
-
     /// Off confirmed while the desktop still reports a scope's cleanup pending: the section stays pending (never ready) after the
     /// stop; a pushed report older than the one held (a stale revision) changes nothing; only the desktop's newer pushed report of
     /// a complete cleanup publishes ready. Nothing is asked again, and no time passes.
@@ -1461,9 +1517,17 @@ mod tests {
                 Some(self.1.load(Ordering::SeqCst))
             }
 
-            async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
+            async fn request(
+                &self,
+                _: mixdog_core_api::HostCapability,
+                method: mixdog_core_api::ids::Method,
+                params: Value,
+            ) -> Result<Value, mixdog_core_api::HostError> {
                 if method.as_str() != "host/computer/revokeScopes" {
-                    return Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "methodNotServed".into() }));
+                    return Err(mixdog_core_api::HostError::Core(mixdog_core_api::CoreError::CapabilityUnavailable {
+                        capability: "desktopHost".into(),
+                        detail: "methodNotServed".into(),
+                    }));
                 }
                 self.0.fetch_add(1, Ordering::SeqCst);
                 let reports: Vec<Value> = params["scopes"]
@@ -1539,7 +1603,6 @@ mod tests {
         .await;
     }
 
-
     /// Node bounds each shutdown release (`client.mjs:761`): a helper that never answers is given up on after the timeout, so `release_all` ends and the stop steps after it
     /// (memory, PostgreSQL) still run. The clock is paused and held, so the timeout elapses only by the test's own advance.
     #[tokio::test(start_paused = true)]
@@ -1573,9 +1636,6 @@ mod tests {
         call.abort();
     }
 }
-
-
-
 
 impl NativeToolPaths {
     pub fn new(env: EnvReader, root: PathBuf, exists: Arc<dyn PathExists>, cached: Option<Arc<dyn CachedNativeTool>>) -> Self {
@@ -1645,7 +1705,6 @@ impl NativeToolPaths {
     }
 }
 
-
 /// What the sessions' helpers read from the daemon: its data directory (each helper's ledger lives under it), the live
 /// observation-only setting and the backend that serves a new session.
 pub struct ComputerSettings {
@@ -1661,7 +1720,6 @@ pub struct ComputerSettings {
     /// Node's bridge answered "unavailable" once the setting stopped it.
     pub enabled: Arc<dyn Fn() -> bool + Send + Sync>,
 }
-
 
 impl ComputerSettings {
     /// The resident helper serves every session; Computer Use is on.
@@ -1685,7 +1743,6 @@ impl ComputerSettings {
     }
 }
 
-
 /// What serves one session: its own helper process, or the desktop's computer host (`host/computer/command`).
 #[derive(Clone)]
 enum Process {
@@ -1693,14 +1750,12 @@ enum Process {
     Host(HostSession),
 }
 
-
 #[derive(Clone)]
 struct HostSession {
     backend: Arc<DesktopHostBackend>,
     /// The host runs the commands, so the session's open execution is the pool's own record.
     presence: Arc<SessionPresence>,
 }
-
 
 impl Process {
     fn is_bound(&self) -> bool {
@@ -1776,10 +1831,8 @@ impl Process {
     }
 }
 
-
 /// The sessions [`ComputerSessionPool::revoke_all`] revoked, still to be stopped.
 pub struct Revoked(Vec<(Process, Authority)>);
-
 
 /// Keeps a stop's pending cleanup (`pending`) until the executors' later reports settle it: complete ends it, unconfirmed latches
 /// it as the session's unconfirmed cleanup. It only reacts: a helper's later report line or its final report at its end, the
@@ -1803,11 +1856,8 @@ async fn settle_off(authorities: Vec<Authority>, settling: Arc<Mutex<Vec<Authori
     drop(pending);
 }
 
-
 /// The revocation request: the claim it selects is the one whose reports of a scope count.
-const REVOKE_SCOPES: mixdog_core_api::ids::Method =
-    mixdog_core_api::ids::Method(mixdog_tools::desktop::computer_authority::REVOKE_SCOPES_METHOD);
-
+const REVOKE_SCOPES: mixdog_core_api::ids::Method = mixdog_core_api::ids::Method(mixdog_tools::desktop::computer_authority::REVOKE_SCOPES_METHOD);
 
 struct Entry {
     process: Process,
@@ -1819,7 +1869,6 @@ struct Entry {
     /// The session's scope, which its backends act under; revoked for good when Computer Use is switched off.
     authority: Authority,
 }
-
 
 /// One `mixdog-computer` helper per session, made on the session's first request. Node's host
 /// keeps the helper's state (held input, element refs, window claims) per request `session_id`;
@@ -1864,7 +1913,6 @@ pub struct ComputerSessionPool {
     settling: Arc<Mutex<Vec<Authority>>>,
 }
 
-
 /// The sessions with an open execution, oldest first, and the `computer` section that says so (SPEC R40): the pill
 /// the desktop shows while an agent drives the desktop. Node's coordinator keeps a session present from its first
 /// command (`beginCommand`) until the turn settles (`endExecution`) and its snapshot lists every one of them
@@ -1889,10 +1937,8 @@ struct ComputerPresence {
     off_pending: std::sync::atomic::AtomicUsize,
 }
 
-
 /// One stop whose cleanup is still pending at an executor, shown as a pending cleanup until it is dropped.
 struct OffPending(Arc<ComputerPresence>);
-
 
 impl OffPending {
     fn new(presence: &Arc<ComputerPresence>) -> Self {
@@ -1902,7 +1948,6 @@ impl OffPending {
     }
 }
 
-
 impl Drop for OffPending {
     fn drop(&mut self) {
         self.0.off_pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -1910,10 +1955,8 @@ impl Drop for OffPending {
     }
 }
 
-
 /// One stop of revoked scopes in progress, shown in the section as a pending cleanup until it is dropped.
 struct Stopping<'a>(&'a ComputerPresence);
-
 
 impl Drop for Stopping<'_> {
     fn drop(&mut self) {
@@ -1921,7 +1964,6 @@ impl Drop for Stopping<'_> {
         self.0.republish();
     }
 }
-
 
 impl ComputerPresence {
     fn stopping(&self) -> Stopping<'_> {
@@ -2035,20 +2077,17 @@ impl ComputerPresence {
     }
 }
 
-
 /// One session's edges into [`ComputerPresence`].
 struct SessionPresence {
     presence: Arc<ComputerPresence>,
     session: String,
 }
 
-
 impl SessionPresence {
     fn is_open(&self) -> bool {
         self.presence.state().open.iter().any(|(session, _)| *session == self.session)
     }
 }
-
 
 impl ExecutionObserver for SessionPresence {
     fn began(&self, observe_only: bool) {
@@ -2074,14 +2113,12 @@ impl ExecutionObserver for SessionPresence {
     }
 }
 
-
 /// A command of a session running: the session's row names its windows, its mode and its phase until the command ends, however it
 /// ends (a dropped call included).
 struct RunningCommand {
     presence: Arc<ComputerPresence>,
     id: u64,
 }
-
 
 impl RunningCommand {
     fn begin(presence: &Arc<ComputerPresence>, session: &str, request: &ComputerRequest) -> Self {
@@ -2090,13 +2127,11 @@ impl RunningCommand {
     }
 }
 
-
 impl Drop for RunningCommand {
     fn drop(&mut self) {
         self.presence.command_ended(self.id);
     }
 }
-
 
 /// A session's backend as the tool sees it: the commands it runs are the presence's running commands, and, where the desktop host
 /// runs them, the first of them opens the session's execution (a helper's own backend reports that edge itself).
@@ -2107,7 +2142,6 @@ struct ReportingBackend {
     host: Option<(Arc<SessionPresence>, ObserveOnly)>,
     authority: Authority,
 }
-
 
 #[async_trait]
 impl ComputerBackend for ReportingBackend {
@@ -2149,12 +2183,10 @@ impl ComputerBackend for ReportingBackend {
     }
 }
 
-
 /// What the pointer holds act on: the sessions' presence and helpers.
 struct PoolPointerHost {
     pool: Weak<ComputerSessionPool>,
 }
-
 
 #[async_trait]
 impl PointerHost for PoolPointerHost {
@@ -2177,9 +2209,15 @@ impl PointerHost for PoolPointerHost {
     }
 }
 
-
 impl ComputerSessionPool {
-    pub fn new(binary: Option<PathBuf>, resolver: Arc<NativeToolPaths>, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>, settings: ComputerSettings) -> Self {
+    pub fn new(
+        binary: Option<PathBuf>,
+        resolver: Arc<NativeToolPaths>,
+        manager: Arc<dyn ProcessManager>,
+        wrap: WrapBackend,
+        publisher: Arc<dyn StatePublisher>,
+        settings: ComputerSettings,
+    ) -> Self {
         let shared = ComputerShared { observe_only: settings.observe_only, ..ComputerShared::default() };
         let section_backend = if settings.host_blobs.is_some() && (settings.backend)() == ComputerBackendChoice::DesktopHost {
             ComputerBackendSection::DesktopHost
@@ -2326,11 +2364,16 @@ impl ComputerSessionPool {
         let control = self.shared.user_control.clone();
         let unowned = futures::future::join_all(orphans.iter().map(|authority| {
             let control = control.clone();
-            revoke_launched(self.manager.clone(), authority, Arc::default(), Arc::new(move |released: bool| {
-                if !released {
-                    control.cleanup_unconfirmed(DEFAULT_SESSION);
-                }
-            }))
+            revoke_launched(
+                self.manager.clone(),
+                authority,
+                Arc::default(),
+                Arc::new(move |released: bool| {
+                    if !released {
+                        control.cleanup_unconfirmed(DEFAULT_SESSION);
+                    }
+                }),
+            )
         }));
         let authorities: Vec<&Authority> = revoked.iter().map(|(_, authority)| authority).chain(orphans.iter()).collect();
         // Registered before the desktop is asked: a report it pushes before its answer arrives is applied, and the answer, older,
@@ -2494,7 +2537,10 @@ impl ComputerSessionPool {
                 config.data_dir = Some(self.data_dir.clone());
                 // The helpers read the pixels of a display from the core's blob store and keep the pointer between a session's commands.
                 let shared = ComputerShared { blobs: self.host_blobs.clone(), pointer_hold: self.presence.pointer.get().cloned(), ..self.shared.clone() };
-                let mut helper = ProcessComputerBackend::new(config, self.manager.clone(), self.io).with_shared(shared).with_observer(observer).with_authority(authority.clone());
+                let mut helper = ProcessComputerBackend::new(config, self.manager.clone(), self.io)
+                    .with_shared(shared)
+                    .with_observer(observer)
+                    .with_authority(authority.clone());
                 if let Some(desktop) = scoped {
                     helper = helper.with_desktop(desktop);
                 }
@@ -2608,7 +2654,10 @@ impl ComputerSessionPool {
             }
             entries.iter().filter(|(_, entry)| entry.process.is_bound()).map(|(id, _)| id.clone()).collect()
         };
-        let outcomes = futures::future::join_all(bound.iter().map(|id| async move { mixdog_rt::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) })).await;
+        let outcomes = futures::future::join_all(
+            bound.iter().map(|id| async move { mixdog_rt::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) }),
+        )
+        .await;
         outcomes.into_iter().filter(|released| *released).count()
     }
 
@@ -2645,7 +2694,6 @@ impl ComputerSessionPool {
     }
 }
 
-
 /// The shells of a closing session and its computer helper go together: Node's teardown stops
 /// both under the one `teardownReapsWork && closingSessionId` gate (`runtime-stops.mjs:53-71`:
 /// `shutdownShellJobs` and `releaseComputerSession(closingSessionId)`). Every real close in the
@@ -2663,7 +2711,6 @@ pub struct ReapingShells {
     releases: Mutex<Vec<tokio::task::JoinHandle<bool>>>,
 }
 
-
 impl OwnedShells for ReapingShells {
     fn cancel_owned(&self, owner: &ThreadId) {
         self.shells.cancel_owned(owner);
@@ -2673,7 +2720,6 @@ impl OwnedShells for ReapingShells {
         self.releases.lock().unwrap_or_else(PoisonError::into_inner).push(_release);
     }
 }
-
 
 /// A turn's settlement ends its computer execution and arms the idle release: Node's `settleTurn`
 /// runs `releaseComputerUse` (`endComputerExecution`, then `deferComputerSessionRelease`,
@@ -2687,7 +2733,6 @@ pub struct SettlingSnapshots {
     #[cfg(any(test, feature = "test-support"))]
     settlements: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
-
 
 impl TurnSnapshots for SettlingSnapshots {
     fn turn_begun(&self, thread: &ThreadId) {
@@ -2713,7 +2758,6 @@ impl TurnSnapshots for SettlingSnapshots {
         self.snapshots.dispose();
     }
 }
-
 
 #[async_trait]
 impl ComputerSessions for ComputerSessionPool {
@@ -2745,7 +2789,6 @@ impl ComputerSessions for ComputerSessionPool {
     }
 }
 
-
 /// The secret fill drives the helper of the thread's own session, the one state its `computer`
 /// calls use (the desktop host's, where that serves the session).
 impl ComputerSecretHosts for ComputerSessionPool {
@@ -2757,9 +2800,6 @@ impl ComputerSecretHosts for ComputerSessionPool {
         Some(self.entry_for(thread.as_str()).ok()?.0.secret_host())
     }
 }
-
-
-
 
 impl ReapingShells {
     pub fn new(shells: Arc<dyn OwnedShells>, computer: Arc<ComputerSessionPool>) -> Self {
@@ -2773,15 +2813,19 @@ impl ReapingShells {
 
     /// Returns once every release started so far has ended.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     async fn released(&self) {
         let tasks = std::mem::take(&mut *self.releases.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
-            mixdog_core_session::session::testing::awaiting(|| "a session's computer release to end".to_owned(), task).await.expect("a session's computer release");
+            mixdog_core_session::session::testing::awaiting(|| "a session's computer release to end".to_owned(), task)
+                .await
+                .expect("a session's computer release");
         }
     }
 }
-
 
 impl SettlingSnapshots {
     pub fn new(snapshots: Arc<dyn TurnSnapshots>, computer: Arc<ComputerSessionPool>) -> Self {
@@ -2795,11 +2839,16 @@ impl SettlingSnapshots {
 
     /// Returns once every settlement started so far has ended.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     async fn settled(&self) {
         let tasks = std::mem::take(&mut *self.settlements.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
-            mixdog_core_session::session::testing::awaiting(|| "a turn's computer settlement to end".to_owned(), task).await.expect("a turn's computer settlement");
+            mixdog_core_session::session::testing::awaiting(|| "a turn's computer settlement to end".to_owned(), task)
+                .await
+                .expect("a turn's computer settlement");
         }
     }
 }

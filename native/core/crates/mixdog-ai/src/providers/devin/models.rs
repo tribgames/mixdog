@@ -72,8 +72,7 @@ impl ModelRow {
     }
 }
 
-static COST_DENOMINATOR: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static("(\\d+(?:\\.\\d+)?)\\s*([kmb])?", "i"));
+static COST_DENOMINATOR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("(\\d+(?:\\.\\d+)?)\\s*([kmb])?", "i"));
 
 fn cost_denominator_tokens(denominator: &str) -> f64 {
     let Some(caps) = COST_DENOMINATOR.captures(denominator) else { return 1_000_000.0 };
@@ -100,8 +99,7 @@ fn model_cost(config: &ClientModelConfig) -> Cost {
             continue;
         }
         // Float32 values: round off the noise at sub-cent precision.
-        let per_million =
-            math::round(dimension.value * 1_000_000.0 / cost_denominator_tokens(&dimension.denominator) * 1e6) / 1e6;
+        let per_million = math::round(dimension.value * 1_000_000.0 / cost_denominator_tokens(&dimension.denominator) * 1e6) / 1e6;
         match label.as_str() {
             "input" => cost.input = per_million,
             "cached input" => cost.cache_read = per_million,
@@ -151,11 +149,7 @@ pub fn normalize_models(configs: &CliModelConfigs) -> Vec<ModelRow> {
         // Harness-less routers need AssignModel; harness-backed composites
         // are themselves chat uids.
         let assign_model_router = router && config.harness_uids.is_empty();
-        let images = if config.has_features {
-            config.info_supports_images
-        } else {
-            config.supports_images
-        };
+        let images = if config.has_features { config.info_supports_images } else { config.supports_images };
         specs.push(Spec {
             id: uid.to_owned(),
             name: match js_trim(&config.label) {
@@ -244,14 +238,7 @@ mod tests {
         let mut internal = config("b");
         internal.display_option = display::QUICK_REVIEW;
         let configs = CliModelConfigs {
-            configs: vec![
-                disabled,
-                internal,
-                config("c"),
-                config("c"),
-                config("fusion-x-sidekick-y"),
-                config("fusion-only"),
-            ],
+            configs: vec![disabled, internal, config("c"), config("c"), config("fusion-x-sidekick-y"), config("fusion-only")],
             default_model_uid: "c".to_owned(),
         };
         let rows = normalize_models(&configs);
@@ -266,10 +253,7 @@ mod tests {
     fn router_without_harness_needs_assignment() {
         let mut router = config("adaptive");
         router.display_option = display::MODEL_ROUTER;
-        let rows = normalize_models(&CliModelConfigs {
-            configs: vec![router],
-            default_model_uid: String::new(),
-        });
+        let rows = normalize_models(&CliModelConfigs { configs: vec![router], default_model_uid: String::new() });
         assert!(rows[0].router);
     }
 }

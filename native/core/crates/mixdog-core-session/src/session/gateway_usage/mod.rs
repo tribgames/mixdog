@@ -5,7 +5,6 @@
 pub(crate) mod event;
 mod store;
 
-
 pub use event::RouteSection;
 pub use store::GatewayUsage;
 pub use store::LEGACY_FILE;

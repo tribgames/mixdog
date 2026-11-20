@@ -100,7 +100,11 @@ fn keychain_account_names_are_a_prefix_and_a_digest_of_the_normal_form_of_what_t
     let account = oauth_client_secret_account("https://x.example/mcp").unwrap();
     let digest = account.strip_prefix("mcp-oauth-client.").expect("the prefix");
     assert!(digest.len() == 64 && digest.chars().all(|c| c.is_ascii_hexdigit()), "{account}");
-    assert_eq!(oauth_client_secret_account("https://x.example").unwrap(), oauth_client_secret_account("https://x.example/").unwrap(), "one address, one account");
+    assert_eq!(
+        oauth_client_secret_account("https://x.example").unwrap(),
+        oauth_client_secret_account("https://x.example/").unwrap(),
+        "one address, one account"
+    );
     assert_ne!(account, oauth_client_secret_account("https://x.example/other").unwrap());
     assert_eq!(oauth_client_secret_account("not a url").unwrap_err(), "MCP http URL is invalid");
     let mail = gmail_app_password_secret_account("me@example.com");

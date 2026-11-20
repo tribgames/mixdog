@@ -63,48 +63,24 @@ fn antml() -> String {
 
 static SENTINEL: LazyLock<Regex> = LazyLock::new(|| {
     let (a, w) = (antml(), ws());
-    re(&format!(
-        "<{a}{fc}{B}|<{a}{inv}{B}|<{a}{f}{B}[^>]*{B}{n}{w}*=",
-        fc = ci("function_calls"),
-        inv = ci("invoke"),
-        f = ci("function"),
-        n = ci("name"),
-    ))
+    re(&format!("<{a}{fc}{B}|<{a}{inv}{B}|<{a}{f}{B}[^>]*{B}{n}{w}*=", fc = ci("function_calls"), inv = ci("invoke"), f = ci("function"), n = ci("name"),))
 });
-static HARMONY_SENTINEL: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!(r"<\|(?:{}|{})\|>", ci("channel"), ci("start"))));
-static HARMONY_TERMINATOR: LazyLock<Regex> = LazyLock::new(|| {
-    re(&format!(r"<\|{}\|>|<\|{}\|>|<\|{}\|>", ci("call"), ci("end"), ci("return")))
-});
-static HARMONY_RECIPIENT: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!(r"{}={}\.([A-Za-z0-9_.-]+)", ci("to"), ci("functions"))));
+static HARMONY_SENTINEL: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"<\|(?:{}|{})\|>", ci("channel"), ci("start"))));
+static HARMONY_TERMINATOR: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"<\|{}\|>|<\|{}\|>|<\|{}\|>", ci("call"), ci("end"), ci("return"))));
+static HARMONY_RECIPIENT: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"{}={}\.([A-Za-z0-9_.-]+)", ci("to"), ci("functions"))));
 static HARMONY_MESSAGE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"<\|{}\|>", ci("message"))));
-static HARMONY_START: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!(r"^<\|(?:{}|{})\|>", ci("channel"), ci("start"))));
-static WRAPPER_OPEN: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!("^<{}{}{B}[^>]*>", antml(), ci("function_calls"))));
-static WRAPPER_CLOSE: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!("</{}{}{}*>", antml(), ci("function_calls"), ws())));
+static HARMONY_START: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"^<\|(?:{}|{})\|>", ci("channel"), ci("start"))));
+static WRAPPER_OPEN: LazyLock<Regex> = LazyLock::new(|| re(&format!("^<{}{}{B}[^>]*>", antml(), ci("function_calls"))));
+static WRAPPER_CLOSE: LazyLock<Regex> = LazyLock::new(|| re(&format!("</{}{}{}*>", antml(), ci("function_calls"), ws())));
 static INVOKE_OPEN: LazyLock<Regex> = LazyLock::new(|| re(&format!("^<{}{}{B}[^>]*>", antml(), ci("invoke"))));
 static INVOKE_CLOSE: LazyLock<Regex> = LazyLock::new(|| re(&format!("</{}{}{}*>", antml(), ci("invoke"), ws())));
-static FUNCTION_OPEN: LazyLock<Regex> = LazyLock::new(|| {
-    re(&format!("^<{}{}{B}[^>]*{B}{}{w}*={w}*{}[^>]*>", antml(), ci("function"), ci("name"), value(), w = ws()))
-});
-static FUNCTION_CLOSE: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!("</{}{}{}*>", antml(), ci("function"), ws())));
+static FUNCTION_OPEN: LazyLock<Regex> =
+    LazyLock::new(|| re(&format!("^<{}{}{B}[^>]*{B}{}{w}*={w}*{}[^>]*>", antml(), ci("function"), ci("name"), value(), w = ws())));
+static FUNCTION_CLOSE: LazyLock<Regex> = LazyLock::new(|| re(&format!("</{}{}{}*>", antml(), ci("function"), ws())));
 static PARAMETER: LazyLock<Regex> = LazyLock::new(|| {
-    re(&format!(
-        r"<{a}{p}{B}[^>]*{B}{n}{w}*={w}*{v}[^>]*>([\s\S]*?)</{a}{p}{w}*>",
-        a = antml(),
-        p = ci("parameter"),
-        n = ci("name"),
-        w = ws(),
-        v = value(),
-    ))
+    re(&format!(r"<{a}{p}{B}[^>]*{B}{n}{w}*={w}*{v}[^>]*>([\s\S]*?)</{a}{p}{w}*>", a = antml(), p = ci("parameter"), n = ci("name"), w = ws(), v = value(),))
 });
-static INVOKE_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    re(&format!("<{}{}{B}[^>]*{B}{}{w}*={w}*{}", antml(), ci("invoke"), ci("name"), value(), w = ws()))
-});
+static INVOKE_NAME: LazyLock<Regex> = LazyLock::new(|| re(&format!("<{}{}{B}[^>]*{B}{}{w}*={w}*{}", antml(), ci("invoke"), ci("name"), value(), w = ws())));
 
 const OPENERS: [&str; 3] = ["<function_calls", "<invoke", "<function"];
 const HARMONY_OPENERS: [&str; 2] = ["<|channel|>", "<|start|>"];
@@ -307,10 +283,7 @@ fn complete_block(s: &str, idx: usize, harmony: bool) -> Option<Block> {
         let close = FUNCTION_CLOSE.find(rest)?;
         let open_end = caps.get(0).map_or(0, |m| m.end());
         let inner = rest.get(open_end..close.start()).unwrap_or("");
-        return Some(Block {
-            end: idx + close.end(),
-            call: Some(Recovered { name: caps[1].to_owned(), arguments: parse_params(inner) }),
-        });
+        return Some(Block { end: idx + close.end(), call: Some(Recovered { name: caps[1].to_owned(), arguments: parse_params(inner) }) });
     }
     None
 }
@@ -482,11 +455,7 @@ pub fn dedupe_list(calls: Vec<ToolCall>) -> Vec<ToolCall> {
     if calls.len() < 2 {
         return calls;
     }
-    let native: HashSet<String> = calls
-        .iter()
-        .filter(|c| !c.id.is_empty() && !is_synthetic(&c.id))
-        .map(|c| fingerprint(&c.name, &c.arguments))
-        .collect();
+    let native: HashSet<String> = calls.iter().filter(|c| !c.id.is_empty() && !is_synthetic(&c.id)).map(|c| fingerprint(&c.name, &c.arguments)).collect();
     let mut ids = HashSet::new();
     let mut synthetic = HashSet::new();
     let mut out = Vec::new();

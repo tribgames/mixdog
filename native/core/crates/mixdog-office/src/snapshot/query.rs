@@ -190,7 +190,8 @@ mod tests {
 
     #[test]
     fn a_short_value_answers_whole_and_names_its_object_and_field() {
-        let document = json!({ "paragraphs": [{ "path": "/body/p[1]", "text": "Quarterly Report", "style": "Title" }, { "path": "/body/p[2]", "text": "nothing" }] });
+        let document =
+            json!({ "paragraphs": [{ "path": "/body/p[1]", "text": "Quarterly Report", "style": "Title" }, { "path": "/body/p[2]", "text": "nothing" }] });
         assert_eq!(query(&document, "report"), [json!({ "path": "/body/p[1]", "field": "text", "value": "Quarterly Report" })]);
         assert_eq!(query(&json!(["a report", 3, null]), "report"), [json!({ "path": "$[0]", "value": "a report" })]);
         assert!(query(&document, "absent").is_empty());

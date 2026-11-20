@@ -132,7 +132,10 @@ async fn five_failed_reads_in_a_row_are_survived_and_the_sixth_ends_the_wait() {
     broken.push(Ok(running()));
     broken.extend(vec![Err("blip".to_owned()); 5]);
     broken.push(Ok(answered("fine")));
-    assert!(matches!(poll_for_answer(&Host::new(broken), &state(), "sess1", 1500.0, &never()).await, Ok(Polled::Answered { .. })), "a good read resets the count");
+    assert!(
+        matches!(poll_for_answer(&Host::new(broken), &state(), "sess1", 1500.0, &never()).await, Ok(Polled::Answered { .. })),
+        "a good read resets the count"
+    );
 }
 
 #[tokio::test]

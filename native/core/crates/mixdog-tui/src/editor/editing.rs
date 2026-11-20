@@ -8,8 +8,8 @@ use std::sync::OnceLock;
 
 use mixdog_js::JsRegex;
 use mixdog_termtext::display_width;
-use mixdog_termtext::lone;
 use mixdog_termtext::grapheme::{byte_to_utf16, utf16_to_byte};
+use mixdog_termtext::lone;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::draft::Draft;
@@ -100,11 +100,7 @@ pub fn clear_selection(draft: &Draft) -> Draft {
 /// Moves the caret; `extend` keeps (or starts) a selection from the old caret.
 pub fn move_cursor(draft: &Draft, cursor: usize, extend: bool) -> Draft {
     let cursor = clamp_offset(&draft.value, cursor);
-    let selection_anchor = if extend {
-        Some(clamp_offset(&draft.value, draft.selection_anchor.unwrap_or(draft.cursor)))
-    } else {
-        None
-    };
+    let selection_anchor = if extend { Some(clamp_offset(&draft.value, draft.selection_anchor.unwrap_or(draft.cursor))) } else { None };
     Draft { value: draft.value.clone(), cursor, selection_anchor }
 }
 
@@ -328,13 +324,7 @@ pub struct Vertical {
 
 /// The caret one visual line up (`direction` -1) or down (1), at the preferred column or the nearest one on that line.
 /// The caret stays when there is no such line.
-pub fn vertical_offset(
-    text: &str,
-    offset: usize,
-    width: usize,
-    direction: i32,
-    preferred_column: Option<usize>,
-) -> Vertical {
+pub fn vertical_offset(text: &str, offset: usize, width: usize, direction: i32, preferred_column: Option<usize>) -> Vertical {
     let width = safe_width(width);
     let current = caret_position(text, offset, width, None);
     let target_column = preferred_column.unwrap_or(current.col);
@@ -342,8 +332,7 @@ pub fn vertical_offset(
     let Some(target_row) = current.row.checked_add_signed(direction as isize) else {
         return stay;
     };
-    let candidates: Vec<Boundary> =
-        boundary_positions(text, width).into_iter().filter(|position| position.row == target_row).collect();
+    let candidates: Vec<Boundary> = boundary_positions(text, width).into_iter().filter(|position| position.row == target_row).collect();
     let Some(&first) = candidates.first() else {
         return stay;
     };
@@ -351,9 +340,7 @@ pub fn vertical_offset(
     for candidate in candidates {
         let best_distance = best.col.abs_diff(target_column);
         let candidate_distance = candidate.col.abs_diff(target_column);
-        if candidate_distance < best_distance
-            || (candidate_distance == best_distance && candidate.col <= target_column && candidate.col > best.col)
-        {
+        if candidate_distance < best_distance || (candidate_distance == best_distance && candidate.col <= target_column && candidate.col > best.col) {
             best = candidate;
         }
     }

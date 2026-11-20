@@ -20,10 +20,10 @@ use serde_json::Value;
 
 use crate::memory::core::{action, store::DeleteSettlement};
 use crate::memory::recall::RecallOutcome;
-use crate::memory::service::maintenance::{Action, parse_action};
 use crate::memory::service::LocalMemory;
 use crate::memory::service::MemoryModule;
 use crate::memory::service::RUNTIME_NOT_READY;
+use crate::memory::service::maintenance::{Action, parse_action};
 
 /// Whose memory a session reads and writes.
 #[async_trait]
@@ -113,10 +113,7 @@ impl ToolService for RecallToolService {
 /// `memory` then `recall`, in the order of the memory runtime's definitions (`TOOL_DEFS`).
 pub fn tools(memory: Arc<LocalMemory>, callers: Arc<dyn MemoryCallers>) -> Vec<Arc<dyn Tool>> {
     let host = Arc::new(Host { memory, callers });
-    vec![
-        Arc::new(ServiceTool::memory(Arc::new(MemoryToolService(host.clone())))),
-        Arc::new(ServiceTool::recall(Arc::new(RecallToolService(host)))),
-    ]
+    vec![Arc::new(ServiceTool::memory(Arc::new(MemoryToolService(host.clone())))), Arc::new(ServiceTool::recall(Arc::new(RecallToolService(host))))]
 }
 
 /// The `memory` and `recall` services under their tools (tests call them without a tool context).
@@ -147,18 +144,25 @@ mod tests {
         }
         #[async_trait]
         impl ToolService for Delete {
-            fn settles_cancellation(&self, _: &Value) -> bool { true }
+            fn settles_cancellation(&self, _: &Value) -> bool {
+                true
+            }
             async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError> {
                 let settlement = DeleteSettlement::default();
-                wait_for_reply(Some(&settlement), async {
-                    call.cancel.cancelled().await;
-                    PortError::Cancelled
-                }, async {
-                    settlement.begin_commit(Some(call.cancel)).unwrap();
-                    self.committed.notify_one();
-                    self.refreshed.notified().await;
-                    vec![ToolPart::Text("core deleted".into())]
-                }).await
+                wait_for_reply(
+                    Some(&settlement),
+                    async {
+                        call.cancel.cancelled().await;
+                        PortError::Cancelled
+                    },
+                    async {
+                        settlement.begin_commit(Some(call.cancel)).unwrap();
+                        self.committed.notify_one();
+                        self.refreshed.notified().await;
+                        vec![ToolPart::Text("core deleted".into())]
+                    },
+                )
+                .await
             }
         }
 
@@ -206,7 +210,12 @@ mod tests {
 
     #[test]
     fn a_recall_its_request_cancelled_is_the_callers_cancellation_not_a_reply() {
-        let outcome = |is_error: bool, cancelled: bool| RecallOutcome { text: "recall failed: This operation was aborted".into(), next_cursor: None, is_error, cancelled };
+        let outcome = |is_error: bool, cancelled: bool| RecallOutcome {
+            text: "recall failed: This operation was aborted".into(),
+            next_cursor: None,
+            is_error,
+            cancelled,
+        };
         assert_eq!(recall_parts(outcome(true, true)), Err(PortError::Cancelled));
         assert_eq!(
             recall_parts(outcome(true, false)),
@@ -230,7 +239,6 @@ mod tests {
     }
 }
 
-
 impl Host {
     /// The call's arguments; the calling session's runtime (its owner's, for a delegated worker) has loaded the module (`knowledge-tools.mjs:45`, `getMemoryModule()`).
     async fn args(&self, call: &ServiceCall<'_>) -> Value {
@@ -242,7 +250,11 @@ impl Host {
     /// [`RUNTIME_READY_WAIT`] after the opening's launch), refused with the proxy's text when it never comes up, then `work` under
     /// the call's own cap (`calls.mjs:94`). An interrupted delete whose commit won still settles.
     async fn within_proxy<T>(
-        &self, call: &ServiceCall<'_>, capability: &str, settlement: Option<&DeleteSettlement>, work: impl std::future::Future<Output = T>,
+        &self,
+        call: &ServiceCall<'_>,
+        capability: &str,
+        settlement: Option<&DeleteSettlement>,
+        work: impl std::future::Future<Output = T>,
     ) -> Result<T, PortError> {
         let failed = |message: &str| PortError::Failed { capability: capability.into(), message: message.into() };
         tokio::select! {
@@ -250,13 +262,18 @@ impl Host {
             () = call.cancel.cancelled() => return Err(PortError::Cancelled),
             ready = self.memory.ready() => if ready.is_err() { return Err(failed(RUNTIME_NOT_READY)) },
         }
-        wait_for_reply(settlement, async {
-            tokio::select! {
-                biased;
-                () = call.cancel.cancelled() => PortError::Cancelled,
-                () = mixdog_rt::time::sleep(TOOL_CALL_TIMEOUT) => failed(TOOL_CALL_TIMED_OUT),
-            }
-        }, work).await
+        wait_for_reply(
+            settlement,
+            async {
+                tokio::select! {
+                    biased;
+                    () = call.cancel.cancelled() => PortError::Cancelled,
+                    () = mixdog_rt::time::sleep(TOOL_CALL_TIMEOUT) => failed(TOOL_CALL_TIMED_OUT),
+                }
+            },
+            work,
+        )
+        .await
     }
 }
 
@@ -271,11 +288,7 @@ async fn wait_for_reply<T>(
         error = interrupted => error,
         result = &mut work => return Ok(result),
     };
-    if settlement.is_none_or(DeleteSettlement::interrupt) {
-        Err(error)
-    } else {
-        Ok(work.await)
-    }
+    if settlement.is_none_or(DeleteSettlement::interrupt) { Err(error) } else { Ok(work.await) }
 }
 /// The proxy's cap on one tool call (`calls.mjs:94`, `MIXDOG_MEMORY_TOOL_TIMEOUT_MS` unset).
 pub(crate) const TOOL_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);

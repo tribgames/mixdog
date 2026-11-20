@@ -123,11 +123,8 @@ pub struct ContextState {
 /// `contextWindow` / `maxContextWindow` holder, already resolved by the caller.
 pub fn resolve_route_context_state(route: &Obj, window_meta: Option<&Value>) -> ContextState {
     let provider = clean(route.get("provider"));
-    let (default_window, max_window) = context_window_range(
-        &provider,
-        window_meta.and_then(|m| m.get("contextWindow")),
-        window_meta.and_then(|m| m.get("maxContextWindow")),
-    );
+    let (default_window, max_window) =
+        context_window_range(&provider, window_meta.and_then(|m| m.get("contextWindow")), window_meta.and_then(|m| m.get("maxContextWindow")));
     if max_window == 0.0 {
         return ContextState::default();
     }
@@ -150,16 +147,8 @@ pub fn resolve_route_context_state(route: &Obj, window_meta: Option<&Value>) -> 
         };
     }
     let requested = number(route.get("contextPercent"));
-    let percent = if requested.is_finite() && requested > 0.0 {
-        clamp_percent(js_round(requested / 10.0) * 10.0)
-    } else {
-        default_percent
-    };
-    let selected = if percent == default_percent {
-        default_window
-    } else {
-        1.0_f64.max((max_window * percent / 100.0).floor())
-    };
+    let percent = if requested.is_finite() && requested > 0.0 { clamp_percent(js_round(requested / 10.0) * 10.0) } else { default_percent };
+    let selected = if percent == default_percent { default_window } else { 1.0_f64.max((max_window * percent / 100.0).floor()) };
     ContextState {
         context_percent: Some(percent),
         context_default_percent: Some(default_percent),
@@ -195,19 +184,14 @@ pub fn find_preset<'a>(config: &'a Obj, key: Option<&Value>) -> Option<&'a Value
     if wanted.is_empty() {
         return None;
     }
-    config.get("presets")?.as_array()?.iter().find(|p| {
-        clean(p.get("id")).to_lowercase() == wanted || clean(p.get("name")).to_lowercase() == wanted
-    })
+    config.get("presets")?.as_array()?.iter().find(|p| clean(p.get("id")).to_lowercase() == wanted || clean(p.get("name")).to_lowercase() == wanted)
 }
 
 /// `fastPreferenceFor(config, provider, model)`.
 pub fn fast_preference_for(config: &Obj, provider: &str, model: &str) -> bool {
     let key = route_fast_key(Some(&Value::from(provider)), Some(&Value::from(model)));
     !key.is_empty()
-        && config
-            .get("modelSettings")
-            .and_then(|s| s.get(&key))
-            .is_some_and(|saved| saved.is_object() && saved.get("fast") == Some(&Value::Bool(true)))
+        && config.get("modelSettings").and_then(|s| s.get(&key)).is_some_and(|saved| saved.is_object() && saved.get("fast") == Some(&Value::Bool(true)))
 }
 
 pub fn clean_model_parameters(value: Option<&Value>) -> Obj {
@@ -241,8 +225,7 @@ pub fn is_likely_raw_model_id(value: Option<&Value>) -> bool {
     let body = model.strip_prefix('~').unwrap_or(&model);
     let mut chars = body.chars();
     let Some(first) = chars.next() else { return false };
-    first.is_ascii_alphanumeric()
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '/' | '@' | '+' | '-'))
+    first.is_ascii_alphanumeric() && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '/' | '@' | '+' | '-'))
 }
 
 /// `validateRequestedModelSelector`.
@@ -254,9 +237,7 @@ pub fn validate_requested_model_selector(config: &Obj, requested: &Obj) -> Resul
     if is_likely_raw_model_id(Some(&Value::from(model.as_str()))) {
         return Ok(());
     }
-    Err(format!(
-        "Invalid model selector \"{model}\". Use a preset or a model id; free-form text cannot be used as a model."
-    ))
+    Err(format!("Invalid model selector \"{model}\". Use a preset or a model id; free-form text cannot be used as a model."))
 }
 
 /// `ensureProviderEnabled`: the providers map with `provider` enabled when it has no say of its own (a key-only provider
@@ -303,12 +284,7 @@ pub fn resolve_default_provider(config: &Obj, is_known: &dyn Fn(&str, &Obj) -> b
     DEFAULT_PROVIDER.to_owned()
 }
 
-fn resolve_context_tokens(
-    context_tokens: Option<&Value>,
-    explicit_percent: bool,
-    saved: &Obj,
-    preset: Option<&Value>,
-) -> Option<f64> {
+fn resolve_context_tokens(context_tokens: Option<&Value>, explicit_percent: bool, saved: &Obj, preset: Option<&Value>) -> Option<f64> {
     if context_tokens.is_some() {
         return normalize_context_tokens(context_tokens);
     }
@@ -333,18 +309,14 @@ pub fn resolve_route(config: &Obj, request: &Obj, is_known: &dyn Fn(&str, &Obj) 
 
     let build = |provider: String, model: String, preset: Option<&Value>, saved: Obj| -> Obj {
         let tokens = resolve_context_tokens(context_tokens, explicit_percent, &saved, preset);
-        let effort = if has_effort {
-            explicit_effort.clone()
-        } else {
-            normalize_saved_effort(nullish(saved.get("effort"), preset.and_then(|p| p.get("effort"))))
-        };
+        let effort =
+            if has_effort { explicit_effort.clone() } else { normalize_saved_effort(nullish(saved.get("effort"), preset.and_then(|p| p.get("effort")))) };
         let fast_value = if fast.is_some() {
             fast == Some(&Value::Bool(true))
         } else if saved.contains_key("fast") {
             saved.get("fast") == Some(&Value::Bool(true))
         } else {
-            preset.is_some_and(|p| p.get("fast") == Some(&Value::Bool(true)))
-                || fast_preference_for(config, &provider, &model)
+            preset.is_some_and(|p| p.get("fast") == Some(&Value::Bool(true))) || fast_preference_for(config, &provider, &model)
         };
         let auto = if auto_effort.is_some() {
             auto_effort != Some(&Value::Bool(false))
@@ -624,9 +596,7 @@ pub fn refresh_route_fields(
     let items = crate::effort::effort_items_for(live_provider, meta.unwrap_or(&Value::Null), active.as_deref(), None);
     route.insert(
         "effortOptions".into(),
-        Value::Array(
-            items.into_iter().map(|i| serde_json::json!({ "value": i.value, "label": i.label, "description": i.description })).collect(),
-        ),
+        Value::Array(items.into_iter().map(|i| serde_json::json!({ "value": i.value, "label": i.label, "description": i.description })).collect()),
     );
     let percent = if window_known { state.context_percent.map(jnum) } else { target.get("contextPercent").cloned() };
     match percent {
@@ -648,7 +618,6 @@ pub fn refresh_route_fields(
     }
     route
 }
-
 
 #[cfg(test)]
 mod ensure_enabled_tests {
@@ -705,20 +674,15 @@ pub fn upsert_workflow_preset(presets: &Value, slot: &str, route: &Value) -> Res
         preset.insert("fallbacks".into(), route["fallbacks"].clone());
     }
     preset.insert("tools".into(), Value::from("full"));
-    let mut next: Vec<Value> = current
-        .into_iter()
-        .filter(|p| clean(p.get("id")) != id && clean(p.get("name")) != name)
-        .collect();
+    let mut next: Vec<Value> = current.into_iter().filter(|p| clean(p.get("id")) != id && clean(p.get("name")) != name).collect();
     next.push(Value::Object(preset));
     Ok(Value::Array(next))
 }
 
 // -- selection validation and the Lead route ------------------------------------------
 
-const MODEL_SELECTION_KEYS: [&str; 10] = [
-    "provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens",
-    "fallbacks", "onlyIfEmpty",
-];
+const MODEL_SELECTION_KEYS: [&str; 10] =
+    ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
 
 /// `requiredString(value, name, maximum)`.
 fn required_string(value: Option<&Value>, name: &str, maximum: usize) -> Result<String, String> {
@@ -850,15 +814,9 @@ fn put(map: &mut Obj, key: &str, value: Option<Value>) {
 /// `resolveChainEntry`, first half: the route the entry selects, with what it inherits from
 /// the `stored` entry of the same model. The caller then readies the provider and looks up
 /// the model row, and calls [`finish_chain_entry`].
-pub fn start_chain_entry(
-    config: &Obj,
-    requested: &Obj,
-    stored: &Obj,
-    is_known: &dyn Fn(&str, &Obj) -> bool,
-) -> Result<Obj, String> {
+pub fn start_chain_entry(config: &Obj, requested: &Obj, stored: &Obj, is_known: &dyn Fn(&str, &Obj) -> bool) -> Result<Obj, String> {
     let mut selected = resolve_route(config, requested, is_known)?;
-    let same_model = clean(selected.get("provider")) == clean(stored.get("provider"))
-        && clean(selected.get("model")) == clean(stored.get("model"));
+    let same_model = clean(selected.get("provider")) == clean(stored.get("provider")) && clean(selected.get("model")) == clean(stored.get("model"));
     let defined = |k: &str| requested.contains_key(k);
     let stored_truthy = |k: &str| stored.get(k).filter(|v| truthy(Some(*v))).cloned();
     let requests_percent = defined("contextPercent");
@@ -868,11 +826,7 @@ pub fn start_chain_entry(
     } else {
         Some(if same_model { stored_truthy("effort").unwrap_or(Value::Null) } else { Value::Null })
     };
-    let fast = if defined("fast") {
-        selected.get("fast") == Some(&Value::Bool(true))
-    } else {
-        same_model && stored.get("fast") == Some(&Value::Bool(true))
-    };
+    let fast = if defined("fast") { selected.get("fast") == Some(&Value::Bool(true)) } else { same_model && stored.get("fast") == Some(&Value::Bool(true)) };
     let auto_effort = if defined("autoEffort") {
         requested.get("autoEffort") != Some(&Value::Bool(false))
     } else {
@@ -908,12 +862,7 @@ pub fn start_chain_entry(
 
 /// `resolveChainEntry`, second half: the window clamp and the Fast clamp against the model
 /// row. `window_meta` is [`window_meta_of`]; `fast_catalog` is `fastCapableFor(...)`.
-pub fn finish_chain_entry(
-    mut selected: Obj,
-    meta: Option<&Value>,
-    window_meta: Option<&Value>,
-    fast_catalog: impl FnOnce(&Obj) -> bool,
-) -> Obj {
+pub fn finish_chain_entry(mut selected: Obj, meta: Option<&Value>, window_meta: Option<&Value>, fast_catalog: impl FnOnce(&Obj) -> bool) -> Obj {
     let state = resolve_route_context_state(&selected, window_meta);
     if state.context_default_percent.is_some() {
         put(&mut selected, "contextTokens", state.context_tokens.map(jnum));
@@ -947,4 +896,3 @@ pub fn persist_adopted_model_settings(
     }
     persist_lead_route(config, &Value::Object(route.clone()))
 }
-

@@ -96,7 +96,16 @@ struct StalledRoute;
 #[async_trait]
 impl RouteResolver for StalledRoute {
     async fn resolve(&self, step: RouteStep) -> Result<Option<SummaryRoute>, SummaryFailure> {
-        Ok(Some(SummaryRoute { step, provider_name: "p".into(), model: "m".into(), context_window: 200_000, calibration: 1.0, fast: false, effort: None, sender: Arc::new(Stalled) }))
+        Ok(Some(SummaryRoute {
+            step,
+            provider_name: "p".into(),
+            model: "m".into(),
+            context_window: 200_000,
+            calibration: 1.0,
+            fast: false,
+            effort: None,
+            sender: Arc::new(Stalled),
+        }))
     }
 }
 
@@ -134,12 +143,25 @@ fn session(settings: CompactSettings, threshold: Option<u64>, resolver: Arc<Aske
 
 fn conversation() -> Vec<AgentMessage> {
     (0..6)
-        .flat_map(|n| [AgentMessage::user(format!("question {n} {}", "word ".repeat(200))), AgentMessage::assistant(format!("answer {n} {}", "word ".repeat(200)), Vec::new())])
+        .flat_map(|n| {
+            [
+                AgentMessage::user(format!("question {n} {}", "word ".repeat(200))),
+                AgentMessage::assistant(format!("answer {n} {}", "word ".repeat(200)), Vec::new()),
+            ]
+        })
         .collect()
 }
 
 fn request(messages: &[AgentMessage]) -> CompactRequest<'_> {
-    CompactRequest { messages, budget_tokens: 4_000, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" }
+    CompactRequest {
+        messages,
+        budget_tokens: 4_000,
+        trigger: CompactTrigger::Auto,
+        require_reduction: false,
+        reference_latest_attachments: false,
+        active_turn: true,
+        latest_user_prefix: "",
+    }
 }
 
 #[test]
@@ -190,7 +212,8 @@ async fn a_conversation_over_the_sessions_threshold_is_summarized_on_its_plan() 
 #[tokio::test]
 async fn a_summary_past_the_sessions_deadline_fails_the_compaction() {
     let timed = CompactSettings { handoff_timeout_ms: Some(20), ..settings(Some(200_000)) };
-    let compactor = FreshCompactor::for_session(SessionCompactor { resolver: Arc::new(StalledRoute), ..session(timed, Some(1), Arc::default()) }).expect("a compactor");
+    let compactor =
+        FreshCompactor::for_session(SessionCompactor { resolver: Arc::new(StalledRoute), ..session(timed, Some(1), Arc::default()) }).expect("a compactor");
     let messages = conversation();
     let error = compactor.compact(request(&messages)).await.err().expect("the summary never answers");
     assert!(matches!(error, CompactError::RouteFailed(ref m, _) if m == "The operation was aborted due to timeout"), "{error:?}");

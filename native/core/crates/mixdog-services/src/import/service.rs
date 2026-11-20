@@ -72,12 +72,7 @@ fn optional_time(value: Option<&Value>, name: &'static str) -> Result<Option<f64
 fn list_params(args: &Value) -> Result<ListParams, Invalid> {
     let limit = match args.get("limit") {
         None | Some(Value::Null) => None,
-        Some(v) => Some(
-            v.as_f64()
-                .map(f64::floor)
-                .filter(|f| f.is_finite() && *f >= 1.0)
-                .ok_or(Invalid("params.limit", "positive integer"))? as usize,
-        ),
+        Some(v) => Some(v.as_f64().map(f64::floor).filter(|f| f.is_finite() && *f >= 1.0).ok_or(Invalid("params.limit", "positive integer"))? as usize),
     };
     let text = |key: &str| args.get(key).and_then(Value::as_str);
     Ok(ListParams {
@@ -208,7 +203,6 @@ mod tests {
             Err("none".into())
         }
     }
-
 
     /// The protocol params' `params` member is the arguments: a start, the jobs filter and a cancel reach the job they name (a
     /// null filter lists every job, one that is not text none); `cancelConversationImport` of an unknown job answers the

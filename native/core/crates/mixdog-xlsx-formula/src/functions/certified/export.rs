@@ -31,9 +31,7 @@ impl Val {
             Val::Num(b) => b.is_exact_zero() || b.rel_ok(BITS) || (b.is_finite() && b.abs_hi().top() < -1100),
             Val::Log(l) => {
                 l.is_finite()
-                    && (l.rad.top() < -BITS
-                        || l.hi().cmp(&Fl::from_f64(LN_TINY)) == Ordering::Less
-                        || l.lo().cmp(&Fl::from_f64(LN_HUGE)) == Ordering::Greater)
+                    && (l.rad.top() < -BITS || l.hi().cmp(&Fl::from_f64(LN_TINY)) == Ordering::Less || l.lo().cmp(&Fl::from_f64(LN_HUGE)) == Ordering::Greater)
             }
         }
     }

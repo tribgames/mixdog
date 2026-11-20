@@ -63,12 +63,7 @@ pub fn op_row(id: &OpId, record: &OpRecord, now_ms: i64) -> Result<OpRow, CoreEr
                 completed_at: Some(now_ms),
             });
         }
-        OpRecord::Settled {
-            method,
-            digest,
-            audience,
-            state,
-        } => (method, digest, audience.as_ref(), state),
+        OpRecord::Settled { method, digest, audience, state } => (method, digest, audience.as_ref(), state),
     };
     let mut row = OpRow {
         method: method.to_string(),
@@ -86,37 +81,14 @@ pub fn op_row(id: &OpId, record: &OpRecord, now_ms: i64) -> Result<OpRow, CoreEr
 pub fn set_op_row_outcome(row: &mut OpRow, audience: Option<&PayloadDigest>, state: &OpState, now_ms: i64) {
     let audience = audience.map(|a| Arc::from(a.as_str()));
     let (row_state, outcome) = match state {
-        OpState::Applied { seq, result } => (
-            OpRowState::Applied,
-            encode(&Applied {
-                audience,
-                seq: *seq,
-                result: result.clone(),
-            }),
-        ),
-        OpState::Rejected { error } => (
-            OpRowState::Rejected,
-            encode(&Rejected {
-                audience,
-                error: rejection_to_json(error),
-            }),
-        ),
-        OpState::ExternalPending { effect, target } => (
-            OpRowState::ExternalPending,
-            encode(&External {
-                audience,
-                effect: effect.clone(),
-                target: target.clone(),
-            }),
-        ),
-        OpState::ExternalUnknown { effect, target } => (
-            OpRowState::ExternalUnknown,
-            encode(&External {
-                audience,
-                effect: effect.clone(),
-                target: target.clone(),
-            }),
-        ),
+        OpState::Applied { seq, result } => (OpRowState::Applied, encode(&Applied { audience, seq: *seq, result: result.clone() })),
+        OpState::Rejected { error } => (OpRowState::Rejected, encode(&Rejected { audience, error: rejection_to_json(error) })),
+        OpState::ExternalPending { effect, target } => {
+            (OpRowState::ExternalPending, encode(&External { audience, effect: effect.clone(), target: target.clone() }))
+        }
+        OpState::ExternalUnknown { effect, target } => {
+            (OpRowState::ExternalUnknown, encode(&External { audience, effect: effect.clone(), target: target.clone() }))
+        }
     };
     row.state = row_state;
     row.outcome = Some(outcome);
@@ -136,9 +108,7 @@ pub fn op_record(row: OpRow) -> Result<OpRecord, CoreError> {
         }
         OpRowState::Rejected => {
             let Rejected { audience, error } = decode(row.outcome)?;
-            (audience, OpState::Rejected {
-                error: rejection_from_json(error)?,
-            })
+            (audience, OpState::Rejected { error: rejection_from_json(error)? })
         }
         OpRowState::ExternalPending => {
             let External { audience, effect, target } = decode(row.outcome)?;
@@ -165,11 +135,7 @@ struct Applied {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     seq: Option<u64>,
     /// Present (a JSON `null` included) exactly when the result was stored.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "present"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
     result: Option<Value>,
 }
 
@@ -204,48 +170,33 @@ fn decode<T: for<'de> Deserialize<'de>>(outcome: Option<String>) -> Result<T, Co
 }
 
 fn unreadable() -> CoreError {
-    CoreError::Internal {
-        incident_id: "op-row-unreadable".into(),
-    }
+    CoreError::Internal { incident_id: "op-row-unreadable".into() }
 }
 
 fn store_error(error: DbError) -> CoreError {
     match error {
         // `CoreState` reads run on the interactive io lane.
-        DbError::LaneFull => CoreError::QueueFull {
-            queue: mixdog_rt::LaneKind::InteractiveIo.name().into(),
-        },
-        _ => CoreError::StorageIndeterminate {
-            scope: "state".into(),
-        },
+        DbError::LaneFull => CoreError::QueueFull { queue: mixdog_rt::LaneKind::InteractiveIo.name().into() },
+        _ => CoreError::StorageIndeterminate { scope: "state".into() },
     }
 }
 
 fn now_ms() -> i64 {
-    let since = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
+    let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
 }
 
 #[async_trait]
 impl OpStore for StateOpStore {
     async fn get(&self, id: &OpId) -> Result<Option<OpRecord>, CoreError> {
-        let row = self
-            .state
-            .op(&self.scope, id.as_str())
-            .await
-            .map_err(store_error)?;
+        let row = self.state.op(&self.scope, id.as_str()).await.map_err(store_error)?;
         row.map(op_record).transpose()
     }
 
     async fn put(&self, id: &OpId, record: OpRecord) -> Result<(), CoreError> {
         let row = op_row(id, &record, now_ms())?;
         let (scope, id) = (self.scope.clone(), id.clone());
-        self.state
-            .write(move |tx| tx.put_op(&scope, id.as_str(), &row))
-            .await
-            .map_err(store_error)
+        self.state.write(move |tx| tx.put_op(&scope, id.as_str(), &row)).await.map_err(store_error)
     }
 
     async fn watermark(&self) -> Result<Option<u64>, CoreError> {
@@ -256,23 +207,14 @@ impl OpStore for StateOpStore {
 #[async_trait]
 impl OpRetention for StateOpStore {
     async fn nth_newest_ms(&self, n: usize) -> Result<Option<u64>, CoreError> {
-        self.state
-            .nth_newest_ms(&self.scope, n)
-            .await
-            .map_err(store_error)
+        self.state.nth_newest_ms(&self.scope, n).await.map_err(store_error)
     }
 
     async fn set_watermark(&self, ms: u64) -> Result<(), CoreError> {
-        self.state
-            .set_watermark(&self.scope, ms)
-            .await
-            .map_err(store_error)
+        self.state.set_watermark(&self.scope, ms).await.map_err(store_error)
     }
 
     async fn delete_before(&self, ms: u64, limit: usize) -> Result<usize, CoreError> {
-        self.state
-            .delete_ops_before(&self.scope, ms, limit)
-            .await
-            .map_err(store_error)
+        self.state.delete_ops_before(&self.scope, ms, limit).await.map_err(store_error)
     }
 }

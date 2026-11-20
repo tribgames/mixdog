@@ -370,11 +370,7 @@ impl State {
         self.record.stderr_bytes = self.size();
         // The core may have written its own exit block into this sidecar; keep it (this write replaces the whole document) and
         // never leave a bare exit.
-        let written = self
-            .record_path
-            .as_ref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+        let written = self.record_path.as_ref().and_then(|path| std::fs::read(path).ok()).and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
         if let Some(written) = written {
             if let Some(exit) = written.get("daemonExit").filter(|exit| !exit.is_null()) {
                 self.record.daemon_exit = Some(exit.clone());

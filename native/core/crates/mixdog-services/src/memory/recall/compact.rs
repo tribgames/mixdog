@@ -2,7 +2,7 @@
 //! structurally become their summary, anything else stays as its raw turns,
 //! and the latest live user turns are left out for the caller to replay.
 
-use mixdog_js::{js_trim};
+use mixdog_js::js_trim;
 use std::collections::{HashMap, HashSet};
 
 use serde_json::json;
@@ -32,16 +32,7 @@ fn member_rows(row: &Row) -> Vec<Row> {
 }
 
 fn raw_member(row: &Row) -> Row {
-    Row {
-        is_root: 0,
-        chunk_root: None,
-        compact_raw: true,
-        members: None,
-        element: None,
-        summary: None,
-        chunk_quality: None,
-        ..row.clone()
-    }
+    Row { is_root: 0, chunk_root: None, compact_raw: true, members: None, element: None, summary: None, chunk_quality: None, ..row.clone() }
 }
 
 fn transcript_rows(rows: &[Row]) -> Vec<Row> {
@@ -91,10 +82,7 @@ fn sha256_hex(text: &str) -> String {
 fn source_hash_and_ids(members: &[Row]) -> (String, Vec<String>) {
     let mut sorted: Vec<&Row> = members.iter().collect();
     sorted.sort_by_key(|m| m.id);
-    let canonical: Vec<_> = sorted
-        .iter()
-        .map(|m| json!([m.id.to_string(), m.session_id, m.ts.to_string(), m.role, m.content()]))
-        .collect();
+    let canonical: Vec<_> = sorted.iter().map(|m| json!([m.id.to_string(), m.session_id, m.ts.to_string(), m.role, m.content()])).collect();
     let mut ids: Vec<String> = members.iter().map(|m| m.id.to_string()).collect();
     ids.sort();
     (sha256_hex(&serde_json::Value::Array(canonical).to_string()), ids)

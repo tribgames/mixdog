@@ -107,9 +107,7 @@ fn resolve(base: &Path, relative: &str) -> PathBuf {
 
 fn read_marker(path: &Path) -> Result<Option<Marker>> {
     match durable::read_optional(path)? {
-        Some(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|e| Blocked::journal(format!("profile-gen.json: {e}"))),
+        Some(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| Blocked::journal(format!("profile-gen.json: {e}"))),
         None => Ok(None),
     }
 }
@@ -179,11 +177,7 @@ pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> R
                 return Ok(SupplementOutcome { generation: 1, moved: Vec::new() });
             };
             let items = plan(profile, false, &[])?;
-            let marker = Marker {
-                generation: if items.is_empty() { GENERATION } else { 1 },
-                profile: profile.to_string_lossy().into_owned(),
-                items,
-            };
+            let marker = Marker { generation: if items.is_empty() { GENERATION } else { 1 }, profile: profile.to_string_lossy().into_owned(), items };
             fault("supplement:plan:before")?;
             save(&marker_path, &marker)?;
             marker
@@ -209,24 +203,12 @@ pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> R
         save(&marker_path, &marker)?;
     }
     durable::remove_dir_all(&data.join(STAGE_DIR))?;
-    let moved = marker
-        .items
-        .iter()
-        .filter(|item| item.state == State::Disposed)
-        .map(|item| item.file.clone())
-        .collect();
+    let moved = marker.items.iter().filter(|item| item.state == State::Disposed).map(|item| item.file.clone()).collect();
     Ok(SupplementOutcome { generation: marker.generation, moved })
 }
 
 /// Takes one item one state forward and records it.
-fn step(
-    data: &Path,
-    profile: &Path,
-    marker_path: &Path,
-    marker: &mut Marker,
-    index: usize,
-    fault: &dyn Fn(&str) -> Result<()>,
-) -> Result<()> {
+fn step(data: &Path, profile: &Path, marker_path: &Path, marker: &mut Marker, index: usize, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     let item = marker.items[index].clone();
     let source = resolve(profile, &item.file);
     let target = resolve(data, &item.target);

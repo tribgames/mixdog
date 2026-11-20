@@ -12,14 +12,6 @@ use mixdog_tui::transcript::scroll::lock::{CommitFrame, RowIndex};
 use mixdog_tui::transcript::scroll::tuning::{ScrollTuning, WheelAccel};
 use serde_json::json;
 
-
-
-
-
-
-
-
-
 /// A host that records the history restores and has no selection.
 #[derive(Default)]
 struct Host {
@@ -71,17 +63,12 @@ fn transcript(heights: &[usize], view: usize) -> TranscriptScroll {
     TranscriptScroll { max_scroll_rows: geom.total_rows.saturating_sub(view), following: true, geom, ..TranscriptScroll::default() }
 }
 
-
 #[test]
 fn defaults_are_the_documented_ones() {
     let tuning = ScrollTuning::default();
     assert_eq!((tuning.coalesce_ms, tuning.step_rows, tuning.step_max_rows, tuning.accel_idle_ms), (16, 3, 9, 150));
     assert!(tuning.accel_enabled);
 }
-
-
-
-
 
 // ── use-transcript-scroll.test.mjs ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -314,4 +301,3 @@ fn with_acceleration_off_every_notch_is_the_base_step() {
     let steps: Vec<i64> = (0..4).map(|n| wheel.notch(-1, 1_000 + n * 10, &tuning)).collect();
     assert_eq!(steps, [-3, -3, -3, -3]);
 }
-

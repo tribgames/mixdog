@@ -17,8 +17,8 @@ use mixdog_fsio::WriteProof;
 use mixdog_js::to_number_of;
 use mixdog_office_base::values::truthy;
 use mixdog_office_pdf::adapter::{SnapshotOptions, snapshot_pdf};
-use mixdog_office_quality::pipeline::normalize_office_review_issues;
 use mixdog_office_quality::forced_breaks::{BreakPreview, BreakSession, forced_break_pages};
+use mixdog_office_quality::pipeline::normalize_office_review_issues;
 use mixdog_office_quality::rendered::{RenderedOptions, is_small_worksheet_document, review_rendered_office_pages};
 use serde_json::{Map, Value, json};
 
@@ -67,7 +67,12 @@ mod tests {
         let mut review = json!({ "issues": [issue("blank_page", 2), issue("blank_page", 3), issue("page_bottom_empty", 2)] });
         assert_eq!(blank_pages(&review), [2.0, 3.0]);
         settle_rendered_issues(&mut review, &[2.0]);
-        let kept: Vec<(String, String)> = review["issues"].as_array().expect("issues").iter().map(|i| (i["code"].as_str().expect("code").to_owned(), i["path"].as_str().expect("path").to_owned())).collect();
+        let kept: Vec<(String, String)> = review["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .map(|i| (i["code"].as_str().expect("code").to_owned(), i["path"].as_str().expect("path").to_owned()))
+            .collect();
         // Page 2 has text and is not blank; page 3 is still blank, as an error the gate blocks on.
         assert_eq!(kept, [("blank_page".to_owned(), "/page[3]".to_owned()), ("page_bottom_empty".to_owned(), "/page[2]".to_owned())]);
         assert_eq!(review["issues"][0]["severity"], "error");
@@ -101,7 +106,6 @@ mod tests {
         pdf
     }
 
-
     impl mixdog_office_pdf::adapter::FormView for NoForms {
         fn describe_fields(&self, _document: &mixdog_pdf::write::PdfDocument) -> Vec<Value> {
             Vec::new()
@@ -127,7 +131,6 @@ mod tests {
         assert_eq!(occupied, [2.0]);
     }
 }
-
 
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `qa(session, args, cwd, { reuseRender })`.

@@ -189,10 +189,7 @@ impl Guard {
             let _ = mixdog_statefile::rename_with_retry(lane, &self.path, &corrupt);
             kept_aside = mixdog_statefile::metadata(lane, &corrupt).is_ok();
         }
-        self.line(&format!(
-            "[config] mixdog-config.json is malformed ({reason}). Renamed to {}. Restore it or delete to start fresh.",
-            corrupt.display()
-        ));
+        self.line(&format!("[config] mixdog-config.json is malformed ({reason}). Renamed to {}. Restore it or delete to start fresh.", corrupt.display()));
         kept_aside
     }
 
@@ -240,11 +237,7 @@ impl Guard {
     }
 
     /// Runs a read-modify-write under the config's file lock, from the baseline `readAllForRmW` settles on.
-    pub(super) fn locked<R>(
-        &self,
-        lane: &InLane<DurabilityIo>,
-        body: impl FnOnce(Baseline) -> Result<R, ConfigError>,
-    ) -> Result<R, ConfigError> {
+    pub(super) fn locked<R>(&self, lane: &InLane<DurabilityIo>, body: impl FnOnce(Baseline) -> Result<R, ConfigError>) -> Result<R, ConfigError> {
         let result = mixdog_statefile::with_lock(lane, &self.path, &LockOpts::default(), || body(self.baseline(lane)?));
         match result {
             Ok(done) => done,
@@ -292,9 +285,7 @@ impl Guard {
             return Ok(Baseline { doc: restored, forced: true });
         }
         if kept_aside {
-            self.line(&format!(
-                "[config] RMW read: mixdog-config.json is unusable ({reason}); its bytes are kept aside and no backup exists; starting empty"
-            ));
+            self.line(&format!("[config] RMW read: mixdog-config.json is unusable ({reason}); its bytes are kept aside and no backup exists; starting empty"));
             return Ok(Baseline { doc: Doc::new(), forced: true });
         }
         if let Some(legacy) = self.user_data.legacy_evidence(lane, dir, true).map_err(user_data_error)? {

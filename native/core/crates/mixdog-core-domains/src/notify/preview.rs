@@ -10,10 +10,7 @@ const MIN_SENTENCE: usize = 60;
 
 /// Blocks whose text is code or grid, not prose.
 fn skipped(tag: &Tag<'_>) -> bool {
-    matches!(
-        tag,
-        Tag::CodeBlock(_) | Tag::Table(_) | Tag::HtmlBlock | Tag::MetadataBlock(_) | Tag::DefinitionList
-    )
+    matches!(tag, Tag::CodeBlock(_) | Tag::Table(_) | Tag::HtmlBlock | Tag::MetadataBlock(_) | Tag::DefinitionList)
 }
 
 fn plain_text(markdown: &str) -> String {
@@ -43,9 +40,7 @@ fn plain_text(markdown: &str) -> String {
                     Event::Start(tag) if skipped(&tag) => skip_depth = 1,
                     // Blocks are separated by a space; whitespace is collapsed afterwards.
                     Event::Start(Tag::Paragraph | Tag::Heading { .. } | Tag::BlockQuote(_) | Tag::List(_) | Tag::Item)
-                    | Event::End(
-                        TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item,
-                    )
+                    | Event::End(TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item)
                     | Event::SoftBreak
                     | Event::HardBreak => out.push(' '),
                     Event::Code(value) => out.push_str(&value),
@@ -67,11 +62,10 @@ pub fn notification_preview(markdown: &str) -> String {
     }
     // One character past the limit, so a period that ends exactly at it still sees the space after.
     let probe = &characters[..=LIMIT];
-    let sentence_end = (0..probe.len().saturating_sub(1))
-        .rev()
-        .find(|&i| "。！？.!?".contains(probe[i]) && is_js_space(probe[i + 1]));
+    let sentence_end = (0..probe.len().saturating_sub(1)).rev().find(|&i| "。！？.!?".contains(probe[i]) && is_js_space(probe[i + 1]));
     if let Some(index) = sentence_end
-        && index + 1 >= MIN_SENTENCE {
+        && index + 1 >= MIN_SENTENCE
+    {
         return probe[..=index].iter().collect();
     }
     let mut clipped: String = characters[..LIMIT - 1].iter().collect();
@@ -113,10 +107,7 @@ mod tests {
     /// `desktop-turn-notifier.test.mjs` "notification text removes Markdown syntax without damaging paths, links or Unicode".
     #[test]
     fn paths_links_unicode_and_unpaired_hangul_strong_read_as_plain_text() {
-        assert_eq!(
-            preview("# 완료\n\n**굵게**와 *강조*, `src/a_b.ts`\n- [결과](https://example.com)\n> 확인"),
-            "완료 굵게와 강조, src/a_b.ts 결과 확인"
-        );
+        assert_eq!(preview("# 완료\n\n**굵게**와 *강조*, `src/a_b.ts`\n- [결과](https://example.com)\n> 확인"), "완료 굵게와 강조, src/a_b.ts 결과 확인");
         assert_eq!(preview("![설명](image.png)\n\n```ts\nconst x = 1;\n```"), "설명");
         assert_eq!(preview("결과입니다.\n\n| 이름 | 값 |\n|---|---|\n| a | 1 |"), "결과입니다.");
         assert_eq!(

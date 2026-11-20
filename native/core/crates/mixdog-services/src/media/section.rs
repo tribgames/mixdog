@@ -129,5 +129,3 @@ pub fn spawn_media_section(jobs: &Arc<MediaJobs>, publisher: Arc<dyn StatePublis
         }
     });
 }
-
-

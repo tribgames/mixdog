@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use serde_json::{Map, Value, json};
 
 use super::exchange::{
-    Action, Answer, CapLimit, DecideInput, Decision, ExchangeHost, ExchangeParams, ExchangeResult, Outcome, Scene, Turn, TurnResult,
-    UsageLimit, run_room_exchange,
+    Action, Answer, CapLimit, DecideInput, Decision, ExchangeHost, ExchangeParams, ExchangeResult, Outcome, Scene, Turn, TurnResult, UsageLimit,
+    run_room_exchange,
 };
 
 fn scene_name(scene: Scene) -> &'static str {
@@ -84,7 +84,12 @@ fn decision_of(value: &Value) -> Option<Decision> {
 
 fn usage_of(value: &Value) -> UsageLimit {
     let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    UsageLimit { kind: text("kind"), provider: text("provider"), model: text("model"), reset_at: value.get("resetAt").and_then(Value::as_f64).map(|at| at as i64) }
+    UsageLimit {
+        kind: text("kind"),
+        provider: text("provider"),
+        model: text("model"),
+        reset_at: value.get("resetAt").and_then(Value::as_f64).map(|at| at as i64),
+    }
 }
 
 /// A usage-limit stop as Node's `roomUsageLimit` returns it.
@@ -227,10 +232,13 @@ fn result_json(result: &ExchangeResult) -> Value {
         out.insert("usage".into(), result.usage.as_ref().map_or(Value::Null, usage_json));
     }
     if let Some(limit) = result.limit {
-        out.insert("limit".into(), json!(match limit {
-            CapLimit::Messages => "messages",
-            CapLimit::Rounds => "rounds",
-        }));
+        out.insert(
+            "limit".into(),
+            json!(match limit {
+                CapLimit::Messages => "messages",
+                CapLimit::Rounds => "rounds",
+            }),
+        );
     }
     if !result.remaining.is_empty() {
         out.insert("remaining".into(), json!(result.remaining));
@@ -245,9 +253,8 @@ fn result_json(result: &ExchangeResult) -> Value {
 /// after its `spec`.
 pub async fn run_spec(spec: &Value) -> Value {
     let script = Script { spec, turns: Mutex::default(), steps: Mutex::default(), pending: Mutex::default(), stop: Mutex::default() };
-    let ids = |key: &str| -> Vec<String> {
-        spec.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
-    };
+    let ids =
+        |key: &str| -> Vec<String> { spec.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect() };
     let count = |key: &str, default: u32| spec.get(key).and_then(Value::as_f64).map_or(default, |n| n as u32);
     let params = ExchangeParams {
         members: ids("members"),

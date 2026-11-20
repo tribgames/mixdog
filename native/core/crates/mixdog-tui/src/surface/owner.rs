@@ -469,10 +469,7 @@ mod tests {
         assert!(surface.claim().context(&mut surface, None));
 
         assert!(!opening.context(&mut surface, Some("Context Usage")), "a late context paint was accepted");
-        assert_eq!(
-            surface.take_events(),
-            vec![SurfaceEvent::Context(Some("Context Usage")), SurfaceEvent::Context(None)]
-        );
+        assert_eq!(surface.take_events(), vec![SurfaceEvent::Context(Some("Context Usage")), SurfaceEvent::Context(None)]);
 
         let mut reopening = surface.claim();
         assert!(reopening.context(&mut surface, Some("Context Usage")));

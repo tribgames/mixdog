@@ -77,11 +77,7 @@ pub fn match_field<'a>(event: &str, payload: &'a Value) -> Option<&'a str> {
     if NO_MATCHER_EVENTS.contains(&event) {
         return None;
     }
-    let field = if event == "Notification" {
-        payload.get("notification_type").or_else(|| payload.get("type"))
-    } else {
-        payload.get(match_field_name(event))
-    };
+    let field = if event == "Notification" { payload.get("notification_type").or_else(|| payload.get("type")) } else { payload.get(match_field_name(event)) };
     Some(field.and_then(Value::as_str).unwrap_or_default())
 }
 
@@ -259,9 +255,7 @@ pub fn config_report(parsed: &Value) -> ConfigReport {
     };
     let mut report = ConfigReport::default();
     for (event, groups) in hooks {
-        let well_formed = groups
-            .as_array()
-            .is_some_and(|g| g.iter().all(|group| group.get("hooks").is_some_and(Value::is_array)));
+        let well_formed = groups.as_array().is_some_and(|g| g.iter().all(|group| group.get("hooks").is_some_and(Value::is_array)));
         if well_formed {
             report.valid_events.push(event.clone());
         } else {
@@ -301,8 +295,7 @@ impl Matcher {
             return Self::Any;
         };
         if text.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | ',' | '|')) {
-            let names: Vec<String> =
-                text.split(['|', ',']).map(js_trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
+            let names: Vec<String> = text.split(['|', ',']).map(js_trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
             return if names.is_empty() { Self::Any } else { Self::Names(names) };
         }
         JsRegex::new(text, "").map_or(Self::Invalid, |re| Self::Pattern(Arc::new(re)))
@@ -388,10 +381,7 @@ pub fn merge_events(target: &mut HookEvents, source: HookEvents) {
 /// Reads every applicable hooks file and merges the standard ones. Files that are missing or
 /// not standard are skipped; the report of each readable file is returned beside the events.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-pub fn load_catalog(
-    _lane: &InLane<MaintenanceIo>,
-    entries: &[HookConfigEntry],
-) -> (HookEvents, Vec<(PathBuf, ConfigReport)>) {
+pub fn load_catalog(_lane: &InLane<MaintenanceIo>, entries: &[HookConfigEntry]) -> (HookEvents, Vec<(PathBuf, ConfigReport)>) {
     let mut events = HookEvents::new();
     let mut reports = Vec::new();
     for entry in entries {
@@ -436,23 +426,11 @@ mod tests {
         let data = PathBuf::from("/data");
         let project = std::path::absolute("/proj").unwrap();
         let mut trusted = HashSet::new();
-        let none = config_entries(&HookSources {
-            env_file: None,
-            data_dir: &data,
-            project_dir: &project,
-            trusted_projects: &trusted,
-            plugins: &[],
-        });
+        let none = config_entries(&HookSources { env_file: None, data_dir: &data, project_dir: &project, trusted_projects: &trusted, plugins: &[] });
         assert!(none.iter().filter(|e| e.source_type == SourceType::Project).all(|e| e.untrusted));
         assert_eq!(none.len(), 4);
         trusted.insert(path_key(&project));
-        let some = config_entries(&HookSources {
-            env_file: None,
-            data_dir: &data,
-            project_dir: &project,
-            trusted_projects: &trusted,
-            plugins: &[],
-        });
+        let some = config_entries(&HookSources { env_file: None, data_dir: &data, project_dir: &project, trusted_projects: &trusted, plugins: &[] });
         assert!(some.iter().all(|e| !e.untrusted));
         let env = config_entries(&HookSources {
             env_file: Some(Path::new("/h.json")),
@@ -487,7 +465,14 @@ mod tests {
         for (reason, source) in [("turn", "startup"), ("reservation", "startup"), ("", "startup"), ("desktop-Resume", "resume"), ("cli-clear", "clear")] {
             assert_eq!(session_start_source(reason), source, "{reason}");
         }
-        for (reason, end) in [("cli-exit", "exit"), ("daemon shutdown: SIGTERM", "exit"), ("quit", "exit"), ("context-clear", "clear"), ("idle and unwatched", "other"), ("", "other")] {
+        for (reason, end) in [
+            ("cli-exit", "exit"),
+            ("daemon shutdown: SIGTERM", "exit"),
+            ("quit", "exit"),
+            ("context-clear", "clear"),
+            ("idle and unwatched", "other"),
+            ("", "other"),
+        ] {
             assert_eq!(session_end_reason(reason), end, "{reason}");
         }
         for (message, class) in [

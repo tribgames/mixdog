@@ -36,9 +36,8 @@ static SPACED_BRANDS: LazyLock<Vec<(JsRegex, &'static str, &'static str)>> = Laz
         (re(r"^hy(\d.*)$"), "Hy", ""),
     ]
 });
-static HYPHENATED_BRANDS: LazyLock<Vec<(JsRegex, &'static str)>> = LazyLock::new(|| {
-    vec![(re(r"^glm-(.+)$"), "GLM"), (re(r"^minimax-(.+)$"), "MiniMax"), (re(r"^longcat-(.+)$"), "LongCat")]
-});
+static HYPHENATED_BRANDS: LazyLock<Vec<(JsRegex, &'static str)>> =
+    LazyLock::new(|| vec![(re(r"^glm-(.+)$"), "GLM"), (re(r"^minimax-(.+)$"), "MiniMax"), (re(r"^longcat-(.+)$"), "LongCat")]);
 
 /// `titleModelPart`.
 fn title_model_part(part: &str) -> String {
@@ -177,10 +176,4 @@ pub fn display_model_name(model: &str, hint: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-}
-
-
+mod tests {}

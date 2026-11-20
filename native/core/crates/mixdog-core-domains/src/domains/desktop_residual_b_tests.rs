@@ -39,7 +39,19 @@ fn a_link_names_a_plain_local_path_or_is_refused() {
         assert_eq!(local_link_path("file://localhost/srv/a.txt", false).unwrap(), "/srv/a.txt");
     }
     assert_eq!(local_link_path("a\\b\\c.txt", false).unwrap(), "a/b/c.txt");
-    for bad in ["file://server/share/a.txt", "//server/share/a.txt", "a|b.txt", "a*.txt", "a<b>.txt", "x:y.txt", "bad%zz.txt", "bad%ff.txt", "a\u{1}b", "", "C:/x/a.txt"] {
+    for bad in [
+        "file://server/share/a.txt",
+        "//server/share/a.txt",
+        "a|b.txt",
+        "a*.txt",
+        "a<b>.txt",
+        "x:y.txt",
+        "bad%zz.txt",
+        "bad%ff.txt",
+        "a\u{1}b",
+        "",
+        "C:/x/a.txt",
+    ] {
         assert!(local_link_path(bad, false).is_err(), "{bad:?}");
     }
     // A drive path is absolute only on Windows, where device names and trailing dots or spaces are refused too.
@@ -175,7 +187,9 @@ fn a_png_picture_is_scaled_like_a_jpeg_one() {
     let url = thumbnail_of(&stored_png(640, 480), 0).unwrap();
     let bytes = base64::engine::general_purpose::STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
     assert_eq!(image::load_from_memory(&bytes).unwrap().to_rgb8().dimensions(), (320, 240));
-    let small = base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&stored_png(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+    let small = base64::engine::general_purpose::STANDARD
+        .decode(thumbnail_of(&stored_png(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap())
+        .unwrap();
     assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
 }
 
@@ -189,7 +203,8 @@ fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
     let (width, height) = image::load_from_memory(&bytes).unwrap().to_rgb8().dimensions();
     assert_eq!((width, height), (320, 240));
     // A small picture keeps its size.
-    let small = base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&jpeg(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+    let small =
+        base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&jpeg(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
     assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
     // What does not decode is handed over as it is while it fits the bound, else nothing.
     let png = [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][..], b"not really a png"].concat();
@@ -254,7 +269,14 @@ fn the_first_snapshot_carries_the_default_preset_route() {
     let digits = json!({ "agent": { "presets": [preset("a", "m1"), preset("b", "m2")], "default": "0" } });
     assert_eq!(model_bootstrap_from_config(&digits).unwrap()["model"], json!("m1"));
     // Nothing usable: no agent, no default, an unknown default, an index past the list.
-    for none in [json!({}), json!({ "agent": null }), config(json!({ "presets": [preset("a", "m")] })), config(json!({ "default": "" })), config(json!({ "default": "ghost" })), config(json!({ "default": 4000 }))] {
+    for none in [
+        json!({}),
+        json!({ "agent": null }),
+        config(json!({ "presets": [preset("a", "m")] })),
+        config(json!({ "default": "" })),
+        config(json!({ "default": "ghost" })),
+        config(json!({ "default": 4000 })),
+    ] {
         assert_eq!(model_bootstrap_from_config(&none), None, "{none}");
     }
 }
@@ -273,7 +295,15 @@ struct FakeMachine {
 
 impl FakeMachine {
     fn new(status: PkexecStatus) -> Arc<Self> {
-        Arc::new(Self { platform: "linux", access: AtomicBool::new(false), device: true, status, grants_access: true, pkexec_runs: AtomicUsize::new(0), waits: AtomicUsize::new(0) })
+        Arc::new(Self {
+            platform: "linux",
+            access: AtomicBool::new(false),
+            device: true,
+            status,
+            grants_access: true,
+            pkexec_runs: AtomicUsize::new(0),
+            waits: AtomicUsize::new(0),
+        })
     }
 }
 
@@ -403,9 +433,15 @@ fn the_shell_wins_except_for_the_probe_electron_and_launcher_values() {
 #[test]
 fn homebrew_directories_are_appended_never_prepended() {
     let exists = |dir: &str| dir == "/opt/homebrew/bin" || dir == "/usr/local/bin";
-    assert_eq!(with_homebrew_path(Some("/usr/bin:/bin"), exists), ("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin".to_owned(), vec!["/opt/homebrew/bin".to_owned(), "/usr/local/bin".to_owned()]));
+    assert_eq!(
+        with_homebrew_path(Some("/usr/bin:/bin"), exists),
+        ("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin".to_owned(), vec!["/opt/homebrew/bin".to_owned(), "/usr/local/bin".to_owned()])
+    );
     // A directory already there stays where the user put it; an empty component is kept verbatim.
-    assert_eq!(with_homebrew_path(Some("/usr/local/bin::/bin"), exists), ("/usr/local/bin::/bin:/opt/homebrew/bin".to_owned(), vec!["/opt/homebrew/bin".to_owned()]));
+    assert_eq!(
+        with_homebrew_path(Some("/usr/local/bin::/bin"), exists),
+        ("/usr/local/bin::/bin:/opt/homebrew/bin".to_owned(), vec!["/opt/homebrew/bin".to_owned()])
+    );
     assert_eq!(with_homebrew_path(None, exists).0, "/opt/homebrew/bin:/usr/local/bin");
     assert_eq!(with_homebrew_path(Some("/usr/bin"), |_| false), ("/usr/bin".to_owned(), vec![]));
 }
@@ -448,9 +484,7 @@ fn base64_padding_follows_the_regex_and_buffer_from() {
 fn an_empty_providers_array_still_selects_the_nested_agent_document() {
     let preset = json!({ "id": "n", "provider": "p", "model": "nested-model" });
     let outer = json!({ "id": "o", "provider": "p", "model": "outer-model" });
-    let config = |providers: Value| {
-        json!({ "agent": { "presets": [outer.clone()], "default": "o", "agent": { "providers": providers, "presets": [preset.clone()], "default": "n" } } })
-    };
+    let config = |providers: Value| json!({ "agent": { "presets": [outer.clone()], "default": "o", "agent": { "providers": providers, "presets": [preset.clone()], "default": "n" } } });
     // `[]` and `{}` are truthy in JavaScript; `0`, `""` and `null` are not.
     for providers in [json!([]), json!({}), json!(["x"])] {
         assert_eq!(model_bootstrap_from_config(&config(providers.clone())).unwrap()["model"], json!("nested-model"), "{providers}");
@@ -470,7 +504,10 @@ fn an_interface_that_joins_without_a_route_change_is_a_network_change() {
     assert!(!network_changed(&before, &snapshot_of(&routes, &[loopback.clone(), wired.clone()])), "the order of the list is not a change");
     let vpn = ("tun0".to_owned(), "10.8.0.2".to_owned(), false);
     assert!(network_changed(&before, &snapshot_of(&routes, &[wired.clone(), loopback.clone(), vpn])), "a new adapter with the route unchanged");
-    assert!(!network_changed(&before, &snapshot_of(&routes, &[wired, loopback, ("lo0".to_owned(), "::1".to_owned(), true)])), "a loopback address is not external");
+    assert!(
+        !network_changed(&before, &snapshot_of(&routes, &[wired, loopback, ("lo0".to_owned(), "::1".to_owned(), true)])),
+        "a loopback address is not external"
+    );
     assert!(!snapshot_of(&[], &[("eth0".to_owned(), "169.254.1.1".to_owned(), false)]).online, "interfaces alone do not make the machine online");
 }
 
@@ -507,7 +544,8 @@ impl DomainService for FakeImport {
 #[test]
 fn the_launcher_adopts_the_shell_overrides_and_on_a_mac_the_homebrew_directories() {
     let inherited = map(&[("PATH", "/usr/bin"), ("HOME", "/home/u")]);
-    let read = || LoginShellRead { environment: Some(map(&[("PATH", "/opt/x:/usr/bin"), ("HOME", "/home/u"), ("PWD", "/tmp"), ("TOKEN", "t")])), failures: vec![] };
+    let read =
+        || LoginShellRead { environment: Some(map(&[("PATH", "/opt/x:/usr/bin"), ("HOME", "/home/u"), ("PWD", "/tmp"), ("TOKEN", "t")])), failures: vec![] };
     let brew = |dir: &str| dir == "/opt/homebrew/bin";
     // Linux: the overrides only. The probe's own PWD and an unchanged HOME are not set.
     let linux = login_shell_adoption("linux", read(), &inherited, brew);
@@ -523,7 +561,6 @@ fn the_launcher_adopts_the_shell_overrides_and_on_a_mac_the_homebrew_directories
     assert_eq!((none.adopted, none.failures, none.set), (false, vec![failure], map(&[("PATH", "/usr/bin:/opt/homebrew/bin")])));
     assert_eq!(login_shell_adoption("win32", read(), &inherited, brew), LoginShellAdoption::default());
 }
-
 
 fn service(dir: &Path, attachments: HashMap<String, Vec<u8>>) -> DesktopResidualBService {
     let mut service = DesktopResidualBService::new(Arc::new(Host(attachments)), &mixdog_rt::testing::tokens(), dir.to_path_buf());
@@ -611,7 +648,9 @@ async fn a_superseded_native_cache_is_removed_and_the_others_stay() {
         std::fs::write(dir.path().join(name).join("1.0").join("tool"), "x").unwrap();
     }
     let service = service(dir.path(), HashMap::new());
-    let reply = value(&service, request("desktop/nativeToolCache/gc", json!({ "bundledKinds": ["graph", "graph", "bogus", "supervisor", "patch"] }), None)).await.unwrap();
+    let reply = value(&service, request("desktop/nativeToolCache/gc", json!({ "bundledKinds": ["graph", "graph", "bogus", "supervisor", "patch"] }), None))
+        .await
+        .unwrap();
     assert_eq!(reply, json!({ "removed": ["graph", "supervisor", "patch"], "failed": [] }));
     assert!(!dir.path().join("graph-bin").exists() && !dir.path().join("patch-bin").exists());
     assert!(dir.path().join("spawn-bin").join("1.0").join("tool").exists());
@@ -796,7 +835,9 @@ async fn the_import_service_announces_the_progress_of_its_jobs() {
     assert_eq!(service.methods(), inner.methods());
 
     // The answer is passed on untouched; the running job it carries is announced once and then followed through the service's own list.
-    let call = |method: &'static str| service.call(CoreRequest { method: Method(method), params: json!({}), op: None, ctx: mixdog_core_api::CallContext::internal("test") });
+    let call = |method: &'static str| {
+        service.call(CoreRequest { method: Method(method), params: json!({}), op: None, ctx: mixdog_core_api::CallContext::internal("test") })
+    };
     let Reply::Value(answer) = call("import/startConversationImport").await.unwrap() else { panic!("a value") };
     assert_eq!(answer, job("a", 1, "running", 0));
     assert_eq!(heard.lock().unwrap().len(), 1);

@@ -710,11 +710,7 @@ impl State {
 
     fn tombs<'a>(&self, views: &'a mut Views) -> &'a Tombs {
         if views.tombs.is_none() {
-            let rows: Vec<Row> = self
-                .maps
-                .iter()
-                .filter_map(|(id, _)| views.derived.get(id).and_then(|d| d.tombstone.as_deref()).cloned())
-                .collect();
+            let rows: Vec<Row> = self.maps.iter().filter_map(|(id, _)| views.derived.get(id).and_then(|d| d.tombstone.as_deref()).cloned()).collect();
             let stored = order_tombstones(rows);
             let tombstones: Vec<Row> = stored
                 .iter()

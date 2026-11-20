@@ -39,10 +39,7 @@ pub fn gemini() -> RetryPolicy {
         advice: AdviceRule {
             combine: AdviceCombine::Floor,
             ceiling: Some(GEMINI_RETRY_ADVICE_LIMIT),
-            jitter: Jitter {
-                ratio: 0.2,
-                mode: JitterMode::Positive,
-            },
+            jitter: Jitter { ratio: 0.2, mode: JitterMode::Positive },
             jitter_stage: JitterStage::Wait,
             ..AdviceRule::honored_in_full()
         },
@@ -51,10 +48,7 @@ pub fn gemini() -> RetryPolicy {
         max_retries: 3,
         backoff: Backoff::Exponential { base: secs(1) },
         jitter: Jitter::NONE,
-        advice: AdviceRule {
-            ceiling: Some(GEMINI_RETRY_ADVICE_LIMIT),
-            ..AdviceRule::honored_in_full()
-        },
+        advice: AdviceRule { ceiling: Some(GEMINI_RETRY_ADVICE_LIMIT), ..AdviceRule::honored_in_full() },
     });
     // A status-only 499 (client closed the request) is retried.
     policy.status.retry_499 = true;
@@ -78,7 +72,8 @@ pub fn antigravity_with(settings: &FirstByteSettings) -> RetryPolicy {
     let mut policy = RetryPolicy::codex_default();
     let steps = || ladder(&[1, 2, 4]);
     let waits = &settings.antigravity_backoff_ms;
-    let same_host = Backoff::Ladder(waits.get(1..).filter(|rest| !rest.is_empty()).unwrap_or(waits).iter().map(|ms| Duration::from_millis(*ms as u64)).collect());
+    let same_host =
+        Backoff::Ladder(waits.get(1..).filter(|rest| !rest.is_empty()).unwrap_or(waits).iter().map(|ms| Duration::from_millis(*ms as u64)).collect());
     let row = RetrySchedule {
         max_retries: settings.antigravity_attempts - 1,
         backoff: same_host,
@@ -93,11 +88,7 @@ pub fn antigravity_with(settings: &FirstByteSettings) -> RetryPolicy {
             KindSchedule {
                 kind: ErrorKind::Overloaded,
                 schedule: RetrySchedule {
-                    advice: AdviceRule {
-                        combine: AdviceCombine::Floor,
-                        budget: Some(secs(60)),
-                        ..AdviceRule::honored_in_full()
-                    },
+                    advice: AdviceRule { combine: AdviceCombine::Floor, budget: Some(secs(60)), ..AdviceRule::honored_in_full() },
                     ..capacity
                 },
                 resets_base: true,
@@ -108,10 +99,7 @@ pub fn antigravity_with(settings: &FirstByteSettings) -> RetryPolicy {
                     max_retries: 1,
                     backoff: ladder(&[1]),
                     jitter: Jitter::NONE,
-                    advice: AdviceRule {
-                        ceiling: Some(secs(60)),
-                        ..AdviceRule::honored_in_full()
-                    },
+                    advice: AdviceRule { ceiling: Some(secs(60)), ..AdviceRule::honored_in_full() },
                 },
                 resets_base: true,
             },

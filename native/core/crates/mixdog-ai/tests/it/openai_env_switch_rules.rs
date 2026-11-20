@@ -56,7 +56,10 @@ fn http_request(setting: Option<(&'static str, &str)>) -> (Vec<(String, String)>
     let env = Env(setting.map(|(name, value)| (name, value.to_owned())));
     let codec = OpenAiCodec::new(OpenAiConfig::codex(false, identity, Arc::new(Facts), Arc::new(env)), TransportKind::Http1);
     let mut reasoning = Message::new(Role::Assistant, Content::Text("done".into()));
-    reasoning.push_replay(ProviderReplay { owner: ProviderId::from(REPLAY_OWNER), items: json!([{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc" }]) });
+    reasoning.push_replay(ProviderReplay {
+        owner: ProviderId::from(REPLAY_OWNER),
+        items: json!([{ "type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc" }]),
+    });
     let request = ModelRequest {
         model: "gpt-5".into(),
         messages: vec![Message::new(Role::User, Content::Text("hello".into())), reasoning, Message::new(Role::User, Content::Text("again".into()))],
@@ -126,9 +129,9 @@ fn sent_limit(config: OpenAiConfig) -> Option<Value> {
 fn the_oauth_limit_follows_the_opt_in_at_each_payload_and_the_public_api_is_independent() {
     let setting = Arc::new(std::sync::Mutex::new(None::<String>));
     let read = setting.clone();
-    let context = Arc::new(SessionContext::new().with_var(move |name| {
-        (name == "MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS").then(|| read.lock().unwrap().clone()).flatten()
-    }));
+    let context = Arc::new(
+        SessionContext::new().with_var(move |name| (name == "MIXDOG_OPENAI_OAUTH_SEND_MAX_OUTPUT_TOKENS").then(|| read.lock().unwrap().clone()).flatten()),
+    );
     let identity = CodexIdentity { installation_id: "inst".into(), user_agent: "codex/1".into(), version: "0.1.0".into(), beta_features: "none".into() };
     let oauth = OpenAiConfig::codex(false, identity, Arc::new(Facts), context.clone());
     let public = OpenAiConfig::api_key(false, Arc::new(Facts), context);

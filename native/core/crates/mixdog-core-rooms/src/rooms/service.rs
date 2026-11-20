@@ -10,33 +10,35 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, RoomLeaveParams, RoomRemoveParams, RoomResetParams, RoomSendParams, RoomUpdateParams};
+use mixdog_app_protocol::v2::params::{
+    RoomContinueParams, RoomCreateParams, RoomLeaveParams, RoomRemoveParams, RoomResetParams, RoomSendParams, RoomUpdateParams,
+};
+use mixdog_core_api::AfterAnswer;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
-use mixdog_core_api::AfterAnswer;
 use mixdog_core_api::ids::ConnectionId;
-use mixdog_rt::CancellationToken;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_rt::CancellationToken;
 use rand::Rng;
 use serde_json::{Map, Value, json};
 
 use super::RoomError;
 use super::config::RoomConfigInput;
 use super::ready::RoomsReady;
+use super::records::{RoomPatch, RoomRecord, RoomStore, Rooms};
+use super::user_send::{RoomSend, UserMessage};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::room_member_session_id;
 use mixdog_core_base::rooms::ids::room_session_id;
-use super::records::{RoomPatch, RoomRecord, RoomStore, Rooms};
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::coded;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
-use mixdog_protocol::DomainErrorDetail;
-use super::user_send::{RoomSend, UserMessage};
 use mixdog_core_base::support::wrong_method;
+use mixdog_protocol::DomainErrorDetail;
 
 /// An agent contact as the room needs it.
 #[derive(Clone, Debug)]
@@ -176,10 +178,7 @@ fn config_input(input: &Value, base: Option<&RoomRecord>) -> RoomConfigInput {
 }
 
 fn members_of(input: &Value) -> Option<Vec<String>> {
-    input
-        .get("members")
-        .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+    input.get("members").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
 }
 
 fn room_id_of(input: &Value) -> Result<&str, RoomError> {
@@ -342,9 +341,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         }
         let failed = self.host.delete_sessions(&sessions).await;
         if failed > 0 {
-            return Err(RoomError::Port(format!(
-                "The room was updated, but {failed} conversations of removed members could not be deleted."
-            )));
+            return Err(RoomError::Port(format!("The room was updated, but {failed} conversations of removed members could not be deleted.")));
         }
         // `summaryOf(room)` (`agent-rooms.ts:319`), the room as the catalog's `agentRoom` shows it.
         Ok(super::catalog_rows::room_summary(&updated.room, &self.names.names().await, self.runner.is_running(room_id)))
@@ -358,8 +355,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
             // could not be saved only matters for a member session whose deletion failed too.
             let stopped = self.runner.stop(room_id).await;
             self.rooms.remove(room_id).await?;
-            let mut sessions: Vec<String> =
-                room.config.members.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
+            let mut sessions: Vec<String> = room.config.members.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
             sessions.push(session_id);
             let failed = self.host.delete_sessions(&sessions).await;
             self.host.republish_catalog(&replied.hold()).await?;
@@ -419,8 +415,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         if self.runner.is_running(room_id) {
             return Ok(json!({}));
         }
-        let owed: Vec<String> =
-            room.owed.unwrap_or_default().into_iter().filter(|id| room.config.members.contains(id)).collect();
+        let owed: Vec<String> = room.owed.unwrap_or_default().into_iter().filter(|id| room.config.members.contains(id)).collect();
         self.runner.start(room_id, owed).await?;
         Ok(json!({}))
     }
@@ -497,8 +492,6 @@ mod tests {
         }
     }
 
-
-
     /// No user message is sent in these tests.
     struct NoSends;
     #[async_trait]
@@ -507,7 +500,6 @@ mod tests {
             unreachable!("no user message is sent here")
         }
     }
-
 
     #[test]
     fn a_room_id_is_a_valid_room_id() {
@@ -696,6 +688,4 @@ mod tests {
         assert!(!host.archived.load(SeqCst), "the room's log is not archived");
         fake.release.notify_one();
     }
-
-
 }

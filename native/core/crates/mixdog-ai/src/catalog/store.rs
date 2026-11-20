@@ -45,11 +45,17 @@ pub enum ProviderStatus {
     /// kept. It is asked again by a non-forced refresh once `retry_at` (epoch
     /// ms) has passed.
     #[serde(rename_all = "camelCase")]
-    Missing { retry_at: u64, message: String },
+    Missing {
+        retry_at: u64,
+        message: String,
+    },
     /// The refresh failed (or answered nothing) but the provider's last good models are kept and shown: stale. Asked again
     /// like a missing one once `retry_at` has passed; `message` says why the refresh did not replace them.
     #[serde(rename_all = "camelCase")]
-    Stale { retry_at: u64, message: String },
+    Stale {
+        retry_at: u64,
+        message: String,
+    },
 }
 
 impl CatalogSnapshot {
@@ -60,11 +66,7 @@ impl CatalogSnapshot {
 
     /// `catalogMissing`: the providers whose last listing failed.
     pub fn missing(&self) -> Vec<&ProviderId> {
-        self.status
-            .iter()
-            .filter(|(_, s)| matches!(s, ProviderStatus::Missing { .. } | ProviderStatus::Stale { .. }))
-            .map(|(id, _)| id)
-            .collect()
+        self.status.iter().filter(|(_, s)| matches!(s, ProviderStatus::Missing { .. } | ProviderStatus::Stale { .. })).map(|(id, _)| id).collect()
     }
 
     /// `catalogPartial`: some providers answered and some did not.
@@ -260,16 +262,8 @@ mod tests {
     async fn sources_are_built_from_the_full_config_secrets_included() {
         let config = FullProviderConfig {
             providers: vec![
-                ProviderEntry {
-                    id: "a".into(),
-                    enabled: true,
-                    settings: serde_json::json!({"apiKey": "sk-live"}),
-                },
-                ProviderEntry {
-                    id: "off".into(),
-                    enabled: false,
-                    settings: serde_json::json!({"apiKey": "x"}),
-                },
+                ProviderEntry { id: "a".into(), enabled: true, settings: serde_json::json!({"apiKey": "sk-live"}) },
+                ProviderEntry { id: "off".into(), enabled: false, settings: serde_json::json!({"apiKey": "x"}) },
             ],
         };
         let sources = build_sources(&config, &Factory);
@@ -375,10 +369,6 @@ mod tests {
         assert!(catalog.snapshot().complete());
     }
 
-
-
-
-
     #[test]
     #[allow(clippy::disallowed_methods, reason = "test: gives a real thread time to block on the held publish lock")]
     fn an_account_change_cannot_land_inside_a_publish() {
@@ -442,8 +432,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_failures_backoff_runs_from_when_it_failed_not_from_the_slowest_listing() {
         let start = tokio::time::Instant::now();
-        let catalog = ProviderCatalog::new(CatalogSnapshot::default())
-            .with_clock(Arc::new(move || 1_000 + start.elapsed().as_millis() as u64));
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || 1_000 + start.elapsed().as_millis() as u64));
         let failing = ModelSource::new("a".into(), Arc::new(Keyed { key: None }));
         let (slow_ok, _) = slow("b", Some(Duration::from_secs(3)));
         catalog.refresh(&[failing, slow_ok]).await;
@@ -452,8 +441,6 @@ mod tests {
             other => panic!("a should be missing, got {other:?}"),
         }
     }
-
-
 }
 
 impl ProviderCatalog {
@@ -465,11 +452,7 @@ impl ProviderCatalog {
             serial: AtomicU64::new(0),
             flights: Arc::default(),
             failures: Arc::new(CatalogFailureStore::default()),
-            now_ms: Arc::new(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64)
-            }),
+            now_ms: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)),
             #[cfg(test)]
             after_spawn: None,
         }
@@ -497,13 +480,7 @@ impl ProviderCatalog {
         self.epoch.fetch_add(1, Ordering::SeqCst);
         // The failures belonged to the previous account too (`clearProviderCatalogFailures`).
         self.failures.clear();
-        self.current.rcu(|current| {
-            Arc::new(CatalogSnapshot {
-                generation: current.generation + 1,
-                models: BTreeMap::new(),
-                status: BTreeMap::new(),
-            })
-        });
+        self.current.rcu(|current| Arc::new(CatalogSnapshot { generation: current.generation + 1, models: BTreeMap::new(), status: BTreeMap::new() }));
     }
 
     /// One bounded, single-flight listing (`boundedProviderCatalogOp`). The
@@ -597,9 +574,7 @@ impl ProviderCatalog {
         let epoch = self.epoch.load(Ordering::SeqCst);
         let now = (self.now_ms)();
         let current = self.current.load();
-        let nobody_answered = !sources
-            .iter()
-            .any(|s| matches!(current.status.get(s.provider()), Some(ProviderStatus::Ok | ProviderStatus::Stale { .. })));
+        let nobody_answered = !sources.iter().any(|s| matches!(current.status.get(s.provider()), Some(ProviderStatus::Ok | ProviderStatus::Stale { .. })));
         let asked: Vec<&ModelSource> = sources
             .iter()
             .filter(|s| match ask {
@@ -623,10 +598,7 @@ impl ProviderCatalog {
     }
 
     fn publish(&self, listed: Listed) -> RefreshOutcome {
-        let mut outcome = RefreshOutcome {
-            refreshed: Vec::new(),
-            failed: Vec::new(),
-        };
+        let mut outcome = RefreshOutcome { refreshed: Vec::new(), failed: Vec::new() };
         let mut answers = Vec::new();
         for (provider, listing, ended_at) in listed.entries {
             match listing {
@@ -677,11 +649,7 @@ impl ProviderCatalog {
                 models.retain(|provider, _| whole.contains(provider));
                 status.retain(|provider, _| whole.contains(provider));
             }
-            Arc::new(CatalogSnapshot {
-                generation: current.generation + 1,
-                models,
-                status,
-            })
+            Arc::new(CatalogSnapshot { generation: current.generation + 1, models, status })
         });
         outcome
     }

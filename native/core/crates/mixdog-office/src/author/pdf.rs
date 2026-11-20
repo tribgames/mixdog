@@ -19,7 +19,9 @@ use serde_json::{Map, Value, json};
 
 use super::pptx::{Gate, facts_gate_result, gate_staged_deck, geometry_gate_result, plan_gate_result};
 use super::pptx_session::{AuthorError, land_staged_deck, release_existing_session, release_staging_target, staging_target, throw_if_authoring_cancelled};
-use super::{AuthorCall, AuthorHost, flag_is, mark_authored_from_html, opens_with_markup, pick, render_args, replaced_edits_of, requested_path, script_of, script_source};
+use super::{
+    AuthorCall, AuthorHost, flag_is, mark_authored_from_html, opens_with_markup, pick, render_args, replaced_edits_of, requested_path, script_of, script_source,
+};
 use crate::session::SessionHandle;
 use crate::session::registry::lock;
 use crate::session::working_copy::full_path;
@@ -73,7 +75,16 @@ fn html_failed_result(target: &str, error: Option<&Value>, elapsed: Option<&Valu
 
 /// Designed pages through the deck's frame: measured on the sheet, gated, audited, and read into a receipt. A gate that holds
 /// is the answer to return; otherwise the audit and receipt ride on to the printed PDF.
-async fn frame_designed_pages_in<H: AuthorHost>(host: &H, html: &str, target: &str, deck: &Path, brief: &Value, args: &Value, call: &AuthorCall<'_>, prior_audit: Option<Value>) -> Result<Frame, AuthorError> {
+async fn frame_designed_pages_in<H: AuthorHost>(
+    host: &H,
+    html: &str,
+    target: &str,
+    deck: &Path,
+    brief: &Value,
+    args: &Value,
+    call: &AuthorCall<'_>,
+    prior_audit: Option<Value>,
+) -> Result<Frame, AuthorError> {
     let run = match host.run_pptx_html(html, deck, Path::new(target), call.signal, true).await {
         Ok(run) => run,
         Err(RunError::Cancelled) => return Err(AuthorError::Abort("Office authoring was cancelled".to_owned())),
@@ -122,7 +133,15 @@ async fn frame_designed_pages_in<H: AuthorHost>(host: &H, html: &str, target: &s
 
 /// `frameDesignedPages`: the frame runs on a working deck in a folder of its own beside the target, released and removed once
 /// it was read.
-async fn frame_designed_pages<H: AuthorHost>(host: &H, html: &str, target: &str, brief: &Value, args: &Value, call: &AuthorCall<'_>, prior_audit: Option<Value>) -> Result<Frame, AuthorError> {
+async fn frame_designed_pages<H: AuthorHost>(
+    host: &H,
+    html: &str,
+    target: &str,
+    brief: &Value,
+    args: &Value,
+    call: &AuthorCall<'_>,
+    prior_audit: Option<Value>,
+) -> Result<Frame, AuthorError> {
     let folder = Path::new(target).parent().filter(|parent| !parent.as_os_str().is_empty()).map_or_else(|| PathBuf::from("."), Path::to_path_buf);
     let scratch = host.make_directory(&folder, ".mixdog-pdf-frame-").await?;
     let deck = scratch.join("frame.pptx");
@@ -142,7 +161,9 @@ async fn facts_warning<H: AuthorHost>(host: &H, target: &str, brief: &Value) -> 
     let slides: Vec<Value> = pages
         .iter()
         .map(|page| {
-            let text = PAGE_COUNTER.replace_all_with(&page.get("text").filter(|text| !text.is_null()).map(value_to_string).unwrap_or_default(), |caps| caps.get(1).unwrap_or("").to_owned());
+            let text = PAGE_COUNTER.replace_all_with(&page.get("text").filter(|text| !text.is_null()).map(value_to_string).unwrap_or_default(), |caps| {
+                caps.get(1).unwrap_or("").to_owned()
+            });
             json!({ "index": page.get("index").cloned().unwrap_or(Value::Null), "shapes": [{ "text": text }] })
         })
         .collect();
@@ -236,13 +257,18 @@ async fn stage_print_and_land<H: AuthorHost>(
         result.insert("elapsedMs".into(), run.get("elapsedMs").cloned().unwrap_or(Value::Null));
         result.insert(
             "nextAction".into(),
-            json!(if layout.is_some() { "Nothing landed: fix each finding in the HTML (its element and measure are named) and call author again." } else { "Fix the HTML the error names and call author again." }),
+            json!(if layout.is_some() {
+                "Nothing landed: fix each finding in the HTML (its element and measure are named) and call author again."
+            } else {
+                "Fix the HTML the error names and call author again."
+            }),
         );
         return Ok(Printed::Refused(Value::Object(result)));
     }
     host.release_overwritten_session(target).await?;
     land_staged_deck(host, staging, Path::new(target), signal).await?;
-    let receipt = json!({ "pageCount": run.get("pageCount").cloned().unwrap_or(Value::Null), "printableArea": run.get("area").cloned().unwrap_or(Value::Null) });
+    let receipt =
+        json!({ "pageCount": run.get("pageCount").cloned().unwrap_or(Value::Null), "printableArea": run.get("area").cloned().unwrap_or(Value::Null) });
     let session = host.register_html_pdf_session(args, target, target_existed, receipt)?;
     Ok(Printed::Landed { run, session })
 }
@@ -341,7 +367,13 @@ pub async fn author_pdf<H: AuthorHost>(host: &H, args: &Value, call: &AuthorCall
         if let Some(receipt) = framed_read.and_then(|read| read.receipt.as_ref()) {
             result.insert("receipt".into(), host.receipt_for_delivery(&session, receipt));
         }
-        let next = if audit_failed { audit_next } else if frame { FRAME_UNRENDERED_NEXT_ACTION.to_owned() } else { UNRENDERED_NEXT_ACTION.to_owned() };
+        let next = if audit_failed {
+            audit_next
+        } else if frame {
+            FRAME_UNRENDERED_NEXT_ACTION.to_owned()
+        } else {
+            UNRENDERED_NEXT_ACTION.to_owned()
+        };
         result.insert("nextAction".into(), Value::String(next));
         return Ok(Value::Object(result));
     }
@@ -358,10 +390,13 @@ pub async fn author_pdf<H: AuthorHost>(host: &H, args: &Value, call: &AuthorCall
     if let Some(receipt) = rendered.get("receipt").filter(|receipt| mixdog_office_base::values::truthy(receipt)) {
         result.insert("receipt".into(), receipt.clone());
     }
-    result.insert("_images".into(), match rendered.get("_images") {
-        Some(Value::Array(images)) => Value::Array(images.clone()),
-        _ => json!([]),
-    });
+    result.insert(
+        "_images".into(),
+        match rendered.get("_images") {
+            Some(Value::Array(images)) => Value::Array(images.clone()),
+            _ => json!([]),
+        },
+    );
     let next = if audit_failed {
         format!("{audit_next} The rendered pages are attached; the visual read starts once the audit passes.")
     } else if frame {

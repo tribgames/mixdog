@@ -87,7 +87,8 @@ mod tests {
         for yes in ["application/json", "Application/JSON; charset=utf-8", " application/json ", "application/json ;x=1", "application/json;"] {
             assert!(is_json(yes), "{yes}");
         }
-        for no in ["", "text/plain", "application/jsonp", "application/json-seq", "application/x-www-form-urlencoded", "multipart/form-data", "application/jso"] {
+        for no in ["", "text/plain", "application/jsonp", "application/json-seq", "application/x-www-form-urlencoded", "multipart/form-data", "application/jso"]
+        {
             assert!(!is_json(no), "{no}");
         }
     }
@@ -102,7 +103,6 @@ mod tests {
         assert_eq!(active.load(Ordering::SeqCst), 0);
     }
 }
-
 
 impl FeedbackEndpoint {
     pub fn new(service: Option<FeedbackService>) -> Self {

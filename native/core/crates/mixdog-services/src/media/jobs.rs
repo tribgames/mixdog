@@ -62,7 +62,10 @@ fn references_of(value: Option<&Value>, max: usize) -> Result<Vec<Reference>, Me
             }
             None => {
                 let name = entry.get("name").and_then(Value::as_str).unwrap_or_default();
-                blockers.push(Refusal::new(super::references::reference_origin(index, &Reference { name: name.to_owned(), ..Reference::base64("") }), Reason::MalformedDataUrl));
+                blockers.push(Refusal::new(
+                    super::references::reference_origin(index, &Reference { name: name.to_owned(), ..Reference::base64("") }),
+                    Reason::MalformedDataUrl,
+                ));
             }
         }
     }
@@ -70,7 +73,8 @@ fn references_of(value: Option<&Value>, max: usize) -> Result<Vec<Reference>, Me
         return Ok(references);
     }
     let not_sent = NotSent::new(blockers);
-    let code = if not_sent.blockers.iter().all(|b| matches!(b.reason, Reason::OverCount { .. })) { "MEDIA_TOO_MANY_REFERENCES" } else { "MEDIA_REFERENCE_INVALID" };
+    let code =
+        if not_sent.blockers.iter().all(|b| matches!(b.reason, Reason::OverCount { .. })) { "MEDIA_TOO_MANY_REFERENCES" } else { "MEDIA_REFERENCE_INVALID" };
     let mut failure = MediaFailure::new(not_sent.message(), code);
     failure.refusal = Some(Box::new(not_sent));
     Err(failure)
@@ -88,11 +92,12 @@ fn refusal_json(not_sent: &mixdog_image_egress::NotSent) -> Value {
 }
 
 async fn validate_references(references: &mut [Reference]) -> Result<(), MediaFailure> {
+    use super::references::{ReferenceSource, reference_origin};
     use mixdog_core_api::domain::image_supply::{SupplyError, data_url_payload, installed};
     use mixdog_image_egress::{NotSent, Outcome, Reason, Refusal};
-    use super::references::{ReferenceSource, reference_origin};
 
-    let unavailable = |why: &str| MediaFailure::new(format!("Nothing was sent. The reference images could not be checked ({why})."), "MEDIA_REFERENCE_UNAVAILABLE");
+    let unavailable =
+        |why: &str| MediaFailure::new(format!("Nothing was sent. The reference images could not be checked ({why})."), "MEDIA_REFERENCE_UNAVAILABLE");
     let mut blockers = Vec::new();
     for (index, reference) in references.iter_mut().enumerate() {
         let source = match &reference.source {
@@ -239,11 +244,23 @@ impl MediaJobs {
     }
 
     /// [with_renditions](Self::with_renditions) that also bills every generation to ledger.
-    pub fn with_ledger(store: Arc<MediaStore>, generator: Arc<dyn MediaGenerator>, max_active: Option<usize>, renditions: Option<StillRenditions>, ledger: Arc<dyn MediaUsageLedger>) -> Arc<Self> {
+    pub fn with_ledger(
+        store: Arc<MediaStore>,
+        generator: Arc<dyn MediaGenerator>,
+        max_active: Option<usize>,
+        renditions: Option<StillRenditions>,
+        ledger: Arc<dyn MediaUsageLedger>,
+    ) -> Arc<Self> {
         Self::build(store, generator, max_active, renditions, Some(ledger))
     }
 
-    fn build(store: Arc<MediaStore>, generator: Arc<dyn MediaGenerator>, max_active: Option<usize>, renditions: Option<StillRenditions>, ledger: Option<Arc<dyn MediaUsageLedger>>) -> Arc<Self> {
+    fn build(
+        store: Arc<MediaStore>,
+        generator: Arc<dyn MediaGenerator>,
+        max_active: Option<usize>,
+        renditions: Option<StillRenditions>,
+        ledger: Option<Arc<dyn MediaUsageLedger>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             store,
             generator,
@@ -273,7 +290,8 @@ impl MediaJobs {
     /// Drops the finished jobs past their TTL and tells the section; the table is the caller's guard.
     fn sweep(&self, jobs: &mut HashMap<String, Job>) {
         let now = (self.store.marks().now)();
-        let gone: Vec<String> = jobs.iter().filter(|(_, j)| j.snapshot["endedAt"].as_i64().is_some_and(|ended| now - ended > TERMINAL_TTL_MS)).map(|(id, _)| id.clone()).collect();
+        let gone: Vec<String> =
+            jobs.iter().filter(|(_, j)| j.snapshot["endedAt"].as_i64().is_some_and(|ended| now - ended > TERMINAL_TTL_MS)).map(|(id, _)| id.clone()).collect();
         for id in gone {
             jobs.remove(&id);
             let _ = self.updates.send(JobEvent::Swept(id));
@@ -310,10 +328,7 @@ impl MediaJobs {
             self.sweep(&mut jobs);
             let active = jobs.values().filter(|j| j.snapshot["status"] == "running").count();
             if active >= self.max_active {
-                return Err(MediaFailure::new(
-                    format!("too many media generations are already running ({active}/{})", self.max_active),
-                    "MEDIA_TOO_MANY_JOBS",
-                ));
+                return Err(MediaFailure::new(format!("too many media generations are already running ({active}/{})", self.max_active), "MEDIA_TOO_MANY_JOBS"));
             }
             jobs.insert(id.clone(), Job { snapshot: snapshot.clone(), cancel: cancel.clone() });
         }
@@ -330,7 +345,17 @@ impl MediaJobs {
     }
 
     #[allow(clippy::too_many_arguments, reason = "one job's whole input")]
-    async fn run(self: Arc<Self>, id: String, resolved: ResolvedMedia, prompt: String, options: Value, references: Vec<Reference>, board_id: String, who: Who, cancel: CancellationToken) {
+    async fn run(
+        self: Arc<Self>,
+        id: String,
+        resolved: ResolvedMedia,
+        prompt: String,
+        options: Value,
+        references: Vec<Reference>,
+        board_id: String,
+        who: Who,
+        cancel: CancellationToken,
+    ) {
         let progress = {
             let (this, id) = (self.clone(), id.clone());
             Arc::new(move |value: f64| {
@@ -350,7 +375,17 @@ impl MediaJobs {
             Err(MediaFailure::new("canceled", "MEDIA_CANCELED"))
         } else {
             self.generator
-                .generate(GenerationRequest { resolved: resolved.clone(), prompt: prompt.clone(), options: options.clone(), references, cancel: cancel.clone(), account: who.account.clone(), session_id: who.session_id.clone(), source_type: who.source_type.clone(), progress })
+                .generate(GenerationRequest {
+                    resolved: resolved.clone(),
+                    prompt: prompt.clone(),
+                    options: options.clone(),
+                    references,
+                    cancel: cancel.clone(),
+                    account: who.account.clone(),
+                    session_id: who.session_id.clone(),
+                    source_type: who.source_type.clone(),
+                    progress,
+                })
                 .await
         };
         // Billed once the provider returned a result, whatever happens to the bytes next; a failure is
@@ -409,7 +444,14 @@ impl MediaJobs {
                     }
                     if !canceled {
                         // The snapshot is the only record of a failure and it is swept: keep the reason.
-                        mixdog_rt::node_console_error!("[media] job failed lane={} model={} kind={} code={}: {}", described.0, described.1, described.2, failure.code.as_deref().unwrap_or("none"), mixdog_js::slice_utf16(&failure.message, 500));
+                        mixdog_rt::node_console_error!(
+                            "[media] job failed lane={} model={} kind={} code={}: {}",
+                            described.0,
+                            described.1,
+                            described.2,
+                            failure.code.as_deref().unwrap_or("none"),
+                            mixdog_js::slice_utf16(&failure.message, 500)
+                        );
                     }
                 }
             }
@@ -421,7 +463,17 @@ impl MediaJobs {
     async fn bill(&self, resolved: &ResolvedMedia, usage: Option<&Value>, who: &Who) {
         let Some(ledger) = &self.ledger else { return };
         let pricing_model = if resolved.lane == "openai-oauth" { resolved.request_model.as_deref() } else { None };
-        ledger.record(MediaUsageCall { lane: &resolved.lane, model: &resolved.model, pricing_model, usage, session_id: &who.session_id, source_type: &who.source_type, account: &who.account }).await;
+        ledger
+            .record(MediaUsageCall {
+                lane: &resolved.lane,
+                model: &resolved.model,
+                pricing_model,
+                usage,
+                session_id: &who.session_id,
+                source_type: &who.source_type,
+                account: &who.account,
+            })
+            .await;
     }
 
     pub async fn lanes(&self) -> Value {
@@ -525,10 +577,9 @@ mod tests {
     #[tokio::test]
     async fn malformed_and_oversized_images_are_refused_before_registering_a_job() {
         let (_d, _s, jobs, _fake) = jobs(false, 4);
-        for (data, reason) in [
-            ("data:image/png,".to_owned(), Reason::MalformedDataUrl),
-            ("A".repeat(MAX_REFERENCE_BYTES.div_ceil(3) * 4 + 4), Reason::TooLarge),
-        ] {
+        for (data, reason) in
+            [("data:image/png,".to_owned(), Reason::MalformedDataUrl), ("A".repeat(MAX_REFERENCE_BYTES.div_ceil(3) * 4 + 4), Reason::TooLarge)]
+        {
             let mut input = request();
             input["references"] = json!([{"base64": data, "name": "source.png"}]);
             let mut updates = jobs.subscribe();
@@ -618,7 +669,13 @@ mod tests {
         async fn generate(&self, request: GenerationRequest) -> Result<GeneratedMedia, MediaFailure> {
             self.asked.lock().unwrap().push(("generate".into(), request.account, request.session_id, request.source_type));
             match &self.outcome {
-                Ok(media) => Ok(GeneratedMedia { bytes: media.bytes.clone(), mime: media.mime.clone(), revised_prompt: None, duration_seconds: media.duration_seconds, usage: media.usage.clone() }),
+                Ok(media) => Ok(GeneratedMedia {
+                    bytes: media.bytes.clone(),
+                    mime: media.mime.clone(),
+                    revised_prompt: None,
+                    duration_seconds: media.duration_seconds,
+                    usage: media.usage.clone(),
+                }),
                 Err(failure) => Err(failure.clone()),
             }
         }
@@ -633,11 +690,22 @@ mod tests {
     #[async_trait]
     impl MediaUsageLedger for Rows {
         async fn record(&self, call: MediaUsageCall<'_>) {
-            self.0.lock().unwrap().push((call.lane.into(), call.model.into(), call.pricing_model.map(str::to_owned), call.usage.cloned(), call.session_id.into(), call.source_type.into(), call.account.into()));
+            self.0.lock().unwrap().push((
+                call.lane.into(),
+                call.model.into(),
+                call.pricing_model.map(str::to_owned),
+                call.usage.cloned(),
+                call.session_id.into(),
+                call.source_type.into(),
+                call.account.into(),
+            ));
         }
     }
 
-    fn billed_jobs(outcome: Result<GeneratedMedia, MediaFailure>, request_model: Option<&str>) -> (tempfile::TempDir, Arc<MediaJobs>, Arc<Scripted>, Arc<Rows>) {
+    fn billed_jobs(
+        outcome: Result<GeneratedMedia, MediaFailure>,
+        request_model: Option<&str>,
+    ) -> (tempfile::TempDir, Arc<MediaJobs>, Arc<Scripted>, Arc<Rows>) {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io));
         let generator = Arc::new(Scripted { outcome, request_model: request_model.map(str::to_owned), asked: Mutex::new(Vec::new()) });
@@ -662,7 +730,13 @@ mod tests {
         assert_eq!(settled(&jobs, &id).await["status"], "done");
         assert_eq!(*rows.0.lock().unwrap(), vec![("gemini".into(), "m".into(), None, Some(usage), "sess-1".into(), "lead".into(), "work".into())]);
         // The account the job is pinned to reaches both the catalog check and the adapter, trimmed.
-        assert_eq!(*generator.asked.lock().unwrap(), vec![("resolve".to_owned(), "work".to_owned(), String::new(), String::new()), ("generate".to_owned(), "work".to_owned(), "sess-1".to_owned(), "lead".to_owned())]);
+        assert_eq!(
+            *generator.asked.lock().unwrap(),
+            vec![
+                ("resolve".to_owned(), "work".to_owned(), String::new(), String::new()),
+                ("generate".to_owned(), "work".to_owned(), "sess-1".to_owned(), "lead".to_owned())
+            ]
+        );
     }
 
     #[tokio::test]
@@ -673,7 +747,11 @@ mod tests {
         let id = jobs.start(&input).await.unwrap()["id"].as_str().unwrap().to_owned();
         settled(&jobs, &id).await;
         let rows = rows.0.lock().unwrap();
-        assert_eq!((rows[0].0.as_str(), rows[0].2.as_deref(), rows[0].3.clone()), ("openai-oauth", Some("gpt-5.5"), None), "a result without usage still makes its row");
+        assert_eq!(
+            (rows[0].0.as_str(), rows[0].2.as_deref(), rows[0].3.clone()),
+            ("openai-oauth", Some("gpt-5.5"), None),
+            "a result without usage still makes its row"
+        );
     }
 
     #[tokio::test]

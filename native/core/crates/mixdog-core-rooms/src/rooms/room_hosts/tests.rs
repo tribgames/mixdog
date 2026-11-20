@@ -1,6 +1,5 @@
 use std::sync::atomic::Ordering;
 
-
 use super::*;
 use crate::rooms::calls::tests::{Fake, status};
 use crate::rooms::room_relay::tests::{options, relay_over};
@@ -18,9 +17,6 @@ impl FollowRecord for NoRecord {
 fn follow() -> WakeFollow {
     WakeFollow::new(Arc::new(NoRecord))
 }
-
-
-
 
 #[tokio::test]
 async fn the_attached_core_relays_in_its_room_and_a_detached_one_refuses_with_nodes_text() {
@@ -50,5 +46,3 @@ async fn the_attached_core_relays_in_its_room_and_a_detached_one_refuses_with_no
     assert_eq!(after.err().as_deref(), Some(NO_HOST));
     assert!(runner.seen.lock().unwrap().is_empty());
 }
-
-

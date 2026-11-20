@@ -37,11 +37,8 @@ fn lost_part_row(mut row: Value, lost_text: bool, lost_calls: &[ToolCall]) -> Va
     }
     if !lost_calls.is_empty() {
         let kept = calls.as_ref().and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let lost: Vec<Value> = kept
-            .iter()
-            .filter(|call| call.get("id").and_then(Value::as_str).is_some_and(|id| lost_calls.iter().any(|l| l.id == id)))
-            .cloned()
-            .collect();
+        let lost: Vec<Value> =
+            kept.iter().filter(|call| call.get("id").and_then(Value::as_str).is_some_and(|id| lost_calls.iter().any(|l| l.id == id))).cloned().collect();
         fields.insert("toolCalls".into(), Value::Array(lost));
     }
     row
@@ -59,9 +56,7 @@ struct Projection {
 fn has_text(content: &Content) -> bool {
     match content {
         Content::Text(text) => !js_trim(text).is_empty(),
-        Content::Parts(parts) => {
-            parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if !js_trim(text).is_empty()))
-        }
+        Content::Parts(parts) => parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if !js_trim(text).is_empty())),
     }
 }
 
@@ -124,8 +119,7 @@ fn projection(before: &[AgentMessage], after: &[AgentMessage], stored: &dyn Mess
         let Some(id) = message.message_id.as_deref().filter(|id| !id.is_empty()) else {
             continue;
         };
-        let copies: Vec<&AgentMessage> =
-            after.iter().filter(|copy| copy.message_id.as_deref() == Some(id)).collect();
+        let copies: Vec<&AgentMessage> = after.iter().filter(|copy| copy.message_id.as_deref() == Some(id)).collect();
         if copies.is_empty() {
             messages.push(message.clone());
             rows.push(stored.row(message));
@@ -139,8 +133,7 @@ fn projection(before: &[AgentMessage], after: &[AgentMessage], stored: &dyn Mess
             .filter(|call| !copies.iter().any(|copy| copy.tool_calls().iter().any(|k| k.id == call.id)))
             .cloned()
             .collect();
-        let lost_text =
-            has_text(&message.message.content) && !copies.iter().any(|copy| has_text(&copy.message.content));
+        let lost_text = has_text(&message.message.content) && !copies.iter().any(|copy| has_text(&copy.message.content));
         if lost.is_empty() && !lost_text {
             continue;
         }

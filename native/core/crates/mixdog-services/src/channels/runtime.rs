@@ -139,12 +139,7 @@ impl RuntimeStatus {
 }
 
 impl ChannelRuntime {
-    pub fn new(
-        scheduler: Scheduler,
-        schedules: Arc<dyn ScheduleRecords>,
-        services: Arc<dyn AutomationServices>,
-        agent: Arc<dyn AgentRuntime>,
-    ) -> Arc<Self> {
+    pub fn new(scheduler: Scheduler, schedules: Arc<dyn ScheduleRecords>, services: Arc<dyn AutomationServices>, agent: Arc<dyn AgentRuntime>) -> Arc<Self> {
         Arc::new(Self {
             scheduler,
             schedules,
@@ -212,7 +207,6 @@ impl ChannelRuntime {
         let st = self.state.lock().unwrap();
         RuntimeStatus { running: st.automation_running || st.bridge_connected, pid: std::process::id() }
     }
-
 
     /// Whether the scheduler is armed by this process (schedules then move through it).
     pub fn automation_running(&self) -> bool {
@@ -522,16 +516,11 @@ impl ChannelLifecycle for ChannelRuntime {
     /// Rename and re-arm under one reservation: the scheduler is reloaded from the renamed
     /// row (timers and one-shots of the old name cleared) before the name is released.
     async fn rename_schedule(&self, name: &str, def: &Value, timing_changed: bool) -> Result<Value, ScheduleError> {
-        let def: Schedule = serde_json::from_value(def.clone())
-            .map_err(|e| ScheduleError::Store(format!("rename_schedule: the schedule definition is invalid: {e}")))?;
+        let def: Schedule =
+            serde_json::from_value(def.clone()).map_err(|e| ScheduleError::Store(format!("rename_schedule: the schedule definition is invalid: {e}")))?;
         let renamed = self
             .scheduler
-            .rename_locked(
-                name,
-                &def.name,
-                || self.schedules.rename(name, &def, timing_changed),
-                || async { self.reload_runtime().await },
-            )
+            .rename_locked(name, &def.name, || self.schedules.rename(name, &def, timing_changed), || async { self.reload_runtime().await })
             .await?;
         Ok(serde_json::to_value(renamed).unwrap_or(Value::Null))
     }

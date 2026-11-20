@@ -30,8 +30,8 @@ use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
 use super::redirect::ignores_sampling;
 use super::tool_accept;
 use super::traits::ModelTraits;
-use crate::providers::compat::schema::report_exclusion;
 use super::traits::ThinkingControl;
+use crate::providers::compat::schema::report_exclusion;
 
 /// A synthetic signature Google documents as the escape hatch for a history
 /// that has no real one for the active turn's first call.
@@ -95,16 +95,12 @@ fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
             json!({ "fileData": { "fileUri": uri } })
         }
         // Only a PDF rides as `inlineData`; any other file is its text or its description (`normalizeContentForGeminiParts`).
-        ContentPart::File {
-            source: mixdog_core_api::domain::provider::BinarySource::Base64(data),
-            mime_type,
-            filename,
-            ..
-        } => file_part(filename.as_deref(), mime_type, data),
-        ContentPart::File {
-            source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef(_),
-            ..
-        } => return Err(invalid("an attachment reference must be resolved before the request is encoded")),
+        ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::Base64(data), mime_type, filename, .. } => {
+            file_part(filename.as_deref(), mime_type, data)
+        }
+        ContentPart::File { source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef(_), .. } => {
+            return Err(invalid("an attachment reference must be resolved before the request is encoded"));
+        }
         ContentPart::Document { source, title } => match source {
             DocumentSource::Base64 { media_type, data } => file_part(title.as_deref(), media_type, data),
             DocumentSource::Text { data, .. } => json!({ "text": data }),
@@ -156,9 +152,12 @@ fn gemini_wire_replay(message: &Message) -> Option<&ProviderReplay> {
 /// envelope, by another model; neither it nor the signed metadata of the same response may reach the request.
 fn foreign_replay(message: &Message, model: &str, traits: &dyn ModelTraits) -> bool {
     let Some(replay) = gemini_wire_replay(message) else { return false };
-    replay.items.get("model").and_then(Value::as_str).filter(|recorded| !recorded.is_empty()).is_some_and(|recorded| {
-        !traits.is_gemini_family(recorded) || (replay.owner == *GEMINI_OWNER && !model.is_empty() && recorded != model)
-    })
+    replay
+        .items
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|recorded| !recorded.is_empty())
+        .is_some_and(|recorded| !traits.is_gemini_family(recorded) || (replay.owner == *GEMINI_OWNER && !model.is_empty() && recorded != model))
 }
 
 /// The recorded model parts of an assistant turn (`orderedReplay`), unless the envelope is foreign.
@@ -243,7 +242,9 @@ fn claude_replay_parts(parts: Vec<Value>, own: bool) -> Vec<Value> {
     });
     // `isEmptyPlainTextPart`: the Claude bridge rejects an empty text part on replay.
     let kept = signed
-        .filter(|part| !(part.get("text").and_then(Value::as_str) == Some("") && !is_thought(part) && !part.get("thoughtSignature").is_some_and(Value::is_string)))
+        .filter(|part| {
+            !(part.get("text").and_then(Value::as_str) == Some("") && !is_thought(part) && !part.get("thoughtSignature").is_some_and(Value::is_string))
+        })
         .collect();
     coalesce_claude_thoughts(kept).into_iter().filter(|part| !is_thought(part) || own_claude_signature(part)).collect()
 }
@@ -302,12 +303,7 @@ fn metadata_text_parts(message: &Message) -> Option<Vec<Value>> {
 }
 
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn model_content(
-    message: &Message,
-    dialect: &Dialect,
-    model: &str,
-    traits: &dyn ModelTraits,
-) -> Result<Option<Value>, ProviderError> {
+fn model_content(message: &Message, dialect: &Dialect, model: &str, traits: &dyn ModelTraits) -> Result<Option<Value>, ProviderError> {
     // Antigravity first takes the parts it recorded itself (`signatureSafeMessages`); every route then builds the turn
     // as `toGeminiContent` does: a Gemini-wire envelope's parts, else the stored metadata and the message itself.
     let own = if dialect.family_gated { antigravity_own_parts(message, dialect, model) } else { None };
@@ -350,9 +346,7 @@ fn model_content(
         // the recovery sentinel, and a missing one is never made up.
         for part in &mut parts {
             let signed = part.get("thoughtSignature").is_some_and(Value::is_string);
-            if (is_thought(part) || signed)
-                && (!recorded || !part.get("thoughtSignature").and_then(Value::as_str).is_some_and(|s| !s.is_empty()))
-            {
+            if (is_thought(part) || signed) && (!recorded || !part.get("thoughtSignature").and_then(Value::as_str).is_some_and(|s| !s.is_empty())) {
                 part["thoughtSignature"] = json!(SIGNATURE_SENTINEL);
             }
         }
@@ -364,8 +358,7 @@ fn model_content(
 }
 
 fn is_tool_result_turn(content: &Value) -> bool {
-    content["role"] == "user"
-        && content["parts"].as_array().is_some_and(|parts| parts.iter().any(|p| p.get("functionResponse").is_some_and(|r| !r.is_null())))
+    content["role"] == "user" && content["parts"].as_array().is_some_and(|parts| parts.iter().any(|p| p.get("functionResponse").is_some_and(|r| !r.is_null())))
 }
 
 fn has_signed_thinking(content: &Value) -> bool {
@@ -510,11 +503,7 @@ fn tool_result_parts(
         Content::Text(_) => Vec::new(),
     };
     let text = text_of(&message.content);
-    let text = if text.is_empty() && !media.is_empty() {
-        "[tool result included media content]".to_owned()
-    } else {
-        text
-    };
+    let text = if text.is_empty() && !media.is_empty() { "[tool result included media content]".to_owned() } else { text };
     let key = if message.is_error { "error" } else { "result" };
     let mut response = json!({ "name": name, "response": { key: text } });
     let id = match replayed {
@@ -595,13 +584,9 @@ fn contents(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits)
 /// Every model step of the active turn must open its first call with a
 /// signature; a history without a real one gets the documented sentinel.
 fn ensure_signatures(contents: &mut [Value]) {
-    let has = |content: &Value, key: &str| {
-        content["parts"].as_array().is_some_and(|p| p.iter().any(|x| x.get(key).is_some()))
-    };
-    let start = contents
-        .iter()
-        .rposition(|c| c["role"] == "user" && c["parts"].as_array().is_some_and(|p| !p.is_empty()) && !has(c, "functionResponse"))
-        .unwrap_or(0);
+    let has = |content: &Value, key: &str| content["parts"].as_array().is_some_and(|p| p.iter().any(|x| x.get(key).is_some()));
+    let start =
+        contents.iter().rposition(|c| c["role"] == "user" && c["parts"].as_array().is_some_and(|p| !p.is_empty()) && !has(c, "functionResponse")).unwrap_or(0);
     for content in contents.iter_mut().skip(start) {
         if content["role"] != "model" {
             continue;
@@ -612,9 +597,7 @@ fn ensure_signatures(contents: &mut [Value]) {
         let Some(first) = parts.iter_mut().find(|p| p.get("functionCall").is_some()) else {
             continue;
         };
-        let signed = ["thoughtSignature", "thought_signature"]
-            .iter()
-            .any(|k| first.get(*k).and_then(Value::as_str).is_some_and(|s| !s.is_empty()));
+        let signed = ["thoughtSignature", "thought_signature"].iter().any(|k| first.get(*k).and_then(Value::as_str).is_some_and(|s| !s.is_empty()));
         if !signed {
             first["thoughtSignature"] = json!(SIGNATURE_SENTINEL);
         }
@@ -626,26 +609,17 @@ fn param<'a>(options: &'a RequestOptions, key: &str) -> Option<&'a Value> {
 }
 
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn thinking_config(
-    request: &ModelRequest,
-    traits: &dyn ModelTraits,
-    include_thoughts: Option<bool>,
-) -> Result<Option<Value>, ProviderError> {
+fn thinking_config(request: &ModelRequest, traits: &dyn ModelTraits, include_thoughts: Option<bool>) -> Result<Option<Value>, ProviderError> {
     let options = &request.options;
     let model = &request.model;
     let budget = match param(options, "thinkingBudget") {
         None => None,
-        Some(v) => Some(v.as_i64().filter(|b| *b >= -1).ok_or_else(|| {
-            invalid("thinkingBudget must be -1 (dynamic), 0, or a positive integer.")
-        })?),
+        Some(v) => Some(v.as_i64().filter(|b| *b >= -1).ok_or_else(|| invalid("thinkingBudget must be -1 (dynamic), 0, or a positive integer."))?),
     };
     let control = traits.thinking(model);
     let norm = |s: &str| s.trim().to_lowercase();
     let explicit = param(options, "thinkingLevel").and_then(Value::as_str).map(norm).filter(|s| !s.is_empty());
-    let level = explicit
-        .clone()
-        .or_else(|| if budget.is_none() { options.effort.as_deref().map(norm) } else { None })
-        .filter(|s| !s.is_empty());
+    let level = explicit.clone().or_else(|| if budget.is_none() { options.effort.as_deref().map(norm) } else { None }).filter(|s| !s.is_empty());
     let mut config = Map::new();
     let thoughts = param(options, "includeThoughts").and_then(Value::as_bool).or(include_thoughts);
     if let Some(thoughts) = thoughts {
@@ -657,17 +631,11 @@ fn thinking_config(
     match (&control, &level) {
         (ThinkingControl::Budget(spec), Some(level)) => {
             if explicit.is_some() {
-                return Err(invalid(format!(
-                    "{model} ({}) does not support thinkingLevel; use thinkingBudget.",
-                    spec.name
-                )));
+                return Err(invalid(format!("{model} ({}) does not support thinkingLevel; use thinkingBudget.", spec.name)));
             }
             let Some((_, value)) = spec.efforts.iter().find(|(name, _)| name == level) else {
                 let known: Vec<&str> = spec.efforts.iter().map(|(n, _)| n.as_str()).collect();
-                return Err(invalid(format!(
-                    "{model} supports thinking levels {}; received {level}.",
-                    known.join(", ")
-                )));
+                return Err(invalid(format!("{model} supports thinking levels {}; received {level}.", known.join(", "))));
             };
             config.insert("thinkingBudget".into(), json!(value));
         }
@@ -677,10 +645,7 @@ fn thinking_config(
                 _ => THINKING_LEVELS.iter().map(|s| (*s).to_owned()).collect(),
             };
             if !supported.contains(level) {
-                return Err(invalid(format!(
-                    "{model} supports thinking levels {}; received {level}.",
-                    supported.join(", ")
-                )));
+                return Err(invalid(format!("{model} supports thinking levels {}; received {level}.", supported.join(", "))));
             }
             config.insert("thinkingLevel".into(), json!(level));
         }
@@ -691,10 +656,7 @@ fn thinking_config(
             && budget != -1
         {
             if budget == 0 && !spec.can_disable {
-                return Err(invalid(format!(
-                    "{model} ({}) cannot disable thinking; thinkingBudget 0 is not allowed.",
-                    spec.name
-                )));
+                return Err(invalid(format!("{model} ({}) cannot disable thinking; thinkingBudget 0 is not allowed.", spec.name)));
             }
             if budget != 0 && (budget < spec.min || budget > spec.max) {
                 return Err(invalid(format!(
@@ -738,11 +700,7 @@ pub fn antigravity_claude(model: &str) -> bool {
 
 /// The Gemini-shaped request object for `request`.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-pub fn build_request(
-    request: &ModelRequest,
-    dialect: &Dialect,
-    traits: &dyn ModelTraits,
-) -> Result<Value, ProviderError> {
+pub fn build_request(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits) -> Result<Value, ProviderError> {
     let family = traits.is_gemini_family(&request.model);
     let gemini_fields = !dialect.family_gated || family;
     let mut contents = contents(request, dialect, traits)?;
@@ -776,12 +734,7 @@ pub fn build_request(
     } else {
         None
     };
-    let system: Vec<String> = request
-        .messages
-        .iter()
-        .filter(|m| m.role == Role::System)
-        .map(|m| text_of(&m.content))
-        .collect();
+    let system: Vec<String> = request.messages.iter().filter(|m| m.role == Role::System).map(|m| text_of(&m.content)).collect();
     let system = system.join("\n\n");
     let mut body = Map::new();
     body.insert("contents".into(), Value::Array(contents));
@@ -805,9 +758,7 @@ pub fn build_request(
     } else {
         tool_accept::Declarations::Plain
     };
-    let declarations = tool_accept::function_declarations(&request.tools, mode, &mut |excluded| {
-        report_exclusion(&request.options, excluded)
-    });
+    let declarations = tool_accept::function_declarations(&request.tools, mode, &mut |excluded| report_exclusion(&request.options, excluded));
     // Hosted tools ahead of the one function-declaration entry (`toGeminiRequestTools`, gemini-schema.mjs:805-810); the
     // tool config only accompanies kept declarations.
     let mut tools = crate::providers::hosted::gemini_tools(&request.options);
@@ -881,12 +832,7 @@ mod tests {
     #[test]
     fn tool_loop_pairs_calls_results_and_signs_the_active_turn() {
         let mut call = msg(Role::Assistant, "");
-        call.tool_calls.push(ToolCall {
-            id: "gemini_abc".into(),
-            name: "lookup".into(),
-            arguments: json!({"key": "answer"}),
-            native_type: None,
-        });
+        call.tool_calls.push(ToolCall { id: "gemini_abc".into(), name: "lookup".into(), arguments: json!({"key": "answer"}), native_type: None });
         let mut result = msg(Role::Tool, "42");
         result.tool_call_id = Some("gemini_abc".into());
         let request = ModelRequest {
@@ -954,12 +900,7 @@ mod tests {
         };
         let both = request(vec![tool("good", good.clone()), tool("dangling", dangling.clone())]);
         let body = build_request(&both, &dialect(), &AllGemini).unwrap();
-        let names: Vec<&str> = body["tools"][0]["functionDeclarations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|d| d["name"].as_str().unwrap())
-            .collect();
+        let names: Vec<&str> = body["tools"][0]["functionDeclarations"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["good"]);
 
         let only_bad = request(vec![tool("dangling", dangling.clone())]);
@@ -969,12 +910,7 @@ mod tests {
         let mut gated = dialect();
         gated.family_gated = true;
         let body = build_request(&both, &gated, &NoGemini).unwrap();
-        let names: Vec<&str> = body["tools"][0]["functionDeclarations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|d| d["name"].as_str().unwrap())
-            .collect();
+        let names: Vec<&str> = body["tools"][0]["functionDeclarations"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["good", "dangling"], "another family is not validated");
     }
 
@@ -992,10 +928,7 @@ mod tests {
             },
         };
         let body = build_request(&request, &dialect(), &AllGemini).unwrap();
-        assert_eq!(
-            body["generationConfig"],
-            json!({"thinkingConfig": {"includeThoughts": true, "thinkingLevel": "high"}, "maxOutputTokens": 8192})
-        );
+        assert_eq!(body["generationConfig"], json!({"thinkingConfig": {"includeThoughts": true, "thinkingLevel": "high"}, "maxOutputTokens": 8192}));
         request.options.effort = Some("extreme".into());
         assert_eq!(build_request(&request, &dialect(), &AllGemini).unwrap_err().kind, ErrorKind::InvalidRequest);
     }

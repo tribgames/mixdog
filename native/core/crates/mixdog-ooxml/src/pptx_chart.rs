@@ -7,8 +7,8 @@ use serde_json::{Map, Value, json};
 
 use crate::blank::chart_workbook;
 use crate::opc::{
-    CHART_CONTENT_TYPE, PACKAGE_RELATIONSHIP_NS, WORKBOOK_CONTENT_TYPE, ensure_content_type_override, ensure_default_content_type,
-    part_relationship_path, posix, relationship_map, relationship_target,
+    CHART_CONTENT_TYPE, PACKAGE_RELATIONSHIP_NS, WORKBOOK_CONTENT_TYPE, ensure_content_type_override, ensure_default_content_type, part_relationship_path,
+    posix, relationship_map, relationship_target,
 };
 use crate::pptx_package::{SlideRef, slide_path};
 use crate::slide_shapes::{SLIDE_SHAPE_TAGS, num, replace_first_text, to_emu};
@@ -16,14 +16,8 @@ use crate::xml::{OFFICE_RELATIONSHIP_BASE, XML_HEADER, compiled, container_inner
 use crate::zipio::Package;
 
 /// `LABEL_POSITION_CODES`: the word a caller writes for a data label position and the code the chart stores.
-pub const LABEL_POSITION_CODES: [(&str, &str); 6] = [
-    ("inside_end", "inEnd"),
-    ("inside_base", "inBase"),
-    ("outside_end", "outEnd"),
-    ("center", "ctr"),
-    ("centre", "ctr"),
-    ("best_fit", "bestFit"),
-];
+pub const LABEL_POSITION_CODES: [(&str, &str); 6] =
+    [("inside_end", "inEnd"), ("inside_base", "inBase"), ("outside_end", "outEnd"), ("center", "ctr"), ("centre", "ctr"), ("best_fit", "bestFit")];
 
 /// The word `LABEL_POSITION_NAMES` gives a code (the last word that names it).
 fn label_position_name(code: &str) -> &'static str {
@@ -95,22 +89,31 @@ pub fn read_chart_presentation(xml: &str) -> Value {
     presentation.insert("pointColors".to_owned(), Value::Array(point_colors));
     presentation.insert("showValues".to_owned(), Value::Bool(compiled(r#"<c:showVal val="1"/>"#, "").is_match(&labels)));
     presentation.insert("dataLabelPosition".to_owned(), Value::from(label_position_name(&code)));
-    presentation.insert(
-        "dataLabelColor".to_owned(),
-        Value::String(group(r#"<c:txPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})""#, &own_labels).unwrap_or_default()),
-    );
-    presentation.insert("valueNumberFormat".to_owned(), Value::String(xml_decode(&group(r#"<c:numFmt formatCode="([^"]*)""#, &value_axis).unwrap_or_default())));
+    presentation
+        .insert("dataLabelColor".to_owned(), Value::String(group(r#"<c:txPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})""#, &own_labels).unwrap_or_default()));
+    presentation
+        .insert("valueNumberFormat".to_owned(), Value::String(xml_decode(&group(r#"<c:numFmt formatCode="([^"]*)""#, &value_axis).unwrap_or_default())));
     presentation.insert("zeroBaseline".to_owned(), Value::Bool(compiled(r#"<c:min val="0"/>"#, "").is_match(&value_axis)));
     presentation.insert("showLegend".to_owned(), Value::Bool(compiled(r"<c:legend>", "").is_match(xml)));
     presentation.insert(
         "seriesColors".to_owned(),
-        Value::Array(series_blocks.iter().map(|series| Value::String(group(r#"<c:spPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})""#, series).unwrap_or_default())).collect()),
+        Value::Array(
+            series_blocks
+                .iter()
+                .map(|series| Value::String(group(r#"<c:spPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})""#, series).unwrap_or_default()))
+                .collect(),
+        ),
     );
     // A template's chart names its series colours from the theme (accent1, accent2); the caller resolves them through the
     // deck's theme, or a rebuilt chart fell back to the default palette.
     presentation.insert(
         "seriesSchemeColors".to_owned(),
-        Value::Array(series_blocks.iter().map(|series| Value::String(group(r#"<c:spPr>[\s\S]*?<a:schemeClr val="([A-Za-z0-9]+)""#, series).unwrap_or_default())).collect()),
+        Value::Array(
+            series_blocks
+                .iter()
+                .map(|series| Value::String(group(r#"<c:spPr>[\s\S]*?<a:schemeClr val="([A-Za-z0-9]+)""#, series).unwrap_or_default()))
+                .collect(),
+        ),
     );
     Value::Object(presentation)
 }
@@ -176,8 +179,8 @@ pub fn resolve_slide_chart(zip: &Package, slides: &[SlideRef], op: &Value) -> Re
     let index = op.get("shape").map_or(f64::NAN, to_number) - 1.0;
     let shape = (if index.fract() == 0.0 && index >= 0.0 { shapes.get(index as usize) } else { None })
         .ok_or_else(|| format!("PPTX shape {shape_label} not found on slide {slide_label}"))?;
-    let reference = group(r#"<c:chart\b[^>]*\br:id="([^"]+)""#, &shape.xml)
-        .ok_or_else(|| format!("PPTX shape {shape_label} on slide {slide_label} is not a chart"))?;
+    let reference =
+        group(r#"<c:chart\b[^>]*\br:id="([^"]+)""#, &shape.xml).ok_or_else(|| format!("PPTX shape {shape_label} on slide {slide_label} is not a chart"))?;
     let relationships = relationship_map(&zip.text(&part_relationship_path(&path)));
     let target = relationships.get(&reference).ok_or_else(|| format!("PPTX chart relationship {reference} is missing on slide {slide_label}"))?;
     // The Target is relative to the slide ("../charts/chart1.xml") or an absolute part name ("/ppt/charts/chart1.xml", which
@@ -218,10 +221,7 @@ pub fn detect_chart_type(xml: &str) -> &'static str {
 /// `chartCategories(xml)`: the category labels of a chart.
 pub fn chart_categories(xml: &str) -> Vec<String> {
     let block = matched(r"<c:cat>[\s\S]*?</c:cat>", xml);
-    compiled(r#"<c:pt idx="\d+"><c:v>([\s\S]*?)</c:v></c:pt>"#, "g")
-        .captures_iter(&block)
-        .map(|found| xml_decode(found.get(1).unwrap_or("")))
-        .collect()
+    compiled(r#"<c:pt idx="\d+"><c:v>([\s\S]*?)</c:v></c:pt>"#, "g").captures_iter(&block).map(|found| xml_decode(found.get(1).unwrap_or(""))).collect()
 }
 
 /// `chartTitleText(xml)`: the text of a chart's title.
@@ -242,10 +242,8 @@ pub fn write_presentation_chart(zip: &mut Package, chart_part: &str, embedding_p
     let existing = zip.text(&relationships_path);
     let target = xml_encode(&posix::relative(&posix::dirname(chart_part), embedding_part));
     let previous = matched(r#"<Relationship\b[^>]*\bType="[^"]*/package"[^>]*/>"#, &existing);
-    let taken = compiled(r#"\bId="rId(\d+)""#, "g")
-        .captures_iter(&existing)
-        .map(|found| string_to_number(found.get(1).unwrap_or("")))
-        .fold(0.0, mixdog_js::math::max);
+    let taken =
+        compiled(r#"\bId="rId(\d+)""#, "g").captures_iter(&existing).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(0.0, mixdog_js::math::max);
     let id = group(r#"\bId="([^"]+)""#, &previous).unwrap_or_else(|| format!("rId{}", num(taken + 1.0)));
     let relationship = format!("<Relationship Id=\"{id}\" Type=\"{OFFICE_RELATIONSHIP_BASE}/package\" Target=\"{target}\"/>");
     let relationships = if !previous.is_empty() {

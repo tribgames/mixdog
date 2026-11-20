@@ -14,10 +14,7 @@ use serde_json::Value;
 const RESET_HEADER: &str = "anthropic-ratelimit-unified-reset";
 /// A subscription-window refusal carries one of these. A 429 without them is a
 /// capacity blip or a routing refusal: the account's quota is not exhausted.
-const QUOTA_HEADERS: [&str; 2] = [
-    "anthropic-ratelimit-unified-representative-claim",
-    "anthropic-ratelimit-unified-overage-status",
-];
+const QUOTA_HEADERS: [&str; 2] = ["anthropic-ratelimit-unified-representative-claim", "anthropic-ratelimit-unified-overage-status"];
 
 /// Anthropic's documented error-type enumeration → kind.
 fn kind_for_code(code: &str) -> Option<ErrorKind> {
@@ -70,10 +67,7 @@ fn kind_for_status(status: u16) -> ErrorKind {
 }
 
 pub(crate) fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    headers
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.as_str())
+    headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.as_str())
 }
 
 fn lowered_type(value: Option<&Value>) -> Option<String> {
@@ -85,12 +79,7 @@ fn lowered_type(value: Option<&Value>) -> Option<String> {
 /// header that is empty, zero, negative or not a finite number is no advice, and the next one is
 /// read (`finitePositive`); the HTTP-date form of `retry-after` is not read.
 pub(super) fn retry_after_ms(headers: &[(String, String)]) -> Option<f64> {
-    let positive = |name: &str| {
-        header(headers, name)
-            .filter(|value| !value.is_empty())
-            .map(mixdog_js::string_to_number)
-            .filter(|n| n.is_finite() && *n > 0.0)
-    };
+    let positive = |name: &str| header(headers, name).filter(|value| !value.is_empty()).map(mixdog_js::string_to_number).filter(|n| n.is_finite() && *n > 0.0);
     positive("retry-after-ms").or_else(|| positive("retry-after").map(|secs| (secs * 1000.0).ceil()))
 }
 
@@ -125,8 +114,7 @@ pub(crate) fn quota_error_text(response: &ErrorResponse, secrets: &[&str]) -> St
 /// The unified rate-limit window reset (epoch seconds).
 fn reset_at(headers: &[(String, String)]) -> Option<SystemTime> {
     let secs = mixdog_js::string_to_number(header(headers, RESET_HEADER)?);
-    (secs.is_finite() && secs > 0.0)
-        .then(|| SystemTime::UNIX_EPOCH + Duration::from_millis((secs * 1000.0).ceil() as u64))
+    (secs.is_finite() && secs > 0.0).then(|| SystemTime::UNIX_EPOCH + Duration::from_millis((secs * 1000.0).ceil() as u64))
 }
 
 fn truncate_chars(text: &str, max: usize) -> String {
@@ -173,24 +161,11 @@ fn status_type(status: u16) -> Option<&'static str> {
 pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
     let body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
     let wire_type = lowered_type(body.pointer("/error/type")).or_else(|| lowered_type(body.get("type")));
-    let provider_message = body
-        .pointer("/error/message")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let provider_message = body.pointer("/error/message").and_then(Value::as_str).map(str::to_owned);
     // A 413 is a byte-size refusal, never a prompt-token one.
-    let code = if response.status == Some(413) {
-        Some("request_too_large".to_owned())
-    } else {
-        wire_type
-    };
-    let mut kind = code
-        .as_deref()
-        .and_then(kind_for_code)
-        .or_else(|| response.status.map(kind_for_status))
-        .unwrap_or(ErrorKind::Transient);
-    let quota_headers = QUOTA_HEADERS
-        .iter()
-        .any(|name| header(&response.headers, name).is_some_and(|v| !v.is_empty()));
+    let code = if response.status == Some(413) { Some("request_too_large".to_owned()) } else { wire_type };
+    let mut kind = code.as_deref().and_then(kind_for_code).or_else(|| response.status.map(kind_for_status)).unwrap_or(ErrorKind::Transient);
+    let quota_headers = QUOTA_HEADERS.iter().any(|name| header(&response.headers, name).is_some_and(|v| !v.is_empty()));
     if response.status == Some(429) && quota_headers {
         kind = ErrorKind::QuotaExhausted;
     }
@@ -213,8 +188,7 @@ pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
         Some("false") => Some(false),
         _ => None,
     };
-    let detail = provider_message
-        .unwrap_or_else(|| truncate_chars(&String::from_utf8_lossy(&response.body), 200));
+    let detail = provider_message.unwrap_or_else(|| truncate_chars(&String::from_utf8_lossy(&response.body), 200));
     err.message = match response.status {
         Some(status) => format!("Anthropic API {status}: {detail}"),
         None => format!("Anthropic API: {detail}"),
@@ -229,15 +203,9 @@ pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
 /// A typed in-stream `error` event (or an event carrying an `error` object).
 pub(crate) fn classify_stream_error(event: &Value) -> ProviderError {
     let payload = event.get("error").filter(|e| e.is_object()).unwrap_or(event);
-    let wire_type = lowered_type(payload.get("type"))
-        .or_else(|| lowered_type(payload.get("code")))
-        .or_else(|| lowered_type(event.get("type")));
-    let numeric = [payload.get("status"), event.get("status")]
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_u64)
-        .find(|s| (400..600).contains(s))
-        .map(|s| s as u16);
+    let wire_type = lowered_type(payload.get("type")).or_else(|| lowered_type(payload.get("code"))).or_else(|| lowered_type(event.get("type")));
+    let numeric =
+        [payload.get("status"), event.get("status")].into_iter().flatten().filter_map(Value::as_u64).find(|s| (400..600).contains(s)).map(|s| s as u16);
     let status = numeric.or_else(|| wire_type.as_deref().and_then(status_for_code));
     let kind = wire_type
         .as_deref()
@@ -251,10 +219,7 @@ pub(crate) fn classify_stream_error(event: &Value) -> ProviderError {
     err.message = format!(
         "Anthropic SSE error {}: {}",
         err.code.as_deref().unwrap_or("error"),
-        payload
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("Anthropic SSE error")
+        payload.get("message").and_then(Value::as_str).unwrap_or("Anthropic SSE error")
     );
     crate::providers::rejections::mark_replay_rejection(&mut err);
     err

@@ -100,9 +100,16 @@ async fn clearing_the_provider_makes_the_agent_follow_main_again() {
     let (setter, published, _dir) = rig().await;
     setter.set_agent_route("reviewer", &request(json!({ "provider": "openai", "model": "gpt-5" }))).await.unwrap();
     let cleared = setter.set_agent_route("reviewer", &request(json!({ "provider": "" }))).await.unwrap();
-    assert_eq!((cleared["provider"].clone(), cleared["model"].clone(), cleared["inherited"].clone()), (json!("openai-oauth"), json!("main-model"), json!(true)));
+    assert_eq!(
+        (cleared["provider"].clone(), cleared["model"].clone(), cleared["inherited"].clone()),
+        (json!("openai-oauth"), json!("main-model"), json!(true))
+    );
     assert_eq!(setter.routes.own_route("reviewer").await.unwrap().as_object().unwrap().get("provider"), None);
-    assert_eq!(published.0.lock().unwrap().last().unwrap(), &json!({ "id": "reviewer", "provider": "openai-oauth", "model": "main-model" }), "the chats move to Main's route");
+    assert_eq!(
+        published.0.lock().unwrap().last().unwrap(),
+        &json!({ "id": "reviewer", "provider": "openai-oauth", "model": "main-model" }),
+        "the chats move to Main's route"
+    );
 }
 
 #[tokio::test]

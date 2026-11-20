@@ -12,18 +12,12 @@ fn text_options() -> InspectOptions {
 }
 
 fn three_pages() -> Vec<u8> {
-    pages_of(&[
-        "BT /F1 12 Tf 20 100 Td (Hello wonderful world) Tj ET",
-        "BT /F1 12 Tf 20 100 Td (line one) Tj 0 -14 Td (line two) Tj ET",
-        "0 0 10 10 re f",
-    ])
+    pages_of(&["BT /F1 12 Tf 20 100 Td (Hello wonderful world) Tj ET", "BT /F1 12 Tf 20 100 Td (line one) Tj 0 -14 Td (line two) Tj ET", "0 0 10 10 re f"])
 }
 
 fn extraction(bytes: &[u8], options: &InspectOptions) -> (String, bool, Vec<(u64, String)>) {
     match inspect_pdf_buffer(bytes, options).expect("an inspection").detail {
-        Detail::Text { text, truncated, pages } => {
-            (text, truncated, pages.into_iter().map(|p| (p.page, p.text)).collect())
-        }
+        Detail::Text { text, truncated, pages } => (text, truncated, pages.into_iter().map(|p| (p.page, p.text)).collect()),
         other => panic!("not a text: {other:?}"),
     }
 }
@@ -57,18 +51,8 @@ fn only_pages_with_sixteen_visible_characters_count_as_a_text_layer() {
 fn the_extraction_is_one_block_per_page_with_a_note_for_a_page_without_text() {
     let (text, truncated, pages) = extraction(&three_pages(), &text_options());
     assert!(!truncated);
-    assert_eq!(
-        text,
-        "--- Page 1 ---\nHello wonderful world\n\n--- Page 2 ---\nline one\nline two\n\n--- Page 3 ---\n(no extractable text on this page)"
-    );
-    assert_eq!(
-        pages,
-        vec![
-            (1, "Hello wonderful world".to_owned()),
-            (2, "line one\nline two".to_owned()),
-            (3, String::new())
-        ]
-    );
+    assert_eq!(text, "--- Page 1 ---\nHello wonderful world\n\n--- Page 2 ---\nline one\nline two\n\n--- Page 3 ---\n(no extractable text on this page)");
+    assert_eq!(pages, vec![(1, "Hello wonderful world".to_owned()), (2, "line one\nline two".to_owned()), (3, String::new())]);
 }
 
 #[test]

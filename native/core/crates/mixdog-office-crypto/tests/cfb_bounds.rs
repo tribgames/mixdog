@@ -6,9 +6,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use mixdog_fsio::Unlaned;
-use mixdog_office_crypto::{
-    is_encrypted_binary_presentation, is_encrypted_ooxml, read_encrypted_ooxml, read_ooxml_encryption_info,
-};
+use mixdog_office_crypto::{is_encrypted_binary_presentation, is_encrypted_ooxml, read_encrypted_ooxml, read_ooxml_encryption_info};
 use support::{Entry, build_cfb, current_user_stream, encrypted_ooxml_entries, written};
 use tempfile::TempDir;
 
@@ -58,22 +56,14 @@ fn legacy_word_entries() -> Vec<Entry> {
 }
 
 fn summary_and_current_user(token: u32) -> Vec<Entry> {
-    vec![
-        Entry::stream("\u{5}SummaryInformation", vec![0; 1000]),
-        current_user_stream(token),
-        Entry::stream("PowerPoint Document", vec![7; 6000]),
-    ]
+    vec![Entry::stream("\u{5}SummaryInformation", vec![0; 1000]), current_user_stream(token), Entry::stream("PowerPoint Document", vec![7; 6000])]
 }
 
 #[test]
 fn an_encrypted_ooxml_container_is_protected() {
     let dir = dir();
     for version in [3, 4] {
-        let path = written(
-            dir.path(),
-            &format!("secret-v{version}.docx"),
-            &build_cfb(&encrypted_ooxml_entries(5000), version),
-        );
+        let path = written(dir.path(), &format!("secret-v{version}.docx"), &build_cfb(&encrypted_ooxml_entries(5000), version));
         assert!(ooxml(&path), "CFB version {version}");
     }
 }
@@ -81,21 +71,14 @@ fn an_encrypted_ooxml_container_is_protected() {
 #[test]
 fn stream_names_match_case_insensitively() {
     let dir = dir();
-    let entries = [
-        Entry::stream("ENCRYPTIONINFO", vec![0; 40]),
-        Entry::stream("encryptedpackage", vec![0; 40]),
-    ];
+    let entries = [Entry::stream("ENCRYPTIONINFO", vec![0; 40]), Entry::stream("encryptedpackage", vec![0; 40])];
     assert!(ooxml(&written(dir.path(), "shout.xlsx", &build_cfb(&entries, 3))));
 }
 
 #[test]
 fn a_plain_container_renamed_docx_is_not_protected() {
     let dir = dir();
-    assert!(!ooxml(&written(
-        dir.path(),
-        "renamed-legacy.docx",
-        &build_cfb(&legacy_word_entries(), 3)
-    )));
+    assert!(!ooxml(&written(dir.path(), "renamed-legacy.docx", &build_cfb(&legacy_word_entries(), 3))));
 }
 
 #[test]
@@ -103,16 +86,8 @@ fn both_encryption_streams_are_required_and_only_at_the_root() {
     let dir = dir();
     let entries = encrypted_ooxml_entries(5000);
     let (info, package) = (entries[0].clone(), entries[1].clone());
-    assert!(!ooxml(&written(
-        dir.path(),
-        "no-info.docx",
-        &build_cfb(&[package.clone()], 3)
-    )));
-    assert!(!ooxml(&written(
-        dir.path(),
-        "no-package.docx",
-        &build_cfb(&[info.clone()], 3)
-    )));
+    assert!(!ooxml(&written(dir.path(), "no-info.docx", &build_cfb(&[package.clone()], 3))));
+    assert!(!ooxml(&written(dir.path(), "no-package.docx", &build_cfb(&[info.clone()], 3))));
     let mut nested = vec![Entry::storage("Nested", vec![info, package])];
     nested.extend(legacy_word_entries());
     assert!(!ooxml(&written(dir.path(), "nested.docx", &build_cfb(&nested, 3))));
@@ -149,28 +124,18 @@ fn a_corrupt_container_is_not_protected() {
     let cases: [(&str, Change); 10] = [
         ("bad signature", |bytes, _| bytes[0] ^= 0xff),
         ("bad byte order", |bytes, _| put16(bytes, 28, 0xfeff)),
-        ("sector size that does not match the version", |bytes, _| {
-            put16(bytes, 30, 12)
-        }),
+        ("sector size that does not match the version", |bytes, _| put16(bytes, 30, 12)),
         ("directory start is free", |bytes, _| put32(bytes, 48, 0xffff_ffff)),
-        ("directory start past the file", |bytes, _| {
-            put32(bytes, 48, 0x00ff_ffff)
-        }),
+        ("directory start past the file", |bytes, _| put32(bytes, 48, 0x00ff_ffff)),
         ("directory chain loops on itself", |bytes, _| {
             let fat_sector = u32_at(bytes, 76) as usize;
             let start = u32_at(bytes, 48);
             put32(bytes, (fat_sector + 1) * 512 + start as usize * 4, start);
         }),
         ("no root storage", |bytes, directory_at| bytes[directory_at + 66] = 0),
-        ("sibling tree loops", |bytes, directory_at| {
-            put32(bytes, directory_at + 2 * 128 + 72, 1)
-        }),
-        ("entry id past the directory", |bytes, directory_at| {
-            put32(bytes, directory_at + 76, 900)
-        }),
-        ("entry name too long", |bytes, directory_at| {
-            put16(bytes, directory_at + 128 + 64, 200)
-        }),
+        ("sibling tree loops", |bytes, directory_at| put32(bytes, directory_at + 2 * 128 + 72, 1)),
+        ("entry id past the directory", |bytes, directory_at| put32(bytes, directory_at + 76, 900)),
+        ("entry name too long", |bytes, directory_at| put16(bytes, directory_at + 128 + 64, 200)),
     ];
     for (name, change) in cases {
         let mut bytes = build_cfb(&encrypted_ooxml_entries(5000), 3);
@@ -191,21 +156,9 @@ fn a_non_cfb_file_is_not_protected_whatever_its_extension_or_content() {
 fn an_encrypted_binary_presentation_is_found_by_its_current_user_header_token() {
     // A summary stream ahead of it puts "Current User" at mini sector 16, in the third sector of the mini stream.
     let dir = dir();
-    assert!(presentation(&written(
-        dir.path(),
-        "locked.ppt",
-        &build_cfb(&summary_and_current_user(ENCRYPTED_TOKEN), 3)
-    )));
-    assert!(!presentation(&written(
-        dir.path(),
-        "open.ppt",
-        &build_cfb(&summary_and_current_user(PLAIN_TOKEN), 3)
-    )));
-    assert!(presentation(&written(
-        dir.path(),
-        "locked4.ppt",
-        &build_cfb(&summary_and_current_user(ENCRYPTED_TOKEN), 4)
-    )));
+    assert!(presentation(&written(dir.path(), "locked.ppt", &build_cfb(&summary_and_current_user(ENCRYPTED_TOKEN), 3))));
+    assert!(!presentation(&written(dir.path(), "open.ppt", &build_cfb(&summary_and_current_user(PLAIN_TOKEN), 3))));
+    assert!(presentation(&written(dir.path(), "locked4.ppt", &build_cfb(&summary_and_current_user(ENCRYPTED_TOKEN), 4))));
 }
 
 #[test]
@@ -223,25 +176,14 @@ fn a_current_user_stream_above_the_mini_stream_cutoff_is_read_from_its_regular_s
     let dir = dir();
     let mut stream = current_user_stream(ENCRYPTED_TOKEN);
     stream.data.as_mut().expect("a stream").extend_from_slice(&[0; 5000]);
-    assert!(presentation(&written(
-        dir.path(),
-        "padded.ppt",
-        &build_cfb(&[stream], 3)
-    )));
+    assert!(presentation(&written(dir.path(), "padded.ppt", &build_cfb(&[stream], 3))));
 }
 
 #[test]
 fn an_encrypted_summary_stream_marks_an_encrypted_binary_presentation() {
     let dir = dir();
-    let entries = [
-        current_user_stream(PLAIN_TOKEN),
-        Entry::stream("EncryptedSummary", vec![0; 200]),
-    ];
-    assert!(presentation(&written(
-        dir.path(),
-        "summary.ppt",
-        &build_cfb(&entries, 3)
-    )));
+    let entries = [current_user_stream(PLAIN_TOKEN), Entry::stream("EncryptedSummary", vec![0; 200])];
+    assert!(presentation(&written(dir.path(), "summary.ppt", &build_cfb(&entries, 3))));
 }
 
 // Offsets inside a container built by the writer (its FAT sectors are all listed in the header).
@@ -262,10 +204,7 @@ fn entry_at(bytes: &[u8], name: &str) -> usize {
     let mut at = sector_at(bytes, u32_at(bytes, 48));
     loop {
         let length = usize::from(u16_at(bytes, at + 64));
-        let units: Vec<u16> = bytes[at..at + length - 2]
-            .chunks_exact(2)
-            .map(|pair| u16_at(pair, 0))
-            .collect();
+        let units: Vec<u16> = bytes[at..at + length - 2].chunks_exact(2).map(|pair| u16_at(pair, 0)).collect();
         if String::from_utf16_lossy(&units) == name {
             return at;
         }
@@ -281,10 +220,7 @@ fn start_of(bytes: &[u8], name: &str) -> u32 {
 fn a_cyclic_mini_stream_chain_is_refused_even_under_a_root_size_far_beyond_the_file() {
     // "Current User" sits at mini sector 16, in the third sector of the mini stream: reading it follows the chain.
     let dir = dir();
-    let deck = vec![
-        Entry::stream("\u{5}SummaryInformation", vec![0; 1000]),
-        current_user_stream(ENCRYPTED_TOKEN),
-    ];
+    let deck = vec![Entry::stream("\u{5}SummaryInformation", vec![0; 1000]), current_user_stream(ENCRYPTED_TOKEN)];
     let looped = |entries: &[Entry], version: u16, root_size: Option<u64>| {
         let mut bytes = build_cfb(entries, version);
         let root = start_of(&bytes, "Root Entry");
@@ -298,22 +234,10 @@ fn a_cyclic_mini_stream_chain_is_refused_even_under_a_root_size_far_beyond_the_f
     };
     assert!(!presentation(&written(dir.path(), "loop.ppt", &looped(&deck, 3, None))));
     for (version, root_size) in [(3u16, 0xffff_ffc0u64), (4, 1 << 40)] {
-        let deck_path = written(
-            dir.path(),
-            &format!("huge-{version}.ppt"),
-            &looped(&deck, version, Some(root_size)),
-        );
+        let deck_path = written(dir.path(), &format!("huge-{version}.ppt"), &looped(&deck, version, Some(root_size)));
         assert!(!presentation(&deck_path), "version {version}");
-        let ooxml_path = written(
-            dir.path(),
-            &format!("huge-{version}.docx"),
-            &looped(&encrypted_ooxml_entries(5000), version, Some(root_size)),
-        );
-        assert_eq!(
-            read_ooxml_encryption_info(&Unlaned, &ooxml_path),
-            None,
-            "version {version}"
-        );
+        let ooxml_path = written(dir.path(), &format!("huge-{version}.docx"), &looped(&encrypted_ooxml_entries(5000), version, Some(root_size)));
+        assert_eq!(read_ooxml_encryption_info(&Unlaned, &ooxml_path), None, "version {version}");
         assert_eq!(read_encrypted_ooxml(&Unlaned, &ooxml_path), None, "version {version}");
     }
 }
@@ -321,22 +245,14 @@ fn a_cyclic_mini_stream_chain_is_refused_even_under_a_root_size_far_beyond_the_f
 #[test]
 fn a_cyclic_mini_sector_chain_or_a_mini_fat_larger_than_the_file_is_refused() {
     let dir = dir();
-    let entries = || {
-        vec![
-            Entry::stream("EncryptionInfo", vec![1; 200]),
-            Entry::stream("EncryptedPackage", vec![2; 5000]),
-        ]
-    };
+    let entries = || vec![Entry::stream("EncryptionInfo", vec![1; 200]), Entry::stream("EncryptedPackage", vec![2; 5000])];
     let intact: PathBuf = written(dir.path(), "intact.docx", &build_cfb(&entries(), 3));
     assert_eq!(read_ooxml_encryption_info(&Unlaned, &intact), Some(vec![1; 200]));
     // EncryptionInfo holds mini sectors 0 to 3; sending the third back to the second closes a loop.
     let mut cyclic = build_cfb(&entries(), 3);
     let at = sector_at(&cyclic, u32_at(&cyclic, 60)) + 2 * 4;
     put32(&mut cyclic, at, 1);
-    assert_eq!(
-        read_ooxml_encryption_info(&Unlaned, &written(dir.path(), "mini-loop.docx", &cyclic)),
-        None
-    );
+    assert_eq!(read_ooxml_encryption_info(&Unlaned, &written(dir.path(), "mini-loop.docx", &cyclic)), None);
     let mut oversized = build_cfb(&entries(), 3);
     put32(&mut oversized, 64, 0xffff_ffff);
     assert!(!ooxml(&written(dir.path(), "mini-fat.docx", &oversized)));
@@ -367,10 +283,7 @@ fn header_counts_beyond_the_file_or_a_mini_stream_cutoff_other_than_4096_are_not
     }
     let mut bytes = build_cfb(&encrypted_ooxml_entries(5000), 3);
     put32(&mut bytes, 56, 0xffff_ffff);
-    assert!(
-        !ooxml(&written(dir.path(), "mini-stream cutoff.docx", &bytes)),
-        "mini-stream cutoff"
-    );
+    assert!(!ooxml(&written(dir.path(), "mini-stream cutoff.docx", &bytes)), "mini-stream cutoff");
 }
 
 #[test]
@@ -384,19 +297,12 @@ fn stray_header_token_bytes_elsewhere_do_not_mark_a_binary_presentation_as_encry
         // The atom inside another stream, with no root "Current User" stream.
         vec![Entry::stream("PowerPoint Document", inside_other_stream)],
         // The atom under a sub-storage, not at the root.
-        vec![
-            Entry::storage("Nested", vec![Entry::stream("Current User", atom.clone())]),
-            Entry::stream("Pictures", vec![0; 100]),
-        ],
+        vec![Entry::storage("Nested", vec![Entry::stream("Current User", atom.clone())]), Entry::stream("Pictures", vec![0; 100])],
         // A Current User stream too short to hold the atom's headerToken.
         vec![Entry::stream("Current User", atom[..14].to_vec())],
     ];
     for (index, entries) in strays.iter().enumerate() {
-        assert!(!presentation(&written(
-            dir.path(),
-            &format!("stray-{index}.ppt"),
-            &build_cfb(entries, 3)
-        )));
+        assert!(!presentation(&written(dir.path(), &format!("stray-{index}.ppt"), &build_cfb(entries, 3))));
     }
     let mut raw = vec![0u8; 64];
     raw.extend_from_slice(&[0xdf, 0xc4, 0xd1, 0xf3]);

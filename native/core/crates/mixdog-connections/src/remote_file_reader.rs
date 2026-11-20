@@ -60,14 +60,7 @@ async fn stat_on(client: &dyn ProtocolClient, root: &str, rel: &str) -> Result<J
 }
 
 async fn read_range_on(client: &dyn ProtocolClient, root: &str, rel: &str, offset: u64, length: u64) -> Result<Json, ClientError> {
-    let params = TransferReadRangeParams {
-        transfer_id: None,
-        root: Some(root.to_owned()),
-        rel: Some(rel.to_owned()),
-        offset,
-        length,
-        version: None,
-    };
+    let params = TransferReadRangeParams { transfer_id: None, root: Some(root.to_owned()), rel: Some(rel.to_owned()), offset, length, version: None };
     call(client, "transfer/readRange", &params).await
 }
 

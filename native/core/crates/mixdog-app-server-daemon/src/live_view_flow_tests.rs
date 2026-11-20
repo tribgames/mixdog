@@ -45,12 +45,25 @@ fn service(desktop: &Arc<Desktop>, dir: &std::path::Path) -> LiveViewService {
 }
 
 fn stream_call(connection: u64, on: bool) -> CoreRequest {
-    let params = if on { json!({ "sessionId": "sess_1", "on": true, "request": { "maxWidth": 1170, "maxHeight": 2532 } }) } else { json!({ "sessionId": "sess_1", "on": false }) };
-    CoreRequest { method: Method("browser/stream"), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, tokio_util::sync::CancellationToken::new()) }
+    let params = if on {
+        json!({ "sessionId": "sess_1", "on": true, "request": { "maxWidth": 1170, "maxHeight": 2532 } })
+    } else {
+        json!({ "sessionId": "sess_1", "on": false })
+    };
+    CoreRequest {
+        method: Method("browser/stream"),
+        params,
+        op: None,
+        ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, tokio_util::sync::CancellationToken::new()),
+    }
 }
 
 fn view_requests(desktop: &Desktop) -> Vec<(bool, Value)> {
-    lock(&desktop.0).iter().filter(|(method, _)| method == "host/browser/viewFrames").map(|(_, params)| (params["on"] == json!(true), params["streamId"].clone())).collect()
+    lock(&desktop.0)
+        .iter()
+        .filter(|(method, _)| method == "host/browser/viewFrames")
+        .map(|(_, params)| (params["on"] == json!(true), params["streamId"].clone()))
+        .collect()
 }
 
 #[tokio::test]

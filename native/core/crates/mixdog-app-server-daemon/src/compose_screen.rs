@@ -146,7 +146,11 @@ pub async fn compose_screen(inputs: ScreenInputs) -> Screens {
     let Some(binary) = native.resolve(mixdog_core::run_host::native_tools::NativeTool::Computer).await else {
         return off("the mixdog-computer helper is not found");
     };
-    let Some(cwd) = std::env::current_dir().ok().and_then(mixdog_core_api::domain::common::AbsPath::new).or_else(|| mixdog_core_api::domain::common::AbsPath::new(data_dir)) else {
+    let Some(cwd) = std::env::current_dir()
+        .ok()
+        .and_then(mixdog_core_api::domain::common::AbsPath::new)
+        .or_else(|| mixdog_core_api::domain::common::AbsPath::new(data_dir))
+    else {
         return off("the working directory is not an absolute path");
     };
     let service = service::ScreenService::new(service::Parts { host, registry, pool, binary, cwd, manager, pc_access, helper, blobs });

@@ -11,8 +11,8 @@ use mixdog_js::{js_trim, value_to_string};
 use serde_json::Value;
 
 pub use mixdog_core_session::session::prompt_history::{
-    Appended, FLUSH_CAP, FilePromptHistory, PROMPT_HISTORY_LIMIT, PromptHistoryStore, WRITE_BEHIND_MS, WRITE_RETRY_MAX_MS,
-    append_persisted, key as prompt_history_key, write_retry_delay,
+    Appended, FLUSH_CAP, FilePromptHistory, PROMPT_HISTORY_LIMIT, PromptHistoryStore, WRITE_BEHIND_MS, WRITE_RETRY_MAX_MS, append_persisted,
+    key as prompt_history_key, write_retry_delay,
 };
 
 /// `String(value || '')` of a transcript item's text.

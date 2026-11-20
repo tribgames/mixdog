@@ -18,12 +18,7 @@ const UNDERLINE: Layer = (4, 24);
 const STRIKETHROUGH: Layer = (9, 29);
 
 fn chain(layers: &[Layer]) -> SgrStyle {
-    SgrStyle::from_layers(
-        layers
-            .iter()
-            .map(|(open, close)| SgrPair { open: format!("\u{1b}[{open}m"), close: format!("\u{1b}[{close}m") })
-            .collect(),
-    )
+    SgrStyle::from_layers(layers.iter().map(|(open, close)| SgrPair { open: format!("\u{1b}[{open}m"), close: format!("\u{1b}[{close}m") }).collect())
 }
 
 /// `chalk.bold(text)`.
@@ -153,10 +148,7 @@ fn highlight_theme(c: &ExtraColorizers) -> HighlightTheme {
         ("addition", &c.syn_string),
         ("deletion", &c.syn_string),
     ];
-    HighlightTheme {
-        classes: entries.into_iter().map(|(name, style)| (name.to_owned(), style.clone())).collect::<HashMap<_, _>>(),
-        default: plain.clone(),
-    }
+    HighlightTheme { classes: entries.into_iter().map(|(name, style)| (name.to_owned(), style.clone())).collect::<HashMap<_, _>>(), default: plain.clone() }
 }
 
 fn build_styles() -> Styles {

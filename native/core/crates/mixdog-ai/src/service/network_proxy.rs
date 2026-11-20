@@ -20,8 +20,8 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 
 use crate::netproxy::NetworkProxy;
-use crate::netproxy::RoutedClients;
 use crate::netproxy::RouteError;
+use crate::netproxy::RoutedClients;
 use crate::netproxy::diagnostics::check_proxy_connection;
 use crate::netproxy::diagnostics::explain_proxy_route;
 use crate::netproxy::diagnostics::provider_check_origin;
@@ -54,9 +54,7 @@ pub enum NetworkProxyError {
 impl std::fmt::Display for NetworkProxyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NetworkProxyError::Invalid(message) | NetworkProxyError::Save(message) | NetworkProxyError::Route(message) => {
-                f.write_str(message)
-            }
+            NetworkProxyError::Invalid(message) | NetworkProxyError::Save(message) | NetworkProxyError::Route(message) => f.write_str(message),
         }
     }
 }
@@ -73,15 +71,9 @@ const METHODS: &[&str] = &["config/getNetworkProxy", "config/setNetworkProxy", "
 
 fn core_error(error: NetworkProxyError) -> CoreError {
     match error {
-        NetworkProxyError::Invalid(message) => {
-            CoreError::InvalidParams { path: "params.patch".into(), expected: message.into() }
-        }
-        NetworkProxyError::Save(_) => {
-            CoreError::DomainError { domain: "config".into(), code: Some("configFailed".into()), message: None, detail: None }
-        }
-        NetworkProxyError::Route(_) => {
-            CoreError::DomainError { domain: "config".into(), code: Some("networkProxyFailed".into()), message: None, detail: None }
-        }
+        NetworkProxyError::Invalid(message) => CoreError::InvalidParams { path: "params.patch".into(), expected: message.into() },
+        NetworkProxyError::Save(_) => CoreError::DomainError { domain: "config".into(), code: Some("configFailed".into()), message: None, detail: None },
+        NetworkProxyError::Route(_) => CoreError::DomainError { domain: "config".into(), code: Some("networkProxyFailed".into()), message: None, detail: None },
     }
 }
 
@@ -101,10 +93,7 @@ impl DomainService for NetworkProxyService {
                 self.set_network_proxy(&patch, &options).await
             }
             other => {
-                return Err(CoreError::CapabilityUnavailable {
-                    capability: other.into(),
-                    detail: "not a network proxy method".into(),
-                });
+                return Err(CoreError::CapabilityUnavailable { capability: other.into(), detail: "not a network proxy method".into() });
             }
         };
         value.map(Reply::Value).map_err(core_error)

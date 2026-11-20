@@ -279,20 +279,36 @@ pub struct ProxyRouteContext {
 #[serde(tag = "method", rename_all = "camelCase")]
 pub enum ProxyCall {
     #[serde(rename_all = "camelCase")]
-    Send { provider: String, request: Box<ProxyRequest> },
+    Send {
+        provider: String,
+        request: Box<ProxyRequest>,
+    },
     /// A send whose transcript a session of the server owns: the PC posts each attempt only as that owner judges it,
     /// asking with [`ProxyEvent::TailAsk`] immediately before the POST and returning its usage with
     /// [`ProxyEvent::TailSettle`]; the owner answers each ask with `model/proxy/tail`. A PC that does not know this call
     /// never claims it.
     #[serde(rename_all = "camelCase")]
-    SessionSend { provider: String, request: Box<ProxyRequest> },
+    SessionSend {
+        provider: String,
+        request: Box<ProxyRequest>,
+    },
     /// `listModels`; `refresh` re-reads the provider first (`_refreshModelCache`).
     #[serde(rename_all = "camelCase")]
-    ListModels { provider: String, refresh: bool },
+    ListModels {
+        provider: String,
+        refresh: bool,
+    },
     #[serde(rename_all = "camelCase")]
-    QuotaUsable { provider: String, model: String },
+    QuotaUsable {
+        provider: String,
+        model: String,
+    },
     #[serde(rename_all = "camelCase")]
-    ResolveWireRoute { provider: String, model: String, context: ProxyRouteContext },
+    ResolveWireRoute {
+        provider: String,
+        model: String,
+        context: ProxyRouteContext,
+    },
     ProviderConfig,
 }
 
@@ -564,7 +580,10 @@ pub struct ProxyProviderInfo {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "result", rename_all = "camelCase")]
 // The inline enum footprint is bounded; variable-size fields keep their owned storage.
-#[allow(clippy::large_enum_variant, reason = "Keep the public proxy reply DTO by value; boxing Failed would add an allocation and change the canonical reply constructors")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Keep the public proxy reply DTO by value; boxing Failed would add an allocation and change the canonical reply constructors"
+)]
 pub enum ProxyAnswer {
     /// `Send` finished; its events came ahead of it.
     #[serde(rename_all = "camelCase")]
@@ -667,67 +686,121 @@ pub enum ProxyProgress {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ProxyEvent {
     #[serde(rename_all = "camelCase")]
-    ItemStart { item: ProxyItemKind, phase: Option<ProxyPhase> },
+    ItemStart {
+        item: ProxyItemKind,
+        phase: Option<ProxyPhase>,
+    },
     #[serde(rename_all = "camelCase")]
-    TextDelta { text: String },
+    TextDelta {
+        text: String,
+    },
     #[serde(rename_all = "camelCase")]
-    ReasoningDelta { text: String },
+    ReasoningDelta {
+        text: String,
+    },
     /// A progress update of the turn: shown like text, no part of the answer's content.
     #[serde(rename_all = "camelCase")]
-    ProgressDelta { text: String },
+    ProgressDelta {
+        text: String,
+    },
     #[serde(rename_all = "camelCase")]
-    ReasoningReplay { replay: ProxyReplay },
+    ReasoningReplay {
+        replay: ProxyReplay,
+    },
     #[serde(rename_all = "camelCase")]
-    ToolCallStart { id: String, name: String },
+    ToolCallStart {
+        id: String,
+        name: String,
+    },
     #[serde(rename_all = "camelCase")]
-    ToolCallArgsDelta { id: String, delta: String },
+    ToolCallArgsDelta {
+        id: String,
+        delta: String,
+    },
     #[serde(rename_all = "camelCase")]
-    ToolCallDone { call: ProxyToolCall },
+    ToolCallDone {
+        call: ProxyToolCall,
+    },
     #[serde(rename_all = "camelCase")]
-    Usage { usage: ProxyUsage },
+    Usage {
+        usage: ProxyUsage,
+    },
     #[serde(rename_all = "camelCase")]
-    Refusal { text: String },
+    Refusal {
+        text: String,
+    },
     #[serde(rename_all = "camelCase")]
-    Citation { value: JsonValue },
+    Citation {
+        value: JsonValue,
+    },
     #[serde(rename_all = "camelCase")]
-    ServerToolBlock { value: JsonValue },
+    ServerToolBlock {
+        value: JsonValue,
+    },
     ProviderKeepalive,
     /// Semantic progress of the stream that has no delta event of its own (`StreamEvent::Progress`).
     #[serde(rename_all = "camelCase")]
-    Progress { kind: ProxyProgress },
+    Progress {
+        kind: ProxyProgress,
+    },
     /// What one wire chunk reports for everything it carries; `null`: transport only (`StreamEvent::ChunkProgress`).
     #[serde(rename_all = "camelCase")]
-    ChunkProgress { kind: Option<ProxyProgress> },
+    ChunkProgress {
+        kind: Option<ProxyProgress>,
+    },
     /// The assistant text the turn returns when it is not what the deltas folded to (`StreamEvent::FinalContent`).
     #[serde(rename_all = "camelCase")]
-    FinalContent { text: String },
+    FinalContent {
+        text: String,
+    },
     /// The tool calls the turn returns when they are not the ones dispatched live (`StreamEvent::ReturnedCalls`).
     #[serde(rename_all = "camelCase")]
-    ReturnedCalls { calls: Vec<ProxyToolCall> },
+    ReturnedCalls {
+        calls: Vec<ProxyToolCall>,
+    },
     /// Anthropic extended-thinking blocks, verbatim and ordered (`StreamEvent::ThinkingBlocks`).
     #[serde(rename_all = "camelCase")]
-    ThinkingBlocks { value: JsonValue },
+    ThinkingBlocks {
+        value: JsonValue,
+    },
     #[serde(rename_all = "camelCase")]
-    ProviderState { state: JsonValue },
+    ProviderState {
+        state: JsonValue,
+    },
     /// A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).
     #[serde(rename_all = "camelCase")]
-    Notice { message: String, warn: bool },
+    Notice {
+        message: String,
+        warn: bool,
+    },
     /// The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).
     #[serde(rename_all = "camelCase")]
-    ServedModel { model: String },
+    ServedModel {
+        model: String,
+    },
     /// Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).
     #[serde(rename_all = "camelCase")]
-    ProviderMetadata { value: JsonValue },
+    ProviderMetadata {
+        value: JsonValue,
+    },
     /// The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).
     #[serde(rename_all = "camelCase")]
-    ResponseId { id: String },
+    ResponseId {
+        id: String,
+    },
     /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
     #[serde(rename_all = "camelCase")]
-    AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
+    AccountRouting {
+        provider: String,
+        account_id: String,
+        session_account_id: Option<String>,
+    },
     /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`);
     /// credential-shaped text in the message is redacted.
     #[serde(rename_all = "camelCase")]
-    AccountSwitching { message: String },
+    AccountSwitching {
+        message: String,
+    },
     /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
     /// The PC's account id never leaves it (Node's `scalarDetail` drops it): provider and time only.
     #[serde(rename_all = "camelCase")]
@@ -749,13 +822,18 @@ pub enum ProxyEvent {
     /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
     /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
     #[serde(rename_all = "camelCase")]
-    WireRerouted { route: JsonValue },
+    WireRerouted {
+        route: JsonValue,
+    },
     /// The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`,
     /// Node `firstOutputAt`).
     OutputStarted,
     /// Anthropic's content-block summary of the turn (`StreamEvent::ContentSummary`, Node `hasThinkingContent` /
     /// `contentBlockTypes`).
-    ContentSummary { has_thinking: bool, block_types: Vec<String> },
+    ContentSummary {
+        has_thinking: bool,
+        block_types: Vec<String>,
+    },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     #[serde(rename_all = "camelCase")]
@@ -769,7 +847,10 @@ pub enum ProxyEvent {
     AttemptDiscarded,
     /// A retried attempt reported usage before it died; it is billed once, here.
     #[serde(rename_all = "camelCase")]
-    AttemptAbandoned { usage: ProxyUsage, model: Option<String> },
+    AttemptAbandoned {
+        usage: ProxyUsage,
+        model: Option<String>,
+    },
     /// A POST of a [`ProxyCall::SessionSend`] is about to go out: the session's owner judges it now, before any byte of it
     /// is sent. `ask` names this POST in the owner's verdict and in its settlement; `route` is the serving account's
     /// namespace as an opaque digest (never a credential); `manifest` the cache layout of the body it sends.
@@ -862,7 +943,9 @@ pub enum ProxyTailRefusal {
         cold: ProxyCold,
     },
     #[serde(rename_all = "camelCase")]
-    Skip { cold: ProxyCold },
+    Skip {
+        cold: ProxyCold,
+    },
     /// Another caller rewrites the history; the owner sends again once it is decided.
     #[serde(rename_all = "camelCase")]
     Wait {
@@ -965,22 +1048,34 @@ pub enum ProxyTransportKind {
 #[serde(tag = "fault", rename_all = "camelCase")]
 pub enum ProxyFault {
     #[serde(rename_all = "camelCase")]
-    Connect { os_code: Option<i32> },
+    Connect {
+        os_code: Option<i32>,
+    },
     Dns,
     Reset,
     Closed,
     Tls,
     #[serde(rename_all = "camelCase")]
-    H2GoAway { code: u32 },
+    H2GoAway {
+        code: u32,
+    },
     #[serde(rename_all = "camelCase")]
-    H2RstStream { code: u32 },
+    H2RstStream {
+        code: u32,
+    },
     #[serde(rename_all = "camelCase")]
-    WsClose { code: Option<u16> },
+    WsClose {
+        code: Option<u16>,
+    },
     #[serde(rename_all = "camelCase")]
-    KeepaliveExpired { transport: ProxyTransportKind },
+    KeepaliveExpired {
+        transport: ProxyTransportKind,
+    },
     TruncatedStream,
     #[serde(rename_all = "camelCase")]
-    Io { os_code: Option<i32> },
+    Io {
+        os_code: Option<i32>,
+    },
     TooManyEncodings,
     CorruptBody,
 }

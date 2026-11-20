@@ -391,9 +391,8 @@ const FIGURE_LABEL_ROWS: usize = 2;
 
 fn figure_label_pairs(measure: &Measure<'_>) -> Result<BTreeMap<u64, Cut>, String> {
     let mut pairs: BTreeMap<u64, Cut> = BTreeMap::new();
-    let alignment = |style: Option<&Value>| {
-        style_field(style, "horizontalAlignment").filter(|value| truthy(value)).map_or_else(|| "general".to_owned(), value_to_string)
-    };
+    let alignment =
+        |style: Option<&Value>| style_field(style, "horizontalAlignment").filter(|value| truthy(value)).map_or_else(|| "general".to_owned(), value_to_string);
     for row in iterate_sheet_rows(measure.xml) {
         // A Map keeps the first place of a column and the last cell written to it.
         let mut order: Vec<f64> = Vec::new();

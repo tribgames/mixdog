@@ -12,12 +12,7 @@ fn read_message(stdout: &mut impl BufRead) -> serde_json::Value {
 
 #[test]
 fn serve_spawn_echoes_and_exits() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
     let mut stdin = child.stdin.take().unwrap();
     let ready_json = read_message(&mut stdout);
@@ -67,12 +62,7 @@ fn serve_spawn_echoes_and_exits() {
 
 #[test]
 fn foreground_job_is_tracked_before_promotion() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
     let mut stdin = child.stdin.take().unwrap();
     let ready_json = read_message(&mut stdout);
@@ -151,21 +141,12 @@ fn foreground_job_is_tracked_before_promotion() {
 #[test]
 fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
     for operation in ["track", "promote"] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
         let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
         let mut stdin = child.stdin.take().unwrap();
         assert_eq!(read_message(&mut stdout)["ready"], true);
 
-        let cwd = std::env::current_dir()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_owned();
+        let cwd = std::env::current_dir().unwrap().to_str().unwrap().to_owned();
         #[cfg(windows)]
         let mut request = serde_json::json!({
             "program": std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),
@@ -188,16 +169,7 @@ fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
         assert_eq!(read_message(&mut stdout)["event"], "task_started");
 
         let cases = [
-            (
-                serde_json::json!({}),
-                serde_json::json!([
-                    "original command",
-                    cwd,
-                    "original shell",
-                    "original owner",
-                    101
-                ]),
-            ),
+            (serde_json::json!({}), serde_json::json!(["original command", cwd, "original shell", "original owner", 101])),
             (
                 serde_json::json!({
                     "command": null,
@@ -206,13 +178,7 @@ fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
                     "ownerSessionId": null,
                     "clientHostPid": null,
                 }),
-                serde_json::json!([
-                    "original command",
-                    cwd,
-                    "original shell",
-                    "original owner",
-                    101
-                ]),
+                serde_json::json!(["original command", cwd, "original shell", "original owner", 101]),
             ),
             (
                 serde_json::json!({
@@ -222,13 +188,7 @@ fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
                     "ownerSessionId": "updated owner",
                     "clientHostPid": 202,
                 }),
-                serde_json::json!([
-                    "updated command",
-                    "updated cwd",
-                    "updated shell",
-                    "updated owner",
-                    202
-                ]),
+                serde_json::json!(["updated command", "updated cwd", "updated shell", "updated owner", 202]),
             ),
             (
                 serde_json::json!({
@@ -239,22 +199,10 @@ fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
                 }),
                 serde_json::json!(["updated command", "", "updated shell", "", 0]),
             ),
-            (
-                serde_json::json!({"command": "", "shellType": ""}),
-                serde_json::json!(["", "", "", "", 0]),
-            ),
-            (
-                serde_json::json!({}),
-                serde_json::json!(["", "", "", "", 0]),
-            ),
+            (serde_json::json!({"command": "", "shellType": ""}), serde_json::json!(["", "", "", "", 0])),
+            (serde_json::json!({}), serde_json::json!(["", "", "", "", 0])),
         ];
-        let fields = [
-            "command",
-            "cwd",
-            "shellType",
-            "ownerSessionId",
-            "clientHostPid",
-        ];
+        let fields = ["command", "cwd", "shellType", "ownerSessionId", "clientHostPid"];
         for (index, (mut request, expected)) in cases.into_iter().enumerate() {
             let id = 20 + index as u64;
             request["id"] = serde_json::json!(id);
@@ -272,19 +220,11 @@ fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
             assert_eq!(message["task"]["requestId"], 11);
             assert_eq!(message["task"]["status"], "running");
             for (field, value) in fields.iter().zip(expected.as_array().unwrap()) {
-                assert_eq!(
-                    &message["task"][field], value,
-                    "{operation}, case {index}, field {field}"
-                );
+                assert_eq!(&message["task"][field], value, "{operation}, case {index}, field {field}");
             }
         }
 
-        writeln!(
-            stdin,
-            "{}",
-            serde_json::json!({"id": 99, "cancelTask": "job_metadata"})
-        )
-        .unwrap();
+        writeln!(stdin, "{}", serde_json::json!({"id": 99, "cancelTask": "job_metadata"})).unwrap();
         let mut exited = false;
         for _ in 0..16 {
             let message = read_message(&mut stdout);
@@ -312,9 +252,7 @@ mod containment {
     use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
     use std::time::Duration;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
-    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject};
 
     const HELPER_ENV: &str = "MIXDOG_SPAWN_TREE_HELPER";
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -325,11 +263,7 @@ mod containment {
     fn sleeper() -> Command {
         let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
         let mut command = Command::new(format!("{root}\\System32\\PING.EXE"));
-        command
-            .args(["-n", "120", "127.0.0.1"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.args(["-n", "120", "127.0.0.1"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         command
     }
 
@@ -343,19 +277,13 @@ mod containment {
         let Ok(mode) = std::env::var(HELPER_ENV) else {
             return;
         };
-        let child = sleeper()
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .expect("child");
+        let child = sleeper().creation_flags(CREATE_NO_WINDOW).spawn().expect("child");
         println!("child:{}", child.id());
         if mode == "survivor" {
             println!("done");
             return;
         }
-        match sleeper()
-            .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-            .spawn()
-        {
+        match sleeper().creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).spawn() {
             Ok(escaped) => println!("breakaway:escaped:{}", escaped.id()),
             Err(error) => println!("breakaway:denied:{}", error.raw_os_error().unwrap_or(-1)),
         }
@@ -397,23 +325,12 @@ mod containment {
 
     impl Server {
         fn start() -> (Self, serde_json::Value) {
-            let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn"))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
+            let mut child =
+                Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
             let mut stdout = BufReader::new(child.stdout.take().unwrap());
             let stdin = child.stdin.take();
             let ready = read_message(&mut stdout);
-            (
-                Server {
-                    child,
-                    stdin,
-                    stdout,
-                },
-                ready,
-            )
+            (Server { child, stdin, stdout }, ready)
         }
 
         fn send(&mut self, request: serde_json::Value) {
@@ -428,12 +345,7 @@ mod containment {
 
         /// Spawn the helper in `mode` as request `id`, then read until it has
         /// reported what it started. Returns the spawned event and its lines.
-        fn helper(
-            &mut self,
-            id: u64,
-            mode: &str,
-            contain: bool,
-        ) -> (serde_json::Value, Vec<String>) {
+        fn helper(&mut self, id: u64, mode: &str, contain: bool) -> (serde_json::Value, Vec<String>) {
             let mut env: std::collections::HashMap<String, String> = std::env::vars().collect();
             env.insert(HELPER_ENV.to_string(), mode.to_string());
             let program = std::env::current_exe().unwrap();
@@ -446,11 +358,7 @@ mod containment {
             }));
             let mut spawned = None;
             let mut text = String::new();
-            let last = if mode == "survivor" {
-                "done"
-            } else {
-                "breakaway:"
-            };
+            let last = if mode == "survivor" { "done" } else { "breakaway:" };
             for _ in 0..400 {
                 let message = self.next();
                 match message["event"].as_str() {
@@ -491,10 +399,7 @@ mod containment {
 
     // The harness prints its own `test … ` prefix on the line of the first one.
     fn pid_after(lines: &[String], prefix: &str) -> Option<u32> {
-        lines
-            .iter()
-            .find_map(|line| line.split_once(prefix))
-            .map(|(_, pid)| pid.trim().parse().unwrap())
+        lines.iter().find_map(|line| line.split_once(prefix)).map(|(_, pid)| pid.trim().parse().unwrap())
     }
 
     #[test]
@@ -511,9 +416,7 @@ mod containment {
         );
         server.send(serde_json::json!({ "cancel": 1 }));
         let events = server.until_exit(1);
-        let empty_at = events
-            .iter()
-            .position(|message| message["id"] == 1 && message["event"] == "tree_empty");
+        let empty_at = events.iter().position(|message| message["id"] == 1 && message["event"] == "tree_empty");
         assert!(empty_at.is_some(), "the job was verified empty: {events:?}");
         let exit = events.last().unwrap();
         assert_eq!(exit["treeOutcome"], "empty", "{exit}");
@@ -530,12 +433,7 @@ mod containment {
             "contain": true,
         }));
         let events = server.until_exit(3);
-        assert!(
-            events
-                .iter()
-                .any(|message| message["event"] == "tree_empty"),
-            "{events:?}"
-        );
+        assert!(events.iter().any(|message| message["event"] == "tree_empty"), "{events:?}");
         let exit = events.last().unwrap();
         assert_eq!(exit["code"], 0, "{exit}");
         assert_eq!(exit["treeOutcome"], "empty", "{exit}");
@@ -547,18 +445,10 @@ mod containment {
         let (_, lines) = server.helper(4, "survivor", true);
         let survivor = Held::open(pid_after(&lines, "child:").expect("child pid"));
         let events = server.until_exit(4);
-        assert!(
-            !events
-                .iter()
-                .any(|message| message["event"] == "tree_empty"),
-            "{events:?}"
-        );
+        assert!(!events.iter().any(|message| message["event"] == "tree_empty"), "{events:?}");
         let exit = events.last().unwrap();
         assert_eq!(exit["code"], 0, "{exit}");
-        assert_eq!(
-            exit["treeOutcome"], "preserved",
-            "a finished command's survivors are not killed: {exit}"
-        );
+        assert_eq!(exit["treeOutcome"], "preserved", "a finished command's survivors are not killed: {exit}");
         // Its job handle is closed by now: kill-on-close must not reach it.
         std::thread::sleep(Duration::from_millis(500));
         assert!(!survivor.exited(), "the survivor still runs");
@@ -598,10 +488,7 @@ mod containment {
         server.send(serde_json::json!({ "cancel": 2 }));
         let events = server.until_exit(2);
         let exit = events.last().unwrap();
-        assert!(
-            exit.get("treeOutcome").is_none(),
-            "no emptiness claim without containment: {exit}"
-        );
+        assert!(exit.get("treeOutcome").is_none(), "no emptiness claim without containment: {exit}");
         match escaped {
             Some(escaped) => assert!(!escaped.exited(), "the escaped child outlives the job kill"),
             // A job this test itself runs in forbids breakaway.
@@ -613,20 +500,14 @@ mod containment {
 #[cfg(unix)]
 #[test]
 fn server_does_not_forward_inherited_descriptors_to_spawned_commands() {
-    let marker_path =
-        std::env::temp_dir().join(format!("mixdog-spawn-inherited-fd-{}", std::process::id()));
+    let marker_path = std::env::temp_dir().join(format!("mixdog-spawn-inherited-fd-{}", std::process::id()));
     let marker = std::fs::File::create(&marker_path).unwrap();
     let marker_fd = marker.as_raw_fd();
     unsafe {
         libc::fcntl(marker_fd, libc::F_SETFD, 0);
     }
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
     let mut stdin = child.stdin.take().unwrap();
     assert_eq!(read_message(&mut stdout)["ready"], true);

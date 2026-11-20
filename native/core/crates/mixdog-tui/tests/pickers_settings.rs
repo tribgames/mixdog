@@ -81,7 +81,6 @@ impl Fake {
         self.on(action, move |_| Err(text.clone()));
     }
 
-
     fn open_picker_by(&mut self, opener: Opener, options: Value) {
         self.open(opener, options).expect("the fake opener never fails");
     }
@@ -157,19 +156,11 @@ impl Fake {
     }
 
     fn opened(&self) -> Vec<(String, Value)> {
-        self.log
-            .iter()
-            .filter(|event| event[0] == "open")
-            .map(|event| (event[1].as_str().unwrap_or_default().to_owned(), event[2].clone()))
-            .collect()
+        self.log.iter().filter(|event| event[0] == "open").map(|event| (event[1].as_str().unwrap_or_default().to_owned(), event[2].clone())).collect()
     }
 
     fn cleared(&self) -> Vec<String> {
-        self.log
-            .iter()
-            .filter(|event| event[0] == "clearModelCaches")
-            .map(|event| event[1].as_str().unwrap_or_default().to_owned())
-            .collect()
+        self.log.iter().filter(|event| event[0] == "clearModelCaches").map(|event| event[1].as_str().unwrap_or_default().to_owned()).collect()
     }
 }
 
@@ -250,11 +241,9 @@ impl PickerHost for Fake {
 
     fn route_model_label(&self, route: &Value) -> String {
         match route.get("model") {
-            Some(model) if !model.is_null() => format!(
-                "{}@{}",
-                model.as_str().unwrap_or_default(),
-                route.get("provider").and_then(Value::as_str).unwrap_or_default()
-            ),
+            Some(model) if !model.is_null() => {
+                format!("{}@{}", model.as_str().unwrap_or_default(), route.get("provider").and_then(Value::as_str).unwrap_or_default())
+            }
             _ => "(unset)".to_owned(),
         }
     }
@@ -476,10 +465,7 @@ fn arrows_toggle_write_through_the_store_and_refresh_the_panel() {
     assert_eq!(host.calls("setCompactionSettings"), vec![json!([{"auto": false}])]);
     assert_eq!(host.calls("setWebSearchEnabled"), vec![json!([false])]);
     assert_eq!(host.calls("setMemoryToolsEnabled"), vec![json!([true])]);
-    assert_eq!(
-        host.messages(),
-        ["Auto-clear off", "Compaction auto off", "Web search off \u{b7} new sessions", "Memory on \u{b7} new sessions"]
-    );
+    assert_eq!(host.messages(), ["Auto-clear off", "Compaction auto off", "Web search off \u{b7} new sessions", "Memory on \u{b7} new sessions"]);
     assert_eq!(host.title(), Some("Settings"), "the post-write refresh repainted Settings");
 }
 
@@ -575,14 +561,7 @@ fn a_cycler_with_nothing_to_cycle_or_a_failing_write_says_so() {
     host.right("output-style");
     host.right("workflow");
     host.right("theme");
-    assert_eq!(
-        host.messages(),
-        [
-            "could not list output styles: away",
-            "Couldn\u{2019}t switch workflow: offline",
-            "Couldn\u{2019}t set theme: read only"
-        ]
-    );
+    assert_eq!(host.messages(), ["could not list output styles: away", "Couldn\u{2019}t switch workflow: offline", "Couldn\u{2019}t set theme: read only"]);
 }
 
 #[test]
@@ -679,10 +658,7 @@ fn the_voice_toggle_goes_through_the_core_and_reports_what_happened() {
 
 fn update_host() -> Fake {
     let mut host = Fake::new(Kind::Maintenance);
-    host.answer(
-        "getUpdateSettings",
-        json!({"currentVersion": "1.0.0", "latestVersion": "1.1.0", "updateAvailable": true}),
-    );
+    host.answer("getUpdateSettings", json!({"currentVersion": "1.0.0", "latestVersion": "1.1.0", "updateAvailable": true}));
     host.answer("getUpdateStatus", json!({"phase": "idle"}));
     host.answer("checkForUpdate", Value::Null);
     host
@@ -693,9 +669,7 @@ fn update_panel_versions_from_the_daemon_and_the_auto_update_toggle_writes_then_
     let auto_update = Rc::new(Cell::new(false));
     let mut host = update_host();
     let state = Rc::clone(&auto_update);
-    host.on("getUpdateSettings", move |_| {
-        Ok(json!({"currentVersion": "1.0.0", "latestVersion": "1.1.0", "updateAvailable": true, "autoUpdate": state.get()}))
-    });
+    host.on("getUpdateSettings", move |_| Ok(json!({"currentVersion": "1.0.0", "latestVersion": "1.1.0", "updateAvailable": true, "autoUpdate": state.get()})));
     let state = Rc::clone(&auto_update);
     host.on("setAutoUpdate", move |args| {
         state.set(args[0] == json!(true));
@@ -775,11 +749,7 @@ fn update_failures_are_notices_and_an_install_in_progress_cannot_be_started_agai
     host.select("auto-update");
     host.select("latest");
     host.confirm("update-now");
-    assert_eq!(
-        host.messages(),
-        ["auto-update failed: denied", "update check failed: no network"],
-        "an installing run is not started again"
-    );
+    assert_eq!(host.messages(), ["auto-update failed: denied", "update check failed: no network"], "an installing run is not started again");
 
     let mut host = update_host();
     host.answer("runUpdateNow", json!({"ok": false}));
@@ -843,13 +813,8 @@ fn auto_clear_rows_follow_the_current_setting_arrows_write_advanced_lists_provid
 
     host.select("advanced");
     assert_eq!(host.title(), Some("Auto-clear \u{b7} Advanced"));
-    let rows: Vec<(String, String, String)> = host
-        .panel()
-        .expect("a panel")
-        .items
-        .iter()
-        .map(|item| (item.value.clone(), item.marker.clone(), item.meta.clone()))
-        .collect();
+    let rows: Vec<(String, String, String)> =
+        host.panel().expect("a panel").items.iter().map(|item| (item.value.clone(), item.marker.clone(), item.meta.clone())).collect();
     assert_eq!(
         rows,
         [
@@ -967,11 +932,7 @@ fn profile_rows_from_the_profile_read_arrows_cycle_language_and_experience_enter
     let panel = host.panel().expect("a panel").clone();
     assert_eq!(panel.title, "Profile");
     let rows: Vec<(String, String)> = panel.items.iter().map(|item| (item.value.clone(), item.meta.clone())).collect();
-    assert_eq!(
-        rows,
-        [("title", "Jay"), ("experience-level", "Vibe coder"), ("language", "Korean")]
-            .map(|(value, meta)| (value.to_owned(), meta.to_owned()))
-    );
+    assert_eq!(rows, [("title", "Jay"), ("experience-level", "Vibe coder"), ("language", "Korean")].map(|(value, meta)| (value.to_owned(), meta.to_owned())));
 
     host.right("language");
     assert_eq!(host.calls("setProfile"), vec![json!([{"language": "en"}])]);
@@ -1078,17 +1039,15 @@ fn developer_sections_render_from_the_data_enter_opens_a_section_esc_walks_back_
     let (mut host, _) = developer_host();
     host.open_picker_by(Opener::Developer, json!({"returnTo": "settings"}));
     assert_eq!(host.title(), Some("Developer"));
-    let rows: Vec<(String, String, String)> = host
-        .panel()
-        .expect("a panel")
-        .items
-        .iter()
-        .map(|item| (item.value.clone(), item.label.clone(), item.meta.clone()))
-        .collect();
+    let rows: Vec<(String, String, String)> =
+        host.panel().expect("a panel").items.iter().map(|item| (item.value.clone(), item.label.clone(), item.meta.clone())).collect();
     assert_eq!(
         rows,
-        [("providers", "Providers", "0 on"), ("diagnostics", "Diagnostics", "1 on")]
-            .map(|(value, label, meta)| (value.to_owned(), label.to_owned(), meta.to_owned()))
+        [("providers", "Providers", "0 on"), ("diagnostics", "Diagnostics", "1 on")].map(|(value, label, meta)| (
+            value.to_owned(),
+            label.to_owned(),
+            meta.to_owned()
+        ))
     );
     assert_eq!(host.row("providers").description, "Gemini (Antigravity), Cursor");
 
@@ -1132,12 +1091,8 @@ fn developer_option_with_a_warning_turns_on_only_after_its_confirmation_off_need
     let (mut host, writes) = developer_host();
     host.open_picker_by(Opener::Developer, json!({}));
     host.select("providers");
-    let rows: Vec<(String, String)> =
-        host.panel().expect("a panel").items.iter().map(|item| (item.label.clone(), item.meta.clone())).collect();
-    assert_eq!(
-        rows,
-        [("Gemini (Antigravity)", "Off"), ("Cursor", "Off")].map(|(label, meta)| (label.to_owned(), meta.to_owned()))
-    );
+    let rows: Vec<(String, String)> = host.panel().expect("a panel").items.iter().map(|item| (item.label.clone(), item.meta.clone())).collect();
+    assert_eq!(rows, [("Gemini (Antigravity)", "Off"), ("Cursor", "Off")].map(|(label, meta)| (label.to_owned(), meta.to_owned())));
 
     host.right("cursorOAuth");
     assert_eq!(host.title(), Some("Turn on Cursor"));
@@ -1214,17 +1169,9 @@ fn a_developer_write_acking_after_esc_does_not_re_open_the_section() {
     assert_eq!(host.calls("getDeveloperSettings").len(), 2);
 }
 
-
-
-
 impl SlashHost for Fake {
     fn state(&self) -> SlashState {
-        SlashState {
-            provider: "openai".into(),
-            model: "gpt-5".into(),
-            workflow: self.workflow.clone(),
-            ..SlashState::default()
-        }
+        SlashState { provider: "openai".into(), model: "gpt-5".into(), workflow: self.workflow.clone(), ..SlashState::default() }
     }
 
     fn push_notice(&mut self, text: &str, tone: Tone) {
@@ -1388,4 +1335,3 @@ fn the_openers_of_other_pickers_are_not_ours() {
     let mut host = Fake::new(Kind::Settings);
     assert!(matches!(settings::open(&mut host, Opener::Model, &json!({})), Opening::NotMine));
 }
-

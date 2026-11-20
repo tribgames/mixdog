@@ -70,17 +70,12 @@ impl OnboardingState {
 /// `resolveOnboardingCompleted(store, onboardingCompleted)`: the verdict the launcher resolved before mount when it has one;
 /// else what `probe` reads from the store (`None` for a store without the status call). Anything unresolvable counts as
 /// completed, so a transport hiccup cannot bring a dismissed wizard back.
-pub fn resolve_onboarding_completed(
-    verdict: Option<bool>,
-    probe: impl FnOnce() -> Option<Result<Value, String>>,
-) -> bool {
+pub fn resolve_onboarding_completed(verdict: Option<bool>, probe: impl FnOnce() -> Option<Result<Value, String>>) -> bool {
     if let Some(verdict) = verdict {
         return verdict;
     }
     match probe() {
-        Some(Ok(status)) if status.is_object() => {
-            status.get("completed") == Some(&Value::Bool(true))
-        }
+        Some(Ok(status)) if status.is_object() => status.get("completed") == Some(&Value::Bool(true)),
         _ => true,
     }
 }
@@ -92,10 +87,8 @@ pub fn start_onboarding(host: &mut dyn ProviderHost, force: bool, verdict: Optio
     if host.onboarding().started {
         return false;
     }
-    let completed = resolve_onboarding_completed(verdict, || {
-        host.has_store_method("getOnboardingStatus")
-            .then(|| host.store_call("getOnboardingStatus", json!([])))
-    });
+    let completed =
+        resolve_onboarding_completed(verdict, || host.has_store_method("getOnboardingStatus").then(|| host.store_call("getOnboardingStatus", json!([]))));
     if completed && !force {
         return false;
     }
@@ -108,21 +101,14 @@ pub fn start_onboarding(host: &mut dyn ProviderHost, force: bool, verdict: Optio
 
 /// A store call that may be absent (`store.method?.()`): an absent method answers nothing.
 fn optional_call(host: &mut dyn ProviderHost, method: &str, args: Value) -> Result<Value, String> {
-    if host.has_store_method(method) {
-        host.store_call(method, args)
-    } else {
-        Ok(Value::Null)
-    }
+    if host.has_store_method(method) { host.store_call(method, args) } else { Ok(Value::Null) }
 }
 
 /// `onboardingWarnReopen`: Esc or cancel on any step is a confirmed skip.
 pub fn onboarding_cancel(host: &mut dyn ProviderHost) {
     host.set_onboarding_active(false);
     match optional_call(host, "skipOnboarding", json!([])) {
-        Ok(_) => host.push_notice(
-            "Setup skipped. Run `mixdog --onboarding` to set up later.",
-            Tone::Info,
-        ),
+        Ok(_) => host.push_notice("Setup skipped. Run `mixdog --onboarding` to set up later.", Tone::Info),
         Err(error) => host.push_notice(&format!("Couldn\u{2019}t save skip: {error}"), Tone::Error),
     }
 }
@@ -132,11 +118,7 @@ pub fn onboarding_cancel(host: &mut dyn ProviderHost) {
 /// the explicit Web Search and agent picks are sent. Nothing configured marks it done and leaves the config alone.
 pub fn finish_onboarding(host: &mut dyn ProviderHost) {
     let state = host.onboarding();
-    let (default_route, web_search_route, overrides) = (
-        state.default_route.clone(),
-        state.web_search_route.clone(),
-        state.agent_routes.clone(),
-    );
+    let (default_route, web_search_route, overrides) = (state.default_route.clone(), state.web_search_route.clone(), state.agent_routes.clone());
     let claim = host.claim_surface(SurfaceKind::Picker);
     host.close_surface(claim);
     host.set_onboarding_active(false);
@@ -158,35 +140,21 @@ pub fn finish_onboarding(host: &mut dyn ProviderHost) {
     };
     match result {
         Ok(_) => host.push_notice("First-run setup complete.", Tone::Info),
-        Err(error) => {
-            host.push_notice(&format!("Couldn\u{2019}t save setup: {error}"), Tone::Error)
-        }
+        Err(error) => host.push_notice(&format!("Couldn\u{2019}t save setup: {error}"), Tone::Error),
     }
 }
 
 // ---- Step 2 data -------------------------------------------------------------------------------------------------------
 
 fn roster_entry(agent: &Value) -> AgentEntry {
-    let text = |key: &str| {
-        agent
-            .get(key)
-            .filter(|value| truthy(value))
-            .map(value_text)
-            .unwrap_or_default()
-    };
+    let text = |key: &str| agent.get(key).filter(|value| truthy(value)).map(value_text).unwrap_or_default();
     let id = text("id");
     let label = text("label");
-    AgentEntry {
-        label: if label.is_empty() { id.clone() } else { label },
-        description: text("description"),
-        id,
-    }
+    AgentEntry { label: if label.is_empty() { id.clone() } else { label }, description: text("description"), id }
 }
 
 fn roster_of(list: &Value) -> Vec<AgentEntry> {
-    list.as_array()
-        .map(|agents| agents.iter().map(roster_entry).collect())
-        .unwrap_or_default()
+    list.as_array().map(|agents| agents.iter().map(roster_entry).collect()).unwrap_or_default()
 }
 
 /// On-entry load of the provider models; a failure leaves the list empty and notices.
@@ -227,28 +195,16 @@ pub struct Prefetch {
 /// `prefetchOnboardingStep2`: what is still missing, so advancing renders instantly instead of flashing an empty panel.
 fn prefetch_step2(host: &mut dyn ProviderHost) -> Prefetch {
     let state = host.onboarding();
-    Prefetch {
-        provider_models: !state.has_provider_models(),
-        agents: !state.has_agents(),
-        seq: state.prefetch_seq,
-    }
+    Prefetch { provider_models: !state.has_provider_models(), agents: !state.has_agents(), seq: state.prefetch_seq }
 }
 
 /// A prefetched provider model list arrived. A result of a superseded generation (the provider cache was invalidated by an
 /// auth change while it was in flight) is dropped; so is an error or an empty list: Step 2 falls back to its own load.
-pub fn prefetched_provider_models(
-    host: &mut dyn ProviderHost,
-    seq: u64,
-    result: Result<Value, String>,
-) {
+pub fn prefetched_provider_models(host: &mut dyn ProviderHost, seq: u64, result: Result<Value, String>) {
     if seq != host.onboarding().prefetch_seq {
         return;
     }
-    let Some(models) = result
-        .ok()
-        .and_then(|models| models.as_array().cloned())
-        .filter(|models| !models.is_empty())
-    else {
+    let Some(models) = result.ok().and_then(|models| models.as_array().cloned()).filter(|models| !models.is_empty()) else {
         return;
     };
     host.onboarding().provider_models.clone_from(&models);
@@ -276,13 +232,7 @@ pub fn open_auth_step(host: &mut dyn ProviderHost) {
     // The wizard is reachable while a normal surface is on screen (`/onboarding`, Step 1 re-entry): Esc during the wait must
     // leave that surface alone instead of dropping Step 1 on it.
     let claim = host.claim_surface(SurfaceKind::Picker);
-    let preloaded = if host.has_store_method("getProviderSetup") {
-        host.store_call("getProviderSetup", json!([]))
-            .ok()
-            .filter(Value::is_object)
-    } else {
-        None
-    };
+    let preloaded = if host.has_store_method("getProviderSetup") { host.store_call("getProviderSetup", json!([])).ok().filter(Value::is_object) } else { None };
     if !host.owns_surface(claim) {
         return;
     }
@@ -292,10 +242,7 @@ pub fn open_auth_step(host: &mut dyn ProviderHost) {
             title: "First Run \u{b7} Step 1/4 \u{b7} Provider Auth".to_owned(),
             return_to: Some(Callback::OnboardingAuthStep),
             preloaded_setup: preloaded,
-            confirm_bar: Some(ConfirmBarSpec {
-                buttons: vec![ConfirmButton::new("next", "Next \u{25b6}")],
-                on_confirm: Callback::OnboardingModelsStep,
-            }),
+            confirm_bar: Some(ConfirmBarSpec { buttons: vec![ConfirmButton::new("next", "Next \u{25b6}")], on_confirm: Callback::OnboardingModelsStep }),
             on_cancel: Some(Callback::OnboardingSkip),
             ..SetupOptions::default()
         },
@@ -305,30 +252,10 @@ pub fn open_auth_step(host: &mut dyn ProviderHost) {
 // ---- Step 2 ------------------------------------------------------------------------------------------------------------
 
 fn follows_main_parts() -> Vec<MetaPart> {
-    vec![
-        MetaPart {
-            text: "(follows main)".to_owned(),
-            width: 17,
-        },
-        MetaPart {
-            text: String::new(),
-            width: 6,
-        },
-        MetaPart {
-            text: String::new(),
-            width: 4,
-        },
-    ]
+    vec![MetaPart { text: "(follows main)".to_owned(), width: 17 }, MetaPart { text: String::new(), width: 6 }, MetaPart { text: String::new(), width: 4 }]
 }
 
-fn slot_row(
-    host: &dyn ProviderHost,
-    value: &str,
-    label: &str,
-    route: Option<&Value>,
-    description: &str,
-    target: &str,
-) -> PanelRow {
+fn slot_row(host: &dyn ProviderHost, value: &str, label: &str, route: Option<&Value>, description: &str, target: &str) -> PanelRow {
     let mut item = PickerItem::new(value, label);
     item.meta_parts = Some(host.agent_model_parts(route));
     item.description = description.to_owned();
@@ -336,40 +263,15 @@ fn slot_row(
 }
 
 fn models_step_rows(host: &dyn ProviderHost, state: &OnboardingState) -> Vec<PanelRow> {
-    let mut rows = vec![slot_row(
-        host,
-        "main-model",
-        "Main",
-        state.default_route.as_ref(),
-        "main chat, planning, and agent default",
-        "lead",
-    )];
-    let mut web = slot_row(
-        host,
-        "web-search-model",
-        "Web Search",
-        state.web_search_route.as_ref(),
-        "native web-search model",
-        "webSearch",
-    );
+    let mut rows = vec![slot_row(host, "main-model", "Main", state.default_route.as_ref(), "main chat, planning, and agent default", "lead")];
+    let mut web = slot_row(host, "web-search-model", "Web Search", state.web_search_route.as_ref(), "native web-search model", "webSearch");
     // The marker route means follow Main Model: a hint, not default/default.
-    if state
-        .web_search_route
-        .as_ref()
-        .is_some_and(is_web_search_default_route)
-    {
+    if state.web_search_route.as_ref().is_some_and(is_web_search_default_route) {
         web.item.meta_parts = Some(follows_main_parts());
     }
     rows.push(web);
     for agent in &state.agents {
-        rows.push(slot_row(
-            host,
-            &format!("agent:{}", agent.id),
-            &agent.label,
-            state.agent_routes.get(&agent.id),
-            &agent.description,
-            &agent.id,
-        ));
+        rows.push(slot_row(host, &format!("agent:{}", agent.id), &agent.label, state.agent_routes.get(&agent.id), &agent.description, &agent.id));
     }
     rows
 }
@@ -384,10 +286,7 @@ pub fn open_models_step(host: &mut dyn ProviderHost) {
         let state = host.onboarding();
         state.default_route = None;
         state.agent_routes = Map::new();
-        host.push_notice(
-            "no provider models available; open /providers to sign in",
-            Tone::Warn,
-        );
+        host.push_notice("no provider models available; open /providers to sign in", Tone::Warn);
         // The empty-model fallback hands the surface to Step 1: same ownership rule as the paint below.
         if host.owns_surface(claim) {
             open_auth_step(host);
@@ -405,22 +304,12 @@ pub fn open_models_step(host: &mut dyn ProviderHost) {
     host.set_prompt(PromptSurface::Settings, None);
     let state = host.onboarding().clone();
     let rows = models_step_rows(&*host, &state);
-    let mut panel = ProviderPanel::new(
-        PanelOwner::OnboardingModels,
-        "First Run \u{b7} Step 2/4 \u{b7} Models",
-        "",
-        rows,
-    );
+    let mut panel = ProviderPanel::new(PanelOwner::OnboardingModels, "First Run \u{b7} Step 2/4 \u{b7} Models", "", rows);
     panel.description = "Set the Main Model; each agent inherits it unless changed.".to_owned();
     panel.index_mode = IndexMode::Always;
     panel.label_width = Some(18);
     panel.meta_width = Some(33);
-    panel.confirm_bar = Some(ConfirmBar {
-        buttons: vec![
-            ConfirmButton::new("back", "\u{25c0} Back"),
-            ConfirmButton::new("next", "Next \u{25b6}"),
-        ],
-    });
+    panel.confirm_bar = Some(ConfirmBar { buttons: vec![ConfirmButton::new("back", "\u{25c0} Back"), ConfirmButton::new("next", "Next \u{25b6}")] });
     paint_step(host, claim, panel);
 }
 
@@ -434,19 +323,11 @@ fn paint_step(host: &mut dyn ProviderHost, claim: SurfaceClaim, panel: ProviderP
 }
 
 fn step_row(host: &mut dyn ProviderHost, index: usize) -> Option<PanelRow> {
-    host.onboarding()
-        .panel
-        .as_ref()
-        .and_then(|panel| panel.items.get(index))
-        .cloned()
+    host.onboarding().panel.as_ref().and_then(|panel| panel.items.get(index)).cloned()
 }
 
 pub(super) fn models_select(host: &mut dyn ProviderHost, index: usize) {
-    if let Some(PanelRow {
-        kind: RowKind::Slot(target),
-        ..
-    }) = step_row(host, index)
-    {
+    if let Some(PanelRow { kind: RowKind::Slot(target), .. }) = step_row(host, index) {
         open_role_model_picker(host, &target);
     }
 }
@@ -471,9 +352,7 @@ pub(super) fn models_confirm(host: &mut dyn ProviderHost, button: &str) {
 // ---- Step 2's model pickers --------------------------------------------------------------------------------------------
 
 fn route_matches_model(route: Option<&Value>, model: &Value) -> bool {
-    route.is_some_and(|route| {
-        route.get("provider") == model.get("provider") && route.get("model") == model.get("id")
-    })
+    route.is_some_and(|route| route.get("provider") == model.get("provider") && route.get("model") == model.get("id"))
 }
 
 /// The current effective route for pre-marking: Main and Web Search show their own stored route (or none); agents show their
@@ -490,11 +369,7 @@ fn target_label(state: &OnboardingState, target: &str) -> String {
     match target {
         "lead" => "Main".to_owned(),
         "webSearch" => "Web Search".to_owned(),
-        _ => state
-            .agents
-            .iter()
-            .find(|agent| agent.id == target)
-            .map_or_else(|| target.to_owned(), |agent| agent.label.clone()),
+        _ => state.agents.iter().find(|agent| agent.id == target).map_or_else(|| target.to_owned(), |agent| agent.label.clone()),
     }
 }
 
@@ -505,31 +380,18 @@ fn route_from_model(model: &Value) -> Value {
 
 /// The picker panel of one target. Non-lead targets get a leading "Default" row that makes the target follow the Main Model at
 /// run time; it is pre-marked when the target is unset (agent) or on the web-search marker route.
-fn role_model_panel(
-    host: &dyn ProviderHost,
-    state: &OnboardingState,
-    target: &str,
-    models: &[Value],
-) -> ProviderPanel {
+fn role_model_panel(host: &dyn ProviderHost, state: &OnboardingState, target: &str, models: &[Value]) -> ProviderPanel {
     let is_lead = target == "lead";
     let is_web = target == "webSearch";
     let current = current_route(state, target);
-    let is_unset = if is_web {
-        current.is_none_or(is_web_search_default_route)
-    } else {
-        current.is_none()
-    };
+    let is_unset = if is_web { current.is_none_or(is_web_search_default_route) } else { current.is_none() };
     let success = Some(theme_color(Key::Success));
     let model_rows: Vec<PanelRow> = models
         .iter()
         .map(|model| {
             let provider = value_text(model.get("provider").unwrap_or(&Value::Null));
             let id = value_text(model.get("id").unwrap_or(&Value::Null));
-            let display = model
-                .get("display")
-                .filter(|d| truthy(d))
-                .map(value_text)
-                .unwrap_or_else(|| id.clone());
+            let display = model.get("display").filter(|d| truthy(d)).map(value_text).unwrap_or_else(|| id.clone());
             let mut item = PickerItem::new(&format!("{provider}:{id}"), &display);
             if route_matches_model(current, model) {
                 item.marker = "\u{2713}".to_owned();
@@ -544,20 +406,9 @@ fn role_model_panel(
         default_item.marker = "\u{2713}".to_owned();
     }
     default_item.marker_color = success;
-    default_item.description = if is_web {
-        "follows Main Model"
-    } else {
-        "same as Main Model"
-    }
-    .to_owned();
-    let match_index = models
-        .iter()
-        .position(|model| route_matches_model(current, model));
-    let mut initial = if is_unset || match_index.is_none() {
-        0
-    } else {
-        match_index.map_or(0, |at| at + 1)
-    };
+    default_item.description = if is_web { "follows Main Model" } else { "same as Main Model" }.to_owned();
+    let match_index = models.iter().position(|model| route_matches_model(current, model));
+    let mut initial = if is_unset || match_index.is_none() { 0 } else { match_index.map_or(0, |at| at + 1) };
     if is_lead {
         initial = match_index.unwrap_or(0);
     }
@@ -574,12 +425,7 @@ fn role_model_panel(
         rows.push(PanelRow::new(default_item, RowKind::DefaultRoute));
     }
     rows.extend(model_rows);
-    let mut panel = ProviderPanel::new(
-        PanelOwner::OnboardingRoleModel(target.to_owned()),
-        &format!("First Run \u{b7} {label}"),
-        "",
-        rows,
-    );
+    let mut panel = ProviderPanel::new(PanelOwner::OnboardingRoleModel(target.to_owned()), &format!("First Run \u{b7} {label}"), "", rows);
     panel.description = description;
     panel.initial_index = initial;
     panel
@@ -617,11 +463,7 @@ fn apply_role_selection(state: &mut OnboardingState, target: &str, kind: &RowKin
 /// id. No recommendation logic: the current effective route is pre-highlighted and the plain model list is shown.
 pub fn open_role_model_picker(host: &mut dyn ProviderHost, target: &str) {
     let claim = host.claim_surface(SurfaceKind::Picker);
-    let models = if target == "webSearch" {
-        web_search_models(host, claim)
-    } else {
-        provider_models(host, claim)
-    };
+    let models = if target == "webSearch" { web_search_models(host, claim) } else { provider_models(host, claim) };
     let Some(models) = models else { return };
     if !host.owns_surface(claim) {
         return;
@@ -637,19 +479,13 @@ fn web_search_models(host: &mut dyn ProviderHost, claim: SurfaceClaim) -> Option
     let listed = match optional_call(host, "listWebSearchModels", json!([])) {
         Ok(list) => list.as_array().cloned().unwrap_or_default(),
         Err(error) => {
-            host.push_notice(
-                &format!("could not list web-search models: {error}"),
-                Tone::Warn,
-            );
+            host.push_notice(&format!("could not list web-search models: {error}"), Tone::Warn);
             Vec::new()
         }
     };
     let models = host.normalize_model_options(&listed);
     if models.is_empty() {
-        host.push_notice(
-            "no native web-search models available; connect OpenAI, Grok, Gemini, or Anthropic",
-            Tone::Warn,
-        );
+        host.push_notice("no native web-search models available; connect OpenAI, Grok, Gemini, or Anthropic", Tone::Warn);
         if host.owns_surface(claim) {
             open_models_step(host);
         }
@@ -663,10 +499,7 @@ fn provider_models(host: &mut dyn ProviderHost, claim: SurfaceClaim) -> Option<V
     let loaded = host.onboarding().provider_models.clone();
     let models = host.normalize_model_options(&loaded);
     if models.is_empty() {
-        host.push_notice(
-            "no provider models available; open /providers to sign in",
-            Tone::Warn,
-        );
+        host.push_notice("no provider models available; open /providers to sign in", Tone::Warn);
         if host.owns_surface(claim) {
             open_auth_step(host);
         }
@@ -691,11 +524,7 @@ fn open_theme_step(host: &mut dyn ProviderHost) {
 }
 
 fn open_output_style_step(host: &mut dyn ProviderHost) {
-    open_step_picker(
-        host,
-        Opener::OutputStyle,
-        json!({"onboarding": {"isLastStep": true}}),
-    );
+    open_step_picker(host, Opener::OutputStyle, json!({"onboarding": {"isLastStep": true}}));
 }
 
 fn open_step_picker(host: &mut dyn ProviderHost, opener: Opener, options: Value) {

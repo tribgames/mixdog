@@ -101,7 +101,9 @@ mod tests {
     #[test]
     fn a_delta_adds_to_the_totals_and_replaces_the_latest_call() {
         let mut stats = SessionStats::new();
-        stats.apply_usage_delta(Some(&json!({ "deltaInput": 10, "deltaOutput": 4, "deltaCachedRead": 3, "deltaCacheWrite": 2, "deltaPrompt": 15, "costUsd": 0.5 })));
+        stats.apply_usage_delta(Some(
+            &json!({ "deltaInput": 10, "deltaOutput": 4, "deltaCachedRead": 3, "deltaCacheWrite": 2, "deltaPrompt": 15, "costUsd": 0.5 }),
+        ));
         stats.apply_usage_delta(Some(&json!({ "deltaInput": 5, "deltaOutput": 1, "costUsd": 0.25 })));
         assert_eq!((stats.input_tokens, stats.output_tokens, stats.cached_tokens), (15.0, 5.0, 3.0));
         assert_eq!((stats.cache_write_tokens, stats.prompt_tokens, stats.cost_usd), (2.0, 15.0, 0.75));

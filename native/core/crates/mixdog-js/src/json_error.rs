@@ -273,9 +273,9 @@ impl Scan<'_> {
 /// The message of the `SyntaxError` `JSON.parse(text)` throws, or `None` when `text` parses.
 pub fn v8_json_parse_error(text: &str) -> Option<String> {
     let mut scan = Scan { text, units: text.encode_utf16().collect(), at: 0 };
-    let outcome = scan.value().and_then(|()| {
-        if scan.peek() == Token::Eos { Ok(()) } else { Err(scan.unexpected(scan.at, Some("Unexpected non-whitespace character after JSON"))) }
-    });
+    let outcome = scan
+        .value()
+        .and_then(|()| if scan.peek() == Token::Eos { Ok(()) } else { Err(scan.unexpected(scan.at, Some("Unexpected non-whitespace character after JSON"))) });
     outcome.err()
 }
 
@@ -320,5 +320,3 @@ mod tests {
         }
     }
 }
-
-

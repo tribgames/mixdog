@@ -91,7 +91,11 @@ fn recommended_visual(operation: &Value, role: &str) -> String {
         "scorecard" | "decision-matrix" => "scorecard".into(),
         "comparison" => "allocation".into(),
         _ if role == "decision-close" => {
-            if prop(operation, "visualText").is_some_and(truthy) { "decision-stamp".into() } else { "allocation".into() }
+            if prop(operation, "visualText").is_some_and(truthy) {
+                "decision-stamp".into()
+            } else {
+                "allocation".into()
+            }
         }
         other => other.into(),
     }
@@ -171,11 +175,10 @@ pub fn direct_office_story(format: &str, operations: &Value, design: &Value) -> 
         .map(|(index, (operation_index, operation))| {
             let role = narrative_role(operation, index, total);
             let evidence = operation_evidence(operation, content);
-            let message = compact_value(first_truthy(&[prop(operation, "title"), prop(operation, "takeaway"), Some(&thesis_value)]).unwrap_or(&Value::Null), 220);
-            let implication = compact_value(
-                first_truthy(&[prop(operation, "takeaway"), prop(operation, "subtitle"), prop(operation, "body")]).unwrap_or(&Value::Null),
-                220,
-            );
+            let message =
+                compact_value(first_truthy(&[prop(operation, "title"), prop(operation, "takeaway"), Some(&thesis_value)]).unwrap_or(&Value::Null), 220);
+            let implication =
+                compact_value(first_truthy(&[prop(operation, "takeaway"), prop(operation, "subtitle"), prop(operation, "body")]).unwrap_or(&Value::Null), 220);
             let focal_point = focal_point_for(role, evidence["evidenceKind"].as_str().unwrap_or(""));
             json!({
                 "operationIndex": operation_index,
@@ -238,7 +241,9 @@ pub fn apply_office_creative_brief(operation: &Value, creative: Option<&Value>, 
         return operation.clone();
     }
     let brief = array_of(prop(creative, "briefs")).and_then(|briefs| {
-        briefs.iter().find(|entry| to_number_of(prop(entry, "operationIndex")) == operation_index as f64 && prop(entry, "operationIndex").is_some_and(Value::is_number))
+        briefs
+            .iter()
+            .find(|entry| to_number_of(prop(entry, "operationIndex")) == operation_index as f64 && prop(entry, "operationIndex").is_some_and(Value::is_number))
     });
     let Some(brief) = brief else {
         return operation.clone();

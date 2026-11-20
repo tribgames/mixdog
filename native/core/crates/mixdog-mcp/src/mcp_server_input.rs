@@ -38,10 +38,8 @@ const TRANSPORT_FIELDS: [&str; 13] = [
 
 /// Every spelling the startup and call timeout resolvers read (`MCP_TIMEOUT_FIELD_GROUPS`): a
 /// newly supplied value replaces its whole group.
-pub const TIMEOUT_FIELD_GROUPS: [&[&str]; 2] = [
-    &["startupTimeoutMs", "startup_timeout_ms", "startupTimeoutSec", "startup_timeout_sec"],
-    &["timeoutMs", "timeout_ms", "callTimeoutMs", "call_timeout_ms"],
-];
+pub const TIMEOUT_FIELD_GROUPS: [&[&str]; 2] =
+    [&["startupTimeoutMs", "startup_timeout_ms", "startupTimeoutSec", "startup_timeout_sec"], &["timeoutMs", "timeout_ms", "callTimeoutMs", "call_timeout_ms"]];
 
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
@@ -76,11 +74,7 @@ fn spread(value: &Value) -> Map<String, Value> {
     match value {
         Value::Object(map) => map.clone(),
         Value::Array(list) => list.iter().enumerate().map(|(i, v)| (i.to_string(), v.clone())).collect(),
-        Value::String(text) => text
-            .encode_utf16()
-            .enumerate()
-            .map(|(i, unit)| (i.to_string(), Value::String(String::from_utf16_lossy(&[unit]))))
-            .collect(),
+        Value::String(text) => text.encode_utf16().enumerate().map(|(i, unit)| (i.to_string(), Value::String(String::from_utf16_lossy(&[unit])))).collect(),
         _ => Map::new(),
     }
 }
@@ -95,7 +89,13 @@ fn transport_type(kind: &Value) -> Value {
 pub fn merged_server_input(input: &Value, existing: &Value, original_name: &str) -> Value {
     let existing_kind = {
         let kind = field(existing, "type");
-        if truthy(kind) { kind.clone() } else if truthy(field(existing, "url")) { json!("http") } else { json!("stdio") }
+        if truthy(kind) {
+            kind.clone()
+        } else if truthy(field(existing, "url")) {
+            json!("http")
+        } else {
+            json!("stdio")
+        }
     };
     let transport_changed = (truthy(field(input, "type")) && transport_type(field(input, "type")) != transport_type(&existing_kind))
         || (truthy(field(input, "command")) && truthy(field(existing, "url")))
@@ -127,8 +127,7 @@ pub fn merged_server_input(input: &Value, existing: &Value, original_name: &str)
 /// `coerceStringRecord`: an object's entries as strings, `None` when it has none.
 fn string_record(value: &Value) -> Option<Value> {
     let map = value.as_object()?;
-    let out: Map<String, Value> =
-        map.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), Value::String(value_to_string(v)))).collect();
+    let out: Map<String, Value> = map.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), Value::String(value_to_string(v)))).collect();
     (!out.is_empty()).then_some(Value::Object(out))
 }
 

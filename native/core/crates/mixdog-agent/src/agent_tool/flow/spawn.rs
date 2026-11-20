@@ -11,10 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_rt::TaskClass;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::resolve_route_context_state;
 use mixdog_ai::service::admin_route::truthy;
+use mixdog_rt::TaskClass;
 use serde_json::Value;
 
 use super::job_starter::JobStarter;
@@ -22,8 +22,8 @@ use super::job_starter::StartContext;
 use super::preset::SpawnPreset;
 use super::preset::merge_prepared_meta;
 use super::preset::pending_spawn_meta;
-use super::preset::preset_descriptor;
 use super::preset::prepared_spawn_meta;
+use super::preset::preset_descriptor;
 use super::preset::resolve_agent_spawn_preset;
 use super::reconcile::JobHandle;
 use super::result::WorkerResult;
@@ -252,7 +252,8 @@ impl SpawnFlowImpl {
         // Any resolved same-tag binding in this terminal (live or lingering trace) blocks a
         // fresh spawn; live reuse is routed before a spawn is prepared.
         let scan = wants_session_scan(args);
-        let existing = self.registry.resolve_tag(&tag, &context.scope(), ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: true })?;
+        let existing =
+            self.registry.resolve_tag(&tag, &context.scope(), ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: true })?;
         if existing.is_some() {
             return Err(format!("agent spawn: tag \"{tag}\" already exists"));
         }
@@ -261,7 +262,11 @@ impl SpawnFlowImpl {
         let owners = [context.owner_id(), context.caller_id()];
         let locked = self.admission.workspace_cwd_lock(&owners).filter(|l| !l.is_empty());
         let current = self.env.current_dir();
-        let base_source = locked.clone().or_else(|| caller_cwd.filter(|c| !c.is_empty()).map(str::to_owned)).or_else(|| Some(self.default_cwd.clone()).filter(|d| !d.is_empty())).unwrap_or_else(|| current.clone());
+        let base_source = locked
+            .clone()
+            .or_else(|| caller_cwd.filter(|c| !c.is_empty()).map(str::to_owned))
+            .or_else(|| Some(self.default_cwd.clone()).filter(|d| !d.is_empty()))
+            .unwrap_or_else(|| current.clone());
         let base_cwd = resolve_path(&current, &base_source);
         let requested = clean(args.get("cwd"));
         let worker_cwd = if locked.is_none() && !requested.is_empty() { resolve_path(&base_cwd, &requested) } else { base_cwd };

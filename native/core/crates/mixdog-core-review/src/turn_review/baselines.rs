@@ -125,7 +125,11 @@ fn parsed_entry(value: &Value) -> Option<Entry> {
     let (key, path) = (text("key"), text("path"));
     let status = obj.get("status").and_then(Value::as_str).unwrap_or("");
     let state = obj.get("state").and_then(Value::as_str).unwrap_or("");
-    if key.is_empty() || path.is_empty() || !["captured", "omitted-binary", "omitted-oversized", "evicted"].contains(&status) || !["present", "absent"].contains(&state) {
+    if key.is_empty()
+        || path.is_empty()
+        || !["captured", "omitted-binary", "omitted-oversized", "evicted"].contains(&status)
+        || !["present", "absent"].contains(&state)
+    {
         return None;
     }
     let sha = obj.get("sha256").and_then(Value::as_str).filter(|s| is_sha256(s)).map(str::to_owned);
@@ -426,19 +430,21 @@ struct Applied {
 
 fn touch(state: &mut State, at: f64, side: &Side, touched: &mut bool) {
     if let Some(existing) = state.files.get(&side.key)
-        && at > existing.latest() {
-            let mut next = existing.clone();
-            next.touched = Some(at);
-            state.files.insert(side.key.clone(), next);
-            *touched = true;
-        }
+        && at > existing.latest()
+    {
+        let mut next = existing.clone();
+        next.touched = Some(at);
+        state.files.insert(side.key.clone(), next);
+        *touched = true;
+    }
     if let Some(lost) = state.missing.get(&side.key)
-        && at > lost.at.unwrap_or(0.0) {
-            let mut next = lost.clone();
-            next.at = Some(at);
-            state.missing.insert(side.key.clone(), next);
-            *touched = true;
-        }
+        && at > lost.at.unwrap_or(0.0)
+    {
+        let mut next = lost.clone();
+        next.at = Some(at);
+        state.missing.insert(side.key.clone(), next);
+        *touched = true;
+    }
 }
 
 /// Fold one capture batch into the state. `None` when nothing changed, else the blobs to write
@@ -458,13 +464,20 @@ fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec
     let mut kept: Vec<SideChange> = Vec::new();
     let mut events: Vec<Event> = Vec::new();
     // `add`: first seen wins; returns the entry it stored.
-    let add = |state: &mut State, side: &Side, make: &mut dyn FnMut(&mut State) -> Made, writes: &mut IndexMap<String, Vec<u8>>, dirty: &mut bool, touched: &mut bool| -> Option<Entry> {
+    let add = |state: &mut State,
+               side: &Side,
+               make: &mut dyn FnMut(&mut State) -> Made,
+               writes: &mut IndexMap<String, Vec<u8>>,
+               dirty: &mut bool,
+               touched: &mut bool|
+     -> Option<Entry> {
         let existing = state.files.get(&side.key).cloned();
         if let Some(existing) = &existing
-            && at.partial_cmp(&existing.at) != Some(std::cmp::Ordering::Less) {
-                touch(state, at, side, touched);
-                return None;
-            }
+            && at.partial_cmp(&existing.at) != Some(std::cmp::Ordering::Less)
+        {
+            touch(state, at, side, touched);
+            return None;
+        }
         if existing.is_none() && state.files.len() >= MAX_FILES_PER_SESSION {
             *dirty |= !state.inc.flag || at > state.inc.at;
             state.inc.mark(at);
@@ -629,7 +642,9 @@ fn read_state(fs: &dyn ReadFs, path: &Path, session_id: &str) -> State {
         }
     };
     let parsed: Option<Value> = serde_json::from_slice(&bytes).ok();
-    let Some(parsed) = parsed.filter(|p| p.get("version").and_then(Value::as_u64) == Some(BASELINE_VERSION) && p.get("sessionId").and_then(Value::as_str) == Some(session_id)) else {
+    let Some(parsed) =
+        parsed.filter(|p| p.get("version").and_then(Value::as_u64) == Some(BASELINE_VERSION) && p.get("sessionId").and_then(Value::as_str) == Some(session_id))
+    else {
         state.inc.flag = true;
         return state;
     };
@@ -902,7 +917,11 @@ async fn run_read<R: Send + 'static>(disk: &Arc<dyn ReviewDisk>, job: impl FnOnc
 }
 
 /// Runs a file job on the durability lane, under the file lock of `lock` when given.
-async fn run<R: Send + 'static>(disk: &Arc<dyn ReviewDisk>, lock: Option<&Path>, job: impl FnOnce(&dyn BlockingFs) -> R + Send + 'static) -> std::io::Result<R> {
+async fn run<R: Send + 'static>(
+    disk: &Arc<dyn ReviewDisk>,
+    lock: Option<&Path>,
+    job: impl FnOnce(&dyn BlockingFs) -> R + Send + 'static,
+) -> std::io::Result<R> {
     let slot: Arc<Mutex<Option<R>>> = Arc::new(Mutex::new(None));
     let put = slot.clone();
     disk.blocking(lock.map(|path| (path, BASELINE_LOCK_WAIT)), Box::new(move |fs| *put.lock().unwrap_or_else(|e| e.into_inner()) = Some(job(fs)))).await?;
@@ -971,10 +990,11 @@ impl Core {
         let (p2, id2) = (path.clone(), id.clone());
         let signature = run_read(&self.disk, move |fs| index_signature(fs, &p2)).await.unwrap_or_default();
         if let Some(cached) = &cached
-            && cached.signature == signature {
-                self.remember(cached.clone());
-                return cached.clone();
-            }
+            && cached.signature == signature
+        {
+            self.remember(cached.clone());
+            return cached.clone();
+        }
         let fresh = run_read(&self.disk, move |fs| read_state(fs, &path, &id2)).await.unwrap_or_else(|_| {
             let mut s = State::empty(&id);
             s.inc.flag = true;
@@ -1094,7 +1114,8 @@ impl Core {
         let id = session_id.to_owned();
         run_read(&self.disk, move |fs| {
             let parsed: Value = serde_json::from_slice(&fs.read(&path).ok().flatten()?).ok()?;
-            let ok = parsed.get("version").and_then(Value::as_u64) == Some(BASELINE_VERSION) && parsed.get("sessionId").and_then(Value::as_str) == Some(id.as_str());
+            let ok =
+                parsed.get("version").and_then(Value::as_u64) == Some(BASELINE_VERSION) && parsed.get("sessionId").and_then(Value::as_str) == Some(id.as_str());
             ok.then(|| clean(parsed.get("ownerSessionId").and_then(Value::as_str).unwrap_or("")).to_owned())
         })
         .await

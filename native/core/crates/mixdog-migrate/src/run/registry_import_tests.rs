@@ -1,11 +1,7 @@
 //! The project list of a 1.4.5 profile (`projects.json` and the desktop's `desktop-projects.json`, written by the test in the
 //! formats 1.4.5 wrote) after `migrate` and the first start of the core, through the real `Migrator` and the real `Catalog`.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixtures build the profile with blocking std::fs"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build the profile with blocking std::fs")]
 
 use std::path::Path;
 
@@ -107,7 +103,8 @@ fn prepare(root: &Path, profile: &Value) -> MigrationRoots {
         std::fs::write(home.join("projects.json"), json!({ "projects": projects }).to_string()).unwrap();
     }
     if let Some(preferences) = profile.get("preferences") {
-        let aliases: serde_json::Map<String, Value> = preferences["aliases"].as_object().unwrap().iter().map(|(name, alias)| (at(name), alias.clone())).collect();
+        let aliases: serde_json::Map<String, Value> =
+            preferences["aliases"].as_object().unwrap().iter().map(|(name, alias)| (at(name), alias.clone())).collect();
         let hidden: Vec<String> = preferences["hidden"].as_array().unwrap().iter().map(|name| at(name.as_str().unwrap())).collect();
         std::fs::write(user.join("desktop-projects.json"), json!({ "version": 2, "aliases": aliases, "hidden": hidden }).to_string()).unwrap();
     }
@@ -122,7 +119,10 @@ fn catalog(roots: &MigrationRoots) -> Catalog {
     let tokens = mixdog_rt::testing::tokens();
     std::fs::create_dir_all(roots.data.join("state")).unwrap();
     let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &roots.data.join("state/core.sqlite")).unwrap();
-    Catalog::new(state, Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk })
+    Catalog::new(
+        state,
+        Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
+    )
 }
 
 fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
@@ -171,7 +171,11 @@ fn a_damaged_registry_is_left_byte_for_byte_and_imported_once_it_reads() {
     let cut = whole[..whole.len() / 2].to_vec();
     std::fs::write(&file, &cut).unwrap();
     let beside = || {
-        let mut names: Vec<String> = std::fs::read_dir(&roots.home).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name.starts_with("projects.json")).collect();
+        let mut names: Vec<String> = std::fs::read_dir(&roots.home)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("projects.json"))
+            .collect();
         names.sort();
         names
     };
@@ -207,7 +211,11 @@ fn a_profile_migrated_by_an_earlier_build_joins_the_registry_once_and_keeps_its_
         assert!(catalog.import_registry(&roots.home).await.unwrap(), "the step runs on this start");
         let rows = catalog.list().await.unwrap();
         let paths: Vec<&str> = rows.iter().map(|row| row.path.as_str()).collect();
-        assert_eq!(paths, [at("alpha"), at("beta"), at("epsilon"), at("delta"), at("gamma")], "the touched project leads, the registry's others follow, `ghost` is not listed");
+        assert_eq!(
+            paths,
+            [at("alpha"), at("beta"), at("epsilon"), at("delta"), at("gamma")],
+            "the touched project leads, the registry's others follow, `ghost` is not listed"
+        );
         assert_eq!((rows[0].alias.as_deref(), rows[0].last_used_at), (Some("The A"), Some(touched)));
         assert_eq!(display_name(&rows[2]), "Zed");
         // Once: the file changing afterwards, or the start repeating, changes nothing.

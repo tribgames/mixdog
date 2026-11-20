@@ -9,9 +9,9 @@
 //! settling of the enriched rows and the shared picker sanitizer, in Node's
 //! order (`_fetchAndCacheCatalog`).
 
+use crate::transport::Exchange;
 use crate::transport::deadlines::GROK_LISTING;
 use crate::transport::deadlines::GROK_PROXY_LISTING;
-use crate::transport::Exchange;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -72,11 +72,7 @@ impl XaiEffortRule for SeedEffortRule {
         if !text.starts_with("grok") {
             return true;
         }
-        CompatProfile::xai()
-            .seed_models
-            .iter()
-            .find(|seed| seed.id == text)
-            .is_none_or(|seed| seed.supports_reasoning != Some(false))
+        CompatProfile::xai().seed_models.iter().find(|seed| seed.id == text).is_none_or(|seed| seed.supports_reasoning != Some(false))
     }
 }
 
@@ -121,19 +117,7 @@ impl GrokListing {
     /// The `data` array of one catalog. A redirect is refused like any other
     /// refusal: the bearer is never replayed to another host.
     async fn items(&self, url: String, headers: Vec<(String, String)>, exchange: Exchange) -> Result<Vec<Value>, ProviderError> {
-        let head = self
-            .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "GET".to_owned(),
-                    url,
-                    headers,
-                    body: Vec::new(),
-                },
-                exchange,
-            )
-            .await?;
+        let head = self.http.send(WireRequest { transport: TransportKind::Http1, method: "GET".to_owned(), url, headers, body: Vec::new() }, exchange).await?;
         let success = head.is_success();
         let response = head.read_all().await?;
         if !success {
@@ -171,9 +155,7 @@ impl GrokListing {
     pub(super) fn settle(&self, mut record: ModelRecord) -> ModelRecord {
         record.max_output_tokens = None;
         let ladder = record.picker.reasoning_options.iter().find(|option| js_trim(&option.kind).to_lowercase() == "effort");
-        let declared = ladder.map_or_else(Vec::new, |option| {
-            known_efforts(&option.values.iter().map(|v| Value::String(v.clone())).collect::<Vec<_>>())
-        });
+        let declared = ladder.map_or_else(Vec::new, |option| known_efforts(&option.values.iter().map(|v| Value::String(v.clone())).collect::<Vec<_>>()));
         record.reasoning_levels = self.reasoning_levels(&record.id, &declared);
         record
     }
@@ -240,10 +222,7 @@ fn declared_efforts(item: &Map<String, Value>) -> Vec<String> {
 /// The proxy's serving window wins over api.x.ai's public one; both are
 /// merged under the same keys, proxy first.
 fn context_window(item: &Map<String, Value>) -> Value {
-    let stated = ["context_window", "context_length", "contextWindow"]
-        .iter()
-        .find_map(|key| item.get(*key).filter(|v| !v.is_null()))
-        .map_or(0.0, to_number);
+    let stated = ["context_window", "context_length", "contextWindow"].iter().find_map(|key| item.get(*key).filter(|v| !v.is_null())).map_or(0.0, to_number);
     if stated.is_finite() && stated > 0.0 && stated.fract() == 0.0 && stated < 9e15 {
         json!(stated as u64)
     } else if stated.is_finite() && stated > 0.0 {
@@ -340,14 +319,10 @@ impl GrokListing {
         )
         .await;
         // The proxy is best-effort by design; the primary catalog is not.
-        let mut rows: Vec<Map<String, Value>> =
-            merge(proxy.unwrap_or_default(), api?).iter().filter_map(|item| self.normalize(item)).collect();
+        let mut rows: Vec<Map<String, Value>> = merge(proxy.unwrap_or_default(), api?).iter().filter_map(|item| self.normalize(item)).collect();
         mark_latest(&mut rows);
-        let listed: Vec<ModelRecord> = rows
-            .into_iter()
-            .filter(|row| row.get("id").and_then(Value::as_str).is_some_and(is_chat))
-            .map(listing_row::record)
-            .collect();
+        let listed: Vec<ModelRecord> =
+            rows.into_iter().filter(|row| row.get("id").and_then(Value::as_str).is_some_and(is_chat)).map(listing_row::record).collect();
         // `enrichModels`, `_sanitizeGrokModels`, then the shared sanitizer.
         let enriched = self.lookup.enrich_listed(PROVIDER_ID, listed);
         let settled = enriched.into_iter().map(|record| self.settle(record)).collect();

@@ -43,40 +43,24 @@ impl ExecVerdict {
                 if elevation_approved {
                     return None;
                 }
-                let reason = if finding.reason.is_empty() {
-                    "Command requests elevated privileges"
-                } else {
-                    finding.reason.as_str()
-                };
+                let reason = if finding.reason.is_empty() { "Command requests elevated privileges" } else { finding.reason.as_str() };
                 let rule = match (&finding.rule, &finding.matched) {
                     (Some(rule), Some(matched)) => format!(" [rule {rule}: \"{matched}\"]"),
                     (Some(rule), None) => format!(" [rule {rule}]"),
                     _ => String::new(),
                 };
-                return Some(format!(
-                    "Error: command requires user approval for elevation — {reason}{rule}; no approval was granted for this call"
-                ));
+                return Some(format!("Error: command requires user approval for elevation — {reason}{rule}; no approval was granted for this call"));
             }
             Self::Deny(finding) => finding,
         };
-        let reason = if finding.reason.is_empty() {
-            String::new()
-        } else {
-            format!(" — {}", finding.reason)
-        };
+        let reason = if finding.reason.is_empty() { String::new() } else { format!(" — {}", finding.reason) };
         let rule = match (&finding.rule, &finding.matched) {
             (Some(rule), Some(matched)) => format!(" [rule {rule}: \"{matched}\"]"),
             (Some(rule), None) => format!(" [rule {rule}]"),
             _ => String::new(),
         };
-        let alternative = finding
-            .alternative
-            .as_ref()
-            .map(|text| format!("; instead: {text}"))
-            .unwrap_or_default();
-        Some(format!(
-            "Error: command blocked by exec policy{reason}{rule}{alternative}"
-        ))
+        let alternative = finding.alternative.as_ref().map(|text| format!("; instead: {text}")).unwrap_or_default();
+        Some(format!("Error: command blocked by exec policy{reason}{rule}{alternative}"))
     }
 }
 
@@ -106,8 +90,6 @@ mod classify {
     use super::ExecVerdict;
     use crate::exec::scan::JsRegex;
     use crate::exec::scan::WRAPPER_NAMES;
-    use crate::exec::scan::js_trim;
-    use crate::exec::scan::js_words;
     use crate::exec::scan::ci;
     use crate::exec::scan::cs;
     use crate::exec::scan::decode_powershell_encoded_command;
@@ -115,6 +97,8 @@ mod classify {
     use crate::exec::scan::extract_powershell_command_inner;
     use crate::exec::scan::extract_shell_c_inner;
     use crate::exec::scan::is_wrapper_name;
+    use crate::exec::scan::js_trim;
+    use crate::exec::scan::js_words;
     use crate::exec::scan::strip_quoted_and_heredoc;
 
     const ELEVATION_REASON: &str = "Command requests elevated privileges";
@@ -122,33 +106,24 @@ mod classify {
     // ---- bash-policy-scan.mjs ------------------------------------------------------------
 
     type AnsiEscape = (JsRegex, fn(&str) -> String);
-    static ANSI_C_BODY_ESCAPES: LazyLock<Vec<AnsiEscape>> =
-        LazyLock::new(|| {
-            fn code(radix: u32, digits: &str) -> String {
-                u32::from_str_radix(digits, radix)
-                    .ok()
-                    .and_then(char::from_u32)
-                    .map_or_else(|| "\u{fffd}".to_owned(), String::from)
-            }
-            vec![
-                (cs(r"\\x([0-9a-fA-F]{1,2})"), (|d: &str| code(16, d)) as fn(&str) -> String),
-                (cs(r"\\u([0-9a-fA-F]{1,4})"), |d| code(16, d)),
-                (cs(r"\\0([0-7]{1,3})"), |d| code(8, d)),
-                (cs(r"\\([0-7]{1,3})"), |d| code(8, d)),
-            ]
-        });
+    static ANSI_C_BODY_ESCAPES: LazyLock<Vec<AnsiEscape>> = LazyLock::new(|| {
+        fn code(radix: u32, digits: &str) -> String {
+            u32::from_str_radix(digits, radix).ok().and_then(char::from_u32).map_or_else(|| "\u{fffd}".to_owned(), String::from)
+        }
+        vec![
+            (cs(r"\\x([0-9a-fA-F]{1,2})"), (|d: &str| code(16, d)) as fn(&str) -> String),
+            (cs(r"\\u([0-9a-fA-F]{1,4})"), |d| code(16, d)),
+            (cs(r"\\0([0-7]{1,3})"), |d| code(8, d)),
+            (cs(r"\\([0-7]{1,3})"), |d| code(8, d)),
+        ]
+    });
 
     fn decode_ansi_c_body(body: &str) -> String {
         let mut text = body.to_owned();
         for (re, decode) in ANSI_C_BODY_ESCAPES.iter() {
             text = re.replace_all_with(&text, |c| decode(c.get(1).unwrap_or_default()));
         }
-        text.replace("\\n", "\n")
-            .replace("\\t", "\t")
-            .replace("\\r", "\r")
-            .replace("\\\\", "\\")
-            .replace("\\'", "'")
-            .replace("\\\"", "\"")
+        text.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r").replace("\\\\", "\\").replace("\\'", "'").replace("\\\"", "\"")
     }
 
     /// `$'…'` / `$"…"` bodies decoded; `(?:\\.|[^\\])*?` ends at the first matching quote.
@@ -191,16 +166,10 @@ mod classify {
         out
     }
 
-    static SUBSTITUTION: LazyLock<JsRegex> =
-        LazyLock::new(|| cs(r"\$\(([^()]*(?:\([^()]*\)[^()]*)*)\)|`([^`]*)`"));
+    static SUBSTITUTION: LazyLock<JsRegex> = LazyLock::new(|| cs(r"\$\(([^()]*(?:\([^()]*\)[^()]*)*)\)|`([^`]*)`"));
 
     fn substitution_bodies(s: &str) -> Vec<String> {
-        SUBSTITUTION
-            .captures_iter(s)
-            .filter_map(|c| c.get(1).or_else(|| c.get(2)))
-            .map(str::to_owned)
-            .filter(|b| !js_trim(b).is_empty())
-            .collect()
+        SUBSTITUTION.captures_iter(s).filter_map(|c| c.get(1).or_else(|| c.get(2))).map(str::to_owned).filter(|b| !js_trim(b).is_empty()).collect()
     }
 
     fn injection_block_targets(cmd: &str) -> Vec<String> {
@@ -234,15 +203,13 @@ mod classify {
             targets.push(decoded);
         }
         let mut seen = HashSet::new();
-        targets
-            .into_iter()
-            .filter(|t| !t.is_empty() && seen.insert(t.clone()))
-            .collect()
+        targets.into_iter().filter(|t| !t.is_empty() && seen.insert(t.clone())).collect()
     }
 
     // ---- shell-policy-danger-target.mjs -------------------------------------------------
 
-    const PROTECTED_ENV: &str = "userprofile|homepath|home|homedrive|systemroot|windir|programfiles|programdata|systemdrive|allusersprofile|public|appdata|localappdata";
+    const PROTECTED_ENV: &str =
+        "userprofile|homepath|home|homedrive|systemroot|windir|programfiles|programdata|systemdrive|allusersprofile|public|appdata|localappdata";
 
     static DANGER: LazyLock<DangerRes> = LazyLock::new(|| DangerRes {
         home_var: cs(r"^\$home(?:\b|[\\/])"),
@@ -252,9 +219,7 @@ mod classify {
         home_sub: ci(r"^\$\(home\)"),
         unc: cs(r"^(?:\\\\[^\\]+\\[^\\]+\\\*?|\\\\[^\\]+\\[^\\]*)$"),
         percent_var: cs(r"^%[^%]*%"),
-        unix_root: cs(
-            r"^/(?:etc|usr|bin|sbin|lib|lib64|boot|sys|proc|dev|root|var|home|opt|srv|system|library|applications|users|private|volumes)(?:/\*)?$",
-        ),
+        unix_root: cs(r"^/(?:etc|usr|bin|sbin|lib|lib64|boot|sys|proc|dev|root|var|home|opt|srv|system|library|applications|users|private|volumes)(?:/\*)?$"),
         drive: cs(r"^[a-z]:$"),
         drive_glob: cs(r"^[a-z]:\\\*"),
         win_root: cs(r"^[a-z]:\\(?:windows|program files(?: \(x86\))?|programdata|users)$"),
@@ -320,10 +285,7 @@ mod classify {
 
     fn wrap_chain(extra: &[&str]) -> String {
         let names: Vec<&str> = WRAPPER_NAMES.iter().copied().chain(extra.iter().copied()).collect();
-        format!(
-            r"(?:(?:[A-Za-z_]\w*=\S*\s+)|(?:(?:{})\s+(?:(?:[-+]\S*|\d+[smhd]?|\d+m\d+s?)\s+)*))*",
-            names.join("|")
-        )
+        format!(r"(?:(?:[A-Za-z_]\w*=\S*\s+)|(?:(?:{})\s+(?:(?:[-+]\S*|\d+[smhd]?|\d+m\d+s?)\s+)*))*", names.join("|"))
     }
 
     const CMD_START: &str = r"(?:^|[;&|\n(){}]\s*|\$[\({]\s*|[<>]\(\s*|`\s*)";
@@ -350,21 +312,12 @@ mod classify {
             format: ci(r"\bformat\s+[a-z]:"),
             power: ci(&format!(r"{start}(?:shutdown|reboot|halt)\b")),
             mkfs: ci(&format!(r"{start}mkfs(?:\.|\b)")),
-            dd_to_device: ci(&format!(
-                r"{start}dd\s+[^\n]*\bof=/dev/(?!(?:null|zero|stdout|stderr|full|tty)\b)"
-            )),
+            dd_to_device: ci(&format!(r"{start}dd\s+[^\n]*\bof=/dev/(?!(?:null|zero|stdout|stderr|full|tty)\b)")),
             diskpart: ci(&format!(r"{start}diskpart\b[^\n]*\bclean\b")),
             fork_bomb: cs(r":\(\)\s*\{[^}]*:\|:&[^}]*\};\s*:"),
-            rm: ci(&format!(
-                r"{CMD_START}{}\brm\s+([^|;&\n`)]+)",
-                wrap_chain(&["command"])
-            )),
-            remove_item: ci(
-                r"(?:^|[;&|\n(){}]\s*|`\s*)\s*(?:Remove-Item|ri|rm|rmdir|rd|del|erase)\b([^\n;|]*)"
-            ),
-            cmd_delete: ci(
-                r"(?:^|[;&|\n(){}]\s*|`\s*)\s*(?:del|erase|rd|rmdir)\b([^\n;|&]*)",
-            ),
+            rm: ci(&format!(r"{CMD_START}{}\brm\s+([^|;&\n`)]+)", wrap_chain(&["command"]))),
+            remove_item: ci(r"(?:^|[;&|\n(){}]\s*|`\s*)\s*(?:Remove-Item|ri|rm|rmdir|rd|del|erase)\b([^\n;|]*)"),
+            cmd_delete: ci(r"(?:^|[;&|\n(){}]\s*|`\s*)\s*(?:del|erase|rd|rmdir)\b([^\n;|&]*)"),
             rm_short_flags: cs(r"^-[a-zA-Z]+$"),
         }
     });
@@ -415,7 +368,9 @@ mod classify {
                         recursive = true;
                     } else if FORCE.is_match(&low) {
                         force = true;
-                    } else if matches!(low.as_str(), "-path" | "-literalpath" | "-lp") && let Some(next) = toks.get(i + 1) {
+                    } else if matches!(low.as_str(), "-path" | "-literalpath" | "-lp")
+                        && let Some(next) = toks.get(i + 1)
+                    {
                         targets.push(next);
                         i += 1;
                     }
@@ -482,13 +437,12 @@ mod classify {
 
     /// `isBlockedCommand`: the literal text, then a base64 `-EncodedCommand` payload.
     pub(super) fn is_blocked_command(command: &str) -> bool {
-        blocked_text(command)
-            || decode_powershell_encoded_command(command).is_some_and(|d| blocked_text(&d))
+        blocked_text(command) || decode_powershell_encoded_command(command).is_some_and(|d| blocked_text(&d))
     }
 
     // ---- shell-exec-policy.mjs -----------------------------------------------------------
 
-    static DENY_PATTERNS: LazyLock<Vec<JsRegex>> =LazyLock::new(|| {
+    static DENY_PATTERNS: LazyLock<Vec<JsRegex>> = LazyLock::new(|| {
         vec![
             ci(r"\b(?:curl|wget|fetch|Invoke-WebRequest|iwr)\b[^\n|&;]*\|[^\n|&;]*\b(?:sh|bash|zsh|dash|pwsh|powershell)(?:\.exe)?\b"),
             ci(r"\|\s*(?:sh|bash|zsh|dash|pwsh|powershell)(?:\.exe)?\b"),
@@ -499,10 +453,8 @@ mod classify {
         ]
     });
 
-    const DENY_COMMANDS: [&str; 13] = [
-        "diskpart", "shutdown", "reboot", "halt", "poweroff", "init", "telinit", "mkfs",
-        "mkfs.ext4", "mkfs.ntfs", "format", "fdisk", "parted",
-    ];
+    const DENY_COMMANDS: [&str; 13] =
+        ["diskpart", "shutdown", "reboot", "halt", "poweroff", "init", "telinit", "mkfs", "mkfs.ext4", "mkfs.ntfs", "format", "fdisk", "parted"];
 
     struct Elevation {
         start_process: JsRegex,
@@ -537,23 +489,15 @@ mod classify {
     /// at a command position and when not followed by a word character or hyphen.
     fn elevation_hit(text: &str) -> Option<String> {
         let e = &*ELEVATION;
-        let mut starts: Vec<(usize, usize)> =
-            e.start_process.find_iter(text).map(|m| (m.start, m.end)).collect();
+        let mut starts: Vec<(usize, usize)> = e.start_process.find_iter(text).map(|m| (m.start, m.end)).collect();
         starts.extend(
             e.alias
                 .find_iter(text)
-                .filter(|m| {
-                    text[m.end..]
-                        .chars()
-                        .next()
-                        .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-                })
+                .filter(|m| text[m.end..].chars().next().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')))
                 .map(|m| (m.start, m.end)),
         );
         starts.sort_unstable();
-        starts.into_iter().find_map(|(start, end)| {
-            e.tail.find(&text[end..]).map(|t| text[start..end + t.end].to_owned())
-        })
+        starts.into_iter().find_map(|(start, end)| e.tail.find(&text[end..]).map(|t| text[start..end + t.end].to_owned()))
     }
 
     fn bare_name(token: &str) -> String {
@@ -572,18 +516,14 @@ mod classify {
     }
 
     fn skip_wrapper_options(tokens: &[&str], mut i: usize) -> usize {
-        while i < tokens.len()
-            && (tokens[i].starts_with(['-', '+']) || is_duration_token(tokens[i]))
-        {
+        while i < tokens.len() && (tokens[i].starts_with(['-', '+']) || is_duration_token(tokens[i])) {
             i += 1;
         }
         i
     }
 
     fn segments(command: &str) -> impl Iterator<Item = Vec<&str>> {
-        command
-            .split([';', '&', '|', '\n'])
-            .map(|seg| js_words(seg).collect())
+        command.split([';', '&', '|', '\n']).map(|seg| js_words(seg).collect())
     }
 
     /// First privilege-escalation wrapper at any command position.
@@ -646,8 +586,7 @@ mod classify {
         if let Some(decoded) = decode_powershell_encoded_command(command) {
             raw_targets.push(decoded);
         }
-        let executable_targets: Vec<String> =
-            raw_targets.iter().map(|t| strip_quoted_and_heredoc(t)).collect();
+        let executable_targets: Vec<String> = raw_targets.iter().map(|t| strip_quoted_and_heredoc(t)).collect();
         if executable_targets.iter().any(|t| is_blocked_command(t)) {
             return ExecVerdict::Deny(ExecFinding {
                 reason: "destructive or system-destabilising pattern (hard block)".into(),
@@ -760,14 +699,7 @@ mod tests {
     #[test]
     fn an_elevated_launch_runs_and_the_os_prompt_confirms_it() {
         assert_eq!(ExecVerdict::Allow.block_message(), None);
-        assert_eq!(
-            ExecVerdict::Ask(ExecFinding {
-                reason: "Command requests elevated privileges".into(),
-                ..ExecFinding::default()
-            })
-            .block_message(),
-            None
-        );
+        assert_eq!(ExecVerdict::Ask(ExecFinding { reason: "Command requests elevated privileges".into(), ..ExecFinding::default() }).block_message(), None);
     }
 
     // Cases below are Node's own: `shell-exec-policy.test.mjs`, `destructive-warning.test.mjs`,
@@ -779,10 +711,7 @@ mod tests {
 
     fn is_ask(command: &str) -> bool {
         match verdict(command) {
-            ExecVerdict::Ask(f) => {
-                f.reason == "Command requests elevated privileges"
-                    && f.rule.as_deref() == Some("elevation")
-            }
+            ExecVerdict::Ask(f) => f.reason == "Command requests elevated privileges" && f.rule.as_deref() == Some("elevation"),
             _ => false,
         }
     }
@@ -981,7 +910,14 @@ mod tests {
             );
             assert_eq!(got.refusal(true), None, "an approved elevation runs");
         }
-        for command in ["Write-Output \"Start-Process -Verb RunAs\"", "Start-Process notepad", "Start-Process notepad -Verb Open", "npm start -v RunAs", "echo \"run sudo later\"", "echo 'sudo apt install x'"] {
+        for command in [
+            "Write-Output \"Start-Process -Verb RunAs\"",
+            "Start-Process notepad",
+            "Start-Process notepad -Verb Open",
+            "npm start -v RunAs",
+            "echo \"run sudo later\"",
+            "echo 'sudo apt install x'",
+        ] {
             assert!(matches!(verdict(command), ExecVerdict::Allow), "{command:?}");
         }
     }

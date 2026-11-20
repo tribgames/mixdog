@@ -122,10 +122,6 @@ mod tests {
         }
     }
 
-
-
-
-
     fn reader(runtime: Value, hooks: Value) -> ServiceStatus {
         let service: Arc<dyn DomainService> = Arc::new(Canned(runtime));
         ServiceStatus::new(service.clone(), service.clone(), service, Arc::new(Hooks(hooks)))
@@ -154,7 +150,11 @@ mod tests {
         let answer = status.read("hooks", false, &ThreadId::from("t1")).await.unwrap();
         assert_eq!(answer.to_string(), r#"{"enabled":true,"configMode":"file","ruleCount":0,"rules":[],"configuredEvents":["PreToolUse"]}"#);
         let off = reader(Value::Null, json!({ "enabled": "yes" }));
-        assert_eq!(off.read("hooks", false, &ThreadId::from("t1")).await.unwrap().to_string(), r#"{"enabled":false,"rules":[]}"#, "only `true` enables, and rules default to none");
+        assert_eq!(
+            off.read("hooks", false, &ThreadId::from("t1")).await.unwrap().to_string(),
+            r#"{"enabled":false,"rules":[]}"#,
+            "only `true` enables, and rules default to none"
+        );
     }
 
     #[tokio::test]

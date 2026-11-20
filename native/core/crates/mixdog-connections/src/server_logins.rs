@@ -13,18 +13,17 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{
-    SshCredentialSource, SshKeychainIssue, SshModelLogin, SshServerLogin, SshServerLoginFlow, SshServerLoginFlowState,
-    SshServerLoginKind, SshServerLogins,
+    SshCredentialSource, SshKeychainIssue, SshModelLogin, SshServerLogin, SshServerLoginFlow, SshServerLoginFlowState, SshServerLoginKind, SshServerLogins,
 };
 use mixdog_app_server_client::api::{CallOptions, ClientError, ClientEvent, ProtocolClient, RpcNotification, SectionName};
 use mixdog_protocol::redact::redact_secrets;
-use mixdog_rt::time::{sleep, timeout, Instant};
+use mixdog_rt::time::{Instant, sleep, timeout};
 use mixdog_rt::{CancellationToken, TaskClass};
-use mixdog_ssh::callback_forward::{open_callback_forward, CallbackForward};
+use mixdog_ssh::callback_forward::{CallbackForward, open_callback_forward};
 use mixdog_ssh::command::parse_ssh_target;
 use mixdog_ssh::context::{AttemptContext, HostSettings, SshEnv};
 use mixdog_ssh::diagnostics::diagnostics_key_for;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use url::Url;
@@ -233,8 +232,7 @@ fn login_rows(setup: &Value) -> Vec<SshServerLogin> {
         };
         // An environment key with nothing stored is read-only; a stored key can still be changed or logged out. A custom
         // provider with a key variable takes no key saved here.
-        let from_environment =
-            api && ((is_true(entry.get("env")) && !is_true(entry.get("stored"))) || (custom && opt_text(entry.get("apiKeyEnv")).is_some()));
+        let from_environment = api && ((is_true(entry.get("env")) && !is_true(entry.get("stored"))) || (custom && opt_text(entry.get("apiKeyEnv")).is_some()));
         Some(SshServerLogin {
             name: opt_text(entry.get("name")).unwrap_or_else(|| id.clone()),
             id,
@@ -261,9 +259,8 @@ fn login_rows(setup: &Value) -> Vec<SshServerLogin> {
 /// The server's credential-storage issue from its setup, reduced to plain bounded text; `None` without one.
 fn keychain_issue_of(setup: &Value) -> Option<SshKeychainIssue> {
     let issue = setup.get("keychain")?;
-    let bounded = |name: &str, max: usize| {
-        opt_text(issue.get(name)).filter(|found| found.chars().count() <= max && !found.chars().any(|c| c.is_ascii_control()))
-    };
+    let bounded =
+        |name: &str, max: usize| opt_text(issue.get(name)).filter(|found| found.chars().count() <= max && !found.chars().any(|c| c.is_ascii_control()));
     let state = bounded("state", 40)?;
     let message = bounded("message", 400)?;
     Some(SshKeychainIssue { state, kind: bounded("kind", 40), message, path: bounded("path", 1_024) })
@@ -333,8 +330,7 @@ fn provider_id(value: &str) -> LoginResult<&str> {
 fn is_custom_provider(id: &str) -> bool {
     let Some(uuid) = id.strip_prefix("custom-") else { return false };
     let groups: Vec<&str> = uuid.split('-').collect();
-    groups.len() == 5
-        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, len)| group.len() == len && group.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')))
+    groups.len() == 5 && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, len)| group.len() == len && group.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -445,13 +441,7 @@ impl ServerLogins {
         };
         let busy_sessions = server.busy_sessions().await;
         if server.model_login() != ModelLogin::Server {
-            return Ok(SshServerLogins {
-                connected: true,
-                model_login: Some(SshModelLogin::Pc),
-                busy_sessions,
-                providers: None,
-                keychain: None,
-            });
+            return Ok(SshServerLogins { connected: true, model_login: Some(SshModelLogin::Pc), busy_sessions, providers: None, keychain: None });
         }
         let client = server.client();
         let setup = refreshed_setup(&client).await?;
@@ -513,7 +503,8 @@ impl ServerLogins {
         }
         // The login ended while the forward was being made (a disconnect, a quit): that forward is closed at once.
         if let Some(login) = &own
-            && !locked(&inner.state).pending.get(&key).is_some_and(|current| Arc::ptr_eq(current, login)) {
+            && !locked(&inner.state).pending.get(&key).is_some_and(|current| Arc::ptr_eq(current, login))
+        {
             if let Some(forward) = forward {
                 forward.close().await;
             }
@@ -536,11 +527,7 @@ impl ServerLogins {
         let key = inner.flow_key(id, flow_id)?;
         let (_, server) = inner.server_connection(id)?;
         let owner = locked(&inner.state).pending.get(&key).cloned();
-        let answer = server.client().call_raw(
-            "account/getOAuthProviderLoginStatus",
-            json!({ "flowId": flow_id }),
-            CallOptions::default(),
-        ).await;
+        let answer = server.client().call_raw("account/getOAuthProviderLoginStatus", json!({ "flowId": flow_id }), CallOptions::default()).await;
         let still_owns = || {
             let state = locked(&inner.state);
             match (owner.as_ref(), state.pending.get(&key)) {
@@ -711,7 +698,7 @@ impl Inner {
         let host = self.saved_host(id)?;
         let Some(server) = self.servers.attached(&host.id) else {
             // A thrown error leads with its code (the way every coded error of this domain reaches the window): the interface words it.
-        return fail(format!("{}: {}", mixdog_ssh::said::CONNECT_FIRST.code, mixdog_ssh::said::CONNECT_FIRST.said([("name", host.name.as_str())]).english));
+            return fail(format!("{}: {}", mixdog_ssh::said::CONNECT_FIRST.code, mixdog_ssh::said::CONNECT_FIRST.said([("name", host.name.as_str())]).english));
         };
         if server.model_login() != ModelLogin::Server {
             return fail(format!("{}: {}", mixdog_ssh::said::PC_ACCOUNTS.code, mixdog_ssh::said::PC_ACCOUNTS.said([("name", host.name.as_str())]).english));
@@ -877,7 +864,8 @@ impl Inner {
     /// Ends a login (`only`: that very login, not a later one reusing its id); true when a login was ended.
     async fn end_login(&self, key: &Key, only: Option<&Arc<Pending>>) -> bool {
         if let Some(only) = only
-            && !locked(&self.state).pending.get(key).is_some_and(|current| Arc::ptr_eq(current, only)) {
+            && !locked(&self.state).pending.get(key).is_some_and(|current| Arc::ptr_eq(current, only))
+        {
             return false;
         }
         let login = self.forget_login(key);

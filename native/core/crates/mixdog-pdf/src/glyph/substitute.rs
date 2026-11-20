@@ -12,10 +12,7 @@ use std::sync::{Arc, Mutex};
 
 /// pdf.js `normalizeFontName`: `,` and `_` become `-`, whitespace is removed.
 pub fn normalize_font_name(name: &str) -> String {
-    name.chars()
-        .map(|c| if c == ',' || c == '_' { '-' } else { c })
-        .filter(|&c| !is_js_whitespace(c))
-        .collect()
+    name.chars().map(|c| if c == ',' || c == '_' { '-' } else { c }).filter(|&c| !is_js_whitespace(c)).collect()
 }
 
 /// The characters of the JS regular expression class `\s`.
@@ -23,13 +20,7 @@ fn is_js_whitespace(c: char) -> bool {
     matches!(
         c,
         '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
     )
 }
 
@@ -303,14 +294,7 @@ const SERIF_FONTS: &[&str] = &[
 ];
 
 /// pdf.js `getSymbolsFonts`.
-const SYMBOLS_FONTS: &[&str] = &[
-    "Dingbats",
-    "Symbol",
-    "ZapfDingbats",
-    "Wingdings",
-    "Wingdings-Bold",
-    "Wingdings-Regular",
-];
+const SYMBOLS_FONTS: &[&str] = &["Dingbats", "Symbol", "ZapfDingbats", "Wingdings", "Wingdings-Bold", "Wingdings-Regular"];
 
 /// pdf.js `getFontNameToFileMap`: the file of each substitute font.
 const FONT_NAME_TO_FILE: &[(&str, &str)] = &[
@@ -368,10 +352,7 @@ pub struct StandardFonts {
 
 impl StandardFonts {
     pub fn new(read: FontFileReader) -> Self {
-        Self {
-            read,
-            cache: Mutex::new(HashMap::new()),
-        }
+        Self { read, cache: Mutex::new(HashMap::new()) }
     }
 
     /// The file of the standard font `name`, or `None` (warned, as pdf.js does) when the name has no file or the
@@ -410,10 +391,7 @@ mod tests {
 
     #[test]
     fn names_are_normalised_before_the_lookup() {
-        assert_eq!(
-            normalize_font_name("Times New_Roman,Bold"),
-            "TimesNew-Roman-Bold"
-        );
+        assert_eq!(normalize_font_name("Times New_Roman,Bold"), "TimesNew-Roman-Bold");
         assert_eq!(standard_font_name("Times-Roman"), Some("Times-Roman"));
         assert_eq!(standard_font_name("Helvetica,Bold"), Some("Helvetica-Bold"));
         assert_eq!(standard_font_name("Comic Sans MS"), None);
@@ -424,20 +402,14 @@ mod tests {
 
     #[test]
     fn every_standard_name_has_a_substitute_file_that_exists_in_the_assets() {
-        let dir =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/standard_fonts");
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/standard_fonts");
         let read_file = move |file: &str| mixdog_fsio::read(&mixdog_fsio::Unlaned, dir.join(file));
         for (_, standard) in STD_FONT_MAP {
             let file = font_file_name(standard).unwrap_or_else(|| panic!("no file for {standard}"));
-            assert!(
-                read_file(file).is_ok_and(|d| !d.is_empty()),
-                "{file} is missing"
-            );
+            assert!(read_file(file).is_ok_and(|d| !d.is_empty()), "{file} is missing");
         }
         let fonts = StandardFonts::new(Box::new(read_file));
-        assert!(fonts
-            .for_font("ZapfDingbats")
-            .is_some_and(|d| d.len() > 1000));
+        assert!(fonts.for_font("ZapfDingbats").is_some_and(|d| d.len() > 1000));
         assert!(fonts.fetch("Nope").is_none());
     }
 }

@@ -18,10 +18,9 @@ mod recall_scopes;
 mod reindex;
 mod sensitive;
 mod service;
-mod shared_pg;
 mod session_search;
 mod session_search_writes;
+mod shared_pg;
 mod status_readout;
-mod transcript_tail;
 pub mod support;
-
+mod transcript_tail;

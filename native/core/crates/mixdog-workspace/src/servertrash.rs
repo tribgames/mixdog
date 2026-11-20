@@ -133,7 +133,13 @@ fn fix_win_eperm(path: &Path, original: WsError) -> WsResult<()> {
         return if code_of(&error) == "ENOENT" { Ok(()) } else { Err(original) };
     }
     match std::fs::metadata(path) {
-        Err(error) => if code_of(&error) == "ENOENT" { Ok(()) } else { Err(original) },
+        Err(error) => {
+            if code_of(&error) == "ENOENT" {
+                Ok(())
+            } else {
+                Err(original)
+            }
+        }
         Ok(meta) if meta.is_dir() => rimraf_dir(path, Some(original)),
         Ok(_) => std::fs::remove_file(path).map_err(|error| io_error(&error, "unlink", path)),
     }
@@ -420,7 +426,8 @@ mod tests {
                 match got {
                     Ok(got) => assert_eq!(got, fill_value(want), "step {at} ({rel}): the answer"),
                     Err(error) => {
-                        let message = fill(answer["error"]["message"].as_str().unwrap_or_else(|| panic!("step {at} ({rel}): Node answered {answer}, got {error:?}")));
+                        let message =
+                            fill(answer["error"]["message"].as_str().unwrap_or_else(|| panic!("step {at} ({rel}): Node answered {answer}, got {error:?}")));
                         assert_eq!(error.message, message, "step {at} ({rel}): the message");
                         let code = match &error.reason {
                             Reason::Coded(code) => Some(code.to_string()),
@@ -440,6 +447,3 @@ mod tests {
         });
     }
 }
-
-
-

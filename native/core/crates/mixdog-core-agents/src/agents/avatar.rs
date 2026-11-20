@@ -7,8 +7,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-const COLORS: [&str; 10] =
-    ["#e6e6e6", "#9a9a9a", "#f06a5f", "#f59a42", "#f2c94c", "#5cc98a", "#3fc1c9", "#5b9bff", "#9b7bff", "#ef6fb0"];
+const COLORS: [&str; 10] = ["#e6e6e6", "#9a9a9a", "#f06a5f", "#f59a42", "#f2c94c", "#5cc98a", "#3fc1c9", "#5b9bff", "#9b7bff", "#ef6fb0"];
 const SPECIES: [&str; 7] = ["labrador", "shepherd", "terrier", "corgi", "husky", "shiba", "mixy"];
 const ACCESSORIES: [&str; 6] = ["none", "collar", "glasses", "beanie", "scarf", "bow"];
 const EXPRESSIONS: [&str; 4] = ["calm", "happy", "wink", "sleepy"];
@@ -205,10 +204,8 @@ fn lenient_base64(text: &str) -> Vec<u8> {
 fn image_upload(data_url: Option<&Value>, label: &str) -> Result<(Vec<u8>, ImageInfo), String> {
     let wrong = || format!("{label} must be a PNG, GIF or WebP image");
     let text = data_url.and_then(Value::as_str).ok_or_else(wrong)?;
-    let (declared, rest) = ["png", "gif", "webp"]
-        .iter()
-        .find_map(|kind| text.strip_prefix(&format!("data:image/{kind};base64,")).map(|rest| (*kind, rest)))
-        .ok_or_else(wrong)?;
+    let (declared, rest) =
+        ["png", "gif", "webp"].iter().find_map(|kind| text.strip_prefix(&format!("data:image/{kind};base64,")).map(|rest| (*kind, rest))).ok_or_else(wrong)?;
     let bytes = lenient_base64(rest);
     if let Some(problem) = image_problem(&bytes) {
         return Err(format!("{label} {problem}"));

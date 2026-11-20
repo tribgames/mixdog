@@ -90,7 +90,6 @@ mod tests {
         assert_eq!(ActionabilityError::try_from(failed.clone()), Err(failed));
     }
 
-
     #[tokio::test]
     async fn read_only_actionability_probes_wait_for_readiness_and_return_the_fresh_result() {
         let probes = AtomicUsize::new(0);
@@ -171,7 +170,6 @@ mod tests {
         assert_eq!(probes.load(Ordering::SeqCst), 1, "an already-cancelled wait must not probe");
     }
 }
-
 
 impl std::error::Error for ActionabilityError {}
 /// `waitForBrowserActionable`: runs `probe` until it answers, retrying only [`ProbeFailure::NotActionable`] every 100 ms until

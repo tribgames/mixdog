@@ -5,12 +5,10 @@ use crate::config::Config;
 use crate::host::Host;
 use crate::keys::{Key, Mod};
 use crate::observer::Observer;
-use crate::platform::{
-    window_id, AppEntry, Background, Button, Desktop, Launched, Wid, WinState, WindowInfo,
-};
+use crate::platform::{AppEntry, Background, Button, Desktop, Launched, Wid, WinState, WindowInfo, window_id};
 use crate::protocol::{Obj, Req};
 use crate::session::RefRecord;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -27,15 +25,7 @@ struct El {
 
 impl El {
     fn new(identity: &'static str, name: &str) -> El {
-        El {
-            identity,
-            top: Cell::new(1),
-            name: RefCell::new(name.into()),
-            enabled: Cell::new(true),
-            offscreen: Cell::new(false),
-            native: 0,
-            source: "uia",
-        }
+        El { identity, top: Cell::new(1), name: RefCell::new(name.into()), enabled: Cell::new(true), offscreen: Cell::new(false), native: 0, source: "uia" }
     }
 }
 
@@ -132,12 +122,7 @@ impl Accessibility for Screen {
     fn focused_masked(&self) -> bool {
         false
     }
-    fn invoke_menu(
-        &self,
-        _: &WindowInfo,
-        _: &[String],
-        _: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String> {
+    fn invoke_menu(&self, _: &WindowInfo, _: &[String], _: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
         Err("fake".into())
     }
     fn rebind(&self, _: Wid, _: &RefRecord) -> Option<Rc<dyn Element>> {
@@ -181,10 +166,7 @@ impl Desktop for Screen {
         Ok(self.info(1).into_iter().collect())
     }
     fn info(&self, handle: Wid) -> Option<WindowInfo> {
-        (handle == 1 || handle == 2).then(|| WindowInfo {
-            handle,
-            ..Default::default()
-        })
+        (handle == 1 || handle == 2).then(|| WindowInfo { handle, ..Default::default() })
     }
     fn foreground(&self) -> Wid {
         1
@@ -266,13 +248,7 @@ impl Desktop for Screen {
 /// A host whose ref `r1` was handed out for `seen` as a "Save" button of window 1.
 fn host(screen: Screen, seen: &Rc<El>, continuation: bool) -> Host {
     let host = Host::new(
-        Config {
-            read_actions: Default::default(),
-            retain_ref_actions: Default::default(),
-            sequence_settle_ms: 0,
-            max_foreground_text: 4000,
-            input_marker: 0,
-        },
+        Config { read_actions: Default::default(), retain_ref_actions: Default::default(), sequence_settle_ms: 0, max_foreground_text: 4000, input_marker: 0 },
         Box::new(screen),
         Observer::new(),
         Box::new(crate::lease_api::NoLease),
@@ -294,18 +270,13 @@ fn host(screen: Screen, seen: &Rc<El>, continuation: bool) -> Host {
             },
         );
     });
-    host.request
-        .replace(Req(json!({ "sequence_continuation": continuation })));
+    host.request.replace(Req(json!({ "sequence_continuation": continuation })));
     host
 }
 
 fn screen(rebound: Option<Rc<El>>) -> (Screen, Rc<Cell<u32>>) {
     let rebinds = Rc::new(Cell::new(0));
-    let screen = Screen {
-        rebound,
-        rebinds: rebinds.clone(),
-        native_text: None,
-    };
+    let screen = Screen { rebound, rebinds: rebinds.clone(), native_text: None };
     (screen, rebinds)
 }
 
@@ -315,8 +286,7 @@ fn refusal(host: &Host) -> Option<String> {
 
 const TARGET: &str = "ref r1 is stale or its target changed; take a fresh snapshot/find";
 const IDENTITY: &str = "ref r1 no longer identifies the same element; take a fresh snapshot/find";
-const DISABLED: &str =
-    "ref r1 is disabled or off screen after an earlier step; take a fresh snapshot/find";
+const DISABLED: &str = "ref r1 is disabled or off screen after an earlier step; take a fresh snapshot/find";
 
 #[test]
 fn a_relabelled_control_is_refused() {
@@ -331,10 +301,7 @@ fn a_relabelled_control_is_refused() {
 fn a_name_that_is_the_native_text_is_not_a_relabel() {
     let mut desk = screen(None).0;
     desk.native_text = Some("typed");
-    let seen = Rc::new(El {
-        native: 5,
-        ..El::new("a", "Save")
-    });
+    let seen = Rc::new(El { native: 5, ..El::new("a", "Save") });
     let host = host(desk, &seen, false);
     *seen.name.borrow_mut() = "typed".into();
     assert!(host.ref_record("r1").is_ok());
@@ -403,29 +370,19 @@ fn a_continuation_refuses_a_disabled_or_offscreen_element() {
 
 #[test]
 fn an_msaa_ref_uses_its_own_wording_and_never_rebinds() {
-    let seen = Rc::new(El {
-        source: "msaa",
-        ..El::new("a", "Save")
-    });
+    let seen = Rc::new(El { source: "msaa", ..El::new("a", "Save") });
     let (desk, rebinds) = screen(Some(Rc::new(El::new("b", "Save"))));
     let host = host(desk, &seen, false);
     host.session(|session| session.refs.get_mut("r1").expect("ref").source = "msaa");
     seen.top.set(2);
-    assert_eq!(
-        refusal(&host).as_deref(),
-        Some("ref r1 is stale or its MSAA target changed; take a fresh snapshot/find")
-    );
+    assert_eq!(refusal(&host).as_deref(), Some("ref r1 is stale or its MSAA target changed; take a fresh snapshot/find"));
     assert_eq!(rebinds.get(), 0);
 }
-
 
 #[test]
 fn a_tree_without_a_live_role_and_name_is_not_checked_for_a_relabel() {
     // An AT-SPI or AX element reports neither, and the desktop's own source.
-    let seen = Rc::new(El {
-        source: "",
-        ..El::new("a", "Save")
-    });
+    let seen = Rc::new(El { source: "", ..El::new("a", "Save") });
     let host = host(screen(None).0, &seen, false);
     *seen.name.borrow_mut() = "Delete".into();
     assert!(host.ref_record("r1").is_ok());

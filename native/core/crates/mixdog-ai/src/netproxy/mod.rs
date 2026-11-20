@@ -65,12 +65,7 @@ impl NetworkProxy {
     /// `env` is the process environment in production. No setting is known
     /// until the first [`adopt`](Self::adopt): nothing may go out before that.
     pub fn new(env: Arc<dyn EnvLookup>, system: SystemProxy) -> Arc<Self> {
-        Arc::new(Self {
-            held: Mutex::new(Held { setting: None, listeners: Vec::new(), next_listener: 0 }),
-            epoch: AtomicU64::new(0),
-            env,
-            system,
-        })
+        Arc::new(Self { held: Mutex::new(Held { setting: None, listeners: Vec::new(), next_listener: 0 }), epoch: AtomicU64::new(0), env, system })
     }
 
     fn held(&self) -> std::sync::MutexGuard<'_, Held> {

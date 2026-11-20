@@ -6,12 +6,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_tools::orch::agent::AgentPort;
 use mixdog_tools::orch::agent::AgentReply;
+use mixdog_tools::orch::agent::AgentRequest;
 use mixdog_tools::orch::agent::ClosedView;
 use mixdog_tools::orch::agent::HideFailed;
 use mixdog_tools::orch::agent::TaskResult;
-use mixdog_tools::orch::agent::AgentPort;
-use mixdog_tools::orch::agent::AgentRequest;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 use serde_json::json;
@@ -52,14 +52,18 @@ const CLOSE_NOT_RECORDED: &str = "the session close was not recorded";
 #[derive(Clone, PartialEq, Debug)]
 pub enum IdleOutcome {
     /// Closed; `hide_failed`: the closed sessions that stay listed, with the reason.
-    Closed { hide_failed: Vec<HideFailed> },
+    Closed {
+        hide_failed: Vec<HideFailed>,
+    },
     /// Its runtime was released; the agent stays open and listed.
     Parked,
     /// Its session was deleted: only the row was left, and is dropped.
     Gone,
     Busy,
     Undelivered,
-    Failed { reason: Option<String> },
+    Failed {
+        reason: Option<String>,
+    },
 }
 
 /// The collaborators the agent tool is wired to.
@@ -365,22 +369,15 @@ impl AgentRuntime {
         let views = &self.deps.views;
         match kind.as_str() {
             "status" | "list" => {
-                if kind == "status" && !(clean(args.get("task_id")).is_empty() && clean(args.get("tag")).is_empty() && clean(args.get("sessionId")).is_empty()) {
+                if kind == "status" && !(clean(args.get("task_id")).is_empty() && clean(args.get("tag")).is_empty() && clean(args.get("sessionId")).is_empty())
+                {
                     let job = views.get_job_or_worker(args, &scope, false).await?;
                     return Ok(AgentReply::Task { view: job.view, diagnostics: true });
                 }
                 // Targetless status is the same compact overview as list. Idle workers stay
                 // open for follow-ups; the roster counts them and lists a bounded tail.
                 let workers = views
-                    .list(
-                        &scope,
-                        ListOptions {
-                            scan_sessions: wants_session_scan(args),
-                            include_idle: true,
-                            include_closed: true,
-                            include_terminal: false,
-                        },
-                    )
+                    .list(&scope, ListOptions { scan_sessions: wants_session_scan(args), include_idle: true, include_closed: true, include_terminal: false })
                     .await;
                 Ok(AgentReply::Roster { workers, jobs: views.list_jobs(&scope).await })
             }
@@ -445,7 +442,12 @@ impl AgentRuntime {
             return Err("agent close: tag or sessionId is required".into());
         }
         let task_id_out = task.as_ref().map(|t| t.task_id.clone());
-        let Some(session_id) = registry.resolve_tag(&target, &scope, ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: false })? else {
+        let Some(session_id) = registry.resolve_tag(
+            &target,
+            &scope,
+            ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: false },
+        )?
+        else {
             if !target.starts_with("sess_") && registry.has_tag_agent(&target) && self.tag_bound_by_caller(&target, &scope) {
                 registry.unbind_tag(&target);
                 if let Some(id) = &task_id_out {
@@ -455,7 +457,15 @@ impl AgentRuntime {
             }
             return Err(format!("agent close: target \"{target}\" not found"));
         };
-        close_resolved(CloseParts { registry: &*self.deps.registry, sessions: &*self.deps.sessions, tasks: &*self.deps.tasks }, &session_id, &target, &scope, task_id_out, keep_row).await
+        close_resolved(
+            CloseParts { registry: &*self.deps.registry, sessions: &*self.deps.sessions, tasks: &*self.deps.tasks },
+            &session_id,
+            &target,
+            &scope,
+            task_id_out,
+            keep_row,
+        )
+        .await
     }
 
     /// `releaseIdle(row, scopedContext)`: closes an idle agent whose last result was delivered.
@@ -561,12 +571,8 @@ impl AgentRuntime {
         let tags_removed = before - registry.tag_count() as i64;
         let tasks = self.deps.views.list_jobs(scope).await.len();
         // Cleanup reports how many worker rows remain known (idle/terminal included).
-        let workers = self
-            .deps
-            .views
-            .list(scope, ListOptions { scan_sessions: wants_session_scan(args), include_terminal: true, ..ListOptions::default() })
-            .await
-            .len();
+        let workers =
+            self.deps.views.list(scope, ListOptions { scan_sessions: wants_session_scan(args), include_terminal: true, ..ListOptions::default() }).await.len();
         let mut reply = serde_json::Map::new();
         reply.insert("tasksRemoved".into(), json!(cleaned.removed));
         reply.insert("tagsRemoved".into(), json!(tags_removed));
@@ -621,7 +627,8 @@ impl AgentRuntime {
         let pick = |from_args: String, fields: [Option<&str>; 3]| -> String {
             std::iter::once(from_args).chain(fields.into_iter().map(|f| clean_str(f.unwrap_or_default()))).find(|s| !s.is_empty()).unwrap_or_default()
         };
-        let (r_agent, t_agent, c_agent) = (row.as_ref().map(|r| r.agent.as_str()), tombstone.as_ref().map(|r| r.agent.as_str()), record.as_ref().map(|r| r.agent.as_str()));
+        let (r_agent, t_agent, c_agent) =
+            (row.as_ref().map(|r| r.agent.as_str()), tombstone.as_ref().map(|r| r.agent.as_str()), record.as_ref().map(|r| r.agent.as_str()));
         let (r_cwd, t_cwd, c_cwd) = (row.as_ref().map(|r| r.cwd.as_str()), tombstone.as_ref().map(|r| r.cwd.as_str()), record.as_ref().map(|r| r.cwd.as_str()));
         let agent = pick(clean(args.get("agent")), [r_agent, t_agent, c_agent]);
         let mut cwd = pick(clean(args.get("cwd")), [r_cwd, t_cwd, c_cwd]);
@@ -741,11 +748,8 @@ impl AgentRuntime {
             self.deps.sessions.reveal_session(&prepared.session_id).await;
             self.deps.send_flow.adopt_caller(&prepared, caller).await?;
             prepared.route = requested_route(args);
-            let reply = self
-                .deps
-                .send_flow
-                .dispatch_to_existing_session(&prepared, caller, DispatchOptions { reused: true, ..DispatchOptions::default() })
-                .await?;
+            let reply =
+                self.deps.send_flow.dispatch_to_existing_session(&prepared, caller, DispatchOptions { reused: true, ..DispatchOptions::default() }).await?;
             return Ok(SpawnPlan::Reused(Box::new(reply)));
         }
         if self.deps.terminal_trace.has_terminal_trace(tag, scope)? {
@@ -780,10 +784,7 @@ impl AgentRuntime {
             }
             return Ok(SpawnPlan::Fresh { args: spawn_args, respawned: true });
         }
-        let foreign = registry
-            .read_all_tag_tombstones()
-            .into_iter()
-            .any(|row| clean_str(&row.tag) == tag && !caller.scope.owns(&row.owner));
+        let foreign = registry.read_all_tag_tombstones().into_iter().any(|row| clean_str(&row.tag) == tag && !caller.scope.owns(&row.owner));
         if foreign {
             return Err(format!("agent spawn: tag \"{tag}\" belongs to another terminal"));
         }
@@ -849,9 +850,6 @@ impl AgentPort for AgentRuntime {
         {
             object.insert("attachmentParts".into(), Value::Array(request.attachment_parts));
         }
-        self.run(&args, &caller).await.map_err(|message| PortError::Failed {
-            capability: "agent".to_owned(),
-            message: self.deps.errors.present(&message),
-        })
+        self.run(&args, &caller).await.map_err(|message| PortError::Failed { capability: "agent".to_owned(), message: self.deps.errors.present(&message) })
     }
 }

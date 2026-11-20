@@ -45,25 +45,13 @@ impl Default for CancelSource {
 
 impl CancelSource {
     pub fn new() -> Self {
-        Self {
-            token: CancellationToken::new(),
-            node: Arc::new(Node {
-                reason: OnceLock::new(),
-                parent: None,
-            }),
-        }
+        Self { token: CancellationToken::new(), node: Arc::new(Node { reason: OnceLock::new(), parent: None }) }
     }
 
     /// A source cancelled whenever `self` is (and reporting its reason then), which can also
     /// be cancelled on its own without touching the parent.
     pub fn child(&self) -> Self {
-        Self {
-            token: self.token.child_token(),
-            node: Arc::new(Node {
-                reason: OnceLock::new(),
-                parent: Some(self.node.clone()),
-            }),
-        }
+        Self { token: self.token.child_token(), node: Arc::new(Node { reason: OnceLock::new(), parent: Some(self.node.clone()) }) }
     }
 
     /// Cancels with `reason`. The first reason wins: returns `true` if this call set it,
@@ -88,10 +76,7 @@ impl CancelSource {
 
     /// A read-only handle to hand to the code that must only observe the cancellation.
     pub fn view(&self) -> CancelView {
-        CancelView {
-            token: self.token.clone(),
-            node: self.node.clone(),
-        }
+        CancelView { token: self.token.clone(), node: self.node.clone() }
     }
 
     /// See [`CancelView::reason`].
@@ -110,13 +95,7 @@ pub struct CancelView {
 /// A view of a plain token: it reports cancellation and never a reason.
 impl From<CancellationToken> for CancelView {
     fn from(token: CancellationToken) -> Self {
-        Self {
-            token,
-            node: Arc::new(Node {
-                reason: OnceLock::new(),
-                parent: None,
-            }),
-        }
+        Self { token, node: Arc::new(Node { reason: OnceLock::new(), parent: None }) }
     }
 }
 

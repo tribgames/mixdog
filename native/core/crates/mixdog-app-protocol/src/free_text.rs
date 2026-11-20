@@ -36,18 +36,39 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Request,
         "thread/start",
-        &["/initialInput/prompt", "/initialInput/prompt/*/text", "/initialInput/options/displayText", "/initialInput/options/pastedTexts/*/text", "/initialInput/options/goalCommand", "/initialInput/options/pastedImages/*/metadataText"],
+        &[
+            "/initialInput/prompt",
+            "/initialInput/prompt/*/text",
+            "/initialInput/options/displayText",
+            "/initialInput/options/pastedTexts/*/text",
+            "/initialInput/options/goalCommand",
+            "/initialInput/options/pastedImages/*/metadataText",
+        ],
     ),
     (
         Kind::Request,
         "turn/start",
-        &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
+        &[
+            "/input/prompt",
+            "/input/prompt/*/text",
+            "/input/options/displayText",
+            "/input/options/pastedTexts/*/text",
+            "/input/options/goalCommand",
+            "/input/options/pastedImages/*/metadataText",
+        ],
     ),
     // A user's message to a room: the turn input `turn/start` takes.
     (
         Kind::Request,
         "room/send",
-        &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
+        &[
+            "/input/prompt",
+            "/input/prompt/*/text",
+            "/input/options/displayText",
+            "/input/options/pastedTexts/*/text",
+            "/input/options/goalCommand",
+            "/input/options/pastedImages/*/metadataText",
+        ],
     ),
     // A server's arguments and environment values as a person typed them (the names stay identifiers). Its header values are
     // not here: a value that becomes a header is refused naming the field, nothing saved (decisions.md "Lone UTF-16 surrogates
@@ -293,7 +314,18 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Notification,
         "model/proxy/event",
-        &["/event/text", "/event/delta", "/event/message", "/event/pointer", "/event/reason", "/event/stop/value", "/event/value/**", "/event/call/arguments/**", "/event/calls/*/arguments/**", "/event/replay/items/**"],
+        &[
+            "/event/text",
+            "/event/delta",
+            "/event/message",
+            "/event/pointer",
+            "/event/reason",
+            "/event/stop/value",
+            "/event/value/**",
+            "/event/call/arguments/**",
+            "/event/calls/*/arguments/**",
+            "/event/replay/items/**",
+        ],
     ),
     (
         Kind::Answer,
@@ -311,12 +343,24 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Answer,
         "host/browser/pages/resolve",
-        &["/page/facts/title", "/page/facts/fault", "/page/facts/pendingDialog/message", "/page/facts/pendingDialog/defaultPrompt", "/page/facts/dismissedDialog/message"],
+        &[
+            "/page/facts/title",
+            "/page/facts/fault",
+            "/page/facts/pendingDialog/message",
+            "/page/facts/pendingDialog/defaultPrompt",
+            "/page/facts/dismissedDialog/message",
+        ],
     ),
     (
         Kind::Answer,
         "host/browser/pages/list",
-        &["/pages/*/facts/title", "/pages/*/facts/fault", "/pages/*/facts/pendingDialog/message", "/pages/*/facts/pendingDialog/defaultPrompt", "/pages/*/facts/dismissedDialog/message"],
+        &[
+            "/pages/*/facts/title",
+            "/pages/*/facts/fault",
+            "/pages/*/facts/pendingDialog/message",
+            "/pages/*/facts/pendingDialog/defaultPrompt",
+            "/pages/*/facts/dismissedDialog/message",
+        ],
     ),
     (
         Kind::Answer,
@@ -336,12 +380,27 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Answer,
         "host/browser/page/eval",
-        &["/exception/text", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/value/**"],
+        &[
+            "/exception/text",
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+            "/value/**",
+        ],
     ),
     (
         Kind::Answer,
         "host/browser/page/read",
-        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/payload/**"],
+        &[
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+            "/payload/**",
+        ],
     ),
     (
         Kind::Answer,
@@ -366,17 +425,48 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Answer,
         "host/browser/snapshot",
-        &["/payload/title", "/payload/elements/*/name", "/payload/elements/*/value", "/payload/headings/*", "/payload/text", "/payload/query", "/payload/warnings/*", "/warnings/*", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+        &[
+            "/payload/title",
+            "/payload/elements/*/name",
+            "/payload/elements/*/value",
+            "/payload/headings/*",
+            "/payload/text",
+            "/payload/query",
+            "/payload/warnings/*",
+            "/warnings/*",
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+        ],
     ),
     (
         Kind::Answer,
         "host/browser/ref/call",
-        &["/exception/text", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/value/**"],
+        &[
+            "/exception/text",
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+            "/value/**",
+        ],
     ),
     (
         Kind::Answer,
         "host/browser/ref/mint",
-        &["/matches/*/role", "/matches/*/name", "/invalid", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+        &[
+            "/matches/*/role",
+            "/matches/*/name",
+            "/invalid",
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+        ],
     ),
     (
         Kind::Answer,
@@ -396,28 +486,30 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Answer,
         "host/browser/cookies",
-        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/cookies/*/**"],
+        &[
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+            "/cookies/*/**",
+        ],
     ),
     (
         Kind::Answer,
         "host/browser/storage",
-        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message", "/entries/**"],
+        &[
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+            "/entries/**",
+        ],
     ),
-    (
-        Kind::Answer,
-        "host/browser/initScripts",
-        &["/scripts/*/source"],
-    ),
-    (
-        Kind::Answer,
-        "host/browser/intercept",
-        &["/rules/*/body"],
-    ),
-    (
-        Kind::Answer,
-        "host/browser/performance",
-        &["/metrics/**", "/summary/**"],
-    ),
+    (Kind::Answer, "host/browser/initScripts", &["/scripts/*/source"]),
+    (Kind::Answer, "host/browser/intercept", &["/rules/*/body"]),
+    (Kind::Answer, "host/browser/performance", &["/metrics/**", "/summary/**"]),
     (
         Kind::Answer,
         "host/browser/emulation",
@@ -431,12 +523,28 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Answer,
         "host/browser/upload/receiver",
-        &["/key", "/url", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+        &[
+            "/key",
+            "/url",
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+        ],
     ),
     (
         Kind::Answer,
         "host/browser/signIn",
-        &["/note", "/line", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+        &[
+            "/note",
+            "/line",
+            "/facts/title",
+            "/facts/fault",
+            "/facts/pendingDialog/message",
+            "/facts/pendingDialog/defaultPrompt",
+            "/facts/dismissedDialog/message",
+        ],
     ),
     (
         Kind::Answer,
@@ -448,21 +556,13 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         "host/browser/credentials/fill",
         &["/reason", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
     ),
-    (
-        Kind::Notification,
-        "host/browser/events",
-        &["/events/*/params/**"],
-    ),
+    (Kind::Notification, "host/browser/events", &["/events/*/params/**"]),
     (
         Kind::Notification,
         "host/browser/page/facts",
         &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
     ),
-    (
-        Kind::Request,
-        "test/browserEngine/run",
-        &["/args/**"],
-    ),
+    (Kind::Request, "test/browserEngine/run", &["/args/**"]),
 ];
 
 /// Whether `pattern` (segments, `*` and `{}` any one, a last `**` the rest) names `pointer`.
@@ -612,7 +712,10 @@ mod tests {
         assert_eq!(refused(Kind::Request, "modelProxy/run", &[text(args), text(&format!("{args}/path/0"))]), None);
         assert_eq!(refused(Kind::Request, "modelProxy/run", &[LoneAt::Key(format!("{args}/a")), LoneAt::Key(format!("{args}/b/c"))]), None);
         assert_eq!(refused(Kind::Request, "modelProxy/run", &[LoneAt::MergedKey(format!("{args}/a"))]), Some(format!("{args}/a").as_str()));
-        assert_eq!(refused(Kind::Request, "modelProxy/run", &[text("/call/request/messages/0/toolCalls/1/name")]), Some("/call/request/messages/0/toolCalls/1/name"));
+        assert_eq!(
+            refused(Kind::Request, "modelProxy/run", &[text("/call/request/messages/0/toolCalls/1/name")]),
+            Some("/call/request/messages/0/toolCalls/1/name")
+        );
         // A map: its values are free text by `*`, its keys stay refused unless a `{}` pattern names them.
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/env/HOME")]), None);
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/env/HOME".into())]), Some("/input/env/HOME"));

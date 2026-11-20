@@ -55,7 +55,9 @@ impl LedgerError {
     /// The original typed failure, before sharing it with concurrent readers.
     pub fn unshared(&self) -> &Self {
         let mut error = self;
-        while let Self::SharedHistory(shared) | Self::SharedStats(shared) = error { error = shared; }
+        while let Self::SharedHistory(shared) | Self::SharedStats(shared) = error {
+            error = shared;
+        }
         error
     }
 }

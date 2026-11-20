@@ -53,8 +53,6 @@ async fn ask(pool: &ExtHostPool, method: &str, params: Value, approved: &[&Path]
     }
 }
 
-
-
 fn refusal(outcome: Result<Value, ExtError>) -> (String, String) {
     match outcome {
         Err(ExtError::Failed { code, message }) => (code, message),
@@ -63,11 +61,11 @@ fn refusal(outcome: Result<Value, ExtError>) -> (String, String) {
 }
 
 fn file_names(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir).expect("the folder lists").map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned()).collect();
+    let mut names: Vec<String> =
+        std::fs::read_dir(dir).expect("the folder lists").map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned()).collect();
     names.sort();
     names
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_path_outside_the_approved_set_is_refused_by_both_methods() {
@@ -82,7 +80,6 @@ async fn a_path_outside_the_approved_set_is_refused_by_both_methods() {
     }
     pool.close().await;
 }
-
 
 /// A PDF of `pages` pages of 200x100 points, each with one filled rectangle.
 fn pdf_of(pages: usize) -> Vec<u8> {

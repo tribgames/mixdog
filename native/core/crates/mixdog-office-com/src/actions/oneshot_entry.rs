@@ -119,14 +119,7 @@ fn detect<P: WriteProof>(actions: &Actions<'_, P>, request: &Value, format: &str
 
 /// The document the request names, opened: the running application's in `live` mode, otherwise a hidden application's (the
 /// file preview's read-only open when the request is `readOnly`).
-fn open_document<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    held: &mut Held,
-    request: &Value,
-    format: &str,
-    prog_id: &str,
-    path: &str,
-) -> Result<(), String> {
+fn open_document<P: WriteProof>(actions: &Actions<'_, P>, held: &mut Held, request: &Value, format: &str, prog_id: &str, path: &str) -> Result<(), String> {
     if payload::names_equal(&convert::to_ps_string(&payload::property(request, "mode")), "live") {
         held.app = active_application(&actions.env, Some(prog_id));
         let Some(app) = &held.app else {
@@ -159,13 +152,7 @@ fn open_document<P: WriteProof>(
     Ok(())
 }
 
-fn batch<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    held: &mut Held,
-    document: &Obj,
-    request: &Value,
-    path: &str,
-) -> Result<Value, String> {
+fn batch<P: WriteProof>(actions: &Actions<'_, P>, held: &mut Held, document: &Obj, request: &Value, path: &str) -> Result<Value, String> {
     let live = held.live;
     let format = held.format.clone();
     let mode = if live { "live" } else { "background" };
@@ -175,12 +162,8 @@ fn batch<P: WriteProof>(
         save_document_copy(document, &format, &excel_checkpoint).map_err(text)?;
     }
     let operations = payload::property(request, "operations");
-    let spec = Batch {
-        operations: &operations,
-        live,
-        require_changes: convert::to_bool(&payload::property(request, "requireChanges")),
-        allow_ui_activation: live,
-    };
+    let spec =
+        Batch { operations: &operations, live, require_changes: convert::to_bool(&payload::property(request, "requireChanges")), allow_ui_activation: live };
     let outcome = apply_operations(actions, &mut held.chart_excel, document, &format, &spec).and_then(|applied| {
         let save = !live || convert::to_bool(&payload::property(request, "save"));
         if save {
@@ -188,11 +171,7 @@ fn batch<P: WriteProof>(
         }
         Ok(answer(
             mode,
-            vec![
-                ("saved", Value::Bool(save)),
-                ("results", payload::property(&applied, "results")),
-                ("undoUnits", payload::property(&applied, "undoUnits")),
-            ],
+            vec![("saved", Value::Bool(save)), ("results", payload::property(&applied, "results")), ("undoUnits", payload::property(&applied, "undoUnits"))],
         ))
     });
     if outcome.is_err() && !excel_checkpoint.is_empty() {
@@ -244,10 +223,7 @@ fn run<P: WriteProof>(actions: &Actions<'_, P>, held: &mut Held, out: &mut Emitt
             if format == "docx" {
                 let fingerprint = snapshot_fingerprint(&value);
                 let document_saved = saved(&document).map_err(text)?;
-                return Ok(answer(
-                    mode,
-                    vec![("fingerprint", Value::String(fingerprint)), ("saved", Value::Bool(document_saved)), ("value", value)],
-                ));
+                return Ok(answer(mode, vec![("fingerprint", Value::String(fingerprint)), ("saved", Value::Bool(document_saved)), ("value", value)]));
             }
             save_document_copy(&document, &format, &output).map_err(text)?;
             let document_saved = saved(&document).map_err(text)?;
@@ -299,8 +275,7 @@ impl<P: WriteProof> OneShotHandler for OneShotEntry<'_, P> {
         }
         if let Some(app) = held.app.take() {
             if held.created_app {
-                let quit = office_document_count(&app, &held.format)
-                    .and_then(|count| if count == 0 { app.call("Quit", &[]).map(|_| ()) } else { Ok(()) });
+                let quit = office_document_count(&app, &held.format).and_then(|count| if count == 0 { app.call("Quit", &[]).map(|_| ()) } else { Ok(()) });
                 if let Err(error) = quit {
                     out.cleanup_failure(&failed_cleanup(&format!("Application cleanup failed: {}", error.message())));
                 }

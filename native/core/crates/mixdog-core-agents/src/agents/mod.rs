@@ -7,19 +7,31 @@
 //! Every listing reads the folders afresh (Node's `listCustomAgentIds`); the shared scan cache
 //! of its status pulse is a speed device and is not ported.
 
+#[cfg(test)]
+mod api_tests;
 mod avatar;
 mod catalog_json;
+#[cfg(test)]
+mod catalog_tests;
 pub mod connector_api;
 mod connectors;
 mod contact_ids;
+#[cfg(test)]
+mod definition_tests;
 mod edit;
 mod files;
 mod greetings;
-mod lead;
-mod lead_service;
 pub mod home_agent;
 mod home_api;
+mod lead;
+mod lead_service;
+#[cfg(test)]
+mod lead_tests;
+#[cfg(test)]
+mod lifecycle_tests;
 mod memory_runtime;
+#[cfg(test)]
+mod memory_tests;
 mod permissions;
 mod pool_list;
 pub mod pool_section;
@@ -28,18 +40,6 @@ pub mod section;
 mod service;
 pub mod store_migration;
 #[cfg(test)]
-mod api_tests;
-#[cfg(test)]
-mod lifecycle_tests;
-#[cfg(test)]
-mod definition_tests;
-#[cfg(test)]
-mod catalog_tests;
-#[cfg(test)]
-mod memory_tests;
-#[cfg(test)]
-mod lead_tests;
-#[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 pub(crate) mod tests;
 
@@ -47,14 +47,14 @@ pub use connector_api::AgentConnectors;
 pub use connector_api::ConnectorCatalog;
 pub use connector_api::McpConnectors;
 pub use contact_ids::ContactIds;
-pub use lead::LeadAppearance;
-pub use lead_service::LEAD_METHODS;
-pub use lead_service::DesktopLeadStatus;
-pub use lead_service::LeadService;
+pub use greetings::{AgentGreetings, GreetAgent, GreetingDeps, agent_greeting_kickoff};
 pub use home_api::{AgentHomeService, AgentHomeSessions, AgentMemoryHost, DepError, HOME_METHODS, HomeDeps, MemoryRuntime};
+pub use lead::LeadAppearance;
+pub use lead_service::DesktopLeadStatus;
+pub use lead_service::LEAD_METHODS;
+pub use lead_service::LeadService;
 pub use permissions::AgentPermissions;
 pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry, todo_progress};
-pub use greetings::{AgentGreetings, GreetAgent, GreetingDeps, agent_greeting_kickoff};
 pub use service::AgentLifecycle;
 pub use service::AgentService;
 pub use service::METHODS as AGENT_METHODS;
@@ -79,25 +79,25 @@ pub use self::connectors::Parsed;
 pub use self::connectors::Stored;
 pub use self::connectors::TOOL_ALREADY;
 pub use self::connectors::TOOL_NARROWED;
-use mixdog_mcp::permissions::read_raw_policy;
 pub use self::files::AgentDefinition;
 pub use self::files::ArchivedIdentity;
 pub use self::files::DELETED_MARKER;
 use self::files::FIXED_SLOTS;
 use self::files::Folders;
-use self::files::STARTERS;
 use self::files::Lane;
+use self::files::STARTERS;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_base::support::on_lane;
 use mixdog_core_config::config::AgentRoutes;
 use mixdog_core_config::config::ConfigError;
 use mixdog_core_config::config::RouteHome;
 use mixdog_core_config::config::agent_routes::agent_editor_id;
 use mixdog_core_config::config::hidden_agents::hidden_agents;
-use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_core_base::support::on_lane;
 use mixdog_core_rooms::rooms::RoomError;
 use mixdog_core_rooms::rooms::home::Presence;
 use mixdog_core_rooms::rooms::service::KnownAgent;
 use mixdog_core_rooms::rooms::sessions::AgentCatalog;
+use mixdog_mcp::permissions::read_raw_policy;
 
 type AgentStoreBackup = Arc<dyn Fn(&mixdog_rt::InLane<DurabilityIo>, &str) + Send + Sync>;
 
@@ -312,7 +312,9 @@ impl AgentDefinitions {
     /// `persona`, `avatar`, `connectors`, `expectedRevision` and `route`.
     pub async fn save_with(&self, payload: &Map<String, Value>, options: SaveOptions) -> Result<Value, AgentsError> {
         let writes = self.writes()?;
-        if !mixdog_core_config::workflow::ids::truthy(payload.get("body")) || mixdog_js::js_trim(&mixdog_core_config::workflow::ids::js_string(&payload["body"])).is_empty() {
+        if !mixdog_core_config::workflow::ids::truthy(payload.get("body"))
+            || mixdog_js::js_trim(&mixdog_core_config::workflow::ids::js_string(&payload["body"])).is_empty()
+        {
             return Err(AgentsError::Refused("AGENT.md body must not be empty".into()));
         }
         let planned = payload.clone();
@@ -335,9 +337,8 @@ impl AgentDefinitions {
         let (planned, now, fixed) = (payload.clone(), writes.now.clone(), id.to_owned());
         let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned, Some(&fixed))).await?.map_err(AgentsError::Refused)?;
         let (given, id) = (payload.clone(), plan.id.clone());
-        let (done, _turn) = self
-            .write_job(writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(None), &*now))
-            .await?;
+        let (done, _turn) =
+            self.write_job(writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(None), &*now)).await?;
         let done = done.map_err(AgentsError::Refused)?;
         if done.reclaimed {
             // Made anew under an archived agent's id: no stale route or switch-off carries over.
@@ -424,9 +425,7 @@ impl AgentDefinitions {
         let late = writes.effects.delete_owned_routines(&id).await;
         drop(turn);
         let swept = late.as_ref().ok();
-        let joined = |first: &[String], second: Option<&Vec<String>>| -> Vec<String> {
-            first.iter().chain(second.into_iter().flatten()).cloned().collect()
-        };
+        let joined = |first: &[String], second: Option<&Vec<String>>| -> Vec<String> { first.iter().chain(second.into_iter().flatten()).cloned().collect() };
         let schedules = joined(&routines.schedules, swept.map(|late| &late.schedules));
         let webhooks = joined(&routines.webhooks, swept.map(|late| &late.webhooks));
         let mut out = Map::new();
@@ -477,11 +476,7 @@ impl AgentDefinitions {
     /// policy as stored when that turn comes and may refuse; what it returns is stored (`Null`
     /// removes the policy). Every other key — avatar, persona, frontmatter — is kept; for Mixy only
     /// her `agent.json` is touched. Answers the policy after the write.
-    pub async fn update_connector_policy(
-        &self,
-        agent_id: &str,
-        derive: impl FnOnce(&Stored) -> Result<Value, String> + Send,
-    ) -> Result<Stored, AgentsError> {
+    pub async fn update_connector_policy(&self, agent_id: &str, derive: impl FnOnce(&Stored) -> Result<Value, String> + Send) -> Result<Stored, AgentsError> {
         self.update_connector_policy_with(agent_id, async { Ok(()) }, move |stored, ()| derive(stored)).await
     }
 
@@ -577,13 +572,19 @@ impl AgentDefinitions {
     /// The one-time `kind: agent` stamp, then the bot split and its re-sync (`migrateAgentKindMarkers`, `migrateBotStore`):
     /// the stamp runs first so a workflow agent is never copied to `bots/`. `backup(lane, reason)` is the user-data backup of
     /// `agents/` and `bots/` that precedes the first write. Each step reports its own failure and is retried at the next start.
-    pub async fn migrate_agent_store(&self, evidence: &dyn AgentEvidence, backup: AgentStoreBackup) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
+    pub async fn migrate_agent_store(
+        &self,
+        evidence: &dyn AgentEvidence,
+        backup: AgentStoreBackup,
+    ) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
         let writes = self.writes()?;
         let facts = Arc::new(self.store_facts(evidence).await?);
         let data = self.folders.data.clone();
         let stage = {
             let (data, facts, backup) = (data.clone(), facts.clone(), backup.clone());
-            let (stage, _) = self.write_job(&writes, None, move |_, lane| store_migration::stamp_agent_kinds(lane, &data, &facts, &|lane| backup(lane, "agent-kind"))).await?;
+            let (stage, _) = self
+                .write_job(&writes, None, move |_, lane| store_migration::stamp_agent_kinds(lane, &data, &facts, &|lane| backup(lane, "agent-kind")))
+                .await?;
             stage
         };
         // A restored bot's own route goes where a workflow agent's lives (the config), before `bots/<id>` goes.
@@ -610,7 +611,11 @@ impl AgentDefinitions {
         let facts = if kinds.restored.is_empty() { facts } else { Arc::new(self.store_facts(evidence).await?) };
         let split = {
             let (data, backup, now) = (data.clone(), backup.clone(), (writes.now)());
-            let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::migrate_bots_to_own_store(lane, &data, &facts, &now, &|lane| backup(lane, "bot-split"))).await?;
+            let (report, _) = self
+                .write_job(&writes, None, move |_, lane| {
+                    store_migration::migrate_bots_to_own_store(lane, &data, &facts, &now, &|lane| backup(lane, "bot-split"))
+                })
+                .await?;
             report
         };
         Ok((kinds, split))
@@ -776,7 +781,11 @@ impl AgentDefinitions {
                 let manifest = files::manifest_of(&folders.identity_dir(lane));
                 let legacy = files::manifest_of(&folders.data.join("agents").join(MIXY_AGENT_ID));
                 let created = manifest.get("created").and_then(Value::as_bool).or_else(|| legacy.get("created").and_then(Value::as_bool));
-                (created, mixdog_core_config::workflow::ids::one_line(manifest.get("name")), manifest.get("avatar").and_then(avatar::normalize_agent_avatar).unwrap_or(Value::Null))
+                (
+                    created,
+                    mixdog_core_config::workflow::ids::one_line(manifest.get("name")),
+                    manifest.get("avatar").and_then(avatar::normalize_agent_avatar).unwrap_or(Value::Null),
+                )
             })
             .await?;
         Ok(LeadStatus { created, name, avatar, home_chatted: self.evidence.home_chatted(MIXY_AGENT_ID).await, route: self.mixy_route().await? })
@@ -804,11 +813,9 @@ impl AgentDefinitions {
     #[allow(clippy::disallowed_methods, reason = "the closure is a lane job body")]
     pub async fn task_workspace(&self) -> Result<String, AgentsError> {
         let path = self.task_workspace.clone();
-        let made = on_lane(self.lane, &CancellationToken::new(), move |_| {
-            std::fs::create_dir_all(&path).and_then(|()| std::fs::canonicalize(&path))
-        })
-        .await
-        .map_err(AgentsError::Lane)?;
+        let made = on_lane(self.lane, &CancellationToken::new(), move |_| std::fs::create_dir_all(&path).and_then(|()| std::fs::canonicalize(&path)))
+            .await
+            .map_err(AgentsError::Lane)?;
         let path = made.map_err(|error| AgentsError::Evidence(error.to_string()))?;
         Ok(display_path(&path))
     }
@@ -828,10 +835,7 @@ fn display_path(path: &std::path::Path) -> String {
 pub fn is_contact(id: &str, kind: Option<&str>) -> bool {
     let id = mixdog_js::js_trim(id).to_lowercase();
     let roster: HashSet<&str> = STARTERS.iter().copied().chain(FIXED_SLOTS.iter().map(|slot| slot.0)).collect();
-    !id.is_empty()
-        && id != MIXY_AGENT_ID
-        && !roster.contains(id.as_str())
-        && kind.is_some_and(|kind| mixdog_js::js_trim(kind).to_lowercase() == "bot")
+    !id.is_empty() && id != MIXY_AGENT_ID && !roster.contains(id.as_str()) && kind.is_some_and(|kind| mixdog_js::js_trim(kind).to_lowercase() == "bot")
 }
 
 fn port(error: AgentsError) -> RoomError {
