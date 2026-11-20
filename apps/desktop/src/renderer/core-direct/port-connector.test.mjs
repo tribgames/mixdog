@@ -28,7 +28,9 @@ function setup(timeoutMs = 50) {
     },
   };
   const deliver = (port, { generation, slot, source = host, type = 'mixdog-core-port' }) =>
-    listeners.forEach((l) => l({ source, data: { type, generation, slot }, ports: [port] }));
+    listeners.forEach((l) => {
+      l({ source, data: { type, generation, slot }, ports: [port] });
+    });
   const sink = {
     frames: [],
     closes: [],
@@ -247,7 +249,10 @@ test('a parked open resumes when main reports the failure gone, and asks main ag
   const { connector, bridge, deliver, sink } = setup();
   let listener;
   let first = true;
-  bridge.onBootReport = (l) => ((listener = l), () => {});
+  bridge.onBootReport = (l) => {
+    listener = l;
+    return () => {};
+  };
   const open = bridge.open;
   bridge.open = async (o) => {
     if (first) {

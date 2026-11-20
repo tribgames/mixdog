@@ -66,7 +66,7 @@ export function createPortConnector(
   host.addEventListener('message', (event) => {
     if (event.source !== host) return;
     const data = event.data;
-    if (!data || data.type !== 'mixdog-core-port' || typeof data.generation !== 'number') return;
+    if (data?.type !== 'mixdog-core-port' || typeof data.generation !== 'number') return;
     const port: PortLike | undefined = event.ports?.[0];
     if (!port) return;
     const slot: PortSlot = data.slot === 'pc' ? 'pc' : 'primary';

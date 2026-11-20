@@ -34,22 +34,18 @@ import {
 import { windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
+import { hostPlatform } from './host-platform.ts';
 
 type SettingsApi = Pick<DesktopApi, DirectKey<'settings'>>;
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-/** The host's OS as the operation lane wants it (it folds folder keys on Windows only; none of this group watches folders). */
-function hostPlatform(): 'win32' | 'darwin' | 'linux' {
-  const name = typeof navigator === 'undefined' ? '' : navigator.platform;
-  return /^win/i.test(name) ? 'win32' : /^mac/i.test(name) ? 'darwin' : 'linux';
-}
-
 export function createSettingsApi(ctx: DirectContext): SettingsApi {
   const { connection } = ctx;
   const lane = createOperationLane({
     protocol: connection,
+    // The lane folds folder keys on Windows only; none of this group watches folders, so the renderer's platform serves a remote connection too.
     platform: hostPlatform(),
     host: { hostName: () => '' },
   });

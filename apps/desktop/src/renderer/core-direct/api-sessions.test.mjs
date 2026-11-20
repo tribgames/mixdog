@@ -42,7 +42,10 @@ function fakeClient(answer) {
         sections.get(`${name}:${key ?? ''}`) ?? [...sections.values()].find((e) => e.section === name),
       thread: (id) => folds.get(id),
       appFeed: () => ({ epoch: 'e1' }),
-      subscribe: (l) => (storeListeners.add(l), () => storeListeners.delete(l)),
+      subscribe: (l) => {
+        storeListeners.add(l);
+        return () => storeListeners.delete(l);
+      },
     },
     async call(method, params) {
       calls.push({ method, params });
@@ -58,7 +61,11 @@ function fakeClient(answer) {
         order: 1,
         state: sessionReducer.initial({ thread: { id: threadId }, items: [] }),
       });
-      queueMicrotask(() => storeListeners.forEach((l) => l({ type: 'thread', threadId })));
+      queueMicrotask(() =>
+        storeListeners.forEach((l) => {
+          l({ type: 'thread', threadId });
+        })
+      );
       return {};
     },
     threadSubscription: (threadId) => ({
@@ -81,10 +88,19 @@ function fakeClient(answer) {
     },
     respond: () => undefined,
     pendingServerRequests: () => requests,
-    on: (l) => (listeners.add(l), () => listeners.delete(l)),
+    on: (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
     close: async () => undefined,
-    emitStore: (change) => storeListeners.forEach((l) => l(change)),
-    emit: (event) => listeners.forEach((l) => l(event)),
+    emitStore: (change) =>
+      storeListeners.forEach((l) => {
+        l(change);
+      }),
+    emit: (event) =>
+      listeners.forEach((l) => {
+        l(event);
+      }),
   };
 }
 

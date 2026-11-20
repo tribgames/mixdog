@@ -8,7 +8,12 @@ import { createScmApi } from './api-scm.ts';
 
 function setup(answer = async () => ({ ok: true })) {
   const calls = [];
-  const ctx = { call: async (method, params) => (calls.push({ method, params }), answer(method, params)) };
+  const ctx = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      return answer(method, params);
+    },
+  };
   return { calls, api: createScmApi(ctx) };
 }
 

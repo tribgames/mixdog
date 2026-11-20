@@ -28,11 +28,9 @@ import {
   type RemoteWebrtcIceServer,
 } from '../../shared/remote-webrtc';
 
-// ---------------------------------------------------------------------------
 // Window main ↔ peer host protocol (channel names: REMOTE_TRANSPORT_PEER_IPC in
 // main/remote-transport/peer-window.ts). Carrier bytes travel as Uint8Array
 // through structured clone: binary, never base64.
-// ---------------------------------------------------------------------------
 
 /** `app` is `mixdog-transport` (reliable, ordered; kinds 1 and 2), `control`
  *  is `mixdog-transport-control` (reliable, ordered, its own SCTP stream; kind
@@ -108,10 +106,6 @@ export interface RemoteTransportPeerHostEnv {
   bridge: RemoteTransportPeerHostBridge;
   RTCPeerConnection: typeof RTCPeerConnection;
 }
-
-// ---------------------------------------------------------------------------
-// Host
-// ---------------------------------------------------------------------------
 
 interface Connection {
   id: string;

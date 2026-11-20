@@ -27,9 +27,9 @@ function world(windowOf) {
         },
       };
       queueMicrotask(() =>
-        listeners.forEach((l) =>
-          l({ source: host, data: { type: 'mixdog-core-port', generation, slot }, ports: [port] })
-        )
+        listeners.forEach((l) => {
+          l({ source: host, data: { type: 'mixdog-core-port', generation, slot }, ports: [port] });
+        })
       );
       return { generation };
     },

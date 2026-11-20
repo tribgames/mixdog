@@ -40,9 +40,15 @@ function fakeClient(answer) {
     unsubscribeThread: async () => undefined,
     respond: () => undefined,
     pendingServerRequests: () => [],
-    on: (l) => (listeners.add(l), () => listeners.delete(l)),
+    on: (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
     close: async () => undefined,
-    emit: (event) => listeners.forEach((l) => l(event)),
+    emit: (event) =>
+      listeners.forEach((l) => {
+        l(event);
+      }),
   };
   return client;
 }
@@ -394,7 +400,12 @@ test('a document preview is the hosts to convert and register in a server window
     mtimeMs: 1,
     size: 3,
   };
-  const host = { previewConvertedDocument: async (...args) => (asked.push(args), reply) };
+  const host = {
+    previewConvertedDocument: async (...args) => {
+      asked.push(args);
+      return reply;
+    },
+  };
   await inServerWindow(async () => {
     const client = fakeClient(() => ({}));
     const connection = createRendererConnection({ open: async () => client });
@@ -454,7 +465,12 @@ test('a document preview in a PC window is the hosts conversion with the file to
     mtimeMs: 1,
     size: 3,
   };
-  const host = { previewConvertedDocument: async (...args) => (asked.push(args), reply) };
+  const host = {
+    previewConvertedDocument: async (...args) => {
+      asked.push(args);
+      return reply;
+    },
+  };
   const client = fakeClient(() => ({}));
   const connection = createRendererConnection({ open: async () => client });
   await connection.start();

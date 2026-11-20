@@ -19,7 +19,10 @@ function fakeClient(answer = async () => ({ ok: true })) {
       sections: () => [],
       section: () => undefined,
       appFeed: () => ({ epoch: 'e1' }),
-      subscribe: (l) => (storeListeners.add(l), () => storeListeners.delete(l)),
+      subscribe: (l) => {
+        storeListeners.add(l);
+        return () => storeListeners.delete(l);
+      },
     },
     async call(method, params) {
       calls.push({ method, params });
@@ -27,15 +30,22 @@ function fakeClient(answer = async () => ({ ok: true })) {
     },
     notify: (method, params) => calls.push({ notify: method, params }),
     subscribeApp: async () => undefined,
-    resumeThread: async (threadId, win) => (
-      calls.push({ method: 'thread/resume', params: { threadId, window: win } }), {}
-    ),
+    resumeThread: async (threadId, win) => {
+      calls.push({ method: 'thread/resume', params: { threadId, window: win } });
+      return {};
+    },
     unsubscribeThread: async (threadId) => void calls.push({ method: 'thread/unsubscribe', params: { threadId } }),
     respond: () => undefined,
     pendingServerRequests: () => [],
-    on: (l) => (listeners.add(l), () => listeners.delete(l)),
+    on: (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
     close: async () => undefined,
-    emit: (event) => listeners.forEach((l) => l(event)),
+    emit: (event) =>
+      listeners.forEach((l) => {
+        l(event);
+      }),
   };
 }
 async function opened(answer) {
@@ -200,11 +210,19 @@ test('login_feed_followed_and_lost', async () => {
 
 test('sender_hook_and_reopen', async () => {
   const clients = [];
-  const connection = createRendererConnection({ open: async () => (clients.push(fakeClient()), clients.at(-1)) });
+  const connection = createRendererConnection({
+    open: async () => {
+      clients.push(fakeClient());
+      return clients.at(-1);
+    },
+  });
   await connection.start();
   const ctx = createDirectContext(connection);
   const seen = [];
-  ctx.setSender(async (c, method, params) => (seen.push([c === clients[0], method, params]), 'sent'));
+  ctx.setSender(async (c, method, params) => {
+    seen.push([c === clients[0], method, params]);
+    return 'sent';
+  });
   assert.equal(await ctx.call('a/b', { n: 1 }), 'sent');
   assert.deepEqual(seen, [[true, 'a/b', { n: 1 }]]);
   let replaced = 0;

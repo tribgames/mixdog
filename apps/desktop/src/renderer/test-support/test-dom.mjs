@@ -33,7 +33,10 @@ export function toolModulesSource() {
       // These hosts answer capabilities themselves: no core endpoint behind the window.
       core: async () => false,
       snapshot: async () => ({ status: 'ready', entries: [...latest.values()] }),
-      subscribe: (next) => (listeners.add(next), () => void listeners.delete(next)),
+      subscribe: (next) => {
+        listeners.add(next);
+        return () => void listeners.delete(next);
+      },
     },
     publish: (value) => publishSection('toolModules', value),
     /** Any other section a test needs the core to hold (`projects`, ...). */

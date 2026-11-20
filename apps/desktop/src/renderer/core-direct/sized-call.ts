@@ -28,7 +28,9 @@ function stringSlots(root: Json, pointer: string): Array<[Container, string]> {
   const walk = (node: Json, rest: string[]): void => {
     if (node === null || typeof node !== 'object') return;
     const [head, ...tail] = rest;
-    const keys = head === '*' ? Object.keys(node) : Object.hasOwn(node, head) ? [head] : [];
+    let keys: string[] = [];
+    if (head === '*') keys = Object.keys(node);
+    else if (Object.hasOwn(node, head)) keys = [head];
     for (const key of keys) {
       const child = (node as Record<string, Json>)[key];
       if (tail.length === 0) {
