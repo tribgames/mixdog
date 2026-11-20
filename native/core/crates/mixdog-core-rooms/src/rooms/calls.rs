@@ -276,6 +276,8 @@ fn by_session(targets: &[Owned]) -> Vec<(String, Vec<String>)> {
 
 /// The completion of a room Stop's durable member stops.
 pub type StopSaved = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>;
+/// One session's save: its id, the save in flight and its outcome once it ended.
+type SaveRow = (String, StopSaved, Option<Result<(), String>>);
 
 /// A room Stop as it was latched ([`RoomCalls::stop_ticket`]): whether anything was stopped, and the member submissions the
 /// sealed exchange owned at that point, the frozen target set. [`Self::saved`] makes each target's stop durable in its member
@@ -302,7 +304,7 @@ impl StopTicket {
     /// their work only while this process lives. Members already saved stay terminal either way.
     pub async fn saved(&self) -> Result<(), String> {
         let Some(runner) = &self.runner else { return Ok(()) };
-        let mut saves: Vec<(String, StopSaved, Option<Result<(), String>>)> = by_session(&self.targets)
+        let mut saves: Vec<SaveRow> = by_session(&self.targets)
             .into_iter()
             .map(|(session, ids)| {
                 let (runner, room_id, told) = (runner.clone(), self.room_id.clone(), session.clone());

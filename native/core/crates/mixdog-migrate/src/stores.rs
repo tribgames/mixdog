@@ -127,7 +127,7 @@ pub(crate) fn keeps_catalog(data: &std::path::Path) -> bool {
     use rusqlite::ErrorCode;
     let path = data.join(session_catalog_name());
     // Only a file known to be absent has nothing to keep: a metadata error proves nothing, so it keeps the set.
-    match std::fs::metadata(&path) {
+    match mixdog_fsio::metadata(&mixdog_fsio::Unlaned, &path) {
         Ok(meta) if meta.is_file() => {}
         Ok(_) => return false,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
@@ -136,11 +136,9 @@ pub(crate) fn keeps_catalog(data: &std::path::Path) -> bool {
     let corrupt = |e: &rusqlite::Error| {
         matches!(e.sqlite_error_code(), Some(ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt))
     };
-    let Ok(conn) = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+    let Some((id, objects)) = mixdog_store::sqlite::read_only_identity(&path) else {
         return true;
     };
-    let id: rusqlite::Result<i64> = conn.pragma_query_value(None, "application_id", |r| r.get(0));
-    let objects: rusqlite::Result<i64> = conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
     match (id, objects) {
         (Ok(id), Ok(objects)) => id != CATALOG_APPLICATION_ID && !(id == 0 && objects == 0),
         (Err(e), _) | (_, Err(e)) => !corrupt(&e),

@@ -382,7 +382,7 @@ fn sent_credential_stamp(token: &str) -> Option<String> {
 }
 
 fn failure(error: ProviderError) -> UsageError {
-    UsageError { status: error.status, message: error.message }
+    UsageError { status: error.status, message: error.into_message() }
 }
 
 impl CursorUsage {

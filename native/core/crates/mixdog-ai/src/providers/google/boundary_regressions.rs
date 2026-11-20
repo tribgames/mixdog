@@ -207,7 +207,7 @@ async fn vertex_terminal_failures_carry_reported_usage_without_completing_the_tu
             assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
         }
         assert_eq!(err.partial_model.as_deref(), Some("gemini-3.6-flash"));
-        let usage = err.partial_usage.expect("reported tokens belong to the failed attempt");
+        let usage = err.partial_usage.clone().expect("reported tokens belong to the failed attempt");
         assert_eq!((usage.input_tokens, usage.cache_read_tokens, usage.output_tokens, usage.reasoning_tokens), (15, 5, 11, Some(3)));
     }
 }
@@ -398,7 +398,7 @@ async fn unary_prompt_block_and_auth_refusal_are_authoritative() {
         assert_eq!(err.kind, expected);
         assert!(err.recovery_terminal, "the caller must keep the unary verdict");
         if expected == ErrorKind::Policy {
-            assert_eq!(err.partial_usage.unwrap().input_tokens, 6);
+            assert_eq!(err.partial_usage.clone().unwrap().input_tokens, 6);
         }
     }
 }

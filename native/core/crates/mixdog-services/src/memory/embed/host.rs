@@ -291,7 +291,7 @@ mod affinity {
         unsafe {
             let process = GetCurrentProcess();
             let (mut held, mut system) = (0usize, 0usize);
-            if GetProcessAffinityMask(process, &mut held, &mut system) == 0 || SetProcessAffinityMask(process, held & held.wrapping_neg()) == 0 {
+            if GetProcessAffinityMask(process, &mut held, &mut system) == 0 || SetProcessAffinityMask(process, held.isolate_lowest_one()) == 0 {
                 return None;
             }
             Some(Capped(held))

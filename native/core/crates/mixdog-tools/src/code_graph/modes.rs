@@ -75,7 +75,7 @@ fn not_in_graph(file: &str, graph: &Graph) -> String {
     {
         return " — the file changed while it was being read, so it is not in the graph this time; ask again.".to_owned();
     }
-    match std::fs::metadata(&path) {
+    match mixdog_fsio::metadata(&mixdog_fsio::Unlaned, &path) {
         Ok(meta) if meta.is_dir() => " — that path is a directory on disk, not a file; name a file in it.".to_owned(),
         Ok(meta) => {
             let cause = if path.extension().and_then(|e| e.to_str()).and_then(mixdog_graph::lang::lang_for).is_none() {

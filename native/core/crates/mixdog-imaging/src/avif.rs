@@ -190,7 +190,7 @@ fn read_plane(picture: &Picture, index: usize, width: usize, height: usize) -> R
         // of `size` bytes each in it, and keeps them alive until the picture is unreferenced.
         let line = unsafe { std::slice::from_raw_parts(pointer.as_ptr().cast::<u8>().offset(offset), width * size) };
         if wide {
-            samples.extend(line.chunks_exact(2).map(|pair| u16::from_ne_bytes([pair[0], pair[1]])));
+            samples.extend(line.as_chunks::<2>().0.iter().map(|pair| u16::from_ne_bytes(*pair)));
         } else {
             samples.extend(line.iter().map(|&sample| u16::from(sample)));
         }
@@ -311,7 +311,7 @@ fn brands(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
     let ftyp = bytes.len() >= 12 && &bytes[4..8] == b"ftyp";
     let size = if ftyp { u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize } else { 0 };
     let compatible = if ftyp && bytes.len() >= 16 { &bytes[16..size.clamp(16, bytes.len())] } else { &[][..] };
-    ftyp.then(|| &bytes[8..12]).into_iter().chain(compatible.chunks_exact(4))
+    ftyp.then(|| &bytes[8..12]).into_iter().chain(compatible.as_chunks::<4>().0.iter().map(|brand| &brand[..]))
 }
 
 fn is_brand(brand: &[u8], known: &[&[u8; 4]]) -> bool {
@@ -378,7 +378,7 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
         // with none of them) is laid over the transformed colour, scaled by nearest neighbour when the sizes differ.
         let (out_width, out_height) = (raster.width as usize, raster.height as usize);
         let mut rgba = Vec::with_capacity(out_width * out_height * 4);
-        for (index, pixel) in raster.data.chunks_exact(3).enumerate() {
+        for (index, pixel) in raster.data.as_chunks::<3>().0.iter().enumerate() {
             let (x, y) = (index % out_width, index / out_width);
             let a = samples[(y * alpha_height / out_height) * alpha_width + x * alpha_width / out_width];
             let straight = |channel: u8| {
@@ -450,10 +450,10 @@ pub fn encode_avif(raster: &Raster) -> Result<Vec<u8>, ImagingError> {
         .with_alpha_color_mode(AlphaColorMode::UnassociatedDirty)
         .with_num_threads(Some(1));
     let encoded = if raster.has_alpha {
-        let pixels: Vec<RGBA8> = raster.data.chunks_exact(4).map(|pixel| RGBA8::new(pixel[0], pixel[1], pixel[2], pixel[3])).collect();
+        let pixels: Vec<RGBA8> = raster.data.as_chunks::<4>().0.iter().map(|pixel| RGBA8::new(pixel[0], pixel[1], pixel[2], pixel[3])).collect();
         encoder.encode_rgba(Img::new(&pixels[..], width, height))
     } else {
-        let pixels: Vec<RGB8> = raster.data.chunks_exact(3).map(|pixel| RGB8::new(pixel[0], pixel[1], pixel[2])).collect();
+        let pixels: Vec<RGB8> = raster.data.as_chunks::<3>().0.iter().map(|pixel| RGB8::new(pixel[0], pixel[1], pixel[2])).collect();
         encoder.encode_rgb(Img::new(&pixels[..], width, height))
     };
     encoded.map(|image| image.avif_file).map_err(|error| ImagingError::environment(format!("the image could not be encoded: {error}")))
@@ -550,7 +550,7 @@ mod tests {
     fn quarter_turns_mirrors_and_crops_move_the_pixels_libheif_moves() {
         // A 3 by 2 picture whose pixels are their own numbers: 0 1 2 / 3 4 5.
         let picture = Raster { width: 3, height: 2, has_alpha: false, data: (0..6u8).flat_map(|n| [n, n, n]).collect() };
-        let ids = |raster: &Raster| raster.data.chunks_exact(3).map(|pixel| pixel[0]).collect::<Vec<_>>();
+        let ids = |raster: &Raster| raster.data.as_chunks::<3>().0.iter().map(|pixel| pixel[0]).collect::<Vec<_>>();
         let turned = transformed(&picture, Transform::Rotate(1));
         assert_eq!((turned.width, turned.height, ids(&turned)), (2, 3, vec![2, 5, 1, 4, 0, 3]));
         assert_eq!(ids(&transformed(&picture, Transform::Rotate(2))), [5, 4, 3, 2, 1, 0]);

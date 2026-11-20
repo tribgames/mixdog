@@ -691,7 +691,7 @@ impl CodeAssist<'_> {
                 headers: vec![
                     ("content-type".into(), "application/json".into()),
                     ("authorization".into(), format!("Bearer {}", self.access_token)),
-                    ("user-agent".into(), user_agent(&self.client_version)),
+                    ("user-agent".into(), user_agent(self.client_version)),
                 ],
                 body: body.map(|b| b.to_string().into_bytes()).unwrap_or_default(),
             }, exchange)

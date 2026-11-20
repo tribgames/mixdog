@@ -154,7 +154,7 @@ async fn failed_response(reply: &PostReply, session: &dyn CodexSession, auth: &C
 }
 
 fn with_usage(mut error: AdapterError, usage: Option<Value>) -> AdapterError {
-    error.usage = reported_usage(usage);
+    error.usage = reported_usage(usage).map(Box::new);
     error
 }
 

@@ -377,8 +377,8 @@ impl CacheWarmSend for AnthropicAdapter {
     ) -> Result<WarmUsage, WarmFailure> {
         let warm = cache_warm_request(request);
         // A warm never threads: Node builds its body with the plain request builder.
-        let plain = self.plain(&warm).await.map_err(|e| WarmFailure::new(e.message))?;
-        let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
+        let plain = self.plain(&warm).await.map_err(|e| WarmFailure::new(e.into_message()))?;
+        let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.into_message()))?;
         let wire = plain.wire;
         let manifest = plain.manifest;
         // Admitted inside the POST, after the warmer's own lane and account checks: a warm never compacts, and on a cold,
@@ -842,7 +842,7 @@ mod idle_tests {
         let failure = failure(&mut stream).await;
         assert_eq!(failure.code.as_deref(), Some("ESTREAMSTALL"));
         assert_eq!(failure.partial_thinking_blocks, vec![serde_json::json!({ "type": "thinking", "thinking": "hm", "signature": "sig" })]);
-        let replay = failure.partial_replay.expect("the completed blocks travel with the cut");
+        let replay = failure.partial_replay.clone().expect("the completed blocks travel with the cut");
         assert_eq!(
             replay.items,
             serde_json::json!([
@@ -1092,10 +1092,8 @@ impl ModelStream for AnthropicStream {
                     // The idle window is a byte-idle limit (`anthropic-sse.mjs:274`): a chunk of a started stream renews it on
                     // receipt, before the thread parser or the SSE framing spend any time on it.
                     let was_started = started(self);
-                    if was_started && !chunk.is_empty() {
-                        if let Some(attempt) = &self.attempt {
-                            attempt.renew_idle();
-                        }
+                    if was_started && !chunk.is_empty() && let Some(attempt) = &self.attempt {
+                        attempt.renew_idle();
                     }
                     if let Some(thread) = self.thread.as_mut() {
                         thread.feed(&chunk);
@@ -1106,18 +1104,18 @@ impl ModelStream for AnthropicStream {
                             // recognized fallback block is progress too, but not the message. The first output is the
                             // semantic one; both move this attempt's clock only while it is the current attempt.
                             let message_started = started(self);
-                            if let Some(attempt) = &self.attempt {
-                                if message_started {
-                                    attempt.observe(Boundary::FirstProtocolPayload);
-                                    // The chunk that carried `message_start` arms the byte-idle deadline; output observed
-                                    // after it moves the phase and no deadline. Output of a stream with no `message_start`
-                                    // is no output of the attempt: its first-message deadline stands.
-                                    if !was_started && !chunk.is_empty() {
-                                        attempt.renew_idle();
-                                    }
-                                    if events.iter().any(crate::providers::idle::output) {
-                                        attempt.observe(Boundary::FirstSemanticOutput);
-                                    }
+                            if let Some(attempt) = &self.attempt
+                                && message_started
+                            {
+                                attempt.observe(Boundary::FirstProtocolPayload);
+                                // The chunk that carried `message_start` arms the byte-idle deadline; output observed
+                                // after it moves the phase and no deadline. Output of a stream with no `message_start`
+                                // is no output of the attempt: its first-message deadline stands.
+                                if !was_started && !chunk.is_empty() {
+                                    attempt.renew_idle();
+                                }
+                                if events.iter().any(crate::providers::idle::output) {
+                                    attempt.observe(Boundary::FirstSemanticOutput);
                                 }
                             }
                             self.enqueue(events);

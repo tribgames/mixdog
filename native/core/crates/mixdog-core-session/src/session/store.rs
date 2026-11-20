@@ -1348,7 +1348,7 @@ pub struct StoreThreads {
     shapes: std::sync::Mutex<std::collections::HashMap<String, Arc<LogShape>>>,
     /// The header members read of a stored thread, by thread and by the list of members asked for, with the version of
     /// its log they were read at ([`ThreadStore::read_header_fields`]).
-    picked: std::sync::Mutex<std::collections::HashMap<(String, usize, usize), (u64, Option<Header>)>>,
+    picked: std::sync::Mutex<std::collections::HashMap<(String, usize, usize), PickedHeader>>,
     /// A test's pause between a marks read's snapshot and its check.
     #[cfg(any(test, feature = "test-support"))]
     after_snapshot: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -3207,3 +3207,6 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
         })
     }
 }
+
+/// The version of a log and the header members read of it at that version.
+type PickedHeader = (u64, Option<Header>);

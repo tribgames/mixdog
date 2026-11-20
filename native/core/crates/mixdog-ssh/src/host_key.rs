@@ -748,7 +748,7 @@ pub async fn inspect_host_key(env: &SshEnv, ctx: &AttemptContext, target: &SshTa
 
 /// A failure of this PC's own ssh state, said by code: shown the way an unreadable server is, never as bare text.
 fn state_unreachable(env: &SshEnv, failure: &SshError, summary: Option<SshConfigSummary>) -> HostKeyInspection {
-    unreachable_said(env, &failure.message, failure.notice.clone(), summary)
+    unreachable_said(env, &failure.message, failure.notice.as_deref().cloned(), summary)
 }
 
 async fn inspect_with(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, own: Option<Arc<MixdogSshConfig>>, configs: Option<&ResolvedConfigs>) -> Result<HostKeyInspection, SshError> {
@@ -756,7 +756,7 @@ async fn inspect_with(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, ow
     let user_config = env.files.read_text(&env.home.join(".ssh").join("config"));
     let route = match resolve_route(env, ctx, target).await {
         Ok(route) => route,
-        Err(failure) => return Ok(unreachable_said(env, &failure.message, failure.notice.clone(), None)),
+        Err(failure) => return Ok(unreachable_said(env, &failure.message, failure.notice.as_deref().cloned(), None)),
     };
     let mut inspection = judge_route(env, ctx, target, own.as_deref(), &route).await?;
     let Some(configs) = configs else { return Ok(inspection) };
@@ -795,7 +795,7 @@ async fn judge_route(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, own
     let shown: Vec<EndpointTrust> = endpoints.iter().map(|endpoint| endpoint.trust.clone()).collect();
 
     let mut scanner = Scanner { env, ctx, error: String::new() };
-    let (scanned, unread) = scan_endpoints(&endpoints, &host, &mut scanner).await;
+    let (scanned, unread) = scan_endpoints(&endpoints, host, &mut scanner).await;
     let scan_error = scanner.error;
     let verdicts: Vec<Verdict> = endpoints
         .iter()

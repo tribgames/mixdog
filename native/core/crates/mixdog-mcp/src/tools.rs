@@ -68,7 +68,7 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
             ToolErrorCode::McpError {
                 server: server.name().to_owned(),
                 rpc_code: Some(code),
-                data: data.map(|d| scrub_json(server, d)),
+                data: data.map(|d| Box::new(scrub_json(server, d))),
             },
             // The SDK's `McpError` text, thrown, which Node's executor answers `Error: <message>` (`execute-call.mjs:69`).
             server.scrub(&format!("Error: MCP error {code}: {reason}")),
@@ -77,7 +77,7 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
             ToolErrorCode::McpError {
                 server: server.name().to_owned(),
                 rpc_code: None,
-                data: reported.data.map(|d| scrub_json(server, d)),
+                data: reported.data.map(|d| Box::new(scrub_json(server, d))),
             },
             server.scrub(&reported.text),
         ),

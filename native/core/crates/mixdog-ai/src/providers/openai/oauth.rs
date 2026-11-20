@@ -535,7 +535,7 @@ impl OpenAiOAuth {
                     let own = || inflight.iter().filter(|pending| pending.renews(&stored));
                     own()
                         .find(|pending| pending.forced.is_none())
-                        .or_else(|| own().last())
+                        .or_else(|| inflight.iter().rev().find(|pending| pending.renews(&stored)))
                         .or_else(|| inflight.last())
                         .map(|pending| if pending.renews(&stored) { Turn::Join(pending.running.clone()) } else { Turn::WaitOut(pending.running.clone()) })
                 }

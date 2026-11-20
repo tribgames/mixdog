@@ -329,10 +329,10 @@ impl crate::transport::session::SessionEnv for SessionEnvironment {
     fn deliver(&self, client_id: &str, text: String) -> futures::future::BoxFuture<'static, ()> {
         let (inner, client_id, generation) = (self.inner.upgrade(), client_id.to_owned(), self.generation);
         Box::pin(async move {
-            if let Some(inner) = inner {
-                if !inner.bridge.from_phone(&client_id, generation, Frame::Text(text)) {
-                    RemoteRuntime { inner }.close_client(&client_id, generation, BACKLOG_EXCEEDED);
-                }
+            if let Some(inner) = inner
+                && !inner.bridge.from_phone(&client_id, generation, Frame::Text(text))
+            {
+                RemoteRuntime { inner }.close_client(&client_id, generation, BACKLOG_EXCEEDED);
             }
         })
     }

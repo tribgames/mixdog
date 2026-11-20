@@ -1617,11 +1617,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mixdog_ai::admission::provider_lane_settings((b.env)("MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE").as_deref()),
         account_store.clone(),
         rotation.clone(),
-        Arc::new(mixdog_ai::warmer::gate::GatedOff(gated_off)), // the registry's builder's own live reader (wp-ai-svc-warm-6)
-        quota_store.clone(),
-        oauth_usage.clone(),
+        mixdog_ai::warmer::gate::HostSeams {
+        switch: Arc::new(mixdog_ai::warmer::gate::GatedOff(gated_off)), // the registry's builder's own live reader (wp-ai-svc-warm-6)
+        resumes: quota_store.clone(),
+        snapshots: oauth_usage.clone(),
         // The same rule a send follows: a provider the configuration redirects borrows no plan meter.
-        Arc::new(mixdog_ai::warmer::gate::ScopeBy({
+        scope: Arc::new(mixdog_ai::warmer::gate::ScopeBy({
             let (config, effective) = (config.clone(), effective.clone());
             Arc::new(move |provider: &str| {
                 let (config, effective, provider) = (config.clone(), effective.clone(), provider.to_owned());
@@ -1633,6 +1634,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 })
             })
         })),
+        },
     ));
     // The warmer: `ProcessWarmDeps` over the ports of `run_host/warm_ports.rs`; `WarmProviders::send` goes through `account_gate`.
     let now_wall: mixdog_ai::warmer::stores::Now = { let epoch = now_ms_epoch.clone(); Arc::new(move || epoch() as f64) }; // Date.now()

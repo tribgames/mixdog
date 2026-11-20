@@ -257,7 +257,7 @@ fn existing_state(_lane: &InLane<DurabilityIo>, path: &Path, sha256: &str, bytes
     if info.len() != bytes {
         return if info.len() == 0 { State::Damaged } else { State::Foreign };
     }
-    let Ok(mut file) = std::fs::File::open(path) else {
+    let Ok(mut file) = mixdog_fsio::File::open(&mixdog_fsio::Unlaned, path) else {
         return State::Foreign;
     };
     let mut hash = Sha256::new();

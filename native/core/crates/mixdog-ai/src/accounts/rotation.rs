@@ -812,19 +812,17 @@ impl AccountRotation {
         pool: &Pool,
         row: &Account,
         model: &str,
-        refusal_scoped: bool,
-        policy_now: Policy,
-        plan_meters_apply: bool,
+        binding: &Binding<'_>,
     ) -> Result<bool, AccountError> {
-        if pool.selected_id.as_deref() == Some(row.id.as_str()) || refusal_scoped {
+        if pool.selected_id.as_deref() == Some(row.id.as_str()) || binding.refusal_scoped {
             return Ok(false);
         }
-        if self.exhausted_for_model_only(provider, pool.selected_id.as_deref(), model, plan_meters_apply).await? {
+        if self.exhausted_for_model_only(provider, pool.selected_id.as_deref(), model, binding.plan_meters_apply).await? {
             return Ok(false);
         }
         Ok(self
             .store
-            .select_if(provider, pool.selected_id.as_deref(), &row.id, Some(policy_now))
+            .select_if(provider, pool.selected_id.as_deref(), &row.id, Some(binding.policy))
             .await?
             .is_some())
     }
@@ -948,7 +946,7 @@ impl AccountRotation {
                     let (scoped, commit) = self
                         .bind_served(provider, |binding_id| sender.stamp(&mut result, &row.id, binding_id), &row.id, model, &binding)
                         .await?;
-                    if commit && self.commit_fallback(provider, &pool, &row, model, scoped, policy_now, ctx.plan_meters_apply).await? {
+                    if commit && self.commit_fallback(provider, &pool, &row, model, &Binding { refusal_scoped: scoped, ..binding }).await? {
                         sender.notify(Stage::AccountChanged {
                             provider: provider.to_owned(),
                             account_id: row.id.clone(),

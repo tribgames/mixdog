@@ -533,17 +533,17 @@ impl ModelSource {
             Roster::Codex => match previous.filter(|_| within_ttl && !rejected) {
                 Some(rows) => {
                     tracing::warn!(provider, kind = ?error.kind, "[provider] listModels failed; showing the list fetched for an older client");
-                    Ok(self.shown(rows, Some(error.message)))
+                    Ok(self.shown(rows, Some(error.into_message())))
                 }
                 None => {
                     tracing::warn!(provider, kind = ?error.kind, "[provider] listModels failed; no model list is available");
-                    Ok(SourceListing { rows: Vec::new(), stale: Some(error.message) })
+                    Ok(SourceListing { rows: Vec::new(), stale: Some(error.into_message()) })
                 }
             },
             Roster::Mimo | Roster::CommandCode | Roster::OpencodeGo | Roster::MuseCode => match previous.filter(|_| !rejected) {
                 Some(rows) => {
                     tracing::warn!(provider, kind = ?error.kind, "[provider] listModels failed; keeping the last good roster");
-                    Ok(self.shown(rows, Some(error.message)))
+                    Ok(self.shown(rows, Some(error.into_message())))
                 }
                 None => self.failed(error, env),
             },

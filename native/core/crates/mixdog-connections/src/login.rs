@@ -44,7 +44,7 @@ fn refused_answer(failed: SshFailed, refused: AskpassKind) -> SshFailed {
     .plain();
     SshFailed {
         ok: false,
-        failure: SshFailure { kind: SshFailureKind::Failed { message: said.english }, notice: Some(said.message), code: Some("login-refused".to_owned()) },
+        failure: SshFailure { kind: SshFailureKind::Failed { message: said.english }, notice: Some(Box::new(said.message)), code: Some("login-refused".to_owned()) },
     }
 }
 

@@ -147,7 +147,7 @@ async fn a_continued_hop_that_showed_text_is_not_resent() {
     let mut stream = adapter.attempt(Arc::new(request())).await.expect("the first hop answers");
     let err = failure(stream.as_mut()).await;
     assert!(err.unsafe_to_retry && err.exposure.text_emitted, "{err:?}");
-    let usage = err.partial_usage.expect("the first hop's usage");
+    let usage = err.partial_usage.clone().expect("the first hop's usage");
     assert_eq!((usage.input_tokens, usage.output_tokens), (10, 2));
     assert_eq!(http.sent.lock().unwrap().len(), 2);
 }
@@ -193,7 +193,7 @@ async fn a_recovered_long_decode_stops_at_thirty_two_hops() {
     let mut stream = adapter.recover_spent(Arc::new(request())).await.expect("the unary answer");
     let err = failure(stream.as_mut()).await;
     assert_eq!(err.code.as_deref(), Some("CONTINUATION_LIMIT"));
-    let usage = err.partial_usage.expect("the hops' usage");
+    let usage = err.partial_usage.clone().expect("the hops' usage");
     assert_eq!((usage.input_tokens, usage.output_tokens), (320, 32));
     assert_eq!(http.sent.lock().unwrap().len(), 32);
 }
@@ -331,7 +331,7 @@ async fn a_failed_or_cancelled_hop_after_a_recovered_answer_keeps_the_first_hops
     let mut stream = adapter(http.clone()).recover_spent(Arc::new(request())).await.expect("the unary answer");
     let err = failure(stream.as_mut()).await;
     assert_eq!(err.status, Some(503));
-    let usage = err.partial_usage.expect("the first hop's usage");
+    let usage = err.partial_usage.clone().expect("the first hop's usage");
     assert_eq!((usage.input_tokens, usage.output_tokens), (10, 2));
     assert_eq!(http.sent.lock().unwrap().len(), 12, "the recovered hop, ten streamed attempts and one re-issue");
 
@@ -390,7 +390,7 @@ async fn a_failed_hop_re_issue_counts_the_last_attempts_usage_once() {
     asked.options.send_group = Some("group".into());
     let mut stream = accounted.attempt(Arc::new(asked)).await.expect("the first hop answers");
     let err = failure(stream.as_mut()).await;
-    assert_eq!(err.partial_usage.expect("the finished hop's usage").input_tokens, 10);
+    assert_eq!(err.partial_usage.clone().expect("the finished hop's usage").input_tokens, 10);
     assert_eq!(urls(&http).last().map(String::as_str), Some("generateContent"), "the re-issue was tried");
     drop(stream);
     accounted.settle_send("group", SendEnd::Surfaced).await;

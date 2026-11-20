@@ -328,7 +328,7 @@ impl RequestFork {
                 Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), stop: response.stop.clone(), usage: reported.then_some(response.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
             }
             Ok(None) => Err(SummaryFailure::Aborted),
-            Err(error) => Err(SummaryFailure::Failed(error.message)),
+            Err(error) => Err(SummaryFailure::Failed(error.into_message())),
         }
     }
 }

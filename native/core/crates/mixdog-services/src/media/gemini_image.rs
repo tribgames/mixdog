@@ -59,7 +59,7 @@ pub fn pick_gemini_image_part(parts: &[Value], label: &str, failure: Option<Stri
         let refusal = failure.filter(|f| !f.is_empty()).or_else(|| parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).find(|t| !mixdog_js::js_trim(t).is_empty()).map(str::to_owned)).unwrap_or_default();
         let suffix = if refusal.is_empty() { String::new() } else { format!(": {}", slice_utf16(&refusal, 200)) };
         let mut error: AdapterError = LaneError { message: format!("{label} returned no image data{suffix}"), code: "MEDIA_EMPTY_RESULT", status: 502 }.into();
-        error.usage = reported_usage(usage);
+        error.usage = reported_usage(usage).map(Box::new);
         return Err(error);
     };
     let inline = &image["inlineData"];

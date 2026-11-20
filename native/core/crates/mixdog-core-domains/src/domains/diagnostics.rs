@@ -739,10 +739,8 @@ fn with_migration_counts(mut row: Verdict, migration: &Value) -> Verdict {
         let folder = migration.get("quarantineDir").and_then(Value::as_str).unwrap_or("the quarantine folder of the data folder");
         row.detail.push_str(&format!(" (moved aside to {folder}, each with its reason.json)"));
     }
-    if unexpected > 0 {
-        if row.level == Level::Ok {
-            row.level = Level::Warn;
-        }
+    if unexpected > 0 && row.level == Level::Ok {
+        row.level = Level::Warn;
     }
     row
 }
@@ -822,7 +820,7 @@ fn report_session_log(status: &Value) -> Option<Verdict> {
 /// the check's: once the check has ended no file is created, and one created by an open that returned late is removed (a call
 /// the OS holds blocked, an unreachable network folder, cannot be interrupted from here; the job ends when it returns).
 pub(crate) fn folder_accepts_a_file(dir: &std::path::Path, cancel: &CancellationToken) -> bool {
-    folder_accepts_a_file_with(dir, cancel, |path| remove_probe(path))
+    folder_accepts_a_file_with(dir, cancel, remove_probe)
 }
 
 #[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
@@ -844,7 +842,7 @@ fn folder_accepts_a_file_with(
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |at| at.as_nanos());
         let count = PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = dir.join(format!(".mixdog-doctor-write-probe-{}-{count}-{nanos:x}", std::process::id()));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        match mixdog_fsio::OpenOptions::new().write(true).create_new(true).open(&mixdog_fsio::Unlaned, &path) {
             Ok(file) => {
                 drop(file);
                 return remove(&path).is_ok();

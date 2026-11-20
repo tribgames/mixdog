@@ -28,6 +28,7 @@ mixdog-ooxml-text = { workspace = true }
 mixdog-ledger = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-protocol = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-secrets = { workspace = true }
 mixdog-services = { workspace = true }

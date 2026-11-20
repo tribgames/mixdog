@@ -1055,7 +1055,7 @@ mod tests {
             assert_eq!(err.transport, None, "a verdict about the model, not a cut stream");
         }
         let cut = run(&mut antigravity_decoder(), &chunk("The answer so far")).unwrap_err();
-        assert_eq!((cut.transport, cut.status), (Some(TransportFault::TruncatedStream), None));
+        assert_eq!((cut.transport.clone(), cut.status), (Some(TransportFault::TruncatedStream), None));
         let unrelated = run(&mut antigravity_decoder(), &chunk("a longer-available option")).unwrap_err();
         assert_eq!(unrelated.transport, Some(TransportFault::TruncatedStream));
         let answered = format!("data: {{\"response\":{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"The old API is no longer supported.\"}}]}},\"finishReason\":\"STOP\"}}]}}}}\n\n");

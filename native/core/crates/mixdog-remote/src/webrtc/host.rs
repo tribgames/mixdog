@@ -486,10 +486,10 @@ impl LiveHost {
         if source_ref.session_id().is_none() && existing.is_none() && !matches!(signal, ClientSignal::Ready { .. }) {
             return Ok(());
         }
-        if let (Some(entry), ClientSignal::Ready { viewer_attempt, .. }) = (&existing, signal) {
-            if *lock(&entry.viewer_attempt) > *viewer_attempt {
-                return Ok(());
-            }
+        if let (Some(entry), ClientSignal::Ready { viewer_attempt, .. }) = (&existing, signal)
+            && *lock(&entry.viewer_attempt) > *viewer_attempt
+        {
+            return Ok(());
         }
         let source = self.shared.env.source(source_ref, client, signal.type_name());
         let Some(source) = source else { return Err(SOURCE_NOT_STREAMED.to_owned()) };

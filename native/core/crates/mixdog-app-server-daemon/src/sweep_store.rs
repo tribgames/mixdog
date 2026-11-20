@@ -191,6 +191,55 @@ impl SweepStore for DirectorySweepStore {
     }
 }
 
+/// A session scratch folder younger than this is left alone: its session may not be stored yet.
+const ORPHAN_SCRATCH_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+impl ScratchReaper {
+    pub fn new(data_dir: &std::path::Path, lane: mixdog_rt::MaintenanceIo) -> Self {
+        Self { data_dir: data_dir.to_path_buf(), lane }
+    }
+
+    fn is_session_folder(name: &str) -> bool {
+        name.strip_prefix("s.").is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    }
+
+    /// Removes the session folders of no id in `stored`; returns their names.
+    pub async fn reap(&self, stored: &[String], cancel: &CancellationToken) -> Vec<String> {
+        self.reap_at(stored, mixdog_rt::wall_clock!(), cancel).await
+    }
+
+    /// [`Self::reap`] judging a folder's age at `now`.
+    async fn reap_at(&self, stored: &[String], now: std::time::SystemTime, cancel: &CancellationToken) -> Vec<String> {
+        let kept: std::collections::HashSet<String> = stored
+            .iter()
+            .filter_map(|id| mixdog_tools::exec::session_scratch_dir(&self.data_dir, id))
+            .filter_map(|dir| dir.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .collect();
+        let scratch = self.data_dir.join("scratch");
+        let job = move |lane: &mixdog_rt::InLane<mixdog_rt::MaintenanceIo>| {
+            let mut removed = Vec::new();
+            for name in mixdog_statefile::list_dir(lane, &scratch).unwrap_or_default() {
+                if !Self::is_session_folder(&name) || kept.contains(&name) {
+                    continue;
+                }
+                mixdog_rt::job_progress();
+                let dir = scratch.join(&name);
+                let old = mixdog_statefile::metadata(lane, &dir)
+                    .ok()
+                    .filter(std::fs::Metadata::is_dir)
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|at| now.duration_since(at).ok())
+                    .is_some_and(|age| age >= ORPHAN_SCRATCH_MIN_AGE);
+                // A file an agent's process still holds keeps its folder for the next pass.
+                if old && mixdog_statefile::remove_dir_all(lane, &dir).is_ok() {
+                    removed.push(name);
+                }
+            }
+            removed
+        };
+        mixdog_core_base::support::on_lane(self.lane, cancel, job).await.unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
@@ -485,55 +534,5 @@ mod tests {
             assert_eq!(sorted(tally.tombstones_cleaned), only(&scenario["tombstonesCleaned"]), "{name}: tombstones");
             assert_eq!(sorted(tally.open_pruned), only(&scenario["openPruned"]), "{name}: pruned");
         }
-    }
-}
-
-
-/// A session scratch folder younger than this is left alone: its session may not be stored yet.
-const ORPHAN_SCRATCH_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
-impl ScratchReaper {
-    pub fn new(data_dir: &std::path::Path, lane: mixdog_rt::MaintenanceIo) -> Self {
-        Self { data_dir: data_dir.to_path_buf(), lane }
-    }
-
-    fn is_session_folder(name: &str) -> bool {
-        name.strip_prefix("s.").is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-    }
-
-    /// Removes the session folders of no id in `stored`; returns their names.
-    pub async fn reap(&self, stored: &[String], cancel: &CancellationToken) -> Vec<String> {
-        self.reap_at(stored, mixdog_rt::wall_clock!(), cancel).await
-    }
-
-    /// [`Self::reap`] judging a folder's age at `now`.
-    async fn reap_at(&self, stored: &[String], now: std::time::SystemTime, cancel: &CancellationToken) -> Vec<String> {
-        let kept: std::collections::HashSet<String> = stored
-            .iter()
-            .filter_map(|id| mixdog_tools::exec::session_scratch_dir(&self.data_dir, id))
-            .filter_map(|dir| dir.file_name().map(|name| name.to_string_lossy().into_owned()))
-            .collect();
-        let scratch = self.data_dir.join("scratch");
-        let job = move |lane: &mixdog_rt::InLane<mixdog_rt::MaintenanceIo>| {
-            let mut removed = Vec::new();
-            for name in mixdog_statefile::list_dir(lane, &scratch).unwrap_or_default() {
-                if !Self::is_session_folder(&name) || kept.contains(&name) {
-                    continue;
-                }
-                mixdog_rt::job_progress();
-                let dir = scratch.join(&name);
-                let old = mixdog_statefile::metadata(lane, &dir)
-                    .ok()
-                    .filter(std::fs::Metadata::is_dir)
-                    .and_then(|meta| meta.modified().ok())
-                    .and_then(|at| now.duration_since(at).ok())
-                    .is_some_and(|age| age >= ORPHAN_SCRATCH_MIN_AGE);
-                // A file an agent's process still holds keeps its folder for the next pass.
-                if old && mixdog_statefile::remove_dir_all(lane, &dir).is_ok() {
-                    removed.push(name);
-                }
-            }
-            removed
-        };
-        mixdog_core_base::support::on_lane(self.lane, cancel, job).await.unwrap_or_default()
     }
 }

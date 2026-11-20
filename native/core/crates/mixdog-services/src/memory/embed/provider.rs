@@ -3,6 +3,9 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+
+/// An embedding computed in the background: the vector, `None` for an empty input, or the failure text.
+type QueryFuture = futures::future::BoxFuture<'static, Result<Option<Vec<f32>>, String>>;
 use std::time::Duration;
 
 use mixdog_js::{js_trim};
@@ -407,7 +410,7 @@ impl EmbeddingProvider {
     pub(crate) fn admit_query(
         self: &Arc<Self>,
         text: &str,
-    ) -> (bool, futures::future::BoxFuture<'static, Result<Option<Vec<f32>>, String>>) {
+    ) -> (bool, QueryFuture) {
         let key = config::prepare_input(text, InputType::Query, self.model_id());
         if key.is_empty() {
             return (false, Box::pin(async { Ok(None) }));

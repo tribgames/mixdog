@@ -62,7 +62,7 @@ pub fn document_text(bytes: &[u8]) -> Result<Cow<'_, str>, ImagingError> {
 
 /// The parser's options: the document type declaration is read (usvg reads it too), the node count is bounded.
 pub fn parsing_options() -> ParsingOptions {
-    ParsingOptions { allow_dtd: true, nodes_limit: NODES, ..ParsingOptions::default() }
+    ParsingOptions { allow_dtd: true, nodes_limit: NODES }
 }
 
 /// Fails a document nested deeper than [`DEPTH`]; walks the tree without recursion.

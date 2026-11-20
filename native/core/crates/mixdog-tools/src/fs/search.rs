@@ -2511,7 +2511,7 @@ impl SearchDeadlines {
         // The search ends this much before the call's own deadline, so its typed stage ("not started: waiting for
         // admission", "exceeded its budget while scanning") is what the call reports, not the generic outer timeout.
         const OUTER_MARGIN_MS: u64 = 250;
-        let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.saturating_sub(OUTER_MARGIN_MS).max(1).min(REQUEST_TIMEOUT_MS)).min(left_ms);
+        let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.saturating_sub(OUTER_MARGIN_MS).clamp(1, REQUEST_TIMEOUT_MS)).min(left_ms);
         let margin = (hard_ms * 75 / 1000).clamp(250, 2000);
         let ms = std::time::Duration::from_millis;
         Self { soft: now + ms(hard_ms.saturating_sub(margin).max(1)), hard: now + ms(hard_ms), hard_ms }
@@ -2821,7 +2821,7 @@ impl GrepTool {
         if !by_pattern && !by_path {
             return Ok(None);
         }
-        let pats: Vec<String> = if by_pattern { patterns } else if patterns.len() == 1 { patterns } else { vec![combined_regex(&patterns)] };
+        let pats: Vec<String> = if by_pattern || patterns.len() == 1 { patterns } else { vec![combined_regex(&patterns)] };
         // The paths the combined scan takes keep its order and totals, as in the answer they continue (a file list is in scan
         // order there, not newest first); the others are searched one by one.
         let combined = if by_path && !by_pattern { self.combined_collect(ctx, args, &list, &arg_strings(args, "pattern")).await? } else { None };

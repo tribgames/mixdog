@@ -521,7 +521,7 @@ impl ArchiveTrees {
     async fn commit_held(&self, prep: &Preparation, admit: &Admit) -> TreeOutcome {
         self.at(TreeStep::Commit).await;
         let op_id = uuid::Uuid::now_v7().to_string();
-        let members: Vec<(String, Arc<SessionHandle>, u64, Option<ArchiveEntry>, bool)> =
+        let members: Vec<ArchiveMember> =
             prep.members.iter().map(|member| (member.id.clone(), member.handle.clone(), member.epoch, member.entry, member.archived)).collect();
         let (directory, stamps, admit, created, op) = (self.directory.clone(), self.stamps.clone(), admit.clone(), prep.created, op_id.clone());
         let committed = self
@@ -651,3 +651,6 @@ impl SessionDirectory {
 #[cfg(test)]
 #[path = "archive_trees_tests.rs"]
 mod tests;
+
+/// One member of an archive tree: its id, handle, epoch, archive entry and whether it was archived already.
+type ArchiveMember = (String, Arc<SessionHandle>, u64, Option<ArchiveEntry>, bool);

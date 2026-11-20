@@ -239,7 +239,7 @@ impl WebService {
             n => {
                 let text = format!("[web_fetch] {n}/{} URL slots failed; successful results are retained.\n\n{text}", items.len());
                 let mut error = failed(text.clone());
-                error.partial = Some(text_output(text));
+                error.partial = Some(Box::new(text_output(text)));
                 Err(error)
             }
         }
@@ -310,7 +310,7 @@ impl WebService {
         }
         let text = format!("[web_search] {failures}/{total} queries failed; successful results are retained.\n\n{joined}");
         let mut error = failed(text.clone());
-        error.partial = Some(text_output(text));
+        error.partial = Some(Box::new(text_output(text)));
         Err(error)
     }
 
@@ -405,7 +405,7 @@ impl WebService {
             if stopped {
                 parts.push(ToolPart::Text(error.message_for_model.clone()));
             }
-            error.partial = Some(ToolOutput { parts, ..ToolOutput::default() });
+            error.partial = Some(Box::new(ToolOutput { parts, ..ToolOutput::default() }));
         }
         Err(error)
     }

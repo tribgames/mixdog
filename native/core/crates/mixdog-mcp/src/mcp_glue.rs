@@ -1041,7 +1041,7 @@ pub struct StatusInput<'a> {
 }
 
 fn transport_label(cfg: &Value) -> String {
-    if cfg.get("autoDetect").is_some_and(|d| truthy(d)) {
+    if cfg.get("autoDetect").is_some_and(truthy) {
         return format!("autoDetect:{}", crate::config::auto_detect_target(cfg));
     }
     match transport_kind(cfg) {

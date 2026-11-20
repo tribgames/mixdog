@@ -287,10 +287,13 @@ mod stream {
         }
     }
 
+    /// One model of the models.dev document: its record and overlay text.
+    type ModelEntry = (MetadataRecord, Box<str>);
+
     /// The models.dev document: provider → model id → record and overlay text, in document order. A provider without a
     /// models map is absent.
     #[derive(Default)]
-    pub(super) struct ModelsDevDocument(pub(super) Placed<Vec<(String, (MetadataRecord, Box<str>))>>);
+    pub(super) struct ModelsDevDocument(pub(super) Placed<Vec<(String, ModelEntry)>>);
 
     impl Member for ModelsDevDocument {
         fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error> {

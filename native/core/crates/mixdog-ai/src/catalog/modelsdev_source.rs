@@ -246,11 +246,11 @@ impl ModelsDevSource {
             body: Vec::new(),
         };
         // `AbortSignal.timeout(10_000)` over the whole exchange (`model-catalog.mjs:270`).
-        let response = self.http.send(request, abort_signal(FETCH_DEADLINE)).await.map_err(|e| e.message)?;
+        let response = self.http.send(request, abort_signal(FETCH_DEADLINE)).await.map_err(|e| e.into_message())?;
         if !response.is_success() {
             return Err(format!("HTTP {}", response.status));
         }
-        let body = response.read_all().await.map(|r| r.body).map_err(|e| e.message)?;
+        let body = response.read_all().await.map(|r| r.body).map_err(|e| e.into_message())?;
         // The parse of ~8 MB runs as a lane job.
         let parse = self.parse;
         let job = self

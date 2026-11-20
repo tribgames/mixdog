@@ -285,7 +285,7 @@ impl LoginFlow for GrokDeviceLogin {
             form(&[("client_id", CLIENT_ID), ("scope", SCOPE)]),
         )
         .await
-        .map_err(|error| LoginError::Failed(failed("transport", error.message)))?;
+        .map_err(|error| LoginError::Failed(failed("transport", error.into_message())))?;
         if started.status == 404 {
             // The issuer has no device flow, as the Grok CLI reads it: the loopback login takes over.
             drop(guard);

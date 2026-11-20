@@ -245,7 +245,7 @@ pub struct Plan {
 }
 
 pub async fn plan(host: &dyn AutoRetentionHost, sessions: &[Session], now: f64, policy: Policy, record: &RetentionRecord, cancel: &CancellationToken) -> Result<Plan, String> {
-    let (mut archive, mut delete): (Vec<(String, f64)>, Vec<(String, f64)>) = (Vec::new(), Vec::new());
+    let (mut archive, mut delete): (AgedSessions, AgedSessions) = (Vec::new(), Vec::new());
     for session in sessions {
         // Stopped (shutdown, or superseded): what is planned so far is never acted on, the pass stops before its first action.
         if cancel.is_cancelled() {
@@ -481,7 +481,7 @@ pub struct DirectoryAutoRetention {
     _adoption: mixdog_core_config::config::AdoptionGuard,
     /// The agent-only rows as the plan's listing read them: the sub-session walk of the PLAN uses them (a listing of a thousand
     /// sessions is not read again for each). The final judgment before an action reads them afresh, never from here.
-    agent_rows: Mutex<Arc<Vec<(String, Map<String, Value>)>>>,
+    agent_rows: Mutex<Arc<AgentRows>>,
     /// Itself: an archive runs as a task this host owns to its end.
     me: std::sync::Weak<Self>,
 }
@@ -776,3 +776,9 @@ impl AutoRetentionHost for DirectoryAutoRetention {
 #[cfg(test)]
 #[path = "auto_retention_tests.rs"]
 mod tests;
+
+/// Sessions with the time each was last active.
+type AgedSessions = Vec<(String, f64)>;
+
+/// The agent-only rows of a listing, by session id.
+type AgentRows = Vec<(String, Map<String, Value>)>;

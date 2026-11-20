@@ -105,7 +105,7 @@ fn is_avif_sequence(bytes: &[u8]) -> bool {
         return false;
     }
     let brands = &bytes[8..size];
-    brands.chunks_exact(4).any(|brand| brand == b"avis")
+    brands.as_chunks::<4>().0.iter().any(|brand| brand == b"avis")
 }
 
 fn count_frames<'a, D: AnimationDecoder<'a>>(decoder: D, cancel: &Cancel) -> Result<u32, Reject> {
@@ -241,9 +241,9 @@ pub fn decode_base64_held(text: &str) -> Result<Vec<u8>, Reject> {
     base64::engine::general_purpose::STANDARD.decode(text).map_err(|_| Reject::NotAnImage)
 }
 
-/// Acquire the worker slot, decode ase64 strictly, and hand the binary to 	hen while the slot is held (so the base64
-/// text, the binary and the decoder are never allocated outside the budget). 	hen receives the bytes and the bytes already
-/// charged, and normally calls [alidate_held].
+/// Acquire the worker slot, decode base64 strictly, and hand the binary to `then` while the slot is held (so the base64
+/// text, the binary and the decoder are never allocated outside the budget). `then` receives the bytes and the bytes already
+/// charged, and normally calls [`validate_held`].
 pub fn with_base64<T>(
     base64: &str,
     admission: &Admission,

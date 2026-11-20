@@ -363,6 +363,235 @@ impl DaemonMcpSurface {
     }
 }
 
+/// `RELOAD_DEBOUNCE_MS` of `watched-file-cache.mjs`: one replace brings several events, the file
+/// is read once.
+const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(50);
+impl BridgeFiles {
+    /// Nothing is watched or read until [`Self::start`]; a bridge asked about before that is not up.
+    pub fn new(dir: PathBuf, io: MaintenanceIo) -> Arc<Self> {
+        Self::new_at(dir, io, Box::new(system_now_ms))
+    }
+
+    fn new_at(dir: PathBuf, io: MaintenanceIo, now_ms: Box<dyn Fn() -> f64 + Send + Sync>) -> Arc<Self> {
+        let slot = || Slot { advert: Advert::Missing, failed: false, timer: false, loading: false, again: false };
+        let slots = FEATURES.iter().map(|id| (*id, slot())).collect();
+        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), now_ms, applied: tokio::sync::watch::channel(0).0 })
+    }
+
+    #[cfg(test)]
+    fn applied(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.applied.subscribe()
+    }
+
+    /// The sink the core's `FolderWatcher` must be built with (compose it with its other sinks).
+    pub fn sink(self: &Arc<Self>) -> Arc<dyn ChangeSink> {
+        Arc::new(BridgeSink(Arc::downgrade(self)))
+    }
+
+    /// Watches the discovery folder on `watcher`, then reads the four files once (the cold read
+    /// of the watched copy: watch first, so a change after the read is never missed).
+    pub async fn start(self: &Arc<Self>, watcher: Arc<FolderWatcher>) {
+        *self.watching() = Some(Watching { watcher, at: None });
+        self.attach();
+        for id in FEATURES {
+            let loaded = Self::read(self.io, self.dir.join(format!("{id}-bridge.json"))).await;
+            self.apply(id, loaded);
+        }
+    }
+
+    fn watching(&self) -> std::sync::MutexGuard<'_, Option<Watching>> {
+        self.watching.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Points the watch at the discovery folder or, while that cannot be watched (it does not
+    /// exist yet), the nearest ancestor that can: an event there names the folder, and the next
+    /// re-read tries the folder again.
+    fn attach(&self) {
+        let mut watching = self.watching();
+        let Some(held) = watching.as_mut() else { return };
+        if held.at.as_deref() == Some(self.dir.as_path()) {
+            return;
+        }
+        held.watcher.unwatch(WATCH_ID);
+        held.at = std::iter::successors(Some(self.dir.as_path()), |dir| dir.parent())
+            .find(|dir| held.watcher.watch(WATCH_ID, dir, false).is_ok())
+            .map(Path::to_path_buf);
+    }
+
+    /// The watch delivered a batch. On the folder itself only the files named are re-read; on an
+    /// ancestor, or after lost events, every file is.
+    fn heard(self: &Arc<Self>, paths: &[String]) {
+        let on_folder = self.watching().as_ref().is_some_and(|held| held.at.as_deref() == Some(self.dir.as_path()));
+        let named = |id: &str| {
+            let file = format!("{id}-bridge.json");
+            paths.iter().any(|path| Path::new(path).file_name().is_some_and(|name| *name == *file))
+        };
+        for id in FEATURES {
+            if !on_folder || paths.is_empty() || named(id) {
+                self.schedule(id);
+            }
+        }
+    }
+
+    /// `scheduleReread`: one re-read per debounce window.
+    fn schedule(self: &Arc<Self>, id: &'static str) {
+        {
+            let mut slots = self.slots();
+            let Some(slot) = slots.get_mut(id) else { return };
+            if slot.timer {
+                return;
+            }
+            slot.timer = true;
+        }
+        let files = Arc::clone(self);
+        mixdog_rt::spawn("bridge-discovery", TaskClass::Work, async move {
+            mixdog_rt::time::sleep(RELOAD_DEBOUNCE).await;
+            files.reread(id).await;
+        });
+    }
+
+    /// The re-read of a file after its debounce: an event during a read reads again.
+    async fn reread(self: &Arc<Self>, id: &'static str) {
+        self.attach();
+        loop {
+            {
+                let mut slots = self.slots();
+                let Some(slot) = slots.get_mut(id) else { return };
+                slot.timer = false;
+                if slot.loading {
+                    slot.again = true;
+                    return;
+                }
+                slot.loading = true;
+            }
+            let loaded = Self::read(self.io, self.dir.join(format!("{id}-bridge.json"))).await;
+            let again = self.apply(id, loaded);
+            if !again {
+                return;
+            }
+            if let Some(slot) = self.slots().get_mut(id) {
+                slot.timer = true;
+            }
+            mixdog_rt::time::sleep(RELOAD_DEBOUNCE).await;
+        }
+    }
+
+    /// Takes a read's result: a failed read keeps what the entry had. Answers whether an event
+    /// arrived while it ran.
+    fn apply(&self, id: &'static str, loaded: Loaded) -> bool {
+        let mut slots = self.slots();
+        let Some(slot) = slots.get_mut(id) else { return false };
+        match loaded {
+            Loaded::Advert(advert) => {
+                slot.advert = advert;
+                slot.failed = false;
+            }
+            Loaded::Failed => {
+                slot.failed = true;
+                tracing::warn!(feature = id, "the bridge discovery file could not be read");
+            }
+        }
+        slot.loading = false;
+        let again = std::mem::take(&mut slot.again);
+        drop(slots);
+        self.applied.send_modify(|reads| *reads += 1);
+        again
+    }
+
+    async fn read(io: MaintenanceIo, path: PathBuf) -> Loaded {
+        match io.submit(&CancellationToken::new(), move |lane| load(lane, &path)) {
+            Ok(job) => job.await.unwrap_or(Loaded::Failed),
+            Err(_) => Loaded::Failed,
+        }
+    }
+
+    fn slots(&self) -> std::sync::MutexGuard<'_, HashMap<&'static str, Slot>> {
+        self.slots.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// `discoveryDetail(..).discovery !== null` of the copy.
+    fn up(&self, copy: &Advert) -> bool {
+        let Advert::Read { mtime_ms, parsed } = copy else { return false };
+        if (self.now_ms)() - mtime_ms >= MAX_AGE_MS {
+            return false;
+        }
+        let port = number(parsed, "port");
+        let token = field(parsed, "token").filter(|value| truthy(value)).map(value_to_string).unwrap_or_default();
+        if number(parsed, "version") != 1.0 || !is_integer(port) || port <= 0.0 || port > 65_535.0 || token.is_empty() {
+            return false;
+        }
+        let pid = field(parsed, "pid").filter(|value| truthy(value)).map_or(0.0, to_number);
+        process_alive(pid)
+    }
+
+    /// `demandReread`: an entry whose last load failed, or whose folder could not be watched at
+    /// all, may be behind the file; a read of it answers what it holds and schedules one re-read.
+    fn demand(self: &Arc<Self>, id: &'static str) {
+        let blind = self.watching().as_ref().is_none_or(|held| held.at.is_none());
+        let due = self.slots().get(id).is_some_and(|slot| (slot.failed || blind) && !slot.loading && !slot.timer);
+        if due {
+            self.schedule(id);
+        }
+    }
+}
+#[async_trait]
+impl McpSurface for DaemonMcpSurface {
+    /// `rt.currentCwd`: the thread's own folder, else the explicit session folder, else the
+    /// process's.
+    async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String> {
+        let scoped = match thread {
+            // `Ok(None)`: no such thread; an `Err` read never ran and says nothing about it.
+            Some(id) => self
+                .headers
+                .header(&id.into())
+                .await
+                .map_err(|error| error.to_string())?
+                .and_then(|header| header.get("cwd").and_then(Value::as_str).map(str::to_owned)),
+            None => None,
+        };
+        // A read that did not run (lane full or wedged) is the caller's error, not "no saved cwd".
+        match self.cwd.explicit_cwd(scoped.as_deref()).await.map_err(|error| error.to_string())? {
+            Some(dir) => Ok(PathBuf::from(dir)),
+            None => std::env::current_dir().map_err(|error| error.to_string()),
+        }
+    }
+
+    /// `session.mcpScopeId`: what the thread's stored header names, which a spawned child takes from
+    /// the session that spawned it (`spawn-plan.mjs:108`) and a session from its own seed.
+    async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
+        let header = self.headers.header(&thread.into()).await.map_err(|error| error.to_string())?;
+        Ok(header
+            .and_then(|header| header.get("mcpScopeId").and_then(Value::as_str).map(|scope| mixdog_js::js_trim(scope).to_owned()))
+            .filter(|scope| !scope.is_empty()))
+    }
+
+    /// `invalidatePreSessionToolSurface()`: the core builds a session's tool surface from its
+    /// sources on every call and keeps no copy before the session exists, so there is nothing to
+    /// drop (the same ruling as `DaemonFeatureEffects::invalidate_pre_session_tool_surface`); the
+    /// surface generation moves, as Node's does.
+    async fn refresh_surface(&self) {
+        self.generation.bump();
+    }
+
+    /// `getTools().map(t => t.name)`: the live surface's tool names (`StatusSurface::listed`: eager
+    /// tools, deferred catalog, late deferred catalog; each once).
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        self.surface.surface(None).await.map(|surface| surface.listed).map_err(|error| error.to_string())
+    }
+
+    fn open_browser(&self, url: &str) {
+        self.opener.open(url);
+    }
+
+    fn announce_plugins(&self) {
+        (self.announce)();
+    }
+
+    async fn flush_skills_save(&self) {
+        self.extensions.flush_skills_save().await;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures are written straight to a temp dir")]
 mod tests {
@@ -619,235 +848,5 @@ mod tests {
                 assert_eq!(active.contains(id), case["answer"][id].as_bool().unwrap(), "{}: {id}", case["name"]);
             }
         }
-    }
-}
-
-
-/// `RELOAD_DEBOUNCE_MS` of `watched-file-cache.mjs`: one replace brings several events, the file
-/// is read once.
-const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(50);
-impl BridgeFiles {
-    /// Nothing is watched or read until [`Self::start`]; a bridge asked about before that is not up.
-    pub fn new(dir: PathBuf, io: MaintenanceIo) -> Arc<Self> {
-        Self::new_at(dir, io, Box::new(system_now_ms))
-    }
-
-    fn new_at(dir: PathBuf, io: MaintenanceIo, now_ms: Box<dyn Fn() -> f64 + Send + Sync>) -> Arc<Self> {
-        let slot = || Slot { advert: Advert::Missing, failed: false, timer: false, loading: false, again: false };
-        let slots = FEATURES.iter().map(|id| (*id, slot())).collect();
-        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), now_ms, applied: tokio::sync::watch::channel(0).0 })
-    }
-
-    #[cfg(test)]
-    fn applied(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.applied.subscribe()
-    }
-
-    /// The sink the core's `FolderWatcher` must be built with (compose it with its other sinks).
-    pub fn sink(self: &Arc<Self>) -> Arc<dyn ChangeSink> {
-        Arc::new(BridgeSink(Arc::downgrade(self)))
-    }
-
-    /// Watches the discovery folder on `watcher`, then reads the four files once (the cold read
-    /// of the watched copy: watch first, so a change after the read is never missed).
-    pub async fn start(self: &Arc<Self>, watcher: Arc<FolderWatcher>) {
-        *self.watching() = Some(Watching { watcher, at: None });
-        self.attach();
-        for id in FEATURES {
-            let loaded = Self::read(self.io, self.dir.join(format!("{id}-bridge.json"))).await;
-            self.apply(id, loaded);
-        }
-    }
-
-    fn watching(&self) -> std::sync::MutexGuard<'_, Option<Watching>> {
-        self.watching.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Points the watch at the discovery folder or, while that cannot be watched (it does not
-    /// exist yet), the nearest ancestor that can: an event there names the folder, and the next
-    /// re-read tries the folder again.
-    fn attach(&self) {
-        let mut watching = self.watching();
-        let Some(held) = watching.as_mut() else { return };
-        if held.at.as_deref() == Some(self.dir.as_path()) {
-            return;
-        }
-        held.watcher.unwatch(WATCH_ID);
-        held.at = std::iter::successors(Some(self.dir.as_path()), |dir| dir.parent())
-            .find(|dir| held.watcher.watch(WATCH_ID, dir, false).is_ok())
-            .map(Path::to_path_buf);
-    }
-
-    /// The watch delivered a batch. On the folder itself only the files named are re-read; on an
-    /// ancestor, or after lost events, every file is.
-    fn heard(self: &Arc<Self>, paths: &[String]) {
-        let on_folder = self.watching().as_ref().is_some_and(|held| held.at.as_deref() == Some(self.dir.as_path()));
-        let named = |id: &str| {
-            let file = format!("{id}-bridge.json");
-            paths.iter().any(|path| Path::new(path).file_name().is_some_and(|name| *name == *file))
-        };
-        for id in FEATURES {
-            if !on_folder || paths.is_empty() || named(id) {
-                self.schedule(id);
-            }
-        }
-    }
-
-    /// `scheduleReread`: one re-read per debounce window.
-    fn schedule(self: &Arc<Self>, id: &'static str) {
-        {
-            let mut slots = self.slots();
-            let Some(slot) = slots.get_mut(id) else { return };
-            if slot.timer {
-                return;
-            }
-            slot.timer = true;
-        }
-        let files = Arc::clone(self);
-        mixdog_rt::spawn("bridge-discovery", TaskClass::Work, async move {
-            mixdog_rt::time::sleep(RELOAD_DEBOUNCE).await;
-            files.reread(id).await;
-        });
-    }
-
-    /// The re-read of a file after its debounce: an event during a read reads again.
-    async fn reread(self: &Arc<Self>, id: &'static str) {
-        self.attach();
-        loop {
-            {
-                let mut slots = self.slots();
-                let Some(slot) = slots.get_mut(id) else { return };
-                slot.timer = false;
-                if slot.loading {
-                    slot.again = true;
-                    return;
-                }
-                slot.loading = true;
-            }
-            let loaded = Self::read(self.io, self.dir.join(format!("{id}-bridge.json"))).await;
-            let again = self.apply(id, loaded);
-            if !again {
-                return;
-            }
-            if let Some(slot) = self.slots().get_mut(id) {
-                slot.timer = true;
-            }
-            mixdog_rt::time::sleep(RELOAD_DEBOUNCE).await;
-        }
-    }
-
-    /// Takes a read's result: a failed read keeps what the entry had. Answers whether an event
-    /// arrived while it ran.
-    fn apply(&self, id: &'static str, loaded: Loaded) -> bool {
-        let mut slots = self.slots();
-        let Some(slot) = slots.get_mut(id) else { return false };
-        match loaded {
-            Loaded::Advert(advert) => {
-                slot.advert = advert;
-                slot.failed = false;
-            }
-            Loaded::Failed => {
-                slot.failed = true;
-                tracing::warn!(feature = id, "the bridge discovery file could not be read");
-            }
-        }
-        slot.loading = false;
-        let again = std::mem::take(&mut slot.again);
-        drop(slots);
-        self.applied.send_modify(|reads| *reads += 1);
-        again
-    }
-
-    async fn read(io: MaintenanceIo, path: PathBuf) -> Loaded {
-        match io.submit(&CancellationToken::new(), move |lane| load(lane, &path)) {
-            Ok(job) => job.await.unwrap_or(Loaded::Failed),
-            Err(_) => Loaded::Failed,
-        }
-    }
-
-    fn slots(&self) -> std::sync::MutexGuard<'_, HashMap<&'static str, Slot>> {
-        self.slots.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// `discoveryDetail(..).discovery !== null` of the copy.
-    fn up(&self, copy: &Advert) -> bool {
-        let Advert::Read { mtime_ms, parsed } = copy else { return false };
-        if (self.now_ms)() - mtime_ms >= MAX_AGE_MS {
-            return false;
-        }
-        let port = number(parsed, "port");
-        let token = field(parsed, "token").filter(|value| truthy(value)).map(value_to_string).unwrap_or_default();
-        if number(parsed, "version") != 1.0 || !is_integer(port) || port <= 0.0 || port > 65_535.0 || token.is_empty() {
-            return false;
-        }
-        let pid = field(parsed, "pid").filter(|value| truthy(value)).map_or(0.0, to_number);
-        process_alive(pid)
-    }
-
-    /// `demandReread`: an entry whose last load failed, or whose folder could not be watched at
-    /// all, may be behind the file; a read of it answers what it holds and schedules one re-read.
-    fn demand(self: &Arc<Self>, id: &'static str) {
-        let blind = self.watching().as_ref().is_none_or(|held| held.at.is_none());
-        let due = self.slots().get(id).is_some_and(|slot| (slot.failed || blind) && !slot.loading && !slot.timer);
-        if due {
-            self.schedule(id);
-        }
-    }
-}
-#[async_trait]
-impl McpSurface for DaemonMcpSurface {
-    /// `rt.currentCwd`: the thread's own folder, else the explicit session folder, else the
-    /// process's.
-    async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String> {
-        let scoped = match thread {
-            // `Ok(None)`: no such thread; an `Err` read never ran and says nothing about it.
-            Some(id) => self
-                .headers
-                .header(&id.into())
-                .await
-                .map_err(|error| error.to_string())?
-                .and_then(|header| header.get("cwd").and_then(Value::as_str).map(str::to_owned)),
-            None => None,
-        };
-        // A read that did not run (lane full or wedged) is the caller's error, not "no saved cwd".
-        match self.cwd.explicit_cwd(scoped.as_deref()).await.map_err(|error| error.to_string())? {
-            Some(dir) => Ok(PathBuf::from(dir)),
-            None => std::env::current_dir().map_err(|error| error.to_string()),
-        }
-    }
-
-    /// `session.mcpScopeId`: what the thread's stored header names, which a spawned child takes from
-    /// the session that spawned it (`spawn-plan.mjs:108`) and a session from its own seed.
-    async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
-        let header = self.headers.header(&thread.into()).await.map_err(|error| error.to_string())?;
-        Ok(header
-            .and_then(|header| header.get("mcpScopeId").and_then(Value::as_str).map(|scope| mixdog_js::js_trim(scope).to_owned()))
-            .filter(|scope| !scope.is_empty()))
-    }
-
-    /// `invalidatePreSessionToolSurface()`: the core builds a session's tool surface from its
-    /// sources on every call and keeps no copy before the session exists, so there is nothing to
-    /// drop (the same ruling as `DaemonFeatureEffects::invalidate_pre_session_tool_surface`); the
-    /// surface generation moves, as Node's does.
-    async fn refresh_surface(&self) {
-        self.generation.bump();
-    }
-
-    /// `getTools().map(t => t.name)`: the live surface's tool names (`StatusSurface::listed`: eager
-    /// tools, deferred catalog, late deferred catalog; each once).
-    async fn tool_names(&self) -> Result<Vec<String>, String> {
-        self.surface.surface(None).await.map(|surface| surface.listed).map_err(|error| error.to_string())
-    }
-
-    fn open_browser(&self, url: &str) {
-        self.opener.open(url);
-    }
-
-    fn announce_plugins(&self) {
-        (self.announce)();
-    }
-
-    async fn flush_skills_save(&self) {
-        self.extensions.flush_skills_save().await;
     }
 }

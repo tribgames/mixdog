@@ -491,7 +491,7 @@ static SETTLED_HOOKS: std::sync::Mutex<Vec<(String, Arc<tokio::sync::Notify>)>> 
 /// when it has none.
 enum HistoryRow {
     Stored(Arc<serde_json::Map<String, Value>>),
-    Message(AgentMessage),
+    Message(Box<AgentMessage>),
 }
 
 impl HistoryRow {
@@ -499,7 +499,7 @@ impl HistoryRow {
     fn message(&self) -> AgentMessage {
         match self {
             HistoryRow::Stored(stored) => mixdog_agent::message_row::message_of_stored(stored).expect("a row the turn read once reads again"),
-            HistoryRow::Message(message) => message.clone(),
+            HistoryRow::Message(message) => (**message).clone(),
         }
     }
 }
@@ -6380,10 +6380,10 @@ impl PortSink {
         live: LiveTurnPublisher,
         state: SinkState,
         services: SinkServices,
-        on_tool_result: Option<Arc<ToolResultCallback>>,
+        outputs: (Option<Arc<ToolResultCallback>>, mpsc::UnboundedSender<Shown>),
         initial: (Option<TurnStamp>, AppliedSkills),
-        shown: mpsc::UnboundedSender<Shown>,
     ) -> Arc<Self> {
+        let (on_tool_result, shown) = outputs;
         let (streaming, observed) = state;
         let (clock, blobs) = services;
         let (stamp, applied) = initial;
@@ -7481,7 +7481,7 @@ impl TranscriptSink for PortSink {
         // A reply that ends the turn is its own text (Node's final row is `content`): the updates shown ahead of a tool call
         // stay with that call's row, the ones ahead of the answer go as the answer lands.
         if message.message.tool_calls.is_empty() {
-            named.remove("shownText");
+            named.shift_remove("shownText");
         }
         let mut row = row;
         with_shown(&mut row, named);
@@ -7806,7 +7806,7 @@ async fn drive(
     let observed = Arc::new(Mutex::new(Observed::default()));
     let applied = AppliedSkills { parts: parts.clone(), thread: thread.clone(), input: (input.message_id.clone(), input_item.clone()) };
     let (shown_tx, shown_rx) = mpsc::unbounded_channel::<Shown>();
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), (streaming.clone(), observed.clone()), (clock.clone(), blobs), on_tool_result, (stamp, applied), shown_tx.clone());
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), (streaming.clone(), observed.clone()), (clock.clone(), blobs), (on_tool_result, shown_tx.clone()), (stamp, applied));
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with: each
@@ -7830,7 +7830,7 @@ async fn drive(
         }
         let row = match &message.stored {
             Some(stored) => HistoryRow::Stored(stored.clone()),
-            None => HistoryRow::Message(message.clone()),
+            None => HistoryRow::Message(Box::new(message.clone())),
         };
         history.push((iid, row));
         rows.record_stored(&message);

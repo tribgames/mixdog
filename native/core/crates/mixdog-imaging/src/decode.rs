@@ -186,7 +186,7 @@ impl Raster {
             return self.data.clone();
         }
         let mut rgba = Vec::with_capacity(self.data.len() / 3 * 4);
-        for pixel in self.data.chunks_exact(3) {
+        for pixel in self.data.as_chunks::<3>().0.iter() {
             rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
         }
         rgba
@@ -346,7 +346,7 @@ pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) ->
     // the rasterizer's premultiplied pixels back to straight alpha (tiny-skia's own demultiply rounds).
     let data = pixmap.pixels().iter().flat_map(|pixel| {
         let alpha = u32::from(pixel.alpha());
-        let straight = |channel: u8| if alpha == 0 { 0 } else { (u32::from(channel) * 255 / alpha).min(255) as u8 };
+        let straight = |channel: u8| (u32::from(channel) * 255).checked_div(alpha).map_or(0, |straight| straight.min(255) as u8);
         [straight(pixel.red()), straight(pixel.green()), straight(pixel.blue()), pixel.alpha()]
     }).collect();
     let raster = Raster { width, height, has_alpha: true, data };
@@ -393,7 +393,7 @@ fn decode_tiff(bytes: &[u8], pixel_limit: u64, budget: u64) -> Result<Decoded, I
         return Err(corrupt(Format::Tiff, Stage::Data));
     }
     let mut data = Vec::with_capacity(samples.len());
-    for pixel in samples.chunks_exact(3) {
+    for pixel in samples.as_chunks::<3>().0.iter() {
         data.extend_from_slice(&ycbcr_to_rgb(pixel[0], pixel[1], pixel[2]));
     }
     let mut raster = Raster { width, height, has_alpha: false, data };
@@ -490,11 +490,11 @@ fn raster_of(color: ColorType, data: Vec<u8>, width: u32, height: u32) -> Result
         ColorType::Rgb8 => (false, data),
         ColorType::Rgba8 => (true, data),
         ColorType::L8 => (false, data.iter().flat_map(|&v| [v, v, v]).collect()),
-        ColorType::La8 => (true, data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()),
-        ColorType::L16 => (false, data.chunks_exact(2).flat_map(|p| [high(p); 3]).collect()),
-        ColorType::La16 => (true, data.chunks_exact(4).flat_map(|p| [high(&p[..2]), high(&p[..2]), high(&p[..2]), high(&p[2..])]).collect()),
-        ColorType::Rgb16 => (false, data.chunks_exact(2).map(high).collect()),
-        ColorType::Rgba16 => (true, data.chunks_exact(2).map(high).collect()),
+        ColorType::La8 => (true, data.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()),
+        ColorType::L16 => (false, data.as_chunks::<2>().0.iter().flat_map(|p| [high(p); 3]).collect()),
+        ColorType::La16 => (true, data.as_chunks::<4>().0.iter().flat_map(|p| [high(&p[..2]), high(&p[..2]), high(&p[..2]), high(&p[2..])]).collect()),
+        ColorType::Rgb16 => (false, data.as_chunks::<2>().0.iter().map(|p| high(p)).collect()),
+        ColorType::Rgba16 => (true, data.as_chunks::<2>().0.iter().map(|p| high(p)).collect()),
         _ => return Err(ImagingError::invalid(UNSUPPORTED_FORMAT)),
     };
     let raster = Raster { width, height, has_alpha, data };
@@ -600,11 +600,7 @@ fn has_bogus_marker_length(bytes: &[u8]) -> bool {
                         let Some(&components) = bytes.get(at + 4) else { return false };
                         return saw_sof && (length != 6 + 2 * usize::from(components) || !(1..=4).contains(&components));
                     }
-                    0xDD => {
-                        if length != 4 {
-                            return true;
-                        }
-                    }
+                    0xDD if length != 4 => return true,
                     _ => {}
                 }
                 at += 4 + length.saturating_sub(2);

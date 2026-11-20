@@ -639,7 +639,7 @@ fn stamp_of(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
 }
 
 /// Open a source within the selected root; refuse raced links and check the actual open handle.
-fn open_source(root: &Path, rel: &Path) -> Option<(std::fs::File, PathBuf)> {
+fn open_source(root: &Path, rel: &Path) -> Option<(mixdog_fsio::File, PathBuf)> {
     use mixdog_workspace::pathguard::canonical;
     use mixdog_workspace::ident::names_equal;
     let mut path = canonical(root).ok()?;
@@ -653,25 +653,24 @@ fn open_source(root: &Path, rel: &Path) -> Option<(std::fs::File, PathBuf)> {
     if !names_equal(canonical(&path).ok()?.as_os_str(), path.as_os_str()) || !std::fs::symlink_metadata(&path).ok()?.is_file() {
         return None;
     }
-    let mut options = std::fs::OpenOptions::new();
+    let mut options = mixdog_fsio::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::OpenOptionsExt as _;
         use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let file = options.open(&path).ok()?;
-    (file.metadata().ok()?.is_file() && source_here(&file, &path)).then_some((file, path))
+    let file = options.open(&mixdog_fsio::Unlaned, &path).ok()?;
+    (file.metadata(&mixdog_fsio::Unlaned).ok()?.is_file() && source_here(&file, &path)).then_some((file, path))
 }
 
-fn source_here(file: &std::fs::File, path: &Path) -> bool {
+fn source_here(file: &mixdog_fsio::File, path: &Path) -> bool {
     use mixdog_workspace::ident::{handle_path, is_current_regular_leaf, names_equal};
+    let file = file.as_std();
     handle_path(file).is_ok_and(|p| names_equal(p.as_os_str(), path.as_os_str()))
         && mixdog_workspace::pathguard::canonical(path).is_ok_and(|p| names_equal(p.as_os_str(), path.as_os_str()))
         && is_current_regular_leaf(file, path)
@@ -716,8 +715,8 @@ impl Node {
         bytes.clear();
         let mut read = || -> Option<bool> {
             let (file, path) = open_source(&self.origin.root, Path::new(&self.rel))?;
-            (&file).take(MAX_FILE_BYTES as u64 + 1).read_to_end(bytes).ok()?;
-            Some(bytes.len() as u64 <= MAX_FILE_BYTES as u64
+            (&file).take(MAX_FILE_BYTES + 1).read_to_end(bytes).ok()?;
+            Some(bytes.len() as u64 <= MAX_FILE_BYTES
                 && source_here(&file, &path)
                 && digest_of(bytes) == self.digest && (!for_body || !forced_mismatch()))
         };
@@ -1000,12 +999,12 @@ impl Graph {
         graph.signature = inventory_signature(entries);
         graph.receipts = receipts;
         if let Some(cache) = cache {
-            let carried_lookups = base.and_then(|b| cache.carry_lookups(&key, b.signature, graph.signature));
+            let carried_lookups = base.and_then(|b| cache.carry_lookups(key, b.signature, graph.signature));
             let lookups = match carried_lookups {
                 Some(lookups) => lookups,
                 None => {
-                    let measured = || (graph.base_bytes(&key, unchanged), graph.token_index_bytes());
-                    let lookups = cache.lookups_for(&key, graph.signature, measured);
+                    let measured = || (graph.base_bytes(key, unchanged), graph.token_index_bytes());
+                    let lookups = cache.lookups_for(key, graph.signature, measured);
                     // The query starts: it awaits the graph's token index (symbol-index.mjs `_ensureTokenIndex`), which a
                     // prune from here on counts.
                     lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).queried = true;
@@ -1256,17 +1255,17 @@ fn indexed_files(root: &Path, key: &str, excluded: &[PathBuf]) -> Result<Vec<Ent
 /// a mixture and are discarded.
 fn read_observed(root: &Path, rel: &Path) -> Option<(Vec<u8>, (u64, u64))> {
     let (file, path) = open_source(root, rel)?;
-    let before = stamp_of(&file.metadata().ok()?)?;
+    let before = stamp_of(&file.metadata(&mixdog_fsio::Unlaned).ok()?)?;
     let mut bytes = Vec::new();
-    (&file).take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes).ok()?;
+    (&file).take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
     #[cfg(test)]
     AFTER_READ.with(|hook| {
         if let Some(hook) = hook.borrow_mut().as_mut() {
             hook();
         }
     });
-    let after = stamp_of(&file.metadata().ok()?)?;
-    (before == after && before.0 == bytes.len() as u64 && before.0 <= MAX_FILE_BYTES as u64
+    let after = stamp_of(&file.metadata(&mixdog_fsio::Unlaned).ok()?)?;
+    (before == after && before.0 == bytes.len() as u64 && before.0 <= MAX_FILE_BYTES
         && source_here(&file, &path)).then_some((bytes, before))
 }
 /// Parses one file and drops its text: only what the graph keeps survives. `None`: the file could not be verified.

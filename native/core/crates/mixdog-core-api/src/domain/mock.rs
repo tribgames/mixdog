@@ -774,7 +774,7 @@ impl Tool for FailingMcpTool {
             ToolErrorCode::McpError {
                 server: "mock".into(),
                 rpc_code: None,
-                data: Some(args),
+                data: Some(Box::new(args)),
             },
             "Error: the server reported a failure",
         ))

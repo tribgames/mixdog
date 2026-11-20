@@ -8,13 +8,16 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_rt::{Liveness, MaintenanceIo, TaskClass};
 use serde_json::{Value, json};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::McpServerConfig;
 use crate::connector_accounts::{AccountHealth, AccountReport, AccountSeed, ConnectorAccounts};
 use crate::server::{McpServer, ServerState};
 use crate::transport::{CloseCause, Incoming, IncomingRx, IncomingTx, Transport, TransportError};
+
+/// The most requests that run at once on one connector; the permits of its running gate.
+const MAX_IN_FLIGHT: u32 = 1 << 16;
 
 pub struct AccountRuntime {
     pub health: Arc<AccountHealth>,
@@ -83,7 +86,8 @@ struct AccountTransport {
     tx: IncomingTx,
     cancel: CancellationToken,
     inflight: Arc<Mutex<HashMap<String, CancellationToken>>>,
-    running: Arc<RwLock<()>>,
+    /// A request holds one permit while it runs; closing takes them all, so it waits for every request in flight.
+    running: Arc<Semaphore>,
 }
 
 impl Drop for AccountTransport {
@@ -107,7 +111,7 @@ impl Transport for AccountTransport {
         let cancel = self.cancel.child_token();
         self.inflight.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel.clone());
         let (group, tx, inflight) = (self.group.clone(), self.tx.clone(), self.inflight.clone());
-        let running = self.running.clone().read_owned().await;
+        let running = self.running.clone().acquire_owned().await.expect("the running gate is never closed");
         mixdog_rt::spawn("mcp.connector.request", TaskClass::Work, async move {
             let work = async {
                 let result = match message["method"].as_str().unwrap_or_default() {
@@ -137,7 +141,7 @@ impl Transport for AccountTransport {
 
     async fn close(&self) {
         self.cancel.cancel();
-        let _running = self.running.write().await;
+        let _running = self.running.acquire_many(MAX_IN_FLIGHT).await.expect("the running gate is never closed");
         let _ = self.tx.send(Incoming::Closed(CloseCause { reason: "connector closed".into(), stderr_tail: String::new() }));
     }
 }
@@ -203,7 +207,7 @@ impl AccountGroup {
         }
         (Arc::new(AccountTransport {
             group: self.clone(), tx, cancel,
-            inflight: Arc::new(Mutex::new(HashMap::new())), running: Arc::new(RwLock::new(())),
+            inflight: Arc::new(Mutex::new(HashMap::new())), running: Arc::new(Semaphore::new(MAX_IN_FLIGHT as usize)),
         }), rx)
     }
 

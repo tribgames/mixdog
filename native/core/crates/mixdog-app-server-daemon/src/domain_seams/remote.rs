@@ -325,8 +325,93 @@ pub async fn start_remote(remote: &BuiltRemote, publisher: Arc<dyn StatePublishe
     }
 }
 
-#[cfg(test)]
-mod e2e;
+/// `os.hostname()`.
+#[cfg(windows)]
+fn host_name() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default()
+}
+/// §F steps 1 and 2. `Err` is the relay URL's sentence (`MIXDOG_RELAY_URL is invalid`, …).
+pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
+    let relay_url = resolve_relay_url(inputs.relay_env.as_deref())?;
+    let registry = Arc::new(DeviceRegistry::default());
+    let events = Arc::new(SectionEvents::new());
+    let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
+    let settings = Arc::new(
+        AccessSettings::new(inputs.dir.clone(), Arc::new(host_name))
+            .with_migrated_activation(inputs.migrated_activation),
+    );
+    let runtime = RemoteRuntime::new(
+        RuntimeConfig {
+            dir: inputs.dir,
+            relay_url,
+            app_version: Some(inputs.app_version),
+            durability: inputs.durability,
+            dialer: inputs.dialer,
+            registry: registry.clone(),
+            section,
+            settings,
+            link: LegLink::default(),
+            events: events.clone(),
+        },
+        Box::new(|wiring: PairWiring| {
+            Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))
+        }),
+    );
+    Ok(BuiltRemote { runtime: Arc::new(runtime), registry, events })
+}
+/// The services that hold a paired device's state, as `remote-relay.ts` `revokeClient` reaches them: the one-file grants, the
+/// transfers of the device's connections and its notification preferences.
+/// The live view once it is composed; empty until then.
+pub type LiveViewCell = Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>>;
+
+pub struct PairedDeviceCleanup {
+    pub grants: Arc<mixdog_workspace::grants::GrantStore>,
+    pub registry: Arc<DeviceRegistry>,
+    /// Ends the transfers a connection (named by its id) owns.
+    pub end_transfers: Arc<dyn Fn(&str) + Send + Sync>,
+    /// Ends every phone download (the relay closed).
+    pub end_downloads: Arc<dyn Fn() + Send + Sync>,
+    pub config: mixdog_core_config::config::Config,
+    /// The live view, once built (it is composed after this cleanup is bound): an unpair ends the device's browser streams, the
+    /// relay's close every phone's.
+    pub live_view: LiveViewCell,
+}
+impl PairedDeviceCleanup {
+    fn live_view(&self) -> Option<Arc<crate::live_view::LiveViewService>> {
+        self.live_view.get().and_then(std::sync::Weak::upgrade)
+    }
+}
+impl DeviceCleanup for PairedDeviceCleanup {
+    fn unpaired(&self, credential_id: &str) {
+        self.grants.revoke_device(credential_id);
+        let live_view = self.live_view();
+        for connection in self.registry.connections_of(credential_id) {
+            (self.end_transfers)(&connection.to_string());
+            if let Some(live_view) = &live_view {
+                live_view.unpaired(ConnectionId(connection));
+            }
+        }
+    }
+
+    fn relay_closed(&self) {
+        (self.end_downloads)();
+        self.grants.relay_closed();
+        if let Some(live_view) = self.live_view() {
+            live_view.relay_closed();
+        }
+    }
+
+    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
+            let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
+            if credential_id == "pc" || devices.shift_remove(credential_id).is_none() {
+                return;
+            }
+            let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
+        })
+    }
+}
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
@@ -378,7 +463,9 @@ mod tests {
         const DEFAULT: &str = "wss://192-255-139-161.sslip.io/";
         const SCHEME: &str = "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development.";
         const CREDENTIALS: &str = "MIXDOG_RELAY_URL must not contain credentials.";
-        let cases: [(Option<&str>, Result<Option<&str>, &str>); 17] = [
+        // What a relay URL setting resolves to: the URL, none, or the refusal's words.
+        type RelayUrlOutcome<'a> = Result<Option<&'a str>, &'a str>;
+        let cases: [(Option<&str>, RelayUrlOutcome); 17] = [
             (None, Ok(Some(DEFAULT))),
             (Some(""), Ok(Some(DEFAULT))),
             (Some("   "), Ok(Some(DEFAULT))),
@@ -606,88 +693,5 @@ mod tests {
     }
 }
 
-
-/// `os.hostname()`.
-#[cfg(windows)]
-fn host_name() -> String {
-    std::env::var("COMPUTERNAME").unwrap_or_default()
-}
-/// §F steps 1 and 2. `Err` is the relay URL's sentence (`MIXDOG_RELAY_URL is invalid`, …).
-pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
-    let relay_url = resolve_relay_url(inputs.relay_env.as_deref())?;
-    let registry = Arc::new(DeviceRegistry::default());
-    let events = Arc::new(SectionEvents::new());
-    let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
-    let settings = Arc::new(
-        AccessSettings::new(inputs.dir.clone(), Arc::new(host_name))
-            .with_migrated_activation(inputs.migrated_activation),
-    );
-    let runtime = RemoteRuntime::new(
-        RuntimeConfig {
-            dir: inputs.dir,
-            relay_url,
-            app_version: Some(inputs.app_version),
-            durability: inputs.durability,
-            dialer: inputs.dialer,
-            registry: registry.clone(),
-            section,
-            settings,
-            link: LegLink::default(),
-            events: events.clone(),
-        },
-        Box::new(|wiring: PairWiring| {
-            Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))
-        }),
-    );
-    Ok(BuiltRemote { runtime: Arc::new(runtime), registry, events })
-}
-/// The services that hold a paired device's state, as `remote-relay.ts` `revokeClient` reaches them: the one-file grants, the
-/// transfers of the device's connections and its notification preferences.
-pub struct PairedDeviceCleanup {
-    pub grants: Arc<mixdog_workspace::grants::GrantStore>,
-    pub registry: Arc<DeviceRegistry>,
-    /// Ends the transfers a connection (named by its id) owns.
-    pub end_transfers: Arc<dyn Fn(&str) + Send + Sync>,
-    /// Ends every phone download (the relay closed).
-    pub end_downloads: Arc<dyn Fn() + Send + Sync>,
-    pub config: mixdog_core_config::config::Config,
-    /// The live view, once built (it is composed after this cleanup is bound): an unpair ends the device's browser streams, the
-    /// relay's close every phone's.
-    pub live_view: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>>,
-}
-impl PairedDeviceCleanup {
-    fn live_view(&self) -> Option<Arc<crate::live_view::LiveViewService>> {
-        self.live_view.get().and_then(std::sync::Weak::upgrade)
-    }
-}
-impl DeviceCleanup for PairedDeviceCleanup {
-    fn unpaired(&self, credential_id: &str) {
-        self.grants.revoke_device(credential_id);
-        let live_view = self.live_view();
-        for connection in self.registry.connections_of(credential_id) {
-            (self.end_transfers)(&connection.to_string());
-            if let Some(live_view) = &live_view {
-                live_view.unpaired(ConnectionId(connection));
-            }
-        }
-    }
-
-    fn relay_closed(&self) {
-        (self.end_downloads)();
-        self.grants.relay_closed();
-        if let Some(live_view) = self.live_view() {
-            live_view.relay_closed();
-        }
-    }
-
-    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
-            let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
-            if credential_id == "pc" || devices.shift_remove(credential_id).is_none() {
-                return;
-            }
-            let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
-        })
-    }
-}
+#[cfg(test)]
+mod e2e;

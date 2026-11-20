@@ -1822,9 +1822,28 @@ pub struct ConnectionInfo {
     pub id: u64,
     pub protocol: &'static str,
 }
-/// Classified once at the adapter boundary; downstream reads fields only.
+/// Classified once at the adapter boundary; downstream reads fields only. The record sits behind one box, so a `Result<_, ProviderError>`
+/// is a pointer wide; its fields are read and written through `Deref` as if they were the error's own.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ProviderError {
+pub struct ProviderError(Box<ProviderErrorFields>);
+
+impl std::ops::Deref for ProviderError {
+    type Target = ProviderErrorFields;
+
+    fn deref(&self) -> &ProviderErrorFields {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for ProviderError {
+    fn deref_mut(&mut self) -> &mut ProviderErrorFields {
+        &mut self.0
+    }
+}
+
+/// The fields of a [`ProviderError`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ProviderErrorFields {
     pub kind: ErrorKind,
     /// Provider code verbatim (`CODE_KINDS` vocabulary).
     pub code: Option<String>,
@@ -1952,7 +1971,7 @@ impl ProviderError {
     }
 
     pub fn new(kind: ErrorKind, delivery: DeliveryState) -> Self {
-        Self {
+        Self(Box::new(ProviderErrorFields {
             kind,
             code: None,
             status: None,
@@ -1987,7 +2006,12 @@ impl ProviderError {
             tail_refusal: None,
             image_refusal: None,
             fallback_model: None,
-        }
+        }))
+    }
+
+    /// The message, moved out of the error.
+    pub fn into_message(self) -> String {
+        self.0.message
     }
 
     pub fn transport(fault: TransportFault, delivery: DeliveryState) -> Self {

@@ -70,6 +70,8 @@ fn output_meta(output: Option<&ToolOutput>, key: &str) -> Option<serde_json::Val
 }
 
 pub(crate) type EditGroup = Arc<Mutex<(u32, u32)>>;
+/// The result-reuse writes, the outputs and the reuse kinds of a batch's calls, each by call index.
+type CacheRefs<'a> = (&'a mut [Option<Box<dyn ReuseWrite>>], &'a [Option<ToolOutput>], &'a [Option<ReuseKind>]);
 
 /// A streamed edit's group retry (`retryAmbiguousEdit`) and its place at the file lock. Node's retry reaches the lock once the
 /// batch is at the call (every call before it collected) and the streamed run has settled as ambiguous, whichever comes later:
@@ -886,7 +888,7 @@ impl Run {
         executed: &[bool],
         tool_ms: &[i64],
         intervals: &mut [Vec<(i64, i64)>],
-        cache: (&mut [Option<Box<dyn ReuseWrite>>], &[Option<ToolOutput>], &[Option<ReuseKind>]),
+        cache: CacheRefs<'_>,
     ) {
         let (writes, outputs, hits) = cache;
         let indices: Vec<usize> = (0..calls.len())

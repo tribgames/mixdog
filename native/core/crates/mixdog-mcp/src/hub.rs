@@ -624,7 +624,7 @@ impl McpHub {
     /// boundary built from this judges its definitions and its withdrawals against the same state.
     pub fn read_for_cwd(&self, scope: &str, scopes: &ExtensionScopes, cwd: &Path) -> (Vec<Arc<dyn Tool>>, Published) {
         let scope = normalize_scope(Some(scope));
-        let (mut tools, mut published): (Vec<Arc<dyn Tool>>, Vec<(String, Vec<String>)>) = (Vec::new(), Vec::new());
+        let (mut tools, mut published): (Vec<Arc<dyn Tool>>, PublishedNames) = (Vec::new(), Vec::new());
         for (key, servers) in self.servers.load().iter() {
             for server in servers {
                 let Some(catalog) = server.catalog() else { continue };
@@ -841,7 +841,10 @@ impl McpHub {
 /// What the servers had published at one reading of the hub ([`McpHub::published`]): each server's configured name and its
 /// catalog's qualified names; a server with no catalog (down, connecting) is not in it.
 #[derive(Clone, Debug, Default)]
-pub struct Published(Vec<(String, Vec<String>)>, Accounts);
+pub struct Published(PublishedNames, Accounts);
+
+/// Each configured server's name with the names of the tools it published.
+type PublishedNames = Vec<(String, Vec<String>)>;
 
 /// The connector accounts no server publishes under, each with its tool-name prefixes, and the prefixes real servers own.
 #[derive(Clone, Debug, Default)]

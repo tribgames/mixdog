@@ -98,7 +98,7 @@ async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, opt
         }
     }
     let mut error = media("Gemini Omni returned no video data".to_owned(), "MEDIA_EMPTY_RESULT", 502);
-    error.usage = reported_usage(usage);
+    error.usage = reported_usage(usage).map(Box::new);
     Err(error)
 }
 
@@ -210,7 +210,7 @@ async fn via_veo(
         return match downloaded {
             Ok(bytes) => Ok(GeminiVideo { bytes, mime: "video/mp4".to_owned(), usage: Some(usage) }),
             Err(mut error) => {
-                error.usage = reported_usage(Some(usage));
+                error.usage = reported_usage(Some(usage)).map(Box::new);
                 Err(error)
             }
         };

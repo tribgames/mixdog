@@ -486,7 +486,7 @@ pub(super) fn with_hidden_favorites(mut setup: Value, config: &Value) -> Value {
             else {
                 continue;
             };
-            let starred = |id: &str| settings.get(&format!("{provider}/{id}")).and_then(|saved| saved.get("favorite")) == Some(&Value::Bool(true));
+            let starred = |id: &str| settings.get(format!("{provider}/{id}")).and_then(|saved| saved.get("favorite")) == Some(&Value::Bool(true));
             let mut ids = Vec::new();
             for model in row.get("models").and_then(Value::as_array).into_iter().flatten() {
                 if let Some(id) = model.get("id").and_then(Value::as_str)

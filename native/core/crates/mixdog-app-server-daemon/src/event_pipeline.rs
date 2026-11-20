@@ -269,7 +269,7 @@ pub struct EventPipeline {
     rules: Mutex<Vec<Rule>>,
     config: Mutex<Value>,
     seq: AtomicU64,
-    publishing: tokio::sync::Mutex<()>,
+    publishing: tokio::sync::Semaphore,
     processing: AtomicBool,
     fail_counts: Mutex<HashMap<String, u64>>,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
@@ -288,7 +288,7 @@ impl EventPipeline {
             rules: Mutex::new(webhook_rules(config)),
             config: Mutex::new(config.get("queue").cloned().unwrap_or(Value::Null)),
             seq: AtomicU64::new(0),
-            publishing: tokio::sync::Mutex::new(()),
+            publishing: tokio::sync::Semaphore::new(1),
             processing: AtomicBool::new(false),
             fail_counts: Mutex::new(HashMap::new()),
             now_ms,
@@ -363,7 +363,7 @@ impl EventPipeline {
     /// The reservation survives both a lost write acknowledgement and a lost HTTP response.
     /// Check it before the current rule, which could have changed since the first attempt.
     async fn enqueue(&self, name: &str, id: &str, body: &Value, headers: &Headers) -> Result<bool, String> {
-        let publishing = self.publishing.lock().await;
+        let publishing = self.publishing.acquire().await.expect("the publishing gate is never closed");
         let reserved = self.deliveries.rule_file(name, id).await?;
         if let Some((file, accepted)) = &reserved {
             if *accepted {
@@ -428,7 +428,7 @@ impl EventPipeline {
     async fn read_item(&self, file: &str) -> Option<Item> {
         // Serialize the read and receipt with publication. A file cannot leave the
         // queue until the receipt prevents a retry from publishing it again.
-        let _publishing = self.publishing.lock().await;
+        let _publishing = self.publishing.acquire().await.expect("the publishing gate is never closed");
         let bytes = match self.read_file(self.dir("queue").join(file)).await {
             Ok(Some(bytes)) => bytes,
             Ok(None) => return None,

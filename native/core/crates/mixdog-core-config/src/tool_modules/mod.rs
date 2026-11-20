@@ -137,7 +137,7 @@ pub struct ToolModules {
     publisher: Arc<dyn StatePublisher>,
     env: FeatureEnv,
     /// Orders the persisted setting and registry effects with a runtime commit.
-    local_provider_write: tokio::sync::Mutex<()>,
+    local_provider_write: tokio::sync::Semaphore,
     local_provider_off: AtomicU64,
     /// Asks the publishing task to recompute; it answers the value.
     refreshes: mpsc::UnboundedSender<oneshot::Sender<Value>>,
@@ -171,7 +171,7 @@ impl ToolModules {
             host,
             publisher,
             env,
-            local_provider_write: tokio::sync::Mutex::default(),
+            local_provider_write: tokio::sync::Semaphore::new(1),
             local_provider_off: AtomicU64::default(),
             refreshes,
         });
@@ -329,7 +329,7 @@ impl ToolModules {
                 self.host.prepare_local_provider(epoch).await.map_err(ToolModulesError::Failed)?;
                 self.activate_local_provider(epoch).await?;
             } else {
-                let _write = self.local_provider_write.lock().await;
+                let _write = self.local_provider_write.acquire().await.expect("the write gate is never closed");
                 self.write(|doc| {
                     edit::set_module_enabled(doc, "localProvider", false);
                     edit::set_local_provider_enabled(doc, false);
@@ -363,7 +363,7 @@ impl ToolModules {
     }
 
     async fn activate_local_provider(&self, epoch: u64) -> Result<(), ToolModulesError> {
-        let _write = self.local_provider_write.lock().await;
+        let _write = self.local_provider_write.acquire().await.expect("the write gate is never closed");
         let enable = self.local_provider_off.load(Ordering::SeqCst) == epoch;
         let agent = self.config.agent();
         let installed = value::builtin_installed(&agent, "localProvider");

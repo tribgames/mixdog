@@ -144,6 +144,102 @@ impl Composed {
     }
 }
 
+/// Applies `desktop.computerControl` where the setting is adopted, inside the write that changes it and before that write is
+/// acknowledged (`Config::on_adoption`): off revokes every session's scope and closes the making of new ones at once, then the revoked
+/// sessions are stopped (their helpers and the desktop acknowledge, or exit) on the runtime; on again lets new scopes be made. Node's
+/// setting stopped the bridge and retired the workers (`index.ts` `applyComputerControlSetting`). The hook lasts until `cancel`. Where
+/// the helper is, and whether a desktop serves, are read when asked, not followed.
+fn follow_computer_control(config: Config, pool: Arc<ComputerSessionPool>, cancel: CancellationToken) {
+    let runtime = tokio::runtime::Handle::current();
+    let adopted = config.clone();
+    let apply = move || {
+        if adopted.desktop_settings().computer_control {
+            pool.reopen();
+            return;
+        }
+        let revoked = pool.revoke_all();
+        let stopping = pool.clone();
+        runtime.spawn(async move {
+            // What off answered: the section already shows its cleanup (stopping, pending, unconfirmed or ready); the facts of
+            // each executor go to the log, an unconfirmed closure as a warning.
+            let report = stopping.stop_revoked(revoked).await;
+            for executor in &report.reports {
+                tracing::info!(
+                    scope = executor.scope,
+                    executor = %executor.executor,
+                    admission_closed = executor.report.admission_closed,
+                    unfinished_at_closure = ?executor.report.unfinished_at_closure,
+                    cleanup = ?executor.report.cleanup,
+                    unknown_executors = ?executor.report.unknown_executors,
+                    "computer use off: executor report"
+                );
+            }
+            if !report.confirmed {
+                tracing::warn!(unknown_executors = ?report.unknown_executors(), cleanup = ?report.cleanup(), "computer use off: closure not confirmed at every executor");
+            }
+        });
+    };
+    // The state at start, before any change: a core started with Computer Use off makes no scope.
+    apply();
+    let guard = config.on_adoption(apply);
+    tokio::spawn(async move {
+        cancel.cancelled().await;
+        drop(guard);
+    });
+}
+
+
+
+
+
+
+
+/// Builds the pool over the resolved helper (or the desktop host), binds the desktop channel to it, tells `presence` whether the helper resolved, and starts the follower of
+/// `desktop.computerControl` that installs and enables Mixy's GNOME shell extension.
+pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
+    let ComputerInputs { env, paths, manager, wrap, publisher, data_dir, config, presence, blobs, tokens, claimants, cancel } = inputs;
+    let host_blobs: Arc<dyn ComputerBlobs> = Arc::new(CoreComputerBlobs::new(blobs.clone(), tokens.interactive_io));
+    let settings = ComputerSettings::from_config(data_dir, config.clone(), Some(host_blobs), tokens.interactive_io);
+    let pool = paths.computer_sessions(manager.clone(), wrap, publisher, settings).await;
+    // The desktop's computer host takes the screen captures and reports the displays (`host/computer/*`).
+    pool.attach_desktop(presence.host.clone());
+    let _ = presence.pool.set(pool.clone());
+    follow_computer_control(config.clone(), pool.clone(), cancel.clone());
+    follow_gnome_extension(config, manager, tokens.interactive_io, cancel);
+    #[cfg(feature = "test-hooks")]
+    let dev = crate::dev_computer::DevComputerRun::if_enabled(&*env, pool.clone(), pool.clone(), blobs, tokens);
+    #[cfg(not(feature = "test-hooks"))]
+    let _ = (env, blobs);
+    Composed {
+        scope_reports: Arc::new(ComputerScopeReportService::new(Some(pool.clone()), claimants)),
+        pool: Some(pool),
+        #[cfg(feature = "test-hooks")]
+        dev,
+    }
+}
+
+
+/// GNOME window control comes from Mixdog's own shell extension: it is kept installed and enabled exactly while Computer Use is on
+/// (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
+fn follow_gnome_extension(config: Config, manager: Arc<dyn ProcessManager>, io: InteractiveIo, cancel: CancellationToken) {
+    tokio::spawn(async move {
+        use mixdog_tools::desktop::computer_gnome_extension::apply_gnome_extension;
+        use mixdog_tools::desktop::computer_gnome_extension::bundled_dir;
+
+        let mut changes = config.changes();
+        let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
+        loop {
+            let enabled = config.desktop_settings().computer_control;
+            let env: mixdog_tools::desktop::computer_linux::Env = std::env::vars().collect();
+            let bundled = bundled_dir(io, &env, &exe_dir).await;
+            apply_gnome_extension(manager.clone(), io, enabled, &env, bundled.as_deref(), &cancel).await;
+            if !matches!(cancel.run_until_cancelled(changes.changed()).await, Some(Ok(()))) {
+                break;
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
@@ -344,101 +440,4 @@ mod tests {
         helper_file.store(true, Ordering::SeqCst);
         assert!(pool.availability_now().await.route.is_some());
     }
-}
-
-
-/// Applies `desktop.computerControl` where the setting is adopted, inside the write that changes it and before that write is
-/// acknowledged (`Config::on_adoption`): off revokes every session's scope and closes the making of new ones at once, then the revoked
-/// sessions are stopped (their helpers and the desktop acknowledge, or exit) on the runtime; on again lets new scopes be made. Node's
-/// setting stopped the bridge and retired the workers (`index.ts` `applyComputerControlSetting`). The hook lasts until `cancel`. Where
-/// the helper is, and whether a desktop serves, are read when asked, not followed.
-fn follow_computer_control(config: Config, pool: Arc<ComputerSessionPool>, cancel: CancellationToken) {
-    let runtime = tokio::runtime::Handle::current();
-    let adopted = config.clone();
-    let apply = move || {
-        if adopted.desktop_settings().computer_control {
-            pool.reopen();
-            return;
-        }
-        let revoked = pool.revoke_all();
-        let stopping = pool.clone();
-        runtime.spawn(async move {
-            // What off answered: the section already shows its cleanup (stopping, pending, unconfirmed or ready); the facts of
-            // each executor go to the log, an unconfirmed closure as a warning.
-            let report = stopping.stop_revoked(revoked).await;
-            for executor in &report.reports {
-                tracing::info!(
-                    scope = executor.scope,
-                    executor = %executor.executor,
-                    admission_closed = executor.report.admission_closed,
-                    unfinished_at_closure = ?executor.report.unfinished_at_closure,
-                    cleanup = ?executor.report.cleanup,
-                    unknown_executors = ?executor.report.unknown_executors,
-                    "computer use off: executor report"
-                );
-            }
-            if !report.confirmed {
-                tracing::warn!(unknown_executors = ?report.unknown_executors(), cleanup = ?report.cleanup(), "computer use off: closure not confirmed at every executor");
-            }
-        });
-    };
-    // The state at start, before any change: a core started with Computer Use off makes no scope.
-    apply();
-    let guard = config.on_adoption(apply);
-    tokio::spawn(async move {
-        cancel.cancelled().await;
-        drop(guard);
-    });
-}
-
-
-
-
-
-
-
-/// Builds the pool over the resolved helper (or the desktop host), binds the desktop channel to it, tells `presence` whether the helper resolved, and starts the follower of
-/// `desktop.computerControl` that installs and enables Mixy's GNOME shell extension.
-pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
-    let ComputerInputs { env, paths, manager, wrap, publisher, data_dir, config, presence, blobs, tokens, claimants, cancel } = inputs;
-    let host_blobs: Arc<dyn ComputerBlobs> = Arc::new(CoreComputerBlobs::new(blobs.clone(), tokens.interactive_io));
-    let settings = ComputerSettings::from_config(data_dir, config.clone(), Some(host_blobs), tokens.interactive_io);
-    let pool = paths.computer_sessions(manager.clone(), wrap, publisher, settings).await;
-    // The desktop's computer host takes the screen captures and reports the displays (`host/computer/*`).
-    pool.attach_desktop(presence.host.clone());
-    let _ = presence.pool.set(pool.clone());
-    follow_computer_control(config.clone(), pool.clone(), cancel.clone());
-    follow_gnome_extension(config, manager, tokens.interactive_io, cancel);
-    #[cfg(feature = "test-hooks")]
-    let dev = crate::dev_computer::DevComputerRun::if_enabled(&*env, pool.clone(), pool.clone(), blobs, tokens);
-    #[cfg(not(feature = "test-hooks"))]
-    let _ = (env, blobs);
-    Composed {
-        scope_reports: Arc::new(ComputerScopeReportService::new(Some(pool.clone()), claimants)),
-        pool: Some(pool),
-        #[cfg(feature = "test-hooks")]
-        dev,
-    }
-}
-
-
-/// GNOME window control comes from Mixdog's own shell extension: it is kept installed and enabled exactly while Computer Use is on
-/// (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
-fn follow_gnome_extension(config: Config, manager: Arc<dyn ProcessManager>, io: InteractiveIo, cancel: CancellationToken) {
-    tokio::spawn(async move {
-        use mixdog_tools::desktop::computer_gnome_extension::apply_gnome_extension;
-        use mixdog_tools::desktop::computer_gnome_extension::bundled_dir;
-
-        let mut changes = config.changes();
-        let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
-        loop {
-            let enabled = config.desktop_settings().computer_control;
-            let env: mixdog_tools::desktop::computer_linux::Env = std::env::vars().collect();
-            let bundled = bundled_dir(io, &env, &exe_dir).await;
-            apply_gnome_extension(manager.clone(), io, enabled, &env, bundled.as_deref(), &cancel).await;
-            if !matches!(cancel.run_until_cancelled(changes.changed()).await, Some(Ok(()))) {
-                break;
-            }
-        }
-    });
 }

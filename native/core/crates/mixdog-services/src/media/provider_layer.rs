@@ -246,8 +246,8 @@ fn plain(message: impl Into<String>) -> FetchError {
 }
 
 /// A provider's refusal as the `Error` Node's token store threw.
-fn from_provider(error: ProviderError) -> FetchError {
-    FetchError { message: error.message, code: error.code, status: error.status, timed_out: false }
+fn from_provider(mut error: ProviderError) -> FetchError {
+    FetchError { message: std::mem::take(&mut error.message), code: error.code.take(), status: error.status, timed_out: false }
 }
 
 /// `antigravityHeaders()`: the hub client identity, whatever the platform the process runs on.
@@ -338,7 +338,7 @@ impl CodexSession for CodexProviderSession {
                 return Err(AdapterError::plain(CODEX_NOT_AUTHENTICATED));
             }
         }
-        let Credential { bearer, account_id } = self.oauth.current().await.map_err(|error| AdapterError::plain(error.message))?;
+        let Credential { bearer, account_id } = self.oauth.current().await.map_err(|error| AdapterError::plain(error.into_message()))?;
         Ok(CodexAuth { access_token: bearer, account_id })
     }
 

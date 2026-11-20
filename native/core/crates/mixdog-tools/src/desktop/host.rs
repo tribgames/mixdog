@@ -256,7 +256,7 @@ pub(super) fn render_browser_output(value: &Value, screenshot: Option<ReplyImage
     // An inconclusive outcome is a failure carrying its output, as the bridge flagged it.
     if value.get("outcome").and_then(Value::as_str) == Some("blocked") {
         let mut error = bad(&text);
-        error.partial = Some(output);
+        error.partial = Some(Box::new(output));
         return Err(error);
     }
     Ok(output)

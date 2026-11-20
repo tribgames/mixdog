@@ -239,7 +239,7 @@ fn forward_view(remote_port: u16, entry: &Forward) -> PortForward {
             None => (PortForwardStatus::Starting, None),
         },
     };
-    let (message, notice) = error.map_or((None, None), |error| (Some(error.message), error.notice));
+    let (message, notice) = error.map_or((None, None), |error| (Some(error.message), error.notice.map(|notice| *notice)));
     PortForward { remote_port, local_port, status, message, notice }
 }
 

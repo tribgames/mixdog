@@ -434,7 +434,9 @@ pub(crate) struct DirInner {
     /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
     teardowns: Mutex<HashMap<ThreadId, watch::Receiver<()>>>,
     /// The control thread paired phones share (`SessionDirectory::remote_control`); `None` until one starts it.
-    remote_control: tokio::sync::Mutex<Option<ThreadId>>,
+    remote_control: tokio::sync::Semaphore,
+    /// The thread `remote_control` holds, written only under that gate.
+    remote_thread: Mutex<Option<ThreadId>>,
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
     #[cfg(any(test, feature = "test-support"))]
     pub(super) left: tokio::sync::Notify,
@@ -1588,20 +1590,22 @@ impl SessionDirectory {
     /// so no close is admitted between the lookup and the attach: an unload that came first left the slot, and the thread is opened
     /// again; a close for good (a delete, the shutdown) makes the next thread the phones'. The caller never retries.
     async fn remote_control(&self, req: &CoreRequest, params: &ThreadStartParams) -> Result<Reply, CoreError> {
-        let mut shared = self.inner.remote_control.lock().await;
+        let _turn = self.inner.remote_control.acquire().await.expect("the remote-control gate is never closed");
+        let get = || self.inner.remote_thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let put = |value: Option<ThreadId>| *self.inner.remote_thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = value;
         loop {
-            let handle = match shared.clone() {
+            let handle = match get() {
                 Some(id) => match self.inner.open(&id, &req.ctx).await {
                     Ok(handle) => handle,
                     Err(CoreError::ThreadNotFound { .. } | CoreError::ThreadClosing { .. }) => {
-                        *shared = None;
+                        put(None);
                         continue;
                     }
                     Err(error) => return Err(error),
                 },
                 None => {
                     let handle = self.begin_thread(req, params, None, None).await?;
-                    *shared = Some(handle.id.clone());
+                    put(Some(handle.id.clone()));
                     handle
                 }
             };
@@ -1612,7 +1616,7 @@ impl SessionDirectory {
                     return Ok(Reply::Subscribe(Subscribe { result, feed, window: Window::LastItems(200), resume_from: None }));
                 }
                 AttachAdmission::Unloaded => continue,
-                AttachAdmission::Closed => *shared = None,
+                AttachAdmission::Closed => put(None),
             }
         }
     }
@@ -1794,7 +1798,8 @@ impl SessionDirectory {
             stop_latches: Default::default(),
             closed: Default::default(),
             teardowns: Default::default(),
-            remote_control: Default::default(),
+            remote_control: tokio::sync::Semaphore::new(1),
+            remote_thread: Mutex::default(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
             #[cfg(any(test, feature = "test-support"))]

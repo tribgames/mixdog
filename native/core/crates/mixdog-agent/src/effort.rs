@@ -29,7 +29,7 @@ pub fn strip_effort_configuration(rows: Vec<JsonValue>) -> Vec<JsonValue> {
     rows.into_iter()
         .map(|mut row| {
             if let Some(meta) = row.get_mut("meta").and_then(JsonValue::as_object_mut) {
-                meta.remove(META_KEY);
+                meta.shift_remove(META_KEY);
             }
             row
         })

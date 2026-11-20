@@ -14,7 +14,22 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
-type Slot<V> = Arc<tokio::sync::Mutex<Option<(Instant, (u64, u64), V)>>>;
+/// One key's held answer, loaded by one caller at a time: `gate` serializes the loads (held across the load's awaits) and the answer\n/// itself is read and written in short sections only.
+struct Held<V> {
+    gate: tokio::sync::Semaphore,
+    kept: Mutex<Option<Kept<V>>>,
+}
+
+impl<V> Default for Held<V> {
+    fn default() -> Self {
+        Self { gate: tokio::sync::Semaphore::new(1), kept: Mutex::new(None) }
+    }
+}
+
+type Slot<V> = Arc<Held<V>>;
+
+/// A held answer: when it was loaded, the epoch and version it was loaded at, and the answer.
+type Kept<V> = (Instant, (u64, u64), V);
 
 pub struct Aged<K, V> {
     ttl: Duration,
@@ -46,16 +61,16 @@ impl<K: Eq + Hash, V: Clone> Aged<K, V> {
         Fut: Future<Output = Result<V, E>>,
     {
         let slot = self.slots.lock().unwrap_or_else(PoisonError::into_inner).entry(key).or_default().clone();
-        let mut held = slot.lock().await;
+        let _turn = slot.gate.acquire().await.expect("a load gate is never closed");
         let born_now = (self.epoch.load(Ordering::Acquire), version);
-        if let Some((at, born, value)) = held.as_ref()
+        if let Some((at, born, value)) = slot.kept.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
             && *born == born_now
             && at.elapsed() < self.ttl
         {
             return Ok(value.clone());
         }
         let value = load().await?;
-        *held = Some((Instant::now(), born_now, value.clone()));
+        *slot.kept.lock().unwrap_or_else(PoisonError::into_inner) = Some((Instant::now(), born_now, value.clone()));
         Ok(value)
     }
 

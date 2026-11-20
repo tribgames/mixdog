@@ -81,7 +81,7 @@ pub(crate) fn compact_usage_change(header: &Header, excludes: bool, delta: &Valu
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`
 /// (`live_rows::usage_delta`), `outgoing` the transcript its request carried and `send_tools` its tools.
 /// `excludes` is the convention of the adapter that produced the call's usage, carried on its report.
-pub(crate) fn usage_change(header: &Header, excludes: bool, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, sent_at: f64, now: f64) -> Option<HeaderChange> {
+pub(crate) fn usage_change(header: &Header, excludes: bool, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, (sent_at, now): (f64, f64)) -> Option<HeaderChange> {
     let provider = provider_of(header);
     let delta = &with_loop_ids(header, delta);
     let patch = match books {
@@ -186,7 +186,7 @@ mod tests {
                 input_excludes_cache: excludes, tail_book: None,
             };
             let delta = super::super::live_rows::usage_delta("s", &report, 1);
-            let change = usage_change(&header, report.input_excludes_cache, &delta, &[], &[], None, 0.0, 1.0).expect("a change");
+            let change = usage_change(&header, report.input_excludes_cache, &delta, &[], &[], None, (0.0, 1.0)).expect("a change");
             change.set.get("lastContextTokens").and_then(Value::as_f64).expect("a reading")
         };
         for (first, second) in [(false, true), (true, false)] {

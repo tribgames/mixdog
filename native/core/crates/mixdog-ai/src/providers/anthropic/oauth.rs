@@ -745,7 +745,7 @@ impl AnthropicLogin {
         let unanswered = |error: ProviderError| {
             let text = http::request_failed(OPERATION, &error);
             // Only a request that got no answer is worded by `oauthRequestError` (`anthropic-oauth-credentials.mjs:628`).
-            let message = if error.transport.is_some() { text.clone() } else { error.message };
+            let message = if error.transport.is_some() { text.clone() } else { error.into_message() };
             Refusal { failure: failed(message), detail: Some(text) }
         };
         let response = self.http.send(request, TOKEN_EXCHANGE).await.map_err(unanswered)?;
@@ -754,7 +754,7 @@ impl AnthropicLogin {
         if !(200..300).contains(&status) {
             let failure = match token_failure(status, &reply.body) {
                 TokenFailure::Dead(_) => LoginFailure::Denied,
-                TokenFailure::Failed(err) => failed(err.message),
+                TokenFailure::Failed(err) => failed(err.into_message()),
             };
             let detail = endpoint_message(OPERATION, status, &reply.body, secrets, version);
             return Err(Refusal { failure, detail: Some(detail) });
@@ -765,7 +765,7 @@ impl AnthropicLogin {
             return Err(Refusal { failure: failed(text.clone()), detail: Some(text) });
         };
         apply_token_response(base, &parsed, now_ms(), TokenFlow::Login)
-            .map_err(|err| Refusal::from(failed(err.message)))
+            .map_err(|err| Refusal::from(failed(err.into_message())))
     }
 }
 
@@ -849,7 +849,7 @@ impl PkceProvider for AnthropicLogin {
         // plan and any unknown fields of the stored credential.
         let existing = load_stored(&self.file).await.map_err(|e| LoginFailure::Failed {
             code: "credential_read_failed".into(),
-            message: e.message,
+            message: e.into_message(),
         })?;
         let base = existing.unwrap_or_else(blank_credential);
         let credential = self.token_exchange(request, &base, &[code, verifier, &state], &version).await?;

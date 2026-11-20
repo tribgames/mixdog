@@ -1242,7 +1242,7 @@ impl Matcher {
     /// The error with every text it carries redacted (a transport error names the URL, query string included).
     pub fn redact_error(&self, mut error: ProviderError) -> ProviderError {
         error.message = self.redact_str(&error.message);
-        error.code = error.code.map(|code| self.redact_str(&code));
+        error.code = error.code.take().map(|code| self.redact_str(&code));
         error
     }
 }

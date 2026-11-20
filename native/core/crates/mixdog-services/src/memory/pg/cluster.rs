@@ -1069,7 +1069,7 @@ struct RecordState {
 enum Initiated {
     Done(StopDispatch),
     #[cfg(windows)]
-    Running { pid: u32, child: std::process::Child },
+    Running { pid: u32, child: Box<tokio::process::Child> },
 }
 
 /// Starts the fast-stop delivery to the postmaster of `data_dir` synchronously, for a transition that finds the stop already decided: nothing here
@@ -1112,8 +1112,7 @@ fn initiate_fast_stop(runtime: &PgRuntime, data_dir: &Path, known: Option<u32>) 
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt as _;
-        let spawned = std::process::Command::new(runtime.bin("pg_ctl"))
+        let spawned = tokio::process::Command::new(runtime.bin("pg_ctl"))
             .args(["stop", "-m", "fast", "-W", "-D"])
             .arg(data_dir)
             .env_clear()
@@ -1125,7 +1124,7 @@ fn initiate_fast_stop(runtime: &PgRuntime, data_dir: &Path, known: Option<u32>) 
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW, as Node's windowsHide
             .spawn();
         match spawned {
-            Ok(child) => Initiated::Running { pid, child },
+            Ok(child) => Initiated::Running { pid, child: Box::new(child) },
             Err(error) => Initiated::Done(StopDispatch::Failed(format!("pg_ctl failed: {error}"))),
         }
     }
@@ -1170,7 +1169,7 @@ impl Initiated {
                             }
                             let mut text = String::new();
                             if let Some(mut stderr) = child.stderr.take() {
-                                let _ = std::io::Read::read_to_string(&mut stderr, &mut text);
+                                let _ = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut text).await;
                             }
                             let text = text.trim();
                             return StopDispatch::Failed(format!("pg_ctl failed: {}", if text.is_empty() { status.to_string() } else { text.to_owned() }));
@@ -1178,7 +1177,7 @@ impl Initiated {
                         Ok(None) if tokio::time::Instant::now() < until => mixdog_rt::time::sleep(Duration::from_millis(20)).await,
                         Ok(None) => {
                             // Not waited for: Windows ends a process asynchronously, and this step returns within its limit.
-                            let _ = child.kill();
+                            let _ = child.start_kill();
                             return StopDispatch::Failed(format!("the stop's dispatch did not end within {} s", DISPATCH_LIMIT.as_secs()));
                         }
                         Err(error) => return StopDispatch::Failed(format!("pg_ctl failed: {error}")),

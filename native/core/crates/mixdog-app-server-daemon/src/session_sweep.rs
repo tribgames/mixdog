@@ -194,6 +194,38 @@ async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(&Swee
     }
 }
 
+fn now_ms() -> i64 {
+    mixdog_rt::wall_clock!()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+}
+/// `startIdleCleanup`: one cycle per interval, the first after one interval, a cycle never
+/// overlapping the next. Returns once `stop` is cancelled. Needs the proof that startup (the
+/// ownership lock, the prior-owner verdict, the claim barrier, the migration) has finished: no
+/// sweep may touch a data directory before then.
+pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, interval: Duration, stop: CancellationToken) {
+    loop {
+        let due = mixdog_rt::ticker().wait_until(Instant::now() + interval);
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = due => {}
+        }
+        match sweep_once(store.as_ref(), now_ms()).await {
+            Ok(tally) if !tally.cleaned.is_empty() || !tally.tombstones_cleaned.is_empty() || !tally.open_pruned.is_empty() => {
+                tracing::debug!(
+                    closed = tally.cleaned.len(),
+                    tombstones = tally.tombstones_cleaned.len(),
+                    pruned = tally.open_pruned.len(),
+                    remaining = tally.remaining,
+                    "idle sweep"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => mixdog_rt::node_stderr!("[agent-session] idle sweep error: {error}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(node_twin)]
@@ -301,39 +333,6 @@ mod tests {
             assert_eq!(sorted(tally.open_pruned), ids(&scenario["openPruned"]), "{name}: pruned");
             assert_eq!(tally.remaining as u64, scenario["remaining"].as_u64().unwrap(), "{name}: remaining");
             assert_eq!(sorted(tally.tombstone_errors.into_iter().map(|(id, _)| id).collect()), ids(&scenario["tombstoneErrors"]), "{name}: unlink errors");
-        }
-    }
-}
-
-
-fn now_ms() -> i64 {
-    mixdog_rt::wall_clock!()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
-}
-/// `startIdleCleanup`: one cycle per interval, the first after one interval, a cycle never
-/// overlapping the next. Returns once `stop` is cancelled. Needs the proof that startup (the
-/// ownership lock, the prior-owner verdict, the claim barrier, the migration) has finished: no
-/// sweep may touch a data directory before then.
-pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, interval: Duration, stop: CancellationToken) {
-    loop {
-        let due = mixdog_rt::ticker().wait_until(Instant::now() + interval);
-        tokio::select! {
-            () = stop.cancelled() => return,
-            () = due => {}
-        }
-        match sweep_once(store.as_ref(), now_ms()).await {
-            Ok(tally) if !tally.cleaned.is_empty() || !tally.tombstones_cleaned.is_empty() || !tally.open_pruned.is_empty() => {
-                tracing::debug!(
-                    closed = tally.cleaned.len(),
-                    tombstones = tally.tombstones_cleaned.len(),
-                    pruned = tally.open_pruned.len(),
-                    remaining = tally.remaining,
-                    "idle sweep"
-                );
-            }
-            Ok(_) => {}
-            Err(error) => mixdog_rt::node_stderr!("[agent-session] idle sweep error: {error}"),
         }
     }
 }

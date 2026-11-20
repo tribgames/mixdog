@@ -297,7 +297,7 @@ struct UpgradeScreen<'a> {
 impl Callback for UpgradeScreen<'_> {
     fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
         let pending = self.pending;
-        let result = self.screen(request, response);
+        let result = self.screen(request, response).map_err(|refused| *refused);
         if let Err(refused) = &result {
             // `refusal` built the body: `{"reason":"<fixed name>"}`.
             let reason = refused.body().as_deref().and_then(|body| body.strip_prefix("{\"reason\":\"")).and_then(|body| body.strip_suffix("\"}"));
@@ -309,13 +309,13 @@ impl Callback for UpgradeScreen<'_> {
 
 impl UpgradeScreen<'_> {
     /// The upgrade rules of P §4.1, in order: path, Origin, Bearer token, connection limit, then narrowing.
-    fn screen(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
+    fn screen(self, request: &Request, response: Response) -> Result<Response, Box<ErrorResponse>> {
         let Self { context, pending } = self;
         if request.uri().path() != "/rpc" {
-            return Err(refusal(StatusCode::NOT_FOUND, "notFound"));
+            return Err(Box::new(refusal(StatusCode::NOT_FOUND, "notFound")));
         }
         if request.headers().contains_key(header::ORIGIN) {
-            return Err(refusal(StatusCode::FORBIDDEN, "originRefused"));
+            return Err(Box::new(refusal(StatusCode::FORBIDDEN, "originRefused")));
         }
         let authorized = request
             .headers()
@@ -323,24 +323,24 @@ impl UpgradeScreen<'_> {
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| context.auth.accepts(value));
         if !authorized {
-            return Err(refusal(StatusCode::UNAUTHORIZED, "unauthorized"));
+            return Err(Box::new(refusal(StatusCode::UNAUTHORIZED, "unauthorized")));
         }
         if pending.over_limit() {
-            return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "connectionLimit"));
+            return Err(Box::new(refusal(StatusCode::SERVICE_UNAVAILABLE, "connectionLimit")));
         }
         // A window names itself on either listener. It is judged before the relay header: a socket
         // is one phone or one window, never both, and a bad value is refused, not ignored.
         let window = match single_header(request, WINDOW_HEADER) {
             Ok(value) => value,
-            Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow")),
+            Err(()) => return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidWindow"))),
         };
         let role = match single_header(request, WINDOW_ROLE_HEADER) {
             Ok(value) => value,
-            Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
+            Err(()) => return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"))),
         };
         if let Some(window) = window {
             if !is_window_token(window) {
-                return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow"));
+                return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidWindow")));
             }
             let role = match role {
                 None | Some("main") => WindowRole::Main,
@@ -348,17 +348,17 @@ impl UpgradeScreen<'_> {
                     Some(id) => WindowRole::Server {
                         connection_id: id.to_owned(),
                     },
-                    None => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
+                    None => return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"))),
                 },
             };
             if request.headers().contains_key(RELAY_PEER_HEADER) {
-                return Err(refusal(StatusCode::BAD_REQUEST, "conflictingNarrowing"));
+                return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "conflictingNarrowing")));
             }
             pending.narrow_to_window(window.to_owned(), role);
             return Ok(response);
         }
         if role.is_some() {
-            return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"));
+            return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")));
         }
         // Only the SSH listener is where a bridge brings phones; on the loopback listener the
         // header means nothing. A header that is present but not a single routing id is refused,
@@ -371,7 +371,7 @@ impl UpgradeScreen<'_> {
                     (Some(peer), None) => {
                         pending.narrow_to_relay(peer.to_owned());
                     }
-                    _ => return Err(refusal(StatusCode::BAD_REQUEST, "invalidRelayPeer")),
+                    _ => return Err(Box::new(refusal(StatusCode::BAD_REQUEST, "invalidRelayPeer"))),
                 }
             }
         }

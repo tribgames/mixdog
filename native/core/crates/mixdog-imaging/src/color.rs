@@ -40,6 +40,7 @@ fn to_srgb(has_alpha: bool, icc: &[u8]) -> Option<Box<Transform8BitExecutor>> {
 
 /// [`rgb_to_srgb`] for a decoder that has no libvips behaviour to match (the OS HEIC codec): a profile that cannot be read, that
 /// is not RGB, or whose transform fails on any pixel is an error, and the pixels are then not to be used.
+#[cfg(any(windows, test))]
 pub fn rgb_to_srgb_exactly(data: &mut [u8], has_alpha: bool, icc: &[u8]) -> Result<(), ProfileUnusable> {
     let transform = to_srgb(has_alpha, icc).ok_or(ProfileUnusable)?;
     let stride = if has_alpha { 4 } else { 3 };
@@ -52,6 +53,7 @@ pub fn rgb_to_srgb_exactly(data: &mut [u8], has_alpha: bool, icc: &[u8]) -> Resu
 
 /// An embedded colour profile that cannot take the pixels to sRGB.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg(any(windows, test))]
 pub struct ProfileUnusable;
 
 /// The CMYK-to-sRGB transform of a CMYK profile.

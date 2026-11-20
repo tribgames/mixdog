@@ -54,7 +54,7 @@ pub(crate) fn flattened_rgb(raster: &Raster, background: u8) -> std::borrow::Cow
     }
     let background = u32::from(background);
     let mut rgb = Vec::with_capacity(raster.data.len() / 4 * 3);
-    for pixel in raster.data.chunks_exact(4) {
+    for pixel in raster.data.as_chunks::<4>().0.iter() {
         let alpha = u32::from(pixel[3]);
         for &channel in &pixel[..3] {
             rgb.push(((u32::from(channel) * alpha + background * (255 - alpha) + 127) / 255) as u8);
@@ -77,19 +77,24 @@ fn encode_png(raster: &Raster) -> Result<Vec<u8>, ImagingError> {
     Ok(out)
 }
 
+/// The colours of one median-cut box, each with the count of pixels that carry it.
+type ColourBox = Vec<(u32, u64)>;
+
 /// Brings the opaque pixels of `rgba` down to the colours of a palette that leaves room for a transparent entry when
 /// there is a transparent pixel (the encoder reads alpha 0 as the transparent colour and every other alpha as opaque).
 /// A picture with colours to spare is untouched. The palette is median cut over the colours the picture has, each
 /// weighed by how many pixels carry it, and every colour is then moved to the nearest palette entry.
 fn quantize_to_palette(rgba: &mut [u8]) {
     // Every transparent pixel is one colour: the encoder counts the colour under alpha 0 as an entry of its own.
-    for pixel in rgba.chunks_exact_mut(4).filter(|pixel| pixel[3] == 0) {
+    for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().filter(|pixel| pixel[3] == 0) {
         pixel[..3].fill(0);
     }
-    let transparent = rgba.chunks_exact(4).any(|pixel| pixel[3] == 0);
+    let transparent = rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 0);
     let budget = GIF_PALETTE_SIZE - usize::from(transparent);
     let mut keys: Vec<u32> = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] != 0)
         .map(|pixel| u32::from(pixel[0]) << 16 | u32::from(pixel[1]) << 8 | u32::from(pixel[2]))
         .collect();
@@ -117,7 +122,7 @@ fn quantize_to_palette(rgba: &mut [u8]) {
         best
     };
     // Each box carries its widest channel range, worked out once when the box is made.
-    let mut boxes: Vec<(Vec<(u32, u64)>, (u8, u32))> = vec![(colours.clone(), range_of(&colours))];
+    let mut boxes: Vec<(ColourBox, (u8, u32))> = vec![(colours.clone(), range_of(&colours))];
     while boxes.len() < budget {
         let split = boxes.iter().enumerate().filter(|(_, (boxed, _))| boxed.len() > 1).map(|(at, &(_, range))| (at, range)).max_by_key(|&(_, (range, _))| range);
         let Some((at, (_, shift))) = split else { break };
@@ -152,7 +157,7 @@ fn quantize_to_palette(rgba: &mut [u8]) {
         [best[0] as u8, best[1] as u8, best[2] as u8]
     };
     let mapped: std::collections::HashMap<u32, [u8; 3]> = colours.iter().map(|&(key, _)| (key, nearest(key))).collect();
-    for pixel in rgba.chunks_exact_mut(4).filter(|pixel| pixel[3] != 0) {
+    for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().filter(|pixel| pixel[3] != 0) {
         let key = u32::from(pixel[0]) << 16 | u32::from(pixel[1]) << 8 | u32::from(pixel[2]);
         pixel[..3].copy_from_slice(&mapped[&key]);
     }

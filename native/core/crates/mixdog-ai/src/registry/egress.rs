@@ -102,7 +102,7 @@ impl CacheWarmSend for GuardedWarm {
         on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
     ) -> Result<WarmUsage, WarmFailure> {
         let Some(warm) = self.inner.cache_warm() else { return Err(WarmFailure::new("provider has no cache-warm mode")) };
-        let request = prepare(self.inner.as_ref(), Arc::new(request.clone())).await.map_err(|error| WarmFailure::new(error.message))?;
+        let request = prepare(self.inner.as_ref(), Arc::new(request.clone())).await.map_err(|error| WarmFailure::new(error.into_message()))?;
         warm.send_cache_warm(&request, ctx, cancel, on_usage).await
     }
 }

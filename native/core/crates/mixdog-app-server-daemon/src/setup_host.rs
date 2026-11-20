@@ -149,64 +149,6 @@ impl RefreshEffects for CachesWithSetup {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::AtomicBool;
-
-    use super::*;
-
-    fn env(value: Option<&'static str>) -> impl Fn(&str) -> Option<String> {
-        move |name| (name == WARMUP_DELAY_ENV).then(|| value.map(str::to_owned)).flatten()
-    }
-
-    /// Node's `envDelayMs`: default 300; empty, non-numeric and infinite are the default; else floored and clamped to 0..60000.
-    #[test]
-    fn the_warmup_delay_is_nodes_env_delay() {
-        for (raw, want) in [
-            (None, 300),
-            (Some(""), 300),
-            (Some("abc"), 300),
-            (Some("Infinity"), 300),
-            (Some("0"), 0),
-            (Some("50.9"), 50),
-            (Some("-5"), 0),
-            (Some("999999"), 60_000),
-            (Some(" 120 "), 120),
-        ] {
-            assert_eq!(warmup_delay_ms(&env(raw)), want, "{raw:?}");
-        }
-    }
-
-
-    /// One timer slot: armed once, cleared when it fires, never armed while closing.
-    #[tokio::test(start_paused = true)]
-    async fn the_slot_is_armed_once_and_cleared_when_it_fires() {
-        mixdog_rt::testing::tokens();
-        let closing = Arc::new(AtomicBool::new(false));
-        let warmup = SetupWarmup::new(
-            300,
-            {
-                let closing = closing.clone();
-                Arc::new(move || closing.load(Ordering::SeqCst))
-            },
-            Arc::new(TracedMarks),
-        );
-        warmup.schedule_default();
-        warmup.schedule_default();
-        assert!(warmup.pending());
-        tokio::time::advance(Duration::from_millis(299)).await;
-        tokio::task::yield_now().await;
-        assert!(warmup.pending(), "not before the delay");
-        tokio::time::advance(Duration::from_millis(2)).await;
-        tokio::task::yield_now().await;
-        assert!(!warmup.pending(), "the slot clears when the timer fires");
-        closing.store(true, Ordering::SeqCst);
-        warmup.schedule(0);
-        assert!(!warmup.pending(), "a closing runtime arms nothing");
-    }
-}
-
-
 /// The usage dashboards' view of the setup (`SetupSource`): `cachedProviderSetup({ force, quick })` and `displayConfig()` (the live config, as the gatherer reads it).
 pub struct SetupSourceOf {
     pub setup: Arc<CachedProviderSetup>,
@@ -307,5 +249,62 @@ impl SetupHost for DaemonSetupHost {
 
     fn closing(&self) -> bool {
         self.warmup.closing()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use super::*;
+
+    fn env(value: Option<&'static str>) -> impl Fn(&str) -> Option<String> {
+        move |name| (name == WARMUP_DELAY_ENV).then(|| value.map(str::to_owned)).flatten()
+    }
+
+    /// Node's `envDelayMs`: default 300; empty, non-numeric and infinite are the default; else floored and clamped to 0..60000.
+    #[test]
+    fn the_warmup_delay_is_nodes_env_delay() {
+        for (raw, want) in [
+            (None, 300),
+            (Some(""), 300),
+            (Some("abc"), 300),
+            (Some("Infinity"), 300),
+            (Some("0"), 0),
+            (Some("50.9"), 50),
+            (Some("-5"), 0),
+            (Some("999999"), 60_000),
+            (Some(" 120 "), 120),
+        ] {
+            assert_eq!(warmup_delay_ms(&env(raw)), want, "{raw:?}");
+        }
+    }
+
+
+    /// One timer slot: armed once, cleared when it fires, never armed while closing.
+    #[tokio::test(start_paused = true)]
+    async fn the_slot_is_armed_once_and_cleared_when_it_fires() {
+        mixdog_rt::testing::tokens();
+        let closing = Arc::new(AtomicBool::new(false));
+        let warmup = SetupWarmup::new(
+            300,
+            {
+                let closing = closing.clone();
+                Arc::new(move || closing.load(Ordering::SeqCst))
+            },
+            Arc::new(TracedMarks),
+        );
+        warmup.schedule_default();
+        warmup.schedule_default();
+        assert!(warmup.pending());
+        tokio::time::advance(Duration::from_millis(299)).await;
+        tokio::task::yield_now().await;
+        assert!(warmup.pending(), "not before the delay");
+        tokio::time::advance(Duration::from_millis(2)).await;
+        tokio::task::yield_now().await;
+        assert!(!warmup.pending(), "the slot clears when the timer fires");
+        closing.store(true, Ordering::SeqCst);
+        warmup.schedule(0);
+        assert!(!warmup.pending(), "a closing runtime arms nothing");
     }
 }

@@ -108,9 +108,14 @@ pub(crate) fn with_state_lock<T>(dir: &Path, work: impl FnOnce() -> io::Result<T
     result
 }
 
-/// [`with_state_lock`] for async code: the whole blocking transaction runs on a blocking thread and is awaited, never a guard.
+/// [`with_state_lock`] for async code: the whole blocking transaction runs on a thread of its own and is awaited, never a guard.
 pub(crate) async fn locked<T: Send + 'static>(dir: PathBuf, work: impl FnOnce() -> io::Result<T> + Send + 'static) -> io::Result<T> {
-    tokio::task::spawn_blocking(move || with_state_lock(&dir, work)).await.map_err(io::Error::other)?
+    let (done, result) = tokio::sync::oneshot::channel();
+    // A thread of its own, as `Unlaned` says of a caller outside the lane contract: this crate holds no lane token.
+    std::thread::spawn(move || {
+        let _ = done.send(with_state_lock(&dir, work));
+    });
+    result.await.map_err(io::Error::other)?
 }
 
 /// A state file as bytes; a file that is not there is empty, any other failure to read it is an error (never an empty state).

@@ -191,10 +191,10 @@ pub(super) fn guard_shell_args(args: JsonValue) -> Result<JsonValue, String> {
             return Err(format!("Error: shell arg \"command\" must be a string (got {})", describe_type(other)));
         }
     }
-    if let Some(timeout) = a.get("timeout_ms") {
-        if whole(timeout).filter(|n| *n >= 0.0).is_none() {
-            return Err(format!("Error: shell arg \"timeout_ms\" must be a non-negative integer (got {})", describe_type(timeout)));
-        }
+    if let Some(timeout) = a.get("timeout_ms")
+        && whole(timeout).filter(|n| *n >= 0.0).is_none()
+    {
+        return Err(format!("Error: shell arg \"timeout_ms\" must be a non-negative integer (got {})", describe_type(timeout)));
     }
     // JavaScript has one number type: `90000.0` and `9e4` are the integer 90000. Every integer argument that passed
     // above is handed on as one, so the typed arguments below read it.
@@ -760,7 +760,7 @@ fn render_foreground_result(
             let text = compose("[shell-run-failed] [cause: cancellation; process exit not confirmed]".into(), true, false);
             let mut error = failed(ToolErrorCode::Cancelled, text);
             error.outcome_unknown = true;
-            error.partial = Some(text_output(payload));
+            error.partial = Some(Box::new(text_output(payload)));
             return Err(error);
         }
         let text = compose("[shell-run-failed] [missing exit status]".into(), true, false);
@@ -783,7 +783,7 @@ fn render_foreground_result(
             );
             let mut error = failed(ToolErrorCode::DeadlineExceeded { partial: true }, text);
             error.outcome_unknown = true;
-            error.partial = Some(text_output(payload));
+            error.partial = Some(Box::new(text_output(payload)));
             Err(error)
         }
         (Some(_), status) => {
@@ -791,7 +791,7 @@ fn render_foreground_result(
             let text = compose(format!("[shell-run-failed] [signal: {signal} cause: cancellation]"), true, false);
             let mut error = failed(ToolErrorCode::Cancelled, text);
             error.outcome_unknown = true;
-            error.partial = Some(text_output(payload));
+            error.partial = Some(Box::new(text_output(payload)));
             Err(error)
         }
         (None, ExitStatus::Signal(n)) => {

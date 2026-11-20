@@ -102,7 +102,7 @@ pub async fn generate_image(http: &dyn JsonPost, public: &dyn PublicFetch, auth:
     let data = serde_json::from_str::<Value>(&reply.body).unwrap_or(Value::Null);
     let usage = image_api_usage(&data);
     let with_usage = |mut error: AdapterError| {
-        error.usage = reported_usage(usage.clone());
+        error.usage = reported_usage(usage.clone()).map(Box::new);
         error
     };
     let entry = data.get("data").and_then(Value::as_array).and_then(|list| list.first()).cloned().unwrap_or(Value::Null);

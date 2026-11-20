@@ -284,9 +284,9 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 /// stored lists, and so the request, at a cold fold or an explicit surface rebuild (`ToolSurface::repair`), as in Node, so a warm
 /// prefix is never rewritten between two sends.
 pub(crate) fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
-    let provider = text(&header, "provider").to_lowercase();
+    let provider = text(header, "provider").to_lowercase();
     let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
-    super::context_world::snapshot_tools(&header, tools, referenced, &provider)
+    super::context_world::snapshot_tools(header, tools, referenced, &provider)
 }
 
 /// The session's `wireRoute` as the pin a gateway's send reads; `None` without one.
@@ -445,7 +445,7 @@ mod surfaced_tests {
 /// move every turn. A disposition decided under another key does not hold.
 fn sizing_key(settings: Option<&mixdog_agent::boundary::CompactSettings>) -> u64 {
     let Some(s) = settings else { return 0 };
-    let optional = |value: Option<u64>| value.map_or(u64::MAX, |v| v);
+    let optional = |value: Option<u64>| value.unwrap_or(u64::MAX);
     let words = [
         optional(s.context_window),
         optional(s.explicit_boundary),

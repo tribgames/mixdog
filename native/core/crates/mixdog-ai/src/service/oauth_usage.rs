@@ -209,7 +209,7 @@ struct Caches {
 pub struct OAuthUsage {
     deps: UsageDeps,
     caches: Mutex<Caches>,
-    cursor_resolve: tokio::sync::Mutex<()>,
+    cursor_resolve: tokio::sync::Semaphore,
 }
 
 // -- keys and freshness ---------------------------------------------------------------
@@ -458,7 +458,7 @@ pub struct ResetCreditResult {
 
 impl OAuthUsage {
     pub fn new(deps: UsageDeps) -> Arc<Self> {
-        Arc::new(Self { deps, caches: Mutex::new(Caches::default()), cursor_resolve: tokio::sync::Mutex::new(()) })
+        Arc::new(Self { deps, caches: Mutex::new(Caches::default()), cursor_resolve: tokio::sync::Semaphore::new(1) })
     }
 
     /// This service as the account rotation's [`UsageProbe`].
@@ -471,7 +471,7 @@ impl OAuthUsage {
     }
 
     async fn cursor_plan(&self) -> (Option<Arc<dyn CursorApiPlan>>, u64) {
-        let _serial = self.cursor_resolve.lock().await;
+        let _serial = self.cursor_resolve.acquire().await.expect("the cursor gate is never closed");
         let plan = self.deps.source.cursor_api_plan().await.ok().flatten();
         let identity = plan.as_ref().map(|plan| plan.key_identity());
         let mut caches = self.caches();

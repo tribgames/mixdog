@@ -908,7 +908,7 @@ async fn a_key_refused_where_it_is_saved_reaches_the_dialog_by_code() {
     let mut confirmed = request(&id);
     confirmed.trust_host_key = Some(true);
     let SshConnectResult::Failed(failed) = rig.connect.connect(ONE, &id, confirmed).await.unwrap() else { panic!("refused") };
-    assert_eq!(failed.failure.notice, Some(changed.message));
+    assert_eq!(failed.failure.notice, Some(Box::new(changed.message)));
     assert_eq!(failed.failure.kind, SshFailureKind::Failed { message: changed.english });
     assert!(rig.links.opened.lock().unwrap().is_empty() && rig.hosts.list().is_empty(), "nothing is opened or saved");
 }

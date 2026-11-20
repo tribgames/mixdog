@@ -6,7 +6,6 @@
 //! words Node's model proxy channel uses.
 #![allow(clippy::disallowed_methods, reason = "test setup: the settings files and the workspace folder of the composed core")]
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -184,7 +183,7 @@ impl Connector for Link {
             return Err("the PC is gone".into());
         }
         let halves = self.inner.open(target).await?;
-        let writer = Arc::new(tokio::sync::Mutex::new(halves.writer));
+        let writer = Arc::new(futures::lock::Mutex::new(halves.writer));
         Ok(TransportHalves {
             writer: Box::new(Writer(writer.clone())),
             reader: Box::new(Reader { inner: halves.reader, writer, cut: self.cut.clone() }),
@@ -192,7 +191,7 @@ impl Connector for Link {
     }
 }
 
-struct Writer(Arc<tokio::sync::Mutex<Box<dyn TransportWriter>>>);
+struct Writer(Arc<futures::lock::Mutex<Box<dyn TransportWriter>>>);
 
 #[async_trait]
 impl TransportWriter for Writer {
@@ -206,7 +205,7 @@ impl TransportWriter for Writer {
 
 struct Reader {
     inner: Box<dyn TransportReader>,
-    writer: Arc<tokio::sync::Mutex<Box<dyn TransportWriter>>>,
+    writer: Arc<futures::lock::Mutex<Box<dyn TransportWriter>>>,
     cut: Arc<tokio::sync::Notify>,
 }
 

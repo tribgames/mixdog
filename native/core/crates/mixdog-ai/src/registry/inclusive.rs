@@ -19,7 +19,7 @@ pub fn to_inclusive(usage: &Usage) -> Usage {
 
 /// `toInclusiveUsageError`.
 pub fn error_inclusive(mut error: ProviderError) -> ProviderError {
-    error.partial_usage = error.partial_usage.map(|usage| Box::new(to_inclusive(&usage)));
+    error.partial_usage = error.partial_usage.take().map(|usage| Box::new(to_inclusive(&usage)));
     error
 }
 

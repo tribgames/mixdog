@@ -210,14 +210,14 @@ async fn guard(shared: Arc<Shared>, stall: std::time::Duration, limit: std::time
     let deadline = tokio::time::Instant::now() + limit;
     let mut state = shared.state.subscribe();
     // The watch's read guard must not outlive the wait: `advance` writes to the same channel.
-    let started = tokio::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting)))
+    let started = mixdog_rt::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting)))
         .await
         .map(|waited| waited.is_ok());
     let message = match started {
         Err(_) => "GitHub sign-in did not start. Run `gh auth login` in a terminal instead.",
         Ok(false) => return,
         Ok(true) => {
-            if tokio::time::timeout_at(deadline, state.wait_for(LoginState::is_terminal)).await.is_ok() {
+            if mixdog_rt::time::timeout_at(deadline, state.wait_for(LoginState::is_terminal)).await.is_ok() {
                 return;
             }
             "Login timed out after 10 minutes."

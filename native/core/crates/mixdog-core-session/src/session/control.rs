@@ -351,7 +351,7 @@ pub(crate) struct ControlCell {
     /// A test's hook at a run start's fences: `check` once the start passed its Stop check (before the start gate), `gate` once
     /// the gate registered it (before the spawn). Called on the actor's own step, so what it does lands exactly there.
     #[cfg(any(test, feature = "test-support"))]
-    pub start_fences: Mutex<Option<Arc<dyn Fn(&'static str) + Send + Sync>>>,
+    pub start_fences: Mutex<Option<StartFence>>,
     /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
     #[cfg(any(test, feature = "test-support"))]
     pub recovered: std::sync::atomic::AtomicBool,
@@ -783,3 +783,7 @@ mod queue_tests {
     }
 }
 
+
+/// A fence a test arms on the actor's own step: told the step's name.
+#[cfg(any(test, feature = "test-support"))]
+type StartFence = Arc<dyn Fn(&'static str) + Send + Sync>;

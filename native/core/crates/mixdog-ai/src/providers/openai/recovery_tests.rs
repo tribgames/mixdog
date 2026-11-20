@@ -372,10 +372,10 @@ async fn partial_sse_preserves_dispatched_calls_replay_and_reported_usage_withou
         assert!(failure.unsafe_to_retry && failure.exposure.tool_dispatched);
         assert_eq!(events.iter().filter(|event| matches!(event, StreamEvent::ToolCallDone(_))).count(), 1);
         assert_eq!(failure.partial_model.as_deref(), Some("served-model"));
-        let replay = failure.partial_replay.unwrap();
+        let replay = failure.partial_replay.clone().unwrap();
         assert_eq!(replay.items[0]["call_id"], "call");
         if billed {
-            let usage = failure.partial_usage.unwrap();
+            let usage = failure.partial_usage.clone().unwrap();
             assert_eq!((usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.reasoning_tokens), (11, 5, 3, Some(2)));
             assert_eq!(usage.raw.unwrap()["service_tier"], "priority");
         } else {

@@ -351,7 +351,7 @@ mod tests {
         assert!(!task.is_finished(), "ended a millisecond before the bound");
         tokio::time::advance(Duration::from_millis(1)).await;
         let error = task.await.unwrap().unwrap_err();
-        assert_eq!((error.status, error.code.as_deref(), error.failing_image), (Some(400), Some(RUNTIME_UNAVAILABLE), None));
+        assert_eq!((error.status, error.code.as_deref(), error.failing_image.clone()), (Some(400), Some(RUNTIME_UNAVAILABLE), None));
         assert_eq!(error.message, format!("{RUNTIME_DOWN_AT}messages.0.content.1{RUNTIME_DOWN_TAIL}"));
     }
 
@@ -497,7 +497,7 @@ mod tests {
         let over_cap = fit(Ok(Some(resized(&"A".repeat(API_IMAGE_MAX_BASE64 + 1), "image/jpeg", (10, 10), (200, 200)))), &messages).await.unwrap_err();
         assert_eq!(over_cap.code.as_deref(), Some(PREPARATION_FAILED));
         let empty = fit(Ok(None), &json!([user(json!([image("")]))])).await.unwrap_err();
-        assert_eq!((empty.code.as_deref(), empty.failing_image), (Some(PREPARATION_FAILED), None));
+        assert_eq!((empty.code.as_deref(), empty.failing_image.clone()), (Some(PREPARATION_FAILED), None));
         let down = format!("{RUNTIME_DOWN_AT}messages.0.content.1{RUNTIME_DOWN_TAIL}");
         refused(fit(Ok(None), &messages).await.unwrap_err(), RUNTIME_UNAVAILABLE, &down);
         refused(fit(Err(ProfiledResizeError::Host(ExtError::Overloaded)), &messages).await.unwrap_err(), RUNTIME_UNAVAILABLE, &down);

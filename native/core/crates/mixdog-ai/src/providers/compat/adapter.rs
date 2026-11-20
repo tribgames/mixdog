@@ -347,7 +347,7 @@ mod site_tests {
         let fetch = |profile: CompatProfile, url: &str| {
             let url = url.to_owned();
             let page = &page;
-            async move { fetch_json(page, &profile, url, &[], Some("k")).await.expect_err("not JSON").message }
+            async move { fetch_json(page, &profile, url, &[], Some("k")).await.expect_err("not JSON").into_message() }
         };
         assert_eq!(
             fetch(CompatProfile::command_code_oauth(), "https://api.commandcode.ai/provider/v1/models").await,

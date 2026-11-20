@@ -473,7 +473,7 @@ mod model_proxy_tests {
     #[test]
     fn serving_advertises_the_model_proxy_only_for_a_core_that_runs_through_it() {
         let state = DiscoveryState { phase: DiscoveryPhase::Serving, blocked: None, drain_id: None };
-        let read = |root: &Path| -> serde_json::Value { serde_json::from_slice(&std::fs::read(discovery::path(root)).unwrap()).unwrap() };
+        let read = |root: &Path| -> serde_json::Value { serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, discovery::path(root)).unwrap()).unwrap() };
         let template = || Discovery {
             pid: 1,
             endpoints: discovery::Endpoints { session: discovery::SessionEndpoint { port: 4001, token: "tok".into() }, model_proxy: None },

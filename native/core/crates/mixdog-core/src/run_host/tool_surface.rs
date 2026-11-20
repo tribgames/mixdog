@@ -497,11 +497,11 @@ impl ToolSurface<'_> {
         let mut removed = false;
         let Some(map) = session.as_object_mut() else { return false };
         for key in ENTRY_KEYS {
-            if let Some(items) = kept.get(key) {
-                if map.get(key) != Some(items) {
-                    map.insert(key.to_owned(), items.clone());
-                    removed = true;
-                }
+            if let Some(items) = kept.get(key)
+                && map.get(key) != Some(items)
+            {
+                map.insert(key.to_owned(), items.clone());
+                removed = true;
             }
         }
         for key in ["deferredSelectedTools", "deferredDiscoveredTools", "deferredCallableTools", "deferredDefaultTools", "deferredAnnouncedTools", "nativeDeferredDiscovery"] {

@@ -158,7 +158,7 @@ impl WhisperServer {
         let mut response = link
             .send(request, VOICE_INFERENCE)
             .await
-            .map_err(|e| VoiceError(e.message))?;
+            .map_err(|e| VoiceError(e.into_message()))?;
         // Not `read_all`: its dispatcher ceiling is a timer, and this exchange has none.
         let mut text = Vec::new();
         while let Some(chunk) = response.body.next().await {

@@ -347,12 +347,13 @@ impl McpOAuth {
                 }
                 // A server that no longer knows our client_id answers the browser with an HTTP error nobody here
                 // sees: register again next time.
-                if run.browser_opened && !code_received && self.binding.client.is_none() {
-                    if let Ok(mut cache) = self.load().await
-                        && run.require_current(cache.generation).is_ok()
-                    {
-                        let _ = run.invalidate(&mut cache, Invalidate::Client).await;
-                    }
+                if run.browser_opened
+                    && !code_received
+                    && self.binding.client.is_none()
+                    && let Ok(mut cache) = self.load().await
+                    && run.require_current(cache.generation).is_ok()
+                {
+                    let _ = run.invalidate(&mut cache, Invalidate::Client).await;
                 }
                 Err(stop)
             }

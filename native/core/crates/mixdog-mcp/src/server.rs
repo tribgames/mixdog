@@ -189,7 +189,7 @@ pub struct McpServer {
     gmail: std::sync::OnceLock<Arc<crate::gmail_app_password::GmailMcp>>,
     accounts: std::sync::OnceLock<Arc<crate::connector_transport::AccountGroup>>,
     generation: AtomicU64,
-    connecting: tokio::sync::Mutex<()>,
+    connecting: tokio::sync::Semaphore,
     opening: Mutex<Option<Arc<RpcClient>>>,
     shutdown: CancellationToken,
     stopped: CancellationToken,
@@ -504,7 +504,7 @@ impl McpServer {
             gmail: std::sync::OnceLock::new(),
             accounts: std::sync::OnceLock::new(),
             generation: AtomicU64::new(0),
-            connecting: tokio::sync::Mutex::new(()),
+            connecting: tokio::sync::Semaphore::new(1),
             opening: Mutex::new(None),
             shutdown: CancellationToken::new(),
             stopped: CancellationToken::new(),
@@ -604,7 +604,7 @@ impl McpServer {
         if !self.wait_for_predecessors().await {
             return Err(ConnectError::Closed);
         }
-        let Ok(_attempt) = self.connecting.try_lock() else {
+        let Ok(_attempt) = self.connecting.try_acquire() else {
             let mut rx = self.subscribe();
             let settled = match rx.wait_for(|s| !matches!(**s, ServerState::Starting)).await {
                 Ok(state) => Arc::clone(&*state),
@@ -925,7 +925,7 @@ impl McpServer {
         crate::config::daemon_line(&format!("[mcp-server] name={} closed: {why}", self.name()));
         self.shutdown.cancel();
         // Startup owns the opening client until it publishes it or shuts it down on failure.
-        let _attempt = self.connecting.lock().await;
+        let _attempt = self.connecting.acquire().await.expect("the connect gate is never closed");
         self.generation.fetch_add(1, Ordering::AcqRel);
         let previous = self.state.send_replace(Arc::new(ServerState::Closed));
         // A closed server lists nothing: the connection that ended by itself goes too.

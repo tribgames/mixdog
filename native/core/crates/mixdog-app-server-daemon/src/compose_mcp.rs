@@ -686,6 +686,39 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
     McpComposed { services: vec![mcp.clone(), skills], mcp_domain: mcp, callers: callers_out, setup: Arc::new(setup), agents, glue, catalog }
 }
 
+impl mixdog_agent::env::Clock for AgentClock {
+    fn now_ms(&self) -> i64 {
+        self.0.now_ms()
+    }
+}
+#[async_trait::async_trait]
+impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
+    async fn finished(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        if let Some(directory) = self.0.directory() {
+            mixdog_tools::exec::TaskNotifier::finished(&*directory, owner, surface, task_id, status, notification).await;
+        }
+    }
+
+    async fn finished_at_hop(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String, hop: u32) {
+        if let Some(directory) = self.0.directory() {
+            mixdog_tools::exec::TaskNotifier::finished_at_hop(&*directory, owner, surface, task_id, status, notification, hop).await;
+        }
+    }
+}
+
+
+/// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
+pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
+#[async_trait::async_trait]
+impl mixdog_ai::registry::accounting::UsageSink for SourcedSink {
+    async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
+        match (self.0)() {
+            Some(sink) => sink.record_queued(row).await,
+            None => Err("no usage ledger".to_owned()),
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test fixtures are written straight to a temp dir")]
 mod tests {
@@ -1537,40 +1570,5 @@ mod tests {
         assert_eq!(visible[0], names(&["alpha", "gamma", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]), "in proj1: gamma is scoped there, plug-a is not");
         assert_eq!(visible[1], names(&["alpha", "needs-git", "inner", "plugin-topic", "named-skill", "more", "bundled", "bundled-git"]), "in proj2: plug-a is scoped there, gamma is not");
         assert_eq!(visible[2], names(&["alpha", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]), "elsewhere neither scoped extension; beta and own are disabled (case and padding ignored) and needs-office needs an uninstalled feature");
-    }
-}
-
-
-
-impl mixdog_agent::env::Clock for AgentClock {
-    fn now_ms(&self) -> i64 {
-        self.0.now_ms()
-    }
-}
-#[async_trait::async_trait]
-impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
-    async fn finished(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
-        if let Some(directory) = self.0.directory() {
-            mixdog_tools::exec::TaskNotifier::finished(&*directory, owner, surface, task_id, status, notification).await;
-        }
-    }
-
-    async fn finished_at_hop(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String, hop: u32) {
-        if let Some(directory) = self.0.directory() {
-            mixdog_tools::exec::TaskNotifier::finished_at_hop(&*directory, owner, surface, task_id, status, notification, hop).await;
-        }
-    }
-}
-
-
-/// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
-pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
-#[async_trait::async_trait]
-impl mixdog_ai::registry::accounting::UsageSink for SourcedSink {
-    async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
-        match (self.0)() {
-            Some(sink) => sink.record_queued(row).await,
-            None => Err("no usage ledger".to_owned()),
-        }
     }
 }

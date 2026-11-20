@@ -135,7 +135,10 @@ pub trait PlanScope: Send + Sync {
 
 /// The rule as a reader of the host's provider settings as a send builds them (stored settings merged over the
 /// defaults), not the stored section alone.
-pub struct ScopeBy(pub Arc<dyn Fn(&str) -> futures::future::BoxFuture<'static, bool> + Send + Sync>);
+pub struct ScopeBy(pub ScopeFn);
+
+/// A reader of the host's provider settings: whether a provider's plan meters describe its destination.
+pub type ScopeFn = Arc<dyn Fn(&str) -> futures::future::BoxFuture<'static, bool> + Send + Sync>;
 
 #[async_trait]
 impl PlanScope for ScopeBy {
@@ -152,6 +155,14 @@ impl PlanScope for OwnServices {
     async fn plan_meters_apply(&self, _: &str) -> bool {
         true
     }
+}
+
+/// The seams only the host knows, handed to [`AccountGate::new`] together.
+pub struct HostSeams {
+    pub switch: Arc<dyn ProviderSwitch>,
+    pub resumes: Arc<dyn QuotaResumes>,
+    pub snapshots: Arc<dyn UsageSnapshots>,
+    pub scope: Arc<dyn PlanScope>,
 }
 
 /// The gate over the process's admission lanes, account roster and the seams above.
@@ -178,11 +189,9 @@ impl AccountGate {
         lane_settings: Arc<dyn Fn(&LaneKey) -> LaneSettings + Send + Sync>,
         store: AccountStore,
         rotation: Arc<AccountRotation>,
-        switch: Arc<dyn ProviderSwitch>,
-        resumes: Arc<dyn QuotaResumes>,
-        snapshots: Arc<dyn UsageSnapshots>,
-        scope: Arc<dyn PlanScope>,
+        seams: HostSeams,
     ) -> Self {
+        let HostSeams { switch, resumes, snapshots, scope } = seams;
         let now_ms = Arc::new(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::SystemTime::UNIX_EPOCH)

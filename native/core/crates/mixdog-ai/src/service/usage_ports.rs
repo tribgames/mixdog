@@ -103,7 +103,7 @@ impl RoutedUsageHttp {
             // A transport fault already carries the call site's Node text (`fetch failed`, or the
             // `AbortSignal.timeout` message); a refusal before any transport (a route the proxy policy
             // could not decide) reads as Node's `fetch failed`.
-            UsageError::new(if error.transport.is_some() { error.message } else { FETCH_FAILED.to_owned() })
+            UsageError::new(if error.transport.is_some() { error.into_message() } else { FETCH_FAILED.to_owned() })
         };
         let head = self.http.send(request, exchange).await.map_err(failed)?;
         let status = head.status;
@@ -150,7 +150,7 @@ impl GrokClient for GrokVersionHeaders {
 }
 
 fn failure(error: ProviderError) -> UsageError {
-    UsageError { status: error.status, message: error.message }
+    UsageError { status: error.status, message: error.into_message() }
 }
 
 #[derive(Clone)]
@@ -179,10 +179,13 @@ pub struct ProviderUsageSource {
     cursor_api: Option<CursorApiUsage>,
 }
 
+/// The key's text, its digest and the access built from it.
+type CachedAccess = (String, [u8; 32], Arc<ApiKeyAccess>);
+
 struct CursorApiUsage {
     keys: ApiKeyStore,
     config: Arc<dyn Fn() -> KeyConfig + Send + Sync>,
-    cached: Mutex<Option<(String, [u8; 32], Arc<ApiKeyAccess>)>>,
+    cached: Mutex<Option<CachedAccess>>,
 }
 
 struct CursorApiReading {
