@@ -4,6 +4,7 @@
 //! reports the worker's progress as [`progress`](super::progress) derives it.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use mixdog_js::JsRegex;
@@ -131,13 +132,19 @@ fn lowered(value: &str) -> String {
     js_trim(value).to_lowercase()
 }
 
+// Asked of every worker row on every status pass: compiled once.
+static CANCELLED_STATE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$", ""));
+static TERMINAL_WORKER_STATUS: LazyLock<JsRegex> = LazyLock::new(|| {
+    JsRegex::new_static(r"^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$", "i")
+});
+
 fn is_cancelled_state(value: &str) -> bool {
-    JsRegex::new_static(r"^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$", "").is_match(value)
+    CANCELLED_STATE.is_match(value)
 }
 
 fn is_terminal_worker_status(value: &str) -> bool {
-    JsRegex::new_static(r"^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$", "i")
-        .is_match(js_trim(value))
+    TERMINAL_WORKER_STATUS.is_match(js_trim(value))
 }
 
 /// `isActiveWorkerRow`: `status` decides; the stage stands in for a row with no status. A

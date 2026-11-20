@@ -143,6 +143,10 @@ impl Records for LateDirectory {
     async fn record(&self, session: &str) -> Option<Header> {
         self.directory()?.stored_header(&ThreadId::from(session)).await
     }
+
+    async fn record_fields(&self, session: &str, fields: &'static [&'static str]) -> Option<Header> {
+        self.directory()?.stored_fields(&ThreadId::from(session), fields).await
+    }
 }
 
 /// `RunStamps` over the late directory: `DirectoryRunStamps`' backfill (`run_stamp_of`), reading a
@@ -322,6 +326,10 @@ impl LateThreads {
 impl ThreadState for LateThreads {
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
         self.threads()?.header(thread).await
+    }
+
+    async fn header_fields(&self, thread: &ThreadId, fields: &'static [&'static str]) -> Result<Header, PortError> {
+        self.threads()?.header_fields(thread, fields).await
     }
 
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {

@@ -94,7 +94,8 @@ impl ThreadOps {
 impl ThreadOpGates for ThreadOps {
     /// `threadNotFound` for a thread with no stored session (its gate is dropped).
     async fn gate(&self, thread: &ThreadId, _ctx: &CallContext) -> Result<OpGate, CoreError> {
-        if self.dir.stored_header(thread).await.is_none() {
+        // Only whether the session is there is asked: none of its header is taken.
+        if self.dir.stored_fields(thread, &[]).await.is_none() {
             self.gates().remove(thread);
             return Err(CoreError::ThreadNotFound { thread_id: thread.clone() });
         }

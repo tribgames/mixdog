@@ -143,6 +143,16 @@ impl ThreadState for SessionThreads {
         Ok(value.get("header").and_then(Value::as_object).cloned().unwrap_or_default())
     }
 
+    /// Of a loaded thread the members are picked from its live header, which is not copied. A thread that is not loaded is
+    /// read as [`header`](Self::header) reads it, from its record: the index row is not asked, which can outlive a log
+    /// that is gone.
+    async fn header_fields(&self, thread: &ThreadId, fields: &'static [&'static str]) -> Result<Header, PortError> {
+        if let Some(header) = self.directory.loaded_fields(thread, fields) {
+            return Ok(header);
+        }
+        Ok(self.header(thread).await?.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
+    }
+
     /// Answered once the change is durable and in the index, so every read after the answer — the Agents pool's worker
     /// rows among them — sees it (Node's write is the file every later listing reads).
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {

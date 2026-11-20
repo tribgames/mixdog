@@ -7096,3 +7096,24 @@ async fn a_turn_that_ends_during_the_wait_removes_the_spinner_and_a_late_stage_d
         assert!(spinner_of(&run.handle).is_none(), "{ending}: a late stage brought the spinner back");
     }
 }
+
+/// What a gate decision or a todo guard reads of a session is a few members of its header, taken without the rest (its
+/// prompt and tool catalog): they are the header's own, and an unknown session has none, as it has no header.
+#[tokio::test(start_paused = true)]
+async fn the_picked_members_of_a_header_are_the_headers_own() {
+    const FIELDS: &[&str] = &["createdAt", "updatedAt", "cwd", "noSuchMember"];
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let thread = start_thread(&directory).await.id.clone();
+    let whole = directory.stored_header(&thread).await.expect("held");
+    let expected: mixdog_store::schema::record::Header =
+        whole.iter().filter(|(key, _)| FIELDS.contains(&key.as_str())).map(|(key, value)| (key.clone(), value.clone())).collect();
+    assert!(!expected.is_empty() && expected.len() < whole.len(), "{expected:?} of {} members", whole.len());
+    assert_eq!(directory.stored_fields(&thread, FIELDS).await, Some(expected.clone()));
+    assert_eq!(directory.loaded_fields(&thread, FIELDS), Some(expected));
+    assert_eq!(directory.stored_fields(&thread, &[]).await, Some(Default::default()), "a session that is there, asked for nothing");
+    let unknown = ThreadId::from("sess_no_such_session");
+    assert!(directory.stored_header(&unknown).await.is_none());
+    assert!(directory.stored_fields(&unknown, FIELDS).await.is_none());
+    assert!(directory.loaded_fields(&unknown, FIELDS).is_none());
+}

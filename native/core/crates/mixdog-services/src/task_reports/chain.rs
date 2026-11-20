@@ -3,6 +3,7 @@
 //! chain still waits on agent work (`runtime/shared/pending-agent-work.mjs`).
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use mixdog_js::{JsRegex, js_trim, json_parse, value_to_string};
 use serde_json::Value;
@@ -308,22 +309,26 @@ fn statuses(row: &Value) -> Vec<String> {
     seen
 }
 
+// Asked of every pool row on every pending-work check: compiled once.
+static CANCELLED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("cancel|killed|aborted|interrupted", "i"));
+static TERMINAL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("idle|done|complete|success|closed|error|fail|cancel|killed|timeout", "i"));
+static ACTIVE: LazyLock<JsRegex> = LazyLock::new(|| {
+    JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|resource_wait)$", "i")
+});
+static CANCEL_UNCONFIRMED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"cancel[-_\s]?(?:unconfirmed|pending)|cancell?ing", "i"));
+
 fn is_active_row(row: &Value) -> bool {
     let all = statuses(row);
-    let cancelled = JsRegex::new_static("cancel|killed|aborted|interrupted", "i");
-    if all.is_empty() || all.iter().any(|s| cancelled.is_match(s)) {
+    if all.is_empty() || all.iter().any(|s| CANCELLED.is_match(s)) {
         return false;
     }
     let status = row.get("status").filter(|v| truthy(Some(v))).map_or_else(String::new, |v| js_trim(&value_to_string(v)).to_owned());
     let lifecycle = if status.is_empty() { all[0].clone() } else { status };
-    let terminal = JsRegex::new_static("idle|done|complete|success|closed|error|fail|cancel|killed|timeout", "i");
-    let active = JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|resource_wait)$", "i");
-    !terminal.is_match(&lifecycle) && active.is_match(&lifecycle)
+    !TERMINAL.is_match(&lifecycle) && ACTIVE.is_match(&lifecycle)
 }
 
 fn is_cancel_unconfirmed(row: &Value) -> bool {
-    let regex = JsRegex::new_static(r"cancel[-_\s]?(?:unconfirmed|pending)|cancell?ing", "i");
-    statuses(row).iter().any(|s| regex.is_match(s))
+    statuses(row).iter().any(|s| CANCEL_UNCONFIRMED.is_match(s))
 }
 
 /// `hasPendingAgentWork`: agent work still in flight on one pool row.
