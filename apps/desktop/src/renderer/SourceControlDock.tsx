@@ -400,7 +400,7 @@ export function SourceControlDock({
       onPush: pushNow,
     });
   // PR eligibility, shared by the review tab's Pull Request pane. The button
-  // itself lives ONLY there now (user: PR은 완전히 분리).
+  // itself lives ONLY there (the PR flow is fully separate).
   const prAhead = status?.ahead ?? 0;
   const prUrl =
     status?.upstream && prAhead === 0 && !status.operation && !status.detached
@@ -560,8 +560,8 @@ export function SourceControlDock({
               className="dock-scm-scroll"
               ref={filesScrollRef}
               onKeyDown={(event) => {
-                // Esc anywhere in the list clears the checkbox selection (user: 셀렉트
-                // 하면 어떻게 언셀렉함) — the toolbar Clear button is the mouse path.
+                // Esc anywhere in the list clears the checkbox selection; the
+                // toolbar Clear button is the mouse path.
                 if (event.key !== 'Escape' || selectedCount === 0) return;
                 event.stopPropagation();
                 clearSelected();

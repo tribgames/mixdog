@@ -552,7 +552,7 @@ function agentChatRow(
   const bubble = createElement(AgentChatRow, { place: cardPlace, member: named, card: Boolean(routine), after }, body);
   // The turn's end seats its visualize cards under its reply (or the error
   // that ended it). A bot chat shows no changed-files card: the conversation
-  // is about the result, not the diff (user: 봇 세션에서 변경은 안 나와도 된다).
+  // is about the result, not the diff.
   const changes = row._tag === 'AssistantPart' || row._tag === 'Error' ? row.turnChanges : undefined;
   // A turn status row ("Response complete", compaction) shows nothing.
   if (place?.side === 'hidden' && !changes) return null;

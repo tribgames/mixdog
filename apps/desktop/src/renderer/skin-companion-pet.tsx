@@ -927,6 +927,56 @@ function QuickMessageForm({
   );
 }
 
+/** A decision made in the bubble: its short result stands in for the
+ *  bubble, then the bubble is itself again. A next request replaces it at once. */
+function useApprovalDecision(
+  onDecide: CompanionPetProps['onDecide'],
+  mascotRef: { current: HTMLButtonElement | null }
+) {
+  const [decided, setDecided] = useState<{ id: string; approved: boolean } | null>(null);
+  const [deciding, setDeciding] = useState(false);
+  const decidingRef = useRef(false);
+  const takeFocus = useRef(false);
+  const onDecideRef = useRef(onDecide);
+  onDecideRef.current = onDecide;
+  const decide = useCallback<DecideRequest>(
+    (id, index, approved) => {
+      if (decidingRef.current || !onDecideRef.current) return;
+      decidingRef.current = true;
+      setDeciding(true);
+      const fromBubble = Boolean(document.activeElement?.closest('.skin-companion-bubble'));
+      onDecideRef
+        .current(id, index)
+        .then(
+          (recorded) => {
+            if (!recorded) return;
+            setDecided({ id, approved });
+            // The buttons go away: the keys go back to the pet, and on to the next request.
+            if (fromBubble) {
+              takeFocus.current = true;
+              focusPet(mascotRef.current);
+            }
+          },
+          () => {}
+        )
+        .finally(() => {
+          decidingRef.current = false;
+          setDeciding(false);
+        });
+    },
+    [mascotRef]
+  );
+  useEffect(() => {
+    if (!decided) return;
+    const timer = window.setTimeout(() => {
+      setDecided(null);
+      takeFocus.current = false;
+    }, DECISION_RESULT_MS);
+    return () => window.clearTimeout(timer);
+  }, [decided]);
+  return { decided, deciding, decide, takeFocus };
+}
+
 export function CompanionPet({
   face,
   name = '',
@@ -998,46 +1048,7 @@ export function CompanionPet({
   const closeReply = useCallback(() => {
     if (replyKeyRef.current) onDismissRef.current(replyKeyRef.current);
   }, []);
-  // A decision made in the bubble: its short result stands in for the
-  // bubble, then the bubble is itself again. A next request replaces it at once.
-  const [decided, setDecided] = useState<{ id: string; approved: boolean } | null>(null);
-  const [deciding, setDeciding] = useState(false);
-  const decidingRef = useRef(false);
-  const takeFocus = useRef(false);
-  const onDecideRef = useRef(onDecide);
-  onDecideRef.current = onDecide;
-  const decide = useCallback<DecideRequest>((id, index, approved) => {
-    if (decidingRef.current || !onDecideRef.current) return;
-    decidingRef.current = true;
-    setDeciding(true);
-    const fromBubble = Boolean(document.activeElement?.closest('.skin-companion-bubble'));
-    onDecideRef
-      .current(id, index)
-      .then(
-        (recorded) => {
-          if (!recorded) return;
-          setDecided({ id, approved });
-          // The buttons go away: the keys go back to the pet, and on to the next request.
-          if (fromBubble) {
-            takeFocus.current = true;
-            focusPet(mascotRef.current);
-          }
-        },
-        () => {}
-      )
-      .finally(() => {
-        decidingRef.current = false;
-        setDeciding(false);
-      });
-  }, []);
-  useEffect(() => {
-    if (!decided) return;
-    const timer = window.setTimeout(() => {
-      setDecided(null);
-      takeFocus.current = false;
-    }, DECISION_RESULT_MS);
-    return () => window.clearTimeout(timer);
-  }, [decided]);
+  const { decided, deciding, decide, takeFocus } = useApprovalDecision(onDecide, mascotRef);
   const nextRequest = bubble.kind === 'approval' && bubble.approvals?.some((entry) => entry.id !== decided?.id);
   const result = decided && !nextRequest ? decided : null;
   // Read once its end was on screen: the app counts the chat read too. A

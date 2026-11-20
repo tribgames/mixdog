@@ -181,7 +181,7 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       assert.ok(layout.bottom <= viewport.height - margin + 1, `bottom clearance: ${label}, ${place}`);
       if (state !== 'empty') {
         // With content the card fills its margins; a desktop window stops it
-        // at 760px (user: 팝업 상하 최대 크기) and its body scrolls, while the
+        // at 760px and its body scrolls, while the
         // phone sheet keeps filling the screen.
         const room = viewport.height - caption - 2 * margin;
         const height = viewport.mobile ? room : Math.min(760, room);

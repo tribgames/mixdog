@@ -20,9 +20,9 @@ async function storeWith(entries) {
   });
   await store.ready();
   const push = (...added) =>
-    listeners.forEach((listener) =>
-      listener({ kind: 'sections', changes: added.map((e) => ({ section: e.section, key: e.key, entry: e })) })
-    );
+    listeners.forEach((listener) => {
+      listener({ kind: 'sections', changes: added.map((e) => ({ section: e.section, key: e.key, entry: e })) });
+    });
   return { store, push };
 }
 
@@ -163,7 +163,12 @@ test('a Node-hosted connection asks the host for every capability', async () => 
 test('on a core connection a capability the sections did not replace still goes to the core lane', async () => {
   const { store } = await storeWith(SECTIONS);
   const sent = [];
-  const api = { invokeCapability: async (request) => (sent.push(request.capability), { value: 1, snapshot: null }) };
+  const api = {
+    invokeCapability: async (request) => {
+      sent.push(request.capability);
+      return { value: 1, snapshot: null };
+    },
+  };
   assert.deepEqual(await invokeOrHeld(api, { capability: 'getProfile' }, coreSource(store)), {
     value: 1,
     snapshot: null,

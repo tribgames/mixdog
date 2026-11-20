@@ -153,8 +153,7 @@ export const SearchPane = memo(function SearchPane({
   onRenameEntry?(projectPath: string, relPath: string, newName: string): Promise<void>;
   /** The panel title row's action slot. With it, the tree's actions ride the
    *  title row and the Names/Contents tabs keep the full width in both modes
-   *  — sharing their row, the tabs narrowed only while the tree showed (user:
-   *  이름 내용이 좌우로 전체 차지하게 해야지). */
+   *  — sharing their row, the tabs narrowed only while the tree showed. */
   headerActionSlot?: HTMLElement | null;
 }) {
   // The tree's New File / New Folder / Refresh / Collapse All actions portal
@@ -219,8 +218,8 @@ export const SearchPane = memo(function SearchPane({
         {pending ? t('Searching…') : ''}
       </span>
       {/* Workspace open/add/save toolbar removed on purpose: Mixdog exposes
-        ONE Project concept — no multi-root workspace UI (user:
-        Project 개념만 있고 워크트리 격리가 없는데 혼용돼 헷갈린다). */}
+        ONE Project concept — no multi-root workspace UI (Project has no
+        worktree isolation, so mixing the two confused). */}
       <div className="workbench-explorer-search">
         <label className="workbench-search-input">
           <Search size={14} aria-hidden="true" />

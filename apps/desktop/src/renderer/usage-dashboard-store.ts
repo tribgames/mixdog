@@ -4,9 +4,8 @@
 // cannot own the request, its timers, or the snapshot: every popup open would
 // restart the cadence and re-fetch, and no warmup could run before the first
 // click. This module keeps ONE snapshot, ONE deduped getUsageDashboard request,
-// and ONE refresh cadence for the whole renderer — the desktop twin of the TUI
-// statusline usage warmup. localStorage stays a stale seed only: it paints
-// instantly and is always revalidated.
+// and ONE pushed-section subscription for the whole renderer. localStorage
+// stays a stale seed only: it paints instantly and is always revalidated.
 //
 // Ownership rules (a stale response must never win):
 //   * host    — the window the state belongs to; a different document rebinds.
@@ -555,7 +554,7 @@ export function refreshUsageDashboardAfterAuth(
 }
 
 /** One in-flight request for the whole renderer. `force` skips the TTL check
- *  (cadence ticks and retries); everything else is stale-while-revalidate. */
+ *  (credential changes and retries); everything else is stale-while-revalidate. */
 export function refreshUsageDashboard(
   api: UsageApi | undefined,
   {

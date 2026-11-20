@@ -16,8 +16,8 @@ export const RECENT_SESSION_PAGE_ROWS = 32;
  *  end of the whole list. While the extent ended at the revealed rows, a fast
  *  phone fling (run by the compositor) outran the page commits (main thread)
  *  on a busy phone whatever the lead: the momentum died at the end of the
- *  revealed rows and the rows appeared under a list at rest (phone: 빠르게
- *  스크롤하고 놓으니 중간에 멈추고 덜덜). Rows outside the viewport are spacers
+ *  revealed rows and the rows appeared under a list at rest (the phone list
+ *  stalled and juddered mid-fling). Rows outside the viewport are spacers
  *  (session-sidebar-virtual-rows), so the lead costs little. */
 const RECENT_SENTINEL_REVEAL_LEAD_VIEWPORTS = 4;
 /** The lead's floor, for a scroller without a box yet. */
@@ -210,7 +210,7 @@ export function useSidebarListScroll({
   projectsOpen,
   sectionOrder,
 }: SidebarListScrollInput) {
-  // Pagination has NO control of its own (user decision: no "Show more"):
+  // Pagination has NO control of its own (no "Show more"):
   // an invisible end sentinel inside the Recent list reveals the next page as
   // the reader approaches it. The full list is still never rendered up front —
   // that is what keeps tab switches cheap on large session catalogs.

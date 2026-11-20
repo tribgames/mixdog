@@ -163,8 +163,7 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
       }
     }
     // The subscription usage that dialog opens on: its first open after boot
-    // waited on a cold ledger read (user: 처음에 유즈에이지 창 눌러서 진입할 때
-    // 바로 안 나오네). A remote client reads it when the dialog opens instead.
+    // waited on a cold ledger read. A remote client reads it when the dialog opens instead.
     if (desktopFeatureEnabled('usage') && !isRemoteHostRenderer()) {
       cancels.push(
         scheduleBootWarmup({
@@ -497,10 +496,10 @@ export function useAppWorkspaceWarmup({
         : [];
     const mountPages = () => [...mountBotsPage(), ...mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER)];
     // Every rail page mounts hidden at idle, so no first entry mounts its page
-    // in front of the user (user: 사이드 뷰가 늦게 뜨고 튐). A phone's lane
+    // in front of the user. A phone's lane
     // opens only once its first conversation painted, and takes them only on
     // a normal link. Opened cold, each page painted its placeholder until its
-    // chunk and its list crossed the relay (user: 메뉴 목록이 바로 안 나온다).
+    // chunk and its list crossed the relay.
     // Mounted on the first touch instead, the pages rendered while the drawer
     // that touch opened was in front of the user, and its first rail tap
     // landed among them.

@@ -719,7 +719,10 @@ test('a wake on a connection that stayed up and a reconnect both end in a read t
   globalThis.window = {
     mixdogDesktop: {
       onVisualizeChanged: () => () => undefined,
-      visualizeState: async () => (reads++, states),
+      visualizeState: async () => {
+        reads++;
+        return states;
+      },
     },
     addEventListener: (type, listener) => listeners.set(type, listener),
     removeEventListener: () => undefined,

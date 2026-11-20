@@ -273,8 +273,8 @@ export function useDraftPanePreferences({
     // tasks reuse the last settings). Model/workflow stay INHERITED (null) so
     // later session-route changes keep flowing in until the user explicitly
     // stages this pane, and auto-seeding never rewrites lastNewTaskPrefs
-    // (which rewound the cache to stale values — user report: the last
-    // session-creation model was not applied to the next New Task).
+    // (which rewound the cache to stale values, so the last session-creation
+    // model was not applied to the next New Task).
     // The PROJECT inherits on the same terms: materializing the resolved
     // value here froze whatever was known at FIRST PAINT, which on a phone
     // is an empty catalog — and "" then read as an explicit No project for

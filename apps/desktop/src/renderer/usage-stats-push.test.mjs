@@ -49,7 +49,10 @@ test('a pushed usage/stats entry updates an open statistics dialog without a rea
     sections: {
       core: async () => true,
       snapshot: async () => ({ status: 'ready', entries }),
-      subscribe: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
     },
     async invokeCapability(request) {
       reads.push(request);
@@ -109,9 +112,10 @@ for (const core of [false, true]) {
         return { value: { totals: { tokens: reads * 1000 } } };
       },
       subscribeState: () => () => {},
-      subscribeSessionState: (listener) => (
-        sessionListeners.add(listener), () => void sessionListeners.delete(listener)
-      ),
+      subscribeSessionState: (listener) => {
+        sessionListeners.add(listener);
+        return () => void sessionListeners.delete(listener);
+      },
     };
     const release = holdStatsDataCache(api, { background: false });
     context.after(release);

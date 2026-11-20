@@ -68,12 +68,11 @@ function useSidebarPresentation({
   }, [sidebarOpen, sidebarTreeBooted]);
   const sidebarTreeMounted = sidebarOpen || sidebarTreeBooted;
   // Entering a rail panel for the FIRST time cold-mounts its Suspense chunk,
-  // so that one transition still settles hidden before it becomes visible
-  // (user: 사이드탭 메뉴 전환 시 툭 튐). Once a destination has genuinely
+  // so that one transition still settles hidden before it becomes visible.
+  // Once a destination has genuinely
   // resolved its module AND committed its content on screen, it is warm: the
   // request IS the presentation and flips in the click's own commit, because
-  // an artificial settle window there only reads as input lag (user: 좌측
-  // 메뉴 전환이 느리다).
+  // an artificial settle window there only reads as input lag.
   const warmSidebarSurfaces = useRef<ReadonlySet<SidebarSurface>>(new Set(['sessions']));
   const [laggedSidebarSurface, setLaggedSidebarSurface] = useState<SidebarSurface>('sessions');
   const requestedSidebarPanelReady =
@@ -183,7 +182,7 @@ function useSidebarProjectActions({
     onProjectAddedRef.current = null;
     onAdded?.(path);
   });
-  // Project rows carry no open action (user: 클릭 없애 그냥) — the panel lists
+  // Project rows carry no open action — the panel lists
   // and edits projects; NEW TASK is minted from its own entries only.
   const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
   const projectsRemove = useStableEvent((path: string) => void removeProject(path));
@@ -328,15 +327,13 @@ export function useAppSidebarSurface({
   // rows, and every rail panel are memoised, but fresh inline closures and a
   // fresh children fragment on every App render defeated those boundaries —
   // a mere tab switch re-rendered the whole sidebar tree (profiled:
-  // SessionRow/panel subtrees dominated fast-switch commits, user: 빨리
-  // 움직이면 전 화면 잔상이 남는다).
+  // SessionRow/panel subtrees dominated fast-switch commits).
   const sidebarNewTask = useStableEvent(() => {
     closeSidebarForNavigation();
     startTask();
   });
   // The Sessions panel's second fixed launcher row: Studio opens as a
-  // workspace tab exactly like New Task (user: 세션 위에 새 작업·새 스튜디오
-  // 고정), so the phone drawer closes the same way before the tab lands.
+  // workspace tab exactly like New Task, so the phone drawer closes the same way before the tab lands.
   const sidebarNewStudio = useStableEvent(() => {
     closeSidebarForNavigation();
     openStudio();

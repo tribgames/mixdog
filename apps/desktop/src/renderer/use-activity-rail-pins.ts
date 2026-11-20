@@ -40,11 +40,10 @@ function isRemoteConnectionLapse(error: unknown): boolean {
 function reportSyncError(error: unknown): void {
   console.warn('Activity rail pin synchronization failed', error);
   // An interrupted or timed-out relay call has no useful message; the change may not have reached the host.
-  const detail = isRemoteConnectionLapse(error)
-    ? t('Check the connection, then try again.')
-    : error instanceof Error
-      ? error.message
-      : String(error);
+  let detail: string;
+  if (isRemoteConnectionLapse(error)) detail = t('Check the connection, then try again.');
+  else if (error instanceof Error) detail = error.message;
+  else detail = String(error);
   showDesktopToast(`${t('Sidebar')}: ${detail}`, 'error', {
     scope: 'activity-rail-pins',
   });

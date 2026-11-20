@@ -21,7 +21,12 @@ async function mount(tab, { confirm = () => true, setNotice = () => {} } = {}) {
   });
   const sent = [];
   overrideConfirmAction(confirm);
-  window.mixdogDesktop = { visualizeCommand: async (command) => (sent.push(command), {}) };
+  window.mixdogDesktop = {
+    visualizeCommand: async (command) => {
+      sent.push(command);
+      return {};
+    },
+  };
   const action = visualizeVersionActions('s1', tab, setNotice);
   const root = createRoot(document.getElementById('root'));
   await act(async () =>
@@ -75,7 +80,10 @@ test('a past version: attention icon, read-only tooltip, Back to current first, 
   const m = await mount(
     { ...baseTab, version: 2, panes: [{ target: 'a.html', version: 2 }] },
     {
-      confirm: (message) => (asked.push(message), true),
+      confirm: (message) => {
+        asked.push(message);
+        return true;
+      },
     }
   );
   try {

@@ -1,21 +1,18 @@
 import { Info, Plus } from 'lucide-react';
 import { SidebarUsageMenu } from './SidebarUsageMenu';
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react';
+import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { InitialSurface } from './InitialSurface';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { ProviderIcon } from './provider-display';
 import { record } from './record-utils';
 import {
   getUsageDashboardSnapshot,
   holdUsageDashboardCadence,
-  publishUsageDashboard,
   refreshUsageDashboard,
   subscribeUsageDashboard,
-  withUsageTimeout,
   type UsageApi,
   type UsageRecord,
 } from './usage-dashboard-store';
@@ -43,22 +40,12 @@ import {
   type UsageRailSlots,
 } from './usage-pin-entries';
 import { expandableAccounts, useUsageAccountPools, type UsageAccount } from './usage-account-pools';
+import { useCodexResetCredit } from './use-codex-reset-credit';
 
 export { usagePinEntries, type UsageRailBars, type UsageRailSlots } from './usage-pin-entries';
 
-const SIDEBAR_CODEX_RESET_ATTEMPT_KEY = 'mixdog.desktop.codex-reset-attempt.v1';
-const SIDEBAR_CODEX_RESET_TIMEOUT_MS = 90_000;
-
 function quotaWindowKey(window: UsageRecord, index: number): string {
   return String(window.id || window.window || window.period || window.label || `window:${index}`);
-}
-
-function resetCreditKey(credit: UsageRecord, index: number): string {
-  return String(
-    credit.id ||
-      credit.creditId ||
-      (timestamp(credit.expiresAt) ? `expires:${timestamp(credit.expiresAt)}` : `credit:${index}`)
-  );
 }
 
 function subscriptionConnected(row: UsageRecord): boolean {
@@ -70,85 +57,6 @@ function resetExpiryText(value: unknown): string {
   if (schedule.state === 'due') return t('Expiry due');
   if (schedule.state === 'in') return t('Expires in {{time}}', { time: schedule.time });
   return schedule.state === 'soon' ? t('Expires soon') : '';
-}
-
-function resetCredits(row: UsageRecord): UsageRecord {
-  return record(row.resetCredits);
-}
-
-function availableResetCount(value: UsageRecord): number {
-  return Math.max(0, Math.floor(number(value.availableCount) || 0));
-}
-
-function availableResetCredits(value: UsageRecord): UsageRecord[] {
-  const availableCount = availableResetCount(value);
-  const credits = (Array.isArray(value.availableCredits) ? value.availableCredits : [])
-    .map(record)
-    .sort(
-      (left, right) =>
-        (timestamp(left.expiresAt) ?? Number.POSITIVE_INFINITY) -
-        (timestamp(right.expiresAt) ?? Number.POSITIVE_INFINITY)
-    );
-  while (credits.length < availableCount) credits.push({});
-  return credits.slice(0, availableCount);
-}
-
-function createResetAttemptId(): string {
-  const bytes = new Uint8Array(16);
-  if (typeof window.crypto?.getRandomValues === 'function') {
-    window.crypto.getRandomValues(bytes);
-  } else {
-    for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] = Math.floor(Math.random() * 256);
-    }
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function codexResetAttempt(offerRevision: string): string {
-  try {
-    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
-    if (stored.offerRevision === offerRevision && typeof stored.idempotencyKey === 'string') {
-      return stored.idempotencyKey;
-    }
-  } catch {
-    // A corrupt retry record is replaced with a fresh scoped attempt below.
-  }
-  const idempotencyKey = createResetAttemptId();
-  try {
-    window.localStorage.setItem(
-      SIDEBAR_CODEX_RESET_ATTEMPT_KEY,
-      JSON.stringify({
-        offerRevision,
-        idempotencyKey,
-      })
-    );
-  } catch {
-    // In-memory completion remains safe for this window when storage is unavailable.
-  }
-  return idempotencyKey;
-}
-
-function resetOutcomeNotice(status: unknown, outcome: unknown): string {
-  if (status === 'offerChanged') return t('Reset availability changed. Review the latest Codex usage.');
-  if (outcome === 'reset') return '';
-  if (outcome === 'alreadyRedeemed') return t('Reset already applied.');
-  if (outcome === 'nothingToReset') return t('No eligible rate-limit window is exhausted.');
-  return t('No reset credit is available.');
-}
-
-function clearCodexResetAttempt(offerRevision: string): void {
-  try {
-    const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
-    if (stored.offerRevision === offerRevision) {
-      window.localStorage.removeItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY);
-    }
-  } catch {
-    // The next attempt replaces an unreadable record.
-  }
 }
 
 function creditsOf(row: UsageRecord): UsageRecord | null {
@@ -344,9 +252,6 @@ export function SidebarUsage({
     ).map((subscription) => subscription.provider),
     sidebarOpen
   );
-  const [resetConfirming, setResetConfirming] = useState<string | null>(null);
-  const [resetting, setResetting] = useState(false);
-  const [resetNotice, setResetNotice] = useState('');
 
   // One cadence for the renderer: the rail holds it too, so a popup remount
   // never restarts the five-minute timer and never re-requests.
@@ -434,61 +339,20 @@ export function SidebarUsage({
     return resetText(account.blockedUntil && account.blockedUntil > now ? account.blockedUntil : Math.min(...pending));
   };
 
+  const reset = useCodexResetCredit(api, dashboard, sidebarOpen);
+  const clearReset = reset.clear;
   // Opening revalidates a stale snapshot only (fresh data inside the TTL paints
   // as-is, an in-flight request is shared) and reads ahead the subscription
-  // usage ℹ️ opens on; closing clears reset confirmation.
+  // usage ℹ️ opens on; closing clears the reset confirmation and notice.
   const statsAvailable = Boolean(onOpenStats);
   useEffect(() => {
     if (sidebarOpen) {
       void refreshUsageDashboard(api);
       if (statsAvailable) prefetchQuotaUsage(api);
     } else {
-      setResetConfirming(null);
-      setResetNotice('');
+      clearReset();
     }
-  }, [api, sidebarOpen, statsAvailable]);
-
-  // Preserve the provider's individual expiry rows. The consume endpoint does
-  // not accept a credit id, so every Use action safely means "consume one
-  // currently available credit"; the refreshed provider list decides which
-  // concrete row remains afterward.
-  const codexRow = subscriptionRow(dashboard, SUBSCRIPTIONS[0]);
-  const codexResetCredits = resetCredits(codexRow);
-  const codexResetCount = availableResetCount(codexResetCredits);
-  const codexResetRows = availableResetCredits(codexResetCredits);
-  const codexResetKeys = codexResetRows.map(resetCreditKey);
-  const codexResetKeySignature = codexResetKeys.join('\u0000');
-  const codexResetOffer = String(codexResetCredits.offerRevision || '');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: codexResetKeySignature is the stable string form of codexResetKeys, so the effect re-runs only when the key set changes
-  useEffect(() => {
-    if (resetConfirming && !codexResetKeys.includes(resetConfirming)) {
-      setResetConfirming(null);
-    }
-  }, [codexResetKeySignature, resetConfirming]);
-  const [resetInfoOpen, setResetInfoOpen] = useState(false);
-  const resetRef = useRef<HTMLDivElement | null>(null);
-  useMobileBack(resetConfirming !== null, () => {
-    if (!resetting) setResetConfirming(null);
-  });
-  useMobileBack(resetInfoOpen, () => setResetInfoOpen(false));
-  useEffect(() => {
-    if (!sidebarOpen) setResetInfoOpen(false);
-  }, [sidebarOpen]);
-  useEffect(() => {
-    if (!resetInfoOpen) return undefined;
-    const onPointer = (event: PointerEvent) => {
-      if (!resetRef.current?.contains(event.target as Node)) setResetInfoOpen(false);
-    };
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setResetInfoOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointer, true);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onPointer, true);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [resetInfoOpen]);
+  }, [api, sidebarOpen, statsAvailable, clearReset]);
   const [creditSwitch, setCreditSwitch] = useState<Record<string, boolean>>({});
   const toggleCredits = async (provider: string, next: boolean) => {
     if (typeof api?.invokeCapability !== 'function') return;
@@ -510,67 +374,6 @@ export function SidebarUsage({
     }
     settle();
   };
-  const consumeCodexReset = async () => {
-    if (!codexResetOffer || codexResetCount < 1 || resetting || typeof api?.invokeCapability !== 'function') return;
-    const idempotencyKey = codexResetAttempt(codexResetOffer);
-    setResetting(true);
-    setResetNotice('');
-    try {
-      const response = await withUsageTimeout(
-        api.invokeCapability({
-          capability: 'consumeCodexRateLimitResetCredit',
-          args: [
-            {
-              expectedOfferRevision: codexResetOffer,
-              idempotencyKey,
-            },
-          ],
-        }),
-        SIDEBAR_CODEX_RESET_TIMEOUT_MS,
-        window
-      );
-      const result = record(response?.value);
-      // Authoritative provider vocabulary (oauth-usage.mjs): every consume that
-      // the runtime recognises carries one of these, plus a rebuilt dashboard.
-      const outcome = String(result.outcome || '');
-      const authoritative =
-        result.status === 'offerChanged' ||
-        outcome === 'reset' ||
-        outcome === 'alreadyRedeemed' ||
-        outcome === 'nothingToReset' ||
-        outcome === 'noCredit';
-      if (!authoritative) {
-        // Unrecognised outcome: the durable idempotency key SURVIVES so a retry
-        // reuses this operation instead of spending a second credit, and the
-        // surface says so.
-        setResetNotice(t('Reset could not be confirmed. Retrying is safe.'));
-        return;
-      }
-      // The OUTCOME settles the redeem; the rebuilt dashboard is a courtesy
-      // payload. When it arrives it lands in the shared snapshot and its cache
-      // (not popup-local state); when the runtime's refresh budget expired,
-      // the store revalidates instead of calling a spent credit unconfirmed.
-      if (!publishUsageDashboard(result.dashboard)) {
-        void refreshUsageDashboard(api, { force: true });
-      }
-      clearCodexResetAttempt(codexResetOffer);
-      setResetConfirming(null);
-      setResetNotice(resetOutcomeNotice(result.status, outcome));
-    } catch (cause) {
-      // Keep the durable idempotency key: retrying an unknown provider outcome
-      // must reuse the same operation rather than spend a second credit.
-      console.error('Codex reset-credit consume failed:', cause);
-      const reason = cause instanceof Error && cause.message ? cause.message.trim() : '';
-      setResetNotice(
-        reason
-          ? t('Reset could not be confirmed ({{reason}}). Retrying is safe.', { reason })
-          : t('Reset could not be confirmed. Retrying is safe.')
-      );
-    } finally {
-      setResetting(false);
-    }
-  };
-
   return (
     <section className="sidebar-usage" aria-label={t('Usage')}>
       {/* Same title-row grammar as the rail panels (Sessions/Projects…):
@@ -718,28 +521,28 @@ export function SidebarUsage({
                       onToggle={(next) => void toggleCredits(subscription.provider, next)}
                     />
                   )}
-                  {subscription.key === 'codex' && codexResetOffer && codexResetCount > 0 && (
+                  {subscription.key === 'codex' && reset.offer && reset.count > 0 && (
                     <ResetCreditPanel
-                      containerRef={resetRef}
-                      count={codexResetCount}
-                      rows={codexResetRows}
-                      keys={codexResetKeys}
-                      infoOpen={resetInfoOpen}
-                      confirming={resetConfirming !== null}
-                      resetting={resetting}
-                      onToggleInfo={() => setResetInfoOpen((open) => !open)}
-                      onAsk={() => setResetConfirming(codexResetKeys[0] ?? null)}
-                      onCancel={() => setResetConfirming(null)}
-                      onConfirm={() => void consumeCodexReset()}
+                      containerRef={reset.containerRef}
+                      count={reset.count}
+                      rows={reset.rows}
+                      keys={reset.keys}
+                      infoOpen={reset.infoOpen}
+                      confirming={reset.confirming}
+                      resetting={reset.resetting}
+                      onToggleInfo={reset.toggleInfo}
+                      onAsk={reset.ask}
+                      onCancel={reset.cancel}
+                      onConfirm={() => void reset.consume()}
                     />
                   )}
                 </div>
               );
             })}
           </div>
-          {resetNotice && (
+          {reset.notice && (
             <p className="sidebar-usage-reset-notice" role="status">
-              {resetNotice}
+              {reset.notice}
             </p>
           )}
         </div>

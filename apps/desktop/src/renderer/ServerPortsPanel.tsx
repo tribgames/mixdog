@@ -26,7 +26,7 @@ import './server-ports.css';
 const EMPTY_VIEW: DesktopServerPortsView = { detected: null, forwards: [], suggested: [] };
 
 /** The failure in the user's language; main leads its messages with a code. */
-export function serverPortErrorText(reason: unknown): string {
+function serverPortErrorText(reason: unknown): string {
   const message = errorMessageText(reason).replace(/^\w*Error:\s*/, '');
   const code = message.match(/^([a-z-]+):\s*/)?.[1] ?? '';
   const port = message.match(/\b(\d{1,5})\b/)?.[1] ?? '';

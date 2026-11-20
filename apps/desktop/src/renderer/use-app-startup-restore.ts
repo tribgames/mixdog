@@ -201,8 +201,7 @@ export function useAppStartupRestore({
     // Only an EXPLICIT stored choice is restored — "" keeps No project. With
     // no choice at all the draft keeps INHERITING, so a phone that boots
     // before its relay-backed project catalog lands still adopts the last
-    // project when it arrives instead of freezing an empty one (user:
-    // 마지막으로 쓴 프로젝트가 안 잡힘).
+    // project when it arrives instead of freezing an empty one.
     const cachedDraftProject =
       cachedProjectPath === null
         ? effectiveDraftProjectPath(storedProject || preferredDraftProjectPath) || null

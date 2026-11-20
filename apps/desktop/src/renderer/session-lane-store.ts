@@ -197,8 +197,8 @@ function mergedLaneFrame(
 // The ROUTE (provider/model/effort/fast) is session state, not transcript
 // state, and a disk projection or a partial delta publishes it as an EMPTY
 // string instead of omitting the field — so the null-only fill above let such
-// a frame blank a pane's model controls to "Select model" on every focus swap
-// (user report: 판 3개가 "모델 선택"으로 비었다). The last route a lane knew
+// a frame blank a pane's model controls to "Select model" on every focus swap.
+// The last route a lane knew
 // for a session survives until a frame names a real one.
 function laneRouteText(snapshot: Snapshot | null, field: 'provider' | 'model' | 'effort'): string {
   const value = snapshot?.[field];
@@ -262,8 +262,8 @@ function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Sna
 // (context-state.mjs: routeState). A 0 therefore means "not resolved on this
 // frame", never "this session has no window": adopting it dropped the gauge's
 // denominator, and the gauge then fell back to its last complete reading and
-// froze on the PRE-compact number for the rest of the session (user: 오토
-// 컴팩트 이후에 컨텍스트 원형바가 동기화가 안됨). Only a frame that stays on
+// froze on the PRE-compact number for the rest of the session after an
+// auto-compact. Only a frame that stays on
 // the SAME provider+model may inherit them, so a real model switch still drops
 // the previous window instead of painting it against a new one.
 const LANE_CONTEXT_WINDOW_FIELDS: ReadonlyArray<'contextWindow' | 'displayContextWindow' | 'autoCompactTokenLimit'> = [
@@ -295,8 +295,8 @@ function laneFrameWithRetainedContextWindow(prior: Snapshot | null, next: Snapsh
 // runtime CALL — slash command, model/Fast switch, workflow change, new-task
 // submit — reaches this lane with the field absent. Adopting such a frame
 // whole dropped the running shells from view while one was still running,
-// until the next host frame refilled it (user: 간헐적으로 작업중인
-// 셸이 있는데 호버하면 작업중인게 없다고 뜸). A host frame ALWAYS names the
+// until the next host frame refilled it (the hover then claimed no shell was
+// working). A host frame ALWAYS names the
 // bucket, empty ones included, so retaining the last known jobs for a frame
 // that omits the field entirely can never keep a finished shell on screen.
 function laneFrameWithRetainedShellJobs(prior: Snapshot | null, next: Snapshot): Snapshot {
@@ -542,13 +542,12 @@ export function createSessionLaneStore({
     // memory and its transport can drop; both reload on demand, so the cached
     // transcript stays authoritative until a real frame replaces it. Without
     // this, switching away for two minutes and back repainted a live task as
-    // an empty New Task (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예
-    // 비어버린다). Only a genuine teardown ('gone') clears the entry.
+    // an empty New Task. Only a genuine teardown ('gone') clears the entry.
     //
     // The reason is OPTIONAL on the wire, and the transport baseline release
     // (ipc.ts: releaseHiddenSessionStateEntries) omits it. Requiring a reason
     // here therefore left THAT frame free to erase a pane that was on screen
-    // and mid-turn (user: 데스크탑 세션 pane이 완전히 비어졌다 다시 나옴): one
+    // and mid-turn: one
     // registration that momentarily omits a mounted session id releases its
     // baseline, and the lane went blank until the next live frame refilled it.
     // An unnamed null is a baseline release, never a teardown — the decoder

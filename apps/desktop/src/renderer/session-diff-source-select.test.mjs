@@ -93,7 +93,9 @@ test('a Git row opens against the repository root when the project is a subdirec
   );
   const buttons = [...view.document.querySelectorAll('.session-diff-section .session-diff-open')];
   assert.equal(buttons.length, 2);
-  await act(async () => buttons.forEach((button) => button.click()));
+  await act(async () => {
+    for (const button of buttons) button.click();
+  });
   // In the project: project-relative; elsewhere in the repository: absolute.
   assert.deepEqual(opened, ['src/a.ts', 'C:/mono/docs/readme.md']);
 });

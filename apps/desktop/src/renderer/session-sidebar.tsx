@@ -109,6 +109,74 @@ function busyPromptOptions(prompt: BusyPrompt) {
   };
 }
 
+/** Archive and delete, guarded: a busy session asks first (the prompt state),
+ *  a deleted bot's archived chat restores or goes for good with its bot. */
+function useBusyGuardedActions({
+  sessions,
+  workingSessionIds,
+  attentionIndex,
+  editor,
+  onArchiveSession,
+  onDeleteSession,
+}: {
+  sessions: readonly DesktopSessionSummary[];
+  workingSessionIds: ReadonlySet<string> | undefined;
+  attentionIndex: ReturnType<typeof useSessionAttentionIndex>;
+  editor: ReturnType<typeof useSessionEditor>;
+  onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
+  onDeleteSession(sessionId: string): Promise<void>;
+}) {
+  // Busy = the same signals the row status shows: a running turn, a turn
+  // waiting on the user, or a session waiting on background work.
+  const isBusy = (sessionId: string) =>
+    workingSessionIds?.has(sessionId) === true ||
+    attentionIndex.needsUser.has(sessionId) ||
+    attentionIndex.waiting.has(sessionId);
+  const [busyPrompt, setBusyPrompt] = useState<BusyPrompt | null>(null);
+  const guardBusy = useStableEvent<Parameters<BusyGuard>, void>((kind, ids, run, confirmedRun = run) => {
+    const busyIds = ids.filter(isBusy);
+    if (busyIds.length === 0) {
+      run();
+      return;
+    }
+    const first = sessions.find((session) => session.id === busyIds[0]);
+    setBusyPrompt({ kind, count: busyIds.length, name: first ? sessionLabel(first) : '', run: confirmedRun });
+  });
+  const archiveSession = useStableEvent((sessionId: string, archived: boolean) => {
+    // Restoring a deleted bot's archived chat restores the bot; the host
+    // brings its chat back out of 보관됨.
+    const row = archived ? undefined : sessions.find((session) => session.id === sessionId);
+    if (row?.agentDeleted === true && row.agentHome) {
+      return restoreAgent({}, row.agentHome, sessionLabel(row)).then(() => undefined);
+    }
+    if (!archived || !isBusy(sessionId)) return onArchiveSession(sessionId, archived);
+    guardBusy('archive', [sessionId], () => void onArchiveSession(sessionId, true).catch(() => {}));
+    return Promise.resolve();
+  });
+  // Idle: arm the row's inline confirm. Busy: the dialog is the confirmation.
+  const requestDelete = useStableEvent((sessionId: string) => {
+    // A deleted bot's archived chat goes for good with the bot: asked in plain words.
+    const row = sessions.find((session) => session.id === sessionId);
+    if (row?.agentDeleted === true) {
+      void confirmAction(permanentBotDeleteMessage(sessionLabel(row)), {
+        key: `bot-delete-forever:${sessionId}`,
+        danger: true,
+        confirmLabel: t('Delete'),
+      }).then((approved) => {
+        if (approved) return onDeleteSession(sessionId).catch(() => {});
+      });
+      return;
+    }
+    guardBusy(
+      'delete',
+      [sessionId],
+      () => editor.setConfirmingSessionId(sessionId),
+      () => void onDeleteSession(sessionId).catch(() => {})
+    );
+  });
+  return { busyPrompt, setBusyPrompt, guardBusy, archiveSession, requestDelete };
+}
+
 const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
 /** Default top-to-bottom order of the session categories; the user can drag
  *  any heading to reorder them. */
@@ -584,7 +652,7 @@ function useSessionFolderDrop(
     },
   };
   // The scroller's side padding and the gaps between sections hold no target
-  // element, so a pointer there used to be refused (and the outline dropped).
+  // element, so a pointer there would be refused (and the outline dropped).
   // It resolves to the target whose box is nearest, within one section gap;
   // anywhere else the scroller takes no drop and a stale outline goes away
   // (the target's own dragleave is not reliable once the list scrolls under a
@@ -620,7 +688,7 @@ interface SessionSidebarProps {
   open: boolean;
   /** Rail destination hosted in the panel area (Projects/Workflows/
    *  Schedules/Webhooks): while active it swaps in for the session list —
-   *  the list stays mounted behind a hidden flag (user decision). */
+   *  the list stays mounted behind a hidden flag. */
   panelActive?: boolean;
   panelTitle?: string;
   panelTitleDragProps?: React.HTMLAttributes<HTMLSpanElement>;
@@ -716,53 +784,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const sessions = useHeldDuringUserScroll(recentScrollerRef, liveSessions);
   const editor = useSessionEditor(sessions, onRenameSession);
   const attentionIndex = useSessionAttentionIndex();
-  // Busy = the same signals the row status shows: a running turn, a turn
-  // waiting on the user, or a session waiting on background work.
-  const isBusy = (sessionId: string) =>
-    workingSessionIds?.has(sessionId) === true ||
-    attentionIndex.needsUser.has(sessionId) ||
-    attentionIndex.waiting.has(sessionId);
-  const [busyPrompt, setBusyPrompt] = useState<BusyPrompt | null>(null);
-  const guardBusy = useStableEvent<Parameters<BusyGuard>, void>((kind, ids, run, confirmedRun = run) => {
-    const busyIds = ids.filter(isBusy);
-    if (busyIds.length === 0) {
-      run();
-      return;
-    }
-    const first = sessions.find((session) => session.id === busyIds[0]);
-    setBusyPrompt({ kind, count: busyIds.length, name: first ? sessionLabel(first) : '', run: confirmedRun });
-  });
-  const archiveSession = useStableEvent((sessionId: string, archived: boolean) => {
-    // Restoring a deleted bot's archived chat restores the bot; the host
-    // brings its chat back out of 보관됨.
-    const row = archived ? undefined : sessions.find((session) => session.id === sessionId);
-    if (row?.agentDeleted === true && row.agentHome) {
-      return restoreAgent({}, row.agentHome, sessionLabel(row)).then(() => undefined);
-    }
-    if (!archived || !isBusy(sessionId)) return onArchiveSession(sessionId, archived);
-    guardBusy('archive', [sessionId], () => void onArchiveSession(sessionId, true).catch(() => {}));
-    return Promise.resolve();
-  });
-  // Idle: arm the row's inline confirm. Busy: the dialog is the confirmation.
-  const requestDelete = useStableEvent((sessionId: string) => {
-    // A deleted bot's archived chat goes for good with the bot: asked in plain words.
-    const row = sessions.find((session) => session.id === sessionId);
-    if (row?.agentDeleted === true) {
-      void confirmAction(permanentBotDeleteMessage(sessionLabel(row)), {
-        key: `bot-delete-forever:${sessionId}`,
-        danger: true,
-        confirmLabel: t('Delete'),
-      }).then((approved) => {
-        if (approved) return onDeleteSession(sessionId).catch(() => {});
-      });
-      return;
-    }
-    guardBusy(
-      'delete',
-      [sessionId],
-      () => editor.setConfirmingSessionId(sessionId),
-      () => void onDeleteSession(sessionId).catch(() => {})
-    );
+  const { busyPrompt, setBusyPrompt, guardBusy, archiveSession, requestDelete } = useBusyGuardedActions({
+    sessions,
+    workingSessionIds,
+    attentionIndex,
+    editor,
+    onArchiveSession,
+    onDeleteSession,
   });
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();

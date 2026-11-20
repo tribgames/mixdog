@@ -332,7 +332,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
 // A checklist taller than the drawer's own height used to push the stop
 // confirmation past the panel's clip: the button existed and answered every
 // DOM query, but the press landed on the composer behind it, so stopping a
-// long-running Goal silently did nothing (user: 골 중단버튼이 안 눌려). Only a
+// long-running Goal silently did nothing. Only a
 // real press at real coordinates proves the confirmation is reachable.
 test('stopping a Goal with a long checklist keeps its confirmation pressable', async (t) => {
   const bundle = await build({

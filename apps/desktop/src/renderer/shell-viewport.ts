@@ -18,7 +18,7 @@ function writeViewportVar(root: HTMLElement, name: string, value: string): void 
 /** A desktop window's visual viewport IS its layout viewport (no soft
  *  keyboard, no pinch pan): every reader's fallback (100vw, 100vh/100dvh,
  *  offset 0) is then exact. The variables stay unset there, so a window drag
- *  no longer rewrites them — and restyles the whole document — on every
+ *  does not rewrite them — and restyle the whole document — on every
  *  frame. They are written as soon as the two viewports differ. */
 function visualIsLayoutViewport(root: HTMLElement, visual: VisualViewport | null): boolean {
   if (!isElectronRenderer() || root.hasAttribute('data-mixdog-mobile-tabs')) return false;

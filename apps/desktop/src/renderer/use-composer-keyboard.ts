@@ -375,10 +375,9 @@ export function useComposerKeyboard({
         runtime.showNotice('');
         history.navigation.current = { index: -1, seed: '' };
       } else if (escapeIntent.action === 'arm-select') {
-        // Silent arm: the first Esc on an empty composer used to announce
-        // "Esc again to pick a message", which read as noise for a key that
-        // otherwise does nothing (user: ESC 아무것도 없을 때 UI 없어도 될 듯).
-        // The second press still opens the picker.
+        // Silent arm: the first Esc on an empty composer announces nothing; a
+        // prompt on an otherwise idle keypress was unwanted noise. The second
+        // press opens the picker.
         event.preventDefault();
       } else if (escapeIntent.action === 'message-selector') {
         event.preventDefault();

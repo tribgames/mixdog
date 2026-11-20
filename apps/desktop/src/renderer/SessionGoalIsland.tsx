@@ -303,6 +303,54 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
     </div>
   );
 }
+
+/** The 24px bottom fade shows only while the content overflows and is not
+ *  scrolled to its end, so a final row is never obscured when nothing scrolls.
+ *  Runs after every render: folds and rows change the content's height. */
+function useBottomFade(ref: { current: HTMLElement | null }) {
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return undefined;
+    const update = () => {
+      const fade =
+        element.scrollHeight > element.clientHeight + 1 &&
+        element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+      element.dataset.fade = fade ? 'true' : 'false';
+    };
+    update();
+    element.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(element);
+    return () => {
+      element.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  });
+}
+
+/** Presence diagnostics (MIXDOG_DESKTOP_PERF=1): a flip within one session
+ *  names its cause — a lane frame that carried no goal, or the post-submit
+ *  mask — so a "goal blinked" report is attributable. */
+function useGoalPresenceDiagnostics(sessionId: string, rawGoal: GoalSnapshot | null, visible: boolean) {
+  const presence = useRef('');
+  useEffect(() => {
+    const key = `${sessionId}\u0000${visible ? 'shown' : 'hidden'}`;
+    const previous = presence.current;
+    presence.current = key;
+    if (!previous || !sessionId || previous === key) return;
+    if (!previous.startsWith(`${sessionId}\u0000`)) return;
+    try {
+      window.mixdogDesktop?.perfLog?.(
+        `goal-island ${visible ? 'shown' : 'hidden'} session=${sessionId}` +
+          ` frame=${rawGoal ? `${String(rawGoal.id || '')}:${String(rawGoal.status || '')}` : 'null'}` +
+          ` masked=${rawGoal && !visible ? 1 : 0}`
+      );
+    } catch {
+      /* diagnostics only */
+    }
+  }, [rawGoal, sessionId, visible]);
+}
+
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const goal = useGoalAfterSubmission(snapshot.goal || null, String(snapshot.sessionId || ''));
   const todo = todoPresent(snapshot.todo) ? (snapshot.todo as TodoSnapshot) : null;
@@ -357,27 +405,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     wasConfirming.current = confirmStop;
   }, [confirmStop, open]);
 
-  // The 24px bottom fade shows only while the content overflows and is not
-  // scrolled to its end, so a final row is never obscured when nothing scrolls.
-  // Runs after every render: folds and rows change the content's height.
-  useLayoutEffect(() => {
-    const element = contentRef.current;
-    if (!element) return undefined;
-    const update = () => {
-      const fade =
-        element.scrollHeight > element.clientHeight + 1 &&
-        element.scrollTop + element.clientHeight < element.scrollHeight - 1;
-      element.dataset.fade = fade ? 'true' : 'false';
-    };
-    update();
-    element.addEventListener('scroll', update, { passive: true });
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
-    observer?.observe(element);
-    return () => {
-      element.removeEventListener('scroll', update);
-      observer?.disconnect();
-    };
-  });
+  useBottomFade(contentRef);
 
   // The "More" toggle exists only while the 3-line clamp actually hides text.
   // Measured while clamped; the drawer is display:none when closed (0 height).
@@ -395,28 +423,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     return () => observer.disconnect();
   }, [goal?.objective, goal?.title, open, objectiveExpanded]);
 
-  // Presence diagnostics (MIXDOG_DESKTOP_PERF=1): a flip within one session
-  // names its cause — a lane frame that carried no goal, or the post-submit
-  // mask — so a "goal blinked" report is attributable.
-  const rawGoal = snapshot.goal || null;
-  const visible = Boolean(goal) || Boolean(todo);
-  const presence = useRef('');
-  useEffect(() => {
-    const key = `${sessionId}\u0000${visible ? 'shown' : 'hidden'}`;
-    const previous = presence.current;
-    presence.current = key;
-    if (!previous || !sessionId || previous === key) return;
-    if (!previous.startsWith(`${sessionId}\u0000`)) return;
-    try {
-      window.mixdogDesktop?.perfLog?.(
-        `goal-island ${visible ? 'shown' : 'hidden'} session=${sessionId}` +
-          ` frame=${rawGoal ? `${String(rawGoal.id || '')}:${String(rawGoal.status || '')}` : 'null'}` +
-          ` masked=${rawGoal && !visible ? 1 : 0}`
-      );
-    } catch {
-      /* diagnostics only */
-    }
-  }, [rawGoal, sessionId, visible]);
+  useGoalPresenceDiagnostics(sessionId, snapshot.goal || null, Boolean(goal) || Boolean(todo));
 
   // Dismiss on any interaction outside the island (or Escape) so the drawer
   // never lingers over the transcript once attention moves elsewhere. Off

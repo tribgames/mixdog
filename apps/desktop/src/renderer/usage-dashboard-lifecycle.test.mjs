@@ -326,7 +326,10 @@ function sectionsHost(extra = {}) {
     calls: 0,
     sections: {
       snapshot: async () => ({ status: 'ready', entries }),
-      subscribe: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
     },
     async invokeCapability() {
       host.calls += 1;

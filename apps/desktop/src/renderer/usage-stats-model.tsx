@@ -184,8 +184,7 @@ function addTrendTotals(target: TrendTotals, row: Row) {
 // absolute start time (19:48, 20:48 …). A background refresh lands seconds
 // after every streamed turn, so all 24 buckets arrived under brand-new keys:
 // React rebuilt every bar and the hovered bucket was no longer in the series,
-// which closed the detail card mid-hover (user: 트랜스크립트 갱신될 때 자동
-// 으로 닫힌다). A rolling slot is identified by its POSITION, padded so the
+// which closed the detail card mid-hover. A rolling slot is identified by its POSITION, padded so the
 // key sort stays positional.
 function trendBucketIdentity(
   entry: Row,

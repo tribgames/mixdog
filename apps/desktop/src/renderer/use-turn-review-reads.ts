@@ -65,7 +65,7 @@ type ReadContext = {
 /** The session's turn scope. A long turn's prompt row can fall out of the
  *  transcript tail the daemon sends. The rows left are still that turn, so it
  *  keeps its scope: the shared `none` scope held an unrelated earlier review
- *  and skipped the checkpoint check (user: 컴포저 위 디프가 엉뚱한 숫자가 나왔다 사라짐). */
+ *  and skipped the checkpoint check. */
 function useTurnReviewScope(items: TranscriptItem[], sessionId: string | undefined) {
   const reviewSession = String(sessionId || 'draft');
   const rememberedScope = useRef<{ session: string; key: string } | null>(null);
@@ -359,8 +359,7 @@ export function useTurnReviewReads({
   // Entering a session with no read for its turn yet shows no bar until the
   // first authoritative read answers. The transcript estimate also counts
   // edits outside the worktree: it painted "1 file changed" on entry, the read
-  // removed it ~1s later and the transcript dropped by the bar's height (user:
-  // 세션 처음 열 때 잔상이 남았다가 툭 튄다). A cached read answers in tens of
+  // removed it ~1s later and the transcript dropped by the bar's height. A cached read answers in tens of
   // milliseconds, so the bar lands with the transcript. A slow read remains
   // undecided: the conversation owns the bounded entry wait, not a shorter
   // timer that briefly paints an estimate before the real answer replaces it.

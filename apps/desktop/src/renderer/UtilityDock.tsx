@@ -138,14 +138,14 @@ export const UtilityDock = memo(function UtilityDock({
   entering?: boolean;
   /** The shell may pre-mount at width 0; defer the expensive selected body. */
   contentReady?: boolean;
-  /** Mount the selected body while CLOSED (user: 사이드탭 즉시 열리게): the
+  /** Mount the selected body while CLOSED: the
    *  pane dock hidden-mounts its remembered view after boot, so the first
    *  expand toggles `hidden` on a live tree instead of mounting Source
    *  Control — toolbar, windowed rows, commit box — behind the click. Open-
    *  gated effects (refresh scheduler, project list) still wait for `open`. */
   prewarm?: boolean;
   /** Pane docks drop the tool-title row so content tops align with the
-   *  shared unit header (user: 소스 제어 타이틀 줄 제거). */
+   *  shared unit header. */
   showTitle?: boolean;
   title?: string;
   titleDragProps?: React.HTMLAttributes<HTMLElement>;
@@ -186,8 +186,6 @@ export const UtilityDock = memo(function UtilityDock({
     [setPaneReady]
   );
   const selectedSurfaceDataReady = contentReady && (gitSurfaceSelected ? dockGitStatusReady : true);
-  // The selected layer reveals in its FIRST ready paint.
-  const selectedSurfaceVisible = contentReady;
   useEffect(() => {
     if (!open || !contentReady) return;
     beginBootSurface(metricSurface, tab);
@@ -197,7 +195,7 @@ export const UtilityDock = memo(function UtilityDock({
     reportBootSurfaceStage(metricSurface, tab, 'data');
   }, [contentReady, metricSurface, open, tab, selectedSurfaceDataReady]);
   const loadingLabel = utilityDockLoadingLabel(tab);
-  // Instant switching (user: 탭 전환이 즉시 되어야 한다): a tab the user has
+  // Instant switching: a tab the user has
   // actually opened keeps its layer mounted for the life of the dock, so a
   // round trip re-presents the SAME DOM with its tree/SCM/PR expansion,
   // scroll and draft state intact instead of rebuilding it. Layers mount
@@ -244,7 +242,7 @@ export const UtilityDock = memo(function UtilityDock({
         ))}
       <div
         className="stable-surface-switch utility-dock-body"
-        data-ready={selectedSurfaceVisible ? 'true' : 'false'}
+        data-ready={contentReady ? 'true' : 'false'}
         data-transitioning="false"
       >
         {desktopUtilityDockTabEnabled('agents') && paneMounted('agents') && (
@@ -272,8 +270,7 @@ export const UtilityDock = memo(function UtilityDock({
         {desktopUtilityDockTabEnabled('search') && paneMounted('search') && (
           <UtilityDockViewSection active={paneActive('search')}>
             <DockPane tab="search" active={paneActive('search')}>
-              {/* The project switcher rides above the search field and its filters
-          (user: 검색창 필터 위에 프로젝트 선택이 사라짐). */}
+              {/* The project switcher rides above the search field and its filters. */}
               {dockProjectOptions.length > 0 && (
                 <div className="utility-dock-project-row" title={dockProjectPath || t('Select project')}>
                   {projectSelectControl}
@@ -336,7 +333,7 @@ export const UtilityDock = memo(function UtilityDock({
             </DockPane>
           </UtilityDockViewSection>
         )}
-        {!selectedSurfaceVisible && (
+        {!contentReady && (
           // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label is only set together with role="status" (source-control tab)
           <div
             className="pane-surface-cover"

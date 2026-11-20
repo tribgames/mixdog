@@ -23,9 +23,9 @@ export function usePaneFileDrop(onOpenDroppedPaths?: (leafId: string, paths: str
     const clear = () => setFileDropLeafId('');
     // An OS drag (Explorer) never sends this window its dragend, and Chromium
     // can skip the dragleave when the pointer exits the window fast, which
-    // left the drop frame drawn around the pane after the drag was long gone
-    // (user: 메인 패널 테두리 버그냐). No pointer event is dispatched while a
-    // drag is in flight, so the first one proves the drag is over.
+    // left the drop frame drawn around the pane after the drag was long gone.
+    // No pointer event is dispatched while a drag is in flight, so the first
+    // one proves the drag is over.
     window.addEventListener('drop', clear, true);
     window.addEventListener('dragend', clear, true);
     window.addEventListener('pointermove', clear, true);
@@ -73,8 +73,7 @@ export function usePaneFileDrop(onOpenDroppedPaths?: (leafId: string, paths: str
 /** Marks the pane a text-selection gesture began in so CSS can fence every other pane. */
 export function usePaneSelectionFence() {
   // Selection is ONE document-wide range, so a drag that starts in one pane
-  // and travels over another painted every row in between (user: 왜 드래그가
-  // 패널별로 분리 안 되어 있어). Mark the pane the gesture began in; CSS
+  // and travels over another painted every row in between. Mark the pane the gesture began in; CSS
   // suspends selection in every OTHER pane until the pointer is released, so
   // each pane reads as its own document the way editor groups do.
   useEffect(() => {
@@ -224,7 +223,7 @@ export function useSinglePaneMode(layout: PaneNode) {
   // The band check alone is not enough: on a mid-width window the panel can
   // shrink under the TREE's aggregate floors (side panels open, column
   // splits taller than the window) and the overflow buried panes past the
-  // right or BOTTOM edge (user: 하단이 묻히는 케이스 — 올라와야 해). Track
+  // right or BOTTOM edge. Track
   // the panel box and fall back to single-pane mode whenever the floors do
   // not fit either axis.
   const [panelSize, setPanelSize] = useState({ width: 0, height: 0 });

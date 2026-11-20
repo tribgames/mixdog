@@ -71,7 +71,9 @@ export function rowListIndex(rows: readonly IndexedRow[]): RowListIndex {
   const known = indexes.get(rows);
   if (known) return known;
   const builder = rowListIndexBuilder();
-  rows.forEach((row, position) => builder.add(row, position));
+  rows.forEach((row, position) => {
+    builder.add(row, position);
+  });
   return builder.finish(rows);
 }
 

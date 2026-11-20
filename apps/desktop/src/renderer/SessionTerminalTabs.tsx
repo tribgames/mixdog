@@ -321,7 +321,7 @@ export function SessionTerminalTabs({
       ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [state.activeId]);
 
-  // Surface WHAT the default actually spawns (user: 기본 OS 터미널이 나와야).
+  // Surface WHAT the default actually spawns: the OS default terminal.
   const defaultProfile = profiles?.find((profile) => profile.default) ?? null;
   const defaultShellLabel = defaultProfile
     ? t('Default ({{label}})', { label: defaultProfile.label })

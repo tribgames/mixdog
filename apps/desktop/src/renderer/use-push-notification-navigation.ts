@@ -5,7 +5,6 @@
 // consumed exactly once.
 import { useEffect, useRef } from 'react';
 
-import type { DesktopApi } from '../shared/contract';
 import { subscribeNativeNotificationActions } from './native-push-bridge';
 import {
   claimNotificationClick,
@@ -138,8 +137,7 @@ export function usePushNotificationNavigation({
   // when it arrived, and never takes the phone's host-routing path.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
-    return api?.onNotificationOpenSession?.((sessionId) => {
+    return window.mixdogDesktop?.onNotificationOpenSession?.((sessionId) => {
       if (!sessionId) return;
       if (desktopRef.current.ready) desktopRef.current.focus(sessionId);
       else {

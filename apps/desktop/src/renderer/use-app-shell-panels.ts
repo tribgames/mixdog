@@ -134,7 +134,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // narrow band changes the panels' MODE (inline → overlay drawer), never
   // their meaning — a drawer always starts closed, and returning to the
   // desktop band restores the inline open/collapsed states exactly as they
-  // were (접혀있던 걸 굳이 펼치거나 펼쳐져 있던 걸 굳이 접지 않기).
+  // were: a collapsed panel is not opened, nor an open one collapsed.
   const wasNarrowShell = useRef(narrowShell);
   // Callback-safe mirror: the sheet-exclusivity rule below runs inside
   // stable useCallbacks and must read the CURRENT band.
@@ -234,10 +234,9 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     settleDrawerIntent(sidebarOpen, sidebarOpenIntent.current);
   });
   // The bottom panel is the SAME kind of narrow-band surface as the side
-  // sheets (user: 하단 탭도 좌우 탭과 같은 취급 — 겹치면 안 된다): while a
-  // sheet would overlap it (dock ≤940px, drawer ≤760px), opening either
-  // side folds the bottom panel, mirroring the bottom-panel toggle that
-  // folds the sheets. Wide inline layouts coexist untouched.
+  // sheets: while a sheet would overlap it (dock ≤940px, drawer ≤760px),
+  // opening either side folds the bottom panel, mirroring the bottom-panel
+  // toggle that folds the sheets. Wide inline layouts coexist untouched.
   const dismissBottomPanelForSheet = useCallback(
     (band: 'dock' | 'drawer') => {
       const query = band === 'dock' ? BOTTOM_SHEET_QUERY : NARROW_SHELL_QUERY;
@@ -257,8 +256,8 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled('sessions'));
     // The dock half of the policy applies inside usePaneSideDocks.
   }, [activeSidePanelMode]);
-  // Manual toggles ALWAYS win (user: a dead open/close button reads as a
-  // bug). The keep-open policy re-applies on the next navigation instead of
+  // Manual toggles ALWAYS win: a dead open/close button reads as a
+  // bug. The keep-open policy re-applies on the next navigation instead of
   // rejecting the click outright.
   // Both directions commit their final layout synchronously in one frame,
   // without snapshot interpolation.
@@ -274,12 +273,11 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     beginSidePanelOpen('sidebar', () => applySidebarOpen(true));
   }, [applySidebarOpen, beginSidePanelOpen, dismissBottomPanelForSheet]);
   // Toggle spam queues expensive panel mounts and replays them after the
-  // clicks stop (user: 연타하면 예약되어서 여러 번 열린다): clicks inside
-  // one motion window coalesce into the FIRST one instead of stacking.
+  // clicks stop: clicks inside one motion window coalesce into the FIRST one
+  // instead of stacking.
   // The window is measured on the EVENT clock, not the handler clock: a
   // mount that blocks longer than the window would otherwise re-space the
-  // queued clicks and let every one of them through (user: 여러 번 예약된
-  // 것처럼 다시 열려).
+  // queued clicks and let every one of them through.
   const lastSidePanelToggle = useRef(0);
   const sidePanelToggleReady = useCallback((stamp?: number) => {
     const now = typeof stamp === 'number' && stamp > 0 ? stamp : performance.now();
@@ -320,12 +318,11 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     if (!bottomPanel.open) dismissSheetsForBottomPanel();
     bottomPanel.toggle();
   }, [bottomPanel, dismissSheetsForBottomPanel]);
-  // The breakpoint crossing itself (user: 축소할 때 왼쪽 세션창은 숨기고
-  // 다시 늘리면 열리게 — 아래쪽도): the LEFT drawer hides on the way IN and
-  // the stored inline state returns on the way OUT; the RIGHT sheet is the
-  // one surface that survives the crossing (user: 오른쪽이 우선순위가
-  // 높다). The bottom panel follows the same hide/restore rule on its own
-  // 940px sheet band below. Runs after the side-panel mode effect above so
+  // The breakpoint crossing itself: the LEFT drawer hides on the way IN and
+  // the stored inline state returns on the way OUT; the RIGHT sheet has
+  // priority over the left drawer, which is why it is the one surface that
+  // survives the crossing. The bottom panel follows the same
+  // hide/restore rule on its own 940px sheet band below. Runs after the side-panel mode effect above so
   // a mode-policy write never overrides the restore.
   useEffect(() => {
     if (wasNarrowShell.current === narrowShell) return;
@@ -371,40 +368,28 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // Scheduled-tasks panel (rail → Schedules): lives in the session-panel
   // area, so navigation leaves it alone (user decision).
   const [schedulesOpen, setSchedulesOpen] = useState(false);
-  const openSchedules = useCallback(() => {
-    if (!desktopFeatureEnabled('schedules')) return;
-    mountSidebarPanel('schedules');
-    trackSidebarPanelModule('schedules', loadSidebarPanelModule.schedules());
-    setSchedulesOpen(true);
-    setWebhooksOpen(false);
-    setProjectsOpen(false);
-    openSidebar();
-  }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
-  // A bot room's "루틴 만들기" opens the panel; the panel opens its editor.
+  // Inbound-webhooks panel: same session-panel concept as Schedules.
+  const [webhooksOpen, setWebhooksOpen] = useState(false);
+  const showRailPanel = useCallback(
+    (panel: 'schedules' | 'webhooks' | 'projects') => {
+      if (!desktopFeatureEnabled(panel)) return;
+      mountSidebarPanel(panel);
+      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+      setSchedulesOpen(panel === 'schedules');
+      setWebhooksOpen(panel === 'webhooks');
+      setProjectsOpen(panel === 'projects');
+      openSidebar();
+    },
+    [mountSidebarPanel, openSidebar, trackSidebarPanelModule]
+  );
+  const openSchedules = useCallback(() => showRailPanel('schedules'), [showRailPanel]);
+  const openWebhooks = useCallback(() => showRailPanel('webhooks'), [showRailPanel]);
+  const openProjects = useCallback(() => showRailPanel('projects'), [showRailPanel]);
+  // A bot room's "Create routine" opens the panel; the panel opens its editor.
   useEffect(() => {
     window.addEventListener(NEW_SCHEDULE_REQUEST_EVENT, openSchedules);
     return () => window.removeEventListener(NEW_SCHEDULE_REQUEST_EVENT, openSchedules);
   }, [openSchedules]);
-  // Inbound-webhooks panel: same session-panel concept as Schedules.
-  const [webhooksOpen, setWebhooksOpen] = useState(false);
-  const openWebhooks = useCallback(() => {
-    if (!desktopFeatureEnabled('webhooks')) return;
-    mountSidebarPanel('webhooks');
-    trackSidebarPanelModule('webhooks', loadSidebarPanelModule.webhooks());
-    setWebhooksOpen(true);
-    setSchedulesOpen(false);
-    setProjectsOpen(false);
-    openSidebar();
-  }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
-  const openProjects = useCallback(() => {
-    if (!desktopFeatureEnabled('projects')) return;
-    mountSidebarPanel('projects');
-    trackSidebarPanelModule('projects', loadSidebarPanelModule.projects());
-    setProjectsOpen(true);
-    setSchedulesOpen(false);
-    setWebhooksOpen(false);
-    openSidebar();
-  }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Returns the rail panel area to the Sessions list.
   const closeSidebarPanels = useCallback(() => {
     setSchedulesOpen(false);
@@ -413,7 +398,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   }, []);
   // A collapsed drawer forgets its rail destination on EVERY close path
   // (toggle, backdrop, exclusivity, band crossing): the next open always
-  // starts from Sessions (user: 다시 열고 닫을 때 세션으로 초기화).
+  // starts from Sessions.
   useEffect(() => {
     if (!sidebarOpen) closeSidebarPanels();
   }, [closeSidebarPanels, sidebarOpen]);

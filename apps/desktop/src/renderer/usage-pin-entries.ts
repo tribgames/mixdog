@@ -6,6 +6,7 @@ import { record } from './record-utils';
 import { SUBSCRIPTIONS, type Subscription } from './subscription-providers';
 import { expandableAccounts, type UsageAccount, type UsageAccountPool } from './usage-account-pools';
 import type { UsageRecord } from './usage-dashboard-store';
+import { usageNumber } from './usage-format';
 import { displayUsagePercent } from './usage-percent';
 import { usageResetSchedule as resetSchedule, usageTimestamp as timestamp } from './usage-window-text';
 
@@ -14,10 +15,7 @@ export function usageRows(value: unknown): UsageRecord[] {
   return Array.isArray(dashboard.rows) ? dashboard.rows.map(record) : [];
 }
 
-export function usageNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return value === null || value === undefined || value === '' || !Number.isFinite(parsed) ? null : parsed;
-}
+export { usageNumber };
 
 /** Subscriptions matched by row id or label whatever the row's group. */
 const ROW_MATCHERS: Record<string, (id: string, label: string) => boolean> = {

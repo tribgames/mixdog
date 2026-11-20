@@ -273,7 +273,7 @@ const NO_RESULT = {};
  *  (patch text scanned or parsed, file metadata hashed). Every unit of work
  *  is at most one chunk of patch or one file, so no task grows with the
  *  whole result. */
-export const SESSION_DIFF_PARSE_BUDGET = 64 * 1024;
+const SESSION_DIFF_PARSE_BUDGET = 64 * 1024;
 /** What one listed file counts for besides its patch text. */
 const FILE_UNIT = 256;
 /** Patch text scanned (and hashed) per unit. */
@@ -354,7 +354,7 @@ function* fingerprintSteps(
 }
 
 /** A result's content digest: the one its parse took, else taken now. */
-export function sessionDiffFingerprint(result: SessionDiffResult | null): string {
+function sessionDiffFingerprint(result: SessionDiffResult | null): string {
   const key = result ?? NO_RESULT;
   let fingerprint = fingerprints.get(key);
   if (fingerprint === undefined) {

@@ -58,8 +58,7 @@ export function SidebarDialogLayer({ onClose, children }: { onClose(): void; chi
   return dialogLayerPortal('schedules-dialog-layer', document.body, onClose, children);
 }
 
-/** A dialog scoped to the PANE that raised it (user: 골 설정 뜨는 게 PANE
- *  중앙에 뜨는 게 낫지 않을까). The card portals into the anchor's `.pane-cell`
+/** A dialog scoped to the PANE that raised it. The card portals into the anchor's `.pane-cell`
  *  and centers there; the scrim covers only that pane, so sibling panes stay
  *  visible and usable, and the title bar is not dimmed. Falls back to the
  *  window-level layer when the anchor is not inside a pane. */

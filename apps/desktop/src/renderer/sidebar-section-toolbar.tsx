@@ -11,7 +11,7 @@ export type SidebarToolbarSection<Id extends string> = {
 // Rail panels that host more than one resource kind (Extensions: Plugin |
 // Skill, Projects: Project | Workflow) switch between them with this one
 // toolbar so every such panel reads as the same product instead of a
-// hand-rolled tab strip (user: 익스텐션창이 다른 UI랑 너무 동떨어져있다). The
+// hand-rolled tab strip. The
 // panel header's + belongs to the VISIBLE section.
 export function SidebarSectionToolbar<Id extends string>({
   label,
