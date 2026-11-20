@@ -200,6 +200,21 @@ fn target_origin(dir: &std::path::Path) -> Result<Option<(String, String)>> {
     }
 }
 
+/// A desktop `meta` change without the legacy `title` its session's own title outranks.
+/// The desktop's legacy `titles` map named a session only when the session had no usable
+/// title of its own (`desktop-state.ts`: `names` > `row.title` > `titles` > preview); applied
+/// as a `meta` change it would replace an AI or user title. `None`: nothing left to record.
+pub fn without_outranked_title(
+    header: &mixdog_store::schema::record::Header,
+    mut set: mixdog_store::schema::record::Header,
+) -> Option<mixdog_store::schema::record::Header> {
+    let own = header.get("title").and_then(serde_json::Value::as_str).unwrap_or_default();
+    if crate::desktop_profile::has_own_title(own) {
+        set.shift_remove("title");
+    }
+    (!set.is_empty()).then_some(set)
+}
+
 fn ours(cx: &ItemContext<'_>, item: &ManifestItem, dir: &std::path::Path) -> Result<bool> {
     Ok(target_origin(dir)? == Some((cx.manifest_sha256.to_string(), item.key.as_str().to_string())))
 }
@@ -225,6 +240,28 @@ mod tests {
         assert_eq!(classify("sess_a.json.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
         assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abc"), Entry::Unknown);
         assert_eq!(classify("sess_a.json.0123456789abcdef01234567.tmp"), Entry::Unknown);
+    }
+
+    fn header(value: serde_json::Value) -> mixdog_store::schema::record::Header {
+        value.as_object().cloned().expect("an object")
+    }
+
+    #[test]
+    fn a_session_title_outranks_the_legacy_desktop_title() {
+        let set = header(serde_json::json!({ "title": "흠", "archivedAt": 1, "readState": { "messageCount": 2, "revision": 1 } }));
+        let kept = without_outranked_title(&header(serde_json::json!({ "title": "인사 메시지" })), set.clone()).unwrap();
+        assert_eq!(kept.get("title"), None);
+        assert_eq!(kept.get("archivedAt"), Some(&serde_json::json!(1)));
+        assert!(kept.contains_key("readState"));
+        for untitled in [serde_json::json!({}), serde_json::json!({ "title": "   " })] {
+            assert_eq!(without_outranked_title(&header(untitled), set.clone()).unwrap().get("title"), Some(&serde_json::json!("흠")));
+        }
+    }
+
+    #[test]
+    fn a_change_that_held_only_the_outranked_title_is_dropped() {
+        let own = header(serde_json::json!({ "title": "러스트 마이그레이션 세션 이어받기" }));
+        assert_eq!(without_outranked_title(&own, header(serde_json::json!({ "title": "러스트 마이그레이션이어서" }))), None);
     }
 }
 
@@ -442,7 +479,9 @@ impl ItemDriver for SessionDriver {
         };
         for meta in &self.metas {
             if let Some(set) = meta.session_meta(cx, id)? {
-                model.metas.push(set);
+                if let Some(set) = without_outranked_title(&model.header, set) {
+                    model.metas.push(set);
+                }
             }
         }
         let source_digest = observe::Observable::of_source(cx, &model)?.digest();
