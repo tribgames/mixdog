@@ -422,55 +422,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's recording of the session store's barriers and save fence, read when the test runs (4.4 MB: every step
-    /// holds the whole stored header, system prompt included).
-    fn twin() -> Value {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-lifecycle/twin.json");
-        serde_json::from_str(&std::fs::read_to_string(path).expect("twin.json")).expect("twin.json")
-    }
-    #[cfg(node_twin)]
-    /// Node's recorded barriers (`bumpSessionGenerationAttempt`, `markSessionClosedAttempt`) over the real session
-    /// store: each step leaves the whole stored header the Rust fields make from the same header and clock.
-    #[test]
-    fn the_barriers_leave_what_node_recorded() {
-        let twin = twin();
-        let cases = twin["barriers"].as_array().expect("barriers");
-        assert_eq!(cases.len(), 7);
-        for case in cases {
-            let name = case["name"].as_str().expect("name");
-            let steps = case["steps"].as_array().expect("steps");
-            let mut header = obj(steps[0]["before"].clone());
-            for (index, step) in steps.iter().enumerate() {
-                let now = step["clock"].as_i64().expect("clock");
-                let (reason, op) = (step["reason"].as_str().expect("reason"), step["op"].as_str().expect("op"));
-                assert_eq!(header, obj(step["before"].clone()), "{name} step {index}: the header the step starts from");
-                let fields = match op {
-                    "detach" => detach_fields(&header, reason, step["ownerClose"] == json!(true), now),
-                    _ => tombstone(&header, reason, now),
-                };
-                header.extend(fields);
-                assert_eq!(header, obj(step["after"].clone()), "{name} step {index} ({op} {reason})");
-                assert_eq!(header["generation"], step["generation"], "{name} step {index}: the generation the barrier resolves");
-            }
-        }
-    }
-    #[cfg(node_twin)]
-    /// `_dropsAgainst` over Node's recorded saves: the same record and expected generation drop or land alike.
-    #[test]
-    fn a_stale_save_is_refused_as_node_refuses_it() {
-        let twin = twin();
-        let cases = twin["fence"].as_array().expect("fence");
-        assert_eq!(cases.len(), 16);
-        let mut refused = 0;
-        for case in cases {
-            let recorded = obj(json!({ "generation": case["recorded"]["generation"], "closed": case["recorded"]["closed"] }));
-            let dropped = drops_against(&recorded, case["expected"].as_f64());
-            assert_eq!(dropped, case["dropped"] == json!(true), "{} expected {}", case["state"], case["expected"]);
-            refused += usize::from(dropped);
-        }
-        assert_eq!(refused, 5, "a refused save is in the recording");
-    }
 }
 
 

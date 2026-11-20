@@ -158,23 +158,4 @@ mod tests {
     }
 
 
-    /// Node's `failed-turn-rewind.mjs` answers (`fixtures/failed-turn-rewind`).
-    #[test]
-    #[cfg(node_twin)]
-    fn the_rewind_answers_nodes_index_and_refusals() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/failed-turn-rewind/golden.json")).expect("golden");
-        for case in golden["rewind"].as_array().expect("cases") {
-            let messages: Vec<Value> = serde_json::from_value(case["messages"].clone()).expect("messages");
-            let want = case["index"].as_i64().filter(|index| *index >= 0).map(|index| index as usize);
-            assert_eq!(trailing_unanswered_prompt_index(&messages, case["prompt"].as_str().expect("prompt")), want, "{}", case["name"]);
-        }
-        for case in golden["retained"].as_array().expect("cases") {
-            let messages: Vec<Value> = serde_json::from_value(case["messages"].clone()).expect("messages");
-            let got = retained_failed_turn_input(&messages, case["id"].as_str().expect("id"), case["attempt"].as_str());
-            match case.get("error").and_then(Value::as_str) {
-                Some(error) => assert_eq!(got, Err(error), "{}", case["name"]),
-                None => assert_eq!(got, Ok(case["index"].as_u64().map(|index| index as usize)), "{}", case["name"]),
-            }
-        }
-    }
 }

@@ -1782,10 +1782,10 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
-      # The archive below is what every test leg and the Postgres job run, so it must be built from a clean checkout: no
-      # the owner's untracked cargo config override (`--cfg node_twin` off, the comparison tests not compiled in) and none of the local-only
-      # material on disk. A checkout step gives that by construction; the check keeps it so if a self-hosted or cached
-      # workspace ever stands in for it.
+      # The archive below is what every test leg and the Postgres job run, so it must be built from a clean checkout: none of
+      # the local-only comparison material on disk (cargo would build a local-only `tests/*.rs` it finds into the archive). A
+      # checkout step gives that by construction; the check keeps it so if a self-hosted or cached workspace ever stands in
+      # for it.
       - name: Check that the build is a clean checkout
         run: node scripts/ci/check-clean-checkout.mjs --build
       - name: Read the repository Rust toolchain
@@ -1900,7 +1900,7 @@ jobs:
       # The tracked tests that run `node` need the binary on the search path (the daemon's discovery tests, the Office
       # authoring script runtime), and one reads the checkout's node_modules: mixdog-office tests/pptx_script.rs, for
       # pptxgenjs and jszip. No other tracked test reads a package (the relay interop, the skill validators and the
-      # package-reading comparisons are `#[cfg(node_twin)]`, never compiled here). So the legs install those two packages
+      # package-reading comparisons were Node-comparison tests, now removed). So the legs install those two packages
       # (below) and need no npm download cache: a restore of the root tree's 250-470 MB cache entry would cost more than
       # the install it serves.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -2003,7 +2003,7 @@ jobs:
       # Without the install scripts, as the full install was: the tests read no postinstall output (prune-embedding-runtime,
       # native-layout's js-runtime.json) and no addon build (sharp, onnxruntime-node, esbuild, fsevents, protobufjs); every
       # test that needs a js-runtime.json writes its own beside the binary it starts. apps/relay is not installed: its
-      # dependencies served only the relay twin host (`--cfg node_twin`, never set here). The folder is inside the
+      # dependencies served only the relay twin host, which no tracked test builds. The folder is inside the
       # workspace so the copy needs no path conversion on Windows.
       #
       # The check after the install is not a formality: pptx_script.rs returns early, as a pass, when node_modules/pptxgenjs

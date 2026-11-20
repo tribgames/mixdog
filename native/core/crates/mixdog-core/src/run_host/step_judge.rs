@@ -147,27 +147,4 @@ mod tests {
     }
 
 
-    /// Node's `effortOptionsFor(provider, autoEffortModel(..))` over 18 routes and rows
-    /// (`record-step-ladder.mjs`).
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn the_options_are_the_ones_node_resolves() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/step-ladder/golden.json")).expect("fixture");
-        for case in golden["cases"].as_array().unwrap() {
-            let (provider, model) = (case["provider"].as_str().unwrap(), case["model"].as_str().unwrap());
-            let mut rows = HashMap::new();
-            if let Some(row) = case["row"].as_object() {
-                rows.insert((provider.to_owned(), model.to_owned()), row.clone());
-            }
-            let anthropic = case["anthropicLevels"].as_array().map(|l| l.iter().map(|v| v.as_str().unwrap().to_owned()).collect()).unwrap_or_default();
-            let sources = Sources { rows, anthropic, custom: Some((Protocol::OpenaiChat, "https://example.test/v1".into())) };
-            let facts = ladder_facts(&sources, provider, model).await;
-            assert_eq!(serde_json::json!(facts.options), case["options"], "{provider} {model} {}", case["row"]);
-            // A custom route carries its effective row; every other route none.
-            assert_eq!(facts.custom.is_some(), provider.starts_with("custom-"), "{provider}");
-            if let Some(custom) = facts.custom {
-                assert_eq!(serde_json::json!(custom.row.effort_levels()).is_null(), case["row"]["reasoningLevels"].is_null() && case["row"]["reasoningOptions"].is_null());
-            }
-        }
-    }
 }

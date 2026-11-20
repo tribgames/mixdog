@@ -25,21 +25,11 @@ use mixdog_tui::handlers::draft_flow::{
 };
 use mixdog_tui::handlers::escape::handle_prompt_escape;
 use mixdog_tui::handlers::global_keys::{ApprovalDecision, GlobalKeyOutcome, SelectionMove, ToolApproval, handle_global_key};
-#[cfg(node_twin)]
-use mixdog_tui::handlers::global_keys::{approval_shortcut_decision, decode_selection_move_chord};
 use mixdog_tui::handlers::history_nav::{HistoryNav, handle_prompt_history_navigate};
-#[cfg(node_twin)]
-use mixdog_tui::handlers::history_nav::navigate_prompt_history;
 use mixdog_tui::handlers::interrupt::{InterruptOutcome, finish_interrupt, handle_prompt_interrupt, on_busy_changed};
 use mixdog_tui::handlers::paste::{PasteIo, PasteResult, handle_prompt_paste};
-#[cfg(node_twin)]
-use mixdog_tui::handlers::paste::{paste_from_clipboard, process_pasted_text};
 use mixdog_tui::handlers::queue_restore::RestoredQueue;
-#[cfg(node_twin)]
-use mixdog_tui::handlers::queue_restore::{RestoreOptions, finish_queued_restore, restore_queued_to_prompt};
 use mixdog_tui::handlers::{GlobalKeyHost, PromptHost, PromptState, Reply};
-#[cfg(node_twin)]
-use mixdog_tui::history::{PROMPT_HISTORY_LIMIT, append_persisted, prompt_history_key, scan_prompt_history, write_retry_delay};
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::slash::commands::{OverlayOwner, SLASH_COMMANDS};
 use mixdog_tui::slash::host::{Opener, PromptSurface, SlashHost, SlashState, SubmitOptions, TextPrompt, Tone};
@@ -50,23 +40,7 @@ use mixdog_tui::transcript::window::selection_shift::SelectionRect;
 use serde_json::{Value, json};
 use slash_support::Fake;
 
-/// Collects the first mismatches of a group of cases.
-#[cfg(node_twin)]
-#[derive(Default)]
-struct Mismatches(Vec<String>);
 
-#[cfg(node_twin)]
-impl Mismatches {
-    fn expect<T: PartialEq + std::fmt::Debug>(&mut self, what: impl FnOnce() -> String, got: T, want: T) {
-        if got != want && self.0.len() < 12 {
-            self.0.push(format!("{}: got {got:?}, want {want:?}", what()));
-        }
-    }
-
-    fn finish(self, group: &str) {
-        assert!(self.0.is_empty(), "{group}: {} mismatches, first:\n{}", self.0.len(), self.0.join("\n"));
-    }
-}
 
 fn str_of(value: &Value) -> &str {
     value.as_str().unwrap_or_default()
@@ -593,80 +567,16 @@ impl GlobalKeyHost for H {
     }
 }
 
-#[cfg(node_twin)]
-fn nav_json(nav: &HistoryNav) -> Value {
-    json!({"active": nav.active, "index": nav.index, "seed": nav.seed, "lastValue": nav.last_value})
-}
 
 fn paste_host() -> H {
     H::new()
 }
 
-#[cfg(node_twin)]
-fn paste_shape(result: &PasteResult) -> Value {
-    match result {
-        PasteResult::Raw => json!({"kind": "raw"}),
-        PasteResult::Nothing => json!({"kind": "nothing"}),
-        PasteResult::Insert(text) => json!({"kind": "insert", "value": text}),
-    }
-}
 
-#[cfg(node_twin)]
-fn hint_pairs(host: &H) -> Value {
-    Value::Array(host.hints().into_iter().map(|(text, tone)| json!([text, tone])).collect())
-}
 
-#[cfg(node_twin)]
-fn nav_from(value: &Value) -> HistoryNav {
-    HistoryNav {
-        active: value["active"].as_bool().unwrap(),
-        index: value["index"].as_i64().unwrap(),
-        seed: str_of(&value["seed"]).to_owned(),
-        last_value: str_of(&value["lastValue"]).to_owned(),
-    }
-}
 
-/// The events of the recorder that have a counterpart in the Rust host (the navigation reset is the state's, the override
-/// publications are compared by the final override).
-#[cfg(node_twin)]
-fn comparable_events(events: &Value) -> Vec<Value> {
-    events.as_array().unwrap().iter().filter(|event| event[0] != "navReset" && event[0] != "override").cloned().collect()
-}
 
-#[cfg(node_twin)]
-fn restored_from(answer: &Value) -> Option<RestoredQueue> {
-    let value = answer.get("value").filter(|value| !value.is_null())?;
-    Some(RestoredQueue {
-        count: value["count"].as_u64().unwrap_or(0) as usize,
-        text: value.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
-        pasted_images: value.get("pastedImages").map(|images| {
-            images
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(|id| {
-                    let id: u64 = id.parse().unwrap();
-                    (id, PastedImage { id, content: String::new(), media_type: None, metadata_text: None })
-                })
-                .collect()
-        }),
-        pasted_texts: value.get("pastedTexts").map(|texts| {
-            texts.as_object().unwrap().iter().map(|(id, text)| (id.parse().unwrap(), str_of(text).to_owned())).collect()
-        }),
-        notice: value.get("notice").and_then(Value::as_str).map(str::to_owned),
-    })
-}
 
-#[cfg(node_twin)]
-fn override_json(host: &H) -> Value {
-    host.p.draft_override.as_ref().map_or(Value::Null, |published| {
-        json!({
-            "value": published.draft.value,
-            "cursor": published.draft.cursor,
-            "selectionAnchor": published.draft.selection_anchor,
-        })
-    })
-}
 
 // ---- ports of use-prompt-handlers.test.mjs ---------------------------------------------------------------------------------
 
@@ -1161,6 +1071,3 @@ fn a_dismissed_palette_stays_dismissed_until_the_text_changes() {
     assert_eq!(host.p.slash_dismissed_for, "", "the next edit lets it open again");
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/handlers.rs"]
-mod node_twin;

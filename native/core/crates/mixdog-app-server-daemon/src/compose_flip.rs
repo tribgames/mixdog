@@ -479,31 +479,6 @@ mod tests {
 
 
 
-    #[cfg(node_twin)]
-    /// A keychain failure on the daemon's tracked secret store reaches the `notice` section as the notice Node's holder raises
-    /// (`fixtures/desktop-notice/golden.json`, `keychainSteps` "failure": `raiseDesktopNotice('secret-storage', 'secret-storage-failed')`).
-    #[test]
-    fn a_keychain_failure_on_the_tracked_secret_store_raises_the_desktop_notice() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/desktop-notice/golden.json")).unwrap();
-        let step = golden["keychainSteps"].as_array().unwrap().iter().find(|step| step["step"] == "failure").unwrap();
-        let publisher = Arc::new(MockStatePublisher::default());
-        let notices = mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(publisher.clone());
-        let dir = tempfile::tempdir().unwrap();
-        let (_store, tracker) = tracked_secret_store(mixdog_rt::testing::tokens().durability_io, dir.path(), &notices);
-        tracker.note_failure("storage exploded", mixdog_secrets::FailureCode::Other);
-        let delivered: Vec<serde_json::Value> = publisher
-            .published()
-            .into_iter()
-            .map(|(section, key, change)| {
-                assert_eq!(section, SectionName::Notice);
-                let SectionChange::Set(bytes) = change else { panic!("a raise sets the entry") };
-                let notice: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                assert_eq!(key.as_deref(), notice["key"].as_str());
-                notice
-            })
-            .collect();
-        assert_eq!(serde_json::Value::Array(delivered), step["delivered"]);
-    }
 }
 
 
@@ -935,14 +910,11 @@ pub struct Real {
     #[cfg(feature = "replay-controls")]
     pub(crate) replay_writers: crate::replay_stores_settled::WriteBehind,
     /// The core's turn review and the tool pool its sessions run, as composed (the review is what the tools in the pool are wired to). Kept for
-    /// the replay of Node's review recording against the composition (compose::review_restart_tests); a release core does not carry them.
+    /// the tests that read them off the composition; a release core does not carry them.
     #[cfg(test)]
     pub turn_review: Arc<mixdog_core_review::turn_review::TurnReview>,
     #[cfg(test)]
     pub tool_pool: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>,
-    /// The MCP glue, for the lead-request replay's wait on the servers' initial connect (`ComposedCore::mcp_connections_settled`).
-    #[cfg(test)]
-    pub mcp_glue: Arc<mixdog_mcp::mcp_glue::McpGlue>,
 }
 
 
@@ -2943,8 +2915,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ))));
     #[cfg(test)]
     let kept_tool_pool = tool_pool.clone();
-    #[cfg(test)]
-    let kept_mcp_glue = mcp.glue.clone();
     // ---- 9. the ready rows --------------------------------------------------------------------
     let ready = ready_rows(
         &process,
@@ -4876,5 +4846,5 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             }
         }));
     }
-    Ok(Real { session_notifier, screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), mark_rewrites, ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_admin: channel_admin.clone(), channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, archive_trees, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
+    Ok(Real { session_notifier, screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), mark_rewrites, ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_admin: channel_admin.clone(), channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, archive_trees, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }

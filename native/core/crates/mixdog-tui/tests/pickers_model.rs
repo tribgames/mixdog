@@ -14,23 +14,9 @@ use std::rc::Rc;
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::pickers::common::{PanelItem, PickerFn, PickerHost, PickerPanel, ProviderSetupRequest, RouteState};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::common::Onboarding;
-#[cfg(node_twin)]
-use mixdog_tui::pickers::model::agents::{AgentsOptions, open_agents_picker};
 use mixdog_tui::pickers::model::catalog::{CatalogKind, CatalogRefresh, ModelCatalogCaches};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::model::catalog::run_catalog_refresh;
 use mixdog_tui::pickers::model::options::{self, ProviderNames};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::model::output_style::{OutputStyleOptions, open_output_style_picker};
 use mixdog_tui::pickers::model::picker::{ModelPickerOptions, SelectRoute};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::model::picker::ImmediateSelect;
-#[cfg(node_twin)]
-use mixdog_tui::pickers::model::theme::{ThemeOptions, open_effort_picker, open_theme_picker};
-#[cfg(node_twin)]
-use mixdog_tui::pickers::model::web_search::{WebSearchOptions, open_web_search_picker};
 use mixdog_tui::pickers::model::workflow::{WorkflowOptions, open_workflow_picker};
 use mixdog_tui::pickers::model::open_model_picker;
 use mixdog_tui::slash::host::Tone;
@@ -38,8 +24,6 @@ use mixdog_tui::surface::epoch::PanelValue;
 use mixdog_tui::surface::owner::PanelSurface;
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
 use mixdog_tui_widgets::picker::PickerItem;
-#[cfg(node_twin)]
-use mixdog_tui_widgets::picker::IndexMode;
 use mixdog_tui_widgets::picker::layout::FooterInput;
 use serde_json::{Map, Value, json};
 
@@ -213,13 +197,6 @@ impl Fake {
         self.surface.picker().cloned()
     }
 
-    /// What settles on its own in the app after an operation: the scheduled catalog refreshes.
-    #[cfg(node_twin)]
-    fn settle(&mut self) {
-        while let Some(job) = self.jobs.pop_front() {
-            run_catalog_refresh(self, job);
-        }
-    }
 
     /// The row a scenario names: an index, or a value, model id or provider.
     fn row(&self, reference: &Value) -> Option<PanelItem> {
@@ -247,32 +224,8 @@ impl Fake {
         }
     }
 
-    #[cfg(node_twin)]
-    fn adjust(&mut self, key: &str, reference: &Value) {
-        let (Some(panel), item) = (self.panel(), self.row(reference)) else { return };
-        let Some(handler) = panel.handler else { return };
-        match key {
-            "left" => handler.on_left(self, item.as_ref()),
-            "right" => handler.on_right(self, item.as_ref()),
-            _ => handler.on_tab(self, item.as_ref()),
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn key(&mut self, input: &str, reference: &Value) {
-        let (Some(panel), item) = (self.panel(), self.row(reference)) else { return };
-        if let Some(handler) = panel.handler {
-            handler.on_key(self, input, item.as_ref());
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn highlight(&mut self, reference: &Value) {
-        let (Some(panel), Some(item)) = (self.panel(), self.row(reference)) else { return };
-        if let Some(handler) = panel.handler.filter(|handler| handler.wants_highlight()) {
-            handler.on_highlight(self, &item);
-        }
-    }
 
     fn cancel(&mut self) {
         if let Some(handler) = self.panel().and_then(|panel| panel.handler) {
@@ -280,35 +233,7 @@ impl Fake {
         }
     }
 
-    #[cfg(node_twin)]
-    fn confirm(&mut self, button: &str) {
-        let Some(panel) = self.panel().filter(|panel| panel.confirm.is_some()) else { return };
-        if let Some(handler) = panel.handler {
-            handler.on_confirm(self, button);
-        }
-    }
 
-    /// The footer texts of every row of the panel.
-    #[cfg(node_twin)]
-    fn footers(&self, panel: &PickerPanel) -> Option<Value> {
-        let footer = panel.footer.as_ref()?;
-        let rows: Vec<Value> = panel
-            .items
-            .iter()
-            .map(|row| {
-                Value::Array(
-                    footer(Some(row))
-                        .into_iter()
-                        .map(|line| match line {
-                            FooterInput::Object { glyph, text, .. } => json!([glyph, text]),
-                            FooterInput::Plain(text) => json!(["", text]),
-                        })
-                        .collect(),
-                )
-            })
-            .collect();
-        Some(Value::Array(rows))
-    }
 
     /// The footer texts of one model row (`footerText(id)`).
     fn footer_texts(&self, model_id: &str) -> Vec<String> {
@@ -323,248 +248,28 @@ impl Fake {
             .collect()
     }
 
-    /// The panel as `record-pickers-model.mjs` summarises it.
-    #[cfg(node_twin)]
-    fn summary(&self) -> Value {
-        let Some(panel) = self.panel() else { return Value::Null };
-        let items: Vec<Value> = panel
-            .items
-            .iter()
-            .map(|row| {
-                let tag = |key: &str| row.tag(key).and_then(Value::as_str).map_or(Value::Null, |text| json!(text));
-                json!({
-                    "value": row.item.value,
-                    "label": row.item.label,
-                    "marker": row.item.marker,
-                    "meta": row.item.meta,
-                    "description": row.item.description,
-                    "metaParts": row.item.meta_parts.as_ref().map(|parts| parts.iter().map(|part| json!([part.text, part.width])).collect::<Vec<_>>()),
-                    "action": tag("_action"),
-                    "provider": tag("_provider"),
-                    "modelId": tag("_modelId"),
-                    "failure": tag("_failure"),
-                })
-            })
-            .collect();
-        let handler = panel.handler.as_ref();
-        json!({
-            "title": panel.title,
-            "description": panel.description,
-            "help": panel.help,
-            "pickerKey": panel.picker_key,
-            "initialIndex": panel.initial_index,
-            "indexMode": panel.index_mode.map(|mode| match mode {
-                IndexMode::Always => "always",
-                IndexMode::Never => "never",
-                IndexMode::Auto => "auto",
-            }),
-            "labelWidth": panel.label_width,
-            "metaWidth": panel.meta_width,
-            "loading": panel.loading,
-            "confirm": panel.confirm.as_ref().map(|confirm| confirm.buttons.iter().map(|button| json!([button.value, button.label])).collect::<Vec<_>>()),
-            "adjustable": handler.is_some_and(|handler| handler.adjustable()),
-            "highlights": handler.is_some_and(|handler| handler.wants_highlight()),
-            "items": items,
-            "footers": self.footers(&panel),
-        })
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------- options
 
-/// The caller continuations a scenario names, which log what they were called with.
-#[cfg(node_twin)]
-struct Callbacks {
-    return_to: Option<PickerFn>,
-    after_select: Option<PickerFn>,
-    immediate: Option<ImmediateSelect>,
-    handoff: Option<PickerPanel>,
-    on_select_route: Option<SelectRoute>,
-    onboarding: Option<Onboarding>,
-}
 
 fn log_fn(events: &Events, entry: Value) -> PickerFn {
     let events = Rc::clone(events);
     Rc::new(move |_| events.borrow_mut().push(entry.clone()))
 }
 
-#[cfg(node_twin)]
-impl Callbacks {
-    fn new(raw: &Value, events: &Events) -> Self {
-        let flag = |key: &str| raw.get(key).is_some_and(|value| value.as_bool().unwrap_or(true) && !value.is_null());
-        let on_select_route: Option<SelectRoute> = raw.get("onSelectRoute").and_then(Value::as_str).map(|mode| {
-            let (events, fails) = (Rc::clone(events), mode == "fail");
-            let route: SelectRoute = Rc::new(move |_host: &mut dyn PickerHost, route: &Value, picked: &Value, effort: &Option<String>| {
-                events.borrow_mut().push(json!(["onSelectRoute", route["model"], picked["id"], effort]));
-                if fails { Err("disk full".to_owned()) } else { Ok(Value::Null) }
-            });
-            route
-        });
-        Self {
-            return_to: flag("returnTo").then(|| log_fn(events, json!(["returnTo"]))),
-            after_select: flag("onAfterSelect").then(|| log_fn(events, json!(["afterSelect"]))),
-            immediate: flag("onImmediateSelect").then(|| {
-                let events = Rc::clone(events);
-                let immediate: ImmediateSelect = Rc::new(move |_host: &mut dyn PickerHost, route: &Value| events.borrow_mut().push(json!(["immediate", route.get("model").cloned().unwrap_or(Value::Null)])));
-                immediate
-            }),
-            handoff: flag("handoffPanel").then(|| PickerPanel::new("Handoff")),
-            on_select_route,
-            onboarding: flag("onboarding").then(|| Onboarding {
-                on_advance: Some(log_fn(events, json!(["onboarding", "advance"]))),
-                on_back: Some(log_fn(events, json!(["onboarding", "back"]))),
-                on_cancel: Some(log_fn(events, json!(["onboarding", "cancel"]))),
-            }),
-        }
-    }
-}
 
-#[cfg(node_twin)]
-fn opt_text(raw: &Value, key: &str) -> Option<String> {
-    raw.get(key).and_then(Value::as_str).map(str::to_owned)
-}
 
-#[cfg(node_twin)]
-fn model_options(raw: &Value, callbacks: Callbacks) -> ModelPickerOptions {
-    ModelPickerOptions {
-        title: opt_text(raw, "title"),
-        provider_description: opt_text(raw, "providerDescription"),
-        model_description: opt_text(raw, "modelDescription"),
-        empty_notice: opt_text(raw, "emptyNotice"),
-        refresh_models: raw.get("refreshModels").and_then(Value::as_bool).unwrap_or(false),
-        current_route: raw.get("currentRoute").cloned(),
-        return_to: callbacks.return_to,
-        return_label: opt_text(raw, "returnLabel"),
-        return_on_nested_cancel: raw.get("returnOnNestedCancel").and_then(Value::as_bool).unwrap_or(false),
-        handoff_panel: callbacks.handoff,
-        on_select_route: callbacks.on_select_route,
-        on_immediate_select: callbacks.immediate,
-        on_after_select: callbacks.after_select,
-        ..ModelPickerOptions::default()
-    }
-}
 
-/// Runs one operation of a scenario.
-#[cfg(node_twin)]
-fn run_op(fake: &mut Fake, op: &Value) {
-    let raw = op.get("options").cloned().unwrap_or_else(|| json!({}));
-    let events = Rc::clone(&fake.events);
-    if op.get("supersedeDuring").is_some() {
-        fake.supersede_next = true;
-    }
-    if let Some(name) = op.get("open").and_then(Value::as_str) {
-        let callbacks = Callbacks::new(&raw, &events);
-        match name {
-            "model" => open_model_picker(fake, model_options(&raw, callbacks)),
-            "websearch" => open_web_search_picker(
-                fake,
-                WebSearchOptions {
-                    route_override: raw.get("routeOverride").cloned(),
-                    return_to: callbacks.return_to,
-                    return_label: opt_text(&raw, "returnLabel"),
-                    return_on_nested_cancel: raw.get("returnOnNestedCancel").and_then(Value::as_bool).unwrap_or(false),
-                },
-            ),
-            "agents" => open_agents_picker(
-                fake,
-                AgentsOptions {
-                    refresh_models: raw.get("refreshModels").and_then(Value::as_bool).unwrap_or(false),
-                    route_overrides: raw.get("routeOverrides").and_then(Value::as_object).into_iter().flatten().map(|(id, route)| (id.clone(), route.clone())).collect(),
-                    initial_agent_id: opt_text(&raw, "initialAgentId").unwrap_or_default(),
-                },
-            ),
-            "workflow" => open_workflow_picker(fake, WorkflowOptions { return_to: callbacks.return_to, handoff_panel: callbacks.handoff }),
-            "outputstyle" => open_output_style_picker(
-                fake,
-                OutputStyleOptions { return_to: callbacks.return_to, handoff_panel: callbacks.handoff, onboarding: callbacks.onboarding, confirm_bar: None },
-            ),
-            "theme" => open_theme_picker(
-                fake,
-                ThemeOptions { return_to: callbacks.return_to, handoff_panel: callbacks.handoff, onboarding: callbacks.onboarding, confirm_bar: None },
-            ),
-            "effort" => open_effort_picker(fake),
-            other => panic!("unknown opener {other}"),
-        }
-    } else if op.get("continue").is_some() {
-        if let Some(request) = fake.setup.take() {
-            (request.on_continue)(fake);
-        }
-    } else if let Some(reference) = op.get("select") {
-        fake.select(reference);
-    } else if let Some(key) = ["left", "right", "tab"].into_iter().find(|key| op.get(*key).is_some()) {
-        fake.adjust(key, &op[key]);
-    } else if let Some(input) = op.get("key").and_then(Value::as_str) {
-        fake.key(input, op.get("row").unwrap_or(&Value::Null));
-    } else if let Some(reference) = op.get("highlight") {
-        fake.highlight(reference);
-    } else if op.get("cancel").is_some() {
-        fake.cancel();
-    } else if let Some(button) = op.get("confirm").and_then(Value::as_str) {
-        fake.confirm(button);
-    } else if op.get("supersede").is_some() {
-        fake.surface.supersede();
-    } else if let Some(ms) = op.get("advance").and_then(Value::as_u64) {
-        fake.clock += ms;
-    }
-    fake.settle();
-}
 
-/// The store calls of one step as a multiset: whether `got` holds the same calls as `want`, in any order.
-#[cfg(node_twin)]
-fn same_calls(got: &[Value], want: &[Value]) -> bool {
-    let mut rest: Vec<&Value> = want.iter().collect();
-    got.len() == want.len()
-        && got.iter().all(|call| match rest.iter().position(|candidate| *candidate == call) {
-            Some(at) => {
-                rest.remove(at);
-                true
-            }
-            None => false,
-        })
-}
 
-#[cfg(node_twin)]
-fn caches_of(fake: &Fake) -> Value {
-    let provider = fake.caches.entry(CatalogKind::Provider);
-    let web = fake.caches.entry(CatalogKind::WebSearch);
-    json!([provider.models.as_ref().map(Vec::len), provider.at, web.models.as_ref().map(Vec::len), web.at])
-}
 
 // ---------------------------------------------------------------------------------------------------------------- model options twin
 
-#[cfg(node_twin)]
-fn number_of(value: &Value) -> f64 {
-    match value {
-        Value::Null => f64::NAN,
-        Value::String(text) => match text.as_str() {
-            "Infinity" => f64::INFINITY,
-            "-Infinity" => f64::NEG_INFINITY,
-            _ => f64::NAN,
-        },
-        other => other.as_f64().expect("a number"),
-    }
-}
 
-#[cfg(node_twin)]
-fn same_number(got: f64, want: &Value) -> bool {
-    let want = number_of(want);
-    (got.is_nan() && want.is_nan()) || got == want
-}
 
-#[cfg(node_twin)]
-fn row_summary(row: &PanelItem) -> Value {
-    json!([row.item.value, row.item.label, row.item.marker, row.item.meta, row.item.description, row.tag_text("_action"), row.tag_text("_provider"), row.tag_text("_modelId")])
-}
 
-#[cfg(node_twin)]
-fn names_of(value: &Value) -> ProviderNames {
-    value.as_object().into_iter().flatten().map(|(id, name)| (id.clone(), name.as_str().unwrap_or_default().to_owned())).collect()
-}
 
-#[cfg(node_twin)]
-fn pair_of(models: &[Value]) -> Value {
-    Value::Array(models.iter().map(|model| json!([model["provider"], model["id"]])).collect())
-}
 
 // ---------------------------------------------------------------------------------------------------------------- ported unit tests
 
@@ -1015,6 +720,3 @@ fn the_warm_up_fills_empty_caches_and_a_provider_clear_makes_a_stale_listing_dro
     assert!(fake.caches.entry(CatalogKind::WebSearch).models.is_none());
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/pickers_model.rs"]
-mod node_twin;

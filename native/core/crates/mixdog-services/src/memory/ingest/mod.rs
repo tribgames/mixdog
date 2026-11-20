@@ -373,12 +373,6 @@ impl SessionIngest {
         self.0.statements.lock().expect("statements").push((_sql, _params));
     }
 
-    #[cfg(node_twin)]
-    /// The entries statements sent so far (text, params), in order.
-    #[cfg(test)]
-    pub(crate) fn statements(&self) -> Vec<(&'static str, Value)> {
-        self.0.statements.lock().expect("statements").clone()
-    }
 
     /// Queues `work` after the flushes queued before it. It is registered in the database's scope before it is published as the tail, so the queue
     /// never holds work nobody owns; a refused registration (the scope sealed) leaves the tail as it was.

@@ -1508,21 +1508,6 @@ async fn placeholder_titles_refold_on_language_change() {
     assert_eq!(title_fold, "영상");
 }
 
-#[cfg(node_twin)]
-fn differing_fields(key: &str, want: &serde_json::Value, got: &serde_json::Value) -> Vec<String> {
-    let (want, got) = (want.as_object().unwrap(), got.as_object().unwrap());
-    let mut names: Vec<&String> = want.keys().chain(got.keys()).collect();
-    names.sort();
-    names.dedup();
-    names
-        .into_iter()
-        .filter(|k| want.get(*k) != got.get(*k))
-        .map(|k| format!("{key}: {k}: node {:?} rust {:?}", want.get(k), got.get(k)))
-        .collect()
-}
-/// Corpus sessions per test: each is written through its own log writer and projected again.
-#[cfg(node_twin)]
-const SESSION_CHUNK: usize = 4;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
@@ -3299,10 +3284,6 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
 // ---------------------------------------------------------------------------------------
 // Catalog rows against Node's `_sessionSummary` on the migration corpus.
 
-#[cfg(node_twin)]
-fn corpus_root() -> PathBuf {
-    std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus")
-}
 /// A 1.4.5 media reference part (`attachment-reference.mjs` `mediaPartToReference`: the
 /// part carries the reference `info` object) and a plain text part (no key) keep Node's
 /// `JSON.stringify` bytes through the log, a body blob and the model-context read.
@@ -3627,143 +3608,6 @@ async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
 }
 
 
-/// Every corpus session written through the log writer (live) and projected again by
-/// `project_index` (reprojection) has the row Node's `_sessionSummary` builds.
-#[cfg(node_twin)]
-const SUMMARIES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/migration/session-summary/summaries.json");
-#[cfg(node_twin)]
-mixdog_rt::replay_chunks!(CATALOG_TESTS, #[cfg_attr(all(), tokio::test(flavor = "multi_thread", worker_threads = 2), ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)")] async catalog_rows_chunk; [
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_00 = 0,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_01 = 1,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_02 = 2,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_03 = 3,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_04 = 4,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_05 = 5,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_06 = 6,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_07 = 7,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_08 = 8,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_09 = 9,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_10 = 10,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_11 = 11,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_12 = 12,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_13 = 13,
-    catalog_rows_equal_nodes_session_summary_on_the_corpus_14 = 14,
-]);
-#[cfg(node_twin)]
-#[test]
-fn every_corpus_session_has_its_catalog_test() {
-    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
-    let entries = fixture["sessions"].as_array().unwrap();
-    assert!(entries.len() > 50);
-    mixdog_rt::testing::assert_chunks_registered(CATALOG_TESTS, entries.len(), SESSION_CHUNK);
-}
-#[cfg(node_twin)]
-async fn catalog_rows_chunk(chunk: usize) {
-    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
-    let root = corpus_root();
-    assert!(root.join("v145").is_dir(), "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS", root.display());
-    let mut bad = Vec::new();
-    let entries = fixture["sessions"].as_array().unwrap();
-    for entry in &entries[mixdog_rt::testing::chunk_range(entries.len(), chunk, SESSION_CHUNK)] {
-        let key = entry["key"].as_str().unwrap();
-        let want = &entry["summary"];
-        let source: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join(key)).unwrap()).unwrap();
-        let mut header = source.as_object().unwrap().clone();
-        let messages = header.remove("messages").unwrap();
-        let id = source["id"].as_str().unwrap().to_owned();
-
-        let env = Env::new();
-        let first = crate::encode::encode_record(
-            serde_json::from_value(json!({"k":"session","v":2,"id":id,"log_id":LOG_ID,"header":{"inline":header}})).unwrap(),
-        )
-        .unwrap();
-        env.store
-            .upsert(
-                CatalogHead { session: id.clone(), log_id: LOG_ID.into(), base_session: None, header: header.clone() },
-                DirtyMark::Set,
-            )
-            .await
-            .unwrap();
-        let (dir, deps) = (env.dir(&id), env.deps());
-        let (mut w, ack) = on_lane(move |l| LogWriter::create(l, &dir, first, deps).unwrap()).await;
-        env.store.project(ack.projection).await.unwrap();
-        let mut batch = Vec::new();
-        let mut bytes = 0;
-        let messages = messages.as_array().unwrap();
-        for (i, m) in messages.iter().enumerate() {
-            let e = crate::encode::encode_record(
-                serde_json::from_value(json!({"k":"item","iid":format!("m{i}"),"form":"message","model":true,
-                    "visible":true,"refs":[],"body":{"inline":m}}))
-                .unwrap(),
-            )
-            .unwrap();
-            bytes += e.frame_len();
-            batch.push(e);
-            if bytes > (256 << 10) || i + 1 == messages.len() {
-                w = env.commit(w, std::mem::take(&mut batch)).await.0;
-                bytes = 0;
-            }
-        }
-        let live: serde_json::Value = serde_json::from_str(&env.store.summary(&id).await.unwrap().unwrap()).unwrap();
-        bad.extend(differing_fields(&format!("live {key}"), want, &live));
-
-        let db = env.data.join("reprojected.sqlite");
-        let (data, db2, ids) = (env.data.clone(), db.clone(), vec![id.clone()]);
-        tokio::task::spawn_blocking(move || crate::sqlite::project_index(&data, &db2, &ids)).await.unwrap().unwrap();
-        let text: String = rusqlite::Connection::open(&db)
-            .unwrap()
-            .query_row("SELECT summary FROM sessions WHERE id = ?1", [&id], |r| r.get(0))
-            .unwrap();
-        let again: serde_json::Value = serde_json::from_str(&text).unwrap();
-        bad.extend(differing_fields(&format!("reprojected {key}"), want, &again));
-        drop(w);
-    }
-    assert!(bad.is_empty(), "{} differences:\n{}", bad.len(), bad.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
-}
-#[cfg(node_twin)]
-fn session_list_golden() -> serde_json::Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-list/golden.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-/// `isLeadVisibleRow` over the list rows Node's `_sessionSummary` built (preview and message
-/// count included).
-#[cfg(node_twin)]
-#[test]
-fn the_lead_visibility_predicate_equals_nodes() {
-    use crate::sqlite::lead::is_lead_visible_row;
-    let golden = session_list_golden();
-    for entry in golden["sessions"].as_array().unwrap() {
-        let summary = entry["summary"].as_object().unwrap();
-        assert_eq!(is_lead_visible_row(summary), entry["leadVisible"], "{}", entry["record"]["id"]);
-    }
-}
-/// `decodeCatalogCursor` / `encodeCatalogCursor`: accepted and refused cursors, and the cursor Node
-/// names after a row.
-#[cfg(node_twin)]
-#[test]
-fn catalog_cursors_equal_nodes() {
-    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
-    let golden = session_list_golden();
-    for case in golden["cursors"].as_array().unwrap() {
-        let got = decode_catalog_cursor(case["cursor"].as_str());
-        match case.get("error") {
-            Some(_) => assert!(got.is_err(), "{}", case["cursor"]),
-            None => {
-                let want = case["decoded"].as_object().map(|d| (d["activity"].as_f64().unwrap(), d["id"].as_str().unwrap().to_owned()));
-                assert_eq!(got.unwrap().map(|c| (c.activity, c.id)), want, "{}", case["cursor"]);
-            }
-        }
-    }
-    for walk in golden["walks"].as_array().unwrap() {
-        for page in walk["pages"].as_array().unwrap() {
-            let Some(next) = page["nextCursor"].as_str() else { continue };
-            let after = decode_catalog_cursor(Some(next)).unwrap().unwrap();
-            let last = golden["sessions"].as_array().unwrap().iter().find(|s| s["record"]["id"].as_str() == Some(after.id.as_str()));
-            let row = last.unwrap()["summary"].as_object().unwrap();
-            assert_eq!(encode_catalog_cursor(row), next);
-        }
-    }
-}
 /// The pages `listStoredSessionSummaryPage` answers: order, the limit rules, `nextCursor`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lead_pages_walk_by_activity_then_id_and_name_the_cursor_of_the_last_row() {
@@ -3798,33 +3642,3 @@ async fn lead_pages_walk_by_activity_then_id_and_name_the_cursor_of_the_last_row
     assert_eq!(pages, [vec!["e", "b"], vec!["c", "d"], vec!["a"]]);
 }
 
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lead_pages_equal_nodes() {
-    use crate::sqlite::lead::decode_catalog_cursor;
-    use crate::sqlite::lead::encode_catalog_cursor;
-    let env = Env::new();
-    let golden = session_list_golden();
-    for entry in golden["sessions"].as_array().unwrap() {
-        let mut header = entry["record"].as_object().unwrap().clone();
-        header.remove("messages");
-        let id = header["id"].as_str().unwrap().to_owned();
-        env.store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
-    }
-    for walk in golden["walks"].as_array().unwrap() {
-        // `listStoredSessionSummaryPage`: `floor(Number(limit))`, 1..=1000, else 50.
-        let size = match walk["limit"].as_f64().map(f64::floor) {
-            Some(n) if n > 0.0 => n.min(1000.0) as usize,
-            _ => 50,
-        };
-        for page in walk["pages"].as_array().unwrap() {
-            let after = decode_catalog_cursor(page["cursor"].as_str()).unwrap();
-            let got = env.store.lead_page(after, crate::sqlite::lead::LeadFilter::default(), size).await.unwrap();
-            let ids: Vec<&str> = got.rows.iter().map(|r| r.row["id"].as_str().unwrap()).collect();
-            let want: Vec<&str> = page["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-            assert_eq!(ids, want, "limit {} cursor {}", walk["limit"], page["cursor"]);
-            let next = got.more.then(|| encode_catalog_cursor(&got.rows.last().unwrap().row));
-            assert_eq!(next.as_deref(), page["nextCursor"].as_str());
-        }
-    }
-}

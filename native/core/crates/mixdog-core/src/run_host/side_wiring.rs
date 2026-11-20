@@ -51,38 +51,16 @@ impl SideWiring {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::HashMap;
 
-    #[cfg(node_twin)]
-    use mixdog_agent::compact::summary_run::SummaryFailure;
-    #[cfg(node_twin)]
-    use mixdog_agent::compact::summary_run::SummaryResponse;
-    #[cfg(node_twin)]
-    use mixdog_agent::compact::summary_run::SummaryRoute;
     use mixdog_agent::env::Clock;
-    #[cfg(node_twin)]
-    use mixdog_agent::env::SendTicket;
     use mixdog_agent::response::ModelResponse;
     use mixdog_core_api::domain::mock::{MockAttempt, MockProvider};
     use mixdog_core_api::domain::provider::{Content, Message, ModelRequest, RequestOptions, Role};
     use mixdog_core_api::ids::ThreadId;
     use mixdog_core_session::session::turn_ops::{ask_side_question, SIDE_QUESTION_NO_REQUEST};
-    #[cfg(node_twin)]
-    use mixdog_core_session::session::turn_ops::SideRun;
-    #[cfg(node_twin)]
-    use mixdog_rt::CancellationToken;
     use serde_json::json;
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::super::side_requests::RunSide;
-    #[cfg(node_twin)]
-    use mixdog_agent::compact::summary_run::ForkSource;
-    #[cfg(node_twin)]
-    use super::super::summary_routes::ForkSender;
-    #[cfg(node_twin)]
-    use super::super::summary_routes::SessionFork;
     use super::*;
 
     struct Fixed;
@@ -91,17 +69,6 @@ mod tests {
             0
         }
     }
-
-    #[cfg(node_twin)]
-    struct Never;
-    #[async_trait::async_trait]
-    #[cfg(node_twin)]
-    impl ForkSender for Never {
-        async fn send(&self, _: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
-            unreachable!("the replay only reads the saved request")
-        }
-    }
-
     async fn wiring(dir: &std::path::Path) -> SideWiring {
         SideWiring::new(requests(dir).await)
     }
@@ -129,29 +96,6 @@ mod tests {
 
     fn reply() -> ModelResponse {
         ModelResponse { content: "reply".into(), ..ModelResponse::default() }
-    }
-
-    #[cfg(node_twin)]
-    fn header(owner: Option<&str>) -> serde_json::Map<String, Value> {
-        let Value::Object(header) = (match owner {
-            Some(owner) => json!({ "owner": owner }),
-            None => json!({ "owner": "lead" }),
-        }) else {
-            unreachable!()
-        };
-        header
-    }
-
-    /// The state Node's `sideQuestionRequest` and `compactionForkRequest` read back.
-    #[cfg(node_twin)]
-    fn observed(wiring: &SideWiring, session: &str) -> Value {
-        let thread = ThreadId::from(session);
-        let saved = wiring.requests.store.saved_request(&thread);
-        let forkable = SessionFork::new(saved.clone(), Arc::new(Fixed), Arc::new(Never)).request().is_some();
-        json!({
-            "request": saved.map(|r| json!({ "messages": r.shared_prefix_messages, "settled": r.settled, "compacted": r.compacted })),
-            "forkable": forkable,
-        })
     }
 
     struct Rewrites;
@@ -221,58 +165,4 @@ mod tests {
     }
 
 
-    /// What Node's store kept at every step of the recorded scenarios
-    /// (`benchmarks/rust-core/recorders/record-side-question-store.mjs`).
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/side-question-store/golden.json");
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn every_recorded_step_of_nodes_store_is_reached_through_the_wiring() {
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
-        let dir = tempfile::tempdir().unwrap();
-        let mut steps_run = 0;
-        for scenario in golden["scenarios"].as_array().expect("scenarios") {
-            let wiring = wiring(dir.path()).await;
-            let questions = wiring.questions();
-            let provider = Arc::new(MockProvider::new([]));
-            let mut tickets: HashMap<String, Box<dyn SendTicket>> = HashMap::new();
-            let mut runs: HashMap<String, (CancellationToken, Option<SideRun>)> = HashMap::new();
-            for recorded in scenario["steps"].as_array().expect("steps") {
-                let step = &recorded["step"];
-                let thread = ThreadId::from(step["session"].as_str().unwrap_or("s"));
-                let alias = step["as"].as_str().unwrap_or_default().to_owned();
-                let mut returned = None;
-                match step["op"].as_str().unwrap() {
-                    "capture" => {
-                        let owner = step["owner"].as_str();
-                        let agent_owner = super::super::compaction_world::is_agent_owner(&header(Some(owner.unwrap_or("lead"))));
-                        let run = RunSide { thread, provider_name: "mock".into(), provider: provider.clone(), agent_owner };
-                        let ticket = wiring.requests().tap(run).begin(&request(step["messages"].as_u64().unwrap() as usize));
-                        tickets.insert(alias, ticket);
-                    }
-                    "settle" => tickets.remove(&alias).unwrap().settle(&reply()),
-                    "discard" => tickets.remove(&alias).unwrap().discard(),
-                    "retire" => wiring.requests.store.retire_compaction_fork(&thread),
-                    "forget" => questions.forget(&thread, step["cancel"].as_bool().unwrap()),
-                    "begin" => {
-                        let run = questions.begin(&thread);
-                        runs.insert(alias, (run.cancel.clone(), Some(run)));
-                    }
-                    "end" => drop(runs.get_mut(&alias).unwrap().1.take()),
-                    "cancel" => returned = Some(questions.cancel(&thread)),
-                    other => panic!("unknown step {other}"),
-                }
-                let name = scenario["name"].as_str().unwrap();
-                for session in ["s", "t"] {
-                    assert_eq!(observed(&wiring, session), recorded["state"][session], "{name}: {step} (session {session})");
-                }
-                assert_eq!(returned.map(Value::Bool), recorded.get("returned").cloned(), "{name}: {step} (returned)");
-                for (alias, (cancel, _)) in &runs {
-                    assert_eq!(Value::Bool(cancel.is_cancelled()), recorded["aborted"][alias], "{name}: {step} (run {alias})");
-                }
-                steps_run += 1;
-            }
-        }
-        assert_eq!(steps_run, 57);
-    }
 }

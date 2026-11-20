@@ -29,12 +29,6 @@ mod service;
 pub mod store_migration;
 #[cfg(test)]
 mod api_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod lead_twin_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod home_api_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]

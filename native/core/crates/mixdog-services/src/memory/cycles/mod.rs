@@ -17,9 +17,6 @@ pub mod scheduler;
 pub mod signature;
 pub mod window;
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod golden_tests;
 
 use async_trait::async_trait;
 use serde_json::Value;

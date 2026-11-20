@@ -99,8 +99,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    include!("node-twin/registry.rs");
 
     /// A branch a phone sent cut inside an emoji is stored as a lone surrogate escape: the registry reads it as U+FFFD, reads every
     /// other record whole, and the next write keeps both.

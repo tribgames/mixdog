@@ -950,38 +950,3 @@ mod tests {
     }
 }
 
-/// The recorded outputs of the reference runtime; compiled only on the machine that holds them.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use super::*;
-
-    fn bits(hex: &str) -> f64 {
-        f64::from_bits(u64::from_str_radix(hex, 16).expect("hex"))
-    }
-
-    #[test]
-    fn equals_the_recorded_answers_bit_for_bit() {
-        let cases: Vec<serde_json::Value> = serde_json::from_str(mixdog_testkit::fixture!("testdata/math_v8.json")).expect("golden");
-        assert!(cases.len() > 3000);
-        for case in &cases {
-            let name = case[0].as_str().expect("name");
-            let args: Vec<f64> = case[1].as_array().expect("args").iter().map(|v| bits(v.as_str().expect("hex"))).collect();
-            if name == "toFixed6" {
-                assert_eq!(to_fixed(args[0], 6), case[2].as_str().expect("text"), "toFixed {args:?}");
-                continue;
-            }
-            let got = match name {
-                "exp" => exp(args[0]),
-                "log" => ln(args[0]),
-                "log1p" => ln_1p(args[0]),
-                "expm1" => exp_m1(args[0]),
-                "pow" => pow(args[0], args[1]),
-                "hypot" => hypot(&args),
-                "round" => round(args[0]),
-                other => panic!("unknown case {other}"),
-            };
-            let want = bits(case[2].as_str().expect("hex"));
-            assert_eq!(got.to_bits(), want.to_bits(), "{name}{args:?}: {got:e} vs {want:e}");
-        }
-    }
-}

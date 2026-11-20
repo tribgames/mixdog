@@ -443,8 +443,6 @@ fn parse_call_arguments(args: &str) -> Value {
 mod progress_tests {
     use super::super::schema::ChatToolCall;
     use super::*;
-    #[cfg(node_twin)]
-    use crate::providers::progress_golden::{golden, node_names, rust_names};
 
     fn message(wire: &Value) -> ChatResponse {
         let text = |key: &str| wire.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -524,23 +522,6 @@ mod progress_tests {
         }
     }
 
-    /// Node turns each Devin message into a chat chunk, and its chat consumer reported these kinds
-    /// (`golden/stream_progress.json`): thinking, text, one `tool` per chunk that carries call deltas, and one more for
-    /// the terminal chunk that names the calls.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_decoder_reports_the_progress_kinds_node_s_chat_consumer_does() {
-        let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
-        for step in golden()["decoders"]["devin"].as_array().expect("devin") {
-            let mut events = Vec::new();
-            if step["wire"]["terminal"] == Value::Bool(true) {
-                events = decoder.terminal().expect("terminal");
-            } else {
-                decoder.apply(message(&step["wire"]), &mut events);
-            }
-            assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
-        }
-    }
 
     /// Progress is the normalized call advancing: a cumulative snapshot that repeats what was already received is not.
     #[test]
@@ -559,48 +540,4 @@ mod progress_tests {
     }
 
 
-    /// Node's `JSON.parse` over the recorded corpora (`mixdog-js/testdata`), through this decoder's argument parse: an input V8 rejects
-    /// is an invalid call carrying V8's text, an input V8 accepts is a call (an object) or the not-an-object marker; and a call the
-    /// decoder takes from the wire carries the same arguments.
-    #[cfg(node_twin)]
-    #[test]
-    fn malformed_arguments_carry_v8s_parse_text() {
-        let errors: Vec<Value> = serde_json::from_str(mixdog_testkit::fixture!("../mixdog-js/testdata/json_error.json")).unwrap();
-        let mut wrong = Vec::new();
-        for row in errors.into_iter().skip(1) {
-            let input = row[0].as_str().unwrap();
-            if input.trim().is_empty() {
-                continue;
-            }
-            let args = parse_call_arguments(input);
-            match row[1].as_str() {
-                Some(message) if args["__parseError"] != message => wrong.push(format!("{input:?}: {} vs V8 {message}", args["__parseError"])),
-                None if args["__parseError"].is_string() && args["__parseError"] != "arguments are not an object" => wrong.push(format!("{input:?}: rejected, V8 accepts")),
-                _ => {}
-            }
-        }
-        let parses: Vec<Value> = serde_json::from_str(include_str!("../../../../mixdog-js/testdata/json_parse.json")).unwrap();
-        for row in parses {
-            let (input, expected) = (row[0].as_str().unwrap(), &row[1]);
-            if input.trim().is_empty() {
-                continue;
-            }
-            let args = parse_call_arguments(input);
-            // `ok` is V8's value as `JSON.stringify(value, null, 2)` wrote it.
-            match expected.get("ok").and_then(Value::as_str).map(|text| mixdog_js::json_parse(text).unwrap()) {
-                Some(value) if value.is_object() && args != value => wrong.push(format!("{input:?}: {args} vs V8 {value}")),
-                Some(value) if !value.is_object() && args["__parseError"] != "arguments are not an object" => wrong.push(format!("{input:?}: {args}, V8 a non-object")),
-                None if args.get("__invalidToolArgs").is_none() => wrong.push(format!("{input:?}: accepted, V8 rejects")),
-                _ => {}
-            }
-        }
-        assert!(wrong.is_empty(), "inputs answered other than V8 answers them:\n{}", wrong.join("\n"));
-        let input = r#"{"k"#;
-        let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
-        let mut events = Vec::new();
-        decoder.apply(message(&serde_json::json!({"deltaToolCalls": [{"id": "c1", "name": "read", "argumentsJson": input}]})), &mut events);
-        let done = decoder.terminal().expect("terminal");
-        let call = done.iter().find_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).expect("a call");
-        assert_eq!(call.arguments, parse_call_arguments(input), "the wire's call carries the parse's arguments");
-    }
 }

@@ -36,11 +36,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    #[test]
-    fn id_matches_recorded_fixture() {
-        // fixtures/providers-intercepted/gemini/tool-call/result.json
-        let id = synthesized_call_id(0, "lookup", &json!({"key": "answer"}));
-        assert_eq!(id, "gemini_366b187da650ce24");
-    }
 }

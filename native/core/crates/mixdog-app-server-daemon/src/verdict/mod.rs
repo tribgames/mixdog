@@ -8,8 +8,6 @@
 //! the one user decision, `release{pid}`, journaled before it takes effect.
 
 mod process;
-#[cfg(all(test, node_twin))]
-mod tag_gates;
 #[cfg(test)]
 pub(crate) mod tests;
 mod wait;

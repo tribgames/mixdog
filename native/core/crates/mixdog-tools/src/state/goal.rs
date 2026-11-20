@@ -347,20 +347,4 @@ mod tests {
         }
     }
 
-    /// Node's own `executeGoalTool` create over every case of the recorder (`record-goal-time-limit.mjs`): strings,
-    /// booleans and out-of-range numbers are refused, nothing is coerced.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_time_limit_equals_nodes_for_every_recorded_case() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/goal-time-limit/golden.json")).expect("golden");
-        let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.iter().any(|c| c["error"] == "goal time_limit_minutes must be a number from 1 to 10080 minutes" && c["args"]["time_limit_minutes"].is_string()));
-        for case in cases {
-            let got = time_limit_ms(&case["args"]);
-            match case.get("error") {
-                Some(error) => assert_eq!(got, Err(error.as_str().expect("error").to_owned()), "{}", case["args"]),
-                None => assert_eq!(got.map(|ms| ms.map(|ms| json!(ms))), Ok(case.get("timeLimitMs").cloned()), "{}", case["args"]),
-            }
-        }
-    }
 }

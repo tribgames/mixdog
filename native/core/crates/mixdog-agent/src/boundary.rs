@@ -349,41 +349,6 @@ mod tests {
     }
 
 
-    /// Replays the requests of `fixtures/request-tools/golden.json` (recorded from Node's `prepareProviderRequest`
-    /// over a session whose tools and connected MCP names change between requests): the surface each request
-    /// sent follows the candidate by `adoptDynamicToolChanges`.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_request_tools_adopt_changes_as_node_does() {
-        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/request-tools/golden.json")).unwrap();
-        let tools = |list: &serde_json::Value| -> Vec<ToolDefinition> {
-            list.as_array()
-                .unwrap()
-                .iter()
-                .map(|t| ToolDefinition {
-                    name: t["name"].as_str().unwrap().to_owned(),
-                    description: t["description"].as_str().unwrap().to_owned(),
-                    input_schema: t["inputSchema"].clone(),
-                    defer_loading: false,
-                    freeform: None,
-                })
-                .collect()
-        };
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.iter().filter(|case| !case["steps"][0]["sent"].is_null()).count() >= 10);
-        for case in cases {
-            let mut fixed = None;
-            for (at, step) in case["steps"].as_array().unwrap().iter().enumerate() {
-                // A snapshot-only scenario (`fixtures/request-tools`) records the candidate alone.
-                if step["sent"].is_null() {
-                    continue;
-                }
-                let sent = adopt_dynamic_tool_changes(fixed.take(), tools(&step["candidate"]));
-                assert_eq!(sent, tools(&step["sent"]), "{} (request {at})", case["name"]);
-                fixed = Some(sent);
-            }
-        }
-    }
 }
 
 

@@ -450,32 +450,5 @@ fn walk(node: Node, secret_values: &[&str], changed: &mut bool) -> Node {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests {
-    use serde_json::Value;
-
-    use super::*;
-
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/oauth-scrub/golden.json");
-
-    #[cfg(node_twin)]
-    #[test]
-    fn the_scrub_is_nodes_scrub_oauth_secrets() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.len() >= 60);
-        for case in cases {
-            let secrets: Vec<&str> = case["secrets"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
-            let got = scrub_oauth_secrets(case["text"].as_str().unwrap(), &secrets);
-            assert_eq!(got, case["scrubbed"].as_str().unwrap(), "{}", case["text"]);
-            let muse = scrub_muse_secrets(case["text"].as_str().unwrap(), &secrets);
-            assert_eq!(muse, case["muse"].as_str().unwrap(), "muse: {}", case["text"]);
-            let summary = oauth_body_summary(case["text"].as_str().unwrap(), &secrets);
-            assert_eq!(summary, case["summary"].as_str().unwrap(), "summary: {}", case["text"]);
-        }
-    }
-}
 
 

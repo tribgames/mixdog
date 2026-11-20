@@ -212,20 +212,6 @@ impl GroupUsageTokens {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use mixdog_ledger::append::UsageRecord;
-    #[cfg(node_twin)]
-    use mixdog_ledger::reader::UsageReader;
-    #[cfg(node_twin)]
-    use mixdog_ledger::refresh::Pricer;
-    #[cfg(node_twin)]
-    use mixdog_ledger::refresh::UsageRefresher;
-    #[cfg(node_twin)]
-    use mixdog_ledger::repair::PriceRequest;
-    #[cfg(node_twin)]
-    use mixdog_ledger::repair::Priced;
-    #[cfg(node_twin)]
-    use mixdog_ledger::writer::UsageWriter;
 
     use super::*;
 
@@ -299,33 +285,6 @@ mod tests {
         assert_eq!(tokens.tokens(&groups())["lead"], "lead:t2");
     }
 
-    /// `getUsageLedger()` / `usageLedgerIfOpen()` over the one ledger a test opens: closed until the
-    /// golden step that opens it.
-    #[cfg(node_twin)]
-    struct Gate(Mutex<Option<Arc<UsageLedger>>>);
-
-    #[cfg(node_twin)]
-    impl LedgerIfOpen for Gate {
-        fn if_open(&self) -> Option<Arc<dyn TokenLedger>> {
-            self.0.lock().unwrap().clone().map(|ledger| ledger as Arc<dyn TokenLedger>)
-        }
-    }
-
-    /// The prices are never read: the golden rows arrive priced.
-    #[cfg(node_twin)]
-    struct NoPrices;
-
-    #[cfg(node_twin)]
-    impl Pricer for NoPrices {
-        fn revision(&self) -> String {
-            "none".into()
-        }
-
-        fn price(&self, _: &PriceRequest) -> mixdog_ledger::Result<Priced> {
-            Ok(Priced { cost_usd: None, rates: None })
-        }
-    }
-
     #[tokio::test]
     async fn without_an_open_ledger_or_a_group_nothing_is_kept() {
         let (_ledger, open, _wakes, tokens) = rig();
@@ -337,59 +296,4 @@ mod tests {
     }
 
 
-    /// Node's `groupUsageTokens` over its real ledger singleton, opened under a seeded temp
-    /// `MIXDOG_DATA_DIR` (`fixtures/group-usage-tokens/golden.json`, `record-group-usage-tokens.mjs`).
-    /// The same rows are written to a real Rust ledger step by step; what the first listing answers,
-    /// the pool wake-ups the background read causes, what the next listing answers, and the ledger's
-    /// own token of each group are the ones Node gave.
-    #[tokio::test(flavor = "multi_thread")]
-    #[cfg(node_twin)]
-    async fn the_listings_and_wakes_are_the_ones_node_gives_over_a_real_ledger() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/group-usage-tokens/golden.json")).unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("ledger.sqlite");
-        let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
-        let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-        let refresher = UsageRefresher::new(Arc::new(NoPrices), tokens.cpu_bulk);
-        let ledger = Arc::new(UsageLedger { writer: writer.clone(), reader, refresher });
-        let gate = Arc::new(Gate(Mutex::default()));
-        let wakes = Arc::new(AtomicUsize::new(0));
-        let counter = wakes.clone();
-        let tracker = GroupUsageTokens::new(gate.clone(), Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }));
-        let map = |value: &serde_json::Value| -> HashMap<String, String> {
-            value.as_object().unwrap().iter().map(|(owner, token)| (owner.clone(), token.as_str().unwrap().to_owned())).collect()
-        };
-        for step in golden["steps"].as_array().unwrap() {
-            let name = step["name"].as_str().unwrap();
-            let open = step["open"].as_bool().unwrap();
-            *gate.0.lock().unwrap() = open.then(|| ledger.clone());
-            for row in step["rows"].as_array().unwrap() {
-                let record: UsageRecord = serde_json::from_value(row.clone()).unwrap();
-                writer.record_queued(record).await.unwrap();
-            }
-            writer.settle_writes().await.unwrap();
-            let groups: Vec<(String, Vec<String>)> = step["groups"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|g| (g[0].as_str().unwrap().to_owned(), g[1].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()))
-                .collect();
-            wakes.store(0, Ordering::SeqCst);
-            assert_eq!(tracker.tokens(&groups), map(&step["first"]), "{name}: first listing");
-            tracker.idle().await;
-            assert_eq!(wakes.load(Ordering::SeqCst) as u64, step["wakes"].as_u64().unwrap(), "{name}: wakes");
-            assert_eq!(tracker.tokens(&groups), map(&step["second"]), "{name}: second listing");
-            tracker.idle().await;
-            if open {
-                let truth = ledger.tokens(&groups).await.unwrap();
-                let want = map(&step["truth"]);
-                for ((owner, _), token) in groups.iter().zip(truth) {
-                    assert_eq!(Some(&token), want.get(owner), "{name}: the ledger's token of {owner}");
-                }
-            }
-        }
-    }
 }

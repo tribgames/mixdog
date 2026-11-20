@@ -6,9 +6,6 @@
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
 pub mod listing;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod listing_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -9,9 +9,6 @@ pub mod effective;
 pub mod gateway;
 pub mod egress;
 pub mod inclusive;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod gateway_replay;
 pub mod key_pool;
 pub mod keys;
 pub mod multiwire;

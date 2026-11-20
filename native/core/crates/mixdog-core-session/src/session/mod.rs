@@ -22,12 +22,6 @@
 mod actor;
 pub use actor::STOP_NOT_SAVED;
 mod archived_read;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod archived_read_tests;
 mod restore_hydrate;
 mod agent_host;
 pub mod agent_registry;
@@ -61,12 +55,6 @@ pub mod heartbeat_catalog;
 pub mod shell_jobs;
 pub mod thread_list;
 pub mod thread_edges;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod thread_edges_tests;
 pub mod thread_context;
 pub mod tool_events;
 pub mod workspace_sight;
@@ -143,12 +131,6 @@ mod stats;
 pub use self::live_end::BuiltinSkills;
 pub use self::live_end::done_verb;
 pub mod turn_warm;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod pending_read_tests;
 mod reads;
 mod routine_turn;
 pub use routine_turn::SendSettle;
@@ -163,19 +145,7 @@ mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
 pub mod quota_resume_host;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod quota_resume_host_tests;
 pub mod quota_resume_scheduler;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod quota_resume_scheduler_tests;
 #[cfg(test)]
 mod quota_resume_scheduler_rules_tests;
 pub mod run;
@@ -232,12 +202,6 @@ mod turn_actions_tests;
 pub mod tui_client_methods;
 #[cfg(test)]
 mod tui_client_methods_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 #[path = "testing/mod.rs"]
@@ -254,81 +218,24 @@ mod sensitive_record_tests;
 mod items_tail_tests;
 #[cfg(test)]
 mod sensitive_carry_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod message_sanitize_replay;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod address_replay;
 #[cfg(test)]
 mod thread_fence_tests;
 #[cfg(test)]
 mod session_grants_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod switch_replay;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod lifecycle_replay;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod sequence_replay;
 #[cfg(test)]
 mod goal_lane_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod goal_snapshot_replay_tests;
 #[cfg(test)]
 mod client_chain_replay_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod idle_state_replay_tests;
 #[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod offload_prune_order_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod steer_tests;
 #[cfg(test)]
 mod assembly_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
 #[cfg(test)]
 mod stop_race_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod session_reentry_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod task_notification_envelope_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod message_attachments_tests;
 #[cfg(test)]
 mod new_task_tests;
 #[cfg(test)]

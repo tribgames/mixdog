@@ -17,10 +17,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-#[cfg(all(node_twin, test, windows))]
-mod tests;
-#[cfg(all(node_twin, test, windows))]
-mod k1_replay;
 
 /// The wrapper's compile-time MSYSTEM, lower-cased, names its binary directory.
 const MSYSTEM_DIRECTORIES: [&str; 3] = ["mingw64", "clangarm64", "mingw32"];

@@ -54,11 +54,6 @@ impl TrustSnapshot {
         self
     }
 
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn of(registered: Vec<PathBuf>) -> Self {
-        Self { registered, ..Self::default() }
-    }
 }
 
 /// The modes a federated call may fan out (`ROOT_FEDERATED_MODES`).

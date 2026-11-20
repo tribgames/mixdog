@@ -26,12 +26,6 @@ use super::usage::room_usage_limit;
 
 #[cfg(test)]
 mod feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
 
 /// `PROMPT_ORIGIN_AGENT_REPORT` (`shared/prompt-origin.mjs`).
 const AGENT_REPORT_ORIGIN: &str = "agent-report";

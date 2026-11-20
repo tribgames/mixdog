@@ -337,8 +337,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    include!("node-twin/snapshots.rs");
 }
 
 

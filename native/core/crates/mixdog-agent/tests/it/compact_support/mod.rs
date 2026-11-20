@@ -306,17 +306,3 @@ impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
 }
 
 
-#[cfg(node_twin)]
-/// The recorded comparison output `fixtures/agent/compact/golden/<name>.json` (local only).
-#[macro_export]
-macro_rules! golden {
-    ($name:literal) => {
-        serde_json::from_str::<serde_json::Value>(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/agent/compact/golden/",
-            $name,
-            ".json"
-        )))
-        .expect("golden json")
-    };
-}

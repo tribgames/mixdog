@@ -319,9 +319,6 @@ impl SetupActions for HookRuleSetup {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod adopt_node_cases;
 #[cfg(test)]
 mod adopt_tests;
 
@@ -331,21 +328,9 @@ mod action_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test fixtures are written straight to a temp dir")]
 mod tests {
-    #[cfg(node_twin)]
-    use mixdog_protocol::ThreadId;
 
     use super::*;
-    #[cfg(node_twin)]
-    use crate::domain_seams::hook_status::HookEventLog;
-    #[cfg(node_twin)]
-    use crate::domain_seams::hook_status::HookStatus;
 
-    #[cfg(node_twin)]
-    /// The length of the case folder `hook_rules.mjs` recorded in (`<tmp>\hook-rules-golden-xxxxxx\case<n>`).
-    /// The event log clips a row at 120 (summary) and 180 (payload) UTF-16 units, so the recorded
-    /// rows end where a folder of this length puts the cut (`hooks.`, `(l`); another length cuts
-    /// them elsewhere.
-    const RECORDED_DATA_DIR_LEN: usize = 86;
 
     #[test]
     fn the_rules_file_is_the_environment_override_or_hooks_json() {
@@ -357,95 +342,6 @@ mod tests {
         assert!(hook_rules_path(&set, Path::new("/d")).is_absolute());
     }
 
-    #[cfg(node_twin)]
-    /// A fresh folder as long as the recorded one.
-    fn recorded_length_dir() -> tempfile::TempDir {
-        let base = std::env::temp_dir();
-        let stem = base.join("x").to_string_lossy().encode_utf16().count() - 1;
-        let name = RECORDED_DATA_DIR_LEN
-            .checked_sub(stem)
-            .filter(|name| *name >= 6)
-            .expect("the temp folder is too long for a folder of the recorded length: point TEMP at a shorter path");
-        tempfile::Builder::new().prefix(&"d".repeat(name - 6)).rand_bytes(6).tempdir_in(&base).unwrap()
-    }
 
 
-    #[cfg(node_twin)]
-    /// Every step of every recorded case: the receipt text (or the message of the error) and the
-    /// hooks file afterwards, as Node's real setup executor over the real rule store produced them;
-    /// then the `hook:error` rows the status shows. A case whose error text is the operating
-    /// system's (`osText`) is compared by shape.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_hook_rule_actions_answer_as_node_does() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/hook_rules.json")).unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        for case in golden["cases"].as_array().unwrap() {
-            let dir = recorded_length_dir();
-            let here = |text: &str| text.replace(&dir.path().to_string_lossy().into_owned(), "{data}");
-            let path = dir.path().join("hooks.json");
-            if let Some(file) = case["file"].as_str() {
-                std::fs::write(&path, file).unwrap();
-            }
-            if case["bakDir"] == true {
-                std::fs::create_dir(dir.path().join("hooks.json.bak")).unwrap();
-            }
-            std::fs::create_dir(dir.path().join("project")).unwrap();
-            let log = HookEventLog::new(dir.path().join("project"));
-            let status = HookStatus::new(dir.path().to_path_buf(), tokens.maintenance_io, log.clone(), log.clone());
-            let setup = HookRuleSetup::new(path.clone(), tokens.maintenance_io, status.clone(), log.clone());
-            let thread = ThreadId::from("t1");
-            let mut write_failure = None;
-            for step in case["steps"].as_array().unwrap() {
-                let args = &step["args"];
-                let name = format!("{}: {}", case["name"], args);
-                let action = args["action"].as_str().unwrap();
-                assert!(setup.actions().contains(&action));
-                let answer = setup.run(&SetupCall { action, args, thread: &thread }).await;
-                match (answer, step["error"].as_str()) {
-                    (Err(PortError::Failed { message, .. }), Some(_)) if case["osText"] == true => write_failure = Some(message),
-                    (Err(PortError::Failed { message, .. }), Some(expected)) => assert_eq!(here(&message), expected, "{name}"),
-                    (Ok(result), None) => {
-                        // The receipt `SetupService` wraps around the answer.
-                        let mut receipt = Map::new();
-                        receipt.insert("saved".into(), json!(true));
-                        receipt.insert("scope".into(), json!("installation"));
-                        receipt.insert("appliesTo".into(), json!("subsequent tool calls; no restart required"));
-                        receipt.extend(result.as_object().unwrap().clone());
-                        assert_eq!(serde_json::to_string_pretty(&Value::Object(receipt)).unwrap(), step["text"].as_str().unwrap(), "{name}");
-                    }
-                    (other, expected) => panic!("{name}: got {other:?}, wanted error {expected:?}"),
-                }
-                let file = std::fs::read_to_string(&path).ok();
-                assert_eq!(file.as_deref(), step["file"].as_str(), "{name}: the hooks file");
-            }
-            // One status read, as the doctor or the hooks panel makes.
-            let shown = status.status().await;
-            let count = shown["counts"]["hook:error"].as_u64().unwrap_or(0);
-            let recent: Vec<(String, String)> = shown["recent"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|entry| entry["name"] == "hook:error")
-                .map(|entry| (here(entry["summary"].as_str().unwrap()), here(entry["payload"]["error"].as_str().unwrap())))
-                .collect();
-            let expected = &case["hookErrors"];
-            assert_eq!(count, expected["count"].as_u64().unwrap(), "{}: hook:error count", case["name"]);
-            if let Some(message) = write_failure {
-                // `debounced hooks save failed: <the action's error>`, as the event log lists it.
-                let error = format!("debounced hooks save failed: {}", here(&message));
-                assert_eq!(recent.len(), 1, "{}", case["name"]);
-                assert_eq!(recent[0].1, error, "{}", case["name"]);
-                assert!(recent[0].0.starts_with("error=debounced hooks save failed: "), "{}", case["name"]);
-                assert!(expected["recent"][0]["error"].as_str().unwrap().starts_with("debounced hooks save failed: "));
-            } else {
-                let recorded: Vec<(String, String)> = expected["recent"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|entry| (entry["summary"].as_str().unwrap().to_owned(), entry["error"].as_str().unwrap().to_owned()))
-                    .collect();
-                assert_eq!(recent, recorded, "{}: hook:error rows", case["name"]);
-            }
-        }
-    }
 }

@@ -248,24 +248,8 @@ impl HostProxyProviders {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::VecDeque;
-    #[cfg(node_twin)]
-    use std::sync::Mutex;
-    #[cfg(node_twin)]
-    use std::sync::atomic::AtomicBool;
-    #[cfg(node_twin)]
-    use std::sync::atomic::AtomicI64;
     use std::sync::atomic::Ordering;
 
-    #[cfg(node_twin)]
-    use mixdog_app_protocol::v2::model_proxy::ProxyDelivery;
-    #[cfg(node_twin)]
-    use mixdog_app_protocol::v2::model_proxy::ProxyErrorKind;
-    #[cfg(node_twin)]
-    use mixdog_app_protocol::v2::model_proxy::ProxyFailure;
-    #[cfg(node_twin)]
-    use mixdog_app_protocol::v2::model_proxy::ProxyOutcome;
     use mixdog_core_api::ids::Method;
 
     use super::*;
@@ -277,10 +261,6 @@ mod tests {
             Arc::new(Self(tokio::sync::watch::channel(1).0))
         }
 
-        #[cfg(node_twin)]
-        fn changed(&self) {
-            self.0.send_modify(|epoch| *epoch += 1);
-        }
     }
 
     impl ClientEpoch for Epoch {
@@ -288,107 +268,11 @@ mod tests {
             self.0.subscribe()
         }
     }
-
-    /// The PC: answers each ask from the scenario's queue and counts them.
-    #[cfg(node_twin)]
-    struct Pc {
-        replies: Mutex<VecDeque<Value>>,
-        connected: AtomicBool,
-        asked: Mutex<Vec<Value>>,
-    }
-
-    #[async_trait]
-    #[cfg(node_twin)]
-    impl HostChannel for Pc {
-        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
-            unreachable!("a provider question is a streamed request")
-        }
-
-        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
-            unreachable!("a provider question sends no notification")
-        }
-
-        async fn request_streamed(&self, _: HostCapability, _: Method, params: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
-            if !self.connected.load(Ordering::SeqCst) {
-                return Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: NO_CLAIMANT.into() }));
-            }
-            self.asked.lock().unwrap().push(params);
-            let reply = self.replies.lock().unwrap().pop_front().expect("the scenario scripts every ask");
-            if reply["ok"] == true {
-                // The object keeps the PC's order (the crate keeps key order), and an older PC sends no `ready`.
-                let providers: Map<String, Value> = reply["value"]["providers"]
-                    .as_object()
-                    .unwrap()
-                    .iter()
-                    .map(|(id, info)| {
-                        let mut info = info.clone();
-                        info["modelProxy"] = json!({});
-                        (id.clone(), info)
-                    })
-                    .collect();
-                let mut answer = json!({ "result": "providerConfig", "providers": providers });
-                if let Some(ready) = reply["value"].get("ready") {
-                    answer["ready"] = ready.clone();
-                }
-                Ok(json!({ "result": answer }))
-            } else {
-                let failure = failure(reply["error"]["message"].as_str().unwrap());
-                Err(HostError::Rpc { code: -32000, message: failure.message.clone(), data: Some(serde_json::to_value(failure).unwrap()) })
-            }
-        }
-    }
-
-    #[cfg(node_twin)]
-    fn failure(message: &str) -> ProxyFailure {
-        ProxyFailure {
-            outcome: ProxyOutcome::Provider,
-            kind: ProxyErrorKind::Unknown,
-            code: Some("EPC".into()),
-            status: None,
-            retry_after_ms: None,
-            reset_at_ms: None,
-            quota_scope: None,
-            reauth_required: false,
-            should_retry: None,
-            text_emitted: false,
-            tool_dispatched: false,
-            tool_input_cut: false,
-            delivery: ProxyDelivery::NotSent,
-            transport: None,
-            message: message.into(),
-            partial_usage: None,
-            partial_model: None,
-            verification_url: None,
-            rejected_tool: None,
-            account_blocked: false,
-            unsafe_to_retry: false,
-            quota_limit: None,
-            notices: Vec::new(),
-        }
-    }
-
     fn without_traits(mut providers: Providers) -> Providers {
         for info in providers.values_mut() {
             info.as_object_mut().unwrap().shift_remove("modelProxy");
         }
         providers
-    }
-
-    #[derive(PartialEq)]
-    #[cfg(node_twin)]
-    enum Op {
-        Call,
-        Reconnect,
-    }
-
-    /// The recording lists only calls; the scenarios with a reconnect between them.
-    #[cfg(node_twin)]
-    fn scenario_ops(name: &str) -> Vec<Op> {
-        match name {
-            "a reconnect is a new generation: the cache is not served" => vec![Op::Call, Op::Reconnect, Op::Call],
-            "a second call inside 15 s is served from the cache" | "a call after 15 s asks again" | "force asks again inside the cache window" | "a failed ask leaves no cache" => vec![Op::Call, Op::Call],
-            _ => vec![Op::Call],
-        }
     }
 
     /// A PC whose answer is held until the test lets it go.
@@ -507,66 +391,6 @@ mod tests {
         assert!(first.message().contains("panicked"), "{}", first.message());
         assert_eq!(first.message(), second.message(), "the second call joined the first one's read");
         assert!(providers.inner.state().is_idle(), "the failure is not retained in the slot");
-    }
-
-
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/proxy-provider-config/golden.json");
-    #[tokio::test(start_paused = true)]
-    #[cfg(node_twin)]
-    async fn the_read_is_nodes_load_model_proxy_provider_config() {
-        mixdog_rt::testing::tokens();
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let mut checked = 0;
-        for scenario in golden["scenarios"].as_array().unwrap() {
-            let name = scenario["name"].as_str().unwrap();
-            let connect_after = scenario.get("connectAfter").and_then(Value::as_u64);
-            let pc = Arc::new(Pc {
-                replies: Mutex::new(scenario["replies"].as_array().unwrap().iter().cloned().collect()),
-                connected: AtomicBool::new(scenario["connected"] == true && connect_after.is_none()),
-                asked: Mutex::default(),
-            });
-            let epoch = Epoch::new();
-            let clock = Arc::new(AtomicI64::new(1_000_000));
-            let c = clock.clone();
-            let providers = HostProxyProviders::new(pc.clone(), epoch.clone(), Arc::new(move || c.load(Ordering::SeqCst)));
-            if let Some(after) = connect_after {
-                let (pc, epoch) = (pc.clone(), epoch.clone());
-                tokio::spawn(async move {
-                    mixdog_rt::time::sleep(Duration::from_millis(after)).await;
-                    pc.connected.store(true, Ordering::SeqCst);
-                    epoch.changed();
-                });
-            }
-            let mut calls = scenario["calls"].as_array().unwrap().iter();
-            for op in scenario_ops(name) {
-                if op == Op::Reconnect {
-                    epoch.changed();
-                    continue;
-                }
-                let call = calls.next().unwrap();
-                clock.fetch_add(call["advance"].as_i64().unwrap(), Ordering::SeqCst);
-                let before = pc.asked.lock().unwrap().len();
-                let got = providers.providers(call["force"] == true).await;
-                let asks = pc.asked.lock().unwrap().len() - before;
-                assert_eq!(asks as u64, call["asks"].as_u64().unwrap(), "{name}: asks");
-                match (got, call.get("error")) {
-                    (Ok(Some(got)), None) => {
-                        // Entries in the PC's order, not a map compared as a set.
-                        let want: Vec<(String, Value)> = call["value"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                        assert_eq!(without_traits(got).into_iter().collect::<Vec<_>>(), want, "{name}");
-                    }
-                    (Ok(None), Some(error)) => assert_eq!(error["code"], "MODEL_PROXY_UNAVAILABLE", "{name}"),
-                    (Err(failure), Some(error)) => assert_eq!(failure.message(), error["message"].as_str().unwrap(), "{name}"),
-                    (got, want) => panic!("{name}: {got:?} against {want:?}"),
-                }
-                checked += 1;
-            }
-            if let Some(first) = pc.asked.lock().unwrap().first() {
-                assert_eq!(first["call"]["method"], "providerConfig", "{name}");
-            }
-        }
-        assert!(checked >= 17, "the recording is replayed: {checked}");
     }
 
     #[tokio::test(start_paused = true)]

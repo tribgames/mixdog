@@ -213,12 +213,6 @@ impl ChannelRuntime {
         RuntimeStatus { running: st.automation_running || st.bridge_connected, pid: std::process::id() }
     }
 
-    #[cfg(node_twin)]
-    /// Test support: the bridge is connected (Node's `getBridgeRuntimeConnected()`).
-    #[cfg(test)]
-    pub(crate) fn bridge_connected(&self) -> bool {
-        self.state.lock().unwrap().bridge_connected
-    }
 
     /// Whether the scheduler is armed by this process (schedules then move through it).
     pub fn automation_running(&self) -> bool {

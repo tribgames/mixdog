@@ -5,9 +5,6 @@
 //! `retryRoutineDelivery`).
 
 pub mod env;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod golden_tests;
 pub mod home;
 pub mod queue;
 mod relay;

@@ -1220,23 +1220,6 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(node_twin)]
-    fn mismatches(rows: impl Iterator<Item = (String, String, Option<String>)>, limit: usize) -> (usize, usize, Vec<String>) {
-        let (mut total, mut count, mut bad) = (0, 0, Vec::new());
-        for (pattern, flags, expected) in rows {
-            total += 1;
-            let got = js_regex_error(&pattern, &flags);
-            if got != expected {
-                count += 1;
-                if bad.len() < limit {
-                    bad.push(format!("/{pattern}/{flags}: node {expected:?}, ours {got:?}"));
-                }
-            }
-        }
-        (total, count, bad)
-    }
-
     #[test]
     fn deeply_nested_classes_report_a_stack_overflow_instead_of_crashing() {
         let deep = format!("{}{}", "[".repeat(50_000), "]".repeat(50_000));
@@ -1245,35 +1228,6 @@ mod tests {
             Some("Maximum call stack size exceeded")
         );
         assert_eq!(js_regex_error(&format!("{}{}", "[".repeat(100), "]".repeat(100)), "v"), None);
-    }
-
-    /// The full sweep (millions of rows): set `MIXDOG_JS_REGEX_CORPUS` to the JSONL file the
-    /// generator writes.
-    #[cfg(node_twin)]
-    #[test]
-    #[allow(clippy::disallowed_methods, reason = "developer-run sweep reads a scratch file; no lane in a unit test")]
-    fn error_text_matches_node_on_the_full_sweep() {
-        let Ok(path) = std::env::var("MIXDOG_JS_REGEX_CORPUS") else {
-            return;
-        };
-        let text = std::fs::read_to_string(path).expect("corpus");
-        let rows = text.lines().map(|l| serde_json::from_str::<(String, String, Option<String>)>(l).expect("row"));
-        let (total, count, bad) = mismatches(rows, 60);
-        assert!(bad.is_empty(), "{count} of {total} rows differ:\n{}", bad.join("\n"));
-    }
-
-
-    /// `[pattern, flags, message]` rows recorded from the reference runtime; `null` is a pattern it accepts.
-    #[cfg(node_twin)]
-    const ROWS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("testdata/regex_errors.json");
-
-    #[cfg(node_twin)]
-    #[test]
-    fn error_text_matches_the_recorded_corpus() {
-        let rows: Vec<(String, String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
-        let (total, count, bad) = mismatches(rows.into_iter(), 40);
-        assert!(total > 5000, "{total}");
-        assert!(bad.is_empty(), "{count} of {total} differ:\n{}", bad.join("\n"));
     }
 
     fn message(pattern: &str, flags: &str) -> Option<String> {

@@ -4,9 +4,6 @@
 
 mod array_sort;
 pub mod device_paths;
-#[cfg(node_twin)]
-#[cfg(feature = "fixture-tools")]
-pub mod fixture_tools;
 mod json;
 mod json_error;
 mod json_parse;

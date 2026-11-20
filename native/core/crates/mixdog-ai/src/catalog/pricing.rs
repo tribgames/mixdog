@@ -444,99 +444,10 @@ impl PricingCatalog {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "fixture files")]
 mod tests {
-    #[cfg(node_twin)]
-    use super::*;
-    #[cfg(node_twin)]
-    use crate::catalog::CatalogSnapshot;
-    #[cfg(node_twin)]
-    use crate::catalog::ModelsDevSource;
-    #[cfg(node_twin)]
-    use crate::catalog::facts::tests::Offline;
-    #[cfg(node_twin)]
-    use crate::catalog::facts::tests::io;
-    #[cfg(node_twin)]
-    use crate::catalog::lookup::fixtures;
-    #[cfg(node_twin)]
-    use crate::catalog::modelsdev_source::LITELLM_CACHE_FILE;
-    #[cfg(node_twin)]
-    use crate::catalog::modelsdev_source::MODELS_DEV_CACHE_FILE;
-
-    /// A catalog warmed from cache files stamped `fetchedAt: 1`, as the Node
-    /// recorder warms it, with the recorded roster files.
-    #[cfg(node_twin)]
-    async fn warm(dir: &std::path::Path) -> Arc<CatalogService> {
-        let mut litellm = fixtures::json(fixtures::LITELLM);
-        litellm.as_object_mut().unwrap().extend(fixtures::json(fixtures::PRICING_EXTRA).as_object().unwrap().clone());
-        std::fs::write(dir.join(LITELLM_CACHE_FILE), format!("{{\"fetchedAt\":1,\"data\":{litellm}}}\n")).unwrap();
-        std::fs::write(dir.join(MODELS_DEV_CACHE_FILE), format!("{{\"fetchedAt\":1,\"data\":{}}}\n", fixtures::MODELS_DEV)).unwrap();
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), io());
-        let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.to_path_buf(), io());
-        let service = CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await.with_litellm(litellm).await;
-        service.rosters.store(Arc::new(fixtures::rosters()));
-        Arc::new(service)
-    }
-
-    /// Every recorded `priceUsage` case and the revision equal Node's: cost,
-    /// counted input, and the rate snapshot byte for byte (its field order is
-    /// part of the route signature).
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn priced_usage_and_revision_equal_node() {
-        let dir = tempfile::tempdir().unwrap();
-        let pricing = warm(dir.path()).await.pricing().unwrap();
-        let golden = fixtures::json(&fixtures::PRICING_GOLDEN);
-        assert_eq!(pricing.revision(), golden["revision"].as_str().unwrap());
-        let mut failures = Vec::new();
-        let (mut priced, mut unpriced) = (0, 0);
-        for case in golden["cases"].as_array().unwrap() {
-            let (scenario, provider, model) = (case[0].as_str().unwrap(), case[1].as_str().unwrap(), case[2].as_str().unwrap());
-            let mut args = golden["args"][scenario].clone();
-            args["provider"] = json!(provider);
-            args["model"] = json!(model);
-            let got = pricing.price_usage(&serde_json::from_value(args).unwrap());
-            let (want_input, want_cost, want_rates) = (case[3].as_f64().unwrap(), case[4].as_f64(), golden["rates"][case[5].as_u64().unwrap() as usize].as_str().unwrap());
-            if got.input != want_input || got.cost_usd != want_cost || got.rates_json() != want_rates {
-                failures.push(format!("{scenario} {provider}/{model}: rust {:?} {:?} {}\n    node {want_input} {want_cost:?} {want_rates}", got.input, got.cost_usd, got.rates_json()));
-            }
-            if want_cost.is_some() { priced += 1 } else { unpriced += 1 }
-        }
-        assert!(failures.is_empty(), "{} differ; first:\n{}", failures.len(), failures.iter().take(5).cloned().collect::<Vec<_>>().join("\n"));
-        assert!(priced > 1000 && unpriced > 1000, "the golden reaches both outcomes ({priced}/{unpriced})");
-    }
 
 
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_cold_catalog_cannot_be_priced() {
-        let dir = tempfile::tempdir().unwrap();
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
-        let cold = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
-        assert!(cold.pricing().is_err());
-        // One resident table is not enough.
-        let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io());
-        litellm.set_layer(crate::catalog::ModelsDev::from_litellm(fixtures::json(fixtures::LITELLM)));
-        let half = Arc::new(
-            CatalogService::cold_start(
-                CatalogSnapshot::default(),
-                Vec::new(),
-                ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io()),
-            )
-            .await
-            .with_litellm(litellm)
-            .await,
-        );
-        assert!(half.pricing().is_err());
-    }
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn the_revision_follows_the_table_stamps() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = warm(dir.path()).await;
-        let before = service.pricing().unwrap().revision();
-        service.rosters.store(Arc::new(crate::catalog::Rosters::default()));
-        // The antigravity aliases are part of the revision.
-        assert_ne!(service.pricing().unwrap().revision(), before);
-    }
+
+
 }
 
 

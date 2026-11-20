@@ -215,11 +215,6 @@ impl ListHost {
         cache.loaded
     }
 
-    /// `Array.isArray(caches.providerModelsCache.models)` as it stands, without syncing the revision.
-    #[cfg(all(test, node_twin))]
-    pub(super) fn held(&self) -> bool {
-        self.cache().loaded
-    }
 
     /// The sequence a load starts under, the revision synced first.
     pub(super) fn begin(&self) -> u64 {
@@ -503,11 +498,6 @@ impl ModelListService {
         }
     }
 
-    /// `Array.isArray(caches.providerModelsCache.models)` without `syncCatalogRevision()` (a host's cache only).
-    #[cfg(all(test, node_twin))]
-    pub(super) fn cache_held(&self) -> bool {
-        self.host.as_ref().is_some_and(|host| host.held())
-    }
 
     /// `Array.isArray(caches.providerModelsCache.models)` after `syncCatalogRevision()`. A host without a
     /// provider registry has no cache of its own: the catalog is loaded once something was listed into it.

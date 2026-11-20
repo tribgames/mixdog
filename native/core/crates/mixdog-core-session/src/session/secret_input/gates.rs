@@ -239,69 +239,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Recorded from the real `createTakeoverGate` over `withHumanOnlyApproval`
-    /// (`benchmarks/rust-core/recorders/record-secret-gates.mjs`).
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../../fixtures/secret-gates/gates.json")).unwrap()
-    }
-    #[cfg(node_twin)]
-    /// Every recorded scenario; a browser approval is the desktop's hold on the human-only lock
-    /// (`host/humanOnly/begin` and `end`), which has no expiry.
-    #[test]
-    fn the_gates_follow_the_recorded_takeover_scenarios() {
-        let doc = golden();
-        let sessions = doc["sessions"].as_array().unwrap();
-        let mut replayed = 0;
-        for case in doc["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let steps = case["steps"].as_array().unwrap();
-            // A takeover's expiry is its request's own, replayed through the approval book below.
-            let does = |what: &str| steps.iter().any(|step| step["do"] == what);
-            if does("wait") && does("takeover") {
-                continue;
-            }
-            replayed += 1;
-            let holds = Arc::new(Holds::default());
-            let lock = Arc::new(HumanOnlyLock::new(holds.clone()));
-            let gates = TakeoverGates::new(holds.clone(), lock.clone());
-            // The desktop's connection, which declares and ends each browser approval's hold.
-            let desktop = CallContext::internal("desktop");
-            let mut approvals = HashMap::new();
-            let mut observed = case["observed"].as_array().unwrap().iter();
-            for step in steps {
-                let thread = step["thread"].as_str().unwrap_or_default().to_owned();
-                match step["do"].as_str().unwrap() {
-                    // A copy shown in a parent chat is not in the parent's own book: `copyTo` adds nothing.
-                    "takeover" => {
-                        let hold = takeover_hold(std::iter::once((ApprovalId(1), &takeover(step["surface"].as_str().unwrap()))));
-                        holds.0.lock().unwrap().insert(thread, hold);
-                    }
-                    "resolve" => {
-                        holds.0.lock().unwrap().remove(&thread);
-                    }
-                    "browserApproval" => {
-                        approvals.insert(step["id"].as_str().unwrap().to_owned(), lock.hold("", &desktop));
-                    }
-                    "answerBrowserApproval" => {
-                        assert!(lock.end(&approvals.remove(step["id"].as_str().unwrap()).unwrap(), &desktop.caller), "{name}");
-                    }
-                    "wait" => {}
-                    "observe" => {
-                        let want = observed.next().unwrap();
-                        for session in sessions {
-                            let session = session.as_str().unwrap();
-                            assert_eq!(gates.browser_free(&ThreadId::from(session)), want["browserFree"][session] == json!(true), "{name} {session}");
-                        }
-                        assert_eq!(gates.computer_free(), want["computerFree"] == json!(true), "{name}");
-                    }
-                    other => panic!("{other}"),
-                }
-            }
-            assert!(observed.next().is_none(), "{name}");
-        }
-        assert_eq!(replayed, 10);
-    }
     /// What the two locks say with the given takeover holds open and the desktop's holds on the human-only lock.
     fn locks(holds: &[(&str, TakeoverHold)], desktop_holds: usize, sessions: &[&str]) -> (Vec<bool>, bool) {
         let table = Arc::new(Holds(Mutex::new(holds.iter().map(|(session, hold)| ((*session).to_owned(), hold.clone())).collect())));

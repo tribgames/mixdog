@@ -1,9 +1,7 @@
-//! Tool-result image compaction equals Node's `compactResultImages`: the display box, the note that
-//! supersedes an earlier size annotation, and the hand-over of every image to the attachment store (no image becomes text).
+//! Tool-result image compaction: the display box and the size note that supersedes the earlier one, the quality steps, the images kept as they are, and the hand-over of
+//! every image to the attachment store (no image becomes text).
 //! The decoder is the host's; these tests drive the pipeline through a scripted one.
 
-#[cfg(node_twin)]
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -19,25 +17,7 @@ use mixdog_agent::compact::image::superseding_metadata_text;
 use mixdog_agent::compact::image::target_dimensions;
 use mixdog_agent::offload::ImageCompactor;
 use mixdog_agent::offload::ImageOutcome;
-#[cfg(node_twin)]
 
-#[cfg(node_twin)]
-/// The decoder's verdict per image, as Node's decoder gave it for the golden's bytes.
-struct Verdicts(HashMap<Vec<u8>, bool>);
-
-#[cfg(node_twin)]
-#[async_trait]
-impl ImageCodec for Verdicts {
-    async fn probe(&self, _: &[u8]) -> Result<ImageSize, CodecError> {
-        panic!("a small image is never re-encoded")
-    }
-    async fn jpeg(&self, _: &[u8], _: u32, _: u32, _: bool, _: u8) -> Result<Encoded, CodecError> {
-        panic!("a small image is never re-encoded")
-    }
-    async fn validate(&self, bytes: &[u8], _: &str) -> Result<(), CodecError> {
-        if self.0[bytes] { Ok(()) } else { Err(CodecError::Invalid) }
-    }
-}
 
 /// Answers by script: the size the image decodes at, what each quality encodes to, and what a
 /// validation says. The calls made are recorded.
@@ -73,29 +53,7 @@ impl ImageCodec for Scripted {
     }
 }
 
-#[cfg(node_twin)]
-/// Answers with what Node's decoder and encoder gave for the golden's one real re-encode.
-struct Recorded {
-    original: ImageSize,
-    display: ImageSize,
-    jpeg: Vec<u8>,
-    calls: Mutex<Vec<String>>,
-}
 
-#[cfg(node_twin)]
-#[async_trait]
-impl ImageCodec for Recorded {
-    async fn probe(&self, _: &[u8]) -> Result<ImageSize, CodecError> {
-        Ok(self.original)
-    }
-    async fn jpeg(&self, _: &[u8], width: u32, height: u32, enlarge: bool, quality: u8) -> Result<Encoded, CodecError> {
-        self.calls.lock().unwrap().push(format!("{width}x{height} enlarge={enlarge} q={quality}"));
-        Ok(Encoded { bytes: self.jpeg.clone(), size: self.display })
-    }
-    async fn validate(&self, _: &[u8], _: &str) -> Result<(), CodecError> {
-        panic!("a re-encoded image is not validated")
-    }
-}
 
 /// A base64 text over the 256 KiB target.
 fn big() -> String {
@@ -237,64 +195,3 @@ async fn a_failed_probe_leaves_the_judgement_to_the_validation() {
 }
 
 
-#[cfg(node_twin)]
-#[test]
-fn the_display_box_equals_nodes() {
-    let golden = golden!("image");
-    let targets = golden["targets"].as_array().expect("targets");
-    assert!(targets.len() > 10);
-    for case in targets {
-        let (w, h) = (case["width"].as_u64().unwrap() as u32, case["height"].as_u64().unwrap() as u32);
-        let want = (case["target"][0].as_u64().unwrap() as u32, case["target"][1].as_u64().unwrap() as u32, case["allowEnlargement"].as_bool().unwrap());
-        assert_eq!(target_dimensions(w, h), (want.0, want.1, want.2), "{w}x{h}");
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn the_superseding_note_equals_nodes() {
-    let golden = golden!("image");
-    for case in golden["notes"].as_array().expect("notes") {
-        let size = |key: &str| ImageSize { width: case[key][0].as_u64().unwrap() as u32, height: case[key][1].as_u64().unwrap() as u32 };
-        assert_eq!(superseding_metadata_text(size("original"), size("display")), case["text"].as_str().unwrap(), "{case}");
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn small_undecodable_and_unsupported_images_equal_nodes() {
-    let golden = golden!("image");
-    let results = golden["results"].as_array().expect("results");
-    assert!(results.len() > 15);
-    let verdicts = results
-        .iter()
-        .filter(|r| !r["data"].as_str().unwrap().is_empty())
-        .map(|r| (STANDARD.decode(r["data"].as_str().unwrap()).expect("base64"), r["decodes"].as_bool().unwrap()))
-        .collect();
-    let compactor = ToolImageCompactor::new(Arc::new(Verdicts(verdicts)));
-    for case in results {
-        let name = case["name"].as_str().unwrap();
-        let outcome = compactor.compact(case["data"].as_str().unwrap(), case["mime"].as_str().unwrap()).await;
-        // Node's omitted-text verdicts now stay as images, for the attachment store's verdict (an intended departure).
-        assert!(case.get("keep").is_some() || case.get("omitted").is_some(), "{name}: no verdict");
-        assert!(matches!(outcome, ImageOutcome::Keep), "{name}");
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_real_reencode_equals_nodes_result_and_note() {
-    let golden = golden!("image");
-    let case = &golden["reencode"];
-    let size = |key: &str| ImageSize { width: case[key][0].as_u64().unwrap() as u32, height: case[key][1].as_u64().unwrap() as u32 };
-    let codec = Arc::new(Recorded {
-        original: size("original"),
-        display: size("display"),
-        jpeg: STANDARD.decode(case["jpeg"].as_str().unwrap()).expect("base64"),
-        calls: Mutex::default(),
-    });
-    let outcome = ToolImageCompactor::new(codec.clone()).compact(case["data"].as_str().unwrap(), case["mime"].as_str().unwrap()).await;
-    let ImageOutcome::Compacted { data, mime, note } = outcome else { panic!("not re-encoded") };
-    assert_eq!(data, case["jpeg"].as_str().unwrap());
-    assert_eq!(mime, case["outMime"].as_str().unwrap());
-    assert_eq!(note.as_deref(), case["note"].as_str());
-    // The sub-patch short edge is lifted to the floor, which allows the enlargement.
-    assert_eq!(*codec.calls.lock().unwrap(), vec!["200x400 enlarge=true q=85".to_owned()]);
-}

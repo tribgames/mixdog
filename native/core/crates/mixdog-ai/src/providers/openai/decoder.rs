@@ -1613,48 +1613,7 @@ mod reasoning_tests {
 
 #[cfg(test)]
 mod arguments_tests {
-    #[cfg(node_twin)]
-    use super::*;
 
-    /// Node's `JSON.parse` over the recorded corpora (`mixdog-js/testdata`), through this decoder's real parse path: an input V8 rejects
-    /// is an invalid call carrying V8's text, an input V8 accepts is a call with its arguments. The two lists are the inputs where the
-    /// decoder's parser (serde) and V8 disagree about which of the two it is.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_real_parse_path_answers_the_recorded_corpus_as_v8_does() {
-        let errors: Vec<(String, Option<String>)> = serde_json::from_str::<Vec<Value>>(mixdog_testkit::fixture!("../mixdog-js/testdata/json_error.json"))
-            .unwrap()
-            .into_iter()
-            .skip(1)
-            .map(|row| (row[0].as_str().unwrap().to_owned(), row[1].as_str().map(str::to_owned)))
-            .collect();
-        let mut wrong_text = Vec::new();
-        for (input, message) in &errors {
-            if input.trim().is_empty() {
-                continue;
-            }
-            let args = parse_call_arguments(input);
-            let invalid = args.get("__invalidToolArgs").is_some();
-            match message {
-                Some(message) if invalid && args["__parseError"] != *message => wrong_text.push(format!("{input:?}: {} vs {message}", args["__parseError"])),
-                Some(_) if !invalid => wrong_text.push(format!("{input:?}: accepted, V8 rejects")),
-                _ => {}
-            }
-        }
-        assert!(wrong_text.is_empty(), "inputs answered with other text than V8's:\n{}", wrong_text.join("\n"));
-
-        let parses: Vec<Value> = serde_json::from_str(include_str!("../../../../mixdog-js/testdata/json_parse.json")).unwrap();
-        let mut disagree = Vec::new();
-        for row in parses {
-            let (input, expected) = (row[0].as_str().unwrap(), &row[1]);
-            let v8_accepts = expected.get("ok").is_some();
-            let invalid = parse_call_arguments(input).get("__invalidToolArgs").is_some();
-            if !input.trim().is_empty() && v8_accepts == invalid {
-                disagree.push(format!("{input:?}: V8 {}, decoder {}", if v8_accepts { "accepts" } else { "rejects" }, if invalid { "rejects" } else { "accepts" }));
-            }
-        }
-        assert!(disagree.is_empty(), "inputs the decoder and V8 treat differently:\n{}", disagree.join("\n"));
-    }
 }
 
 
@@ -1662,8 +1621,6 @@ mod arguments_tests {
 #[cfg(test)]
 mod progress_tests {
     use super::*;
-    #[cfg(node_twin)]
-    use crate::providers::progress_golden::{golden, node_names, rust_names};
 
     struct Ctx;
 
@@ -1695,103 +1652,6 @@ mod progress_tests {
         assert_eq!(progress(&feed(message)), vec![ProgressKind::Semantic], "an item is named by its type, not by the call in flight");
     }
 
-    /// Node's three Responses collectors reported these kinds for each event of each scenario
-    /// (`golden/stream_progress.json`): item boundaries after earlier output are `semantic`, a call's item, arguments and
-    /// end are `tool`, the tool-in-flight flag is latched, and the terminal bundle reports what it salvaged.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_decoder_reports_the_progress_kinds_node_s_collectors_do() {
-        for scenario in golden()["decoders"]["responses"].as_array().expect("responses") {
-            let framing = match scenario["framing"].as_str().expect("framing") {
-                "ws" => Framing::WebSocket,
-                _ => Framing::Sse,
-            };
-            let mut decoder = ResponsesDecoder::new(framing, Arc::new(Ctx), ProviderId::from("openai")).with_label(scenario["framing"].as_str().expect("framing"));
-            if scenario["framing"] == "compat" {
-                decoder = decoder.compat_events();
-            }
-            let at = |step: &Value| format!("{} / {}: {}", scenario["framing"], scenario["name"], step["wire"]);
-            let mut failure = None;
-            let mut stop = None;
-            let mut streamed = Vec::new();
-            for step in scenario["steps"].as_array().expect("steps") {
-                let unit = match framing {
-                    Framing::WebSocket => step["wire"].to_string(),
-                    Framing::Sse => format!("data: {}\n\n", step["wire"]),
-                };
-                match decoder.feed(unit.as_bytes()) {
-                    Ok(events) => {
-                        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", at(step));
-                        streamed.extend(events.iter().cloned());
-                        for event in &events {
-                            if let StreamEvent::Completed { stop: reason, .. } = event {
-                                stop = Some(reason.clone());
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        // A failing frame reports no progress of its own.
-                        assert!(node_names(&step["kinds"]).is_empty(), "{}", at(step));
-                        failure = Some(error);
-                        break;
-                    }
-                }
-            }
-            // The recorder ends a compatible source after its last event (`consumeCompatResponsesStream` then throws
-            // when no terminal frame came); the other two collectors are recorded without an end.
-            if failure.is_none() && scenario["framing"] == "compat" {
-                match decoder.finish() {
-                    Ok(events) => streamed.extend(events),
-                    Err(error) => failure = Some(error),
-                }
-            }
-            // How the stream ended: Node's error (its label aside), the cut-stream flags, the billed usage and model.
-            let name = &scenario["name"];
-            match (&scenario["outcome"]["error"], failure) {
-                (Value::Null, None) => {
-                    if scenario["outcome"]["stopReason"] == "length" {
-                        assert_eq!(stop, Some(Some(StopReason::MaxTokens)), "{} / {name}", scenario["framing"]);
-                    }
-                }
-                (Value::Null, Some(error)) => panic!("{} / {name}: unexpected {error:?}", scenario["framing"]),
-                (node, Some(error)) => {
-                    let label = format!("{} / {name}", scenario["framing"]);
-                    assert_eq!(node["message"].as_str(), Some(error.message.as_str()), "{label}");
-                    assert_eq!(error.exposure.tool_input_cut, node["pendingToolUse"] == true, "{label}");
-                    assert_eq!(error.partial_usage.is_some(), node["partialUsage"] == true, "{label}");
-                    assert_eq!(error.partial_model.as_deref(), node["partialModel"].as_str(), "{label}");
-                    // What the cut stream kept (`partialContent`, `partialToolCalls`, `partialProviderReplay`): the loop's builder
-                    // folds the first two from the events, the error carries the replay.
-                    let content: String = streamed.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
-                    assert_eq!(Some(content.as_str()), node["partial"]["content"].as_str().or(Some("")), "{label}: content");
-                    let calls: Vec<&str> = streamed.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c.id.as_str()) } else { None }).collect();
-                    let node_calls: Vec<&str> = node["partial"]["calls"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-                    assert_eq!(calls, node_calls, "{label}: calls");
-                    let replay: Option<Vec<&str>> = error.partial_replay.as_ref().and_then(|r| r.items.as_array()).map(|items| {
-                        items.iter().filter_map(|i| ["id", "call_id", "type"].iter().find_map(|k| i.get(*k).and_then(Value::as_str))).collect()
-                    });
-                    let mut node_replay: Option<Vec<&str>> = node["partial"]["replay"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
-                    // Departure: the HTTP SSE collector's failure carries the replay of the items it finished
-                    // (`ResponsesDecoder::fail`), as the WebSocket collector's `partialState` does; Node's SSE collector keeps none.
-                    if scenario["framing"] == "sse" && node_replay.is_none() {
-                        let finished: Vec<&str> = scenario["steps"]
-                            .as_array()
-                            .expect("steps")
-                            .iter()
-                            .filter(|step| step["wire"]["type"] == "response.output_item.done")
-                            .filter_map(|step| ["id", "call_id", "type"].iter().find_map(|k| step["wire"]["item"].get(*k).and_then(Value::as_str)))
-                            .collect();
-                        node_replay = (!finished.is_empty()).then_some(finished);
-                    }
-                    assert_eq!(replay, node_replay, "{label}: replay");
-                    if let Some(reason) = node["incompleteReason"].as_str() {
-                        assert_eq!(error.code.as_deref().map(str::to_lowercase), Some(reason.to_lowercase()), "{label}");
-                    }
-                }
-                (_, None) => panic!("{} / {name}: Node failed, Rust did not", scenario["framing"]),
-            }
-        }
-    }
 }
 
 #[cfg(test)]

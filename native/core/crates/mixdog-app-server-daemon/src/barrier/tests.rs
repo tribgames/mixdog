@@ -5,8 +5,6 @@
 )]
 
 use std::cell::RefCell;
-#[cfg(node_twin)]
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use mixdog_core_api::domain::ownership::Ownership;
@@ -472,23 +470,6 @@ fn a_claim_in_the_gap_before_a_reclaim_keeps_the_dead_holder_and_frees_the_guard
 }
 
 
-#[cfg(node_twin)]
-fn fixture(name: &str) -> Vec<u8> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/lifecycle/barrier")
-        .join(name);
-    std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
-#[cfg(node_twin)]
-#[test]
-fn barrier_and_record_bytes_match_the_tag_tested_fixture() {
-    assert_eq!(barrier_bytes("fixture-instance"), fixture(CLAIM_LOCK_FILE));
-    assert_eq!(record().to_bytes(), fixture(RECORD_FILE));
-    assert_eq!(
-        ClaimLock::parse(fixture(CLAIM_LOCK_FILE)),
-        ClaimLock::Barrier
-    );
-}
 
 /// What a 1.4.5 daemon start reads in the data dir of a 1.5.0 core: the claim lock is a barrier line no 1.4.5 reader takes for a live
 /// owner, and `daemon-owner.json` carries the update text where 1.4.5 prints the owner's pid.

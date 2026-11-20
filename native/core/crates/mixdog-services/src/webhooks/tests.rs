@@ -220,30 +220,9 @@ async fn a_hostile_body_is_refused_before_it_is_built() {
     assert!(f.dispatched.0.lock().unwrap().is_empty());
 }
 
-#[cfg(node_twin)]
-/// The virtual clock the replay sets before each case, as the recording's `virtualClock` places its cases.
-struct CaseClock(std::sync::atomic::AtomicI64);
 
-#[cfg(node_twin)]
-impl crate::scheduler::Clock for CaseClock {
-    fn now(&self) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp_millis(self.0.load(std::sync::atomic::Ordering::SeqCst)).unwrap()
-    }
-}
 
-#[cfg(node_twin)]
-/// The recorder's `handleWebhook` seam: keeps what reached it and answers `200 {status:"accepted",id}`.
-#[derive(Default)]
-struct Reached(Mutex<Vec<Value>>);
 
-#[cfg(node_twin)]
-#[async_trait]
-impl WebhookDispatch for Reached {
-    async fn handle(&self, name: &str, payload: Value, _h: &Headers, id: &str, endpoint_in_table: bool) -> Result<HttpReply, String> {
-        self.0.lock().unwrap().push(json!({"name": name, "payload": payload, "endpointInTable": endpoint_in_table}));
-        Ok(HttpReply { status: 200, body: json!({"status":"accepted","id":id}) })
-    }
-}
 
 #[test]
 fn transport_collector_joins_chunks_and_caps_the_wire_body() {
@@ -286,24 +265,6 @@ async fn oversized_body_is_413_and_listener_counts_as_work() {
     assert!(f.work.is_idle());
 }
 
-#[cfg(node_twin)]
-/// One recorded answer of Node's handler (`status`, `headers`, `body`, `destroyed`) against ours: `answer` is
-/// the reply written and whether the request was dropped after it; None when nothing was written.
-fn assert_answer(label: &str, recorded: &Value, answer: Option<(&HttpReply, bool)>) {
-    let status = recorded["status"].as_u64().unwrap();
-    match answer {
-        None => {
-            assert_eq!((status, &recorded["headers"], recorded["body"].as_str().unwrap(), recorded["destroyed"].as_bool().unwrap()), (0, &Value::Null, "", false), "{label}: recorded an answer, none written");
-        }
-        Some((reply, destroyed)) => {
-            let body: Value = serde_json::from_str(recorded["body"].as_str().unwrap()).unwrap();
-            assert_eq!(u64::from(reply.status), status, "{label}: status");
-            assert_eq!(recorded["headers"], json!({ "Content-Type": HttpReply::CONTENT_TYPE }), "{label}: headers");
-            assert_eq!(reply.body, body, "{label}: body");
-            assert_eq!(destroyed, recorded["destroyed"].as_bool().unwrap(), "{label}: destroyed");
-        }
-    }
-}
 
 // ---- transport: the real listener over loopback ----
 
@@ -504,33 +465,6 @@ async fn within<T>(waiting_for: &str, future: impl std::future::Future<Output = 
 }
 async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, String)> {
     read_response_typed(stream, pending, "a reply").await.map(|(status, _, body, _)| (status, body))
-}
-#[cfg(node_twin)]
-/// Writes `parts` (a `sequential` second part only after the first reply came) and returns every reply
-/// the peer gets until the listener closes. `fin` half-closes the sending side after the writes, so a
-/// listener that kept the connection alive ends it too.
-async fn peer_sees(port: u16, parts: &[&str], sequential: bool, fin: bool) -> Vec<Parsed> {
-    let (mut read, mut write) = connect(port).await.into_split();
-    let (mut pending, mut seen) = (Vec::new(), Vec::new());
-    let first = if sequential { 1 } else { parts.len() };
-    // The reply to a HEAD request has no body: the n-th reply answers the n-th request.
-    let heads: Vec<bool> = parts.iter().map(|p| p.starts_with("HEAD ")).collect();
-    for part in &parts[..first] {
-        send(&mut write, part.as_bytes(), "a request").await;
-    }
-    if sequential {
-        seen.extend(read_response_to(&mut read, &mut pending, "the reply to the first request", heads[0]).await);
-        send(&mut write, parts[1].as_bytes(), "the second request").await;
-    }
-    if fin {
-        let _ = within("the half-close", write.shutdown()).await;
-    }
-    while let Some(reply) = read_response_to(&mut read, &mut pending, "the listener closing the connection after its reply", heads.get(seen.len()).copied().unwrap_or(false)).await {
-        seen.push(reply);
-    }
-    // A reply to a HEAD request is parsed without its body, so a body the listener sent anyway is what is left over.
-    assert!(pending.is_empty(), "bytes left after the last reply: {:?}", String::from_utf8_lossy(&pending));
-    seen
 }
 /// One more read into `pending`; false when the peer closed.
 async fn fill(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting_for: &str) -> bool {
@@ -856,145 +790,6 @@ async fn a_request_in_flight_is_cut_at_the_shutdown_grace() {
 }
 
 
-/// Node's receiver answering bodies that are not valid UTF-8, recorded by `record-webhook-invalid-utf8.mjs`
-/// (`fixtures/webhook-invalid-utf8`): each recorded request is sent as its bytes over TCP to the real listener with the
-/// recorded config (a config endpoint, the global secret); per case the reply and what reached the dispatch (Node's
-/// `handleWebhook`, the seam both sides answer `accepted` at) equal Node's, and so do the delivery rows the core's real
-/// store persisted, every column with its stamps, case `i` run at the recording's virtual instant `start + i * step`.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn bodies_with_invalid_utf8_are_answered_as_node_answers_them() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-invalid-utf8/golden.json")).unwrap();
-    let config: WebhookConfig = serde_json::from_value(golden["config"].clone()).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let (state, _) =
-        mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).unwrap();
-    let clock = Arc::new(CaseClock(std::sync::atomic::AtomicI64::new(0)));
-    let rows = Arc::new(super::records::StateWebhookStore::new(state, clock.clone()));
-    let dispatched = Arc::new(Reached::default());
-    let service = Arc::new(WebhookService::new(rows.clone(), dispatched.clone(), config, RunningWork::new(), Arc::new(|| 0)));
-    let listener = WebhookListener::start(service, 0).await.unwrap();
-    let (start, step) = (golden["virtualClock"]["start"].as_i64().unwrap(), golden["virtualClock"]["step"].as_i64().unwrap());
-    for (index, case) in golden["cases"].as_array().unwrap().iter().enumerate() {
-        clock.0.store(start + index as i64 * step, std::sync::atomic::Ordering::SeqCst);
-        let body: Vec<u8> = (0..case["request"]["bodyHex"].as_str().unwrap().len() / 2)
-            .map(|i| u8::from_str_radix(&case["request"]["bodyHex"].as_str().unwrap()[2 * i..2 * i + 2], 16).unwrap())
-            .collect();
-        let mut head = format!("POST /webhook/hook HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n", body.len());
-        for (name, value) in case["request"]["headers"].as_object().unwrap() {
-            head.push_str(&format!("{name}: {}\r\n", value.as_str().unwrap()));
-        }
-        head.push_str("\r\n");
-        let before = dispatched.0.lock().unwrap().len();
-        let (status, text) = exchange(listener.port(), &[head.as_bytes(), &body]).await;
-        let reached = dispatched.0.lock().unwrap()[before..].to_vec();
-        assert_eq!(
-            json!({"name": case["name"], "reply": {"status": status, "body": serde_json::from_str::<Value>(&text).unwrap()}, "dispatched": reached}),
-            json!({"name": case["name"], "reply": case["reply"], "dispatched": case["dispatched"]}),
-        );
-    }
-    assert_eq!(Value::Array(rows.delivery_rows().await), golden["deliveries"]);
-    listener.stop().await;
-}
-/// Node's request parsing, recorded by `record-webhook-endpoint-name.mjs` (`fixtures/webhook-endpoint-name`): the
-/// raw and decoded endpoint name of every recorded path, the strict name gate's answer for the paths it refuses
-/// (`handle_post` with no store entry), and the body reader fed the recorded chunks: where the 413 comes, what it says,
-/// and the bytes (length and sha256) it hands over; every recorded answer is compared whole (status, headers, body and
-/// whether the request was destroyed), and the bodies cut short by an abort or a socket error get no answer at all.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn request_parsing_answers_as_node_answers_it() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-endpoint-name/golden.json")).unwrap();
-    assert_eq!(golden["maxBodyBytes"], MAX_BODY_BYTES);
-    let f = fx(WebhookConfig::default());
-    // `destroyed` is observed, not supplied: what a peer sees of the real listener after its answer
-    // (a second request on the connection is not served) is compared with every recorded wire case,
-    // and the connection closing after an answer is what Node's `req.destroy()` is.
-    let listener = serve_on_loopback(&f).await;
-    for case in golden["wire"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let parts: Vec<&str> = case["parts"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
-        let sequential = case["sequential"].as_bool().unwrap_or(false);
-        let fin = case["halfClose"].as_bool().unwrap_or(false) || case["server"] == "gate";
-        let seen = peer_sees(listener.port(), &parts, sequential, fin).await;
-        // The raw bytes the peer gets are compared whole: status line and header lines in order with their name case
-        // and repeats, the body with its framing. Only the value of `Date` is a token, on both sides.
-        let recorded: Vec<Value> = case["responses"].as_array().unwrap().iter().map(|r| json!({"status": r["status"], "head": r["head"], "body": r["body"], "raw": r["raw"]})).collect();
-        let seen: Vec<Value> = seen.into_iter().map(|(status, head, body, raw)| json!({"status": status, "head": head, "body": body, "raw": raw})).collect();
-        assert_eq!(seen, recorded, "{name}: what the peer sees");
-        assert!(case["closed"].as_bool().unwrap(), "{name}: Node closes the connection");
-        assert_eq!(case["settled"], 0, "{name}: nothing settles in Node");
-        assert!(f.dispatched.0.lock().unwrap().is_empty(), "{name}: nothing reached the dispatch");
-    }
-    let gate_closes = peer_sees(listener.port(), &["POST /webhook/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n"], false, true).await.len() == 1;
-    let overflow_closes = {
-        let head = post("/webhook/hook", &[JSON_CT], "Transfer-Encoding: chunked\r\n");
-        let head = String::from_utf8(head).unwrap();
-        let body = format!("{:x}\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", MAX_BODY_BYTES + 1, "a".repeat(MAX_BODY_BYTES + 1));
-        let seen = peer_sees(listener.port(), &[&head, &body], false, true).await;
-        assert_eq!(seen[0].0, 413);
-        seen.len() == 1
-    };
-    listener.stop().await;
-    for case in golden["paths"].as_array().unwrap() {
-        let url = case["url"].as_str().unwrap();
-        assert_eq!(handler::raw_endpoint_name(url), case["parsed"]["rawName"].as_str().unwrap(), "rawName of {url}");
-        assert_eq!(handler::parse_endpoint_name(url), case["parsed"]["name"].as_str().unwrap(), "name of {url}");
-        if let Some(gate) = case.get("gate") {
-            let Err(Rejection(refusal)) = f.svc.precheck(url).await else { panic!("gate of {url}: not refused") };
-            assert_eq!(f.svc.handle_post(url, &headers(&[]), b"{}").await, refusal, "gate of {url}: handle_post");
-            assert_answer(&format!("gate of {url}"), gate, Some((&refusal, gate_closes)));
-        }
-    }
-    for case in golden["bodies"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let mut collector = BodyCollector::default();
-        let mut reply = None;
-        for (index, chunk) in case["chunks"].as_array().unwrap().iter().enumerate() {
-            let bytes = match chunk["hex"].as_str() {
-                Some(hex) => (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect(),
-                None => vec![chunk["fill"].as_u64().unwrap() as u8; chunk["length"].as_u64().unwrap() as usize],
-            };
-            if let Err(Rejection(refusal)) = collector.push(&bytes) {
-                reply = Some(refusal);
-            }
-            assert_eq!(reply.is_some(), case["answeredAfter"][index].as_bool().unwrap(), "{name}: answered after chunk {index}");
-        }
-        match (collector.finish(), case["received"].as_object()) {
-            (None, None) => {}
-            (Some(bytes), Some(recorded)) => {
-                use sha2::Digest;
-                let sha: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
-                assert_eq!((bytes.len() as u64, sha.as_str()), (recorded["length"].as_u64().unwrap(), recorded["sha256"].as_str().unwrap()), "{name}");
-            }
-            (got, recorded) => panic!("{name}: got {:?} bytes, recorded {recorded:?}", got.map(|b| b.len())),
-        }
-        assert_answer(name, case, reply.as_ref().map(|r| (r, overflow_closes)));
-    }
-    for case in golden["cutBodies"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let mut collector = BodyCollector::default();
-        let mut reply = None;
-        for (index, chunk) in case["chunks"].as_array().unwrap().iter().enumerate() {
-            let bytes = vec![chunk["fill"].as_u64().unwrap_or(0) as u8; chunk["length"].as_u64().unwrap_or(0) as usize];
-            let bytes = chunk["hex"].as_str().map_or(bytes, |hex| (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect());
-            if let Err(Rejection(refusal)) = collector.push(&bytes) {
-                reply = Some(refusal);
-            }
-            assert_eq!(reply.is_some(), case["answeredAfter"][index].as_bool().unwrap(), "{name}: answered after chunk {index}");
-        }
-        // The cut ends the read; a collector that had not overflowed settles nothing (Node's promise stays pending).
-        let outcome = collector.cut_short();
-        let ours = json!({"settled": outcome.is_some(), "received": outcome.flatten().map_or(Value::Null, |b| json!({"length": b.len()}))});
-        assert_eq!(ours, json!({"settled": case["settled"], "received": case["received"]}), "{name}: what the cut settled with");
-        assert_answer(name, case, reply.as_ref().map(|r| (r, overflow_closes)));
-    }
-}
-#[cfg(node_twin)]
-fn golden() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-endpoint-name/golden.json")).unwrap()
-}
 /// Node's `headersTimeout` and `requestTimeout`: a head that never completes and a body that does not arrive are each
 /// answered with Node's recorded bare 408 and the connection ends. The recorded defaults are waited on the paused clock,
 /// so the minutes cost no wall time.
@@ -1013,70 +808,6 @@ async fn a_head_that_never_completes_is_answered_with_a_bare_408_and_the_connect
     listener.stop().await;
 }
 
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn a_request_that_does_not_arrive_in_time_gets_the_recorded_bare_408() {
-    let timing = golden()["timing"].clone();
-    assert_eq!(timing["defaults"]["headersTimeoutMs"], super::listener::HEADERS_TIMEOUT.as_millis() as u64);
-    assert_eq!(timing["defaults"]["requestTimeoutMs"], super::listener::REQUEST_TIMEOUT.as_millis() as u64);
-    let f = fx(WebhookConfig::default());
-    let listener = serve_on_loopback(&f).await;
-    for case in timing["timeouts"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let mut stream = connect(listener.port()).await;
-        for part in case["parts"].as_array().unwrap() {
-            send(&mut stream, part.as_str().unwrap().as_bytes(), name).await;
-        }
-        let defaults = &timing["defaults"];
-        if case["after"] == "headersTimeoutPlusCheckMs" {
-            // A silent connection: open at headersTimeout (Node's connection check has not come yet), answered by the end of
-            // the check interval after it. The recorder only records the window (open before, closed inside it).
-            assert!(case["parts"].as_array().unwrap().is_empty() && case["openJustBeforeHeadersTimeout"].as_bool().unwrap(), "{name}: recorded");
-            assert!(case["closedNotBeforeHeadersTimeout"].as_bool().unwrap() && case["closedByHeadersTimeoutPlusCheck"].as_bool().unwrap(), "{name}: recorded");
-            let (headers, interval) = (defaults["headersTimeoutMs"].as_u64().unwrap(), defaults["connectionsCheckingIntervalMs"].as_u64().unwrap());
-            assert_eq!(interval, super::listener::CONNECTIONS_CHECKING_INTERVAL.as_millis() as u64);
-            advance(headers).await;
-            let mut byte = [0u8; 1];
-            let early = mixdog_rt::time::timeout(std::time::Duration::from_millis(1), stream.read(&mut byte)).await;
-            assert!(early.is_err(), "{name}: still open and unanswered at headersTimeout, got {early:?}");
-            advance(interval - 1).await;
-        } else {
-            advance(defaults[case["after"].as_str().unwrap()].as_u64().unwrap()).await;
-        }
-        let mut reply = Vec::new();
-        within(&format!("{name}: the 408 and the end of the connection"), stream.read_to_end(&mut reply)).await.unwrap();
-        let recorded: Vec<&str> = case["responses"].as_array().unwrap().iter().map(|r| r["raw"].as_str().unwrap()).collect();
-        assert_eq!(vec![String::from_utf8_lossy(&reply).into_owned()], recorded, "{name}");
-        assert!(case["closed"].as_bool().unwrap());
-    }
-    assert!(f.dispatched.0.lock().unwrap().is_empty());
-    listener.stop().await;
-}
-/// Node expires a connection only when its connection check comes: a whole request that arrives after `headersTimeout`
-/// and before the check is answered as any other (the recorded reply).
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn a_request_after_headers_timeout_and_before_the_connection_check_is_served_as_recorded() {
-    let timing = golden()["timing"].clone();
-    let case = &timing["lateRequest"];
-    assert!(case["openWhenSent"].as_bool().unwrap() && case["closed"].as_bool().unwrap(), "recorded");
-    let headers = timing["defaults"][case["sentAfter"].as_str().unwrap()].as_u64().unwrap();
-    let f = fx(WebhookConfig::default());
-    let listener = serve_on_loopback(&f).await;
-
-    let (mut read, mut write) = connect(listener.port()).await.into_split();
-    advance(headers + 1).await;
-    for part in case["parts"].as_array().unwrap() {
-        send(&mut write, part.as_str().unwrap().as_bytes(), "the late request").await;
-    }
-    let (mut pending, mut seen) = (Vec::new(), Vec::new());
-    while let Some((_, _, _, raw)) = read_response_typed(&mut read, &mut pending, "the reply to the late request, then the close").await {
-        seen.push(raw);
-    }
-    let recorded: Vec<&str> = case["responses"].as_array().unwrap().iter().map(|r| r["raw"].as_str().unwrap()).collect();
-    assert_eq!(seen, recorded);
-    listener.stop().await;
-}
 /// Node closes a connection that sits idle between requests, after `keepAliveTimeout` plus `keepAliveTimeoutBuffer`
 /// (the recorded server settings), though it announces only the first. One connection is asked again just before the
 /// timeout and answers; the other, left alone, is closed at it.

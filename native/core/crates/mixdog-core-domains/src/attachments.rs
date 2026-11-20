@@ -161,17 +161,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    #[tokio::test(flavor = "current_thread")]
-    async fn stored_text_parts_read_as_nodes_attachment_text() {
-        let twin: serde_json::Value =
-            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
-        let cases = twin["textCases"].as_array().unwrap();
-        assert_eq!(cases.len(), 36);
-        for case in cases {
-            let (_dir, store, reference) = stored(case["text"].as_str().unwrap()).await;
-            let got = store.text_of(&part(reference, case["textKind"].as_str(), case["filename"].as_str())).await.unwrap();
-            assert_eq!(got.as_deref(), case["value"].as_str(), "{case}");
-        }
-    }
 }

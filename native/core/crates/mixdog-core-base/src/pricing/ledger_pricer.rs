@@ -173,41 +173,4 @@ mod tests {
     }
 
 
-    /// Node's `pricingCatalogRevisionSync()` and `priceUsage(...)` in a process that has loaded
-    /// nothing (`record-usage-ledger-source.mjs`, `cold`).
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_cold_catalog_prices_and_stamps_as_nodes_does() {
-        let twin: serde_json::Value =
-            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/usage-ledger-source-twin.json")).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let pricer = CatalogPricer::ungated(&catalog(dir.path()).await);
-        assert_eq!(pricer.revision(), twin["cold"]["revision"].as_str().unwrap());
-        let cases = twin["cold"]["prices"].as_array().unwrap();
-        assert!(cases.len() >= 10);
-        for (n, case) in cases.iter().enumerate() {
-            let a = &case["args"];
-            let text = |key: &str| a[key].as_str().map(str::to_owned);
-            let request = PriceRequest {
-                provider: text("provider").unwrap(),
-                model: text("model").unwrap(),
-                pricing_model: text("pricingModel"),
-                requested_model: text("requestedModel"),
-                input_tokens_known: a["inputTokensKnown"].as_bool(),
-                uncached_input_tokens: a["uncachedInputTokens"].as_f64().unwrap(),
-                output_tokens: a["outputTokens"].as_f64().unwrap(),
-                cache_read_tokens: a["cacheReadTokens"].as_f64().unwrap(),
-                cache_write_tokens: a["cacheWriteTokens"].as_f64().unwrap(),
-                cache_write_1h_tokens: a["cacheWrite1hTokens"].as_f64(),
-                request_service_tier: text("requestServiceTier"),
-                service_tier: text("serviceTier"),
-                kind: text("kind").unwrap(),
-                ts: a["ts"].as_i64().unwrap(),
-                historical: a["historical"].as_bool().unwrap(),
-            };
-            let got = pricer.price(&request).unwrap();
-            assert_eq!(got.cost_usd, case["costUsd"].as_f64(), "case {n} cost");
-            assert_eq!(got.rates.as_deref(), case["rates"].as_str(), "case {n} rates");
-        }
-    }
 }

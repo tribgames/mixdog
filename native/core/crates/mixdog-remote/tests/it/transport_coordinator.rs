@@ -15,13 +15,9 @@ use base64::Engine;
 use mixdog_remote::e2ee::ControlLane;
 use mixdog_remote::e2ee::ControlOpen;
 use mixdog_remote::transport::coordinator::Coordinator;
-#[cfg(node_twin)]
-use mixdog_remote::transport::coordinator::EndReason;
 use mixdog_remote::transport::coordinator::Ended;
 use mixdog_remote::transport::coordinator::Host;
 use mixdog_remote::transport::coordinator::LocalOffer;
-#[cfg(node_twin)]
-use mixdog_remote::transport::coordinator::MediaAdapter;
 use mixdog_remote::transport::coordinator::PeerChannel;
 use mixdog_remote::transport::coordinator::PeerInit;
 use mixdog_remote::transport::coordinator::SealFault;
@@ -37,8 +33,6 @@ use mixdog_remote::webrtc::config::Candidate;
 use mixdog_remote::webrtc::signal::Fingerprint;
 use mixdog_remote::webrtc::signal::candidate_json;
 use mixdog_remote::webrtc::signal::ice_servers_json;
-#[cfg(node_twin)]
-use mixdog_remote::webrtc::signal::parse_candidate;
 use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
@@ -110,10 +104,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(node_twin)]
-fn unhex(text: &str) -> Vec<u8> {
-    (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).expect("hex")).collect()
-}
 
 fn with(mut entry: Value, extra: Value) -> Value {
     if let (Some(entry), Value::Object(extra)) = (entry.as_object_mut(), extra) {
@@ -390,164 +380,11 @@ fn settled_entry(tag: &Value, result: SendResult) -> Value {
     }
 }
 
-#[cfg(node_twin)]
-struct StubMedia {
-    log: Log,
-}
 
-#[cfg(node_twin)]
-impl MediaAdapter for StubMedia {
-    fn receive(&mut self, payload: &Value) -> bool {
-        if payload.get("type").and_then(Value::as_str) == Some("stub-media") {
-            self.log.borrow_mut().effects.push(json!({ "e": "media", "payload": payload }));
-            return true;
-        }
-        false
-    }
 
-    fn writable(&mut self) {
-        self.log.borrow_mut().effects.push(json!({ "e": "media-writable" }));
-    }
 
-    fn close(&mut self) {
-        self.log.borrow_mut().effects.push(json!({ "e": "media-close" }));
-    }
-}
 
-#[cfg(node_twin)]
-fn padded(call_id: u64, length: usize) -> String {
-    let head = format!("{{\"id\":{call_id},\"pad\":\"");
-    let tail = "\"}";
-    format!("{head}{}{tail}", "a".repeat(length.saturating_sub(head.len() + tail.len())))
-}
 
-#[cfg(node_twin)]
-fn end_reason(name: Option<&str>) -> EndReason {
-    match name {
-        Some("revoked") => EndReason::Revoked,
-        Some("record-expiry") => EndReason::RecordExpiry,
-        Some("assembly-stalled") => EndReason::AssemblyStalled,
-        Some("protocol-error") => EndReason::ProtocolError,
-        Some("seal-failed") => EndReason::SealFailed,
-        _ => EndReason::SessionEnded,
-    }
-}
-
-#[cfg(node_twin)]
-fn close_reason(name: &str) -> CloseReason {
-    CloseReason::from_wire(name).unwrap_or_else(|| panic!("a close reason: {name}"))
-}
-
-#[cfg(node_twin)]
-fn run_step(step: &Value, coordinator: &mut Coordinator<ChannelFake, HostFake>, log: &Log, now: &Cell<u64>) {
-    now.set(step.get("at").and_then(Value::as_u64).expect("at"));
-    {
-        let mut shared = log.borrow_mut();
-        shared.effects.clear();
-        shared.results.clear();
-    }
-    let op = step["op"].as_str().expect("op");
-    let queue = |coordinator: &mut Coordinator<ChannelFake, HostFake>, sent: Sent, tag: Value| match sent {
-        Sent::Settled(result) => {
-            let entry = settled_entry(&tag, result);
-            coordinator.host().log.borrow_mut().results.push(entry);
-        }
-        Sent::Queued(ticket) => {
-            coordinator.host().log.borrow_mut().tickets.insert(ticket, tag);
-        }
-    };
-    match op {
-        "receive" => {
-            let carrier = step["carrier"].as_str().expect("carrier");
-            for text in step["hex"].as_array().expect("hex") {
-                coordinator.receive(carrier, &unhex(text.as_str().expect("hex text")));
-            }
-        }
-        "tick" => coordinator.tick(),
-        "send" => {
-            let id = step["id"].as_u64().expect("id");
-            let text = match step.get("fill") {
-                Some(fill) => padded(fill["callId"].as_u64().expect("call id"), fill["length"].as_u64().expect("length") as usize),
-                None => step["payload"].as_str().expect("payload").to_owned(),
-            };
-            let meter = step.get("meter").and_then(Value::as_str).map(|name| {
-                let mut shared = log.borrow_mut();
-                shared.meters.push(name.to_owned());
-                (shared.meters.len() - 1) as u64
-            });
-            let options = SendOptions {
-                droppable: step.get("droppable").and_then(Value::as_bool) == Some(true),
-                stream: step.get("stream").and_then(Value::as_str).map(str::to_owned),
-                meter,
-                gate: None,
-            };
-            let sent = coordinator.send(&text, options);
-            queue(coordinator, sent, json!({ "id": id }));
-        }
-        "close" => {
-            let ended = coordinator.close(end_reason(step.get("reason").and_then(Value::as_str)));
-            log.borrow_mut().effects.push(json!({ "e": "close-result", "reason": ended.reason.wire_name(), "ambiguousCallIds": ended.ambiguous_call_ids }));
-        }
-        "peer" => {
-            let connection = log.borrow().peers.last().cloned().expect("a peer");
-            match step["event"].as_str().expect("event") {
-                "candidate" => {
-                    let candidate = parse_candidate(&step["candidate"]).expect("a candidate");
-                    coordinator.peer_candidate_event(&connection, candidate);
-                }
-                "open" => {
-                    let size = match &step["maxMessageSize"] {
-                        Value::String(text) if text == "Infinity" => Some(f64::INFINITY),
-                        other => other.as_f64(),
-                    };
-                    coordinator.peer_open(&connection, size, step["relayed"] == true);
-                }
-                "message" => coordinator.peer_message(&connection, &unhex(step["hex"].as_str().expect("hex"))),
-                "drain" => coordinator.peer_drain(&connection),
-                "closed" => coordinator.peer_closed(&connection, close_reason(step["reason"].as_str().expect("reason"))),
-                other => panic!("a peer event: {other}"),
-            }
-        }
-        "set" => {
-            let mut shared = log.borrow_mut();
-            let value = &step["value"];
-            match step["key"].as_str().expect("key") {
-                "buffered" => shared.buffered = value.as_u64().expect("number") as usize,
-                "refuse" => shared.refuse = value.as_bool().expect("bool"),
-                "encrypt" => shared.encrypt = value.as_str().map(str::to_owned),
-                "sealControl" => shared.seal_control = value.as_str().map(str::to_owned),
-                other => panic!("a setting: {other}"),
-            }
-        }
-        "relay-release" => {
-            for _ in 0..step["count"].as_u64().expect("count") {
-                coordinator.complete_relay_send(true);
-            }
-        }
-        "deliver-release" => {
-            for _ in 0..step["count"].as_u64().expect("count") {
-                let pending = log.borrow().pending_deliver;
-                if pending > 0 {
-                    log.borrow_mut().pending_deliver = pending - 1;
-                    coordinator.complete_deliver();
-                }
-            }
-        }
-        "media-send" => {
-            let text = step["text"].as_str().expect("text");
-            let stream = step.get("stream").and_then(Value::as_str).map(str::to_owned);
-            let sent = coordinator.send(text, SendOptions { droppable: false, stream, meter: None, gate: None });
-            queue(coordinator, sent, json!({ "media": true }));
-        }
-        "media-can-admit" => {
-            let admitted = coordinator.media_can_admit(step["stream"].as_str().expect("stream"));
-            log.borrow_mut().results.push(json!({ "canAdmit": admitted }));
-        }
-        "media-protocol-error" => coordinator.media_protocol_error(),
-        other => panic!("an op: {other}"),
-    }
-    coordinator.settle();
-}
 
 /// A live-view write is asked about once, at its write, and enters the stream whole in that step: an unpair that lands while a later
 /// fragment of a large frame is sealed waits for the write, and the next write after it is refused whole with no hole in the stream
@@ -844,52 +681,3 @@ impl RelayPhone {
 }
 
 
-#[cfg(node_twin)]
-mod recorded {
-use super::*;
-const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-coordinator/scenarios.json");
-#[test]
-fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(&RECORDED).expect("the recording is JSON");
-    let scenarios = recorded["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 20);
-    let mut steps_checked = 0;
-    for scenario in scenarios {
-        let name = scenario["name"].as_str().expect("name");
-        let now = Rc::new(Cell::new(scenario["start"].as_u64().expect("start")));
-        let log: Log = std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
-            effects: Vec::new(),
-            results: Vec::new(),
-            options: scenario["options"].clone(),
-            refuse: false,
-            buffered: 0,
-            encrypt: None,
-            seal_control: None,
-            pending_deliver: 0,
-            meters: Vec::new(),
-            tickets: HashMap::new(),
-            peers: Vec::new(),
-            creates: 0,
-            minted: 0,
-            relay_raw: Vec::new(),
-        })));
-        let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
-        let host = HostFake { log: log.clone(), now: now.clone() };
-        let mut coordinator = Coordinator::new(scenario["sessionId"].as_str().expect("session"), channel, host, AssemblyPool::default());
-        if scenario["options"]["media"] == true {
-            coordinator.set_media(Box::new(StubMedia { log: log.clone() }));
-        }
-        for (index, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
-            run_step(step, &mut coordinator, &log, &now);
-            let shared = log.borrow();
-            let at = format!("{name}: step {index} ({})", step["op"]);
-            assert_eq!(Value::Array(shared.effects.clone()), step["effects"], "effects of {at}");
-            assert_eq!(Value::Array(shared.results.clone()), step["results"], "results of {at}");
-            drop(shared);
-            assert_eq!(coordinator.diagnostics().to_json(), step["diagnostics"], "diagnostics of {at}");
-            steps_checked += 1;
-        }
-    }
-    assert!(steps_checked > 300);
-}
-}

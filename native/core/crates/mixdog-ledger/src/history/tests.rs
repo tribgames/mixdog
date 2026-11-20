@@ -196,9 +196,6 @@ fn a_restored_day_is_priced_again_from_its_sums() {
     assert_eq!(got["2025-01-03"], days["2025-01-03"]);
 }
 
-#[cfg(node_twin)]
-#[path = "original_twin.rs"]
-mod original_twin;
 
 
 fn rig(trace: Vec<Value>) -> Rig {

@@ -36,7 +36,7 @@ mixdog-testkit = { workspace = true }
 # The pseudo-terminals of the interactive tests (tests/node_free.rs, tests/pty_twin.rs) and the screen their output is replayed on.
 portable-pty = { workspace = true }
 mixdog-term = { workspace = true }
-# The exec replay (tests/exec_entry.rs): the binary runs against a stand-in provider that serves TLS under a throwaway
+# The stand-in provider of tests/node_free.rs: the binary runs against a stand-in provider that serves TLS under a throwaway
 # certificate the binary is pinned to (`REPLAY_PROVIDER_PIN`, a `test-support` control of the HTTP client).
 httparse = { workspace = true }
 flate2 = { workspace = true }
@@ -73,7 +73,6 @@ mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] 
 mixdog-launch = { workspace = true, features = ["fake-core"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 mixdog-office-com = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }

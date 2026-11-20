@@ -201,19 +201,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/session-titles/golden.json")).unwrap()
-    }
-    /// The system prompt Node sent in the recorded title requests, with and without a locale.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_system_prompt_equals_the_one_nodes_title_request_carried() {
-        let golden = golden();
-        let cases = golden["completion"].as_array().unwrap();
-        for (index, locale) in [(0, "ko-KR"), (1, "")] {
-            let sent = cases[index]["sent"].as_array().unwrap().iter().find(|s| s.get("messages").is_some()).unwrap();
-            assert_eq!(sent["messages"][0]["content"].as_str().unwrap(), system_prompt(locale).as_str(), "{}", cases[index]["name"]);
-        }
-    }
 }

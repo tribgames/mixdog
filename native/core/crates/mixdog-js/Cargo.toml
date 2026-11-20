@@ -23,14 +23,13 @@ sha2 = { workspace = true, optional = true }
 libc = { workspace = true }
 
 [features]
-# The loader of the tool references recorded goldens carry (`fixture_tools`): a dev-dependency of the crates that replay them.
+# Named by the test-feature lists of the workspace; it gates no code of this crate (it only adds sha2).
 fixture-tools = ["dep:sha2"]
 # Test hooks of the literal pre-check of long texts (`regex::prefilter_probe`): the patterns built, the engine's own
 # decision, and when the pre-check applies.
 prefilter-probe = []
 
 [dev-dependencies]
-mixdog-testkit = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-js = { path = ".", features = ["fixture-tools", "prefilter-probe"] }

@@ -91,10 +91,6 @@ mod tests {
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::ids::Method;
     use mixdog_core_api::service::Admit;
-    #[cfg(node_twin)]
-    use mixdog_rt::CancellationToken;
-    #[cfg(node_twin)]
-    use mixdog_rt::LaneToken;
 
     use super::*;
 
@@ -126,81 +122,9 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    /// The text of a value with `from` replaced by `{data}` in every string, keys in order.
-    fn portable(value: &Value, from: &str) -> Value {
-        match value {
-            Value::String(text) => Value::String(text.replace(from, "{data}")),
-            Value::Array(items) => Value::Array(items.iter().map(|item| portable(item, from)).collect()),
-            Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), portable(item, from))).collect()),
-            other => other.clone(),
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../tests/golden/setup_status.json")).unwrap()
-    }
 
-    #[cfg(node_twin)]
-    /// `mcp`, `skills`, `plugins`: Node's reader over the runtime answers it recorded, through the
-    /// real setup executor; the object is compared as text, so the key order counts.
-    #[tokio::test]
-    async fn the_service_domains_answer_as_nodes_executor_does() {
-        let golden = golden();
-        for case in golden["services"].as_array().unwrap() {
-            let service: Arc<dyn DomainService> = Arc::new(Canned(case["runtime"].clone()));
-            let status = ServiceStatus::new(service.clone(), service.clone(), service, Arc::new(Hooks(Value::Null)));
-            let domain = case["args"]["domain"].as_str().unwrap();
-            let detail = case["args"]["detail"] == true;
-            let answer = status.read(domain, detail, &ThreadId::from("t1")).await.unwrap();
-            let Value::Object(mut with_domain) = answer else { panic!("{domain}: not an object") };
-            let mut node = Map::new();
-            node.insert("domain".to_owned(), json!(domain));
-            node.append(&mut with_domain);
-            assert_eq!(Value::Object(node).to_string(), case["text"].as_str().unwrap(), "{}", case["name"]);
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// `hooks`: the real hook-bus status of a hooks file, read as the doctor reads it.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_hooks_domain_answers_as_nodes_executor_does() {
-        use crate::domain_seams::hook_status::HookEventLog;
-        use crate::domain_seams::hook_status::HookStatus;
-
-        let golden = golden();
-        let tokens = mixdog_rt::testing::tokens();
-        for case in golden["hooks"].as_array().unwrap() {
-            let dir = tempfile::tempdir().unwrap();
-            let (hooks_file, project) = (dir.path().join("hooks.json"), dir.path().join("project"));
-            let file = case["file"].as_str().map(str::to_owned);
-            let made = project.clone();
-            tokens
-                .maintenance_io
-                .submit_wait(&CancellationToken::new(), move |lane| {
-                    if let Some(file) = file {
-                        mixdog_statefile::write_file(lane, &hooks_file, file.as_bytes(), &mixdog_statefile::Opts::default()).unwrap();
-                    }
-                    mixdog_statefile::create_private_dir_all(lane, &made).unwrap();
-                })
-                .await
-                .unwrap()
-                .await
-                .unwrap();
-            let log = HookEventLog::new(project);
-            let hooks = HookStatus::new(dir.path().to_path_buf(), tokens.maintenance_io, log.clone(), log);
-            let unused: Arc<dyn DomainService> = Arc::new(Canned(Value::Null));
-            let status = ServiceStatus::new(unused.clone(), unused.clone(), unused, hooks);
-            let answer = status.read("hooks", case["args"]["detail"] == true, &ThreadId::from("t1")).await.unwrap();
-            let Value::Object(mut with_domain) = answer else { panic!("hooks: not an object") };
-            let mut node = Map::new();
-            node.insert("domain".to_owned(), json!("hooks"));
-            node.append(&mut with_domain);
-            let shown = portable(&Value::Object(node), &dir.path().to_string_lossy()).to_string();
-            assert_eq!(shown, case["text"].as_str().unwrap(), "{}", case["name"]);
-        }
-    }
 
     fn reader(runtime: Value, hooks: Value) -> ServiceStatus {
         let service: Arc<dyn DomainService> = Arc::new(Canned(runtime));

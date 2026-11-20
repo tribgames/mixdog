@@ -1,14 +1,6 @@
-//! The model-list rig (a profile's production pipeline over a fake endpoint) and its feature tests; the comparison tests
-//! against the Node recording (`fixtures/model-lists/node-model-lists.json`,
-//! `benchmarks/rust-core/recorders/model-lists/record.mjs`): Node's real `listProviderModels` (the quick
-//! read of a cold cache, then the full read) and `listWebSearchModels` for ten profiles, each in an isolated
-//! daemon whose model endpoints are a local fake and whose models.dev / LiteLLM catalogs are seeded.
-//!
-//! The Rust side is the production pipeline over the same profile and the same fake endpoint: config load,
-//! provider defaults, the real `DefaultProviderBuilder` (the Anthropic and custom-provider adapters list
-//! through a fake `HttpSend` that serves the recording's endpoint bodies), readiness, the registry's
-//! adapters handed to the catalog through `ModelSource::of_adapter`, quick rows, hydration, sort and the
-//! web-search tiers. Every row, in order, must be Node's.
+//! The model-list rig: a profile's production pipeline (config load, provider defaults, the real `DefaultProviderBuilder` over a fake
+//! `HttpSend` endpoint, readiness, the registry's adapters handed to the catalog, quick rows, hydration, sort and the web-search
+//! tiers) with seeded models.dev / LiteLLM catalogs, and its feature tests.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -44,17 +36,7 @@ use super::web_search_models::{WebSearchModelsService, WebSearchRoutes};
 use crate::domains::ai_account::collaborators::WebSearchModels;
 use crate::domains::ai_account::failure::Failure;
 
-#[cfg(node_twin)]
-/// The Node recording; a profile's `baseURL`s name the recorder's loopback endpoint.
-pub(super) fn recording() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/model-lists/node-model-lists.json")).unwrap()
-}
 
-#[cfg(node_twin)]
-/// Node's recording of a default route naming an OAuth provider (model-lists-statusline): the reads after its statusline-usage warm-up, and the reads before it (the warm-up delayed).
-pub(super) fn statusline_recording() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/model-lists-statusline/node-model-lists.json")).unwrap()
-}
 
 /// The catalogs a profile starts from: none.
 pub(super) fn seeds() -> Value {
@@ -277,18 +259,12 @@ fn put(path: &Path, body: &str) {
     .unwrap();
 }
 
-#[cfg_attr(not(node_twin), allow(dead_code, reason = "the comparison tests read the rest of the rig"))]
 pub(super) struct Rig {
     pub(super) config: Config,
     pub(super) catalog: Arc<CatalogService>,
     pub(super) registry: Arc<ProviderRegistry>,
     pub(super) readiness: Arc<ProviderReadiness>,
     pub(super) effective: Arc<EffectiveProviders>,
-    /// The production builder the registry and the loaded config read the credentials through.
-    pub(super) builder: Arc<dyn ProviderBuilder>,
-    /// The account store that builder holds (the same files).
-    pub(super) accounts: AccountStore,
-    pub(super) env: Arc<dyn Environment>,
     pub(super) loaded: Arc<LoadedConfig>,
     pub(super) service: Arc<ModelListService>,
     pub(super) host: ListHost,
@@ -310,24 +286,6 @@ pub(super) struct Rig {
 
 /// One recorded profile's pipeline; `fail` makes the provider builds refuse.
 pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
-    rig_on(scenario, seeds, fail, None).await
-}
-
-/// [`rig`] whose catalog stamps retry times with `clock` (milliseconds since the epoch) instead of the wall clock.
-#[cfg_attr(not(node_twin), allow(dead_code, reason = "the comparison tests set the clock"))]
-pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>) -> Rig {
-    rig_paced(scenario, seeds, fail, clock, None).await
-}
-
-/// [`rig_on`] whose account store reads credential expiry on `pace`'s clock (the wall clock without one).
-#[cfg_attr(not(node_twin), allow(dead_code, reason = "the comparison tests set the pace"))]
-pub(super) async fn rig_paced(
-    scenario: &Value,
-    seeds: &Value,
-    fail: bool,
-    clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
-    pace: Option<Arc<dyn mixdog_ai::oauth::Pace>>,
-) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -348,12 +306,7 @@ pub(super) async fn rig_paced(
         .await
         .unwrap();
     // The composition the daemon runs (`build_catalog`): models.dev, LiteLLM and the roster files of the data directory.
-    let composed = CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io()).await;
-    let composed = match clock {
-        Some(clock) => composed.with_clock(clock),
-        None => composed,
-    };
-    let catalog = Arc::new(composed);
+    let catalog = Arc::new(CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io()).await);
     let listing = catalog.listing_lookup();
     // `__DATA_DIR__` in a value is this rig's data directory.
     let data_dir = dir.path().to_string_lossy().into_owned();
@@ -368,11 +321,6 @@ pub(super) async fn rig_paced(
     let vault = WatchedVault { inner: MemoryVault::default(), gate: vault_gate_rx, arrived: vault_arrived.clone(), reads: secret_reads.clone() };
     let keys = ApiKeyStore::new(Arc::new(vault), env.clone(), false);
     let accounts = AccountStore::new(dir.path().join("accounts"), io()).with_env(env.clone());
-    let accounts = match pace {
-        Some(pace) => accounts.with_clock(pace),
-        None => accounts,
-    };
-    let (rig_accounts, rig_env) = (accounts.clone(), env.clone());
     let (gate, gate_rx) = tokio::sync::watch::channel(true);
     let arrived = Arc::new(tokio::sync::Semaphore::new(0));
     let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -413,7 +361,6 @@ pub(super) async fn rig_paced(
         }),
         fail,
     });
-    let rig_builder = builder.clone();
     let registry = Arc::new(ProviderRegistry::new(builder.clone()));
     let readiness = ProviderReadiness::new(registry.clone(), catalog.clone());
     let effective = Arc::new(EffectiveProviders::new(builder, keys, env));
@@ -433,10 +380,9 @@ pub(super) async fn rig_paced(
         host: Some(host.clone()),
     });
     let rewarms = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    Rig { config, catalog, registry, readiness, effective, builder: rig_builder, accounts: rig_accounts, env: rig_env, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, rewarms, _dir: dir }
+    Rig { config, catalog, registry, readiness, effective, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, rewarms, _dir: dir }
 }
 
-#[cfg_attr(not(node_twin), allow(dead_code, reason = "the comparison tests drive the rest of the rig"))]
 impl Rig {
     /// Binds the re-warm as the daemon does (`compose_flip.rs`: the model list's secrets-carrying warm), counted.
     pub(super) fn bind_rewarm(&self) {
@@ -463,40 +409,14 @@ impl Rig {
         }
     }
 
-    /// The endpoint's request log.
-    pub(super) fn requests(&self) -> tokio::sync::watch::Receiver<Vec<Value>> {
-        self.endpoint.requests.subscribe()
-    }
-
     /// From now on the endpoint answers `routes` (a recorded `serveCatalog` call): a provider's catalog moves on its own.
     pub(super) fn serve(&self, routes: &Value) {
         *self.endpoint.routes.lock().unwrap() = routes.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     }
 }
 
-#[cfg(node_twin)]
-/// A recorded profile read quick, full and web-search with nothing between the reads (no stored change, no warm-up).
-pub(super) fn three_reads(scenario: &Value) -> bool {
-    let actions = scenario["calls"].as_array().unwrap().iter().map(|c| c["action"].as_str().unwrap());
-    actions.eq(["listProviderModels", "listProviderModels", "listWebSearchModels"])
-}
 
-#[cfg(node_twin)]
-pub(super) fn node_calls(scenario: &Value) -> [&Value; 3] {
-    let calls = scenario["calls"].as_array().unwrap();
-    assert_eq!(calls.len(), 3, "{}: quick, full and web-search reads", scenario["name"]);
-    [&calls[0]["value"], &calls[1]["value"], &calls[2]["value"]]
-}
 
-#[cfg(node_twin)]
-pub(super) fn assert_rows(what: &str, got: &[Value], want: &Value) {
-    let want = want.as_array().unwrap_or_else(|| panic!("{what}: Node recorded no list"));
-    let ids = |rows: &[Value]| rows.iter().map(|r| format!("{}:{}", r["provider"], r["id"])).collect::<Vec<_>>();
-    assert_eq!(ids(got), ids(want), "{what}: rows in order");
-    for (row, node) in got.iter().zip(want) {
-        assert_eq!(row, node, "{what}: {}:{}", node["provider"], node["id"]);
-    }
-}
 
 pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
     WebSearchModelsService::new(
@@ -507,48 +427,7 @@ pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
     )
 }
 
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_quick_rows_are_nodes_for_every_profile() {
-    let recording = recording();
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
-        let name = scenario["name"].as_str().unwrap();
-        let rig = rig(scenario, &recording["seeds"], false).await;
-        // A row marked `catalogComplete` means Node's daemon had finished its boot load before this first read
-        // (a provider with no key fails its listing at once and answers its floor): the catalog is loaded here too.
-        if node_calls(scenario)[0].get(0).is_some_and(|row| row["catalogComplete"] == true) {
-            rig.service.rows(false, false).await.unwrap();
-        }
-        let rows = rig.service.rows(false, true).await.unwrap();
-        assert_rows(&format!("{name}: quick"), &rows, node_calls(scenario)[0]);
-        rig.host.settle_warm().await;
-    }
-}
 
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_full_and_web_search_reads_are_nodes_after_the_registry_hands_over_its_sources() {
-    let recording = recording();
-    let mut searched = 0;
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
-        let name = scenario["name"].as_str().unwrap();
-        let [_, full, search] = node_calls(scenario);
-        let rig = rig(scenario, &recording["seeds"], false).await;
-        // Node's read order: the quick read first, which warms the catalog, then the full read.
-        rig.service.rows(false, true).await.unwrap();
-        rig.host.settle_warm().await;
-        let rows = rig.service.rows(false, false).await.unwrap();
-        assert_rows(&format!("{name}: full"), &rows, full);
-        let registered = rig.registry.names();
-        let listed: Vec<String> = rig.catalog.snapshot().models.iter().map(|(p, _)| p.as_str().to_owned()).collect();
-        assert_eq!(listed.iter().all(|p| registered.contains(p)), true, "{name}: every catalog source is a registered provider");
-        assert_eq!(registered.iter().all(|p| listed.contains(p)), true, "{name}: every registered provider is a catalog source");
-        let found = web_search(&rig).list(None, false).await.unwrap();
-        assert_rows(&format!("{name}: web search"), found.as_array().unwrap(), search);
-        searched += search.as_array().unwrap().len();
-    }
-    assert!(searched > 0, "a recorded profile has a non-empty web-search list");
-}
 
 #[tokio::test]
 async fn a_custom_providers_discovered_models_list_with_the_configured_ones_and_without_the_hidden() {
@@ -559,50 +438,6 @@ async fn a_custom_providers_discovered_models_list_with_the_configured_ones_and_
     assert_eq!(ids, ["disc-a", "disc-c", "m1"]);
 }
 
-#[cfg(node_twin)]
-// Node's `custom-discovery-update` recording: quick, full, `updateCustomProviderModel` (hides `disc-a`, which ends in
-// `invalidateProviderCaches`), quick, full. The cold quick read answers from the profile, the full read loads the
-// catalog, and the quick read after the change is cold again: the cache and the shared catalog were dropped.
-#[tokio::test]
-async fn a_quick_read_after_a_provider_change_answers_as_node_does() {
-    let recording = recording();
-    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery-update").unwrap();
-    let calls = scenario["calls"].as_array().unwrap();
-    assert_eq!(calls.iter().map(|c| c["action"].as_str().unwrap()).collect::<Vec<_>>(), ["listProviderModels", "listProviderModels", "updateCustomProviderModel", "listProviderModels", "listProviderModels"]);
-    let rig = rig(scenario, &recording["seeds"], false).await;
-    // The hook the daemon binds (`compose_flip.rs`): the model list drops its cache with the readiness' invalidation.
-    let service = rig.service.clone();
-    rig.readiness.bind_invalidation(Arc::new(move || service.invalidate())).is_ok().then_some(()).unwrap();
-    let read = |quick| rig.service.rows(false, quick);
-    assert_rows("quick", &read(true).await.unwrap(), &calls[0]["value"]);
-    rig.host.settle_warm().await;
-    assert_rows("full", &read(false).await.unwrap(), &calls[1]["value"]);
-    // Loaded: a quick read is the loaded catalog, marked complete (what the cold read could not say).
-    assert!(read(true).await.unwrap().iter().all(|row| row["catalogComplete"] == json!(true)));
-    // The daemon\'s sync follows a stored change into the loaded config and the readiness.
-    let stop = mixdog_rt::CancellationToken::new();
-    let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
-    let [provider, model, patch] = [0, 1, 2].map(|i| calls[2]["args"][i].clone());
-    rig.config
-        .update_agent(move |doc| {
-            let mut providers = doc.get("providers").and_then(Value::as_object).cloned().unwrap();
-            let entry = providers.get_mut(provider.as_str().unwrap()).unwrap();
-            entry["modelOverrides"][model.as_str().unwrap()]["hidden"] = patch["hidden"].clone();
-            doc.insert("providers".into(), Value::Object(providers));
-            Ok(())
-        })
-        .await
-        .unwrap();
-    sync.applied.wait_for(|applied| *applied >= 1).await.unwrap();
-    // `refresh.afterCredentialChange()`: `applyConfigChange`'s `reinitProviders` drops every cache and rebuilds the
-    // registered provider over the stored change.
-    rig.readiness.reinit_providers(None).await.unwrap();
-    assert_rows("quick after the change", &read(true).await.unwrap(), &calls[3]["value"]);
-    rig.host.settle_warm().await;
-    assert_rows("full after the change", &read(false).await.unwrap(), &calls[4]["value"]);
-    stop.cancel();
-    sync.task.await.unwrap();
-}
 
 #[tokio::test]
 async fn a_profile_with_no_enabled_provider_lists_nothing_and_registers_nothing() {

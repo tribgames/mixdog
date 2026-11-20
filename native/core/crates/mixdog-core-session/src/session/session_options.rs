@@ -245,28 +245,6 @@ mod tests {
         );
     }
 
-    #[cfg(node_twin)]
-    /// The record of a user's Lead (`create_goldens/lead.json`, recorded from Node's `sessionOptions`,
-    /// `buildSessionRecord` and `sessionOriginFields` by `record.mjs`): every field it lists, but the
-    /// roster stamp (the prompt's), is what `write_header` + `write_lead_record` leave in the header.
-    #[test]
-    fn a_lead_record_has_the_fields_node_gives_it() {
-        const PID: u32 = 4242;
-        #[cfg(node_twin)]
-        const NOW: i64 = 1_700_000_000_000;
-        let golden: Value = serde_json::from_str(include_str!("create_goldens/lead.json")).expect("golden");
-        let mut header = Header::new();
-        write_header(&ThreadSessionOptions::default(), &mut header);
-        write_lead_record(&mut header, NOW, PID);
-        for (key, expected) in golden["record"].as_object().expect("record") {
-            match (key.as_str(), expected.as_str()) {
-                ("agentRosterRevision", _) => assert!(header.get(key).is_none(), "{key} is the prompt's"),
-                (_, Some("<pid>")) => assert_eq!(header[key.as_str()], json!(PID), "{key}"),
-                (_, Some("<ts>")) => assert_eq!(header[key.as_str()], json!(NOW), "{key}"),
-                _ => assert_eq!(&header[key.as_str()], expected, "{key}"),
-            }
-        }
-    }
 
     #[test]
     fn a_lead_record_keeps_the_schema_allowlist_a_profile_wrote() {
@@ -297,24 +275,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Every narrowed-profile session Node recorded (`fixtures/tool-resolution/golden.json`) carries the allowlist of
-    /// its profile; the one `write_header` persists is exactly that list, in that order.
-    #[test]
-    fn the_profile_allowlists_are_the_ones_node_recorded() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-resolution/golden.json")).expect("golden");
-        let mut seen = std::collections::BTreeMap::new();
-        for case in golden["cases"].as_array().expect("cases") {
-            let input = &case["input"];
-            let profile = match input["toolProfile"].as_str() {
-                Some("headless") => ToolProfile::Headless,
-                Some("heartbeat") => ToolProfile::Heartbeat,
-                _ => continue,
-            };
-            let recorded = input["schemaAllowedTools"].clone();
-            assert_eq!(names(model_tool_allowlist(profile).expect("narrowed")), recorded, "{}", case["name"]);
-            *seen.entry(input["toolProfile"].as_str().unwrap().to_owned()).or_insert(0) += 1;
-        }
-        assert_eq!(seen, [("headless".to_owned(), 8), ("heartbeat".to_owned(), 8)].into());
-    }
 }

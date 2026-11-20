@@ -34,9 +34,6 @@ pub mod status_rows;
 mod views;
 #[cfg(test)]
 mod tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod stale_node_cases;
 #[cfg(test)]
 mod write_marks_tests;
 

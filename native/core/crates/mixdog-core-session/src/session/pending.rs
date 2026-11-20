@@ -188,37 +188,8 @@ pub(crate) fn recognised_slash_token(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod slash_tests {
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/capability-refusals/golden.json");
-        serde_json::from_str::<Value>(&std::fs::read_to_string(path).expect("golden")).expect("json")["slash"].clone()
-    }
 
-    #[cfg(node_twin)]
-    /// Node's registry (`SLASH_COMMANDS` at b6f10295a, a static table with nothing added at runtime) names exactly these
-    /// tokens, and `recognisedSlashToken` answers the recorded token for every probe.
-    #[test]
-    fn the_slash_tokens_equal_nodes_registry_and_recognition() {
-        let slash = golden();
-        let mut recorded: Vec<String> = slash["commands"]
-            .as_array()
-            .expect("commands")
-            .iter()
-            .flat_map(|command| std::iter::once(command["name"].clone()).chain(command["aliases"].as_array().expect("aliases").clone()))
-            .map(|token| token.as_str().expect("token").to_owned())
-            .collect();
-        let mut ours: Vec<String> = SLASH_TOKENS.iter().map(|token| (*token).to_owned()).collect();
-        recorded.sort();
-        ours.sort();
-        assert_eq!(ours, recorded);
-        for probe in slash["probes"].as_array().expect("probes") {
-            let text = probe["text"].as_str().expect("text");
-            assert_eq!(recognised_slash_token(text), probe["token"].as_str().map(str::to_owned), "{text:?}");
-        }
-    }
 }
 
 

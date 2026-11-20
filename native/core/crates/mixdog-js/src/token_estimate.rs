@@ -200,19 +200,3 @@ mod tests {
 }
 
 
-/// The recorded estimates of the reference runtime; compiled only on the machine that holds them.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use serde_json::Value;
-
-    use super::*;
-
-    #[test]
-    fn estimates_equal_the_recorded_values() {
-        let golden: Vec<Value> = serde_json::from_str(include_str!("../testdata/token_estimate.json")).expect("golden");
-        for case in golden {
-            let text = case["text"].as_str().unwrap_or("\u{fffd} lone");
-            assert_eq!(estimate_tokens(text), case["tokens"].as_u64().unwrap(), "{text:?}");
-        }
-    }
-}

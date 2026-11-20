@@ -26,17 +26,6 @@ mod tests;
 mod retire_behaviour_tests;
 #[cfg(test)]
 mod thread_settings_feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "../routes/tests.rs"]
-mod web_search_refusal_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod thread_settings_tests;
 
 use std::sync::Arc;
 

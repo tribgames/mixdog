@@ -118,7 +118,7 @@ fn proxied_text_blocks_keep_cache_markers_at_their_original_positions() {
 
 /// The account that served an answer rides on the history the server sends back, so the PC's pool keeps the next turn on it
 /// (Node's `providerMetadata.accountRouting`, read by `sessionAccountId` and `customKeyServedBy`; the PC's pool reads it as
-/// `KeyPool`'s bound hint, replayed in mixdog-ai registry/gateway_replay.rs from the recorded gateway cases).
+/// `KeyPool`'s bound hint).
 #[test]
 fn the_account_that_served_an_answer_rides_on_the_history() {
     let mut sent = request();
@@ -555,41 +555,9 @@ fn a_pc_lost_mid_call_leaves_the_delivery_unknown() {
     assert_eq!((error.kind, error.delivery), (p::ErrorKind::Transient, p::DeliveryState::Ambiguous));
 }
 
-/// A provider whose attempt never ends: only the cancel ends the call.
-#[cfg(node_twin)]
-struct Hang(MockProvider);
 
-#[cfg(node_twin)]
-#[async_trait]
-impl p::ProviderAdapter for Hang {
-    fn release_send(&self, _group: &str) {}
-    fn id(&self) -> &mixdog_protocol::ProviderId {
-        self.0.id()
-    }
-    fn codec(&self) -> &dyn p::WireCodec {
-        self.0.codec()
-    }
-    fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
-        self.0.retry_policy()
-    }
-    fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
-        self.0.keepalive()
-    }
-    async fn attempt(&self, _: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
-        std::future::pending().await
-    }
-}
 
-#[cfg(node_twin)]
-struct HangLookup(Arc<Hang>);
 
-#[cfg(node_twin)]
-#[async_trait]
-impl ProviderLookup for HangLookup {
-    async fn adapter(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
-        (name == "mock").then(|| self.0.clone() as Arc<dyn p::ProviderAdapter>)
-    }
-}
 
 async fn catalog(models: &[(&str, &str)]) -> Arc<mixdog_ai::catalog::CatalogService> {
     use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelRecord, ModelsDevSource};
@@ -752,80 +720,3 @@ async fn the_store_serves_attachments_by_their_digest() {
 
 // -- against Node's recording of a proxied run (record-model-proxy-pc.mjs) -------------------
 
-#[cfg(node_twin)]
-const PC_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
-    let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
-    // The text deltas of the recorded run, in order.
-    let recorded: Vec<String> = twin["runs"]["stream"]["events"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|event| event["name"] == "onTextDelta")
-        .map(|event| event["args"][0].as_str().unwrap().to_owned())
-        .collect();
-    let pc = loopback([MockAttempt::Body(b"t:Hel\nt:lo\ndone\n".to_vec())]).await;
-    let events = Mutex::new(Vec::new());
-    let call = w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) };
-    let answer = pc.0.run(call, None, &Collect(&events), &CancellationToken::new()).await.unwrap();
-    assert!(matches!(answer, w::ProxyAnswer::Sent { attempts: 1 }));
-    let streamed: Vec<String> = events.into_inner().unwrap().into_iter().filter_map(|event| if let w::ProxyEvent::TextDelta { text } = event { Some(text) } else { None }).collect();
-    assert_eq!(streamed, recorded);
-
-    // A cancel while the provider works: the failure carries the message Node's PC aborts with.
-    let catalog = catalog(&[("mock", "listed")]).await;
-    let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(StandardRetryDecider)));
-    let hang = Arc::new(Hang(MockProvider::new(Vec::<MockAttempt>::new())));
-    let runner = ProxyRunner { providers: Arc::new(HangLookup(hang)), broker, quota: Arc::new(Quota), wire: Arc::new(Wires), config: Arc::new(Config), catalog };
-    let cancel = CancellationToken::new();
-    let call = w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) };
-    let events = Mutex::new(Vec::new());
-    let collect = Collect(&events);
-    let run = runner.run(call, None, &collect, &cancel);
-    let stop = async {
-        tokio::task::yield_now().await;
-        cancel.cancel();
-    };
-    let (failed, ()) = futures::future::join(run, stop).await;
-    assert_eq!(failed.unwrap_err().message, twin["runs"]["cancel"]["reasons"][0]["message"].as_str().unwrap());
-
-    // A provider the PC lacks: Node's refusal, code and text.
-    let refusal = &twin["runs"]["refusals"][0];
-    let failure = pc.0.run(w::ProxyCall::QuotaUsable { provider: "anthropic".into(), model: "m".into() }, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap_err();
-    assert_eq!((failure.code.as_deref(), failure.message.as_str()), (refusal["error"]["code"].as_str(), refusal["error"]["message"].as_str().unwrap()));
-}
-/// The host's saved list (Node `allowedProvidersForHost`): a provider outside it is refused by every call before
-/// the PC looks it up, with the text of the recording, and is not named in the config answer.
-#[cfg(node_twin)]
-#[tokio::test(start_paused = true)]
-async fn a_provider_outside_the_hosts_list_is_refused_and_not_named() {
-    let twin: Value = serde_json::from_str(&PC_TWIN).unwrap();
-    let recorded = twin["runs"]["refusals"].as_array().unwrap().iter().find(|r| r["label"] == "not allowed").unwrap();
-    // "openai" in the recording; the same refusal for the provider this test names.
-    let expected = recorded["error"]["message"].as_str().unwrap().replace("openai", "mock");
-    let pc = loopback([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
-    let none: &[String] = &[];
-    let other = ["other".to_owned()];
-    let calls = [
-        w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() },
-        w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true, legacy: false } },
-        w::ProxyCall::ListModels { provider: "mock".into(), refresh: false },
-        w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) },
-    ];
-    for list in [none, &other[..]] {
-        for call in calls.clone() {
-            let events = Mutex::new(Vec::new());
-            let failure = pc.0.run(call, Some(list), &Collect(&events), &CancellationToken::new()).await.unwrap_err();
-            assert_eq!((failure.code.as_deref(), failure.message.as_str()), (recorded["error"]["code"].as_str(), expected.as_str()));
-            assert!(events.into_inner().unwrap().is_empty(), "nothing ran");
-        }
-    }
-    // An empty list lets nothing be named; the provider that is listed is served.
-    let listed = ["mock".to_owned()];
-    let answer = pc.0.run(calls[0].clone(), Some(&listed), &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap();
-    assert_eq!(answer, w::ProxyAnswer::Usable { usable: true });
-    let w::ProxyAnswer::ProviderConfig { providers, .. } = pc.0.run(w::ProxyCall::ProviderConfig, Some(none), &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap() else { panic!() };
-    assert!(providers.is_empty());
-}

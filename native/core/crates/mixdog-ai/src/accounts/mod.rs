@@ -250,9 +250,6 @@ mod sign_in_rules_tests;
 mod rotation_tests;
 #[cfg(test)]
 mod tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod validity_tests;
 
 
 /// Handle on one data directory's account roster.

@@ -255,46 +255,4 @@ mod tests {
     }
 
 
-    /// Node's `syncSessionCompaction` over the recorded sessions (`golden/usage.json`, `sync` cases): the header after the
-    /// change is the one Node's session holds after the sync.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_sync_change_leaves_the_header_node_s_sync_does() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/usage.json")).expect("golden");
-        let cases: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["op"] == "sync").collect();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let mut header: Header = case["header"].as_object().expect("header").clone();
-            // A config without the section leaves the session alone; a reloaded full config always has one (see `saved_compaction`).
-            if let Some(section) = case["args"]["config"].get("compaction").filter(|section| section.is_object()) {
-                header.extend(sync_change(&header, section).set);
-            }
-            assert_eq!(Value::Object(header), case["after"], "{}", case["name"]);
-        }
-    }
-    /// Removing the saved section syncs a loaded thread to the empty-section defaults: the header after Node's
-    /// `syncSessionCompaction` over the reloaded `compaction: {}` (the `sync-to-the-empty-section-...` recording).
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn a_removed_compaction_section_syncs_a_loaded_thread_to_the_empty_defaults() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/usage.json")).expect("golden");
-        let case = golden["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "sync-to-the-empty-section-after-the-saved-one-is-removed").expect("recorded case");
-        let (_dir, config) = open_config().await;
-        save_compaction(&config, json!({ "auto": false })).await;
-        let store = Arc::new(Store::default());
-        let (thread, loaded) = loaded_thread();
-        store.headers.lock().expect("store").insert(thread.clone(), case["header"].as_object().expect("header").clone());
-        let mut follower = std::pin::pin!(follow(config.clone(), false, store.clone(), loaded));
-        assert!(futures::poll!(follower.as_mut()).is_pending());
-        config
-            .update(|doc| {
-                doc.shift_remove("agent");
-                Ok(())
-            })
-            .await
-            .expect("removed");
-        assert!(futures::poll!(follower.as_mut()).is_pending());
-        let want = case["after"]["compaction"].clone();
-        assert_eq!(compaction_of(&store, &thread), Some(want));
-    }
 }

@@ -203,12 +203,6 @@ pub fn workspace_prompt_context(facts: &WorkspaceFacts, cwd: &str, config_mode: 
     let instructions = if facts.skip_instruction_files || facts.agent_mode { None } else { Some(sources.instruction_files(config_mode, Some(cwd))) };
     WorkspaceContext { environment_context: Some(environment), instruction_files_context: instructions }
 }
-
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "prompt_session_home_replay.rs"]
-mod home_replay;
-
 /// The rule slices of `sessionRolePromptFields` that depend on the role.
 struct RoleFields {
     role_rules: String,

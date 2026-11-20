@@ -386,12 +386,6 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
         *inner.subscriptions.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = subscriptions;
     }
 
-    /// Test only: `gate` is called at each point where a decision on the run is made and its update is not.
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn set_gate(&self, gate: Arc<dyn Fn(&'static str) + Send + Sync>) {
-        *self.inner.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(gate);
-    }
 
     /// Starts the session once; its geometry (or none, on a refusal) reaches the sink, and the first run is
     /// declared once the session runs.

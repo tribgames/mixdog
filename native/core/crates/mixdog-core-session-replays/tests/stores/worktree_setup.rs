@@ -27,21 +27,11 @@ use mixdog_core_session::session::worktree::worktree_maintenance::WorktreeMainte
 use mixdog_core_session::session::worktree::worktree_maintenance::cleanup_summary;
 use mixdog_core_session::session::worktree::worktree_maintenance::startup_summary;
 use mixdog_core_session::session::worktree::worktree_setup::WorktreeSetup;
-#[cfg(node_twin)]
-use mixdog_core_session::session::worktree::PreparationReport;
-#[cfg(node_twin)]
-use mixdog_core_session::session::worktree::worktree_preparation_note;
-#[cfg(node_twin)]
-use mixdog_core_session::replay_access::OutputWindow;
 use mixdog_core_session::session::worktree::RunOptions;
 use mixdog_core_session::session::worktree::SetupEvent;
 use mixdog_core_session::session::worktree::SetupReport;
 use mixdog_core_session::session::worktree::SetupRunner;
 use mixdog_core_session::session::worktree::SetupStatus;
-#[cfg(node_twin)]
-use mixdog_core_session::session::worktree::SetupStep;
-#[cfg(node_twin)]
-use mixdog_core_session::replay_access::output_tail;
 use mixdog_core_session::session::worktree::worktree_tests::enter;
 use mixdog_core_session::session::worktree::worktree_tests::rig;
 use mixdog_core_session::session::worktree::worktree_tests::run;
@@ -52,60 +42,10 @@ use mixdog_scm::worktree::registry::WorktreeRecord;
 use mixdog_tools::git::SessionOp;
 use serde_json::json;
 
-#[cfg(node_twin)]
-fn text(value: &Value, key: &str) -> String {
-    value[key].as_str().unwrap().to_owned()
-}
 
-#[cfg(node_twin)]
-fn status_of(value: &Value) -> SetupStatus {
-    match value.as_str().unwrap() {
-        "completed" => SetupStatus::Completed,
-        "failed" => SetupStatus::Failed,
-        "timed-out" => SetupStatus::TimedOut,
-        _ => SetupStatus::Cancelled,
-    }
-}
 
-#[cfg(node_twin)]
-fn command_of(value: &Value) -> SetupCommand {
-    SetupCommand {
-        command: text(value, "command"),
-        file: text(value, "file"),
-        args: Vec::new(),
-        cwd: PathBuf::from(text(value, "cwd")),
-        label: value["label"].as_str().unwrap_or("").to_owned(),
-        env: None,
-    }
-}
 
-#[cfg(node_twin)]
-fn report_of(value: &Value) -> SetupReport {
-    SetupReport {
-        status: status_of(&value["status"]),
-        total: value["total"].as_u64().unwrap() as usize,
-        steps: value["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|step| SetupStep {
-                command: text(step, "command"),
-                label: step["label"].as_str().map(str::to_owned),
-                status: status_of(&step["status"]),
-                exit_code: step["exitCode"].as_i64().map(|code| code as i32),
-                duration_ms: step["durationMs"].as_u64().unwrap(),
-                output: text(step, "output"),
-                truncated: step["truncated"].as_bool().unwrap(),
-            })
-            .collect(),
-        pending: value["pending"].as_array().unwrap().iter().map(command_of).collect(),
-    }
-}
 
-#[cfg(node_twin)]
-fn strings(value: &Value) -> Vec<String> {
-    value.as_array().map(|items| items.iter().map(|s| s.as_str().unwrap().to_owned()).collect()).unwrap_or_default()
-}
 
 fn command(file: &str, args: &[&str], cwd: &Path) -> SetupCommand {
     let shown = format!("{file} {}", args.join(" "));
@@ -532,48 +472,6 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
 }
 
 
-#[cfg(node_twin)]
-const GOLDENS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-core-session/src/session/worktree_goldens/setup_goldens.json");
-#[cfg(node_twin)]
-fn goldens() -> Value {
-    serde_json::from_str(&GOLDENS).unwrap()
-}
-#[cfg(node_twin)]
-#[test]
-fn output_tails_equal_nodes() {
-    for case in goldens()["tail"].as_array().unwrap() {
-        assert_eq!(output_tail(case["input"].as_str().unwrap()), text(case, "output"), "{}", case["input"]);
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn output_windows_equal_nodes() {
-    for case in goldens()["windows"].as_array().unwrap() {
-        let mut window = OutputWindow::new(case["limit"].as_u64().unwrap() as usize);
-        for chunk in case["chunks"].as_array().unwrap() {
-            window.append(chunk.as_str().unwrap().as_bytes());
-        }
-        assert_eq!(window.text(), text(case, "text"), "{}", case["limit"]);
-        assert_eq!(window.truncated(), case["truncated"].as_bool().unwrap());
-    }
-}
-#[cfg(node_twin)]
-#[test]
-fn preparation_notes_equal_nodes() {
-    for case in goldens()["notes"].as_array().unwrap() {
-        let report = &case["report"];
-        let installs = report.get("installs").map(report_of);
-        let (dependency_notes, notes) = (strings(&report["dependencyNotes"]), strings(&report["notes"]));
-        let note = worktree_preparation_note(&PreparationReport {
-            root: report["root"].as_str().unwrap_or(""),
-            prepared: report.get("prepared"),
-            dependency_notes: &dependency_notes,
-            installs: installs.as_ref(),
-            notes: &notes,
-        });
-        assert_eq!(note, text(case, "note"), "{}", case["name"]);
-    }
-}
 
 /// The daemon's jobs: the startup reconcile runs at once and logs what it did; the cleanup task
 /// is due 3 minutes after the start and every hour after that (never earlier).

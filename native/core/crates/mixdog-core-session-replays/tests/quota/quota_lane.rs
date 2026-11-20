@@ -40,27 +40,3 @@ async fn the_reader_reads_the_1_4_5_key_and_the_registered_key() {
 }
 
 
-#[cfg(node_twin)]
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/quota-auto-resume/golden.json")).unwrap()
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn auto_resume_reads_quota_resume_auto_resume_as_node_does() {
-    let golden = golden();
-    for case in golden["reads"].as_array().unwrap() {
-        // A top-level `quotaAutoResume` is not a 1.4.5 setting (Node ignores it); it is the core's own key, read below.
-        if case["config"].get("quotaAutoResume").is_some() {
-            continue;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let config = config_holding(dir.path(), &case["config"]).await;
-        assert_eq!(auto_resume_enabled(&config), case["enabled"].as_bool().unwrap(), "{}", case["name"]);
-    }
-    // The file Node's setter leaves is read back as Node reads it.
-    for case in golden["writes"].as_array().unwrap() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = config_holding(dir.path(), &case["file"]).await;
-        assert_eq!(auto_resume_enabled(&config), case["enabled"].as_bool().unwrap(), "after setting {}", case["next"]);
-    }
-}

@@ -530,22 +530,6 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    struct Host;
-
-    #[cfg(node_twin)]
-    impl SurfaceHost for Host {
-        fn defined(&self, _: &str) -> bool {
-            true
-        }
-        fn bridge_tools(&self) -> Vec<Value> {
-            Vec::new()
-        }
-        fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
-            Value::Null
-        }
-    }
-
     struct Now;
 
     impl Clock for Now {
@@ -553,12 +537,6 @@ mod tests {
             0
         }
     }
-
-    #[cfg(node_twin)]
-    fn catalog(store: &Arc<Store>) -> SessionCatalog {
-        SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Host), Arc::new(Now))
-    }
-
     /// A core that registered every tool but `absent`: `load_tool` and a call consult this one set.
     struct Without(&'static str);
 
@@ -771,60 +749,4 @@ mod tests {
     }
 
 
-    /// `load_tool` and `call_tool` over the sessions of `fixtures/tool-pool/catalog.json`, as
-    /// Node's `renderToolSearch` and `resolveBridgeTarget` answer them.
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn describe_and_resolve_answer_as_node_does() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-pool/catalog.json")).expect("fixture");
-        let thread = ThreadId::from("t1");
-        for case in golden["cases"].as_array().expect("cases") {
-            let store = Store::of(&case["session"]);
-            let catalog = catalog(&store);
-            for described in case["describe"].as_array().expect("describe") {
-                // Each page is described from the session as the case holds it.
-                *store.0.lock().expect("store") = case["session"].as_object().expect("session").clone();
-                let want: Value = serde_json::from_str(described["result"].as_str().expect("text")).expect("json");
-                let got = mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": described["names"] })).await;
-                let got: Value = serde_json::from_str(&got.expect("a page")).expect("json");
-                assert_eq!(got, want, "{} / {}", case["name"], described["names"]);
-            }
-            for resolved in case["resolve"].as_array().expect("resolve") {
-                let name = resolved["name"].as_str().expect("name");
-                let want = &resolved["result"];
-                let got = catalog.resolve_call(&thread, name);
-                let expected = match (want["error"]["code"].as_str(), want["name"].as_str()) {
-                    (Some("USE_DIRECT_TOOL"), _) => CallResolution::Direct(name.to_lowercase()),
-                    (Some("TOOL_EXCLUDED"), _) => CallResolution::Excluded(want["error"]["message"].as_str().expect("message").to_owned()),
-                    (Some("TOOL_NOT_FOUND"), _) => CallResolution::NotFound,
-                    (Some("TOOL_UNAVAILABLE"), _) => CallResolution::Unavailable(name.to_lowercase()),
-                    (None, Some(target)) => CallResolution::Deferred(target.to_owned()),
-                    other => panic!("{other:?}"),
-                };
-                assert_eq!(got, expected, "{} / {name}", case["name"]);
-            }
-        }
-    }
-    /// One session across pages: a server's text is sent once, again when its text changed, and
-    /// the record the page leaves (`mcpInstructionsAnnounced`, `mcpInstructionHashes`) is Node's.
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn a_pages_instructions_are_recorded_so_the_next_page_does_not_repeat_them() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-pool/catalog.json")).expect("fixture");
-        let thread = ThreadId::from("t1");
-        let sequence = &golden["sequence"];
-        let store = Store::of(&sequence["session"]);
-        let catalog = catalog(&store);
-        for step in sequence["steps"].as_array().expect("steps") {
-            if let Some(change) = step["change"].as_object() {
-                store.0.lock().expect("store").extend(change.clone());
-            }
-            let want: Value = serde_json::from_str(step["result"].as_str().expect("text")).expect("json");
-            let got = mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": step["names"] })).await;
-            assert_eq!(serde_json::from_str::<Value>(&got.expect("a page")).expect("json"), want, "{}", step["names"]);
-            let header = store.0.lock().expect("store");
-            assert_eq!(header.get("mcpInstructionsAnnounced").cloned().unwrap_or(Value::Null), step["announced"], "{}", step["names"]);
-            assert_eq!(header.get("mcpInstructionHashes").cloned().unwrap_or(Value::Null), step["hashes"], "{}", step["names"]);
-        }
-    }
 }

@@ -2,7 +2,5 @@
 //! nextest runs every test in its own process, so the real-executor boot (`real_executors::rt`) stays per test.
 mod credential_source_scan;
 mod late_cells;
-#[cfg(node_twin)]
-mod legacy_clients;
 mod real_executors;
 mod temp_names_replay;

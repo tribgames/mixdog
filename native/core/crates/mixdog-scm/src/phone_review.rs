@@ -606,8 +606,6 @@ pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path,
 mod batch_tests {
     use super::*;
 
-    #[cfg(node_twin)]
-    include!("node-twin/phone_review.rs");
 
     fn patch_for(path: &str) -> String {
         format!("diff --git a/{path} b/{path}\n+{path}\n")

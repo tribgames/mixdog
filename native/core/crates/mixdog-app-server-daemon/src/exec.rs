@@ -241,117 +241,18 @@ mod tests {
     use mixdog_core_api::domain::mock::MockFileService;
     use mixdog_core_api::domain::mock::MockProgress;
     use mixdog_core_api::domain::tool::*;
-    #[cfg(node_twin)]
-    use mixdog_protocol::ProcessHandle;
     use mixdog_protocol::ToolCallId;
     use mixdog_protocol::TurnId;
     use mixdog_tools::exec::ShellTool;
-    #[cfg(node_twin)]
-    use mixdog_tools::exec::TaskTool;
     use tokio_util::sync::CancellationToken;
-    #[cfg(node_twin)]
-    use windows_sys::Win32::Foundation::CloseHandle;
-    #[cfg(node_twin)]
-    use windows_sys::Win32::System::Threading::CreateEventW;
-    #[cfg(node_twin)]
-    use windows_sys::Win32::System::Threading::GetExitCodeProcess;
-    #[cfg(node_twin)]
-    use windows_sys::Win32::System::Threading::OpenProcess;
-    #[cfg(node_twin)]
-    use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
-    #[cfg(node_twin)]
-    use windows_sys::Win32::System::Threading::SetEvent;
 
-    #[cfg(node_twin)]
-    /// `STILL_ACTIVE` (minwinbase.h): the exit code of a process that has not ended.
-    const STILL_ACTIVE: u32 = 259;
 
-    #[cfg(node_twin)]
-    fn node_view(text: &str, id: &str) -> String {
-        let tail = if text.ends_with('\n') { "\n" } else { "" };
-        let pid_free = text.lines().map(|line| if line.starts_with("CHILD=") { "CHILD=<PID>" } else { line }).collect::<Vec<_>>();
-        pid_free
-            .join("\n")
-            .replace(id, "<TASK>")
-            .lines()
-            .map(|line| match line.split_once(": ") {
-                Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
-                _ => line.to_owned(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + tail
-    }
 
-    #[cfg(node_twin)]
-    /// A named event the test owns. The fixture child (the recording's `<GATE>`) blocks on it before it does anything, so it
-    /// cannot end, and its pid cannot be reused, until the test has opened its handle and sets the event.
-    struct Gate {
-        name: String,
-        handle: windows_sys::Win32::Foundation::HANDLE,
-    }
 
-    #[cfg(node_twin)]
-    impl Gate {
-        fn new(tag: &str) -> Self {
-            let name = format!("mixdog-survivor-gate-{}-{tag}", std::process::id());
-            let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
-            // Manual reset, not signalled.
-            let handle = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };
-            assert!(!handle.is_null(), "the gate could not be created: {}", std::io::Error::last_os_error());
-            Self { name, handle }
-        }
 
-        /// The recorded command with this gate's name in place of the recording's placeholder.
-        fn command(&self, template: &str) -> String {
-            template.replace("<GATE>", &self.name)
-        }
 
-        /// What the agent saw, as the recording writes it: the gate's name is a placeholder there.
-        fn view(&self, text: &str, id: &str) -> String {
-            node_view(&text.replace(&self.name, "<GATE>"), id)
-        }
 
-        fn open(&self) {
-            let set = unsafe { SetEvent(self.handle) };
-            assert!(set != 0, "the gate could not be opened: {}", std::io::Error::last_os_error());
-        }
-    }
 
-    #[cfg(node_twin)]
-    impl Drop for Gate {
-        fn drop(&mut self) {
-            unsafe { CloseHandle(self.handle) };
-        }
-    }
-
-    #[cfg(node_twin)]
-    /// An owned handle on the child the command printed. It is opened while the child is held at its gate, so it is
-    /// certainly that process and a pid reused later cannot be mistaken for it. A failure to open or to query is a test error.
-    struct Child(windows_sys::Win32::Foundation::HANDLE);
-
-    #[cfg(node_twin)]
-    impl Child {
-        fn open(pid: u32) -> Self {
-            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-            assert!(!handle.is_null(), "the child {pid} could not be opened: {}", std::io::Error::last_os_error());
-            Self(handle)
-        }
-
-        fn running(&self) -> bool {
-            let mut code = 0u32;
-            let known = unsafe { GetExitCodeProcess(self.0, &mut code) } != 0;
-            assert!(known, "the child's exit code could not be queried: {}", std::io::Error::last_os_error());
-            code == STILL_ACTIVE
-        }
-    }
-
-    #[cfg(node_twin)]
-    impl Drop for Child {
-        fn drop(&mut self) {
-            unsafe { CloseHandle(self.0) };
-        }
-    }
     fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
         let tokens = mixdog_rt::testing::tokens();
         ToolContext {
@@ -386,13 +287,7 @@ mod tests {
     struct Rig {
         dir: tempfile::TempDir,
         processes: LocalProcessManager,
-        #[cfg(node_twin)]
-        runtime: Arc<ExecRuntime>,
         shell: ShellTool,
-        #[cfg(node_twin)]
-        task: TaskTool,
-        #[cfg(node_twin)]
-        configured: Arc<ConfiguredShell>,
     }
 
     async fn rig() -> Rig {
@@ -413,13 +308,7 @@ mod tests {
         Rig {
             dir,
             processes,
-            #[cfg(node_twin)]
-            runtime: exec.runtime.clone(),
             shell: ShellTool::new(exec.runtime.clone()),
-            #[cfg(node_twin)]
-            task: TaskTool::new(exec.runtime),
-            #[cfg(node_twin)]
-            configured,
         }
     }
 
@@ -432,81 +321,11 @@ mod tests {
             text(self.shell.call(&ctx(cwd, call, self.processes.clone()), serde_json::json!({"command": command})).await)
         }
 
-        /// The standby parked next, once it is.
-        #[cfg(node_twin)]
-        async fn parked(&self) -> ProcessHandle {
-            mixdog_rt::time::timeout(Duration::from_secs(30), self.runtime.wait_parked_standby()).await.expect("no standby was parked")
-        }
 
-        #[cfg(node_twin)]
-        async fn task(&self, call: &str, args: serde_json::Value) -> String {
-            text(self.task.call(&ctx(self.dir.path(), call, self.processes.clone()), args).await)
-        }
 
-        /// The child the command printed (`CHILD=<pid>`), whose life is the test's own evidence.
-        #[cfg(node_twin)]
-        fn child_of(ran: &str) -> u32 {
-            ran.lines().find_map(|line| line.strip_prefix("CHILD=")?.trim().parse().ok()).expect("the command printed its child")
-        }
     }
 
-    #[cfg(node_twin)]
-    /// The runs of sized commands of the recording (cold from A, cold from B, warm from B), each replayed in its own test (a
-    /// process of its own, so what a run does to the environment is no other's): the replay of the whole recording ran them
-    /// beside each other in one test, which took as long as the longest of them plus the rest.
-    const STANDBY_RUNS: usize = 4;
 
-    #[cfg(node_twin)]
-    /// Replays `calls` (index and recorded call) of the warm-standby recording on `rig`, in order: what differs from the
-    /// recording, and the standbys that ran a command. Whether a command ran in the parked standby is told, as Node's
-    /// recording tells it, by the process id it prints last.
-    #[allow(clippy::disallowed_methods, reason = "the replay makes its folders on the test thread")]
-    async fn replay_standby(rig: &Rig, calls: &[(usize, serde_json::Value)]) -> (Vec<String>, Vec<ProcessHandle>) {
-        use mixdog_core_api::domain::process::ProcessManager;
-        // The recorder's `sizedCommand`.
-        let sized = |size: usize| {
-            let head = "$null = $PSScriptRoot; $s = '";
-            let tail = "'; Write-Output ('len|' + $s.Length); Write-Output \"pid|$PID\"";
-            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
-        };
-        let (a, b) = (rig.dir.path().join("ws-a it\u{2019}s"), rig.dir.path().join("ws-b"));
-        std::fs::create_dir_all(&a).unwrap();
-        std::fs::create_dir_all(&b).unwrap();
-        let mut temp: Option<String> = None;
-        let (mut wrong, mut used) = (Vec::new(), Vec::new());
-        for (i, call) in calls {
-            let parked = if call["parked"].as_bool().unwrap() { Some(rig.parked().await) } else { None };
-            let parked_pid = parked.as_ref().and_then(|h| rig.processes.list().into_iter().find(|p| &p.handle == h)).map(|p| p.pid);
-            if let Some(value) = call["setAfterPark"]["MIXDOG_STANDBY_PROBE"].as_str() {
-                // SAFETY: as in the test.
-                unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", value) };
-            }
-            let dir = if call["ws"] == "A" { &a } else { &b };
-            let command = match call["input"]["size"].as_u64() {
-                Some(size) => sized(size as usize),
-                None => call["input"]["command"].as_str().unwrap().to_owned(),
-            };
-            let ran = rig.run_in(dir, &format!("w{i}"), &command).await;
-            let (body, pid) = ran.trim_end().rsplit_once("pid|").unwrap_or_else(|| panic!("call {i}: no pid line in {ran:?}"));
-            let body = body.strip_suffix('\n').map(|b| b.strip_suffix('\r').unwrap_or(b)).unwrap();
-            let taken = parked_pid == Some(pid.parse().unwrap());
-            // The session's TEMP, as the first call prints it.
-            if let Some(cold) = body.lines().find_map(|line| line.strip_prefix("cold|")) {
-                temp = Some(cold.split('|').nth(1).unwrap().to_owned());
-            }
-            let mut view = body.replace(&*a.to_string_lossy(), "<A>").replace(&*b.to_string_lossy(), "<B>");
-            if let Some(temp) = &temp {
-                view = view.replace(temp.as_str(), "<TEMP>");
-            }
-            if view != call["text"].as_str().unwrap() || taken != call["taken"].as_bool().unwrap() {
-                wrong.push(format!("{i}: taken {taken} {view:?}"));
-            }
-            if taken {
-                used.extend(parked);
-            }
-        }
-        (wrong, used)
-    }
 
     /// The shell tool's command of `size` bytes: a PowerShell script that answers the length of its one long string.
     #[cfg(windows)]
@@ -583,235 +402,5 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// What Node's agent sees through the life of a survivors task (`fixtures/shell-survivors/golden.json`, recorded
-    /// from Node b6f10295a with a mixdog-spawn built from the same commit; see its MANIFEST.json). The task id,
-    /// the timestamps and the child's pid are placeholders there.
-    fn golden() -> serde_json::Value {
-        serde_json::from_str(include_str!("../../../fixtures/shell-survivors/golden.json")).unwrap()
-    }
-    #[cfg(node_twin)]
-    /// The daemon's runtime tracks what a finished command left running (Node's `probeShellDescendants` at the shell settle)
-    /// and cancels it as Node does: every text the agent reads equals Node's recording, the task starts with the command,
-    /// and the child the command printed is running while tracked and gone from the operating system after the cancel.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_cancelled_survivors_task_reads_as_nodes_and_its_child_is_gone() {
-        let want = golden();
-        let rig = rig().await;
-        // The child waits at this gate, never opened: it can only end by the cancel.
-        let gate = Gate::new("cancelled");
-        let command = gate.command(want["cancelled"]["command"].as_str().unwrap());
-        let before = chrono::Utc::now().timestamp_millis();
-        let ran = rig.run("s1", &command).await;
-        let returned = chrono::Utc::now().timestamp_millis();
-        assert_eq!(gate.view(&ran, "task-s1"), want["cancelled"]["run"].as_str().unwrap());
-        // `started` lies inside the call; that it is the command's start rather than the moment its survivors were observed
-        // is asserted on a clock the test advances (mixdog-tools `a_survivors_task_starts_when_its_command_started`).
-        let started = ran.lines().find_map(|line| line.strip_prefix("started: ")).unwrap();
-        let started = chrono::DateTime::parse_from_rfc3339(started).unwrap().timestamp_millis();
-        assert!(before <= started && started <= returned, "started {started} is outside the call ({before}..{returned})");
-        let child = Child::open(Rig::child_of(&ran));
-        assert!(child.running(), "the child runs while it is tracked");
-        let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
-        assert_eq!(gate.view(&rig.task("r1", read.clone()).await, "task-s1"), want["cancelled"]["readRunning"].as_str().unwrap());
-        let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
-        assert_eq!(gate.view(&rig.task("c1", cancel.clone()).await, "task-s1"), want["cancelled"]["cancel"].as_str().unwrap());
-        // Checked as the call returns, without waiting: a cancel that reports success must already have ended the child.
-        assert!(!child.running(), "the child is gone when the cancel reports");
-        assert_eq!(gate.view(&rig.task("c2", cancel).await, "task-s1"), want["cancelled"]["cancelAgain"].as_str().unwrap());
-        assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
-        let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
-        assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
-    }
-    #[cfg(node_twin)]
-    /// Every PowerShell command runs under Node's pwsh startup script (`fixtures/shell-pwsh-bootstrap/golden.json`,
-    /// recorded from Node b6f10295a by `record-shell-pwsh-bootstrap.mjs`): a parse error reads `ParserError: <message>`
-    /// in UTF-8, non-ASCII stdout and stderr arrive intact, and an error record keeps pwsh's own view.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn powershell_commands_read_as_nodes_through_its_startup_script() {
-        let want: serde_json::Value =
-            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-pwsh-bootstrap/golden.json")).unwrap();
-        assert_eq!(want["standbyArgs"][4], mixdog_tools::exec::POWERSHELL_BOOTSTRAP);
-        let rig = rig().await;
-        let mut wrong = Vec::new();
-        for (i, case) in want["cases"].as_array().unwrap().iter().enumerate() {
-            let ran = rig.run(&format!("p{i}"), case["input"]["command"].as_str().unwrap()).await;
-            if ran != case["text"].as_str().unwrap() {
-                wrong.push(format!("{}: {ran:?}", case["name"]));
-            }
-        }
-        assert!(wrong.is_empty(), "{wrong:#?}");
-    }
-    #[cfg(node_twin)]
-    /// PowerShell commands run in the warm standby as in Node (`fixtures/shell-warm-standby/golden.json`, recorded from
-    /// Node b6f10295a by `record-shell-warm-standby.mjs`): a command taken by the parked standby runs in its folder (one
-    /// whose name needs the Base64 hand-off) for PowerShell and .NET with its session's TEMP, and the next command, in the
-    /// next standby, does not see the global it set; a command from another folder (another environment) does not take
-    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte, one the hand-off prelude pushes past 1 MiB when it is
-    /// taken and one of 5 MiB each run whole cold and warm, past the helper's 1 MiB input queue. A variable of this process's environment changed
-    /// after a standby was parked reaches the next command, which does not take that standby. Whether each command ran
-    /// in the parked standby is told, as Node's recording tells it, by the process id it prints last. Each standby runs
-    /// one command, and shutdown ends the parked one.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-    async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
-        warm_standby(None).await;
-    }
-    #[cfg(node_twin)]
-    macro_rules! standby_runs {
-        ($($name:ident = $run:expr),* $(,)?) => {
-            $(
-                #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-                async fn $name() {
-                    warm_standby(Some($run)).await;
-                }
-            )*
-        };
-    }
-    #[cfg(node_twin)]
-    /// `None`: the first calls, the last (which changes this process's environment) and the end of the parked standby at
-    /// shutdown. `Some(run)`: that run of sized commands (the two calls that bring it to a standby parked for B, then its own).
-    async fn warm_standby(only_run: Option<usize>) {
-        use mixdog_core_api::domain::process::ProcessEvent;
-        use mixdog_core_api::domain::process::ProcessManager;
-        let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-warm-standby/golden.json")).unwrap();
-        // Read by no other test; every standby is parked with this value, as in the recording.
-        // SAFETY: no other thread of this test binary reads or writes MIXDOG_STANDBY_PROBE.
-        unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", "parked") };
-        let calls: Vec<(usize, serde_json::Value)> = want["calls"].as_array().unwrap().iter().cloned().enumerate().collect();
-        // The recording runs every call in one runtime. Each run of sized commands (cold from folder A, cold from folder B,
-        // then warm from B) starts there from a standby parked for B; here each run replays in a runtime of its own, beside
-        // the others, after the two calls that bring it to that standby (1 runs cold from A and parks one for A, 4 misses it
-        // from B and parks one for B). The last call changes this process's environment: it runs when all others are done.
-        let sized: Vec<usize> = calls.iter().filter(|(_, call)| call["input"]["size"].is_u64()).map(|(i, _)| *i).collect();
-        let (first, last) = (sized[0], calls.len() - 1);
-        assert_eq!(sized, (first..last).collect::<Vec<_>>(), "the sized commands run together, before the last call");
-        assert!(sized.chunks(3).all(|run| run.len() == 3 && ["A", "B", "B"].iter().zip(run).all(|(ws, i)| calls[*i].1["ws"] == *ws)));
-        assert!(calls[1].1["ws"] == "A" && calls[1].1["parked"] == false && calls[4].1["ws"] == "B" && calls[4].1["taken"] == false);
-        assert!(!calls[last].1["setAfterPark"].is_null());
-        assert_eq!(sized.chunks(3).count(), STANDBY_RUNS, "a test for each run of the recording");
-        if let Some(run) = only_run {
-            let run = sized.chunks(3).nth(run).expect("the run is in the recording");
-            let calls: Vec<(usize, serde_json::Value)> = [1, 4].iter().chain(run).map(|i| calls[*i].clone()).collect();
-            let rig = rig().await;
-            let (wrong, _) = replay_standby(&rig, &calls).await;
-            rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-            assert!(wrong.is_empty(), "{wrong:#?}");
-            return;
-        }
-        let rig = rig().await;
-        let (mut wrong, used) = replay_standby(&rig, &calls[..first]).await;
-        assert!(used.len() >= 2 && used[0] != used[1], "each standby runs one command: {used:?}");
-        wrong.extend(replay_standby(&rig, &calls[last..]).await.0);
-        assert!(wrong.is_empty(), "{wrong:#?}");
-        let parked = rig.parked().await;
-        let mut events = rig.processes.subscribe(&parked, Some(0)).unwrap();
-        rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-        let ended = mixdog_rt::time::timeout(Duration::from_secs(30), async {
-            loop {
-                if let Some(ProcessEvent::Exited { .. }) | None = events.next().await {
-                    return;
-                }
-            }
-        });
-        ended.await.expect("shutdown ended the parked standby");
-        assert_eq!(rig.runtime.parked_standby(), None, "nothing is parked after shutdown");
-    }
-    #[cfg(node_twin)]
-    /// A shell that never reads the script it is fed is held and limited as in Node (`fixtures/shell-unread-stdin/golden.json`,
-    /// recorded by `record-shell-unread-stdin.mjs` with the same stand-in, `testdata/unread_stdin_shell.rs`): the write of a
-    /// 1 MiB command waits on the full pipe, and meanwhile a run limit ends the shell with the timeout's answer and the hold
-    /// moves it to the background, each before the stand-in's 30 s are up. Node's warm standby was off; here the stand-in may
-    /// be parked and taken, which feeds it the same way.
-    #[cfg(windows)]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[allow(clippy::disallowed_methods, reason = "the test builds its stand-in shell on the test thread")]
-    #[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
-    #[allow(clippy::result_large_err, reason = "Test fixture preserves the existing structured protocol/error response without boxing solely for lint.")]
-    async fn a_shell_that_never_reads_its_input_is_held_and_limited_as_nodes() {
-        use mixdog_core_api::domain::process::ProcessManager;
-        let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-unread-stdin/golden.json")).unwrap();
-        let rig = rig().await;
-        let standin = rig.dir.path().join("standin").join("pwsh.exe");
-        std::fs::create_dir_all(standin.parent().unwrap()).unwrap();
-        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/testdata/unread_stdin_shell.rs");
-        let built = std::process::Command::new("rustc").arg("-O").arg("-o").arg(&standin).arg(&source).status().unwrap();
-        assert!(built.success(), "the stand-in shell did not build");
-        rig.configured.set(&standin.to_string_lossy());
-        // The recorder's `sizedCommand`.
-        let sized = |size: usize| {
-            let head = "$null = $PSScriptRoot; $s = '";
-            let tail = "'; Write-Output ('len|' + $s.Length)";
-            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
-        };
-        let life = Duration::from_millis(want["standinLifeMs"].as_u64().unwrap());
-        let mut wrong = Vec::new();
-        for (i, case) in want["cases"].as_array().unwrap().iter().enumerate() {
-            let mut input = case["input"].clone();
-            let size = input.as_object_mut().unwrap().remove("size").unwrap().as_u64().unwrap() as usize;
-            input["command"] = serde_json::Value::String(sized(size));
-            let call = format!("u{i}");
-            let started = std::time::Instant::now();
-            // An answer after the stand-in's life is wrong already, so the wait ends there.
-            let ran = mixdog_rt::time::timeout(life, rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input))
-                .await
-                .unwrap_or_else(|_| panic!("{}: no answer within the stand-in's {life:?}", case["name"]));
-            let ran = text(ran);
-            let answered = started.elapsed();
-            let view: String = ran
-                .replace(&format!("task-{call}"), "<TASK>")
-                .lines()
-                .map(|line| {
-                    if line.starts_with("started: ") {
-                        "started: <TIME>".to_owned()
-                    } else if line.starts_with("logs: ") {
-                        "logs: <LOGS>".to_owned()
-                    } else {
-                        line.to_owned()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-                + if ran.ends_with('\n') { "\n" } else { "" };
-            if view != case["text"].as_str().unwrap() || answered >= life {
-                wrong.push(format!("{}: after {answered:?} {view:?}", case["name"]));
-            }
-        }
-        for process in ProcessManager::list(&rig.processes) {
-            let _ = ProcessManager::kill(&rig.processes, &process.handle);
-        }
-        assert!(wrong.is_empty(), "{wrong:#?}");
-    }
-    #[cfg(node_twin)]
-    /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_survivors_task_whose_child_ends_on_its_own_completes_as_nodes_does() {
-        let want = golden();
-        let rig = rig().await;
-        // The child waits at this gate until the test holds its handle and the task has been read once, as in the recording.
-        let gate = Gate::new("natural");
-        let ran = rig.run("s1", &gate.command(want["natural"]["command"].as_str().unwrap())).await;
-        assert_eq!(gate.view(&ran, "task-s1"), want["natural"]["run"].as_str().unwrap());
-        let child = Child::open(Rig::child_of(&ran));
-        assert!(child.running());
-        let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
-        assert_eq!(gate.view(&rig.task("r1", read.clone()).await, "task-s1"), want["natural"]["readRunning"].as_str().unwrap());
-        gate.open();
-        let wait = serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 30000});
-        assert_eq!(gate.view(&rig.task("w", wait).await, "task-s1"), want["natural"]["wait"].as_str().unwrap());
-        // Checked as the wait returns, without waiting: the task completed because its child had ended.
-        assert!(!child.running(), "the task completed while its child still runs");
-        assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["natural"]["read"].as_str().unwrap());
-        let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
-        assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["natural"]["tail"].as_str().unwrap());
-        let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
-        assert_eq!(gate.view(&rig.task("c1", cancel).await, "task-s1"), want["natural"]["cancelAfterEnd"].as_str().unwrap());
-    }
 
-    #[cfg(node_twin)]
-    standby_runs!(
-        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_0 = 0,
-        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_1 = 1,
-        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_2 = 2,
-        powershell_commands_run_in_the_warm_standby_as_nodes_do_run_3 = 3,
-    );
 }

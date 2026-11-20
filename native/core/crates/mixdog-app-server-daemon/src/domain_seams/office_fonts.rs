@@ -90,22 +90,6 @@ mod tests {
         FontDef { id: leak(id), family: leak(family), file_name: leak(file_name), registry_name: "", path: leak(path), bytes, sha256: leak(sha256) }
     }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn the_noto_definitions_are_nodes() {
-        let golden = crate::domain_seams::golden();
-        let nodes = golden["fonts"]["definitions"].as_array().unwrap();
-        assert_eq!(NOTO_FONTS.len(), nodes.len());
-        for (ours, node) in NOTO_FONTS.iter().zip(nodes) {
-            assert_eq!(ours.id, node["id"].as_str().unwrap());
-            assert_eq!(ours.family, node["family"].as_str().unwrap());
-            assert_eq!(ours.file_name, node["fileName"].as_str().unwrap());
-            assert_eq!(ours.registry_name, node["registryName"].as_str().unwrap());
-            assert_eq!(ours.url(), node["url"].as_str().unwrap());
-            assert_eq!(ours.bytes as u64, node["bytes"].as_u64().unwrap());
-            assert_eq!(ours.sha256, node["sha256"].as_str().unwrap());
-        }
-    }
 
     #[test]
     fn a_buffer_is_verified_by_its_size_and_its_sha256() {

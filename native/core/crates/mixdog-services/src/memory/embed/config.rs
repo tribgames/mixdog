@@ -107,11 +107,6 @@ pub fn prefers_gpu(model_id: &str, requested: Option<&str>, windows: bool) -> bo
     }
 }
 
-/// `getEmbeddingOutputName`: no profile names an output, so the graph's first output is read.
-pub fn output_name(_model_id: &str) -> &'static str {
-    ""
-}
-
 pub fn profile(model_id: &str) -> Option<&'static ModelProfile> {
     PROFILES.iter().find(|(id, _)| *id == js_trim(model_id)).map(|(_, profile)| profile)
 }

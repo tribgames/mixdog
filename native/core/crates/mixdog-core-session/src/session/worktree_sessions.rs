@@ -137,10 +137,3 @@ impl SessionSource for StoredWorktreeSessions {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "worktree_sessions_tests.rs"]
-mod tests;

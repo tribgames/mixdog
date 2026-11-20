@@ -57,9 +57,6 @@ pub(super) async fn seams(stored: Option<Value>, env: HashMap<String, String>) -
 fn header(value: Value) -> Header {
     value.as_object().unwrap().clone()
 }
-/// Entries per test: each recorded entry builds its own config, agent store and directory, so the replay is split into chunks nextest runs in parallel.
-#[cfg(node_twin)]
-const COMPACT_CHUNK: usize = 30;
 
 #[tokio::test]
 async fn the_other_seams_answer_from_the_config_and_the_agent_store() {
@@ -129,106 +126,6 @@ async fn a_resumed_lead_session_takes_the_cache_ttl_of_the_saved_auto_clear() {
 }
 
 
-#[cfg(node_twin)]
-const COMPACT_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/desktop/settings/run-compact-twin.json");
-#[cfg(node_twin)]
-async fn compaction_chunk(chunk: usize) {
-    let twin: Value = serde_json::from_str(&COMPACT_TWIN).unwrap();
-    let mut differ = Vec::new();
-    let mut ran = 0;
-    for (index, entry) in twin["entries"].as_array().unwrap().iter().enumerate().skip(chunk * COMPACT_CHUNK).take(COMPACT_CHUNK) {
-        let config = entry["config"].as_object().unwrap();
-        let stored = (!config.is_empty()).then(|| json!({ "agent": config }));
-        let env = entry["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-        let (_dir, seams) = seams(stored, env).await;
-        let settings = seams.run_settings(&ThreadId::from("t"), &header(entry["session"].clone())).compact.unwrap();
-        let policy = CompactPolicy::resolve(&settings);
-        let want = &entry["policy"];
-        let got = match &policy {
-            None if !settings.auto => json!({ "auto": false }),
-            None => Value::Null,
-            Some(p) => json!({
-                "auto": true, "boundaryTokens": p.boundary_tokens, "triggerTokens": p.trigger_tokens,
-                "compactTargetTokens": p.target_tokens, "singleShot": p.single_shot, "contextWindow": p.context_window,
-                "reserveTokens": p.reserve_tokens, "configuredReserveTokens": p.configured_reserve_tokens,
-                "tokenCalibration": p.token_calibration,
-            }),
-        };
-        let mut expected = want.clone();
-        if let Some(object) = expected.as_object_mut() {
-            // Node's JSON writes the neutral factor as `1`; the Rust side holds a float.
-            if let Some(factor) = object.get("tokenCalibration").and_then(Value::as_f64) {
-                object.insert("tokenCalibration".into(), json!(factor));
-            }
-        }
-        ran += 1;
-        if got != expected {
-            differ.push(format!("case {index}: {} -> Rust {got}, Node {expected}", entry["session"]));
-        }
-    }
-    assert!(ran > 0, "compaction chunk {chunk} has no recorded entry");
-    assert!(differ.is_empty(), "{} differ:\n{}", differ.len(), differ.iter().take(8).cloned().collect::<Vec<_>>().join("\n"));
-}
-#[cfg(node_twin)]
-mixdog_rt::replay_chunks!(COMPACT_TESTS, #[tokio::test] async compaction_chunk; [
-    the_compaction_settings_resolve_chunk_00 = 0,
-    the_compaction_settings_resolve_chunk_01 = 1,
-    the_compaction_settings_resolve_chunk_02 = 2,
-    the_compaction_settings_resolve_chunk_03 = 3,
-    the_compaction_settings_resolve_chunk_04 = 4,
-    the_compaction_settings_resolve_chunk_05 = 5,
-    the_compaction_settings_resolve_chunk_06 = 6,
-    the_compaction_settings_resolve_chunk_07 = 7,
-    the_compaction_settings_resolve_chunk_08 = 8,
-    the_compaction_settings_resolve_chunk_09 = 9,
-    the_compaction_settings_resolve_chunk_10 = 10,
-    the_compaction_settings_resolve_chunk_11 = 11,
-    the_compaction_settings_resolve_chunk_12 = 12,
-    the_compaction_settings_resolve_chunk_13 = 13,
-    the_compaction_settings_resolve_chunk_14 = 14,
-    the_compaction_settings_resolve_chunk_15 = 15,
-    the_compaction_settings_resolve_chunk_16 = 16,
-    the_compaction_settings_resolve_chunk_17 = 17,
-    the_compaction_settings_resolve_chunk_18 = 18,
-    the_compaction_settings_resolve_chunk_19 = 19,
-    the_compaction_settings_resolve_chunk_20 = 20,
-    the_compaction_settings_resolve_chunk_21 = 21,
-    the_compaction_settings_resolve_chunk_22 = 22,
-    the_compaction_settings_resolve_chunk_23 = 23,
-    the_compaction_settings_resolve_chunk_24 = 24,
-    the_compaction_settings_resolve_chunk_25 = 25,
-    the_compaction_settings_resolve_chunk_26 = 26,
-    the_compaction_settings_resolve_chunk_27 = 27,
-    the_compaction_settings_resolve_chunk_28 = 28,
-    the_compaction_settings_resolve_chunk_29 = 29,
-]);
-/// Every recorded entry belongs to one chunk test and every chunk test has recorded entries.
-#[test]
-#[cfg(node_twin)]
-fn every_recorded_compaction_entry_has_its_chunk_test() {
-    let twin: Value = serde_json::from_str(&COMPACT_TWIN).unwrap();
-    mixdog_rt::testing::assert_chunks_registered(COMPACT_TESTS, twin["entries"].as_array().unwrap().len(), COMPACT_CHUNK);
-}
-/// A session is installed on the saved compaction settings unless the caller injected its own configuration:
-/// the recorded `install` cases (`fixtures/agent/compact/record_usage.mjs`, Node's `usesInjectedConfig` gate).
-#[tokio::test]
-#[cfg(node_twin)]
-async fn an_installed_session_follows_the_saved_compaction_unless_the_config_is_injected() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/usage.json")).unwrap();
-    let mut seen = 0;
-    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case["op"] == "install") {
-        let stored = json!({ "agent": { "compaction": case["args"]["config"]["compaction"].clone() } });
-        let (_dir, seams) = seams(Some(stored), HashMap::new()).await;
-        let injected = case["args"]["params"]["initialConfig"].is_object();
-        let seams = seams.with_injected_config(injected);
-        let header = header(case["header"].clone());
-        let name = case["name"].as_str().unwrap();
-        let got = seams.synced_compaction(&header, true).unwrap_or_else(|| header["compaction"].clone());
-        assert_eq!(got, case["after"]["compaction"], "{name}");
-        seen += 1;
-    }
-    assert_eq!(seen, 3);
-}
 
 async fn compact_of(session: Value, env: &[(&str, &str)]) -> mixdog_agent::boundary::CompactSettings {
     let env = env.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect();

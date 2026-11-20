@@ -42,14 +42,8 @@ mod head_wait_tests;
 mod conformance;
 #[cfg(test)]
 pub(crate) mod wire_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tool_accept_tests;
 #[cfg(test)]
 mod maas_wire_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod stream_replay_tests;
 #[cfg(test)]
 mod usage_wire_tests;
 #[cfg(test)]

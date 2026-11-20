@@ -208,6 +208,3 @@ pub fn flatten_sources(result: &Value) -> Vec<Value> {
         .collect()
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;

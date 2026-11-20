@@ -2,8 +2,3 @@
 
 mod hook_ask_restart;
 mod k1_grants_replay;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-mod transcript_golden;

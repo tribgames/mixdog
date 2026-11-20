@@ -1253,8 +1253,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    include!("node-twin/recovery.rs");
     /// A journal whose paths held a lone surrogate (Node writes one for a desktop batch edit of such a name: relPath and
     /// destination with the escape, `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). A path is no
     /// free text and no shipped client sends one holding a lone unit (decisions.md "frame-lone-surrogate"): the record is

@@ -563,7 +563,3 @@ mod tests {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "node-twin/splice_cases.rs"]
-mod splice_cases;

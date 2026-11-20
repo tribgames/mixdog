@@ -649,10 +649,6 @@ pub fn refresh_route_fields(
     route
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "admin_route_tests.rs"]
-mod tests;
 
 #[cfg(test)]
 mod ensure_enabled_tests {

@@ -643,13 +643,6 @@ impl SecureDesktopInstaller {
         self.core.port.check(controller_key)
     }
 
-    /// Whether a request or a key op (and so possibly a prompt) is in progress.
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn pending(&self) -> bool {
-        let state = self.core.state();
-        state.in_flight.is_some() || state.outstanding.is_some() || state.key_op.is_some()
-    }
 
     /// PC access: installs (or updates) the helper enrolling `keys`, applying `options.revoke` in the same
     /// elevation.

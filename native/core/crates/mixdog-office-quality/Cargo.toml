@@ -20,7 +20,6 @@ mixdog-office-pdf = { workspace = true }
 mixdog-office-design = { workspace = true }
 
 [dev-dependencies]
-mixdog-office-base = { workspace = true, features = ["test-support"] }
 base64 = { workspace = true }
 tempfile = { workspace = true }
 mixdog-office-author = { workspace = true }

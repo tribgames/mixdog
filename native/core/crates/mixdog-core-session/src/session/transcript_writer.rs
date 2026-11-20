@@ -581,65 +581,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// `fixtures/session-transcript/writer.json`: Node's writer and turn appends (`createSessionTranscript`,
-    /// `createTurnTranscript`) driven step by step; the same steps here leave the same files: the one-time backfill of a
-    /// conversation, an agent's lines kept out of memory, blank texts skipped, the final text not repeated, a file past
-    /// the size limit rotated out, a marked value redacted everywhere.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_writer_writes_what_nodes_writer_wrote() {
-        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/session-transcript/writer.json")).expect("the recording");
-        assert_eq!(recorded["now"], mixdog_agent::agent_tool::stamp::iso_from_ms(Now.now_ms()));
-        for case in recorded["cases"].as_array().expect("cases") {
-            let name = case["name"].as_str().unwrap();
-            let home = tempfile::tempdir().unwrap();
-            let cwd = home.path().join("work");
-            std::fs::create_dir_all(&cwd).unwrap();
-            let cwd = cwd.to_string_lossy().into_owned();
-            let sensitive = Arc::new(SensitiveStore::default());
-            let session = case["session"]["id"].as_str().unwrap();
-            if case["file"]["text"].as_str().is_some_and(|text| text.contains("[redacted]")) {
-                sensitive.remember(session, std::slice::from_ref(&recorded["sensitiveCall"]));
-            }
-            let files = TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(Now), sensitive.clone());
-            let mut header = Header::new();
-            header.insert("cwd".into(), json!(cwd));
-            if let Some(owner) = case["session"]["owner"].as_str() {
-                header.insert("owner".into(), json!(owner));
-            }
-            let path = home.path().join("projects").join(super::super::purge::project_slug(&cwd)).join(format!("{session}.jsonl"));
-            if case["rotated"].is_object() {
-                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(&path, format!("{}\n", "x".repeat(10 * 1024 * 1024))).unwrap();
-            }
-            let messages = case["session"]["messages"].as_array().cloned().unwrap_or_default();
-            let mut turn: Option<TurnTranscript> = None;
-            for step in case["steps"].as_array().unwrap() {
-                let text = step.get(1).and_then(Value::as_str).unwrap_or_default();
-                match step[0].as_str().unwrap() {
-                    "ensure" => turn = files.turn(session, &header, &messages),
-                    "appendUser" => turn.as_ref().unwrap().user(&json!(text)),
-                    "appendAssistantText" => turn.as_ref().unwrap().assistant_text(text),
-                    "final" => turn.as_ref().unwrap().final_text(text),
-                    // `rememberSensitiveValues` with the recorded fill carrying this value.
-                    "mark" => {
-                        let mut call = recorded["sensitiveCall"].clone();
-                        call["arguments"]["input"]["text"] = json!(text);
-                        sensitive.remember(session, &[call]);
-                    }
-                    other => panic!("{name}: unknown step {other}"),
-                }
-            }
-            turn.as_ref().unwrap().flushed().await;
-            let escaped = serde_json::to_string(&cwd).unwrap();
-            let written = std::fs::read_to_string(&path).unwrap().replace(&escaped[1..escaped.len() - 1], "<cwd>");
-            assert_eq!(Some(written.as_str()), case["file"]["text"].as_str(), "{name}");
-            let mut rotated = path.clone().into_os_string();
-            rotated.push(".1");
-            let rotated = std::fs::metadata(&rotated).ok().map(|meta| meta.len());
-            assert_eq!(rotated, case["rotated"]["size"].as_u64(), "{name}: the rotated generation");
-        }
-    }
 }
 
 

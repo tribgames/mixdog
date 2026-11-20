@@ -2,7 +2,7 @@
 //! of approval gets (the one the card's 한 번만 허용 sends, `apps/desktop/src/shared/approval-enter-rule.ts` `approvalAllowOnceDecision`,
 //! pinned on the JS side by `shared/approval-enter-rule.test.mjs`: change one, change the other), the approvals a bare Allow never
 //! takes, and the two facts behind the relay's refusal of a bare Allow for an approval only a click allows. Unlike `approval_notification_tests.rs`
-//! these compare nothing recorded and need no `node_twin` cfg.
+//! these compare nothing recorded.
 
 use serde_json::Value;
 use serde_json::json;

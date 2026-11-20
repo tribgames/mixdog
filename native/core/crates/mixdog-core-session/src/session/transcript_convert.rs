@@ -660,36 +660,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// A history page's byte budget counts `Buffer.byteLength(JSON.stringify(row))` of the display
-    /// row (`storedHistorySlice`). The recorded Node sizes of the rows `record-session-reads.mjs`
-    /// built are those of the same rows as display records here.
-    #[test]
-    fn display_rows_measure_as_nodes_do() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
-        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
-        let golden: Value = serde_json::from_slice(&bytes).expect("golden.json parses");
-        let sizes = golden["pages"]["sizes"].as_array().expect("sizes");
-        assert_eq!(sizes.len(), 24);
-        for (i, size) in sizes.iter().enumerate() {
-            // The recorder's rows: `{ id, kind: 'assistant', text: 'x'.repeat(((i * 37) % 11) * 40 + 5) }`.
-            let body = json!({ "id": format!("r{i}"), "kind": "assistant", "text": "x".repeat(((i * 37) % 11) * 40 + 5) });
-            let mut record: ItemRecord = serde_json::from_value(json!({
-                "iid": format!("i{i}"), "form": "display", "model": false, "visible": true,
-                "refs": [], "body": { "inline": {} },
-            }))
-            .expect("record shape");
-            record.body = Slot::Inline(body.clone());
-            assert_eq!(display_bytes(&record, &body), size.as_u64().map(|n| n as usize), "row r{i}");
-            assert_eq!(display_item(&record, &body).map(|item| item.id().as_str().to_owned()), Some(format!("r{i}")));
-        }
-        // A row without an id is shown (and measured) under its record's id.
-        let body = json!({ "kind": "assistant", "text": "hi" });
-        let mut record: ItemRecord = serde_json::from_value(json!({
-            "iid": "i9", "form": "display", "model": false, "visible": true, "refs": [], "body": { "inline": {} },
-        }))
-        .expect("record shape");
-        record.body = Slot::Inline(body.clone());
-        assert_eq!(display_bytes(&record, &body), Some(r#"{"kind":"assistant","text":"hi","id":"i9"}"#.len()));
-    }
 }

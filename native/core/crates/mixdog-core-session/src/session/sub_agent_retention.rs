@@ -391,8 +391,7 @@ pub struct DirectoryRetention {
     index: Arc<dyn AgentOnlyIndex>,
     /// The host's archive stamps: Node's automatic archive is the host's own archive of that one session
     /// (`archiveSessionAlone`, `session-host.ts:983` via `session-sidebar-actions.ts:41`), stamped `Math.max(Date.now(), lastArchiveStamp + 1)`
-    /// from the same `lastArchiveStamp` as an explicit one (`desktop-session-metadata.ts:142`). Pinned by the retention case of
-    /// `thread_settings_tests.rs` ("sub-agent retention archives exactly its tree's members through the real host").
+    /// from the same `lastArchiveStamp` as an explicit one (`desktop-session-metadata.ts:142`).
     stamps: Arc<ArchiveStamps>,
     /// The record each pass read last ([`KEPT_FIELDS`] of it), by id, with the index's stamp of it ([`record_stamp`]): a record
     /// whose stamp has not moved since is not opened again. Opening a stored record reads its log's head and tail (about 2 MB

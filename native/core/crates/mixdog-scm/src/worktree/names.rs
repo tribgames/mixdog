@@ -120,9 +120,6 @@ pub fn unique_slug(base: &str, is_taken: impl Fn(&str) -> bool) -> String {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod node_cases;
 
 #[cfg(test)]
 mod tests {
@@ -144,8 +141,6 @@ mod tests {
         candidate.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('-')).is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
     }
 
-    #[cfg(node_twin)]
-    include!("node-twin/names_tests.rs");
 
     /// Accents fold to their base letters, anything else becomes a word break, words join with `-` while the slug stays within 40
     /// characters, and a first word longer than that is cut and loses a trailing `-`.

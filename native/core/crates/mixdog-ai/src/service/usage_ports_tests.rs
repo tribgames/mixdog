@@ -11,8 +11,6 @@ use mixdog_core_api::domain::provider::TransportFault;
 
 use super::super::oauth_usage::QuotaHistory;
 use super::super::oauth_usage::QuotaSample;
-#[cfg(node_twin)]
-use super::super::oauth_usage::RouteInfo;
 use super::super::oauth_usage::UsageDeps;
 use super::*;
 use crate::oauth::CredentialIo;
@@ -131,13 +129,6 @@ impl Environment for Vars {
     }
 }
 
-#[cfg(node_twin)]
-struct Rig {
-    usage: Arc<OAuthUsage>,
-    net: Arc<Net>,
-    history: Arc<History>,
-    _dir: tempfile::TempDir,
-}
 
 #[tokio::test]
 async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
@@ -164,44 +155,6 @@ async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
     assert_eq!((undecided.message.as_str(), undecided.status), ("fetch failed", None));
 }
 
-#[cfg(node_twin)]
-fn rig(flow: &Value) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let net = Net::from(&flow["replies"]);
-    let history = Arc::new(History::default());
-    let env = Arc::new(Vars(HashMap::from([("MIXDOG_GROK_CLIENT_VERSION".to_owned(), "9.9.9".to_owned())])));
-    let versions = ClientVersions::new(Net::from(&json!([])), dir.path().to_path_buf(), io(), env);
-    let usage = OAuthUsage::new(UsageDeps {
-        http: Arc::new(RoutedUsageHttp::new(net.clone())),
-        source: Arc::new(Flow { auth: flow["auth"].clone(), forced: flow["forcedAuth"].clone(), refreshed: Mutex::new(false) }),
-        grok: Arc::new(GrokVersionHeaders::new(versions)),
-        history: history.clone(),
-        store: AccountStore::new(dir.path().to_path_buf(), io()),
-        io: io(),
-        log: Arc::new(|_| {}),
-        data_dir: dir.path().join("data"),
-    });
-    Rig { usage, net, history, _dir: dir }
-}
-#[cfg(node_twin)]
-fn assert_wire(at: &str, rig: &Rig, flow: &Value) {
-    let seen = rig.net.seen.lock().unwrap();
-    let exchanges = rig.net.exchanges.lock().unwrap();
-    let want = flow["wire"].as_array().unwrap();
-    assert_eq!(seen.len(), want.len(), "{at}: requests {:?}", seen.iter().map(|r| &r.url).collect::<Vec<_>>());
-    for (i, (got, want)) in seen.iter().zip(want).enumerate() {
-        assert_eq!(got.url, want["url"].as_str().unwrap(), "{at} #{i} url");
-        assert_eq!(got.method, want["method"].as_str().unwrap(), "{at} #{i} method");
-        let headers: Vec<(String, String)> = want["headers"].as_array().unwrap().iter().map(|h| (h[0].as_str().unwrap().to_owned(), h[1].as_str().unwrap().to_owned())).collect();
-        assert_eq!(got.headers, headers, "{at} #{i} headers");
-        assert_eq!(got.body, want["body"].as_str().unwrap_or("").as_bytes(), "{at} #{i} body");
-        // Node's `fetchOptions`: no redirect, and the deadline it names covers head and body.
-        assert_eq!(exchanges[i].redirect, Redirect::Error, "{at} #{i} redirect");
-        assert_eq!(exchanges[i].liveness.total_deadline(), Some(Duration::from_millis(want["timeoutMs"].as_u64().unwrap())), "{at} #{i} timeout");
-    }
-}
 #[tokio::test]
 async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();
@@ -314,60 +267,3 @@ async fn the_opencode_go_status_read_ends_after_six_and_a_half_seconds_when_neve
     assert_eq!((seen[0].text.as_str(), error.message.as_str()), ("This operation was aborted", "This operation was aborted"));
 }
 
-#[cfg(node_twin)]
-const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_usage_fetch_puts_nodes_requests_on_the_wire_and_hands_nodes_samples_to_the_history() {
-    let twin: Value = serde_json::from_str(&TWIN).unwrap();
-    let mut reads = 0;
-    for flow in twin["flows"].as_array().unwrap().iter().filter(|f| f["redeem"] != true) {
-        let at = flow["name"].as_str().unwrap();
-        let rig = rig(flow);
-        let route = RouteInfo { provider: flow["provider"].as_str().unwrap().to_owned(), model: String::new(), account_id: flow["account"].as_str().unwrap().to_owned() };
-        let got = rig.usage.fetch_snapshot(&route, true).await;
-        assert_wire(at, &rig, flow);
-        assert_eq!(got.is_none(), flow["snapshotNull"] == true, "{at}: reading");
-        let windows: Vec<(String, f64)> = got
-            .iter()
-            .flat_map(|s| s["quotaWindows"].as_array().cloned().unwrap_or_default())
-            .map(|w| (w["label"].as_str().unwrap().to_owned(), w["usedPct"].as_f64().unwrap_or(f64::NAN)))
-            .collect();
-        let want: Vec<(String, f64)> = flow["windows"].as_array().unwrap().iter().map(|w| (w["label"].as_str().unwrap().to_owned(), w["usedPct"].as_f64().unwrap_or(f64::NAN))).collect();
-        assert_eq!(format!("{windows:?}"), format!("{want:?}"), "{at}: windows");
-        // The clock differs from the recording's, so a sample is compared without its time; a reset
-        // given relative to now (codex) differs with it.
-        let samples = rig.history.0.lock().unwrap();
-        let sent: Vec<&Value> = flow["history"].as_array().unwrap().iter().flat_map(|batch| batch.as_array().unwrap()).collect();
-        assert_eq!(samples.len(), sent.len(), "{at}: samples");
-        for (got, want) in samples.iter().zip(&sent) {
-            assert_eq!((got.provider.as_str(), got.account.as_str(), got.label.as_str()), (want["provider"].as_str().unwrap(), want["account"].as_str().unwrap(), want["label"].as_str().unwrap()), "{at}");
-            assert_eq!(got.used_pct, want["usedPct"].as_f64().unwrap(), "{at}");
-            if flow["provider"] != "openai-oauth" {
-                assert_eq!(got.reset_at, want["resetAt"].as_i64(), "{at}");
-            }
-        }
-        reads += 1;
-    }
-    assert!(reads >= 15);
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_redeem_posts_nodes_body_with_nodes_headers_and_replays_once() {
-    let twin: Value = serde_json::from_str(&TWIN).unwrap();
-    for flow in twin["flows"].as_array().unwrap().iter().filter(|f| f["redeem"] == true) {
-        let at = flow["name"].as_str().unwrap();
-        let mut seeded = flow.clone();
-        seeded["auth"] = json!({ "access_token": "tok-o", "account_id": "acct-1" });
-        seeded["forcedAuth"] = Value::Null;
-        let rig = rig(&seeded);
-        let revision = format!("v1:{}", "a".repeat(64));
-        let got = rig.usage.consume_codex_reset_credit("acct-1", &revision, flow["key"].as_str().unwrap()).await;
-        assert_wire(at, &rig, flow);
-        match (got, flow.get("error")) {
-            (Ok(done), None) => assert_eq!(Value::String(done.outcome.to_owned()), flow["value"], "{at}"),
-            (Err(error), Some(want)) => assert_eq!(error.message, want.as_str().unwrap(), "{at}"),
-            (other, _) => panic!("{at}: {other:?}"),
-        }
-    }
-}

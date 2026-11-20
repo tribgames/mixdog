@@ -828,10 +828,6 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     let name = name.to_lowercase();
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "tools_coerce_session_tests.rs"]
-mod coerce_session_tests;
 #[cfg(test)]
 #[path = "tools_browser_media_tests.rs"]
 mod browser_media_tests;
@@ -1364,37 +1360,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's repeat-failure signatures and cycle detection (`tool-classify.mjs`), recorded on Windows, where the path
-    /// values fold case: `fixtures/tools-untested/agent-repeat-signature.json`, whole and in the recorded order.
-    #[cfg(windows)]
-    #[test]
-    fn repeat_failure_signatures_and_cycles_equal_nodes() {
-        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/agent-repeat-signature.json")).unwrap();
-        let mut failures = Vec::new();
-        for call in doc["signatures"].as_array().unwrap() {
-            let name = call["name"].as_str().unwrap();
-            let got = failure_signature(name, &call["args"], std::path::Path::new(call["cwd"].as_str().unwrap()));
-            if got != call["repeatFailureSig"].as_str().unwrap() {
-                failures.push(format!("{name} {} in {}:\n  Node {}\n  here {got}", call["args"], call["cwd"], call["repeatFailureSig"]));
-            }
-        }
-        for call in doc["shapes"].as_array().unwrap() {
-            let name = call["name"].as_str().unwrap();
-            let (sig, shape) = (call_signature(name, &call["args"]), format!("{name}:{}", arg_shape(&call["args"])));
-            if sig != call["intraTurnSig"].as_str().unwrap() || shape != call["argShapeSig"].as_str().unwrap() {
-                failures.push(format!("{name} {}:\n  Node {} {}\n  here {sig} {shape}", call["args"], call["intraTurnSig"], call["argShapeSig"]));
-            }
-        }
-        for call in doc["continues"].as_array().unwrap() {
-            let history: Vec<String> = call["history"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect();
-            let got = pattern_would_continue(&history, call["signature"].as_str().unwrap(), call["limit"].as_u64().unwrap() as u32);
-            if got as u64 != call["cycle"].as_u64().unwrap() {
-                failures.push(format!("{} signatures, limit {}, next {}: Node cycle {}, here {got}", history.len(), call["limit"], call["signature"], call["cycle"]));
-            }
-        }
-        assert!(failures.is_empty(), "{}", failures.join("\n"));
-    }
 }
 
 

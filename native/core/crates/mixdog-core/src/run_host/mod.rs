@@ -21,27 +21,8 @@ mod mixy_readers_tests;
 pub mod quota_history;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture_fs;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod mixy_presence_replay_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod media_wire_table;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod named_attachment_replay_tests;
 #[cfg(test)]
 mod process_tests;
-#[cfg(test)]
-mod migrated_fixture;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod native_request_bytes_node_cases;
 pub mod tool_exposure;
 pub mod tool_surface;
 pub mod mcp_fold;
@@ -59,29 +40,6 @@ pub mod proxy_providers;
 pub mod model_proxy_pc;
 #[cfg(test)]
 mod model_proxy_behaviour_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod model_proxy_trust_replay_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod model_proxy_host_config_replay_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod model_proxy_host_run_replay_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod model_proxy_host_server_replay_tests;
 pub mod agent_dispatch;
 pub mod dispatch_sessions;
 mod failed_turn_rewind;
@@ -153,26 +111,8 @@ pub mod run_seams;
 pub mod compaction_follow;
 pub mod settings_changes;
 pub mod prompt_session;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod compaction_node_harness;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod execution_tail_node_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod summary_mode_node_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod presend_goal_reminder_node_tests;
 #[cfg(test)]
 mod offload_prune_behaviour_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod fork_compact_node_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
@@ -218,15 +158,6 @@ pub mod workflow_surface;
 pub mod member_names;
 pub mod room_daemon;
 pub mod room_files;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod room_rows_replay;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod room_send_replay;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod pool_list_replay;
 pub mod task_report_store;
 pub mod room_labels;
 #[cfg(test)]

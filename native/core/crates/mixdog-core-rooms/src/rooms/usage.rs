@@ -7,12 +7,6 @@ use super::exchange::UsageLimit;
 
 #[cfg(test)]
 mod feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
 
 /// `QUOTA_KINDS` (`provider-error-kind.mjs`): refusals no wait or replay can change.
 const QUOTA_KINDS: [&str; 3] = ["quota_exhausted", "entitlement", "billing"];

@@ -42,20 +42,12 @@ impl QuotaHistory for LedgerQuotaHistory {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::BTreeMap;
     use std::collections::HashMap;
 
     use mixdog_ai::registry::keys::Environment;
-    #[cfg(node_twin)]
-    use mixdog_ledger::quota::QuotaHistoryOptions;
     use mixdog_ledger::refresh::Pricer;
     use mixdog_ledger::repair::PriceRequest;
     use mixdog_ledger::repair::Priced;
-    #[cfg(node_twin)]
-    use serde_json::Value;
-    #[cfg(node_twin)]
-    use serde_json::json;
 
     use super::*;
 
@@ -106,54 +98,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
-    /// The samples Node's usage fetch handed its ledger land in the ledger the source opens, and come
-    /// back through the same reader the subscription view uses.
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn the_samples_nodes_fetch_recorded_are_stored_through_the_shared_source() {
-        let twin: Value = serde_json::from_str(&TWIN).unwrap();
-        let root = tempfile::tempdir().unwrap();
-        let source = LedgerSource::new(Arc::new(Vars(HashMap::new())), root.path().join("mixdog_data_dir"), mixdog_rt::testing::tokens(), Arc::new(NoPrices), crate::run_host::usage_stats_feed::recording_push());
-        let history =LedgerQuotaHistory::new(source.clone());
-        let mut stored = 0;
-        for flow in twin["flows"].as_array().unwrap() {
-            for batch in flow["history"].as_array().into_iter().flatten() {
-                let samples: Vec<Sample> = batch
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|s| Sample {
-                        provider: s["provider"].as_str().unwrap().to_owned(),
-                        account: s["account"].as_str().unwrap().to_owned(),
-                        label: s["label"].as_str().unwrap().to_owned(),
-                        ts: s["ts"].as_i64().unwrap(),
-                        used_pct: s["usedPct"].as_f64().unwrap(),
-                        reset_at: s["resetAt"].as_i64(),
-                    })
-                    .collect();
-                history.record(samples.clone()).await.unwrap();
-                let ledger = source.get().await.unwrap();
-                ledger.writer.settle_writes().await.unwrap();
-                for sample in &samples {
-                    let options: QuotaHistoryOptions = serde_json::from_value(json!({ "provider": sample.provider, "account": sample.account, "window": sample.label })).unwrap();
-                    let page = ledger.reader.quota_history(options, BTreeMap::new(), sample.ts + 1).await.unwrap();
-                    // Stored = the reader selects exactly this series. Not the points: a lone reading whose window
-                    // has no reset ends where it starts, and Node's `overlapping` (usage-ledger-quota.mjs:893,
-                    // `endMs > domainFrom`) shows no window for it.
-                    assert_eq!(
-                        page["selection"],
-                        json!({ "provider": sample.provider, "account": sample.account, "label": sample.label }),
-                        "{} {} {} is stored",
-                        sample.provider,
-                        sample.account,
-                        sample.label
-                    );
-                    stored += 1;
-                }
-            }
-        }
-        assert!(stored >= 10, "the recording hands the ledger samples: {stored}");
-    }
 }

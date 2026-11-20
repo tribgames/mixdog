@@ -481,7 +481,6 @@ rustc-ice-*.txt
 /native/core/crates/mixdog-fonts/tests/twin_measure.rs
 /native/core/crates/mixdog-highlight/tests/highlight_all_twin.rs
 /native/core/crates/mixdog-highlight/tests/highlight_twin.rs
-/native/core/crates/mixdog-imaging/tests/node_twin.rs
 /native/core/crates/mixdog-imaging/tests/record-avif-extras.mjs
 /native/core/crates/mixdog-imaging/tests/record-svg-reference.mjs
 /native/core/crates/mixdog-imaging/tests/still_twin.rs
@@ -490,7 +489,6 @@ rustc-ice-*.txt
 /native/core/crates/mixdog-imaging/tests/svg_reference.rs
 /native/core/crates/mixdog-imaging/tests/svg-reference.json
 /native/core/crates/mixdog-js/src/array_sort_tests.rs
-/native/core/crates/mixdog-jssyntax/tests/node_twin.rs
 /native/core/crates/mixdog-launch/tests/crash_capture_twin.rs
 /native/core/crates/mixdog-ledger/tests/it/parity.rs
 /native/core/crates/mixdog-ledger/tests/it/stats_parity.rs
@@ -533,7 +531,6 @@ rustc-ice-*.txt
 /native/core/crates/mixdog-office-com/tests/twin_detect.rs
 /native/core/crates/mixdog-office-crypto/tests/twin_crypto.rs
 /native/core/crates/mixdog-office-pdf/tests/preview_password.rs
-/native/core/crates/mixdog-ooxml-text/tests/node_twin.rs
 /native/core/crates/mixdog-ooxml/tests/twin_chart_sheets.rs
 /native/core/crates/mixdog-ooxml/tests/twin_pptx_deck.rs
 /native/core/crates/mixdog-ooxml/tests/twin_pptx_shapes.rs
@@ -603,7 +600,6 @@ rustc-ice-*.txt
 /native/core/crates/mixdog-session-view/tests/action_route_twin.rs
 /native/core/crates/mixdog-session-view/tests/fold_twin.rs
 /native/core/crates/mixdog-session-view/tests/protocol_coverage.rs
-/native/core/crates/mixdog-skill-scripts/tests/node_twin.rs
 /native/core/crates/mixdog-skill-scripts/tests/office_scripts_twin.rs
 /native/core/crates/mixdog-statefile/src/golden_tests.rs
 /native/core/crates/mixdog-statefile/src/lock_record.mjs
@@ -824,7 +820,6 @@ rustc-ice-*.txt
 # Development-only material (internal notes, plans, mockups, unapplied-work notes): local, never in git.
 # One root for all of it; docs/ keeps each file's repository-relative path under it.
 /dev-local/
-/native/core/.cargo/local.toml
 /native/core/crates/mixdog-ai/src/catalog/lookup/tests.rs
 /native/core/crates/mixdog-ai/src/service/usage_cursor_tests.rs
 /native/core/crates/mixdog-core-replays/tests/surface/config_hosts.rs
@@ -858,8 +853,6 @@ rustc-ice-*.txt
 /native/core/crates/mixdog-core/src/run_host/offload_prune_tests.rs
 /native/core/crates/mixdog-services/src/channels/replays_call_ids.rs
 /native/core/crates/mixdog-ai/src/providers/anthropic/leak_tests.rs
-/native/core/crates/mixdog-relay/tests/ledger.rs
-/native/core/crates/mixdog-relay/tests/ledger/
 /native/core/crates/mixdog-cli/tests/exec_cli_replay.rs
 /native/core/crates/mixdog-cli/tests/record_search_usage.mjs
 /native/core/crates/mixdog-migrate/tests/it/recorded_145.rs

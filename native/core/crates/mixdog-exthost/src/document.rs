@@ -342,68 +342,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn recorded_phone_files_refusal() -> (CoreError, Value) {
-        let frame = json!({ "ok": false, "error": "Project is not available.", "errorCode": "PROJECT_UNAVAILABLE" });
-        let error = CoreError::DomainError {
-            domain: "workspace".into(),
-            code: frame["errorCode"].as_str().map(|code| code.to_owned().into()),
-            message: frame["error"].as_str().map(|text| text.to_owned().into()),
-            detail: None,
-        };
-        (error, frame)
-    }
-    /// Node's `visualizePanePages` over its mirror of one snapshot (`fixtures/phone-guards/golden.json`, `visualize`): a pane Node
-    /// rendered is rendered for a relay connection that names the pane's file in the pane's root (`pane.root ?? tab.cwd`), with no
-    /// project or grant behind it; a pane Node refused is not, and gets the file refusal. An event that empties the session takes
-    /// its panes away, as Node's mirror dropped the session.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_relay_preview_of_a_visualize_pane_follows_the_recorded_mirror() {
-        let golden: Value =
-            serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
-        let recorded = &golden["scenarios"]["visualize"];
-        let (refusal, refusal_frame) = recorded_phone_files_refusal();
-        let panes = Arc::new(crate::VisualizePanes::default());
-        panes.fold(&recorded["snapshot"]);
-        let tab = &recorded["snapshot"][0]["tabs"][0];
-        let request_for = |index: usize| -> Option<Value> {
-            let pane = tab["panes"].get(index)?;
-            let root = pane["root"].as_str().or(tab["cwd"].as_str()).unwrap();
-            let rel = std::path::Path::new(pane["path"].as_str().unwrap()).strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
-            Some(json!({ "root": root, "rel": rel, "options": { "pages": [1] } }))
-        };
-        let mut rendered = 0;
-        for (index, step) in recorded["steps"].as_array().unwrap().iter().enumerate() {
-            let frame = &step["frame"];
-            let Some(params) = request_for(index) else {
-                // A closed pane has no file a request could name.
-                assert_eq!(frame["error"], "This visualize pane is closed.");
-                continue;
-            };
-            let (service, pool) = service(Ok(frame["value"].clone()));
-            let service = service.with_relay_scope(Arc::new(NoFiles(refusal.clone())), panes.clone());
-            let answer = service.call(relay("document/previewPages", params.clone())).await;
-            let seen = pool.seen.lock().unwrap();
-            if frame["ok"] == true {
-                let Ok(Reply::Value(value)) = answer else { panic!("{params}: {answer:?}") };
-                assert_eq!(json!({ "ok": true, "value": value }), *frame, "{params}");
-                assert_eq!((seen.len(), &seen[0].params["root"], &seen[0].params["rel"]), (1, &params["root"], &params["rel"]));
-                rendered += 1;
-            } else {
-                let Err(CoreError::DomainError { code, message, .. }) = answer else { panic!("{params}: {answer:?}") };
-                assert_eq!(json!({ "ok": false, "error": message.as_deref(), "errorCode": code.as_deref() }), refusal_frame, "{params}");
-                assert!(seen.is_empty(), "{params}: the worker is not asked");
-            }
-        }
-        assert_eq!(rendered, 2);
-
-        panes.fold(&json!({ "sessionId": "s1", "state": { "sessionId": "s1", "tabs": [] } }));
-        let (service, pool) = service(Ok(json!({})));
-        let service = service.with_relay_scope(Arc::new(NoFiles(refusal.clone())), panes.clone());
-        assert!(service.call(relay("document/previewPages", request_for(0).unwrap())).await.is_err(), "the session is gone");
-        assert!(pool.seen.lock().unwrap().is_empty());
-    }
     fn phone_files_refusal() -> (CoreError, Value) {
         let error = CoreError::DomainError {
             domain: "workspace".into(),

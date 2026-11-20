@@ -1,29 +1,12 @@
-//! The overlays against Node's `withCatalogErrors` (`fixtures/catalog-errors/golden.json`,
-//! `record-catalog-errors.mjs`), and the live keyring alert.
+//! The setup overlays: the live keyring alert replaces the stale one and goes last.
 
-#[cfg(node_twin)]
-use std::collections::HashMap;
 
 use serde_json::json;
-#[cfg(node_twin)]
-use serde_json::Value;
 
 use super::provider_setup::{KeychainStatus, UnsafeStore, keychain_issue_of};
 use super::setup_overlays::with_live_keychain;
-#[cfg(node_twin)]
-use super::setup_overlays::{CatalogFailure, CatalogFailures};
-#[cfg(node_twin)]
-use super::setup_overlays::with_catalog_errors;
 
-#[cfg(node_twin)]
-struct Held(HashMap<String, CatalogFailure>);
 
-#[cfg(node_twin)]
-impl CatalogFailures for Held {
-    fn failure(&self, id: &str) -> Option<CatalogFailure> {
-        self.0.get(id).cloned()
-    }
-}
 
 #[test]
 fn the_live_keyring_alert_replaces_the_stale_one_and_goes_last() {
@@ -41,27 +24,3 @@ fn the_live_keyring_alert_replaces_the_stale_one_and_goes_last() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: &str = include_str!("../../../../../fixtures/catalog-errors/golden.json");
-#[cfg(node_twin)]
-#[test]
-fn the_catalog_errors_land_on_the_rows_as_node_puts_them() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    let scenarios = golden["scenarios"].as_array().unwrap();
-    assert_eq!(scenarios.len(), 14);
-    for scenario in scenarios {
-        let held = Held(
-            scenario["held"]
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(id, f)| (id.clone(), CatalogFailure { message: f["message"].as_str().unwrap().to_owned(), error_kind: f.get("errorKind").cloned() }))
-                .collect(),
-        );
-        let got = with_catalog_errors(scenario["before"].clone(), &held);
-        assert_eq!(serde_json::to_string(&got).unwrap(), serde_json::to_string(&scenario["after"]).unwrap(), "{}", scenario["name"]);
-    }
-    for row in golden["passthrough"].as_array().unwrap() {
-        assert_eq!(with_catalog_errors(row["value"].clone(), &Held(HashMap::new())), row["after"]);
-    }
-}

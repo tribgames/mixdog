@@ -211,31 +211,6 @@ pub(crate) async fn guard_call(ctx: &ToolContext, command: &str, cwd: Option<&st
 }
 
 
-/// The decided departures of a Node recording (`departures.json`, `guard_node_departures.json`) by the index of the recorded
-/// case they replace, each checked to name that very case, to differ from it only by the removed notes, and to be complete: every
-/// recorded run that carried a note is listed, so no change of expectation goes unmarked.
-#[cfg(all(test, node_twin))]
-pub(super) fn departed(recorded: &[mixdog_protocol::JsonValue], file: &str) -> std::collections::HashMap<usize, mixdog_protocol::JsonValue> {
-    let doc: mixdog_protocol::JsonValue = serde_json::from_str(file).unwrap();
-    let mut out = std::collections::HashMap::new();
-    for d in doc["departures"].as_array().unwrap() {
-        let case = d["case"].as_u64().unwrap() as usize;
-        let rec = &recorded[case];
-        for key in ["shellType", "args", "offers"] {
-            assert_eq!(d.get(key), rec.get(key), "departure {case} names another case ({key})");
-        }
-        assert!(!d["reason"].as_str().unwrap().is_empty(), "departure {case} has no reason");
-        assert!(d["result"]["notes"].as_array().unwrap().is_empty(), "departure {case}");
-        let mut without_notes = rec["result"].clone();
-        without_notes["notes"] = serde_json::json!([]);
-        assert_eq!(without_notes, d["result"], "departure {case} changes more than the notes");
-        assert_ne!(rec["result"], d["result"], "departure {case} does not depart");
-        assert!(out.insert(case, d["result"].clone()).is_none(), "departure {case} twice");
-    }
-    let noted = recorded.iter().filter(|c| c["result"]["failure"].is_null() && !c["result"]["notes"].as_array().unwrap().is_empty()).count();
-    assert_eq!(noted, out.len(), "a recorded note is neither kept nor marked as a departure");
-    out
-}
 
 #[cfg(test)]
 mod tests {
@@ -528,40 +503,4 @@ mod tests {
         }
     }
 
-    /// The recorded guard calls (`guard_node_departures.json`, each with its reason).
-    #[cfg(node_twin)]
-    #[test]
-    fn the_guard_equals_nodes_except_where_it_decided_otherwise() {
-        let vectors: Vec<JsonValue> = serde_json::from_str(include_str!("testdata/guard_node_vectors.json")).unwrap();
-        assert_eq!(vectors.len(), 116);
-        let departed = departed(&vectors, include_str!("testdata/guard_node_departures.json"));
-        assert_eq!(departed.len(), 34);
-        for (i, v) in vectors.iter().enumerate() {
-            let args = &v["args"];
-            let command = args["command"].as_str().unwrap();
-            let powershell = v["shellType"] == "powershell";
-            let got = guard_shell_call(command, args["cwd"].as_str(), args["background"] == true, powershell);
-            let want = departed.get(&i).unwrap_or(&v["result"]);
-            match got {
-                Guarded::Refused(text) => assert_eq!(want["failure"].as_str(), Some(text.as_str()), "{args} {powershell}"),
-                Guarded::Run { command, cwd, notes } => {
-                    assert!(want["failure"].is_null(), "{args} {powershell}: {want}");
-                    assert_eq!(want["args"]["command"].as_str(), Some(command.as_str()), "{args} {powershell}");
-                    assert_eq!(want["args"]["cwd"].as_str(), cwd.as_deref(), "{args} {powershell}");
-                    let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
-                    assert_eq!(want_notes, notes, "{args} {powershell}");
-                }
-            }
-        }
-    }
-    /// The shell-cover recording: its departures name their cases and cover every recorded note (455 of 1056 cases).
-    #[cfg(node_twin)]
-    #[test]
-    fn the_cover_table_departures_name_their_cases_and_leave_the_rest_as_recorded() {
-        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
-        let recorded = doc["cases"].as_array().unwrap();
-        assert_eq!(recorded.len(), 1056);
-        let departed = departed(recorded, mixdog_testkit::fixture!("../../fixtures/shell-cover/departures.json"));
-        assert_eq!(departed.len(), 455);
-    }
 }

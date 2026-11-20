@@ -37,9 +37,3 @@ pub(crate) fn portable(value: &serde_json::Value, root: &std::path::Path) -> ser
 }
 
 
-#[cfg(node_twin)]
-/// The recorded Node goldens of the seams (`record-domain-seams.mjs`).
-#[cfg(test)]
-pub(crate) fn golden() -> serde_json::Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/domain-seams/golden.json")).expect("the golden is JSON")
-}

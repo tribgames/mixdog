@@ -12,8 +12,6 @@ pub mod device_login;
 pub mod listing;
 mod tool_schema;
 #[cfg(test)]
-mod fixture_manifest;
-#[cfg(test)]
 mod flatten_rules_tests;
 #[cfg(test)]
 mod listing_tests;

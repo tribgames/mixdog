@@ -23,27 +23,12 @@ pub mod setup_overlays;
 pub mod setup_world;
 #[cfg(test)]
 mod custom_admin_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod custom_config_tests;
 #[cfg(test)]
 mod custom_config_feature_tests;
 #[cfg(test)]
 mod custom_probe_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod custom_send_tests;
 #[cfg(test)]
 mod custom_send_feature_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod credential_transitions_tests;
 #[cfg(test)]
 mod credential_transitions_feature_tests;
 #[cfg(test)]
@@ -52,38 +37,14 @@ mod oauth_credentials_tests;
 mod oauth_status_tests;
 #[cfg(test)]
 mod oauth_status_feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod policy_replay_tests;
 #[cfg(test)]
 mod policy_feature_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod production_tests;
 #[cfg(test)]
 mod production_feature_tests;
 #[cfg(test)]
 mod keychain_live_tests;
 #[cfg(test)]
 mod model_proxy_feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod model_proxy_setup_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod provider_setup_custom_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod provider_setup_tests;
 #[cfg(test)]
 mod provider_setup_feature_tests;
 #[cfg(test)]

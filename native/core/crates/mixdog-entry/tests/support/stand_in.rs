@@ -2,7 +2,7 @@
 //! scripted text (the last one again when the script is used up), or refuses every request, or breaks the stream after it began.
 //!
 //! The binary reaches it over TLS through the `test-support` pin of its HTTP client (`REPLAY_PROVIDER_PIN`,
-//! `REPLAY_PROVIDER_PIN_CERT`: [`StandIn::pin`]); a plain HTTP listener answers the same way for a client that has no pin.
+//! `REPLAY_PROVIDER_PIN_CERT`: [`StandIn::pin`]).
 #![allow(dead_code, reason = "each test uses the part of the stand-in it needs")]
 
 use std::path::Path;
@@ -60,8 +60,6 @@ const NAMES: [&str; 3] = ["api.anthropic.com", "localhost", "127.0.0.1"];
 /// A running stand-in; it stops when dropped.
 pub struct StandIn {
     tls_addr: std::net::SocketAddr,
-    #[cfg(node_twin)]
-    http_addr: std::net::SocketAddr,
     cert_path: PathBuf,
     requests: Arc<AtomicUsize>,
     runtime: Option<tokio::runtime::Runtime>,
@@ -134,19 +132,6 @@ impl StandIn {
         let tls = runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
         let tls_addr = tls.local_addr().unwrap();
         let count = requests.clone();
-        // The comparison run against the old CLI (a local-only test) reaches the stand-in over plain HTTP.
-        #[cfg(node_twin)]
-        let http_addr = {
-            let http = runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
-            let (http_reply, http_count) = (reply.clone(), requests.clone());
-            let addr = http.local_addr().unwrap();
-            runtime.spawn(async move {
-                while let Ok((tcp, _)) = http.accept().await {
-                    tokio::spawn(answer(tcp, http_reply.clone(), http_count.clone()));
-                }
-            });
-            addr
-        };
         runtime.spawn(async move {
             while let Ok((tcp, _)) = tls.accept().await {
                 let (acceptor, reply, count) = (acceptor.clone(), reply.clone(), count.clone());
@@ -159,18 +144,12 @@ impl StandIn {
         });
         Self {
             tls_addr,
-            #[cfg(node_twin)]
-            http_addr,
             cert_path,
             requests,
             runtime: Some(runtime),
         }
     }
 
-    #[cfg(node_twin)]
-    pub fn http_port(&self) -> u16 {
-        self.http_addr.port()
-    }
 
     /// The variables that pin the binary's provider requests to the stand-in.
     pub fn pin(&self) -> [(&'static str, String); 2] {

@@ -1,6 +1,5 @@
-//! The custom-provider admin against what Node does (`benchmarks/rust-core/recorders/record-custom-admin.mjs`): each
-//! step's answer or refusal, the config after it, every stored secret and the key roster. And a
-//! real connection test: `CustomProbes` sending to a scripted local endpoint, through the key pool.
+//! The custom-provider admin: a real connection test (`CustomProbes` sending to a scripted local endpoint, through the key pool),
+//! the retry of a transient failure, the redaction of a refused key, and the label of a key kept in the private file.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -137,13 +136,7 @@ impl ModelTraits for Traits {
 pub(super) struct World {
     pub(super) admin: Arc<CustomAdmin>,
     pub(super) env: Arc<TestEnv>,
-    #[cfg(node_twin)]
-    config: Config,
     vault: Arc<TestVault>,
-    #[cfg(node_twin)]
-    accounts: AccountStore,
-    #[cfg(node_twin)]
-    refresh: Arc<CountingRefresh>,
     /// What the host wrote to its stderr.
     log: Arc<Mutex<Vec<String>>>,
     _dir: tempfile::TempDir,
@@ -220,35 +213,13 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
     World {
         admin: CustomAdmin::new(host, refresh.clone()),
         env: test_env,
-        #[cfg(node_twin)]
-        config,
         vault,
-        #[cfg(node_twin)]
-        accounts,
-        #[cfg(node_twin)]
-        refresh,
         log,
         _dir: dir,
     }
 }
 
-/// `text` with each `$name` replaced by its bound id (`direction` in) or each id by its name.
-#[cfg(node_twin)]
-fn substitute(value: &Value, names: &[(String, String)], direction_in: bool) -> Value {
-    let mut text = value.to_string();
-    for (name, real) in names {
-        text = if direction_in { text.replace(&format!("${name}"), real) } else { text.replace(real.as_str(), &format!("${name}")) };
-    }
-    serde_json::from_str(&text).unwrap()
-}
 
-#[cfg(node_twin)]
-fn pick<'a>(value: &'a Value, path: &str) -> &'a Value {
-    path.split('.').fold(value, |at, key| match key.parse::<usize>() {
-        Ok(index) => &at[index],
-        Err(_) => &at[key],
-    })
-}
 
 /// What the scripted endpoint saw.
 #[derive(Clone, Debug)]
@@ -464,63 +435,3 @@ async fn a_removed_key_the_keychain_keeps_is_logged_and_the_save_holds() {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/custom-admin/golden.json");
-#[cfg(node_twin)]
-#[tokio::test]
-async fn every_step_does_what_node_does() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let env = golden["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-    let w = world(env).await;
-    let mut names: Vec<(String, String)> = Vec::new();
-    let mut refreshes = 0;
-    for (at, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
-        let label = format!("step {at}: {} ({})", step["note"].as_str().unwrap(), step["op"].as_str().unwrap());
-        let args = substitute(&step["args"], &names, true);
-        let result: Option<Result<Value, String>> = match step["op"].as_str().unwrap() {
-            "config" => {
-                let patch = args.as_object().unwrap().clone();
-                w.config
-                    .update_agent(move |doc| {
-                        doc.extend(patch);
-                        Ok(())
-                    })
-                    .await
-                    .unwrap();
-                None
-            }
-            "save" => Some(w.admin.save(args[0].clone(), 0).await),
-            "saveKey" => Some(w.admin.save_key(args[0].as_str().unwrap(), &args[1]).await),
-            "updateModel" => {
-                let patch = args.as_array().unwrap().get(2).cloned();
-                Some(w.admin.update_model(args[0].as_str().unwrap(), args[1].as_str().unwrap(), patch).await)
-            }
-            "remove" => Some(w.admin.remove(args[0].as_str().unwrap()).await),
-            other => panic!("{other}"),
-        }
-        .map(|r| r.map_err(|f| f.message().to_owned()));
-        let (result, error) = match result {
-            Some(Ok(value)) => (Some(value), None),
-            Some(Err(message)) => (None, Some(message)),
-            None => (None, None),
-        };
-        if let Some(bind) = step["bind"].as_object() {
-            for (name, path) in bind {
-                names.push((name.clone(), pick(result.as_ref().unwrap(), path.as_str().unwrap()).as_str().unwrap().to_owned()));
-            }
-        }
-        refreshes += usize::from(result.is_some());
-        let shown = |value: &Value| substitute(value, &names, false);
-        assert_eq!(result.as_ref().map(shown).unwrap_or(Value::Null), step["result"], "{label}: result");
-        assert_eq!(error.as_ref().map(|e| shown(&json!(e))).unwrap_or(Value::Null), step["error"], "{label}: error");
-        assert_eq!(shown(&Value::Object(w.config.agent())), step["config"], "{label}: config");
-        let secrets: serde_json::Map<String, Value> = w.vault.secrets.lock().unwrap().iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-        assert_eq!(shown(&Value::Object(secrets)), step["secrets"], "{label}: secrets");
-        let mut roster = serde_json::Map::new();
-        for id in w.config.agent()["providers"].as_object().unwrap().keys() {
-            roster.insert(id.clone(), json!(w.accounts.custom_key_ids(id).await.unwrap()));
-        }
-        assert_eq!(shown(&Value::Object(roster)), step["roster"], "{label}: roster");
-    }
-    assert_eq!(w.refresh.0.load(Ordering::SeqCst), refreshes, "the runtime refreshes once per change that succeeded");
-}

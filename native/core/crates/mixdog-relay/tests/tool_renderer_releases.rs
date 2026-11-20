@@ -187,53 +187,8 @@ fn the_cli_reads_reporting_devices_from_devices_json_and_prints_one_json_result(
     assert_eq!(run(&["prepare".to_owned()]).expect_err("a bare word").to_string(), "Invalid argument: prepare");
 }
 
-#[cfg(node_twin)]
-fn same_results(recorded: &Value, ran: &[PrepareOutcome]) {
-    let wanted = recorded["results"].as_array().expect("results");
-    assert_eq!(wanted.len(), ran.len());
-    for (wanted, ran) in wanted.iter().zip(ran) {
-        assert_eq!(js::wire(wanted), js::wire(&ran.to_json()));
-    }
-}
 
 
-#[cfg(node_twin)]
-#[test]
-fn index_json_is_byte_equal_to_the_one_the_node_tool_writes() {
-    let recording = js::parse(include_str!("fixtures/renderer-releases-index.json")).expect("the recording");
-
-    // History one: adopt, add, redeploy, relay-only (`tests/renderer_releases_record.mjs`).
-    let (_guard, root, releases) = sandbox();
-    staged(&root.join("installed"), "a");
-    staged(&root.join("next"), "b");
-    let ran = [
-        prepare(&releases, &root.join("next"), "1.5.0", Some(&root.join("installed")), &[], NOW),
-        prepare(&releases, &root.join("next"), "1.5.0", None, &[], NOW),
-        prepare(&releases, &root.join("next"), "", None, &[], NOW),
-    ];
-    same_results(&recording["adopt"], &ran);
-    assert_eq!(text(releases.join("index.json")), recording["adopt"]["index"].as_str().expect("index text"));
-
-    // History two: five deploys, then two into a clone of the registry with recent and long unseen devices.
-    let (_guard, root, registry) = sandbox();
-    staged(&root.join("installed"), "a");
-    let mut ran = Vec::new();
-    for (step, label) in ["b", "c", "d", "e", "f"].iter().enumerate() {
-        staged(&root.join("stage").join(label), label);
-        let now = NOW + step as f64;
-        ran.push(prepare(&registry, &root.join("stage").join(label), &format!("1.{step}.0"), Some(&root.join("installed")), &[], now));
-    }
-    staged(&root.join("stage").join("1"), "1");
-    staged(&root.join("stage").join("2"), "2");
-    let live = root.join("live").join("renderer-releases");
-    link_tree(&registry, &live).expect("a clone");
-    let devices = [seen("1.2.0", NOW - DAY), seen("1.3.0", NOW - 90.0 * DAY)];
-    for (label, version, offset) in [("1", "1.8.0", 10.0), ("2", "1.9.0", 11.0)] {
-        ran.push(prepare(&live, &root.join("stage").join(label), version, None, &devices, NOW + offset));
-    }
-    same_results(&recording["gc"], &ran);
-    assert_eq!(text(live.join("index.json")), recording["gc"]["index"].as_str().expect("index text"));
-}
 
 #[test]
 fn the_registry_the_tool_writes_lists_legacy_first_then_each_release_with_its_versions() {

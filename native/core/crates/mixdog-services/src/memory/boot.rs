@@ -675,19 +675,6 @@ impl MemoryStack {
         &self.stop_seam
     }
 
-    /// Whether a stop is running (Node's `isStopping`).
-    pub fn is_stopping(&self) -> bool {
-        self.opening.lock().expect("opening").stop_running
-    }
-
-    #[cfg(node_twin)]
-    /// The opening in flight, as a wait for its end (a test waits for the opening to settle before the next use).
-    #[cfg(test)]
-    pub(crate) fn settled(&self) -> Option<BoxFuture<'static, ()>> {
-        use futures::FutureExt as _;
-        let flight = self.opening.lock().expect("opening").flight.as_ref().map(|(_, flight)| flight.clone())?;
-        Some(async move { let _ = flight.await; }.boxed())
-    }
 
     /// Installs the opening in its reserved slot: it runs to its end whatever its callers do (Node's shared promise does), as the owner's work, which
     /// the stop's drain waits for and the cutoff revokes. A refused activation (the cut won) runs nothing; its flight answers [`STOPPING`].

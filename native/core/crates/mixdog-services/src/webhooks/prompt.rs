@@ -99,24 +99,4 @@ mod tests {
     }
 
 
-    /// Node's `webhookRunPrompt`, `promptHeaders` and `webhookEventSummary` over the recorded cases (`webhook-run-prompt/golden.json`):
-    /// the prompt, the headers it shows, the trusted skill-selection input and the event label, whole.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_run_prompt_selection_and_label_equal_nodes() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-run-prompt/golden.json")).expect("golden");
-        let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.len() >= 9);
-        for case in cases {
-            let sent: Headers = case["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.clone(), v.as_str().expect("text").to_string())).collect();
-            let shown = prompt_headers(&sent);
-            let run = webhook_run_prompt(case["instructions"].as_str().expect("instructions"), &case["body"], &shown);
-            let name = &case["name"];
-            let shown_json: serde_json::Map<String, Value> = shown.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-            assert_eq!(Value::Object(shown_json), case["shown"], "{name}: shown headers");
-            assert_eq!(json!(run.prompt), case["prompt"], "{name}: prompt");
-            assert_eq!(json!(run.skill_selection), case["skillSelection"], "{name}: selection");
-            assert_eq!(json!(webhook_event_summary(|n| sent.get(n), &case["body"])), case["summary"], "{name}: summary");
-        }
-    }
 }

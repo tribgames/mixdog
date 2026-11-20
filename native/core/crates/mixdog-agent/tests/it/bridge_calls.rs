@@ -1,22 +1,8 @@
-//! A model's `call_tool` on a bridge session, through the run loop, against the Node recording
-//! `fixtures/call-tool` (`record-call-tool.mjs`, `b6f10295a`, exact manifest): a real `askSession`
-//! turn over a bridge session with a scripted provider.
-//!
-//! Each scenario replays the same script (the model's replies, the hook and the approval answers)
-//! over the real loop, the real policy gate and the real `load_tool` / `call_tool` tools; the
-//! session's tools and catalog are the recording's own. What is compared with Node, whole, is what a
-//! client or the model can observe: the messages the model is sent at each request, the stored
-//! transcript, the tool events the loop raises, the approval cards, the PreToolUse / PostToolUse
-//! hook calls and what the executors were called with, the human gate's audit records and the loop's
-//! tool-batch audit (Node's `recordToolBatch`, the `batch` rows of the trace).
-//!
-//! The recording's declared normalisations (`MANIFEST.json`, `normalisations`) are the only values not
-//! kept: the sandbox path (`<SANDBOX>`), clock values (0) and batch ids (`<BATCH-n>`). Every other
-//! recorded field is compared, or is in the one table of what is not (`NOT_COMPARED`), with where it
-//! is compared instead. Every event the loop raises is compared or named by `uncompared`; any other
-//! fails the replay. The `sessionId` of an approval card is the run's thread id (the approval actor adds
-//! it to the request); the stored transcript of a cancelled turn is the host's interruption over the
-//! loop's transcript at the stop (`finalize_interrupted_turn`, see `observed`).
+//! A model's `call_tool` on a bridge session, through the run loop with a scripted provider, the real policy gate and the real
+//! `load_tool` / `call_tool` tools: a deferred tool runs with or without `load_tool` first, a denying session refuses it and a
+//! read-only session runs only a read-only one, an approval or a hook denial lets the target run or stops it, and an emptied
+//! parent goes while an empty object stays. A run event no scenario accounts for fails the test, and an approval card carries the
+//! run's thread id as its `sessionId`.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -795,64 +781,8 @@ fn role_name(role: Role) -> &'static str {
     }
 }
 
-#[cfg(node_twin)]
-/// A committed result's event carries the call's stored row (`onToolResult` with the message the batch flushes): the recording
-/// must show them to be the same, which is why the replay builds the core's from the row.
-fn result_events_are_the_rows(scenario: &Value) {
-    let stored = scenario["stored"].as_array().expect("stored");
-    for event in scenario["events"].as_array().expect("events") {
-        if event["ev"] != "toolResult" || event["message"]["__earlyNotify"] == true {
-            continue;
-        }
-        let row = stored.iter().find(|row| row["role"] == "tool" && row["toolCallId"] == event["message"]["toolCallId"]);
-        assert_eq!(row, Some(&event["message"]), "{}: a result event is not its call's stored row", scenario["name"]);
-    }
-}
 
-#[cfg(node_twin)]
-/// A request's tool message carries the row's `toolKind`, `toolTiming` and `createdAt` as the provider is handed them; the recording
-/// must show them to be the stored row's own, which is why the request side leaves them out.
-fn request_fields_are_the_rows(scenario: &Value) {
-    let stored = scenario["stored"].as_array().expect("stored");
-    for request in scenario["requests"].as_array().expect("requests") {
-        for message in request.as_array().expect("messages") {
-            for key in ["toolKind", "toolTiming", "createdAt"] {
-                let Some(value) = message.get(key) else { continue };
-                let row = stored.iter().find(|row| row["role"] == message["role"] && row["toolCallId"] == message["toolCallId"] && row["content"] == message["content"]);
-                assert_eq!(row.map(|row| &row[key]), Some(value), "{}: a request's {key} is not the stored row's", scenario["name"]);
-            }
-        }
-    }
-}
 
-#[cfg(node_twin)]
-/// Where two values first differ, as a path and the two leaves.
-fn first_difference(node: &Value, core: &Value, path: &str) -> String {
-    match (node, core) {
-        (Value::Array(a), Value::Array(b)) => {
-            for (index, (x, y)) in a.iter().zip(b).enumerate() {
-                if x != y {
-                    return first_difference(x, y, &format!("{path}[{index}]"));
-                }
-            }
-            format!("{path}: node has {} item(s), core has {}", a.len(), b.len())
-        }
-        (Value::Object(a), Value::Object(b)) => {
-            for (key, x) in a {
-                match b.get(key) {
-                    Some(y) if x == y => {}
-                    Some(y) => return first_difference(x, y, &format!("{path}.{key}")),
-                    None => return format!("{path}.{key}: node has {x}, core has none"),
-                }
-            }
-            match b.keys().find(|key| !a.contains_key(*key)) {
-                Some(key) => format!("{path}.{key}: core has {}, node has none", b[key]),
-                None => format!("{path}: equal"),
-            }
-        }
-        _ => format!("{path}: node {node}, core {core}"),
-    }
-}
 
 /// A message the run is given, as the recording shows it.
 fn input_message(message: &Value) -> AgentMessage {
@@ -1034,131 +964,11 @@ fn batch_view(batch: &ToolBatch) -> Value {
 
 // ---- the comparison: by subtraction ----------------------------------------------------------------------------------------------------
 
-#[cfg(node_twin)]
-/// The golden file's keys: the recorder's note, the tool definitions the scenarios register (an input: the catalog's documents) and
-/// the scenarios.
-const GOLDEN_KEYS: &[&str] = &["note", "tools", "scenarios"];
 
-#[cfg(node_twin)]
-/// A scenario's inputs: what the replay builds the run from. `live` routes a scenario to the live replay as well
-/// (`replay-call-tool-live.mjs`); here it is replayed like every other. `workdir` is the recorder's work folder, where the run's
-/// working directory stands (`sandboxed`).
-const INPUTS: &[&str] = &[
-    "name", "sessionId", "session", "mcp", "nonBridge", "live", "stream", "internal", "workdir", "ask", "answers", "hookRewrite", "hookDeny", "gates", "abortWhen",
-    "abortReason", "settled", "script", "surface",
-];
 
-#[cfg(node_twin)]
-/// A scenario's outputs: each is the recording's value whole, less the paths of [`NOT_COMPARED`], equal to the core's less the same.
-const OUTPUTS: &[&str] = &["answer", "turnError", "stored", "requests", "events", "callbacks", "cards", "hooks", "executed", "timeline", "audit", "trace"];
 
-#[cfg(node_twin)]
-/// One recorded field the replay does not compare.
-struct Uncompared {
-    /// Where it is: `.`-separated keys from the scenario; `[]` steps into every item of an array, `[f=v]` into the items whose `f` is
-    /// `v` (as the last step it removes those items whole).
-    path: &'static str,
-    /// Why the layer under test does not produce it.
-    why: &'static str,
-    /// Where it is compared instead, or that nothing compares it yet.
-    compared_in: &'static str,
-}
 
-#[cfg(node_twin)]
-const HOST_ROW: &str = "the host's record of a stored row (`run_host/factory.rs` stamps it when it stores the row); the loop's message has none";
-#[cfg(node_twin)]
-const NOT_YET: &str = "nothing yet";
-#[cfg(node_twin)]
-const HOST_TRACE: &str = "written by the host's agent-trace writer (`mixdog-core-run` `FailureWriter`) from the loop's reports (`ToolFailureLog`); not compared here";
-#[cfg(node_twin)]
-const HOST_USAGE: &str = "the host's usage report (`UsageReport::from_event` in the run host), derived from the loop's `Usage` event, which carries the request's own figures";
 
-#[cfg(node_twin)]
-/// Everything the recording holds that the replay does not compare: by construction the complete list, since every comparison is the
-/// recorded value less these paths.
-///
-/// An entry also stands for a parent object it leaves empty ([`subtract`]): a row whose `meta` held nothing but the host's stamps
-/// equals the loop's row with no `meta`. Only a removal empties a parent: an object that was empty before, or that one side has
-/// and the other lacks for any other reason, is still a difference (`an_emptied_parent_goes_and_an_empty_object_stays`).
-const NOT_COMPARED: &[Uncompared] = &[
-    Uncompared { path: "stored[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "stored[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "stored[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared {
-        path: "stored[].meta.transcript.completion",
-        why: "the host's completion of the turn's answer row (`status`, `verb`, `elapsedMs`)",
-        compared_in: "`verb`: replay-call-tool-live.mjs (the answer item's `completionVerb`); `status`, `elapsedMs`: nothing yet",
-    },
-    Uncompared { path: "requests[][].createdAt", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`), itself uncompared" },
-    Uncompared { path: "requests[][].toolKind", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`)" },
-    Uncompared { path: "requests[][].toolTiming", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`)" },
-    Uncompared { path: "requests[][].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "requests[][].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared {
-        path: "callbacks[ev=onAssistantToolCallObserved]",
-        why: "the loop's `ToolCallObserved` carries the call, not Node's second argument `{ eagerStarted }`",
-        compared_in: "the call itself: `requests` and `events` (the same call, committed)",
-    },
-    Uncompared {
-        path: "callbacks[ev=onContextPressure]",
-        why: "the pre-send compaction check runs through the compactor the host provides (`RunEnv.compactor`); this replay runs the loop without one, so the core raises no `ContextPressure`",
-        compared_in: NOT_YET,
-    },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].usageMetricsTurnId", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].usageMetricsEpoch", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].source", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].promptKnown", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextInputTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextOutputTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextPromptTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextCachedReadTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextCacheWriteTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextMeasuredTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].ts", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].title",
-        why: "a registry document's field; the request's tool definition carries none",
-        compared_in: NOT_YET,
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].annotations",
-        why: "a registry document's field; the request's tool definition carries none",
-        compared_in: NOT_YET,
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].trigger",
-        why: "a registry document's field; the request's tool definition carries none",
-        compared_in: NOT_YET,
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].description",
-        why: "the session's tool definitions are the product's (Node's built-in tools); this replay's registry holds probes of the same names",
-        compared_in: "replay-call-tool-live.mjs, for its scenarios: the tools of each request the built core sends",
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].inputSchema",
-        why: "the session's tool definitions are the product's (Node's built-in tools); this replay's registry holds probes of the same names",
-        compared_in: "replay-call-tool-live.mjs, for its scenarios: the tools of each request the built core sends",
-    },
-    Uncompared {
-        path: "audit[].at",
-        why: "stamped by the grant store when it writes the record (`mixdog-tools` `policy/file_store.rs`); the replay's `MemoryGrantStore` stands in for the store and stamps none",
-        compared_in: NOT_YET,
-    },
-    Uncompared { path: "trace[kind=context]", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=tool]", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=usage]", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=batch].ts", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=batch].session_id", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=batch].payload.batch_id", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=batch].payload.batch_schema_version", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=partial_tool_recovery].ts", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=partial_tool_recovery].session_id", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=partial_tool_recovery].payload", why: HOST_TRACE, compared_in: NOT_YET },
-];
 
 enum Step<'a> {
     Key(&'a str),
@@ -1225,23 +1035,6 @@ fn an_emptied_parent_goes_and_an_empty_object_stays() {
     assert_eq!(empty, json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] }));
 }
 
-#[cfg(node_twin)]
-/// The manifest's clock rule applied to the core's values: a number under one of its keys is 0.
-fn clocked(value: &mut Value, keys: &[String]) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(|item| clocked(item, keys)),
-        Value::Object(fields) => {
-            for (key, field) in fields.iter_mut() {
-                if field.is_number() && keys.contains(key) {
-                    *field = json!(0);
-                } else {
-                    clocked(field, keys);
-                }
-            }
-        }
-        _ => {}
-    }
-}
 
 impl RunObserver for Events {
     fn event(&self, event: RunEvent) {
@@ -1532,7 +1325,7 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
         match event {
             RunEvent::ToolCalls { iteration, calls } => tool_events.push(json!({ "ev": "toolCall", "iteration": iteration, "calls": calls_of(calls) })),
             RunEvent::EarlyResult(message) => tool_events.push(json!({ "ev": "toolResult", "message": early_view(message) })),
-            // The committed result is the call's stored row (`result_events_are_the_rows` shows the recording's to be the same).
+            // The committed result is the call's stored row.
             RunEvent::ToolResult { call_id, kind } => {
                 let row = transcript.iter().find(|row| row["role"] == "tool" && row["toolCallId"] == call_id.as_str()).cloned().unwrap_or_else(|| json!({ "missing row of": call_id }));
                 assert_eq!(row["toolKind"], kind_of(*kind), "{}: the result event's kind is its row's", scenario["name"]);
@@ -1600,93 +1393,6 @@ fn sandboxed(value: &mut Value) {
 }
 
 
-#[cfg(node_twin)]
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/call-tool/golden.json");
-#[cfg(node_twin)]
-const MANIFEST: &str = include_str!("../../../../fixtures/call-tool/MANIFEST.json");
-#[cfg(node_twin)]
-/// Node keyed an outbound MCP tool's approval by its category (`email`); the core keys every approval by its tool and names the
-/// category beside it as `actionKind` (decided: approvals are keyed by tool, not category). Only the recorded values this changes
-/// are edited, each asserting the value Node recorded:
-///
-/// | scenario | output | Node's | the core's |
-/// |---|---|---|---|
-/// | an MCP target that needs approval, approved | `cards[0].grantAction` | `email` | `tool:mcp__mail__send`, with `actionKind: email` |
-/// | an MCP target that needs approval, approved | `audit[0].action` | `email` | `tool:mcp__mail__send` |
-fn decided(name: &Value, want: &mut Value) {
-    if name != "an MCP target that needs approval, approved" {
-        return;
-    }
-    let card = &mut want["cards"][0];
-    assert_eq!(card["grantAction"], "email", "{name}: Node recorded something else");
-    assert!(card.get("actionKind").is_none(), "{name}: Node recorded an action kind");
-    card["grantAction"] = json!("tool:mcp__mail__send");
-    card["actionKind"] = json!("email");
-    let audit = &mut want["audit"][0];
-    assert_eq!(audit["action"], "email", "{name}: Node recorded something else");
-    audit["action"] = json!("tool:mcp__mail__send");
-}
-#[cfg(node_twin)]
-/// Replays the recorded scenarios and returns the differences from Node's recording, and how much each [`NOT_COMPARED`] entry removed
-/// from the recording.
-async fn differences() -> (usize, Vec<String>, Vec<usize>) {
-    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
-    let manifest: Value = serde_json::from_str(MANIFEST).expect("manifest parses");
-    let clock_keys = strings(&manifest["normalisations"]["clockKeys"]);
-    assert!(!clock_keys.is_empty(), "the manifest declares its clock keys");
-    let top: Vec<&String> = golden.as_object().expect("golden").keys().collect();
-    assert!(top.iter().all(|key| GOLDEN_KEYS.contains(&key.as_str())), "a golden key the replay does not know: {top:?}");
-    let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    let mut failures = Vec::new();
-    let mut removed = vec![0; NOT_COMPARED.len()];
-    for scenario in scenarios {
-        let name = &scenario["name"];
-        for key in scenario.as_object().expect("scenario").keys() {
-            if !INPUTS.contains(&key.as_str()) && !OUTPUTS.contains(&key.as_str()) {
-                failures.push(format!("{name}: the recorded key `{key}` is neither an input nor a compared output"));
-            }
-        }
-        request_fields_are_the_rows(scenario);
-        result_events_are_the_rows(scenario);
-        // A scenario that hangs ends the test with a panic that names what never happened; this names the scenario.
-        eprintln!("scenario: {name}");
-        let mut got = observed(scenario, golden["tools"].as_array().expect("tools")).await;
-        clocked(&mut got, &clock_keys);
-        let mut want = json!({});
-        for key in OUTPUTS {
-            want[*key] = scenario.get(*key).cloned().unwrap_or_else(|| panic!("{name}: the recording has no `{key}`"));
-        }
-        decided(name, &mut want);
-        for (index, entry) in NOT_COMPARED.iter().enumerate() {
-            let path = steps(entry.path);
-            removed[index] += subtract(&mut want, &path);
-            subtract(&mut got, &path);
-        }
-        let produced: Vec<&String> = got.as_object().expect("observed").keys().collect();
-        assert!(produced.len() == OUTPUTS.len() && produced.iter().all(|key| OUTPUTS.contains(&key.as_str())), "the replay's outputs are the recording's: {produced:?}");
-        for key in OUTPUTS {
-            if got[*key] != want[*key] {
-                failures.push(format!("{name} / {key}: {}\n  node: {}\n  core: {}", first_difference(&want[*key], &got[*key], key), want[*key], got[*key]));
-            }
-        }
-    }
-    (scenarios.len(), failures, removed)
-}
-#[cfg(node_twin)]
-/// Node's recording and the core's replay of every scenario: each output whole, less the paths `NOT_COMPARED` lists.
-#[tokio::test]
-async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
-    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
-    let recorded_count = golden["scenarios"].as_array().expect("scenarios").len();
-    let (compared, failures, removed) = awaiting_for(Duration::from_secs(300), || "the whole replay".to_owned(), differences()).await;
-    assert_eq!(compared, recorded_count, "every recorded scenario is replayed");
-    assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
-    // An entry that removes nothing from the recording is wider than what is left out.
-    let idle: Vec<&str> = NOT_COMPARED.iter().zip(&removed).filter(|(_, count)| **count == 0).map(|(entry, _)| entry.path).collect();
-    assert!(idle.is_empty(), "NOT_COMPARED entries that remove nothing from the recording: {idle:?}");
-    // Every entry says why and where.
-    assert!(NOT_COMPARED.iter().all(|entry| !entry.why.is_empty() && !entry.compared_in.is_empty()));
-}
 
 // ---- what a bridge session's `call_tool` does, with the scenario written out ------------------------------------------------------
 

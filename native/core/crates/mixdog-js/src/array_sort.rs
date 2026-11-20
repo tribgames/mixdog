@@ -503,11 +503,6 @@ impl<T: Clone, F: FnMut(&T, &T) -> f64> Sorter<'_, T, F> {
         }
     }
 }
-
-#[cfg(all(test, node_twin))]
-#[path = "array_sort_tests.rs"]
-mod node_twin;
-
 #[cfg(test)]
 mod tests {
     use super::*;

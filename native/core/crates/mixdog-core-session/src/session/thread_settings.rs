@@ -822,7 +822,3 @@ impl DomainService for ThreadSettings {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "thread_settings_tests.rs"]
-mod tests;

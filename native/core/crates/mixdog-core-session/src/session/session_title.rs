@@ -656,165 +656,16 @@ impl TitleHooks {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    /// One scripted answer of the title model per call: the recorder's `model` list.
-    struct Script {
-        steps: Mutex<VecDeque<Value>>,
-        calls: Mutex<Vec<Value>>,
-    }
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl TitleModel for Script {
-        async fn generate(&self, source: &str, session_id: &str, locale: &str, cancel: &CancellationToken) -> Result<String, TitleError> {
-            self.calls.lock().unwrap().push(json!({ "source": source, "sessionId": session_id, "locale": locale }));
-            let next = self.steps.lock().unwrap().pop_front().unwrap_or_else(|| json!({ "title": "" }));
-            if next.get("route").is_some() {
-                return Err(TitleError::RouteUnresolved);
-            }
-            if let Some(text) = next.get("fail").and_then(Value::as_str) {
-                return Err(TitleError::Failed(text.to_owned()));
-            }
-            if next.get("hang").is_some() {
-                cancel.cancelled().await;
-                return Err(TitleError::Failed("hung".into()));
-            }
-            Ok(next["title"].as_str().unwrap_or_default().to_owned())
-        }
-    }
 
-    #[cfg(node_twin)]
-    struct Promotions {
-        taken: bool,
-        rows: Mutex<Vec<Value>>,
-    }
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl TitlePromote for Promotions {
-        async fn promote(&self, session_id: &str, title: &str, stage: &str) -> Result<bool, String> {
-            self.rows.lock().unwrap().push(json!({ "id": session_id, "title": title, "stage": stage }));
-            Ok(self.taken)
-        }
-    }
 
-    #[cfg(node_twin)]
-    struct Lines(Mutex<Vec<String>>);
 
-    #[cfg(node_twin)]
-    impl TitleLog for Lines {
-        fn line(&self, line: &str) {
-            self.0.lock().unwrap().push(line.lines().next().unwrap_or_default().trim_end().to_owned());
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn session_of(value: &Value) -> TitleSession {
-        TitleSession {
-            id: value["id"].as_str().unwrap_or_default().to_owned(),
-            title_locked: value["titleLocked"] == json!(true),
-            stage: value["generatedTitleStage"].as_str().map(str::to_owned),
-            messages: value["messages"].as_array().cloned().unwrap_or_default(),
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// Every scenario of the recorder (`session-title.mjs` driven in Node with a scripted model
-    /// and promotion): what each step returned, what the model was asked, what was promoted and
-    /// what was logged.
-    #[tokio::test(start_paused = true)]
-    async fn the_controller_equals_nodes_for_every_recorded_scenario() {
-        mixdog_rt::testing::tokens();
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-titles/golden.json")).unwrap();
-        let scenarios = golden["controller"].as_array().unwrap();
-        assert_eq!(scenarios.len(), 17);
-        for scenario in scenarios {
-            let name = scenario["name"].as_str().unwrap();
-            let model = Arc::new(Script { steps: Mutex::new(scenario_model(name).into()), calls: Mutex::default() });
-            let promote = Arc::new(Promotions { taken: name != "a promotion the session refuses is only logged", rows: Mutex::default() });
-            let lines = Arc::new(Lines(Mutex::default()));
-            let mut deps = TitleDeps::new(model.clone(), promote.clone(), lines.clone(), Arc::new(|| "ko-KR".to_owned()));
-            let timeout = name == "a generation that outlives its timeout fails and is released";
-            if timeout {
-                deps.timeout_ms = 15;
-            }
-            let titles = SessionTitles::new(deps);
-            for step in scenario["steps"].as_array().unwrap() {
-                let session = session_of(&step["session"]);
-                let returned = match step["op"].as_str().unwrap() {
-                    "first" => {
-                        let after: Option<BoxFuture<'static, Result<(), ()>>> = match step["after"].as_str() {
-                            Some("resolve") => Some(Box::pin(async { Ok(()) })),
-                            Some("reject") => Some(Box::pin(async { Err(()) })),
-                            _ => None,
-                        };
-                        let prompt = json!(step["prompt"].as_str().unwrap_or_default());
-                        Some(titles.schedule_first(&session, &prompt, after))
-                    }
-                    "third" => Some(titles.observe_third(&session)),
-                    _ => {
-                        titles.dispose_all();
-                        None
-                    }
-                };
-                mixdog_rt::time::sleep(Duration::from_millis(if timeout { 60 } else { 40 })).await;
-                assert_eq!(returned.map(Value::Bool).unwrap_or(Value::Null), step["returned"], "{name}: {}", step["op"]);
-            }
-            assert_eq!(Value::Array(model.calls.lock().unwrap().clone()), scenario["calls"], "{name}: model calls");
-            assert_eq!(Value::Array(promote.rows.lock().unwrap().clone()), scenario["promoted"], "{name}: promotions");
-            let logged: Vec<String> = lines.0.lock().unwrap().iter().map(|l| format!("[mixdog] llm-title {l}")).collect();
-            let want: Vec<String> = scenario["logs"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect();
-            assert_eq!(logged, want, "{name}: log");
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// The model behaviours the recorder scripted for a scenario (its `model` list is not part of
-    /// the golden; they are restated here, name by name).
-    fn scenario_model(name: &str) -> Vec<Value> {
-        let t = |s: &str| json!({ "title": s });
-        match name {
-            "a plain first prompt is titled by the model" => vec![t("  \"Fix the build\"  ")],
-            "a first title is tried once per session" => vec![t("One")],
-            "a long prompt is cleaned and cut to 4000 units for the model" => vec![t("Long")],
-            "the first title waits for its release and is dropped when the release fails" => vec![t("Late")],
-            "the third title takes the first three completed exchanges" => vec![t("Three turns")],
-            "the third title leaves out tools, injected rows and reasoning" => vec![t("Filtered")],
-            "a failed generation releases the session to try again" => vec![json!({ "fail": "Error: provider down" }), t("Second try")],
-            "an unresolved route disables the model titles for good" => vec![json!({ "route": true })],
-            "an empty or unusable answer promotes nothing" => vec![t("   "), t("<think>x</think>"), t("!!!")],
-            "a generation that outlives its timeout fails and is released" => vec![json!({ "hang": true }), t("After")],
-            "a promotion the session refuses is only logged" => vec![t("Refused")],
-            "disposing ends later titles" => vec![t("Never")],
-            _ => Vec::new(),
-        }
-    }
 
-    #[cfg(node_twin)]
-    /// Node's `backfillFallbackSessionTitle` (`session-fallback-title.mjs`) over each recorded header and transcript
-    /// (`fixtures/fallback-title/golden.json`, recorded by `record-fallback-title.mjs`): the title it set, or that it set none,
-    /// including the stored values JavaScript reads as falsy or truthy.
-    #[test]
-    fn a_titleless_session_is_named_as_nodes_backfill_names_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/fallback-title/golden.json")).expect("golden.json");
-        let cases = golden["cases"].as_array().expect("cases");
-        assert_eq!(cases.len(), 21);
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let header = case["header"].as_object().unwrap();
-            let history = case["messages"].as_array().unwrap();
-            let change = fallback_title_change(header, history, None, 7);
-            assert_eq!(change.is_some(), case["changed"] == true, "{name}");
-            if let Some(change) = change {
-                assert_eq!(change.set.get("title"), Some(&case["title"]), "{name}");
-                assert_eq!(change.set.get("titleUpdatedAt"), Some(&json!(7)), "{name}");
-                assert_eq!(case["titleUpdatedAtSet"], true, "{name}");
-            }
-        }
-    }
 }
 
 

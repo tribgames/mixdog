@@ -701,29 +701,3 @@ async fn a_failed_or_overlapping_webhook_run_marks_its_delivery_and_endpoint() {
 }
 
 
-/// Node's `webhookRunPrompt` / `webhookEventSummary` over the recorded deliveries (`webhook-run-prompt/golden.json`): what the run hands
-/// the owner's session is Node's whole prompt, trusted skill-selection input and event label, the label read from every header the sender sent.
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_delivery_reaches_the_session_as_nodes_prompt_selection_and_label() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-run-prompt/golden.json")).expect("golden");
-    let f = fixture().await;
-    let (dispatch, work) = endpoint(&f).await;
-    for (index, case) in golden["cases"].as_array().expect("cases").iter().enumerate() {
-        let mut stored = f.webhooks.load("gh").await.unwrap().unwrap();
-        stored.instructions = case["instructions"].as_str().expect("instructions").to_string();
-        f.webhooks.upsert(&stored).await.unwrap();
-        let id = format!("d{index}");
-        received(&f, "gh", &id).await;
-        let sent: Headers = case["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.clone(), v.as_str().expect("text").to_string())).collect();
-        dispatch.handle("gh", case["body"].clone(), &sent, &id, true).await.unwrap();
-        settled_delivery(&f, &work, "gh", &id).await;
-        let turn = &f.host.turns()[index];
-        let name = &case["name"];
-        // The turn opens with the routine preamble; the webhook prompt is what follows it, whole (an empty instruction leaves its blank lines to the join).
-        let prompt = case["prompt"].as_str().expect("prompt").trim_start_matches('\n');
-        assert!(content_of(turn).ends_with(&format!("\n\n{prompt}")), "{name}: prompt");
-        assert_eq!(json!(turn.skill_selection), case["skillSelection"], "{name}: selection");
-        assert_eq!(json!(turn.trigger.event.clone().unwrap_or_default()), case["summary"], "{name}: label");
-    }
-}

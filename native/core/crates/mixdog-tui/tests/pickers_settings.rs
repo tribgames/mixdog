@@ -81,31 +81,6 @@ impl Fake {
         self.on(action, move |_| Err(text.clone()));
     }
 
-    /// The answers of a scenario's store entry: a value, `{ "$throw": text }`, or `{ "$seq": [..] }`.
-    #[cfg(node_twin)]
-    fn script(&mut self, action: &str, spec: &Value) {
-        fn reply(spec: &Value) -> Result<Value, String> {
-            match spec.get("$throw") {
-                Some(text) => Err(text.as_str().unwrap_or_default().to_owned()),
-                None => Ok(spec.clone()),
-            }
-        }
-        match spec.get("$seq").and_then(Value::as_array) {
-            Some(answers) => {
-                let answers = answers.clone();
-                let at = Cell::new(0usize);
-                self.on(action, move |_| {
-                    let next = answers[at.get().min(answers.len() - 1)].clone();
-                    at.set(at.get() + 1);
-                    reply(&next)
-                });
-            }
-            None => {
-                let spec = spec.clone();
-                self.on(action, move |_| reply(&spec));
-            }
-        }
-    }
 
     fn open_picker_by(&mut self, opener: Opener, options: Value) {
         self.open(opener, options).expect("the fake opener never fails");
@@ -1239,76 +1214,8 @@ fn a_developer_write_acking_after_esc_does_not_re_open_the_section() {
     assert_eq!(host.calls("getDeveloperSettings").len(), 2);
 }
 
-/// The panel as `record-pickers-settings.mjs` records it.
-#[cfg(node_twin)]
-fn panel_out(panel: Option<&Panel>) -> Value {
-    let Some(panel) = panel else { return Value::Null };
-    let index_mode = panel.index_mode.map(|mode| match mode {
-        mixdog_tui_widgets::picker::IndexMode::Auto => "auto",
-        mixdog_tui_widgets::picker::IndexMode::Always => "always",
-        mixdog_tui_widgets::picker::IndexMode::Never => "never",
-    });
-    json!({
-        "title": panel.title,
-        "description": panel.description,
-        "help": panel.help,
-        "indexMode": index_mode,
-        "labelWidth": panel.label_width,
-        "metaWidth": panel.meta_width,
-        "initialIndex": panel.initial_index,
-        "loading": panel.loading,
-        "items": panel.items.iter().map(|item| json!([item.value, item.label, item.meta, item.description, item.marker])).collect::<Vec<_>>(),
-        "footer": panel.footer.iter().map(|line| match line {
-            FooterInput::Object { glyph, text, .. } => json!([glyph, text]),
-            FooterInput::Plain(text) => json!(["", text]),
-        }).collect::<Vec<_>>(),
-        "confirm": panel.confirm_buttons.iter().map(|button| button.label.clone()).collect::<Vec<_>>(),
-    })
-}
 
-#[cfg(node_twin)]
-fn opener_named(name: &str) -> Opener {
-    match name {
-        "settings" => Opener::Settings,
-        "update" => Opener::Update,
-        "autoclear" => Opener::AutoClear,
-        "profile" => Opener::Profile,
-        "developer" => Opener::Developer,
-        other => panic!("no picker {other}"),
-    }
-}
 
-/// Plays a scenario of the golden on a fake whose store answers what the scenario scripts.
-#[cfg(node_twin)]
-fn play(spec: &Value) -> (Vec<Value>, Vec<Value>) {
-    let mut host = Fake::new(if spec["kind"] == "settings" { Kind::Settings } else { Kind::Maintenance });
-    for (action, answer) in spec["store"].as_object().expect("a store") {
-        host.script(action, answer);
-    }
-    let mut panels = Vec::new();
-    for step in spec["steps"].as_array().expect("steps") {
-        let key = |name: &str| step.get(name).and_then(Value::as_str).map(str::to_owned);
-        if let Some(name) = key("open") {
-            let mut options = step["options"].clone();
-            if options.get("returnTo") == Some(&json!(true)) {
-                options["returnTo"] = json!("settings");
-            }
-            host.open_picker_by(opener_named(&name), options);
-        } else if let Some(value) = key("left") {
-            host.left(&value);
-        } else if let Some(value) = key("right") {
-            host.right(&value);
-        } else if let Some(value) = key("select") {
-            host.select(&value);
-        } else if let Some(value) = key("confirm") {
-            host.confirm(&value);
-        } else if step.get("cancel").is_some() {
-            host.cancel();
-        }
-        panels.push(panel_out(host.panel()));
-    }
-    (host.log, panels)
-}
 
 impl SlashHost for Fake {
     fn state(&self) -> SlashState {
@@ -1482,6 +1389,3 @@ fn the_openers_of_other_pickers_are_not_ours() {
     assert!(matches!(settings::open(&mut host, Opener::Model, &json!({})), Opening::NotMine));
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/pickers_settings.rs"]
-mod node_twin;

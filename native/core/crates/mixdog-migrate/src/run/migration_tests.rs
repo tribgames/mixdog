@@ -73,15 +73,6 @@ pub(crate) fn drivers() -> Vec<Arc<dyn ItemDriver>> {
     )
 }
 
-#[cfg(node_twin)]
-pub(crate) fn copy_tree(from: &Path, to: &Path) {
-    for rel in durable::walk_files(from).unwrap() {
-        let dst = to.join(&rel);
-        std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-        std::fs::copy(from.join(&rel), dst).unwrap();
-    }
-    std::fs::create_dir_all(to).unwrap();
-}
 
 /// Paths and bytes of every file under the roots, the journal excluded.
 pub(crate) fn tree_digest(roots: &MigrationRoots) -> BTreeMap<String, String> {
@@ -1114,30 +1105,5 @@ pub(crate) fn corpus() -> PathBuf {
     std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus")
 }
 
-/// The corpus data dir `data_rel` (with the corpus home) migrated in a fresh temp dir, after
-/// `edit` has changed the copied data dir.
-#[cfg(node_twin)]
-pub(crate) fn migrate_corpus(
-    data_rel: &str,
-    edit: impl FnOnce(&Path),
-) -> (tempfile::TempDir, MigrationRoots, Complete) {
-    let corpus = corpus();
-    let dir = tempfile::tempdir().unwrap();
-    let roots = MigrationRoots {
-        data: dir.path().join("data"),
-        home: dir.path().join("home"),
-        profile: None,
-    };
-    copy_tree(&corpus.join(data_rel), &roots.data);
-    copy_tree(&corpus.join("home"), &roots.home);
-    edit(&roots.data);
-    let complete = Migrator::new(roots.clone(), drivers(), MigrateOptions::default()).run().unwrap();
-    (dir, roots, complete)
-}
 
 
-/// The leading system messages 1.4.5 had, as the migrated header's prompt blocks give them back.
-#[cfg(node_twin)]
-pub(crate) fn header_system_messages(header: &serde_json::Map<String, Value>) -> Vec<Value> {
-    mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header).node_messages()
-}

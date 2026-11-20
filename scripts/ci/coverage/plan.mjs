@@ -8,15 +8,14 @@ import { digestOf, idKey, matchesAny } from './ids.mjs';
 
 export const PLAN = new URL('./plan.json', import.meta.url);
 const OSES = new Set(['linux', 'macos', 'windows']);
-// fixture/helper/template/non-test-target: not a test at all. vendor: a third-party suite. twin-only: compiled only under the owner's
-// `node_twin` cfg, which no shipped build sets. not-run-in-ci: a real test (live, manual, benchmark) no hosted runner can run.
+// fixture/helper/template/non-test-target: not a test at all. vendor: a third-party suite. not-run-in-ci: a real test (live, manual,
+// benchmark) no hosted runner can run.
 const CLASSES = new Set([
   'fixture',
   'helper',
   'template',
   'vendor',
   'non-test-target',
-  'twin-only',
   'not-run-in-ci',
   'not-run-by-decision',
   'runs-after-packaging',

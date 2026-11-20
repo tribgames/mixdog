@@ -154,7 +154,3 @@ pub(crate) fn go_twin_windows(flow: &str, recorded: &[Value]) -> Vec<Value> {
     want
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "usage_opencode_go_tests.rs"]
-mod tests;

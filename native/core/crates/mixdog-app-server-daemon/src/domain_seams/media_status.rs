@@ -62,40 +62,7 @@ impl StatusReader for MediaStatus {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    const GOLDEN: &str = include_str!("../../../../fixtures/services/media-status-twin.json");
 
-    #[cfg(node_twin)]
-    /// Node's `status domain:"media"` over each world of pins and remembered selections, rebuilt
-    /// from the `defaults.json` Node's own writers left: the dispatcher's text, key order included.
-    #[tokio::test]
-    async fn the_media_status_is_the_text_node_answers() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let mut checked = 0;
-        for case in golden["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let dir = tempfile::tempdir().unwrap();
-            if let Some(file) = case["defaults"].as_str() {
-                std::fs::create_dir_all(dir.path().join("media")).unwrap();
-                std::fs::write(dir.path().join("media").join("defaults.json"), file).unwrap();
-            }
-            let reader = MediaStatus::new(Arc::new(MediaStore::new(dir.path(), tokens.durability_io)));
-            assert_eq!(reader.domains(), ["media"]);
-            // `detail` changes nothing for this domain (recorded: `sameWithDetail`).
-            for detail in [false, true] {
-                let mut answer = Map::new();
-                answer.insert("domain".into(), Value::String("media".into()));
-                answer.extend(reader.read("media", detail, &ThreadId("t".into())).await.unwrap().as_object().cloned().unwrap());
-                assert_eq!(mixdog_js::json_stringify(&Value::Object(answer)), case["text"].as_str().unwrap(), "{name} detail={detail}");
-            }
-            assert_eq!(case["sameWithDetail"], true, "{name}");
-            checked += 1;
-        }
-        assert_eq!(checked, golden["cases"].as_array().unwrap().len());
-    }
 }
 

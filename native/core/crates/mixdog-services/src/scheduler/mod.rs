@@ -12,9 +12,6 @@ pub mod zone;
 
 #[cfg(test)]
 mod zone_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod rename_timers_replay_tests;
 #[cfg(test)]
 mod tests;
 

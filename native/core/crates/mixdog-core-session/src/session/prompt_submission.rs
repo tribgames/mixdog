@@ -907,18 +907,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// The fixture of `record-pasted-text-chars.mjs`: Node's own `materializePastedTexts` on each entry. The entry the intake
-    /// keeps is Node's whole (`chars` by `Number()`, `sizeBytes` in UTF-8 bytes, the reference the text's SHA-256).
-    #[test]
-    fn a_pasted_entry_is_kept_as_nodes_intake_keeps_it() {
-        let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/pasted-text-chars/pasted-text-chars.json")).unwrap();
-        for case in recorded["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let (part, entry) = pasted_text(&Memory::default(), &case["entry"]).unwrap().expect("a pasted text");
-            assert_eq!(entry, case["materialized"], "{name}");
-            assert_eq!(part["attachmentRef"], case["materialized"]["attachmentRef"], "{name}: the part names the same text");
-            assert_eq!(part["textKind"], json!("paste"), "{name}");
-        }
-    }
 }

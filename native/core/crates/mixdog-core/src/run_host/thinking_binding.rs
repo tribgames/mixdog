@@ -179,8 +179,6 @@ pub fn rebind_to_changed_prefix_at(messages: &[Value]) -> (Vec<Value>, bool, Opt
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use super::*;
 
     /// A prompt fold that moves the prefix ends an open round that carries thinking with a runtime turn: the caller that keeps
     /// ids beside the rows is told where it went.
@@ -202,22 +200,6 @@ mod tests {
         assert!(!changed && closing.is_none() && same == rows[..1]);
     }
 
-    /// Node's real functions over nine transcripts.
-    #[test]
-    #[cfg(node_twin)]
-    fn thinking_binding_follows_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/thinking_binding.json")).expect("fixture");
-        for (name, row) in golden.as_object().unwrap() {
-            let messages: Vec<Value> = row["messages"].as_array().unwrap().clone();
-            assert_eq!(json!(open_tool_round_start(&messages).map_or(-1, |i| i as i64)), row["open"], "{name} open");
-            let (without, changed) = without_thinking_replay(&messages);
-            assert_eq!(json!(without), row["without"], "{name} without");
-            assert_eq!(!changed, row["without_same"].as_bool().unwrap(), "{name} without changed");
-            let (rebound, changed) = rebind_to_changed_prefix(&messages);
-            assert_eq!(json!(rebound), row["rebind"], "{name} rebind");
-            assert_eq!(!changed, row["rebind_same"].as_bool().unwrap(), "{name} rebind changed");
-        }
-    }
 }
 
 

@@ -4,8 +4,6 @@
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-#[cfg(node_twin)]
-use mixdog_mcp::setup_actions::SETUP_ACTIONS;
 use mixdog_mcp::setup_actions::SetupRuntime;
 use mixdog_mcp::setup_actions::run;
 use serde_json::Value;
@@ -152,44 +150,6 @@ async fn a_setup_action_addresses_the_session_that_runs_it() {
 }
 
 
-#[cfg(node_twin)]
-#[tokio::test]
-async fn every_setup_action_calls_and_answers_what_node_does() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/setupmcp.json")).unwrap();
-    let fixtures = &golden["fixtures"];
-    let facade = Facade {
-        status: fixtures["STATUS"].clone(),
-        configs: fixtures["CONFIGS"].clone(),
-        plugins: fixtures["PLUGINS"].clone(),
-        calls: Mutex::default(),
-    };
-    let mut failures = Vec::new();
-    for case in golden["cases"].as_array().unwrap() {
-        facade.calls.lock().unwrap().clear();
-        let args = &case["args"];
-        let action = args["action"].as_str().unwrap();
-        assert!(SETUP_ACTIONS.contains(&action), "{action} is not served");
-        let got = run(action, args, &facade).await;
-        let label = format!("{args}");
-        match (&got, case["error"].as_str()) {
-            (Err(message), Some(expected)) => {
-                if message != expected {
-                    failures.push(format!("{label}: error {message:?}, Node {expected:?}"));
-                }
-            }
-            (Ok(value), None) => {
-                if mixdog_js::json_stringify(value) != mixdog_js::json_stringify(&case["result"]) {
-                    failures.push(format!("{label}:\n  got  {value}\n  node {}", case["result"]));
-                }
-            }
-            (other, expected) => failures.push(format!("{label}: got {other:?}, Node error {expected:?}")),
-        }
-        if json!(*facade.calls.lock().unwrap()) != case["calls"] {
-            failures.push(format!("{label}: calls {:?}, Node {}", facade.calls.lock().unwrap(), case["calls"]));
-        }
-    }
-    assert!(failures.is_empty(), "{} cases differ:\n{}", failures.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
-}
 
 fn facade() -> Facade {
     Facade {

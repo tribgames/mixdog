@@ -12,8 +12,6 @@ use mixdog_term::selection::{CellSpan, SelectedRow, SelectionMode, SelectionRect
 use mixdog_term::{MouseKind, MouseReport};
 use mixdog_tui::mouse::scroll::SelectionScroll;
 use mixdog_tui::mouse::{HintTone, Mouse, MouseConfig, MouseHost, Point, PromptBoxRect, PromptSelection, Region, RenderStore, SelectionIo, SlashPalette, SpanKind};
-#[cfg(node_twin)]
-use mixdog_tui::mouse::FocusMove;
 use mixdog_tui::slash::commands::OverlayOwner;
 use mixdog_tui::transcript::scroll::anchor::Geometry;
 use mixdog_tui::transcript::scroll::coalesce::ScrollCoalescer;
@@ -383,11 +381,6 @@ impl MouseHost for World {
 
 // ── the recording ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/// JSON numbers the way JavaScript prints them: a whole number has no fraction.
-#[cfg(node_twin)]
-fn num(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() < 1e15 { json!(value as i64) } else { json!(value) }
-}
 
 fn rect_json(rect: &SelectionRect) -> Value {
     let mut out = Map::new();
@@ -408,132 +401,17 @@ fn rect_json(rect: &SelectionRect) -> Value {
     Value::Object(out)
 }
 
-#[cfg(node_twin)]
-fn point_json(point: Option<Point>) -> Value {
-    point.map_or(Value::Null, |p| json!({"x": p.x, "y": p.y}))
-}
 
-#[cfg(node_twin)]
-fn region_json(region: Option<Region>) -> Value {
-    match region {
-        None => Value::Null,
-        Some(Region::Transcript) => json!("transcript"),
-        Some(Region::Status) => json!("status"),
-        Some(Region::Prompt) => json!("prompt"),
-    }
-}
 
-#[cfg(node_twin)]
-fn snapshot(world: &mut World, mouse: &Mouse) -> Value {
-    let drag = &mouse.drag;
-    let stitched = mouse.stitched_selection_text(world.scroll.target);
-    let span = drag.anchor_span.map(|span| {
-        json!({"lo": point_json(Some(span.lo)), "hi": point_json(Some(span.hi)), "kind": if span.kind == SpanKind::Word { "word" } else { "line" }})
-    });
-    let out = json!({
-        "drag": {
-            "active": drag.active,
-            "region": region_json(drag.region),
-            "anchor": point_json(drag.anchor),
-            "anchorScroll": num(drag.anchor_scroll),
-            "last": point_json(drag.last),
-            "rect": drag.rect.as_ref().map_or(Value::Null, rect_json),
-            "anchorSpan": span.unwrap_or(Value::Null),
-        },
-        "lastClick": mouse.last_click.map_or(Value::Null, |click| json!({"x": click.x, "y": click.y, "t": click.t_ms, "count": click.count})),
-        "target": num(world.scroll.target),
-        "selectionText": mouse.selection_text,
-        "stitched": {"text": stitched.text, "complete": stitched.complete},
-        "render": std::mem::take(&mut world.store.log),
-        "prompt": std::mem::take(&mut world.prompt.log),
-        "slash": std::mem::take(&mut world.slash_log),
-        "hints": std::mem::take(&mut world.hints),
-        "clipboard": std::mem::take(&mut world.clipboard),
-        "zoom": std::mem::take(&mut world.zoom),
-        "repaints": std::mem::take(&mut world.store.repaints),
-    });
-    out
-}
 
-#[cfg(node_twin)]
-fn report(step: &Value) -> MouseReport {
-    let button = step["b"].as_i64().expect("button") as i32;
-    let (col, row) = (step["x"].as_i64().expect("x") as i32, step["y"].as_i64().expect("y") as i32);
-    let kind = if step["a"] == "release" {
-        MouseKind::Release
-    } else if button & 32 != 0 {
-        MouseKind::Drag
-    } else {
-        MouseKind::Press
-    };
-    MouseReport { kind, button, col, row, shift: button & 4 != 0, alt: button & 8 != 0, ctrl: button & 16 != 0 }
-}
 
-#[cfg(node_twin)]
-fn wheel_report(step: &Value) -> MouseReport {
-    let up = step["dir"].as_i64().expect("direction") > 0;
-    let ctrl = step["ctrl"].as_bool().unwrap_or(false);
-    MouseReport {
-        kind: if up { MouseKind::WheelUp } else { MouseKind::WheelDown },
-        button: (if up { 64 } else { 65 }) + if ctrl { 16 } else { 0 },
-        col: 0,
-        row: 0,
-        shift: false,
-        alt: false,
-        ctrl,
-    }
-}
 
-#[cfg(node_twin)]
-fn focus_move(name: &str) -> Option<FocusMove> {
-    Some(match name {
-        "left" => FocusMove::Left,
-        "right" => FocusMove::Right,
-        "up" => FocusMove::Up,
-        "down" => FocusMove::Down,
-        "lineStart" => FocusMove::LineStart,
-        "lineEnd" => FocusMove::LineEnd,
-        _ => return None,
-    })
-}
 
-/// A frame passes: fires what is due up to `until` in time order, the deferred capture and harvest running after every batch.
-#[cfg(node_twin)]
-fn advance(world: &mut World, mouse: &mut Mouse, until: u64) {
-    mouse.after_frame(world);
-    loop {
-        let next = [mouse.next_deadline(), world.coalescer.deadline()].into_iter().flatten().min();
-        let Some(due) = next.filter(|due| *due <= until) else { break };
-        world.now = world.now.max(due);
-        let now = world.now;
-        mouse.tick(world, now);
-        if let Some(rows) = world.coalescer.tick(now) {
-            world.scroll_now(mouse, rows);
-        }
-        mouse.after_frame(world);
-    }
-    world.now = world.now.max(until);
-    mouse.after_frame(world);
-}
 
 fn config(windows_terminal: bool) -> MouseConfig {
     MouseConfig::from_lookup(|name| (windows_terminal && name == "WT_SESSION").then(|| "recorded-wt-session".to_owned()), STATUSLINE_BAND_ROWS)
 }
 
-#[cfg(node_twin)]
-fn mouse_for(case: &Value) -> (World, Mouse) {
-    let cfg = config(case["wt"].as_bool().unwrap_or(false));
-    let target = case["target"].as_f64().unwrap_or(0.0);
-    let world = World::new(target, case["promptBox"].is_object(), cfg.tuning.coalesce_ms);
-    let mut mouse = Mouse::new(cfg);
-    mouse.set_frame(f64::from(FRAME_ROWS), COLUMNS);
-    mouse.set_transcript_viewport(0.0, (VIEW_ROWS - 1) as f64);
-    if case["promptBox"].is_object() {
-        let field = |key: &str| case["promptBox"][key].as_i64().expect("prompt box field") as i32;
-        mouse.set_prompt_box_rect(Some(PromptBoxRect { top: field("top"), left: field("left"), height: field("height"), content_width: field("contentWidth") }));
-    }
-    (world, mouse)
-}
 
 // ── use-mouse-input.test.mjs ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -967,6 +845,3 @@ fn an_overlay_that_owns_the_keys_blocks_the_transcript_scroll() {
     assert_eq!(world.scroll.target, 5.0);
 }
 
-#[cfg(node_twin)]
-#[path = "node-twin/mouse.rs"]
-mod node_twin;

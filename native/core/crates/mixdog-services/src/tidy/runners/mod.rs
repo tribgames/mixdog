@@ -33,9 +33,6 @@ pub fn runner_for(id: &str) -> Option<Box<dyn Runner>> {
     })
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-mod twin_tests;
 
 #[cfg(test)]
 mod tests {

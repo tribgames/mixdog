@@ -135,7 +135,3 @@ pub fn snapshot(summary: &Value) -> Value {
     Value::Object(out)
 }
 
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "usage_antigravity_tests.rs"]
-mod tests;

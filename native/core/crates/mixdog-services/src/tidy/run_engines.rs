@@ -335,24 +335,8 @@ mod tests {
         assert_eq!(fix_candidates(&result), ["a.ts", "b.ts"]);
     }
 
-    #[cfg(node_twin)]
-    /// A fake `dotnet`: writes the empty report it was asked for.
-    struct FakeDotnet;
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl Spawn for FakeDotnet {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
-            let at = args.iter().position(|a| a == "--report").expect("a report path");
-            std::fs::write(&args[at + 1], "[]").unwrap();
-            ProcessResult::default()
-        }
-    }
 
-    #[cfg(node_twin)]
-    fn recorded_engine() -> Resolved {
-        Resolved { id: "dotnet-format".into(), source: "recorded".into(), command: "dotnet".into(), languages: vec!["csharp".into()], ..Default::default() }
-    }
 
     /// A read that never ran is an error: an empty map would make a rewritten file look unchanged.
     #[tokio::test]
@@ -366,24 +350,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn cleanup_golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/dotnet-format-cleanup/golden.json")).unwrap()
-    }
-    /// Node's real engine suite over its real dotnet-format runner (`record-dotnet-format-cleanup.mjs`): a clean
-    /// check, and a runner that threw out of its `finally`: no files checked, only the error.
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn a_runner_that_threw_is_the_engines_error_alone_as_nodes_wrapper_reports_it() {
-        let golden = cleanup_golden();
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.cs"), "class A {}\n").unwrap();
-        let mut o = SuiteOptions::new(dir.path(), vec!["a.cs".into()], &Processes::for_tests());
-        o.spawn = Arc::new(FakeDotnet);
-        let engine = recorded_engine();
-        let out = run_engine_suite(&[&engine], &o).await;
-        assert_eq!(out[0], golden["withoutFailure"]["result"]);
-        let message = golden["failedCleanup"]["error"]["message"].as_str().unwrap();
-        assert_eq!(thrown(&engine, message), golden["failedCleanup"]["result"]);
-    }
 }

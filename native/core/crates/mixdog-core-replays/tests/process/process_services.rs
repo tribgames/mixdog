@@ -19,8 +19,6 @@ use mixdog_services::local_provider::server_process::{LoopbackHealth, SystemLaun
 use mixdog_services::local_provider::{LocalProvider, Parts};
 use mixdog_services::tidy::process::Processes;
 use serde_json::json;
-#[cfg(node_twin)]
-use serde_json::Value;
 
 use mixdog_core::run_host::fixture_fs;
 use mixdog_core::run_host::local_models::ManagedLocalModels;
@@ -28,10 +26,6 @@ use mixdog_core::run_host::media::{AttachmentFacts, StoredFacts};
 use mixdog_core::run_host::process::{HostInfo, LocalModels};
 use mixdog_core::run_host::vault::KeychainVault;
 
-#[cfg(node_twin)]
-fn golden(text: &str) -> Value {
-    serde_json::from_str(text).unwrap()
-}
 
 /// The machine itself: libuv's `os.type()` and `os.release()` and Node's `os.arch()`.
 #[test]
@@ -63,51 +57,9 @@ fn this_machine_is_read_as_libuv_does() {
 /// decrypts for the user who made it, so the tests make theirs with this call at run time.
 #[cfg(windows)]
 mod node_dpapi {
-    #[cfg(node_twin)]
-    use std::sync::Arc;
-    #[cfg(node_twin)]
-    use mixdog_services::tidy::process::Processes;
-    #[cfg(node_twin)]
-    use mixdog_services::tidy::process::RunOptions;
-
-    #[cfg(node_twin)]
-    const PREAMBLE: &str = "Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;";
-    #[cfg(node_twin)]
-    const SCOPE: &str = "$scope = [System.Security.Cryptography.DataProtectionScope]::CurrentUser;";
 
 
-    #[cfg(node_twin)]
-    async fn powershell(script: &str, input: Option<&str>) -> String {
-        let root = std::env::var("SystemRoot").unwrap();
-        let exe = std::path::Path::new(&root).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
-        let tokens = mixdog_rt::testing::tokens();
-        let processes = Processes::new(Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default())), tokens.durability_io);
-        let args = ["-NonInteractive", "-NoProfile", "-Command", script].map(str::to_owned);
-        let cwd = std::env::temp_dir();
-        let mut options = RunOptions::new(&cwd);
-        options.input = Some(input.unwrap_or("").as_bytes().to_vec());
-        let out = processes.run(&exe.to_string_lossy(), &args, options).await;
-        assert_eq!(out.code, 0, "{}", out.stderr);
-        out.stdout
-    }
-    /// `win32Set`'s encryption: the base64 of the DPAPI blob of the UTF-8 value.
-    #[cfg(node_twin)]
-    pub async fn protect(value: &str) -> String {
-        use base64::Engine as _;
-        let script = format!(
-            "& {{ {PREAMBLE} $bytes = [Convert]::FromBase64String(([Console]::In.ReadToEnd()).Trim()); {SCOPE} $enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, $scope); [Convert]::ToBase64String($enc) }}"
-        );
-        powershell(&script, Some(&base64::engine::general_purpose::STANDARD.encode(value))).await.trim().to_owned()
-    }
-    /// `win32Get`'s decryption of a file's content.
-    #[cfg(node_twin)]
-    pub async fn unprotect(file: &str) -> String {
-        let script = format!(
-            "& {{ {PREAMBLE} $b64 = $args[0]; $enc = [Convert]::FromBase64String($b64); {SCOPE} $dec = [System.Security.Cryptography.ProtectedData]::Unprotect($enc, $null, $scope); [System.Text.Encoding]::UTF8.GetString($dec) }} '{}'",
-            file.trim()
-        );
-        powershell(&script, None).await.trim().to_owned()
-    }
+
 }
 struct Failing;
 
@@ -300,109 +252,5 @@ async fn the_media_layer_passes_a_text_request_through() {
 }
 
 
-#[cfg(node_twin)]
-const HOST: &str = include_str!("../../../../fixtures/process-services/host.json");
-#[cfg(node_twin)]
-const SECRETS: &str = include_str!("../../../../fixtures/process-services/secrets.json");
-#[cfg(node_twin)]
-const LOCAL: &str = include_str!("../../../../fixtures/process-services/local-models.json");
 // ---- HostInfo ----------------------------------------------------------------------------
 
-/// `codexUserAgent()`'s `(<os> <release>; <arch>)` for Node's `os.type()`, `os.release()` and
-/// `os.arch()`.
-#[test]
-#[cfg(node_twin)]
-fn the_host_is_described_in_codexs_vocabulary_as_node_does() {
-    let golden = golden(HOST);
-    for case in golden["cases"].as_array().unwrap() {
-        let text = |key: &str| case[key].as_str().unwrap();
-        let host = HostInfo::from_node(text("type"), text("release"), text("arch"));
-        assert_eq!(format!("{} {}; {}", host.os_type, host.os_release, host.arch), text("platform"), "{case}");
-    }
-}
-/// A DPAPI file made by Node's DPAPI call is read as Node's `getSecret` reads it. The blob is
-/// made during the run (so it opens for whoever runs the test); the recorded fixture fixes the
-/// file's structure (the blob header) and the value `getSecret` answered.
-#[cfg(windows)]
-#[tokio::test]
-#[cfg(node_twin)]
-async fn a_dpapi_file_node_wrote_is_read_by_the_vault() {
-    let golden = golden(SECRETS);
-    let dpapi = &golden["dpapi"];
-    let prefix = dpapi["filePrefix"].as_u64().unwrap() as usize;
-    let dir = tempfile::tempdir().unwrap();
-    for case in dpapi["cases"].as_array().unwrap() {
-        let account = case["account"].as_str().unwrap();
-        let file = node_dpapi::protect(case["value"].as_str().unwrap()).await;
-        assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
-        fixture_fs::write(dir.path().join("secrets").join(format!("{account}.dpapi")), &file);
-    }
-    let vault = KeychainVault::open(mixdog_rt::testing::tokens().durability_io, dir.path());
-    for case in dpapi["cases"].as_array().unwrap() {
-        let account = case["account"].as_str().unwrap();
-        assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-        assert!(!vault.is_fallback(account).await.unwrap(), "{account}");
-    }
-    assert_eq!(vault.get("agent.never.apiKey").await.unwrap(), None);
-}
-/// What the vault writes is what Node reads: Node's DPAPI call decrypts the account's `.dpapi`
-/// file to the value, the file has the recorded structure, and a delete empties the account.
-#[cfg(windows)]
-#[tokio::test]
-#[cfg(node_twin)]
-async fn the_vault_stores_the_values_node_stored_in_the_same_file_format() {
-    let golden = golden(SECRETS);
-    let dpapi = &golden["dpapi"];
-    let prefix = dpapi["filePrefix"].as_u64().unwrap() as usize;
-    let dir = tempfile::tempdir().unwrap();
-    let vault = KeychainVault::open(mixdog_rt::testing::tokens().durability_io, dir.path());
-    for case in dpapi["cases"].as_array().unwrap() {
-        let (account, value) = (case["account"].as_str().unwrap(), case["value"].as_str().unwrap());
-        vault.set(account, value).await.unwrap();
-        let file = fixture_fs::read_to_string(dir.path().join("secrets").join(format!("{account}.dpapi"))).unwrap();
-        assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
-        assert_eq!(node_dpapi::unprotect(&file).await, case["expected"].as_str().unwrap(), "{account}: Node's decryption of the vault's file");
-        assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-    }
-    let account = dpapi["cases"][0]["account"].as_str().unwrap();
-    vault.delete(account).await.unwrap();
-    assert_eq!(vault.get(account).await.unwrap(), None);
-    vault.delete(account).await.unwrap();
-}
-/// `localProviderModelEntry(id)`: the bundled manifest and the registered index Node wrote.
-#[tokio::test]
-#[cfg(node_twin)]
-async fn the_local_entry_is_nodes_catalog_entry() {
-    let golden = golden(LOCAL);
-    let dir = tempfile::tempdir().unwrap();
-    let (models, _provider) = local_models(dir.path(), golden["index"].as_str());
-    for case in golden["entries"].as_array().unwrap() {
-        let id = case["id"].as_str().unwrap();
-        let got = models.entry(id);
-        match case["entry"].as_object() {
-            None => assert!(got.is_none(), "{id:?}"),
-            Some(want) => {
-                let got = got.unwrap_or_else(|| panic!("{id:?} has an entry"));
-                // A registered model without a name prints as `undefined`.
-                assert_eq!(got.name, want["name"].as_str().unwrap_or("undefined"), "{id}");
-                assert_eq!(got.supports_function_calling, want["supportsFunctionCalling"].as_bool(), "{id}");
-            }
-        }
-    }
-}
-/// `localModelState(model).capabilities.tools` after the model server's props were recorded.
-#[tokio::test]
-#[cfg(node_twin)]
-async fn the_runtime_tool_support_is_what_the_loaded_server_reported() {
-    let golden = golden(LOCAL);
-    let dir = tempfile::tempdir().unwrap();
-    let (models, provider) = local_models(dir.path(), None);
-    for load in golden["loads"].as_array().unwrap() {
-        let id = load["id"].as_str().unwrap();
-        provider.catalog.state.record_load(id, &load["props"].as_object().map_or(Value::Null, |_| load["props"].clone()), Some(12.0));
-        assert_eq!(models.runtime_tools(id), load["tools"].as_bool(), "{id}");
-    }
-    let never = &golden["never"];
-    assert!(never["capabilities"].is_null());
-    assert_eq!(models.runtime_tools(never["id"].as_str().unwrap()), None);
-}

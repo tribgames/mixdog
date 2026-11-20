@@ -7,63 +7,6 @@ use super::SecretStore;
 use super::status::StatusTracker;
 use super::status::TrackedStore;
 
-/// The recorded replay of the reference runtime's health on Windows.
-#[cfg(all(windows, node_twin))]
-mod golden {
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
-    use serde_json::Value;
-
-    use crate::status::FailureCode;
-    use crate::status::StatusTracker;
-
-    fn code(name: Option<&str>) -> FailureCode {
-        match name {
-            Some("KEYRING_UNAVAILABLE") => FailureCode::Unavailable,
-            Some("KEYRING_UNREACHABLE") => FailureCode::Unreachable,
-            _ => FailureCode::Other,
-        }
-    }
-
-    fn replay(golden: &str) {
-        let golden: Value = serde_json::from_str(golden).unwrap();
-        let linux = golden["platform"] == "linux";
-        let notices = Arc::new(AtomicUsize::new(0));
-        let counted = Arc::clone(&notices);
-        let tracker = StatusTracker::new(linux, Arc::new(move || {
-            counted.fetch_add(1, Ordering::SeqCst);
-        }));
-        for step in golden["steps"].as_array().unwrap() {
-            let before = notices.load(Ordering::SeqCst);
-            let message = step["message"].as_str().unwrap_or_default();
-            let failure = code(step["code"].as_str());
-            match step["step"].as_str().unwrap() {
-                "fresh" => {}
-                "ok" => tracker.note_ok(),
-                "fail" => tracker.note_failure(message, failure),
-                "syncFail" => tracker.note_sync_outcome(Some((message, failure))),
-                "syncOk" => tracker.note_sync_outcome(None),
-                other => panic!("unknown step {other}"),
-            }
-            let got = tracker.snapshot();
-            let want = &step["status"];
-            assert_eq!((got.state.as_str(), got.message.as_str(), got.fallback), (want["state"].as_str().unwrap(), want["message"].as_str().unwrap(), want["fallback"].as_bool().unwrap()), "{step}");
-            let noticed = step.get("noticed").and_then(Value::as_u64).unwrap_or(0) as usize;
-            assert_eq!(notices.load(Ordering::SeqCst) - before, noticed, "notices: {step}");
-        }
-    }
-
-    #[test]
-    fn the_windows_health_is_nodes() {
-        replay(include_str!("../../../fixtures/keychain-status-win32/golden.json"));
-    }
-}
-
-
-
-
 /// A store that fails or never runs, on demand.
 struct Scripted(Mutex<Vec<Result<Option<String>, SecretError>>>);
 

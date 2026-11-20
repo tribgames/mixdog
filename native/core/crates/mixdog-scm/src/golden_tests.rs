@@ -1994,8 +1994,6 @@ fn a_review_revision_names_the_file_identity_or_deleted() {
 }
 
 
-#[cfg(node_twin)]
-include!("node-twin/golden_tests.rs");
 
 /// What a dirty repository reads as: the status rows with their staged and unstaged counts, the branches, the log with its refs,
 /// one commit's files, and a diff of an untracked file.

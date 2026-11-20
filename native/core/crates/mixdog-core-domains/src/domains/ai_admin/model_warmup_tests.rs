@@ -1,5 +1,5 @@
-//! The provider model cache's warm (`model_warmup.rs`) and the one load it shares with the readers, against the Node
-//! recording (`fixtures/model-lists/node-model-lists.json`) and the fake model endpoint of `model_list_node_tests`.
+//! The provider model cache's warm (`model_warmup.rs`) and the one load it shares with the readers, over the fake model endpoint of
+//! `model_list_rig`.
 //! Every wait is on a gate, a counter or a task that ends; a load held at the endpoint is the test's, not the scheduler's.
 
 use std::sync::Arc;
@@ -10,16 +10,12 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::model_list_rig::{Rig, custom_discovery, custom_manual, rig, seeds};
-#[cfg(node_twin)]
-use super::model_list_rig::{assert_rows, node_calls, recording, three_reads, web_search};
 use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates, WarmupMarks};
 use crate::domains::ai_account::SetupSource;
 use crate::domains::ai_account::auth_refresh::{AuthRefreshFlow, ProviderEffects};
 use crate::domains::ai_account::dashboards::Dashboards;
 use mixdog_ai::admission::Admission;
 use crate::domains::ai_account::collaborators::AuthRefresh;
-#[cfg(node_twin)]
-use crate::domains::ai_account::collaborators::WebSearchModels;
 
 #[derive(Default)]
 struct Gates {
@@ -289,36 +285,6 @@ async fn the_account_change_warm_loads_once_at_once_and_is_not_adopted() {
     assert!(!reader.await.unwrap().unwrap().is_empty());
     warm.settle().await;
     assert_eq!(hits(&shared) - before, single);
-}
-#[cfg(node_twin)]
-// The composed startup with no reader: Node's daemon had loaded its cache by the time of the first read, so a quick
-// read is complete and the web-search read comes from the cache; every recorded profile with an enabled provider reads
-// the recorded full rows afterwards.
-#[tokio::test]
-async fn startup_with_no_reader_leaves_the_cache_loaded_as_nodes_boot_warm_does() {
-    let recording = recording();
-    let mut complete = 0;
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
-        let name = scenario["name"].as_str().unwrap();
-        let [quick, full, search] = node_calls(scenario);
-        let rig = rig(scenario, &recording["seeds"], false).await;
-        let warm = warmup(&rig, ON, Arc::default());
-        warm.start();
-        warm.settle().await;
-        if full.as_array().is_some_and(Vec::is_empty) {
-            assert!(!rig.service.cache_loaded(), "{name}: no enabled provider, nothing to load");
-            continue;
-        }
-        assert!(rig.service.cache_loaded(), "{name}: loaded at startup");
-        if quick.get(0).is_some_and(|row| row["catalogComplete"] == Value::Bool(true)) {
-            assert_rows(&format!("{name}: quick"), &rig.service.rows(false, true).await.unwrap(), quick);
-            let found = web_search(&rig).list(None, false).await.unwrap();
-            assert_rows(&format!("{name}: web search"), found.as_array().unwrap(), search);
-            complete += 1;
-        }
-        assert_rows(&format!("{name}: full"), &rig.service.rows(false, false).await.unwrap(), full);
-    }
-    assert!(complete > 0);
 }
 // The production account-effects wrapper over the rig: the readiness' invalidation hook is the model list's, as the daemon binds it.
 fn account_flow(rig: &Rig, warm: Arc<ModelWarmup>) -> Arc<AuthRefreshFlow<ProviderEffects>> {

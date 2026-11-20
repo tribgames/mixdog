@@ -85,9 +85,3 @@ impl AgentRegistry {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;

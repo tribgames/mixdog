@@ -141,12 +141,6 @@ function matching(tokens, at) {
   throw new Error(`unbalanced ${open} at line ${tokens[at].line}`);
 }
 
-const sourceText = (tokens) =>
-  tokens
-    .map((token) => (token.t === 'str' ? JSON.stringify(token.v) : token.v))
-    .join(' ')
-    .replace(/ ?([(),]) ?/g, '$1')
-    .replace(/ = /g, '=');
 
 function readAttribute(tokens, at) {
   // tokens[at] is '#'
@@ -168,12 +162,11 @@ function readAttribute(tokens, at) {
 function parseMod(tokens, i, attrs, ctx, out) {
   const token = tokens[i];
   const name = tokens[i + 1].v;
-  const here = { ...ctx, cfg: [...ctx.cfg, ...cfgOf(attrs)] };
   const pathAttr = attrs.find((attr) => attr.path.join('::') === 'path');
   if (tokens[i + 2]?.v === '{') {
     const end = matching(tokens, i + 2);
     const dir = pathAttr ? posix.join(ctx.dir, str(pathAttr)) : posix.join(ctx.dir, name);
-    parseItems(tokens, i + 3, end, { ...here, modPath: [...ctx.modPath, name], dir, inline: true }, out);
+    parseItems(tokens, i + 3, end, { ...ctx, modPath: [...ctx.modPath, name], dir, inline: true }, out);
     return end + 1;
   }
   // a #[path] below an inline module is relative to the directory of that module, a file's own otherwise
@@ -181,10 +174,7 @@ function parseMod(tokens, i, attrs, ctx, out) {
     ? [posix.join(ctx.inline ? ctx.dir : posix.dirname(ctx.file), str(pathAttr))]
     : [posix.join(ctx.dir, `${name}.rs`), posix.join(ctx.dir, name, 'mod.rs')];
   const found = wanted.filter((candidate) => ctx.files.has(candidate));
-  // a module only the owner's machine compiles (cfg(node_twin)) names material that is not tracked
-  if (found.length === 0 && isLocalOnly(here.cfg)) {
-    /* nothing tracked to declare */
-  } else if (found.length !== 1)
+  if (found.length !== 1)
     out.errors.push({
       code: 'unresolved-mod',
       path: ctx.file,
@@ -195,7 +185,7 @@ function parseMod(tokens, i, attrs, ctx, out) {
     const file = found[0];
     const isModRs = posix.basename(file) === 'mod.rs' || Boolean(pathAttr);
     out.visit(file, {
-      ...here,
+      ...ctx,
       modPath: [...ctx.modPath, name],
       dir: isModRs ? posix.dirname(file) : posix.join(posix.dirname(file), posix.basename(file, '.rs')),
       inline: false,
@@ -249,8 +239,7 @@ function parseItems(tokens, from, to, ctx, out) {
     const token = tokens[i];
     if (token.t === 'p' && token.v === '#') {
       const attr = readAttribute(tokens, i);
-      if (attr.inner) ctx.cfg = [...ctx.cfg, ...cfgOf([attr])];
-      else attrs.push(attr);
+      if (!attr.inner) attrs.push(attr);
       i = attr.next;
       continue;
     }
@@ -306,9 +295,8 @@ function parseItems(tokens, from, to, ctx, out) {
       const body = tokens.slice(i + 3, end);
       if (token.v === 'include' && body[0]?.t === 'str') {
         const file = posix.join(posix.dirname(ctx.file), body[0].v);
-        const cfg = [...ctx.cfg, ...cfgOf(attrs)];
-        if (ctx.files.has(file)) out.visit(file, { ...ctx, cfg, dir: ctx.dir, include: true, inline: false });
-        else if (!isLocalOnly(cfg))
+        if (ctx.files.has(file)) out.visit(file, { ...ctx, dir: ctx.dir, include: true, inline: false });
+        else
           out.errors.push({
             code: 'unresolved-include',
             path: ctx.file,
@@ -331,15 +319,7 @@ function parseItems(tokens, from, to, ctx, out) {
   }
 }
 
-// `node_twin` is the one reviewed never-built cfg: the comparison tests and their recorded data exist on the owner's machine only
-// (docs/testing.md); no CI build sets it, so what it guards is not part of the release denominator. A predicate counts when the atom
-// is not negated.
-export const isLocalOnly = (cfg) =>
-  cfg.some((predicate) => /\bnode_twin\b/.test(predicate) && !/not\(node_twin\)/.test(predicate));
-
 const str = (attr) => attr.args.find((arg) => arg.t === 'str')?.v ?? '';
-const cfgOf = (attrs) =>
-  attrs.filter((attr) => attr.path.join('::') === 'cfg').map((attr) => sourceText(attr.args.slice(1, -1)));
 
 /** Reads one `.rs` file and everything its `mod` declarations reach. */
 export function scanCrateRoot(root, files, read) {
@@ -365,13 +345,13 @@ export function scanCrateRoot(root, files, read) {
       return;
     }
     try {
-      parseItems(tokens, 0, tokens.length, { ...ctx, file, files, cfg: [...ctx.cfg] }, out);
+      parseItems(tokens, 0, tokens.length, { ...ctx, file, files }, out);
     } catch (error) {
       out.errors.push({ code: 'rust-parse-error', path: file, line: 0, message: error.message });
     }
   };
   const dir = posix.dirname(root);
-  out.visit(root, { modPath: [], cfg: [], dir, inline: false });
+  out.visit(root, { modPath: [], dir, inline: false });
   return out;
 }
 

@@ -315,51 +315,8 @@ fn tool_row(item: &ThreadItem) -> Option<Row> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded fixture")]
-    #[cfg(node_twin)]
-    use std::path::Path;
 
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    /// Node's `pushAsyncAgentResponse` over recorded completions (`record-agent-response.mjs`):
-    /// after every delivery the transcript's items equal Node's, field for field.
-    #[test]
-    fn agent_response_equals_nodes() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/agent-response/cases.json");
-        let fixture: Value = serde_json::from_slice(&std::fs::read(path).expect("cases.json")).expect("json");
-        let mut cards = 0;
-        for case in fixture["cases"].as_array().expect("cases") {
-            let name = case["name"].as_str().unwrap_or("?");
-            let mut items: Vec<ThreadItem> = Vec::new();
-            for (completion, step) in case["completions"].as_array().expect("completions").iter().zip(case["steps"].as_array().expect("steps")) {
-                let content = completion["content"].as_str().expect("content");
-                let delivered = agent_response(
-                    &Completion { content, meta: &completion["meta"] },
-                    step["id"].as_str().expect("id"),
-                    items.last(),
-                    step["now"].as_i64().expect("now"),
-                );
-                if step["action"] != "execution-ui" {
-                    assert_eq!(delivered, None, "{name}: no card for {}", step["action"]);
-                    continue;
-                }
-                match delivered.unwrap_or_else(|| panic!("{name}: a card")) {
-                    Delivery::Push(item) => items.push(item),
-                    Delivery::Patch(item) => *items.last_mut().expect("tail") = item,
-                }
-                cards += 1;
-                let got: Vec<Value> = items.iter().map(|i| Value::Object(tool_row(i).expect("tool"))).collect();
-                // `expanded` is the TUI's own fold state; a typed item has no home for it.
-                let mut want = step["items"].clone();
-                for item in want.as_array_mut().expect("items") {
-                    item.as_object_mut().expect("item").shift_remove("expanded");
-                }
-                assert_eq!(Value::Array(got), want, "{name}: items after {}", step["id"]);
-            }
-        }
-        assert!(cards >= 10);
-    }
 }
 
 

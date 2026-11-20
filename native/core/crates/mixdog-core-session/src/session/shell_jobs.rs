@@ -281,13 +281,7 @@ mod tests {
     use std::sync::Mutex;
 
     use mixdog_core_api::domain::ext::ExtError;
-    #[cfg(node_twin)]
-    use mixdog_core_base::support::testing::request;
     use mixdog_core_base::support::testing::scopes;
-    #[cfg(node_twin)]
-    use mixdog_core_base::support::testing::value;
-    #[cfg(node_twin)]
-    use mixdog_core_base::support::testing::with_op;
     use mixdog_core_ports::ports::threads::Section;
     use mixdog_spawn::LocalProcessManager;
     use mixdog_spawn::ProcessConfig;
@@ -327,10 +321,6 @@ mod tests {
     #[derive(Default)]
     struct Folders(Mutex<std::collections::HashMap<String, String>>);
     impl Folders {
-        #[cfg(node_twin)]
-        fn set(&self, thread: &str, cwd: &str) {
-            self.0.lock().unwrap().insert(thread.to_owned(), cwd.to_owned());
-        }
     }
     #[async_trait]
     impl ThreadState for Folders {
@@ -361,10 +351,6 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    async fn service(dir: &std::path::Path, sight: Arc<dyn WorkspaceSight>) -> (ShellJobsService, Arc<TaskRegistry>, Arc<Folders>) {
-        service_at(dir, sight, Arc::new(std::sync::atomic::AtomicU64::new(1_767_323_045_678))).await
-    }
 
     /// [`service`] on a clock the test moves.
     async fn service_at(dir: &std::path::Path, sight: Arc<dyn WorkspaceSight>, now: Arc<std::sync::atomic::AtomicU64>) -> (ShellJobsService, Arc<TaskRegistry>, Arc<Folders>) {
@@ -423,10 +409,6 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    fn call(method: &'static str, params: Value, op: u64) -> CoreRequest {
-        request(method, with_op(params, op), Some(op))
-    }
 
     /// The strip a session loads with (`ShellStrips`, read by `SessionActor::new`): Node's host shows the poller's last scan of the runtime
     /// (`statusline-segments.mjs:240-253`), which keeps a running job and a finished one until it is older than its retention
@@ -459,96 +441,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's recording of the shell-job actions (`record-shell-job-actions.mjs`).
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).expect("golden")
-    }
-    #[cfg(node_twin)]
-    /// `forceReleaseTerminationHold` (`shell-job-records.mjs:375`) as Node answered each step of
-    /// the recording: the real `workspaceSees` over real folders decides who may release a closed
-    /// owner's hold.
-    #[tokio::test]
-    async fn a_hold_is_released_as_node_answers() {
-        let dir = tempfile::tempdir().unwrap();
-        let ws = dir.path().join("ws");
-        for sub in ["a/sub", "far"] {
-            let path = ws.join(sub);
-            use mixdog_rt::LaneToken as _;
-            let io = mixdog_rt::testing::tokens().maintenance_io;
-            io.submit(&mixdog_rt::CancellationToken::new(), move |lane| mixdog_statefile::create_private_dir_all(lane, &path).unwrap()).unwrap().await.unwrap();
-        }
-        let folder = |rel: &str| ws.join(rel).to_string_lossy().into_owned();
-        let sight = Arc::new(crate::session::workspace_sight::GitSight::new(mixdog_rt::testing::tokens().maintenance_io));
-        let (service, tasks, folders) = service(dir.path(), sight).await;
-        let golden = golden();
-        let mut op = 0;
-        for (index, step) in golden["releases"].as_array().unwrap().iter().enumerate() {
-            let (name, id, caller) = (step["name"].as_str().unwrap(), step["jobId"].as_str().unwrap(), step["caller"].as_str().unwrap());
-            // The scene Node's recorder set up before this step.
-            match index {
-                2 => start(&tasks, "job_h1", "shell", Some("sess_a"), "run", &folder("a"), true),
-                3 => tasks.owner_closed("sess_a"),
-                6 => start(&tasks, "job_h2", "shell", Some("sess_d"), "run", &folder("far"), true),
-                7 => start(&tasks, "job_h3", "shell", None, "run", &folder("far"), true),
-                _ => {}
-            }
-            if let Some(rel) = step["callerCwd"].as_str() {
-                folders.set(caller, &folder(rel));
-            }
-            op += 1;
-            let got = value(&service, call(RELEASE, json!({ "threadId": caller, "taskId": id }), op)).await.unwrap();
-            assert_eq!(got, step["answer"], "{name}");
-        }
-    }
-    #[cfg(node_twin)]
-    /// `listStoppableShellJobs`, `stopBackgroundShellJob` and `stopBackgroundShellJobs` as Node
-    /// answered them: the caller's own running shells only, the id trimmed, nothing to stop for a
-    /// session without shells. (The recording's two shells without a command are Node's label
-    /// fallback; every shell here has its command.)
-    #[tokio::test]
-    async fn the_stop_lists_and_answers_are_nodes() {
-        let dir = tempfile::tempdir().unwrap();
-        let (service, tasks, _) = service(dir.path(), Arc::new(Sees(Vec::new()))).await;
-        start(&tasks, "job_a1", "shell", Some("sess_a"), "  npm run dev ", "/ws/a", false);
-        start(&tasks, "job_b1", "shell", Some("sess_b"), "tail -f log", "/ws/b", false);
-        start(&tasks, "agent_x", "agent", Some("sess_a"), "not a shell", "/ws/a", false);
-        let golden = golden();
-        for (caller, want) in golden["stoppable"].as_object().unwrap() {
-            let params = if caller == "null" { json!({}) } else { json!({ "threadId": caller }) };
-            let got = value(&service, request(LIST_STOPPABLE, params, None)).await.unwrap();
-            let want: Vec<&Value> = want.as_array().unwrap().iter().filter(|job| job["taskId"] != "job_a2" && job["taskId"] != "job_a3").collect();
-            assert_eq!(got["jobs"].as_array().unwrap().iter().collect::<Vec<_>>(), want, "stoppable for {caller}");
-        }
-        for (op, step) in (1..).zip(golden["stops"].as_array().unwrap()) {
-            let params = json!({ "threadId": step["caller"], "taskId": step["taskId"] });
-            let got = value(&service, call(TERMINATE, params, op)).await.unwrap();
-            assert_eq!(got, step["answer"], "stop {}", step["taskId"]);
-        }
-        for (op, step) in (100..).zip(golden["clean"].as_array().unwrap().iter().filter(|step| step["caller"].is_string())) {
-            let got = value(&service, call(CLEAN, json!({ "threadId": step["caller"] }), op)).await.unwrap();
-            assert_eq!(got, step["answer"], "clean for {}", step["caller"]);
-        }
-    }
-    #[cfg(node_twin)]
-    /// The rows of `listShellJobs` are `shellJobsStatusFresh`'s as Node recorded them: the text
-    /// trimmed, the start in milliseconds, `terminationUnconfirmed` only on a held shell. Which
-    /// jobs it lists is the engine golden (`mixdog-spawn/tests/fixtures/shell-jobs.json`).
-    #[tokio::test]
-    async fn the_list_rows_are_nodes() {
-        let dir = tempfile::tempdir().unwrap();
-        let (service, tasks, folders) = service(dir.path(), Arc::new(Sees(vec![("/ws/sess_gone", "/ws/sess_b")]))).await;
-        start(&tasks, "job_b", "shell", Some("sess_b"), "  run job_b ", "  /ws/sess_b ", false);
-        start(&tasks, "job_gone", "shell", Some("sess_gone"), "  run job_gone ", "/ws/sess_gone", true);
-        start(&tasks, "job_far", "shell", Some("sess_far"), "run job_far", "/ws/sess_far", true);
-        tasks.owner_closed("sess_gone");
-        tasks.owner_closed("sess_far");
-        folders.set("sess_b", "/ws/sess_b");
-        let got = value(&service, request(LIST, json!({ "threadId": "sess_b" }), None)).await.unwrap();
-        let golden = golden();
-        let (own, orphan) = (&golden["rows"]["own"][0], &golden["rows"]["orphaned"][0]);
-        assert_eq!(got["jobs"], json!([own, orphan]), "its own shell, then the orphan whose folder it sees");
-    }
 
     /// The same boundary through the session's own open path: a session opened again (a directory over the same store, as after an
     /// unload) after the retention shows no stale strip, and one opened at the boundary shows the finished job.

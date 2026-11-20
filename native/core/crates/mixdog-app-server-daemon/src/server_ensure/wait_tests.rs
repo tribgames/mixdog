@@ -44,10 +44,6 @@ fn named(pid: u32, instance: &str, mut core: ServerCore) -> ServerCore {
     core
 }
 
-#[cfg(node_twin)]
-fn served(state: DiscoveryPhase) -> ServerCore {
-    served_as(state, true)
-}
 
 fn served_as(state: DiscoveryPhase, model_proxy: bool) -> ServerCore {
     ServerCore {

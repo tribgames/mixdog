@@ -12,8 +12,6 @@ use bytes::Bytes;
 use mixdog_ai::oauth::AuthorizeRequest;
 use mixdog_ai::oauth::CredentialFile;
 use mixdog_ai::oauth::CredentialIo;
-#[cfg(node_twin)]
-use mixdog_ai::oauth::Pkce;
 use mixdog_ai::oauth::PkceProvider;
 use mixdog_ai::oauth::Probe;
 use mixdog_ai::providers::openai::login::OpenAiLogin;
@@ -151,81 +149,3 @@ async fn the_exchange_posts_the_authorization_code_form_and_stores_the_pair_with
     assert_eq!(doc.keys().map(String::as_str).collect::<Vec<_>>(), ["access_token", "refresh_token", "expires_at", "identity"]);
 }
 
-#[cfg(node_twin)]
-fn golden() -> Value {
-    let path = format!("{}/../../fixtures/providers/oracles/openai-login-golden.json", env!("CARGO_MANIFEST_DIR"));
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-#[cfg(node_twin)]
-#[test]
-fn the_authorize_url_is_the_one_node_builds() {
-    let golden = golden();
-    let scenario = &golden["scenarios"]["withExpiresIn"];
-    let (_dir, file) = file();
-    let login = login(silent(), file, 0);
-    assert_eq!(login.redirect().uri(1455), REDIRECT);
-    assert_eq!(login.verifier_bytes(), 64);
-    let pkce = Pkce::generate(login.verifier_bytes());
-    assert_eq!(pkce.verifier.len() as u64, scenario["verifierLength"].as_u64().unwrap());
-    assert_eq!(pkce.challenge.len() as u64, scenario["challengeLength"].as_u64().unwrap());
-    let state = "ab".repeat(scenario["stateShape"]["length"].as_u64().unwrap() as usize / 2);
-    let url = url::Url::parse(&login.authorize_url(&AuthorizeRequest {
-        redirect_uri: REDIRECT,
-        code_challenge: &pkce.challenge,
-        state: &state,
-    }))
-    .unwrap();
-    assert_eq!(format!("{}{}", url.origin().ascii_serialization(), url.path()), scenario["authorizeUrlBase"].as_str().unwrap());
-    let pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-    let order: Vec<&str> = pairs.iter().map(|(k, _)| k.as_str()).collect();
-    let expected_order: Vec<&str> =
-        scenario["authorizeParamOrder"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-    assert_eq!(order, expected_order);
-    for (key, value) in scenario["authorizeFixed"].as_object().unwrap() {
-        let got = pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
-        assert_eq!(got, value.as_str(), "{key}");
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_exchange_sends_node_s_form_and_stores_node_s_credential() {
-    let golden = golden();
-    for (name, scenario) in golden["scenarios"].as_object().unwrap() {
-        let mut reply = json!({"access_token": scenario["tokens"]["access_token"], "refresh_token": "refresh-1"});
-        if let Some(id) = scenario["tokens"]["id_token"].as_str() {
-            reply["id_token"] = json!(id);
-        }
-        if let Some(seconds) = scenario["tokens"]["expires_in"].as_u64() {
-            reply["expires_in"] = json!(seconds);
-        }
-        let endpoint = Arc::new(Endpoint { status: 200, body: reply, seen: Mutex::new(Vec::new()) });
-        let (_dir, file) = file();
-        let login = login(endpoint.clone(), file.clone(), scenario["nowMs"].as_u64().unwrap());
-        let verifier = Pkce::generate(64).verifier;
-        login.exchange(" code 123 ", &verifier, REDIRECT).await.unwrap();
-
-        let request = endpoint.seen.lock().unwrap()[0].clone();
-        let expected = &scenario["tokenRequest"];
-        assert_eq!(request.method, expected["method"].as_str().unwrap(), "{name}");
-        assert_eq!(request.url, "https://auth.openai.com/oauth/token", "{name}");
-        assert!(
-            request.headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("content-type") && v == expected["contentType"].as_str().unwrap()),
-            "{name}"
-        );
-        let form: Vec<(String, String)> =
-            url::form_urlencoded::parse(&request.body).map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-        let order: Vec<&str> = form.iter().map(|(k, _)| k.as_str()).collect();
-        let expected_order: Vec<&str> = expected["order"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-        assert_eq!(order, expected_order, "{name}");
-        for (key, value) in expected["fixed"].as_object().unwrap() {
-            assert_eq!(form.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str()), value.as_str(), "{name} {key}");
-        }
-        assert_eq!(form.iter().find(|(k, _)| k == "code_verifier").unwrap().1, verifier, "{name}");
-
-        let Probe::Present(doc) = file.load_document().await else { panic!("{name}: stored") };
-        assert_eq!(Value::Object(doc.clone()), scenario["saved"], "{name}");
-        let keys: Vec<&str> = doc.keys().map(String::as_str).collect();
-        let expected_keys: Vec<&str> = scenario["savedKeyOrder"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-        assert_eq!(keys, expected_keys, "{name}");
-    }
-}

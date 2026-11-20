@@ -208,8 +208,6 @@ async fn a_repository_review_has_the_fields_of_nodes_git_review_and_no_key() {
 }
 
 
-#[cfg(node_twin)]
-include!("node-twin/review_dispatch_tests.rs");
 
 /// A repository with `base` committed and the worktree left to the test.
 fn review_repo(files: &[(&str, &str)]) -> (tempfile::TempDir, std::path::PathBuf) {

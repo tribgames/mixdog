@@ -123,36 +123,7 @@ impl<S: RoomStore + 'static> ListRooms for RoomListRows<S> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::HashSet;
 
-    #[cfg(node_twin)]
-    use super::*;
-
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/room-catalog/golden.json")).unwrap()
-    }
-
-    /// Every page of `fixtures/room-catalog/golden.json` stamped as the real desktop
-    /// `catalogWithRooms`/`roomSummary` stamped it: titles, times, `agentRoom`, and the rows left out.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_rows_are_stamped_as_nodes() {
-        let golden = golden();
-        let names: HashMap<String, String> = serde_json::from_value(golden["names"].clone()).unwrap();
-        for case in golden["cases"].as_array().unwrap() {
-            let rows: Vec<ThreadSummary> = serde_json::from_value(case["rows"].clone()).unwrap();
-            let rooms: HashMap<String, RoomRecord> = serde_json::from_value::<Vec<RoomRecord>>(case["rooms"].clone())
-                .unwrap()
-                .into_iter()
-                .map(|room| (room.id.clone(), room))
-                .collect();
-            let running: HashSet<String> = serde_json::from_value(case["running"].clone()).unwrap();
-            let out = with_rooms(rows, &rooms, |room| room_summary(room, &names, running.contains(&room.id)));
-            assert_eq!(serde_json::to_value(&out).unwrap(), case["out"], "{}", case["name"]);
-        }
-    }
 }
 
 

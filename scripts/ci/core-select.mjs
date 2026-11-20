@@ -271,7 +271,7 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
 
   const archiveArgs = scope === 'all' ? '--workspace' : packages.map((name) => `-p ${name}`).join(' ');
   const filter = scope === 'all' ? 'all()' : packages.map((name) => `package(=${name})`).join(' | ');
-  // The relay's twin suites are built only with its test-support feature (required-features of its test targets); the feature
+  // Some relay test targets are built only with its test-support feature (their required-features); the feature
   // is named with its package, which cargo accepts only for a package the build selects.
   const features = selected
     .flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`))

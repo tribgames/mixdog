@@ -726,33 +726,5 @@ async fn a_queued_send_keeps_the_band_across_the_hand_off() {
 }
 
 
-/// A member's speech posted into a room against `fixtures/sensitive-gaps/golden.json` (`room`), recorded from Node with the
-/// sensitive-value patches (`record-sensitive-gaps.mjs`: the desktop's room log over the daemon's room delivery): the
-/// same marks and posts; after each post the same log contents, rows shown and list preview.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn a_members_speech_is_posted_as_patched_node_posted_it() {
-    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sensitive-gaps/golden.json"))).unwrap();
-    let rig = rig(&["a", "b"]).await;
-    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
-    let host = rig.live.host("room01").unwrap();
-    let steps = golden["room"].as_array().unwrap();
-    assert_eq!(steps.len(), 5);
-    for (index, step) in steps.iter().enumerate() {
-        if let Some(mark) = step.get("mark") {
-            let fields: Vec<Value> = mark["values"].as_array().unwrap().iter().map(|text| json!({ "text": text })).collect();
-            let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": fields } } });
-            assert!(rig.daemon.marks.remember(mark["session"].as_str().unwrap(), &[fill]), "step {index}");
-            continue;
-        }
-        host.post(step["post"].as_array().unwrap().clone()).await.unwrap();
-        host.persist().await.unwrap();
-        let contents: Vec<Value> = rig.daemon.appended.lock().unwrap().iter().map(|m| m["content"].clone()).collect();
-        assert_eq!(Value::Array(contents), step["contents"], "step {index}: log contents");
-        let rows: Vec<Value> = host.rows().await.unwrap().iter().map(|row| row["text"].clone()).collect();
-        assert_eq!(Value::Array(rows), step["rows"], "step {index}: rows shown");
-        assert_eq!(rig.rooms.get("room01").await.unwrap().last_preview.as_deref(), step["preview"].as_str(), "step {index}: preview");
-    }
-}
 #[path = "send_rules.rs"]
 mod send_rules;

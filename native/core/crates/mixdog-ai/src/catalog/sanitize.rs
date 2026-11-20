@@ -243,16 +243,6 @@ mod tests {
 
     use super::*;
 
-    #[cfg(node_twin)]
-    /// A listed row as the golden's JSON states it.
-    fn row(value: &Value) -> ModelRecord {
-        let mut record = ModelRecord::new(value["id"].as_str().unwrap());
-        record.mode = value.get("mode").map(|m| m.as_str().unwrap().to_owned());
-        record.context_window = value.get("contextWindow").and_then(Value::as_u64).filter(|n| *n > 0);
-        record.max_output_tokens =value.get("outputTokens").and_then(Value::as_u64).filter(|n| *n > 0);
-        record.created = value.get("created").and_then(Value::as_i64);
-        record
-    }
 
     #[test]
     fn a_newer_gemini_tier_does_not_supersede_the_others_on_vertex() {
@@ -285,33 +275,6 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("fixtures/sanitize/golden.json")).expect("golden parses")
-    }
-    #[cfg(node_twin)]
-    #[test]
-    fn every_sanitized_list_equals_node() {
-        let golden = golden();
-        let now = golden["now"].as_i64().unwrap();
-        let catalog = &crate::catalog::Overlay::from_projected_models_dev(&golden["catalog"]);
-        let variants: Vec<Vec<ModelRecord>> =
-            golden["variants"].as_array().unwrap().iter().map(|v| v.as_array().unwrap().iter().map(row).collect()).collect();
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.len() > 400);
-        for case in cases {
-            let rows = variants[case["variant"].as_u64().unwrap() as usize].clone();
-            let ctx = Context {
-                models_dev: (!case["cold"].as_bool().unwrap()).then_some(catalog),
-                now_ms: now,
-                stale_months: stale_months(case["months"].as_str()),
-            };
-            let kept = sanitize_model_list(rows.clone(), case["provider"].as_str().unwrap(), &ctx);
-            let got: Vec<usize> = kept.iter().map(|k| rows.iter().position(|r| r.id == k.id).unwrap()).collect();
-            let want: Vec<usize> = case["kept"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as usize).collect();
-            assert_eq!(got, want, "{} variant {} cold {} months {}", case["provider"], case["variant"], case["cold"], case["months"]);
-        }
-    }
 }
 
 

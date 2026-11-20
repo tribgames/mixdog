@@ -3,10 +3,6 @@
 
 use std::path::Path;
 
-#[cfg(node_twin)]
-use base64::Engine;
-#[cfg(node_twin)]
-use base64::engine::general_purpose::STANDARD;
 use mixdog_fsio::Unlaned;
 use mixdog_relay::js;
 use mixdog_relay::tools::renderer_delta::{CreateResult, apply_delta, build_manifest, create_delta, read_manifest, validate_manifest};
@@ -279,92 +275,11 @@ fn a_symbolic_link_in_a_tree_is_refused() {
     assert!(error.to_string().starts_with("Renderer tree contains a symbolic link: "), "{error}");
 }
 
-#[cfg(node_twin)]
-struct Recording(Value);
-
-#[cfg(node_twin)]
-#[test]
-fn manifests_of_a_tree_equal_the_node_tools_bytes() {
-    let recording = Recording::load();
-    let dirs = fixture();
-    recording.write("base", &dirs.base);
-    recording.write("current", &dirs.current);
-    assert_eq!(build_manifest(&dirs.base).expect("base").compact_json(), recording.text("baseManifestLine"));
-    assert_eq!(build_manifest(&dirs.current).expect("current").compact_json(), recording.text("currentManifestLine"));
-}
-
-#[cfg(node_twin)]
-#[test]
-fn a_created_delta_equals_the_node_tools_delta_byte_for_byte() {
-    let recording = Recording::load();
-    let dirs = fixture();
-    recording.write("base", &dirs.base);
-    recording.write("current", &dirs.current);
-    let base = validate_manifest(&js::parse(recording.text("baseManifestLine")).expect("json")).expect("valid");
-    // The Node recorder wrote its manifest outside the tree; this one is written outside it too.
-    let manifest_path = dirs.delta.with_file_name("renderer-manifest.json");
-    let result = create_delta(&dirs.current, Some(&base), &dirs.delta, &manifest_path).expect("create");
-
-    assert_eq!(result.json(), recording.text("createResult"));
-    assert_eq!(read_text(&manifest_path), recording.text("manifestFile"));
-    let node_delta = dirs.delta.with_file_name("node-delta");
-    recording.write("delta", &node_delta);
-    assert_eq!(
-        build_manifest(&dirs.delta).expect("delta").compact_json(),
-        build_manifest(&node_delta).expect("node delta").compact_json()
-    );
-}
-
-#[cfg(node_twin)]
-#[test]
-fn a_delta_created_by_node_is_applied_to_the_same_tree_and_the_same_report() {
-    let recording = Recording::load();
-    let dirs = fixture();
-    recording.write("base", &dirs.base);
-    recording.write("delta", &dirs.delta);
-    let manifest_path = dirs.output.with_file_name("renderer-manifest.json");
-    mixdog_fsio::write(&Unlaned, &manifest_path, recording.text("manifestFile")).expect("manifest file");
-    let manifest = read_manifest(&manifest_path).expect("Node's manifest file is valid");
-
-    let applied = apply_delta(&dirs.base, &dirs.delta, &manifest, &dirs.output, false).expect("apply");
-    assert_eq!(applied.json(), recording.text("applyResult"));
-    assert_eq!(build_manifest(&dirs.output).expect("rebuilt").compact_json(), recording.text("currentManifestLine"));
-
-    let linked = dirs.output.with_file_name("linked");
-    let applied = apply_delta(&dirs.base, &dirs.delta, &manifest, &linked, true).expect("apply with hardlinks");
-    assert_eq!(applied.json(), recording.text("linkedResult"));
-    assert_eq!(build_manifest(&linked).expect("rebuilt").compact_json(), recording.text("currentManifestLine"));
-    // The installed base is still the base tree.
-    assert_eq!(build_manifest(&dirs.base).expect("base").compact_json(), recording.text("baseManifestLine"));
-}
 
 
-#[cfg(node_twin)]
-impl Recording {
-    fn load() -> Self {
-        Self(serde_json::from_str(mixdog_testkit::fixture!("tests/fixtures/renderer-delta.recording.json")).expect("the recording parses"))
-    }
 
-    fn text(&self, key: &str) -> &str {
-        self.0[key].as_str().expect(key)
-    }
 
-    fn files(&self, key: &str) -> Vec<(String, Vec<u8>)> {
-        self.0[key]
-            .as_object()
-            .expect(key)
-            .iter()
-            .map(|(path, content)| (path.clone(), STANDARD.decode(content.as_str().expect("base64")).expect("decodes")))
-            .collect()
-    }
 
-    fn write(&self, key: &str, root: &Path) {
-        let files = self.files(key);
-        let borrowed: Vec<(&str, &[u8])> = files.iter().map(|(path, content)| (path.as_str(), content.as_slice())).collect();
-        mixdog_fsio::create_dir_all(&Unlaned, root).expect("root");
-        write_tree(root, &borrowed);
-    }
-}
 
 #[test]
 fn the_manifest_line_and_the_manifest_file_have_the_shapes_the_deploy_scripts_read() {

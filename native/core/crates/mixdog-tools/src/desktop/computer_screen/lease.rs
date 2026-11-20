@@ -132,9 +132,6 @@ pub(super) trait HelperAdapter<F>: Send + Sync {
     fn send_grant(&self, grant: Grant) -> BoxFuture<Result<(), HelperError>>;
     /// The video run (epoch) the phone is shown now.
     fn set_video_run(&self, epoch: u64);
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    fn latest_frame(&self) -> Option<F>;
     fn on_frame(&self, listener: Listener<F>) -> Unsub;
     fn on_desktop_changed(&self, listener: Listener<()>) -> Unsub;
     fn on_grant_challenge(&self, listener: Listener<Challenge>) -> Unsub;
@@ -677,11 +674,6 @@ impl<F: Clone + Send + Sync + 'static> SecureDesktopLease<F> {
         }
     }
 
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn latest_frame(&self) -> Option<F> {
-        if self.holds() { self.core.current().latest_frame() } else { None }
-    }
 
     pub(super) fn on_frame(&self, listener: Listener<F>) -> Unsub {
         self.data.frame.add(listener)

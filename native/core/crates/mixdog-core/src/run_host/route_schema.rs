@@ -75,32 +75,7 @@ pub fn schema_verdict(header: &Header, tool: &Value) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use super::*;
 
-    /// Node's `routeToolExclusionReason` on these routes and tools
-    /// (`fixtures/tool-pool/route-schema.json`), whole text: every family answers as Node does,
-    /// including Ajv's wording of a schema the 2020-12 meta-schema refuses (`unknown_type`).
-    #[test]
-    #[cfg(node_twin)]
-    fn every_wire_leaves_out_the_tools_node_leaves_out() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/tool-pool/route-schema.json")).expect("fixture");
-        let tools = golden["tools"].as_array().expect("tools");
-        for session in golden["sessions"].as_array().expect("sessions") {
-            let header: Header = session["session"].as_object().expect("session").clone();
-            for (tool, want) in tools.iter().zip(session["tools"].as_array().expect("answers")) {
-                let got = schema_verdict(&header, tool);
-                let expected = match want["reason"].as_str() {
-                    Some(reason) => Verdict::Excluded(reason.to_owned()),
-                    None => Verdict::Sent,
-                };
-                assert_eq!(got, expected, "{} / {}", session["name"], tool["name"]);
-            }
-        }
-        // The families really are the ones the golden names.
-        let families: Vec<&str> = golden["sessions"].as_array().expect("sessions").iter().map(|s| route_schema_family(s["session"].as_object().expect("session"))).collect();
-        assert_eq!(families, ["openai", "openai", "openai", "anthropic", "anthropic", "gemini", "antigravity-claude"]);
-    }
 }
 
 

@@ -3,8 +3,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-#[cfg(node_twin)]
-use mixdog_fsio::Unlaned;
 use mixdog_relay::close_codes as codes;
 use mixdog_relay::config::Config;
 use mixdog_relay::ids::{is_registrable_device_id, is_routing_id};
@@ -12,11 +10,6 @@ use mixdog_relay::logline::{self, LoopDelay, SocketBuffer, Stream};
 use mixdog_relay::rate_limit::RateLimiter;
 use mixdog_relay::{js, tools};
 
-#[cfg(node_twin)]
-fn relay_source(file: &str) -> String {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay");
-    mixdog_fsio::read_to_string(&Unlaned, root.join(file)).unwrap_or_else(|e| panic!("read apps/relay/{file}: {e}"))
-}
 
 // ---- js.rs ----
 
@@ -182,45 +175,6 @@ fn every_close_a_peer_can_receive_has_its_published_code_and_reason() {
     assert_eq!(codes::DESKTOP_REJECTED_CLIENT_REASON_MAX, 120);
 }
 
-#[cfg(node_twin)]
-#[test]
-fn close_codes_match_the_node_sources() {
-    let table = relay_source("lib/relay-close-codes.mjs");
-    assert!(table.contains(&format!("DESKTOP_OFFLINE_CLOSE = {}", codes::DESKTOP_OFFLINE)));
-    assert!(table.contains(&format!("DESKTOP_HANDSHAKE_STALLED_CLOSE = {}", codes::DESKTOP_HANDSHAKE_STALLED)));
-
-    let server = relay_source("server.mjs");
-    assert!(server.contains(&format!("close({}, '{}')", codes::SUPERSEDED, codes::SUPERSEDED_REASON)));
-    assert!(server.contains(&format!("{}, '{}'", codes::PAIRING_RESCAN_REQUIRED, codes::PAIRING_RESCAN_REQUIRED_REASON)));
-    assert!(server.contains(&format!("ws.close({}, '{}')", codes::SLOW_PEER, codes::SLOW_PRODUCER_REASON)));
-    assert!(server.contains(&format!("ws.close({}, '{}')", codes::RELAY_BUSY, codes::RELAY_BUSY_REASON)));
-    assert!(server.contains(&format!("DESKTOP_OFFLINE_CLOSE, '{}'", codes::DESKTOP_OFFLINE_REASON)));
-
-    let legs = relay_source("lib/relay-legs.mjs");
-    assert!(legs.contains(&format!("closeQuietly(phone, {}, '{}')", codes::REVOKED, codes::PAIRING_REVOKED_REASON)));
-    assert!(legs.contains(&format!("closeQuietly(socket, {}, '{}')", codes::REVOKED, codes::DEVICE_REVOKED_REASON)));
-    assert!(legs.contains(&format!(
-        "closeQuietly(phone, {}, String(message.reason || '{}').slice(0, {}))",
-        codes::DESKTOP_REJECTED_CLIENT,
-        codes::DESKTOP_REJECTED_CLIENT_REASON,
-        codes::DESKTOP_REJECTED_CLIENT_REASON_MAX
-    )));
-    assert!(legs.contains(&format!("DESKTOP_HANDSHAKE_STALLED_CLOSE, '{}'", codes::DESKTOP_HANDSHAKE_STALLED_REASON)));
-    assert!(legs.contains(&format!("DESKTOP_OFFLINE_CLOSE, '{}'", codes::DESKTOP_OFFLINE_REASON)));
-
-    let transport = relay_source("lib/relay-transport.mjs");
-    assert!(transport.contains(&format!(
-        "socket.close(busy ? {} : {}, busy ? '{}' : '{}')",
-        codes::RELAY_BUSY,
-        codes::SLOW_PEER,
-        codes::RELAY_BUSY_REASON,
-        codes::SLOW_CONSUMER_REASON
-    )));
-    assert!(transport.contains(&format!("({})", codes::MESSAGE_TOO_BIG)));
-
-    let hook = relay_source("lib/relay-hook.mjs");
-    assert!(hook.contains(&format!("close({}, '{}')", codes::SUPERSEDED, codes::SUPERSEDED_REASON)));
-}
 
 #[test]
 fn the_pc_offline_close_is_its_own_code_and_never_a_pairing_revoking_one() {

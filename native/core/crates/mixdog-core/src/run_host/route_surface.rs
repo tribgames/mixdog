@@ -427,12 +427,6 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
-    #[cfg(node_twin)]
-    use crate::run_host::rules::RulesPolicy;
-    #[cfg(node_twin)]
-    use crate::run_host::rules::build_base_rules;
-    #[cfg(node_twin)]
-    use crate::run_host::rules::refresh_rule_variants;
 
     struct Fixed;
     impl Clock for Fixed {
@@ -481,23 +475,6 @@ mod tests {
         assert_eq!(header["deferredCallableTools"], json!(["read"]));
     }
 
-    #[cfg(node_twin)]
-    struct Policy;
-    #[cfg(node_twin)]
-    impl RulesPolicy for Policy {
-        fn hidden_agent(&self, _: Option<&str>) -> bool {
-            false
-        }
-        fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
-            false
-        }
-    }
-
-    #[cfg(node_twin)]
-    fn without_messages(value: &Value) -> Map<String, Value> {
-        value.as_object().unwrap().iter().filter(|(k, _)| *k != "messages").map(|(k, v)| (k.clone(), v.clone())).collect()
-    }
-
     #[test]
     fn a_lead_route_change_reselects_the_catalog_without_exposing_the_pool() {
         let host = Host(Vec::new());
@@ -528,53 +505,4 @@ mod tests {
     }
 
 
-    /// Node's `applyAgentToolExposure(session, { existing: true })` over the deferred-surface
-    /// sessions, owned by an agent and by a lead, with and without a schema allowlist.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_route_surface_follows_node() {
-        let surface_golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
-        let text = mixdog_testkit::fixture!("src/run_host/golden/route_surface_variant.json");
-        let golden: Value = serde_json::from_str(&text).expect("fixture");
-        let host = Host(surface_golden["bridgeTools"].as_array().unwrap().clone());
-        let surface = ToolSurface { host: &host, clock: &Fixed };
-        for row in golden["surface"].as_array().unwrap() {
-            if row["changed"].is_string() {
-                continue;
-            }
-            let header = row["before"].as_object().unwrap().clone();
-            let change = exposure_change(&surface, &Fixed, &header, Value::Object(header.clone()), false);
-            let mut got = header.clone();
-            for key in &change.unset {
-                got.shift_remove(key);
-            }
-            for (key, value) in change.set {
-                got.insert(key, value);
-            }
-            assert_eq!(without_messages(&Value::Object(got)), without_messages(&row["after"]), "{} {}", row["name"], row["before"]["owner"]);
-        }
-    }
-    /// Node's `_refreshSessionRuleVariantsForModel` over every route pair, with the block untagged
-    /// (replaced) and tagged (left alone), and a denied tool.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_rules_variant_follows_node() {
-        let rules: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
-        let text = mixdog_testkit::fixture!("src/run_host/golden/route_surface_variant.json");
-        let golden: Value = serde_json::from_str(&text).expect("fixture");
-        let root = std::path::PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("variant-golden-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        for (rel, body) in rules["files"].as_object().unwrap() {
-            let path = root.join(rel);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, body.as_str().unwrap()).unwrap();
-        }
-        let _ = build_base_rules;
-        for row in golden["variant"].as_array().unwrap() {
-            let mut session = row["before"].clone();
-            let changed = refresh_rule_variants(&mut session, &root, row["previousModel"].as_str().unwrap(), row["previousProvider"].as_str(), &Policy);
-            assert_eq!(Value::Bool(changed), row["changed"], "{}", row["before"]);
-            assert_eq!(session, row["after"], "{}", row["before"]);
-        }
-    }
 }

@@ -81,14 +81,13 @@ untracked and covered by the "Node-comparison material" block of the root `.giti
 - the crate-local recorded data and recorders (`tests/goldens`, `tests/golden`, `src/**/golden`, `oracles`, `testdata`, `vectors`,
   `tests/recorders`, and the listed `fixtures` directories) named one by one in that block;
 - whole test files whose every test compares with recorded data (listed one by one in that block);
-- `**/node-twin/`: for a file that holds both kinds of test, the comparison tests moved out of it (`<dir>/node-twin/<file>.rs`,
-  or `<file>.<module>.rs` for a nested `mod`).
+- `**/node-twin/`: for a file that held both kinds of test, the comparison tests that were moved out of it
+  (`<dir>/node-twin/<file>.rs`, or `<file>.<module>.rs` for a nested `mod`).
 
-**How it is compiled in.** The cfg `node_twin` is set by the untracked `native/core/.cargo/local.toml` (`[build] rustflags =
-["--cfg", "node_twin"]`), which `native/core/.cargo/config.toml` includes when present. `cargo-gate.ps1` runs pick it up with no
-environment variable. Local-only code is declared `#[cfg(node_twin)] mod x;` (a whole file) or `#[cfg(node_twin)]
-include!("node-twin/x.rs");` (the items split out of a file, included into the module they came from). Without the cfg rustc never
-looks for the missing file. To work without the material, delete `local.toml`.
+**Nothing compiles it in.** No tracked source declares, includes or reads a local-only file, and no build setting adds one: the
+comparison tests are retired, and the material stays on the owner's machine only as an archive. One thing still reaches it there:
+Cargo builds every `tests/*.rs` (and `src/bin/*.rs`) file it finds in a crate, so on that machine the local-only test files under
+`tests/` are built as test targets of their crate. A build on the owner's machine is therefore not the clean-checkout build.
 
 **Conventions for the committed tests.**
 
@@ -98,27 +97,20 @@ looks for the missing file. To work without the material, delete `local.toml`.
 - Expectations are written in the test, or derived from a stated rule in a comment; they are not copied from a recording.
   Inputs are small and committed beside the test.
 - Committed test code, comments and names do not refer to Node, recorders, recordings or parity.
-- A comparison twin of a rewritten test is local-only. It must not reuse the committed test's name in the same module: it lives in
-  `node-twin/` (or a `#[cfg(node_twin)]` module of its own) and its tests carry the suffix `_matches_recording`, so both can be
-  compiled together.
+- No tracked file declares, includes or reads a local-only file; a test that needs recorded data is not added to the tree.
 - A test that needs a machine path, a prebuilt binary, a second volume or a user's data is `#[ignore]`d with its reason and run by
   the nextest profile that names it (`native/core/.config/nextest.toml`), never by `ci`.
 
-## The Rust core's two test sets
+## The Rust core's test set
 
-The core (`native/core`) has two sets of tests, and a nextest run names which one it wants.
-
-- **Tracked feature tests** (the committed suite). Every test in git: it says what the product does with the expectation written
-  in the test. A clean checkout builds and runs all of it. This is what CI runs.
-- **Local comparison tests** (`cfg(node_twin)`). The owner's comparison with the old implementation, built on recorded data
-  that is git-ignored. They compile only where `native/core/.cargo/local.toml` exists, so they exist on the owner's machine
-  and nowhere else.
+The core (`native/core`) has one set of tests: every test in git (the committed suite). Each says what the product does with the
+expectation written in the test. A clean checkout builds and runs all of it, and this is what CI runs.
 
 ### Running them
 
-Both sets run with `cargo nextest` from `native/core` (`cargo install cargo-nextest`; CI uses 0.9.151, the version
-`.config/nextest.toml` is written for). A machine may have a wrapper that sets the build environment and the cfg; the commands
-below are what it runs.
+The tests run with `cargo nextest` from `native/core` (`cargo install cargo-nextest`; CI uses 0.9.151, the version
+`.config/nextest.toml` is written for). A machine may have a wrapper that sets the build environment; the commands below are what
+it runs.
 
 ```sh
 cd native/core
@@ -127,14 +119,13 @@ cargo nextest run -p <crate>                           # one crate, `default` pr
 cargo nextest run --profile agent --workspace         # `default` without the heavy matrices
 ```
 
-- **Tracked set only** (what a clean checkout does): have no `native/core/.cargo/local.toml`. To get this on a machine that has
-  one, move the file away (or build with `CARGO_ENCODED_RUSTFLAGS` unset and no `--cfg node_twin` anywhere); `node_twin` is
-  then off and the comparison tests are not compiled.
-- **With the comparison tests**: create `native/core/.cargo/local.toml` containing `[build]` and
-  `rustflags = ["--cfg", "node_twin"]` (it is git-ignored), with the recorded data in place. `default` and `agent` then
-  include them; `ci` is the same filter and would too, so run `ci` without the file to see what CI sees.
+- **On a clean checkout** (a contributor's clone, CI): the commands above run exactly the tracked suite; nothing else is needed.
+- **On the owner's machine**, where the local-only material is still on disk: Cargo also builds the local-only `tests/*.rs`
+  files there (see above), so a run in that working tree is not what CI sees. To see that, run in a clean clone or a
+  `git worktree add` of the commit, which has none of the ignored files; `check-clean-checkout.mjs --build` passes there and
+  fails in the working tree that holds the material.
 
-Neither set needs a network. The tracked tests that run `node` need it on the search path, and `mixdog-office`'s
+The tests need no network. The tracked tests that run `node` need it on the search path, and `mixdog-office`'s
 `tests/pptx_script.rs` also reads `node_modules/pptxgenjs` and `jszip` of the repository root: it returns early (a pass)
 without them, so run `npm ci` at the root before a run you want to count.
 
@@ -210,7 +201,7 @@ path. The handoff downloads the worker's manifest by artifact ID and stages the 
   runner loaded through a wrapper module, a computed load, or a global test API (`test/example.js`): such a misnamed test is not
   discovered by any run and not reported. Every Rust package of the tree is read too. A test file is assigned by a route of the plan to the legs
   that must run it, or carries a reviewed class (`plan.json` `classes`: `fixture`, `helper`, `template`, `vendor`,
-  `non-test-target`, `twin-only` for sources only the owner's `node_twin` build compiles, `not-run-in-ci` for a real test no hosted
+  `non-test-target`, `not-run-in-ci` for a real test no hosted
   runner can run (a desktop, a real Office), `not-run-by-decision` for a test a hosted runner could run and that is not wired: it
   lists what is missing and is the owners' choice, not an impossibility, and `runs-after-packaging` for a test that checks a built
   package, whose receipt is a join slot the release's join requires before any sink); two classes matching one path are an error. The manifest names every Rust target the
@@ -293,8 +284,8 @@ test. A change to `rust-toolchain.toml`, to `release-gate.yml` or to the core's 
 consumes it (the test runs the selection over a table of paths).
 
 - **Rust core.** `core-build` compiles the tests once per system (Linux x64, macOS arm64, Windows x64) with
-  `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (no `local.toml`, none of the
-  comparison material), so `node_twin` is off and no comparison test is in the archive. `core-tests` legs download it and run
+  `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (none of the comparison material on
+  disk), so no local-only test file is in the archive. `core-tests` legs download it and run
   `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). A pull
   request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
   `services-pg` and `pg` from the same archive with the provisioned runtime (Linux always, macOS on main and manual runs, when the
@@ -308,7 +299,7 @@ consumes it (the test runs the selection over a table of paths).
   `packages`, and the standalone native crates (`patch`, `graph`, `spawn`, `window`, `browser-import`,
   `secure-desktop`, `computer-backend`).
 - **Guards.** See "What each layer guarantees" below. `--build` in `core-build` and `core-lint` fails a Rust build that has
-  `local.toml` or the material on disk. `core-tests` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
+  the material on disk or a Cargo test target (`tests/<name>.rs`, `tests/<name>/main.rs`) git does not track. `core-tests` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
   that is all the tracked Rust tests read from `node_modules`.
 
 ### What each layer guarantees
@@ -316,8 +307,7 @@ consumes it (the test runs the selection over a table of paths).
 The aim: nothing in the tracked suite may depend on local-only comparison material. Three layers: two guarantee something, the
 third only points.
 
-1. **The clean checkout runs everything (guarantee).** The gate builds and runs every suite on a checkout without `local.toml` and
-   without the material. A test that reads absent material and does not handle it fails there. This is the only layer that sees a
+1. **The clean checkout runs everything (guarantee).** The gate builds and runs every suite on a checkout without the material. A test that reads absent material and does not handle it fails there. This is the only layer that sees a
    path assembled at run time.
 2. **Every invocation proves it ran, and skips are reviewed (guarantee, for what a runner reports as skipped or ignored).** A test
    that skips instead of failing passes without testing, and a command that never ran, ran nothing or is a leftover passes
@@ -360,7 +350,7 @@ third only points.
    invisible to it, a read it flags may be harmless, and a read guarded by `existsSync` that returns quietly passes it and passes
    layer 2. It is advice because layer 1 is the guarantee: the same tests run on a clean checkout and fail there, or skip and are
    reviewed. `check-clean-checkout.mjs --build` (`core-build`, `core-lint`) is a different check: it fails a Rust build that has
-   `local.toml` or the material on disk, by looking at the files themselves.
+   the material on disk or an untracked Cargo test target, by looking at the files themselves.
 - `rust-core-unix.yml` is a manual Linux and macOS run of the daemon's unit tests, the `pg` profile and clippy; `release.yml`
   re-runs the `k1-lanes` filters when a critical path changed.
 - Built-artifact checks run after their build: `verify:packaging-artifact`

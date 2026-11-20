@@ -160,9 +160,6 @@ use mixdog_core_base::approvals::resolved_frame;
 
 mod compaction_reminder;
 mod offload_prune;
-#[cfg(node_twin)]
-#[cfg(test)]
-pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;
 #[cfg(test)]
 mod early_result_tests;
 #[cfg(test)]
@@ -765,101 +762,6 @@ pub(super) fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Val
 // `fixtures/desktop/queue/restore-queued-twin.json`: Node's `restoreQueued` (`take-entries.mjs`), recorded by
 // `record-restore-queued.mjs` over a queue, the blobs on disk and the composer's text. Each case is the
 // queue as a Node entry; here it is the queue entry the core keeps (`message`, `options.pasted*`).
-#[cfg(node_twin)]
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-mod restored_reply_tests {
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD;
-
-    use super::super::restore_hydrate::hydrate;
-    use super::super::user_facts::AttachmentStore;
-    use super::*;
-
-    fn queued(entry: &Value) -> Queued {
-        let message = if entry.get("content").is_some() { entry["content"].clone() } else { entry["text"].clone() };
-        let mut body = json!({ "message": message });
-        let mut options = serde_json::Map::new();
-        for key in ["pastedImages", "pastedTexts"] {
-            if let Some(value) = entry.get(key) {
-                options.insert(key.into(), value.clone());
-            }
-        }
-        if !options.is_empty() {
-            body["options"] = Value::Object(options);
-        }
-        Queued { qid: entry["id"].as_str().unwrap().to_owned(), entry: body, display: Value::Null }
-    }
-
-    /// A queued entry is named by its queue id or by the submission it answers (the id the client's queue rows carry), so a hand-back
-    /// of either takes it.
-    #[test]
-    fn a_queued_entry_is_taken_by_its_queue_id_or_its_submission_id() {
-        let entry = |qid: &str, submission: &str| Queued {
-            qid: qid.into(),
-            entry: json!({ "message": "m", "options": { "clientSubmissionId": submission } }),
-            display: Value::Null,
-        };
-        let queue = vec![entry("q1", "sub-1"), entry("q2", "sub-2")];
-        assert_eq!(restore_taken(&queue, Some("q2")).iter().map(|q| q.qid.as_str()).collect::<Vec<_>>(), ["q2"]);
-        assert_eq!(restore_taken(&queue, Some("sub-1")).iter().map(|q| q.qid.as_str()).collect::<Vec<_>>(), ["q1"]);
-        assert!(restore_taken(&queue, Some("nope")).is_empty());
-        assert_eq!(restore_taken(&queue, None).len(), 2);
-    }
-
-    /// `entry.text` is `promptDisplayText`: a queued paste comes back with its chip's token, which the desktop composer needs to
-    /// restore the pasted text (`restoreAttachmentsFromRecord` keeps a pasted text only when its token is in the text), though
-    /// the intake moved the text out of the prompt; a blank display text falls back to the prompt's text.
-    #[test]
-    fn a_queued_prompt_comes_back_as_its_display_text() {
-        let pasted = json!({
-            "message": [{ "type": "text", "text": "see " }, { "type": "text", "textKind": "paste", "attachmentRef": "a".repeat(64), "sizeBytes": 3 }],
-            "options": { "displayText": "see [Pasted text #1 +400 lines]", "pastedTexts": { "1": { "id": 1, "attachmentRef": "a".repeat(64), "sizeBytes": 3, "chars": 3 } } },
-        });
-        assert_eq!(Taken::of(&Queued { qid: "q1".into(), entry: pasted, display: Value::Null }).text, "see [Pasted text #1 +400 lines]");
-        let blank = json!({ "message": "plain", "options": { "displayText": "  " } });
-        assert_eq!(Taken::of(&Queued { qid: "q2".into(), entry: blank, display: Value::Null }).text, "plain");
-    }
-
-
-
-
-
-
-
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn the_recorded_node_restores_are_reproduced() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/queue/restore-queued-twin.json");
-        let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        for (reference, data) in twin["blobs"].as_object().unwrap() {
-            let folder = dir.path().join(mixdog_store::schema::blob::BLOB_DIR).join(&reference[..2]);
-            std::fs::create_dir_all(&folder).unwrap();
-            std::fs::write(folder.join(reference), STANDARD.decode(data.as_str().unwrap()).unwrap()).unwrap();
-        }
-        let store = AttachmentStore(mixdog_store::blobs::BlobStore::new(dir.path()));
-        let tokens = mixdog_rt::testing::tokens();
-        let cases = twin["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 13);
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let queue: Vec<Queued> = case["entries"].as_array().unwrap().iter().map(queued).collect();
-            let selected = case["selectedId"].as_str().filter(|id| !id.is_empty());
-            let current = case["currentText"].as_str().filter(|text| !text.is_empty());
-            let taken: Vec<Taken> = restore_taken(&queue, selected).iter().map(Taken::of).collect();
-            let reply = restored_reply(&taken, current);
-            let store = store.clone();
-            let hydrated = mixdog_core_base::support::on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| hydrate(&store, lane, reply))
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(hydrated, case["reply"], "{name}");
-            let left: Vec<&str> = queue.iter().filter(|q| !taken.iter().any(|t| t.id == q.qid)).map(|q| q.qid.as_str()).collect();
-            assert_eq!(json!(left), case["left"], "{name}: what stays queued");
-        }
-    }
-}
 
 /// What a mutation appends.
 struct Plan {

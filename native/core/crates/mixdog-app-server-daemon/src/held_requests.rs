@@ -760,29 +760,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// `resolvePreToolAskApproval` recorded over Node (`fixtures/approval-surface/golden.json`): a
-    /// run's ask goes to its owner exactly when no approval UI is attached; with one, or with no
-    /// run to hold for, it stays with the surface's own gate.
-    #[tokio::test]
-    async fn a_run_is_held_exactly_when_node_holds_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/approval-surface/golden.json")).expect("golden parses");
-        let rows = golden["rows"].as_array().expect("rows");
-        assert_eq!(rows.len(), 4);
-        for row in rows {
-            let (home, _held, _) = setup();
-            home.attached.store(row["hookPresent"].as_bool().unwrap(), Ordering::SeqCst);
-            let held = HeldRequests::new(home.clone(), Arc::new(|| 42));
-            let thread = if row["run"].is_null() { "sess_plain" } else { "sess_rmem_abcdef_ann" };
-            let gate = held.gate_for(ThreadId::from(thread), Arc::new(Inner));
-            if row["answeredBy"] == "held" {
-                let waiting = tokio::spawn(async move { gate.request(ask()).await });
-                first_row(&home).await;
-                waiting.abort();
-            } else {
-                assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 }, "{row}");
-                assert!(home.rows.lock().unwrap().is_empty(), "{row}");
-            }
-        }
-    }
 }

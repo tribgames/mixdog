@@ -71,8 +71,6 @@ impl QuotaChannel for HostQuotaChannel {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::collections::BTreeSet;
     use std::sync::Mutex;
 
     use mixdog_app_protocol::v2::model_proxy::{ProxyDelivery, ProxyErrorKind, ProxyOutcome};
@@ -107,12 +105,6 @@ mod tests {
             self.reply.lock().unwrap().take().expect("one question per channel")
         }
     }
-
-    #[cfg(node_twin)]
-    fn unavailable(detail: &str) -> HostError {
-        HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() })
-    }
-
     fn answer(answer: ProxyAnswer) -> Result<Value, HostError> {
         Ok(serde_json::to_value(ModelProxyResult { result: answer }).unwrap())
     }
@@ -159,55 +151,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
-    #[tokio::test]
-    #[cfg(node_twin)]
-    async fn the_exchange_and_the_disconnected_pc_read_as_nodes_model_proxy_channel_does() {
-        let twin: Value = serde_json::from_str(&TWIN).unwrap();
-        let cases = twin["proxy"].as_array().unwrap();
-        assert!(cases.len() > 70);
-        let mut skipped = BTreeSet::new();
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let (provider, model) = (case["provider"].as_str().unwrap(), case["model"].as_str().unwrap());
-            let message = case.get("error").map(|error| error["message"].as_str().unwrap().to_owned());
-            let (reply, expected) = match (name, &message) {
-                ("no client connected" | "the client is marked absent", Some(message)) => (Err(unavailable("noClaimant")), Err(ChannelError::Unavailable(message.clone()))),
-                ("the client goes away mid-call", Some(message)) => (Err(unavailable("claimantClosed")), Err(ChannelError::Unavailable(message.clone()))),
-                // The claim window and the lease of the outgoing router end the request this way.
-                ("nobody claims the call", Some(message)) => (Err(unavailable("notClaimed")), Err(ChannelError::Unavailable(message.clone()))),
-                ("the PC stops answering", Some(message)) => (Err(unavailable("leaseLapsed")), Err(ChannelError::Unavailable(message.clone()))),
-                ("PC fails the call", Some(message)) => (rpc(Some(serde_json::to_value(failure("PC broke")).unwrap())), Err(ChannelError::Failed(message.clone()))),
-                ("PC fails with a bad error record", Some(message)) => (rpc(Some(json!("not json"))), Err(ChannelError::Failed(message.clone()))),
-                (name, None) => match name.strip_prefix("PC answers ").map(|raw| serde_json::from_str::<Value>(raw).unwrap()) {
-                    Some(Value::Bool(usable)) => (answer(ProxyAnswer::Usable { usable }), Ok(case["value"].clone())),
-                    // A string, a number, null or an object: the typed wire cannot carry them.
-                    Some(_) => {
-                        skipped.insert(name.to_owned());
-                        continue;
-                    }
-                    None => panic!("a recorded case with no mapping: {case}"),
-                },
-                _ => panic!("a recorded case with no mapping: {case}"),
-            };
-            let pc = Pc::answering(reply);
-            let got = HostQuotaChannel::new(pc.clone()).quota_usable(provider, model).await;
-            match (&got, &expected) {
-                (Ok(got), Ok(expected)) => assert_eq!(got, expected, "{case}"),
-                (Err(ChannelError::Unavailable(got)), Err(ChannelError::Unavailable(expected))) | (Err(ChannelError::Failed(got)), Err(ChannelError::Failed(expected))) => {
-                    assert_eq!(got, expected, "{case}")
-                }
-                _ => panic!("{got:?} is not {expected:?}: {case}"),
-            }
-            let asked = pc.asked.lock().unwrap();
-            let [(capability, method, params)] = asked.as_slice() else { panic!("one question: {case}") };
-            assert_eq!((*capability, method.as_str()), (HostCapability::ModelProxy, "model/proxy/execute"), "{case}");
-            // What Node published to the client for the call: the same question, in the Rust wire's shape.
-            let published = case["published"].as_array().unwrap();
-            assert!(published.is_empty() || *params == json!({ "call": published[0] }), "{case}");
-        }
-        // Only the four answers that are not a bool: the typed wire carries a bool.
-        assert_eq!(skipped.len(), 4, "{skipped:?}");
-    }
 }

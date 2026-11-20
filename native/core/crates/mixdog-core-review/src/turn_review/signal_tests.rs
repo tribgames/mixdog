@@ -1,9 +1,7 @@
-//! The recording of when the core tells clients to read a review again (`fixtures/turn-review-signal`), replayed against the core of
-//! this crate's tests: the real turn review over real Git and real tools, and the scm service that publishes its signal through the
-//! core's own publisher (`StateRuntime`: the feed state that numbers and encodes each section notification on the app feed). The
-//! replay itself is `signal_replay`; the scenarios in which a core restarts are replayed against the core as the daemon composes it
-//! (`mixdog-app-server-daemon`, `compose::review_restart_tests`). `listeners.json` records the listener registry (subscribe,
-//! unsubscribe, removal and addition during a delivery).
+//! When the core tells clients to read a review again, against the core of this crate's tests: the real turn review over real Git
+//! and real tools, and the scm service that publishes its signal through the core's own publisher (`StateRuntime`: the feed state
+//! that numbers and encodes each section notification on the app feed). The listener registry is covered here too: subscribe,
+//! unsubscribe, removal and addition during a delivery.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and a real git")]
 
 use std::collections::HashMap;
@@ -22,8 +20,6 @@ use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolIo;
-#[cfg(node_twin)]
-use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::feed::ScopedFeed;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::mock::MockFeed;
@@ -41,12 +37,8 @@ use mixdog_scm::service::FeatureGate;
 use mixdog_scm::service::ScmService;
 use mixdog_scm::service::ThreadWorktrees;
 use mixdog_scm::worktree::review_bases::CapturedBases;
-#[cfg(node_twin)]
-use mixdog_tools::fs::ApplyPatchTool;
 use mixdog_tools::fs::EditTool;
 use mixdog_tools::fs::ReadState;
-#[cfg(node_twin)]
-use mixdog_tools::git::GitTool;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -59,10 +51,6 @@ use super::seams::follow_read_state;
 use super::service::Config;
 use super::service::TurnReview;
 use super::shadow::ShadowRepos;
-#[cfg(node_twin)]
-use super::signal_replay::ReplayHost;
-#[cfg(node_twin)]
-use super::signal_replay::replay;
 
 struct Open;
 
@@ -119,31 +107,6 @@ fn world(data: &Path) -> World {
     }
 }
 
-#[cfg(node_twin)]
-#[async_trait]
-impl ReplayHost for World {
-    fn review(&self) -> TurnReview {
-        self.review.clone()
-    }
-
-    fn app_feed(&self) -> Arc<dyn ScopedFeed> {
-        self.app.clone()
-    }
-
-    async fn call_tool(&self, tool: &str, cwd: &Path, session: &str, call: usize, input: Value) -> ToolOutcome {
-        let ctx = context(self, cwd, session, call);
-        match tool {
-            "edit" => EditTool::new().with_state(self.state.clone()).call(&ctx, input).await,
-            "apply_patch" => ApplyPatchTool::new().with_state(self.state.clone()).call(&ctx, input).await,
-            "git" => GitTool::new().call(&ctx, input).await,
-            other => panic!("this core has no tool {other}"),
-        }
-    }
-
-    async fn restart(&mut self) {
-        panic!("a restart is replayed against the composed core (mixdog-app-server-daemon, compose::review_restart_tests)");
-    }
-}
 fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     ToolContext {
@@ -166,22 +129,7 @@ fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext
 }
 
 
-#[cfg(node_twin)]
-const SLICES: usize = 3;
 
-/// The recorded scenarios this platform replays here: its own, without those in which the core restarts (those need a core
-/// that composes again over its data directory).
-#[cfg(node_twin)]
-fn replayable(golden: &Value) -> Vec<&Value> {
-    let platform = std::env::consts::OS.replace("windows", "win32");
-    golden
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|scenario| scenario["platform"] == platform)
-        .filter(|scenario| !scenario["ops"].as_array().unwrap().iter().any(|op| op["coreRestart"] == true))
-        .collect()
-}
 /// One recorded listener scenario's functions, handles and call log. What a listener does when it runs is the recording's data.
 struct Script {
     shadow: Arc<ShadowRepos>,
@@ -275,57 +223,6 @@ async fn a_burst_is_one_delivery_to_every_listener_including_a_late_one() {
 }
 
 
-#[cfg(node_twin)]
-fn signal_golden() -> Value {
-    serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/scenarios.json")).unwrap()).unwrap()
-}
-/// Replays the replayable scenarios whose position is `slice` modulo `SLICES`.
-#[cfg(node_twin)]
-async fn replay_slice(slice: usize) {
-    let golden = signal_golden();
-    let mut replayed = 0;
-    for (position, scenario) in replayable(&golden).into_iter().enumerate() {
-        if position % SLICES != slice {
-            continue;
-        }
-        let data = tempfile::tempdir().unwrap();
-        replay(scenario, &mut world(data.path())).await;
-        replayed += 1;
-    }
-    assert!(REGISTERED_SIGNAL_SLICES.contains(&slice));
-    assert_eq!(replayed, (0..replayable(&golden).len()).filter(|position| position % SLICES == slice).count(), "executed scenarios");
-    println!("slice {slice}: {replayed} scenarios replayed");
-}
-#[cfg(node_twin)]
-macro_rules! registered_the_core_tells_clients_to_reread_as_node_does {
-    ($($name:ident => $slice:expr),* $(,)?) => {
-        const REGISTERED_SIGNAL_SLICES: &[usize] = &[$($slice),*];
-        $(#[tokio::test]
-        async fn $name() { replay_slice($slice).await; })*
-    };
-}
-#[cfg(node_twin)]
-#[test]
-fn the_slices_replay_every_recorded_scenario_of_this_platform_once() {
-    let golden = signal_golden();
-    let total = replayable(&golden).len();
-    assert_eq!(REGISTERED_SIGNAL_SLICES, &(0..SLICES).collect::<Vec<_>>());
-    let covered: usize = REGISTERED_SIGNAL_SLICES.iter().map(|slice| (0..total).filter(|position| position % SLICES == *slice).count()).sum();
-    println!("{total} scenarios in {SLICES} slices");
-    assert!(total > 0, "no recorded scenario for this platform");
-    assert_eq!(covered, total);
-}
-/// `onTurnReviewChanged` / `noteTurnReviewChanged` against Node's recording of the same scripts: which listeners run, in what
-/// order, when an unsubscribe finds its listener, and what a listener that changes the registry mid-delivery does to the delivery
-/// under way. The ops run in one task on the multi-thread runtime, with no yield between them but `drain`.
-#[cfg(node_twin)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn listeners_come_and_go_as_in_node() {
-    let golden: Value = serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/listeners.json")).unwrap()).unwrap();
-    for scenario in golden.as_array().unwrap() {
-        assert_eq!(Value::Array(play(scenario).await), scenario["results"], "{}", scenario["name"]);
-    }
-}
 
 /// One listener script run on a fresh core: each op's name, the listeners it ran and, for an unsubscribe, whether it found its
 /// listener. The ops run in one task on the multi-thread runtime, with no yield between them but `drain`.
@@ -368,12 +265,6 @@ async fn play(scenario: &Value) -> Vec<Value> {
     .unwrap()
 }
 
-#[cfg(node_twin)]
-registered_the_core_tells_clients_to_reread_as_node_does! {
-    the_core_tells_clients_to_reread_as_node_does_slice_0 => 0,
-    the_core_tells_clients_to_reread_as_node_does_slice_1 => 1,
-    the_core_tells_clients_to_reread_as_node_does_slice_2 => 2,
-}
 
 /// Listeners hear each delivery in the order they subscribed, and one that unsubscribed hears no more; a second unsubscribe
 /// of the same handle finds nothing.

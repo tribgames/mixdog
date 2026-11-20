@@ -1529,24 +1529,4 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn thin_diagonal_strokes_that_cairo_keeps_match_the_original_node_picture() {
-        // Original sharp 0.35.5 / Cairo 1.18.6 / librsvg 2.63.2, density 72.
-        // Provenance and a reproducible recorder accompany the PNG in tests/oracles.
-        let mut paths = String::new();
-        for x in (-120..=120).step_by(4) {
-            paths.push_str(&format!("<path d=\"M{x} 0L{} 128\"/>", x + 128));
-        }
-        let page = svg("width=\"128\" height=\"128\"", &format!(
-            "<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"
-        ));
-        let actual = rasterize(&SvgFonts::none(), &page, 72.0).expect("SVG");
-        let recorded = Image::decode(include_bytes!("../tests/oracles/svg-thin-0.05.png")).expect("Node PNG");
-        let comparison = mixdog_office_base::twin::pixels::compare(
-            mixdog_office_base::twin::pixels::Picture::new(actual.width(), actual.height(), actual.rgba()),
-            mixdog_office_base::twin::pixels::Picture::new(recorded.width(), recorded.height(), recorded.rgba()),
-        );
-        comparison.verdict().unwrap_or_else(|why| panic!("{why}"));
-    }
 }

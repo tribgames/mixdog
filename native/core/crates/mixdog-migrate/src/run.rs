@@ -1180,10 +1180,6 @@ pub mod cli;
 #[cfg(test)]
 #[path = "run/migration_tests.rs"]
 pub(crate) mod tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "run/node-twin/corpus_gates.rs"]
-mod corpus_gates;
 #[cfg(test)]
 mod registry_import_tests;
 

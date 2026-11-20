@@ -191,19 +191,6 @@ async fn a_speed_parameters_or_context_change_on_the_seated_route_is_published()
     directory.shutdown().await;
 }
 
-#[cfg(node_twin)]
-/// The `seq` of each `setupChanged` the thread's feed published, in order, each once (later runtime frames carry the held value again).
-fn published_setup_seqs(rig: &Rig, thread: &str) -> Vec<u64> {
-    let mut seqs: Vec<u64> = rig
-        .feeds
-        .frames(thread)
-        .into_iter()
-        .filter(|(_, method, _)| method == "thread/runtime/updated")
-        .filter_map(|(_, _, params)| params["value"]["setupChanged"]["seq"].as_u64())
-        .collect();
-    seqs.dedup();
-    seqs
-}
 
 /// An installed session holds the configured route values in its state, and publishes no route frame to say so; the next route
 /// frame carries them.
@@ -393,47 +380,12 @@ async fn held(handle: &super::SessionHandle, status: &GatedStatus, count: usize)
     eventually_on!(&[&handle.cell.stepped, &status.arrived], || (status.held() == count).then_some(())).await;
 }
 
-#[cfg(node_twin)]
-/// A route that saves the configuration `saves` times while the new thread is being created, as the draft's route does (`adopt_draft`
-/// saves it): each save moves the settings counter once, as an announced change.
-struct SavingRoute {
-    counter: tokio::sync::watch::Sender<u64>,
-    saves: u64,
-}
 
-#[cfg(node_twin)]
-#[async_trait::async_trait]
-impl super::NewThreadRoute for SavingRoute {
-    async fn adopt(&self, _: &mixdog_core_api::ids::ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
-        for _ in 0..self.saves {
-            self.counter.send_modify(|count| *count += 1);
-        }
-        Ok(serde_json::Map::new())
-    }
-
-    async fn adopt_control(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<serde_json::Map<String, Value>, String> {
-        Ok(serde_json::Map::new())
-    }
-
-    async fn seat(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<(), String> {
-        Ok(())
-    }
-}
 
 /// A gauge whose answer to the load's status pass is the stored reading of a session (`measurement`), as a restarted core reads it off the header.
 struct StoredReading(Value);
 
-#[cfg(node_twin)]
-/// A gauge whose answer the test changes between status passes.
-struct ScriptedReading(std::sync::Mutex<Value>);
 
-#[cfg(node_twin)]
-impl ScriptedReading {
-    #[cfg(node_twin)]
-    fn says(&self, measurement: Value) {
-        *self.0.lock().unwrap() = json!({ "contextWindow": 200_000, "measurement": measurement });
-    }
-}
 
 /// `thread/header/patch` of a move to the route `state` shows (`updateSessionRoute`).
 fn move_to<'a>(handle: &'a super::SessionHandle, state: &Value) -> impl std::future::Future<Output = Result<mixdog_core_api::Reply, mixdog_core_api::error::CoreError>> + 'a {
@@ -507,26 +459,8 @@ async fn a_loaded_thread_shows_the_stored_context_reading_before_any_model_respo
     let stats = stats(&handle);
     assert_eq!((&stats["currentContextSource"], &stats["currentContextUpdatedAt"]), (&json!("last_api_request"), &json!(7_000)));
 }
-#[cfg(node_twin)]
-#[async_trait::async_trait]
-impl super::thread_context::ContextStatusHost for ScriptedReading {
-    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-}
 
 
-#[cfg(node_twin)]
-/// What Node recorded for `setupChanged` (`testdata/node-setup-changed.json`): the value its session published for a thread started with a
-/// draft route (the real-turn harness's recording), and the `seq` of each of two settings announcements delivered before the state was read
-/// (`testdata/record-setup-changed.mjs` runs Node's own modules through them; the state ends on the last).
-fn node_setup_changed() -> (Value, Vec<u64>) {
-    let recorded: Value = serde_json::from_str(include_str!("../../testdata/node-setup-changed.json")).expect("the recording parses");
-    let deliveries = &recorded["twoDeliveries"];
-    let seqs: Vec<u64> = deliveries["published"].as_array().expect("the recorded deliveries").iter().map(|delivery| delivery["seq"].as_u64().expect("a seq")).collect();
-    assert_eq!(deliveries["final"]["seq"].as_u64(), seqs.last().copied(), "the recorded state is the last delivery");
-    (recorded["frame"]["patch"]["set"]["setupChanged"].clone(), seqs)
-}
 /// The [`MOVED`] fields of a thread on `model` of the 128000-token custom route, compacting at `trigger`.
 fn route_state(model: &str, trigger: u64) -> Value {
     json!({
@@ -695,124 +629,4 @@ async fn a_route_move_whose_status_read_fails_is_still_written() {
     awaiting(|| "the move to answer".to_owned(), move_to(&handle, &failed.after)).await.expect("the move is written");
     assert!(status.answers.lock().unwrap().is_empty(), "the move read its status once");
     assert_answers_as_node(&shown(&handle), failed, "the move with a failed read");
-}
-#[cfg(node_twin)]
-/// Each announced settings change moves `setupChanged` (`{ action: 'settings_changed', seq, at }`, `seq` counting the thread's changes), and
-/// the route section follows the saved configuration.
-#[tokio::test(start_paused = true)]
-async fn each_announced_settings_change_moves_setup_changed() {
-    let rig = Rig::new();
-    let (announce, changes) = tokio::sync::watch::channel(0_u64);
-    *lock(&rig.compaction.settings) = Some(changes);
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let seq_of = |value: Option<Value>| value.and_then(|runtime| runtime["setupChanged"]["seq"].as_u64());
-    assert_eq!(seq_of(newest(&rig, handle.id.as_str(), "thread/runtime/updated")), None, "nothing is announced before a change");
-    let (recorded, seqs) = node_setup_changed();
-    announce.send_modify(|count| *count += 1);
-    let first = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
-    assert_eq!(first["setupChanged"]["action"], recorded["action"]);
-    announce.send_modify(|count| *count += 1);
-    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(seqs[1]))).await;
-}
-#[cfg(node_twin)]
-/// In Node the session exists (`client.create`) before the draft's `setRoute` saves the route, so the save is a settings change the session
-/// sees: a settings change made while a thread is being created reaches its `setupChanged`.
-#[tokio::test(start_paused = true)]
-async fn a_settings_change_the_creation_makes_reaches_the_new_threads_setup_changed() {
-    let rig = Rig::new();
-    let (announce, changes) = tokio::sync::watch::channel(0_u64);
-    *lock(&rig.compaction.settings) = Some(changes);
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(SavingRoute { counter: announce, saves: 1 });
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let handle = start_thread(&directory).await;
-    let (recorded, _) = node_setup_changed();
-    let first = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
-    assert_eq!(first["setupChanged"]["action"], recorded["action"]);
-}
-#[cfg(node_twin)]
-/// Announcements made before the thread's actor runs (the counter moves once per recorded delivery while it is created) are separate
-/// deliveries to a Node session: the thread publishes setupChanged once for each, with the seqs Node recorded, and holds the last.
-#[tokio::test(start_paused = true)]
-async fn announcements_made_before_install_each_count() {
-    let rig = Rig::new();
-    let (announce, changes) = tokio::sync::watch::channel(0_u64);
-    *lock(&rig.compaction.settings) = Some(changes);
-    let (_, seqs) = node_setup_changed();
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(SavingRoute { counter: announce, saves: seqs.len() as u64 });
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let handle = start_thread(&directory).await;
-    let last = *seqs.last().expect("a recorded delivery");
-    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(last))).await;
-    assert_eq!(published_setup_seqs(&rig, handle.id.as_str()), seqs);
-}
-#[cfg(node_twin)]
-/// The count behind a thread when it begins is not its own: a counter already at 5 is no delivery to a thread that follows it from now on.
-#[tokio::test(start_paused = true)]
-async fn announcements_before_the_thread_begins_do_not_count() {
-    let rig = Rig::new();
-    let (announce, changes) = tokio::sync::watch::channel(5_u64);
-    *lock(&rig.compaction.settings) = Some(changes);
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    announce.send_modify(|count| *count += 1);
-    let (recorded, _) = node_setup_changed();
-    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
-}
-#[cfg(node_twin)]
-/// Until the session folds a model call of its own, the gauge's measurement is its reading, pending included: a restored reading
-/// becomes pending when a compaction or a route change leaves the status pass saying so, before any model response.
-#[tokio::test(start_paused = true)]
-async fn a_restored_reading_becomes_pending_after_a_compaction_and_after_a_route_change() {
-    let known = json!({ "tokens": 42_000, "source": "last_api_request", "updatedAt": 7_000 });
-    let pending = json!({ "tokens": null, "source": "pending", "updatedAt": null });
-    let gauge = Arc::new(ScriptedReading(Default::default()));
-    gauge.says(known.clone());
-    let rig = Rig::new();
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.context_status = gauge.clone();
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let source = |handle: &super::SessionHandle| handle.cell.view.load_full().state.context.clone().expect("context").stats.expect("stats")["currentContextSource"].clone();
-
-    let compacted = start_thread(&directory).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    eventually_on!(&[&compacted.cell.stepped], || (source(&compacted) == json!("last_api_request")).then_some(())).await;
-    gauge.says(pending.clone());
-    let compaction = super::run::Compaction { replacement: vec![(mixdog_core_api::ids::ItemId::from("sum".to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 0, dropped: None };
-    let commit = directory.commit_compaction(&compacted.id, Vec::new(), compaction, None).await.expect("answered");
-    assert_eq!(commit, super::turn_ops::CompactionCommit::Applied);
-    eventually_on!(&[&compacted.cell.stepped], || (source(&compacted) == json!("pending")).then_some(())).await;
-
-    gauge.says(known);
-    let moved = start_thread(&directory).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    eventually_on!(&[&moved.cell.stepped], || (source(&moved) == json!("last_api_request")).then_some(())).await;
-    gauge.says(pending);
-    let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");
-    move_to(&moved, &recorded.after).await.expect("moved");
-    eventually_on!(&[&moved.cell.stepped], || (source(&moved) == json!("pending")).then_some(())).await;
-}
-#[cfg(node_twin)]
-/// A turn's close does not take `setupChanged`: the settings announcement is the session's, not the run's, and a client reads it after the turn.
-#[tokio::test(start_paused = true)]
-async fn a_turn_end_leaves_setup_changed_in_the_state() {
-    let rig = Rig::new();
-    let (announce, changes) = tokio::sync::watch::channel(0_u64);
-    *lock(&rig.compaction.settings) = Some(changes);
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    let (recorded, _) = node_setup_changed();
-    announce.send_modify(|count| *count += 1);
-    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
-    turn(&handle, "go", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || {
-        rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
-    })
-    .await;
-    let after = newest(&rig, handle.id.as_str(), "thread/runtime/updated").expect("a runtime frame");
-    assert_eq!(after["setupChanged"]["seq"], recorded["seq"], "the frame after the turn still carries it");
-    assert!(handle.cell.view.load_full().state.runtime.clone().expect("runtime").setup_changed.is_some());
 }

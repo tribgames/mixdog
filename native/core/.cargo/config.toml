@@ -1,7 +1,3 @@
-# The owner's local-only Node-comparison tests are compiled in by `--cfg node_twin`, which the untracked `local.toml` sets
-# (docs/testing.md, "Node-comparison material"). A clean checkout has no such file and builds without them.
-include = [{ path = "local.toml", optional = true }]
-
 # crates/mixdog-secure-desktop restates native/mixdog-secure-desktop's `rust-version` (1.87), the only member that names
 # one; resolver 3 would otherwise pick every dependency added from then on for that Rust instead of the newest release.
 [resolver]

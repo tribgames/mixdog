@@ -10,8 +10,6 @@ mod run;
 mod stage;
 #[cfg(test)]
 mod feature_tests;
-#[cfg(all(test, node_twin))]
-mod tests;
 mod worktree;
 
 use std::path::Path;

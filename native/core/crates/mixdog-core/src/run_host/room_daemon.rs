@@ -11,8 +11,6 @@ use mixdog_core_rooms::rooms::member_turn::SubmitOptions;
 use mixdog_core_rooms::rooms::turn_prompt::RoomPrompt;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::room_log::SessionRoomLog;
-#[cfg(node_twin)]
-use mixdog_core_session::session::room_log::RoomLog;
 use serde_json::Value;
 
 use super::room_approvals::room_view_of;

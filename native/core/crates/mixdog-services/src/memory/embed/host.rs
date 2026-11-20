@@ -94,8 +94,6 @@ fn launch(config: &EmbedConfig) -> Result<HostLaunch> {
 struct Inner {
     pipes: Pipes,
     exchange: Mutex<()>,
-    #[cfg(test)]
-    dims: usize,
     device: &'static str,
     model_id: String,
     dtype: String,
@@ -147,8 +145,8 @@ impl Embedder {
                 }
             }));
             let first = pipes.receive().map_err(error)?;
-            let (_dims, device) = match serde_json::from_str::<Reply>(&first).map_err(error)? {
-                Reply::Ready { dims, device } => (dims, device),
+            let device = match serde_json::from_str::<Reply>(&first).map_err(error)? {
+                Reply::Ready { device, .. } => device,
                 Reply::Failed { message } => return Err(MemoryError::Embedding(message)),
                 _ => return Err(error("unexpected reply while loading")),
             };
@@ -156,8 +154,6 @@ impl Embedder {
             let model_id = mixdog_js::js_trim(&config.model_id).to_owned();
             Ok(Self { inner: Arc::new(Inner {
                 pipes, exchange: Mutex::new(()),
-                #[cfg(test)]
-                dims: _dims,
                 device: match device.as_str() { "cpu" => "cpu", "dml" => "dml", _ => return Err(error("unknown device")) },
                 dtype: config::normalize_dtype(&model_id, config.dtype.as_deref()),
                 model_id, lane: config.lane, request_limit: limits.request,
@@ -175,8 +171,6 @@ impl Embedder {
     pub(crate) fn retire(&self) { self.inner.pipes.retire() }
     #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 { self.inner.pipes.generation() }
-    #[cfg(test)]
-    pub(crate) fn dims(&self) -> usize { self.inner.dims }
     pub fn device(&self) -> &'static str { self.inner.device }
     pub fn model_id(&self) -> &str { &self.inner.model_id }
     pub fn dtype(&self) -> &str { &self.inner.dtype }

@@ -1,5 +1,3 @@
-#[cfg(node_twin)]
-use std::path::Path;
 use std::sync::Mutex;
 
 use mixdog_core_api::mock::MockStatePublisher;
@@ -27,10 +25,6 @@ impl MockHost {
         })
     }
 
-    #[cfg(node_twin)]
-    fn calls(&self) -> Vec<Value> {
-        self.calls.lock().unwrap().clone()
-    }
 
     fn record(&self, call: Value) {
         self.calls.lock().unwrap().push(call);
@@ -88,29 +82,7 @@ fn lanes() -> ConfigLanes {
     ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io }
 }
 
-#[cfg(node_twin)]
-fn external_of(value: &Value) -> External {
-    External {
-        embedding_info: value["embeddingInfo"].clone(),
-        onnx_supported: value["onnxSupported"].as_bool().unwrap(),
-        git_available: value["gitAvailable"].as_bool().unwrap(),
-        local_provider: value["localProvider"].clone(),
-        installation_command_error: value["installationCommandError"].as_str().map(str::to_owned),
-        effort_judge: EffortJudgeState {
-            available: value["effortJudge"]["available"].as_bool().unwrap(),
-            installing: value["effortJudge"]["installing"].as_bool().unwrap(),
-            ready: value["effortJudge"]["ready"].as_bool().unwrap(),
-            last_error: value["effortJudge"]["lastError"].clone(),
-            info: value["effortJudge"]["info"].clone(),
-        },
-    }
-}
 
-#[cfg(node_twin)]
-fn env_of(env: &Value) -> FeatureEnv {
-    let env = env.clone();
-    Arc::new(move |name| env.get(name).and_then(Value::as_str).map(str::to_owned))
-}
 
 async fn service(
     dir: &tempfile::TempDir,
@@ -196,45 +168,8 @@ fn plain_external() -> External {
     }
 }
 
-/// The recorder's stand-in store keeps the document as given; Node's real store settles on
-/// `canonicalizeUnifiedConfig` at every read and save, which drops the retired `modules.memory`
-/// (the modules object stays, emptied or not).
-#[cfg(node_twin)]
-fn without_retired_memory_module(doc: &Value) -> Value {
-    let mut doc = doc.clone();
-    if let Some(modules) = doc.get_mut("modules").and_then(Value::as_object_mut) {
-        modules.shift_remove("memory");
-    }
-    doc
-}
 
-/// The value, the saved config, the host calls and the errors of Node's setters over 100
-/// recorded configs (`record-tool-modules.mjs`).
-/// Recorded entries per test: each opens its own service for the value and every setter.
-#[cfg(node_twin)]
-const ENTRY_CHUNK: usize = 7;
 
-/// What the panel, Doctor and `setup status` (the `toolModules` value) and the tool surface (`builtin_feature_active`, with and
-/// without the surface's own grandfathering: there is one decision) read of `agent`.
-#[cfg(node_twin)]
-fn assert_installed_and_active(label: &str, expected: &Value, panel: &Value, agent: &value::Doc) {
-    let env = |_: &str| None::<String>;
-    for id in ["git", "memory", "office", "tidy"] {
-        let installed = expected["installed"][id].as_bool().unwrap();
-        let active = expected["active"][id].as_bool().unwrap();
-        assert_eq!(panel[id]["installed"], json!(installed), "{label}: panel {id} installed");
-        // The panel's git switch also needs git on PATH, which Node reads from outside the config.
-        if id != "git" {
-            assert_eq!(panel[id]["enabled"], json!(active), "{label}: panel {id} enabled");
-        }
-        assert_eq!(builtin_feature_active(agent, id, &env, true), active, "{label}: surface {id}");
-        assert_eq!(
-            builtin_feature_active(&adopted_stored_agent(agent), id, &env, true),
-            active,
-            "{label}: grandfathered surface {id}"
-        );
-    }
-}
 
 /// A 1.4.5 profile holding only `agent.autoClear.enabled:false` (the desktop settings store's write, no install marker) is
 /// grandfathered by Node's load. In the product every writer works from the config loaded from disk, so a first write by any of
@@ -341,145 +276,3 @@ async fn host_status_and_other_config_writers_push_without_polling() {
 }
 
 
-#[cfg(node_twin)]
-fn modules_twin() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/tool-modules-twin.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-#[cfg(node_twin)]
-mixdog_rt::replay_chunks!(MODULE_TESTS, #[tokio::test] async the_modules_chunk; [
-    the_value_and_every_setter_match_the_recorded_node_module_00 = 0,
-    the_value_and_every_setter_match_the_recorded_node_module_01 = 1,
-    the_value_and_every_setter_match_the_recorded_node_module_02 = 2,
-    the_value_and_every_setter_match_the_recorded_node_module_03 = 3,
-    the_value_and_every_setter_match_the_recorded_node_module_04 = 4,
-    the_value_and_every_setter_match_the_recorded_node_module_05 = 5,
-    the_value_and_every_setter_match_the_recorded_node_module_06 = 6,
-    the_value_and_every_setter_match_the_recorded_node_module_07 = 7,
-    the_value_and_every_setter_match_the_recorded_node_module_08 = 8,
-    the_value_and_every_setter_match_the_recorded_node_module_09 = 9,
-    the_value_and_every_setter_match_the_recorded_node_module_10 = 10,
-    the_value_and_every_setter_match_the_recorded_node_module_11 = 11,
-    the_value_and_every_setter_match_the_recorded_node_module_12 = 12,
-    the_value_and_every_setter_match_the_recorded_node_module_13 = 13,
-    the_value_and_every_setter_match_the_recorded_node_module_14 = 14,
-]);
-#[cfg(node_twin)]
-#[test]
-fn every_recorded_entry_has_its_modules_test() {
-    let twin = modules_twin();
-    let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 100);
-    let setters: usize = entries.iter().map(|entry| entry["setters"].as_array().unwrap().len()).sum();
-    assert_eq!(entries.len() + setters, 900);
-    mixdog_rt::testing::assert_chunks_registered(MODULE_TESTS, entries.len(), ENTRY_CHUNK);
-}
-#[cfg(node_twin)]
-async fn the_modules_chunk(chunk: usize) {
-    let twin = modules_twin();
-    let entries = twin["entries"].as_array().unwrap();
-    let range = mixdog_rt::testing::chunk_range(entries.len(), chunk, ENTRY_CHUNK);
-    for (index, entry) in entries.iter().enumerate().skip(range.start).take(range.len()) {
-        // A config with no `builtins` section was recorded over an unadopted stand-in store; the runtime holds the grandfathered
-        // config, which the profile-shape table below checks against Node.
-        if entry["config"].get("builtins").is_none() {
-            continue;
-        }
-        let external = external_of(&entry["external"]);
-        let env = || env_of(&entry["env"]);
-        let dir = tempfile::tempdir().unwrap();
-        let (modules, _, _, _, cancel) = service(&dir, Some(&entry["config"]), external.clone(), env()).await;
-        assert_eq!(modules.settings().await, entry["value"], "entry {index}: value");
-        cancel.cancel();
-
-        for setter in entry["setters"].as_array().unwrap() {
-            let dir = tempfile::tempdir().unwrap();
-            let (modules, host, _, config, cancel) =
-                service(&dir, Some(&entry["config"]), external.clone(), env()).await;
-            let args = setter["args"].as_array().unwrap();
-            let method = setter["method"].as_str().unwrap();
-            let flag = |i: usize| args[i].as_bool().unwrap();
-            let name = |i: usize| args[i].as_str().unwrap();
-            let result = match method {
-                "setWebSearchEnabled" => modules.set_web_search_enabled(flag(0)).await,
-                "setInstructionFiles" => modules.set_instruction_files(name(0)).await,
-                "setAutoEffortBase" => modules.set_auto_effort_base(name(0)).await,
-                "setRecapEnabled" => modules.set_recap_enabled(flag(0)).await,
-                "setMemoryToolsEnabled" => modules.set_memory_tools_enabled(flag(0)).await,
-                "setBuiltinToolEnabled" => modules.set_builtin_tool_enabled(name(0), flag(1)).await,
-                "installBuiltinFeature" => {
-                    let engines = args.get(1).map(|options| {
-                        options["engines"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .map(|e| e.as_str().unwrap().to_owned())
-                            .collect()
-                    });
-                    modules.install_builtin_feature(name(0), engines).await
-                }
-                other => panic!("{other}"),
-            };
-            let label = format!("entry {index} {method} {args:?}");
-            match (&result, setter.get("error")) {
-                (Err(error), Some(expected)) => assert_eq!(&json!(error.to_string()), expected, "{label}"),
-                (Ok(value), None) => assert_eq!(value, &setter["value"], "{label}: value"),
-                _ => panic!("{label}: {result:?} vs {:?}", setter.get("error")),
-            }
-            let expected_doc = setter
-                .get("saved")
-                .filter(|saved| !saved.is_null())
-                .unwrap_or(&entry["config"]);
-            assert_eq!(&Value::Object(config.agent()), &without_retired_memory_module(expected_doc), "{label}: config");
-            // Departure: Node skipped the runtime preparation of an explicit Local provider enable when the host's status already
-            // read `runtime.installed: true`; the core verifies the runtime on every explicit enable, since that status is display
-            // state, not verification (`explicit_enable_does_not_accept_runtime_display_status_as_verification`).
-            let mut calls = setter["calls"].as_array().unwrap().clone();
-            let prepare = json!(["prepare", "localProvider"]);
-            if method == "setBuiltinToolEnabled" && name(0) == "localProvider" && flag(1) && calls.first() != Some(&prepare) {
-                calls.insert(0, prepare);
-            }
-            assert_eq!(Value::Array(host.calls()), Value::Array(calls), "{label}: host calls");
-            cancel.cancel();
-        }
-    }
-}
-#[cfg(node_twin)]
-fn grandfathering_twin() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/builtin-grandfathering-twin.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-/// Every stored shape Node's writers leave (legacy, fresh, with `builtins`, a section holding only `autoClear` or `compaction`
-/// from the desktop settings store, a setter's seeded first write on a fresh and on a legacy profile) × a read, installing,
-/// enabling and disabling built-ins, against Node's values from the 1.4.5 tree (`record-builtin-grandfathering.mjs`: the real
-/// `loadConfig`, `withGrandfatheredBuiltins`, `builtinInstalled`, `builtinFeatureActive` and the setters' config edits over
-/// `saveConfigAndAdopt`). Each case is read by the panel and the surface, then again from the file as a restart reads it.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_install_markers_equal_nodes_over_every_profile_shape_and_toggle() {
-    let twin = grandfathering_twin();
-    assert_eq!(twin["cases"].as_array().unwrap().len(), 56);
-    for case in twin["cases"].as_array().unwrap() {
-        let label = format!("{} {}", case["shape"], case["op"]);
-        let dir = tempfile::tempdir().unwrap();
-        let stored = &twin["shapes"][case["shape"].as_str().unwrap()];
-        // `null` is a first start: no stored agent section at all.
-        let (modules, _, _, config, cancel) =
-            service(&dir, Some(stored).filter(|stored| !stored.is_null()), plain_external(), Arc::new(|_| None)).await;
-        let op = case["op"].as_str().unwrap();
-        let panel = match op.split_once(':') {
-            None => modules.settings().await,
-            Some(("install", name)) => modules.install_builtin_feature(name, None).await.unwrap(),
-            Some(("enable", name)) => modules.set_builtin_tool_enabled(name, true).await.unwrap(),
-            Some(("disable", name)) => modules.set_builtin_tool_enabled(name, false).await.unwrap(),
-            Some(other) => panic!("{other:?}"),
-        };
-        assert_installed_and_active(&label, case, &panel, &config.agent());
-        cancel.cancel();
-
-        // A restart: the file alone says the same.
-        let (reopened, _, _, config, cancel) = service(&dir, None, plain_external(), Arc::new(|_| None)).await;
-        assert_installed_and_active(&format!("{label} after a restart"), case, &reopened.settings().await, &config.agent());
-        cancel.cancel();
-    }
-}

@@ -34,28 +34,10 @@ mod threads;
 mod effort_tests;
 #[cfg(test)]
 mod fallback_wire_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod fast_mode_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod leak_tests;
 #[cfg(test)]
 mod models_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod schema_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod native_search_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod shared_prefix_tests;
 #[cfg(test)]
 mod tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-pub(crate) mod wire_tests;
 
 pub use adapter::AnthropicAdapter;
 pub use adapter::Compressor;

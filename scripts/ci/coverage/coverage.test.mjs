@@ -1673,10 +1673,10 @@ test('inventory: Rust packages, the files a target reaches, and doctests are ass
   assert.deepEqual(codes(RUST_FILES), []);
   // a computed test name, a macro and a generated test are not the inventory's business
   assert.deepEqual(codes(lib('macro_rules! t { ($n:ident) => { #[test] fn $n() {} } }\nt!(one);\n')), []);
-  // `mod` through a #[path] below an inline module, and a module under cfg(node_twin) that is not tracked
+  // `mod` through a #[path] below an inline module
   assert.deepEqual(
     codes({
-      ...lib('mod outer {\n  #[path = "../shared.rs"]\n  mod shared;\n}\n#[cfg(node_twin)]\nmod replay;\n'),
+      ...lib('mod outer {\n  #[path = "../shared.rs"]\n  mod shared;\n}\n'),
       'crates/p/src/shared.rs': '',
     }),
     []
@@ -1685,7 +1685,7 @@ test('inventory: Rust packages, the files a target reaches, and doctests are ass
   const stray = { ...RUST_FILES, 'crates/p/src/stray.rs': '#[test] fn x() {}\n' };
   assert.deepEqual(codes(stray), ['orphan-rust-source crates/p/src/stray.rs']);
   assert.deepEqual(
-    codes(stray, [LIVE_CLASS, { glob: 'crates/p/src/stray.rs', class: 'twin-only', reason: 'replay', owner: OWNER }]),
+    codes(stray, [LIVE_CLASS, { glob: 'crates/p/src/stray.rs', class: 'fixture', reason: 'replay', owner: OWNER }]),
     []
   );
   assert.deepEqual(codes(lib('/// ```\n/// assert!(true);\n/// ```\npub fn f() {}\n')), [
@@ -1714,7 +1714,7 @@ test('inventory: Rust packages, the files a target reaches, and doctests are ass
   assert.deepEqual(
     codes(stray, [
       LIVE_CLASS,
-      { glob: 'crates/p/src/*.rs', class: 'twin-only', reason: 'a', owner: OWNER },
+      { glob: 'crates/p/src/*.rs', class: 'fixture', reason: 'a', owner: OWNER },
       { glob: 'crates/p/src/stray.rs', class: 'helper', reason: 'b', owner: OWNER },
     ]),
     ['ambiguous-class crates/p/src/stray.rs']

@@ -1,42 +1,23 @@
-//! The ten methods against the Node recording (`fixtures/workflow-config/scenarios.json`), over
-//! the real `Config`, the real pack files and the real op scopes. What the host owns (Main
-//! route, provider facts) answers as the recording's scenario states it.
+//! The workflow sections push the values of the actions and only what changed, over the real `Config` and the real op scopes, with
+//! no pack on disk.
 
-#![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded packs and seeds config files on the test thread")]
+#![allow(clippy::disallowed_methods, reason = "test setup: seeds config files on the test thread")]
 
-#[cfg(node_twin)]
-use std::collections::BTreeMap;
-#[cfg(node_twin)]
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-#[cfg(node_twin)]
-use mixdog_core_api::CoreError;
 use mixdog_core_api::mock::MockStatePublisher;
 use serde_json::Value;
 use serde_json::json;
 
-#[cfg(node_twin)]
-use super::METHODS;
 use super::WorkflowConfig;
 use super::WorkflowHost;
 use super::WorkflowPaths;
 use super::ids::Doc;
 use crate::config::Config;
 use crate::config::ConfigLanes;
-#[cfg(node_twin)]
-use crate::config::NoEffects;
-#[cfg(node_twin)]
-use crate::config::Settings;
-#[cfg(node_twin)]
-use mixdog_core_base::support::testing::request;
 use mixdog_core_base::support::testing::scopes;
-#[cfg(node_twin)]
-use mixdog_core_base::support::testing::value;
-#[cfg(node_twin)]
-use mixdog_core_base::support::testing::with_op;
 
 struct Host {
     main: Mutex<Value>,
@@ -85,55 +66,9 @@ impl WorkflowHost for Host {
     fn web_search_route_saved(&self, _route: &Value) {}
 }
 
-/// The recorder's `scrub`: the data dir reads `<data>` and every path separator `/`.
-#[cfg(node_twin)]
-fn scrub(value: &Value, data: &str) -> Value {
-    match value {
-        Value::String(text) => Value::String(text.replace(data, "<data>").replace('\\', "/")),
-        Value::Array(items) => Value::Array(items.iter().map(|item| scrub(item, data)).collect()),
-        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), scrub(item, data))).collect()),
-        other => other.clone(),
-    }
-}
 
-/// Node's live config keeps the empty `modelParameters` of a Lead preset it adopted until the
-/// next reload; `Config` holds the stored form, which drops it. The save's own answer carries
-/// it (`adopted_status`); a later call's answer is compared without it.
-#[cfg(node_twin)]
-fn without_empty_params(mut reply: Value) -> Value {
-    if let Some(routes) = reply.pointer_mut("/result/workflowRoutes").and_then(Value::as_object_mut) {
-        for route in routes.values_mut().filter_map(Value::as_object_mut) {
-            if route.get("modelParameters") == Some(&json!({})) {
-                route.shift_remove("modelParameters");
-            }
-        }
-    }
-    reply
-}
 
-#[cfg(node_twin)]
-fn method_name(name: &str) -> &'static str {
-    METHODS.iter().copied().find(|full| full.strip_prefix("config/") == Some(name)).unwrap()
-}
 
-#[cfg(node_twin)]
-fn files_of(root: &Path) -> BTreeMap<String, String> {
-    fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(root, &path, out);
-            } else {
-                let rel = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
-                out.insert(rel, std::fs::read_to_string(&path).unwrap());
-            }
-        }
-    }
-    let mut out = BTreeMap::new();
-    walk(root, root, &mut out);
-    out
-}
 
 /// The pushed sections hold what the session actions return (`listPresets`, `getWebSearchRoute`, `listWorkflows`,
 /// `getOnboardingStatus`), and a pass pushes only the one whose value changed.
@@ -196,145 +131,3 @@ async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
 }
 
 
-#[cfg(node_twin)]
-fn fixtures() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/workflow-config")
-}
-/// An explicit route leaf (not the follow-Main marker) and its fallbacks with the Standard speed Node's save left out.
-#[cfg(node_twin)]
-fn speed_kept(route: &mut Value) {
-    let Some(leaf) = route.as_object_mut() else { return };
-    if leaf.get("provider") != Some(&json!("default")) {
-        leaf.entry("fast").or_insert(json!(false));
-    }
-    if let Some(fallbacks) = leaf.get_mut("fallbacks").and_then(Value::as_array_mut) {
-        fallbacks.iter_mut().for_each(speed_kept);
-    }
-}
-#[cfg(node_twin)]
-#[tokio::test]
-async fn methods_match_node() {
-    let recording: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join("scenarios.json")).unwrap()).unwrap();
-    let now = recording["now"].as_str().unwrap().to_owned();
-    for scenario in recording["scenarios"].as_array().unwrap() {
-        let name = scenario["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let data = dir.path().join("data");
-        for (path, text) in scenario["files"].as_object().unwrap() {
-            let file = data.join(path);
-            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-            std::fs::write(file, text.as_str().unwrap()).unwrap();
-        }
-        std::fs::create_dir_all(&data).unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let config_path = dir.path().join("cfg").join("mixdog-config.json");
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, serde_json::to_vec(&crate::config::agent_routes::stored_file_of(&scenario["config"])).unwrap()).unwrap();
-        let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        // The recording hands Node's functions the recorded literal config (`record-workflow-config.mjs:254`).
-        let config = config.with_origin(crate::tool_modules::Origin::Given);
-        let host = Arc::new(Host {
-            main: Mutex::new(scenario["main"].as_object().map_or(json!({ "provider": "openai", "model": "main-model" }), |m| Value::Object(m.clone()))),
-            custom_agents: scenario["customAgents"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect(),
-            capable: scenario["webSearch"]["capable"] == json!(true),
-            adopted: Mutex::default(),
-        });
-        let paths = WorkflowPaths { root: fixtures().join("shipped"), data: data.clone() };
-        let clock = now.clone();
-        let service = WorkflowConfig::new(config.clone(), paths, host, scopes(dir.path(), "config").await, &tokens)
-            .with_clock(Arc::new(move || clock.clone()));
-        for (i, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
-            let method = step["method"].as_str().unwrap();
-            let mut params = step["params"].clone();
-            if params.is_null() {
-                params = json!({});
-            }
-            let n = i as u64 + 1;
-            let params = if method.starts_with("get") || method == "saveStarterGuideState" { params } else { with_op(params, n) };
-            // `getOnboardingStatus` is a session action served from a section, and `saveStarterGuideState` belongs to the settings:
-            // neither is a method of this service, so each is called on its owner over the same config and data dir.
-            let answer = match method {
-                "getOnboardingStatus" => service.onboarding_status().await,
-                "saveStarterGuideState" => Settings::new(config.clone(), Arc::new(NoEffects), Arc::new(|_| None))
-                    .with_data_dir(data.clone())
-                    .save_starter_guide_state(&params["state"])
-                    .await
-                    .map_err(|error| CoreError::DomainError { domain: "config".into(), code: None, message: Some(error.to_string().into()), detail: None }),
-                _ => value(&*service, request(method_name(method), params, Some(n))).await,
-            };
-            let got = match answer {
-                Ok(v) => json!({ "result": scrub(&v, &data.to_string_lossy()) }),
-                Err(CoreError::DomainError { message: Some(message), detail: None, .. }) => json!({ "error": &*message }),
-                Err(other) => panic!("{name} #{i} {method}: {other:?}"),
-            };
-            let want = match step.get("error") {
-                Some(e) => json!({ "error": e }),
-                None => json!({ "result": step["result"] }),
-            };
-            assert_eq!(without_empty_params(got), without_empty_params(want), "{name} #{i} {method} {}", step["params"]);
-            // The recording's config is Node's in-memory agent section (nothing off unless it lists `disabledAgents`); `Config` holds
-            // the stored delta form, which the seed above built the same way.
-            let mut want_config = crate::config::agent_routes::stored_file_of(&step["config"])["agent"].clone();
-            // Departure: a saved explicit web-search route keeps its resolved speed, Standard (`fast: false`) included, so a reloaded
-            // route reads back at the speed it was saved at (`stored_web_search_route`); Node's save dropped `fast: false`.
-            if method == "setWebSearchRoute" && step.get("error").is_none() {
-                speed_kept(&mut want_config["webSearchRoute"]);
-            }
-            assert_eq!(scrub(&Value::Object(config.agent()), &data.to_string_lossy()), want_config, "{name} #{i} {method} config");
-            let files: BTreeMap<String, String> = serde_json::from_value(step["files"].clone()).unwrap();
-            assert_eq!(files_of(&data), files, "{name} #{i} {method} files");
-        }
-    }
-}
-/// `listWorkflows()` over the worlds of `fixtures/desktop/settings/workflow-list-twin.json`: the
-/// real Node `listWorkflowPacks` and its mapping, on temp shipped and user folders.
-#[cfg(node_twin)]
-#[tokio::test]
-async fn the_catalog_lists_the_packs_as_node_does() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/workflow-list-twin.json");
-    let twin: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    assert_eq!(twin["cases"].as_array().unwrap().len(), 50);
-    for case in twin["cases"].as_array().unwrap() {
-        let dir = tempfile::tempdir().unwrap();
-        let (root, data) = (dir.path().join("root"), dir.path().join("data"));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&data).unwrap();
-        for file in case["files"].as_array().unwrap() {
-            let base = if file["side"] == "root" { &root } else { &data };
-            let target = base.join("workflows").join(file["path"].as_str().unwrap());
-            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-            std::fs::write(target, file["text"].as_str().unwrap()).unwrap();
-        }
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let config_path = dir.path().join("cfg").join("mixdog-config.json");
-        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, serde_json::to_vec(&crate::config::agent_routes::stored_file_of(&case["config"])).unwrap()).unwrap();
-        let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        let host = Arc::new(Host { main: Mutex::new(json!({})), custom_agents: Vec::new(), capable: false, adopted: Mutex::default() });
-        let service = WorkflowConfig::new(config, WorkflowPaths { root, data }, host, scopes(dir.path(), "config").await, &tokens);
-        let got = service.list_workflows().await.unwrap();
-        // Key order is part of the text the model reads.
-        assert_eq!(got.to_string(), case["result"].to_string(), "{} {}", case["world"], case["config"]);
-    }
-}
-/// An agent.json Node wrote with a name and a job cut inside an emoji (`fixtures/lone-surrogate-files`,
-/// record-lone-surrogate-files.mjs) is the manifest `packDefinitionFromDir` reads (the half emoji as U+FFFD): with an
-/// entry file holding only the saved body, the name and the job come from it and nowhere else.
-#[cfg(node_twin)]
-#[test]
-fn an_agent_manifest_node_wrote_with_half_an_emoji_is_read() {
-    let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-    let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
-    let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "agent-definition").unwrap();
-    let saved = std::fs::read_to_string(set.join("agent-definition/before/agents/helper/AGENT.md")).unwrap();
-    let body = saved.splitn(3, "---\n").nth(2).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::copy(set.join("agent-definition/before/agents/helper/agent.json"), dir.path().join("agent.json")).unwrap();
-    std::fs::write(dir.path().join("AGENT.md"), body).unwrap();
-    let definition = super::pack::definition_from_dir(dir.path(), "AGENT.md", "helper").unwrap();
-    let manifest = &case["before"]["agents/helper/agent.json"];
-    assert_eq!((definition.name.as_str(), definition.description.as_str()), (manifest["name"].as_str().unwrap(), manifest["description"].as_str().unwrap()));
-    assert!(definition.fields.is_empty());
-}

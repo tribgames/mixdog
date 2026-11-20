@@ -19,8 +19,6 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
-#[cfg(node_twin)]
-use std::time::Duration;
 
 use mixdog_rt::CancellationToken;
 use mixdog_rt::DurabilityIo;
@@ -533,18 +531,7 @@ impl SelfChild {
             .to_string()
     }
 
-    /// The next marker within `bound`; `None` on timeout or once stdout closed.
-    #[cfg(node_twin)]
-    pub(crate) fn next_within(&self, bound: Duration) -> Option<String> {
-        self.markers.recv_timeout(bound).ok()
-    }
 
-    #[cfg(node_twin)]
-    pub(crate) fn send(&mut self, line: &str) {
-        let stdin = self.stdin.as_mut().expect("stdin open");
-        writeln!(stdin, "{line}").expect("child stdin");
-        stdin.flush().expect("child stdin");
-    }
 
     pub(crate) fn close_stdin(&mut self) {
         self.stdin = None;

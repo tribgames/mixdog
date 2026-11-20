@@ -119,10 +119,6 @@ impl HelperAdapter<HelperFrame> for NotInstalled {
         Box::pin(async { Err(HelperError(NOT_INSTALLED.to_string())) })
     }
     fn set_video_run(&self, _epoch: u64) {}
-    #[cfg(all(test, node_twin))]
-    fn latest_frame(&self) -> Option<HelperFrame> {
-        None
-    }
     fn on_frame(&self, _listener: Listener<HelperFrame>) -> Unsub {
         Box::new(|| {})
     }
@@ -454,10 +450,6 @@ impl HelperAdapter<HelperFrame> for SecureDesktopAdapter {
         }
     }
 
-    #[cfg(all(test, node_twin))]
-    fn latest_frame(&self) -> Option<HelperFrame> {
-        self.inner.state().latest.clone()
-    }
 
     fn on_frame(&self, listener: Listener<HelperFrame>) -> Unsub {
         self.inner.frames.add(listener)

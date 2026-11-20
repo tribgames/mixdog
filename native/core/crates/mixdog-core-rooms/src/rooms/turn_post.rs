@@ -16,12 +16,6 @@ use super::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 
 #[cfg(test)]
 mod feature_tests;
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-mod tests;
 
 /// How a turn was halted while it waited (`HaltOutcome`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,6 +1,6 @@
 //! The session half of the thread settings
 //! (the pure switches of a pending workflow or mode, and the adapters over the production session directory: the real
-//! actor and log over the in-memory store); the replay of the recorded scenarios is a comparison under `node_twin`.
+//! actor and log over the in-memory store).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -8,8 +8,6 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::ThreadId;
-#[cfg(node_twin)]
-use mixdog_core_ports::ports::route::record_transcript_boundary;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use serde_json::json;
@@ -130,63 +128,6 @@ fn the_gauge_target_moves_the_surface_generation() {
     assert_eq!(generation.get(), 1);
 }
 
-#[cfg(node_twin)]
-fn recording(name: &str) -> Value {
-    let text = match name {
-        "session-switches.json" => mixdog_testkit::fixture!("../../fixtures/thread-settings/session-switches.json"),
-        "context-switch.json" => include_str!("../../../../fixtures/thread-settings/context-switch.json"),
-        _ => unreachable!("a recording of this set"),
-    };
-    mixdog_js::fixture_tools::parse_golden(text).expect("json")
-}
-#[cfg(node_twin)]
-/// Every recorded scenario, replayed over the recorded session: the answer, the session after
-/// each step and the boundaries recorded on its messages are Node's.
-#[tokio::test]
-async fn the_switches_match_node() {
-    let golden = recording("session-switches.json");
-    let surface = Table::of(&golden);
-    let now = golden["now"].as_i64().expect("the frozen clock");
-    for scenario in golden["scenarios"].as_array().expect("scenarios") {
-        let name = scenario["name"].as_str().unwrap_or_default();
-        // A runtime with no session: the adapter answers it (`no_session_answers_the_empty_path`).
-        if scenario["session"].is_null() {
-            continue;
-        }
-        let mut session = header_of(&scenario["session"]);
-        let mut messages = array(session.shift_remove("messages").as_ref());
-        let mut in_flight = scenario["inFlight"] == json!(true);
-        for (i, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
-            let op = step["op"].as_str().unwrap_or_default();
-            if op == "idle" {
-                in_flight = false;
-                continue;
-            }
-            let conversation = has_conversation_messages(&messages) || has_conversation_messages(&array(session.get("liveTurnMessages")));
-            let facts = Facts { now, in_flight, conversation };
-            let arg = step["arg"].as_str().unwrap_or_default();
-            let done = match op {
-                "workflow" => switch_workflow(&mut session, &facts, &surface, arg).await,
-                "mode" => switch_mode(&mut session, &facts, &surface, arg).await,
-                _ => apply_pending(&mut session, &surface, now).await.map_err(String::from),
-            };
-            let label = format!("{name} #{i} {op} {arg}");
-            match done {
-                Ok(switched) => {
-                    let got = switched.as_ref().map_or(Value::Null, |s| s.result.clone());
-                    assert_eq!(got, step["ok"], "{label}");
-                    for boundary in switched.iter().flat_map(|s| &s.boundaries) {
-                        record_transcript_boundary(&mut messages, boundary.field, boundary.value.clone(), boundary.same());
-                    }
-                }
-                Err(message) => assert_eq!(json!(message), step["error"], "{label}"),
-            }
-            assert_eq!(Value::Object(session.clone()), step["session"], "{label}: session");
-            let metas: Vec<Value> = messages.iter().map(|m| m.get("meta").cloned().unwrap_or(Value::Null)).collect();
-            assert_eq!(Value::Array(metas), step["boundaries"], "{label}: boundaries");
-        }
-    }
-}
 /// The workflows the surface knows (what each denies and says), the mode texts and the frozen clock the adapters run on.
 fn inline_golden() -> Value {
     let workflow = |id: &str, name: &str, denied: Value, orchestration: &str, agents: &str, delegates: bool| {

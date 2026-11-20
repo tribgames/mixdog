@@ -1,4 +1,4 @@
-//! Admission through the call lanes, on the wire (`call_lanes.rs` replays the lanes themselves against Node's recording): a control
+//! Admission through the call lanes, on the wire: a control
 //! call is answered at once while reads wait, and a backlog past the lane's queue is refused with the message Node's lane gives.
 
 use mixdog_core_api::ids::ThreadId;

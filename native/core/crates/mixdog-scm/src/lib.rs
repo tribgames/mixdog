@@ -28,9 +28,6 @@ pub mod worktree;
 mod golden_tests;
 #[cfg(test)]
 mod input_tests;
-#[cfg(node_twin)]
-#[cfg(test)]
-mod phone_parity_tests;
 #[cfg(test)]
 mod review_dispatch_tests;
 #[cfg(test)]

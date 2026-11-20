@@ -4,5 +4,3 @@ mod connection_lifetime;
 mod conformance_inprocess;
 mod conformance_ws;
 mod feed_lanes;
-#[cfg(node_twin)]
-mod silent_connection;

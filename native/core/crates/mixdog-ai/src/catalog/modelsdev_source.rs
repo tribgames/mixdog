@@ -138,12 +138,6 @@ impl ModelsDevSource {
         self.lock().cache_at
     }
 
-    #[cfg(node_twin)]
-    /// Installs a layer as a fetch would have (tests).
-    #[cfg(test)]
-    pub(crate) fn set_layer(&self, layer: ModelsDev) {
-        self.lock().layer = Some(Arc::new(layer));
-    }
 
     pub fn retry_pending(&self) -> bool {
         self.lock().retry_at != 0

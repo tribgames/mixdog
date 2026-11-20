@@ -285,36 +285,8 @@ mod tests {
         }
     }
 
-    #[cfg(all(test, node_twin))]
-    fn string_list(v: &Value) -> Vec<String> {
-        v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
-    }
 
-    #[cfg(all(test, node_twin))]
-    fn tool(doc: &Value) -> StatusTool {
-        StatusTool {
-            name: doc["name"].as_str().unwrap_or_default().to_owned(),
-            description: doc["description"].as_str().unwrap_or_default().to_owned(),
-            agent_hidden: doc["annotations"]["agentHidden"].as_bool().unwrap_or(false),
-            mixdog_kind: doc["annotations"]["mixdogKind"].as_str().map(str::to_owned),
-        }
-    }
 
-    /// Node's own `surface` object (as `activeToolSurface()` returns it) as a [`StatusSurface`].
-    #[cfg(all(test, node_twin))]
-    fn surface_of(mode: &str, node: &Value) -> StatusSurface {
-        let tools = node["tools"].as_array().cloned().unwrap_or_default();
-        let catalog = node["deferredToolCatalog"].as_array().cloned().unwrap_or(tools.clone());
-        let mut active: Vec<String> = tools.iter().map(|t| t["name"].as_str().unwrap_or_default().to_owned()).collect();
-        active.extend(string_list(&node["deferredCallableTools"]));
-        StatusSurface {
-            mode: mode.into(),
-            catalog: catalog.iter().map(tool).collect(),
-            active,
-            discovered: string_list(&node["deferredDiscoveredTools"]),
-            listed: Vec::new(),
-        }
-    }
 
     #[tokio::test]
     async fn the_method_replies_with_the_readout_and_refuses_other_methods() {
@@ -451,15 +423,4 @@ mod tests {
         assert_eq!(found["count"], 3, "the counts are of the whole catalog, not of the filter");
     }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn status_equals_the_recorded_node_readout() {
-        let golden: Vec<Value> = serde_json::from_str(include_str!("golden/tools_status.json")).expect("golden");
-        assert!(golden.len() >= 7);
-        for case in golden {
-            let surface = surface_of(case["mode"].as_str().unwrap(), &case["surface"]);
-            let got = tools_status(&surface, case["query"].as_str().unwrap());
-            assert_eq!(got.to_string(), case["result"].to_string(), "case {}", case["label"]);
-        }
-    }
 }

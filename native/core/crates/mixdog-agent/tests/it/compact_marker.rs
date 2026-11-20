@@ -1,11 +1,7 @@
-//! The compact marker's numbers against the goldens recorded from Node
-//! (`fixtures/agent/record-compact-marker.mjs`).
-//! Fixture loading reads files synchronously; tests are not lane code.
+//! The compact marker: a call's usage becomes the last measured context.
 #![allow(clippy::disallowed_methods)]
 
 use mixdog_agent::boundary::ContextReading;
-#[cfg(node_twin)]
-use mixdog_protocol::JsonValue;
 
 #[test]
 fn a_calls_usage_becomes_the_last_measured_context() {
@@ -24,16 +20,3 @@ fn a_calls_usage_becomes_the_last_measured_context() {
 }
 
 
-#[cfg(node_twin)]
-#[test]
-fn the_displayed_before_count_equals_nodes_compact_display_before_tokens() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/compact_marker/cases.json");
-    let golden: JsonValue = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let cases = golden["before"].as_array().unwrap();
-    // The recorded cases include a reading above and below the pass's own pressure, and a stale one.
-    assert!(cases.iter().any(|c| c["before"] != c["fallback"]) && cases.iter().any(|c| c["before"] == c["fallback"]));
-    for case in cases {
-        let reading = ContextReading { tokens: case["lastContextTokens"].as_u64(), stale_after_compact: case["stale"].as_bool().unwrap() };
-        assert_eq!(reading.display_before(case["fallback"].as_u64().unwrap()), case["before"].as_u64().unwrap(), "{case}");
-    }
-}

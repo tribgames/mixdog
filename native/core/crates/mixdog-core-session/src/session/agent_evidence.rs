@@ -163,10 +163,3 @@ mod cutover_tests {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "agent_evidence_tests.rs"]
-mod tests;

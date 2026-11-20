@@ -86,11 +86,6 @@ impl Turn {
         Box::pin(Guarded { turn: self.clone(), task })
     }
 
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(super) fn on_waiting(&self, listener: Arc<dyn Fn() + Send + Sync>) {
-        *self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(listener);
-    }
 
     #[cfg(test)]
     fn told_waiting(&self) {

@@ -399,10 +399,6 @@ fn failed(code: &str, message: String) -> LoginFailure {
         message,
     }
 }
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "refresh_lease/tests.rs"]
-mod refresh_lease_tests;
 
 #[cfg(test)]
 mod tests {
@@ -753,14 +749,6 @@ impl GrokCredential {
         self
     }
 
-    #[cfg(node_twin)]
-    /// A credential of another process sharing this one's credential file: its own lease owner and line, its own
-    /// refreshes in flight (two copies of Node's token module in one process are two such processes).
-    #[cfg(test)]
-    fn in_process(mut self, process: Arc<RefreshProcess>) -> Self {
-        self.process = process;
-        self
-    }
 
     /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:328-335`, `:425-428`): before a turn, the proxy origin is warmed,
     /// once per keep-alive window for the process.

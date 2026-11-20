@@ -174,41 +174,4 @@ pub mod sensitive {
     }
 }
 
-#[cfg(all(test, node_twin))]
-mod tests {
-    use serde_json::Value;
-
-    use super::*;
-
-    #[cfg(node_twin)]
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
-
-    fn golden() -> Value {
-        serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"].clone()
-    }
-
-    #[cfg(node_twin)]
-    #[test]
-    fn every_recorded_turn_slice_equals_node() {
-        for case in golden()["turnSlices"].as_array().unwrap() {
-            let options = &case["options"];
-            let run_id = options.get("runId").and_then(Value::as_str).unwrap_or("");
-            let since = options.get("since").and_then(Value::as_f64).unwrap_or(0.0);
-            let slice = turn_slice(&case["messages"], run_id, since);
-            assert_eq!(Value::Array(slice), case["slice"], "{}", case["name"]);
-        }
-    }
-
-    #[cfg(node_twin)]
-    #[test]
-    fn every_recorded_path_is_denied_or_allowed_as_in_node() {
-        let golden = golden();
-        let scopes: Vec<Vec<String>> = golden["scopes"].as_array().unwrap().iter().map(|s| s["root"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()).collect();
-        for case in golden["sensitive"].as_array().unwrap() {
-            let path = case["path"].as_str().unwrap();
-            assert_eq!(sensitive::matches_sensitive_path(path, &scopes), case["denied"] == true, "{path} with scopes");
-            assert_eq!(sensitive::matches_sensitive_path(path, &[]), case["deniedWithoutScopes"] == true, "{path}");
-        }
-    }
-}
 

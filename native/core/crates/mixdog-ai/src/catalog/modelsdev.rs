@@ -399,59 +399,6 @@ mod tests {
     }
 
 
-    /// The streamed read keeps what reading the whole document as a value kept: the same overlay rows in the same
-    /// order and the same records, whatever the member order, with non-object entries skipped.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_streamed_document_is_the_narrowed_value_tree() {
-        #[cfg(node_twin)]
-        use crate::catalog::lookup::fixtures;
-        let text = br#"{
-            "late": { "models": { "m": { "name": "M", "cost": { "input": 1.5 } }, "own": { "provider": { "npm": "@own/sdk" } }, "bad": 3 }, "npm": "@late/sdk", "doc": [1, {"a": 2}] },
-            "none": { "npm": "@x/y" },
-            "odd": 7,
-            "list": { "models": [1, 2] }
-        }"#;
-        let recorded = serde_json::to_vec(&fixtures::json(fixtures::MODELS_DEV)).unwrap();
-        for bytes in [&text[..], &recorded[..]] {
-            let layer = ModelsDev::parse(bytes).unwrap();
-            let document: JsonValue = serde_json::from_slice(bytes).unwrap();
-            let whole = Overlay::from_projected_models_dev(&crate::catalog::lookup::project_models_dev(&document));
-            assert_eq!(layer.projected().providers().collect::<Vec<_>>(), whole.providers().collect::<Vec<_>>());
-            for provider in whole.providers() {
-                assert_eq!(layer.projected().provider_models(provider), whole.provider_models(provider), "{provider}");
-            }
-        }
-        let layer = ModelsDev::parse(text).unwrap();
-        let late = ProviderId::from("late");
-        assert_eq!(layer.find(&late, "m").unwrap().npm.as_deref(), Some("@late/sdk"));
-        assert_eq!(layer.find(&late, "own").unwrap().npm.as_deref(), Some("@own/sdk"));
-        assert_eq!(layer.models_of(&late).len(), 2);
-        assert!(layer.models_of(&ProviderId::from("none")).is_empty());
-        assert!(ModelsDev::parse(b"{\"a\": {} } trailing").is_none());
-        // What a value tree refuses is refused in a member nothing reads too.
-        assert!(ModelsDev::parse(br#"{"p":{"models":{},"unused":1e400}}"#).is_none());
-        assert!(ModelsDev::parse(format!("{{\"p\":{{\"unused\":{}1{}}}}}", "[".repeat(200), "]".repeat(200)).as_bytes()).is_none());
-        // A repeated key keeps its first place whatever its earlier values were.
-        let repeated = br#"{"z":3,"p":{"models":{"a":null,"b":{},"a":{}}},"z":{"models":{"m":{}}}}"#;
-        let layer = ModelsDev::parse(repeated).unwrap();
-        let document: JsonValue = serde_json::from_slice(repeated).unwrap();
-        let whole = Overlay::from_projected_models_dev(&crate::catalog::lookup::project_models_dev(&document));
-        assert_eq!(layer.projected().providers().collect::<Vec<_>>(), whole.providers().collect::<Vec<_>>());
-        assert_eq!(layer.projected().provider_models("p").unwrap().keys().collect::<Vec<_>>(), vec!["a", "b"]);
-        assert_eq!(layer.projected().provider_models("p"), whole.provider_models("p"));
-        let repeated = br#"{"k":1,"j":{"mode":"chat"},"k":{"mode":"chat"}}"#;
-        assert_eq!(ModelsDev::parse_litellm(repeated).unwrap().projected().row("k").is_some(), true);
-
-        let litellm = serde_json::to_vec(&fixtures::json(fixtures::LITELLM)).unwrap();
-        let document: JsonValue = serde_json::from_slice(&litellm).unwrap();
-        let whole = Overlay::from_projected_litellm(&crate::catalog::lookup::project_litellm(&document));
-        let layer = ModelsDev::parse_litellm(&litellm).unwrap();
-        for key in document.as_object().unwrap().keys() {
-            assert_eq!(layer.projected().row(key), whole.row(key), "{key}");
-        }
-        assert!(ModelsDev::parse_litellm(b"[]").is_none());
-    }
 
     #[test]
     fn compat_model_table_receives_the_modalities() {
@@ -503,13 +450,6 @@ impl ModelsDev {
         Some(layer)
     }
 
-    #[cfg(node_twin)]
-    #[cfg(test)]
-    pub(crate) fn from_litellm(document: JsonValue) -> Self {
-        let mut layer = Self::parse_litellm(&serde_json::to_vec(&document).unwrap_or_default()).unwrap_or_default();
-        layer.digest = 0;
-        layer
-    }
 
     /// The digest of the document this layer was parsed from: equal for two fetches of the same document.
     pub fn digest(&self) -> u64 {

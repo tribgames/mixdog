@@ -178,8 +178,6 @@ impl LocalModelSetupActions {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use std::sync::Mutex;
 
     use async_trait::async_trait;
 
@@ -209,35 +207,9 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    fn message(error: &PortError) -> String {
-        match error {
-            PortError::Invalid { reason, .. } => reason.clone(),
-            PortError::Failed { message, .. } => message.clone(),
-            other => panic!("unexpected {other:?}"),
-        }
-    }
 
-    #[cfg(node_twin)]
-    struct Capture(Mutex<Vec<u64>>);
 
-    #[cfg(node_twin)]
-    #[async_trait]
-    impl LocalProviderSettings for Capture {
-        async fn persist_idle_ttl(&self, seconds: u64) -> Result<(), String> {
-            self.0.lock().unwrap().push(seconds);
-            Ok(())
-        }
-        async fn catalog_changed(&self) {}
-    }
 
-    #[cfg(node_twin)]
-    /// The tool-input schema layer answers before the handler: it is not this package's, and a
-    /// model name the recorder's fake catalog holds does not exist here.
-    fn in_scope(case: &Value) -> bool {
-        let error = case["error"].as_str().unwrap_or("");
-        case["kind"] == "local" && !error.starts_with("[tool-input-validation]") && case["args"]["modelId"].as_str().map(str::trim) != Some("m1")
-    }
 
     #[tokio::test]
     async fn arguments_are_checked_with_the_executors_wording() {
@@ -287,45 +259,4 @@ mod tests {
     }
 
 
-    /// Node-recorded twin `fixtures/services/setup-local-voice-twin.json`
-    /// (`benchmarks/rust-core/recorders/record-setup-local-voice.mjs`); `MIXDOG_FIXTURES_ROOT` overrides the location.
-    #[cfg(node_twin)]
-    fn twin() -> Value {
-        let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
-        serde_json::from_str(&std::fs::read_to_string(format!("{root}/services/setup-local-voice-twin.json")).unwrap()).unwrap()
-    }
-    #[cfg(node_twin)]
-    #[tokio::test]
-    async fn every_error_node_recorded_for_the_handlers_has_the_same_text_here() {
-        let dir = tempfile::tempdir().unwrap();
-        let capture = Arc::new(Capture(Mutex::default()));
-        let provider = provider(dir.path());
-        let service = Arc::new(LocalProviderService::new(provider, capture.clone()));
-        let a = LocalModelSetupActions::new(service);
-        let (mut errors, mut oks) = (0, 0);
-        for case in twin()["cases"].as_array().unwrap().iter().filter(|c| in_scope(c)) {
-            let mut args = case["args"].clone();
-            let action = args.as_object_mut().unwrap().remove("action").unwrap();
-            let result = a.run(action.as_str().unwrap(), &args).await;
-            match case.get("error").and_then(Value::as_str) {
-                Some(expected) => {
-                    errors += 1;
-                    assert_eq!(message(&result.expect_err(&format!("{case}"))), expected, "{case}");
-                }
-                None => {
-                    oks += 1;
-                    let value = result.unwrap_or_else(|e| panic!("{case}: {e:?}"));
-                    if action == "start_local_installation" {
-                        assert_eq!(value["background"], case["receipt"]["background"], "{case}");
-                    }
-                    if action == "set_local_idle_ttl" {
-                        let node = case["calls"].as_array().unwrap().iter().find(|c| c["method"] == "configureLocalProviderIdleTtl").unwrap();
-                        assert_eq!(*capture.0.lock().unwrap().last().unwrap(), node["args"][0].as_u64().unwrap(), "{case}");
-                        assert_eq!(value["idleTtlSeconds"], node["args"][0], "{case}");
-                    }
-                }
-            }
-        }
-        assert!(errors >= 12 && oks >= 6, "the twin must exercise both outcomes ({errors} errors, {oks} successes)");
-    }
 }

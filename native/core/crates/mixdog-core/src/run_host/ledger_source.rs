@@ -161,8 +161,6 @@ mod tests {
 
     use mixdog_ledger::refresh::Pricer;
     use mixdog_ledger::repair::{PriceRequest, Priced};
-    #[cfg(node_twin)]
-    use serde_json::Value;
 
     use super::*;
 
@@ -219,16 +217,6 @@ mod tests {
         }
     }
 
-    #[cfg(node_twin)]
-    fn shown(path: &Path, root: &Path) -> String {
-        let text = path.to_string_lossy().replace('\\', "/");
-        text.replacen(&root.to_string_lossy().replace('\\', "/"), "<root>", 1)
-    }
-
-    /// Node's recorder runs with `MIXDOG_DATA_DIR` = `<root>/mixdog_data_dir`.
-    #[cfg(node_twin)]
-    const FLOW_SLICES: usize = 6;
-
     #[tokio::test]
     async fn a_sends_row_reaches_the_ledger_the_source_opened_and_a_failed_open_fails_the_row() {
         let root = tempfile::tempdir().unwrap();
@@ -257,100 +245,4 @@ mod tests {
         assert!(memory.get().await.is_err() && memory.if_open().is_none());
     }
 
-
-    #[cfg(node_twin)]
-    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/ai-admin/usage-ledger-source-twin.json");
-    /// Replays the recorded flows whose index is `slice` modulo `FLOW_SLICES` (each flow has its own root and source).
-    #[cfg(node_twin)]
-    async fn flow_slice(slice: usize) {
-        let twin: Value = serde_json::from_str(&TWIN).unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let mut opened = 0;
-        let mut replayed = 0;
-        for (n, flow) in twin["flows"].as_array().unwrap().iter().enumerate() {
-            if n % FLOW_SLICES != slice {
-                continue;
-            }
-            replayed += 1;
-            let root = tempfile::tempdir().unwrap();
-            let vars = Arc::new(Vars::default());
-            let source = LedgerSource::new(vars.clone(), root.path().join("mixdog_data_dir"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
-            let mut seen: Vec<Arc<UsageLedger>> = Vec::new();
-            for (s, step) in flow["steps"].as_array().unwrap().iter().enumerate() {
-                let at = format!("flow {n} step {s} {}", step["op"]);
-                match step["op"].as_str().unwrap() {
-                    "env" => {
-                        let mut vars = vars.0.lock().unwrap();
-                        match step["value"].as_str() {
-                            None => vars.remove(LEDGER_PATH_ENV),
-                            Some("") => vars.insert(LEDGER_PATH_ENV.into(), String::new()),
-                            Some(name) => vars.insert(LEDGER_PATH_ENV.into(), root.path().join("led").join(name).join("ledger.sqlite").to_string_lossy().into_owned()),
-                        };
-                    }
-                    "path" => assert_eq!(shown(&source.path(), root.path()), step["path"].as_str().unwrap(), "{at}"),
-                    "close" => {
-                        source.close_all();
-                        seen.clear();
-                    }
-                    op => {
-                        let got = if op == "get" { Some(source.get().await.unwrap()) } else { source.if_open() };
-                        assert_eq!(got.is_some(), step["open"].as_bool().unwrap(), "{at} open");
-                        let Some(got) = got else { continue };
-                        let instance = seen.iter().position(|known| Arc::ptr_eq(known, &got)).unwrap_or_else(|| {
-                            seen.push(got.clone());
-                            seen.len() - 1
-                        });
-                        assert_eq!(instance as u64, step["instance"].as_u64().unwrap(), "{at} instance");
-                        assert_eq!(shown(&source.path(), root.path()), step["path"].as_str().unwrap(), "{at} path");
-                        assert!(source.path().exists() == step["fileExists"].as_bool().unwrap(), "{at} file");
-                        opened += 1;
-                    }
-                }
-            }
-            source.close_all();
-        }
-        assert!(REGISTERED_FLOW_SLICES.contains(&slice));
-        let mine: Vec<_> = twin["flows"].as_array().unwrap().iter().enumerate().filter(|(n, _)| n % FLOW_SLICES == slice).map(|(_, flow)| flow).collect();
-        let expected_opens = mine.iter().flat_map(|flow| flow["steps"].as_array().unwrap()).filter(|step| !matches!(step["op"].as_str().unwrap(), "env" | "path" | "close") && step["open"] == true).count();
-        assert_eq!(replayed, mine.len(), "executed ledger flows");
-        assert_eq!(opened, expected_opens, "actual successful opens of slice {slice}");
-        println!("slice {slice}: {replayed} flows, {opened} ledger opens");
-        assert_eq!(twin["defaultPath"], "<root>/mixdog_data_dir/usage/ledger.sqlite");
-    }
-    #[cfg(node_twin)]
-    macro_rules! flow_slices {
-        ($($name:ident => $slice:expr),* $(,)?) => {
-            const REGISTERED_FLOW_SLICES: &[usize] = &[$($slice),*];
-            $(#[tokio::test]
-            async fn $name() {
-                flow_slice($slice).await;
-            })*
-        };
-    }
-    #[test]
-    #[cfg(node_twin)]
-    fn the_flow_slices_cover_every_recorded_flow_once_and_the_recording_opens_ledgers() {
-        let twin: Value = serde_json::from_str(&TWIN).unwrap();
-        let flows = twin["flows"].as_array().unwrap();
-        assert_eq!(REGISTERED_FLOW_SLICES, &(0..FLOW_SLICES).collect::<Vec<_>>());
-        let covered: usize = REGISTERED_FLOW_SLICES.iter().map(|slice| (0..flows.len()).filter(|n| n % FLOW_SLICES == *slice).count()).sum();
-        let opened = flows
-            .iter()
-            .flat_map(|flow| flow["steps"].as_array().unwrap())
-            .filter(|step| !matches!(step["op"].as_str().unwrap(), "env" | "path" | "close") && step["open"].as_bool().unwrap())
-            .count();
-        println!("{} flows in {FLOW_SLICES} slices, {opened} ledger opens", flows.len());
-        assert_eq!(covered, flows.len());
-        assert!(opened >= 200, "the recording opens ledgers: {opened}");
-    }
-
-    #[cfg(node_twin)]
-    flow_slices! {
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_0 => 0,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_1 => 1,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_2 => 2,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_3 => 3,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_4 => 4,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_5 => 5,
-    }
 }

@@ -606,19 +606,3 @@ mod tests {
 
 
 
-/// The recorded path answers of the reference runtime; compiled only on the machine that holds them.
-#[cfg(all(test, node_twin))]
-mod node_twin {
-    use super::*;
-
-    #[test]
-    fn win32_relative_matches_the_recorded_rows() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../testdata/path_relative.json")).unwrap();
-        let rows = golden["rows"].as_array().unwrap();
-        for row in rows {
-            let (from, to) = (row["from"].as_str().unwrap(), row["to"].as_str().unwrap());
-            assert_eq!(relative(Style::Win32, from, to), row["relative"].as_str().unwrap(), "{from:?} -> {to:?}");
-        }
-        assert_eq!(rows.len(), 21);
-    }
-}

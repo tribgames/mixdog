@@ -179,67 +179,11 @@ pub(crate) fn reset_process() {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(node_twin)]
-    use serde_json::Value;
-    #[cfg(node_twin)]
-    use serde_json::json;
 
-    #[cfg(node_twin)]
-    use super::*;
 
-    #[cfg(node_twin)]
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture")
-    }
 
-    #[cfg(node_twin)]
-    /// A version number as the recording holds it: the text `JSON.stringify` writes for it (an integer's digits, `null`
-    /// for an infinite one) read back by serde_json, which is what the golden's number was read as.
-    fn as_recorded(number: f64) -> Value {
-        if number.is_infinite() {
-            return Value::Null;
-        }
-        serde_json::from_str(&format!("{number}")).expect("a finite number's digits")
-    }
 
-    /// Every predicate, the key and the family version they read, for the whole recorded id table.
-    #[cfg(node_twin)]
-    #[test]
-    fn the_floors_answer_as_node_for_the_whole_recorded_table() {
-        let golden = golden();
-        let recorded = golden["predicates"].as_array().expect("predicates");
-        let ours: Vec<Value> = recorded
-            .iter()
-            .map(|row| {
-                let model = row["model"].as_str().expect("model");
-                json!({
-                    "model": model,
-                    "key": model_key(model),
-                    "familyVersion": family_version(model).map(|(family, major, minor)| json!([family, as_recorded(major), as_recorded(minor)])),
-                    "progressUpdates": emits_progress_updates(model),
-                    "turnScopedSystem": supports_turn_scoped_system_messages(model),
-                    "messageThreads": threads_support_model(model),
-                })
-            })
-            .collect();
-        assert_eq!(&ours, recorded);
-    }
 
-    #[cfg(node_twin)]
-    #[test]
-    fn rejections_name_the_feature_node_names() {
-        let golden = golden();
-        let recorded = golden["rejections"].as_array().expect("rejections");
-        let ours: Vec<Value> = recorded
-            .iter()
-            .map(|row| {
-                let status = row["status"].as_u64().map(|s| u16::try_from(s).expect("status"));
-                let text = row["text"].as_str().expect("text");
-                json!({ "status": row["status"], "text": text, "feature": rejection(status, text).map(Feature::as_str) })
-            })
-            .collect();
-        assert_eq!(&ours, recorded);
-    }
 }
 
 

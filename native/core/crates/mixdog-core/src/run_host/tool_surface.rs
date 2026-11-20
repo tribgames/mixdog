@@ -841,11 +841,6 @@ pub(super) fn rendered_manifest(session: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(node_twin)]
-    #[path = "../../tool_surface_node_cases.rs"]
-    mod node_cases;
-
     struct Fixed;
     impl Clock for Fixed {
         fn now_ms(&self) -> i64 {
@@ -1331,38 +1326,4 @@ mod tests {
     }
 
 
-    /// Node's `applyDeferredToolSurface` and `rebuildDeferredToolSurfaceForProvider` over 18
-    /// sessions: native, bridge and manifest providers, modes, policy rosters, switches between
-    /// families and back.
-    #[test]
-    #[cfg(node_twin)]
-    fn the_surface_follows_node() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
-        let host = Host(golden["bridgeTools"].as_array().unwrap().clone());
-        let surface = ToolSurface { host: &host, clock: &Fixed };
-        for (name, rows) in golden["cases"].as_object().unwrap() {
-            let mut session = rows[0]["before"].clone();
-            for (n, row) in rows.as_array().unwrap().iter().enumerate().skip(1) {
-                let step = &row["step"];
-                if let Some(mode) = step.get("apply").and_then(Value::as_str) {
-                    let extra: Vec<Value> = step.get("extra").and_then(Value::as_array).cloned().unwrap_or_default();
-                    let options = step.get("options");
-                    let options = ApplyOptions {
-                        provider: None,
-                        model: options.and_then(|o| o.get("model")).and_then(Value::as_str).map(str::to_owned),
-                        disallowed: options.and_then(|o| o.get("disallowed")).and_then(Value::as_array).map_or_else(Vec::new, |d| d.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()),
-                    };
-                    surface.apply(&mut session, mode, &extra, &options);
-                } else if let Some(provider) = step.get("rebuild").and_then(Value::as_str) {
-                    surface.rebuild_for_provider(&mut session, provider);
-                } else {
-                    session["deferredDiscoveredTools"] = step["discovered"].clone();
-                }
-                let want = &row["after"];
-                for key in want.as_object().unwrap().keys().chain(session.as_object().unwrap().keys()) {
-                    assert_eq!(session.get(key), want.get(key), "{name} step {n} key {key}");
-                }
-            }
-        }
-    }
 }

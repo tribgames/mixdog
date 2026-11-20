@@ -237,48 +237,4 @@ mod tests {
     }
 
 
-    #[cfg(node_twin)]
-    /// Node's stored session (`fixtures/services/import-session-twin.json`, recorded by
-    /// `record-import-session.mjs` over the real `createImportedSession`): the header fields and
-    /// the plain rows after the system layer.
-    #[test]
-    #[allow(clippy::disallowed_methods, reason = "test setup: reads a recorded fixture")]
-    fn imported_sessions_store_what_nodes_import_stores() {
-        let root = std::env::var("MIXDOG_FIXTURES_ROOT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").to_owned());
-        let twin: Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/services/import-session-twin.json")).unwrap()).unwrap();
-        let cases = twin["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 2);
-        for case in cases {
-            let input = &case["input"];
-            let source = Source::parse(input["source"].as_str().unwrap()).unwrap();
-            let mut conversion = mixdog_services::import::convert::convert_conversation_text(
-                source,
-                input["text"].as_str().unwrap(),
-                true,
-                mixdog_services::import::Limits::default(),
-            );
-            let origin = ImportOrigin::new(
-                source,
-                input["sourcePath"].as_str().unwrap().into(),
-                conversion.foreign_session_id.clone(),
-                conversion.cwd.clone(),
-                input["importedAt"].as_i64().unwrap(),
-            );
-            // The title the import service sets (`titlesFor`); Node's stored one is the recorded one.
-            conversion.title = case["header"]["title"].as_str().map(str::to_owned);
-            let session = ImportedSession { conversation: conversion, origin, project_path: input["cwd"].as_str().map(str::to_owned) };
-            let route = json!({ "provider": case["header"]["provider"], "model": case["header"]["model"] });
-            let header = imported_header(&route, &session, input["importedAt"].as_i64().unwrap());
-            for (key, want) in case["header"].as_object().unwrap() {
-                let got = header.get(key).cloned();
-                match want.get("absent") {
-                    Some(Value::Bool(true)) => assert!(got.is_none(), "{key} of {}", case["name"]),
-                    _ => assert_eq!(got.as_ref(), Some(want), "{key} of {}", case["name"]),
-                }
-            }
-            let rows = imported_messages(&session, || "<msg_32hex>".to_owned());
-            let want: Vec<Value> = case["rows"].as_array().unwrap().clone();
-            assert_eq!(rows, want, "rows of {}", case["name"]);
-        }
-    }
 }

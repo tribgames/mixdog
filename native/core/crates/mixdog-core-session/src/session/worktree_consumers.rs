@@ -70,10 +70,3 @@ fn consumer(id: String, header: &Header) -> LiveSession {
     }
 }
 
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(node_twin)]
-#[cfg(test)]
-#[path = "worktree_consumers_tests.rs"]
-mod tests;
