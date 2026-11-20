@@ -1,6 +1,6 @@
 {
   "id": "heavy-worker",
   "name": "Heavy Worker",
-  "description": "Use when the answer must be found before it can be built: interacting concurrency, lifetime or state invariants, conflicting correctness or compatibility requirements, a cause debugging does not narrow down, or a scope rejected twice because it was hard. Size alone does not qualify.",
+  "description": "Implementation that needs judgment: a new feature or behaviour, a bug whose cause must be traced, a change across interacting modules or state, a choice between conflicting requirements, or a scope rejected twice because it was hard. Size alone does not qualify.",
   "entry": "AGENT.md"
 }
