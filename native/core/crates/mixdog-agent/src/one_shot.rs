@@ -300,6 +300,27 @@ impl OneShot {
     }
 }
 
+/// Runs `work` on a task of its own and waits for it. A model call made from inside a run (its compaction's summary) is
+/// otherwise polled on top of that run's own frames: a second whole send path stacked on the first overflowed a dev
+/// build's 2 MiB worker stack. The task runs under what the send path reads from the caller's task (its task-locals and
+/// span, `mixdog_ai::task_context`). Dropping the wait aborts the task and retires what of it counted for the caller's turn,
+/// so a dropped caller leaves nothing running; a panic in it is the caller's. `None`: the task was cancelled without its
+/// caller (its runtime shutting down).
+pub async fn on_own_task<F>(name: &'static str, work: F) -> Option<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let (work, _caller) = mixdog_ai::task_context::carry(work);
+    let handle = mixdog_rt::spawn(name, mixdog_rt::TaskClass::Work, work);
+    let _abort = crate::tools::AbortOnDrop(handle.abort_handle());
+    match handle.await {
+        Ok(output) => Some(output),
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => None,
+    }
+}
+
 /// The facts after which the next route can still summarize (Node
 /// `fallsToNextRoute`): out of quota or unavailable to the account, or the
 /// model not found.
@@ -329,7 +350,13 @@ impl SummarySender for OneShot {
             fast: call.fast,
             shape: call.shape.clone(),
         };
-        let out = self.call_prompt(&call, system, prompt).await.map_err(summary_failure)?;
+        // Off the stack of the run whose compaction asks for it; its cancel is this value's token, or the caller's drop.
+        let one = self.clone();
+        let (system, prompt) = (system.to_owned(), prompt.to_owned());
+        let out = on_own_task("agent.summary", async move { one.call_prompt(&call, &system, &prompt).await })
+            .await
+            .unwrap_or(Err(AgentError::Aborted))
+            .map_err(summary_failure)?;
         if out.cut {
             // Reached only when the retraction was refused; a summary the stream broke in is never an answer.
             return Err(SummaryFailure::Failed("compact summary rejected: the answer was cut by a broken stream; the conversation and the previous summary are kept".into()));

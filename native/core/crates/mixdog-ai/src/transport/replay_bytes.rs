@@ -40,7 +40,8 @@ pub(crate) fn counted(url: &url::Url, body: Box<dyn BodyStream>) -> Box<dyn Body
 // answer's head or its body's next chunk) or on the user (an approval or a question), the waits only a replay's next input ends.
 // A turn's task runs inside [`in_run`] under its [`Run`]; a wait on such an input counts for the run it belongs to: [`parked`] for a
 // wait on the run's own task, [`turn_parked`] with the run's handle for a wait on a task the run spawned (a tool's approval: the
-// handle is captured where the run is spawned and passed in, since a spawned task does not inherit the run's task-local). A run is
+// handle is captured where the run is spawned and passed in, since a spawned task does not inherit the run's task-local), and any wait
+// on a task the run spawned for part of its own work under a [`delegate`] of the run, retired when the run stops waiting. A run is
 // parked while at least one of its waits is; RUNS and PARKED_RUNS count runs, so they compare like for like. A wait outside any
 // run is counted apart (OUTSIDE) and never holds "settled".
 tokio::task_local! {
@@ -54,22 +55,96 @@ static ON_CHANGE: OnceLock<fn()> = OnceLock::new();
 
 /// One turn's run: the handle its waits are counted on.
 #[derive(Clone, Default)]
-pub struct Run(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+pub struct Run(std::sync::Arc<Waits>);
+
+enum Waits {
+    /// A turn's own: how many of its waits are parked.
+    Own(std::sync::atomic::AtomicUsize),
+    /// The waits of a task a turn spawned for part of its own work ([`delegate`]): parked on the turn while any is, until
+    /// the turn stops waiting for the task (`retired`), whatever the task does after.
+    Delegated { run: Run, state: Mutex<Delegated> },
+}
+
+#[derive(Default)]
+struct Delegated {
+    parked: usize,
+    retired: bool,
+}
+
+impl Default for Waits {
+    fn default() -> Self {
+        Self::Own(std::sync::atomic::AtomicUsize::new(0))
+    }
+}
 
 impl Run {
     /// One more of the run's waits is parked.
     fn park(&self) {
-        if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-            PARKED_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        match &*self.0 {
+            Waits::Own(parked) => {
+                if parked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    PARKED_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+            Waits::Delegated { run, state } => {
+                let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !state.retired {
+                    state.parked += 1;
+                    if state.parked == 1 {
+                        run.park();
+                    }
+                }
+            }
         }
     }
 
     /// One of the run's parked waits ended.
     fn unpark(&self) {
-        if self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
-            PARKED_RUNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        match &*self.0 {
+            Waits::Own(parked) => {
+                if parked.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                    PARKED_RUNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+            Waits::Delegated { run, state } => {
+                let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !state.retired {
+                    state.parked -= 1;
+                    if state.parked == 0 {
+                        run.unpark();
+                    }
+                }
+            }
         }
     }
+}
+
+/// Held by a turn's task while it waits for the task it delegated part of its work to ([`delegate`]); dropped, the
+/// delegate's parked waits stop counting for the turn at once, before the turn itself can end.
+pub(crate) struct Delegate(Option<Run>);
+
+impl Drop for Delegate {
+    fn drop(&mut self) {
+        let Some(Run(waits)) = &self.0 else { return };
+        let Waits::Delegated { run, state } = &**waits else { return };
+        let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.retired {
+            state.retired = true;
+            if std::mem::take(&mut state.parked) > 0 {
+                run.unpark();
+            }
+        }
+    }
+}
+
+/// `work`, which the task that calls this spawns as part of its own turn: its waits park that turn as the turn's own task's
+/// would, and add no run of their own, while the caller holds the [`Delegate`].
+pub(crate) fn delegate<F: std::future::Future>(work: F) -> (impl std::future::Future<Output = F::Output>, Delegate) {
+    let delegated = RUN
+        .try_with(Run::clone)
+        .ok()
+        .map(|run| Run(std::sync::Arc::new(Waits::Delegated { run, state: Mutex::new(Delegated::default()) })));
+    (mixdog_rt::within_local(&RUN, delegated.clone(), work), Delegate(delegated))
 }
 
 /// `hook` is called whenever a turn may have become parked (it began a wait on an input, or ended).
@@ -128,12 +203,11 @@ pub async fn parked<F: std::future::Future>(wait: F) -> F::Output {
 /// it; the wake unparks it where it happens (inside the actor's step that resolved an approval, or the I/O driver's read), so a run
 /// about to go on never counts as parked.
 pub async fn turn_parked<F: std::future::Future>(run: Option<&Run>, wait: F) -> F::Output {
-    let flag = std::sync::Arc::new(Park { run: run.cloned(), parked: std::sync::atomic::AtomicBool::new(false), waker: Mutex::new(None) });
+    let flag = std::sync::Arc::new(Park { run: run.cloned(), parked: Mutex::new(false), waker: Mutex::new(None) });
     // A wait dropped while parked (its turn was stopped) is no longer counted.
     let _dropped = Unpark(flag.clone());
     let mut wait = std::pin::pin!(wait);
     std::future::poll_fn(move |cx| {
-        use std::sync::atomic::Ordering::SeqCst;
         *flag.waker.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cx.waker().clone());
         let waker = std::task::Waker::from(flag.clone());
         match wait.as_mut().poll(&mut std::task::Context::from_waker(&waker)) {
@@ -142,11 +216,7 @@ pub async fn turn_parked<F: std::future::Future>(run: Option<&Run>, wait: F) -> 
                 std::task::Poll::Ready(out)
             }
             std::task::Poll::Pending => {
-                if !flag.parked.swap(true, SeqCst) {
-                    match &flag.run {
-                        Some(run) => run.park(),
-                        None => _ = OUTSIDE.fetch_add(1, SeqCst),
-                    }
+                if flag.park() {
                     changed();
                 }
                 std::task::Poll::Pending
@@ -158,13 +228,29 @@ pub async fn turn_parked<F: std::future::Future>(run: Option<&Run>, wait: F) -> 
 
 struct Park {
     run: Option<Run>,
-    parked: std::sync::atomic::AtomicBool,
+    /// Whether the wait is counted as parked. The count moves under this lock: a wake on another thread that meets the park
+    /// ends the wait after it is counted, never before.
+    parked: Mutex<bool>,
     waker: Mutex<Option<std::task::Waker>>,
 }
 
 impl Park {
+    /// Counts the wait as parked; whether it was not already.
+    fn park(&self) -> bool {
+        let mut parked = self.parked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if std::mem::replace(&mut *parked, true) {
+            return false;
+        }
+        match &self.run {
+            Some(run) => run.park(),
+            None => _ = OUTSIDE.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+        }
+        true
+    }
+
     fn unpark(&self) {
-        if self.parked.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        let mut parked = self.parked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if std::mem::take(&mut *parked) {
             match &self.run {
                 Some(run) => run.unpark(),
                 None => _ = OUTSIDE.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
@@ -230,6 +316,36 @@ mod settled_tests {
         assert_eq!(unparked(), None, "the run is parked on its tool's approval");
         decide.send(()).expect("the decision");
         assert_eq!(turn.await.expect("the turn"), Some(()));
+        assert_eq!(unparked(), None);
+
+        // A run that hands part of its work to a task of its own: that task's wait parks the run, its wake ends the park, and
+        // once the run stops waiting for the task the task's waits no longer count for it.
+        let (answer, answered) = oneshot::channel::<()>();
+        let (_never, unanswered) = oneshot::channel::<()>();
+        let (stop, stopped) = oneshot::channel::<()>();
+        let (go_on, going_on) = oneshot::channel::<()>();
+        let turn = tokio::spawn(in_run(async move {
+            let (work, delegate) = delegate(async move {
+                parked(answered).await.ok();
+                parked(unanswered).await.ok();
+            });
+            let child = tokio::spawn(work);
+            stopped.await.ok();
+            drop(delegate);
+            going_on.await.ok();
+            child.abort();
+        }));
+        let_tasks_run().await;
+        assert_eq!(unparked(), None, "the run is parked on its delegate's wait");
+        answer.send(()).expect("the delegate's first wait");
+        assert_eq!(unparked(), Some((1, 1)), "the wake ends the park where it happens");
+        let_tasks_run().await;
+        assert_eq!(unparked(), None, "the delegate waits again");
+        stop.send(()).expect("the run");
+        let_tasks_run().await;
+        assert_eq!(unparked(), Some((1, 1)), "a retired delegate's wait does not park the run");
+        go_on.send(()).expect("the run");
+        turn.await.expect("the turn");
         assert_eq!(unparked(), None);
         outside.abort();
     }

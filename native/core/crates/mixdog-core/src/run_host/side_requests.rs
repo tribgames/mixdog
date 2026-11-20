@@ -13,6 +13,7 @@ use mixdog_agent::env::{Clock, SendTap, SendTicket};
 use mixdog_agent::fork::{forked_request, prompt_tokens, send_forked};
 use mixdog_agent::response::ModelResponse;
 use mixdog_agent::kept_messages;
+use mixdog_agent::one_shot::on_own_task;
 use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter, Usage};
@@ -320,9 +321,18 @@ impl RequestFork {
         // The ledger source, and a transport scope of its own: no pooled socket or response chain of the
         // main session is touched (`forkTransportScope(sessionId, 'compact')`).
         fork.options.request_kind = Some("compaction".to_owned());
-        let scope = ForkScope::new(&self.thread, "compact", &self.provider);
-        scope.apply(&mut fork);
-        match send_forked(&self.provider, fork, &CancellationToken::new()).await {
+        // On a task of its own, off the stack of the run whose compaction asks for it; the caller's drop ends it. The scope is
+        // the task's: released only once the send is gone, whether it ended, panicked or was aborted.
+        let (thread, provider) = (self.thread.clone(), self.provider.clone());
+        let sent = on_own_task("compact.fork", async move {
+            let scope = ForkScope::new(&thread, "compact", &provider);
+            scope.apply(&mut fork);
+            let sent = send_forked(&provider, fork, &CancellationToken::new()).await;
+            drop(scope);
+            sent
+        })
+        .await;
+        match sent.unwrap_or(Ok(None)) {
             Ok(Some(response)) => {
                 let reported = response.usage != Usage::default();
                 Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), stop: response.stop.clone(), usage: reported.then_some(response.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })

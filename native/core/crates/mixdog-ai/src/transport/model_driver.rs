@@ -41,6 +41,11 @@ tokio::task_local! {
     static CONNECTING: AttemptHandle;
 }
 
+/// `work` under the attempt the task that calls this is connecting ([`crate::task_context::carry`]).
+pub(crate) fn carry<F: Future>(work: F) -> impl Future<Output = F::Output> {
+    mixdog_rt::within_local(&CONNECTING, CONNECTING.try_with(Clone::clone).ok(), work)
+}
+
 /// The transport has the connection the request in flight goes out on: the attempt being sent on this task stops connecting
 /// and the provider's silence is timed from now. Outside a driven send it does nothing.
 pub(crate) fn connected() {

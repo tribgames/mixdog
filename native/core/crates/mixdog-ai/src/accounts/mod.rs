@@ -19,6 +19,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub(crate) use binding::carry;
 pub use binding::has_explicit_provider_auth_binding;
 pub use binding::replace_provider_auth_bindings;
 pub use binding::with_provider_account;

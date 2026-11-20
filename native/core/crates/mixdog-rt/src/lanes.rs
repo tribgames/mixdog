@@ -200,6 +200,11 @@ pub async fn in_tool_call<F: Future>(name: &'static str, fut: F) -> F::Output {
     TOOL_CALL.scope(name, fut).await
 }
 
+/// `work` under the tool call of the task that calls this ([`crate::carry_task_locals`]).
+pub(crate) fn carry<F: Future>(work: F) -> impl Future<Output = F::Output> {
+    crate::within_local(&TOOL_CALL, TOOL_CALL.try_with(|tool| *tool).ok(), work)
+}
+
 /// The process-lifetime copy of a tool name, made once per distinct name (the tool catalog is
 /// small), so tagging a call costs a lookup and no allocation.
 pub fn tool_label(name: &str) -> &'static str {

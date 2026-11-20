@@ -3772,6 +3772,60 @@ async fn a_cancelled_one_shot_call_is_an_aborted_summary_failure() {
     assert!(matches!(task.await.unwrap(), Err(SummaryFailure::Aborted)));
 }
 
+/// A summary call runs on a task of its own, never polled inside the run that asked for it: stacked on a lead's compaction, its
+/// second send path overflowed a dev build's 2 MiB worker stack. A caller that stops waiting ends it, leaving nothing running.
+#[tokio::test]
+async fn a_summary_call_runs_on_a_task_of_its_own_and_ends_with_its_caller() {
+    use mixdog_agent::compact::summary_run::SummaryCall;
+    use mixdog_agent::compact::summary_run::SummarySender;
+    use mixdog_agent::one_shot::CallShape;
+    use mixdog_agent::one_shot::OneShot;
+    /// The task each retry wait of the call runs on.
+    #[derive(Default)]
+    struct TaskOfWait(Mutex<Vec<Option<tokio::task::Id>>>);
+    #[async_trait]
+    impl RetryWait for TaskOfWait {
+        async fn wait(&self, _delay: Duration) {
+            self.0.lock().unwrap().push(tokio::task::try_id());
+        }
+    }
+    let mut transient = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+    transient.message = "blip".into();
+    let h = Harness::new(vec![Attempt::Reject(transient), turn(vec![text("par"), Step::Hang])]);
+    let waits = Arc::new(TaskOfWait::default());
+    let mut env = h.run_env();
+    env.waiter = waits.clone();
+    let tool_env = h.tool_env();
+    let before = Arc::strong_count(&h.provider);
+    let one = OneShot::new(&env, tool_env, h.provider.clone(), h.cancel.clone());
+    let call = SummaryCall { model: "m".into(), max_output_tokens: None, fast: false, shape: CallShape::compaction() };
+    let caller = tokio::spawn(async move { one.send("sys", "prompt", &call).await });
+    let caller_task = caller.id();
+    let reached = tokio::time::timeout(Duration::from_secs(5), async {
+        while h.provider.requests().len() < 2 && !caller.is_finished() {
+            tokio::task::yield_now().await;
+        }
+    });
+    assert!(reached.await.is_ok(), "no second request within 5 s");
+    if caller.is_finished() {
+        match caller.await {
+            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            ended => panic!("the call ended before its second request: {:?}", ended.map(|sent| sent.map(|response| response.text))),
+        }
+    }
+    let waited_on = waits.0.lock().unwrap().clone();
+    assert_eq!(waited_on.len(), 1, "one retry wait");
+    assert!(waited_on[0].is_some_and(|task| task != caller_task), "the call ran on its caller's task {caller_task}: {waited_on:?}");
+    caller.abort();
+    assert!(caller.await.is_err_and(|error| error.is_cancelled()));
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        while Arc::strong_count(&h.provider) > before {
+            tokio::task::yield_now().await;
+        }
+    });
+    assert!(ended.await.is_ok(), "the call still holds its provider after its caller was dropped");
+}
+
 fn overloaded() -> Attempt {
     let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::NotSent);
     error.status = Some(529);

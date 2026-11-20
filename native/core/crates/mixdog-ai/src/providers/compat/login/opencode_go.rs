@@ -278,6 +278,12 @@ tokio::task_local! {
     pub(crate) static GATEWAY_CREDENTIAL: std::sync::Arc<OpenCodeGoCredentials>;
 }
 
+/// `work` under the gateway's auth ownership and credential of the task that calls this ([`crate::task_context::carry`]).
+pub(crate) fn carry<F: std::future::Future>(work: F) -> impl std::future::Future<Output = F::Output> {
+    let work = mixdog_rt::within_local(&GATEWAY_AUTH_RECOVERY, GATEWAY_AUTH_RECOVERY.try_with(|_| ()).ok(), work);
+    mixdog_rt::within_local(&GATEWAY_CREDENTIAL, GATEWAY_CREDENTIAL.try_with(std::sync::Arc::clone).ok(), work)
+}
+
 pub(crate) fn gateway_owns_auth_recovery() -> bool {
     GATEWAY_AUTH_RECOVERY.try_with(|_| ()).is_ok()
 }

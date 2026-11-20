@@ -46,6 +46,11 @@ tokio::task_local! {
     static ATTEMPT_USAGE: Arc<Mutex<Journal>>;
 }
 
+/// `work` under the attempt journal of the task that calls this ([`crate::task_context::carry`]).
+pub(crate) fn carry<F: std::future::Future>(work: F) -> impl std::future::Future<Output = F::Output> {
+    mixdog_rt::within_local(&ATTEMPT_USAGE, ATTEMPT_USAGE.try_with(Arc::clone).ok(), work)
+}
+
 #[derive(Default)]
 struct Report {
     observed: Option<(Usage, Option<String>)>,

@@ -109,6 +109,12 @@ pub async fn provider_work<F: std::future::Future>(identity: String, phase: &'st
     PROVIDER.scope((identity, std::cell::Cell::new(phase)), work).await
 }
 
+/// `work` under the provider work the task that calls this traces, at its current phase ([`crate::carry_task_locals`]).
+pub(crate) fn carry<F: std::future::Future>(work: F) -> impl std::future::Future<Output = F::Output> {
+    let provider = PROVIDER.try_with(|(identity, phase)| (identity.clone(), std::cell::Cell::new(phase.get()))).ok();
+    crate::within_local(&PROVIDER, provider, work)
+}
+
 pub fn provider_boundary(submission: u64, attempt: u64, phase: &'static str) {
     let _ = PROVIDER.try_with(|(identity, current)| {
         current.set(phase);

@@ -31,6 +31,7 @@ pub mod random;
 pub mod registry;
 pub mod retry;
 pub mod service;
+pub mod task_context;
 pub mod transport;
 pub mod wall;
 pub mod warmer;

@@ -748,9 +748,9 @@ fn cancelled_text(signal: &crate::cancel::Cancel) -> String {
     format!("Error: {}", signal.reason())
 }
 
-/// Aborts the spawned tool task when the dispatcher stops waiting for it, whether it ended the
-/// wait (cancel, deadline) or was itself dropped by the batch.
-struct AbortOnDrop(tokio::task::AbortHandle);
+/// Aborts a spawned task when its waiter stops waiting for it: a tool task's dispatcher, whether it
+/// ended the wait (cancel, deadline) or was itself dropped by the batch, or an [`on_own_task`](crate::one_shot::on_own_task) caller.
+pub(crate) struct AbortOnDrop(pub(crate) tokio::task::AbortHandle);
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
