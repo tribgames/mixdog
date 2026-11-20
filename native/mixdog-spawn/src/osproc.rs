@@ -139,7 +139,7 @@ mod sys {
                 procs.push(proc);
             }
         }
-        Ok(Table::new(procs))
+        Ok(Table::with_unreadable(procs, Vec::new()))
     }
 
     fn pidfd_open(pid: u32) -> Result<OwnedFd, i32> {

@@ -101,10 +101,6 @@ pub(crate) struct Table {
 }
 
 impl Table {
-    pub(crate) fn new(procs: Vec<Proc>) -> Self {
-        Self::with_unreadable(procs, Vec::new())
-    }
-
     pub(crate) fn with_unreadable(procs: Vec<Proc>, unreadable: Vec<u32>) -> Self {
         let mut at = HashMap::new();
         let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -671,7 +667,7 @@ mod tests {
             pgid: row["pgid"].as_u64().unwrap() as u32,
             token: row["token"].as_str().unwrap().to_owned(),
         });
-        Ok(Table::new(procs.collect()))
+        Ok(Table::with_unreadable(procs.collect(), Vec::new()))
     }
 
     /// Answers every table read from the script, the last answer again once it runs out (as Node's script did).
